@@ -2,7 +2,6 @@ import sys
 _module = sys.modules[__name__]
 del sys
 netdissect = _module
-__main__ = _module
 aceoptimize = _module
 aceplotablate = _module
 acesummarize = _module
@@ -58,23 +57,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+import numbers
 
 
 import numpy
 
 
-import torch
+from torchvision import transforms
 
 
 from torch.utils.data import TensorDataset
@@ -86,22 +92,25 @@ from scipy.ndimage.morphology import binary_dilation
 import re
 
 
+from collections import OrderedDict
+
+
+from torchvision.datasets.folder import default_loader
+
+
+from scipy import ndimage
+
+
 import types
 
 
 import torchvision
 
 
-from collections import OrderedDict
-
-
 from collections import defaultdict
 
 
-import numbers
-
-
-from torchvision import transforms
+import torch.utils.data as data
 
 
 import itertools
@@ -116,10 +125,31 @@ import math
 import random
 
 
+from torch.utils.data.sampler import Sampler
+
+
+from torchvision.transforms.functional import to_tensor
+
+
+from torchvision.transforms.functional import normalize
+
+
 from torch.utils.data import DataLoader
 
 
+from collections.abc import MutableMapping
+
+
+from collections.abc import Mapping
+
+
+from scipy.io import savemat
+
+
 import torch.nn.functional as F
+
+
+import torch.autograd as ag
 
 
 def make_matching_tensor(valuedict, name, data):
@@ -135,7 +165,7 @@ def make_matching_tensor(valuedict, name, data):
         valuedict[name] = v
     if not v.device == data.device or not v.dtype == data.dtype:
         assert not v.requires_grad, '%s wrong device or type' % name
-        v = v.to(device=data.device, dtype=data.dtype)
+        v = v
         valuedict[name] = v
     if len(v.shape) < len(data.shape):
         assert not v.requires_grad, '%s wrong dimensions' % name
@@ -344,6 +374,87 @@ class InstrumentedModel(torch.nn.Module):
         assert len(self._old_forward) == 0
 
 
+class PixelNormLayer(nn.Module):
+
+    def __init__(self):
+        super(PixelNormLayer, self).__init__()
+
+    def forward(self, x):
+        return x / torch.sqrt(torch.mean(x ** 2, dim=1, keepdim=True) + 1e-08)
+
+
+class WScaleLayer(nn.Module):
+
+    def __init__(self, size, fan_in, gain=numpy.sqrt(2)):
+        super(WScaleLayer, self).__init__()
+        self.scale = gain / numpy.sqrt(fan_in)
+        self.b = nn.Parameter(torch.randn(size))
+        self.size = size
+
+    def forward(self, x):
+        x_size = x.size()
+        x = x * self.scale + self.b.view(1, -1, 1, 1).expand(x_size[0], self.size, x_size[2], x_size[3])
+        return x
+
+
+class NormConvBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, padding):
+        super(NormConvBlock, self).__init__()
+        self.norm = PixelNormLayer()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1, padding, bias=False)
+        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.sqrt(2) / kernel_size)
+        self.relu = nn.LeakyReLU(inplace=True, negative_slope=0.2)
+
+    def forward(self, x):
+        x = self.norm(x)
+        x = self.conv(x)
+        x = self.relu(self.wscale(x))
+        return x
+
+
+class DoubleResolutionLayer(nn.Module):
+
+    def forward(self, x):
+        x = nn.functional.interpolate(x, scale_factor=2, mode='nearest')
+        return x
+
+
+class NormUpscaleConvBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, padding):
+        super(NormUpscaleConvBlock, self).__init__()
+        self.norm = PixelNormLayer()
+        self.up = DoubleResolutionLayer()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1, padding, bias=False)
+        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.sqrt(2) / kernel_size)
+        self.relu = nn.LeakyReLU(inplace=True, negative_slope=0.2)
+
+    def forward(self, x):
+        x = self.norm(x)
+        x = self.up(x)
+        x = self.conv(x)
+        x = self.relu(self.wscale(x))
+        return x
+
+
+class OutputConvBlock(nn.Module):
+
+    def __init__(self, in_channels, tanh=False):
+        super().__init__()
+        self.norm = PixelNormLayer()
+        self.conv = nn.Conv2d(in_channels, 3, kernel_size=1, padding=0, bias=False)
+        self.wscale = WScaleLayer(3, in_channels, gain=1)
+        self.clamp = nn.Hardtanh() if tanh else lambda x: x
+
+    def forward(self, x):
+        x = self.norm(x)
+        x = self.conv(x)
+        x = self.wscale(x)
+        x = self.clamp(x)
+        return x
+
+
 class ProgressiveGenerator(nn.Sequential):
 
     def __init__(self, resolution=None, sizes=None, modify_sequence=None, output_tanh=False):
@@ -394,99 +505,106 @@ class ProgressiveGenerator(nn.Sequential):
         return super().forward(x)
 
 
-class PixelNormLayer(nn.Module):
-
-    def __init__(self):
-        super(PixelNormLayer, self).__init__()
-
-    def forward(self, x):
-        return x / torch.sqrt(torch.mean(x ** 2, dim=1, keepdim=True) + 1e-08)
-
-
-class DoubleResolutionLayer(nn.Module):
-
-    def forward(self, x):
-        x = nn.functional.interpolate(x, scale_factor=2, mode='nearest')
-        return x
-
-
-class WScaleLayer(nn.Module):
-
-    def __init__(self, size, fan_in, gain=numpy.sqrt(2)):
-        super(WScaleLayer, self).__init__()
-        self.scale = gain / numpy.sqrt(fan_in)
-        self.b = nn.Parameter(torch.randn(size))
-        self.size = size
-
-    def forward(self, x):
-        x_size = x.size()
-        x = x * self.scale + self.b.view(1, -1, 1, 1).expand(x_size[0], self.size, x_size[2], x_size[3])
-        return x
-
-
-class NormConvBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding):
-        super(NormConvBlock, self).__init__()
-        self.norm = PixelNormLayer()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1, padding, bias=False)
-        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.sqrt(2) / kernel_size)
-        self.relu = nn.LeakyReLU(inplace=True, negative_slope=0.2)
-
-    def forward(self, x):
-        x = self.norm(x)
-        x = self.conv(x)
-        x = self.relu(self.wscale(x))
-        return x
-
-
-class NormUpscaleConvBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding):
-        super(NormUpscaleConvBlock, self).__init__()
-        self.norm = PixelNormLayer()
-        self.up = DoubleResolutionLayer()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1, padding, bias=False)
-        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.sqrt(2) / kernel_size)
-        self.relu = nn.LeakyReLU(inplace=True, negative_slope=0.2)
-
-    def forward(self, x):
-        x = self.norm(x)
-        x = self.up(x)
-        x = self.conv(x)
-        x = self.relu(self.wscale(x))
-        return x
-
-
-class OutputConvBlock(nn.Module):
-
-    def __init__(self, in_channels, tanh=False):
-        super().__init__()
-        self.norm = PixelNormLayer()
-        self.conv = nn.Conv2d(in_channels, 3, kernel_size=1, padding=0, bias=False)
-        self.wscale = WScaleLayer(3, in_channels, gain=1)
-        self.clamp = nn.Hardtanh() if tanh else lambda x: x
-
-    def forward(self, x):
-        x = self.norm(x)
-        x = self.conv(x)
-        x = self.wscale(x)
-        x = self.clamp(x)
-        return x
-
-
 class SegmentationModuleBase(nn.Module):
 
     def __init__(self):
         super(SegmentationModuleBase, self).__init__()
 
-    def pixel_acc(self, pred, label):
+    @staticmethod
+    def pixel_acc(pred, label, ignore_index=-1):
         _, preds = torch.max(pred, dim=1)
-        valid = (label >= 0).long()
+        valid = (label != ignore_index).long()
         acc_sum = torch.sum(valid * (preds == label).long())
         pixel_sum = torch.sum(valid)
         acc = acc_sum.float() / (pixel_sum.float() + 1e-10)
         return acc
+
+    @staticmethod
+    def part_pixel_acc(pred_part, gt_seg_part, gt_seg_object, object_label, valid):
+        mask_object = gt_seg_object == object_label
+        _, pred = torch.max(pred_part, dim=1)
+        acc_sum = mask_object * (pred == gt_seg_part)
+        acc_sum = torch.sum(acc_sum.view(acc_sum.size(0), -1), dim=1)
+        acc_sum = torch.sum(acc_sum * valid)
+        pixel_sum = torch.sum(mask_object.view(mask_object.size(0), -1), dim=1)
+        pixel_sum = torch.sum(pixel_sum * valid)
+        return acc_sum, pixel_sum
+
+    @staticmethod
+    def part_loss(pred_part, gt_seg_part, gt_seg_object, object_label, valid):
+        mask_object = gt_seg_object == object_label
+        loss = F.nll_loss(pred_part, gt_seg_part * mask_object.long(), reduction='none')
+        loss = loss * mask_object.float()
+        loss = torch.sum(loss.view(loss.size(0), -1), dim=1)
+        nr_pixel = torch.sum(mask_object.view(mask_object.shape[0], -1), dim=1)
+        sum_pixel = (nr_pixel * valid).sum()
+        loss = (loss * valid.float()).sum() / torch.clamp(sum_pixel, 1).float()
+        return loss
+
+
+class SegmentationModule(SegmentationModuleBase):
+
+    def __init__(self, net_enc, net_dec, labeldata, loss_scale=None):
+        super(SegmentationModule, self).__init__()
+        self.encoder = net_enc
+        self.decoder = net_dec
+        self.crit_dict = nn.ModuleDict()
+        if loss_scale is None:
+            self.loss_scale = {'object': 1, 'part': 0.5, 'scene': 0.25, 'material': 1}
+        else:
+            self.loss_scale = loss_scale
+        self.crit_dict['object'] = nn.NLLLoss(ignore_index=0)
+        self.crit_dict['material'] = nn.NLLLoss(ignore_index=0)
+        self.crit_dict['scene'] = nn.NLLLoss(ignore_index=-1)
+        self.labeldata = labeldata
+        object_to_num = {k: v for v, k in enumerate(labeldata['object'])}
+        part_to_num = {k: v for v, k in enumerate(labeldata['part'])}
+        self.object_part = {object_to_num[k]: [part_to_num[p] for p in v] for k, v in labeldata['object_part'].items()}
+        self.object_with_part = sorted(self.object_part.keys())
+        self.decoder.object_part = self.object_part
+        self.decoder.object_with_part = self.object_with_part
+
+    def forward(self, feed_dict, *, seg_size=None):
+        if seg_size is None:
+            if feed_dict['source_idx'] == 0:
+                output_switch = {'object': True, 'part': True, 'scene': True, 'material': False}
+            elif feed_dict['source_idx'] == 1:
+                output_switch = {'object': False, 'part': False, 'scene': False, 'material': True}
+            else:
+                raise ValueError
+            pred = self.decoder(self.encoder(feed_dict['img'], return_feature_maps=True), output_switch=output_switch)
+            loss_dict = {}
+            if pred['object'] is not None:
+                loss_dict['object'] = self.crit_dict['object'](pred['object'], feed_dict['seg_object'])
+            if pred['part'] is not None:
+                part_loss = 0
+                for idx_part, object_label in enumerate(self.object_with_part):
+                    part_loss += self.part_loss(pred['part'][idx_part], feed_dict['seg_part'], feed_dict['seg_object'], object_label, feed_dict['valid_part'][:, (idx_part)])
+                loss_dict['part'] = part_loss
+            if pred['scene'] is not None:
+                loss_dict['scene'] = self.crit_dict['scene'](pred['scene'], feed_dict['scene_label'])
+            if pred['material'] is not None:
+                loss_dict['material'] = self.crit_dict['material'](pred['material'], feed_dict['seg_material'])
+            loss_dict['total'] = sum([(loss_dict[k] * self.loss_scale[k]) for k in loss_dict.keys()])
+            metric_dict = {}
+            if pred['object'] is not None:
+                metric_dict['object'] = self.pixel_acc(pred['object'], feed_dict['seg_object'], ignore_index=0)
+            if pred['material'] is not None:
+                metric_dict['material'] = self.pixel_acc(pred['material'], feed_dict['seg_material'], ignore_index=0)
+            if pred['part'] is not None:
+                acc_sum, pixel_sum = 0, 0
+                for idx_part, object_label in enumerate(self.object_with_part):
+                    acc, pixel = self.part_pixel_acc(pred['part'][idx_part], feed_dict['seg_part'], feed_dict['seg_object'], object_label, feed_dict['valid_part'][:, (idx_part)])
+                    acc_sum += acc
+                    pixel_sum += pixel
+                metric_dict['part'] = acc_sum.float() / (pixel_sum.float() + 1e-10)
+            if pred['scene'] is not None:
+                metric_dict['scene'] = self.pixel_acc(pred['scene'], feed_dict['scene_label'], ignore_index=-1)
+            return {'metric': metric_dict, 'loss': loss_dict}
+        else:
+            output_switch = {'object': True, 'part': True, 'scene': True, 'material': True}
+            pred = self.decoder(self.encoder(feed_dict['img'], return_feature_maps=True), output_switch=output_switch, seg_size=seg_size)
+            return pred
 
 
 class Resnet(nn.Module):
@@ -710,337 +828,6 @@ class PPMBilinearDeepsup(nn.Module):
 
 class UPerNet(nn.Module):
 
-    def __init__(self, num_class=150, fc_dim=4096, inference=False, use_softmax=False, pool_scales=(1, 2, 3, 6), fpn_inplanes=(256, 512, 1024, 2048), fpn_dim=256):
-        super(UPerNet, self).__init__()
-        self.use_softmax = use_softmax
-        self.inference = inference
-        self.ppm_pooling = []
-        self.ppm_conv = []
-        for scale in pool_scales:
-            self.ppm_pooling.append(nn.AdaptiveAvgPool2d(scale))
-            self.ppm_conv.append(nn.Sequential(nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
-        self.ppm_pooling = nn.ModuleList(self.ppm_pooling)
-        self.ppm_conv = nn.ModuleList(self.ppm_conv)
-        self.ppm_last_conv = conv3x3_bn_relu(fc_dim + len(pool_scales) * 512, fpn_dim, 1)
-        self.fpn_in = []
-        for fpn_inplane in fpn_inplanes[:-1]:
-            self.fpn_in.append(nn.Sequential(nn.Conv2d(fpn_inplane, fpn_dim, kernel_size=1, bias=False), SynchronizedBatchNorm2d(fpn_dim), nn.ReLU(inplace=True)))
-        self.fpn_in = nn.ModuleList(self.fpn_in)
-        self.fpn_out = []
-        for i in range(len(fpn_inplanes) - 1):
-            self.fpn_out.append(nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1)))
-        self.fpn_out = nn.ModuleList(self.fpn_out)
-        self.conv_last = nn.Sequential(conv3x3_bn_relu(len(fpn_inplanes) * fpn_dim, fpn_dim, 1), nn.Conv2d(fpn_dim, num_class, kernel_size=1))
-
-    def forward(self, conv_out, segSize=None):
-        conv5 = conv_out[-1]
-        input_size = conv5.size()
-        ppm_out = [conv5]
-        for pool_scale, pool_conv in zip(self.ppm_pooling, self.ppm_conv):
-            ppm_out.append(pool_conv(nn.functional.interploate(pool_scale(conv5), (input_size[2], input_size[3]), mode='bilinear', align_corners=False)))
-        ppm_out = torch.cat(ppm_out, 1)
-        f = self.ppm_last_conv(ppm_out)
-        fpn_feature_list = [f]
-        for i in reversed(range(len(conv_out) - 1)):
-            conv_x = conv_out[i]
-            conv_x = self.fpn_in[i](conv_x)
-            f = nn.functional.interpolate(f, size=conv_x.size()[2:], mode='bilinear', align_corners=False)
-            f = conv_x + f
-            fpn_feature_list.append(self.fpn_out[i](f))
-        fpn_feature_list.reverse()
-        output_size = fpn_feature_list[0].size()[2:]
-        fusion_list = [fpn_feature_list[0]]
-        for i in range(1, len(fpn_feature_list)):
-            fusion_list.append(nn.functional.interpolate(fpn_feature_list[i], output_size, mode='bilinear', align_corners=False))
-        fusion_out = torch.cat(fusion_list, 1)
-        x = self.conv_last(fusion_out)
-        if self.inference or self.use_softmax:
-            x = nn.functional.interpolate(x, size=segSize, mode='bilinear', align_corners=False)
-            if self.use_softmax:
-                x = nn.functional.softmax(x, dim=1)
-            return x
-        x = nn.functional.log_softmax(x, dim=1)
-        return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = SynchronizedBatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = SynchronizedBatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = SynchronizedBatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = SynchronizedBatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = SynchronizedBatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes=1000):
-        self.inplanes = 128
-        super(ResNet, self).__init__()
-        self.conv1 = conv3x3(3, 64, stride=2)
-        self.bn1 = SynchronizedBatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(64, 64)
-        self.bn2 = SynchronizedBatchNorm2d(64)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv3 = conv3x3(64, 128)
-        self.bn3 = SynchronizedBatchNorm2d(128)
-        self.relu3 = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), SynchronizedBatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-
-class GroupBottleneck(nn.Module):
-    expansion = 2
-
-    def __init__(self, inplanes, planes, stride=1, groups=1, downsample=None):
-        super(GroupBottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = SynchronizedBatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, groups=groups, bias=False)
-        self.bn2 = SynchronizedBatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 2, kernel_size=1, bias=False)
-        self.bn3 = SynchronizedBatchNorm2d(planes * 2)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNeXt(nn.Module):
-
-    def __init__(self, block, layers, groups=32, num_classes=1000):
-        self.inplanes = 128
-        super(ResNeXt, self).__init__()
-        self.conv1 = conv3x3(3, 64, stride=2)
-        self.bn1 = SynchronizedBatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(64, 64)
-        self.bn2 = SynchronizedBatchNorm2d(64)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv3 = conv3x3(64, 128)
-        self.bn3 = SynchronizedBatchNorm2d(128)
-        self.relu3 = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 128, layers[0], groups=groups)
-        self.layer2 = self._make_layer(block, 256, layers[1], stride=2, groups=groups)
-        self.layer3 = self._make_layer(block, 512, layers[2], stride=2, groups=groups)
-        self.layer4 = self._make_layer(block, 1024, layers[3], stride=2, groups=groups)
-        self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.fc = nn.Linear(1024 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels // m.groups
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1, groups=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), SynchronizedBatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, groups, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=groups))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-
-class SegmentationModuleBase(nn.Module):
-
-    def __init__(self):
-        super(SegmentationModuleBase, self).__init__()
-
-    @staticmethod
-    def pixel_acc(pred, label, ignore_index=-1):
-        _, preds = torch.max(pred, dim=1)
-        valid = (label != ignore_index).long()
-        acc_sum = torch.sum(valid * (preds == label).long())
-        pixel_sum = torch.sum(valid)
-        acc = acc_sum.float() / (pixel_sum.float() + 1e-10)
-        return acc
-
-    @staticmethod
-    def part_pixel_acc(pred_part, gt_seg_part, gt_seg_object, object_label, valid):
-        mask_object = gt_seg_object == object_label
-        _, pred = torch.max(pred_part, dim=1)
-        acc_sum = mask_object * (pred == gt_seg_part)
-        acc_sum = torch.sum(acc_sum.view(acc_sum.size(0), -1), dim=1)
-        acc_sum = torch.sum(acc_sum * valid)
-        pixel_sum = torch.sum(mask_object.view(mask_object.size(0), -1), dim=1)
-        pixel_sum = torch.sum(pixel_sum * valid)
-        return acc_sum, pixel_sum
-
-    @staticmethod
-    def part_loss(pred_part, gt_seg_part, gt_seg_object, object_label, valid):
-        mask_object = gt_seg_object == object_label
-        loss = F.nll_loss(pred_part, gt_seg_part * mask_object.long(), reduction='none')
-        loss = loss * mask_object.float()
-        loss = torch.sum(loss.view(loss.size(0), -1), dim=1)
-        nr_pixel = torch.sum(mask_object.view(mask_object.shape[0], -1), dim=1)
-        sum_pixel = (nr_pixel * valid).sum()
-        loss = (loss * valid.float()).sum() / torch.clamp(sum_pixel, 1).float()
-        return loss
-
-
-class Resnet(nn.Module):
-
-    def __init__(self, orig_resnet):
-        super(Resnet, self).__init__()
-        self.conv1 = orig_resnet.conv1
-        self.bn1 = orig_resnet.bn1
-        self.relu1 = orig_resnet.relu1
-        self.conv2 = orig_resnet.conv2
-        self.bn2 = orig_resnet.bn2
-        self.relu2 = orig_resnet.relu2
-        self.conv3 = orig_resnet.conv3
-        self.bn3 = orig_resnet.bn3
-        self.relu3 = orig_resnet.relu3
-        self.maxpool = orig_resnet.maxpool
-        self.layer1 = orig_resnet.layer1
-        self.layer2 = orig_resnet.layer2
-        self.layer3 = orig_resnet.layer3
-        self.layer4 = orig_resnet.layer4
-
-    def forward(self, x, return_feature_maps=False):
-        conv_out = []
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        conv_out.append(x)
-        x = self.layer2(x)
-        conv_out.append(x)
-        x = self.layer3(x)
-        conv_out.append(x)
-        x = self.layer4(x)
-        conv_out.append(x)
-        if return_feature_maps:
-            return conv_out
-        return [x]
-
-
-class UPerNet(nn.Module):
-
     def __init__(self, nr_classes, fc_dim=4096, use_softmax=False, pool_scales=(1, 2, 3, 6), fpn_inplanes=(256, 512, 1024, 2048), fpn_dim=256):
         super(UPerNet, self).__init__()
         self.use_softmax = use_softmax
@@ -1146,18 +933,6 @@ class UPerNet(nn.Module):
         return output_dict
 
 
-class PrRoIPool2D(nn.Module):
-
-    def __init__(self, pooled_height, pooled_width, spatial_scale):
-        super().__init__()
-        self.pooled_height = int(pooled_height)
-        self.pooled_width = int(pooled_width)
-        self.spatial_scale = float(spatial_scale)
-
-    def forward(self, features, rois):
-        return prroi_pool2d(features, rois, self.pooled_height, self.pooled_width, self.spatial_scale)
-
-
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -1357,6 +1132,53 @@ class ResNeXt(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
+
+
+class PrRoIPool2DFunction(ag.Function):
+
+    @staticmethod
+    def forward(ctx, features, rois, pooled_height, pooled_width, spatial_scale):
+        assert 'FloatTensor' in features.type() and 'FloatTensor' in rois.type(), 'Precise RoI Pooling only takes float input, got {} for features and {} for rois.'.format(features.type(), rois.type())
+        pooled_height = int(pooled_height)
+        pooled_width = int(pooled_width)
+        spatial_scale = float(spatial_scale)
+        features = features.contiguous()
+        rois = rois.contiguous()
+        params = pooled_height, pooled_width, spatial_scale
+        if features.is_cuda:
+            output = _prroi_pooling.prroi_pooling_forward_cuda(features, rois, *params)
+            ctx.params = params
+            ctx.save_for_backward(features, rois, output)
+        else:
+            raise NotImplementedError('Precise RoI Pooling only supports GPU (cuda) implememtations.')
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        features, rois, output = ctx.saved_tensors
+        grad_input = grad_coor = None
+        if features.requires_grad:
+            grad_output = grad_output.contiguous()
+            grad_input = _prroi_pooling.prroi_pooling_backward_cuda(features, rois, output, grad_output, *ctx.params)
+        if rois.requires_grad:
+            grad_output = grad_output.contiguous()
+            grad_coor = _prroi_pooling.prroi_pooling_coor_backward_cuda(features, rois, output, grad_output, *ctx.params)
+        return grad_input, grad_coor, None, None, None
+
+
+prroi_pool2d = PrRoIPool2DFunction.apply
+
+
+class PrRoIPool2D(nn.Module):
+
+    def __init__(self, pooled_height, pooled_width, spatial_scale):
+        super().__init__()
+        self.pooled_height = int(pooled_height)
+        self.pooled_width = int(pooled_width)
+        self.spatial_scale = float(spatial_scale)
+
+    def forward(self, features, rois):
+        return prroi_pool2d(features, rois, self.pooled_height, self.pooled_width, self.spatial_scale)
 
 
 import torch

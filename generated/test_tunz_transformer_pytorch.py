@@ -16,23 +16,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import time
-
-
 import torch
+
+
+from torchtext.data import Iterator
+
+
+from collections import Counter
+
+
+from collections import OrderedDict
+
+
+from torchtext import data
+
+
+import re
+
+
+import time
 
 
 import torch.nn.functional as F
@@ -42,6 +58,9 @@ import math
 
 
 import torch.nn as nn
+
+
+import torch.optim as optim
 
 
 def initialize_weight(x):
@@ -83,14 +102,35 @@ class MultiHeadAttention(nn.Module):
         q = q.transpose(1, 2)
         v = v.transpose(1, 2)
         k = k.transpose(1, 2).transpose(2, 3)
+        q.mul_(self.scale)
         x = torch.matmul(q, k)
-        x = MaskedSoftmax.apply(x, mask, self.scale)
+        x.masked_fill_(mask.unsqueeze(1), -1000000000.0)
+        x = torch.softmax(x, dim=3)
         x = self.att_dropout(x)
         x = x.matmul(v)
         x = x.transpose(1, 2).contiguous()
         x = x.view(batch_size, -1, self.head_size * d_v)
         x = self.output_layer(x)
         assert x.size() == orig_q_size
+        return x
+
+
+class FeedForwardNetwork(nn.Module):
+
+    def __init__(self, hidden_size, filter_size, dropout_rate):
+        super(FeedForwardNetwork, self).__init__()
+        self.layer1 = nn.Linear(hidden_size, filter_size)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout_rate)
+        self.layer2 = nn.Linear(filter_size, hidden_size)
+        initialize_weight(self.layer1)
+        initialize_weight(self.layer2)
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+        x = self.layer2(x)
         return x
 
 
@@ -253,160 +293,6 @@ class FastTransformer(nn.Module):
         signal = F.pad(signal, (0, 0, 0, self.hidden_size % 2))
         signal = signal.view(1, max_length, self.hidden_size)
         return signal
-
-
-class FeedForwardNetwork(nn.Module):
-
-    def __init__(self, hidden_size, filter_size, dropout_rate):
-        super(FeedForwardNetwork, self).__init__()
-        self.layer1 = nn.Linear(hidden_size, filter_size)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(dropout_rate)
-        self.layer2 = nn.Linear(filter_size, hidden_size)
-        initialize_weight(self.layer1)
-        initialize_weight(self.layer2)
-
-    def forward(self, x):
-        x = self.layer1(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        x = self.layer2(x)
-        return x
-
-
-class MultiHeadAttention(nn.Module):
-
-    def __init__(self, hidden_size, dropout_rate, head_size=8):
-        super(MultiHeadAttention, self).__init__()
-        self.head_size = head_size
-        self.att_size = att_size = hidden_size // head_size
-        self.scale = att_size ** -0.5
-        self.linear_q = nn.Linear(hidden_size, head_size * att_size, bias=False)
-        self.linear_k = nn.Linear(hidden_size, head_size * att_size, bias=False)
-        self.linear_v = nn.Linear(hidden_size, head_size * att_size, bias=False)
-        initialize_weight(self.linear_q)
-        initialize_weight(self.linear_k)
-        initialize_weight(self.linear_v)
-        self.att_dropout = nn.Dropout(dropout_rate)
-        self.output_layer = nn.Linear(head_size * att_size, hidden_size, bias=False)
-        initialize_weight(self.output_layer)
-
-    def forward(self, q, k, v, mask, cache=None):
-        orig_q_size = q.size()
-        d_k = self.att_size
-        d_v = self.att_size
-        batch_size = q.size(0)
-        q = self.linear_q(q).view(batch_size, -1, self.head_size, d_k)
-        if cache is not None and 'encdec_k' in cache:
-            k, v = cache['encdec_k'], cache['encdec_v']
-        else:
-            k = self.linear_k(k).view(batch_size, -1, self.head_size, d_k)
-            v = self.linear_v(v).view(batch_size, -1, self.head_size, d_v)
-            if cache is not None:
-                cache['encdec_k'], cache['encdec_v'] = k, v
-        q = q.transpose(1, 2)
-        v = v.transpose(1, 2)
-        k = k.transpose(1, 2).transpose(2, 3)
-        q.mul_(self.scale)
-        x = torch.matmul(q, k)
-        x.masked_fill_(mask.unsqueeze(1), -1000000000.0)
-        x = torch.softmax(x, dim=3)
-        x = self.att_dropout(x)
-        x = x.matmul(v)
-        x = x.transpose(1, 2).contiguous()
-        x = x.view(batch_size, -1, self.head_size * d_v)
-        x = self.output_layer(x)
-        assert x.size() == orig_q_size
-        return x
-
-
-class EncoderLayer(nn.Module):
-
-    def __init__(self, hidden_size, filter_size, dropout_rate):
-        super(EncoderLayer, self).__init__()
-        self.self_attention_norm = nn.LayerNorm(hidden_size, eps=1e-06)
-        self.self_attention = MultiHeadAttention(hidden_size, dropout_rate)
-        self.self_attention_dropout = nn.Dropout(dropout_rate)
-        self.ffn_norm = nn.LayerNorm(hidden_size, eps=1e-06)
-        self.ffn = FeedForwardNetwork(hidden_size, filter_size, dropout_rate)
-        self.ffn_dropout = nn.Dropout(dropout_rate)
-
-    def forward(self, x, mask):
-        y = self.self_attention_norm(x)
-        y = self.self_attention(y, y, y, mask)
-        y = self.self_attention_dropout(y)
-        x = x + y
-        y = self.ffn_norm(x)
-        y = self.ffn(y)
-        y = self.ffn_dropout(y)
-        x = x + y
-        return x
-
-
-class DecoderLayer(nn.Module):
-
-    def __init__(self, hidden_size, filter_size, dropout_rate):
-        super(DecoderLayer, self).__init__()
-        self.self_attention_norm = nn.LayerNorm(hidden_size, eps=1e-06)
-        self.self_attention = MultiHeadAttention(hidden_size, dropout_rate)
-        self.self_attention_dropout = nn.Dropout(dropout_rate)
-        self.enc_dec_attention_norm = nn.LayerNorm(hidden_size, eps=1e-06)
-        self.enc_dec_attention = MultiHeadAttention(hidden_size, dropout_rate)
-        self.enc_dec_attention_dropout = nn.Dropout(dropout_rate)
-        self.ffn_norm = nn.LayerNorm(hidden_size, eps=1e-06)
-        self.ffn = FeedForwardNetwork(hidden_size, filter_size, dropout_rate)
-        self.ffn_dropout = nn.Dropout(dropout_rate)
-
-    def forward(self, x, enc_output, self_mask, i_mask, cache):
-        y = self.self_attention_norm(x)
-        y = self.self_attention(y, y, y, self_mask)
-        y = self.self_attention_dropout(y)
-        x = x + y
-        if enc_output is not None:
-            y = self.enc_dec_attention_norm(x)
-            y = self.enc_dec_attention(y, enc_output, enc_output, i_mask, cache)
-            y = self.enc_dec_attention_dropout(y)
-            x = x + y
-        y = self.ffn_norm(x)
-        y = self.ffn(y)
-        y = self.ffn_dropout(y)
-        x = x + y
-        return x
-
-
-class Encoder(nn.Module):
-
-    def __init__(self, hidden_size, filter_size, dropout_rate, n_layers):
-        super(Encoder, self).__init__()
-        encoders = [EncoderLayer(hidden_size, filter_size, dropout_rate) for _ in range(n_layers)]
-        self.layers = nn.ModuleList(encoders)
-        self.last_norm = nn.LayerNorm(hidden_size, eps=1e-06)
-
-    def forward(self, inputs, mask):
-        encoder_output = inputs
-        for enc_layer in self.layers:
-            encoder_output = enc_layer(encoder_output, mask)
-        return self.last_norm(encoder_output)
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, hidden_size, filter_size, dropout_rate, n_layers):
-        super(Decoder, self).__init__()
-        decoders = [DecoderLayer(hidden_size, filter_size, dropout_rate) for _ in range(n_layers)]
-        self.layers = nn.ModuleList(decoders)
-        self.last_norm = nn.LayerNorm(hidden_size, eps=1e-06)
-
-    def forward(self, targets, enc_output, i_mask, t_self_mask, cache):
-        decoder_output = targets
-        for i, dec_layer in enumerate(self.layers):
-            layer_cache = None
-            if cache is not None:
-                if i not in cache:
-                    cache[i] = {}
-                layer_cache = cache[i]
-            decoder_output = dec_layer(decoder_output, enc_output, t_self_mask, i_mask, layer_cache)
-        return self.last_norm(decoder_output)
 
 
 class Transformer(nn.Module):

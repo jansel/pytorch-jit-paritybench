@@ -8,6 +8,7 @@ preparer = _module
 prepare = _module
 tuner = _module
 tune = _module
+tuner = _module
 data_pack = _module
 pack = _module
 dataloader = _module
@@ -16,6 +17,7 @@ histogram = _module
 lambda_callback = _module
 ngram = _module
 padding = _module
+dataloader = _module
 dataloader_builder = _module
 dataset = _module
 dataset_builder = _module
@@ -148,29 +150,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import abc
+import copy
 
 
 import typing
 
 
-import numpy as np
+import logging
 
 
 import torch
+
+
+import numpy as np
+
+
+import math
+
+
+from torch.utils import data
+
+
+from collections import Iterable
+
+
+import abc
 
 
 import torch.nn as nn
@@ -183,9 +201,6 @@ import torch.nn.functional as F
 
 
 from torch.nn import functional as F
-
-
-import copy
 
 
 import torch.optim as optim
@@ -370,14 +385,6 @@ class RankHingeLoss(nn.Module):
         self._margin = value
 
 
-class Squeeze(nn.Module):
-    """Squeeze."""
-
-    def forward(self, x):
-        """Forward."""
-        return x.squeeze(dim=-1)
-
-
 class Attention(nn.Module):
     """
     Attention module.
@@ -409,62 +416,66 @@ class Attention(nn.Module):
         return F.softmax(x, dim=-1)
 
 
-class BidirectionalAttention(nn.Module):
-    """Computing the soft attention between two sequence."""
-
-    def __init__(self):
-        """Init."""
-        super().__init__()
-
-    def forward(self, v1, v1_mask, v2, v2_mask):
-        """Forward."""
-        similarity_matrix = v1.bmm(v2.transpose(2, 1).contiguous())
-        v2_v1_attn = F.softmax(similarity_matrix.masked_fill(v1_mask.unsqueeze(2), -1e-07), dim=1)
-        v1_v2_attn = F.softmax(similarity_matrix.masked_fill(v2_mask.unsqueeze(1), -1e-07), dim=2)
-        attended_v1 = v1_v2_attn.bmm(v2)
-        attended_v2 = v2_v1_attn.transpose(1, 2).bmm(v1)
-        attended_v1.masked_fill_(v1_mask.unsqueeze(2), 0)
-        attended_v2.masked_fill_(v2_mask.unsqueeze(2), 0)
-        return attended_v1, attended_v2
-
-
-class MatchModule(nn.Module):
+class Matching(nn.Module):
     """
-    Computing the match representation for Match LSTM.
+    Module that computes a matching matrix between samples in two tensors.
 
-    :param hidden_size: Size of hidden vectors.
-    :param dropout_rate: Dropout rate of the projection layer. Defaults to 0.
+    :param normalize: Whether to L2-normalize samples along the
+        dot product axis before taking the dot product.
+        If set to `True`, then the output of the dot product
+        is the cosine proximity between the two samples.
+    :param matching_type: the similarity function for matching
 
     Examples:
         >>> import torch
-        >>> attention = MatchModule(hidden_size=10)
-        >>> v1 = torch.randn(4, 5, 10)
-        >>> v1.shape
-        torch.Size([4, 5, 10])
-        >>> v2 = torch.randn(4, 5, 10)
-        >>> v2_mask = torch.ones(4, 5).to(dtype=torch.uint8)
-        >>> attention(v1, v2, v2_mask).shape
-        torch.Size([4, 5, 20])
-
+        >>> matching = Matching(matching_type='dot', normalize=True)
+        >>> x = torch.randn(2, 3, 2)
+        >>> y = torch.randn(2, 4, 2)
+        >>> matching(x, y).shape
+        torch.Size([2, 3, 4])
 
     """
 
-    def __init__(self, hidden_size, dropout_rate=0):
-        """Init."""
+    def __init__(self, normalize: bool=False, matching_type: str='dot'):
+        """:class:`Matching` constructor."""
         super().__init__()
-        self.v2_proj = nn.Linear(hidden_size, hidden_size)
-        self.proj = nn.Linear(hidden_size * 4, hidden_size * 2)
-        self.dropout = nn.Dropout(p=dropout_rate)
+        self._normalize = normalize
+        self._validate_matching_type(matching_type)
+        self._matching_type = matching_type
 
-    def forward(self, v1, v2, v2_mask):
-        """Computing attention vectors and projection vectors."""
-        proj_v2 = self.v2_proj(v2)
-        similarity_matrix = v1.bmm(proj_v2.transpose(2, 1).contiguous())
-        v1_v2_attn = F.softmax(similarity_matrix.masked_fill(v2_mask.unsqueeze(1).bool(), -1e-07), dim=2)
-        v2_wsum = v1_v2_attn.bmm(v2)
-        fusion = torch.cat([v1, v2_wsum, v1 - v2_wsum, v1 * v2_wsum], dim=2)
-        match = self.dropout(F.relu(self.proj(fusion)))
-        return match
+    @classmethod
+    def _validate_matching_type(cls, matching_type: str='dot'):
+        valid_matching_type = ['dot', 'exact', 'mul', 'plus', 'minus', 'concat']
+        if matching_type not in valid_matching_type:
+            raise ValueError(f'{matching_type} is not a valid matching type, {valid_matching_type} expected.')
+
+    def forward(self, x, y):
+        """Perform attention on the input."""
+        length_left = x.shape[1]
+        length_right = y.shape[1]
+        if self._matching_type == 'dot':
+            if self._normalize:
+                x = F.normalize(x, p=2, dim=-1)
+                y = F.normalize(y, p=2, dim=-1)
+            return torch.einsum('bld,brd->blr', x, y)
+        elif self._matching_type == 'exact':
+            x = x.unsqueeze(dim=2).repeat(1, 1, length_right)
+            y = y.unsqueeze(dim=1).repeat(1, length_left, 1)
+            matching_matrix = x == y
+            x = torch.sum(matching_matrix, dim=2, dtype=torch.float)
+            y = torch.sum(matching_matrix, dim=1, dtype=torch.float)
+            return x, y
+        else:
+            x = x.unsqueeze(dim=2).repeat(1, 1, length_right, 1)
+            y = y.unsqueeze(dim=1).repeat(1, length_left, 1, 1)
+            if self._matching_type == 'mul':
+                return x * y
+            elif self._matching_type == 'plus':
+                return x + y
+            elif self._matching_type == 'minus':
+                return x - y
+            elif self._matching_type == 'concat':
+                return torch.cat((x, y), dim=3)
 
 
 class BertModule(nn.Module):
@@ -491,6 +502,112 @@ class BertModule(nn.Module):
         token_type_ids = torch.cat((torch.zeros_like(x), torch.ones_like(y)), dim=-1).long()
         attention_mask = input_ids != 0
         return self.bert(input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask)
+
+
+def div_with_small_value(n, d, eps=1e-08):
+    """
+    Small values are replaced by 1e-8 to prevent it from exploding.
+
+    :param n: tensor
+    :param d: tensor
+    :return: n/d: tensor
+    """
+    d = d * (d > eps).float() + eps * (d <= eps).float()
+    return n / d
+
+
+def attention(v1, v2):
+    """
+    Attention.
+
+    :param v1: (batch, seq_len1, hidden_size)
+    :param v2: (batch, seq_len2, hidden_size)
+    :return: (batch, seq_len1, seq_len2)
+    """
+    v1_norm = v1.norm(p=2, dim=2, keepdim=True)
+    v2_norm = v2.norm(p=2, dim=2, keepdim=True).permute(0, 2, 1)
+    a = torch.bmm(v1, v2.permute(0, 2, 1))
+    d = v1_norm * v2_norm
+    return div_with_small_value(a, d)
+
+
+def mp_matching_func(v1, v2, w):
+    """
+    Basic mp_matching_func.
+
+    :param v1: (batch, seq_len, hidden_size)
+    :param v2: (batch, seq_len, hidden_size) or (batch, hidden_size)
+    :param w: (num_psp, hidden_size)
+    :return: (batch, num_psp)
+    """
+    seq_len = v1.size(1)
+    num_psp = w.size(0)
+    w = w.transpose(1, 0).unsqueeze(0).unsqueeze(0)
+    v1 = w * torch.stack([v1] * num_psp, dim=3)
+    if len(v2.size()) == 3:
+        v2 = w * torch.stack([v2] * num_psp, dim=3)
+    else:
+        v2 = w * torch.stack([torch.stack([v2] * seq_len, dim=1)] * num_psp, dim=3)
+    m = F.cosine_similarity(v1, v2, dim=2)
+    return m
+
+
+def mp_matching_func_pairwise(v1, v2, w):
+    """
+    Basic mp_matching_func_pairwise.
+
+    :param v1: (batch, seq_len1, hidden_size)
+    :param v2: (batch, seq_len2, hidden_size)
+    :param w: (num_psp, hidden_size)
+    :param num_psp
+    :return: (batch, num_psp, seq_len1, seq_len2)
+    """
+    num_psp = w.size(0)
+    w = w.unsqueeze(0).unsqueeze(2)
+    v1, v2 = w * torch.stack([v1] * num_psp, dim=1), w * torch.stack([v2] * num_psp, dim=1)
+    v1_norm = v1.norm(p=2, dim=3, keepdim=True)
+    v2_norm = v2.norm(p=2, dim=3, keepdim=True)
+    n = torch.matmul(v1, v2.transpose(2, 3))
+    d = v1_norm * v2_norm.transpose(2, 3)
+    m = div_with_small_value(n, d).permute(0, 2, 3, 1)
+    return m
+
+
+class Squeeze(nn.Module):
+    """Squeeze."""
+
+    def forward(self, x):
+        """Forward."""
+        return x.squeeze(dim=-1)
+
+
+class GaussianKernel(nn.Module):
+    """
+    Gaussian kernel module.
+
+    :param mu: Float, mean of the kernel.
+    :param sigma: Float, sigma of the kernel.
+
+    Examples:
+        >>> import torch
+        >>> kernel = GaussianKernel()
+        >>> x = torch.randn(4, 5, 10)
+        >>> x.shape
+        torch.Size([4, 5, 10])
+        >>> kernel(x).shape
+        torch.Size([4, 5, 10])
+
+    """
+
+    def __init__(self, mu: float=1.0, sigma: float=1.0):
+        """Gaussian kernel constructor."""
+        super().__init__()
+        self.mu = mu
+        self.sigma = sigma
+
+    def forward(self, x):
+        """Forward."""
+        return torch.exp(-0.5 * (x - self.mu) ** 2 / self.sigma ** 2)
 
 
 class CharacterEmbedding(nn.Module):
@@ -603,6 +720,74 @@ class DenseNet(nn.Module):
         return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=int(in_channels * transition_scale_down_ratio), kernel_size=1), nn.MaxPool2d(kernel_size=pool_kernel_size, stride=pool_kernel_size))
 
 
+class SemanticComposite(nn.Module):
+    """
+    SemanticComposite module.
+
+    Apply a self-attention layer and a semantic composite fuse gate to compute the
+    encoding result of one tensor.
+
+    :param in_features: Feature size of input.
+    :param dropout_rate: The dropout rate.
+
+    Examples:
+        >>> import torch
+        >>> module = SemanticComposite(in_features=10)
+        >>> x = torch.randn(4, 5, 10)
+        >>> x.shape
+        torch.Size([4, 5, 10])
+        >>> module(x).shape
+        torch.Size([4, 5, 10])
+
+    """
+
+    def __init__(self, in_features, dropout_rate: float=0.0):
+        """Init."""
+        super().__init__()
+        self.att_linear = nn.Linear(3 * in_features, 1, False)
+        self.z_gate = nn.Linear(2 * in_features, in_features, True)
+        self.r_gate = nn.Linear(2 * in_features, in_features, True)
+        self.f_gate = nn.Linear(2 * in_features, in_features, True)
+        self.dropout = nn.Dropout(p=dropout_rate)
+
+    def forward(self, x):
+        """Forward."""
+        seq_length = x.shape[1]
+        x_1 = x.unsqueeze(dim=2).repeat(1, 1, seq_length, 1)
+        x_2 = x.unsqueeze(dim=1).repeat(1, seq_length, 1, 1)
+        x_concat = torch.cat([x_1, x_2, x_1 * x_2], dim=-1)
+        x_concat = self.dropout(x_concat)
+        attn_matrix = self.att_linear(x_concat).squeeze(dim=-1)
+        attn_weight = torch.softmax(attn_matrix, dim=2)
+        attn = torch.bmm(attn_weight, x)
+        x_attn_concat = self.dropout(torch.cat([x, attn], dim=-1))
+        x_attn_concat = torch.cat([x, attn], dim=-1)
+        z = torch.tanh(self.z_gate(x_attn_concat))
+        r = torch.sigmoid(self.r_gate(x_attn_concat))
+        f = torch.sigmoid(self.f_gate(x_attn_concat))
+        encoding = r * x + f * z
+        return encoding
+
+
+class BidirectionalAttention(nn.Module):
+    """Computing the soft attention between two sequence."""
+
+    def __init__(self):
+        """Init."""
+        super().__init__()
+
+    def forward(self, v1, v1_mask, v2, v2_mask):
+        """Forward."""
+        similarity_matrix = v1.bmm(v2.transpose(2, 1).contiguous())
+        v2_v1_attn = F.softmax(similarity_matrix.masked_fill(v1_mask.unsqueeze(2), -1e-07), dim=1)
+        v1_v2_attn = F.softmax(similarity_matrix.masked_fill(v2_mask.unsqueeze(1), -1e-07), dim=2)
+        attended_v1 = v1_v2_attn.bmm(v2)
+        attended_v2 = v2_v1_attn.transpose(1, 2).bmm(v1)
+        attended_v1.masked_fill_(v1_mask.unsqueeze(2), 0)
+        attended_v2.masked_fill_(v2_mask.unsqueeze(2), 0)
+        return attended_v1, attended_v2
+
+
 class RNNDropout(nn.Dropout):
     """Dropout for RNN."""
 
@@ -613,95 +798,70 @@ class RNNDropout(nn.Dropout):
         return dropout_mask.unsqueeze(1) * sequences_batch
 
 
-class GaussianKernel(nn.Module):
+class StackedBRNN(nn.Module):
     """
-    Gaussian kernel module.
+    Stacked Bi-directional RNNs.
 
-    :param mu: Float, mean of the kernel.
-    :param sigma: Float, sigma of the kernel.
+    Differs from standard PyTorch library in that it has the option to save
+    and concat the hidden states between layers. (i.e. the output hidden size
+    for each sequence input is num_layers * hidden_size).
 
     Examples:
         >>> import torch
-        >>> kernel = GaussianKernel()
-        >>> x = torch.randn(4, 5, 10)
-        >>> x.shape
-        torch.Size([4, 5, 10])
-        >>> kernel(x).shape
-        torch.Size([4, 5, 10])
+        >>> rnn = StackedBRNN(
+        ...     input_size=10,
+        ...     hidden_size=10,
+        ...     num_layers=2,
+        ...     dropout_rate=0.2,
+        ...     dropout_output=True,
+        ...     concat_layers=False
+        ... )
+        >>> x = torch.randn(2, 5, 10)
+        >>> x.size()
+        torch.Size([2, 5, 10])
+        >>> x_mask = (torch.ones(2, 5) == 1)
+        >>> rnn(x, x_mask).shape
+        torch.Size([2, 5, 20])
 
     """
 
-    def __init__(self, mu: float=1.0, sigma: float=1.0):
-        """Gaussian kernel constructor."""
+    def __init__(self, input_size, hidden_size, num_layers, dropout_rate=0, dropout_output=False, rnn_type=nn.LSTM, concat_layers=False):
+        """Stacked Bidirectional LSTM."""
         super().__init__()
-        self.mu = mu
-        self.sigma = sigma
+        self.dropout_output = dropout_output
+        self.dropout_rate = dropout_rate
+        self.num_layers = num_layers
+        self.concat_layers = concat_layers
+        self.rnns = nn.ModuleList()
+        for i in range(num_layers):
+            input_size = input_size if i == 0 else 2 * hidden_size
+            self.rnns.append(rnn_type(input_size, hidden_size, num_layers=1, bidirectional=True))
 
-    def forward(self, x):
-        """Forward."""
-        return torch.exp(-0.5 * (x - self.mu) ** 2 / self.sigma ** 2)
+    def forward(self, x, x_mask):
+        """Encode either padded or non-padded sequences."""
+        if x_mask.data.sum() == 0:
+            output = self._forward_unpadded(x, x_mask)
+        output = self._forward_unpadded(x, x_mask)
+        return output.contiguous()
 
-
-class Matching(nn.Module):
-    """
-    Module that computes a matching matrix between samples in two tensors.
-
-    :param normalize: Whether to L2-normalize samples along the
-        dot product axis before taking the dot product.
-        If set to `True`, then the output of the dot product
-        is the cosine proximity between the two samples.
-    :param matching_type: the similarity function for matching
-
-    Examples:
-        >>> import torch
-        >>> matching = Matching(matching_type='dot', normalize=True)
-        >>> x = torch.randn(2, 3, 2)
-        >>> y = torch.randn(2, 4, 2)
-        >>> matching(x, y).shape
-        torch.Size([2, 3, 4])
-
-    """
-
-    def __init__(self, normalize: bool=False, matching_type: str='dot'):
-        """:class:`Matching` constructor."""
-        super().__init__()
-        self._normalize = normalize
-        self._validate_matching_type(matching_type)
-        self._matching_type = matching_type
-
-    @classmethod
-    def _validate_matching_type(cls, matching_type: str='dot'):
-        valid_matching_type = ['dot', 'exact', 'mul', 'plus', 'minus', 'concat']
-        if matching_type not in valid_matching_type:
-            raise ValueError(f'{matching_type} is not a valid matching type, {valid_matching_type} expected.')
-
-    def forward(self, x, y):
-        """Perform attention on the input."""
-        length_left = x.shape[1]
-        length_right = y.shape[1]
-        if self._matching_type == 'dot':
-            if self._normalize:
-                x = F.normalize(x, p=2, dim=-1)
-                y = F.normalize(y, p=2, dim=-1)
-            return torch.einsum('bld,brd->blr', x, y)
-        elif self._matching_type == 'exact':
-            x = x.unsqueeze(dim=2).repeat(1, 1, length_right)
-            y = y.unsqueeze(dim=1).repeat(1, length_left, 1)
-            matching_matrix = x == y
-            x = torch.sum(matching_matrix, dim=2, dtype=torch.float)
-            y = torch.sum(matching_matrix, dim=1, dtype=torch.float)
-            return x, y
+    def _forward_unpadded(self, x, x_mask):
+        """Faster encoding that ignores any padding."""
+        x = x.transpose(0, 1)
+        outputs = [x]
+        for i in range(self.num_layers):
+            rnn_input = outputs[-1]
+            if self.dropout_rate > 0:
+                rnn_input = F.dropout(rnn_input, p=self.dropout_rate, training=self.training)
+            rnn_output = self.rnns[i](rnn_input)[0]
+            outputs.append(rnn_output)
+        if self.concat_layers:
+            output = torch.cat(outputs[1:], 2)
         else:
-            x = x.unsqueeze(dim=2).repeat(1, 1, length_right, 1)
-            y = y.unsqueeze(dim=1).repeat(1, length_left, 1, 1)
-            if self._matching_type == 'mul':
-                return x * y
-            elif self._matching_type == 'plus':
-                return x + y
-            elif self._matching_type == 'minus':
-                return x - y
-            elif self._matching_type == 'concat':
-                return torch.cat((x, y), dim=3)
+            output = outputs[-1]
+        output = output.transpose(0, 1)
+        if self.dropout_output and self.dropout_rate > 0:
+            output = F.dropout(output, p=self.dropout_rate, training=self.training)
+        return output
 
 
 class MatchingTensor(nn.Module):
@@ -756,55 +916,6 @@ class MatchingTensor(nn.Module):
             y = F.normalize(y, p=2, dim=-1)
         output = torch.einsum('bld,cde,bre->bclr', x, self.interaction_matrix, y)
         return output
-
-
-class SemanticComposite(nn.Module):
-    """
-    SemanticComposite module.
-
-    Apply a self-attention layer and a semantic composite fuse gate to compute the
-    encoding result of one tensor.
-
-    :param in_features: Feature size of input.
-    :param dropout_rate: The dropout rate.
-
-    Examples:
-        >>> import torch
-        >>> module = SemanticComposite(in_features=10)
-        >>> x = torch.randn(4, 5, 10)
-        >>> x.shape
-        torch.Size([4, 5, 10])
-        >>> module(x).shape
-        torch.Size([4, 5, 10])
-
-    """
-
-    def __init__(self, in_features, dropout_rate: float=0.0):
-        """Init."""
-        super().__init__()
-        self.att_linear = nn.Linear(3 * in_features, 1, False)
-        self.z_gate = nn.Linear(2 * in_features, in_features, True)
-        self.r_gate = nn.Linear(2 * in_features, in_features, True)
-        self.f_gate = nn.Linear(2 * in_features, in_features, True)
-        self.dropout = nn.Dropout(p=dropout_rate)
-
-    def forward(self, x):
-        """Forward."""
-        seq_length = x.shape[1]
-        x_1 = x.unsqueeze(dim=2).repeat(1, 1, seq_length, 1)
-        x_2 = x.unsqueeze(dim=1).repeat(1, seq_length, 1, 1)
-        x_concat = torch.cat([x_1, x_2, x_1 * x_2], dim=-1)
-        x_concat = self.dropout(x_concat)
-        attn_matrix = self.att_linear(x_concat).squeeze(dim=-1)
-        attn_weight = torch.softmax(attn_matrix, dim=2)
-        attn = torch.bmm(attn_weight, x)
-        x_attn_concat = self.dropout(torch.cat([x, attn], dim=-1))
-        x_attn_concat = torch.cat([x, attn], dim=-1)
-        z = torch.tanh(self.z_gate(x_attn_concat))
-        r = torch.sigmoid(self.r_gate(x_attn_concat))
-        f = torch.sigmoid(self.f_gate(x_attn_concat))
-        encoding = r * x + f * z
-        return encoding
 
 
 class SpatialGRU(nn.Module):
@@ -909,70 +1020,43 @@ class SpatialGRU(nn.Module):
         return states[left_length][right_length]
 
 
-class StackedBRNN(nn.Module):
+class MatchModule(nn.Module):
     """
-    Stacked Bi-directional RNNs.
+    Computing the match representation for Match LSTM.
 
-    Differs from standard PyTorch library in that it has the option to save
-    and concat the hidden states between layers. (i.e. the output hidden size
-    for each sequence input is num_layers * hidden_size).
+    :param hidden_size: Size of hidden vectors.
+    :param dropout_rate: Dropout rate of the projection layer. Defaults to 0.
 
     Examples:
         >>> import torch
-        >>> rnn = StackedBRNN(
-        ...     input_size=10,
-        ...     hidden_size=10,
-        ...     num_layers=2,
-        ...     dropout_rate=0.2,
-        ...     dropout_output=True,
-        ...     concat_layers=False
-        ... )
-        >>> x = torch.randn(2, 5, 10)
-        >>> x.size()
-        torch.Size([2, 5, 10])
-        >>> x_mask = (torch.ones(2, 5) == 1)
-        >>> rnn(x, x_mask).shape
-        torch.Size([2, 5, 20])
+        >>> attention = MatchModule(hidden_size=10)
+        >>> v1 = torch.randn(4, 5, 10)
+        >>> v1.shape
+        torch.Size([4, 5, 10])
+        >>> v2 = torch.randn(4, 5, 10)
+        >>> v2_mask = torch.ones(4, 5).to(dtype=torch.uint8)
+        >>> attention(v1, v2, v2_mask).shape
+        torch.Size([4, 5, 20])
+
 
     """
 
-    def __init__(self, input_size, hidden_size, num_layers, dropout_rate=0, dropout_output=False, rnn_type=nn.LSTM, concat_layers=False):
-        """Stacked Bidirectional LSTM."""
+    def __init__(self, hidden_size, dropout_rate=0):
+        """Init."""
         super().__init__()
-        self.dropout_output = dropout_output
-        self.dropout_rate = dropout_rate
-        self.num_layers = num_layers
-        self.concat_layers = concat_layers
-        self.rnns = nn.ModuleList()
-        for i in range(num_layers):
-            input_size = input_size if i == 0 else 2 * hidden_size
-            self.rnns.append(rnn_type(input_size, hidden_size, num_layers=1, bidirectional=True))
+        self.v2_proj = nn.Linear(hidden_size, hidden_size)
+        self.proj = nn.Linear(hidden_size * 4, hidden_size * 2)
+        self.dropout = nn.Dropout(p=dropout_rate)
 
-    def forward(self, x, x_mask):
-        """Encode either padded or non-padded sequences."""
-        if x_mask.data.sum() == 0:
-            output = self._forward_unpadded(x, x_mask)
-        output = self._forward_unpadded(x, x_mask)
-        return output.contiguous()
-
-    def _forward_unpadded(self, x, x_mask):
-        """Faster encoding that ignores any padding."""
-        x = x.transpose(0, 1)
-        outputs = [x]
-        for i in range(self.num_layers):
-            rnn_input = outputs[-1]
-            if self.dropout_rate > 0:
-                rnn_input = F.dropout(rnn_input, p=self.dropout_rate, training=self.training)
-            rnn_output = self.rnns[i](rnn_input)[0]
-            outputs.append(rnn_output)
-        if self.concat_layers:
-            output = torch.cat(outputs[1:], 2)
-        else:
-            output = outputs[-1]
-        output = output.transpose(0, 1)
-        if self.dropout_output and self.dropout_rate > 0:
-            output = F.dropout(output, p=self.dropout_rate, training=self.training)
-        return output
+    def forward(self, v1, v2, v2_mask):
+        """Computing attention vectors and projection vectors."""
+        proj_v2 = self.v2_proj(v2)
+        similarity_matrix = v1.bmm(proj_v2.transpose(2, 1).contiguous())
+        v1_v2_attn = F.softmax(similarity_matrix.masked_fill(v2_mask.unsqueeze(1).bool(), -1e-07), dim=2)
+        v2_wsum = v1_v2_attn.bmm(v2)
+        fusion = torch.cat([v1, v2_wsum, v1 - v2_wsum, v1 * v2_wsum], dim=2)
+        match = self.dropout(F.relu(self.proj(fusion)))
+        return match
 
 
 import torch

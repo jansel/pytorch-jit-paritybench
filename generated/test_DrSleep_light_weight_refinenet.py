@@ -17,15 +17,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -42,10 +43,25 @@ import torch.nn.functional as F
 import numpy as np
 
 
-import logging
+import collections
 
 
 import random
+
+
+import warnings
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision import transforms
+
+
+from torchvision import utils
+
+
+import logging
 
 
 import re
@@ -88,6 +104,25 @@ class InvertedResidualBlock(nn.Module):
 def conv1x1(in_planes, out_planes, stride=1, bias=False):
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=bias)
+
+
+class CRPBlock(nn.Module):
+
+    def __init__(self, in_planes, out_planes, n_stages):
+        super(CRPBlock, self).__init__()
+        for i in range(n_stages):
+            setattr(self, '{}_{}'.format(i + 1, 'outvar_dimred'), conv1x1(in_planes if i == 0 else out_planes, out_planes, stride=1, bias=False))
+        self.stride = 1
+        self.n_stages = n_stages
+        self.maxpool = nn.MaxPool2d(kernel_size=5, stride=1, padding=2)
+
+    def forward(self, x):
+        top = x
+        for i in range(self.n_stages):
+            top = self.maxpool(top)
+            top = getattr(self, '{}_{}'.format(i + 1, 'outvar_dimred'))(top)
+            x = top + x
+        return x
 
 
 def conv3x3(in_planes, out_planes, stride=1, bias=False):
@@ -317,25 +352,6 @@ class ResNetLW(nn.Module):
         x1 = self.mflow_conv_g4_pool(x1)
         out = self.clf_conv(x1)
         return out
-
-
-class CRPBlock(nn.Module):
-
-    def __init__(self, in_planes, out_planes, n_stages):
-        super(CRPBlock, self).__init__()
-        for i in range(n_stages):
-            setattr(self, '{}_{}'.format(i + 1, 'outvar_dimred'), conv1x1(in_planes if i == 0 else out_planes, out_planes, stride=1, bias=False))
-        self.stride = 1
-        self.n_stages = n_stages
-        self.maxpool = nn.MaxPool2d(kernel_size=5, stride=1, padding=2)
-
-    def forward(self, x):
-        top = x
-        for i in range(self.n_stages):
-            top = self.maxpool(top)
-            top = getattr(self, '{}_{}'.format(i + 1, 'outvar_dimred'))(top)
-            x = top + x
-        return x
 
 
 import torch

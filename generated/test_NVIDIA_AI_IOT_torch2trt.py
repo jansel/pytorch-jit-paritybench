@@ -68,17 +68,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from string import Template
+
+
+import torch
 
 
 import torch.nn.functional as F
@@ -87,10 +94,13 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 
-import torch
-
-
 import torchvision
+
+
+import time
+
+
+import re
 
 
 from copy import copy
@@ -613,7 +623,7 @@ class TRTModule(torch.nn.Module):
         for i, input_name in enumerate(self.input_names):
             idx = self.engine.get_binding_index(input_name)
             bindings[idx] = inputs[i].data_ptr()
-        self.context.execute_async(batch_size, bindings, torch.current_stream().cuda_stream)
+        self.context.execute_async(batch_size, bindings, torch.cuda.current_stream().cuda_stream)
         outputs = tuple(outputs)
         if len(outputs) == 1:
             outputs = outputs[0]

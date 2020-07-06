@@ -36,20 +36,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import copy
+
+
+import torch.utils.data as data
+
+
+import scipy.io as io
+
+
+import numpy as np
+
+
+import time
+
+
 import torch
+
+
+import torch.backends.cudnn as cudnn
 
 
 import torch.nn as nn
@@ -64,16 +83,10 @@ import torchvision.models.resnet as resnet
 import torch.utils.model_zoo as model_zoo
 
 
-import time
-
-
-import torch.backends.cudnn as cudnn
-
-
-import torch.utils.data as data
-
-
 from torch.optim import lr_scheduler
+
+
+from torch.optim.lr_scheduler import _LRScheduler
 
 
 class TextLoss(nn.Module):
@@ -175,44 +188,6 @@ class Upsample(nn.Module):
         return x
 
 
-class TextNet(nn.Module):
-
-    def __init__(self, backbone='vgg', output_channel=7, is_training=True):
-        super().__init__()
-        self.is_training = is_training
-        self.backbone_name = backbone
-        self.output_channel = output_channel
-        if backbone == 'vgg':
-            self.backbone = VGG16(pretrain=self.is_training)
-            self.deconv5 = nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1)
-            self.merge4 = Upsample(512 + 256, 128)
-            self.merge3 = Upsample(256 + 128, 64)
-            self.merge2 = Upsample(128 + 64, 32)
-            self.merge1 = Upsample(64 + 32, 16)
-            self.predict = nn.Sequential(nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1), nn.Conv2d(16, self.output_channel, kernel_size=1, stride=1, padding=0))
-        elif backbone == 'resnet':
-            pass
-
-    def forward(self, x):
-        C1, C2, C3, C4, C5 = self.backbone(x)
-        up5 = self.deconv5(C5)
-        up5 = F.relu(up5)
-        up4 = self.merge4(C4, up5)
-        up4 = F.relu(up4)
-        up3 = self.merge3(C3, up4)
-        up3 = F.relu(up3)
-        up2 = self.merge2(C2, up3)
-        up2 = F.relu(up2)
-        up1 = self.merge1(C1, up2)
-        output = self.predict(up1)
-        return output
-
-    def load_model(self, model_path):
-        None
-        state_dict = torch.load(model_path)
-        self.load_state_dict(state_dict['model'])
-
-
 class VGG(nn.Module):
 
     def __init__(self, features, num_classes=1000, init_weights=True):
@@ -261,9 +236,6 @@ def make_layers(cfg, batch_norm=False):
 model_urls = {'vgg11': 'https://download.pytorch.org/models/vgg11-bbd30ac9.pth', 'vgg13': 'https://download.pytorch.org/models/vgg13-c768596a.pth', 'vgg16': 'https://download.pytorch.org/models/vgg16-397923af.pth', 'vgg19': 'https://download.pytorch.org/models/vgg19-dcbb9e9d.pth', 'vgg11_bn': 'https://download.pytorch.org/models/vgg11_bn-6002323d.pth', 'vgg13_bn': 'https://download.pytorch.org/models/vgg13_bn-abd245e5.pth', 'vgg16_bn': 'https://download.pytorch.org/models/vgg16_bn-6c64b313.pth', 'vgg19_bn': 'https://download.pytorch.org/models/vgg19_bn-c79401a0.pth'}
 
 
-_global_config['D'] = 4
-
-
 class VGG16(nn.Module):
 
     def __init__(self, pretrain=True):
@@ -286,6 +258,44 @@ class VGG16(nn.Module):
         return C1, C2, C3, C4, C5
 
 
+class TextNet(nn.Module):
+
+    def __init__(self, backbone='vgg', output_channel=7, is_training=True):
+        super().__init__()
+        self.is_training = is_training
+        self.backbone_name = backbone
+        self.output_channel = output_channel
+        if backbone == 'vgg':
+            self.backbone = VGG16(pretrain=self.is_training)
+            self.deconv5 = nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1)
+            self.merge4 = Upsample(512 + 256, 128)
+            self.merge3 = Upsample(256 + 128, 64)
+            self.merge2 = Upsample(128 + 64, 32)
+            self.merge1 = Upsample(64 + 32, 16)
+            self.predict = nn.Sequential(nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1), nn.Conv2d(16, self.output_channel, kernel_size=1, stride=1, padding=0))
+        elif backbone == 'resnet':
+            pass
+
+    def forward(self, x):
+        C1, C2, C3, C4, C5 = self.backbone(x)
+        up5 = self.deconv5(C5)
+        up5 = F.relu(up5)
+        up4 = self.merge4(C4, up5)
+        up4 = F.relu(up4)
+        up3 = self.merge3(C3, up4)
+        up3 = F.relu(up3)
+        up2 = self.merge2(C2, up3)
+        up2 = F.relu(up2)
+        up1 = self.merge1(C1, up2)
+        output = self.predict(up1)
+        return output
+
+    def load_model(self, model_path):
+        None
+        state_dict = torch.load(model_path)
+        self.load_state_dict(state_dict['model'])
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -301,10 +311,6 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
      True),
-    (VGG,
-     lambda: ([], {'features': _mock_layer()}),
-     lambda: ([torch.rand([25088, 25088])], {}),
-     True),
 ]
 
 class Test_princewang1994_TextSnake_pytorch(_paritybench_base):
@@ -313,7 +319,4 @@ class Test_princewang1994_TextSnake_pytorch(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

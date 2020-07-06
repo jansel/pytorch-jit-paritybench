@@ -21,20 +21,60 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import torchvision
+
+
+import torchvision.transforms as T
+
+
+import scipy.misc
+
+
+import scipy.ndimage
+
+
+import numpy as np
+
+
 import torch
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
+
+
+from torchvision import utils
+
+
+import random
+
+
+import scipy
+
+
+from torch.autograd import Variable
+
+
+import time
 
 
 from torch.autograd import Function
@@ -52,13 +92,7 @@ import torch.nn.functional as F
 import torch.nn.init as init
 
 
-from torch.autograd import Variable
-
-
 import math
-
-
-import numpy as np
 
 
 from torch.nn.modules.module import Module
@@ -71,15 +105,6 @@ import torch.optim as optim
 
 
 import torch.optim.lr_scheduler as lr_scheduler
-
-
-import scipy.misc
-
-
-from torch.utils.data import DataLoader
-
-
-import time
 
 
 class MSE_and_SSIM_loss(nn.Module):
@@ -123,6 +148,135 @@ class TDAN_F(nn.Module):
         lrs, feat = self.align_net(x)
         y = self.rec_net(lrs, feat)
         return y, lrs
+
+
+class ConvOffset2dFunction(Function):
+
+    def __init__(self, stride, padding, dilation, deformable_groups=1):
+        super(ConvOffset2dFunction, self).__init__()
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.deformable_groups = deformable_groups
+
+    def forward(self, input, offset, weight):
+        self.save_for_backward(input, offset, weight)
+        output = input.new(*self._output_size(input, weight))
+        self.bufs_ = [input.new(), input.new()]
+        if not input.is_cuda:
+            raise NotImplementedError
+        else:
+            if isinstance(input, torch.autograd.Variable):
+                if not isinstance(input.data, torch.FloatTensor):
+                    raise NotImplementedError
+            elif not isinstance(input, torch.FloatTensor):
+                raise NotImplementedError
+            deform_conv.deform_conv_forward_cuda(input, weight, offset, output, self.bufs_[0], self.bufs_[1], weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], self.deformable_groups)
+        return output
+
+    def backward(self, grad_output):
+        input, offset, weight = self.saved_tensors
+        grad_input = grad_offset = grad_weight = None
+        if not grad_output.is_cuda:
+            raise NotImplementedError
+        else:
+            if isinstance(grad_output, torch.autograd.Variable):
+                if not isinstance(grad_output.data, torch.FloatTensor):
+                    raise NotImplementedError
+            elif not isinstance(grad_output, torch.FloatTensor):
+                raise NotImplementedError
+            if self.needs_input_grad[0] or self.needs_input_grad[1]:
+                grad_input = input.new(*input.size()).zero_()
+                grad_offset = offset.new(*offset.size()).zero_()
+                deform_conv.deform_conv_backward_input_cuda(input, offset, grad_output, grad_input, grad_offset, weight, self.bufs_[0], weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], self.deformable_groups)
+            if self.needs_input_grad[2]:
+                grad_weight = weight.new(*weight.size()).zero_()
+                deform_conv.deform_conv_backward_parameters_cuda(input, offset, grad_output, grad_weight, self.bufs_[0], self.bufs_[1], weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], self.deformable_groups, 1)
+        return grad_input, grad_offset, grad_weight
+
+    def _output_size(self, input, weight):
+        channels = weight.size(0)
+        output_size = input.size(0), channels
+        for d in range(input.dim() - 2):
+            in_size = input.size(d + 2)
+            pad = self.padding[d]
+            kernel = self.dilation[d] * (weight.size(d + 2) - 1) + 1
+            stride = self.stride[d]
+            output_size += (in_size + 2 * pad - kernel) // stride + 1,
+        if not all(map(lambda s: s > 0, output_size)):
+            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
+        return output_size
+
+
+def conv_offset2d(input, offset, weight, stride=1, padding=0, dilation=1, deform_groups=1):
+    if input is not None and input.dim() != 4:
+        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
+    f = ConvOffset2dFunction(_pair(stride), _pair(padding), _pair(dilation), deform_groups)
+    return f(input, offset, weight)
+
+
+class ConvOffset2d(Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, num_deformable_groups=1):
+        super(ConvOffset2d, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = _pair(kernel_size)
+        self.stride = _pair(stride)
+        self.padding = _pair(padding)
+        self.dilation = _pair(dilation)
+        self.num_deformable_groups = num_deformable_groups
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        n = self.in_channels
+        for k in self.kernel_size:
+            n *= k
+        stdv = 1.0 / math.sqrt(n)
+        self.weight.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, offset):
+        return conv_offset2d(input, offset, self.weight, self.stride, self.padding, self.dilation, self.num_deformable_groups)
+
+
+class Res_Block(nn.Module):
+
+    def __init__(self):
+        super(Res_Block, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
+
+    def forward(self, x):
+        res = self.conv1(x)
+        res = self.relu(res)
+        res = self.conv2(res)
+        return x + res
+
+
+class Upsampler(nn.Sequential):
+
+    def __init__(self, conv, scale, n_feat, bn=False, act=False, bias=True):
+        modules = []
+        if scale & scale - 1 == 0:
+            for _ in range(int(math.log(scale, 2))):
+                modules.append(conv(n_feat, 4 * n_feat, 3, bias))
+                modules.append(nn.PixelShuffle(2))
+                if bn:
+                    modules.append(nn.BatchNorm2d(n_feat))
+                if act:
+                    modules.append(act())
+        elif scale == 3:
+            modules.append(conv(n_feat, 9 * n_feat, 3, bias))
+            modules.append(nn.PixelShuffle(3))
+            if bn:
+                modules.append(nn.BatchNorm2d(n_feat))
+            if act:
+                modules.append(act())
+        else:
+            raise NotImplementedError
+        super(Upsampler, self).__init__(*modules)
 
 
 def default_conv(in_channelss, out_channels, kernel_size, bias=True):
@@ -351,6 +505,22 @@ class align_net(nn.Module):
         return lrs
 
 
+class Res_Block_s(nn.Module):
+
+    def __init__(self, scale=1.0):
+        super(Res_Block_s, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
+        self.scale = scale
+
+    def forward(self, x):
+        res = self.conv1(x)
+        res = self.relu(res)
+        res = self.conv2(res)
+        return x + res.mul(self.scale)
+
+
 class SR_Rec(nn.Module):
 
     def __init__(self, nb_block=10, scale=1.0):
@@ -414,61 +584,6 @@ class VSR_Rec(nn.Module):
         return out
 
 
-class Upsampler(nn.Sequential):
-
-    def __init__(self, conv, scale, n_feat, bn=False, act=False, bias=True):
-        modules = []
-        if scale & scale - 1 == 0:
-            for _ in range(int(math.log(scale, 2))):
-                modules.append(conv(n_feat, 4 * n_feat, 3, bias))
-                modules.append(nn.PixelShuffle(2))
-                if bn:
-                    modules.append(nn.BatchNorm2d(n_feat))
-                if act:
-                    modules.append(act())
-        elif scale == 3:
-            modules.append(conv(n_feat, 9 * n_feat, 3, bias))
-            modules.append(nn.PixelShuffle(3))
-            if bn:
-                modules.append(nn.BatchNorm2d(n_feat))
-            if act:
-                modules.append(act())
-        else:
-            raise NotImplementedError
-        super(Upsampler, self).__init__(*modules)
-
-
-class Res_Block(nn.Module):
-
-    def __init__(self):
-        super(Res_Block, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
-
-    def forward(self, x):
-        res = self.conv1(x)
-        res = self.relu(res)
-        res = self.conv2(res)
-        return x + res
-
-
-class Res_Block_s(nn.Module):
-
-    def __init__(self, scale=1.0):
-        super(Res_Block_s, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True)
-        self.scale = scale
-
-    def forward(self, x):
-        res = self.conv1(x)
-        res = self.relu(res)
-        res = self.conv2(res)
-        return x + res.mul(self.scale)
-
-
 class Conv_ReLU_Block(nn.Module):
 
     def __init__(self):
@@ -478,96 +593,6 @@ class Conv_ReLU_Block(nn.Module):
 
     def forward(self, x):
         return self.relu(self.conv(x))
-
-
-class ConvOffset2dFunction(Function):
-
-    def __init__(self, stride, padding, dilation, deformable_groups=1):
-        super(ConvOffset2dFunction, self).__init__()
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
-        self.deformable_groups = deformable_groups
-
-    def forward(self, input, offset, weight):
-        self.save_for_backward(input, offset, weight)
-        output = input.new(*self._output_size(input, weight))
-        self.bufs_ = [input.new(), input.new()]
-        if not input.is_cuda:
-            raise NotImplementedError
-        else:
-            if isinstance(input, torch.autograd.Variable):
-                if not isinstance(input.data, torch.cuda.FloatTensor):
-                    raise NotImplementedError
-            elif not isinstance(input, torch.cuda.FloatTensor):
-                raise NotImplementedError
-            deform_conv.deform_conv_forward_cuda(input, weight, offset, output, self.bufs_[0], self.bufs_[1], weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], self.deformable_groups)
-        return output
-
-    def backward(self, grad_output):
-        input, offset, weight = self.saved_tensors
-        grad_input = grad_offset = grad_weight = None
-        if not grad_output.is_cuda:
-            raise NotImplementedError
-        else:
-            if isinstance(grad_output, torch.autograd.Variable):
-                if not isinstance(grad_output.data, torch.cuda.FloatTensor):
-                    raise NotImplementedError
-            elif not isinstance(grad_output, torch.cuda.FloatTensor):
-                raise NotImplementedError
-            if self.needs_input_grad[0] or self.needs_input_grad[1]:
-                grad_input = input.new(*input.size()).zero_()
-                grad_offset = offset.new(*offset.size()).zero_()
-                deform_conv.deform_conv_backward_input_cuda(input, offset, grad_output, grad_input, grad_offset, weight, self.bufs_[0], weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], self.deformable_groups)
-            if self.needs_input_grad[2]:
-                grad_weight = weight.new(*weight.size()).zero_()
-                deform_conv.deform_conv_backward_parameters_cuda(input, offset, grad_output, grad_weight, self.bufs_[0], self.bufs_[1], weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], self.deformable_groups, 1)
-        return grad_input, grad_offset, grad_weight
-
-    def _output_size(self, input, weight):
-        channels = weight.size(0)
-        output_size = input.size(0), channels
-        for d in range(input.dim() - 2):
-            in_size = input.size(d + 2)
-            pad = self.padding[d]
-            kernel = self.dilation[d] * (weight.size(d + 2) - 1) + 1
-            stride = self.stride[d]
-            output_size += (in_size + 2 * pad - kernel) // stride + 1,
-        if not all(map(lambda s: s > 0, output_size)):
-            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
-        return output_size
-
-
-def conv_offset2d(input, offset, weight, stride=1, padding=0, dilation=1, deform_groups=1):
-    if input is not None and input.dim() != 4:
-        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
-    f = ConvOffset2dFunction(_pair(stride), _pair(padding), _pair(dilation), deform_groups)
-    return f(input, offset, weight)
-
-
-class ConvOffset2d(Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, num_deformable_groups=1):
-        super(ConvOffset2d, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = _pair(kernel_size)
-        self.stride = _pair(stride)
-        self.padding = _pair(padding)
-        self.dilation = _pair(dilation)
-        self.num_deformable_groups = num_deformable_groups
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        n = self.in_channels
-        for k in self.kernel_size:
-            n *= k
-        stdv = 1.0 / math.sqrt(n)
-        self.weight.data.uniform_(-stdv, stdv)
-
-    def forward(self, input, offset):
-        return conv_offset2d(input, offset, self.weight, self.stride, self.padding, self.dilation, self.num_deformable_groups)
 
 
 def _ssim(img1, img2, window, window_size, channel, size_average=True):

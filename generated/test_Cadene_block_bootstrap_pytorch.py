@@ -58,26 +58,48 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import torch.nn as nn
 
 
 import torch
 
 
+import torch.utils.data as data
+
+
 import numpy as np
+
+
+import random
+
+
+import copy
+
+
+import re
+
+
+from collections import Counter
+
+
+import itertools
+
+
+from torch.utils.data.sampler import WeightedRandomSampler
+
+
+import torch.nn as nn
 
 
 from scipy import stats
@@ -87,9 +109,6 @@ from collections import defaultdict
 
 
 import torch.nn.functional as F
-
-
-import copy
 
 
 import types
@@ -102,6 +121,9 @@ import numbers
 
 
 from torch.autograd import Variable
+
+
+import inspect
 
 
 class VQACrossEntropyLoss(nn.Module):
@@ -127,6 +149,22 @@ class VRDBCELoss(nn.Module):
         cost = self.loss(net_output['rel_scores'], y_true)
         out = {}
         out['loss'] = cost
+        return out
+
+
+class VQAAccuracy(nn.Module):
+
+    def __init__(self, topk=[1, 5]):
+        super(VQAAccuracy, self).__init__()
+        self.topk = topk
+
+    def __call__(self, cri_out, net_out, batch):
+        out = {}
+        logits = net_out['logits'].data.cpu()
+        class_id = batch['class_id'].data.cpu()
+        acc_out = accuracy(logits, class_id, topk=self.topk)
+        for i, k in enumerate(self.topk):
+            out['accuracy_top{}'.format(k)] = acc_out[i]
         return out
 
 
@@ -283,22 +321,6 @@ class VQAAccuracies(nn.Module):
         acc_mpt_h = float(stats.hmean(sum_acc))
         Logger()('Harmonic MPT Accuracy is {:.2f}'.format(acc_mpt_h))
         Logger().log_value('{}_epoch.tdiuc.acc_mpt_h_norm'.format(self.mode), acc_mpt_h, should_print=False)
-
-
-class VQAAccuracy(nn.Module):
-
-    def __init__(self, topk=[1, 5]):
-        super(VQAAccuracy, self).__init__()
-        self.topk = topk
-
-    def __call__(self, cri_out, net_out, batch):
-        out = {}
-        logits = net_out['logits'].data.cpu()
-        class_id = batch['class_id'].data.cpu()
-        acc_out = accuracy(logits, class_id, topk=self.topk)
-        for i, k in enumerate(self.topk):
-            out['accuracy_top{}'.format(k)] = acc_out[i]
-        return out
 
 
 class VRDPredicate(nn.Module):
@@ -466,7 +488,7 @@ def CountSketchFn_forward(h, s, output_size, x, force_cpu_scatter_add=False):
     h = h.view(s_view).expand(x_size)
     if force_cpu_scatter_add:
         out = x.new(*out_size).zero_().cpu()
-        return out.scatter_add_(-1, h.cpu(), xs.cpu()).cuda()
+        return out.scatter_add_(-1, h.cpu(), xs.cpu())
     else:
         out = x.new(*out_size).zero_()
         return out.scatter_add_(-1, h, xs)
@@ -1132,6 +1154,47 @@ class MLP(nn.Module):
         return x
 
 
+class Attention(nn.Module):
+
+    def __init__(self, mlp_glimpses=0, fusion={}):
+        super(Attention, self).__init__()
+        self.mlp_glimpses = mlp_glimpses
+        self.fusion = factory_fusion(fusion)
+        if self.mlp_glimpses > 0:
+            self.linear0 = nn.Linear(fusion['output_dim'], 512)
+            self.linear1 = nn.Linear(512, mlp_glimpses)
+
+    def forward(self, q, v):
+        alpha = self.process_attention(q, v)
+        if self.mlp_glimpses > 0:
+            alpha = self.linear0(alpha)
+            alpha = F.relu(alpha)
+            alpha = self.linear1(alpha)
+        alpha = F.softmax(alpha, dim=1)
+        if alpha.size(2) > 1:
+            alphas = torch.unbind(alpha, dim=2)
+            v_outs = []
+            for alpha in alphas:
+                alpha = alpha.unsqueeze(2).expand_as(v)
+                v_out = alpha * v
+                v_out = v_out.sum(1)
+                v_outs.append(v_out)
+            v_out = torch.cat(v_outs, dim=1)
+        else:
+            alpha = alpha.expand_as(v)
+            v_out = alpha * v
+            v_out = v_out.sum(1)
+        return v_out
+
+    def process_attention(self, q, v):
+        batch_size = q.size(0)
+        n_regions = v.size(1)
+        q = q[:, (None), :].expand(q.size(0), n_regions, q.size(1))
+        alpha = self.fusion([q.contiguous().view(batch_size * n_regions, -1), v.contiguous().view(batch_size * n_regions, -1)])
+        alpha = alpha.view(batch_size, n_regions, -1)
+        return alpha
+
+
 def factory_text_enc(vocab_words, opt):
     list_words = [vocab_words[i + 1] for i in range(len(vocab_words))]
     if opt['name'] == 'skipthoughts':
@@ -1143,9 +1206,9 @@ def factory_text_enc(vocab_words, opt):
 
 
 def mask_softmax(x, lengths):
-    mask = torch.zeros_like(x).to(device=x.device, non_blocking=True)
+    mask = torch.zeros_like(x)
     t_lengths = lengths[:, :, (None)].expand_as(mask)
-    arange_id = torch.arange(mask.size(1)).to(device=x.device, non_blocking=True)
+    arange_id = torch.arange(mask.size(1))
     arange_id = arange_id[(None), :, (None)].expand_as(mask)
     mask[arange_id < t_lengths] = 1
     x = torch.exp(x)
@@ -1214,47 +1277,6 @@ class VQANet(nn.Module):
         out['answers'] = [self.aid_to_ans[pred[i]] for i in range(batch_size)]
         out['answer_ids'] = [pred[i] for i in range(batch_size)]
         return out
-
-
-class Attention(nn.Module):
-
-    def __init__(self, mlp_glimpses=0, fusion={}):
-        super(Attention, self).__init__()
-        self.mlp_glimpses = mlp_glimpses
-        self.fusion = factory_fusion(fusion)
-        if self.mlp_glimpses > 0:
-            self.linear0 = nn.Linear(fusion['output_dim'], 512)
-            self.linear1 = nn.Linear(512, mlp_glimpses)
-
-    def forward(self, q, v):
-        alpha = self.process_attention(q, v)
-        if self.mlp_glimpses > 0:
-            alpha = self.linear0(alpha)
-            alpha = F.relu(alpha)
-            alpha = self.linear1(alpha)
-        alpha = F.softmax(alpha, dim=1)
-        if alpha.size(2) > 1:
-            alphas = torch.unbind(alpha, dim=2)
-            v_outs = []
-            for alpha in alphas:
-                alpha = alpha.unsqueeze(2).expand_as(v)
-                v_out = alpha * v
-                v_out = v_out.sum(1)
-                v_outs.append(v_out)
-            v_out = torch.cat(v_outs, dim=1)
-        else:
-            alpha = alpha.expand_as(v)
-            v_out = alpha * v
-            v_out = v_out.sum(1)
-        return v_out
-
-    def process_attention(self, q, v):
-        batch_size = q.size(0)
-        n_regions = v.size(1)
-        q = q[:, (None), :].expand(q.size(0), n_regions, q.size(1))
-        alpha = self.fusion([q.contiguous().view(batch_size * n_regions, -1), v.contiguous().view(batch_size * n_regions, -1)])
-        alpha = alpha.view(batch_size, n_regions, -1)
-        return alpha
 
 
 class VRDNet(nn.Module):

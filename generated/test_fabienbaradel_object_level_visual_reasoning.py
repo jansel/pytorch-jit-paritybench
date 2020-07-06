@@ -30,15 +30,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -64,6 +65,12 @@ import torch.utils.data
 import torch.utils.data.distributed
 
 
+from torchvision.utils import save_image
+
+
+import numpy as np
+
+
 import torch.utils.data as data
 
 
@@ -71,9 +78,6 @@ from torchvision import transforms
 
 
 import random
-
-
-import numpy as np
 
 
 from torch.utils.data.dataloader import default_collate
@@ -91,6 +95,9 @@ from abc import ABCMeta
 import torch.nn.functional as F
 
 
+import torch.utils.model_zoo as model_zoo
+
+
 import math
 
 
@@ -98,6 +105,9 @@ from torch.autograd import Variable
 
 
 from torchvision import models
+
+
+import numbers
 
 
 from torch.nn import Module
@@ -129,6 +139,74 @@ class BasicBlock(nn.Module):
             residual = self.downsample(x)
         out += residual
         out = self.relu(out)
+        return out
+
+
+def conv3x3x3(in_planes, out_planes, stride=1, dilation=1):
+    """3x3 convolution with padding"""
+    return nn.Conv3d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False, dilation=(1, dilation, dilation))
+
+
+class BasicBlock3D(BasicBlock):
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1, **kwargs):
+        super().__init__(inplanes, planes, stride, downsample, dilation)
+        self.conv1 = conv3x3x3(inplanes, planes, stride, dilation)
+        self.conv2 = conv3x3x3(planes, planes, dilation)
+
+
+def conv3x3(in_planes, out_planes, stride=1, dilation=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False, dilation=dilation)
+
+
+class BasicBlock2D(BasicBlock):
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1, **kwargs):
+        super().__init__(inplanes, planes, stride, downsample, dilation)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv1 = conv3x3(inplanes, planes, stride, dilation)
+        self.conv2 = conv3x3(planes, planes, dilation)
+        self.input_dim = 4
+
+
+def conv1x3x3_conv3x1x1(in_planes, out_planes, stride=1, dilation=1, nb_temporal_conv=3):
+    """3x3 convolution with padding"""
+    if isinstance(stride, int):
+        stride_2d, stride_1t = (1, stride, stride), (stride, 1, 1)
+    else:
+        stride_2d, stride_1t = (1, stride[1], stride[2]), (stride[0], 1, 1)
+    _2d = nn.Conv3d(in_planes, out_planes, kernel_size=(1, 3, 3), stride=stride_2d, padding=(0, 1, 1), bias=False, dilation=dilation)
+    _1t = nn.Sequential()
+    for i in range(nb_temporal_conv):
+        temp_conv = nn.Conv3d(out_planes, out_planes, kernel_size=(3, 1, 1), stride=stride_1t, padding=(1, 0, 0), bias=False, dilation=1)
+        _1t.add_module('temp_conv_{}'.format(i), temp_conv)
+        _1t.add_module('relu_{}'.format(i), nn.ReLU(inplace=True))
+    return _2d, _1t
+
+
+class BasicBlock2_1D(BasicBlock):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1, nb_temporal_conv=1):
+        super().__init__(inplanes, planes, stride, downsample, dilation)
+        self.conv1, self.conv1_1t = conv1x3x3_conv3x1x1(inplanes, planes, stride, dilation, nb_temporal_conv=nb_temporal_conv)
+        self.conv2, self.conv2_1t = conv1x3x3_conv3x1x1(planes, planes, dilation, nb_temporal_conv=nb_temporal_conv)
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv1_1t(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        out = self.conv2_1t(out)
         return out
 
 
@@ -167,20 +245,11 @@ class Bottleneck(nn.Module):
         return out
 
 
-def conv3x3(in_planes, out_planes, stride=1, dilation=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False, dilation=dilation)
-
-
-class BasicBlock2D(BasicBlock):
+class Bottleneck3D(Bottleneck):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1, **kwargs):
         super().__init__(inplanes, planes, stride, downsample, dilation)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv1 = conv3x3(inplanes, planes, stride, dilation)
-        self.conv2 = conv3x3(planes, planes, dilation)
-        self.input_dim = 4
+        self.conv2 = nn.Conv3d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False, dilation=(1, dilation, dilation))
 
 
 class Bottleneck2D(Bottleneck):
@@ -198,6 +267,39 @@ class Bottleneck2D(Bottleneck):
         else:
             stride_1, stride_2 = stride[0], stride[1]
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=(3, 3), stride=(stride_1, stride_2), padding=(1, 1), bias=False)
+
+
+class Bottleneck2_1D(Bottleneck):
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1, nb_temporal_conv=1):
+        super().__init__(inplanes, planes, stride, downsample, dilation)
+        if isinstance(stride, int):
+            stride_2d, stride_1t = (1, stride, stride), (stride, 1, 1)
+        else:
+            stride_2d, stride_1t = (1, stride[1], stride[2]), (stride[0], 1, 1)
+        self.conv2 = nn.Conv3d(planes, planes, kernel_size=(1, 3, 3), stride=stride_2d, padding=(0, dilation, dilation), bias=False, dilation=dilation)
+        self.conv2_1t = nn.Sequential()
+        for i in range(nb_temporal_conv):
+            temp_conv = nn.Conv3d(planes, planes, kernel_size=(3, 1, 1), stride=stride_1t, padding=(1, 0, 0), bias=False, dilation=1)
+            self.conv2_1t.add_module('temp_conv_{}'.format(i), temp_conv)
+            self.conv2_1t.add_module('relu_{}'.format(i), nn.ReLU(inplace=True))
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv2_1t(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 K_1st_CONV = 3
@@ -765,6 +867,14 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (BasicBlock2_1D,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (BasicBlock3D,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
     (Classifier,
      lambda: ([], {'size_input': 4, 'size_output': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -780,4 +890,10 @@ class Test_fabienbaradel_object_level_visual_reasoning(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

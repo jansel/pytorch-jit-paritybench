@@ -29,15 +29,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -81,6 +82,36 @@ import torchvision.models as models
 from torch import nn
 
 
+import inspect
+
+
+import re
+
+
+from torch import optim
+
+
+from collections import namedtuple
+
+
+from torch.utils.data.sampler import BatchSampler
+
+
+from torch.utils.data.sampler import SubsetRandomSampler
+
+
+class ChannelPool(nn.MaxPool1d):
+
+    def forward(self, x):
+        n, c, w, h = x.size()
+        x = x.view(n, c, w * h).permute(0, 2, 1)
+        x = x.contiguous()
+        pooled = F.max_pool1d(x, c, 1)
+        _, _, c = pooled.size()
+        pooled = pooled.permute(0, 2, 1)
+        return pooled.view(n, c, w, h)
+
+
 def get_grid(pose, grid_size, device):
     """
     Input:
@@ -100,11 +131,11 @@ def get_grid(pose, grid_size, device):
     t = t * np.pi / 180.0
     cos_t = t.cos()
     sin_t = t.sin()
-    theta11 = torch.stack([cos_t, -sin_t, torch.zeros(cos_t.shape).float().to(device)], 1)
-    theta12 = torch.stack([sin_t, cos_t, torch.zeros(cos_t.shape).float().to(device)], 1)
+    theta11 = torch.stack([cos_t, -sin_t, torch.zeros(cos_t.shape).float()], 1)
+    theta12 = torch.stack([sin_t, cos_t, torch.zeros(cos_t.shape).float()], 1)
     theta1 = torch.stack([theta11, theta12], 1)
-    theta21 = torch.stack([torch.ones(x.shape).to(device), -torch.zeros(x.shape).to(device), x], 1)
-    theta22 = torch.stack([torch.zeros(x.shape).to(device), torch.ones(x.shape).to(device), y], 1)
+    theta21 = torch.stack([torch.ones(x.shape), -torch.zeros(x.shape), x], 1)
+    theta22 = torch.stack([torch.zeros(x.shape), torch.ones(x.shape), y], 1)
     theta2 = torch.stack([theta21, theta22], 1)
     rot_grid = F.affine_grid(theta1, torch.Size(grid_size))
     trans_grid = F.affine_grid(theta2, torch.Size(grid_size))
@@ -252,6 +283,126 @@ class Neural_SLAM_Module(nn.Module):
         return proj_pred, fp_exp_pred, map_pred, exp_pred, pose_pred, current_poses
 
 
+FixedCategorical = torch.distributions.Categorical
+
+
+class Categorical(nn.Module):
+
+    def __init__(self, num_inputs, num_outputs):
+        super(Categorical, self).__init__()
+        self.linear = nn.Linear(num_inputs, num_outputs)
+
+    def forward(self, x):
+        x = self.linear(x)
+        return FixedCategorical(logits=x)
+
+
+class AddBias(nn.Module):
+
+    def __init__(self, bias):
+        super(AddBias, self).__init__()
+        self._bias = nn.Parameter(bias.unsqueeze(1))
+
+    def forward(self, x):
+        if x.dim() == 2:
+            bias = self._bias.t().view(1, -1)
+        else:
+            bias = self._bias.t().view(1, -1, 1, 1)
+        return x + bias
+
+
+FixedNormal = torch.distributions.Normal
+
+
+class DiagGaussian(nn.Module):
+
+    def __init__(self, num_inputs, num_outputs):
+        super(DiagGaussian, self).__init__()
+        self.fc_mean = nn.Linear(num_inputs, num_outputs)
+        self.logstd = AddBias(torch.zeros(num_outputs))
+
+    def forward(self, x):
+        action_mean = self.fc_mean(x)
+        zeros = torch.zeros(action_mean.size())
+        if x.is_cuda:
+            zeros = zeros
+        action_logstd = self.logstd(zeros)
+        return FixedNormal(action_mean, action_logstd.exp())
+
+
+class Flatten(nn.Module):
+
+    def forward(self, x):
+        return x.view(x.size(0), -1)
+
+
+class NNBase(nn.Module):
+
+    def __init__(self, recurrent, recurrent_input_size, hidden_size):
+        super(NNBase, self).__init__()
+        self._hidden_size = hidden_size
+        self._recurrent = recurrent
+        if recurrent:
+            self.gru = nn.GRUCell(recurrent_input_size, hidden_size)
+            nn.init.orthogonal_(self.gru.weight_ih.data)
+            nn.init.orthogonal_(self.gru.weight_hh.data)
+            self.gru.bias_ih.data.fill_(0)
+            self.gru.bias_hh.data.fill_(0)
+
+    @property
+    def is_recurrent(self):
+        return self._recurrent
+
+    @property
+    def rec_state_size(self):
+        if self._recurrent:
+            return self._hidden_size
+        return 1
+
+    @property
+    def output_size(self):
+        return self._hidden_size
+
+    def _forward_gru(self, x, hxs, masks):
+        if x.size(0) == hxs.size(0):
+            x = hxs = self.gru(x, hxs * masks[:, (None)])
+        else:
+            N = hxs.size(0)
+            T = int(x.size(0) / N)
+            x = x.view(T, N, x.size(1))
+            masks = masks.view(T, N, 1)
+            outputs = []
+            for i in range(T):
+                hx = hxs = self.gru(x[i], hxs * masks[i])
+                outputs.append(hx)
+            x = torch.stack(outputs, dim=0)
+            x = x.view(T * N, -1)
+        return x, hxs
+
+
+class Global_Policy(NNBase):
+
+    def __init__(self, input_shape, recurrent=False, hidden_size=512, downscaling=1):
+        super(Global_Policy, self).__init__(recurrent, hidden_size, hidden_size)
+        out_size = int(input_shape[1] / 16.0 * input_shape[2] / 16.0)
+        self.main = nn.Sequential(nn.MaxPool2d(2), nn.Conv2d(8, 32, 3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(2), nn.Conv2d(32, 64, 3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(2), nn.Conv2d(64, 128, 3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(2), nn.Conv2d(128, 64, 3, stride=1, padding=1), nn.ReLU(), nn.Conv2d(64, 32, 3, stride=1, padding=1), nn.ReLU(), Flatten())
+        self.linear1 = nn.Linear(out_size * 32 + 8, hidden_size)
+        self.linear2 = nn.Linear(hidden_size, 256)
+        self.critic_linear = nn.Linear(256, 1)
+        self.orientation_emb = nn.Embedding(72, 8)
+        self.train()
+
+    def forward(self, inputs, rnn_hxs, masks, extras):
+        x = self.main(inputs)
+        orientation_emb = self.orientation_emb(extras).squeeze(1)
+        x = torch.cat((x, orientation_emb), 1)
+        x = nn.ReLU()(self.linear1(x))
+        if self.is_recurrent:
+            x, rnn_hxs = self._forward_gru(x, rnn_hxs, masks)
+        x = nn.ReLU()(self.linear2(x))
+        return self.critic_linear(x).squeeze(-1), x, rnn_hxs
+
+
 class RL_Policy(nn.Module):
 
     def __init__(self, obs_shape, action_space, model_type=0, base_kwargs=None):
@@ -307,115 +458,6 @@ class RL_Policy(nn.Module):
         action_log_probs = dist.log_probs(action)
         dist_entropy = dist.entropy().mean()
         return value, action_log_probs, dist_entropy, rnn_hxs
-
-
-FixedCategorical = torch.distributions.Categorical
-
-
-class Categorical(nn.Module):
-
-    def __init__(self, num_inputs, num_outputs):
-        super(Categorical, self).__init__()
-        self.linear = nn.Linear(num_inputs, num_outputs)
-
-    def forward(self, x):
-        x = self.linear(x)
-        return FixedCategorical(logits=x)
-
-
-FixedNormal = torch.distributions.Normal
-
-
-class DiagGaussian(nn.Module):
-
-    def __init__(self, num_inputs, num_outputs):
-        super(DiagGaussian, self).__init__()
-        self.fc_mean = nn.Linear(num_inputs, num_outputs)
-        self.logstd = AddBias(torch.zeros(num_outputs))
-
-    def forward(self, x):
-        action_mean = self.fc_mean(x)
-        zeros = torch.zeros(action_mean.size())
-        if x.is_cuda:
-            zeros = zeros
-        action_logstd = self.logstd(zeros)
-        return FixedNormal(action_mean, action_logstd.exp())
-
-
-class ChannelPool(nn.MaxPool1d):
-
-    def forward(self, x):
-        n, c, w, h = x.size()
-        x = x.view(n, c, w * h).permute(0, 2, 1)
-        x = x.contiguous()
-        pooled = F.max_pool1d(x, c, 1)
-        _, _, c = pooled.size()
-        pooled = pooled.permute(0, 2, 1)
-        return pooled.view(n, c, w, h)
-
-
-class AddBias(nn.Module):
-
-    def __init__(self, bias):
-        super(AddBias, self).__init__()
-        self._bias = nn.Parameter(bias.unsqueeze(1))
-
-    def forward(self, x):
-        if x.dim() == 2:
-            bias = self._bias.t().view(1, -1)
-        else:
-            bias = self._bias.t().view(1, -1, 1, 1)
-        return x + bias
-
-
-class Flatten(nn.Module):
-
-    def forward(self, x):
-        return x.view(x.size(0), -1)
-
-
-class NNBase(nn.Module):
-
-    def __init__(self, recurrent, recurrent_input_size, hidden_size):
-        super(NNBase, self).__init__()
-        self._hidden_size = hidden_size
-        self._recurrent = recurrent
-        if recurrent:
-            self.gru = nn.GRUCell(recurrent_input_size, hidden_size)
-            nn.init.orthogonal_(self.gru.weight_ih.data)
-            nn.init.orthogonal_(self.gru.weight_hh.data)
-            self.gru.bias_ih.data.fill_(0)
-            self.gru.bias_hh.data.fill_(0)
-
-    @property
-    def is_recurrent(self):
-        return self._recurrent
-
-    @property
-    def rec_state_size(self):
-        if self._recurrent:
-            return self._hidden_size
-        return 1
-
-    @property
-    def output_size(self):
-        return self._hidden_size
-
-    def _forward_gru(self, x, hxs, masks):
-        if x.size(0) == hxs.size(0):
-            x = hxs = self.gru(x, hxs * masks[:, (None)])
-        else:
-            N = hxs.size(0)
-            T = int(x.size(0) / N)
-            x = x.view(T, N, x.size(1))
-            masks = masks.view(T, N, 1)
-            outputs = []
-            for i in range(T):
-                hx = hxs = self.gru(x[i], hxs * masks[i])
-                outputs.append(hx)
-            x = torch.stack(outputs, dim=0)
-            x = x.view(T * N, -1)
-        return x, hxs
 
 
 import torch

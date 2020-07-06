@@ -6,6 +6,7 @@ predictor = _module
 webcam = _module
 jupyter_notebook_config = _module
 fcos = _module
+fcos = _module
 fcos_core = _module
 config = _module
 defaults = _module
@@ -21,10 +22,12 @@ coco_eval = _module
 voc = _module
 voc_eval = _module
 list_dataset = _module
+voc = _module
 samplers = _module
 distributed = _module
 grouped_batch_sampler = _module
 iteration_based_batch_sampler = _module
+transforms = _module
 transforms = _module
 engine = _module
 bbox_aug = _module
@@ -47,6 +50,7 @@ scale = _module
 sigmoid_focal_loss = _module
 smooth_l1_loss = _module
 modeling = _module
+backbone = _module
 backbone = _module
 fbnet = _module
 fbnet_builder = _module
@@ -91,11 +95,14 @@ loss = _module
 inference = _module
 loss = _module
 retinanet = _module
+inference = _module
 loss = _module
 retinanet = _module
 rpn = _module
 utils = _module
+utils = _module
 solver = _module
+build = _module
 lr_scheduler = _module
 structures = _module
 bounding_box = _module
@@ -142,29 +149,72 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import math
-
-
 import torch
+
+
+from torchvision import transforms as T
+
+
+import numpy as np
+
+
+import copy
+
+
+import logging
+
+
+import torch.utils.data
+
+
+import torchvision
+
+
+from torch.utils.data.dataset import ConcatDataset as _ConcatDataset
+
+
+from collections import OrderedDict
+
+
+import math
 
 
 import torch.distributed as dist
 
 
 from torch.utils.data.sampler import Sampler
+
+
+import itertools
+
+
+from torch.utils.data.sampler import BatchSampler
+
+
+import random
+
+
+from torchvision.transforms import functional as F
+
+
+import torchvision.transforms as TT
+
+
+import time
 
 
 from torch import nn
@@ -185,15 +235,6 @@ import torch.nn as nn
 from torch.nn.modules.utils import _ntuple
 
 
-import copy
-
-
-import logging
-
-
-from collections import OrderedDict
-
-
 import torch.nn.functional as F
 
 
@@ -206,10 +247,31 @@ from collections import namedtuple
 from torch.nn import functional as F
 
 
-import numpy as np
+from torch.utils.collect_env import get_pretty_env_info
+
+
+from collections import defaultdict
+
+
+from collections import deque
 
 
 from torchvision.ops.boxes import batched_nms
+
+
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from torch.utils.data.sampler import SequentialSampler
+
+
+from torch.utils.data.sampler import RandomSampler
 
 
 class FrozenBatchNorm2d(nn.Module):
@@ -231,6 +293,23 @@ class FrozenBatchNorm2d(nn.Module):
         scale = scale.reshape(1, -1, 1, 1)
         bias = bias.reshape(1, -1, 1, 1)
         return x * scale + bias
+
+
+def _load_C_extensions():
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    this_dir = os.path.dirname(this_dir)
+    this_dir = os.path.join(this_dir, 'csrc')
+    main_file = glob.glob(os.path.join(this_dir, '*.cpp'))
+    source_cpu = glob.glob(os.path.join(this_dir, 'cpu', '*.cpp'))
+    source_cuda = glob.glob(os.path.join(this_dir, 'cuda', '*.cu'))
+    source = main_file + source_cpu
+    extra_cflags = []
+    if torch.cuda.is_available() and CUDA_HOME is not None:
+        source.extend(source_cuda)
+        extra_cflags = ['-DWITH_CUDA']
+    source = [os.path.join(this_dir, s) for s in source]
+    extra_include_paths = [this_dir]
+    return load_ext('torchvision', source, extra_cflags=extra_cflags, extra_include_paths=extra_include_paths)
 
 
 class DeformConvFunction(Function):
@@ -420,6 +499,25 @@ class ModulatedDeformConv(nn.Module):
         return ''.join(['{}('.format(self.__class__.__name__), 'in_channels={}, '.format(self.in_channels), 'out_channels={}, '.format(self.out_channels), 'kernel_size={}, '.format(self.kernel_size), 'stride={}, '.format(self.stride), 'dilation={}, '.format(self.dilation), 'padding={}, '.format(self.padding), 'groups={}, '.format(self.groups), 'deformable_groups={}, '.format(self.deformable_groups), 'bias={})'.format(self.with_bias)])
 
 
+class ModulatedDeformConvPack(ModulatedDeformConv):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, bias=True):
+        super(ModulatedDeformConvPack, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, deformable_groups, bias)
+        self.conv_offset_mask = nn.Conv2d(self.in_channels // self.groups, self.deformable_groups * 3 * self.kernel_size[0] * self.kernel_size[1], kernel_size=self.kernel_size, stride=_pair(self.stride), padding=_pair(self.padding), bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset_mask.weight.data.zero_()
+        self.conv_offset_mask.bias.data.zero_()
+
+    def forward(self, input):
+        out = self.conv_offset_mask(input)
+        o1, o2, mask = torch.chunk(out, 3, dim=1)
+        offset = torch.cat((o1, o2), dim=1)
+        mask = torch.sigmoid(mask)
+        return modulated_deform_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
+
+
 class DeformRoIPoolingFunction(Function):
 
     @staticmethod
@@ -478,6 +576,59 @@ class DeformRoIPooling(nn.Module):
         if self.no_trans:
             offset = data.new_empty(0)
         return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+
+
+class DeformRoIPoolingPack(DeformRoIPooling):
+
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, deform_fc_channels=1024):
+        super(DeformRoIPoolingPack, self).__init__(spatial_scale, out_size, out_channels, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.deform_fc_channels = deform_fc_channels
+        if not no_trans:
+            self.offset_fc = nn.Sequential(nn.Linear(self.out_size * self.out_size * self.out_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.out_size * self.out_size * 2))
+            self.offset_fc[-1].weight.data.zero_()
+            self.offset_fc[-1].bias.data.zero_()
+
+    def forward(self, data, rois):
+        assert data.size(1) == self.out_channels
+        if self.no_trans:
+            offset = data.new_empty(0)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+        else:
+            n = rois.shape[0]
+            offset = data.new_empty(0)
+            x = deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset = self.offset_fc(x.view(n, -1))
+            offset = offset.view(n, 2, self.out_size, self.out_size)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+
+
+class ModulatedDeformRoIPoolingPack(DeformRoIPooling):
+
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, deform_fc_channels=1024):
+        super(ModulatedDeformRoIPoolingPack, self).__init__(spatial_scale, out_size, out_channels, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.deform_fc_channels = deform_fc_channels
+        if not no_trans:
+            self.offset_fc = nn.Sequential(nn.Linear(self.out_size * self.out_size * self.out_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.out_size * self.out_size * 2))
+            self.offset_fc[-1].weight.data.zero_()
+            self.offset_fc[-1].bias.data.zero_()
+            self.mask_fc = nn.Sequential(nn.Linear(self.out_size * self.out_size * self.out_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.out_size * self.out_size * 1), nn.Sigmoid())
+            self.mask_fc[2].weight.data.zero_()
+            self.mask_fc[2].bias.data.zero_()
+
+    def forward(self, data, rois):
+        assert data.size(1) == self.out_channels
+        if self.no_trans:
+            offset = data.new_empty(0)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+        else:
+            n = rois.shape[0]
+            offset = data.new_empty(0)
+            x = deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset = self.offset_fc(x.view(n, -1))
+            offset = offset.view(n, 2, self.out_size, self.out_size)
+            mask = self.mask_fc(x.view(n, -1))
+            mask = mask.view(n, 1, self.out_size, self.out_size)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std) * mask
 
 
 class IOULoss(nn.Module):
@@ -863,6 +1014,35 @@ class FBNetROIHead(nn.Module):
         return x
 
 
+class ConvBNRelu(nn.Sequential):
+
+    def __init__(self, input_depth, output_depth, kernel, stride, pad, no_bias, use_relu, bn_type, group=1, *args, **kwargs):
+        super(ConvBNRelu, self).__init__()
+        assert use_relu in ['relu', None]
+        if isinstance(bn_type, (list, tuple)):
+            assert len(bn_type) == 2
+            assert bn_type[0] == 'gn'
+            gn_group = bn_type[1]
+            bn_type = bn_type[0]
+        assert bn_type in ['bn', 'af', 'gn', None]
+        assert stride in [1, 2, 4]
+        op = Conv2d(input_depth, output_depth, *args, kernel_size=kernel, stride=stride, padding=pad, bias=not no_bias, groups=group, **kwargs)
+        nn.init.kaiming_normal_(op.weight, mode='fan_out', nonlinearity='relu')
+        if op.bias is not None:
+            nn.init.constant_(op.bias, 0.0)
+        self.add_module('conv', op)
+        if bn_type == 'bn':
+            bn_op = BatchNorm2d(output_depth)
+        elif bn_type == 'gn':
+            bn_op = nn.GroupNorm(num_groups=gn_group, num_channels=output_depth)
+        elif bn_type == 'af':
+            bn_op = FrozenBatchNorm2d(output_depth)
+        if bn_type is not None:
+            self.add_module('bn', bn_op)
+        if use_relu == 'relu':
+            self.add_module('relu', nn.ReLU(inplace=True))
+
+
 class Identity(nn.Module):
 
     def __init__(self, C_in, C_out, stride):
@@ -966,35 +1146,6 @@ class ChannelShuffle(nn.Module):
         return x.view(N, g, int(C / g), H, W).permute(0, 2, 1, 3, 4).contiguous().view(N, C, H, W)
 
 
-class ConvBNRelu(nn.Sequential):
-
-    def __init__(self, input_depth, output_depth, kernel, stride, pad, no_bias, use_relu, bn_type, group=1, *args, **kwargs):
-        super(ConvBNRelu, self).__init__()
-        assert use_relu in ['relu', None]
-        if isinstance(bn_type, (list, tuple)):
-            assert len(bn_type) == 2
-            assert bn_type[0] == 'gn'
-            gn_group = bn_type[1]
-            bn_type = bn_type[0]
-        assert bn_type in ['bn', 'af', 'gn', None]
-        assert stride in [1, 2, 4]
-        op = Conv2d(input_depth, output_depth, *args, kernel_size=kernel, stride=stride, padding=pad, bias=not no_bias, groups=group, **kwargs)
-        nn.init.kaiming_normal_(op.weight, mode='fan_out', nonlinearity='relu')
-        if op.bias is not None:
-            nn.init.constant_(op.bias, 0.0)
-        self.add_module('conv', op)
-        if bn_type == 'bn':
-            bn_op = BatchNorm2d(output_depth)
-        elif bn_type == 'gn':
-            bn_op = nn.GroupNorm(num_groups=gn_group, num_channels=output_depth)
-        elif bn_type == 'af':
-            bn_op = FrozenBatchNorm2d(output_depth)
-        if bn_type is not None:
-            self.add_module('bn', bn_op)
-        if use_relu == 'relu':
-            self.add_module('relu', nn.ReLU(inplace=True))
-
-
 class SEModule(nn.Module):
     reduction = 4
 
@@ -1095,6 +1246,33 @@ class IRFBlock(nn.Module):
         return y
 
 
+class LastLevelMaxPool(nn.Module):
+
+    def forward(self, x):
+        return [F.max_pool2d(x, 1, 2, 0)]
+
+
+class LastLevelP6P7(nn.Module):
+    """
+    This module is used in RetinaNet to generate extra layers, P6 and P7.
+    """
+
+    def __init__(self, in_channels, out_channels):
+        super(LastLevelP6P7, self).__init__()
+        self.p6 = nn.Conv2d(in_channels, out_channels, 3, 2, 1)
+        self.p7 = nn.Conv2d(out_channels, out_channels, 3, 2, 1)
+        for module in [self.p6, self.p7]:
+            nn.init.kaiming_uniform_(module.weight, a=1)
+            nn.init.constant_(module.bias, 0)
+        self.use_P5 = in_channels == out_channels
+
+    def forward(self, c5, p5):
+        x = p5 if self.use_P5 else c5
+        p6 = self.p6(x)
+        p7 = self.p7(F.relu(p6))
+        return [p6, p7]
+
+
 class FPN(nn.Module):
     """
     Module that adds FPN on top of a list of feature maps.
@@ -1153,33 +1331,6 @@ class FPN(nn.Module):
             last_results = self.top_blocks(results[-1])
             results.extend(last_results)
         return tuple(results)
-
-
-class LastLevelMaxPool(nn.Module):
-
-    def forward(self, x):
-        return [F.max_pool2d(x, 1, 2, 0)]
-
-
-class LastLevelP6P7(nn.Module):
-    """
-    This module is used in RetinaNet to generate extra layers, P6 and P7.
-    """
-
-    def __init__(self, in_channels, out_channels):
-        super(LastLevelP6P7, self).__init__()
-        self.p6 = nn.Conv2d(in_channels, out_channels, 3, 2, 1)
-        self.p7 = nn.Conv2d(out_channels, out_channels, 3, 2, 1)
-        for module in [self.p6, self.p7]:
-            nn.init.kaiming_uniform_(module.weight, a=1)
-            nn.init.constant_(module.bias, 0)
-        self.use_P5 = in_channels == out_channels
-
-    def forward(self, c5, p5):
-        x = p5 if self.use_P5 else c5
-        p6 = self.p6(x)
-        p7 = self.p7(F.relu(p6))
-        return [p6, p7]
 
 
 class InvertedResidual(nn.Module):
@@ -1332,6 +1483,30 @@ ResNet50StagesTo5 = tuple(StageSpec(index=i, block_count=c, return_features=r) f
 _STAGE_SPECS = Registry({'R-50-C4': ResNet50StagesTo4, 'R-50-C5': ResNet50StagesTo5, 'R-101-C4': ResNet101StagesTo4, 'R-101-C5': ResNet101StagesTo5, 'R-50-FPN': ResNet50FPNStagesTo5, 'R-50-FPN-RETINANET': ResNet50FPNStagesTo5, 'R-101-FPN': ResNet101FPNStagesTo5, 'R-101-FPN-RETINANET': ResNet101FPNStagesTo5, 'R-152-FPN': ResNet152FPNStagesTo5})
 
 
+class BaseStem(nn.Module):
+
+    def __init__(self, cfg, norm_func):
+        super(BaseStem, self).__init__()
+        out_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
+        self.conv1 = Conv2d(3, out_channels, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = norm_func(out_channels)
+        for l in [self.conv1]:
+            nn.init.kaiming_uniform_(l.weight, a=1)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = F.relu_(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2, padding=1)
+        return x
+
+
+class StemWithFixedBatchNorm(BaseStem):
+
+    def __init__(self, cfg):
+        super(StemWithFixedBatchNorm, self).__init__(cfg, norm_func=FrozenBatchNorm2d)
+
+
 def get_group_gn(dim, dim_per_gp, num_groups):
     """get number of groups used by GroupNorm, based on number of channels."""
     assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
@@ -1344,15 +1519,84 @@ def get_group_gn(dim, dim_per_gp, num_groups):
     return group_gn
 
 
-_global_config['MODEL'] = 4
-
-
 def group_norm(out_channels, affine=True, divisor=1):
     out_channels = out_channels // divisor
     dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
     num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
     eps = cfg.MODEL.GROUP_NORM.EPSILON
     return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp, num_groups), out_channels, eps, affine)
+
+
+class StemWithGN(BaseStem):
+
+    def __init__(self, cfg):
+        super(StemWithGN, self).__init__(cfg, norm_func=group_norm)
+
+
+_STEM_MODULES = Registry({'StemWithFixedBatchNorm': StemWithFixedBatchNorm, 'StemWithGN': StemWithGN})
+
+
+class Bottleneck(nn.Module):
+
+    def __init__(self, in_channels, bottleneck_channels, out_channels, num_groups, stride_in_1x1, stride, dilation, norm_func, dcn_config):
+        super(Bottleneck, self).__init__()
+        self.downsample = None
+        if in_channels != out_channels:
+            down_stride = stride if dilation == 1 else 1
+            self.downsample = nn.Sequential(Conv2d(in_channels, out_channels, kernel_size=1, stride=down_stride, bias=False), norm_func(out_channels))
+            for modules in [self.downsample]:
+                for l in modules.modules():
+                    if isinstance(l, Conv2d):
+                        nn.init.kaiming_uniform_(l.weight, a=1)
+        if dilation > 1:
+            stride = 1
+        stride_1x1, stride_3x3 = (stride, 1) if stride_in_1x1 else (1, stride)
+        self.conv1 = Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=stride_1x1, bias=False)
+        self.bn1 = norm_func(bottleneck_channels)
+        with_dcn = dcn_config.get('stage_with_dcn', False)
+        if with_dcn:
+            deformable_groups = dcn_config.get('deformable_groups', 1)
+            with_modulated_dcn = dcn_config.get('with_modulated_dcn', False)
+            self.conv2 = DFConv2d(bottleneck_channels, bottleneck_channels, with_modulated_dcn=with_modulated_dcn, kernel_size=3, stride=stride_3x3, groups=num_groups, dilation=dilation, deformable_groups=deformable_groups, bias=False)
+        else:
+            self.conv2 = Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride_3x3, padding=dilation, bias=False, groups=num_groups, dilation=dilation)
+            nn.init.kaiming_uniform_(self.conv2.weight, a=1)
+        self.bn2 = norm_func(bottleneck_channels)
+        self.conv3 = Conv2d(bottleneck_channels, out_channels, kernel_size=1, bias=False)
+        self.bn3 = norm_func(out_channels)
+        for l in [self.conv1, self.conv3]:
+            nn.init.kaiming_uniform_(l.weight, a=1)
+
+    def forward(self, x):
+        identity = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = F.relu_(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = F.relu_(out)
+        out0 = self.conv3(out)
+        out = self.bn3(out0)
+        if self.downsample is not None:
+            identity = self.downsample(x)
+        out += identity
+        out = F.relu_(out)
+        return out
+
+
+class BottleneckWithFixedBatchNorm(Bottleneck):
+
+    def __init__(self, in_channels, bottleneck_channels, out_channels, num_groups=1, stride_in_1x1=True, stride=1, dilation=1, dcn_config=None):
+        super(BottleneckWithFixedBatchNorm, self).__init__(in_channels=in_channels, bottleneck_channels=bottleneck_channels, out_channels=out_channels, num_groups=num_groups, stride_in_1x1=stride_in_1x1, stride=stride, dilation=dilation, norm_func=FrozenBatchNorm2d, dcn_config=dcn_config)
+
+
+class BottleneckWithGN(Bottleneck):
+
+    def __init__(self, in_channels, bottleneck_channels, out_channels, num_groups=1, stride_in_1x1=True, stride=1, dilation=1, dcn_config=None):
+        super(BottleneckWithGN, self).__init__(in_channels=in_channels, bottleneck_channels=bottleneck_channels, out_channels=out_channels, num_groups=num_groups, stride_in_1x1=stride_in_1x1, stride=stride, dilation=dilation, norm_func=group_norm, dcn_config=dcn_config)
+
+
+_TRANSFORMATION_MODULES = Registry({'BottleneckWithFixedBatchNorm': BottleneckWithFixedBatchNorm, 'BottleneckWithGN': BottleneckWithGN})
 
 
 def _make_stage(transformation_module, in_channels, bottleneck_channels, out_channels, block_count, num_groups, stride_in_1x1, first_stride, dilation=1, dcn_config=None):
@@ -1442,333 +1686,42 @@ class ResNetHead(nn.Module):
         return x
 
 
-class Bottleneck(nn.Module):
-
-    def __init__(self, in_channels, bottleneck_channels, out_channels, num_groups, stride_in_1x1, stride, dilation, norm_func, dcn_config):
-        super(Bottleneck, self).__init__()
-        self.downsample = None
-        if in_channels != out_channels:
-            down_stride = stride if dilation == 1 else 1
-            self.downsample = nn.Sequential(Conv2d(in_channels, out_channels, kernel_size=1, stride=down_stride, bias=False), norm_func(out_channels))
-            for modules in [self.downsample]:
-                for l in modules.modules():
-                    if isinstance(l, Conv2d):
-                        nn.init.kaiming_uniform_(l.weight, a=1)
-        if dilation > 1:
-            stride = 1
-        stride_1x1, stride_3x3 = (stride, 1) if stride_in_1x1 else (1, stride)
-        self.conv1 = Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=stride_1x1, bias=False)
-        self.bn1 = norm_func(bottleneck_channels)
-        with_dcn = dcn_config.get('stage_with_dcn', False)
-        if with_dcn:
-            deformable_groups = dcn_config.get('deformable_groups', 1)
-            with_modulated_dcn = dcn_config.get('with_modulated_dcn', False)
-            self.conv2 = DFConv2d(bottleneck_channels, bottleneck_channels, with_modulated_dcn=with_modulated_dcn, kernel_size=3, stride=stride_3x3, groups=num_groups, dilation=dilation, deformable_groups=deformable_groups, bias=False)
-        else:
-            self.conv2 = Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride_3x3, padding=dilation, bias=False, groups=num_groups, dilation=dilation)
-            nn.init.kaiming_uniform_(self.conv2.weight, a=1)
-        self.bn2 = norm_func(bottleneck_channels)
-        self.conv3 = Conv2d(bottleneck_channels, out_channels, kernel_size=1, bias=False)
-        self.bn3 = norm_func(out_channels)
-        for l in [self.conv1, self.conv3]:
-            nn.init.kaiming_uniform_(l.weight, a=1)
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = F.relu_(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = F.relu_(out)
-        out0 = self.conv3(out)
-        out = self.bn3(out0)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = F.relu_(out)
-        return out
-
-
-class BaseStem(nn.Module):
-
-    def __init__(self, cfg, norm_func):
-        super(BaseStem, self).__init__()
-        out_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
-        self.conv1 = Conv2d(3, out_channels, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = norm_func(out_channels)
-        for l in [self.conv1]:
-            nn.init.kaiming_uniform_(l.weight, a=1)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = F.relu_(x)
-        x = F.max_pool2d(x, kernel_size=3, stride=2, padding=1)
-        return x
-
-
 def build_backbone(cfg):
     assert cfg.MODEL.BACKBONE.CONV_BODY in registry.BACKBONES, 'cfg.MODEL.BACKBONE.CONV_BODY: {} are not registered in registry'.format(cfg.MODEL.BACKBONE.CONV_BODY)
     return registry.BACKBONES[cfg.MODEL.BACKBONE.CONV_BODY](cfg)
 
 
-def build_roi_box_head(cfg, in_channels):
+class CombinedROIHeads(torch.nn.ModuleDict):
     """
-    Constructs a new box head.
-    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
-    and make it a parameter in the config
-    """
-    return ROIBoxHead(cfg, in_channels)
-
-
-def build_roi_keypoint_head(cfg, in_channels):
-    return ROIKeypointHead(cfg, in_channels)
-
-
-def build_roi_mask_head(cfg, in_channels):
-    return ROIMaskHead(cfg, in_channels)
-
-
-def build_roi_heads(cfg, in_channels):
-    roi_heads = []
-    if cfg.MODEL.RETINANET_ON:
-        return []
-    if not cfg.MODEL.RPN_ONLY:
-        roi_heads.append(('box', build_roi_box_head(cfg, in_channels)))
-    if cfg.MODEL.MASK_ON:
-        roi_heads.append(('mask', build_roi_mask_head(cfg, in_channels)))
-    if cfg.MODEL.KEYPOINT_ON:
-        roi_heads.append(('keypoint', build_roi_keypoint_head(cfg, in_channels)))
-    if roi_heads:
-        roi_heads = CombinedROIHeads(cfg, roi_heads)
-    return roi_heads
-
-
-def build_fcos(cfg, in_channels):
-    return FCOSModule(cfg, in_channels)
-
-
-def build_retinanet(cfg, in_channels):
-    return RetinaNetModule(cfg, in_channels)
-
-
-def build_rpn(cfg, in_channels):
-    """
-    This gives the gist of it. Not super important because it doesn't change as much
-    """
-    if cfg.MODEL.FCOS_ON:
-        return build_fcos(cfg, in_channels)
-    if cfg.MODEL.RETINANET_ON:
-        return build_retinanet(cfg, in_channels)
-    return RPNModule(cfg, in_channels)
-
-
-class ImageList(object):
-    """
-    Structure that holds a list of images (of possibly
-    varying sizes) as a single tensor.
-    This works by padding the images to the same size,
-    and storing in a field the original sizes of each image
+    Combines a set of individual heads (for box prediction or masks) into a single
+    head.
     """
 
-    def __init__(self, tensors, image_sizes):
-        """
-        Arguments:
-            tensors (tensor)
-            image_sizes (list[tuple[int, int]])
-        """
-        self.tensors = tensors
-        self.image_sizes = image_sizes
+    def __init__(self, cfg, heads):
+        super(CombinedROIHeads, self).__init__(heads)
+        self.cfg = cfg.clone()
+        if cfg.MODEL.MASK_ON and cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+            self.mask.feature_extractor = self.box.feature_extractor
+        if cfg.MODEL.KEYPOINT_ON and cfg.MODEL.ROI_KEYPOINT_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+            self.keypoint.feature_extractor = self.box.feature_extractor
 
-    def to(self, *args, **kwargs):
-        cast_tensor = self.tensors.to(*args, **kwargs)
-        return ImageList(cast_tensor, self.image_sizes)
-
-
-def to_image_list(tensors, size_divisible=0):
-    """
-    tensors can be an ImageList, a torch.Tensor or
-    an iterable of Tensors. It can't be a numpy array.
-    When tensors is an iterable of Tensors, it pads
-    the Tensors with zeros so that they have the same
-    shape
-    """
-    if isinstance(tensors, torch.Tensor) and size_divisible > 0:
-        tensors = [tensors]
-    if isinstance(tensors, ImageList):
-        return tensors
-    elif isinstance(tensors, torch.Tensor):
-        if tensors.dim() == 3:
-            tensors = tensors[None]
-        assert tensors.dim() == 4
-        image_sizes = [tensor.shape[-2:] for tensor in tensors]
-        return ImageList(tensors, image_sizes)
-    elif isinstance(tensors, (tuple, list)):
-        max_size = tuple(max(s) for s in zip(*[img.shape for img in tensors]))
-        if size_divisible > 0:
-            import math
-            stride = size_divisible
-            max_size = list(max_size)
-            max_size[1] = int(math.ceil(max_size[1] / stride) * stride)
-            max_size[2] = int(math.ceil(max_size[2] / stride) * stride)
-            max_size = tuple(max_size)
-        batch_shape = (len(tensors),) + max_size
-        batched_imgs = tensors[0].new(*batch_shape).zero_()
-        for img, pad_img in zip(tensors, batched_imgs):
-            pad_img[:img.shape[0], :img.shape[1], :img.shape[2]].copy_(img)
-        image_sizes = [im.shape[-2:] for im in tensors]
-        return ImageList(batched_imgs, image_sizes)
-    else:
-        raise TypeError('Unsupported type for to_image_list: {}'.format(type(tensors)))
-
-
-class GeneralizedRCNN(nn.Module):
-    """
-    Main class for Generalized R-CNN. Currently supports boxes and masks.
-    It consists of three main parts:
-    - backbone
-    - rpn
-    - heads: takes the features + the proposals from the RPN and computes
-        detections / masks from it.
-    """
-
-    def __init__(self, cfg):
-        super(GeneralizedRCNN, self).__init__()
-        self.backbone = build_backbone(cfg)
-        self.rpn = build_rpn(cfg, self.backbone.out_channels)
-        self.roi_heads = build_roi_heads(cfg, self.backbone.out_channels)
-
-    def forward(self, images, targets=None):
-        """
-        Arguments:
-            images (list[Tensor] or ImageList): images to be processed
-            targets (list[BoxList]): ground-truth boxes present in the image (optional)
-
-        Returns:
-            result (list[BoxList] or dict[Tensor]): the output from the model.
-                During training, it returns a dict[Tensor] which contains the losses.
-                During testing, it returns list[BoxList] contains additional fields
-                like `scores`, `labels` and `mask` (for Mask R-CNN models).
-
-        """
-        if self.training and targets is None:
-            raise ValueError('In training mode, targets should be passed')
-        images = to_image_list(images)
-        features = self.backbone(images.tensors)
-        proposals, proposal_losses = self.rpn(images, features, targets)
-        if self.roi_heads:
-            x, result, detector_losses = self.roi_heads(features, proposals, targets)
-        else:
-            x = features
-            result = proposals
-            detector_losses = {}
-        if self.training:
-            losses = {}
-            losses.update(detector_losses)
-            losses.update(proposal_losses)
-            return losses
-        return result
-
-
-def cat(tensors, dim=0):
-    """
-    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
-    """
-    assert isinstance(tensors, (list, tuple))
-    if len(tensors) == 1:
-        return tensors[0]
-    return torch.cat(tensors, dim)
-
-
-class LevelMapper(object):
-    """Determine which FPN level each RoI in a set of RoIs should map to based
-    on the heuristic in the FPN paper.
-    """
-
-    def __init__(self, k_min, k_max, canonical_scale=224, canonical_level=4, eps=1e-06):
-        """
-        Arguments:
-            k_min (int)
-            k_max (int)
-            canonical_scale (int)
-            canonical_level (int)
-            eps (float)
-        """
-        self.k_min = k_min
-        self.k_max = k_max
-        self.s0 = canonical_scale
-        self.lvl0 = canonical_level
-        self.eps = eps
-
-    def __call__(self, boxlists):
-        """
-        Arguments:
-            boxlists (list[BoxList])
-        """
-        s = torch.sqrt(cat([boxlist.area() for boxlist in boxlists]))
-        target_lvls = torch.floor(self.lvl0 + torch.log2(s / self.s0 + self.eps))
-        target_lvls = torch.clamp(target_lvls, min=self.k_min, max=self.k_max)
-        return target_lvls.to(torch.int64) - self.k_min
-
-
-class Pooler(nn.Module):
-    """
-    Pooler for Detection with or without FPN.
-    It currently hard-code ROIAlign in the implementation,
-    but that can be made more generic later on.
-    Also, the requirement of passing the scales is not strictly necessary, as they
-    can be inferred from the size of the feature map / size of original image,
-    which is available thanks to the BoxList.
-    """
-
-    def __init__(self, output_size, scales, sampling_ratio):
-        """
-        Arguments:
-            output_size (list[tuple[int]] or list[int]): output size for the pooled region
-            scales (list[float]): scales for each Pooler
-            sampling_ratio (int): sampling ratio for ROIAlign
-        """
-        super(Pooler, self).__init__()
-        poolers = []
-        for scale in scales:
-            poolers.append(ROIAlign(output_size, spatial_scale=scale, sampling_ratio=sampling_ratio))
-        self.poolers = nn.ModuleList(poolers)
-        self.output_size = output_size
-        lvl_min = -torch.log2(torch.tensor(scales[0], dtype=torch.float32)).item()
-        lvl_max = -torch.log2(torch.tensor(scales[-1], dtype=torch.float32)).item()
-        self.map_levels = LevelMapper(lvl_min, lvl_max)
-
-    def convert_to_roi_format(self, boxes):
-        concat_boxes = cat([b.bbox for b in boxes], dim=0)
-        device, dtype = concat_boxes.device, concat_boxes.dtype
-        ids = cat([torch.full((len(b), 1), i, dtype=dtype, device=device) for i, b in enumerate(boxes)], dim=0)
-        rois = torch.cat([ids, concat_boxes], dim=1)
-        return rois
-
-    def forward(self, x, boxes):
-        """
-        Arguments:
-            x (list[Tensor]): feature maps for each level
-            boxes (list[BoxList]): boxes to be used to perform the pooling operation.
-        Returns:
-            result (Tensor)
-        """
-        num_levels = len(self.poolers)
-        rois = self.convert_to_roi_format(boxes)
-        if num_levels == 1:
-            return self.poolers[0](x[0], rois)
-        levels = self.map_levels(boxes)
-        num_rois = len(rois)
-        num_channels = x[0].shape[1]
-        output_size = self.output_size[0]
-        dtype, device = x[0].dtype, x[0].device
-        result = torch.zeros((num_rois, num_channels, output_size, output_size), dtype=dtype, device=device)
-        for level, (per_level_feature, pooler) in enumerate(zip(x, self.poolers)):
-            idx_in_level = torch.nonzero(levels == level).squeeze(1)
-            rois_per_level = rois[idx_in_level]
-            result[idx_in_level] = pooler(per_level_feature, rois_per_level)
-        return result
+    def forward(self, features, proposals, targets=None):
+        losses = {}
+        x, detections, loss_box = self.box(features, proposals, targets)
+        losses.update(loss_box)
+        if self.cfg.MODEL.MASK_ON:
+            mask_features = features
+            if self.training and self.cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+                mask_features = x
+            x, detections, loss_mask = self.mask(mask_features, detections, targets)
+            losses.update(loss_mask)
+        if self.cfg.MODEL.KEYPOINT_ON:
+            keypoint_features = features
+            if self.training and self.cfg.MODEL.ROI_KEYPOINT_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+                keypoint_features = x
+            x, detections, loss_keypoint = self.keypoint(keypoint_features, detections, targets)
+            losses.update(loss_keypoint)
+        return x, detections, losses
 
 
 def make_roi_box_feature_extractor(cfg, in_channels):
@@ -1878,7 +1831,7 @@ class BoxCoder(object):
             rel_codes (Tensor): encoded boxes
             boxes (Tensor): reference boxes.
         """
-        boxes = boxes.to(rel_codes.dtype)
+        boxes = boxes
         TO_REMOVE = 1
         widths = boxes[:, (2)] - boxes[:, (0)] + TO_REMOVE
         heights = boxes[:, (3)] - boxes[:, (1)] + TO_REMOVE
@@ -2010,6 +1963,16 @@ def boxlist_iou(boxlist1, boxlist2):
     return iou
 
 
+def cat(tensors, dim=0):
+    """
+    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
+    """
+    assert isinstance(tensors, (list, tuple))
+    if len(tensors) == 1:
+        return tensors[0]
+    return torch.cat(tensors, dim)
+
+
 def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
     """
     very similar to the smooth_l1_loss from pytorch, but with
@@ -2056,7 +2019,7 @@ class FastRCNNLossComputation(object):
             matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
             matched_idxs = matched_targets.get_field('matched_idxs')
             labels_per_image = matched_targets.get_field('labels')
-            labels_per_image = labels_per_image.to(dtype=torch.int64)
+            labels_per_image = labels_per_image
             bg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
             labels_per_image[bg_inds] = 0
             ignore_inds = matched_idxs == Matcher.BETWEEN_THRESHOLDS
@@ -2130,62 +2093,6 @@ def make_roi_box_loss_evaluator(cfg):
     cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
     loss_evaluator = FastRCNNLossComputation(matcher, fg_bg_sampler, box_coder, cls_agnostic_bbox_reg)
     return loss_evaluator
-
-
-def make_roi_box_post_processor(cfg):
-    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
-    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
-    box_coder = BoxCoder(weights=bbox_reg_weights)
-    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
-    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
-    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
-    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
-    bbox_aug_enabled = cfg.TEST.BBOX_AUG.ENABLED
-    postprocessor = PostProcessor(score_thresh, nms_thresh, detections_per_img, box_coder, cls_agnostic_bbox_reg, bbox_aug_enabled)
-    return postprocessor
-
-
-def make_roi_box_predictor(cfg, in_channels):
-    func = registry.ROI_BOX_PREDICTOR[cfg.MODEL.ROI_BOX_HEAD.PREDICTOR]
-    return func(cfg, in_channels)
-
-
-class ROIBoxHead(torch.nn.Module):
-    """
-    Generic Box Head class.
-    """
-
-    def __init__(self, cfg, in_channels):
-        super(ROIBoxHead, self).__init__()
-        self.feature_extractor = make_roi_box_feature_extractor(cfg, in_channels)
-        self.predictor = make_roi_box_predictor(cfg, self.feature_extractor.out_channels)
-        self.post_processor = make_roi_box_post_processor(cfg)
-        self.loss_evaluator = make_roi_box_loss_evaluator(cfg)
-
-    def forward(self, features, proposals, targets=None):
-        """
-        Arguments:
-            features (list[Tensor]): feature-maps from possibly several levels
-            proposals (list[BoxList]): proposal boxes
-            targets (list[BoxList], optional): the ground-truth targets.
-
-        Returns:
-            x (Tensor): the result of the feature extractor
-            proposals (list[BoxList]): during training, the subsampled proposals
-                are returned. During testing, the predicted boxlists are returned
-            losses (dict[Tensor]): During training, returns the losses for the
-                head. During testing, returns an empty dict.
-        """
-        if self.training:
-            with torch.no_grad():
-                proposals = self.loss_evaluator.subsample(proposals, targets)
-        x = self.feature_extractor(features, proposals)
-        class_logits, box_regression = self.predictor(x)
-        if not self.training:
-            result = self.post_processor((class_logits, box_regression), proposals)
-            return x, result, {}
-        loss_classifier, loss_box_reg = self.loss_evaluator([class_logits], [box_regression])
-        return x, proposals, dict(loss_classifier=loss_classifier, loss_box_reg=loss_box_reg)
 
 
 FLIP_LEFT_RIGHT = 0
@@ -2346,10 +2253,10 @@ class BoxList(object):
         return bbox.convert(self.mode)
 
     def to(self, device):
-        bbox = BoxList(self.bbox.to(device), self.size, self.mode)
+        bbox = BoxList(self.bbox, self.size, self.mode)
         for k, v in self.extra_fields.items():
             if hasattr(v, 'to'):
-                v = v.to(device)
+                v = v
             bbox.add_field(k, v)
         return bbox
 
@@ -2571,121 +2478,69 @@ class PostProcessor(nn.Module):
         return result
 
 
-def make_fc(dim_in, hidden_dim, use_gn=False):
+def make_roi_box_post_processor(cfg):
+    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
+    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    box_coder = BoxCoder(weights=bbox_reg_weights)
+    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
+    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
+    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
+    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
+    bbox_aug_enabled = cfg.TEST.BBOX_AUG.ENABLED
+    postprocessor = PostProcessor(score_thresh, nms_thresh, detections_per_img, box_coder, cls_agnostic_bbox_reg, bbox_aug_enabled)
+    return postprocessor
+
+
+def make_roi_box_predictor(cfg, in_channels):
+    func = registry.ROI_BOX_PREDICTOR[cfg.MODEL.ROI_BOX_HEAD.PREDICTOR]
+    return func(cfg, in_channels)
+
+
+class ROIBoxHead(torch.nn.Module):
     """
-        Caffe2 implementation uses XavierFill, which in fact
-        corresponds to kaiming_uniform_ in PyTorch
+    Generic Box Head class.
     """
-    if use_gn:
-        fc = nn.Linear(dim_in, hidden_dim, bias=False)
-        nn.init.kaiming_uniform_(fc.weight, a=1)
-        return nn.Sequential(fc, group_norm(hidden_dim))
-    fc = nn.Linear(dim_in, hidden_dim)
-    nn.init.kaiming_uniform_(fc.weight, a=1)
-    nn.init.constant_(fc.bias, 0)
-    return fc
+
+    def __init__(self, cfg, in_channels):
+        super(ROIBoxHead, self).__init__()
+        self.feature_extractor = make_roi_box_feature_extractor(cfg, in_channels)
+        self.predictor = make_roi_box_predictor(cfg, self.feature_extractor.out_channels)
+        self.post_processor = make_roi_box_post_processor(cfg)
+        self.loss_evaluator = make_roi_box_loss_evaluator(cfg)
+
+    def forward(self, features, proposals, targets=None):
+        """
+        Arguments:
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
+
+        Returns:
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the subsampled proposals
+                are returned. During testing, the predicted boxlists are returned
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
+        """
+        if self.training:
+            with torch.no_grad():
+                proposals = self.loss_evaluator.subsample(proposals, targets)
+        x = self.feature_extractor(features, proposals)
+        class_logits, box_regression = self.predictor(x)
+        if not self.training:
+            result = self.post_processor((class_logits, box_regression), proposals)
+            return x, result, {}
+        loss_classifier, loss_box_reg = self.loss_evaluator([class_logits], [box_regression])
+        return x, proposals, dict(loss_classifier=loss_classifier, loss_box_reg=loss_box_reg)
 
 
-class Keypoints(object):
-
-    def __init__(self, keypoints, size, mode=None):
-        device = keypoints.device if isinstance(keypoints, torch.Tensor) else torch.device('cpu')
-        keypoints = torch.as_tensor(keypoints, dtype=torch.float32, device=device)
-        num_keypoints = keypoints.shape[0]
-        if num_keypoints:
-            keypoints = keypoints.view(num_keypoints, -1, 3)
-        self.keypoints = keypoints
-        self.size = size
-        self.mode = mode
-        self.extra_fields = {}
-
-    def crop(self, box):
-        raise NotImplementedError()
-
-    def resize(self, size, *args, **kwargs):
-        ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(size, self.size))
-        ratio_w, ratio_h = ratios
-        resized_data = self.keypoints.clone()
-        resized_data[..., 0] *= ratio_w
-        resized_data[..., 1] *= ratio_h
-        keypoints = type(self)(resized_data, size, self.mode)
-        for k, v in self.extra_fields.items():
-            keypoints.add_field(k, v)
-        return keypoints
-
-    def transpose(self, method):
-        if method not in (FLIP_LEFT_RIGHT,):
-            raise NotImplementedError('Only FLIP_LEFT_RIGHT implemented')
-        flip_inds = type(self).FLIP_INDS
-        flipped_data = self.keypoints[:, (flip_inds)]
-        width = self.size[0]
-        TO_REMOVE = 1
-        flipped_data[..., 0] = width - flipped_data[..., 0] - TO_REMOVE
-        inds = flipped_data[..., 2] == 0
-        flipped_data[inds] = 0
-        keypoints = type(self)(flipped_data, self.size, self.mode)
-        for k, v in self.extra_fields.items():
-            keypoints.add_field(k, v)
-        return keypoints
-
-    def to(self, *args, **kwargs):
-        keypoints = type(self)(self.keypoints.to(*args, **kwargs), self.size, self.mode)
-        for k, v in self.extra_fields.items():
-            if hasattr(v, 'to'):
-                v = v.to(*args, **kwargs)
-            keypoints.add_field(k, v)
-        return keypoints
-
-    def __getitem__(self, item):
-        keypoints = type(self)(self.keypoints[item], self.size, self.mode)
-        for k, v in self.extra_fields.items():
-            keypoints.add_field(k, v[item])
-        return keypoints
-
-    def add_field(self, field, field_data):
-        self.extra_fields[field] = field_data
-
-    def get_field(self, field):
-        return self.extra_fields[field]
-
-    def __repr__(self):
-        s = self.__class__.__name__ + '('
-        s += 'num_instances={}, '.format(len(self.keypoints))
-        s += 'image_width={}, '.format(self.size[0])
-        s += 'image_height={})'.format(self.size[1])
-        return s
-
-
-class PersonKeypoints(Keypoints):
-    NAMES = ['nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear', 'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist', 'left_hip', 'right_hip', 'left_knee', 'right_knee', 'left_ankle', 'right_ankle']
-    FLIP_MAP = {'left_eye': 'right_eye', 'left_ear': 'right_ear', 'left_shoulder': 'right_shoulder', 'left_elbow': 'right_elbow', 'left_wrist': 'right_wrist', 'left_hip': 'right_hip', 'left_knee': 'right_knee', 'left_ankle': 'right_ankle'}
-
-
-class KeypointPostProcessor(nn.Module):
-
-    def __init__(self, keypointer=None):
-        super(KeypointPostProcessor, self).__init__()
-        self.keypointer = keypointer
-
-    def forward(self, x, boxes):
-        mask_prob = x
-        scores = None
-        if self.keypointer:
-            mask_prob, scores = self.keypointer(x, boxes)
-        assert len(boxes) == 1, 'Only non-batched inference supported for now'
-        boxes_per_image = [box.bbox.size(0) for box in boxes]
-        mask_prob = mask_prob.split(boxes_per_image, dim=0)
-        scores = scores.split(boxes_per_image, dim=0)
-        results = []
-        for prob, box, score in zip(mask_prob, boxes, scores):
-            bbox = BoxList(box.bbox, box.size, mode='xyxy')
-            for field in box.fields():
-                bbox.add_field(field, box.get_field(field))
-            prob = PersonKeypoints(prob, box.size)
-            prob.add_field('logits', score)
-            bbox.add_field('keypoints', prob)
-            results.append(bbox)
-        return results
+def build_roi_box_head(cfg, in_channels):
+    """
+    Constructs a new box head.
+    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
+    and make it a parameter in the config
+    """
+    return ROIBoxHead(cfg, in_channels)
 
 
 def make_roi_keypoint_feature_extractor(cfg, in_channels):
@@ -2766,7 +2621,7 @@ class KeypointRCNNLossComputation(object):
             matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
             matched_idxs = matched_targets.get_field('matched_idxs')
             labels_per_image = matched_targets.get_field('labels')
-            labels_per_image = labels_per_image.to(dtype=torch.int64)
+            labels_per_image = labels_per_image
             neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
             labels_per_image[neg_inds] = 0
             keypoints_per_image = matched_targets.get_field('keypoints')
@@ -2810,7 +2665,7 @@ class KeypointRCNNLossComputation(object):
             heatmaps.append(heatmaps_per_image.view(-1))
             valid.append(valid_per_image.view(-1))
         keypoint_targets = cat(heatmaps, dim=0)
-        valid = cat(valid, dim=0).to(dtype=torch.uint8)
+        valid = cat(valid, dim=0)
         valid = torch.nonzero(valid).squeeze(1)
         if keypoint_targets.numel() == 0 or len(valid) == 0:
             return keypoint_logits.sum() * 0
@@ -2826,6 +2681,108 @@ def make_roi_keypoint_loss_evaluator(cfg):
     resolution = cfg.MODEL.ROI_KEYPOINT_HEAD.RESOLUTION
     loss_evaluator = KeypointRCNNLossComputation(matcher, fg_bg_sampler, resolution)
     return loss_evaluator
+
+
+class Keypoints(object):
+
+    def __init__(self, keypoints, size, mode=None):
+        device = keypoints.device if isinstance(keypoints, torch.Tensor) else torch.device('cpu')
+        keypoints = torch.as_tensor(keypoints, dtype=torch.float32, device=device)
+        num_keypoints = keypoints.shape[0]
+        if num_keypoints:
+            keypoints = keypoints.view(num_keypoints, -1, 3)
+        self.keypoints = keypoints
+        self.size = size
+        self.mode = mode
+        self.extra_fields = {}
+
+    def crop(self, box):
+        raise NotImplementedError()
+
+    def resize(self, size, *args, **kwargs):
+        ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(size, self.size))
+        ratio_w, ratio_h = ratios
+        resized_data = self.keypoints.clone()
+        resized_data[..., 0] *= ratio_w
+        resized_data[..., 1] *= ratio_h
+        keypoints = type(self)(resized_data, size, self.mode)
+        for k, v in self.extra_fields.items():
+            keypoints.add_field(k, v)
+        return keypoints
+
+    def transpose(self, method):
+        if method not in (FLIP_LEFT_RIGHT,):
+            raise NotImplementedError('Only FLIP_LEFT_RIGHT implemented')
+        flip_inds = type(self).FLIP_INDS
+        flipped_data = self.keypoints[:, (flip_inds)]
+        width = self.size[0]
+        TO_REMOVE = 1
+        flipped_data[..., 0] = width - flipped_data[..., 0] - TO_REMOVE
+        inds = flipped_data[..., 2] == 0
+        flipped_data[inds] = 0
+        keypoints = type(self)(flipped_data, self.size, self.mode)
+        for k, v in self.extra_fields.items():
+            keypoints.add_field(k, v)
+        return keypoints
+
+    def to(self, *args, **kwargs):
+        keypoints = type(self)(self.keypoints, self.size, self.mode)
+        for k, v in self.extra_fields.items():
+            if hasattr(v, 'to'):
+                v = v
+            keypoints.add_field(k, v)
+        return keypoints
+
+    def __getitem__(self, item):
+        keypoints = type(self)(self.keypoints[item], self.size, self.mode)
+        for k, v in self.extra_fields.items():
+            keypoints.add_field(k, v[item])
+        return keypoints
+
+    def add_field(self, field, field_data):
+        self.extra_fields[field] = field_data
+
+    def get_field(self, field):
+        return self.extra_fields[field]
+
+    def __repr__(self):
+        s = self.__class__.__name__ + '('
+        s += 'num_instances={}, '.format(len(self.keypoints))
+        s += 'image_width={}, '.format(self.size[0])
+        s += 'image_height={})'.format(self.size[1])
+        return s
+
+
+class PersonKeypoints(Keypoints):
+    NAMES = ['nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear', 'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist', 'left_hip', 'right_hip', 'left_knee', 'right_knee', 'left_ankle', 'right_ankle']
+    FLIP_MAP = {'left_eye': 'right_eye', 'left_ear': 'right_ear', 'left_shoulder': 'right_shoulder', 'left_elbow': 'right_elbow', 'left_wrist': 'right_wrist', 'left_hip': 'right_hip', 'left_knee': 'right_knee', 'left_ankle': 'right_ankle'}
+
+
+class KeypointPostProcessor(nn.Module):
+
+    def __init__(self, keypointer=None):
+        super(KeypointPostProcessor, self).__init__()
+        self.keypointer = keypointer
+
+    def forward(self, x, boxes):
+        mask_prob = x
+        scores = None
+        if self.keypointer:
+            mask_prob, scores = self.keypointer(x, boxes)
+        assert len(boxes) == 1, 'Only non-batched inference supported for now'
+        boxes_per_image = [box.bbox.size(0) for box in boxes]
+        mask_prob = mask_prob.split(boxes_per_image, dim=0)
+        scores = scores.split(boxes_per_image, dim=0)
+        results = []
+        for prob, box, score in zip(mask_prob, boxes, scores):
+            bbox = BoxList(box.bbox, box.size, mode='xyxy')
+            for field in box.fields():
+                bbox.add_field(field, box.get_field(field))
+            prob = PersonKeypoints(prob, box.size)
+            prob.add_field('logits', score)
+            bbox.add_field('keypoints', prob)
+            results.append(bbox)
+        return results
 
 
 def heatmaps_to_keypoints(maps, rois):
@@ -2884,7 +2841,7 @@ class Keypointer(object):
             boxes = [boxes]
         assert len(boxes) == 1
         result, scores = heatmaps_to_keypoints(masks.detach().cpu().numpy(), boxes[0].bbox.cpu().numpy())
-        return torch.from_numpy(result).to(masks.device), torch.as_tensor(scores, device=masks.device)
+        return torch.from_numpy(result), torch.as_tensor(scores, device=masks.device)
 
 
 def make_roi_keypoint_post_processor(cfg):
@@ -2935,50 +2892,8 @@ class ROIKeypointHead(torch.nn.Module):
         return x, proposals, dict(loss_kp=loss_kp)
 
 
-class MaskPostProcessor(nn.Module):
-    """
-    From the results of the CNN, post process the masks
-    by taking the mask corresponding to the class with max
-    probability (which are of fixed size and directly output
-    by the CNN) and return the masks in the mask field of the BoxList.
-
-    If a masker object is passed, it will additionally
-    project the masks in the image according to the locations in boxes,
-    """
-
-    def __init__(self, masker=None):
-        super(MaskPostProcessor, self).__init__()
-        self.masker = masker
-
-    def forward(self, x, boxes):
-        """
-        Arguments:
-            x (Tensor): the mask logits
-            boxes (list[BoxList]): bounding boxes that are used as
-                reference, one for ech image
-
-        Returns:
-            results (list[BoxList]): one BoxList for each image, containing
-                the extra field mask
-        """
-        mask_prob = x.sigmoid()
-        num_masks = x.shape[0]
-        labels = [bbox.get_field('labels') for bbox in boxes]
-        labels = torch.cat(labels)
-        index = torch.arange(num_masks, device=labels.device)
-        mask_prob = mask_prob[index, labels][:, (None)]
-        boxes_per_image = [len(box) for box in boxes]
-        mask_prob = mask_prob.split(boxes_per_image, dim=0)
-        if self.masker:
-            mask_prob = self.masker(mask_prob, boxes)
-        results = []
-        for prob, box in zip(mask_prob, boxes):
-            bbox = BoxList(box.bbox, box.size, mode='xyxy')
-            for field in box.fields():
-                bbox.add_field(field, box.get_field(field))
-            bbox.add_field('mask', prob)
-            results.append(bbox)
-        return results
+def build_roi_keypoint_head(cfg, in_channels):
+    return ROIKeypointHead(cfg, in_channels)
 
 
 def keep_only_positive_boxes(boxes):
@@ -3026,7 +2941,7 @@ def project_masks_on_boxes(segmentation_masks, proposals, discretization_size):
     device = proposals.bbox.device
     proposals = proposals.convert('xyxy')
     assert segmentation_masks.size == proposals.size, '{}, {}'.format(segmentation_masks, proposals)
-    proposals = proposals.bbox.to(torch.device('cpu'))
+    proposals = proposals.bbox
     for segmentation_mask, proposal in zip(segmentation_masks, proposals):
         cropped_mask = segmentation_mask.crop(proposal)
         scaled_mask = cropped_mask.resize((M, M))
@@ -3034,7 +2949,7 @@ def project_masks_on_boxes(segmentation_masks, proposals, discretization_size):
         masks.append(mask)
     if len(masks) == 0:
         return torch.empty(0, dtype=torch.float32, device=device)
-    return torch.stack(masks, dim=0).to(device, dtype=torch.float32)
+    return torch.stack(masks, dim=0)
 
 
 class MaskRCNNLossComputation(object):
@@ -3063,7 +2978,7 @@ class MaskRCNNLossComputation(object):
             matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
             matched_idxs = matched_targets.get_field('matched_idxs')
             labels_per_image = matched_targets.get_field('labels')
-            labels_per_image = labels_per_image.to(dtype=torch.int64)
+            labels_per_image = labels_per_image
             neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
             labels_per_image[neg_inds] = 0
             positive_inds = torch.nonzero(labels_per_image > 0).squeeze(1)
@@ -3102,6 +3017,52 @@ def make_roi_mask_loss_evaluator(cfg):
     return loss_evaluator
 
 
+class MaskPostProcessor(nn.Module):
+    """
+    From the results of the CNN, post process the masks
+    by taking the mask corresponding to the class with max
+    probability (which are of fixed size and directly output
+    by the CNN) and return the masks in the mask field of the BoxList.
+
+    If a masker object is passed, it will additionally
+    project the masks in the image according to the locations in boxes,
+    """
+
+    def __init__(self, masker=None):
+        super(MaskPostProcessor, self).__init__()
+        self.masker = masker
+
+    def forward(self, x, boxes):
+        """
+        Arguments:
+            x (Tensor): the mask logits
+            boxes (list[BoxList]): bounding boxes that are used as
+                reference, one for ech image
+
+        Returns:
+            results (list[BoxList]): one BoxList for each image, containing
+                the extra field mask
+        """
+        mask_prob = x.sigmoid()
+        num_masks = x.shape[0]
+        labels = [bbox.get_field('labels') for bbox in boxes]
+        labels = torch.cat(labels)
+        index = torch.arange(num_masks, device=labels.device)
+        mask_prob = mask_prob[index, labels][:, (None)]
+        boxes_per_image = [len(box) for box in boxes]
+        mask_prob = mask_prob.split(boxes_per_image, dim=0)
+        if self.masker:
+            mask_prob = self.masker(mask_prob, boxes)
+        results = []
+        for prob, box in zip(mask_prob, boxes):
+            bbox = BoxList(box.bbox, box.size, mode='xyxy')
+            for field in box.fields():
+                bbox.add_field(field, box.get_field(field))
+            bbox.add_field('mask', prob)
+            results.append(bbox)
+        return results
+
+
 def expand_boxes(boxes, scale):
     w_half = (boxes[:, (2)] - boxes[:, (0)]) * 0.5
     h_half = (boxes[:, (3)] - boxes[:, (1)]) * 0.5
@@ -3131,20 +3092,20 @@ def paste_mask_in_image(mask, box, im_h, im_w, thresh=0.5, padding=1):
     padded_mask, scale = expand_masks(mask[None], padding=padding)
     mask = padded_mask[0, 0]
     box = expand_boxes(box[None], scale)[0]
-    box = box.to(dtype=torch.int32)
+    box = box
     TO_REMOVE = 1
     w = int(box[2] - box[0] + TO_REMOVE)
     h = int(box[3] - box[1] + TO_REMOVE)
     w = max(w, 1)
     h = max(h, 1)
     mask = mask.expand((1, 1, -1, -1))
-    mask = mask.to(torch.float32)
+    mask = mask
     mask = interpolate(mask, size=(h, w), mode='bilinear', align_corners=False)
     mask = mask[0][0]
     if thresh >= 0:
         mask = mask > thresh
     else:
-        mask = (mask * 255).to(torch.uint8)
+        mask = mask * 255
     im_mask = torch.zeros((im_h, im_w), dtype=torch.uint8)
     x_0 = max(box[0], 0)
     x_1 = min(box[2] + 1, im_w)
@@ -3242,55 +3203,23 @@ class ROIMaskHead(torch.nn.Module):
         return x, all_proposals, dict(loss_mask=loss_mask)
 
 
-def make_conv3x3(in_channels, out_channels, dilation=1, stride=1, use_gn=False, use_relu=False, kaiming_init=True):
-    conv = Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, bias=False if use_gn else True)
-    if kaiming_init:
-        nn.init.kaiming_normal_(conv.weight, mode='fan_out', nonlinearity='relu')
-    else:
-        torch.nn.init.normal_(conv.weight, std=0.01)
-    if not use_gn:
-        nn.init.constant_(conv.bias, 0)
-    module = [conv]
-    if use_gn:
-        module.append(group_norm(out_channels))
-    if use_relu:
-        module.append(nn.ReLU(inplace=True))
-    if len(module) > 1:
-        return nn.Sequential(*module)
-    return conv
+def build_roi_mask_head(cfg, in_channels):
+    return ROIMaskHead(cfg, in_channels)
 
 
-class CombinedROIHeads(torch.nn.ModuleDict):
-    """
-    Combines a set of individual heads (for box prediction or masks) into a single
-    head.
-    """
-
-    def __init__(self, cfg, heads):
-        super(CombinedROIHeads, self).__init__(heads)
-        self.cfg = cfg.clone()
-        if cfg.MODEL.MASK_ON and cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-            self.mask.feature_extractor = self.box.feature_extractor
-        if cfg.MODEL.KEYPOINT_ON and cfg.MODEL.ROI_KEYPOINT_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-            self.keypoint.feature_extractor = self.box.feature_extractor
-
-    def forward(self, features, proposals, targets=None):
-        losses = {}
-        x, detections, loss_box = self.box(features, proposals, targets)
-        losses.update(loss_box)
-        if self.cfg.MODEL.MASK_ON:
-            mask_features = features
-            if self.training and self.cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-                mask_features = x
-            x, detections, loss_mask = self.mask(mask_features, detections, targets)
-            losses.update(loss_mask)
-        if self.cfg.MODEL.KEYPOINT_ON:
-            keypoint_features = features
-            if self.training and self.cfg.MODEL.ROI_KEYPOINT_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-                keypoint_features = x
-            x, detections, loss_keypoint = self.keypoint(keypoint_features, detections, targets)
-            losses.update(loss_keypoint)
-        return x, detections, losses
+def build_roi_heads(cfg, in_channels):
+    roi_heads = []
+    if cfg.MODEL.RETINANET_ON:
+        return []
+    if not cfg.MODEL.RPN_ONLY:
+        roi_heads.append(('box', build_roi_box_head(cfg, in_channels)))
+    if cfg.MODEL.MASK_ON:
+        roi_heads.append(('mask', build_roi_mask_head(cfg, in_channels)))
+    if cfg.MODEL.KEYPOINT_ON:
+        roi_heads.append(('keypoint', build_roi_keypoint_head(cfg, in_channels)))
+    if roi_heads:
+        roi_heads = CombinedROIHeads(cfg, roi_heads)
+    return roi_heads
 
 
 class BufferList(nn.Module):
@@ -3431,6 +3360,339 @@ class AnchorGenerator(nn.Module):
                 anchors_in_image.append(boxlist)
             anchors.append(anchors_in_image)
         return anchors
+
+
+def make_anchor_generator(config):
+    anchor_sizes = config.MODEL.RPN.ANCHOR_SIZES
+    aspect_ratios = config.MODEL.RPN.ASPECT_RATIOS
+    anchor_stride = config.MODEL.RPN.ANCHOR_STRIDE
+    straddle_thresh = config.MODEL.RPN.STRADDLE_THRESH
+    if config.MODEL.RPN.USE_FPN:
+        assert len(anchor_stride) == len(anchor_sizes), 'FPN should have len(ANCHOR_STRIDE) == len(ANCHOR_SIZES)'
+    else:
+        assert len(anchor_stride) == 1, 'Non-FPN should have a single ANCHOR_STRIDE'
+    anchor_generator = AnchorGenerator(anchor_sizes, aspect_ratios, anchor_stride, straddle_thresh)
+    return anchor_generator
+
+
+def permute_and_flatten(layer, N, A, C, H, W):
+    layer = layer.view(N, -1, C, H, W)
+    layer = layer.permute(0, 3, 4, 1, 2)
+    layer = layer.reshape(N, -1, C)
+    return layer
+
+
+def concat_box_prediction_layers(box_cls, box_regression):
+    box_cls_flattened = []
+    box_regression_flattened = []
+    for box_cls_per_level, box_regression_per_level in zip(box_cls, box_regression):
+        N, AxC, H, W = box_cls_per_level.shape
+        Ax4 = box_regression_per_level.shape[1]
+        A = Ax4 // 4
+        C = AxC // A
+        box_cls_per_level = permute_and_flatten(box_cls_per_level, N, A, C, H, W)
+        box_cls_flattened.append(box_cls_per_level)
+        box_regression_per_level = permute_and_flatten(box_regression_per_level, N, A, 4, H, W)
+        box_regression_flattened.append(box_regression_per_level)
+    box_cls = cat(box_cls_flattened, dim=1).reshape(-1, C)
+    box_regression = cat(box_regression_flattened, dim=1).reshape(-1, 4)
+    return box_cls, box_regression
+
+
+class RPNLossComputation(object):
+    """
+    This class computes the RPN loss.
+    """
+
+    def __init__(self, proposal_matcher, fg_bg_sampler, box_coder, generate_labels_func):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            fg_bg_sampler (BalancedPositiveNegativeSampler)
+            box_coder (BoxCoder)
+        """
+        self.proposal_matcher = proposal_matcher
+        self.fg_bg_sampler = fg_bg_sampler
+        self.box_coder = box_coder
+        self.copied_fields = []
+        self.generate_labels_func = generate_labels_func
+        self.discard_cases = ['not_visibility', 'between_thresholds']
+
+    def match_targets_to_anchors(self, anchor, target, copied_fields=[]):
+        match_quality_matrix = boxlist_iou(target, anchor)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields(copied_fields)
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, anchors, targets):
+        labels = []
+        regression_targets = []
+        for anchors_per_image, targets_per_image in zip(anchors, targets):
+            matched_targets = self.match_targets_to_anchors(anchors_per_image, targets_per_image, self.copied_fields)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = self.generate_labels_func(matched_targets)
+            labels_per_image = labels_per_image
+            bg_indices = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[bg_indices] = 0
+            if 'not_visibility' in self.discard_cases:
+                labels_per_image[~anchors_per_image.get_field('visibility')] = -1
+            if 'between_thresholds' in self.discard_cases:
+                inds_to_discard = matched_idxs == Matcher.BETWEEN_THRESHOLDS
+                labels_per_image[inds_to_discard] = -1
+            regression_targets_per_image = self.box_coder.encode(matched_targets.bbox, anchors_per_image.bbox)
+            labels.append(labels_per_image)
+            regression_targets.append(regression_targets_per_image)
+        return labels, regression_targets
+
+    def __call__(self, anchors, objectness, box_regression, targets):
+        """
+        Arguments:
+            anchors (list[BoxList])
+            objectness (list[Tensor])
+            box_regression (list[Tensor])
+            targets (list[BoxList])
+
+        Returns:
+            objectness_loss (Tensor)
+            box_loss (Tensor
+        """
+        anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in anchors]
+        labels, regression_targets = self.prepare_targets(anchors, targets)
+        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
+        sampled_pos_inds = torch.nonzero(torch.cat(sampled_pos_inds, dim=0)).squeeze(1)
+        sampled_neg_inds = torch.nonzero(torch.cat(sampled_neg_inds, dim=0)).squeeze(1)
+        sampled_inds = torch.cat([sampled_pos_inds, sampled_neg_inds], dim=0)
+        objectness, box_regression = concat_box_prediction_layers(objectness, box_regression)
+        objectness = objectness.squeeze()
+        labels = torch.cat(labels, dim=0)
+        regression_targets = torch.cat(regression_targets, dim=0)
+        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds], regression_targets[sampled_pos_inds], beta=1.0 / 9, size_average=False) / sampled_inds.numel()
+        objectness_loss = F.binary_cross_entropy_with_logits(objectness[sampled_inds], labels[sampled_inds])
+        return objectness_loss, box_loss
+
+
+def generate_rpn_labels(matched_targets):
+    matched_idxs = matched_targets.get_field('matched_idxs')
+    labels_per_image = matched_idxs >= 0
+    return labels_per_image
+
+
+def make_rpn_loss_evaluator(cfg, box_coder):
+    matcher = Matcher(cfg.MODEL.RPN.FG_IOU_THRESHOLD, cfg.MODEL.RPN.BG_IOU_THRESHOLD, allow_low_quality_matches=True)
+    fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.RPN.BATCH_SIZE_PER_IMAGE, cfg.MODEL.RPN.POSITIVE_FRACTION)
+    loss_evaluator = RPNLossComputation(matcher, fg_bg_sampler, box_coder, generate_rpn_labels)
+    return loss_evaluator
+
+
+def remove_small_boxes(boxlist, min_size):
+    """
+    Only keep boxes with both sides >= min_size
+
+    Arguments:
+        boxlist (Boxlist)
+        min_size (int)
+    """
+    xywh_boxes = boxlist.convert('xywh').bbox
+    _, _, ws, hs = xywh_boxes.unbind(dim=1)
+    keep = ((ws >= min_size) & (hs >= min_size)).nonzero().squeeze(1)
+    return boxlist[keep]
+
+
+class RPNPostProcessor(torch.nn.Module):
+    """
+    Performs post-processing on the outputs of the RPN boxes, before feeding the
+    proposals to the heads
+    """
+
+    def __init__(self, pre_nms_top_n, post_nms_top_n, nms_thresh, min_size, box_coder=None, fpn_post_nms_top_n=None):
+        """
+        Arguments:
+            pre_nms_top_n (int)
+            post_nms_top_n (int)
+            nms_thresh (float)
+            min_size (int)
+            box_coder (BoxCoder)
+            fpn_post_nms_top_n (int)
+        """
+        super(RPNPostProcessor, self).__init__()
+        self.pre_nms_top_n = pre_nms_top_n
+        self.post_nms_top_n = post_nms_top_n
+        self.nms_thresh = nms_thresh
+        self.min_size = min_size
+        if box_coder is None:
+            box_coder = BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
+        self.box_coder = box_coder
+        if fpn_post_nms_top_n is None:
+            fpn_post_nms_top_n = post_nms_top_n
+        self.fpn_post_nms_top_n = fpn_post_nms_top_n
+
+    def add_gt_proposals(self, proposals, targets):
+        """
+        Arguments:
+            proposals: list[BoxList]
+            targets: list[BoxList]
+        """
+        device = proposals[0].bbox.device
+        gt_boxes = [target.copy_with_fields([]) for target in targets]
+        for gt_box in gt_boxes:
+            gt_box.add_field('objectness', torch.ones(len(gt_box), device=device))
+        proposals = [cat_boxlist((proposal, gt_box)) for proposal, gt_box in zip(proposals, gt_boxes)]
+        return proposals
+
+    def forward_for_single_feature_map(self, anchors, objectness, box_regression):
+        """
+        Arguments:
+            anchors: list[BoxList]
+            objectness: tensor of size N, A, H, W
+            box_regression: tensor of size N, A * 4, H, W
+        """
+        device = objectness.device
+        N, A, H, W = objectness.shape
+        objectness = permute_and_flatten(objectness, N, A, 1, H, W).view(N, -1)
+        objectness = objectness.sigmoid()
+        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
+        num_anchors = A * H * W
+        pre_nms_top_n = min(self.pre_nms_top_n, num_anchors)
+        objectness, topk_idx = objectness.topk(pre_nms_top_n, dim=1, sorted=True)
+        batch_idx = torch.arange(N, device=device)[:, (None)]
+        box_regression = box_regression[batch_idx, topk_idx]
+        image_shapes = [box.size for box in anchors]
+        concat_anchors = torch.cat([a.bbox for a in anchors], dim=0)
+        concat_anchors = concat_anchors.reshape(N, -1, 4)[batch_idx, topk_idx]
+        proposals = self.box_coder.decode(box_regression.view(-1, 4), concat_anchors.view(-1, 4))
+        proposals = proposals.view(N, -1, 4)
+        result = []
+        for proposal, score, im_shape in zip(proposals, objectness, image_shapes):
+            boxlist = BoxList(proposal, im_shape, mode='xyxy')
+            boxlist.add_field('objectness', score)
+            boxlist = boxlist.clip_to_image(remove_empty=False)
+            boxlist = remove_small_boxes(boxlist, self.min_size)
+            boxlist = boxlist_nms(boxlist, self.nms_thresh, max_proposals=self.post_nms_top_n, score_field='objectness')
+            result.append(boxlist)
+        return result
+
+    def forward(self, anchors, objectness, box_regression, targets=None):
+        """
+        Arguments:
+            anchors: list[list[BoxList]]
+            objectness: list[tensor]
+            box_regression: list[tensor]
+
+        Returns:
+            boxlists (list[BoxList]): the post-processed anchors, after
+                applying box decoding and NMS
+        """
+        sampled_boxes = []
+        num_levels = len(objectness)
+        anchors = list(zip(*anchors))
+        for a, o, b in zip(anchors, objectness, box_regression):
+            sampled_boxes.append(self.forward_for_single_feature_map(a, o, b))
+        boxlists = list(zip(*sampled_boxes))
+        boxlists = [cat_boxlist(boxlist) for boxlist in boxlists]
+        if num_levels > 1:
+            boxlists = self.select_over_all_levels(boxlists)
+        if self.training and targets is not None:
+            boxlists = self.add_gt_proposals(boxlists, targets)
+        return boxlists
+
+    def select_over_all_levels(self, boxlists):
+        num_images = len(boxlists)
+        if self.training:
+            objectness = torch.cat([boxlist.get_field('objectness') for boxlist in boxlists], dim=0)
+            box_sizes = [len(boxlist) for boxlist in boxlists]
+            post_nms_top_n = min(self.fpn_post_nms_top_n, len(objectness))
+            _, inds_sorted = torch.topk(objectness, post_nms_top_n, dim=0, sorted=True)
+            inds_mask = torch.zeros_like(objectness, dtype=torch.uint8)
+            inds_mask[inds_sorted] = 1
+            inds_mask = inds_mask.split(box_sizes)
+            for i in range(num_images):
+                boxlists[i] = boxlists[i][inds_mask[i]]
+        else:
+            for i in range(num_images):
+                objectness = boxlists[i].get_field('objectness')
+                post_nms_top_n = min(self.fpn_post_nms_top_n, len(objectness))
+                _, inds_sorted = torch.topk(objectness, post_nms_top_n, dim=0, sorted=True)
+                boxlists[i] = boxlists[i][inds_sorted]
+        return boxlists
+
+
+def make_rpn_postprocessor(config, rpn_box_coder, is_train):
+    fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
+    if not is_train:
+        fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TEST
+    pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TRAIN
+    post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TRAIN
+    if not is_train:
+        pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TEST
+        post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TEST
+    nms_thresh = config.MODEL.RPN.NMS_THRESH
+    min_size = config.MODEL.RPN.MIN_SIZE
+    box_selector = RPNPostProcessor(pre_nms_top_n=pre_nms_top_n, post_nms_top_n=post_nms_top_n, nms_thresh=nms_thresh, min_size=min_size, box_coder=rpn_box_coder, fpn_post_nms_top_n=fpn_post_nms_top_n)
+    return box_selector
+
+
+class RPNModule(torch.nn.Module):
+    """
+    Module for RPN computation. Takes feature maps from the backbone and RPN
+    proposals and losses. Works for both FPN and non-FPN.
+    """
+
+    def __init__(self, cfg, in_channels):
+        super(RPNModule, self).__init__()
+        self.cfg = cfg.clone()
+        anchor_generator = make_anchor_generator(cfg)
+        rpn_head = registry.RPN_HEADS[cfg.MODEL.RPN.RPN_HEAD]
+        head = rpn_head(cfg, in_channels, anchor_generator.num_anchors_per_location()[0])
+        rpn_box_coder = BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
+        box_selector_train = make_rpn_postprocessor(cfg, rpn_box_coder, is_train=True)
+        box_selector_test = make_rpn_postprocessor(cfg, rpn_box_coder, is_train=False)
+        loss_evaluator = make_rpn_loss_evaluator(cfg, rpn_box_coder)
+        self.anchor_generator = anchor_generator
+        self.head = head
+        self.box_selector_train = box_selector_train
+        self.box_selector_test = box_selector_test
+        self.loss_evaluator = loss_evaluator
+
+    def forward(self, images, features, targets=None):
+        """
+        Arguments:
+            images (ImageList): images for which we want to compute the predictions
+            features (list[Tensor]): features computed from the images that are
+                used for computing the predictions. Each tensor in the list
+                correspond to different feature levels
+            targets (list[BoxList): ground-truth boxes present in the image (optional)
+
+        Returns:
+            boxes (list[BoxList]): the predicted boxes from the RPN, one BoxList per
+                image.
+            losses (dict[Tensor]): the losses for the model during training. During
+                testing, it is an empty dict.
+        """
+        objectness, rpn_box_regression = self.head(features)
+        anchors = self.anchor_generator(images, features)
+        if self.training:
+            return self._forward_train(anchors, objectness, rpn_box_regression, targets)
+        else:
+            return self._forward_test(anchors, objectness, rpn_box_regression)
+
+    def _forward_train(self, anchors, objectness, rpn_box_regression, targets):
+        if self.cfg.MODEL.RPN_ONLY:
+            boxes = anchors
+        else:
+            with torch.no_grad():
+                boxes = self.box_selector_train(anchors, objectness, rpn_box_regression, targets)
+        loss_objectness, loss_rpn_box_reg = self.loss_evaluator(anchors, objectness, rpn_box_regression, targets)
+        losses = {'loss_objectness': loss_objectness, 'loss_rpn_box_reg': loss_rpn_box_reg}
+        return boxes, losses
+
+    def _forward_test(self, anchors, objectness, rpn_box_regression):
+        boxes = self.box_selector_test(anchors, objectness, rpn_box_regression)
+        if self.cfg.MODEL.RPN_ONLY:
+            inds = [box.get_field('objectness').sort(descending=True)[1] for box in boxes]
+            boxes = [box[ind] for box, ind in zip(boxes, inds)]
+        return boxes, {}
 
 
 class FCOSHead(torch.nn.Module):
@@ -3683,6 +3945,112 @@ def make_fcos_loss_evaluator(cfg):
     return loss_evaluator
 
 
+class FCOSPostProcessor(torch.nn.Module):
+    """
+    Performs post-processing on the outputs of the RetinaNet boxes.
+    This is only used in the testing.
+    """
+
+    def __init__(self, pre_nms_thresh, pre_nms_top_n, nms_thresh, fpn_post_nms_top_n, min_size, num_classes):
+        """
+        Arguments:
+            pre_nms_thresh (float)
+            pre_nms_top_n (int)
+            nms_thresh (float)
+            fpn_post_nms_top_n (int)
+            min_size (int)
+            num_classes (int)
+            box_coder (BoxCoder)
+        """
+        super(FCOSPostProcessor, self).__init__()
+        self.pre_nms_thresh = pre_nms_thresh
+        self.pre_nms_top_n = pre_nms_top_n
+        self.nms_thresh = nms_thresh
+        self.fpn_post_nms_top_n = fpn_post_nms_top_n
+        self.min_size = min_size
+        self.num_classes = num_classes
+
+    def forward_for_single_feature_map(self, locations, box_cls, box_regression, centerness, image_sizes):
+        """
+        Arguments:
+            anchors: list[BoxList]
+            box_cls: tensor of size N, A * C, H, W
+            box_regression: tensor of size N, A * 4, H, W
+        """
+        N, C, H, W = box_cls.shape
+        box_cls = box_cls.view(N, C, H, W).permute(0, 2, 3, 1)
+        box_cls = box_cls.reshape(N, -1, C).sigmoid()
+        box_regression = box_regression.view(N, 4, H, W).permute(0, 2, 3, 1)
+        box_regression = box_regression.reshape(N, -1, 4)
+        centerness = centerness.view(N, 1, H, W).permute(0, 2, 3, 1)
+        centerness = centerness.reshape(N, -1).sigmoid()
+        candidate_inds = box_cls > self.pre_nms_thresh
+        pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
+        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)
+        box_cls = box_cls * centerness[:, :, (None)]
+        results = []
+        for i in range(N):
+            per_box_cls = box_cls[i]
+            per_candidate_inds = candidate_inds[i]
+            per_box_cls = per_box_cls[per_candidate_inds]
+            per_candidate_nonzeros = per_candidate_inds.nonzero()
+            per_box_loc = per_candidate_nonzeros[:, (0)]
+            per_class = per_candidate_nonzeros[:, (1)] + 1
+            per_box_regression = box_regression[i]
+            per_box_regression = per_box_regression[per_box_loc]
+            per_locations = locations[per_box_loc]
+            per_pre_nms_top_n = pre_nms_top_n[i]
+            if per_candidate_inds.sum().item() > per_pre_nms_top_n.item():
+                per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n, sorted=False)
+                per_class = per_class[top_k_indices]
+                per_box_regression = per_box_regression[top_k_indices]
+                per_locations = per_locations[top_k_indices]
+            detections = torch.stack([per_locations[:, (0)] - per_box_regression[:, (0)], per_locations[:, (1)] - per_box_regression[:, (1)], per_locations[:, (0)] + per_box_regression[:, (2)], per_locations[:, (1)] + per_box_regression[:, (3)]], dim=1)
+            h, w = image_sizes[i]
+            boxlist = BoxList(detections, (int(w), int(h)), mode='xyxy')
+            boxlist.add_field('labels', per_class)
+            boxlist.add_field('scores', torch.sqrt(per_box_cls))
+            boxlist = boxlist.clip_to_image(remove_empty=False)
+            boxlist = remove_small_boxes(boxlist, self.min_size)
+            results.append(boxlist)
+        return results
+
+    def forward(self, locations, box_cls, box_regression, centerness, image_sizes):
+        """
+        Arguments:
+            anchors: list[list[BoxList]]
+            box_cls: list[tensor]
+            box_regression: list[tensor]
+            image_sizes: list[(h, w)]
+        Returns:
+            boxlists (list[BoxList]): the post-processed anchors, after
+                applying box decoding and NMS
+        """
+        sampled_boxes = []
+        for _, (l, o, b, c) in enumerate(zip(locations, box_cls, box_regression, centerness)):
+            sampled_boxes.append(self.forward_for_single_feature_map(l, o, b, c, image_sizes))
+        boxlists = list(zip(*sampled_boxes))
+        boxlists = [cat_boxlist(boxlist) for boxlist in boxlists]
+        boxlists = self.select_over_all_levels(boxlists)
+        return boxlists
+
+    def select_over_all_levels(self, boxlists):
+        num_images = len(boxlists)
+        results = []
+        for i in range(num_images):
+            keep = batched_nms(boxlists[i].bbox, boxlists[i].get_field('scores'), boxlists[i].get_field('labels'), self.nms_thresh)
+            result = boxlists[i][keep]
+            number_of_detections = len(result)
+            if number_of_detections > self.fpn_post_nms_top_n > 0:
+                cls_scores = result.get_field('scores')
+                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), number_of_detections - self.fpn_post_nms_top_n + 1)
+                keep = cls_scores >= image_thresh.item()
+                keep = torch.nonzero(keep).squeeze(1)
+                result = result[keep]
+            results.append(result)
+        return results
+
+
 def make_fcos_postprocessor(config):
     pre_nms_thresh = config.MODEL.FCOS.INFERENCE_TH
     pre_nms_top_n = config.MODEL.FCOS.PRE_NMS_TOP_N
@@ -3758,276 +4126,8 @@ class FCOSModule(torch.nn.Module):
         return locations
 
 
-def boxlist_ml_nms(boxlist, nms_thresh, max_proposals=-1, score_field='scores', label_field='labels'):
-    """
-    Performs non-maximum suppression on a boxlist, with scores specified
-    in a boxlist field via score_field.
-
-    Arguments:
-        boxlist(BoxList)
-        nms_thresh (float)
-        max_proposals (int): if > 0, then only the top max_proposals are kept
-            after non-maximum suppression
-        score_field (str)
-    """
-    if nms_thresh <= 0:
-        return boxlist
-    mode = boxlist.mode
-    boxlist = boxlist.convert('xyxy')
-    boxes = boxlist.bbox
-    scores = boxlist.get_field(score_field)
-    labels = boxlist.get_field(label_field)
-    keep = _box_ml_nms(boxes, scores, labels.float(), nms_thresh)
-    if max_proposals > 0:
-        keep = keep[:max_proposals]
-    boxlist = boxlist[keep]
-    return boxlist.convert(mode)
-
-
-def remove_small_boxes(boxlist, min_size):
-    """
-    Only keep boxes with both sides >= min_size
-
-    Arguments:
-        boxlist (Boxlist)
-        min_size (int)
-    """
-    xywh_boxes = boxlist.convert('xywh').bbox
-    _, _, ws, hs = xywh_boxes.unbind(dim=1)
-    keep = ((ws >= min_size) & (hs >= min_size)).nonzero().squeeze(1)
-    return boxlist[keep]
-
-
-class FCOSPostProcessor(torch.nn.Module):
-    """
-    Performs post-processing on the outputs of the RetinaNet boxes.
-    This is only used in the testing.
-    """
-
-    def __init__(self, pre_nms_thresh, pre_nms_top_n, nms_thresh, fpn_post_nms_top_n, min_size, num_classes, bbox_aug_enabled=False):
-        """
-        Arguments:
-            pre_nms_thresh (float)
-            pre_nms_top_n (int)
-            nms_thresh (float)
-            fpn_post_nms_top_n (int)
-            min_size (int)
-            num_classes (int)
-            box_coder (BoxCoder)
-        """
-        super(FCOSPostProcessor, self).__init__()
-        self.pre_nms_thresh = pre_nms_thresh
-        self.pre_nms_top_n = pre_nms_top_n
-        self.nms_thresh = nms_thresh
-        self.fpn_post_nms_top_n = fpn_post_nms_top_n
-        self.min_size = min_size
-        self.num_classes = num_classes
-        self.bbox_aug_enabled = bbox_aug_enabled
-
-    def forward_for_single_feature_map(self, locations, box_cls, box_regression, centerness, image_sizes):
-        """
-        Arguments:
-            anchors: list[BoxList]
-            box_cls: tensor of size N, A * C, H, W
-            box_regression: tensor of size N, A * 4, H, W
-        """
-        N, C, H, W = box_cls.shape
-        box_cls = box_cls.view(N, C, H, W).permute(0, 2, 3, 1)
-        box_cls = box_cls.reshape(N, -1, C).sigmoid()
-        box_regression = box_regression.view(N, 4, H, W).permute(0, 2, 3, 1)
-        box_regression = box_regression.reshape(N, -1, 4)
-        centerness = centerness.view(N, 1, H, W).permute(0, 2, 3, 1)
-        centerness = centerness.reshape(N, -1).sigmoid()
-        candidate_inds = box_cls > self.pre_nms_thresh
-        pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
-        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)
-        box_cls = box_cls * centerness[:, :, (None)]
-        results = []
-        for i in range(N):
-            per_box_cls = box_cls[i]
-            per_candidate_inds = candidate_inds[i]
-            per_box_cls = per_box_cls[per_candidate_inds]
-            per_candidate_nonzeros = per_candidate_inds.nonzero()
-            per_box_loc = per_candidate_nonzeros[:, (0)]
-            per_class = per_candidate_nonzeros[:, (1)] + 1
-            per_box_regression = box_regression[i]
-            per_box_regression = per_box_regression[per_box_loc]
-            per_locations = locations[per_box_loc]
-            per_pre_nms_top_n = pre_nms_top_n[i]
-            if per_candidate_inds.sum().item() > per_pre_nms_top_n.item():
-                per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n, sorted=False)
-                per_class = per_class[top_k_indices]
-                per_box_regression = per_box_regression[top_k_indices]
-                per_locations = per_locations[top_k_indices]
-            detections = torch.stack([per_locations[:, (0)] - per_box_regression[:, (0)], per_locations[:, (1)] - per_box_regression[:, (1)], per_locations[:, (0)] + per_box_regression[:, (2)], per_locations[:, (1)] + per_box_regression[:, (3)]], dim=1)
-            h, w = image_sizes[i]
-            boxlist = BoxList(detections, (int(w), int(h)), mode='xyxy')
-            boxlist.add_field('labels', per_class)
-            boxlist.add_field('scores', torch.sqrt(per_box_cls))
-            boxlist = boxlist.clip_to_image(remove_empty=False)
-            boxlist = remove_small_boxes(boxlist, self.min_size)
-            results.append(boxlist)
-        return results
-
-    def forward(self, locations, box_cls, box_regression, centerness, image_sizes):
-        """
-        Arguments:
-            anchors: list[list[BoxList]]
-            box_cls: list[tensor]
-            box_regression: list[tensor]
-            image_sizes: list[(h, w)]
-        Returns:
-            boxlists (list[BoxList]): the post-processed anchors, after
-                applying box decoding and NMS
-        """
-        sampled_boxes = []
-        for _, (l, o, b, c) in enumerate(zip(locations, box_cls, box_regression, centerness)):
-            sampled_boxes.append(self.forward_for_single_feature_map(l, o, b, c, image_sizes))
-        boxlists = list(zip(*sampled_boxes))
-        boxlists = [cat_boxlist(boxlist) for boxlist in boxlists]
-        if not self.bbox_aug_enabled:
-            boxlists = self.select_over_all_levels(boxlists)
-        return boxlists
-
-    def select_over_all_levels(self, boxlists):
-        num_images = len(boxlists)
-        results = []
-        for i in range(num_images):
-            result = boxlist_ml_nms(boxlists[i], self.nms_thresh)
-            number_of_detections = len(result)
-            if number_of_detections > self.fpn_post_nms_top_n > 0:
-                cls_scores = result.get_field('scores')
-                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), number_of_detections - self.fpn_post_nms_top_n + 1)
-                keep = cls_scores >= image_thresh.item()
-                keep = torch.nonzero(keep).squeeze(1)
-                result = result[keep]
-            results.append(result)
-        return results
-
-
-def permute_and_flatten(layer, N, A, C, H, W):
-    layer = layer.view(N, -1, C, H, W)
-    layer = layer.permute(0, 3, 4, 1, 2)
-    layer = layer.reshape(N, -1, C)
-    return layer
-
-
-class RPNPostProcessor(torch.nn.Module):
-    """
-    Performs post-processing on the outputs of the RPN boxes, before feeding the
-    proposals to the heads
-    """
-
-    def __init__(self, pre_nms_top_n, post_nms_top_n, nms_thresh, min_size, box_coder=None, fpn_post_nms_top_n=None):
-        """
-        Arguments:
-            pre_nms_top_n (int)
-            post_nms_top_n (int)
-            nms_thresh (float)
-            min_size (int)
-            box_coder (BoxCoder)
-            fpn_post_nms_top_n (int)
-        """
-        super(RPNPostProcessor, self).__init__()
-        self.pre_nms_top_n = pre_nms_top_n
-        self.post_nms_top_n = post_nms_top_n
-        self.nms_thresh = nms_thresh
-        self.min_size = min_size
-        if box_coder is None:
-            box_coder = BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
-        self.box_coder = box_coder
-        if fpn_post_nms_top_n is None:
-            fpn_post_nms_top_n = post_nms_top_n
-        self.fpn_post_nms_top_n = fpn_post_nms_top_n
-
-    def add_gt_proposals(self, proposals, targets):
-        """
-        Arguments:
-            proposals: list[BoxList]
-            targets: list[BoxList]
-        """
-        device = proposals[0].bbox.device
-        gt_boxes = [target.copy_with_fields([]) for target in targets]
-        for gt_box in gt_boxes:
-            gt_box.add_field('objectness', torch.ones(len(gt_box), device=device))
-        proposals = [cat_boxlist((proposal, gt_box)) for proposal, gt_box in zip(proposals, gt_boxes)]
-        return proposals
-
-    def forward_for_single_feature_map(self, anchors, objectness, box_regression):
-        """
-        Arguments:
-            anchors: list[BoxList]
-            objectness: tensor of size N, A, H, W
-            box_regression: tensor of size N, A * 4, H, W
-        """
-        device = objectness.device
-        N, A, H, W = objectness.shape
-        objectness = permute_and_flatten(objectness, N, A, 1, H, W).view(N, -1)
-        objectness = objectness.sigmoid()
-        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
-        num_anchors = A * H * W
-        pre_nms_top_n = min(self.pre_nms_top_n, num_anchors)
-        objectness, topk_idx = objectness.topk(pre_nms_top_n, dim=1, sorted=True)
-        batch_idx = torch.arange(N, device=device)[:, (None)]
-        box_regression = box_regression[batch_idx, topk_idx]
-        image_shapes = [box.size for box in anchors]
-        concat_anchors = torch.cat([a.bbox for a in anchors], dim=0)
-        concat_anchors = concat_anchors.reshape(N, -1, 4)[batch_idx, topk_idx]
-        proposals = self.box_coder.decode(box_regression.view(-1, 4), concat_anchors.view(-1, 4))
-        proposals = proposals.view(N, -1, 4)
-        result = []
-        for proposal, score, im_shape in zip(proposals, objectness, image_shapes):
-            boxlist = BoxList(proposal, im_shape, mode='xyxy')
-            boxlist.add_field('objectness', score)
-            boxlist = boxlist.clip_to_image(remove_empty=False)
-            boxlist = remove_small_boxes(boxlist, self.min_size)
-            boxlist = boxlist_nms(boxlist, self.nms_thresh, max_proposals=self.post_nms_top_n, score_field='objectness')
-            result.append(boxlist)
-        return result
-
-    def forward(self, anchors, objectness, box_regression, targets=None):
-        """
-        Arguments:
-            anchors: list[list[BoxList]]
-            objectness: list[tensor]
-            box_regression: list[tensor]
-
-        Returns:
-            boxlists (list[BoxList]): the post-processed anchors, after
-                applying box decoding and NMS
-        """
-        sampled_boxes = []
-        num_levels = len(objectness)
-        anchors = list(zip(*anchors))
-        for a, o, b in zip(anchors, objectness, box_regression):
-            sampled_boxes.append(self.forward_for_single_feature_map(a, o, b))
-        boxlists = list(zip(*sampled_boxes))
-        boxlists = [cat_boxlist(boxlist) for boxlist in boxlists]
-        if num_levels > 1:
-            boxlists = self.select_over_all_levels(boxlists)
-        if self.training and targets is not None:
-            boxlists = self.add_gt_proposals(boxlists, targets)
-        return boxlists
-
-    def select_over_all_levels(self, boxlists):
-        num_images = len(boxlists)
-        if self.training:
-            objectness = torch.cat([boxlist.get_field('objectness') for boxlist in boxlists], dim=0)
-            box_sizes = [len(boxlist) for boxlist in boxlists]
-            post_nms_top_n = min(self.fpn_post_nms_top_n, len(objectness))
-            _, inds_sorted = torch.topk(objectness, post_nms_top_n, dim=0, sorted=True)
-            inds_mask = torch.zeros_like(objectness, dtype=torch.uint8)
-            inds_mask[inds_sorted] = 1
-            inds_mask = inds_mask.split(box_sizes)
-            for i in range(num_images):
-                boxlists[i] = boxlists[i][inds_mask[i]]
-        else:
-            for i in range(num_images):
-                objectness = boxlists[i].get_field('objectness')
-                post_nms_top_n = min(self.fpn_post_nms_top_n, len(objectness))
-                _, inds_sorted = torch.topk(objectness, post_nms_top_n, dim=0, sorted=True)
-                boxlists[i] = boxlists[i][inds_sorted]
-        return boxlists
+def build_fcos(cfg, in_channels):
+    return FCOSModule(cfg, in_channels)
 
 
 class RetinaNetHead(torch.nn.Module):
@@ -4090,97 +4190,6 @@ def make_anchor_generator_retinanet(config):
         new_anchor_sizes.append(tuple(per_layer_anchor_sizes))
     anchor_generator = AnchorGenerator(tuple(new_anchor_sizes), aspect_ratios, anchor_strides, straddle_thresh)
     return anchor_generator
-
-
-def concat_box_prediction_layers(box_cls, box_regression):
-    box_cls_flattened = []
-    box_regression_flattened = []
-    for box_cls_per_level, box_regression_per_level in zip(box_cls, box_regression):
-        N, AxC, H, W = box_cls_per_level.shape
-        Ax4 = box_regression_per_level.shape[1]
-        A = Ax4 // 4
-        C = AxC // A
-        box_cls_per_level = permute_and_flatten(box_cls_per_level, N, A, C, H, W)
-        box_cls_flattened.append(box_cls_per_level)
-        box_regression_per_level = permute_and_flatten(box_regression_per_level, N, A, 4, H, W)
-        box_regression_flattened.append(box_regression_per_level)
-    box_cls = cat(box_cls_flattened, dim=1).reshape(-1, C)
-    box_regression = cat(box_regression_flattened, dim=1).reshape(-1, 4)
-    return box_cls, box_regression
-
-
-class RPNLossComputation(object):
-    """
-    This class computes the RPN loss.
-    """
-
-    def __init__(self, proposal_matcher, fg_bg_sampler, box_coder, generate_labels_func):
-        """
-        Arguments:
-            proposal_matcher (Matcher)
-            fg_bg_sampler (BalancedPositiveNegativeSampler)
-            box_coder (BoxCoder)
-        """
-        self.proposal_matcher = proposal_matcher
-        self.fg_bg_sampler = fg_bg_sampler
-        self.box_coder = box_coder
-        self.copied_fields = []
-        self.generate_labels_func = generate_labels_func
-        self.discard_cases = ['not_visibility', 'between_thresholds']
-
-    def match_targets_to_anchors(self, anchor, target, copied_fields=[]):
-        match_quality_matrix = boxlist_iou(target, anchor)
-        matched_idxs = self.proposal_matcher(match_quality_matrix)
-        target = target.copy_with_fields(copied_fields)
-        matched_targets = target[matched_idxs.clamp(min=0)]
-        matched_targets.add_field('matched_idxs', matched_idxs)
-        return matched_targets
-
-    def prepare_targets(self, anchors, targets):
-        labels = []
-        regression_targets = []
-        for anchors_per_image, targets_per_image in zip(anchors, targets):
-            matched_targets = self.match_targets_to_anchors(anchors_per_image, targets_per_image, self.copied_fields)
-            matched_idxs = matched_targets.get_field('matched_idxs')
-            labels_per_image = self.generate_labels_func(matched_targets)
-            labels_per_image = labels_per_image.to(dtype=torch.float32)
-            bg_indices = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
-            labels_per_image[bg_indices] = 0
-            if 'not_visibility' in self.discard_cases:
-                labels_per_image[~anchors_per_image.get_field('visibility')] = -1
-            if 'between_thresholds' in self.discard_cases:
-                inds_to_discard = matched_idxs == Matcher.BETWEEN_THRESHOLDS
-                labels_per_image[inds_to_discard] = -1
-            regression_targets_per_image = self.box_coder.encode(matched_targets.bbox, anchors_per_image.bbox)
-            labels.append(labels_per_image)
-            regression_targets.append(regression_targets_per_image)
-        return labels, regression_targets
-
-    def __call__(self, anchors, objectness, box_regression, targets):
-        """
-        Arguments:
-            anchors (list[BoxList])
-            objectness (list[Tensor])
-            box_regression (list[Tensor])
-            targets (list[BoxList])
-
-        Returns:
-            objectness_loss (Tensor)
-            box_loss (Tensor
-        """
-        anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in anchors]
-        labels, regression_targets = self.prepare_targets(anchors, targets)
-        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
-        sampled_pos_inds = torch.nonzero(torch.cat(sampled_pos_inds, dim=0)).squeeze(1)
-        sampled_neg_inds = torch.nonzero(torch.cat(sampled_neg_inds, dim=0)).squeeze(1)
-        sampled_inds = torch.cat([sampled_pos_inds, sampled_neg_inds], dim=0)
-        objectness, box_regression = concat_box_prediction_layers(objectness, box_regression)
-        objectness = objectness.squeeze()
-        labels = torch.cat(labels, dim=0)
-        regression_targets = torch.cat(regression_targets, dim=0)
-        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds], regression_targets[sampled_pos_inds], beta=1.0 / 9, size_average=False) / sampled_inds.numel()
-        objectness_loss = F.binary_cross_entropy_with_logits(objectness[sampled_inds], labels[sampled_inds])
-        return objectness_loss, box_loss
 
 
 class RetinaNetLossComputation(RPNLossComputation):
@@ -4402,6 +4411,532 @@ class RetinaNetModule(torch.nn.Module):
         return boxes, {}
 
 
+def build_retinanet(cfg, in_channels):
+    return RetinaNetModule(cfg, in_channels)
+
+
+def build_rpn(cfg, in_channels):
+    """
+    This gives the gist of it. Not super important because it doesn't change as much
+    """
+    if cfg.MODEL.FCOS_ON:
+        return build_fcos(cfg, in_channels)
+    if cfg.MODEL.RETINANET_ON:
+        return build_retinanet(cfg, in_channels)
+    return RPNModule(cfg, in_channels)
+
+
+class ImageList(object):
+    """
+    Structure that holds a list of images (of possibly
+    varying sizes) as a single tensor.
+    This works by padding the images to the same size,
+    and storing in a field the original sizes of each image
+    """
+
+    def __init__(self, tensors, image_sizes):
+        """
+        Arguments:
+            tensors (tensor)
+            image_sizes (list[tuple[int, int]])
+        """
+        self.tensors = tensors
+        self.image_sizes = image_sizes
+
+    def to(self, *args, **kwargs):
+        cast_tensor = self.tensors
+        return ImageList(cast_tensor, self.image_sizes)
+
+
+def to_image_list(tensors, size_divisible=0):
+    """
+    tensors can be an ImageList, a torch.Tensor or
+    an iterable of Tensors. It can't be a numpy array.
+    When tensors is an iterable of Tensors, it pads
+    the Tensors with zeros so that they have the same
+    shape
+    """
+    if isinstance(tensors, torch.Tensor) and size_divisible > 0:
+        tensors = [tensors]
+    if isinstance(tensors, ImageList):
+        return tensors
+    elif isinstance(tensors, torch.Tensor):
+        if tensors.dim() == 3:
+            tensors = tensors[None]
+        assert tensors.dim() == 4
+        image_sizes = [tensor.shape[-2:] for tensor in tensors]
+        return ImageList(tensors, image_sizes)
+    elif isinstance(tensors, (tuple, list)):
+        max_size = tuple(max(s) for s in zip(*[img.shape for img in tensors]))
+        if size_divisible > 0:
+            import math
+            stride = size_divisible
+            max_size = list(max_size)
+            max_size[1] = int(math.ceil(max_size[1] / stride) * stride)
+            max_size[2] = int(math.ceil(max_size[2] / stride) * stride)
+            max_size = tuple(max_size)
+        batch_shape = (len(tensors),) + max_size
+        batched_imgs = tensors[0].new(*batch_shape).zero_()
+        for img, pad_img in zip(tensors, batched_imgs):
+            pad_img[:img.shape[0], :img.shape[1], :img.shape[2]].copy_(img)
+        image_sizes = [im.shape[-2:] for im in tensors]
+        return ImageList(batched_imgs, image_sizes)
+    else:
+        raise TypeError('Unsupported type for to_image_list: {}'.format(type(tensors)))
+
+
+class GeneralizedRCNN(nn.Module):
+    """
+    Main class for Generalized R-CNN. Currently supports boxes and masks.
+    It consists of three main parts:
+    - backbone
+    - rpn
+    - heads: takes the features + the proposals from the RPN and computes
+        detections / masks from it.
+    """
+
+    def __init__(self, cfg):
+        super(GeneralizedRCNN, self).__init__()
+        self.backbone = build_backbone(cfg)
+        self.rpn = build_rpn(cfg, self.backbone.out_channels)
+        self.roi_heads = build_roi_heads(cfg, self.backbone.out_channels)
+
+    def forward(self, images, targets=None):
+        """
+        Arguments:
+            images (list[Tensor] or ImageList): images to be processed
+            targets (list[BoxList]): ground-truth boxes present in the image (optional)
+
+        Returns:
+            result (list[BoxList] or dict[Tensor]): the output from the model.
+                During training, it returns a dict[Tensor] which contains the losses.
+                During testing, it returns list[BoxList] contains additional fields
+                like `scores`, `labels` and `mask` (for Mask R-CNN models).
+
+        """
+        if self.training and targets is None:
+            raise ValueError('In training mode, targets should be passed')
+        images = to_image_list(images)
+        features = self.backbone(images.tensors)
+        proposals, proposal_losses = self.rpn(images, features, targets)
+        if self.roi_heads:
+            x, result, detector_losses = self.roi_heads(features, proposals, targets)
+        else:
+            x = features
+            result = proposals
+            detector_losses = {}
+        if self.training:
+            losses = {}
+            losses.update(detector_losses)
+            losses.update(proposal_losses)
+            return losses
+        return result
+
+
+class LevelMapper(object):
+    """Determine which FPN level each RoI in a set of RoIs should map to based
+    on the heuristic in the FPN paper.
+    """
+
+    def __init__(self, k_min, k_max, canonical_scale=224, canonical_level=4, eps=1e-06):
+        """
+        Arguments:
+            k_min (int)
+            k_max (int)
+            canonical_scale (int)
+            canonical_level (int)
+            eps (float)
+        """
+        self.k_min = k_min
+        self.k_max = k_max
+        self.s0 = canonical_scale
+        self.lvl0 = canonical_level
+        self.eps = eps
+
+    def __call__(self, boxlists):
+        """
+        Arguments:
+            boxlists (list[BoxList])
+        """
+        s = torch.sqrt(cat([boxlist.area() for boxlist in boxlists]))
+        target_lvls = torch.floor(self.lvl0 + torch.log2(s / self.s0 + self.eps))
+        target_lvls = torch.clamp(target_lvls, min=self.k_min, max=self.k_max)
+        return target_lvls - self.k_min
+
+
+class Pooler(nn.Module):
+    """
+    Pooler for Detection with or without FPN.
+    It currently hard-code ROIAlign in the implementation,
+    but that can be made more generic later on.
+    Also, the requirement of passing the scales is not strictly necessary, as they
+    can be inferred from the size of the feature map / size of original image,
+    which is available thanks to the BoxList.
+    """
+
+    def __init__(self, output_size, scales, sampling_ratio):
+        """
+        Arguments:
+            output_size (list[tuple[int]] or list[int]): output size for the pooled region
+            scales (list[float]): scales for each Pooler
+            sampling_ratio (int): sampling ratio for ROIAlign
+        """
+        super(Pooler, self).__init__()
+        poolers = []
+        for scale in scales:
+            poolers.append(ROIAlign(output_size, spatial_scale=scale, sampling_ratio=sampling_ratio))
+        self.poolers = nn.ModuleList(poolers)
+        self.output_size = output_size
+        lvl_min = -torch.log2(torch.tensor(scales[0], dtype=torch.float32)).item()
+        lvl_max = -torch.log2(torch.tensor(scales[-1], dtype=torch.float32)).item()
+        self.map_levels = LevelMapper(lvl_min, lvl_max)
+
+    def convert_to_roi_format(self, boxes):
+        concat_boxes = cat([b.bbox for b in boxes], dim=0)
+        device, dtype = concat_boxes.device, concat_boxes.dtype
+        ids = cat([torch.full((len(b), 1), i, dtype=dtype, device=device) for i, b in enumerate(boxes)], dim=0)
+        rois = torch.cat([ids, concat_boxes], dim=1)
+        return rois
+
+    def forward(self, x, boxes):
+        """
+        Arguments:
+            x (list[Tensor]): feature maps for each level
+            boxes (list[BoxList]): boxes to be used to perform the pooling operation.
+        Returns:
+            result (Tensor)
+        """
+        num_levels = len(self.poolers)
+        rois = self.convert_to_roi_format(boxes)
+        if num_levels == 1:
+            return self.poolers[0](x[0], rois)
+        levels = self.map_levels(boxes)
+        num_rois = len(rois)
+        num_channels = x[0].shape[1]
+        output_size = self.output_size[0]
+        dtype, device = x[0].dtype, x[0].device
+        result = torch.zeros((num_rois, num_channels, output_size, output_size), dtype=dtype, device=device)
+        for level, (per_level_feature, pooler) in enumerate(zip(x, self.poolers)):
+            idx_in_level = torch.nonzero(levels == level).squeeze(1)
+            rois_per_level = rois[idx_in_level]
+            result[idx_in_level] = pooler(per_level_feature, rois_per_level)
+        return result
+
+
+class ResNet50Conv5ROIFeatureExtractor(nn.Module):
+
+    def __init__(self, config, in_channels):
+        super(ResNet50Conv5ROIFeatureExtractor, self).__init__()
+        resolution = config.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        scales = config.MODEL.ROI_BOX_HEAD.POOLER_SCALES
+        sampling_ratio = config.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        stage = resnet.StageSpec(index=4, block_count=3, return_features=False)
+        head = resnet.ResNetHead(block_module=config.MODEL.RESNETS.TRANS_FUNC, stages=(stage,), num_groups=config.MODEL.RESNETS.NUM_GROUPS, width_per_group=config.MODEL.RESNETS.WIDTH_PER_GROUP, stride_in_1x1=config.MODEL.RESNETS.STRIDE_IN_1X1, stride_init=None, res2_out_channels=config.MODEL.RESNETS.RES2_OUT_CHANNELS, dilation=config.MODEL.RESNETS.RES5_DILATION)
+        self.pooler = pooler
+        self.head = head
+        self.out_channels = head.out_channels
+
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        x = self.head(x)
+        return x
+
+
+def make_fc(dim_in, hidden_dim, use_gn=False):
+    """
+        Caffe2 implementation uses XavierFill, which in fact
+        corresponds to kaiming_uniform_ in PyTorch
+    """
+    if use_gn:
+        fc = nn.Linear(dim_in, hidden_dim, bias=False)
+        nn.init.kaiming_uniform_(fc.weight, a=1)
+        return nn.Sequential(fc, group_norm(hidden_dim))
+    fc = nn.Linear(dim_in, hidden_dim)
+    nn.init.kaiming_uniform_(fc.weight, a=1)
+    nn.init.constant_(fc.bias, 0)
+    return fc
+
+
+class FPN2MLPFeatureExtractor(nn.Module):
+    """
+    Heads for FPN for classification
+    """
+
+    def __init__(self, cfg, in_channels):
+        super(FPN2MLPFeatureExtractor, self).__init__()
+        resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_BOX_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        input_size = in_channels * resolution ** 2
+        representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
+        use_gn = cfg.MODEL.ROI_BOX_HEAD.USE_GN
+        self.pooler = pooler
+        self.fc6 = make_fc(input_size, representation_size, use_gn)
+        self.fc7 = make_fc(representation_size, representation_size, use_gn)
+        self.out_channels = representation_size
+
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc6(x))
+        x = F.relu(self.fc7(x))
+        return x
+
+
+class FPNXconv1fcFeatureExtractor(nn.Module):
+    """
+    Heads for FPN for classification
+    """
+
+    def __init__(self, cfg, in_channels):
+        super(FPNXconv1fcFeatureExtractor, self).__init__()
+        resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_BOX_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        self.pooler = pooler
+        use_gn = cfg.MODEL.ROI_BOX_HEAD.USE_GN
+        conv_head_dim = cfg.MODEL.ROI_BOX_HEAD.CONV_HEAD_DIM
+        num_stacked_convs = cfg.MODEL.ROI_BOX_HEAD.NUM_STACKED_CONVS
+        dilation = cfg.MODEL.ROI_BOX_HEAD.DILATION
+        xconvs = []
+        for ix in range(num_stacked_convs):
+            xconvs.append(nn.Conv2d(in_channels, conv_head_dim, kernel_size=3, stride=1, padding=dilation, dilation=dilation, bias=False if use_gn else True))
+            in_channels = conv_head_dim
+            if use_gn:
+                xconvs.append(group_norm(in_channels))
+            xconvs.append(nn.ReLU(inplace=True))
+        self.add_module('xconvs', nn.Sequential(*xconvs))
+        for modules in [self.xconvs]:
+            for l in modules.modules():
+                if isinstance(l, nn.Conv2d):
+                    torch.nn.init.normal_(l.weight, std=0.01)
+                    if not use_gn:
+                        torch.nn.init.constant_(l.bias, 0)
+        input_size = conv_head_dim * resolution ** 2
+        representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
+        self.fc6 = make_fc(input_size, representation_size, use_gn=False)
+        self.out_channels = representation_size
+
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        x = self.xconvs(x)
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc6(x))
+        return x
+
+
+class FastRCNNPredictor(nn.Module):
+
+    def __init__(self, config, in_channels):
+        super(FastRCNNPredictor, self).__init__()
+        assert in_channels is not None
+        num_inputs = in_channels
+        num_classes = config.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.cls_score = nn.Linear(num_inputs, num_classes)
+        num_bbox_reg_classes = 2 if config.MODEL.CLS_AGNOSTIC_BBOX_REG else num_classes
+        self.bbox_pred = nn.Linear(num_inputs, num_bbox_reg_classes * 4)
+        nn.init.normal_(self.cls_score.weight, mean=0, std=0.01)
+        nn.init.constant_(self.cls_score.bias, 0)
+        nn.init.normal_(self.bbox_pred.weight, mean=0, std=0.001)
+        nn.init.constant_(self.bbox_pred.bias, 0)
+
+    def forward(self, x):
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        cls_logit = self.cls_score(x)
+        bbox_pred = self.bbox_pred(x)
+        return cls_logit, bbox_pred
+
+
+class FPNPredictor(nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(FPNPredictor, self).__init__()
+        num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+        representation_size = in_channels
+        self.cls_score = nn.Linear(representation_size, num_classes)
+        num_bbox_reg_classes = 2 if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG else num_classes
+        self.bbox_pred = nn.Linear(representation_size, num_bbox_reg_classes * 4)
+        nn.init.normal_(self.cls_score.weight, std=0.01)
+        nn.init.normal_(self.bbox_pred.weight, std=0.001)
+        for l in [self.cls_score, self.bbox_pred]:
+            nn.init.constant_(l.bias, 0)
+
+    def forward(self, x):
+        if x.ndimension() == 4:
+            assert list(x.shape[2:]) == [1, 1]
+            x = x.view(x.size(0), -1)
+        scores = self.cls_score(x)
+        bbox_deltas = self.bbox_pred(x)
+        return scores, bbox_deltas
+
+
+class KeypointRCNNFeatureExtractor(nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(KeypointRCNNFeatureExtractor, self).__init__()
+        resolution = cfg.MODEL.ROI_KEYPOINT_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_KEYPOINT_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_KEYPOINT_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        self.pooler = pooler
+        input_features = in_channels
+        layers = cfg.MODEL.ROI_KEYPOINT_HEAD.CONV_LAYERS
+        next_feature = input_features
+        self.blocks = []
+        for layer_idx, layer_features in enumerate(layers, 1):
+            layer_name = 'conv_fcn{}'.format(layer_idx)
+            module = Conv2d(next_feature, layer_features, 3, stride=1, padding=1)
+            nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.constant_(module.bias, 0)
+            self.add_module(layer_name, module)
+            next_feature = layer_features
+            self.blocks.append(layer_name)
+        self.out_channels = layer_features
+
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        for layer_name in self.blocks:
+            x = F.relu(getattr(self, layer_name)(x))
+        return x
+
+
+class KeypointRCNNPredictor(nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(KeypointRCNNPredictor, self).__init__()
+        input_features = in_channels
+        num_keypoints = cfg.MODEL.ROI_KEYPOINT_HEAD.NUM_CLASSES
+        deconv_kernel = 4
+        self.kps_score_lowres = layers.ConvTranspose2d(input_features, num_keypoints, deconv_kernel, stride=2, padding=deconv_kernel // 2 - 1)
+        nn.init.kaiming_normal_(self.kps_score_lowres.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.constant_(self.kps_score_lowres.bias, 0)
+        self.up_scale = 2
+        self.out_channels = num_keypoints
+
+    def forward(self, x):
+        x = self.kps_score_lowres(x)
+        x = layers.interpolate(x, scale_factor=self.up_scale, mode='bilinear', align_corners=False)
+        return x
+
+
+class MaskPostProcessorCOCOFormat(MaskPostProcessor):
+    """
+    From the results of the CNN, post process the results
+    so that the masks are pasted in the image, and
+    additionally convert the results to COCO format.
+    """
+
+    def forward(self, x, boxes):
+        import numpy as np
+        results = super(MaskPostProcessorCOCOFormat, self).forward(x, boxes)
+        for result in results:
+            masks = result.get_field('mask').cpu()
+            rles = [mask_util.encode(np.array(mask[(0), :, :, (np.newaxis)], order='F'))[0] for mask in masks]
+            for rle in rles:
+                rle['counts'] = rle['counts'].decode('utf-8')
+            result.add_field('mask', rles)
+        return results
+
+
+def make_conv3x3(in_channels, out_channels, dilation=1, stride=1, use_gn=False, use_relu=False, kaiming_init=True):
+    conv = Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, bias=False if use_gn else True)
+    if kaiming_init:
+        nn.init.kaiming_normal_(conv.weight, mode='fan_out', nonlinearity='relu')
+    else:
+        torch.nn.init.normal_(conv.weight, std=0.01)
+    if not use_gn:
+        nn.init.constant_(conv.bias, 0)
+    module = [conv]
+    if use_gn:
+        module.append(group_norm(out_channels))
+    if use_relu:
+        module.append(nn.ReLU(inplace=True))
+    if len(module) > 1:
+        return nn.Sequential(*module)
+    return conv
+
+
+class MaskRCNNFPNFeatureExtractor(nn.Module):
+    """
+    Heads for FPN for classification
+    """
+
+    def __init__(self, cfg, in_channels):
+        """
+        Arguments:
+            num_classes (int): number of output classes
+            input_size (int): number of channels of the input once it's flattened
+            representation_size (int): size of the intermediate representation
+        """
+        super(MaskRCNNFPNFeatureExtractor, self).__init__()
+        resolution = cfg.MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_MASK_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_MASK_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        input_size = in_channels
+        self.pooler = pooler
+        use_gn = cfg.MODEL.ROI_MASK_HEAD.USE_GN
+        layers = cfg.MODEL.ROI_MASK_HEAD.CONV_LAYERS
+        dilation = cfg.MODEL.ROI_MASK_HEAD.DILATION
+        next_feature = input_size
+        self.blocks = []
+        for layer_idx, layer_features in enumerate(layers, 1):
+            layer_name = 'mask_fcn{}'.format(layer_idx)
+            module = make_conv3x3(next_feature, layer_features, dilation=dilation, stride=1, use_gn=use_gn)
+            self.add_module(layer_name, module)
+            next_feature = layer_features
+            self.blocks.append(layer_name)
+        self.out_channels = layer_features
+
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        for layer_name in self.blocks:
+            x = F.relu(getattr(self, layer_name)(x))
+        return x
+
+
+class MaskRCNNC4Predictor(nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(MaskRCNNC4Predictor, self).__init__()
+        num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+        dim_reduced = cfg.MODEL.ROI_MASK_HEAD.CONV_LAYERS[-1]
+        num_inputs = in_channels
+        self.conv5_mask = ConvTranspose2d(num_inputs, dim_reduced, 2, 2, 0)
+        self.mask_fcn_logits = Conv2d(dim_reduced, num_classes, 1, 1, 0)
+        for name, param in self.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param, 0)
+            elif 'weight' in name:
+                nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+
+    def forward(self, x):
+        x = F.relu(self.conv5_mask(x))
+        return self.mask_fcn_logits(x)
+
+
+class MaskRCNNConv1x1Predictor(nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(MaskRCNNConv1x1Predictor, self).__init__()
+        num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+        num_inputs = in_channels
+        self.mask_fcn_logits = Conv2d(num_inputs, num_classes, 1, 1, 0)
+        for name, param in self.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param, 0)
+            elif 'weight' in name:
+                nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+
+    def forward(self, x):
+        return self.mask_fcn_logits(x)
+
+
 class RPNHeadConvRegressor(nn.Module):
     """
     A simple RPN Head for classification and bbox regression
@@ -4452,213 +4987,34 @@ class RPNHeadFeatureSingleConv(nn.Module):
         return x
 
 
-def make_anchor_generator(config):
-    anchor_sizes = config.MODEL.RPN.ANCHOR_SIZES
-    aspect_ratios = config.MODEL.RPN.ASPECT_RATIOS
-    anchor_stride = config.MODEL.RPN.ANCHOR_STRIDE
-    straddle_thresh = config.MODEL.RPN.STRADDLE_THRESH
-    if config.MODEL.RPN.USE_FPN:
-        assert len(anchor_stride) == len(anchor_sizes), 'FPN should have len(ANCHOR_STRIDE) == len(ANCHOR_SIZES)'
-    else:
-        assert len(anchor_stride) == 1, 'Non-FPN should have a single ANCHOR_STRIDE'
-    anchor_generator = AnchorGenerator(anchor_sizes, aspect_ratios, anchor_stride, straddle_thresh)
-    return anchor_generator
-
-
-def generate_rpn_labels(matched_targets):
-    matched_idxs = matched_targets.get_field('matched_idxs')
-    labels_per_image = matched_idxs >= 0
-    return labels_per_image
-
-
-def make_rpn_loss_evaluator(cfg, box_coder):
-    matcher = Matcher(cfg.MODEL.RPN.FG_IOU_THRESHOLD, cfg.MODEL.RPN.BG_IOU_THRESHOLD, allow_low_quality_matches=True)
-    fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.RPN.BATCH_SIZE_PER_IMAGE, cfg.MODEL.RPN.POSITIVE_FRACTION)
-    loss_evaluator = RPNLossComputation(matcher, fg_bg_sampler, box_coder, generate_rpn_labels)
-    return loss_evaluator
-
-
-def make_rpn_postprocessor(config, rpn_box_coder, is_train):
-    fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
-    if not is_train:
-        fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TEST
-    pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TRAIN
-    post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TRAIN
-    if not is_train:
-        pre_nms_top_n = config.MODEL.RPN.PRE_NMS_TOP_N_TEST
-        post_nms_top_n = config.MODEL.RPN.POST_NMS_TOP_N_TEST
-    nms_thresh = config.MODEL.RPN.NMS_THRESH
-    min_size = config.MODEL.RPN.MIN_SIZE
-    box_selector = RPNPostProcessor(pre_nms_top_n=pre_nms_top_n, post_nms_top_n=post_nms_top_n, nms_thresh=nms_thresh, min_size=min_size, box_coder=rpn_box_coder, fpn_post_nms_top_n=fpn_post_nms_top_n)
-    return box_selector
-
-
-class RPNModule(torch.nn.Module):
+class RPNHead(nn.Module):
     """
-    Module for RPN computation. Takes feature maps from the backbone and RPN
-    proposals and losses. Works for both FPN and non-FPN.
+    Adds a simple RPN Head with classification and regression heads
     """
 
-    def __init__(self, cfg, in_channels):
-        super(RPNModule, self).__init__()
-        self.cfg = cfg.clone()
-        anchor_generator = make_anchor_generator(cfg)
-        rpn_head = registry.RPN_HEADS[cfg.MODEL.RPN.RPN_HEAD]
-        head = rpn_head(cfg, in_channels, anchor_generator.num_anchors_per_location()[0])
-        rpn_box_coder = BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
-        box_selector_train = make_rpn_postprocessor(cfg, rpn_box_coder, is_train=True)
-        box_selector_test = make_rpn_postprocessor(cfg, rpn_box_coder, is_train=False)
-        loss_evaluator = make_rpn_loss_evaluator(cfg, rpn_box_coder)
-        self.anchor_generator = anchor_generator
-        self.head = head
-        self.box_selector_train = box_selector_train
-        self.box_selector_test = box_selector_test
-        self.loss_evaluator = loss_evaluator
-
-    def forward(self, images, features, targets=None):
+    def __init__(self, cfg, in_channels, num_anchors):
         """
         Arguments:
-            images (ImageList): images for which we want to compute the predictions
-            features (list[Tensor]): features computed from the images that are
-                used for computing the predictions. Each tensor in the list
-                correspond to different feature levels
-            targets (list[BoxList): ground-truth boxes present in the image (optional)
-
-        Returns:
-            boxes (list[BoxList]): the predicted boxes from the RPN, one BoxList per
-                image.
-            losses (dict[Tensor]): the losses for the model during training. During
-                testing, it is an empty dict.
+            cfg              : config
+            in_channels (int): number of channels of the input feature
+            num_anchors (int): number of anchors to be predicted
         """
-        objectness, rpn_box_regression = self.head(features)
-        anchors = self.anchor_generator(images, features)
-        if self.training:
-            return self._forward_train(anchors, objectness, rpn_box_regression, targets)
-        else:
-            return self._forward_test(anchors, objectness, rpn_box_regression)
+        super(RPNHead, self).__init__()
+        self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
+        self.cls_logits = nn.Conv2d(in_channels, num_anchors, kernel_size=1, stride=1)
+        self.bbox_pred = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=1, stride=1)
+        for l in [self.conv, self.cls_logits, self.bbox_pred]:
+            torch.nn.init.normal_(l.weight, std=0.01)
+            torch.nn.init.constant_(l.bias, 0)
 
-    def _forward_train(self, anchors, objectness, rpn_box_regression, targets):
-        if self.cfg.MODEL.RPN_ONLY:
-            boxes = anchors
-        else:
-            with torch.no_grad():
-                boxes = self.box_selector_train(anchors, objectness, rpn_box_regression, targets)
-        loss_objectness, loss_rpn_box_reg = self.loss_evaluator(anchors, objectness, rpn_box_regression, targets)
-        losses = {'loss_objectness': loss_objectness, 'loss_rpn_box_reg': loss_rpn_box_reg}
-        return boxes, losses
-
-    def _forward_test(self, anchors, objectness, rpn_box_regression):
-        boxes = self.box_selector_test(anchors, objectness, rpn_box_regression)
-        if self.cfg.MODEL.RPN_ONLY:
-            inds = [box.get_field('objectness').sort(descending=True)[1] for box in boxes]
-            boxes = [box[ind] for box, ind in zip(boxes, inds)]
-        return boxes, {}
-
-
-class FCOSPostProcessor(torch.nn.Module):
-    """
-    Performs post-processing on the outputs of the RetinaNet boxes.
-    This is only used in the testing.
-    """
-
-    def __init__(self, pre_nms_thresh, pre_nms_top_n, nms_thresh, fpn_post_nms_top_n, min_size, num_classes):
-        """
-        Arguments:
-            pre_nms_thresh (float)
-            pre_nms_top_n (int)
-            nms_thresh (float)
-            fpn_post_nms_top_n (int)
-            min_size (int)
-            num_classes (int)
-            box_coder (BoxCoder)
-        """
-        super(FCOSPostProcessor, self).__init__()
-        self.pre_nms_thresh = pre_nms_thresh
-        self.pre_nms_top_n = pre_nms_top_n
-        self.nms_thresh = nms_thresh
-        self.fpn_post_nms_top_n = fpn_post_nms_top_n
-        self.min_size = min_size
-        self.num_classes = num_classes
-
-    def forward_for_single_feature_map(self, locations, box_cls, box_regression, centerness, image_sizes):
-        """
-        Arguments:
-            anchors: list[BoxList]
-            box_cls: tensor of size N, A * C, H, W
-            box_regression: tensor of size N, A * 4, H, W
-        """
-        N, C, H, W = box_cls.shape
-        box_cls = box_cls.view(N, C, H, W).permute(0, 2, 3, 1)
-        box_cls = box_cls.reshape(N, -1, C).sigmoid()
-        box_regression = box_regression.view(N, 4, H, W).permute(0, 2, 3, 1)
-        box_regression = box_regression.reshape(N, -1, 4)
-        centerness = centerness.view(N, 1, H, W).permute(0, 2, 3, 1)
-        centerness = centerness.reshape(N, -1).sigmoid()
-        candidate_inds = box_cls > self.pre_nms_thresh
-        pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
-        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)
-        box_cls = box_cls * centerness[:, :, (None)]
-        results = []
-        for i in range(N):
-            per_box_cls = box_cls[i]
-            per_candidate_inds = candidate_inds[i]
-            per_box_cls = per_box_cls[per_candidate_inds]
-            per_candidate_nonzeros = per_candidate_inds.nonzero()
-            per_box_loc = per_candidate_nonzeros[:, (0)]
-            per_class = per_candidate_nonzeros[:, (1)] + 1
-            per_box_regression = box_regression[i]
-            per_box_regression = per_box_regression[per_box_loc]
-            per_locations = locations[per_box_loc]
-            per_pre_nms_top_n = pre_nms_top_n[i]
-            if per_candidate_inds.sum().item() > per_pre_nms_top_n.item():
-                per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n, sorted=False)
-                per_class = per_class[top_k_indices]
-                per_box_regression = per_box_regression[top_k_indices]
-                per_locations = per_locations[top_k_indices]
-            detections = torch.stack([per_locations[:, (0)] - per_box_regression[:, (0)], per_locations[:, (1)] - per_box_regression[:, (1)], per_locations[:, (0)] + per_box_regression[:, (2)], per_locations[:, (1)] + per_box_regression[:, (3)]], dim=1)
-            h, w = image_sizes[i]
-            boxlist = BoxList(detections, (int(w), int(h)), mode='xyxy')
-            boxlist.add_field('labels', per_class)
-            boxlist.add_field('scores', torch.sqrt(per_box_cls))
-            boxlist = boxlist.clip_to_image(remove_empty=False)
-            boxlist = remove_small_boxes(boxlist, self.min_size)
-            results.append(boxlist)
-        return results
-
-    def forward(self, locations, box_cls, box_regression, centerness, image_sizes):
-        """
-        Arguments:
-            anchors: list[list[BoxList]]
-            box_cls: list[tensor]
-            box_regression: list[tensor]
-            image_sizes: list[(h, w)]
-        Returns:
-            boxlists (list[BoxList]): the post-processed anchors, after
-                applying box decoding and NMS
-        """
-        sampled_boxes = []
-        for _, (l, o, b, c) in enumerate(zip(locations, box_cls, box_regression, centerness)):
-            sampled_boxes.append(self.forward_for_single_feature_map(l, o, b, c, image_sizes))
-        boxlists = list(zip(*sampled_boxes))
-        boxlists = [cat_boxlist(boxlist) for boxlist in boxlists]
-        boxlists = self.select_over_all_levels(boxlists)
-        return boxlists
-
-    def select_over_all_levels(self, boxlists):
-        num_images = len(boxlists)
-        results = []
-        for i in range(num_images):
-            keep = batched_nms(boxlists[i].bbox, boxlists[i].get_field('scores'), boxlists[i].get_field('labels'), self.nms_thresh)
-            result = boxlists[i][keep]
-            number_of_detections = len(result)
-            if number_of_detections > self.fpn_post_nms_top_n > 0:
-                cls_scores = result.get_field('scores')
-                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), number_of_detections - self.fpn_post_nms_top_n + 1)
-                keep = cls_scores >= image_thresh.item()
-                keep = torch.nonzero(keep).squeeze(1)
-                result = result[keep]
-            results.append(result)
-        return results
+    def forward(self, x):
+        logits = []
+        bbox_reg = []
+        for feature in x:
+            t = F.relu(self.conv(feature))
+            logits.append(self.cls_logits(t))
+            bbox_reg.append(self.bbox_pred(t))
+        return logits, bbox_reg
 
 
 class ONNX_FCOS(nn.Module):
@@ -4758,6 +5114,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (RPNHead,
+     lambda: ([], {'cfg': _mock_config(), 'in_channels': 4, 'num_anchors': 4}),
+     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     True),
     (SEModule,
      lambda: ([], {'C': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4827,4 +5187,7 @@ class Test_tianzhi0549_FCOS(_paritybench_base):
 
     def test_016(self):
         self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
 

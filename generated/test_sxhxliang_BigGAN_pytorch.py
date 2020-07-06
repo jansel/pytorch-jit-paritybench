@@ -16,15 +16,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -39,6 +40,15 @@ from torch.nn.parameter import Parameter
 
 
 from torch.nn import functional as F
+
+
+import torchvision.datasets as dsets
+
+
+from torchvision import transforms
+
+
+from torch.backends import cudnn
 
 
 from torch.nn import init
@@ -138,112 +148,6 @@ class _BatchNorm(nn.Module):
         super(_BatchNorm, self)._load_from_state_dict(state_dict, prefix, metadata, strict, missing_keys, unexpected_keys, error_msgs)
 
 
-def init_conv(conv, glu=True):
-    init.xavier_uniform_(conv.weight)
-    if conv.bias is not None:
-        conv.bias.data.zero_()
-
-
-class SelfAttention(nn.Module):
-    """ Self attention Layer"""
-
-    def __init__(self, in_dim, activation=F.relu):
-        super(SelfAttention, self).__init__()
-        self.chanel_in = in_dim
-        self.activation = activation
-        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
-        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
-        self.gamma = nn.Parameter(torch.zeros(1))
-        self.softmax = nn.Softmax(dim=-1)
-        init_conv(self.query_conv)
-        init_conv(self.key_conv)
-        init_conv(self.value_conv)
-
-    def forward(self, x):
-        """
-            inputs :
-                x : input feature maps( B X C X W X H)
-            returns :
-                out : self attention value + input feature 
-                attention: B X N X N (N is Width*Height)
-        """
-        m_batchsize, C, width, height = x.size()
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
-        proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
-        energy = torch.bmm(proj_query, proj_key)
-        attention = self.softmax(energy)
-        proj_value = self.value_conv(x).view(m_batchsize, -1, width * height)
-        out = torch.bmm(proj_value, attention.permute(0, 2, 1))
-        out = out.view(m_batchsize, C, width, height)
-        out = self.gamma * out + x
-        return out
-
-
-class ConditionalNorm(nn.Module):
-
-    def __init__(self, in_channel, n_condition=148):
-        super().__init__()
-        self.bn = nn.BatchNorm2d(in_channel, affine=False)
-        self.embed = nn.Linear(n_condition, in_channel * 2)
-        self.embed.weight.data[:, :in_channel] = 1
-        self.embed.weight.data[:, in_channel:] = 0
-
-    def forward(self, input, class_id):
-        out = self.bn(input)
-        embed = self.embed(class_id)
-        gamma, beta = embed.chunk(2, 1)
-        gamma = gamma.unsqueeze(2).unsqueeze(3)
-        beta = beta.unsqueeze(2).unsqueeze(3)
-        out = gamma * out + beta
-        return out
-
-
-class GBlock(nn.Module):
-
-    def __init__(self, in_channel, out_channel, kernel_size=[3, 3], padding=1, stride=1, n_class=None, bn=True, activation=F.relu, upsample=True, downsample=False):
-        super().__init__()
-        gain = 2 ** 0.5
-        self.conv0 = SpectralNorm(nn.Conv2d(in_channel, out_channel, kernel_size, stride, padding, bias=True if bn else True))
-        self.conv1 = SpectralNorm(nn.Conv2d(out_channel, out_channel, kernel_size, stride, padding, bias=True if bn else True))
-        self.skip_proj = False
-        if in_channel != out_channel or upsample or downsample:
-            self.conv_sc = SpectralNorm(nn.Conv2d(in_channel, out_channel, 1, 1, 0))
-            self.skip_proj = True
-        self.upsample = upsample
-        self.downsample = downsample
-        self.activation = activation
-        self.bn = bn
-        if bn:
-            self.HyperBN = ConditionalNorm(in_channel, 148)
-            self.HyperBN_1 = ConditionalNorm(out_channel, 148)
-
-    def forward(self, input, condition=None):
-        out = input
-        if self.bn:
-            out = self.HyperBN(out, condition)
-        out = self.activation(out)
-        if self.upsample:
-            out = F.upsample(out, scale_factor=2)
-        out = self.conv0(out)
-        if self.bn:
-            out = self.HyperBN_1(out, condition)
-        out = self.activation(out)
-        out = self.conv1(out)
-        if self.downsample:
-            out = F.avg_pool2d(out, 2)
-        if self.skip_proj:
-            skip = input
-            if self.upsample:
-                skip = F.upsample(skip, scale_factor=2)
-            skip = self.conv_sc(skip)
-            if self.downsample:
-                skip = F.avg_pool2d(skip, 2)
-        else:
-            skip = input
-        return out + skip
-
-
 class ScaledCrossReplicaBatchNorm2d(_BatchNorm):
     """Applies Batch Normalization over a 4D input (a mini-batch of 2D inputs
     with additional channel dimension) as described in the paper
@@ -312,6 +216,165 @@ class ScaledCrossReplicaBatchNorm2d(_BatchNorm):
     def _check_input_dim(self, input):
         if input.dim() != 4:
             raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+
+
+def init_conv(conv, glu=True):
+    init.xavier_uniform_(conv.weight)
+    if conv.bias is not None:
+        conv.bias.data.zero_()
+
+
+class SelfAttention(nn.Module):
+    """ Self attention Layer"""
+
+    def __init__(self, in_dim, activation=F.relu):
+        super(SelfAttention, self).__init__()
+        self.chanel_in = in_dim
+        self.activation = activation
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+        self.softmax = nn.Softmax(dim=-1)
+        init_conv(self.query_conv)
+        init_conv(self.key_conv)
+        init_conv(self.value_conv)
+
+    def forward(self, x):
+        """
+            inputs :
+                x : input feature maps( B X C X W X H)
+            returns :
+                out : self attention value + input feature 
+                attention: B X N X N (N is Width*Height)
+        """
+        m_batchsize, C, width, height = x.size()
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
+        proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
+        energy = torch.bmm(proj_query, proj_key)
+        attention = self.softmax(energy)
+        proj_value = self.value_conv(x).view(m_batchsize, -1, width * height)
+        out = torch.bmm(proj_value, attention.permute(0, 2, 1))
+        out = out.view(m_batchsize, C, width, height)
+        out = self.gamma * out + x
+        return out
+
+
+class ConditionalNorm(nn.Module):
+
+    def __init__(self, in_channel, n_condition=148):
+        super().__init__()
+        self.bn = nn.BatchNorm2d(in_channel, affine=False)
+        self.embed = nn.Linear(n_condition, in_channel * 2)
+        self.embed.weight.data[:, :in_channel] = 1
+        self.embed.weight.data[:, in_channel:] = 0
+
+    def forward(self, input, class_id):
+        out = self.bn(input)
+        embed = self.embed(class_id)
+        gamma, beta = embed.chunk(2, 1)
+        gamma = gamma.unsqueeze(2).unsqueeze(3)
+        beta = beta.unsqueeze(2).unsqueeze(3)
+        out = gamma * out + beta
+        return out
+
+
+def l2normalize(v, eps=1e-12):
+    return v / (v.norm() + eps)
+
+
+class SpectralNorm(nn.Module):
+
+    def __init__(self, module, name='weight', power_iterations=1):
+        super(SpectralNorm, self).__init__()
+        self.module = module
+        self.name = name
+        self.power_iterations = power_iterations
+        if not self._made_params():
+            self._make_params()
+
+    def _update_u_v(self):
+        u = getattr(self.module, self.name + '_u')
+        v = getattr(self.module, self.name + '_v')
+        w = getattr(self.module, self.name + '_bar')
+        height = w.data.shape[0]
+        for _ in range(self.power_iterations):
+            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
+            u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
+        sigma = u.dot(w.view(height, -1).mv(v))
+        setattr(self.module, self.name, w / sigma.expand_as(w))
+
+    def _made_params(self):
+        try:
+            u = getattr(self.module, self.name + '_u')
+            v = getattr(self.module, self.name + '_v')
+            w = getattr(self.module, self.name + '_bar')
+            return True
+        except AttributeError:
+            return False
+
+    def _make_params(self):
+        w = getattr(self.module, self.name)
+        height = w.data.shape[0]
+        width = w.view(height, -1).data.shape[1]
+        u = Parameter(w.data.new(height).normal_(0, 1), requires_grad=False)
+        v = Parameter(w.data.new(width).normal_(0, 1), requires_grad=False)
+        u.data = l2normalize(u.data)
+        v.data = l2normalize(v.data)
+        w_bar = Parameter(w.data)
+        del self.module._parameters[self.name]
+        self.module.register_parameter(self.name + '_u', u)
+        self.module.register_parameter(self.name + '_v', v)
+        self.module.register_parameter(self.name + '_bar', w_bar)
+
+    def forward(self, *args):
+        self._update_u_v()
+        return self.module.forward(*args)
+
+
+class GBlock(nn.Module):
+
+    def __init__(self, in_channel, out_channel, kernel_size=[3, 3], padding=1, stride=1, n_class=None, bn=True, activation=F.relu, upsample=True, downsample=False):
+        super().__init__()
+        gain = 2 ** 0.5
+        self.conv0 = SpectralNorm(nn.Conv2d(in_channel, out_channel, kernel_size, stride, padding, bias=True if bn else True))
+        self.conv1 = SpectralNorm(nn.Conv2d(out_channel, out_channel, kernel_size, stride, padding, bias=True if bn else True))
+        self.skip_proj = False
+        if in_channel != out_channel or upsample or downsample:
+            self.conv_sc = SpectralNorm(nn.Conv2d(in_channel, out_channel, 1, 1, 0))
+            self.skip_proj = True
+        self.upsample = upsample
+        self.downsample = downsample
+        self.activation = activation
+        self.bn = bn
+        if bn:
+            self.HyperBN = ConditionalNorm(in_channel, 148)
+            self.HyperBN_1 = ConditionalNorm(out_channel, 148)
+
+    def forward(self, input, condition=None):
+        out = input
+        if self.bn:
+            out = self.HyperBN(out, condition)
+        out = self.activation(out)
+        if self.upsample:
+            out = F.upsample(out, scale_factor=2)
+        out = self.conv0(out)
+        if self.bn:
+            out = self.HyperBN_1(out, condition)
+        out = self.activation(out)
+        out = self.conv1(out)
+        if self.downsample:
+            out = F.avg_pool2d(out, 2)
+        if self.skip_proj:
+            skip = input
+            if self.upsample:
+                skip = F.upsample(skip, scale_factor=2)
+            skip = self.conv_sc(skip)
+            if self.downsample:
+                skip = F.avg_pool2d(skip, 2)
+        else:
+            skip = input
+        return out + skip
 
 
 class Generator(nn.Module):
@@ -422,59 +485,6 @@ class Discriminator(nn.Module):
         return out_linear + prod
 
 
-def l2normalize(v, eps=1e-12):
-    return v / (v.norm() + eps)
-
-
-class SpectralNorm(nn.Module):
-
-    def __init__(self, module, name='weight', power_iterations=1):
-        super(SpectralNorm, self).__init__()
-        self.module = module
-        self.name = name
-        self.power_iterations = power_iterations
-        if not self._made_params():
-            self._make_params()
-
-    def _update_u_v(self):
-        u = getattr(self.module, self.name + '_u')
-        v = getattr(self.module, self.name + '_v')
-        w = getattr(self.module, self.name + '_bar')
-        height = w.data.shape[0]
-        for _ in range(self.power_iterations):
-            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
-            u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
-        sigma = u.dot(w.view(height, -1).mv(v))
-        setattr(self.module, self.name, w / sigma.expand_as(w))
-
-    def _made_params(self):
-        try:
-            u = getattr(self.module, self.name + '_u')
-            v = getattr(self.module, self.name + '_v')
-            w = getattr(self.module, self.name + '_bar')
-            return True
-        except AttributeError:
-            return False
-
-    def _make_params(self):
-        w = getattr(self.module, self.name)
-        height = w.data.shape[0]
-        width = w.view(height, -1).data.shape[1]
-        u = Parameter(w.data.new(height).normal_(0, 1), requires_grad=False)
-        v = Parameter(w.data.new(width).normal_(0, 1), requires_grad=False)
-        u.data = l2normalize(u.data)
-        v.data = l2normalize(v.data)
-        w_bar = Parameter(w.data)
-        del self.module._parameters[self.name]
-        self.module.register_parameter(self.name + '_u', u)
-        self.module.register_parameter(self.name + '_v', v)
-        self.module.register_parameter(self.name + '_bar', w_bar)
-
-    def forward(self, *args):
-        self._update_u_v()
-        return self.module.forward(*args)
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -482,6 +492,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (ConditionalNorm,
+     lambda: ([], {'in_channel': 4}),
+     lambda: ([torch.rand([148, 4, 4, 4]), torch.rand([148, 148])], {}),
+     True),
     (ScaledCrossReplicaBatchNorm2d,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -498,4 +512,7 @@ class Test_sxhxliang_BigGAN_pytorch(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

@@ -276,6 +276,7 @@ class DeduceParameter(object):
             "block_cls": _mock_layer,
             "layer_cls": _mock_layer,
             "module": _mock_layer(),
+            "dtype": torch.float32,
         }
         for search_name, placeholder_value in sorted(common_args.items()):
             if search_name in name:
@@ -352,7 +353,8 @@ class DeduceParameter(object):
         if isinstance(self._guesses[-1], TensorGuess) and gen < 2:
             # try starting with a smaller size
             new_size = [2, 3][gen]
-            self.change_guess(TensorGuess([TensorGuess.default_size] * new_size))
+            self.change_guess(TensorGuess([TensorGuess.default_size] * new_size,
+                                          self._guesses[-1].dtype))
 
 
 class Guess(object):
@@ -432,6 +434,8 @@ class LiteralGuess(Guess):
                  lambda: [TensorGuess.default_size] * 2),
                 (r"TypeError: 'int' object is not iterable",
                  lambda: [TensorGuess.default_size] * 2),
+                (r"TypeError: argument of type 'int' is not iterable",
+                 lambda: [TensorGuess.default_size] * 2),
                 (r"TypeError: object of type 'int' has no len()",
                  lambda: [TensorGuess.default_size] * 2),
                 (r"AttributeError: 'int' object has no attribute '(size|shape|dtype|device|ndim)'",
@@ -467,7 +471,7 @@ class LiteralGuess(Guess):
                 (r"AttributeError: 'int' object has no attribute '(upper|lower)'",
                  lambda: 'gru' if 'rnn_type' in name else None),
                 (r"TypeError: 'int' object is not callable",
-                 lambda: _mock_layer if any(s in name for s in ["norm", "act", "cls", "block"]) else None),
+                 lambda: _mock_layer if any(s in name.lower() for s in ["norm", "act", "cls", "block"]) else None),
                 (r"ZeroDivisionError: float division by zero",
                  lambda: self.value * 2 if self.value < 256 else None),
                 (r"ZeroDivisionError: integer division or modulo by zero",
@@ -506,8 +510,11 @@ class LiteralGuess(Guess):
             fixors.extend([
                 (r"received an invalid combination of arguments.*float",
                  lambda: TensorGuess.default_size),
+                (r"tuple of ints, but found element of type float",
+                 lambda: TensorGuess.default_size),
                 (r"TypeError: 'float' object cannot be interpreted as an integer",
                  lambda: int(self.value)),
+
             ])
 
         if pass_number == 0 and isinstance(self.value, list):
@@ -526,6 +533,8 @@ class LiteralGuess(Guess):
                  fix_too_few),
                 (r"not supported between instances of '(list|int)' and '(list|int)'",
                  lambda: TensorGuess.default_size),
+                (r"unsupported operand .* 'list'",
+                 lambda: TensorGuess.default_size),
                 (r"TypeError: 'list' object is not callable",
                  lambda: _mock_layer),
                 (r"IndexError: list index out of range",
@@ -539,7 +548,9 @@ class LiteralGuess(Guess):
         if pass_number == 0 and isinstance(self.value, torch.nn.Module):
             fixors.extend([
                 (r"object has no attribute 'split'",
-                 lambda: type(self.value).__name__)
+                 lambda: type(self.value).__name__),
+                (r"TypeError: must be real number, not DummyBlock",
+                 lambda: 1.0),
             ])
 
         if not fixors:
@@ -609,6 +620,8 @@ class TensorGuess(Guess):
                     return LiteralGuess(_mock_layer())
 
         other_fixors = [
+            (r"expected Long",
+             lambda: self.__class__([self.default_size], torch.int64)),
             (r"scalar type Long; but got torch.FloatTensor",
              lambda: self.__class__([self.default_size], torch.int64)),
             (r"Expected dtype int64 for index",
@@ -626,6 +639,8 @@ class TensorGuess(Guess):
             (r"Boolean value of Tensor with more than one value is ambiguous",
              lambda: LiteralGuess(0)),
             (r"only supports 0-dimension value tensor",
+             lambda: LiteralGuess(0)),
+            (r"bool value of Tensor with more than one value is ambiguous",
              lambda: LiteralGuess(0)),
             (r"Length of all samples has to be greater than 0",
              lambda: self.__class__([self.shape], self.dtype, fill_value=1)),
@@ -645,9 +660,13 @@ class TensorGuess(Guess):
                  self.fix_convolution_if_matching),
                 (r"(?P<want>\d+) channels, but got (?P<got>\d+) channels",
                  self.fix_num_channels),
+                (r"channels in input to be divisible by num_groups.*\[\d+, (?P<got>\d+),.* num_groups=(?P<want>\d+)",
+                 self.fix_num_channels),
                 (r"same number of dimensions: got (?P<want>\d+) and (?P<got>\d+)",
                  self.fix_dimensions),
                 (r"Got (?P<got>\d+)D .*needs (?P<want>\d+)D",
+                 self.fix_dimensions),
+                (r"dimension mismatch for operand \d+: equation (?P<want>\d+) tensor (?P<got>\d+)",
                  self.fix_dimensions),
                 (r"input must have (?P<want>\d+) dimensions, got (?P<got>\d+)",
                  self.fix_dimensions),
@@ -661,7 +680,7 @@ class TensorGuess(Guess):
                  lambda want, got: self.fix_dimensions_at(want=want, got=got, dim=len(self.shape) - 1)),
                 (r"matrices expected, got (?P<got>\d+)D, (?P<want>\d+)D ",
                  self.fix_dimensions),
-                (r"expected \d+D or (?P<want>\d+)D input \(got (?P<got>\d+)D input\)",
+                (r"expected.* (?P<want>\d+)D input \(got (?P<got>\d+)D input\)",
                  self.fix_dimensions),
                 (r"Expected.*size (?P<want>[\d, ()]+), got (?P<got>[\d, ()]+)",
                  self.fix_shape),
@@ -701,6 +720,10 @@ class TensorGuess(Guess):
                  self.fix_too_small),
                 (r"shape '(?P<view>\[[\d, -]+\])' is invalid for input of size (?P<size>\d+)",
                  self.fix_view),
+                (r"expected input with shape \[\*, (?P<want>\d+)\], but got input of size\[.* (?P<got>\d+)\]",
+                 lambda want, got: self.fix_too_small() if want > got else self.fix_too_big()),
+                (r"only one element tensors can be converted to Python scalars",
+                 lambda: self.shape[:-1] if 1 < len(self.shape) <= 3 else None),
             ]
 
         if pass_number == 1:
@@ -770,13 +793,16 @@ class TensorGuess(Guess):
     def fix_too_big(self):
         if len(self.shape) >= 4:
             tmp = list(self.shape)
-            if tmp[-1] > 4:
+            if tmp[-1] >= 4:
                 v = tmp[-1] // 2
                 if isinstance(self.hint, TooSmallHint) and self.hint.value == v:
                     v = (v + self.shape[-1]) // 2
                 tmp[-1] = v
                 tmp[-2] = v
                 return TensorGuess(tmp, self.dtype, self.fill_value, hint=TooBigHint(self.shape[-1]))
+            if tmp[1] >= 4:
+                tmp[1] = tmp[1] // 2
+                return tmp
 
     def fix_out_of_bounds(self, index, dim, size):
         if len(self.shape) > dim and self.shape[dim] == size:

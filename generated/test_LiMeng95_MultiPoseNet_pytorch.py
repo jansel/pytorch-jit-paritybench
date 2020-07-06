@@ -24,6 +24,7 @@ core = _module
 config = _module
 nms = _module
 _ext = _module
+nms = _module
 build = _module
 pth_nms = _module
 utils = _module
@@ -50,23 +51,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import itertools
+import numpy as np
 
 
 import torch
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
+
+
+from functools import partial
+
+
+from functools import reduce
+
+
+import math
+
+
+import itertools
 
 
 from torch.nn import DataParallel
@@ -81,10 +101,10 @@ from torch.nn.parallel._functions import Scatter
 from torch.nn.parallel._functions import Gather
 
 
-import math
+from typing import Generator
 
 
-import numpy as np
+from torch.utils.data.dataloader import DataLoader
 
 
 from collections import OrderedDict
@@ -103,6 +123,12 @@ from torch.nn import init
 
 
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+
+import torch.utils.model_zoo as model_zoo
+
+
+import torch.backends.cudnn as cudnn
 
 
 from torch.optim.lr_scheduler import _LRScheduler
@@ -129,7 +155,7 @@ def pose_gather(outputs, target_device, dim=0):
         if isinstance(outputs, Variable):
             if target_device == -1:
                 return outputs.cpu()
-            return outputs.cuda(target_device)
+            return outputs
         out = outputs[0]
         if isinstance(out, Variable):
             return Gather.apply(target_device, dim, *outputs)
@@ -539,6 +565,54 @@ class PRN(nn.Module):
         return out
 
 
+class BBoxTransform(nn.Module):
+
+    def __init__(self, mean=None, std=None):
+        super(BBoxTransform, self).__init__()
+        if mean is None:
+            self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
+        else:
+            self.mean = mean
+        if std is None:
+            self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
+        else:
+            self.std = std
+
+    def forward(self, boxes, deltas):
+        widths = boxes[:, :, (2)] - boxes[:, :, (0)]
+        heights = boxes[:, :, (3)] - boxes[:, :, (1)]
+        ctr_x = boxes[:, :, (0)] + 0.5 * widths
+        ctr_y = boxes[:, :, (1)] + 0.5 * heights
+        dx = deltas[:, :, (0)] * self.std[0] + self.mean[0]
+        dy = deltas[:, :, (1)] * self.std[1] + self.mean[1]
+        dw = deltas[:, :, (2)] * self.std[2] + self.mean[2]
+        dh = deltas[:, :, (3)] * self.std[3] + self.mean[3]
+        pred_ctr_x = ctr_x + dx * widths
+        pred_ctr_y = ctr_y + dy * heights
+        pred_w = torch.exp(dw) * widths
+        pred_h = torch.exp(dh) * heights
+        pred_boxes_x1 = pred_ctr_x - 0.5 * pred_w
+        pred_boxes_y1 = pred_ctr_y - 0.5 * pred_h
+        pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
+        pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
+        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
+        return pred_boxes
+
+
+class ClipBoxes(nn.Module):
+
+    def __init__(self, width=None, height=None):
+        super(ClipBoxes, self).__init__()
+
+    def forward(self, boxes, img):
+        batch_size, num_channels, height, width = img.shape
+        boxes[:, :, (0)] = torch.clamp(boxes[:, :, (0)], min=0)
+        boxes[:, :, (1)] = torch.clamp(boxes[:, :, (1)], min=0)
+        boxes[:, :, (2)] = torch.clamp(boxes[:, :, (2)], max=width)
+        boxes[:, :, (3)] = torch.clamp(boxes[:, :, (3)], max=height)
+        return boxes
+
+
 def FPN101():
     return FPN(Bottleneck, [3, 4, 23, 3])
 
@@ -578,7 +652,7 @@ def build_names():
 def build_keypoint_loss(saved_for_loss, heat_temp, heat_weight):
     names = build_names()
     saved_for_log = OrderedDict()
-    criterion = nn.MSELoss(size_average=True).cuda()
+    criterion = nn.MSELoss(size_average=True)
     total_loss = 0
     div1 = 1.0
     for j in range(5):
@@ -599,7 +673,7 @@ def build_prn_loss(saved_for_loss, label):
     :return: prn loss
     """
     saved_for_log = OrderedDict()
-    criterion = nn.BCELoss(size_average=True).cuda()
+    criterion = nn.BCELoss(size_average=True)
     total_loss = 0
     loss1 = criterion(saved_for_loss[0], label)
     total_loss += loss1
@@ -635,7 +709,7 @@ def pth_nms(dets, thresh):
         keep = torch.LongTensor(dets.size(0))
         num_out = torch.LongTensor(1)
         nms.gpu_nms(keep, num_out, dets, thresh)
-        return order[keep[:num_out[0]].cuda()].contiguous()
+        return order[keep[:num_out[0]]].contiguous()
 
 
 def nms(dets, thresh):
@@ -795,54 +869,6 @@ class poseNet(nn.Module):
             return build_prn_loss(saved_for_loss, args[1])
         else:
             return 0
-
-
-class BBoxTransform(nn.Module):
-
-    def __init__(self, mean=None, std=None):
-        super(BBoxTransform, self).__init__()
-        if mean is None:
-            self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
-        else:
-            self.mean = mean
-        if std is None:
-            self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
-        else:
-            self.std = std
-
-    def forward(self, boxes, deltas):
-        widths = boxes[:, :, (2)] - boxes[:, :, (0)]
-        heights = boxes[:, :, (3)] - boxes[:, :, (1)]
-        ctr_x = boxes[:, :, (0)] + 0.5 * widths
-        ctr_y = boxes[:, :, (1)] + 0.5 * heights
-        dx = deltas[:, :, (0)] * self.std[0] + self.mean[0]
-        dy = deltas[:, :, (1)] * self.std[1] + self.mean[1]
-        dw = deltas[:, :, (2)] * self.std[2] + self.mean[2]
-        dh = deltas[:, :, (3)] * self.std[3] + self.mean[3]
-        pred_ctr_x = ctr_x + dx * widths
-        pred_ctr_y = ctr_y + dy * heights
-        pred_w = torch.exp(dw) * widths
-        pred_h = torch.exp(dh) * heights
-        pred_boxes_x1 = pred_ctr_x - 0.5 * pred_w
-        pred_boxes_y1 = pred_ctr_y - 0.5 * pred_h
-        pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
-        pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
-        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
-        return pred_boxes
-
-
-class ClipBoxes(nn.Module):
-
-    def __init__(self, width=None, height=None):
-        super(ClipBoxes, self).__init__()
-
-    def forward(self, boxes, img):
-        batch_size, num_channels, height, width = img.shape
-        boxes[:, :, (0)] = torch.clamp(boxes[:, :, (0)], min=0)
-        boxes[:, :, (1)] = torch.clamp(boxes[:, :, (1)], min=0)
-        boxes[:, :, (2)] = torch.clamp(boxes[:, :, (2)], max=width)
-        boxes[:, :, (3)] = torch.clamp(boxes[:, :, (3)], max=height)
-        return boxes
 
 
 import torch

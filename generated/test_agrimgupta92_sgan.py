@@ -15,17 +15,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
 
 
 import logging
@@ -37,13 +41,28 @@ import time
 from collections import defaultdict
 
 
-import torch
-
-
 import torch.nn as nn
 
 
 import torch.optim as optim
+
+
+from torch.utils.data import DataLoader
+
+
+import math
+
+
+import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+import random
+
+
+import inspect
 
 
 class Encoder(nn.Module):
@@ -91,61 +110,6 @@ def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
         if dropout > 0:
             layers.append(nn.Dropout(p=dropout))
     return nn.Sequential(*layers)
-
-
-class Decoder(nn.Module):
-    """Decoder is part of TrajectoryGenerator"""
-
-    def __init__(self, seq_len, embedding_dim=64, h_dim=128, mlp_dim=1024, num_layers=1, pool_every_timestep=True, dropout=0.0, bottleneck_dim=1024, activation='relu', batch_norm=True, pooling_type='pool_net', neighborhood_size=2.0, grid_size=8):
-        super(Decoder, self).__init__()
-        self.seq_len = seq_len
-        self.mlp_dim = mlp_dim
-        self.h_dim = h_dim
-        self.embedding_dim = embedding_dim
-        self.pool_every_timestep = pool_every_timestep
-        self.decoder = nn.LSTM(embedding_dim, h_dim, num_layers, dropout=dropout)
-        if pool_every_timestep:
-            if pooling_type == 'pool_net':
-                self.pool_net = PoolHiddenNet(embedding_dim=self.embedding_dim, h_dim=self.h_dim, mlp_dim=mlp_dim, bottleneck_dim=bottleneck_dim, activation=activation, batch_norm=batch_norm, dropout=dropout)
-            elif pooling_type == 'spool':
-                self.pool_net = SocialPooling(h_dim=self.h_dim, activation=activation, batch_norm=batch_norm, dropout=dropout, neighborhood_size=neighborhood_size, grid_size=grid_size)
-            mlp_dims = [h_dim + bottleneck_dim, mlp_dim, h_dim]
-            self.mlp = make_mlp(mlp_dims, activation=activation, batch_norm=batch_norm, dropout=dropout)
-        self.spatial_embedding = nn.Linear(2, embedding_dim)
-        self.hidden2pos = nn.Linear(h_dim, 2)
-
-    def forward(self, last_pos, last_pos_rel, state_tuple, seq_start_end):
-        """
-        Inputs:
-        - last_pos: Tensor of shape (batch, 2)
-        - last_pos_rel: Tensor of shape (batch, 2)
-        - state_tuple: (hh, ch) each tensor of shape (num_layers, batch, h_dim)
-        - seq_start_end: A list of tuples which delimit sequences within batch
-        Output:
-        - pred_traj: tensor of shape (self.seq_len, batch, 2)
-        """
-        batch = last_pos.size(0)
-        pred_traj_fake_rel = []
-        decoder_input = self.spatial_embedding(last_pos_rel)
-        decoder_input = decoder_input.view(1, batch, self.embedding_dim)
-        for _ in range(self.seq_len):
-            output, state_tuple = self.decoder(decoder_input, state_tuple)
-            rel_pos = self.hidden2pos(output.view(-1, self.h_dim))
-            curr_pos = rel_pos + last_pos
-            if self.pool_every_timestep:
-                decoder_h = state_tuple[0]
-                pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos)
-                decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h], dim=1)
-                decoder_h = self.mlp(decoder_h)
-                decoder_h = torch.unsqueeze(decoder_h, 0)
-                state_tuple = decoder_h, state_tuple[1]
-            embedding_input = rel_pos
-            decoder_input = self.spatial_embedding(embedding_input)
-            decoder_input = decoder_input.view(1, batch, self.embedding_dim)
-            pred_traj_fake_rel.append(rel_pos.view(batch, -1))
-            last_pos = curr_pos
-        pred_traj_fake_rel = torch.stack(pred_traj_fake_rel, dim=0)
-        return pred_traj_fake_rel, state_tuple[0]
 
 
 class PoolHiddenNet(nn.Module):
@@ -292,11 +256,66 @@ class SocialPooling(nn.Module):
         return pool_h
 
 
+class Decoder(nn.Module):
+    """Decoder is part of TrajectoryGenerator"""
+
+    def __init__(self, seq_len, embedding_dim=64, h_dim=128, mlp_dim=1024, num_layers=1, pool_every_timestep=True, dropout=0.0, bottleneck_dim=1024, activation='relu', batch_norm=True, pooling_type='pool_net', neighborhood_size=2.0, grid_size=8):
+        super(Decoder, self).__init__()
+        self.seq_len = seq_len
+        self.mlp_dim = mlp_dim
+        self.h_dim = h_dim
+        self.embedding_dim = embedding_dim
+        self.pool_every_timestep = pool_every_timestep
+        self.decoder = nn.LSTM(embedding_dim, h_dim, num_layers, dropout=dropout)
+        if pool_every_timestep:
+            if pooling_type == 'pool_net':
+                self.pool_net = PoolHiddenNet(embedding_dim=self.embedding_dim, h_dim=self.h_dim, mlp_dim=mlp_dim, bottleneck_dim=bottleneck_dim, activation=activation, batch_norm=batch_norm, dropout=dropout)
+            elif pooling_type == 'spool':
+                self.pool_net = SocialPooling(h_dim=self.h_dim, activation=activation, batch_norm=batch_norm, dropout=dropout, neighborhood_size=neighborhood_size, grid_size=grid_size)
+            mlp_dims = [h_dim + bottleneck_dim, mlp_dim, h_dim]
+            self.mlp = make_mlp(mlp_dims, activation=activation, batch_norm=batch_norm, dropout=dropout)
+        self.spatial_embedding = nn.Linear(2, embedding_dim)
+        self.hidden2pos = nn.Linear(h_dim, 2)
+
+    def forward(self, last_pos, last_pos_rel, state_tuple, seq_start_end):
+        """
+        Inputs:
+        - last_pos: Tensor of shape (batch, 2)
+        - last_pos_rel: Tensor of shape (batch, 2)
+        - state_tuple: (hh, ch) each tensor of shape (num_layers, batch, h_dim)
+        - seq_start_end: A list of tuples which delimit sequences within batch
+        Output:
+        - pred_traj: tensor of shape (self.seq_len, batch, 2)
+        """
+        batch = last_pos.size(0)
+        pred_traj_fake_rel = []
+        decoder_input = self.spatial_embedding(last_pos_rel)
+        decoder_input = decoder_input.view(1, batch, self.embedding_dim)
+        for _ in range(self.seq_len):
+            output, state_tuple = self.decoder(decoder_input, state_tuple)
+            rel_pos = self.hidden2pos(output.view(-1, self.h_dim))
+            curr_pos = rel_pos + last_pos
+            if self.pool_every_timestep:
+                decoder_h = state_tuple[0]
+                pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos)
+                decoder_h = torch.cat([decoder_h.view(-1, self.h_dim), pool_h], dim=1)
+                decoder_h = self.mlp(decoder_h)
+                decoder_h = torch.unsqueeze(decoder_h, 0)
+                state_tuple = decoder_h, state_tuple[1]
+            embedding_input = rel_pos
+            decoder_input = self.spatial_embedding(embedding_input)
+            decoder_input = decoder_input.view(1, batch, self.embedding_dim)
+            pred_traj_fake_rel.append(rel_pos.view(batch, -1))
+            last_pos = curr_pos
+        pred_traj_fake_rel = torch.stack(pred_traj_fake_rel, dim=0)
+        return pred_traj_fake_rel, state_tuple[0]
+
+
 def get_noise(shape, noise_type):
     if noise_type == 'gaussian':
-        return torch.randn(*shape).cuda()
+        return torch.randn(*shape)
     elif noise_type == 'uniform':
-        return torch.rand(*shape).sub_(0.5).mul_(2.0).cuda()
+        return torch.rand(*shape).sub_(0.5).mul_(2.0)
     raise ValueError('Unrecognized noise type "%s"' % noise_type)
 
 

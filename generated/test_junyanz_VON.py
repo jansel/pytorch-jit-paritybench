@@ -28,8 +28,10 @@ render_module = _module
 build = _module
 calc_prob = _module
 functions = _module
+calc_prob = _module
 setup = _module
 render_sketch = _module
+build = _module
 vtn = _module
 affine_grid3d = _module
 grid_sample3d = _module
@@ -42,6 +44,7 @@ train = _module
 util = _module
 html = _module
 image_pool = _module
+util = _module
 util_print = _module
 util_render = _module
 util_voxel = _module
@@ -51,38 +54,57 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import numpy as np
+import torch.utils.data
 
 
-import random
+import torch.utils.data as data
 
 
-import torch
-
-
-from torch.nn.functional import pad as pad_tensor
-
-
-from collections import OrderedDict
+import torchvision.transforms as transforms
 
 
 from abc import ABC
 
 
 from abc import abstractmethod
+
+
+import numpy as np
+
+
+import torch
+
+
+import random
+
+
+from torch.nn.functional import pad as pad_tensor
+
+
+from torch.utils.data.sampler import Sampler
+
+
+import math
+
+
+from scipy.io import loadmat
+
+
+from collections import OrderedDict
 
 
 import torch.nn as nn
@@ -97,13 +119,16 @@ import functools
 from torch.optim import lr_scheduler
 
 
-import math
-
-
 from torch import nn
 
 
 import itertools
+
+
+from torch.autograd import Function
+
+
+from torch.autograd.function import once_differentiable
 
 
 from torch.autograd import Variable
@@ -113,6 +138,9 @@ from torch.nn.functional import grid_sample
 
 
 from scipy import ndimage
+
+
+import time
 
 
 class D_NLayersMulti(nn.Module):
@@ -280,30 +308,6 @@ class GANLoss(nn.Module):
         return sum(all_losses)
 
 
-class G_Unet_add_input(nn.Module):
-
-    def __init__(self, input_nc, output_nc, nz, num_downs, ngf=64, norm_layer=None, nl_layer=None, use_dropout=False, upsample='basic'):
-        super(G_Unet_add_input, self).__init__()
-        self.nz = nz
-        max_nchn = 8
-        unet_block = UnetBlock(ngf * max_nchn, ngf * max_nchn, ngf * max_nchn, innermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        for i in range(num_downs - 5):
-            unet_block = UnetBlock(ngf * max_nchn, ngf * max_nchn, ngf * max_nchn, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, use_dropout=use_dropout, upsample=upsample)
-        unet_block = UnetBlock(ngf * 4, ngf * 4, ngf * max_nchn, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        unet_block = UnetBlock(ngf * 2, ngf * 2, ngf * 4, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        unet_block = UnetBlock(ngf, ngf, ngf * 2, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        unet_block = UnetBlock(input_nc + nz, output_nc, ngf, unet_block, outermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        self.model = unet_block
-
-    def forward(self, x, z=None):
-        if self.nz > 0:
-            z_img = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), x.size(2), x.size(3))
-            x_with_z = torch.cat([x, z_img], 1)
-        else:
-            x_with_z = x
-        return self.model(x_with_z)
-
-
 class Upsample(nn.Module):
 
     def __init__(self, scale_factor, mode='nearest'):
@@ -376,6 +380,30 @@ class UnetBlock(nn.Module):
             return self.model(x)
         else:
             return torch.cat([self.model(x), x], 1)
+
+
+class G_Unet_add_input(nn.Module):
+
+    def __init__(self, input_nc, output_nc, nz, num_downs, ngf=64, norm_layer=None, nl_layer=None, use_dropout=False, upsample='basic'):
+        super(G_Unet_add_input, self).__init__()
+        self.nz = nz
+        max_nchn = 8
+        unet_block = UnetBlock(ngf * max_nchn, ngf * max_nchn, ngf * max_nchn, innermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        for i in range(num_downs - 5):
+            unet_block = UnetBlock(ngf * max_nchn, ngf * max_nchn, ngf * max_nchn, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, use_dropout=use_dropout, upsample=upsample)
+        unet_block = UnetBlock(ngf * 4, ngf * 4, ngf * max_nchn, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock(ngf * 2, ngf * 2, ngf * 4, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock(ngf, ngf, ngf * 2, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock(input_nc + nz, output_nc, ngf, unet_block, outermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        self.model = unet_block
+
+    def forward(self, x, z=None):
+        if self.nz > 0:
+            z_img = z.view(z.size(0), z.size(1), 1, 1).expand(z.size(0), z.size(1), x.size(2), x.size(3))
+            x_with_z = torch.cat([x, z_img], 1)
+        else:
+            x_with_z = x
+        return self.model(x_with_z)
 
 
 def conv3x3(in_planes, out_planes):
@@ -475,25 +503,6 @@ class E_ResNet(nn.Module):
         return output
 
 
-class G_Unet_add_all(nn.Module):
-
-    def __init__(self, input_nc, output_nc, nz, num_downs, ngf=64, norm_layer=None, nl_layer=None, use_dropout=False, upsample='basic'):
-        super(G_Unet_add_all, self).__init__()
-        self.nz = nz
-        unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz, None, innermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, use_dropout=use_dropout, upsample=upsample)
-        for i in range(num_downs - 6):
-            unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, use_dropout=use_dropout, upsample=upsample)
-        unet_block = UnetBlock_with_z(ngf * 4, ngf * 4, ngf * 8, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        unet_block = UnetBlock_with_z(ngf * 2, ngf * 2, ngf * 4, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        unet_block = UnetBlock_with_z(ngf, ngf, ngf * 2, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        unet_block = UnetBlock_with_z(input_nc, output_nc, ngf, nz, unet_block, outermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
-        self.model = unet_block
-
-    def forward(self, x, z):
-        return self.model(x, z)
-
-
 class UnetBlock_with_z(nn.Module):
 
     def __init__(self, input_nc, outer_nc, inner_nc, nz=0, submodule=None, outermost=False, innermost=False, norm_layer=None, nl_layer=None, use_dropout=False, upsample='basic', padding_type='zero'):
@@ -558,6 +567,25 @@ class UnetBlock_with_z(nn.Module):
             return torch.cat([self.up(x2), x], 1)
 
 
+class G_Unet_add_all(nn.Module):
+
+    def __init__(self, input_nc, output_nc, nz, num_downs, ngf=64, norm_layer=None, nl_layer=None, use_dropout=False, upsample='basic'):
+        super(G_Unet_add_all, self).__init__()
+        self.nz = nz
+        unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz, None, innermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, use_dropout=use_dropout, upsample=upsample)
+        for i in range(num_downs - 6):
+            unet_block = UnetBlock_with_z(ngf * 8, ngf * 8, ngf * 8, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, use_dropout=use_dropout, upsample=upsample)
+        unet_block = UnetBlock_with_z(ngf * 4, ngf * 4, ngf * 8, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock_with_z(ngf * 2, ngf * 2, ngf * 4, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock_with_z(ngf, ngf, ngf * 2, nz, unet_block, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        unet_block = UnetBlock_with_z(input_nc, output_nc, ngf, nz, unet_block, outermost=True, norm_layer=norm_layer, nl_layer=nl_layer, upsample=upsample)
+        self.model = unet_block
+
+    def forward(self, x, z):
+        return self.model(x, z)
+
+
 class E_NLayers(nn.Module):
 
     def __init__(self, input_nc, output_nc=1, ndf=64, n_layers=3, norm_layer=None, nl_layer=None, vae=False):
@@ -590,169 +618,26 @@ class E_NLayers(nn.Module):
         return output
 
 
-class G_Resnet(nn.Module):
+class LayerNorm(nn.Module):
 
-    def __init__(self, input_nc, output_nc, nz, num_downs, n_res, ngf=64, norm=None, nl_layer=None):
-        super(G_Resnet, self).__init__()
-        n_downsample = num_downs
-        pad_type = 'reflect'
-        self.enc_content = ContentEncoder(n_downsample, n_res, input_nc, ngf, norm, nl_layer, pad_type=pad_type)
-        if nz == 0:
-            self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, output_nc, norm=norm, activ=nl_layer, pad_type=pad_type, nz=nz)
-        else:
-            self.dec = Decoder_all(n_downsample, n_res, self.enc_content.output_dim, output_nc, norm=norm, activ=nl_layer, pad_type=pad_type, nz=nz)
-
-    def decode(self, content, style=None):
-        return self.dec(content, style)
-
-    def forward(self, image, style=None):
-        content = self.enc_content(image)
-        images_recon = self.decode(content, style)
-        return images_recon
-
-
-class E_adaIN(nn.Module):
-
-    def __init__(self, input_nc, output_nc=1, nef=64, n_layers=4, norm=None, nl_layer=None, vae=False):
-        super(E_adaIN, self).__init__()
-        self.enc_style = StyleEncoder(n_layers, input_nc, nef, output_nc, norm='none', activ='relu', vae=vae)
-
-    def forward(self, image):
-        style = self.enc_style(image)
-        return style
-
-
-class StyleEncoder(nn.Module):
-
-    def __init__(self, n_downsample, input_dim, dim, style_dim, norm, activ, vae=False):
-        super(StyleEncoder, self).__init__()
-        self.vae = vae
-        self.model = []
-        self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type='reflect')]
-        for i in range(2):
-            self.model += [Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm, activation=activ, pad_type='reflect')]
-            dim *= 2
-        for i in range(n_downsample - 2):
-            self.model += [Conv2dBlock(dim, dim, 4, 2, 1, norm=norm, activation=activ, pad_type='reflect')]
-        self.model += [nn.AdaptiveAvgPool2d(1)]
-        if self.vae:
-            self.fc_mean = nn.Linear(dim, style_dim)
-            self.fc_var = nn.Linear(dim, style_dim)
-        else:
-            self.model += [nn.Conv2d(dim, style_dim, 1, 1, 0)]
-        self.model = nn.Sequential(*self.model)
-        self.output_dim = dim
+    def __init__(self, num_features, eps=1e-05, affine=True):
+        super(LayerNorm, self).__init__()
+        self.num_features = num_features
+        self.affine = affine
+        self.eps = eps
+        if self.affine:
+            self.gamma = nn.Parameter(torch.Tensor(num_features).uniform_())
+            self.beta = nn.Parameter(torch.zeros(num_features))
 
     def forward(self, x):
-        if self.vae:
-            output = self.model(x)
-            output = output.view(x.size(0), -1)
-            output_mean = self.fc_mean(output)
-            output_var = self.fc_var(output)
-            return output_mean, output_var
-        else:
-            return self.model(x).view(x.size(0), -1)
-
-
-class ContentEncoder(nn.Module):
-
-    def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type='zero'):
-        super(ContentEncoder, self).__init__()
-        self.model = []
-        self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type='reflect')]
-        for i in range(n_downsample):
-            self.model += [Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm, activation=activ, pad_type='reflect')]
-            dim *= 2
-        self.model += [ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type)]
-        self.model = nn.Sequential(*self.model)
-        self.output_dim = dim
-
-    def forward(self, x):
-        return self.model(x)
-
-
-def cat_feature(x, y):
-    y_expand = y.view(y.size(0), y.size(1), 1, 1).expand(y.size(0), y.size(1), x.size(2), x.size(3))
-    x_cat = torch.cat([x, y_expand], 1)
-    return x_cat
-
-
-class Decoder_all(nn.Module):
-
-    def __init__(self, n_upsample, n_res, dim, output_dim, norm='batch', activ='relu', pad_type='zero', nz=0):
-        super(Decoder_all, self).__init__()
-        self.resnet_block = ResBlocks(n_res, dim, norm, activ, pad_type=pad_type, nz=nz)
-        self.n_blocks = 0
-        for i in range(n_upsample):
-            block = [Upsample(scale_factor=2), Conv2dBlock(dim + nz, dim // 2, 5, 1, 2, norm='ln', activation=activ, pad_type='reflect')]
-            setattr(self, 'block_{:d}'.format(self.n_blocks), nn.Sequential(*block))
-            self.n_blocks += 1
-            dim //= 2
-        setattr(self, 'block_{:d}'.format(self.n_blocks), Conv2dBlock(dim + nz, output_dim, 7, 1, 3, norm='none', activation='tanh', pad_type='reflect'))
-        self.n_blocks += 1
-
-    def forward(self, x, y=None):
-        if y is not None:
-            output = self.resnet_block(cat_feature(x, y))
-            for n in range(self.n_blocks):
-                block = getattr(self, 'block_{:d}'.format(n))
-                if n > 0:
-                    output = block(cat_feature(output, y))
-                else:
-                    output = block(output)
-            return output
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, n_upsample, n_res, dim, output_dim, norm='batch', activ='relu', pad_type='zero', nz=0):
-        super(Decoder, self).__init__()
-        self.model = []
-        self.model += [ResBlocks(n_res, dim, norm, activ, pad_type=pad_type, nz=nz)]
-        for i in range(n_upsample):
-            if i == 0:
-                input_dim = dim + nz
-            else:
-                input_dim = dim
-            self.model += [Upsample(scale_factor=2), Conv2dBlock(input_dim, dim // 2, 5, 1, 2, norm='ln', activation=activ, pad_type='reflect')]
-            dim //= 2
-        self.model += [Conv2dBlock(dim, output_dim, 7, 1, 3, norm='none', activation='tanh', pad_type='reflect')]
-        self.model = nn.Sequential(*self.model)
-
-    def forward(self, x, y=None):
-        if y is not None:
-            return self.model(cat_feature(x, y))
-        else:
-            return self.model(x)
-
-
-class ResBlocks(nn.Module):
-
-    def __init__(self, num_blocks, dim, norm='inst', activation='relu', pad_type='zero', nz=0):
-        super(ResBlocks, self).__init__()
-        self.model = []
-        for i in range(num_blocks):
-            self.model += [ResBlock(dim, norm=norm, activation=activation, pad_type=pad_type, nz=nz)]
-        self.model = nn.Sequential(*self.model)
-
-    def forward(self, x):
-        return self.model(x)
-
-
-class ResBlock(nn.Module):
-
-    def __init__(self, dim, norm='inst', activation='relu', pad_type='zero', nz=0):
-        super(ResBlock, self).__init__()
-        model = []
-        model += [Conv2dBlock(dim + nz, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
-        model += [Conv2dBlock(dim, dim + nz, 3, 1, 1, norm=norm, activation='none', pad_type=pad_type)]
-        self.model = nn.Sequential(*model)
-
-    def forward(self, x):
-        residual = x
-        out = self.model(x)
-        out += residual
-        return out
+        shape = [-1] + [1] * (x.dim() - 1)
+        mean = x.view(x.size(0), -1).mean(1).view(*shape)
+        std = x.view(x.size(0), -1).std(1).view(*shape)
+        x = (x - mean) / (std + self.eps)
+        if self.affine:
+            shape = [1, -1] + [1] * (x.dim() - 2)
+            x = x * self.gamma.view(*shape) + self.beta.view(*shape)
+        return x
 
 
 class Conv2dBlock(nn.Module):
@@ -802,6 +687,171 @@ class Conv2dBlock(nn.Module):
         return x
 
 
+class ResBlock(nn.Module):
+
+    def __init__(self, dim, norm='inst', activation='relu', pad_type='zero', nz=0):
+        super(ResBlock, self).__init__()
+        model = []
+        model += [Conv2dBlock(dim + nz, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
+        model += [Conv2dBlock(dim, dim + nz, 3, 1, 1, norm=norm, activation='none', pad_type=pad_type)]
+        self.model = nn.Sequential(*model)
+
+    def forward(self, x):
+        residual = x
+        out = self.model(x)
+        out += residual
+        return out
+
+
+class ResBlocks(nn.Module):
+
+    def __init__(self, num_blocks, dim, norm='inst', activation='relu', pad_type='zero', nz=0):
+        super(ResBlocks, self).__init__()
+        self.model = []
+        for i in range(num_blocks):
+            self.model += [ResBlock(dim, norm=norm, activation=activation, pad_type=pad_type, nz=nz)]
+        self.model = nn.Sequential(*self.model)
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class ContentEncoder(nn.Module):
+
+    def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type='zero'):
+        super(ContentEncoder, self).__init__()
+        self.model = []
+        self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type='reflect')]
+        for i in range(n_downsample):
+            self.model += [Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm, activation=activ, pad_type='reflect')]
+            dim *= 2
+        self.model += [ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type)]
+        self.model = nn.Sequential(*self.model)
+        self.output_dim = dim
+
+    def forward(self, x):
+        return self.model(x)
+
+
+def cat_feature(x, y):
+    y_expand = y.view(y.size(0), y.size(1), 1, 1).expand(y.size(0), y.size(1), x.size(2), x.size(3))
+    x_cat = torch.cat([x, y_expand], 1)
+    return x_cat
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, n_upsample, n_res, dim, output_dim, norm='batch', activ='relu', pad_type='zero', nz=0):
+        super(Decoder, self).__init__()
+        self.model = []
+        self.model += [ResBlocks(n_res, dim, norm, activ, pad_type=pad_type, nz=nz)]
+        for i in range(n_upsample):
+            if i == 0:
+                input_dim = dim + nz
+            else:
+                input_dim = dim
+            self.model += [Upsample(scale_factor=2), Conv2dBlock(input_dim, dim // 2, 5, 1, 2, norm='ln', activation=activ, pad_type='reflect')]
+            dim //= 2
+        self.model += [Conv2dBlock(dim, output_dim, 7, 1, 3, norm='none', activation='tanh', pad_type='reflect')]
+        self.model = nn.Sequential(*self.model)
+
+    def forward(self, x, y=None):
+        if y is not None:
+            return self.model(cat_feature(x, y))
+        else:
+            return self.model(x)
+
+
+class Decoder_all(nn.Module):
+
+    def __init__(self, n_upsample, n_res, dim, output_dim, norm='batch', activ='relu', pad_type='zero', nz=0):
+        super(Decoder_all, self).__init__()
+        self.resnet_block = ResBlocks(n_res, dim, norm, activ, pad_type=pad_type, nz=nz)
+        self.n_blocks = 0
+        for i in range(n_upsample):
+            block = [Upsample(scale_factor=2), Conv2dBlock(dim + nz, dim // 2, 5, 1, 2, norm='ln', activation=activ, pad_type='reflect')]
+            setattr(self, 'block_{:d}'.format(self.n_blocks), nn.Sequential(*block))
+            self.n_blocks += 1
+            dim //= 2
+        setattr(self, 'block_{:d}'.format(self.n_blocks), Conv2dBlock(dim + nz, output_dim, 7, 1, 3, norm='none', activation='tanh', pad_type='reflect'))
+        self.n_blocks += 1
+
+    def forward(self, x, y=None):
+        if y is not None:
+            output = self.resnet_block(cat_feature(x, y))
+            for n in range(self.n_blocks):
+                block = getattr(self, 'block_{:d}'.format(n))
+                if n > 0:
+                    output = block(cat_feature(output, y))
+                else:
+                    output = block(output)
+            return output
+
+
+class G_Resnet(nn.Module):
+
+    def __init__(self, input_nc, output_nc, nz, num_downs, n_res, ngf=64, norm=None, nl_layer=None):
+        super(G_Resnet, self).__init__()
+        n_downsample = num_downs
+        pad_type = 'reflect'
+        self.enc_content = ContentEncoder(n_downsample, n_res, input_nc, ngf, norm, nl_layer, pad_type=pad_type)
+        if nz == 0:
+            self.dec = Decoder(n_downsample, n_res, self.enc_content.output_dim, output_nc, norm=norm, activ=nl_layer, pad_type=pad_type, nz=nz)
+        else:
+            self.dec = Decoder_all(n_downsample, n_res, self.enc_content.output_dim, output_nc, norm=norm, activ=nl_layer, pad_type=pad_type, nz=nz)
+
+    def decode(self, content, style=None):
+        return self.dec(content, style)
+
+    def forward(self, image, style=None):
+        content = self.enc_content(image)
+        images_recon = self.decode(content, style)
+        return images_recon
+
+
+class StyleEncoder(nn.Module):
+
+    def __init__(self, n_downsample, input_dim, dim, style_dim, norm, activ, vae=False):
+        super(StyleEncoder, self).__init__()
+        self.vae = vae
+        self.model = []
+        self.model += [Conv2dBlock(input_dim, dim, 7, 1, 3, norm=norm, activation=activ, pad_type='reflect')]
+        for i in range(2):
+            self.model += [Conv2dBlock(dim, 2 * dim, 4, 2, 1, norm=norm, activation=activ, pad_type='reflect')]
+            dim *= 2
+        for i in range(n_downsample - 2):
+            self.model += [Conv2dBlock(dim, dim, 4, 2, 1, norm=norm, activation=activ, pad_type='reflect')]
+        self.model += [nn.AdaptiveAvgPool2d(1)]
+        if self.vae:
+            self.fc_mean = nn.Linear(dim, style_dim)
+            self.fc_var = nn.Linear(dim, style_dim)
+        else:
+            self.model += [nn.Conv2d(dim, style_dim, 1, 1, 0)]
+        self.model = nn.Sequential(*self.model)
+        self.output_dim = dim
+
+    def forward(self, x):
+        if self.vae:
+            output = self.model(x)
+            output = output.view(x.size(0), -1)
+            output_mean = self.fc_mean(output)
+            output_var = self.fc_var(output)
+            return output_mean, output_var
+        else:
+            return self.model(x).view(x.size(0), -1)
+
+
+class E_adaIN(nn.Module):
+
+    def __init__(self, input_nc, output_nc=1, nef=64, n_layers=4, norm=None, nl_layer=None, vae=False):
+        super(E_adaIN, self).__init__()
+        self.enc_style = StyleEncoder(n_layers, input_nc, nef, output_nc, norm='none', activ='relu', vae=vae)
+
+    def forward(self, image):
+        style = self.enc_style(image)
+        return style
+
+
 class LinearBlock(nn.Module):
 
     def __init__(self, input_dim, output_dim, norm='none', activation='relu'):
@@ -841,28 +891,6 @@ class LinearBlock(nn.Module):
         if self.activation:
             out = self.activation(out)
         return out
-
-
-class LayerNorm(nn.Module):
-
-    def __init__(self, num_features, eps=1e-05, affine=True):
-        super(LayerNorm, self).__init__()
-        self.num_features = num_features
-        self.affine = affine
-        self.eps = eps
-        if self.affine:
-            self.gamma = nn.Parameter(torch.Tensor(num_features).uniform_())
-            self.beta = nn.Parameter(torch.zeros(num_features))
-
-    def forward(self, x):
-        shape = [-1] + [1] * (x.dim() - 1)
-        mean = x.view(x.size(0), -1).mean(1).view(*shape)
-        std = x.view(x.size(0), -1).std(1).view(*shape)
-        x = (x - mean) / (std + self.eps)
-        if self.affine:
-            shape = [1, -1] + [1] * (x.dim() - 2)
-            x = x * self.gamma.view(*shape) + self.beta.view(*shape)
-        return x
 
 
 def deconvBlock(input_nc, output_nc, bias, norm_layer=None, nl='relu'):
@@ -1158,16 +1186,85 @@ class CroppingLayer(nn.Module):
             return new_sil, new_depth, bbox, shape_stat
 
 
+class CalcStopProb(Function):
+
+    @staticmethod
+    def forward(ctx, prob_in):
+        assert prob_in.dim() == 5
+        assert prob_in.type() == 'torch.cuda.FloatTensor'
+        stop_prob = prob_in.new_zeros(prob_in.shape)
+        calc_prob_lib.calc_prob_forward(prob_in, stop_prob)
+        ctx.save_for_backward(prob_in, stop_prob)
+        return stop_prob
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_in):
+        prob_in, stop_prob = ctx.saved_tensors
+        grad_out = grad_in.new_zeros(grad_in.shape)
+        stop_prob_weighted = stop_prob * grad_in
+        calc_prob_lib.calc_prob_backward(prob_in, stop_prob_weighted, grad_out)
+        if torch.isnan(grad_out).any():
+            None
+        elif torch.isinf(grad_out).any():
+            None
+        return grad_out
+
+
+class AffineGridGen3DFunction(Function):
+    """
+    Generate a 3D affine grid of size (batch*sz1*sz2*sz3*3)
+    The affine grid is defined by a 3x4 matrix theta.
+    The grid is initialized as a grid in [-1,1] in all dimensions,
+    then transformed by matrix multiplication by theta.
+
+    When theta is set to eye(3,4), the grid should match the original grid in a box.
+    """
+
+    @staticmethod
+    def forward(ctx, theta, size):
+        assert type(size) == torch.Size
+        assert len(size) == 5, 'Grid size should be specified by size of tensor to interpolate (5D)'
+        assert theta.dim() == 3 and theta.size()[1:] == torch.Size([3, 4]), '3D affine transformation defined by a 3D matrix of batch*3*4'
+        assert theta.size(0) == size[0], 'batch size mismatch'
+        N, C, sz1, sz2, sz3 = size
+        ctx.size = size
+        ctx.is_cuda = theta.is_cuda
+        theta = theta.contiguous()
+        base_grid = theta.new(N, sz1, sz2, sz3, 4)
+        linear_points = torch.linspace(-1, 1, sz1) if sz1 > 1 else torch.Tensor([-1])
+        base_grid[:, :, :, :, (0)] = linear_points.view(1, -1, 1, 1).expand_as(base_grid[:, :, :, :, (0)])
+        linear_points = torch.linspace(-1, 1, sz2) if sz2 > 1 else torch.Tensor([-1])
+        base_grid[:, :, :, :, (1)] = linear_points.view(1, 1, -1, 1).expand_as(base_grid[:, :, :, :, (1)])
+        linear_points = torch.linspace(-1, 1, sz3) if sz3 > 1 else torch.Tensor([-1])
+        base_grid[:, :, :, :, (2)] = linear_points.view(1, 1, 1, -1).expand_as(base_grid[:, :, :, :, (2)])
+        base_grid[:, :, :, :, (3)] = 1
+        ctx.base_grid = base_grid
+        grid = torch.bmm(base_grid.view(N, sz1 * sz2 * sz3, 4), theta.transpose(1, 2))
+        grid = grid.view(N, sz1, sz2, sz3, 3)
+        return grid
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        N, C, sz1, sz2, sz3 = ctx.size
+        assert grad_output.size() == torch.Size([N, sz1, sz2, sz3, 3])
+        assert ctx.is_cuda == grad_output.is_cuda
+        grad_output = grad_output.contiguous()
+        base_grid = ctx.base_grid
+        grad_theta = torch.bmm(base_grid.view(N, sz1 * sz2 * sz3, 4).transpose(1, 2), grad_output.view(N, sz1 * sz2 * sz3, 3))
+        grad_theta = grad_theta.transpose(1, 2)
+        return grad_theta, None
+
+
 def affine_grid3d(theta, size):
     return AffineGridGen3DFunction.apply(theta, size)
 
 
-typename_to_func_infix = {'torch.FloatTensor': 'VTN_Float_', 'torch.DoubleTensor': 'VTN_Double_', 'torch.cuda.FloatTensor': 'VTN_Cuda_', 'torch.cuda.DoubleTensor': 'VTN_CudaDouble_'}
+class GridSampler3D(nn.Module):
 
-
-def function_by_type(name_, typename):
-    assert typename in typename_to_func_infix, 'GridSampler3D only support data type: %s, got: %s' % (str(list(typename_to_func_infix.keys())), typename)
-    return typename_to_func_infix[typename] + name_
+    def forward(self, theta, size):
+        return grid_sample3d(theta, size)
 
 
 def grid_sample3d(input, grid):
@@ -1247,12 +1344,6 @@ class AffineGridGen3D(nn.Module):
 
     def forward(self, theta, size):
         return affine_grid3d(theta, size)
-
-
-class GridSampler3D(nn.Module):
-
-    def forward(self, theta, size):
-        return grid_sample3d(theta, size)
 
 
 import torch

@@ -14,20 +14,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader as DataLoaderBase
 
 
 from torch.nn import functional as F
@@ -48,19 +55,16 @@ import math
 from torch.nn.functional import hardtanh
 
 
-class SampleRNN(torch.nn.Module):
+from functools import reduce
 
-    def __init__(self, frame_sizes, n_rnn, dim, learn_h0, q_levels, weight_norm):
-        super().__init__()
-        self.dim = dim
-        self.q_levels = q_levels
-        ns_frame_samples = map(int, np.cumprod(frame_sizes))
-        self.frame_level_rnns = torch.nn.ModuleList([FrameLevelRNN(frame_size, n_frame_samples, n_rnn, dim, learn_h0, weight_norm) for frame_size, n_frame_samples in zip(frame_sizes, ns_frame_samples)])
-        self.sample_level_mlp = SampleLevelMLP(frame_sizes[0], dim, q_levels, weight_norm)
 
-    @property
-    def lookback(self):
-        return self.frame_level_rnns[-1].n_frame_samples
+import re
+
+
+from torch.autograd import Variable
+
+
+import time
 
 
 class FrameLevelRNN(torch.nn.Module):
@@ -136,6 +140,21 @@ class SampleLevelMLP(torch.nn.Module):
         x = F.relu(self.hidden(x))
         x = self.output(x).permute(0, 2, 1).contiguous()
         return F.log_softmax(x.view(-1, self.q_levels)).view(batch_size, -1, self.q_levels)
+
+
+class SampleRNN(torch.nn.Module):
+
+    def __init__(self, frame_sizes, n_rnn, dim, learn_h0, q_levels, weight_norm):
+        super().__init__()
+        self.dim = dim
+        self.q_levels = q_levels
+        ns_frame_samples = map(int, np.cumprod(frame_sizes))
+        self.frame_level_rnns = torch.nn.ModuleList([FrameLevelRNN(frame_size, n_frame_samples, n_rnn, dim, learn_h0, weight_norm) for frame_size, n_frame_samples in zip(frame_sizes, ns_frame_samples)])
+        self.sample_level_mlp = SampleLevelMLP(frame_sizes[0], dim, q_levels, weight_norm)
+
+    @property
+    def lookback(self):
+        return self.frame_level_rnns[-1].n_frame_samples
 
 
 class Runner:

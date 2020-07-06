@@ -31,20 +31,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import numpy
+
+
 import torch
+
+
+from torch.utils.data import Dataset
 
 
 import torch.nn as nn
@@ -74,13 +81,13 @@ import math
 from functools import partial
 
 
-import torchvision
-
-
 import torchvision.transforms as transforms
 
 
 from torch.autograd import Variable
+
+
+import torchvision
 
 
 class PreActResidualUnit(nn.Module):
@@ -391,9 +398,9 @@ class GoogleNet(nn.Module):
 
 class BasicConv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, **kwargs):
+    def __init__(self, input_channels, output_channels, kernel_size, **kwargs):
         super().__init__()
-        self.conv = nn.Conv2d(input_channels, output_channels, bias=False, **kwargs)
+        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size, **kwargs)
         self.bn = nn.BatchNorm2d(output_channels)
         self.relu = nn.ReLU(inplace=True)
 
@@ -406,55 +413,56 @@ class BasicConv2d(nn.Module):
 
 class InceptionA(nn.Module):
 
-    def __init__(self, input_channels, pool_features):
+    def __init__(self, input_channels):
         super().__init__()
-        self.branch1x1 = BasicConv2d(input_channels, 64, kernel_size=1)
-        self.branch5x5 = nn.Sequential(BasicConv2d(input_channels, 48, kernel_size=1), BasicConv2d(48, 64, kernel_size=5, padding=2))
-        self.branch3x3 = nn.Sequential(BasicConv2d(input_channels, 64, kernel_size=1), BasicConv2d(64, 96, kernel_size=3, padding=1), BasicConv2d(96, 96, kernel_size=3, padding=1))
-        self.branchpool = nn.Sequential(nn.AvgPool2d(kernel_size=3, stride=1, padding=1), BasicConv2d(input_channels, pool_features, kernel_size=3, padding=1))
+        self.branch3x3stack = nn.Sequential(BasicConv2d(input_channels, 64, kernel_size=1), BasicConv2d(64, 96, kernel_size=3, padding=1), BasicConv2d(96, 96, kernel_size=3, padding=1))
+        self.branch3x3 = nn.Sequential(BasicConv2d(input_channels, 64, kernel_size=1), BasicConv2d(64, 96, kernel_size=3, padding=1))
+        self.branch1x1 = BasicConv2d(input_channels, 96, kernel_size=1)
+        self.branchpool = nn.Sequential(nn.AvgPool2d(kernel_size=3, stride=1, padding=1), BasicConv2d(input_channels, 96, kernel_size=1))
 
     def forward(self, x):
-        branch1x1 = self.branch1x1(x)
-        branch5x5 = self.branch5x5(x)
-        branch3x3 = self.branch3x3(x)
-        branchpool = self.branchpool(x)
-        outputs = [branch1x1, branch5x5, branch3x3, branchpool]
-        return torch.cat(outputs, 1)
+        x = [self.branch3x3stack(x), self.branch3x3(x), self.branch1x1(x), self.branchpool(x)]
+        return torch.cat(x, 1)
 
 
 class InceptionB(nn.Module):
 
     def __init__(self, input_channels):
         super().__init__()
-        self.branch3x3 = BasicConv2d(input_channels, 384, kernel_size=3, stride=2)
-        self.branch3x3stack = nn.Sequential(BasicConv2d(input_channels, 64, kernel_size=1), BasicConv2d(64, 96, kernel_size=3, padding=1), BasicConv2d(96, 96, kernel_size=3, stride=2))
-        self.branchpool = nn.MaxPool2d(kernel_size=3, stride=2)
+        self.branch7x7stack = nn.Sequential(BasicConv2d(input_channels, 192, kernel_size=1), BasicConv2d(192, 192, kernel_size=(1, 7), padding=(0, 3)), BasicConv2d(192, 224, kernel_size=(7, 1), padding=(3, 0)), BasicConv2d(224, 224, kernel_size=(1, 7), padding=(0, 3)), BasicConv2d(224, 256, kernel_size=(7, 1), padding=(3, 0)))
+        self.branch7x7 = nn.Sequential(BasicConv2d(input_channels, 192, kernel_size=1), BasicConv2d(192, 224, kernel_size=(1, 7), padding=(0, 3)), BasicConv2d(224, 256, kernel_size=(7, 1), padding=(3, 0)))
+        self.branch1x1 = BasicConv2d(input_channels, 384, kernel_size=1)
+        self.branchpool = nn.Sequential(nn.AvgPool2d(3, stride=1, padding=1), BasicConv2d(input_channels, 128, kernel_size=1))
 
     def forward(self, x):
-        branch3x3 = self.branch3x3(x)
-        branch3x3stack = self.branch3x3stack(x)
-        branchpool = self.branchpool(x)
-        outputs = [branch3x3, branch3x3stack, branchpool]
-        return torch.cat(outputs, 1)
+        x = [self.branch1x1(x), self.branch7x7(x), self.branch7x7stack(x), self.branchpool(x)]
+        return torch.cat(x, 1)
 
 
 class InceptionC(nn.Module):
 
-    def __init__(self, input_channels, channels_7x7):
+    def __init__(self, input_channels):
         super().__init__()
-        self.branch1x1 = BasicConv2d(input_channels, 192, kernel_size=1)
-        c7 = channels_7x7
-        self.branch7x7 = nn.Sequential(BasicConv2d(input_channels, c7, kernel_size=1), BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0)), BasicConv2d(c7, 192, kernel_size=(1, 7), padding=(0, 3)))
-        self.branch7x7stack = nn.Sequential(BasicConv2d(input_channels, c7, kernel_size=1), BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0)), BasicConv2d(c7, c7, kernel_size=(1, 7), padding=(0, 3)), BasicConv2d(c7, c7, kernel_size=(7, 1), padding=(3, 0)), BasicConv2d(c7, 192, kernel_size=(1, 7), padding=(0, 3)))
-        self.branch_pool = nn.Sequential(nn.AvgPool2d(kernel_size=3, stride=1, padding=1), BasicConv2d(input_channels, 192, kernel_size=1))
+        self.branch3x3stack = nn.Sequential(BasicConv2d(input_channels, 384, kernel_size=1), BasicConv2d(384, 448, kernel_size=(1, 3), padding=(0, 1)), BasicConv2d(448, 512, kernel_size=(3, 1), padding=(1, 0)))
+        self.branch3x3stacka = BasicConv2d(512, 256, kernel_size=(1, 3), padding=(0, 1))
+        self.branch3x3stackb = BasicConv2d(512, 256, kernel_size=(3, 1), padding=(1, 0))
+        self.branch3x3 = BasicConv2d(input_channels, 384, kernel_size=1)
+        self.branch3x3a = BasicConv2d(384, 256, kernel_size=(3, 1), padding=(1, 0))
+        self.branch3x3b = BasicConv2d(384, 256, kernel_size=(1, 3), padding=(0, 1))
+        self.branch1x1 = BasicConv2d(input_channels, 256, kernel_size=1)
+        self.branchpool = nn.Sequential(nn.AvgPool2d(kernel_size=3, stride=1, padding=1), BasicConv2d(input_channels, 256, kernel_size=1))
 
     def forward(self, x):
-        branch1x1 = self.branch1x1(x)
-        branch7x7 = self.branch7x7(x)
-        branch7x7stack = self.branch7x7stack(x)
-        branchpool = self.branch_pool(x)
-        outputs = [branch1x1, branch7x7, branch7x7stack, branchpool]
-        return torch.cat(outputs, 1)
+        branch3x3stack_output = self.branch3x3stack(x)
+        branch3x3stack_output = [self.branch3x3stacka(branch3x3stack_output), self.branch3x3stackb(branch3x3stack_output)]
+        branch3x3stack_output = torch.cat(branch3x3stack_output, 1)
+        branch3x3_output = self.branch3x3(x)
+        branch3x3_output = [self.branch3x3a(branch3x3_output), self.branch3x3b(branch3x3_output)]
+        branch3x3_output = torch.cat(branch3x3_output, 1)
+        branch1x1_output = self.branch1x1(x)
+        branchpool = self.branchpool(x)
+        output = [branch1x1_output, branch3x3_output, branch3x3stack_output, branchpool]
+        return torch.cat(output, 1)
 
 
 class InceptionD(nn.Module):
@@ -549,21 +557,6 @@ class InceptionV3(nn.Module):
         return x
 
 
-class BasicConv2d(nn.Module):
-
-    def __init__(self, input_channels, output_channels, **kwargs):
-        super().__init__()
-        self.conv = nn.Conv2d(input_channels, output_channels, bias=False, **kwargs)
-        self.bn = nn.BatchNorm2d(output_channels)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        return x
-
-
 class Inception_Stem(nn.Module):
 
     def __init__(self, input_channels):
@@ -587,20 +580,6 @@ class Inception_Stem(nn.Module):
         return x
 
 
-class InceptionA(nn.Module):
-
-    def __init__(self, input_channels):
-        super().__init__()
-        self.branch3x3stack = nn.Sequential(BasicConv2d(input_channels, 64, kernel_size=1), BasicConv2d(64, 96, kernel_size=3, padding=1), BasicConv2d(96, 96, kernel_size=3, padding=1))
-        self.branch3x3 = nn.Sequential(BasicConv2d(input_channels, 64, kernel_size=1), BasicConv2d(64, 96, kernel_size=3, padding=1))
-        self.branch1x1 = BasicConv2d(input_channels, 96, kernel_size=1)
-        self.branchpool = nn.Sequential(nn.AvgPool2d(kernel_size=3, stride=1, padding=1), BasicConv2d(input_channels, 96, kernel_size=1))
-
-    def forward(self, x):
-        x = [self.branch3x3stack(x), self.branch3x3(x), self.branch1x1(x), self.branchpool(x)]
-        return torch.cat(x, 1)
-
-
 class ReductionA(nn.Module):
 
     def __init__(self, input_channels, k, l, m, n):
@@ -615,20 +594,6 @@ class ReductionA(nn.Module):
         return torch.cat(x, 1)
 
 
-class InceptionB(nn.Module):
-
-    def __init__(self, input_channels):
-        super().__init__()
-        self.branch7x7stack = nn.Sequential(BasicConv2d(input_channels, 192, kernel_size=1), BasicConv2d(192, 192, kernel_size=(1, 7), padding=(0, 3)), BasicConv2d(192, 224, kernel_size=(7, 1), padding=(3, 0)), BasicConv2d(224, 224, kernel_size=(1, 7), padding=(0, 3)), BasicConv2d(224, 256, kernel_size=(7, 1), padding=(3, 0)))
-        self.branch7x7 = nn.Sequential(BasicConv2d(input_channels, 192, kernel_size=1), BasicConv2d(192, 224, kernel_size=(1, 7), padding=(0, 3)), BasicConv2d(224, 256, kernel_size=(7, 1), padding=(3, 0)))
-        self.branch1x1 = BasicConv2d(input_channels, 384, kernel_size=1)
-        self.branchpool = nn.Sequential(nn.AvgPool2d(3, stride=1, padding=1), BasicConv2d(input_channels, 128, kernel_size=1))
-
-    def forward(self, x):
-        x = [self.branch1x1(x), self.branch7x7(x), self.branch7x7stack(x), self.branchpool(x)]
-        return torch.cat(x, 1)
-
-
 class ReductionB(nn.Module):
 
     def __init__(self, input_channels):
@@ -640,32 +605,6 @@ class ReductionB(nn.Module):
     def forward(self, x):
         x = [self.branch3x3(x), self.branch7x7(x), self.branchpool(x)]
         return torch.cat(x, 1)
-
-
-class InceptionC(nn.Module):
-
-    def __init__(self, input_channels):
-        super().__init__()
-        self.branch3x3stack = nn.Sequential(BasicConv2d(input_channels, 384, kernel_size=1), BasicConv2d(384, 448, kernel_size=(1, 3), padding=(0, 1)), BasicConv2d(448, 512, kernel_size=(3, 1), padding=(1, 0)))
-        self.branch3x3stacka = BasicConv2d(512, 256, kernel_size=(1, 3), padding=(0, 1))
-        self.branch3x3stackb = BasicConv2d(512, 256, kernel_size=(3, 1), padding=(1, 0))
-        self.branch3x3 = BasicConv2d(input_channels, 384, kernel_size=1)
-        self.branch3x3a = BasicConv2d(384, 256, kernel_size=(3, 1), padding=(1, 0))
-        self.branch3x3b = BasicConv2d(384, 256, kernel_size=(1, 3), padding=(0, 1))
-        self.branch1x1 = BasicConv2d(input_channels, 256, kernel_size=1)
-        self.branchpool = nn.Sequential(nn.AvgPool2d(kernel_size=3, stride=1, padding=1), BasicConv2d(input_channels, 256, kernel_size=1))
-
-    def forward(self, x):
-        branch3x3stack_output = self.branch3x3stack(x)
-        branch3x3stack_output = [self.branch3x3stacka(branch3x3stack_output), self.branch3x3stackb(branch3x3stack_output)]
-        branch3x3stack_output = torch.cat(branch3x3stack_output, 1)
-        branch3x3_output = self.branch3x3(x)
-        branch3x3_output = [self.branch3x3a(branch3x3_output), self.branch3x3b(branch3x3_output)]
-        branch3x3_output = torch.cat(branch3x3_output, 1)
-        branch1x1_output = self.branch1x1(x)
-        branchpool = self.branchpool(x)
-        output = [branch1x1_output, branch3x3_output, branch3x3stack_output, branchpool]
-        return torch.cat(output, 1)
 
 
 class InceptionV4(nn.Module):
@@ -848,21 +787,6 @@ class DepthSeperabelConv2d(nn.Module):
         return x
 
 
-class BasicConv2d(nn.Module):
-
-    def __init__(self, input_channels, output_channels, kernel_size, **kwargs):
-        super().__init__()
-        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size, **kwargs)
-        self.bn = nn.BatchNorm2d(output_channels)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        return x
-
-
 class MobileNet(nn.Module):
     """
     Args:
@@ -955,8 +879,8 @@ class SeperableConv2d(nn.Module):
 
     def __init__(self, input_channels, output_channels, kernel_size, **kwargs):
         super().__init__()
-        self.depthwise = nn.Conv2d(input_channels, input_channels, kernel_size, groups=input_channels, **kwargs)
-        self.pointwise = nn.Conv2d(input_channels, output_channels, 1)
+        self.depthwise = nn.Conv2d(input_channels, input_channels, kernel_size, groups=input_channels, bias=False, **kwargs)
+        self.pointwise = nn.Conv2d(input_channels, output_channels, 1, bias=False)
 
     def forward(self, x):
         x = self.depthwise(x)
@@ -1510,21 +1434,6 @@ class SEResNet(nn.Module):
         return nn.Sequential(*layers)
 
 
-class BasicConv2d(nn.Module):
-
-    def __init__(self, input_channels, output_channels, kernel_size, **kwargs):
-        super().__init__()
-        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size, **kwargs)
-        self.bn = nn.BatchNorm2d(output_channels)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        return x
-
-
 class ChannelShuffle(nn.Module):
 
     def __init__(self, groups):
@@ -1803,19 +1712,6 @@ class VGG(nn.Module):
         output = output.view(output.size()[0], -1)
         output = self.classifier(output)
         return output
-
-
-class SeperableConv2d(nn.Module):
-
-    def __init__(self, input_channels, output_channels, kernel_size, **kwargs):
-        super().__init__()
-        self.depthwise = nn.Conv2d(input_channels, input_channels, kernel_size, groups=input_channels, bias=False, **kwargs)
-        self.pointwise = nn.Conv2d(input_channels, output_channels, 1, bias=False)
-
-    def forward(self, x):
-        x = self.depthwise(x)
-        x = self.pointwise(x)
-        return x
 
 
 class EntryFlow(nn.Module):

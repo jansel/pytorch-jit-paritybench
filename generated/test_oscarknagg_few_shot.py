@@ -32,15 +32,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -48,25 +49,52 @@ __version__ = '1.0.0'
 from torch.utils.data import DataLoader
 
 
+from torch import nn
+
+
 from torch.optim import Adam
+
+
+import numpy as np
 
 
 import torch
 
 
-from torch.nn import Module
+from collections import OrderedDict
 
 
-from typing import Callable
+from collections import Iterable
+
+
+import warnings
+
+
+from torch.utils.data import Sampler
 
 
 from typing import List
 
 
+from typing import Iterable
+
+
+from typing import Callable
+
+
+from typing import Tuple
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision import transforms
+
+
+from torch.nn import Module
+
+
 from typing import Union
-
-
-from collections import OrderedDict
 
 
 from torch.optim import Optimizer
@@ -81,16 +109,7 @@ from torch.nn.utils import clip_grad_norm_
 from torch.nn.modules.loss import _Loss as Loss
 
 
-from torch import nn
-
-
-import numpy as np
-
-
 import torch.nn.functional as F
-
-
-from typing import Tuple
 
 
 from torch.nn.modules.distance import CosineSimilarity
@@ -198,6 +217,63 @@ class FewShotClassifier(nn.Module):
         return x
 
 
+class AttentionLSTM(nn.Module):
+
+    def __init__(self, size: int, unrolling_steps: int):
+        """Attentional LSTM used to generate fully conditional embeddings (FCE) of the query set as described
+        in the Matching Networks paper.
+
+        # Arguments
+            size: Size of input and hidden layers. These are constrained to be the same in order to implement the skip
+                connection described in Appendix A.2
+            unrolling_steps: Number of steps of attention over the support set to compute. Analogous to number of
+                layers in a regular LSTM
+        """
+        super(AttentionLSTM, self).__init__()
+        self.unrolling_steps = unrolling_steps
+        self.lstm_cell = nn.LSTMCell(input_size=size, hidden_size=size)
+
+    def forward(self, support, queries):
+        if support.shape[-1] != queries.shape[-1]:
+            raise ValueError('Support and query set have different embedding dimension!')
+        batch_size = queries.shape[0]
+        embedding_dim = queries.shape[1]
+        h_hat = torch.zeros_like(queries).double()
+        c = torch.zeros(batch_size, embedding_dim).double()
+        for k in range(self.unrolling_steps):
+            h = h_hat + queries
+            attentions = torch.mm(h, support.t())
+            attentions = attentions.softmax(dim=1)
+            readout = torch.mm(attentions, support)
+            h_hat, c = self.lstm_cell(queries, (h + readout, c))
+        h = h_hat + queries
+        return h
+
+
+class BidrectionalLSTM(nn.Module):
+
+    def __init__(self, size: int, layers: int):
+        """Bidirectional LSTM used to generate fully conditional embeddings (FCE) of the support set as described
+        in the Matching Networks paper.
+
+        # Arguments
+            size: Size of input and hidden layers. These are constrained to be the same in order to implement the skip
+                connection described in Appendix A.2
+            layers: Number of LSTM layers
+        """
+        super(BidrectionalLSTM, self).__init__()
+        self.num_layers = layers
+        self.batch_size = 1
+        self.lstm = nn.LSTM(input_size=size, num_layers=layers, hidden_size=size, bidirectional=True)
+
+    def forward(self, inputs):
+        output, (hn, cn) = self.lstm(inputs, None)
+        forward_output = output[:, :, :self.lstm.hidden_size]
+        backward_output = output[:, :, self.lstm.hidden_size:]
+        output = forward_output + backward_output + inputs
+        return output, hn, cn
+
+
 def get_few_shot_encoder(num_input_channels=1) ->nn.Module:
     """Creates a few shot encoder as used in Matching and Prototypical Networks
 
@@ -240,63 +316,6 @@ class MatchingNetwork(nn.Module):
 
     def forward(self, inputs):
         pass
-
-
-class BidrectionalLSTM(nn.Module):
-
-    def __init__(self, size: int, layers: int):
-        """Bidirectional LSTM used to generate fully conditional embeddings (FCE) of the support set as described
-        in the Matching Networks paper.
-
-        # Arguments
-            size: Size of input and hidden layers. These are constrained to be the same in order to implement the skip
-                connection described in Appendix A.2
-            layers: Number of LSTM layers
-        """
-        super(BidrectionalLSTM, self).__init__()
-        self.num_layers = layers
-        self.batch_size = 1
-        self.lstm = nn.LSTM(input_size=size, num_layers=layers, hidden_size=size, bidirectional=True)
-
-    def forward(self, inputs):
-        output, (hn, cn) = self.lstm(inputs, None)
-        forward_output = output[:, :, :self.lstm.hidden_size]
-        backward_output = output[:, :, self.lstm.hidden_size:]
-        output = forward_output + backward_output + inputs
-        return output, hn, cn
-
-
-class AttentionLSTM(nn.Module):
-
-    def __init__(self, size: int, unrolling_steps: int):
-        """Attentional LSTM used to generate fully conditional embeddings (FCE) of the query set as described
-        in the Matching Networks paper.
-
-        # Arguments
-            size: Size of input and hidden layers. These are constrained to be the same in order to implement the skip
-                connection described in Appendix A.2
-            unrolling_steps: Number of steps of attention over the support set to compute. Analogous to number of
-                layers in a regular LSTM
-        """
-        super(AttentionLSTM, self).__init__()
-        self.unrolling_steps = unrolling_steps
-        self.lstm_cell = nn.LSTMCell(input_size=size, hidden_size=size)
-
-    def forward(self, support, queries):
-        if support.shape[-1] != queries.shape[-1]:
-            raise ValueError('Support and query set have different embedding dimension!')
-        batch_size = queries.shape[0]
-        embedding_dim = queries.shape[1]
-        h_hat = torch.zeros_like(queries).double()
-        c = torch.zeros(batch_size, embedding_dim).double()
-        for k in range(self.unrolling_steps):
-            h = h_hat + queries
-            attentions = torch.mm(h, support.t())
-            attentions = attentions.softmax(dim=1)
-            readout = torch.mm(attentions, support)
-            h_hat, c = self.lstm_cell(queries, (h + readout, c))
-        h = h_hat + queries
-        return h
 
 
 class DummyModel(torch.nn.Module):

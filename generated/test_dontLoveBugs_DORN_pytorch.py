@@ -20,15 +20,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -57,6 +58,28 @@ from torch.nn.modules.utils import _pair
 from torch.nn.modules.utils import _triple
 
 
+class OrdinalRegressionLayer(nn.Module):
+
+    def __init__(self):
+        super(OrdinalRegressionLayer, self).__init__()
+
+    def forward(self, x):
+        """
+        :param x: NxCxHxW, N is batch_size, C is channels of features
+        :return: ord_label is ordinal outputs for each spatial locations , N x 1 x H x W
+                 ord prob is the probability of each label, N x OrdNum x H x W
+        """
+        N, C, H, W = x.size()
+        ord_num = C // 2
+        x = x.view(-1, 2, ord_num, H, W)
+        if self.training:
+            prob = F.log_softmax(x, dim=1).view(N, C, H, W)
+            return prob
+        ord_prob = F.softmax(x, dim=1)[:, (0), :, :, :]
+        ord_label = torch.sum(ord_prob > 0.5, dim=1)
+        return ord_prob, ord_label
+
+
 class OrdinalRegressionLoss(object):
 
     def __init__(self, ord_num, beta, discretization='SID'):
@@ -66,13 +89,13 @@ class OrdinalRegressionLoss(object):
 
     def _create_ord_label(self, gt):
         N, H, W = gt.shape
-        ord_c0 = torch.ones(N, self.ord_num, H, W).to(gt.device)
+        ord_c0 = torch.ones(N, self.ord_num, H, W)
         if self.discretization == 'SID':
             label = self.ord_num * torch.log(gt) / np.log(self.beta)
         else:
             label = self.ord_num * (gt - 1.0) / (self.beta - 1.0)
         label = label.long()
-        mask = torch.linspace(0, self.ord_num - 1, self.ord_num, requires_grad=False).view(1, self.ord_num, 1, 1).to(gt.device)
+        mask = torch.linspace(0, self.ord_num - 1, self.ord_num, requires_grad=False).view(1, self.ord_num, 1, 1)
         mask = mask.repeat(N, 1, H, W).contiguous().long()
         mask = mask > label
         ord_c0[mask] = 0
@@ -91,49 +114,6 @@ class OrdinalRegressionLoss(object):
         entropy = -prob * ord_label
         loss = torch.sum(entropy, dim=1)[valid_mask]
         return loss.mean()
-
-
-class DepthPredModel(nn.Module):
-
-    def __init__(self, ord_num=90, gamma=1.0, beta=80.0, input_size=(385, 513), kernel_size=16, pyramid=[8, 12, 16], batch_norm=False, discretization='SID', pretrained=True):
-        super().__init__()
-        assert len(input_size) == 2
-        assert isinstance(kernel_size, int)
-        self.ord_num = ord_num
-        self.gamma = gamma
-        self.beta = beta
-        self.discretization = discretization
-        self.backbone = ResNetBackbone(pretrained=pretrained)
-        self.SceneUnderstandingModule = SceneUnderstandingModule(ord_num, size=input_size, kernel_size=kernel_size, pyramid=pyramid, batch_norm=batch_norm)
-        self.regression_layer = OrdinalRegressionLayer()
-        self.criterion = OrdinalRegressionLoss(ord_num, beta, discretization)
-
-    def forward(self, image, target=None):
-        """
-        :param image: RGB image, torch.Tensor, Nx3xHxW
-        :param target: ground truth depth, torch.Tensor, NxHxW
-        :return: output: if training, return loss, torch.Float,
-                         else return {"target": depth, "prob": prob, "label": label},
-                         depth: predicted depth, torch.Tensor, NxHxW
-                         prob: probability of each label, torch.Tensor, NxCxHxW, C is number of label
-                         label: predicted label, torch.Tensor, NxHxW
-        """
-        N, C, H, W = image.shape
-        feat = self.backbone(image)
-        feat = self.SceneUnderstandingModule(feat)
-        if self.training:
-            prob = self.regression_layer(feat)
-            loss = self.criterion(prob, target)
-            return loss
-        prob, label = self.regression_layer(feat)
-        if self.discretization == 'SID':
-            t0 = torch.exp(np.log(self.beta) * label.float() / self.ord_num)
-            t1 = torch.exp(np.log(self.beta) * (label.float() + 1) / self.ord_num)
-        else:
-            t0 = 1.0 + (self.beta - 1.0) * label.float() / self.ord_num
-            t1 = 1.0 + (self.beta - 1.0) * (label.float() + 1) / self.ord_num
-        depth = (t0 + t1) / 2 - self.gamma
-        return {'target': [depth], 'prob': [prob], 'label': [label]}
 
 
 class Bottleneck(nn.Module):
@@ -247,28 +227,6 @@ class ResNetBackbone(nn.Module):
         return self.backbone(input)
 
 
-class OrdinalRegressionLayer(nn.Module):
-
-    def __init__(self):
-        super(OrdinalRegressionLayer, self).__init__()
-
-    def forward(self, x):
-        """
-        :param x: NxCxHxW, N is batch_size, C is channels of features
-        :return: ord_label is ordinal outputs for each spatial locations , N x 1 x H x W
-                 ord prob is the probability of each label, N x OrdNum x H x W
-        """
-        N, C, H, W = x.size()
-        ord_num = C // 2
-        x = x.view(-1, 2, ord_num, H, W)
-        if self.training:
-            prob = F.log_softmax(x, dim=1).view(N, C, H, W)
-            return prob
-        ord_prob = F.softmax(x, dim=1)[:, (0), :, :, :]
-        ord_label = torch.sum(ord_prob > 0.5, dim=1)
-        return ord_prob, ord_label
-
-
 class FullImageEncoder(nn.Module):
 
     def __init__(self, h, w, kernel_size):
@@ -341,6 +299,49 @@ class SceneUnderstandingModule(nn.Module):
         out = self.concat_process(x6)
         out = F.interpolate(out, size=self.size, mode='bilinear', align_corners=True)
         return out
+
+
+class DepthPredModel(nn.Module):
+
+    def __init__(self, ord_num=90, gamma=1.0, beta=80.0, input_size=(385, 513), kernel_size=16, pyramid=[8, 12, 16], batch_norm=False, discretization='SID', pretrained=True):
+        super().__init__()
+        assert len(input_size) == 2
+        assert isinstance(kernel_size, int)
+        self.ord_num = ord_num
+        self.gamma = gamma
+        self.beta = beta
+        self.discretization = discretization
+        self.backbone = ResNetBackbone(pretrained=pretrained)
+        self.SceneUnderstandingModule = SceneUnderstandingModule(ord_num, size=input_size, kernel_size=kernel_size, pyramid=pyramid, batch_norm=batch_norm)
+        self.regression_layer = OrdinalRegressionLayer()
+        self.criterion = OrdinalRegressionLoss(ord_num, beta, discretization)
+
+    def forward(self, image, target=None):
+        """
+        :param image: RGB image, torch.Tensor, Nx3xHxW
+        :param target: ground truth depth, torch.Tensor, NxHxW
+        :return: output: if training, return loss, torch.Float,
+                         else return {"target": depth, "prob": prob, "label": label},
+                         depth: predicted depth, torch.Tensor, NxHxW
+                         prob: probability of each label, torch.Tensor, NxCxHxW, C is number of label
+                         label: predicted label, torch.Tensor, NxHxW
+        """
+        N, C, H, W = image.shape
+        feat = self.backbone(image)
+        feat = self.SceneUnderstandingModule(feat)
+        if self.training:
+            prob = self.regression_layer(feat)
+            loss = self.criterion(prob, target)
+            return loss
+        prob, label = self.regression_layer(feat)
+        if self.discretization == 'SID':
+            t0 = torch.exp(np.log(self.beta) * label.float() / self.ord_num)
+            t1 = torch.exp(np.log(self.beta) * (label.float() + 1) / self.ord_num)
+        else:
+            t0 = 1.0 + (self.beta - 1.0) * label.float() / self.ord_num
+            t1 = 1.0 + (self.beta - 1.0) * (label.float() + 1) / self.ord_num
+        depth = (t0 + t1) / 2 - self.gamma
+        return {'target': [depth], 'prob': [prob], 'label': [label]}
 
 
 import torch

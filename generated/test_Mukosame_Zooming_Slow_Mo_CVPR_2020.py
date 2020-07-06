@@ -23,6 +23,7 @@ loss = _module
 module_util = _module
 networks = _module
 options = _module
+test = _module
 train = _module
 utils = _module
 make_video = _module
@@ -33,32 +34,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import math
+import random
+
+
+import logging
+
+
+import numpy as np
 
 
 import torch
+
+
+import torch.utils.data as data
+
+
+import torch.utils.data
+
+
+import math
 
 
 from torch.utils.data.sampler import Sampler
 
 
 import torch.distributed as dist
-
-
-import logging
 
 
 from collections import OrderedDict
@@ -73,6 +87,15 @@ from torch.nn.parallel import DataParallel
 from torch.nn.parallel import DistributedDataParallel
 
 
+from collections import Counter
+
+
+from collections import defaultdict
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
 from torch import nn
 
 
@@ -83,6 +106,15 @@ from torch.nn.modules.utils import _pair
 
 
 from torch.autograd.function import once_differentiable
+
+
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
 
 
 import time
@@ -100,16 +132,13 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
-import numpy as np
-
-
 import torch.nn.functional as fnn
 
 
 import torch.nn.init as init
 
 
-import random
+import torch.multiprocessing as mp
 
 
 from torchvision.utils import make_grid
@@ -171,6 +200,55 @@ class DCNv2(nn.Module):
         return dcn_v2_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.deformable_groups)
 
 
+class DCN(DCNv2):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, deformable_groups=1):
+        super(DCN, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, deformable_groups)
+        channels_ = self.deformable_groups * 3 * self.kernel_size[0] * self.kernel_size[1]
+        self.conv_offset_mask = nn.Conv2d(self.in_channels, channels_, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset_mask.weight.data.zero_()
+        self.conv_offset_mask.bias.data.zero_()
+
+    def forward(self, input):
+        out = self.conv_offset_mask(input)
+        o1, o2, mask = torch.chunk(out, 3, dim=1)
+        offset = torch.cat((o1, o2), dim=1)
+        mask = torch.sigmoid(mask)
+        return dcn_v2_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.deformable_groups)
+
+
+logger = logging.getLogger('base')
+
+
+class DCN_sep(DCNv2):
+    """Use other features to generate offsets and masks"""
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, deformable_groups=1):
+        super(DCN_sep, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, deformable_groups)
+        channels_ = self.deformable_groups * 3 * self.kernel_size[0] * self.kernel_size[1]
+        self.conv_offset_mask = nn.Conv2d(self.in_channels, channels_, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset_mask.weight.data.zero_()
+        self.conv_offset_mask.bias.data.zero_()
+
+    def forward(self, input, fea):
+        """input: input features for deformable conv
+        fea: other features used for generating offsets and mask"""
+        out = self.conv_offset_mask(fea)
+        o1, o2, mask = torch.chunk(out, 3, dim=1)
+        offset = torch.cat((o1, o2), dim=1)
+        offset_mean = torch.mean(torch.abs(offset))
+        if offset_mean > 100:
+            logger.warning('Offset mean is {}, larger than 100.'.format(offset_mean))
+        mask = torch.sigmoid(mask)
+        return dcn_v2_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.deformable_groups)
+
+
 class _DCNv2Pooling(Function):
 
     @staticmethod
@@ -218,33 +296,28 @@ class DCNv2Pooling(nn.Module):
         return dcn_v2_pooling(input, rois, offset, self.spatial_scale, self.pooled_size, self.output_dim, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
 
 
-logger = logging.getLogger('base')
+class DCNPooling(DCNv2Pooling):
 
+    def __init__(self, spatial_scale, pooled_size, output_dim, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, deform_fc_dim=1024):
+        super(DCNPooling, self).__init__(spatial_scale, pooled_size, output_dim, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.deform_fc_dim = deform_fc_dim
+        if not no_trans:
+            self.offset_mask_fc = nn.Sequential(nn.Linear(self.pooled_size * self.pooled_size * self.output_dim, self.deform_fc_dim), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_dim, self.deform_fc_dim), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_dim, self.pooled_size * self.pooled_size * 3))
+            self.offset_mask_fc[4].weight.data.zero_()
+            self.offset_mask_fc[4].bias.data.zero_()
 
-class DCN_sep(DCNv2):
-    """Use other features to generate offsets and masks"""
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, deformable_groups=1):
-        super(DCN_sep, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, deformable_groups)
-        channels_ = self.deformable_groups * 3 * self.kernel_size[0] * self.kernel_size[1]
-        self.conv_offset_mask = nn.Conv2d(self.in_channels, channels_, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, bias=True)
-        self.init_offset()
-
-    def init_offset(self):
-        self.conv_offset_mask.weight.data.zero_()
-        self.conv_offset_mask.bias.data.zero_()
-
-    def forward(self, input, fea):
-        """input: input features for deformable conv
-        fea: other features used for generating offsets and mask"""
-        out = self.conv_offset_mask(fea)
-        o1, o2, mask = torch.chunk(out, 3, dim=1)
-        offset = torch.cat((o1, o2), dim=1)
-        offset_mean = torch.mean(torch.abs(offset))
-        if offset_mean > 100:
-            logger.warning('Offset mean is {}, larger than 100.'.format(offset_mean))
-        mask = torch.sigmoid(mask)
-        return dcn_v2_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.deformable_groups)
+    def forward(self, input, rois):
+        offset = input.new()
+        if not self.no_trans:
+            n = rois.shape[0]
+            roi = dcn_v2_pooling(input, rois, offset, self.spatial_scale, self.pooled_size, self.output_dim, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset_mask = self.offset_mask_fc(roi.view(n, -1))
+            offset_mask = offset_mask.view(n, 3, self.pooled_size, self.pooled_size)
+            o1, o2, mask = torch.chunk(offset_mask, 3, dim=1)
+            offset = torch.cat((o1, o2), dim=1)
+            mask = torch.sigmoid(mask)
+            return dcn_v2_pooling(input, rois, offset, self.spatial_scale, self.pooled_size, self.output_dim, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std) * mask
+        return dcn_v2_pooling(input, rois, offset, self.spatial_scale, self.pooled_size, self.output_dim, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
 
 
 class PCD_Align(nn.Module):
@@ -362,97 +435,6 @@ class Easy_PCD(nn.Module):
         aligned_fea = self.pcd_align(fea1, fea2)
         fusion_fea = self.fusion(aligned_fea)
         return fusion_fea
-
-
-class BiDeformableConvLSTM(nn.Module):
-
-    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, front_RBs, groups, batch_first=False, bias=True, return_all_layers=False):
-        super(BiDeformableConvLSTM, self).__init__()
-        self.forward_net = DeformableConvLSTM(input_size=input_size, input_dim=input_dim, hidden_dim=hidden_dim, kernel_size=kernel_size, num_layers=num_layers, front_RBs=front_RBs, groups=groups, batch_first=batch_first, bias=bias, return_all_layers=return_all_layers)
-        self.conv_1x1 = nn.Conv2d(2 * input_dim, input_dim, 1, 1, bias=True)
-
-    def forward(self, x):
-        reversed_idx = list(reversed(range(x.shape[1])))
-        x_rev = x[:, (reversed_idx), (...)]
-        out_fwd, _ = self.forward_net(x)
-        out_rev, _ = self.forward_net(x_rev)
-        rev_rev = out_rev[0][:, (reversed_idx), (...)]
-        B, N, C, H, W = out_fwd[0].size()
-        result = torch.cat((out_fwd[0], rev_rev), dim=2)
-        result = result.view(B * N, -1, H, W)
-        result = self.conv_1x1(result)
-        return result.view(B, -1, C, H, W)
-
-
-class LunaTokis(nn.Module):
-
-    def __init__(self, nf=64, nframes=3, groups=8, front_RBs=5, back_RBs=10):
-        super(LunaTokis, self).__init__()
-        self.nf = nf
-        self.in_frames = 1 + nframes // 2
-        self.ot_frames = nframes
-        p_size = 48
-        patch_size = p_size, p_size
-        n_layers = 1
-        hidden_dim = []
-        for i in range(n_layers):
-            hidden_dim.append(nf)
-        ResidualBlock_noBN_f = functools.partial(mutil.ResidualBlock_noBN, nf=nf)
-        self.conv_first = nn.Conv2d(3, nf, 3, 1, 1, bias=True)
-        self.feature_extraction = mutil.make_layer(ResidualBlock_noBN_f, front_RBs)
-        self.fea_L2_conv1 = nn.Conv2d(nf, nf, 3, 2, 1, bias=True)
-        self.fea_L2_conv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.fea_L3_conv1 = nn.Conv2d(nf, nf, 3, 2, 1, bias=True)
-        self.fea_L3_conv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
-        self.pcd_align = PCD_Align(nf=nf, groups=groups)
-        self.fusion = nn.Conv2d(2 * nf, nf, 1, 1, bias=True)
-        self.ConvBLSTM = BiDeformableConvLSTM(input_size=patch_size, input_dim=nf, hidden_dim=hidden_dim, kernel_size=(3, 3), num_layers=1, batch_first=True, front_RBs=front_RBs, groups=groups)
-        self.recon_trunk = mutil.make_layer(ResidualBlock_noBN_f, back_RBs)
-        self.upconv1 = nn.Conv2d(nf, nf * 4, 3, 1, 1, bias=True)
-        self.upconv2 = nn.Conv2d(nf, 64 * 4, 3, 1, 1, bias=True)
-        self.pixel_shuffle = nn.PixelShuffle(2)
-        self.HRconv = nn.Conv2d(64, 64, 3, 1, 1, bias=True)
-        self.conv_last = nn.Conv2d(64, 3, 3, 1, 1, bias=True)
-        self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
-
-    def forward(self, x):
-        B, N, C, H, W = x.size()
-        L1_fea = self.lrelu(self.conv_first(x.view(-1, C, H, W)))
-        L1_fea = self.feature_extraction(L1_fea)
-        L2_fea = self.lrelu(self.fea_L2_conv1(L1_fea))
-        L2_fea = self.lrelu(self.fea_L2_conv2(L2_fea))
-        L3_fea = self.lrelu(self.fea_L3_conv1(L2_fea))
-        L3_fea = self.lrelu(self.fea_L3_conv2(L3_fea))
-        L1_fea = L1_fea.view(B, N, -1, H, W)
-        L2_fea = L2_fea.view(B, N, -1, H // 2, W // 2)
-        L3_fea = L3_fea.view(B, N, -1, H // 4, W // 4)
-        to_lstm_fea = []
-        """
-        0: + fea1, fusion_fea, fea2
-        1: + ...    ...        ...  fusion_fea, fea2
-        2: + ...    ...        ...    ...       ...   fusion_fea, fea2
-        """
-        for idx in range(N - 1):
-            fea1 = [L1_fea[:, (idx), :, :, :].clone(), L2_fea[:, (idx), :, :, :].clone(), L3_fea[:, (idx), :, :, :].clone()]
-            fea2 = [L1_fea[:, (idx + 1), :, :, :].clone(), L2_fea[:, (idx + 1), :, :, :].clone(), L3_fea[:, (idx + 1), :, :, :].clone()]
-            aligned_fea = self.pcd_align(fea1, fea2)
-            fusion_fea = self.fusion(aligned_fea)
-            if idx == 0:
-                to_lstm_fea.append(fea1[0])
-            to_lstm_fea.append(fusion_fea)
-            to_lstm_fea.append(fea2[0])
-        lstm_feats = torch.stack(to_lstm_fea, dim=1)
-        feats = self.ConvBLSTM(lstm_feats)
-        B, T, C, H, W = feats.size()
-        feats = feats.view(B * T, C, H, W)
-        out = self.recon_trunk(feats)
-        out = self.lrelu(self.pixel_shuffle(self.upconv1(out)))
-        out = self.lrelu(self.pixel_shuffle(self.upconv2(out)))
-        out = self.lrelu(self.HRconv(out))
-        out = self.conv_last(out)
-        _, _, K, G = out.size()
-        outs = out.view(B, T, -1, K, G)
-        return outs
 
 
 class ConvLSTMCell(nn.Module):
@@ -582,6 +564,157 @@ class ConvLSTM(nn.Module):
         return param
 
 
+class DeformableConvLSTM(ConvLSTM):
+
+    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, front_RBs, groups, batch_first=False, bias=True, return_all_layers=False):
+        ConvLSTM.__init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, batch_first=batch_first, bias=bias, return_all_layers=return_all_layers)
+        nf = input_dim
+        self.pcd_h = Easy_PCD(nf=nf, groups=groups)
+        self.pcd_c = Easy_PCD(nf=nf, groups=groups)
+        cell_list = []
+        for i in range(0, num_layers):
+            cur_input_dim = self.input_dim if i == 0 else self.hidden_dim[i - 1]
+            cell_list.append(ConvLSTMCell(input_size=(self.height, self.width), input_dim=cur_input_dim, hidden_dim=self.hidden_dim[i], kernel_size=self.kernel_size[i], bias=self.bias))
+        self.cell_list = nn.ModuleList(cell_list)
+        self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
+
+    def forward(self, input_tensor, hidden_state=None):
+        """        
+        Parameters
+        ----------
+        input_tensor: 
+            5-D Tensor either of shape (t, b, c, h, w) or (b, t, c, h, w)
+        hidden_state: 
+            None. 
+            
+        Returns
+        -------
+        last_state_list, layer_output
+        """
+        if not self.batch_first:
+            input_tensor = input_tensor.permute(1, 0, 2, 3, 4)
+        if hidden_state is not None:
+            raise NotImplementedError()
+        else:
+            tensor_size = input_tensor.size(3), input_tensor.size(4)
+            hidden_state = self._init_hidden(batch_size=input_tensor.size(0), tensor_size=tensor_size)
+        layer_output_list = []
+        last_state_list = []
+        seq_len = input_tensor.size(1)
+        cur_layer_input = input_tensor
+        for layer_idx in range(self.num_layers):
+            h, c = hidden_state[layer_idx]
+            output_inner = []
+            for t in range(seq_len):
+                in_tensor = cur_layer_input[:, (t), :, :, :]
+                h_temp = self.pcd_h(in_tensor, h)
+                c_temp = self.pcd_c(in_tensor, c)
+                h, c = self.cell_list[layer_idx](input_tensor=in_tensor, cur_state=[h_temp, c_temp])
+                output_inner.append(h)
+            layer_output = torch.stack(output_inner, dim=1)
+            cur_layer_input = layer_output
+            layer_output_list.append(layer_output)
+            last_state_list.append([h, c])
+        if not self.return_all_layers:
+            layer_output_list = layer_output_list[-1:]
+            last_state_list = last_state_list[-1:]
+        return layer_output_list, last_state_list
+
+    def _init_hidden(self, batch_size, tensor_size):
+        return super()._init_hidden(batch_size, tensor_size)
+
+
+class BiDeformableConvLSTM(nn.Module):
+
+    def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, front_RBs, groups, batch_first=False, bias=True, return_all_layers=False):
+        super(BiDeformableConvLSTM, self).__init__()
+        self.forward_net = DeformableConvLSTM(input_size=input_size, input_dim=input_dim, hidden_dim=hidden_dim, kernel_size=kernel_size, num_layers=num_layers, front_RBs=front_RBs, groups=groups, batch_first=batch_first, bias=bias, return_all_layers=return_all_layers)
+        self.conv_1x1 = nn.Conv2d(2 * input_dim, input_dim, 1, 1, bias=True)
+
+    def forward(self, x):
+        reversed_idx = list(reversed(range(x.shape[1])))
+        x_rev = x[:, (reversed_idx), (...)]
+        out_fwd, _ = self.forward_net(x)
+        out_rev, _ = self.forward_net(x_rev)
+        rev_rev = out_rev[0][:, (reversed_idx), (...)]
+        B, N, C, H, W = out_fwd[0].size()
+        result = torch.cat((out_fwd[0], rev_rev), dim=2)
+        result = result.view(B * N, -1, H, W)
+        result = self.conv_1x1(result)
+        return result.view(B, -1, C, H, W)
+
+
+class LunaTokis(nn.Module):
+
+    def __init__(self, nf=64, nframes=3, groups=8, front_RBs=5, back_RBs=10):
+        super(LunaTokis, self).__init__()
+        self.nf = nf
+        self.in_frames = 1 + nframes // 2
+        self.ot_frames = nframes
+        p_size = 48
+        patch_size = p_size, p_size
+        n_layers = 1
+        hidden_dim = []
+        for i in range(n_layers):
+            hidden_dim.append(nf)
+        ResidualBlock_noBN_f = functools.partial(mutil.ResidualBlock_noBN, nf=nf)
+        self.conv_first = nn.Conv2d(3, nf, 3, 1, 1, bias=True)
+        self.feature_extraction = mutil.make_layer(ResidualBlock_noBN_f, front_RBs)
+        self.fea_L2_conv1 = nn.Conv2d(nf, nf, 3, 2, 1, bias=True)
+        self.fea_L2_conv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.fea_L3_conv1 = nn.Conv2d(nf, nf, 3, 2, 1, bias=True)
+        self.fea_L3_conv2 = nn.Conv2d(nf, nf, 3, 1, 1, bias=True)
+        self.pcd_align = PCD_Align(nf=nf, groups=groups)
+        self.fusion = nn.Conv2d(2 * nf, nf, 1, 1, bias=True)
+        self.ConvBLSTM = BiDeformableConvLSTM(input_size=patch_size, input_dim=nf, hidden_dim=hidden_dim, kernel_size=(3, 3), num_layers=1, batch_first=True, front_RBs=front_RBs, groups=groups)
+        self.recon_trunk = mutil.make_layer(ResidualBlock_noBN_f, back_RBs)
+        self.upconv1 = nn.Conv2d(nf, nf * 4, 3, 1, 1, bias=True)
+        self.upconv2 = nn.Conv2d(nf, 64 * 4, 3, 1, 1, bias=True)
+        self.pixel_shuffle = nn.PixelShuffle(2)
+        self.HRconv = nn.Conv2d(64, 64, 3, 1, 1, bias=True)
+        self.conv_last = nn.Conv2d(64, 3, 3, 1, 1, bias=True)
+        self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
+
+    def forward(self, x):
+        B, N, C, H, W = x.size()
+        L1_fea = self.lrelu(self.conv_first(x.view(-1, C, H, W)))
+        L1_fea = self.feature_extraction(L1_fea)
+        L2_fea = self.lrelu(self.fea_L2_conv1(L1_fea))
+        L2_fea = self.lrelu(self.fea_L2_conv2(L2_fea))
+        L3_fea = self.lrelu(self.fea_L3_conv1(L2_fea))
+        L3_fea = self.lrelu(self.fea_L3_conv2(L3_fea))
+        L1_fea = L1_fea.view(B, N, -1, H, W)
+        L2_fea = L2_fea.view(B, N, -1, H // 2, W // 2)
+        L3_fea = L3_fea.view(B, N, -1, H // 4, W // 4)
+        to_lstm_fea = []
+        """
+        0: + fea1, fusion_fea, fea2
+        1: + ...    ...        ...  fusion_fea, fea2
+        2: + ...    ...        ...    ...       ...   fusion_fea, fea2
+        """
+        for idx in range(N - 1):
+            fea1 = [L1_fea[:, (idx), :, :, :].clone(), L2_fea[:, (idx), :, :, :].clone(), L3_fea[:, (idx), :, :, :].clone()]
+            fea2 = [L1_fea[:, (idx + 1), :, :, :].clone(), L2_fea[:, (idx + 1), :, :, :].clone(), L3_fea[:, (idx + 1), :, :, :].clone()]
+            aligned_fea = self.pcd_align(fea1, fea2)
+            fusion_fea = self.fusion(aligned_fea)
+            if idx == 0:
+                to_lstm_fea.append(fea1[0])
+            to_lstm_fea.append(fusion_fea)
+            to_lstm_fea.append(fea2[0])
+        lstm_feats = torch.stack(to_lstm_fea, dim=1)
+        feats = self.ConvBLSTM(lstm_feats)
+        B, T, C, H, W = feats.size()
+        feats = feats.view(B * T, C, H, W)
+        out = self.recon_trunk(feats)
+        out = self.lrelu(self.pixel_shuffle(self.upconv1(out)))
+        out = self.lrelu(self.pixel_shuffle(self.upconv2(out)))
+        out = self.lrelu(self.HRconv(out))
+        out = self.conv_last(out)
+        _, _, K, G = out.size()
+        outs = out.view(B, T, -1, K, G)
+        return outs
+
+
 class ConvBLSTM(nn.Module):
 
     def __init__(self, input_size, input_dim, hidden_dim, kernel_size, num_layers, batch_first=False, bias=True, return_all_layers=False):
@@ -627,7 +760,7 @@ def build_gauss_kernel(size=5, sigma=1.0, n_channels=1, cuda=False):
     kernel = np.tile(kernel, (n_channels, 1, 1))
     kernel = torch.FloatTensor(kernel[:, (None), :, :])
     if cuda:
-        kernel = kernel.cuda()
+        kernel = kernel
     return Variable(kernel, requires_grad=False)
 
 

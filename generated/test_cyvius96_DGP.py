@@ -26,15 +26,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -42,10 +43,22 @@ __version__ = '1.0.0'
 import torch
 
 
-import torch.nn.functional as F
+import torchvision.transforms as transforms
+
+
+from torch.utils.data import Dataset
+
+
+import random
+
+
+from torchvision import get_image_backend
 
 
 from torch.utils.data import DataLoader
+
+
+import torch.nn.functional as F
 
 
 import numpy as np
@@ -63,13 +76,7 @@ from torch.nn.init import xavier_uniform_
 import math
 
 
-import random
-
-
 import torchvision.datasets as datasets
-
-
-import torchvision.transforms as transforms
 
 
 class GraphConv(nn.Module):
@@ -88,10 +95,17 @@ class GraphConv(nn.Module):
         else:
             self.relu = None
 
-    def forward(self, inputs, adj):
+    def forward(self, inputs, adj_set, att):
         if self.dropout is not None:
             inputs = self.dropout(inputs)
-        outputs = torch.mm(adj, torch.mm(inputs, self.w)) + self.b
+        support = torch.mm(inputs, self.w) + self.b
+        outputs = None
+        for i, adj in enumerate(adj_set):
+            y = torch.mm(adj, support) * att[i]
+            if outputs is None:
+                outputs = y
+            else:
+                outputs = outputs + y
         if self.relu is not None:
             outputs = self.relu(outputs)
         return outputs
@@ -164,31 +178,6 @@ class GCN(nn.Module):
         return F.normalize(x)
 
 
-class GraphConv(nn.Module):
-
-    def __init__(self, in_channels, out_channels, dropout=False, relu=True):
-        super().__init__()
-        if dropout:
-            self.dropout = nn.Dropout(p=0.5)
-        else:
-            self.dropout = None
-        self.w = nn.Parameter(torch.empty(in_channels, out_channels))
-        self.b = nn.Parameter(torch.zeros(out_channels))
-        xavier_uniform_(self.w)
-        if relu:
-            self.relu = nn.LeakyReLU(negative_slope=0.2)
-        else:
-            self.relu = None
-
-    def forward(self, inputs, adj):
-        if self.dropout is not None:
-            inputs = self.dropout(inputs)
-        outputs = torch.mm(adj, torch.mm(inputs, self.w)) + self.b
-        if self.relu is not None:
-            outputs = self.relu(outputs)
-        return outputs
-
-
 class GCN_Dense(nn.Module):
 
     def __init__(self, n, edges, in_channels, out_channels, hidden_layers):
@@ -232,38 +221,6 @@ class GCN_Dense(nn.Module):
                 x = conv(x, self.r_adj)
             graph_side = not graph_side
         return F.normalize(x)
-
-
-class GraphConv(nn.Module):
-
-    def __init__(self, in_channels, out_channels, dropout=False, relu=True):
-        super().__init__()
-        if dropout:
-            self.dropout = nn.Dropout(p=0.5)
-        else:
-            self.dropout = None
-        self.w = nn.Parameter(torch.empty(in_channels, out_channels))
-        self.b = nn.Parameter(torch.zeros(out_channels))
-        xavier_uniform_(self.w)
-        if relu:
-            self.relu = nn.LeakyReLU(negative_slope=0.2)
-        else:
-            self.relu = None
-
-    def forward(self, inputs, adj_set, att):
-        if self.dropout is not None:
-            inputs = self.dropout(inputs)
-        support = torch.mm(inputs, self.w) + self.b
-        outputs = None
-        for i, adj in enumerate(adj_set):
-            y = torch.mm(adj, support) * att[i]
-            if outputs is None:
-                outputs = y
-            else:
-                outputs = outputs + y
-        if self.relu is not None:
-            outputs = self.relu(outputs)
-        return outputs
 
 
 class GCN_Dense_Att(nn.Module):

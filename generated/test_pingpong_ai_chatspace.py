@@ -26,22 +26,39 @@ tests = _module
 evaluation_test = _module
 inference_test = _module
 jit_evaluation_test = _module
+train = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import random
+
+
+from typing import List
+
+
+from typing import Union
+
+
+import torch
+
+
+from torch.utils.data import Dataset
 
 
 import logging
@@ -59,16 +76,7 @@ from typing import Generator
 from typing import Iterable
 
 
-from typing import List
-
-
 from typing import Optional
-
-
-from typing import Union
-
-
-import torch
 
 
 import torch.nn as nn
@@ -81,6 +89,9 @@ import numpy as np
 
 
 from torch.optim.adam import Adam
+
+
+import time
 
 
 class CharConvolution(nn.Module):
@@ -128,6 +139,30 @@ class CharEmbedding(nn.Module):
         return self.embedding(input_seq)
 
 
+class TimeDistributed(nn.Module):
+
+    def __init__(self, layer, activation='relu'):
+        super().__init__()
+        self.layer = layer
+        self.activation = self.select_activation(activation)
+
+    def forward(self, x):
+        x_reshaped = x.contiguous().view(-1, x.size(-1))
+        y = self.layer(x_reshaped)
+        y = self.activation(y)
+        y = y.contiguous().view(x.size(0), -1, y.size(-1))
+        return y
+
+    def select_activation(self, activation):
+        if activation == 'relu':
+            return nn.ReLU()
+        elif activation == 'sigmoid':
+            return nn.Sigmoid()
+        elif activation == 'tanh':
+            return nn.Tanh()
+        raise KeyError
+
+
 class Projection(nn.Module):
 
     def __init__(self, config):
@@ -155,30 +190,6 @@ class SequentialFNN(nn.Module):
         x = self.time_distributed_1(x)
         x = self.time_distributed_2(x)
         return x
-
-
-class TimeDistributed(nn.Module):
-
-    def __init__(self, layer, activation='relu'):
-        super().__init__()
-        self.layer = layer
-        self.activation = self.select_activation(activation)
-
-    def forward(self, x):
-        x_reshaped = x.contiguous().view(-1, x.size(-1))
-        y = self.layer(x_reshaped)
-        y = self.activation(y)
-        y = y.contiguous().view(x.size(0), -1, y.size(-1))
-        return y
-
-    def select_activation(self, activation):
-        if activation == 'relu':
-            return nn.ReLU()
-        elif activation == 'sigmoid':
-            return nn.Sigmoid()
-        elif activation == 'tanh':
-            return nn.Tanh()
-        raise KeyError
 
 
 class ChatSpaceModel(nn.Module):

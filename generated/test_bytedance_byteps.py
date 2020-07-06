@@ -15,8 +15,9 @@ server = _module
 tensorflow = _module
 compression = _module
 util = _module
-torch = _module
+compression = _module
 cross_barrier = _module
+ops = _module
 parallel = _module
 distributed = _module
 keras_imagenet_resnet50 = _module
@@ -63,15 +64,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -85,10 +87,19 @@ import torch
 import collections
 
 
+import logging
+
+
+import math
+
+
 from torch.nn.modules import Module
 
 
 from torch.cuda._utils import _get_device_index
+
+
+import numpy as np
 
 
 import torch.backends.cudnn as cudnn
@@ -104,9 +115,6 @@ import torch.utils.data.distributed
 
 
 from torchvision import models
-
-
-import numpy as np
 
 
 import torch.multiprocessing as mp
@@ -130,9 +138,6 @@ from torchvision import datasets
 from torchvision import transforms
 
 
-import math
-
-
 import random
 
 
@@ -152,6 +157,9 @@ import torchvision.datasets as datasets
 
 
 import torchvision.models as models
+
+
+import re
 
 
 class Compressor(object):
@@ -175,8 +183,8 @@ class FP16Compressor(Compressor):
     def compress(tensor):
         """Downcasts the tensor to 16-bit."""
         tensor_compressed = tensor
-        if tensor.dtype.is_floating:
-            tensor_compressed = tf.cast(tensor, dtype=tf.float16)
+        if tensor.dtype.is_floating_point:
+            tensor_compressed = tensor.type(torch.float16)
         return tensor_compressed, tensor.dtype
 
     @staticmethod
@@ -184,8 +192,8 @@ class FP16Compressor(Compressor):
         """Upcasts the tensor to the initialization dtype."""
         tensor_decompressed = tensor
         dtype = ctx
-        if dtype.is_floating:
-            tensor_decompressed = tf.cast(tensor, dtype=dtype)
+        if dtype.is_floating_point:
+            tensor_decompressed = tensor.type(dtype)
         return tensor_decompressed
 
 

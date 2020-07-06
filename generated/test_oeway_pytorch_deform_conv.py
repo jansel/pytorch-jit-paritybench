@@ -14,15 +14,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -42,7 +43,13 @@ import torch.optim as optim
 from torch.autograd import Variable
 
 
+from scipy.ndimage.interpolation import map_coordinates
+
+
 import torch.nn as nn
+
+
+from scipy.ndimage.interpolation import map_coordinates as sp_map_coordinates
 
 
 class ConvNet(nn.Module):
@@ -72,62 +79,6 @@ class ConvNet(nn.Module):
         x = self.fc(x.view(x.size()[:2]))
         x = F.softmax(x)
         return x
-
-
-class DeformConvNet(nn.Module):
-
-    def __init__(self):
-        super(DeformConvNet, self).__init__()
-        self.conv11 = nn.Conv2d(1, 32, 3, padding=1)
-        self.bn11 = nn.BatchNorm2d(32)
-        self.offset12 = ConvOffset2D(32)
-        self.conv12 = nn.Conv2d(32, 64, 3, padding=1, stride=2)
-        self.bn12 = nn.BatchNorm2d(64)
-        self.offset21 = ConvOffset2D(64)
-        self.conv21 = nn.Conv2d(64, 128, 3, padding=1)
-        self.bn21 = nn.BatchNorm2d(128)
-        self.offset22 = ConvOffset2D(128)
-        self.conv22 = nn.Conv2d(128, 128, 3, padding=1, stride=2)
-        self.bn22 = nn.BatchNorm2d(128)
-        self.fc = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = F.relu(self.conv11(x))
-        x = self.bn11(x)
-        x = self.offset12(x)
-        x = F.relu(self.conv12(x))
-        x = self.bn12(x)
-        x = self.offset21(x)
-        x = F.relu(self.conv21(x))
-        x = self.bn21(x)
-        x = self.offset22(x)
-        x = F.relu(self.conv22(x))
-        x = self.bn22(x)
-        x = F.avg_pool2d(x, kernel_size=[x.size(2), x.size(3)])
-        x = self.fc(x.view(x.size()[:2]))
-        x = F.softmax(x)
-        return x
-
-    def freeze(self, module_classes):
-        """
-        freeze modules for finetuning
-        """
-        for k, m in self._modules.items():
-            if any([(type(m) == mc) for mc in module_classes]):
-                for param in m.parameters():
-                    param.requires_grad = False
-
-    def unfreeze(self, module_classes):
-        """
-        unfreeze modules
-        """
-        for k, m in self._modules.items():
-            if any([isinstance(m, mc) for mc in module_classes]):
-                for param in m.parameters():
-                    param.requires_grad = True
-
-    def parameters(self):
-        return filter(lambda p: p.requires_grad, super(DeformConvNet, self).parameters())
 
 
 def th_flatten(a):
@@ -165,7 +116,7 @@ def th_batch_map_coordinates(input, coords, order=1):
     idx = th_repeat(torch.arange(0, batch_size), n_coords).long()
     idx = Variable(idx, requires_grad=False)
     if input.is_cuda:
-        idx = idx.cuda()
+        idx = idx
 
     def _get_vals_by_coords(input, coords):
         indices = torch.stack([idx, th_flatten(coords[..., 0]), th_flatten(coords[..., 1])], 1)
@@ -199,7 +150,7 @@ def th_generate_grid(batch_size, input_height, input_width, dtype, cuda):
     grid = np_repeat_2d(grid, batch_size)
     grid = torch.from_numpy(grid).type(dtype)
     if cuda:
-        grid = grid.cuda()
+        grid = grid
     return Variable(grid, requires_grad=False)
 
 
@@ -295,6 +246,62 @@ class ConvOffset2D(nn.Conv2d):
         """(b*c, h, w) -> (b, c, h, w)"""
         x = x.contiguous().view(-1, int(x_shape[1]), int(x_shape[2]), int(x_shape[3]))
         return x
+
+
+class DeformConvNet(nn.Module):
+
+    def __init__(self):
+        super(DeformConvNet, self).__init__()
+        self.conv11 = nn.Conv2d(1, 32, 3, padding=1)
+        self.bn11 = nn.BatchNorm2d(32)
+        self.offset12 = ConvOffset2D(32)
+        self.conv12 = nn.Conv2d(32, 64, 3, padding=1, stride=2)
+        self.bn12 = nn.BatchNorm2d(64)
+        self.offset21 = ConvOffset2D(64)
+        self.conv21 = nn.Conv2d(64, 128, 3, padding=1)
+        self.bn21 = nn.BatchNorm2d(128)
+        self.offset22 = ConvOffset2D(128)
+        self.conv22 = nn.Conv2d(128, 128, 3, padding=1, stride=2)
+        self.bn22 = nn.BatchNorm2d(128)
+        self.fc = nn.Linear(128, 10)
+
+    def forward(self, x):
+        x = F.relu(self.conv11(x))
+        x = self.bn11(x)
+        x = self.offset12(x)
+        x = F.relu(self.conv12(x))
+        x = self.bn12(x)
+        x = self.offset21(x)
+        x = F.relu(self.conv21(x))
+        x = self.bn21(x)
+        x = self.offset22(x)
+        x = F.relu(self.conv22(x))
+        x = self.bn22(x)
+        x = F.avg_pool2d(x, kernel_size=[x.size(2), x.size(3)])
+        x = self.fc(x.view(x.size()[:2]))
+        x = F.softmax(x)
+        return x
+
+    def freeze(self, module_classes):
+        """
+        freeze modules for finetuning
+        """
+        for k, m in self._modules.items():
+            if any([(type(m) == mc) for mc in module_classes]):
+                for param in m.parameters():
+                    param.requires_grad = False
+
+    def unfreeze(self, module_classes):
+        """
+        unfreeze modules
+        """
+        for k, m in self._modules.items():
+            if any([isinstance(m, mc) for mc in module_classes]):
+                for param in m.parameters():
+                    param.requires_grad = True
+
+    def parameters(self):
+        return filter(lambda p: p.requires_grad, super(DeformConvNet, self).parameters())
 
 
 import torch

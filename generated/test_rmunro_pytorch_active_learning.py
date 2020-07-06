@@ -12,15 +12,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -53,26 +54,6 @@ from collections import defaultdict
 
 
 import copy
-
-
-class SimpleTextClassifier(nn.Module):
-    """Text Classifier with 1 hidden layer 
-
-    """
-
-    def __init__(self, num_labels, vocab_size):
-        super(SimpleTextClassifier, self).__init__()
-        self.linear1 = nn.Linear(vocab_size, 128)
-        self.linear2 = nn.Linear(128, num_labels)
-
-    def forward(self, feature_vec, return_all_layers=False):
-        hidden1 = self.linear1(feature_vec).clamp(min=0)
-        output = self.linear2(hidden1)
-        log_softmax = F.log_softmax(output, dim=1)
-        if return_all_layers:
-            return [hidden1, output, log_softmax]
-        else:
-            return log_softmax
 
 
 class SimpleTextClassifier(nn.Module):

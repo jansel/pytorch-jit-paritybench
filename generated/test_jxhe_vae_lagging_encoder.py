@@ -37,26 +37,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import time
+import random
+
+
+import torch
 
 
 import numpy as np
 
 
-import torch
+from collections import defaultdict
+
+
+import time
 
 
 import torch.utils.data
@@ -170,23 +177,16 @@ class StackedGatedMaskedConv2d(nn.Module):
 
 class MaskedConv2d(nn.Conv2d):
 
-    def __init__(self, mask_type, masked_channels, *args, **kwargs):
+    def __init__(self, include_center=False, *args, **kwargs):
         super(MaskedConv2d, self).__init__(*args, **kwargs)
-        assert mask_type in {'A', 'B'}
         self.register_buffer('mask', self.weight.data.clone())
         _, _, kH, kW = self.weight.size()
         self.mask.fill_(1)
-        self.mask[:, :masked_channels, (kH // 2), kW // 2 + (mask_type == 'B'):] = 0
-        self.mask[:, :masked_channels, kH // 2 + 1:] = 0
-
-    def reset_parameters(self):
-        n = self.kernel_size[0] * self.kernel_size[1] * self.out_channels
-        self.weight.data.normal_(0, math.sqrt(2.0 / n))
-        if self.bias is not None:
-            self.bias.data.zero_()
+        self.mask[:, :, (kH // 2), kW // 2 + (include_center == True):] = 0
+        self.mask[:, :, kH // 2 + 1:] = 0
 
     def forward(self, x):
-        self.weight.data.mul_(self.mask)
+        self.weight.data *= self.mask
         return super(MaskedConv2d, self).forward(x)
 
 
@@ -499,21 +499,6 @@ class MixLSTMEncoder(nn.Module):
         log_density = -0.5 * (dev ** 2 / var).sum(dim=-1) - 0.5 * (self.nz * math.log(2 * math.pi) + logvar.sum(-1))
         log_density = log_density + mix_prob.log().unsqueeze(2)
         return log_sum_exp(log_density, dim=1)
-
-
-class MaskedConv2d(nn.Conv2d):
-
-    def __init__(self, include_center=False, *args, **kwargs):
-        super(MaskedConv2d, self).__init__(*args, **kwargs)
-        self.register_buffer('mask', self.weight.data.clone())
-        _, _, kH, kW = self.weight.size()
-        self.mask.fill_(1)
-        self.mask[:, :, (kH // 2), kW // 2 + (include_center == True):] = 0
-        self.mask[:, :, kH // 2 + 1:] = 0
-
-    def forward(self, x):
-        self.weight.data *= self.mask
-        return super(MaskedConv2d, self).forward(x)
 
 
 class ResidualBlock(nn.Module):

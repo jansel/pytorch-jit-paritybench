@@ -25,15 +25,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -561,55 +562,40 @@ class channel_averaging(nn.Module):
         return out
 
 
-class fusionRNN_jit(torch.jit.ScriptModule):
+class FusionLinearConv(Module):
+    """Applies a FusionLayer as described in:
+        'FusionRNN: Shared Neural Parameters for
+        Multi-Channel Distant Speech Recognition', Titouan P. et Al.
 
-    def __init__(self, options, inp_dim):
-        super(fusionRNN_jit, self).__init__()
-        input_size = inp_dim
-        hidden_size = list(map(int, options['fusionRNN_lay'].split(',')))[0]
-        dropout = list(map(float, options['fusionRNN_drop'].split(',')))[0]
-        num_layers = len(list(map(int, options['fusionRNN_lay'].split(','))))
-        batch_size = int(options['batches'])
-        self.do_fusion = map(strtobool, options['fusionRNN_do_fusion'].split(','))
-        self.act = str(options['fusionRNN_fusion_act'])
-        self.reduce = str(options['fusionRNN_fusion_reduce'])
-        self.fusion_layer_size = int(options['fusionRNN_fusion_layer_size'])
-        self.to_do = options['to_do']
-        self.number_of_mic = int(options['fusionRNN_number_of_mic'])
-        self.save_mic = self.number_of_mic
-        bidirectional = True
-        self.out_dim = 2 * hidden_size
-        current_dim = int(input_size)
-        self.model = torch.nn.ModuleList([])
-        if self.to_do == 'train':
-            self.training = True
+        Input channels are supposed to be concatenated along the last dimension
+    """
+
+    def __init__(self, in_features, out_features, number_of_mic=1, bias=True, seed=None, act='leaky', reduce='sum'):
+        super(FusionLinearConv, self).__init__()
+        self.in_features = in_features // number_of_mic
+        self.out_features = out_features
+        self.number_of_mic = number_of_mic
+        self.reduce = reduce
+        if act == 'leaky_relu':
+            self.act_function = nn.LeakyReLU()
+        elif act == 'prelu':
+            self.act_function = nn.PReLU()
+        elif act == 'relu':
+            self.act_function = nn.ReLU()
         else:
-            self.training = False
-        for i in range(num_layers):
-            rnn_lay = liGRU_layer(current_dim, hidden_size, num_layers, batch_size, dropout=dropout, bidirectional=bidirectional, device='cuda', do_fusion=self.do_fusion, fusion_layer_size=self.fusion_layer_size, number_of_mic=self.number_of_mic, act=self.act, reduce=self.reduce)
-            if i == 0:
-                if self.do_fusion:
-                    if bidirectional:
-                        current_dim = self.fusion_layer_size // self.save_mic * 2
-                    else:
-                        current_dim = self.fusion_layer_size // self.save_mic
-                    self.number_of_mic = 1
-                elif bidirectional:
-                    current_dim = hidden_size * 2
-                else:
-                    current_dim = hidden_size
-                self.do_fusion = False
-            elif bidirectional:
-                current_dim = hidden_size * 2
-            else:
-                current_dim == hidden_size
-            self.model.append(rnn_lay)
+            self.act_function = nn.Tanh()
+        self.conv = nn.Conv1d(1, self.out_features, kernel_size=self.in_features, stride=self.in_features, bias=True, padding=0)
+        self.conv.bias.data.fill_(0)
+        torch.nn.init.xavier_normal_(self.conv.weight.data)
 
-    @torch.jit.script_method
-    def forward(self, x):
-        for ligru_lay in self.model:
-            x = ligru_lay(x)
-        return x
+    def forward(self, input):
+        orig_shape = input.shape
+        out = self.act_function(self.conv(input.view(orig_shape[0] * orig_shape[1], 1, -1)))
+        if self.reduce == 'mean':
+            out = torch.mean(out, dim=-1)
+        else:
+            out = torch.sum(out, dim=-1)
+        return out.view(orig_shape[0], orig_shape[1], -1)
 
 
 class liGRU_layer(torch.jit.ScriptModule):
@@ -698,6 +684,57 @@ class liGRU_layer(torch.jit.ScriptModule):
             hiddens.append(ht)
         h = torch.stack(hiddens)
         return h
+
+
+class fusionRNN_jit(torch.jit.ScriptModule):
+
+    def __init__(self, options, inp_dim):
+        super(fusionRNN_jit, self).__init__()
+        input_size = inp_dim
+        hidden_size = list(map(int, options['fusionRNN_lay'].split(',')))[0]
+        dropout = list(map(float, options['fusionRNN_drop'].split(',')))[0]
+        num_layers = len(list(map(int, options['fusionRNN_lay'].split(','))))
+        batch_size = int(options['batches'])
+        self.do_fusion = map(strtobool, options['fusionRNN_do_fusion'].split(','))
+        self.act = str(options['fusionRNN_fusion_act'])
+        self.reduce = str(options['fusionRNN_fusion_reduce'])
+        self.fusion_layer_size = int(options['fusionRNN_fusion_layer_size'])
+        self.to_do = options['to_do']
+        self.number_of_mic = int(options['fusionRNN_number_of_mic'])
+        self.save_mic = self.number_of_mic
+        bidirectional = True
+        self.out_dim = 2 * hidden_size
+        current_dim = int(input_size)
+        self.model = torch.nn.ModuleList([])
+        if self.to_do == 'train':
+            self.training = True
+        else:
+            self.training = False
+        for i in range(num_layers):
+            rnn_lay = liGRU_layer(current_dim, hidden_size, num_layers, batch_size, dropout=dropout, bidirectional=bidirectional, device='cuda', do_fusion=self.do_fusion, fusion_layer_size=self.fusion_layer_size, number_of_mic=self.number_of_mic, act=self.act, reduce=self.reduce)
+            if i == 0:
+                if self.do_fusion:
+                    if bidirectional:
+                        current_dim = self.fusion_layer_size // self.save_mic * 2
+                    else:
+                        current_dim = self.fusion_layer_size // self.save_mic
+                    self.number_of_mic = 1
+                elif bidirectional:
+                    current_dim = hidden_size * 2
+                else:
+                    current_dim = hidden_size
+                self.do_fusion = False
+            elif bidirectional:
+                current_dim = hidden_size * 2
+            else:
+                current_dim == hidden_size
+            self.model.append(rnn_lay)
+
+    @torch.jit.script_method
+    def forward(self, x):
+        for ligru_lay in self.model:
+            x = ligru_lay(x)
+        return x
 
 
 class liGRU(nn.Module):
@@ -1046,67 +1083,6 @@ class CNN(nn.Module):
         return x
 
 
-class SincNet(nn.Module):
-
-    def __init__(self, options, inp_dim):
-        super(SincNet, self).__init__()
-        self.input_dim = inp_dim
-        self.sinc_N_filt = list(map(int, options['sinc_N_filt'].split(',')))
-        self.sinc_len_filt = list(map(int, options['sinc_len_filt'].split(',')))
-        self.sinc_max_pool_len = list(map(int, options['sinc_max_pool_len'].split(',')))
-        self.sinc_act = options['sinc_act'].split(',')
-        self.sinc_drop = list(map(float, options['sinc_drop'].split(',')))
-        self.sinc_use_laynorm = list(map(strtobool, options['sinc_use_laynorm'].split(',')))
-        self.sinc_use_batchnorm = list(map(strtobool, options['sinc_use_batchnorm'].split(',')))
-        self.sinc_use_laynorm_inp = strtobool(options['sinc_use_laynorm_inp'])
-        self.sinc_use_batchnorm_inp = strtobool(options['sinc_use_batchnorm_inp'])
-        self.N_sinc_lay = len(self.sinc_N_filt)
-        self.sinc_sample_rate = int(options['sinc_sample_rate'])
-        self.sinc_min_low_hz = int(options['sinc_min_low_hz'])
-        self.sinc_min_band_hz = int(options['sinc_min_band_hz'])
-        self.conv = nn.ModuleList([])
-        self.bn = nn.ModuleList([])
-        self.ln = nn.ModuleList([])
-        self.act = nn.ModuleList([])
-        self.drop = nn.ModuleList([])
-        if self.sinc_use_laynorm_inp:
-            self.ln0 = LayerNorm(self.input_dim)
-        if self.sinc_use_batchnorm_inp:
-            self.bn0 = nn.BatchNorm1d([self.input_dim], momentum=0.05)
-        current_input = self.input_dim
-        for i in range(self.N_sinc_lay):
-            N_filt = int(self.sinc_N_filt[i])
-            len_filt = int(self.sinc_len_filt[i])
-            self.drop.append(nn.Dropout(p=self.sinc_drop[i]))
-            self.act.append(act_fun(self.sinc_act[i]))
-            self.ln.append(LayerNorm([N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])]))
-            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i]), momentum=0.05))
-            if i == 0:
-                self.conv.append(SincConv(1, N_filt, len_filt, sample_rate=self.sinc_sample_rate, min_low_hz=self.sinc_min_low_hz, min_band_hz=self.sinc_min_band_hz))
-            else:
-                self.conv.append(nn.Conv1d(self.sinc_N_filt[i - 1], self.sinc_N_filt[i], self.sinc_len_filt[i]))
-            current_input = int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])
-        self.out_dim = current_input * N_filt
-
-    def forward(self, x):
-        batch = x.shape[0]
-        seq_len = x.shape[1]
-        if bool(self.sinc_use_laynorm_inp):
-            x = self.ln0(x)
-        if bool(self.sinc_use_batchnorm_inp):
-            x = self.bn0(x)
-        x = x.view(batch, 1, seq_len)
-        for i in range(self.N_sinc_lay):
-            if self.sinc_use_laynorm[i]:
-                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
-            if self.sinc_use_batchnorm[i]:
-                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
-            if self.sinc_use_batchnorm[i] == False and self.sinc_use_laynorm[i] == False:
-                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i])))
-        x = x.view(batch, -1)
-        return x
-
-
 class SincConv(nn.Module):
     """Sinc-based convolution
     Parameters
@@ -1198,6 +1174,67 @@ class SincConv(nn.Module):
         band_pass = band_pass / max_
         self.filters = (band_pass * self.window_).view(self.out_channels, 1, self.kernel_size)
         return F.conv1d(waveforms, self.filters, stride=self.stride, padding=self.padding, dilation=self.dilation, bias=None, groups=1)
+
+
+class SincNet(nn.Module):
+
+    def __init__(self, options, inp_dim):
+        super(SincNet, self).__init__()
+        self.input_dim = inp_dim
+        self.sinc_N_filt = list(map(int, options['sinc_N_filt'].split(',')))
+        self.sinc_len_filt = list(map(int, options['sinc_len_filt'].split(',')))
+        self.sinc_max_pool_len = list(map(int, options['sinc_max_pool_len'].split(',')))
+        self.sinc_act = options['sinc_act'].split(',')
+        self.sinc_drop = list(map(float, options['sinc_drop'].split(',')))
+        self.sinc_use_laynorm = list(map(strtobool, options['sinc_use_laynorm'].split(',')))
+        self.sinc_use_batchnorm = list(map(strtobool, options['sinc_use_batchnorm'].split(',')))
+        self.sinc_use_laynorm_inp = strtobool(options['sinc_use_laynorm_inp'])
+        self.sinc_use_batchnorm_inp = strtobool(options['sinc_use_batchnorm_inp'])
+        self.N_sinc_lay = len(self.sinc_N_filt)
+        self.sinc_sample_rate = int(options['sinc_sample_rate'])
+        self.sinc_min_low_hz = int(options['sinc_min_low_hz'])
+        self.sinc_min_band_hz = int(options['sinc_min_band_hz'])
+        self.conv = nn.ModuleList([])
+        self.bn = nn.ModuleList([])
+        self.ln = nn.ModuleList([])
+        self.act = nn.ModuleList([])
+        self.drop = nn.ModuleList([])
+        if self.sinc_use_laynorm_inp:
+            self.ln0 = LayerNorm(self.input_dim)
+        if self.sinc_use_batchnorm_inp:
+            self.bn0 = nn.BatchNorm1d([self.input_dim], momentum=0.05)
+        current_input = self.input_dim
+        for i in range(self.N_sinc_lay):
+            N_filt = int(self.sinc_N_filt[i])
+            len_filt = int(self.sinc_len_filt[i])
+            self.drop.append(nn.Dropout(p=self.sinc_drop[i]))
+            self.act.append(act_fun(self.sinc_act[i]))
+            self.ln.append(LayerNorm([N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])]))
+            self.bn.append(nn.BatchNorm1d(N_filt, int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i]), momentum=0.05))
+            if i == 0:
+                self.conv.append(SincConv(1, N_filt, len_filt, sample_rate=self.sinc_sample_rate, min_low_hz=self.sinc_min_low_hz, min_band_hz=self.sinc_min_band_hz))
+            else:
+                self.conv.append(nn.Conv1d(self.sinc_N_filt[i - 1], self.sinc_N_filt[i], self.sinc_len_filt[i]))
+            current_input = int((current_input - self.sinc_len_filt[i] + 1) / self.sinc_max_pool_len[i])
+        self.out_dim = current_input * N_filt
+
+    def forward(self, x):
+        batch = x.shape[0]
+        seq_len = x.shape[1]
+        if bool(self.sinc_use_laynorm_inp):
+            x = self.ln0(x)
+        if bool(self.sinc_use_batchnorm_inp):
+            x = self.bn0(x)
+        x = x.view(batch, 1, seq_len)
+        for i in range(self.N_sinc_lay):
+            if self.sinc_use_laynorm[i]:
+                x = self.drop[i](self.act[i](self.ln[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
+            if self.sinc_use_batchnorm[i]:
+                x = self.drop[i](self.act[i](self.bn[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i]))))
+            if self.sinc_use_batchnorm[i] == False and self.sinc_use_laynorm[i] == False:
+                x = self.drop[i](self.act[i](F.max_pool1d(self.conv[i](x), self.sinc_max_pool_len[i])))
+        x = x.view(batch, -1)
+        return x
 
 
 class SincConv_fast(nn.Module):
@@ -1340,335 +1377,6 @@ class PASE(nn.Module):
         return output
 
 
-class FusionLinearConv(Module):
-    """Applies a FusionLayer as described in:
-        'FusionRNN: Shared Neural Parameters for
-        Multi-Channel Distant Speech Recognition', Titouan P. et Al.
-
-        Input channels are supposed to be concatenated along the last dimension
-    """
-
-    def __init__(self, in_features, out_features, number_of_mic=1, bias=True, seed=None, act='leaky', reduce='sum'):
-        super(FusionLinearConv, self).__init__()
-        self.in_features = in_features // number_of_mic
-        self.out_features = out_features
-        self.number_of_mic = number_of_mic
-        self.reduce = reduce
-        if act == 'leaky_relu':
-            self.act_function = nn.LeakyReLU()
-        elif act == 'prelu':
-            self.act_function = nn.PReLU()
-        elif act == 'relu':
-            self.act_function = nn.ReLU()
-        else:
-            self.act_function = nn.Tanh()
-        self.conv = nn.Conv1d(1, self.out_features, kernel_size=self.in_features, stride=self.in_features, bias=True, padding=0)
-        self.conv.bias.data.fill_(0)
-        torch.nn.init.xavier_normal_(self.conv.weight.data)
-
-    def forward(self, input):
-        orig_shape = input.shape
-        out = self.act_function(self.conv(input.view(orig_shape[0] * orig_shape[1], 1, -1)))
-        if self.reduce == 'mean':
-            out = torch.mean(out, dim=-1)
-        else:
-            out = torch.sum(out, dim=-1)
-        return out.view(orig_shape[0], orig_shape[1], -1)
-
-
-class QLSTM(nn.Module):
-    """
-        This class implements a straightforward QLSTM as described
-        in "Quaternion Recurrent Neural Networks", Titouan P., ICLR 2019
-
-        Please note that the autograd parameter is usefull if you run out of
-        VRAM. Set it to False, and the model will use a custom QuaternionLinear
-        function that follows a custom backpropagation. The training will
-        be even slower but will consume 4 times less VRAM.
-    """
-
-    def __init__(self, options, inp_dim):
-        super(QLSTM, self).__init__()
-        self.input_dim = inp_dim
-        self.lstm_lay = list(map(int, options['lstm_lay'].split(',')))
-        self.lstm_drop = list(map(float, options['lstm_drop'].split(',')))
-        self.lstm_act = options['lstm_act'].split(',')
-        self.bidir = strtobool(options['lstm_bidir'])
-        self.use_cuda = strtobool(options['use_cuda'])
-        self.autograd = strtobool(options['autograd'])
-        self.to_do = options['to_do']
-        if self.to_do == 'train':
-            self.test_flag = False
-        else:
-            self.test_flag = True
-        self.wfx = nn.ModuleList([])
-        self.ufh = nn.ModuleList([])
-        self.wix = nn.ModuleList([])
-        self.uih = nn.ModuleList([])
-        self.wox = nn.ModuleList([])
-        self.uoh = nn.ModuleList([])
-        self.wcx = nn.ModuleList([])
-        self.uch = nn.ModuleList([])
-        self.act = nn.ModuleList([])
-        self.N_lstm_lay = len(self.lstm_lay)
-        current_input = self.input_dim
-        for i in range(self.N_lstm_lay):
-            self.act.append(act_fun(self.lstm_act[i]))
-            add_bias = True
-            if self.autograd:
-                self.wfx.append(QuaternionLinearAutograd(current_input, self.lstm_lay[i], bias=add_bias))
-                self.wix.append(QuaternionLinearAutograd(current_input, self.lstm_lay[i], bias=add_bias))
-                self.wox.append(QuaternionLinearAutograd(current_input, self.lstm_lay[i], bias=add_bias))
-                self.wcx.append(QuaternionLinearAutograd(current_input, self.lstm_lay[i], bias=add_bias))
-                self.ufh.append(QuaternionLinearAutograd(self.lstm_lay[i], self.lstm_lay[i], bias=False))
-                self.uih.append(QuaternionLinearAutograd(self.lstm_lay[i], self.lstm_lay[i], bias=False))
-                self.uoh.append(QuaternionLinearAutograd(self.lstm_lay[i], self.lstm_lay[i], bias=False))
-                self.uch.append(QuaternionLinearAutograd(self.lstm_lay[i], self.lstm_lay[i], bias=False))
-            else:
-                self.wfx.append(QuaternionLinear(current_input, self.lstm_lay[i], bias=add_bias))
-                self.wix.append(QuaternionLinear(current_input, self.lstm_lay[i], bias=add_bias))
-                self.wox.append(QuaternionLinear(current_input, self.lstm_lay[i], bias=add_bias))
-                self.wcx.append(QuaternionLinear(current_input, self.lstm_lay[i], bias=add_bias))
-                self.ufh.append(QuaternionLinear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
-                self.uih.append(QuaternionLinear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
-                self.uoh.append(QuaternionLinear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
-                self.uch.append(QuaternionLinear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
-            if self.bidir:
-                current_input = 2 * self.lstm_lay[i]
-            else:
-                current_input = self.lstm_lay[i]
-        self.out_dim = self.lstm_lay[i] + self.bidir * self.lstm_lay[i]
-
-    def forward(self, x):
-        for i in range(self.N_lstm_lay):
-            if self.bidir:
-                h_init = torch.zeros(2 * x.shape[1], self.lstm_lay[i])
-                x = torch.cat([x, flip(x, 0)], 1)
-            else:
-                h_init = torch.zeros(x.shape[1], self.lstm_lay[i])
-            if self.test_flag == False:
-                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.lstm_drop[i]))
-            else:
-                drop_mask = torch.FloatTensor([1 - self.lstm_drop[i]])
-            if self.use_cuda:
-                h_init = h_init
-                drop_mask = drop_mask
-            wfx_out = self.wfx[i](x)
-            wix_out = self.wix[i](x)
-            wox_out = self.wox[i](x)
-            wcx_out = self.wcx[i](x)
-            hiddens = []
-            ct = h_init
-            ht = h_init
-            for k in range(x.shape[0]):
-                ft = torch.sigmoid(wfx_out[k] + self.ufh[i](ht))
-                it = torch.sigmoid(wix_out[k] + self.uih[i](ht))
-                ot = torch.sigmoid(wox_out[k] + self.uoh[i](ht))
-                ct = it * self.act[i](wcx_out[k] + self.uch[i](ht)) * drop_mask + ft * ct
-                ht = ot * self.act[i](ct)
-                hiddens.append(ht)
-            h = torch.stack(hiddens)
-            if self.bidir:
-                h_f = h[:, 0:int(x.shape[1] / 2)]
-                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
-                h = torch.cat([h_f, h_b], 2)
-            x = h
-        return x
-
-
-def affect_init(r_weight, i_weight, j_weight, k_weight, init_func, rng, init_criterion):
-    if r_weight.size() != i_weight.size() or r_weight.size() != j_weight.size() or r_weight.size() != k_weight.size():
-        raise ValueError('The real and imaginary weights should have the same size . Found: r:' + str(r_weight.size()) + ' i:' + str(i_weight.size()) + ' j:' + str(j_weight.size()) + ' k:' + str(k_weight.size()))
-    elif r_weight.dim() != 2:
-        raise Exception('affect_init accepts only matrices. Found dimension = ' + str(r_weight.dim()))
-    kernel_size = None
-    r, i, j, k = init_func(r_weight.size(0), r_weight.size(1), rng, kernel_size, init_criterion)
-    r, i, j, k = torch.from_numpy(r), torch.from_numpy(i), torch.from_numpy(j), torch.from_numpy(k)
-    r_weight.data = r.type_as(r_weight.data)
-    i_weight.data = i.type_as(i_weight.data)
-    j_weight.data = j.type_as(j_weight.data)
-    k_weight.data = k.type_as(k_weight.data)
-
-
-def quaternion_init(in_features, out_features, rng, kernel_size=None, criterion='glorot'):
-    if kernel_size is not None:
-        receptive_field = np.prod(kernel_size)
-        fan_in = in_features * receptive_field
-        fan_out = out_features * receptive_field
-    else:
-        fan_in = in_features
-        fan_out = out_features
-    if criterion == 'glorot':
-        s = 1.0 / np.sqrt(2 * (fan_in + fan_out))
-    elif criterion == 'he':
-        s = 1.0 / np.sqrt(2 * fan_in)
-    else:
-        raise ValueError('Invalid criterion: ' + criterion)
-    rng = RandomState(np.random.randint(1, 1234))
-    if kernel_size is None:
-        kernel_shape = in_features, out_features
-    elif type(kernel_size) is int:
-        kernel_shape = (out_features, in_features) + tuple((kernel_size,))
-    else:
-        kernel_shape = (out_features, in_features) + (*kernel_size,)
-    modulus = chi.rvs(4, loc=0, scale=s, size=kernel_shape)
-    number_of_weights = np.prod(kernel_shape)
-    v_i = np.random.normal(0, 1.0, number_of_weights)
-    v_j = np.random.normal(0, 1.0, number_of_weights)
-    v_k = np.random.normal(0, 1.0, number_of_weights)
-    for i in range(0, number_of_weights):
-        norm = np.sqrt(v_i[i] ** 2 + v_j[i] ** 2 + v_k[i] ** 2 + 0.0001)
-        v_i[i] /= norm
-        v_j[i] /= norm
-        v_k[i] /= norm
-    v_i = v_i.reshape(kernel_shape)
-    v_j = v_j.reshape(kernel_shape)
-    v_k = v_k.reshape(kernel_shape)
-    phase = rng.uniform(low=-np.pi, high=np.pi, size=kernel_shape)
-    weight_r = modulus * np.cos(phase)
-    weight_i = modulus * v_i * np.sin(phase)
-    weight_j = modulus * v_j * np.sin(phase)
-    weight_k = modulus * v_k * np.sin(phase)
-    return weight_r, weight_i, weight_j, weight_k
-
-
-def quaternion_linear(input, r_weight, i_weight, j_weight, k_weight, bias):
-    """
-    Applies a quaternion linear transformation to the incoming data:
-    It is important to notice that the forward phase of a QNN is defined
-    as W * Inputs (with * equal to the Hamilton product). The constructed
-    cat_kernels_4_quaternion is a modified version of the quaternion representation
-    so when we do torch.mm(Input,W) it's equivalent to W * Inputs.
-    """
-    cat_kernels_4_r = torch.cat([r_weight, -i_weight, -j_weight, -k_weight], dim=0)
-    cat_kernels_4_i = torch.cat([i_weight, r_weight, -k_weight, j_weight], dim=0)
-    cat_kernels_4_j = torch.cat([j_weight, k_weight, r_weight, -i_weight], dim=0)
-    cat_kernels_4_k = torch.cat([k_weight, -j_weight, i_weight, r_weight], dim=0)
-    cat_kernels_4_quaternion = torch.cat([cat_kernels_4_r, cat_kernels_4_i, cat_kernels_4_j, cat_kernels_4_k], dim=1)
-    if input.dim() == 2:
-        if bias is not None:
-            return torch.addmm(bias, input, cat_kernels_4_quaternion)
-        else:
-            return torch.mm(input, cat_kernels_4_quaternion)
-    else:
-        output = torch.matmul(input, cat_kernels_4_quaternion)
-        if bias is not None:
-            return output + bias
-        else:
-            return output
-
-
-def random_init(in_features, out_features, rng, kernel_size=None, criterion='glorot'):
-    if kernel_size is not None:
-        receptive_field = np.prod(kernel_size)
-        fan_in = in_features * receptive_field
-        fan_out = out_features * receptive_field
-    else:
-        fan_in = in_features
-        fan_out = out_features
-    if criterion == 'glorot':
-        s = 1.0 / np.sqrt(2 * (fan_in + fan_out))
-    elif criterion == 'he':
-        s = 1.0 / np.sqrt(2 * fan_in)
-    else:
-        raise ValueError('Invalid criterion: ' + criterion)
-    if kernel_size is None:
-        kernel_shape = in_features, out_features
-    elif type(kernel_size) is int:
-        kernel_shape = (out_features, in_features) + tuple((kernel_size,))
-    else:
-        kernel_shape = (out_features, in_features) + (*kernel_size,)
-    number_of_weights = np.prod(kernel_shape)
-    v_r = np.random.uniform(0.0, 1.0, number_of_weights)
-    v_i = np.random.uniform(0.0, 1.0, number_of_weights)
-    v_j = np.random.uniform(0.0, 1.0, number_of_weights)
-    v_k = np.random.uniform(0.0, 1.0, number_of_weights)
-    v_r = v_r.reshape(kernel_shape)
-    v_i = v_i.reshape(kernel_shape)
-    v_j = v_j.reshape(kernel_shape)
-    v_k = v_k.reshape(kernel_shape)
-    weight_r = v_r * s
-    weight_i = v_i * s
-    weight_j = v_j * s
-    weight_k = v_k * s
-    return weight_r, weight_i, weight_j, weight_k
-
-
-def unitary_init(in_features, out_features, rng, kernel_size=None, criterion='he'):
-    if kernel_size is not None:
-        receptive_field = np.prod(kernel_size)
-        fan_in = in_features * receptive_field
-        fan_out = out_features * receptive_field
-    else:
-        fan_in = in_features
-        fan_out = out_features
-    if criterion == 'glorot':
-        s = 1.0 / np.sqrt(2 * (fan_in + fan_out))
-    elif criterion == 'he':
-        s = 1.0 / np.sqrt(2 * fan_in)
-    else:
-        raise ValueError('Invalid criterion: ' + criterion)
-    if kernel_size is None:
-        kernel_shape = in_features, out_features
-    elif type(kernel_size) is int:
-        kernel_shape = (out_features, in_features) + tuple((kernel_size,))
-    else:
-        kernel_shape = (out_features, in_features) + (*kernel_size,)
-    s = np.sqrt(3.0) * s
-    number_of_weights = np.prod(kernel_shape)
-    v_r = np.random.uniform(-s, s, number_of_weights)
-    v_i = np.random.uniform(-s, s, number_of_weights)
-    v_j = np.random.uniform(-s, s, number_of_weights)
-    v_k = np.random.uniform(-s, s, number_of_weights)
-    for i in range(0, number_of_weights):
-        norm = np.sqrt(v_r[i] ** 2 + v_i[i] ** 2 + v_j[i] ** 2 + v_k[i] ** 2) + 0.0001
-        v_r[i] /= norm
-        v_i[i] /= norm
-        v_j[i] /= norm
-        v_k[i] /= norm
-    v_r = v_r.reshape(kernel_shape)
-    v_i = v_i.reshape(kernel_shape)
-    v_j = v_j.reshape(kernel_shape)
-    v_k = v_k.reshape(kernel_shape)
-    return v_r, v_i, v_j, v_k
-
-
-class QuaternionLinearAutograd(Module):
-    """Applies a quaternion linear transformation to the incoming data.
-    The backward process follows the Autograd scheme.
-    """
-
-    def __init__(self, in_features, out_features, bias=True, init_criterion='glorot', weight_init='quaternion', seed=None):
-        super(QuaternionLinearAutograd, self).__init__()
-        self.in_features = in_features // 4
-        self.out_features = out_features // 4
-        self.r_weight = Parameter(torch.Tensor(self.in_features, self.out_features))
-        self.i_weight = Parameter(torch.Tensor(self.in_features, self.out_features))
-        self.j_weight = Parameter(torch.Tensor(self.in_features, self.out_features))
-        self.k_weight = Parameter(torch.Tensor(self.in_features, self.out_features))
-        if bias:
-            self.bias = Parameter(torch.Tensor(self.out_features * 4))
-        else:
-            self.bias = torch.zeros(self.out_features * 4)
-        self.init_criterion = init_criterion
-        self.weight_init = weight_init
-        self.seed = seed if seed is not None else np.random.randint(0, 1234)
-        self.rng = RandomState(self.seed)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        winit = {'quaternion': quaternion_init, 'unitary': unitary_init, 'random': random_init}[self.weight_init]
-        if self.bias is not None:
-            self.bias.data.fill_(0)
-        affect_init(self.r_weight, self.i_weight, self.j_weight, self.k_weight, winit, self.rng, self.init_criterion)
-
-    def forward(self, input):
-        return quaternion_linear(input, self.r_weight, self.i_weight, self.j_weight, self.k_weight, self.bias)
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features=' + str(self.in_features) + ', out_features=' + str(self.out_features) + ', bias=' + str(self.bias is not None) + ', init_criterion=' + str(self.init_criterion) + ', weight_init=' + str(self.weight_init) + ', seed=' + str(self.seed) + ')'
-
-
 def check_input(input):
     if input.dim() not in {2, 3}:
         raise RuntimeError('quaternion linear accepts only input of dimension 2 or 3. input.dim = ' + str(input.dim()))
@@ -1778,6 +1486,101 @@ class QuaternionLinearFunction(torch.autograd.Function):
         return grad_input, grad_weight_r, grad_weight_i, grad_weight_j, grad_weight_k, grad_bias
 
 
+def affect_init(r_weight, i_weight, j_weight, k_weight, init_func, rng, init_criterion):
+    if r_weight.size() != i_weight.size() or r_weight.size() != j_weight.size() or r_weight.size() != k_weight.size():
+        raise ValueError('The real and imaginary weights should have the same size . Found: r:' + str(r_weight.size()) + ' i:' + str(i_weight.size()) + ' j:' + str(j_weight.size()) + ' k:' + str(k_weight.size()))
+    elif r_weight.dim() != 2:
+        raise Exception('affect_init accepts only matrices. Found dimension = ' + str(r_weight.dim()))
+    kernel_size = None
+    r, i, j, k = init_func(r_weight.size(0), r_weight.size(1), rng, kernel_size, init_criterion)
+    r, i, j, k = torch.from_numpy(r), torch.from_numpy(i), torch.from_numpy(j), torch.from_numpy(k)
+    r_weight.data = r.type_as(r_weight.data)
+    i_weight.data = i.type_as(i_weight.data)
+    j_weight.data = j.type_as(j_weight.data)
+    k_weight.data = k.type_as(k_weight.data)
+
+
+def quaternion_init(in_features, out_features, rng, kernel_size=None, criterion='glorot'):
+    if kernel_size is not None:
+        receptive_field = np.prod(kernel_size)
+        fan_in = in_features * receptive_field
+        fan_out = out_features * receptive_field
+    else:
+        fan_in = in_features
+        fan_out = out_features
+    if criterion == 'glorot':
+        s = 1.0 / np.sqrt(2 * (fan_in + fan_out))
+    elif criterion == 'he':
+        s = 1.0 / np.sqrt(2 * fan_in)
+    else:
+        raise ValueError('Invalid criterion: ' + criterion)
+    rng = RandomState(np.random.randint(1, 1234))
+    if kernel_size is None:
+        kernel_shape = in_features, out_features
+    elif type(kernel_size) is int:
+        kernel_shape = (out_features, in_features) + tuple((kernel_size,))
+    else:
+        kernel_shape = (out_features, in_features) + (*kernel_size,)
+    modulus = chi.rvs(4, loc=0, scale=s, size=kernel_shape)
+    number_of_weights = np.prod(kernel_shape)
+    v_i = np.random.normal(0, 1.0, number_of_weights)
+    v_j = np.random.normal(0, 1.0, number_of_weights)
+    v_k = np.random.normal(0, 1.0, number_of_weights)
+    for i in range(0, number_of_weights):
+        norm = np.sqrt(v_i[i] ** 2 + v_j[i] ** 2 + v_k[i] ** 2 + 0.0001)
+        v_i[i] /= norm
+        v_j[i] /= norm
+        v_k[i] /= norm
+    v_i = v_i.reshape(kernel_shape)
+    v_j = v_j.reshape(kernel_shape)
+    v_k = v_k.reshape(kernel_shape)
+    phase = rng.uniform(low=-np.pi, high=np.pi, size=kernel_shape)
+    weight_r = modulus * np.cos(phase)
+    weight_i = modulus * v_i * np.sin(phase)
+    weight_j = modulus * v_j * np.sin(phase)
+    weight_k = modulus * v_k * np.sin(phase)
+    return weight_r, weight_i, weight_j, weight_k
+
+
+def unitary_init(in_features, out_features, rng, kernel_size=None, criterion='he'):
+    if kernel_size is not None:
+        receptive_field = np.prod(kernel_size)
+        fan_in = in_features * receptive_field
+        fan_out = out_features * receptive_field
+    else:
+        fan_in = in_features
+        fan_out = out_features
+    if criterion == 'glorot':
+        s = 1.0 / np.sqrt(2 * (fan_in + fan_out))
+    elif criterion == 'he':
+        s = 1.0 / np.sqrt(2 * fan_in)
+    else:
+        raise ValueError('Invalid criterion: ' + criterion)
+    if kernel_size is None:
+        kernel_shape = in_features, out_features
+    elif type(kernel_size) is int:
+        kernel_shape = (out_features, in_features) + tuple((kernel_size,))
+    else:
+        kernel_shape = (out_features, in_features) + (*kernel_size,)
+    s = np.sqrt(3.0) * s
+    number_of_weights = np.prod(kernel_shape)
+    v_r = np.random.uniform(-s, s, number_of_weights)
+    v_i = np.random.uniform(-s, s, number_of_weights)
+    v_j = np.random.uniform(-s, s, number_of_weights)
+    v_k = np.random.uniform(-s, s, number_of_weights)
+    for i in range(0, number_of_weights):
+        norm = np.sqrt(v_r[i] ** 2 + v_i[i] ** 2 + v_j[i] ** 2 + v_k[i] ** 2) + 0.0001
+        v_r[i] /= norm
+        v_i[i] /= norm
+        v_j[i] /= norm
+        v_k[i] /= norm
+    v_r = v_r.reshape(kernel_shape)
+    v_i = v_i.reshape(kernel_shape)
+    v_j = v_j.reshape(kernel_shape)
+    v_k = v_k.reshape(kernel_shape)
+    return v_r, v_i, v_j, v_k
+
+
 class QuaternionLinear(Module):
     """A custom Autograd function is call to drastically reduce the VRAM consumption.
     Nonetheless, computing time is increased compared to QuaternionLinearAutograd().
@@ -1821,6 +1624,204 @@ class QuaternionLinear(Module):
 
     def __repr__(self):
         return self.__class__.__name__ + '(' + 'in_features=' + str(self.in_features) + ', out_features=' + str(self.out_features) + ', bias=' + str(self.bias is not None) + ', init_criterion=' + str(self.init_criterion) + ', weight_init=' + str(self.weight_init) + ', seed=' + str(self.seed) + ')'
+
+
+def quaternion_linear(input, r_weight, i_weight, j_weight, k_weight, bias):
+    """
+    Applies a quaternion linear transformation to the incoming data:
+    It is important to notice that the forward phase of a QNN is defined
+    as W * Inputs (with * equal to the Hamilton product). The constructed
+    cat_kernels_4_quaternion is a modified version of the quaternion representation
+    so when we do torch.mm(Input,W) it's equivalent to W * Inputs.
+    """
+    cat_kernels_4_r = torch.cat([r_weight, -i_weight, -j_weight, -k_weight], dim=0)
+    cat_kernels_4_i = torch.cat([i_weight, r_weight, -k_weight, j_weight], dim=0)
+    cat_kernels_4_j = torch.cat([j_weight, k_weight, r_weight, -i_weight], dim=0)
+    cat_kernels_4_k = torch.cat([k_weight, -j_weight, i_weight, r_weight], dim=0)
+    cat_kernels_4_quaternion = torch.cat([cat_kernels_4_r, cat_kernels_4_i, cat_kernels_4_j, cat_kernels_4_k], dim=1)
+    if input.dim() == 2:
+        if bias is not None:
+            return torch.addmm(bias, input, cat_kernels_4_quaternion)
+        else:
+            return torch.mm(input, cat_kernels_4_quaternion)
+    else:
+        output = torch.matmul(input, cat_kernels_4_quaternion)
+        if bias is not None:
+            return output + bias
+        else:
+            return output
+
+
+def random_init(in_features, out_features, rng, kernel_size=None, criterion='glorot'):
+    if kernel_size is not None:
+        receptive_field = np.prod(kernel_size)
+        fan_in = in_features * receptive_field
+        fan_out = out_features * receptive_field
+    else:
+        fan_in = in_features
+        fan_out = out_features
+    if criterion == 'glorot':
+        s = 1.0 / np.sqrt(2 * (fan_in + fan_out))
+    elif criterion == 'he':
+        s = 1.0 / np.sqrt(2 * fan_in)
+    else:
+        raise ValueError('Invalid criterion: ' + criterion)
+    if kernel_size is None:
+        kernel_shape = in_features, out_features
+    elif type(kernel_size) is int:
+        kernel_shape = (out_features, in_features) + tuple((kernel_size,))
+    else:
+        kernel_shape = (out_features, in_features) + (*kernel_size,)
+    number_of_weights = np.prod(kernel_shape)
+    v_r = np.random.uniform(0.0, 1.0, number_of_weights)
+    v_i = np.random.uniform(0.0, 1.0, number_of_weights)
+    v_j = np.random.uniform(0.0, 1.0, number_of_weights)
+    v_k = np.random.uniform(0.0, 1.0, number_of_weights)
+    v_r = v_r.reshape(kernel_shape)
+    v_i = v_i.reshape(kernel_shape)
+    v_j = v_j.reshape(kernel_shape)
+    v_k = v_k.reshape(kernel_shape)
+    weight_r = v_r * s
+    weight_i = v_i * s
+    weight_j = v_j * s
+    weight_k = v_k * s
+    return weight_r, weight_i, weight_j, weight_k
+
+
+class QuaternionLinearAutograd(Module):
+    """Applies a quaternion linear transformation to the incoming data.
+    The backward process follows the Autograd scheme.
+    """
+
+    def __init__(self, in_features, out_features, bias=True, init_criterion='glorot', weight_init='quaternion', seed=None):
+        super(QuaternionLinearAutograd, self).__init__()
+        self.in_features = in_features // 4
+        self.out_features = out_features // 4
+        self.r_weight = Parameter(torch.Tensor(self.in_features, self.out_features))
+        self.i_weight = Parameter(torch.Tensor(self.in_features, self.out_features))
+        self.j_weight = Parameter(torch.Tensor(self.in_features, self.out_features))
+        self.k_weight = Parameter(torch.Tensor(self.in_features, self.out_features))
+        if bias:
+            self.bias = Parameter(torch.Tensor(self.out_features * 4))
+        else:
+            self.bias = torch.zeros(self.out_features * 4)
+        self.init_criterion = init_criterion
+        self.weight_init = weight_init
+        self.seed = seed if seed is not None else np.random.randint(0, 1234)
+        self.rng = RandomState(self.seed)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        winit = {'quaternion': quaternion_init, 'unitary': unitary_init, 'random': random_init}[self.weight_init]
+        if self.bias is not None:
+            self.bias.data.fill_(0)
+        affect_init(self.r_weight, self.i_weight, self.j_weight, self.k_weight, winit, self.rng, self.init_criterion)
+
+    def forward(self, input):
+        return quaternion_linear(input, self.r_weight, self.i_weight, self.j_weight, self.k_weight, self.bias)
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + 'in_features=' + str(self.in_features) + ', out_features=' + str(self.out_features) + ', bias=' + str(self.bias is not None) + ', init_criterion=' + str(self.init_criterion) + ', weight_init=' + str(self.weight_init) + ', seed=' + str(self.seed) + ')'
+
+
+class QLSTM(nn.Module):
+    """
+        This class implements a straightforward QLSTM as described
+        in "Quaternion Recurrent Neural Networks", Titouan P., ICLR 2019
+
+        Please note that the autograd parameter is usefull if you run out of
+        VRAM. Set it to False, and the model will use a custom QuaternionLinear
+        function that follows a custom backpropagation. The training will
+        be even slower but will consume 4 times less VRAM.
+    """
+
+    def __init__(self, options, inp_dim):
+        super(QLSTM, self).__init__()
+        self.input_dim = inp_dim
+        self.lstm_lay = list(map(int, options['lstm_lay'].split(',')))
+        self.lstm_drop = list(map(float, options['lstm_drop'].split(',')))
+        self.lstm_act = options['lstm_act'].split(',')
+        self.bidir = strtobool(options['lstm_bidir'])
+        self.use_cuda = strtobool(options['use_cuda'])
+        self.autograd = strtobool(options['autograd'])
+        self.to_do = options['to_do']
+        if self.to_do == 'train':
+            self.test_flag = False
+        else:
+            self.test_flag = True
+        self.wfx = nn.ModuleList([])
+        self.ufh = nn.ModuleList([])
+        self.wix = nn.ModuleList([])
+        self.uih = nn.ModuleList([])
+        self.wox = nn.ModuleList([])
+        self.uoh = nn.ModuleList([])
+        self.wcx = nn.ModuleList([])
+        self.uch = nn.ModuleList([])
+        self.act = nn.ModuleList([])
+        self.N_lstm_lay = len(self.lstm_lay)
+        current_input = self.input_dim
+        for i in range(self.N_lstm_lay):
+            self.act.append(act_fun(self.lstm_act[i]))
+            add_bias = True
+            if self.autograd:
+                self.wfx.append(QuaternionLinearAutograd(current_input, self.lstm_lay[i], bias=add_bias))
+                self.wix.append(QuaternionLinearAutograd(current_input, self.lstm_lay[i], bias=add_bias))
+                self.wox.append(QuaternionLinearAutograd(current_input, self.lstm_lay[i], bias=add_bias))
+                self.wcx.append(QuaternionLinearAutograd(current_input, self.lstm_lay[i], bias=add_bias))
+                self.ufh.append(QuaternionLinearAutograd(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+                self.uih.append(QuaternionLinearAutograd(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+                self.uoh.append(QuaternionLinearAutograd(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+                self.uch.append(QuaternionLinearAutograd(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            else:
+                self.wfx.append(QuaternionLinear(current_input, self.lstm_lay[i], bias=add_bias))
+                self.wix.append(QuaternionLinear(current_input, self.lstm_lay[i], bias=add_bias))
+                self.wox.append(QuaternionLinear(current_input, self.lstm_lay[i], bias=add_bias))
+                self.wcx.append(QuaternionLinear(current_input, self.lstm_lay[i], bias=add_bias))
+                self.ufh.append(QuaternionLinear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+                self.uih.append(QuaternionLinear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+                self.uoh.append(QuaternionLinear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+                self.uch.append(QuaternionLinear(self.lstm_lay[i], self.lstm_lay[i], bias=False))
+            if self.bidir:
+                current_input = 2 * self.lstm_lay[i]
+            else:
+                current_input = self.lstm_lay[i]
+        self.out_dim = self.lstm_lay[i] + self.bidir * self.lstm_lay[i]
+
+    def forward(self, x):
+        for i in range(self.N_lstm_lay):
+            if self.bidir:
+                h_init = torch.zeros(2 * x.shape[1], self.lstm_lay[i])
+                x = torch.cat([x, flip(x, 0)], 1)
+            else:
+                h_init = torch.zeros(x.shape[1], self.lstm_lay[i])
+            if self.test_flag == False:
+                drop_mask = torch.bernoulli(torch.Tensor(h_init.shape[0], h_init.shape[1]).fill_(1 - self.lstm_drop[i]))
+            else:
+                drop_mask = torch.FloatTensor([1 - self.lstm_drop[i]])
+            if self.use_cuda:
+                h_init = h_init
+                drop_mask = drop_mask
+            wfx_out = self.wfx[i](x)
+            wix_out = self.wix[i](x)
+            wox_out = self.wox[i](x)
+            wcx_out = self.wcx[i](x)
+            hiddens = []
+            ct = h_init
+            ht = h_init
+            for k in range(x.shape[0]):
+                ft = torch.sigmoid(wfx_out[k] + self.ufh[i](ht))
+                it = torch.sigmoid(wix_out[k] + self.uih[i](ht))
+                ot = torch.sigmoid(wox_out[k] + self.uoh[i](ht))
+                ct = it * self.act[i](wcx_out[k] + self.uch[i](ht)) * drop_mask + ft * ct
+                ht = ot * self.act[i](ct)
+                hiddens.append(ht)
+            h = torch.stack(hiddens)
+            if self.bidir:
+                h_f = h[:, 0:int(x.shape[1] / 2)]
+                h_b = flip(h[:, int(x.shape[1] / 2):x.shape[1]].contiguous(), 0)
+                h = torch.cat([h_f, h_b], 2)
+            x = h
+        return x
 
 
 import torch

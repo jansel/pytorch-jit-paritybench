@@ -16,15 +16,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -56,25 +57,27 @@ import torch.optim as optim
 from torch import nn
 
 
-HIDDEN_SIZE = 100
+class SecondOrderInteraction(torch.nn.Module):
 
-
-INPUT_SIZE = 50
-
-
-class MyModel(torch.nn.Module):
-
-    def __init__(self):
-        super(MyModel, self).__init__()
-        self.linear = torch.nn.Linear(INPUT_SIZE, HIDDEN_SIZE)
-        self.dropout = torch.nn.Dropout(0.5)
-        self.fm = FactorizationMachine(HIDDEN_SIZE, 5)
+    def __init__(self, n_feats, n_factors):
+        super(SecondOrderInteraction, self).__init__()
+        self.n_feats = n_feats
+        self.n_factors = n_factors
+        self.v = nn.Parameter(torch.Tensor(self.n_feats, self.n_factors))
+        self.v.data.uniform_(-0.01, 0.01)
 
     def forward(self, x):
-        x = self.linear(x)
-        x = self.dropout(x)
-        x = self.fm(x)
-        return x
+        self.batch_size = x.size()[0]
+        self.n_feats = x.size()[-1]
+        self.n_factors = self.v.size()[-1]
+        output = Variable(x.data.new(self.batch_size, self.n_feats, self.n_feats).zero_())
+        all_interactions = torch.mm(self.v, self.v.t())
+        for b in range(self.batch_size):
+            for i in range(self.n_feats):
+                for j in range(i + 1, self.n_feats):
+                    output[b, i, j] = all_interactions[i, j] * x[b, i] * x[b, j]
+        res = output.sum(1).sum(1, keepdim=True)
+        return res
 
 
 class FactorizationMachine(torch.nn.Module):
@@ -108,74 +111,28 @@ class FactorizationMachine(torch.nn.Module):
         return res
 
 
-class SecondOrderFunction(torch.autograd.Function):
-
-    def forward(self, x, v):
-        return fast_forward(self, x, v)
-
-    def backward(self, grad_output):
-        return fast_backward(self, grad_output)
+HIDDEN_SIZE = 100
 
 
-class SecondOrderInteraction(torch.nn.Module):
+INPUT_SIZE = 50
 
-    def __init__(self, n_feats, n_factors):
-        super(SecondOrderInteraction, self).__init__()
-        self.n_feats = n_feats
-        self.n_factors = n_factors
-        self.v = nn.Parameter(torch.Tensor(self.n_feats, self.n_factors), requires_grad=True)
-        self.v.data.uniform_(-0.01, 0.01)
+
+class MyModel(torch.nn.Module):
+
+    def __init__(self):
+        super(MyModel, self).__init__()
+        self.linear = torch.nn.Linear(INPUT_SIZE, HIDDEN_SIZE)
+        self.dropout = torch.nn.Dropout(0.5)
+        self.fm = FactorizationMachine(HIDDEN_SIZE, 5)
 
     def forward(self, x):
-        return SecondOrderFunction()(x, self.v)
-
-
-class SecondOrderInteraction(torch.nn.Module):
-
-    def __init__(self, n_feats, n_factors):
-        super(SecondOrderInteraction, self).__init__()
-        self.n_feats = n_feats
-        self.n_factors = n_factors
-        self.v = nn.Parameter(torch.Tensor(self.n_feats, self.n_factors))
-        self.v.data.uniform_(-0.01, 0.01)
-
-    def forward(self, x):
-        self.batch_size = x.size()[0]
-        self.n_feats = x.size()[-1]
-        self.n_factors = self.v.size()[-1]
-        output = Variable(x.data.new(self.batch_size, self.n_feats, self.n_feats).zero_())
-        all_interactions = torch.mm(self.v, self.v.t())
-        for b in range(self.batch_size):
-            for i in range(self.n_feats):
-                for j in range(i + 1, self.n_feats):
-                    output[b, i, j] = all_interactions[i, j] * x[b, i] * x[b, j]
-        res = output.sum(1).sum(1, keepdim=True)
-        return res
+        x = self.linear(x)
+        x = self.dropout(x)
+        x = self.fm(x)
+        return x
 
 
 N_FACTORS = 5
-
-
-class ModelSlow(torch.nn.Module):
-
-    def __init__(self):
-        super(ModelSlow, self).__init__()
-        self.second_order = SOISlow(INPUT_SIZE, N_FACTORS)
-
-    def forward(self, x):
-        x = self.second_order(x)
-        return x
-
-
-class ModelFast(torch.nn.Module):
-
-    def __init__(self):
-        super(ModelFast, self).__init__()
-        self.second_order = SOIFast(INPUT_SIZE, N_FACTORS)
-
-    def forward(self, x):
-        x = self.second_order(x)
-        return x
 
 
 class ModelSlow(torch.nn.Module):

@@ -25,20 +25,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import numpy as np
+
+
 import torch
+
+
+import torch.utils.data as data
 
 
 import torch.nn as nn
@@ -78,6 +85,12 @@ from torch.autograd import Function
 
 
 from typing import *
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
 
 
 class _PointnetSAModuleBase(nn.Module):
@@ -124,6 +137,60 @@ def build_shared_mlp(mlp_spec: List[int], bn: bool=True):
             layers.append(nn.BatchNorm2d(mlp_spec[i]))
         layers.append(nn.ReLU(True))
     return nn.Sequential(*layers)
+
+
+class PointnetSAModuleMSG(_PointnetSAModuleBase):
+    """Pointnet set abstrction layer with multiscale grouping
+
+    Parameters
+    ----------
+    npoint : int
+        Number of features
+    radii : list of float32
+        list of radii to group with
+    nsamples : list of int32
+        Number of samples in each ball query
+    mlps : list of list of int32
+        Spec of the pointnet before the global max_pool for each scale
+    bn : bool
+        Use batchnorm
+    """
+
+    def __init__(self, npoint, radii, nsamples, mlps, bn=True, use_xyz=True):
+        super(PointnetSAModuleMSG, self).__init__()
+        assert len(radii) == len(nsamples) == len(mlps)
+        self.npoint = npoint
+        self.groupers = nn.ModuleList()
+        self.mlps = nn.ModuleList()
+        for i in range(len(radii)):
+            radius = radii[i]
+            nsample = nsamples[i]
+            self.groupers.append(pointnet2_utils.QueryAndGroup(radius, nsample, use_xyz=use_xyz) if npoint is not None else pointnet2_utils.GroupAll(use_xyz))
+            mlp_spec = mlps[i]
+            if use_xyz:
+                mlp_spec[0] += 3
+            self.mlps.append(build_shared_mlp(mlp_spec, bn))
+
+
+class PointnetSAModule(PointnetSAModuleMSG):
+    """Pointnet set abstrction layer
+
+    Parameters
+    ----------
+    npoint : int
+        Number of features
+    radius : float
+        Radius of ball
+    nsample : int
+        Number of samples in the ball query
+    mlp : list
+        Spec of the pointnet before the global max_pool
+    bn : bool
+        Use batchnorm
+    """
+
+    def __init__(self, mlp, npoint=None, radius=None, nsample=None, bn=True, use_xyz=True):
+        super(PointnetSAModule, self).__init__(mlps=[mlp], npoint=npoint, radii=[radius], nsamples=[nsample], bn=bn, use_xyz=use_xyz)
 
 
 class PointnetFPModule(nn.Module):

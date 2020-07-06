@@ -12,15 +12,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -44,64 +45,6 @@ from torch.utils.data import DataLoader
 
 
 import torch.nn.functional as F
-
-
-class BERT_LSTM_CRF(nn.Module):
-    """
-    bert_lstm_crf model
-    """
-
-    def __init__(self, bert_config, tagset_size, embedding_dim, hidden_dim, rnn_layers, dropout_ratio, dropout1, use_cuda=False):
-        super(BERT_LSTM_CRF, self).__init__()
-        self.embedding_dim = embedding_dim
-        self.hidden_dim = hidden_dim
-        self.word_embeds = BertModel.from_pretrained(bert_config)
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers=rnn_layers, bidirectional=True, dropout=dropout_ratio, batch_first=True)
-        self.rnn_layers = rnn_layers
-        self.dropout1 = nn.Dropout(p=dropout1)
-        self.crf = CRF(target_size=tagset_size, average_batch=True, use_cuda=use_cuda)
-        self.liner = nn.Linear(hidden_dim * 2, tagset_size + 2)
-        self.tagset_size = tagset_size
-
-    def rand_init_hidden(self, batch_size):
-        """
-        random initialize hidden variable
-        """
-        return Variable(torch.randn(2 * self.rnn_layers, batch_size, self.hidden_dim)), Variable(torch.randn(2 * self.rnn_layers, batch_size, self.hidden_dim))
-
-    def forward(self, sentence, attention_mask=None):
-        """
-        args:
-            sentence (word_seq_len, batch_size) : word-level representation of sentence
-            hidden: initial hidden state
-
-        return:
-            crf output (word_seq_len, batch_size, tag_size, tag_size), hidden
-        """
-        batch_size = sentence.size(0)
-        seq_length = sentence.size(1)
-        embeds, _ = self.word_embeds(sentence, attention_mask=attention_mask, output_all_encoded_layers=False)
-        hidden = self.rand_init_hidden(batch_size)
-        if embeds.is_cuda:
-            hidden = (i for i in hidden)
-        lstm_out, hidden = self.lstm(embeds, hidden)
-        lstm_out = lstm_out.contiguous().view(-1, self.hidden_dim * 2)
-        d_lstm_out = self.dropout1(lstm_out)
-        l_out = self.liner(d_lstm_out)
-        lstm_feats = l_out.contiguous().view(batch_size, seq_length, -1)
-        return lstm_feats
-
-    def loss(self, feats, mask, tags):
-        """
-        feats: size=(batch_size, seq_len, tag_size)
-            mask: size=(batch_size, seq_len)
-            tags: size=(batch_size, seq_len)
-        :return:
-        """
-        loss_value = self.crf.neg_log_likelihood_loss(feats, mask, tags)
-        batch_size = feats.size(0)
-        loss_value /= float(batch_size)
-        return loss_value
 
 
 def log_sum_exp(vec, m_size):
@@ -286,4 +229,62 @@ class CRF(nn.Module):
         if self.average_batch:
             return (forward_score - gold_score) / batch_size
         return forward_score - gold_score
+
+
+class BERT_LSTM_CRF(nn.Module):
+    """
+    bert_lstm_crf model
+    """
+
+    def __init__(self, bert_config, tagset_size, embedding_dim, hidden_dim, rnn_layers, dropout_ratio, dropout1, use_cuda=False):
+        super(BERT_LSTM_CRF, self).__init__()
+        self.embedding_dim = embedding_dim
+        self.hidden_dim = hidden_dim
+        self.word_embeds = BertModel.from_pretrained(bert_config)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers=rnn_layers, bidirectional=True, dropout=dropout_ratio, batch_first=True)
+        self.rnn_layers = rnn_layers
+        self.dropout1 = nn.Dropout(p=dropout1)
+        self.crf = CRF(target_size=tagset_size, average_batch=True, use_cuda=use_cuda)
+        self.liner = nn.Linear(hidden_dim * 2, tagset_size + 2)
+        self.tagset_size = tagset_size
+
+    def rand_init_hidden(self, batch_size):
+        """
+        random initialize hidden variable
+        """
+        return Variable(torch.randn(2 * self.rnn_layers, batch_size, self.hidden_dim)), Variable(torch.randn(2 * self.rnn_layers, batch_size, self.hidden_dim))
+
+    def forward(self, sentence, attention_mask=None):
+        """
+        args:
+            sentence (word_seq_len, batch_size) : word-level representation of sentence
+            hidden: initial hidden state
+
+        return:
+            crf output (word_seq_len, batch_size, tag_size, tag_size), hidden
+        """
+        batch_size = sentence.size(0)
+        seq_length = sentence.size(1)
+        embeds, _ = self.word_embeds(sentence, attention_mask=attention_mask, output_all_encoded_layers=False)
+        hidden = self.rand_init_hidden(batch_size)
+        if embeds.is_cuda:
+            hidden = (i for i in hidden)
+        lstm_out, hidden = self.lstm(embeds, hidden)
+        lstm_out = lstm_out.contiguous().view(-1, self.hidden_dim * 2)
+        d_lstm_out = self.dropout1(lstm_out)
+        l_out = self.liner(d_lstm_out)
+        lstm_feats = l_out.contiguous().view(batch_size, seq_length, -1)
+        return lstm_feats
+
+    def loss(self, feats, mask, tags):
+        """
+        feats: size=(batch_size, seq_len, tag_size)
+            mask: size=(batch_size, seq_len)
+            tags: size=(batch_size, seq_len)
+        :return:
+        """
+        loss_value = self.crf.neg_log_likelihood_loss(feats, mask, tags)
+        batch_size = feats.size(0)
+        loss_value /= float(batch_size)
+        return loss_value
 

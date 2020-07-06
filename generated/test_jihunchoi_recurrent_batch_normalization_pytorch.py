@@ -8,15 +8,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -303,4 +304,22 @@ class LSTM(nn.Module):
         h_n = torch.stack(h_n, 0)
         c_n = torch.stack(c_n, 0)
         return output, (h_n, c_n)
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (SeparatedBatchNorm1d,
+     lambda: ([], {'num_features': 4, 'max_length': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), 0], {}),
+     False),
+]
+
+class Test_jihunchoi_recurrent_batch_normalization_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
 

@@ -36,6 +36,8 @@ test_predictor = _module
 test_retriever = _module
 apis = _module
 env = _module
+test_fashion_recommender = _module
+test_retriever = _module
 train_fashion_recommender = _module
 train_landmark_detector = _module
 train_predictor = _module
@@ -61,12 +63,14 @@ loader = _module
 build_loader = _module
 sampler = _module
 registry = _module
+utils = _module
 models = _module
 attr_predictor = _module
 attr_predictor = _module
 backbones = _module
 resnet = _module
 vgg = _module
+builder = _module
 concats = _module
 concat = _module
 embed_extractor = _module
@@ -117,15 +121,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -137,6 +142,21 @@ import numpy as np
 
 
 import torch
+
+
+import logging
+
+
+import random
+
+
+import torch.distributed as dist
+
+
+import torch.multiprocessing as mp
+
+
+from collections import OrderedDict
 
 
 import torch.nn as nn
@@ -160,10 +180,16 @@ import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
 
 
-import random
+from sklearn.metrics import roc_auc_score
 
 
 from torch.autograd import Variable
+
+
+from torch.utils.data.dataset import ConcatDataset as _ConcatDataset
+
+
+from torch.utils.data import DataLoader
 
 
 import math
@@ -181,7 +207,10 @@ from torch.utils.data import Sampler
 from torch.utils.data.distributed import DistributedSampler as _DistributedSampler
 
 
-import logging
+from collections.abc import Sequence
+
+
+from torch import nn
 
 
 from abc import ABCMeta
@@ -193,10 +222,10 @@ from abc import abstractmethod
 import torch.nn.functional as F
 
 
-from collections import OrderedDict
-
-
 import inspect
+
+
+import scipy.io as sio
 
 
 class Registry(object):
@@ -272,7 +301,6 @@ def build_loss(cfg):
     return build(cfg, LOSSES)
 
 
-@ATTRPREDICTOR.register_module
 class AttrPredictor(nn.Module):
 
     def __init__(self, inchannels, outchannels, loss_attr=dict(type='BCEWithLogitsLoss', ratio=1, weight=None, size_average=None, reduce=None, reduction='mean')):
@@ -421,7 +449,7 @@ def load_state_dict(module, state_dict, strict=False, logger=None):
         elif logger is not None:
             logger.warn(err_msg)
         else:
-            print(err_msg)
+            None
 
 
 def load_checkpoint(filename, model, strict=False, logger=None):
@@ -441,7 +469,6 @@ def load_checkpoint(filename, model, strict=False, logger=None):
     return model
 
 
-@BACKBONES.register_module
 class ResNet(nn.Module):
     layer_setting = {'resnet50': [3, 4, 6, 3], 'resnet18': [2, 2, 2, 2], 'resnet34': [3, 4, 6, 3]}
     block_setting = {'resnet18': BasicBlock, 'resnet34': BasicBlock, 'resnet50': Bottleneck}
@@ -517,7 +544,6 @@ class ResNet(nn.Module):
         return x
 
 
-@BACKBONES.register_module
 class Vgg(nn.Module):
     setting = {'vgg16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M']}
 
@@ -567,7 +593,6 @@ class Vgg(nn.Module):
 CONCATS = Registry('concat')
 
 
-@CONCATS.register_module
 class Concat(nn.Module):
 
     def __init__(self, inchannels, outchannels):
@@ -591,7 +616,6 @@ class Concat(nn.Module):
 EMBEDEXTRACTOR = Registry('embed_extractor')
 
 
-@EMBEDEXTRACTOR.register_module
 class EmbedExtractor(nn.Module):
 
     def __init__(self, inchannels, inter_channels, loss_id=dict(type='CELoss', ratio=1, weight=None, size_average=None, reduce=None, reduction='mean'), loss_triplet=dict(type='TripletLoss', method='cosine')):
@@ -666,7 +690,6 @@ class BaseFashionRecommender(nn.Module):
 GLOBALPOOLING = Registry('global_pool')
 
 
-@GLOBALPOOLING.register_module
 class GlobalPooling(nn.Module):
 
     def __init__(self, inplanes, pool_plane, inter_channels, outchannels):
@@ -737,7 +760,6 @@ class BaseLandmarkDetector(nn.Module):
 LANDMARKFEATUREEXTRACTOR = Registry('landmark_feature_extractor')
 
 
-@LANDMARKFEATUREEXTRACTOR.register_module
 class LandmarkFeatureExtractor(nn.Module):
 
     def __init__(self, inchannels, feature_dim, landmarks):
@@ -760,7 +782,6 @@ class LandmarkFeatureExtractor(nn.Module):
 LANDMARKREGRESSION = Registry('landmark_regression')
 
 
-@LANDMARKREGRESSION.register_module
 class LandmarkRegression(nn.Module):
 
     def __init__(self, inchannels, outchannels, landmark_num, loss_regress=dict(type='MSELoss', ratio=0.0001, reduction='mean')):
@@ -793,7 +814,6 @@ class LandmarkRegression(nn.Module):
             self.linear.bias.data.fill_(0.01)
 
 
-@LOSSES.register_module
 class BCEWithLogitsLoss(nn.Module):
 
     def __init__(self, ratio, weight, size_average, reduce, reduction):
@@ -808,7 +828,6 @@ class BCEWithLogitsLoss(nn.Module):
         return self.ratio * F.binary_cross_entropy_with_logits(input, target, self.weight, reduction=self.reduction)
 
 
-@LOSSES.register_module
 class CELoss(nn.Module):
 
     def __init__(self, ratio=1, weight=None, size_average=None, ignore_index=-100, reduce=None, reduction='mean'):
@@ -822,7 +841,6 @@ class CELoss(nn.Module):
         return self.ratio * F.cross_entropy(input, target, weight=self.weight, ignore_index=self.ignore_index, reduction=self.reduction)
 
 
-@LOSSES.register_module
 class CosineEmbeddingLoss(nn.Module):
 
     def __init__(self, margin=0.0, size_average=None, reduce=None, reduction='mean'):
@@ -834,7 +852,6 @@ class CosineEmbeddingLoss(nn.Module):
         return F.cosine_embedding_loss(input1, input2, target, margin=self.margin, reduction=self.reduction)
 
 
-@LOSSES.register_module
 class L2NormLoss(nn.Module):
 
     def __init__(self, loss_weight=0.0005):
@@ -847,7 +864,6 @@ class L2NormLoss(nn.Module):
         return self.loss_weight * loss_norm
 
 
-@LOSSES.register_module
 class L1NormLoss(nn.Module):
 
     def __init__(self, loss_weight=0.0005, average=True):
@@ -862,7 +878,6 @@ class L1NormLoss(nn.Module):
         return self.loss_weight * loss_norm
 
 
-@LOSSES.register_module
 class MarginRankingLoss(nn.Module):
 
     def __init__(self, margin=0.2, loss_weight=5e-05, size_average=None, reduce=None, reduction='mean'):
@@ -875,7 +890,6 @@ class MarginRankingLoss(nn.Module):
         return self.loss_weight * F.margin_ranking_loss(input1, input2, target, margin=self.margin, reduction=self.reduction)
 
 
-@LOSSES.register_module
 class SelectiveMarginLoss(nn.Module):
 
     def __init__(self, loss_weight=5e-05, margin=0.2):
@@ -889,7 +903,6 @@ class SelectiveMarginLoss(nn.Module):
         return self.loss_weight * (torch.sum(margin_diff * has_sample) / num_sample)
 
 
-@LOSSES.register_module
 class MSELoss(nn.Module):
 
     def __init__(self, ratio=1, size_average=None, reduce=None, reduction='mean'):
@@ -903,7 +916,6 @@ class MSELoss(nn.Module):
         return self.ratio * F.mse_loss(input, target, reduction=self.reduction)
 
 
-@LOSSES.register_module
 class TripletLoss(nn.Module):
 
     def __init__(self, method='cosine', ratio=1, margin=0.2, use_sigmoid=False, reduction='mean', size_average=True):
@@ -1020,7 +1032,6 @@ class BaseRetriever(nn.Module):
 ROIPOOLING = Registry('roi_pool')
 
 
-@ROIPOOLING.register_module
 class RoIPooling(nn.Module):
 
     def __init__(self, pool_plane, inter_channels, outchannels, crop_size=7, img_size=(224, 224), num_lms=8, roi_size=2):
@@ -1099,7 +1110,6 @@ class EmbedBranch(nn.Module):
 TRIPLETNET = Registry('triplet_net')
 
 
-@TRIPLETNET.register_module
 class TripletNet(nn.Module):
 
     def __init__(self, text_feature_dim, embed_feature_dim, loss_vse=dict(type='L1NormLoss', loss_weight=0.005, average=False), loss_triplet=dict(type='MarginRankingLoss', margin=0.3, loss_weight=1), loss_sim_i=dict(type='MarginRankingLoss', margin=0.3, loss_weight=5e-05), loss_selective_margin=dict(type='SelectiveMarginLoss', margin=0.3, loss_weight=5e-05), learned_metric=True):
@@ -1223,10 +1233,6 @@ class ListModule(nn.Module):
 TYPESPECIFICNET = Registry('type_specific_net')
 
 
-_global_config['num_rand_embed'] = 4
-
-
-@TYPESPECIFICNET.register_module
 class TypeSpecificNet(nn.Module):
 
     def __init__(self, learned, n_conditions, rand_typespaces=False, use_fc=True, l2_embed=False, dim_embed=256, prein=False):
@@ -1347,7 +1353,6 @@ class TypeSpecificNet(nn.Module):
 VISIBILITYCLASSIFIER = Registry('visibility_classifier')
 
 
-@VISIBILITYCLASSIFIER.register_module
 class VisibilityClassifier(nn.Module):
 
     def __init__(self, inchannels, outchannels, landmark_num, loss_vis=dict(type='BCEWithLogitsLoss', ratio=1, reduction='none')):

@@ -55,15 +55,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -83,6 +84,24 @@ import numpy as np
 import copy
 
 
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
+import uuid
+
+
+from torchvision import transforms
+
+
+import random
+
+
+import math
+
+
 import torch.optim as optim
 
 
@@ -93,9 +112,6 @@ import torch.nn.init as init
 
 
 from torch.autograd import Variable
-
-
-import torch.utils.data as data
 
 
 import time
@@ -110,16 +126,19 @@ import torch.nn.functional as F
 from math import sqrt as sqrt
 
 
-from math import ceil
-
-
 from itertools import product as product
+
+
+from math import ceil
 
 
 from collections import OrderedDict
 
 
-import math
+import types
+
+
+from numpy import random
 
 
 class PriorLayer(nn.Module):
@@ -848,25 +867,50 @@ class Darknet53(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, in_planes, planes, stride=1):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(self.expansion * planes)
-        self.downsample = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion * planes:
-            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
-        out += self.downsample(x)
-        out = F.relu(out)
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
         return out
+
+
+def smooth_conv(size):
+    layers = []
+    if size == '300':
+        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
+        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
+        layers += [nn.Conv2d(256, 256, kernel_size=1, stride=1)]
+        layers += [nn.Conv2d(256, 256, kernel_size=1, stride=1)]
+    else:
+        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
+        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
+        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
+        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
+        layers += [nn.Conv2d(256, 256, kernel_size=1, stride=1)]
+        layers += [nn.Conv2d(256, 256, kernel_size=1, stride=1)]
+    return layers
 
 
 class DenseSSDResnet(nn.Module):
@@ -888,16 +932,9 @@ class DenseSSDResnet(nn.Module):
         self.dense_list3 = nn.ModuleList(dense_list[3])
         self.dense_list4 = nn.ModuleList(dense_list[4])
         self.dense_list5 = nn.ModuleList(dense_list[5])
+        self.smooth_list = nn.ModuleList(smooth_conv(str(size)))
         self.smooth1 = nn.Conv2d(2048, 512, kernel_size=3, stride=1, padding=1)
         self._init_modules()
-
-    def _make_layer(self, block, planes, num_blocks, stride):
-        strides = [stride] + [1] * (num_blocks - 1)
-        layers = []
-        for stride in strides:
-            layers.append(block(self.in_planes, planes, stride))
-            self.in_planes = planes * block.expansion
-        return nn.Sequential(*layers)
 
     def _init_modules(self):
         self.extras.apply(weights_init)
@@ -907,9 +944,19 @@ class DenseSSDResnet(nn.Module):
         self.dense_list3.apply(weights_init)
         self.dense_list4.apply(weights_init)
         self.dense_list5.apply(weights_init)
+        self.smooth_list.apply(weights_init)
         self.smooth1.apply(weights_init)
 
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
+
     def forward(self, x):
+        arm_sources = list()
         c1 = F.relu(self.bn1(self.conv1(x)))
         c1 = F.max_pool2d(c1, kernel_size=3, stride=2, padding=1)
         c2 = self.layer1(c1)
@@ -920,6 +967,7 @@ class DenseSSDResnet(nn.Module):
         dense1_p2_conv = self.dense_list0[4](dense1_p2)
         dense1_p3_conv = self.dense_list0[5](dense1_p3)
         c3 = self.layer2(c2)
+        arm_sources.append(c3)
         dense2_p1 = self.dense_list1[0](c3)
         dense2_p2 = self.dense_list1[1](dense2_p1)
         dense2_p3 = self.dense_list1[2](dense2_p2)
@@ -927,6 +975,7 @@ class DenseSSDResnet(nn.Module):
         dense2_p2_conv = self.dense_list1[4](dense2_p2)
         dense2_p3_conv = self.dense_list1[5](dense2_p3)
         c4 = self.layer3(c3)
+        arm_sources.append(c4)
         dense3_up_conv = self.dense_list2[0](c4)
         dense3_up = self.dense_list2[1](dense3_up_conv)
         dense3_p1 = self.dense_list2[2](c4)
@@ -935,18 +984,20 @@ class DenseSSDResnet(nn.Module):
         dense3_p2_conv = self.dense_list2[5](dense3_p2)
         c5 = self.layer4(c4)
         c5_ = self.smooth1(c5)
+        arm_sources.append(c5_)
         dense4_up1_conv = self.dense_list3[0](c5)
         dense4_up2_conv = self.dense_list3[1](c5)
         dense4_up1 = self.dense_list3[2](dense4_up1_conv)
         dense4_up2 = self.dense_list3[3](dense4_up2_conv)
         dense4_p = self.dense_list3[4](c5)
         dense4_p_conv = self.dense_list3[5](dense4_p)
-        p6 = F.relu(self.extras[0](c5), inplace=True)
-        p6 = F.relu(self.extras[1](p6), inplace=True)
-        x = p6
-        dense5_up1_conv = self.dense_list4[0](p6)
-        dense5_up2_conv = self.dense_list4[1](p6)
-        dense5_up3_conv = self.dense_list4[2](p6)
+        c6 = F.relu(self.extras[0](c5), inplace=True)
+        c6 = F.relu(self.extras[1](c6), inplace=True)
+        arm_sources.append(c6)
+        x = c6
+        dense5_up1_conv = self.dense_list4[0](c6)
+        dense5_up2_conv = self.dense_list4[1](c6)
+        dense5_up3_conv = self.dense_list4[2](c6)
         dense5_up1 = self.dense_list4[3](dense5_up1_conv)
         dense5_up2 = self.dense_list4[4](dense5_up2_conv)
         dense5_up3 = self.dense_list4[5](dense5_up3_conv)
@@ -956,15 +1007,20 @@ class DenseSSDResnet(nn.Module):
         dense_out2 = F.relu(self.dense_list5[1](dense_out2))
         dense_out3 = torch.cat((dense1_p3_conv, dense2_p2_conv, dense3_p1_conv, c5_, dense5_up1), 1)
         dense_out3 = F.relu(self.dense_list5[2](dense_out3))
-        dense_out4 = torch.cat((dense2_p3_conv, dense3_p2_conv, dense4_p_conv, p6), 1)
+        dense_out4 = torch.cat((dense2_p3_conv, dense3_p2_conv, dense4_p_conv, c6), 1)
         dense_out4 = F.relu(self.dense_list5[3](dense_out4))
         sources = [dense_out1, dense_out2, dense_out3, dense_out4]
         for k, v in enumerate(self.extras):
             if k > 1:
                 x = F.relu(v(x), inplace=True)
                 if k % 2 == 1:
-                    sources.append(x)
-        return sources
+                    tmp = x
+                    index = k - 3
+                    tmp = self.smooth_list[index](tmp)
+                    tmp = F.relu(self.smooth_list[index + 1](tmp), inplace=True)
+                    arm_sources.append(x)
+                    sources.append(tmp)
+        return arm_sources, sources
 
 
 class L2Norm(nn.Module):
@@ -987,10 +1043,109 @@ class L2Norm(nn.Module):
         return out
 
 
+def adaptive_pool(x, size):
+    return F.adaptive_max_pool2d(x, size)
+
+
+def adaptive_upsample(x, size):
+    return F.upsample(x, size, mode='bilinear')
+
+
+def trans_layers_2(raw_channels, inner_channels):
+    layers = list()
+    fpn_num = len(raw_channels)
+    for i in range(fpn_num):
+        layers += [nn.Sequential(nn.Conv2d(raw_channels[i], inner_channels[i], kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(inner_channels[i], inner_channels[i], kernel_size=3, stride=1, padding=1))]
+    return layers
+
+
+def weave_concat_layers_2(raw_channels, weave_add_channels, weave_channels):
+    layers = list()
+    weave_num = len(raw_channels)
+    for i in range(weave_num):
+        if i == 0:
+            add_channel = weave_add_channels[i + 1][0]
+        elif i == weave_num - 1:
+            add_channel = weave_add_channels[i - 1][1]
+        else:
+            add_channel = weave_add_channels[i - 1][1] + weave_add_channels[i + 1][0]
+        layers += [nn.Conv2d(raw_channels[i] + add_channel, weave_channels[i], kernel_size=1, stride=1)]
+    return layers
+
+
+class WeaveBlock(nn.Module):
+
+    def __init__(self, raw_channel, weave_add_channel, dense_num):
+        super(WeaveBlock, self).__init__()
+        layers = list()
+        for j in range(dense_num):
+            layers += [nn.Conv2d(raw_channel, weave_add_channel[j], kernel_size=1, stride=1)]
+        self.weave_layers = nn.ModuleList(layers)
+        self._init_modules()
+
+    def _init_modules(self):
+        self.weave_layers.apply(weights_init)
+
+    def forward(self, x):
+        out = list()
+        out.append(x)
+        for i in range(len(self.weave_layers)):
+            out.append(self.weave_layers[i](x))
+        return out
+
+
+def weave_layers_2(raw_channels, weave_add_channels):
+    layers = list()
+    num = 2
+    weave_num = len(raw_channels)
+    for i in range(weave_num):
+        if i == 0 or i == weave_num - 1:
+            layers += [WeaveBlock(raw_channels[i], weave_add_channels[i], num - 1)]
+        else:
+            layers += [WeaveBlock(raw_channels[i], weave_add_channels[i], num)]
+    return layers
+
+
+class WeaveAdapter2(nn.Module):
+
+    def __init__(self, raw_channels, weave_add_channels, weave_channels):
+        super(WeaveAdapter2, self).__init__()
+        self.trans_layers = nn.ModuleList(trans_layers_2(raw_channels, weave_channels))
+        self.weave_layers = nn.ModuleList(weave_layers_2(weave_channels, weave_add_channels))
+        self.weave_concat_layers = nn.ModuleList(weave_concat_layers_2(weave_channels, weave_add_channels, weave_channels))
+        self.weave_num = len(raw_channels)
+        self._init_modules()
+
+    def _init_modules(self):
+        self.trans_layers.apply(weights_init)
+        self.weave_concat_layers.apply(weights_init)
+
+    def forward(self, x):
+        trans_layers_list = list()
+        weave_out = list()
+        for p, t in zip(x, self.trans_layers):
+            trans_layers_list.append(t(p))
+        weave_list = list()
+        for t, w in zip(trans_layers_list, self.weave_layers):
+            weave_list.append(w(t))
+        for i in range(self.weave_num):
+            b, c, h, w = weave_list[i][0].size()
+            if i == 0:
+                up = adaptive_upsample(weave_list[i + 1][1], (h, w))
+                weave = torch.cat((up, weave_list[i][0]), 1)
+            elif i == self.weave_num - 1:
+                pool = adaptive_pool(weave_list[i - 1][-1], (h, w))
+                weave = torch.cat((pool, weave_list[i][0]), 1)
+            else:
+                up = adaptive_upsample(weave_list[i + 1][1], (h, w))
+                pool = adaptive_pool(weave_list[i - 1][-1], (h, w))
+                weave = torch.cat((up, pool, weave_list[i][0]), 1)
+            weave = F.relu(self.weave_concat_layers[i](weave), inplace=True)
+            weave_out.append(weave)
+        return weave_out
+
+
 base = {'300': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512], '512': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'C', 512, 512, 512, 'M', 512, 512, 512]}
-
-
-extras_cfg = {'300': [256, 'S', 512, 128, 'S', 256, 128, 256, 128, 256], '512': [256, 'S', 512, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256, 128, 'S', 256]}
 
 
 def vgg(cfg, i, batch_norm=False):
@@ -1020,29 +1175,17 @@ class VGG16Extractor(nn.Module):
     def __init__(self, size, channel_size='48'):
         super(VGG16Extractor, self).__init__()
         self.vgg = nn.ModuleList(vgg(base[str(size)], 3))
-        self.extras = nn.ModuleList(add_extras(extras_cfg[str(size)], 1024))
-        self.L2Norm1 = L2Norm(256, 20)
-        self.L2Norm = L2Norm(512, 20)
-        self.L2Norm3 = L2Norm(1024, 10)
-        self.L2Norm4 = L2Norm(512, 10)
-        self.L2Norm5 = L2Norm(256, 10)
-        dense_list = models.dense_conv.dense_list_vgg(channel_size, str(size))
-        self.dense_list0 = nn.ModuleList(dense_list[0])
-        self.dense_list1 = nn.ModuleList(dense_list[1])
-        self.dense_list2 = nn.ModuleList(dense_list[2])
-        self.dense_list3 = nn.ModuleList(dense_list[3])
-        self.dense_list4 = nn.ModuleList(dense_list[4])
-        self.dense_list5 = nn.ModuleList(dense_list[5])
+        self.extras = nn.ModuleList(add_extras(str(size)))
+        self.L2Norm_4_3 = L2Norm(512, 10)
+        self.L2Norm_5_3 = L2Norm(1024, 8)
+        self.raw_channels = [512, 1024, 256, 256]
+        self.weave_add_channels = [(48, 48), (48, 48), (48, 48), (48, 48)]
+        self.weave_channels = [256, 256, 256, 256]
+        self.weave = WeaveAdapter2(self.raw_channels, self.weave_add_channels, self.weave_channels)
         self._init_modules()
 
     def _init_modules(self):
         self.extras.apply(weights_init)
-        self.dense_list0.apply(weights_init)
-        self.dense_list1.apply(weights_init)
-        self.dense_list2.apply(weights_init)
-        self.dense_list3.apply(weights_init)
-        self.dense_list4.apply(weights_init)
-        self.dense_list5.apply(weights_init)
 
     def forward(self, x):
         """Applies network layers and ops on input image(s) x.
@@ -1060,77 +1203,33 @@ class VGG16Extractor(nn.Module):
                     2: localization layers, Shape: [batch,num_priors*4]
                     3: priorbox layers, Shape: [2,num_priors*4]
         """
-        sources = list()
-        loc = list()
-        conf = list()
-        for k in range(16):
-            x = self.vgg[k](x)
-        dense1 = x
-        dense1 = self.L2Norm1(dense1)
-        dense1_p1 = self.dense_list0[0](dense1)
-        dense1_p2 = self.dense_list0[1](dense1_p1)
-        dense1_p3 = self.dense_list0[2](dense1_p2)
-        dense1_p1_conv = self.dense_list0[3](dense1_p1)
-        dense1_p2_conv = self.dense_list0[4](dense1_p2)
-        dense1_p3_conv = self.dense_list0[5](dense1_p3)
-        for k in range(16, 23):
-            x = self.vgg[k](x)
-        dense2 = x
-        dense2 = self.L2Norm(dense2)
-        dense2_p1 = self.dense_list1[0](dense2)
-        dense2_p2 = self.dense_list1[1](dense2_p1)
-        dense2_p3 = self.dense_list1[2](dense2_p2)
-        dense2_p1_conv = self.dense_list1[3](dense2_p1)
-        dense2_p2_conv = self.dense_list1[4](dense2_p2)
-        dense2_p3_conv = self.dense_list1[5](dense2_p3)
+        arm_sources = list()
+        odm_sources = list()
+        for i in range(23):
+            x = self.vgg[i](x)
+        c2 = x
+        c2 = self.L2Norm_4_3(c2)
+        arm_sources.append(c2)
         for k in range(23, len(self.vgg)):
             x = self.vgg[k](x)
-        dense3 = x
-        dense3 = self.L2Norm3(dense3)
-        dense3_up_conv = self.dense_list2[0](dense3)
-        dense3_up = self.dense_list2[1](dense3_up_conv)
-        dense3_p1 = self.dense_list2[2](dense3)
-        dense3_p2 = self.dense_list2[3](dense3_p1)
-        dense3_p1_conv = self.dense_list2[4](dense3_p1)
-        dense3_p2_conv = self.dense_list2[5](dense3_p2)
+        c3 = x
+        c3 = self.L2Norm_5_3(c3)
+        arm_sources.append(c3)
         x = F.relu(self.extras[0](x), inplace=True)
         x = F.relu(self.extras[1](x), inplace=True)
-        dense4 = x
-        dense4 = self.L2Norm4(dense4)
-        dense4_up1_conv = self.dense_list3[0](dense4)
-        dense4_up2_conv = self.dense_list3[1](dense4)
-        dense4_up1 = self.dense_list3[2](dense4_up1_conv)
-        dense4_up2 = self.dense_list3[3](dense4_up2_conv)
-        dense4_p = self.dense_list3[4](dense4)
-        dense4_p_conv = self.dense_list3[5](dense4_p)
+        c4 = x
+        arm_sources.append(c4)
         x = F.relu(self.extras[2](x), inplace=True)
         x = F.relu(self.extras[3](x), inplace=True)
-        dense5 = x
-        dense5 = self.L2Norm5(dense5)
-        dense5_up1_conv = self.dense_list4[0](dense5)
-        dense5_up2_conv = self.dense_list4[1](dense5)
-        dense5_up3_conv = self.dense_list4[2](dense5)
-        dense5_up1 = self.dense_list4[3](dense5_up1_conv)
-        dense5_up2 = self.dense_list4[4](dense5_up2_conv)
-        dense5_up3 = self.dense_list4[5](dense5_up3_conv)
-        dense_out1 = torch.cat((dense1_p1_conv, dense2, dense3_up, dense4_up2, dense5_up3), 1)
-        dense_out1 = F.relu(self.dense_list5[0](dense_out1))
-        sources.append(dense_out1)
-        dense_out2 = torch.cat((dense1_p2_conv, dense2_p1_conv, dense3, dense4_up1, dense5_up2), 1)
-        dense_out2 = F.relu(self.dense_list5[1](dense_out2))
-        sources.append(dense_out2)
-        dense_out3 = torch.cat((dense1_p3_conv, dense2_p2_conv, dense3_p1_conv, dense4, dense5_up1), 1)
-        dense_out3 = F.relu(self.dense_list5[2](dense_out3))
-        sources.append(dense_out3)
-        dense_out4 = torch.cat((dense2_p3_conv, dense3_p2_conv, dense4_p_conv, dense5), 1)
-        dense_out4 = F.relu(self.dense_list5[3](dense_out4))
-        sources.append(dense_out4)
-        for k, v in enumerate(self.extras):
-            if k > 3:
-                x = F.relu(v(x), inplace=True)
-                if k % 2 == 1:
-                    sources.append(x)
-        return sources
+        c5 = x
+        arm_sources.append(c5)
+        if len(self.extras) > 4:
+            x = F.relu(self.extras[4](x), inplace=True)
+            x = F.relu(self.extras[5](x), inplace=True)
+            c6 = x
+            arm_sources.append(c6)
+        odm_sources = self.weave(arm_sources)
+        return arm_sources, odm_sources
 
 
 class LinearBottleneck(nn.Module):
@@ -1339,7 +1438,7 @@ def get_func(func_name):
         module = importlib.import_module(module_name)
         return getattr(module, parts[-1])
     except Exception:
-        print('Failed to find function: %s', func_name)
+        None
         raise
 
 
@@ -1553,108 +1652,6 @@ class ConvPoolUpsample(nn.Module):
         return x, pool_out, up_out
 
 
-class WeaveBlock(nn.Module):
-
-    def __init__(self, raw_channel, weave_add_channel, dense_num):
-        super(WeaveBlock, self).__init__()
-        layers = list()
-        for j in range(dense_num):
-            layers += [nn.Conv2d(raw_channel, weave_add_channel[j], kernel_size=1, stride=1)]
-        self.weave_layers = nn.ModuleList(layers)
-        self._init_modules()
-
-    def _init_modules(self):
-        self.weave_layers.apply(weights_init)
-
-    def forward(self, x):
-        out = list()
-        out.append(x)
-        for i in range(len(self.weave_layers)):
-            out.append(self.weave_layers[i](x))
-        return out
-
-
-def adaptive_pool(x, size):
-    return F.adaptive_max_pool2d(x, size)
-
-
-def adaptive_upsample(x, size):
-    return F.upsample(x, size, mode='bilinear')
-
-
-def trans_layers_2(raw_channels, inner_channels):
-    layers = list()
-    fpn_num = len(raw_channels)
-    for i in range(fpn_num):
-        layers += [nn.Sequential(nn.Conv2d(raw_channels[i], inner_channels[i], kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(inner_channels[i], inner_channels[i], kernel_size=3, stride=1, padding=1))]
-    return layers
-
-
-def weave_concat_layers_2(raw_channels, weave_add_channels, weave_channels):
-    layers = list()
-    weave_num = len(raw_channels)
-    for i in range(weave_num):
-        if i == 0:
-            add_channel = weave_add_channels[i + 1][0]
-        elif i == weave_num - 1:
-            add_channel = weave_add_channels[i - 1][1]
-        else:
-            add_channel = weave_add_channels[i - 1][1] + weave_add_channels[i + 1][0]
-        layers += [nn.Conv2d(raw_channels[i] + add_channel, weave_channels[i], kernel_size=1, stride=1)]
-    return layers
-
-
-def weave_layers_2(raw_channels, weave_add_channels):
-    layers = list()
-    num = 2
-    weave_num = len(raw_channels)
-    for i in range(weave_num):
-        if i == 0 or i == weave_num - 1:
-            layers += [WeaveBlock(raw_channels[i], weave_add_channels[i], num - 1)]
-        else:
-            layers += [WeaveBlock(raw_channels[i], weave_add_channels[i], num)]
-    return layers
-
-
-class WeaveAdapter2(nn.Module):
-
-    def __init__(self, raw_channels, weave_add_channels, weave_channels):
-        super(WeaveAdapter2, self).__init__()
-        self.trans_layers = nn.ModuleList(trans_layers_2(raw_channels, weave_channels))
-        self.weave_layers = nn.ModuleList(weave_layers_2(weave_channels, weave_add_channels))
-        self.weave_concat_layers = nn.ModuleList(weave_concat_layers_2(weave_channels, weave_add_channels, weave_channels))
-        self.weave_num = len(raw_channels)
-        self._init_modules()
-
-    def _init_modules(self):
-        self.trans_layers.apply(weights_init)
-        self.weave_concat_layers.apply(weights_init)
-
-    def forward(self, x):
-        trans_layers_list = list()
-        weave_out = list()
-        for p, t in zip(x, self.trans_layers):
-            trans_layers_list.append(t(p))
-        weave_list = list()
-        for t, w in zip(trans_layers_list, self.weave_layers):
-            weave_list.append(w(t))
-        for i in range(self.weave_num):
-            b, c, h, w = weave_list[i][0].size()
-            if i == 0:
-                up = adaptive_upsample(weave_list[i + 1][1], (h, w))
-                weave = torch.cat((up, weave_list[i][0]), 1)
-            elif i == self.weave_num - 1:
-                pool = adaptive_pool(weave_list[i - 1][-1], (h, w))
-                weave = torch.cat((pool, weave_list[i][0]), 1)
-            else:
-                up = adaptive_upsample(weave_list[i + 1][1], (h, w))
-                pool = adaptive_pool(weave_list[i - 1][-1], (h, w))
-                weave = torch.cat((up, pool, weave_list[i][0]), 1)
-            weave = F.relu(self.weave_concat_layers[i](weave), inplace=True)
-            weave_out.append(weave)
-        return weave_out
-
-
 def weave_concat_layers(block, weave_num, channel):
     layers = list()
     for i in range(weave_num):
@@ -1713,311 +1710,6 @@ class WeaveAdapter(nn.Module):
         return weave_out
 
 
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(self.expansion * planes)
-        self.downsample = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion * planes:
-            self.downsample = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
-        out += self.downsample(x)
-        out = F.relu(out)
-        return out
-
-
-def smooth_conv(size):
-    layers = []
-    if size == '300':
-        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
-        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
-        layers += [nn.Conv2d(256, 256, kernel_size=1, stride=1)]
-        layers += [nn.Conv2d(256, 256, kernel_size=1, stride=1)]
-    else:
-        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
-        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
-        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
-        layers += [nn.Conv2d(256, 256, kernel_size=3, stride=1, padding=1)]
-        layers += [nn.Conv2d(256, 256, kernel_size=1, stride=1)]
-        layers += [nn.Conv2d(256, 256, kernel_size=1, stride=1)]
-    return layers
-
-
-class DenseSSDResnet(nn.Module):
-
-    def __init__(self, block, num_blocks, size='300', channel_size='48'):
-        super(DenseSSDResnet, self).__init__()
-        self.in_planes = 64
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
-        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
-        self.extras = nn.ModuleList(add_extras(str(size), 2048))
-        dense_list = models.dense_conv.dense_list_res(channel_size, size)
-        self.dense_list0 = nn.ModuleList(dense_list[0])
-        self.dense_list1 = nn.ModuleList(dense_list[1])
-        self.dense_list2 = nn.ModuleList(dense_list[2])
-        self.dense_list3 = nn.ModuleList(dense_list[3])
-        self.dense_list4 = nn.ModuleList(dense_list[4])
-        self.dense_list5 = nn.ModuleList(dense_list[5])
-        self.smooth_list = nn.ModuleList(smooth_conv(str(size)))
-        self.smooth1 = nn.Conv2d(2048, 512, kernel_size=3, stride=1, padding=1)
-        self._init_modules()
-
-    def _init_modules(self):
-        self.extras.apply(weights_init)
-        self.dense_list0.apply(weights_init)
-        self.dense_list1.apply(weights_init)
-        self.dense_list2.apply(weights_init)
-        self.dense_list3.apply(weights_init)
-        self.dense_list4.apply(weights_init)
-        self.dense_list5.apply(weights_init)
-        self.smooth_list.apply(weights_init)
-        self.smooth1.apply(weights_init)
-
-    def _make_layer(self, block, planes, num_blocks, stride):
-        strides = [stride] + [1] * (num_blocks - 1)
-        layers = []
-        for stride in strides:
-            layers.append(block(self.in_planes, planes, stride))
-            self.in_planes = planes * block.expansion
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        arm_sources = list()
-        c1 = F.relu(self.bn1(self.conv1(x)))
-        c1 = F.max_pool2d(c1, kernel_size=3, stride=2, padding=1)
-        c2 = self.layer1(c1)
-        dense1_p1 = self.dense_list0[0](c2)
-        dense1_p2 = self.dense_list0[1](dense1_p1)
-        dense1_p3 = self.dense_list0[2](dense1_p2)
-        dense1_p1_conv = self.dense_list0[3](dense1_p1)
-        dense1_p2_conv = self.dense_list0[4](dense1_p2)
-        dense1_p3_conv = self.dense_list0[5](dense1_p3)
-        c3 = self.layer2(c2)
-        arm_sources.append(c3)
-        dense2_p1 = self.dense_list1[0](c3)
-        dense2_p2 = self.dense_list1[1](dense2_p1)
-        dense2_p3 = self.dense_list1[2](dense2_p2)
-        dense2_p1_conv = self.dense_list1[3](dense2_p1)
-        dense2_p2_conv = self.dense_list1[4](dense2_p2)
-        dense2_p3_conv = self.dense_list1[5](dense2_p3)
-        c4 = self.layer3(c3)
-        arm_sources.append(c4)
-        dense3_up_conv = self.dense_list2[0](c4)
-        dense3_up = self.dense_list2[1](dense3_up_conv)
-        dense3_p1 = self.dense_list2[2](c4)
-        dense3_p2 = self.dense_list2[3](dense3_p1)
-        dense3_p1_conv = self.dense_list2[4](dense3_p1)
-        dense3_p2_conv = self.dense_list2[5](dense3_p2)
-        c5 = self.layer4(c4)
-        c5_ = self.smooth1(c5)
-        arm_sources.append(c5_)
-        dense4_up1_conv = self.dense_list3[0](c5)
-        dense4_up2_conv = self.dense_list3[1](c5)
-        dense4_up1 = self.dense_list3[2](dense4_up1_conv)
-        dense4_up2 = self.dense_list3[3](dense4_up2_conv)
-        dense4_p = self.dense_list3[4](c5)
-        dense4_p_conv = self.dense_list3[5](dense4_p)
-        c6 = F.relu(self.extras[0](c5), inplace=True)
-        c6 = F.relu(self.extras[1](c6), inplace=True)
-        arm_sources.append(c6)
-        x = c6
-        dense5_up1_conv = self.dense_list4[0](c6)
-        dense5_up2_conv = self.dense_list4[1](c6)
-        dense5_up3_conv = self.dense_list4[2](c6)
-        dense5_up1 = self.dense_list4[3](dense5_up1_conv)
-        dense5_up2 = self.dense_list4[4](dense5_up2_conv)
-        dense5_up3 = self.dense_list4[5](dense5_up3_conv)
-        dense_out1 = torch.cat((dense1_p1_conv, c3, dense3_up, dense4_up2, dense5_up3), 1)
-        dense_out1 = F.relu(self.dense_list5[0](dense_out1))
-        dense_out2 = torch.cat((dense1_p2_conv, dense2_p1_conv, c4, dense4_up1, dense5_up2), 1)
-        dense_out2 = F.relu(self.dense_list5[1](dense_out2))
-        dense_out3 = torch.cat((dense1_p3_conv, dense2_p2_conv, dense3_p1_conv, c5_, dense5_up1), 1)
-        dense_out3 = F.relu(self.dense_list5[2](dense_out3))
-        dense_out4 = torch.cat((dense2_p3_conv, dense3_p2_conv, dense4_p_conv, c6), 1)
-        dense_out4 = F.relu(self.dense_list5[3](dense_out4))
-        sources = [dense_out1, dense_out2, dense_out3, dense_out4]
-        for k, v in enumerate(self.extras):
-            if k > 1:
-                x = F.relu(v(x), inplace=True)
-                if k % 2 == 1:
-                    tmp = x
-                    index = k - 3
-                    tmp = self.smooth_list[index](tmp)
-                    tmp = F.relu(self.smooth_list[index + 1](tmp), inplace=True)
-                    arm_sources.append(x)
-                    sources.append(tmp)
-        return arm_sources, sources
-
-
-class L2Norm(nn.Module):
-
-    def __init__(self, n_channels, scale):
-        super(L2Norm, self).__init__()
-        self.n_channels = n_channels
-        self.gamma = scale or None
-        self.eps = 1e-10
-        self.weight = nn.Parameter(torch.Tensor(self.n_channels))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        init.constant_(self.weight, self.gamma)
-
-    def forward(self, x):
-        norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
-        x = x / norm
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
-        return out
-
-
-class VGG16Extractor(nn.Module):
-
-    def __init__(self, size, channel_size='48'):
-        super(VGG16Extractor, self).__init__()
-        self.vgg = nn.ModuleList(vgg(base[str(size)], 3))
-        self.extras = nn.ModuleList(add_extras(extras_cfg[str(size)], 1024))
-        self.L2Norm1 = L2Norm(256, 20)
-        self.L2Norm = L2Norm(512, 20)
-        self.L2Norm3 = L2Norm(1024, 10)
-        self.L2Norm4 = L2Norm(512, 10)
-        self.L2Norm5 = L2Norm(256, 10)
-        dense_list = models.refine_dense_conv.dense_list_vgg(channel_size, str(size))
-        self.dense_list0 = nn.ModuleList(dense_list[0])
-        self.dense_list1 = nn.ModuleList(dense_list[1])
-        self.dense_list2 = nn.ModuleList(dense_list[2])
-        self.dense_list3 = nn.ModuleList(dense_list[3])
-        self.dense_list4 = nn.ModuleList(dense_list[4])
-        self.dense_list5 = nn.ModuleList(dense_list[5])
-        self.smooth_list = nn.ModuleList(smooth_conv(str(size)))
-        self._init_modules()
-
-    def _init_modules(self):
-        self.extras.apply(weights_init)
-        self.dense_list0.apply(weights_init)
-        self.dense_list1.apply(weights_init)
-        self.dense_list2.apply(weights_init)
-        self.dense_list3.apply(weights_init)
-        self.dense_list4.apply(weights_init)
-        self.dense_list5.apply(weights_init)
-        self.smooth_list.apply(weights_init)
-
-    def forward(self, x):
-        """Applies network layers and ops on input image(s) x.
-        Args:
-            x: input image or batch of images. Shape: [batch,3*batch,300,300].
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        arm_sources = list()
-        sources = list()
-        loc = list()
-        conf = list()
-        for k in range(16):
-            x = self.vgg[k](x)
-        dense1 = x
-        dense1 = self.L2Norm1(dense1)
-        dense1_p1 = self.dense_list0[0](dense1)
-        dense1_p2 = self.dense_list0[1](dense1_p1)
-        dense1_p3 = self.dense_list0[2](dense1_p2)
-        dense1_p1_conv = self.dense_list0[3](dense1_p1)
-        dense1_p2_conv = self.dense_list0[4](dense1_p2)
-        dense1_p3_conv = self.dense_list0[5](dense1_p3)
-        for k in range(16, 23):
-            x = self.vgg[k](x)
-        dense2 = x
-        dense2 = self.L2Norm(dense2)
-        arm_sources.append(dense2)
-        dense2 = F.relu(self.dense_list1[0](dense2), inplace=True)
-        dense2_p1 = self.dense_list1[1](dense2)
-        dense2_p2 = self.dense_list1[2](dense2_p1)
-        dense2_p3 = self.dense_list1[3](dense2_p2)
-        dense2_p1_conv = self.dense_list1[4](dense2_p1)
-        dense2_p2_conv = self.dense_list1[5](dense2_p2)
-        dense2_p3_conv = self.dense_list1[6](dense2_p3)
-        for k in range(23, len(self.vgg)):
-            x = self.vgg[k](x)
-        dense3 = x
-        arm_sources.append(dense3)
-        dense3 = self.L2Norm3(dense3)
-        dense3 = F.relu(self.dense_list2[0](dense3), inplace=True)
-        dense3_up_conv = self.dense_list2[1](dense3)
-        dense3_up = self.dense_list2[2](dense3_up_conv)
-        dense3_p1 = self.dense_list2[3](dense3)
-        dense3_p2 = self.dense_list2[4](dense3_p1)
-        dense3_p1_conv = self.dense_list2[5](dense3_p1)
-        dense3_p2_conv = self.dense_list2[6](dense3_p2)
-        x = F.relu(self.extras[0](x), inplace=True)
-        x = F.relu(self.extras[1](x), inplace=True)
-        dense4 = x
-        arm_sources.append(dense4)
-        dense4 = self.L2Norm4(dense4)
-        dense4 = F.relu(self.dense_list3[0](dense4), inplace=True)
-        dense4_up1_conv = self.dense_list3[1](dense4)
-        dense4_up2_conv = self.dense_list3[2](dense4)
-        dense4_up1 = self.dense_list3[3](dense4_up1_conv)
-        dense4_up2 = self.dense_list3[4](dense4_up2_conv)
-        dense4_p = self.dense_list3[5](dense4)
-        dense4_p_conv = self.dense_list3[6](dense4_p)
-        x = F.relu(self.extras[2](x), inplace=True)
-        x = F.relu(self.extras[3](x), inplace=True)
-        dense5 = x
-        arm_sources.append(dense5)
-        dense5 = self.L2Norm5(dense5)
-        dense5 = F.relu(self.dense_list4[0](dense5), inplace=True)
-        dense5_up1_conv = self.dense_list4[1](dense5)
-        dense5_up2_conv = self.dense_list4[2](dense5)
-        dense5_up3_conv = self.dense_list4[3](dense5)
-        dense5_up1 = self.dense_list4[4](dense5_up1_conv)
-        dense5_up2 = self.dense_list4[5](dense5_up2_conv)
-        dense5_up3 = self.dense_list4[6](dense5_up3_conv)
-        dense_out1 = torch.cat((dense1_p1_conv, dense2, dense3_up, dense4_up2, dense5_up3), 1)
-        dense_out1 = F.relu(self.dense_list5[0](dense_out1))
-        sources.append(dense_out1)
-        dense_out2 = torch.cat((dense1_p2_conv, dense2_p1_conv, dense3, dense4_up1, dense5_up2), 1)
-        dense_out2 = F.relu(self.dense_list5[1](dense_out2))
-        sources.append(dense_out2)
-        dense_out3 = torch.cat((dense1_p3_conv, dense2_p2_conv, dense3_p1_conv, dense4, dense5_up1), 1)
-        dense_out3 = F.relu(self.dense_list5[2](dense_out3))
-        sources.append(dense_out3)
-        dense_out4 = torch.cat((dense2_p3_conv, dense3_p2_conv, dense4_p_conv, dense5), 1)
-        dense_out4 = F.relu(self.dense_list5[3](dense_out4))
-        sources.append(dense_out4)
-        for k, v in enumerate(self.extras):
-            if k > 3:
-                x = F.relu(v(x), inplace=True)
-                if k % 2 == 1:
-                    tmp = x
-                    index = k - 5
-                    tmp = self.smooth_list[index](tmp)
-                    tmp = F.relu(self.smooth_list[index + 1](tmp), inplace=True)
-                    arm_sources.append(x)
-                    sources.append(tmp)
-        return arm_sources, sources
-
-
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -2043,38 +1735,6 @@ class BasicBlock(nn.Module):
         out = self.relu(out)
         out = self.conv2(out)
         out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
         if self.downsample is not None:
             residual = self.downsample(x)
         out += residual
@@ -2133,143 +1793,6 @@ class RefineResnet(nn.Module):
         return arm_sources, odm_sources
 
 
-class L2Norm(nn.Module):
-
-    def __init__(self, n_channels, scale):
-        super(L2Norm, self).__init__()
-        self.n_channels = n_channels
-        self.gamma = scale or None
-        self.eps = 1e-10
-        self.weight = nn.Parameter(torch.Tensor(self.n_channels))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        init.constant_(self.weight, self.gamma)
-
-    def forward(self, x):
-        norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
-        x = x / norm
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
-        return out
-
-
-class VGG16Extractor(nn.Module):
-
-    def __init__(self, size, channel_size='48'):
-        super(VGG16Extractor, self).__init__()
-        self.vgg = nn.ModuleList(vgg(base[str(size)], 3))
-        self.extras = nn.ModuleList(add_extras(str(size)))
-        self.L2Norm_4_3 = L2Norm(512, 10)
-        self.L2Norm_5_3 = L2Norm(1024, 8)
-        self.fpn = FpnAdapter([512, 1024, 256, 256], 4)
-        self._init_modules()
-
-    def _init_modules(self):
-        self.extras.apply(weights_init)
-
-    def forward(self, x):
-        """Applies network layers and ops on input image(s) x.
-        Args:
-            x: input image or batch of images. Shape: [batch,3*batch,300,300].
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        arm_sources = list()
-        for i in range(23):
-            x = self.vgg[i](x)
-        c2 = x
-        c2 = self.L2Norm_4_3(c2)
-        arm_sources.append(c2)
-        for k in range(23, len(self.vgg)):
-            x = self.vgg[k](x)
-        c3 = x
-        c3 = self.L2Norm_5_3(c3)
-        arm_sources.append(c3)
-        x = F.relu(self.extras[0](x), inplace=True)
-        x = F.relu(self.extras[1](x), inplace=True)
-        c4 = x
-        arm_sources.append(c4)
-        x = F.relu(self.extras[2](x), inplace=True)
-        x = F.relu(self.extras[3](x), inplace=True)
-        c5 = x
-        arm_sources.append(c5)
-        if len(self.extras) > 4:
-            x = F.relu(self.extras[4](x), inplace=True)
-            x = F.relu(self.extras[5](x), inplace=True)
-            c6 = x
-            arm_sources.append(c6)
-        odm_sources = self.fpn(arm_sources)
-        return arm_sources, odm_sources
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
 class SSDResnet(nn.Module):
 
     def __init__(self, block, num_blocks, size):
@@ -2316,132 +1839,6 @@ class SSDResnet(nn.Module):
             if k % 2 == 1:
                 sources.append(x)
         return sources
-
-
-class L2Norm(nn.Module):
-
-    def __init__(self, n_channels, scale):
-        super(L2Norm, self).__init__()
-        self.n_channels = n_channels
-        self.gamma = scale or None
-        self.eps = 1e-10
-        self.weight = nn.Parameter(torch.Tensor(self.n_channels))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        init.constant_(self.weight, self.gamma)
-
-    def forward(self, x):
-        norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
-        x = x / norm
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
-        return out
-
-
-class VGG16Extractor(nn.Module):
-
-    def __init__(self, size):
-        super(VGG16Extractor, self).__init__()
-        self.vgg = nn.ModuleList(vgg(base[str(size)], 3))
-        self.L2Norm = L2Norm(512, 20)
-        self.extras = nn.ModuleList(add_extras(extras_cfg[str(size)], 1024))
-        self._init_modules()
-
-    def _init_modules(self):
-        self.extras.apply(weights_init)
-        self.vgg.apply(weights_init)
-
-    def forward(self, x):
-        """Applies network layers and ops on input image(s) x.
-
-        Args:
-            x: input image or batch of images. Shape: [batch,3*batch,300,300].
-
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        sources = list()
-        for k in range(23):
-            x = self.vgg[k](x)
-        s = self.L2Norm(x)
-        sources.append(s)
-        for k in range(23, len(self.vgg)):
-            x = self.vgg[k](x)
-        sources.append(x)
-        for k, v in enumerate(self.extras):
-            x = F.relu(v(x), inplace=True)
-            if k % 2 == 1:
-                sources.append(x)
-        return sources
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
 
 
 class WeaveResnet(nn.Module):
@@ -2495,88 +1892,6 @@ class WeaveResnet(nn.Module):
         return arm_sources, odm_sources
 
 
-class L2Norm(nn.Module):
-
-    def __init__(self, n_channels, scale):
-        super(L2Norm, self).__init__()
-        self.n_channels = n_channels
-        self.gamma = scale or None
-        self.eps = 1e-10
-        self.weight = nn.Parameter(torch.Tensor(self.n_channels))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        init.constant_(self.weight, self.gamma)
-
-    def forward(self, x):
-        norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + self.eps
-        x = x / norm
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
-        return out
-
-
-class VGG16Extractor(nn.Module):
-
-    def __init__(self, size, channel_size='48'):
-        super(VGG16Extractor, self).__init__()
-        self.vgg = nn.ModuleList(vgg(base[str(size)], 3))
-        self.extras = nn.ModuleList(add_extras(str(size)))
-        self.L2Norm_4_3 = L2Norm(512, 10)
-        self.L2Norm_5_3 = L2Norm(1024, 8)
-        self.raw_channels = [512, 1024, 256, 256]
-        self.weave_add_channels = [(48, 48), (48, 48), (48, 48), (48, 48)]
-        self.weave_channels = [256, 256, 256, 256]
-        self.weave = WeaveAdapter2(self.raw_channels, self.weave_add_channels, self.weave_channels)
-        self._init_modules()
-
-    def _init_modules(self):
-        self.extras.apply(weights_init)
-
-    def forward(self, x):
-        """Applies network layers and ops on input image(s) x.
-        Args:
-            x: input image or batch of images. Shape: [batch,3*batch,300,300].
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        arm_sources = list()
-        odm_sources = list()
-        for i in range(23):
-            x = self.vgg[i](x)
-        c2 = x
-        c2 = self.L2Norm_4_3(c2)
-        arm_sources.append(c2)
-        for k in range(23, len(self.vgg)):
-            x = self.vgg[k](x)
-        c3 = x
-        c3 = self.L2Norm_5_3(c3)
-        arm_sources.append(c3)
-        x = F.relu(self.extras[0](x), inplace=True)
-        x = F.relu(self.extras[1](x), inplace=True)
-        c4 = x
-        arm_sources.append(c4)
-        x = F.relu(self.extras[2](x), inplace=True)
-        x = F.relu(self.extras[3](x), inplace=True)
-        c5 = x
-        arm_sources.append(c5)
-        if len(self.extras) > 4:
-            x = F.relu(self.extras[4](x), inplace=True)
-            x = F.relu(self.extras[5](x), inplace=True)
-            c6 = x
-            arm_sources.append(c6)
-        odm_sources = self.weave(arm_sources)
-        return arm_sources, odm_sources
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -2620,6 +1935,10 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'outplanes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (WeaveBlock,
+     lambda: ([], {'raw_channel': 4, 'weave_add_channel': [4, 4, 4, 4], 'dense_num': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
 ]
 
 class Test_yqyao_SSD_Pytorch(_paritybench_base):
@@ -2649,4 +1968,7 @@ class Test_yqyao_SSD_Pytorch(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

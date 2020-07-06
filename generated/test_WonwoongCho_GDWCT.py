@@ -10,20 +10,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+from torch.utils import data
+
+
+from torchvision import transforms as T
+
+
+from torchvision.datasets import ImageFolder
+
+
 import torch
+
+
+import random
 
 
 import torch.nn as nn
@@ -65,9 +78,6 @@ from torch.optim import lr_scheduler
 import torch.nn.init as init
 
 
-import random
-
-
 from torchvision.utils import save_image
 
 
@@ -75,6 +85,64 @@ from torchvision.utils import make_grid
 
 
 import torchvision.utils as vutils
+
+
+class ConvBlock(nn.Module):
+
+    def __init__(self, input_dim, output_dim, k, s, p, dilation=False, norm='in', n_group=32, activation='relu', pad_type='mirror', use_affine=True, use_bias=True):
+        super(ConvBlock, self).__init__()
+        if norm == 'in':
+            self.norm = nn.InstanceNorm2d(output_dim, affine=use_affine, track_running_stats=True)
+        elif norm == 'ln':
+            self.norm = nn.GroupNorm(1, output_dim)
+        elif norm == 'bn':
+            self.norm = nn.BatchNorm2d(output_dim)
+        elif norm == 'gn':
+            self.norm = nn.GroupNorm(n_group, output_dim)
+        elif norm == 'none':
+            self.norm = None
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        elif activation == 'lrelu':
+            self.activation = nn.LeakyReLU(0.01, inplace=True)
+        elif activation == 'prelu':
+            self.activation = nn.PReLU(num_parameters=1, init=0.25)
+        elif activation == 'tanh':
+            self.activation = nn.Tanh()
+        elif activation == 'sigmoid':
+            self.activation = nn.Sigmoid()
+        elif activation == 'none':
+            self.activation = None
+        if pad_type == 'mirror':
+            self.pad = nn.ReflectionPad2d(p)
+        elif pad_type == 'zero':
+            self.pad = nn.ZeroPad2d(p)
+        if dilation:
+            self.conv = nn.Conv2d(input_dim, output_dim, k, s, dilation=p, bias=use_bias)
+        else:
+            self.conv = nn.Conv2d(input_dim, output_dim, k, s, bias=use_bias)
+
+    def forward(self, x):
+        x = self.conv(self.pad(x))
+        if self.norm:
+            x = self.norm(x)
+        if self.activation:
+            x = self.activation(x)
+        return x
+
+
+class ResidualBlock(nn.Module):
+    """Residual Block with instance normalization."""
+
+    def __init__(self, dim, norm='in', n_group=32, activation='relu', use_affine=True):
+        super(ResidualBlock, self).__init__()
+        layers = []
+        layers += [ConvBlock(dim, dim, 3, 1, 1, norm=norm, n_group=n_group, activation=activation, use_affine=use_affine)]
+        layers += [ConvBlock(dim, dim, 3, 1, 1, norm=norm, n_group=n_group, activation='none', use_affine=use_affine)]
+        self.main = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return x + self.main(x)
 
 
 class Content_Encoder(nn.Module):
@@ -115,6 +183,40 @@ class Style_Encoder(nn.Module):
 
     def forward(self, x):
         return self.main(x)
+
+
+class LinearBlock(nn.Module):
+
+    def __init__(self, input_dim, output_dim, norm='ln', n_group=32, activation='relu', use_affine=True):
+        super(LinearBlock, self).__init__()
+        use_bias = True
+        self.fc = nn.Linear(input_dim, output_dim, bias=use_bias)
+        if norm == 'ln':
+            self.norm = nn.GroupNorm(1, output_dim)
+        elif norm == 'gn':
+            self.norm = nn.GroupNorm(n_group, output_dim)
+        elif norm == 'none':
+            self.norm = None
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        elif activation == 'lrelu':
+            self.activation = nn.LeakyReLU(0.01, inplace=True)
+        elif activation == 'prelu':
+            self.activation = nn.PReLU(num_parameters=1, init=0.25)
+        elif activation == 'tanh':
+            self.activation = nn.Tanh()
+        elif activation == 'sigmoid':
+            self.activation = nn.Sigmoid()
+        elif activation == 'none':
+            self.activation = None
+
+    def forward(self, x):
+        out = self.fc(x)
+        if self.norm:
+            out = self.norm(out)
+        if self.activation:
+            out = self.activation(out)
+        return out
 
 
 class MLP(nn.Module):
@@ -195,6 +297,27 @@ class WCT(nn.Module):
         return self.alpha * (colored_B + s_B_mu) + (1 - self.alpha) * c_A, cov_c, eigen_s
 
 
+class Upsample(nn.Module):
+
+    def __init__(self, size=None, scale_factor=None, mode='nearest', align_corners=None):
+        super(Upsample, self).__init__()
+        self.size = size
+        self.scale_factor = scale_factor
+        self.mode = mode
+        self.align_corners = align_corners
+
+    def forward(self, input):
+        return F.interpolate(input, self.size, self.scale_factor, self.mode, self.align_corners)
+
+    def extra_repr(self):
+        if self.scale_factor is not None:
+            info = 'scale_factor=' + str(self.scale_factor)
+        else:
+            info = 'size=' + str(self.size)
+        info += ', mode=' + self.mode
+        return info
+
+
 class Decoder(nn.Module):
 
     def __init__(self, input_dim, mask, n_group, bias_dim, mlp_dim, repeat_num=4, norm='ln', device=None):
@@ -236,119 +359,6 @@ class Generator(nn.Module):
 
     def forward(self, c_A, s_B_):
         return self.decoder(c_A, s_B_)
-
-
-class ResidualBlock(nn.Module):
-    """Residual Block with instance normalization."""
-
-    def __init__(self, dim, norm='in', n_group=32, activation='relu', use_affine=True):
-        super(ResidualBlock, self).__init__()
-        layers = []
-        layers += [ConvBlock(dim, dim, 3, 1, 1, norm=norm, n_group=n_group, activation=activation, use_affine=use_affine)]
-        layers += [ConvBlock(dim, dim, 3, 1, 1, norm=norm, n_group=n_group, activation='none', use_affine=use_affine)]
-        self.main = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return x + self.main(x)
-
-
-class ConvBlock(nn.Module):
-
-    def __init__(self, input_dim, output_dim, k, s, p, dilation=False, norm='in', n_group=32, activation='relu', pad_type='mirror', use_affine=True, use_bias=True):
-        super(ConvBlock, self).__init__()
-        if norm == 'in':
-            self.norm = nn.InstanceNorm2d(output_dim, affine=use_affine, track_running_stats=True)
-        elif norm == 'ln':
-            self.norm = nn.GroupNorm(1, output_dim)
-        elif norm == 'bn':
-            self.norm = nn.BatchNorm2d(output_dim)
-        elif norm == 'gn':
-            self.norm = nn.GroupNorm(n_group, output_dim)
-        elif norm == 'none':
-            self.norm = None
-        if activation == 'relu':
-            self.activation = nn.ReLU(inplace=True)
-        elif activation == 'lrelu':
-            self.activation = nn.LeakyReLU(0.01, inplace=True)
-        elif activation == 'prelu':
-            self.activation = nn.PReLU(num_parameters=1, init=0.25)
-        elif activation == 'tanh':
-            self.activation = nn.Tanh()
-        elif activation == 'sigmoid':
-            self.activation = nn.Sigmoid()
-        elif activation == 'none':
-            self.activation = None
-        if pad_type == 'mirror':
-            self.pad = nn.ReflectionPad2d(p)
-        elif pad_type == 'zero':
-            self.pad = nn.ZeroPad2d(p)
-        if dilation:
-            self.conv = nn.Conv2d(input_dim, output_dim, k, s, dilation=p, bias=use_bias)
-        else:
-            self.conv = nn.Conv2d(input_dim, output_dim, k, s, bias=use_bias)
-
-    def forward(self, x):
-        x = self.conv(self.pad(x))
-        if self.norm:
-            x = self.norm(x)
-        if self.activation:
-            x = self.activation(x)
-        return x
-
-
-class LinearBlock(nn.Module):
-
-    def __init__(self, input_dim, output_dim, norm='ln', n_group=32, activation='relu', use_affine=True):
-        super(LinearBlock, self).__init__()
-        use_bias = True
-        self.fc = nn.Linear(input_dim, output_dim, bias=use_bias)
-        if norm == 'ln':
-            self.norm = nn.GroupNorm(1, output_dim)
-        elif norm == 'gn':
-            self.norm = nn.GroupNorm(n_group, output_dim)
-        elif norm == 'none':
-            self.norm = None
-        if activation == 'relu':
-            self.activation = nn.ReLU(inplace=True)
-        elif activation == 'lrelu':
-            self.activation = nn.LeakyReLU(0.01, inplace=True)
-        elif activation == 'prelu':
-            self.activation = nn.PReLU(num_parameters=1, init=0.25)
-        elif activation == 'tanh':
-            self.activation = nn.Tanh()
-        elif activation == 'sigmoid':
-            self.activation = nn.Sigmoid()
-        elif activation == 'none':
-            self.activation = None
-
-    def forward(self, x):
-        out = self.fc(x)
-        if self.norm:
-            out = self.norm(out)
-        if self.activation:
-            out = self.activation(out)
-        return out
-
-
-class Upsample(nn.Module):
-
-    def __init__(self, size=None, scale_factor=None, mode='nearest', align_corners=None):
-        super(Upsample, self).__init__()
-        self.size = size
-        self.scale_factor = scale_factor
-        self.mode = mode
-        self.align_corners = align_corners
-
-    def forward(self, input):
-        return F.interpolate(input, self.size, self.scale_factor, self.mode, self.align_corners)
-
-    def extra_repr(self):
-        if self.scale_factor is not None:
-            info = 'scale_factor=' + str(self.scale_factor)
-        else:
-            info = 'size=' + str(self.size)
-        info += ', mode=' + self.mode
-        return info
 
 
 class Discriminator(nn.Module):

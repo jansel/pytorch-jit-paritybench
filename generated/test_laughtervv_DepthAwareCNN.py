@@ -17,12 +17,14 @@ models = _module
 base_model = _module
 losses = _module
 model_utils = _module
+models = _module
 build = _module
 functions = _module
 depthavgpooling = _module
 modules = _module
 depthavgpooling = _module
 depthconv = _module
+build = _module
 depthconv = _module
 depthconv = _module
 options = _module
@@ -42,32 +44,57 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import torch.nn as nn
+import numpy as np
 
 
-import math
+import torchvision
 
 
-import torch.utils.model_zoo as model_zoo
+import torchvision.transforms as transforms
 
 
 import torch
 
 
-import numpy as np
+import time
+
+
+import math
+
+
+import random
+
+
+import torch.utils.data as data
+
+
+import torch.utils.data
+
+
+import torch.utils.data as torchdata
+
+
+from torchvision import transforms
+
+
+import torch.nn as nn
+
+
+import torch.utils.model_zoo as model_zoo
 
 
 from torch.autograd import Variable
@@ -76,13 +103,7 @@ from torch.autograd import Variable
 from collections import OrderedDict
 
 
-import torchvision
-
-
 import torch.nn.functional as F
-
-
-import time
 
 
 from torch.autograd import Function
@@ -98,6 +119,9 @@ from torch.nn.modules.utils import _single
 
 
 from torch.nn.modules.utils import _triple
+
+
+from collections import Iterable
 
 
 class Deeplab_VGG(nn.Module):
@@ -128,6 +152,115 @@ class ConvModule(nn.Module):
     def forward(self, x):
         x = self.layers(x)
         return x
+
+
+class DepthconvFunction(Function):
+
+    def __init__(self, stride, padding, dilation, bias=True):
+        super(DepthconvFunction, self).__init__()
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        ffi_ = cffi.FFI()
+        self.null = ffi_.NULL
+        self.bias = bias
+
+    def forward(self, input, depth, weight, bias=None):
+        self.save_for_backward(input, depth, weight, bias)
+        if not self.bias or bias is None:
+            bias = self.null
+        output_size = [int((input.size()[i + 2] + 2 * self.padding[i] - weight.size()[i + 2]) / self.stride[i] + 1) for i in range(2)]
+        output = input.new(*self._output_size(input, weight))
+        self.columns = input.new(weight.size(1) * weight.size(2) * weight.size(3), output_size[0] * output_size[1]).zero_()
+        self.ones = input.new(output_size[0] * output_size[1]).zero_()
+        if not input.is_cuda:
+            raise NotImplementedError
+        else:
+            if not isinstance(input, torch.FloatTensor):
+                raise NotImplementedError
+            depthconv.depthconv_forward_cuda(input, depth, weight, bias, output, self.columns, self.ones, weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0])
+        return output
+
+    def backward(self, grad_output):
+        input, depth, weight, bias = self.saved_tensors
+        grad_input = grad_weight = grad_bias = None
+        if not grad_output.is_cuda:
+            raise NotImplementedError
+        else:
+            if not isinstance(grad_output, torch.FloatTensor):
+                raise NotImplementedError
+            if self.needs_input_grad[0]:
+                grad_input = input.new(*input.size()).zero_()
+                depthconv.depthconv_backward_input_cuda(input, depth, grad_output, grad_input, weight, self.columns, weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0])
+            if self.needs_input_grad[2]:
+                grad_weight = weight.new(*weight.size()).zero_()
+                if len(self.needs_input_grad) == 4:
+                    if self.needs_input_grad[3]:
+                        grad_bias = weight.new(*bias.size()).zero_()
+                    else:
+                        grad_bias = self.null
+                else:
+                    grad_bias = self.null
+                depthconv.depthconv_backward_parameters_cuda(input, depth, grad_output, grad_weight, grad_bias, self.columns, self.ones, weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], 1)
+                if len(self.needs_input_grad) == 4:
+                    if not self.needs_input_grad[3]:
+                        grad_bias = None
+                else:
+                    grad_bias = None
+        return grad_input, None, grad_weight, grad_bias
+
+    def _output_size(self, input, weight):
+        channels = weight.size(0)
+        output_size = input.size(0), channels
+        for d in range(input.dim() - 2):
+            in_size = input.size(d + 2)
+            pad = self.padding[d]
+            kernel = self.dilation[d] * (weight.size(d + 2) - 1) + 1
+            stride = self.stride[d]
+            output_size += (in_size + 2 * pad - kernel) // stride + 1,
+        if not all(map(lambda s: s > 0, output_size)):
+            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
+        return output_size
+
+
+def depth_conv(input, depth, weight, bias, stride=1, padding=0, dilation=1):
+    if input is not None and input.dim() != 4:
+        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
+    f = DepthconvFunction(_pair(stride), _pair(padding), _pair(dilation))
+    if isinstance(bias, torch.nn.Parameter):
+        return f(input, depth, weight, bias)
+    else:
+        return f(input, depth, weight)
+
+
+class DepthConv(Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=True):
+        super(DepthConv, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = _pair(kernel_size)
+        self.stride = _pair(stride)
+        self.padding = _pair(padding)
+        self.dilation = _pair(dilation)
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
+        if bias:
+            self.bias = nn.Parameter(torch.Tensor(out_channels))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        n = self.in_channels
+        for k in self.kernel_size:
+            n *= k
+        stdv = 1.0 / math.sqrt(n)
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.bias is not None:
+            self.bias.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, depth):
+        return depth_conv(input, depth, self.weight, self.bias, self.stride, self.padding, self.dilation)
 
 
 class DepthConvModule(nn.Module):
@@ -208,6 +341,72 @@ class VGG_layer2(nn.Module):
         x = self.conv5_3(x)
         x = self.pool5a(x)
         return x, depth
+
+
+class DepthavgpoolingFunction(Function):
+
+    def __init__(self, kernel_size, stride, padding):
+        super(DepthavgpoolingFunction, self).__init__()
+        self.stride = stride
+        self.kernel_size = kernel_size
+        self.padding = padding
+
+    def forward(self, input, depth):
+        self.save_for_backward(input, depth)
+        self.depth = depth
+        output = input.new(*self._output_size(input))
+        self.depthweightcount = input.new(*depth.size()).zero_()
+        if not input.is_cuda:
+            raise NotImplementedError
+        else:
+            if not isinstance(input, torch.FloatTensor):
+                raise NotImplementedError
+            depthavgpooling.depthavgpooling_forward_cuda(input, depth, output, self.depthweightcount, self.kernel_size[1], self.kernel_size[0], self.stride[1], self.stride[0], self.padding[1], self.padding[0])
+        return output
+
+    def backward(self, grad_output):
+        input, depth = self.saved_tensors
+        grad_input = None
+        if not grad_output.is_cuda:
+            raise NotImplementedError
+        else:
+            if not isinstance(grad_output, torch.FloatTensor):
+                raise NotImplementedError
+            if self.needs_input_grad[0]:
+                grad_input = input.new(*input.size()).zero_()
+                depthavgpooling.depthavgpooling_backward_input_cuda(input, depth, self.depthweightcount, grad_output, grad_input, self.kernel_size[1], self.kernel_size[0], self.stride[1], self.stride[0], self.padding[1], self.padding[0])
+        return grad_input, None
+
+    def _output_size(self, input):
+        output_size = input.size(0), input.size(0)
+        for d in range(input.dim() - 2):
+            in_size = input.size(d + 2)
+            pad = self.padding[d]
+            kernel = self.kernel_size[d]
+            stride = self.stride[d]
+            output_size += (in_size + 2 * pad - kernel) // stride + 1,
+        if not all(map(lambda s: s > 0, output_size)):
+            raise ValueError('avgpooling input is too small (output would be {})'.format('x'.join(map(str, output_size))))
+        return output_size
+
+
+def depth_avgpooling(input, depth, kernel_size=3, stride=1, padding=0):
+    if input is not None and input.dim() != 4:
+        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
+    f = DepthavgpoolingFunction(_pair(kernel_size), _pair(stride), _pair(padding))
+    return f(input, depth)
+
+
+class Depthavgpooling(Module):
+
+    def __init__(self, kernel_size, stride=1, padding=0):
+        super(Depthavgpooling, self).__init__()
+        self.kernel_size = _pair(kernel_size)
+        self.stride = _pair(stride)
+        self.padding = _pair(padding)
+
+    def forward(self, input, depth):
+        return depth_avgpooling(input, depth, self.kernel_size, self.stride, self.padding)
 
 
 class VGG_layer(nn.Module):
@@ -387,6 +586,20 @@ class Classifier_Module2(nn.Module):
         out2 = torch.cat([out2, globalpool], 1)
         out2 = self.fc8_2(out2)
         return out2
+
+
+class CaffeNormalize(nn.Module):
+
+    def __init__(self, features, eps=1e-07):
+        super(CaffeNormalize, self).__init__()
+        self.scale = nn.Parameter(10.0 * torch.ones(features))
+        self.eps = eps
+
+    def forward(self, x):
+        x_size = x.size()
+        norm = x.norm(2, dim=1, keepdim=True)
+        x = x.div(norm + self.eps)
+        return x.mul(self.scale.view(1, x_size[1], 1, 1))
 
 
 class VGG(nn.Module):
@@ -616,20 +829,6 @@ class LayerNorm(nn.Module):
         return self.gamma * (x - mean) / (std + self.eps) + self.beta
 
 
-class CaffeNormalize(nn.Module):
-
-    def __init__(self, features, eps=1e-07):
-        super(CaffeNormalize, self).__init__()
-        self.scale = nn.Parameter(10.0 * torch.ones(features))
-        self.eps = eps
-
-    def forward(self, x):
-        x_size = x.size()
-        norm = x.norm(2, dim=1, keepdim=True)
-        x = x.div(norm + self.eps)
-        return x.mul(self.scale.view(1, x_size[1], 1, 1))
-
-
 class DepthGlobalPool(nn.Module):
 
     def __init__(self, n_features, n_out):
@@ -667,181 +866,6 @@ class DepthGlobalPool(nn.Module):
             self.upsample = nn.UpsamplingBilinear2d((out2_size[2], out2_size[3]))
             outfeatures = self.upsample(outfeatures)
         return outfeatures
-
-
-class DepthavgpoolingFunction(Function):
-
-    def __init__(self, kernel_size, stride, padding):
-        super(DepthavgpoolingFunction, self).__init__()
-        self.stride = stride
-        self.kernel_size = kernel_size
-        self.padding = padding
-
-    def forward(self, input, depth):
-        self.save_for_backward(input, depth)
-        self.depth = depth
-        output = input.new(*self._output_size(input))
-        self.depthweightcount = input.new(*depth.size()).zero_()
-        if not input.is_cuda:
-            raise NotImplementedError
-        else:
-            if not isinstance(input, torch.cuda.FloatTensor):
-                raise NotImplementedError
-            depthavgpooling.depthavgpooling_forward_cuda(input, depth, output, self.depthweightcount, self.kernel_size[1], self.kernel_size[0], self.stride[1], self.stride[0], self.padding[1], self.padding[0])
-        return output
-
-    def backward(self, grad_output):
-        input, depth = self.saved_tensors
-        grad_input = None
-        if not grad_output.is_cuda:
-            raise NotImplementedError
-        else:
-            if not isinstance(grad_output, torch.cuda.FloatTensor):
-                raise NotImplementedError
-            if self.needs_input_grad[0]:
-                grad_input = input.new(*input.size()).zero_()
-                depthavgpooling.depthavgpooling_backward_input_cuda(input, depth, self.depthweightcount, grad_output, grad_input, self.kernel_size[1], self.kernel_size[0], self.stride[1], self.stride[0], self.padding[1], self.padding[0])
-        return grad_input, None
-
-    def _output_size(self, input):
-        output_size = input.size(0), input.size(0)
-        for d in range(input.dim() - 2):
-            in_size = input.size(d + 2)
-            pad = self.padding[d]
-            kernel = self.kernel_size[d]
-            stride = self.stride[d]
-            output_size += (in_size + 2 * pad - kernel) // stride + 1,
-        if not all(map(lambda s: s > 0, output_size)):
-            raise ValueError('avgpooling input is too small (output would be {})'.format('x'.join(map(str, output_size))))
-        return output_size
-
-
-def depth_avgpooling(input, depth, kernel_size=3, stride=1, padding=0):
-    if input is not None and input.dim() != 4:
-        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
-    f = DepthavgpoolingFunction(_pair(kernel_size), _pair(stride), _pair(padding))
-    return f(input, depth)
-
-
-class Depthavgpooling(Module):
-
-    def __init__(self, kernel_size, stride=1, padding=0):
-        super(Depthavgpooling, self).__init__()
-        self.kernel_size = _pair(kernel_size)
-        self.stride = _pair(stride)
-        self.padding = _pair(padding)
-
-    def forward(self, input, depth):
-        return depth_avgpooling(input, depth, self.kernel_size, self.stride, self.padding)
-
-
-class DepthconvFunction(Function):
-
-    def __init__(self, stride, padding, dilation, bias=True):
-        super(DepthconvFunction, self).__init__()
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
-        ffi_ = cffi.FFI()
-        self.null = ffi_.NULL
-        self.bias = bias
-
-    def forward(self, input, depth, weight, bias=None):
-        self.save_for_backward(input, depth, weight, bias)
-        if not self.bias or bias is None:
-            bias = self.null
-        output_size = [int((input.size()[i + 2] + 2 * self.padding[i] - weight.size()[i + 2]) / self.stride[i] + 1) for i in range(2)]
-        output = input.new(*self._output_size(input, weight))
-        self.columns = input.new(weight.size(1) * weight.size(2) * weight.size(3), output_size[0] * output_size[1]).zero_()
-        self.ones = input.new(output_size[0] * output_size[1]).zero_()
-        if not input.is_cuda:
-            raise NotImplementedError
-        else:
-            if not isinstance(input, torch.cuda.FloatTensor):
-                raise NotImplementedError
-            depthconv.depthconv_forward_cuda(input, depth, weight, bias, output, self.columns, self.ones, weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0])
-        return output
-
-    def backward(self, grad_output):
-        input, depth, weight, bias = self.saved_tensors
-        grad_input = grad_weight = grad_bias = None
-        if not grad_output.is_cuda:
-            raise NotImplementedError
-        else:
-            if not isinstance(grad_output, torch.cuda.FloatTensor):
-                raise NotImplementedError
-            if self.needs_input_grad[0]:
-                grad_input = input.new(*input.size()).zero_()
-                depthconv.depthconv_backward_input_cuda(input, depth, grad_output, grad_input, weight, self.columns, weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0])
-            if self.needs_input_grad[2]:
-                grad_weight = weight.new(*weight.size()).zero_()
-                if len(self.needs_input_grad) == 4:
-                    if self.needs_input_grad[3]:
-                        grad_bias = weight.new(*bias.size()).zero_()
-                    else:
-                        grad_bias = self.null
-                else:
-                    grad_bias = self.null
-                depthconv.depthconv_backward_parameters_cuda(input, depth, grad_output, grad_weight, grad_bias, self.columns, self.ones, weight.size(3), weight.size(2), self.stride[1], self.stride[0], self.padding[1], self.padding[0], self.dilation[1], self.dilation[0], 1)
-                if len(self.needs_input_grad) == 4:
-                    if not self.needs_input_grad[3]:
-                        grad_bias = None
-                else:
-                    grad_bias = None
-        return grad_input, None, grad_weight, grad_bias
-
-    def _output_size(self, input, weight):
-        channels = weight.size(0)
-        output_size = input.size(0), channels
-        for d in range(input.dim() - 2):
-            in_size = input.size(d + 2)
-            pad = self.padding[d]
-            kernel = self.dilation[d] * (weight.size(d + 2) - 1) + 1
-            stride = self.stride[d]
-            output_size += (in_size + 2 * pad - kernel) // stride + 1,
-        if not all(map(lambda s: s > 0, output_size)):
-            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
-        return output_size
-
-
-def depth_conv(input, depth, weight, bias, stride=1, padding=0, dilation=1):
-    if input is not None and input.dim() != 4:
-        raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
-    f = DepthconvFunction(_pair(stride), _pair(padding), _pair(dilation))
-    if isinstance(bias, torch.nn.Parameter):
-        return f(input, depth, weight, bias)
-    else:
-        return f(input, depth, weight)
-
-
-class DepthConv(Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=True):
-        super(DepthConv, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = _pair(kernel_size)
-        self.stride = _pair(stride)
-        self.padding = _pair(padding)
-        self.dilation = _pair(dilation)
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
-        if bias:
-            self.bias = nn.Parameter(torch.Tensor(out_channels))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        n = self.in_channels
-        for k in self.kernel_size:
-            n *= k
-        stdv = 1.0 / math.sqrt(n)
-        self.weight.data.uniform_(-stdv, stdv)
-        if self.bias is not None:
-            self.bias.data.uniform_(-stdv, stdv)
-
-    def forward(self, input, depth):
-        return depth_conv(input, depth, self.weight, self.bias, self.stride, self.padding, self.dilation)
 
 
 import torch

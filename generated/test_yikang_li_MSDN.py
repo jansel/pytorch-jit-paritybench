@@ -24,6 +24,7 @@ cocoeval = _module
 mask = _module
 roi_pooling = _module
 _ext = _module
+roi_pooling = _module
 build = _module
 functions = _module
 roi_pool = _module
@@ -52,15 +53,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -92,10 +94,39 @@ import torchvision.models as models
 import math
 
 
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
 from torch.nn import Parameter
 
 
+from torch.autograd import Function
+
+
 from torch.nn.modules.module import Module
+
+
+import time
+
+
+import random
+
+
+class FC(nn.Module):
+
+    def __init__(self, in_features, out_features, relu=True):
+        super(FC, self).__init__()
+        self.fc = nn.Linear(in_features, out_features)
+        self.relu = nn.ReLU(inplace=True) if relu else None
+
+    def forward(self, x):
+        x = self.fc(x)
+        if self.relu is not None:
+            x = self.relu(x)
+        return x
 
 
 class Img_Encoder_Structure(nn.Module):
@@ -313,9 +344,6 @@ class Timer(object):
             return self.diff
 
 
-_global_config['TRAIN'] = 4
-
-
 def bbox_transform_inv_hdn(boxes, deltas):
     if boxes.shape[0] == 0:
         return np.zeros((0,), dtype=deltas.dtype)
@@ -367,6 +395,24 @@ def im_list_to_blob(ims):
         im = ims[i]
         blob[(i), 0:im.shape[0], 0:im.shape[1], :] = im
     return blob
+
+
+class Conv2d(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, relu=True, same_padding=False, bn=False):
+        super(Conv2d, self).__init__()
+        padding = int((kernel_size - 1) / 2) if same_padding else 0
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding)
+        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0, affine=True) if bn else None
+        self.relu = nn.ReLU(inplace=True) if relu else None
+
+    def forward(self, x):
+        x = self.conv(x)
+        if self.bn is not None:
+            x = self.bn(x)
+        if self.relu is not None:
+            x = self.relu(x)
+        return x
 
 
 DEBUG = False
@@ -646,88 +692,6 @@ class Hierarchical_Message_Passing_Structure_base(nn.Module):
                 temp = Variable(torch.zeros(target_features.size()[1:]), requires_grad=True).type(torch.FloatTensor)
                 feature_data.append(temp)
         return torch.stack(feature_data, 0)
-
-
-class Conv2d(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, relu=True, same_padding=False, bn=False):
-        super(Conv2d, self).__init__()
-        padding = int((kernel_size - 1) / 2) if same_padding else 0
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding)
-        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        return x
-
-
-class FC(nn.Module):
-
-    def __init__(self, in_features, out_features, relu=True):
-        super(FC, self).__init__()
-        self.fc = nn.Linear(in_features, out_features)
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.fc(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        return x
-
-
-class RoIPoolFunction(Function):
-
-    def __init__(self, pooled_height, pooled_width, spatial_scale):
-        self.pooled_width = int(pooled_width)
-        self.pooled_height = int(pooled_height)
-        self.spatial_scale = float(spatial_scale)
-        self.output = None
-        self.argmax = None
-        self.rois = None
-        self.feature_size = None
-
-    def forward(self, features, rois):
-        batch_size, num_channels, data_height, data_width = features.size()
-        num_rois = rois.size()[0]
-        output = torch.zeros(num_rois, num_channels, self.pooled_height, self.pooled_width)
-        argmax = torch.IntTensor(num_rois, num_channels, self.pooled_height, self.pooled_width).zero_()
-        if not features.is_cuda:
-            assert False, 'feature not in CUDA'
-            _features = features.permute(0, 2, 3, 1)
-            roi_pooling.roi_pooling_forward(self.pooled_height, self.pooled_width, self.spatial_scale, _features, rois, output)
-        else:
-            output = output.cuda()
-            argmax = argmax.cuda()
-            roi_pooling.roi_pooling_forward_cuda(self.pooled_height, self.pooled_width, self.spatial_scale, features, rois, output, argmax)
-            self.output = output
-            self.argmax = argmax
-            self.rois = rois
-            self.feature_size = features.size()
-        return output
-
-    def backward(self, grad_output):
-        assert self.feature_size is not None and grad_output.is_cuda
-        batch_size, num_channels, data_height, data_width = self.feature_size
-        grad_input = torch.zeros(batch_size, num_channels, data_height, data_width).cuda()
-        roi_pooling.roi_pooling_backward_cuda(self.pooled_height, self.pooled_width, self.spatial_scale, grad_output, self.rois, grad_input, self.argmax)
-        return grad_input, None
-
-
-class RoIPool(Module):
-
-    def __init__(self, pooled_height, pooled_width, spatial_scale):
-        super(RoIPool, self).__init__()
-        self.pooled_width = int(pooled_width)
-        self.pooled_height = int(pooled_height)
-        self.spatial_scale = float(spatial_scale)
-
-    def forward(self, features, rois):
-        return RoIPoolFunction(self.pooled_height, self.pooled_width, self.spatial_scale)(features, rois)
 
 
 class RoIPool(nn.Module):

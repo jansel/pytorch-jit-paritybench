@@ -65,23 +65,51 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import random
+
+
+import numpy as np
+
+
+import torch
+
+
+import torch.utils.data as data
+
+
+import logging
 
 
 from collections import OrderedDict
 
 
-import torch
+from scipy.io import loadmat
+
+
+import re
+
+
+import math
+
+
+import time
+
+
+from torch.utils.data import DataLoader
 
 
 import torch.nn as nn
@@ -91,9 +119,6 @@ import torch.nn.functional as F
 
 
 from torch.autograd import Variable
-
-
-import numpy as np
 
 
 from math import exp
@@ -111,9 +136,6 @@ from torch.nn.parallel import DataParallel
 from torch.nn.utils import spectral_norm
 
 
-import math
-
-
 import torchvision
 
 
@@ -126,7 +148,7 @@ import torch.nn.init as init
 from torch.nn import init
 
 
-import re
+from torchvision.utils import make_grid
 
 
 def pixel_unshuffle(input, upscale_factor):
@@ -399,18 +421,40 @@ class ResidualDenseBlock_5C(nn.Module):
 
 
 class RRDB(nn.Module):
+    """
+    gc: number of growth channels
+    nb: number of RRDB
+    """
 
-    def __init__(self, nc=64, gc=32, kernel_size=3, stride=1, padding=1, bias=True, mode='CR', negative_slope=0.2):
+    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=23, gc=32, upscale=4, act_mode='L', upsample_mode='upconv'):
         super(RRDB, self).__init__()
-        self.RDB1 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride, padding, bias, mode, negative_slope)
-        self.RDB2 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride, padding, bias, mode, negative_slope)
-        self.RDB3 = ResidualDenseBlock_5C(nc, gc, kernel_size, stride, padding, bias, mode, negative_slope)
+        assert 'R' in act_mode or 'L' in act_mode, 'Examples of activation function: R, L, BR, BL, IR, IL'
+        n_upscale = int(math.log(upscale, 2))
+        if upscale == 3:
+            n_upscale = 1
+        m_head = B.conv(in_nc, nc, mode='C')
+        m_body = [B.RRDB(nc, gc=32, mode='C' + act_mode) for _ in range(nb)]
+        m_body.append(B.conv(nc, nc, mode='C'))
+        if upsample_mode == 'upconv':
+            upsample_block = B.upsample_upconv
+        elif upsample_mode == 'pixelshuffle':
+            upsample_block = B.upsample_pixelshuffle
+        elif upsample_mode == 'convtranspose':
+            upsample_block = B.upsample_convtranspose
+        else:
+            raise NotImplementedError('upsample mode [{:s}] is not found'.format(upsample_mode))
+        if upscale == 3:
+            m_uper = upsample_block(nc, nc, mode='3' + act_mode)
+        else:
+            m_uper = [upsample_block(nc, nc, mode='2' + act_mode) for _ in range(n_upscale)]
+        H_conv0 = B.conv(nc, nc, mode='C' + act_mode)
+        H_conv1 = B.conv(nc, out_nc, mode='C')
+        m_tail = B.sequential(H_conv0, H_conv1)
+        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*m_body)), *m_uper, m_tail)
 
     def forward(self, x):
-        out = self.RDB1(x)
-        out = self.RDB2(out)
-        out = self.RDB3(out)
-        return out.mul_(0.2) + x
+        x = self.model(x)
+        return x
 
 
 def downsample_avgpool(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=True, mode='2R', negative_slope=0.2):
@@ -1007,6 +1051,25 @@ def initialize_weights(net_l, scale=1):
                 init.constant_(m.bias.data, 0.0)
 
 
+class ResidualBlock_noBN(nn.Module):
+    """Residual block w/o BN
+    ---Conv-ReLU-Conv-+-
+     |________________|
+    """
+
+    def __init__(self, nc=64):
+        super(ResidualBlock_noBN, self).__init__()
+        self.conv1 = nn.Conv2d(nc, nc, 3, 1, 1, bias=True)
+        self.conv2 = nn.Conv2d(nc, nc, 3, 1, 1, bias=True)
+        initialize_weights([self.conv1, self.conv2], 0.1)
+
+    def forward(self, x):
+        identity = x
+        out = F.relu(self.conv1(x), inplace=True)
+        out = self.conv2(out)
+        return identity + out
+
+
 def make_layer(block, n_layers):
     layers = []
     for _ in range(n_layers):
@@ -1051,62 +1114,6 @@ class MSRResNet1(nn.Module):
         base = F.interpolate(x, scale_factor=self.upscale, mode='bilinear', align_corners=False)
         out += base
         return out
-
-
-class ResidualBlock_noBN(nn.Module):
-    """Residual block w/o BN
-    ---Conv-ReLU-Conv-+-
-     |________________|
-    """
-
-    def __init__(self, nc=64):
-        super(ResidualBlock_noBN, self).__init__()
-        self.conv1 = nn.Conv2d(nc, nc, 3, 1, 1, bias=True)
-        self.conv2 = nn.Conv2d(nc, nc, 3, 1, 1, bias=True)
-        initialize_weights([self.conv1, self.conv2], 0.1)
-
-    def forward(self, x):
-        identity = x
-        out = F.relu(self.conv1(x), inplace=True)
-        out = self.conv2(out)
-        return identity + out
-
-
-class RRDB(nn.Module):
-    """
-    gc: number of growth channels
-    nb: number of RRDB
-    """
-
-    def __init__(self, in_nc=3, out_nc=3, nc=64, nb=23, gc=32, upscale=4, act_mode='L', upsample_mode='upconv'):
-        super(RRDB, self).__init__()
-        assert 'R' in act_mode or 'L' in act_mode, 'Examples of activation function: R, L, BR, BL, IR, IL'
-        n_upscale = int(math.log(upscale, 2))
-        if upscale == 3:
-            n_upscale = 1
-        m_head = B.conv(in_nc, nc, mode='C')
-        m_body = [B.RRDB(nc, gc=32, mode='C' + act_mode) for _ in range(nb)]
-        m_body.append(B.conv(nc, nc, mode='C'))
-        if upsample_mode == 'upconv':
-            upsample_block = B.upsample_upconv
-        elif upsample_mode == 'pixelshuffle':
-            upsample_block = B.upsample_pixelshuffle
-        elif upsample_mode == 'convtranspose':
-            upsample_block = B.upsample_convtranspose
-        else:
-            raise NotImplementedError('upsample mode [{:s}] is not found'.format(upsample_mode))
-        if upscale == 3:
-            m_uper = upsample_block(nc, nc, mode='3' + act_mode)
-        else:
-            m_uper = [upsample_block(nc, nc, mode='2' + act_mode) for _ in range(n_upscale)]
-        H_conv0 = B.conv(nc, nc, mode='C' + act_mode)
-        H_conv1 = B.conv(nc, out_nc, mode='C')
-        m_tail = B.sequential(H_conv0, H_conv1)
-        self.model = B.sequential(m_head, B.ShortcutBlock(B.sequential(*m_body)), *m_uper, m_tail)
-
-    def forward(self, x):
-        x = self.model(x)
-        return x
 
 
 class SRMD(nn.Module):

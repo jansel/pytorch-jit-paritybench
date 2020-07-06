@@ -60,6 +60,7 @@ learn_bpe = _module
 release_model = _module
 test_rouge = _module
 train = _module
+translate = _module
 CoreNLPService = _module
 utils = _module
 jsonrpc = _module
@@ -76,15 +77,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -122,6 +124,36 @@ import time
 import math
 
 
+import torchtext
+
+
+from itertools import chain
+
+
+from collections import Counter
+
+
+from collections import defaultdict
+
+
+from collections import OrderedDict
+
+
+from itertools import count
+
+
+import torch.autograd as autograd
+
+
+import torchtext.data
+
+
+import torchtext.vocab
+
+
+import numpy as np
+
+
 import torch.nn.init as init
 
 
@@ -137,13 +169,13 @@ from torch.autograd import Function
 from collections import namedtuple
 
 
-import numpy as np
-
-
 from torch.nn import Parameter
 
 
 from torch.nn.parameter import Parameter
+
+
+import copy
 
 
 import random
@@ -319,6 +351,51 @@ class LossComputeBase(nn.Module):
         return v.view(-1, batch_size, v.size(1))
 
 
+class NMTLossCompute(LossComputeBase):
+    """
+    Standard NMT Loss Computation.
+    """
+
+    def __init__(self, generator, tgt_vocab, normalization='sents', label_smoothing=0.0):
+        super(NMTLossCompute, self).__init__(generator, tgt_vocab)
+        assert label_smoothing >= 0.0 and label_smoothing <= 1.0
+        if label_smoothing > 0:
+            self.criterion = nn.KLDivLoss(size_average=False)
+            one_hot = torch.randn(1, len(tgt_vocab))
+            one_hot.fill_(label_smoothing / (len(tgt_vocab) - 2))
+            one_hot[0][self.padding_idx] = 0
+            self.register_buffer('one_hot', one_hot)
+        else:
+            weight = torch.ones(len(tgt_vocab))
+            weight[self.padding_idx] = 0
+            self.criterion = nn.NLLLoss(weight, size_average=False)
+        self.confidence = 1.0 - label_smoothing
+
+    def _make_shard_state(self, batch, output, range_, attns=None):
+        return {'output': output, 'target': batch.tgt[range_[0] + 1:range_[1]]}
+
+    def _compute_loss(self, batch, output, target):
+        scores = self.generator(self._bottle(output))
+        gtruth = target.view(-1)
+        if self.confidence < 1:
+            tdata = gtruth.data
+            mask = torch.nonzero(tdata.eq(self.padding_idx)).squeeze()
+            log_likelihood = torch.gather(scores.data, 1, tdata.unsqueeze(1))
+            tmp_ = self.one_hot.repeat(gtruth.size(0), 1)
+            tmp_.scatter_(1, tdata.unsqueeze(1), self.confidence)
+            if mask.dim() > 0:
+                log_likelihood.index_fill_(0, mask, 0)
+                tmp_.index_fill_(0, mask, 0)
+            gtruth = Variable(tmp_, requires_grad=False)
+        loss = self.criterion(scores, gtruth)
+        if self.confidence < 1:
+            loss_data = loss.data.clone()
+        else:
+            loss_data = loss.data.clone()
+        stats = self._stats(loss_data, scores.data, target.view(-1).data)
+        return loss, stats
+
+
 def aeq(*args):
     """
     Assert all arguments have the same value
@@ -374,6 +451,329 @@ class EncoderBase(nn.Module):
                 * memory bank for attention, `[src_len x batch x hidden]`
         """
         raise NotImplementedError
+
+
+class MeanEncoder(EncoderBase):
+    """A trivial non-recurrent encoder. Simply applies mean pooling.
+
+    Args:
+       num_layers (int): number of replicated layers
+       embeddings (:obj:`onmt.modules.Embeddings`): embedding module to use
+    """
+
+    def __init__(self, num_layers, embeddings):
+        super(MeanEncoder, self).__init__()
+        self.num_layers = num_layers
+        self.embeddings = embeddings
+
+    def forward(self, src, lengths=None, encoder_state=None):
+        """See :obj:`EncoderBase.forward()`"""
+        self._check_args(src, lengths, encoder_state)
+        emb = self.embeddings(src)
+        s_len, batch, emb_dim = emb.size()
+        mean = emb.mean(0).expand(self.num_layers, batch, emb_dim)
+        memory_bank = emb
+        encoder_final = mean, mean
+        return encoder_final, memory_bank
+
+
+def rnn_factory(rnn_type, **kwargs):
+    no_pack_padded_seq = False
+    if rnn_type == 'SRU':
+        no_pack_padded_seq = True
+        rnn = onmt.modules.SRU(**kwargs)
+    else:
+        rnn = getattr(nn, rnn_type)(**kwargs)
+    return rnn, no_pack_padded_seq
+
+
+class RNNEncoder(EncoderBase):
+    """ A generic recurrent neural network encoder.
+
+    Args:
+       rnn_type (:obj:`str`):
+          style of recurrent unit to use, one of [RNN, LSTM, GRU, SRU]
+       bidirectional (bool) : use a bidirectional RNN
+       num_layers (int) : number of stacked layers
+       hidden_size (int) : hidden size of each layer
+       dropout (float) : dropout value for :obj:`nn.Dropout`
+       embeddings (:obj:`onmt.modules.Embeddings`): embedding module to use
+    """
+
+    def __init__(self, rnn_type, bidirectional, num_layers, hidden_size, dropout=0.0, embeddings=None, use_bridge=False):
+        super(RNNEncoder, self).__init__()
+        assert embeddings is not None
+        num_directions = 2 if bidirectional else 1
+        assert hidden_size % num_directions == 0
+        hidden_size = hidden_size // num_directions
+        self.embeddings = embeddings
+        self.rnn, self.no_pack_padded_seq = rnn_factory(rnn_type, input_size=embeddings.embedding_size, hidden_size=hidden_size, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
+        self.use_bridge = use_bridge
+        if self.use_bridge:
+            self._initialize_bridge(rnn_type, hidden_size, num_layers)
+
+    def forward(self, src, lengths=None, encoder_state=None):
+        """See :obj:`EncoderBase.forward()`"""
+        self._check_args(src, lengths, encoder_state)
+        emb = self.embeddings(src)
+        s_len, batch, emb_dim = emb.size()
+        packed_emb = emb
+        if lengths is not None and not self.no_pack_padded_seq:
+            lengths = lengths.view(-1).tolist()
+            packed_emb = pack(emb, lengths)
+        memory_bank, encoder_final = self.rnn(packed_emb, encoder_state)
+        if lengths is not None and not self.no_pack_padded_seq:
+            memory_bank = unpack(memory_bank)[0]
+        if self.use_bridge:
+            encoder_final = self._bridge(encoder_final)
+        return encoder_final, memory_bank
+
+    def _initialize_bridge(self, rnn_type, hidden_size, num_layers):
+        number_of_states = 2 if rnn_type == 'LSTM' else 1
+        self.total_hidden_dim = hidden_size * num_layers
+        self.bridge = nn.ModuleList([nn.Linear(self.total_hidden_dim, self.total_hidden_dim, bias=True) for i in range(number_of_states)])
+
+    def _bridge(self, hidden):
+        """
+        Forward hidden state through bridge
+        """
+
+        def bottle_hidden(linear, states):
+            """
+            Transform from 3D to 2D, apply linear and return initial size
+            """
+            size = states.size()
+            result = linear(states.view(-1, self.total_hidden_dim))
+            return F.relu(result).view(size)
+        if isinstance(hidden, tuple):
+            outs = tuple([bottle_hidden(layer, hidden[ix]) for ix, layer in enumerate(self.bridge)])
+        else:
+            outs = bottle_hidden(self.bridge[0], hidden)
+        return outs
+
+
+class GCNLayer(nn.Module):
+    """ Graph convolutional neural network encoder.
+
+    """
+
+    def __init__(self, num_inputs, num_units, num_labels, in_arcs=True, out_arcs=True, batch_first=False, use_gates=True, use_glus=False):
+        super(GCNLayer, self).__init__()
+        self.in_arcs = in_arcs
+        self.out_arcs = out_arcs
+        self.num_inputs = num_inputs
+        self.num_units = num_units
+        self.num_labels = num_labels
+        self.batch_first = batch_first
+        self.glu = nn.GLU(3)
+        self.relu = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
+        self.use_gates = use_gates
+        self.use_glus = use_glus
+        if in_arcs:
+            self.V_in = Parameter(torch.Tensor(self.num_inputs, self.num_units))
+            nn.init.xavier_normal(self.V_in)
+            self.b_in = Parameter(torch.Tensor(num_labels, self.num_units))
+            nn.init.constant(self.b_in, 0)
+            if self.use_gates:
+                self.V_in_gate = Parameter(torch.Tensor(self.num_inputs, 1))
+                nn.init.xavier_normal(self.V_in_gate)
+                self.b_in_gate = Parameter(torch.Tensor(num_labels, 1))
+                nn.init.constant(self.b_in_gate, 1)
+        if out_arcs:
+            self.V_out = Parameter(torch.Tensor(self.num_inputs, self.num_units))
+            nn.init.xavier_normal(self.V_out)
+            self.b_out = Parameter(torch.Tensor(num_labels, self.num_units))
+            nn.init.constant(self.b_out, 0)
+            if self.use_gates:
+                self.V_out_gate = Parameter(torch.Tensor(self.num_inputs, 1))
+                nn.init.xavier_normal(self.V_out_gate)
+                self.b_out_gate = Parameter(torch.Tensor(num_labels, 1))
+                nn.init.constant(self.b_out_gate, 1)
+        self.W_self_loop = Parameter(torch.Tensor(self.num_inputs, self.num_units))
+        nn.init.xavier_normal(self.W_self_loop)
+        if self.use_gates:
+            self.W_self_loop_gate = Parameter(torch.Tensor(self.num_inputs, 1))
+            nn.init.xavier_normal(self.W_self_loop_gate)
+
+    def forward(self, src, lengths=None, arc_tensor_in=None, arc_tensor_out=None, label_tensor_in=None, label_tensor_out=None, mask_in=None, mask_out=None, mask_loop=None, sent_mask=None):
+        if not self.batch_first:
+            encoder_outputs = src.permute(1, 0, 2).contiguous()
+        else:
+            encoder_outputs = src.contiguous()
+        batch_size = encoder_outputs.size()[0]
+        seq_len = encoder_outputs.size()[1]
+        max_degree = 1
+        input_ = encoder_outputs.view((batch_size * seq_len, self.num_inputs))
+        if self.in_arcs:
+            input_in = torch.mm(input_, self.V_in)
+            first_in = input_in.index_select(0, arc_tensor_in[0] * seq_len + arc_tensor_in[1])
+            second_in = self.b_in.index_select(0, label_tensor_in[0])
+            in_ = first_in + second_in
+            degr = int(first_in.size()[0] / batch_size / seq_len)
+            in_ = in_.view((batch_size, seq_len, degr, self.num_units))
+            if self.use_glus:
+                in_ = torch.cat((in_, in_), 3)
+                in_ = self.glu(in_)
+            if self.use_gates:
+                input_in_gate = torch.mm(input_, self.V_in_gate)
+                first_in_gate = input_in_gate.index_select(0, arc_tensor_in[0] * seq_len + arc_tensor_in[1])
+                second_in_gate = self.b_in_gate.index_select(0, label_tensor_in[0])
+                in_gate = (first_in_gate + second_in_gate).view((batch_size, seq_len, degr))
+            max_degree += degr
+        if self.out_arcs:
+            input_out = torch.mm(input_, self.V_out)
+            first_out = input_out.index_select(0, arc_tensor_out[0] * seq_len + arc_tensor_out[1])
+            second_out = self.b_out.index_select(0, label_tensor_out[0])
+            degr = int(first_out.size()[0] / batch_size / seq_len)
+            max_degree += degr
+            out_ = (first_out + second_out).view((batch_size, seq_len, degr, self.num_units))
+            if self.use_glus:
+                out_ = torch.cat((out_, out_), 3)
+                out_ = self.glu(out_)
+            if self.use_gates:
+                input_out_gate = torch.mm(input_, self.V_out_gate)
+                first_out_gate = input_out_gate.index_select(0, arc_tensor_out[0] * seq_len + arc_tensor_out[1])
+                second_out_gate = self.b_out_gate.index_select(0, label_tensor_out[0])
+                out_gate = (first_out_gate + second_out_gate).view((batch_size, seq_len, degr))
+        same_input = torch.mm(encoder_outputs.view(-1, encoder_outputs.size(2)), self.W_self_loop).view(encoder_outputs.size(0), encoder_outputs.size(1), -1)
+        same_input = same_input.view(encoder_outputs.size(0), encoder_outputs.size(1), 1, self.W_self_loop.size(1))
+        if self.use_gates:
+            same_input_gate = torch.mm(encoder_outputs.view(-1, encoder_outputs.size(2)), self.W_self_loop_gate).view(encoder_outputs.size(0), encoder_outputs.size(1), -1)
+        if self.in_arcs and self.out_arcs:
+            potentials = torch.cat((in_, out_, same_input), dim=2)
+            if self.use_gates:
+                potentials_gate = torch.cat((in_gate, out_gate, same_input_gate), dim=2)
+            mask_soft = torch.cat((mask_in, mask_out, mask_loop), dim=1)
+        elif self.out_arcs:
+            potentials = torch.cat((out_, same_input), dim=2)
+            if self.use_gates:
+                potentials_gate = torch.cat((out_gate, same_input_gate), dim=2)
+            mask_soft = torch.cat((mask_out, mask_loop), dim=1)
+        elif self.in_arcs:
+            potentials = torch.cat((in_, same_input), dim=2)
+            if self.use_gates:
+                potentials_gate = torch.cat((in_gate, same_input_gate), dim=2)
+            mask_soft = torch.cat((mask_in, mask_loop), dim=1)
+        else:
+            potentials = same_input
+            if self.use_gates:
+                potentials_gate = same_input_gate
+            mask_soft = mask_loop
+        potentials_resh = potentials.view((batch_size * seq_len, max_degree, self.num_units))
+        if self.use_gates:
+            potentials_r = potentials_gate.view((batch_size * seq_len, max_degree))
+            probs_det_ = (self.sigmoid(potentials_r) * mask_soft).unsqueeze(2)
+            potentials_masked = potentials_resh * probs_det_
+        else:
+            potentials_masked = potentials_resh * mask_soft.unsqueeze(2)
+        potentials_masked_ = potentials_masked.sum(dim=1)
+        potentials_masked_ = self.relu(potentials_masked_)
+        result_ = potentials_masked_.view((batch_size, seq_len, self.num_units))
+        result_ = result_ * sent_mask.permute(1, 0).contiguous().unsqueeze(2)
+        memory_bank = result_.permute(1, 0, 2).contiguous()
+        return memory_bank
+
+
+class GCNEncoder(EncoderBase):
+    """ A generic recurrent neural network encoder.
+
+    Args:
+       rnn_type (:obj:`str`):
+          style of recurrent unit to use, one of [RNN, LSTM, GRU, SRU]
+       bidirectional (bool) : use a bidirectional RNN
+       num_layers (int) : number of stacked layers
+       hidden_size (int) : hidden size of each layer
+       dropout (float) : dropout value for :obj:`nn.Dropout`
+       embeddings (:obj:`onmt.modules.Embeddings`): embedding module to use
+    """
+
+    def __init__(self, embeddings, num_inputs, num_units, num_labels, num_layers=1, in_arcs=True, out_arcs=True, batch_first=False, residual='', use_gates=True, use_glus=False, morph_embeddings=None):
+        super(GCNEncoder, self).__init__()
+        self.embeddings = embeddings
+        self.num_layers = num_layers
+        self.num_inputs = num_inputs
+        self.num_units = num_units
+        self.residual = residual
+        self.use_gates = use_gates
+        self.use_glus = use_glus
+        if morph_embeddings is not None:
+            self.morph_embeddings = morph_embeddings
+            self.emb_morph_emb = nn.Linear(num_inputs + morph_embeddings.embedding_size, num_inputs)
+        self.H_1 = torch.nn.parameter.Parameter(torch.Tensor(self.num_units, self.num_units))
+        nn.init.xavier_normal(self.H_1)
+        self.H_2 = torch.nn.parameter.Parameter(torch.Tensor(self.num_units, self.num_units))
+        nn.init.xavier_normal(self.H_2)
+        self.H_3 = torch.nn.parameter.Parameter(torch.Tensor(self.num_units, self.num_units))
+        nn.init.xavier_normal(self.H_3)
+        self.H_4 = torch.nn.parameter.Parameter(torch.Tensor(self.num_units, self.num_units))
+        nn.init.xavier_normal(self.H_4)
+        self.gcn_layers = []
+        if residual == '' or residual == 'residual':
+            for i in range(self.num_layers):
+                gcn = GCNLayer(num_inputs, num_units, num_labels, in_arcs=in_arcs, out_arcs=out_arcs, use_gates=self.use_gates, use_glus=self.use_glus)
+                self.gcn_layers.append(gcn)
+            self.gcn_seq = nn.Sequential(*self.gcn_layers)
+        elif residual == 'dense':
+            for i in range(self.num_layers):
+                input_size = num_inputs + i * num_units
+                gcn = GCNLayer(input_size, num_units, num_labels, in_arcs=in_arcs, out_arcs=out_arcs, use_gates=self.use_gates, use_glus=self.use_glus)
+                self.gcn_layers.append(gcn)
+            self.gcn_seq = nn.Sequential(*self.gcn_layers)
+
+    def forward(self, src, lengths=None, arc_tensor_in=None, arc_tensor_out=None, label_tensor_in=None, label_tensor_out=None, mask_in=None, mask_out=None, mask_loop=None, sent_mask=None, morph=None, morph_mask=None):
+        if morph is None:
+            embeddings = self.embeddings(src)
+        else:
+            embeddings = self.embeddings(src)
+            morph_size = morph.data.size()
+            embeddings_m = self.morph_embeddings(morph.view(morph_size[0] * morph_size[1], morph_size[2], 1))
+            embeddings_m = embeddings_m.view((morph_size[0], morph_size[1], morph_size[2], embeddings_m.data.size()[2]))
+            embeddings_m = embeddings_m.permute(3, 0, 1, 2).contiguous()
+            masked_morph = embeddings_m * morph_mask
+            morph_sum = masked_morph.sum(3).permute(2, 1, 0).contiguous()
+            embeddings = torch.cat([embeddings, morph_sum], dim=2)
+            embeddings = torch.nn.functional.relu(self.emb_morph_emb(embeddings))
+        if self.residual == '':
+            for g, gcn in enumerate(self.gcn_layers):
+                if g == 0:
+                    memory_bank = gcn(embeddings, lengths, arc_tensor_in, arc_tensor_out, label_tensor_in, label_tensor_out, mask_in, mask_out, mask_loop, sent_mask)
+                else:
+                    memory_bank = gcn(memory_bank, lengths, arc_tensor_in, arc_tensor_out, label_tensor_in, label_tensor_out, mask_in, mask_out, mask_loop, sent_mask)
+        elif self.residual == 'residual':
+            for g, gcn in enumerate(self.gcn_layers):
+                if g == 0:
+                    memory_bank = gcn(embeddings, lengths, arc_tensor_in, arc_tensor_out, label_tensor_in, label_tensor_out, mask_in, mask_out, mask_loop, sent_mask)
+                elif g == 1:
+                    prev_memory_bank = embeddings + memory_bank
+                    memory_bank = gcn(prev_memory_bank, lengths, arc_tensor_in, arc_tensor_out, label_tensor_in, label_tensor_out, mask_in, mask_out, mask_loop, sent_mask)
+                else:
+                    prev_memory_bank = prev_memory_bank + memory_bank
+                    memory_bank = gcn(prev_memory_bank, lengths, arc_tensor_in, arc_tensor_out, label_tensor_in, label_tensor_out, mask_in, mask_out, mask_loop, sent_mask)
+        elif self.residual == 'dense':
+            for g, gcn in enumerate(self.gcn_layers):
+                if g == 0:
+                    memory_bank = gcn(embeddings, lengths, arc_tensor_in, arc_tensor_out, label_tensor_in, label_tensor_out, mask_in, mask_out, mask_loop, sent_mask)
+                elif g == 1:
+                    prev_memory_bank = torch.cat([embeddings, memory_bank], dim=2)
+                    memory_bank = gcn(prev_memory_bank, lengths, arc_tensor_in, arc_tensor_out, label_tensor_in, label_tensor_out, mask_in, mask_out, mask_loop, sent_mask)
+                else:
+                    prev_memory_bank = torch.cat([prev_memory_bank, memory_bank], dim=2)
+                    memory_bank = gcn(prev_memory_bank, lengths, arc_tensor_in, arc_tensor_out, label_tensor_in, label_tensor_out, mask_in, mask_out, mask_loop, sent_mask)
+        batch_size = memory_bank.size()[1]
+        result_ = memory_bank.permute(2, 1, 0)
+        res_sum = result_.sum(2)
+        sent_mask = sent_mask.permute(1, 0).contiguous()
+        mask_sum = sent_mask.sum(1)
+        encoder_final = res_sum / mask_sum
+        encoder_final = encoder_final.permute(1, 0)
+        h_1 = torch.mm(encoder_final, self.H_1).view((1, batch_size, self.num_units))
+        h_2 = torch.mm(encoder_final, self.H_2).view((1, batch_size, self.num_units))
+        h_3 = torch.mm(encoder_final, self.H_3).view((1, batch_size, self.num_units))
+        h_4 = torch.mm(encoder_final, self.H_4).view((1, batch_size, self.num_units))
+        h__1 = torch.cat([h_1, h_2], dim=0)
+        h__2 = torch.cat([h_3, h_4], dim=0)
+        return (h__1, h__2), memory_bank
 
 
 class DecoderState(object):
@@ -552,6 +952,157 @@ class RNNDecoderBase(nn.Module):
             return RNNDecoderState(self.hidden_size, _fix_enc_hidden(encoder_final))
 
 
+class StdRNNDecoder(RNNDecoderBase):
+    """
+    Standard fully batched RNN decoder with attention.
+    Faster implementation, uses CuDNN for implementation.
+    See :obj:`RNNDecoderBase` for options.
+
+
+    Based around the approach from
+    "Neural Machine Translation By Jointly Learning To Align and Translate"
+    :cite:`Bahdanau2015`
+
+
+    Implemented without input_feeding and currently with no `coverage_attn`
+    or `copy_attn` support.
+    """
+
+    def _run_forward_pass(self, tgt, memory_bank, state, memory_lengths=None):
+        """
+        Private helper for running the specific RNN forward pass.
+        Must be overriden by all subclasses.
+        Args:
+            tgt (LongTensor): a sequence of input tokens tensors
+                                 [len x batch x nfeats].
+            memory_bank (FloatTensor): output(tensor sequence) from the encoder
+                        RNN of size (src_len x batch x hidden_size).
+            state (FloatTensor): hidden state from the encoder RNN for
+                                 initializing the decoder.
+            memory_lengths (LongTensor): the source memory_bank lengths.
+        Returns:
+            decoder_final (Variable): final hidden state from the decoder.
+            decoder_outputs ([FloatTensor]): an array of output of every time
+                                     step from the decoder.
+            attns (dict of (str, [FloatTensor]): a dictionary of different
+                            type of attention Tensor array of every time
+                            step from the decoder.
+        """
+        assert not self._copy
+        assert not self._coverage
+        attns = {}
+        emb = self.embeddings(tgt)
+        if isinstance(self.rnn, nn.GRU):
+            rnn_output, decoder_final = self.rnn(emb, state.hidden[0])
+        else:
+            rnn_output, decoder_final = self.rnn(emb, state.hidden)
+        tgt_len, tgt_batch, _ = tgt.size()
+        output_len, output_batch, _ = rnn_output.size()
+        aeq(tgt_len, output_len)
+        aeq(tgt_batch, output_batch)
+        decoder_outputs, p_attn = self.attn(rnn_output.transpose(0, 1).contiguous(), memory_bank.transpose(0, 1), memory_lengths=memory_lengths)
+        attns['std'] = p_attn
+        if self.context_gate is not None:
+            decoder_outputs = self.context_gate(emb.view(-1, emb.size(2)), rnn_output.view(-1, rnn_output.size(2)), decoder_outputs.view(-1, decoder_outputs.size(2)))
+            decoder_outputs = decoder_outputs.view(tgt_len, tgt_batch, self.hidden_size)
+        decoder_outputs = self.dropout(decoder_outputs)
+        return decoder_final, decoder_outputs, attns
+
+    def _build_rnn(self, rnn_type, **kwargs):
+        rnn, _ = rnn_factory(rnn_type, **kwargs)
+        return rnn
+
+    @property
+    def _input_size(self):
+        """
+        Private helper returning the number of expected features.
+        """
+        return self.embeddings.embedding_size
+
+
+class InputFeedRNNDecoder(RNNDecoderBase):
+    """
+    Input feeding based decoder. See :obj:`RNNDecoderBase` for options.
+
+    Based around the input feeding approach from
+    "Effective Approaches to Attention-based Neural Machine Translation"
+    :cite:`Luong2015`
+
+
+    .. mermaid::
+
+       graph BT
+          A[Input n-1]
+          AB[Input n]
+          subgraph RNN
+            E[Pos n-1]
+            F[Pos n]
+            E --> F
+          end
+          G[Encoder]
+          H[Memory_Bank n-1]
+          A --> E
+          AB --> F
+          E --> H
+          G --> H
+    """
+
+    def _run_forward_pass(self, tgt, memory_bank, state, memory_lengths=None):
+        """
+        See StdRNNDecoder._run_forward_pass() for description
+        of arguments and return values.
+        """
+        input_feed = state.input_feed.squeeze(0)
+        input_feed_batch, _ = input_feed.size()
+        tgt_len, tgt_batch, _ = tgt.size()
+        aeq(tgt_batch, input_feed_batch)
+        decoder_outputs = []
+        attns = {'std': []}
+        if self._copy:
+            attns['copy'] = []
+        if self._coverage:
+            attns['coverage'] = []
+        emb = self.embeddings(tgt)
+        assert emb.dim() == 3
+        hidden = state.hidden
+        coverage = state.coverage.squeeze(0) if state.coverage is not None else None
+        for i, emb_t in enumerate(emb.split(1)):
+            emb_t = emb_t.squeeze(0)
+            decoder_input = torch.cat([emb_t, input_feed], 1)
+            rnn_output, hidden = self.rnn(decoder_input, hidden)
+            decoder_output, p_attn = self.attn(rnn_output, memory_bank.transpose(0, 1), memory_lengths=memory_lengths)
+            if self.context_gate is not None:
+                decoder_output = self.context_gate(decoder_input, rnn_output, decoder_output)
+            decoder_output = self.dropout(decoder_output)
+            input_feed = decoder_output
+            decoder_outputs += [decoder_output]
+            attns['std'] += [p_attn]
+            if self._coverage:
+                coverage = coverage + p_attn if coverage is not None else p_attn
+                attns['coverage'] += [coverage]
+            if self._copy and not self._reuse_copy_attn:
+                _, copy_attn = self.copy_attn(decoder_output, memory_bank.transpose(0, 1))
+                attns['copy'] += [copy_attn]
+            elif self._copy:
+                attns['copy'] = attns['std']
+        return hidden, decoder_outputs, attns
+
+    def _build_rnn(self, rnn_type, input_size, hidden_size, num_layers, dropout):
+        assert not rnn_type == 'SRU', "SRU doesn't support input feed! Please set -input_feed 0!"
+        if rnn_type == 'LSTM':
+            stacked_cell = onmt.modules.StackedLSTM
+        else:
+            stacked_cell = onmt.modules.StackedGRU
+        return stacked_cell(num_layers, input_size, hidden_size, dropout)
+
+    @property
+    def _input_size(self):
+        """
+        Using input feed by concatenating input with attention vectors.
+        """
+        return self.embeddings.embedding_size + self.hidden_size
+
+
 class NMTModel(nn.Module):
     """
     Core trainable object in OpenNMT. Implements a trainable interface
@@ -695,6 +1246,69 @@ class AudioEncoder(nn.Module):
         return hidden, output
 
 
+def get_var_maybe_avg(namespace, var_name, training, polyak_decay):
+    v = getattr(namespace, var_name)
+    v_avg = getattr(namespace, var_name + '_avg')
+    v_avg -= (1 - polyak_decay) * (v_avg - v.data)
+    if training:
+        return v
+    else:
+        return Variable(v_avg)
+
+
+def get_vars_maybe_avg(namespace, var_names, training, polyak_decay):
+    vars = []
+    for vn in var_names:
+        vars.append(get_var_maybe_avg(namespace, vn, training, polyak_decay))
+    return vars
+
+
+class WeightNormConv2d(nn.Conv2d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, init_scale=1.0, polyak_decay=0.9995):
+        super(WeightNormConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups)
+        self.V = self.weight
+        self.g = Parameter(torch.Tensor(out_channels))
+        self.b = self.bias
+        self.register_buffer('V_avg', torch.zeros(self.V.size()))
+        self.register_buffer('g_avg', torch.zeros(out_channels))
+        self.register_buffer('b_avg', torch.zeros(out_channels))
+        self.init_scale = init_scale
+        self.polyak_decay = polyak_decay
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        return
+
+    def forward(self, x, init=False):
+        if init is True:
+            self.V.data.copy_(torch.randn(self.V.data.size()).type_as(self.V.data) * 0.05)
+            v_norm = self.V.data / self.V.data.view(self.out_channels, -1).norm(2, 1).view(self.out_channels, *([1] * (len(self.kernel_size) + 1))).expand_as(self.V.data)
+            x_init = F.conv2d(x, Variable(v_norm), None, self.stride, self.padding, self.dilation, self.groups).data
+            t_x_init = x_init.transpose(0, 1).contiguous().view(self.out_channels, -1)
+            m_init, v_init = t_x_init.mean(1).squeeze(1), t_x_init.var(1).squeeze(1)
+            scale_init = self.init_scale / torch.sqrt(v_init + 1e-10)
+            self.g.data.copy_(scale_init)
+            self.b.data.copy_(-m_init * scale_init)
+            scale_init_shape = scale_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
+            m_init_shape = m_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
+            x_init = scale_init_shape.expand_as(x_init) * (x_init - m_init_shape.expand_as(x_init))
+            self.V_avg.copy_(self.V.data)
+            self.g_avg.copy_(self.g.data)
+            self.b_avg.copy_(self.b.data)
+            return Variable(x_init)
+        else:
+            v, g, b = get_vars_maybe_avg(self, ['V', 'g', 'b'], self.training, polyak_decay=self.polyak_decay)
+            scalar = torch.norm(v.view(self.out_channels, -1), 2, 1)
+            if len(scalar.size()) == 2:
+                scalar = g / scalar.squeeze(1)
+            else:
+                scalar = g / scalar
+            w = scalar.view(self.out_channels, *([1] * (len(v.size()) - 1))).expand_as(v) * v
+            x = F.conv2d(x, w, b, self.stride, self.padding, self.dilation, self.groups)
+            return x
+
+
 class GatedConv(nn.Module):
 
     def __init__(self, input_size, width=3, dropout=0.2, nopad=False):
@@ -731,6 +1345,38 @@ class StackedCNN(nn.Module):
         return x
 
 
+def shape_transform(x):
+    """ Tranform the size of the tensors to fit for conv input. """
+    return torch.unsqueeze(torch.transpose(x, 1, 2), 3)
+
+
+class CNNEncoder(EncoderBase):
+    """
+    Encoder built on CNN based on
+    :cite:`DBLP:journals/corr/GehringAGYD17`.
+    """
+
+    def __init__(self, num_layers, hidden_size, cnn_kernel_width, dropout, embeddings):
+        super(CNNEncoder, self).__init__()
+        self.embeddings = embeddings
+        input_size = embeddings.embedding_size
+        self.linear = nn.Linear(input_size, hidden_size)
+        self.cnn = StackedCNN(num_layers, hidden_size, cnn_kernel_width, dropout)
+
+    def forward(self, input, lengths=None, hidden=None):
+        """ See :obj:`onmt.modules.EncoderBase.forward()`"""
+        self._check_args(input, lengths, hidden)
+        emb = self.embeddings(input)
+        s_len, batch, emb_dim = emb.size()
+        emb = emb.transpose(0, 1).contiguous()
+        emb_reshape = emb.view(emb.size(0) * emb.size(1), -1)
+        emb_remap = self.linear(emb_reshape)
+        emb_remap = emb_remap.view(emb.size(0), emb.size(1), -1)
+        emb_remap = shape_transform(emb_remap)
+        out = self.cnn(emb_remap)
+        return emb_remap.squeeze(3).transpose(0, 1).contiguous(), out.squeeze(3).transpose(0, 1).contiguous()
+
+
 class CNNDecoderState(DecoderState):
 
     def __init__(self, memory_bank, enc_hidden):
@@ -751,11 +1397,6 @@ class CNNDecoderState(DecoderState):
     def repeat_beam_size_times(self, beam_size):
         """ Repeat beam_size times along batch dimension. """
         self.init_src = Variable(self.init_src.data.repeat(1, beam_size, 1), volatile=True)
-
-
-def shape_transform(x):
-    """ Tranform the size of the tensors to fit for conv input. """
-    return torch.unsqueeze(torch.transpose(x, 1, 2), 3)
 
 
 class CNNDecoder(nn.Module):
@@ -979,6 +1620,82 @@ class CopyGenerator(nn.Module):
         return torch.cat([out_prob, copy_prob], 1)
 
 
+class CopyGeneratorCriterion(object):
+
+    def __init__(self, vocab_size, force_copy, pad, eps=1e-20):
+        self.force_copy = force_copy
+        self.eps = eps
+        self.offset = vocab_size
+        self.pad = pad
+
+    def __call__(self, scores, align, target):
+        align_unk = align.eq(0).float()
+        align_not_unk = align.ne(0).float()
+        target_unk = target.eq(0).float()
+        target_not_unk = target.ne(0).float()
+        out = scores.gather(1, align.view(-1, 1) + self.offset).view(-1)
+        out = out.mul(align_not_unk) + self.eps
+        tmp = scores.gather(1, target.view(-1, 1)).view(-1)
+        if not self.force_copy:
+            out = out + tmp.mul(target_not_unk)
+            out = out + tmp.mul(align_unk).mul(target_unk)
+        else:
+            out = out + tmp.mul(align_unk)
+        loss = -out.log().mul(target.ne(self.pad).float())
+        return loss
+
+
+class CopyGeneratorLossCompute(onmt.Loss.LossComputeBase):
+    """
+    Copy Generator Loss Computation.
+    """
+
+    def __init__(self, generator, tgt_vocab, force_copy, normalize_by_length, eps=1e-20):
+        super(CopyGeneratorLossCompute, self).__init__(generator, tgt_vocab)
+        self.cur_dataset = None
+        self.force_copy = force_copy
+        self.normalize_by_length = normalize_by_length
+        self.criterion = CopyGeneratorCriterion(len(tgt_vocab), force_copy, self.padding_idx)
+
+    def _make_shard_state(self, batch, output, range_, attns):
+        """ See base class for args description. """
+        if getattr(batch, 'alignment', None) is None:
+            raise AssertionError('using -copy_attn you need to pass in -dynamic_dict during preprocess stage.')
+        return {'output': output, 'target': batch.tgt[range_[0] + 1:range_[1]], 'copy_attn': attns.get('copy'), 'align': batch.alignment[range_[0] + 1:range_[1]]}
+
+    def _compute_loss(self, batch, output, target, copy_attn, align):
+        """
+        Compute the loss. The args must match self._make_shard_state().
+        Args:
+            batch: the current batch.
+            output: the predict output from the model.
+            target: the validate target to compare output with.
+            copy_attn: the copy attention value.
+            align: the align info.
+        """
+        target = target.view(-1)
+        align = align.view(-1)
+        scores = self.generator(self._bottle(output), self._bottle(copy_attn), batch.src_map)
+        loss = self.criterion(scores, align, target)
+        scores_data = scores.data.clone()
+        scores_data = onmt.io.TextDataset.collapse_copy_scores(self._unbottle(scores_data, batch.batch_size), batch, self.tgt_vocab, self.cur_dataset.src_vocabs)
+        scores_data = self._bottle(scores_data)
+        target_data = target.data.clone()
+        correct_mask = target_data.eq(0) * align.data.ne(0)
+        correct_copy = (align.data + len(self.tgt_vocab)) * correct_mask.long()
+        target_data = target_data + correct_copy
+        loss_data = loss.sum().data.clone()
+        stats = self._stats(loss_data, scores_data, target_data)
+        if self.normalize_by_length:
+            pad_ix = batch.dataset.fields['tgt'].vocab.stoi[onmt.io.PAD_WORD]
+            tgt_lens = batch.tgt.ne(pad_ix).sum(0).float()
+            loss = loss.view(-1, batch.batch_size).sum(0)
+            loss = torch.div(loss, tgt_lens).sum()
+        else:
+            loss = loss.sum()
+        return loss, stats
+
+
 class PositionalEncoding(nn.Module):
     """
     Implements the sinusoidal positional encoding for
@@ -1009,6 +1726,36 @@ class PositionalEncoding(nn.Module):
         emb = emb + Variable(self.pe[:emb.size(0)], requires_grad=False)
         emb = self.dropout(emb)
         return emb
+
+
+class Elementwise(nn.ModuleList):
+    """
+    A simple network container.
+    Parameters are a list of modules.
+    Inputs are a 3d Variable whose last dimension is the same length
+    as the list.
+    Outputs are the result of applying modules to inputs elementwise.
+    An optional merge parameter allows the outputs to be reduced to a
+    single Variable.
+    """
+
+    def __init__(self, merge=None, *args):
+        assert merge in [None, 'first', 'concat', 'sum', 'mlp']
+        self.merge = merge
+        super(Elementwise, self).__init__(*args)
+
+    def forward(self, input):
+        inputs = [feat.squeeze(2) for feat in input.split(1, dim=2)]
+        assert len(self) == len(inputs)
+        outputs = [f(x) for f, x in zip(self, inputs)]
+        if self.merge == 'first':
+            return outputs[0]
+        elif self.merge == 'concat' or self.merge == 'mlp':
+            return torch.cat(outputs, 2)
+        elif self.merge == 'sum':
+            return sum(outputs)
+        else:
+            return outputs
 
 
 class Embeddings(nn.Module):
@@ -1898,6 +2645,58 @@ class TransformerEncoderLayer(nn.Module):
         return self.feed_forward(out)
 
 
+class TransformerEncoder(EncoderBase):
+    """
+    The Transformer encoder from "Attention is All You Need".
+
+
+    .. mermaid::
+
+       graph BT
+          A[input]
+          B[multi-head self-attn]
+          C[feed forward]
+          O[output]
+          A --> B
+          B --> C
+          C --> O
+
+
+
+    Args:
+       num_layers (int): number of encoder layers
+       hidden_size (int): number of hidden units
+       dropout (float): dropout parameters
+       embeddings (:obj:`onmt.modules.Embeddings`):
+          embeddings to use, should have positional encodings
+    """
+
+    def __init__(self, num_layers, hidden_size, dropout, embeddings):
+        super(TransformerEncoder, self).__init__()
+        self.num_layers = num_layers
+        self.embeddings = embeddings
+        self.transformer = nn.ModuleList([TransformerEncoderLayer(hidden_size, dropout) for i in range(num_layers)])
+        self.layer_norm = onmt.modules.LayerNorm(hidden_size)
+
+    def forward(self, input, lengths=None, hidden=None):
+        """ See :obj:`EncoderBase.forward()`"""
+        self._check_args(input, lengths, hidden)
+        emb = self.embeddings(input)
+        s_len, n_batch, emb_dim = emb.size()
+        out = emb.transpose(0, 1).contiguous()
+        words = input[:, :, (0)].transpose(0, 1)
+        out_batch, out_len, _ = out.size()
+        w_batch, w_len = words.size()
+        aeq(out_batch, w_batch)
+        aeq(out_len, w_len)
+        padding_idx = self.embeddings.word_padding_idx
+        mask = words.data.eq(padding_idx).unsqueeze(1).expand(w_batch, w_len, w_len)
+        for i in range(self.num_layers):
+            out = self.transformer[i](out, mask)
+        out = self.layer_norm(out)
+        return Variable(emb.data), out.transpose(0, 1).contiguous()
+
+
 MAX_SIZE = 5000
 
 
@@ -2100,53 +2899,6 @@ class LayerNorm(nn.Module):
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
 
-class Elementwise(nn.ModuleList):
-    """
-    A simple network container.
-    Parameters are a list of modules.
-    Inputs are a 3d Variable whose last dimension is the same length
-    as the list.
-    Outputs are the result of applying modules to inputs elementwise.
-    An optional merge parameter allows the outputs to be reduced to a
-    single Variable.
-    """
-
-    def __init__(self, merge=None, *args):
-        assert merge in [None, 'first', 'concat', 'sum', 'mlp']
-        self.merge = merge
-        super(Elementwise, self).__init__(*args)
-
-    def forward(self, input):
-        inputs = [feat.squeeze(2) for feat in input.split(1, dim=2)]
-        assert len(self) == len(inputs)
-        outputs = [f(x) for f, x in zip(self, inputs)]
-        if self.merge == 'first':
-            return outputs[0]
-        elif self.merge == 'concat' or self.merge == 'mlp':
-            return torch.cat(outputs, 2)
-        elif self.merge == 'sum':
-            return sum(outputs)
-        else:
-            return outputs
-
-
-def get_var_maybe_avg(namespace, var_name, training, polyak_decay):
-    v = getattr(namespace, var_name)
-    v_avg = getattr(namespace, var_name + '_avg')
-    v_avg -= (1 - polyak_decay) * (v_avg - v.data)
-    if training:
-        return v
-    else:
-        return Variable(v_avg)
-
-
-def get_vars_maybe_avg(namespace, var_names, training, polyak_decay):
-    vars = []
-    for vn in var_names:
-        vars.append(get_var_maybe_avg(namespace, vn, training, polyak_decay))
-    return vars
-
-
 class WeightNormLinear(nn.Linear):
     """
     Implementation of "Weight Normalization: A Simple Reparameterization
@@ -2194,52 +2946,6 @@ class WeightNormLinear(nn.Linear):
             return x
 
 
-class WeightNormConv2d(nn.Conv2d):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, init_scale=1.0, polyak_decay=0.9995):
-        super(WeightNormConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups)
-        self.V = self.weight
-        self.g = Parameter(torch.Tensor(out_channels))
-        self.b = self.bias
-        self.register_buffer('V_avg', torch.zeros(self.V.size()))
-        self.register_buffer('g_avg', torch.zeros(out_channels))
-        self.register_buffer('b_avg', torch.zeros(out_channels))
-        self.init_scale = init_scale
-        self.polyak_decay = polyak_decay
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        return
-
-    def forward(self, x, init=False):
-        if init is True:
-            self.V.data.copy_(torch.randn(self.V.data.size()).type_as(self.V.data) * 0.05)
-            v_norm = self.V.data / self.V.data.view(self.out_channels, -1).norm(2, 1).view(self.out_channels, *([1] * (len(self.kernel_size) + 1))).expand_as(self.V.data)
-            x_init = F.conv2d(x, Variable(v_norm), None, self.stride, self.padding, self.dilation, self.groups).data
-            t_x_init = x_init.transpose(0, 1).contiguous().view(self.out_channels, -1)
-            m_init, v_init = t_x_init.mean(1).squeeze(1), t_x_init.var(1).squeeze(1)
-            scale_init = self.init_scale / torch.sqrt(v_init + 1e-10)
-            self.g.data.copy_(scale_init)
-            self.b.data.copy_(-m_init * scale_init)
-            scale_init_shape = scale_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
-            m_init_shape = m_init.view(1, self.out_channels, *([1] * (len(x_init.size()) - 2)))
-            x_init = scale_init_shape.expand_as(x_init) * (x_init - m_init_shape.expand_as(x_init))
-            self.V_avg.copy_(self.V.data)
-            self.g_avg.copy_(self.g.data)
-            self.b_avg.copy_(self.b.data)
-            return Variable(x_init)
-        else:
-            v, g, b = get_vars_maybe_avg(self, ['V', 'g', 'b'], self.training, polyak_decay=self.polyak_decay)
-            scalar = torch.norm(v.view(self.out_channels, -1), 2, 1)
-            if len(scalar.size()) == 2:
-                scalar = g / scalar.squeeze(1)
-            else:
-                scalar = g / scalar
-            w = scalar.view(self.out_channels, *([1] * (len(v.size()) - 1))).expand_as(v) * v
-            x = F.conv2d(x, w, b, self.stride, self.padding, self.dilation, self.groups)
-            return x
-
-
 class WeightNormConvTranspose2d(nn.ConvTranspose2d):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, init_scale=1.0, polyak_decay=0.9995):
@@ -2282,129 +2988,6 @@ class WeightNormConvTranspose2d(nn.ConvTranspose2d):
             return x
 
 
-class GCNLayer(nn.Module):
-    """ Graph convolutional neural network encoder.
-
-    """
-
-    def __init__(self, num_inputs, num_units, num_labels, in_arcs=True, out_arcs=True, batch_first=False, use_gates=True, use_glus=False):
-        super(GCNLayer, self).__init__()
-        self.in_arcs = in_arcs
-        self.out_arcs = out_arcs
-        self.num_inputs = num_inputs
-        self.num_units = num_units
-        self.num_labels = num_labels
-        self.batch_first = batch_first
-        self.glu = nn.GLU(3)
-        self.relu = nn.ReLU()
-        self.sigmoid = nn.Sigmoid()
-        self.use_gates = use_gates
-        self.use_glus = use_glus
-        if in_arcs:
-            self.V_in = Parameter(torch.Tensor(self.num_inputs, self.num_units))
-            nn.init.xavier_normal(self.V_in)
-            self.b_in = Parameter(torch.Tensor(num_labels, self.num_units))
-            nn.init.constant(self.b_in, 0)
-            if self.use_gates:
-                self.V_in_gate = Parameter(torch.Tensor(self.num_inputs, 1))
-                nn.init.xavier_normal(self.V_in_gate)
-                self.b_in_gate = Parameter(torch.Tensor(num_labels, 1))
-                nn.init.constant(self.b_in_gate, 1)
-        if out_arcs:
-            self.V_out = Parameter(torch.Tensor(self.num_inputs, self.num_units))
-            nn.init.xavier_normal(self.V_out)
-            self.b_out = Parameter(torch.Tensor(num_labels, self.num_units))
-            nn.init.constant(self.b_out, 0)
-            if self.use_gates:
-                self.V_out_gate = Parameter(torch.Tensor(self.num_inputs, 1))
-                nn.init.xavier_normal(self.V_out_gate)
-                self.b_out_gate = Parameter(torch.Tensor(num_labels, 1))
-                nn.init.constant(self.b_out_gate, 1)
-        self.W_self_loop = Parameter(torch.Tensor(self.num_inputs, self.num_units))
-        nn.init.xavier_normal(self.W_self_loop)
-        if self.use_gates:
-            self.W_self_loop_gate = Parameter(torch.Tensor(self.num_inputs, 1))
-            nn.init.xavier_normal(self.W_self_loop_gate)
-
-    def forward(self, src, lengths=None, arc_tensor_in=None, arc_tensor_out=None, label_tensor_in=None, label_tensor_out=None, mask_in=None, mask_out=None, mask_loop=None, sent_mask=None):
-        if not self.batch_first:
-            encoder_outputs = src.permute(1, 0, 2).contiguous()
-        else:
-            encoder_outputs = src.contiguous()
-        batch_size = encoder_outputs.size()[0]
-        seq_len = encoder_outputs.size()[1]
-        max_degree = 1
-        input_ = encoder_outputs.view((batch_size * seq_len, self.num_inputs))
-        if self.in_arcs:
-            input_in = torch.mm(input_, self.V_in)
-            first_in = input_in.index_select(0, arc_tensor_in[0] * seq_len + arc_tensor_in[1])
-            second_in = self.b_in.index_select(0, label_tensor_in[0])
-            in_ = first_in + second_in
-            degr = int(first_in.size()[0] / batch_size / seq_len)
-            in_ = in_.view((batch_size, seq_len, degr, self.num_units))
-            if self.use_glus:
-                in_ = torch.cat((in_, in_), 3)
-                in_ = self.glu(in_)
-            if self.use_gates:
-                input_in_gate = torch.mm(input_, self.V_in_gate)
-                first_in_gate = input_in_gate.index_select(0, arc_tensor_in[0] * seq_len + arc_tensor_in[1])
-                second_in_gate = self.b_in_gate.index_select(0, label_tensor_in[0])
-                in_gate = (first_in_gate + second_in_gate).view((batch_size, seq_len, degr))
-            max_degree += degr
-        if self.out_arcs:
-            input_out = torch.mm(input_, self.V_out)
-            first_out = input_out.index_select(0, arc_tensor_out[0] * seq_len + arc_tensor_out[1])
-            second_out = self.b_out.index_select(0, label_tensor_out[0])
-            degr = int(first_out.size()[0] / batch_size / seq_len)
-            max_degree += degr
-            out_ = (first_out + second_out).view((batch_size, seq_len, degr, self.num_units))
-            if self.use_glus:
-                out_ = torch.cat((out_, out_), 3)
-                out_ = self.glu(out_)
-            if self.use_gates:
-                input_out_gate = torch.mm(input_, self.V_out_gate)
-                first_out_gate = input_out_gate.index_select(0, arc_tensor_out[0] * seq_len + arc_tensor_out[1])
-                second_out_gate = self.b_out_gate.index_select(0, label_tensor_out[0])
-                out_gate = (first_out_gate + second_out_gate).view((batch_size, seq_len, degr))
-        same_input = torch.mm(encoder_outputs.view(-1, encoder_outputs.size(2)), self.W_self_loop).view(encoder_outputs.size(0), encoder_outputs.size(1), -1)
-        same_input = same_input.view(encoder_outputs.size(0), encoder_outputs.size(1), 1, self.W_self_loop.size(1))
-        if self.use_gates:
-            same_input_gate = torch.mm(encoder_outputs.view(-1, encoder_outputs.size(2)), self.W_self_loop_gate).view(encoder_outputs.size(0), encoder_outputs.size(1), -1)
-        if self.in_arcs and self.out_arcs:
-            potentials = torch.cat((in_, out_, same_input), dim=2)
-            if self.use_gates:
-                potentials_gate = torch.cat((in_gate, out_gate, same_input_gate), dim=2)
-            mask_soft = torch.cat((mask_in, mask_out, mask_loop), dim=1)
-        elif self.out_arcs:
-            potentials = torch.cat((out_, same_input), dim=2)
-            if self.use_gates:
-                potentials_gate = torch.cat((out_gate, same_input_gate), dim=2)
-            mask_soft = torch.cat((mask_out, mask_loop), dim=1)
-        elif self.in_arcs:
-            potentials = torch.cat((in_, same_input), dim=2)
-            if self.use_gates:
-                potentials_gate = torch.cat((in_gate, same_input_gate), dim=2)
-            mask_soft = torch.cat((mask_in, mask_loop), dim=1)
-        else:
-            potentials = same_input
-            if self.use_gates:
-                potentials_gate = same_input_gate
-            mask_soft = mask_loop
-        potentials_resh = potentials.view((batch_size * seq_len, max_degree, self.num_units))
-        if self.use_gates:
-            potentials_r = potentials_gate.view((batch_size * seq_len, max_degree))
-            probs_det_ = (self.sigmoid(potentials_r) * mask_soft).unsqueeze(2)
-            potentials_masked = potentials_resh * probs_det_
-        else:
-            potentials_masked = potentials_resh * mask_soft.unsqueeze(2)
-        potentials_masked_ = potentials_masked.sum(dim=1)
-        potentials_masked_ = self.relu(potentials_masked_)
-        result_ = potentials_masked_.view((batch_size, seq_len, self.num_units))
-        result_ = result_ * sent_mask.permute(1, 0).contiguous().unsqueeze(2)
-        memory_bank = result_.permute(1, 0, 2).contiguous()
-        return memory_bank
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -2434,6 +3017,10 @@ TESTCASES = [
      True),
     (MatrixTree,
      lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (MeanEncoder,
+     lambda: ([], {'num_layers': 1, 'embeddings': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
     (PositionalEncoding,
@@ -2505,4 +3092,7 @@ class Test_diegma_graph_2_text(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

@@ -24,15 +24,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -40,7 +41,13 @@ __version__ = '1.0.0'
 import torch
 
 
+import numpy as np
+
+
 from torch import nn
+
+
+from functools import reduce
 
 
 import warnings
@@ -103,14 +110,23 @@ class AdaptiveConcatPool2d(nn.Module):
         return torch.cat([self.mp(x), self.ap(x)], 1)
 
 
-class Lambda(nn.Module):
+class LambdaBase(nn.Sequential):
 
-    def __init__(self, f):
-        super().__init__()
-        self.f = f
+    def __init__(self, fn, *args):
+        super(LambdaBase, self).__init__(*args)
+        self.lambda_func = fn
 
-    def forward(self, x):
-        return self.f(x)
+    def forward_prepare(self, input):
+        output = []
+        for module in self._modules.values():
+            output.append(module(input))
+        return output if output else input
+
+
+class Lambda(LambdaBase):
+
+    def forward(self, input):
+        return self.lambda_func(self.forward_prepare(input))
 
 
 class Flatten(nn.Module):
@@ -120,6 +136,18 @@ class Flatten(nn.Module):
 
     def forward(self, x):
         return x.view(x.size(0), -1)
+
+
+class LambdaMap(LambdaBase):
+
+    def forward(self, input):
+        return list(map(self.lambda_func, self.forward_prepare(input)))
+
+
+class LambdaReduce(LambdaBase):
+
+    def forward(self, input):
+        return reduce(self.lambda_func, self.forward_prepare(input))
 
 
 import torch
@@ -137,8 +165,8 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (Lambda,
-     lambda: ([], {'f': _mock_layer()}),
+    (LambdaBase,
+     lambda: ([], {'fn': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
 ]

@@ -17,15 +17,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -58,6 +59,12 @@ import time
 
 
 import numpy as np
+
+
+import torchvision.transforms as transforms
+
+
+import torch.utils.data as data
 
 
 import typing as _typing
@@ -274,38 +281,6 @@ class _TargetNet(nn.Module):
         x = self.features(x).view(x.size(0), 64)
         x = self.fc(x)
         return x
-
-
-class _NestedEnc(torch.nn.Module):
-
-    def __init__(self, f):
-        super().__init__()
-        self.f = f
-
-    def forward(self, x):
-        return self.f(x)
-
-
-class _Enc(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.e1 = _NestedEnc(torch.nn.Linear(4, 2))
-        self.e2 = _NestedEnc(self.e1.f)
-
-    def forward(self, x):
-        return self.e1(x) + self.e2(x)
-
-
-class _PartiallyUsed(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.a = torch.nn.Parameter(torch.rand(4, 3, requires_grad=True))
-        self.b = torch.nn.Parameter(torch.rand(4, 3, requires_grad=True))
-
-    def forward(self, x):
-        return x @ self.a
 
 
 class _NestedEnc(torch.nn.Module):

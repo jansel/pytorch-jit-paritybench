@@ -16,6 +16,11 @@ psp_net = _module
 seg_net = _module
 u_net = _module
 train = _module
+train = _module
+train = _module
+train = _module
+train = _module
+train = _module
 utils = _module
 joint_transforms = _module
 misc = _module
@@ -25,20 +30,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import numpy as np
+
+
 import torch
+
+
+from torch.utils import data
+
+
+import scipy.io as sio
+
+
+import torchvision.transforms as standard_transforms
+
+
+from torch.autograd import Variable
+
+
+from torch.backends import cudnn
+
+
+from torch.utils.data import DataLoader
 
 
 from torch import nn
@@ -50,13 +77,22 @@ from torchvision import models
 import torch.nn.functional as F
 
 
+import random
+
+
+import torchvision.utils as vutils
+
+
+from torch import optim
+
+
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+
+from math import sqrt
+
+
 from math import ceil
-
-
-import numpy as np
-
-
-from torch.autograd import Variable
 
 
 class _DenseUpsamplingConvModule(nn.Module):
@@ -77,7 +113,7 @@ class _DenseUpsamplingConvModule(nn.Module):
         return x
 
 
-root = '/media/b3-542/LIBRARY/Datasets/cityscapes'
+root = '/media/b3-542/LIBRARY/Datasets/VOC'
 
 
 class ResNetDUC(nn.Module):
@@ -470,6 +506,44 @@ class PSPNet(nn.Module):
         return F.upsample(x, x_size[2:], mode='bilinear')
 
 
+class Conv2dDeformable(nn.Module):
+
+    def __init__(self, regular_filter, cuda=True):
+        super(Conv2dDeformable, self).__init__()
+        assert isinstance(regular_filter, nn.Conv2d)
+        self.regular_filter = regular_filter
+        self.offset_filter = nn.Conv2d(regular_filter.in_channels, 2 * regular_filter.in_channels, kernel_size=3, padding=1, bias=False)
+        self.offset_filter.weight.data.normal_(0, 0.0005)
+        self.input_shape = None
+        self.grid_w = None
+        self.grid_h = None
+        self.cuda = cuda
+
+    def forward(self, x):
+        x_shape = x.size()
+        offset = self.offset_filter(x)
+        offset_w, offset_h = torch.split(offset, self.regular_filter.in_channels, 1)
+        offset_w = offset_w.contiguous().view(-1, int(x_shape[2]), int(x_shape[3]))
+        offset_h = offset_h.contiguous().view(-1, int(x_shape[2]), int(x_shape[3]))
+        if not self.input_shape or self.input_shape != x_shape:
+            self.input_shape = x_shape
+            grid_w, grid_h = np.meshgrid(np.linspace(-1, 1, x_shape[3]), np.linspace(-1, 1, x_shape[2]))
+            grid_w = torch.Tensor(grid_w)
+            grid_h = torch.Tensor(grid_h)
+            if self.cuda:
+                grid_w = grid_w
+                grid_h = grid_h
+            self.grid_w = nn.Parameter(grid_w)
+            self.grid_h = nn.Parameter(grid_h)
+        offset_w = offset_w + self.grid_w
+        offset_h = offset_h + self.grid_h
+        x = x.contiguous().view(-1, int(x_shape[2]), int(x_shape[3])).unsqueeze(1)
+        x = F.grid_sample(x, torch.stack((offset_h, offset_w), 3))
+        x = x.contiguous().view(-1, int(x_shape[1]), int(x_shape[2]), int(x_shape[3]))
+        x = self.regular_filter(x)
+        return x
+
+
 class PSPNetDeform(nn.Module):
 
     def __init__(self, num_classes, input_size, pretrained=True, use_aux=True):
@@ -524,13 +598,9 @@ class PSPNetDeform(nn.Module):
 
 class _DecoderBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, num_conv_layers):
+    def __init__(self, in_channels, middle_channels, out_channels):
         super(_DecoderBlock, self).__init__()
-        middle_channels = in_channels / 2
-        layers = [nn.ConvTranspose2d(in_channels, in_channels, kernel_size=2, stride=2), nn.Conv2d(in_channels, middle_channels, kernel_size=3, padding=1), nn.BatchNorm2d(middle_channels), nn.ReLU(inplace=True)]
-        layers += [nn.Conv2d(middle_channels, middle_channels, kernel_size=3, padding=1), nn.BatchNorm2d(middle_channels), nn.ReLU(inplace=True)] * (num_conv_layers - 2)
-        layers += [nn.Conv2d(middle_channels, out_channels, kernel_size=3, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True)]
-        self.decode = nn.Sequential(*layers)
+        self.decode = nn.Sequential(nn.Conv2d(in_channels, middle_channels, kernel_size=3), nn.BatchNorm2d(middle_channels), nn.ReLU(inplace=True), nn.Conv2d(middle_channels, middle_channels, kernel_size=3), nn.BatchNorm2d(middle_channels), nn.ReLU(inplace=True), nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=2, stride=2))
 
     def forward(self, x):
         return self.decode(x)
@@ -584,16 +654,6 @@ class _EncoderBlock(nn.Module):
         return self.encode(x)
 
 
-class _DecoderBlock(nn.Module):
-
-    def __init__(self, in_channels, middle_channels, out_channels):
-        super(_DecoderBlock, self).__init__()
-        self.decode = nn.Sequential(nn.Conv2d(in_channels, middle_channels, kernel_size=3), nn.BatchNorm2d(middle_channels), nn.ReLU(inplace=True), nn.Conv2d(middle_channels, middle_channels, kernel_size=3), nn.BatchNorm2d(middle_channels), nn.ReLU(inplace=True), nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=2, stride=2))
-
-    def forward(self, x):
-        return self.decode(x)
-
-
 class UNet(nn.Module):
 
     def __init__(self, num_classes):
@@ -643,44 +703,6 @@ class FocalLoss2d(nn.Module):
 
     def forward(self, inputs, targets):
         return self.nll_loss((1 - F.softmax(inputs)) ** self.gamma * F.log_softmax(inputs), targets)
-
-
-class Conv2dDeformable(nn.Module):
-
-    def __init__(self, regular_filter, cuda=True):
-        super(Conv2dDeformable, self).__init__()
-        assert isinstance(regular_filter, nn.Conv2d)
-        self.regular_filter = regular_filter
-        self.offset_filter = nn.Conv2d(regular_filter.in_channels, 2 * regular_filter.in_channels, kernel_size=3, padding=1, bias=False)
-        self.offset_filter.weight.data.normal_(0, 0.0005)
-        self.input_shape = None
-        self.grid_w = None
-        self.grid_h = None
-        self.cuda = cuda
-
-    def forward(self, x):
-        x_shape = x.size()
-        offset = self.offset_filter(x)
-        offset_w, offset_h = torch.split(offset, self.regular_filter.in_channels, 1)
-        offset_w = offset_w.contiguous().view(-1, int(x_shape[2]), int(x_shape[3]))
-        offset_h = offset_h.contiguous().view(-1, int(x_shape[2]), int(x_shape[3]))
-        if not self.input_shape or self.input_shape != x_shape:
-            self.input_shape = x_shape
-            grid_w, grid_h = np.meshgrid(np.linspace(-1, 1, x_shape[3]), np.linspace(-1, 1, x_shape[2]))
-            grid_w = torch.Tensor(grid_w)
-            grid_h = torch.Tensor(grid_h)
-            if self.cuda:
-                grid_w = grid_w
-                grid_h = grid_h
-            self.grid_w = nn.Parameter(grid_w)
-            self.grid_h = nn.Parameter(grid_h)
-        offset_w = offset_w + self.grid_w
-        offset_h = offset_h + self.grid_h
-        x = x.contiguous().view(-1, int(x_shape[2]), int(x_shape[3])).unsqueeze(1)
-        x = F.grid_sample(x, torch.stack((offset_h, offset_w), 3))
-        x = x.contiguous().view(-1, int(x_shape[1]), int(x_shape[2]), int(x_shape[3]))
-        x = self.regular_filter(x)
-        return x
 
 
 import torch

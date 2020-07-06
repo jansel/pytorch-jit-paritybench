@@ -32,15 +32,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -69,7 +70,10 @@ from torch.nn import CrossEntropyLoss
 from torch.nn import SmoothL1Loss
 
 
-import collections
+from torch.optim import Optimizer
+
+
+from torch.optim.optimizer import required
 
 
 import random
@@ -78,548 +82,19 @@ import random
 import numpy as np
 
 
+from collections import defaultdict
+
+
+from torch.utils.data import Dataset
+
+
+import collections
+
+
 from torch.utils.data import DataLoader
 
 
 from torch.utils.data.dataloader import DataLoader
-
-
-def _is_control(char):
-    """Checks whether `chars` is a control character."""
-    if char == '\t' or char == '\n' or char == '\r':
-        return False
-    cat = unicodedata.category(char)
-    if cat.startswith('C'):
-        return True
-    return False
-
-
-def _is_punctuation(char):
-    """Checks whether `chars` is a punctuation character."""
-    cp = ord(char)
-    if cp >= 33 and cp <= 47 or cp >= 58 and cp <= 64 or cp >= 91 and cp <= 96 or cp >= 123 and cp <= 126:
-        return True
-    cat = unicodedata.category(char)
-    if cat.startswith('P'):
-        return True
-    return False
-
-
-def _is_whitespace(char):
-    """Checks whether `chars` is a whitespace character."""
-    if char == ' ' or char == '\t' or char == '\n' or char == '\r':
-        return True
-    cat = unicodedata.category(char)
-    if cat == 'Zs':
-        return True
-    return False
-
-
-def whitespace_tokenize(text):
-    """Runs basic whitespace cleaning and splitting on a piece of text."""
-    text = text.strip()
-    if not text:
-        return []
-    tokens = text.split()
-    return tokens
-
-
-class BasicTokenizer(object):
-    """Runs basic tokenization (punctuation splitting, lower casing, etc.)."""
-
-    def __init__(self, do_lower_case=True, never_split=('[UNK]', '[SEP]', '[PAD]', '[CLS]', '[MASK]')):
-        """Constructs a BasicTokenizer.
-
-        Args:
-          do_lower_case: Whether to lower case the input.
-        """
-        self.do_lower_case = do_lower_case
-        self.never_split = never_split
-
-    def tokenize(self, text):
-        """Tokenizes a piece of text."""
-        text = self._clean_text(text)
-        text = self._tokenize_chinese_chars(text)
-        orig_tokens = whitespace_tokenize(text)
-        split_tokens = []
-        for token in orig_tokens:
-            if self.do_lower_case and token not in self.never_split:
-                token = token.lower()
-                token = self._run_strip_accents(token)
-            split_tokens.extend(self._run_split_on_punc(token))
-        output_tokens = whitespace_tokenize(' '.join(split_tokens))
-        return output_tokens
-
-    def _run_strip_accents(self, text):
-        """Strips accents from a piece of text."""
-        text = unicodedata.normalize('NFD', text)
-        output = []
-        for char in text:
-            cat = unicodedata.category(char)
-            if cat == 'Mn':
-                continue
-            output.append(char)
-        return ''.join(output)
-
-    def _run_split_on_punc(self, text):
-        """Splits punctuation on a piece of text."""
-        if text in self.never_split:
-            return [text]
-        chars = list(text)
-        i = 0
-        start_new_word = True
-        output = []
-        while i < len(chars):
-            char = chars[i]
-            if _is_punctuation(char):
-                output.append([char])
-                start_new_word = True
-            else:
-                if start_new_word:
-                    output.append([])
-                start_new_word = False
-                output[-1].append(char)
-            i += 1
-        return [''.join(x) for x in output]
-
-    def _tokenize_chinese_chars(self, text):
-        """Adds whitespace around any CJK character."""
-        output = []
-        for char in text:
-            cp = ord(char)
-            if self._is_chinese_char(cp):
-                output.append(' ')
-                output.append(char)
-                output.append(' ')
-            else:
-                output.append(char)
-        return ''.join(output)
-
-    def _is_chinese_char(self, cp):
-        """Checks whether CP is the codepoint of a CJK character."""
-        if cp >= 19968 and cp <= 40959 or cp >= 13312 and cp <= 19903 or cp >= 131072 and cp <= 173791 or cp >= 173824 and cp <= 177983 or cp >= 177984 and cp <= 178207 or cp >= 178208 and cp <= 183983 or cp >= 63744 and cp <= 64255 or cp >= 194560 and cp <= 195103:
-            return True
-        return False
-
-    def _clean_text(self, text):
-        """Performs invalid character removal and whitespace cleanup on text."""
-        output = []
-        for char in text:
-            cp = ord(char)
-            if cp == 0 or cp == 65533 or _is_control(char):
-                continue
-            if _is_whitespace(char):
-                output.append(' ')
-            else:
-                output.append(char)
-        return ''.join(output)
-
-
-PRETRAINED_VOCAB_ARCHIVE_MAP = {'bert-base-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-uncased-vocab.txt', 'bert-large-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-uncased-vocab.txt', 'bert-base-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-cased-vocab.txt', 'bert-large-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-large-cased-vocab.txt', 'bert-base-multilingual-uncased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-uncased-vocab.txt', 'bert-base-multilingual-cased': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-multilingual-cased-vocab.txt', 'bert-base-chinese': 'https://s3.amazonaws.com/models.huggingface.co/bert/bert-base-chinese-vocab.txt'}
-
-
-PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP = {'bert-base-uncased': 512, 'bert-large-uncased': 512, 'bert-base-cased': 512, 'bert-large-cased': 512, 'bert-base-multilingual-uncased': 512, 'bert-base-multilingual-cased': 512, 'bert-base-chinese': 512}
-
-
-VOCAB_NAME = 'vocab.txt'
-
-
-class WordpieceTokenizer(object):
-    """Runs WordPiece tokenization."""
-
-    def __init__(self, vocab, unk_token='[UNK]', max_input_chars_per_word=100):
-        self.vocab = vocab
-        self.unk_token = unk_token
-        self.max_input_chars_per_word = max_input_chars_per_word
-
-    def tokenize(self, text):
-        """Tokenizes a piece of text into its word pieces.
-
-        This uses a greedy longest-match-first algorithm to perform tokenization
-        using the given vocabulary.
-
-        For example:
-          input = "unaffable"
-          output = ["un", "##aff", "##able"]
-
-        Args:
-          text: A single token or whitespace separated tokens. This should have
-            already been passed through `BasicTokenizer`.
-
-        Returns:
-          A list of wordpiece tokens.
-        """
-        output_tokens = []
-        for token in whitespace_tokenize(text):
-            chars = list(token)
-            if len(chars) > self.max_input_chars_per_word:
-                output_tokens.append(self.unk_token)
-                continue
-            is_bad = False
-            start = 0
-            sub_tokens = []
-            while start < len(chars):
-                end = len(chars)
-                cur_substr = None
-                while start < end:
-                    substr = ''.join(chars[start:end])
-                    if start > 0:
-                        substr = '##' + substr
-                    if substr in self.vocab:
-                        cur_substr = substr
-                        break
-                    end -= 1
-                if cur_substr is None:
-                    is_bad = True
-                    break
-                sub_tokens.append(cur_substr)
-                start = end
-            if is_bad:
-                output_tokens.append(self.unk_token)
-            else:
-                output_tokens.extend(sub_tokens)
-        return output_tokens
-
-
-def http_get(url, temp_file):
-    req = requests.get(url, stream=True)
-    content_length = req.headers.get('Content-Length')
-    total = int(content_length) if content_length is not None else None
-    progress = tqdm(unit='B', total=total)
-    for chunk in req.iter_content(chunk_size=1024):
-        if chunk:
-            progress.update(len(chunk))
-            temp_file.write(chunk)
-    progress.close()
-
-
-logger = logging.getLogger(__name__)
-
-
-def s3_request(func):
-    """
-    Wrapper function for s3 requests in order to create more helpful error
-    messages.
-    """
-
-    @wraps(func)
-    def wrapper(url, *args, **kwargs):
-        try:
-            return func(url, *args, **kwargs)
-        except ClientError as exc:
-            if int(exc.response['Error']['Code']) == 404:
-                raise EnvironmentError('file {} not found'.format(url))
-            else:
-                raise
-    return wrapper
-
-
-def split_s3_path(url):
-    """Split a full s3 path into the bucket name and path."""
-    parsed = urlparse(url)
-    if not parsed.netloc or not parsed.path:
-        raise ValueError('bad s3 path {}'.format(url))
-    bucket_name = parsed.netloc
-    s3_path = parsed.path
-    if s3_path.startswith('/'):
-        s3_path = s3_path[1:]
-    return bucket_name, s3_path
-
-
-def url_to_filename(url, etag=None):
-    """
-    Convert `url` into a hashed filename in a repeatable way.
-    If `etag` is specified, append its hash to the url's, delimited
-    by a period.
-    """
-    url_bytes = url.encode('utf-8')
-    url_hash = sha256(url_bytes)
-    filename = url_hash.hexdigest()
-    if etag:
-        etag_bytes = etag.encode('utf-8')
-        etag_hash = sha256(etag_bytes)
-        filename += '.' + etag_hash.hexdigest()
-    return filename
-
-
-def get_from_cache(url, cache_dir=None):
-    """
-    Given a URL, look for the corresponding dataset in the local cache.
-    If it's not there, download it. Then return the path to the cached file.
-    """
-    if cache_dir is None:
-        cache_dir = PYTORCH_PRETRAINED_BERT_CACHE
-    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
-        cache_dir = str(cache_dir)
-    if not os.path.exists(cache_dir):
-        os.makedirs(cache_dir)
-    if url.startswith('s3://'):
-        etag = s3_etag(url)
-    else:
-        response = requests.head(url, allow_redirects=True)
-        if response.status_code != 200:
-            raise IOError('HEAD request failed for url {} with status code {}'.format(url, response.status_code))
-        etag = response.headers.get('ETag')
-    filename = url_to_filename(url, etag)
-    cache_path = os.path.join(cache_dir, filename)
-    if not os.path.exists(cache_path):
-        with tempfile.NamedTemporaryFile() as temp_file:
-            logger.info('%s not found in cache, downloading to %s', url, temp_file.name)
-            if url.startswith('s3://'):
-                s3_get(url, temp_file)
-            else:
-                http_get(url, temp_file)
-            temp_file.flush()
-            temp_file.seek(0)
-            logger.info('copying %s to cache at %s', temp_file.name, cache_path)
-            with open(cache_path, 'wb') as cache_file:
-                shutil.copyfileobj(temp_file, cache_file)
-            logger.info('creating metadata file for %s', cache_path)
-            meta = {'url': url, 'etag': etag}
-            meta_path = cache_path + '.json'
-            with open(meta_path, 'w', encoding='utf-8') as meta_file:
-                json.dump(meta, meta_file)
-            logger.info('removing temp file %s', temp_file.name)
-    return cache_path
-
-
-def cached_path(url_or_filename, cache_dir=None):
-    """
-    Given something that might be a URL (or might be a local path),
-    determine which. If it's a URL, download the file and cache it, and
-    return the path to the cached file. If it's already a local path,
-    make sure the file exists and then return the path.
-    """
-    if cache_dir is None:
-        cache_dir = PYTORCH_PRETRAINED_BERT_CACHE
-    if sys.version_info[0] == 3 and isinstance(url_or_filename, Path):
-        url_or_filename = str(url_or_filename)
-    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
-        cache_dir = str(cache_dir)
-    parsed = urlparse(url_or_filename)
-    if parsed.scheme in ('http', 'https', 's3'):
-        return get_from_cache(url_or_filename, cache_dir)
-    elif os.path.exists(url_or_filename):
-        return url_or_filename
-    elif parsed.scheme == '':
-        raise EnvironmentError('file {} not found'.format(url_or_filename))
-    else:
-        raise ValueError('unable to parse {} as a URL or as a local path'.format(url_or_filename))
-
-
-def load_vocab(vocab_file):
-    """Loads a vocabulary file into a dictionary."""
-    vocab = collections.OrderedDict()
-    index = 0
-    with open(vocab_file, 'r', encoding='utf-8') as reader:
-        while True:
-            token = reader.readline()
-            if not token:
-                break
-            token = token.strip()
-            vocab[token] = index
-            index += 1
-    return vocab
-
-
-class BertTokenizer(object):
-    """Runs end-to-end tokenization: punctuation splitting + wordpiece"""
-
-    def __init__(self, vocab_file, do_lower_case=True, max_len=None, do_basic_tokenize=True, never_split=('[UNK]', '[SEP]', '[PAD]', '[CLS]', '[MASK]')):
-        """Constructs a BertTokenizer.
-
-        Args:
-          vocab_file: Path to a one-wordpiece-per-line vocabulary file
-          do_lower_case: Whether to lower case the input
-                         Only has an effect when do_wordpiece_only=False
-          do_basic_tokenize: Whether to do basic tokenization before wordpiece.
-          max_len: An artificial maximum length to truncate tokenized sequences to;
-                         Effective maximum length is always the minimum of this
-                         value (if specified) and the underlying BERT model's
-                         sequence length.
-          never_split: List of tokens which will never be split during tokenization.
-                         Only has an effect when do_wordpiece_only=False
-        """
-        if not os.path.isfile(vocab_file):
-            raise ValueError("Can't find a vocabulary file at path '{}'. To load the vocabulary from a Google pretrained model use `tokenizer = BertTokenizer.from_pretrained(PRETRAINED_MODEL_NAME)`".format(vocab_file))
-        self.vocab = load_vocab(vocab_file)
-        self.ids_to_tokens = collections.OrderedDict([(ids, tok) for tok, ids in self.vocab.items()])
-        self.do_basic_tokenize = do_basic_tokenize
-        if do_basic_tokenize:
-            self.basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case, never_split=never_split)
-        self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab)
-        self.max_len = max_len if max_len is not None else int(1000000000000.0)
-
-    def tokenize(self, text):
-        if self.do_basic_tokenize:
-            split_tokens = []
-            for token in self.basic_tokenizer.tokenize(text):
-                for sub_token in self.wordpiece_tokenizer.tokenize(token):
-                    split_tokens.append(sub_token)
-        else:
-            split_tokens = self.wordpiece_tokenizer.tokenize(text)
-        return split_tokens
-
-    def convert_tokens_to_ids(self, tokens):
-        """Converts a sequence of tokens into ids using the vocab."""
-        ids = []
-        for token in tokens:
-            ids.append(self.vocab[token])
-        if len(ids) > self.max_len:
-            logger.warning('Token indices sequence length is longer than the specified maximum  sequence length for this BERT model ({} > {}). Running this sequence through BERT will result in indexing errors'.format(len(ids), self.max_len))
-        return ids
-
-    def convert_ids_to_tokens(self, ids):
-        """Converts a sequence of ids in wordpiece tokens using the vocab."""
-        tokens = []
-        for i in ids:
-            tokens.append(self.ids_to_tokens[i])
-        return tokens
-
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None, *inputs, **kwargs):
-        """
-        Instantiate a PreTrainedBertModel from a pre-trained model file.
-        Download and cache the pre-trained model file if needed.
-        """
-        if pretrained_model_name_or_path in PRETRAINED_VOCAB_ARCHIVE_MAP:
-            vocab_file = PRETRAINED_VOCAB_ARCHIVE_MAP[pretrained_model_name_or_path]
-        else:
-            vocab_file = pretrained_model_name_or_path
-        if os.path.isdir(vocab_file):
-            vocab_file = os.path.join(vocab_file, VOCAB_NAME)
-        try:
-            resolved_vocab_file = cached_path(vocab_file, cache_dir=cache_dir)
-        except EnvironmentError:
-            logger.error("Model name '{}' was not found in model name list ({}). We assumed '{}' was a path or url but couldn't find any file associated to this path or url.".format(pretrained_model_name_or_path, ', '.join(PRETRAINED_VOCAB_ARCHIVE_MAP.keys()), vocab_file))
-            return None
-        if resolved_vocab_file == vocab_file:
-            logger.info('loading vocabulary file {}'.format(vocab_file))
-        else:
-            logger.info('loading vocabulary file {} from cache at {}'.format(vocab_file, resolved_vocab_file))
-        if pretrained_model_name_or_path in PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP:
-            max_len = PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP[pretrained_model_name_or_path]
-            kwargs['max_len'] = min(kwargs.get('max_len', int(1000000000000.0)), max_len)
-        tokenizer = cls(resolved_vocab_file, *inputs, **kwargs)
-        return tokenizer
-
-
-class InputFeatures(object):
-    """A single set of features of data."""
-
-    def __init__(self, input_ids, input_mask, segment_ids, lm_label_ids, visual_feats, obj_labels, is_matched, ans):
-        self.input_ids = input_ids
-        self.input_mask = input_mask
-        self.segment_ids = segment_ids
-        self.lm_label_ids = lm_label_ids
-        self.visual_feats = visual_feats
-        self.obj_labels = obj_labels
-        self.is_matched = is_matched
-        self.ans = ans
-
-
-def convert_sents_to_features(sents, max_seq_length, tokenizer):
-    """Loads a data file into a list of `InputBatch`s."""
-    features = []
-    for i, sent in enumerate(sents):
-        tokens_a = tokenizer.tokenize(sent.strip())
-        if len(tokens_a) > max_seq_length - 2:
-            tokens_a = tokens_a[:max_seq_length - 2]
-        tokens = ['[CLS]'] + tokens_a + ['[SEP]']
-        segment_ids = [0] * len(tokens)
-        input_ids = tokenizer.convert_tokens_to_ids(tokens)
-        input_mask = [1] * len(input_ids)
-        padding = [0] * (max_seq_length - len(input_ids))
-        input_ids += padding
-        input_mask += padding
-        segment_ids += padding
-        assert len(input_ids) == max_seq_length
-        assert len(input_mask) == max_seq_length
-        assert len(segment_ids) == max_seq_length
-        features.append(InputFeatures(input_ids=input_ids, input_mask=input_mask, segment_ids=segment_ids))
-    return features
-
-
-class VisualConfig(object):
-    VISUAL_LOSSES = ['obj', 'attr', 'feat']
-
-    def __init__(self, l_layers=12, x_layers=5, r_layers=0):
-        self.l_layers = l_layers
-        self.x_layers = x_layers
-        self.r_layers = r_layers
-        self.visual_feat_dim = 2048
-        self.visual_pos_dim = 4
-        self.obj_id_num = 1600
-        self.attr_id_num = 400
-        self.visual_losses = self.VISUAL_LOSSES
-        self.visual_loss_config = {'obj': (self.obj_id_num, 'ce', (-1,), 1 / 0.15), 'attr': (self.attr_id_num, 'ce', (-1,), 1 / 0.15), 'feat': (2048, 'l2', (-1, 2048), 1 / 0.15)}
-
-    def set_visual_dims(self, feat_dim, pos_dim):
-        self.visual_feat_dim = feat_dim
-        self.visual_pos_dim = pos_dim
-
-
-VISUAL_CONFIG = VisualConfig()
-
-
-def set_visual_config(args):
-    VISUAL_CONFIG.l_layers = args.llayers
-    VISUAL_CONFIG.x_layers = args.xlayers
-    VISUAL_CONFIG.r_layers = args.rlayers
-
-
-class LXRTEncoder(nn.Module):
-
-    def __init__(self, args, max_seq_length, mode='x'):
-        super().__init__()
-        self.max_seq_length = max_seq_length
-        set_visual_config(args)
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True)
-        self.model = VisualBertForLXRFeature.from_pretrained('bert-base-uncased', mode=mode)
-        if args.from_scratch:
-            None
-            self.model.apply(self.model.init_bert_weights)
-
-    def multi_gpu(self):
-        self.model = nn.DataParallel(self.model)
-
-    @property
-    def dim(self):
-        return 768
-
-    def forward(self, sents, feats, visual_attention_mask=None):
-        train_features = convert_sents_to_features(sents, self.max_seq_length, self.tokenizer)
-        input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
-        input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
-        segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
-        output = self.model(input_ids, segment_ids, input_mask, visual_feats=feats, visual_attention_mask=visual_attention_mask)
-        return output
-
-    def save(self, path):
-        torch.save(self.model.state_dict(), os.path.join('%s_LXRT.pth' % path))
-
-    def load(self, path):
-        None
-        state_dict = torch.load('%s_LXRT.pth' % path)
-        new_state_dict = {}
-        for key, value in state_dict.items():
-            if key.startswith('module.'):
-                new_state_dict[key[len('module.'):]] = value
-            else:
-                new_state_dict[key] = value
-        state_dict = new_state_dict
-        load_keys = set(state_dict.keys())
-        model_keys = set(self.model.state_dict().keys())
-        None
-        None
-        for key in sorted(load_keys.difference(model_keys)):
-            None
-        None
-        None
-        for key in sorted(model_keys.difference(load_keys)):
-            None
-        None
-        self.model.load_state_dict(state_dict, strict=False)
 
 
 def gelu(x):
@@ -631,48 +106,60 @@ def gelu(x):
     return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
 
 
-class GeLU(nn.Module):
-    """Implementation of the gelu activation function.
-        For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
-        0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
-        Also see https://arxiv.org/abs/1606.08415
-    """
+def swish(x):
+    return x * torch.sigmoid(x)
 
-    def __init__(self):
-        super().__init__()
 
-    def forward(self, x):
-        return gelu(x)
+ACT2FN = {'gelu': gelu, 'relu': torch.nn.functional.relu, 'swish': swish}
+
+
+class BertIntermediate(nn.Module):
+
+    def __init__(self, config):
+        super(BertIntermediate, self).__init__()
+        self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
+        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
+            self.intermediate_act_fn = ACT2FN[config.hidden_act]
+        else:
+            self.intermediate_act_fn = config.hidden_act
+
+    def forward(self, hidden_states):
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.intermediate_act_fn(hidden_states)
+        return hidden_states
 
 
 BertLayerNorm = torch.nn.LayerNorm
 
 
-class BertEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings.
-    """
+class BertOutput(nn.Module):
 
     def __init__(self, config):
-        super(BertEmbeddings, self).__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
-        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size, padding_idx=0)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size, padding_idx=0)
+        super(BertOutput, self).__init__()
+        self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, input_ids, token_type_ids=None):
-        seq_length = input_ids.size(1)
-        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
-        position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
-        if token_type_ids is None:
-            token_type_ids = torch.zeros_like(input_ids)
-        words_embeddings = self.word_embeddings(input_ids)
-        position_embeddings = self.position_embeddings(position_ids)
-        token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = words_embeddings + position_embeddings + token_type_embeddings
-        embeddings = self.LayerNorm(embeddings)
-        embeddings = self.dropout(embeddings)
-        return embeddings
+    def forward(self, hidden_states, input_tensor):
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+        return hidden_states
+
+
+class BertAttOutput(nn.Module):
+
+    def __init__(self, config):
+        super(BertAttOutput, self).__init__()
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, hidden_states, input_tensor):
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+        return hidden_states
 
 
 class BertAttention(nn.Module):
@@ -716,34 +203,6 @@ class BertAttention(nn.Module):
         return context_layer
 
 
-class BertAttOutput(nn.Module):
-
-    def __init__(self, config):
-        super(BertAttOutput, self).__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-
-    def forward(self, hidden_states, input_tensor):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
-        return hidden_states
-
-
-class BertCrossattLayer(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.att = BertAttention(config)
-        self.output = BertAttOutput(config)
-
-    def forward(self, input_tensor, ctx_tensor, ctx_att_mask=None):
-        output = self.att(input_tensor, ctx_tensor, ctx_att_mask)
-        attention_output = self.output(output, input_tensor)
-        return attention_output
-
-
 class BertSelfattLayer(nn.Module):
 
     def __init__(self, config):
@@ -755,44 +214,6 @@ class BertSelfattLayer(nn.Module):
         self_output = self.self(input_tensor, input_tensor, attention_mask)
         attention_output = self.output(self_output, input_tensor)
         return attention_output
-
-
-def swish(x):
-    return x * torch.sigmoid(x)
-
-
-ACT2FN = {'gelu': gelu, 'relu': torch.nn.functional.relu, 'swish': swish}
-
-
-class BertIntermediate(nn.Module):
-
-    def __init__(self, config):
-        super(BertIntermediate, self).__init__()
-        self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
-        if isinstance(config.hidden_act, str) or sys.version_info[0] == 2 and isinstance(config.hidden_act, unicode):
-            self.intermediate_act_fn = ACT2FN[config.hidden_act]
-        else:
-            self.intermediate_act_fn = config.hidden_act
-
-    def forward(self, hidden_states):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.intermediate_act_fn(hidden_states)
-        return hidden_states
-
-
-class BertOutput(nn.Module):
-
-    def __init__(self, config):
-        super(BertOutput, self).__init__()
-        self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-
-    def forward(self, hidden_states, input_tensor):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
-        return hidden_states
 
 
 class BertLayer(nn.Module):
@@ -808,6 +229,19 @@ class BertLayer(nn.Module):
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output
+
+
+class BertCrossattLayer(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.att = BertAttention(config)
+        self.output = BertAttOutput(config)
+
+    def forward(self, input_tensor, ctx_tensor, ctx_att_mask=None):
+        output = self.att(input_tensor, ctx_tensor, ctx_att_mask)
+        attention_output = self.output(output, input_tensor)
+        return attention_output
 
 
 class LXRTXLayer(nn.Module):
@@ -846,6 +280,28 @@ class LXRTXLayer(nn.Module):
         lang_att_output, visn_att_output = self.self_att(lang_att_output, lang_attention_mask, visn_att_output, visn_attention_mask)
         lang_output, visn_output = self.output_fc(lang_att_output, visn_att_output)
         return lang_output, visn_output
+
+
+class VisualConfig(object):
+    VISUAL_LOSSES = ['obj', 'attr', 'feat']
+
+    def __init__(self, l_layers=12, x_layers=5, r_layers=0):
+        self.l_layers = l_layers
+        self.x_layers = x_layers
+        self.r_layers = r_layers
+        self.visual_feat_dim = 2048
+        self.visual_pos_dim = 4
+        self.obj_id_num = 1600
+        self.attr_id_num = 400
+        self.visual_losses = self.VISUAL_LOSSES
+        self.visual_loss_config = {'obj': (self.obj_id_num, 'ce', (-1,), 1 / 0.15), 'attr': (self.attr_id_num, 'ce', (-1,), 1 / 0.15), 'feat': (2048, 'l2', (-1, 2048), 1 / 0.15)}
+
+    def set_visual_dims(self, feat_dim, pos_dim):
+        self.visual_feat_dim = feat_dim
+        self.visual_pos_dim = pos_dim
+
+
+VISUAL_CONFIG = VisualConfig()
 
 
 class VisualFeatEncoder(nn.Module):
@@ -893,6 +349,47 @@ class LXRTEncoder(nn.Module):
         for layer_module in self.x_layers:
             lang_feats, visn_feats = layer_module(lang_feats, lang_attention_mask, visn_feats, visn_attention_mask)
         return lang_feats, visn_feats
+
+
+class GeLU(nn.Module):
+    """Implementation of the gelu activation function.
+        For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
+        0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+        Also see https://arxiv.org/abs/1606.08415
+    """
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return gelu(x)
+
+
+class BertEmbeddings(nn.Module):
+    """Construct the embeddings from word, position and token_type embeddings.
+    """
+
+    def __init__(self, config):
+        super(BertEmbeddings, self).__init__()
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size, padding_idx=0)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size, padding_idx=0)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, input_ids, token_type_ids=None):
+        seq_length = input_ids.size(1)
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
+        position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
+        if token_type_ids is None:
+            token_type_ids = torch.zeros_like(input_ids)
+        words_embeddings = self.word_embeddings(input_ids)
+        position_embeddings = self.position_embeddings(position_ids)
+        token_type_embeddings = self.token_type_embeddings(token_type_ids)
+        embeddings = words_embeddings + position_embeddings + token_type_embeddings
+        embeddings = self.LayerNorm(embeddings)
+        embeddings = self.dropout(embeddings)
+        return embeddings
 
 
 class BertPooler(nn.Module):
@@ -1074,6 +571,132 @@ TF_WEIGHTS_NAME = 'model.ckpt'
 WEIGHTS_NAME = 'pytorch_model.bin'
 
 
+def http_get(url, temp_file):
+    req = requests.get(url, stream=True)
+    content_length = req.headers.get('Content-Length')
+    total = int(content_length) if content_length is not None else None
+    progress = tqdm(unit='B', total=total)
+    for chunk in req.iter_content(chunk_size=1024):
+        if chunk:
+            progress.update(len(chunk))
+            temp_file.write(chunk)
+    progress.close()
+
+
+logger = logging.getLogger(__name__)
+
+
+def s3_request(func):
+    """
+    Wrapper function for s3 requests in order to create more helpful error
+    messages.
+    """
+
+    @wraps(func)
+    def wrapper(url, *args, **kwargs):
+        try:
+            return func(url, *args, **kwargs)
+        except ClientError as exc:
+            if int(exc.response['Error']['Code']) == 404:
+                raise EnvironmentError('file {} not found'.format(url))
+            else:
+                raise
+    return wrapper
+
+
+def split_s3_path(url):
+    """Split a full s3 path into the bucket name and path."""
+    parsed = urlparse(url)
+    if not parsed.netloc or not parsed.path:
+        raise ValueError('bad s3 path {}'.format(url))
+    bucket_name = parsed.netloc
+    s3_path = parsed.path
+    if s3_path.startswith('/'):
+        s3_path = s3_path[1:]
+    return bucket_name, s3_path
+
+
+def url_to_filename(url, etag=None):
+    """
+    Convert `url` into a hashed filename in a repeatable way.
+    If `etag` is specified, append its hash to the url's, delimited
+    by a period.
+    """
+    url_bytes = url.encode('utf-8')
+    url_hash = sha256(url_bytes)
+    filename = url_hash.hexdigest()
+    if etag:
+        etag_bytes = etag.encode('utf-8')
+        etag_hash = sha256(etag_bytes)
+        filename += '.' + etag_hash.hexdigest()
+    return filename
+
+
+def get_from_cache(url, cache_dir=None):
+    """
+    Given a URL, look for the corresponding dataset in the local cache.
+    If it's not there, download it. Then return the path to the cached file.
+    """
+    if cache_dir is None:
+        cache_dir = PYTORCH_PRETRAINED_BERT_CACHE
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+    if url.startswith('s3://'):
+        etag = s3_etag(url)
+    else:
+        response = requests.head(url, allow_redirects=True)
+        if response.status_code != 200:
+            raise IOError('HEAD request failed for url {} with status code {}'.format(url, response.status_code))
+        etag = response.headers.get('ETag')
+    filename = url_to_filename(url, etag)
+    cache_path = os.path.join(cache_dir, filename)
+    if not os.path.exists(cache_path):
+        with tempfile.NamedTemporaryFile() as temp_file:
+            logger.info('%s not found in cache, downloading to %s', url, temp_file.name)
+            if url.startswith('s3://'):
+                s3_get(url, temp_file)
+            else:
+                http_get(url, temp_file)
+            temp_file.flush()
+            temp_file.seek(0)
+            logger.info('copying %s to cache at %s', temp_file.name, cache_path)
+            with open(cache_path, 'wb') as cache_file:
+                shutil.copyfileobj(temp_file, cache_file)
+            logger.info('creating metadata file for %s', cache_path)
+            meta = {'url': url, 'etag': etag}
+            meta_path = cache_path + '.json'
+            with open(meta_path, 'w', encoding='utf-8') as meta_file:
+                json.dump(meta, meta_file)
+            logger.info('removing temp file %s', temp_file.name)
+    return cache_path
+
+
+def cached_path(url_or_filename, cache_dir=None):
+    """
+    Given something that might be a URL (or might be a local path),
+    determine which. If it's a URL, download the file and cache it, and
+    return the path to the cached file. If it's already a local path,
+    make sure the file exists and then return the path.
+    """
+    if cache_dir is None:
+        cache_dir = PYTORCH_PRETRAINED_BERT_CACHE
+    if sys.version_info[0] == 3 and isinstance(url_or_filename, Path):
+        url_or_filename = str(url_or_filename)
+    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
+        cache_dir = str(cache_dir)
+    parsed = urlparse(url_or_filename)
+    if parsed.scheme in ('http', 'https', 's3'):
+        return get_from_cache(url_or_filename, cache_dir)
+    elif os.path.exists(url_or_filename):
+        return url_or_filename
+    elif parsed.scheme == '':
+        raise EnvironmentError('file {} not found'.format(url_or_filename))
+    else:
+        raise ValueError('unable to parse {} as a URL or as a local path'.format(url_or_filename))
+
+
 def load_tf_weights_in_bert(model, tf_checkpoint_path):
     """ Load tf checkpoints in a pytorch model
     """
@@ -1082,22 +705,22 @@ def load_tf_weights_in_bert(model, tf_checkpoint_path):
         import numpy as np
         import tensorflow as tf
     except Importtokenization:
-        print('Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.')
+        None
         raise
     tf_path = os.path.abspath(tf_checkpoint_path)
-    print('Converting TensorFlow checkpoint from {}'.format(tf_path))
+    None
     init_vars = tf.train.list_variables(tf_path)
     names = []
     arrays = []
     for name, shape in init_vars:
-        print('Loading TF weight {} with shape {}'.format(name, shape))
+        None
         array = tf.train.load_variable(tf_path, name)
         names.append(name)
         arrays.append(array)
     for name, array in zip(names, arrays):
         name = name.split('/')
         if any(n in ['adam_v', 'adam_m'] for n in name):
-            print('Skipping {}'.format('/'.join(name)))
+            None
             continue
         pointer = model
         for m_name in name:
@@ -1125,7 +748,7 @@ def load_tf_weights_in_bert(model, tf_checkpoint_path):
         except AssertionError as e:
             e.args += pointer.shape, array.shape
             raise
-        print('Initialize PyTorch weight {}'.format(name))
+        None
         pointer.data = torch.from_numpy(array)
     return model
 
@@ -1216,7 +839,7 @@ class BertPreTrainedModel(nn.Module):
         model = cls(config, *inputs, **kwargs)
         if state_dict is None and not from_tf:
             weights_path = os.path.join(serialization_dir, WEIGHTS_NAME)
-            state_dict = torch.load(weights_path, map_location='cpu' if not torch.is_available() else None)
+            state_dict = torch.load(weights_path, map_location='cpu' if not torch.cuda.is_available() else None)
         if tempdir:
             shutil.rmtree(tempdir)
         if from_tf:
@@ -1256,6 +879,121 @@ class BertPreTrainedModel(nn.Module):
         if len(error_msgs) > 0:
             raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
         return model
+
+
+class LXRTModel(BertPreTrainedModel):
+    """LXRT Model."""
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.embeddings = BertEmbeddings(config)
+        self.encoder = LXRTEncoder(config)
+        self.pooler = BertPooler(config)
+        self.apply(self.init_bert_weights)
+
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, visual_feats=None, visual_attention_mask=None):
+        if attention_mask is None:
+            attention_mask = torch.ones_like(input_ids)
+        if token_type_ids is None:
+            token_type_ids = torch.zeros_like(input_ids)
+        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
+        extended_attention_mask = extended_attention_mask
+        extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
+        if visual_attention_mask is not None:
+            extended_visual_attention_mask = visual_attention_mask.unsqueeze(1).unsqueeze(2)
+            extended_visual_attention_mask = extended_visual_attention_mask
+            extended_visual_attention_mask = (1.0 - extended_visual_attention_mask) * -10000.0
+        else:
+            extended_visual_attention_mask = None
+        embedding_output = self.embeddings(input_ids, token_type_ids)
+        lang_feats, visn_feats = self.encoder(embedding_output, extended_attention_mask, visn_feats=visual_feats, visn_attention_mask=extended_visual_attention_mask)
+        pooled_output = self.pooler(lang_feats)
+        return (lang_feats, visn_feats), pooled_output
+
+
+class LXRTPretraining(BertPreTrainedModel):
+
+    def __init__(self, config, task_mask_lm=True, task_matched=True, task_obj_predict=True, visual_losses='', task_qa=True, num_answers=2):
+        super().__init__(config)
+        self.config = config
+        self.num_answers = num_answers
+        self.task_mask_lm = task_mask_lm
+        self.task_obj_predict = task_obj_predict
+        self.task_matched = task_matched
+        self.task_qa = task_qa
+        self.bert = LXRTModel(config)
+        self.cls = BertPreTrainingHeads(config, self.bert.embeddings.word_embeddings.weight)
+        if self.task_obj_predict:
+            self.obj_predict_head = BertVisualObjHead(config, visual_losses)
+        if self.task_qa:
+            self.answer_head = BertVisualAnswerHead(config, self.num_answers)
+        self.apply(self.init_bert_weights)
+
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, masked_lm_labels=None, visual_feats=None, pos=None, obj_labels=None, matched_label=None, ans=None):
+        (lang_output, visn_output), pooled_output = self.bert(input_ids, token_type_ids, attention_mask, visual_feats=(visual_feats, pos))
+        lang_prediction_scores, cross_relationship_score = self.cls(lang_output, pooled_output)
+        if self.task_qa:
+            answer_score = self.answer_head(pooled_output)
+        else:
+            answer_score = pooled_output[0][0]
+        total_loss = 0.0
+        loss_fct = CrossEntropyLoss(ignore_index=-1)
+        losses = ()
+        if masked_lm_labels is not None and self.task_mask_lm:
+            masked_lm_loss = loss_fct(lang_prediction_scores.view(-1, self.config.vocab_size), masked_lm_labels.view(-1))
+            total_loss += masked_lm_loss
+            losses += masked_lm_loss.detach(),
+        if matched_label is not None and self.task_matched:
+            matched_loss = loss_fct(cross_relationship_score.view(-1, 2), matched_label.view(-1))
+            total_loss += matched_loss
+            losses += matched_loss.detach(),
+        if obj_labels is not None and self.task_obj_predict:
+            loss_fcts = {'l2': SmoothL1Loss(reduction='none'), 'ce': CrossEntropyLoss(ignore_index=-1, reduction='none')}
+            total_visn_loss = 0.0
+            visn_prediction_scores_dict = self.obj_predict_head(visn_output)
+            for key in VISUAL_CONFIG.visual_losses:
+                label, mask_conf = obj_labels[key]
+                output_dim, loss_fct_name, label_shape, weight = VISUAL_CONFIG.visual_loss_config[key]
+                visn_loss_fct = loss_fcts[loss_fct_name]
+                visn_prediction_scores = visn_prediction_scores_dict[key]
+                visn_loss = visn_loss_fct(visn_prediction_scores.view(-1, output_dim), label.view(*label_shape))
+                if visn_loss.dim() > 1:
+                    visn_loss = visn_loss.mean(1)
+                visn_loss = (visn_loss * mask_conf.view(-1)).mean() * weight
+                total_visn_loss += visn_loss
+                losses += visn_loss.detach(),
+            total_loss += total_visn_loss
+        if ans is not None and self.task_qa:
+            answer_loss = loss_fct(answer_score.view(-1, self.num_answers), ans.view(-1))
+            total_loss += answer_loss
+            losses += answer_loss.detach(),
+        return total_loss, torch.stack(losses).unsqueeze(0), answer_score.detach()
+
+
+class LXRTFeatureExtraction(BertPreTrainedModel):
+    """
+    BERT model for classification.
+    """
+
+    def __init__(self, config, mode='lxr'):
+        """
+
+        :param config:
+        :param mode:  Number of visual layers
+        """
+        super().__init__(config)
+        self.bert = LXRTModel(config)
+        self.mode = mode
+        self.apply(self.init_bert_weights)
+
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None, visual_feats=None, visual_attention_mask=None):
+        feat_seq, pooled_output = self.bert(input_ids, token_type_ids, attention_mask, visual_feats=visual_feats, visual_attention_mask=visual_attention_mask)
+        if 'x' == self.mode:
+            return pooled_output
+        elif 'x' in self.mode and ('l' in self.mode or 'r' in self.mode):
+            return feat_seq, pooled_output
+        elif 'l' in self.mode or 'r' in self.mode:
+            return feat_seq
 
 
 MAX_GQA_LENGTH = 20

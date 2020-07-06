@@ -37,6 +37,7 @@ vfe_utils = _module
 iou3d_nms_utils = _module
 setup = _module
 roiaware_pool3d_utils = _module
+setup = _module
 utils = _module
 box_coder_utils = _module
 box_utils = _module
@@ -44,6 +45,7 @@ calibration = _module
 common_utils = _module
 loss_utils = _module
 object3d_utils = _module
+setup = _module
 eval_utils = _module
 test = _module
 train = _module
@@ -56,15 +58,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -72,10 +75,28 @@ __version__ = '1.0.0'
 import torch
 
 
-import torch.nn as nn
+from torch.utils.data import DataLoader
 
 
 import numpy as np
+
+
+import warnings
+
+
+from collections import defaultdict
+
+
+import torch.utils.data as torch_data
+
+
+import copy
+
+
+from collections import namedtuple
+
+
+import torch.nn as nn
 
 
 from functools import partial
@@ -90,10 +111,37 @@ from typing import List
 from typing import Tuple
 
 
+from torch import nn
+
+
 import torch.nn.functional as F
 
 
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
 from torch.autograd import Function
+
+
+from scipy.spatial import Delaunay
+
+
+import scipy
+
+
+import logging
+
+
+import torch.multiprocessing as mp
+
+
+import torch.distributed as dist
+
+
+import random
 
 
 from abc import ABCMeta
@@ -102,7 +150,10 @@ from abc import ABCMeta
 from abc import abstractmethod
 
 
-import torch.distributed as dist
+import time
+
+
+import re
 
 
 import torch.optim as optim
@@ -114,13 +165,13 @@ import torch.optim.lr_scheduler as lr_sched
 from collections import Iterable
 
 
-from torch import nn
-
-
 from torch.nn.utils import parameters_to_vector
 
 
 from torch._utils import _unflatten_dense_tensors
+
+
+import math
 
 
 from torch.nn.utils import clip_grad_norm_
@@ -559,12 +610,6 @@ class TargetAssigner(object):
         return [a.class_name for a in self.anchor_generators]
 
 
-_global_config['CLASS_NAMES'] = 4
-
-
-_global_config['MODEL'] = 4
-
-
 class AnchorHead(nn.Module):
 
     def __init__(self, grid_size, anchor_target_cfg):
@@ -709,6 +754,92 @@ class AnchorHead(nn.Module):
         return rpn_loss, tb_dict
 
 
+class Empty(torch.nn.Module):
+
+    def __init__(self, *args, **kwargs):
+        super(Empty, self).__init__()
+
+    def forward(self, *args, **kwargs):
+        if len(args) == 1:
+            return args[0]
+        elif len(args) == 0:
+            return None
+        return args
+
+
+class Sequential(torch.nn.Module):
+    """A sequential container.
+    Modules will be added to it in the order they are passed in the constructor.
+    Alternatively, an ordered dict of modules can also be passed in.
+
+    To make it easier to understand, given is a small example::
+
+        # Example of using Sequential
+        model = Sequential(
+                  nn.Conv2d(1,20,5),
+                  nn.ReLU(),
+                  nn.Conv2d(20,64,5),
+                  nn.ReLU()
+                )
+
+        # Example of using Sequential with OrderedDict
+        model = Sequential(OrderedDict([
+                  ('conv1', nn.Conv2d(1,20,5)),
+                  ('relu1', nn.ReLU()),
+                  ('conv2', nn.Conv2d(20,64,5)),
+                  ('relu2', nn.ReLU())
+                ]))
+
+        # Example of using Sequential with kwargs(python 3.6+)
+        model = Sequential(
+                  conv1=nn.Conv2d(1,20,5),
+                  relu1=nn.ReLU(),
+                  conv2=nn.Conv2d(20,64,5),
+                  relu2=nn.ReLU()
+                )
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(Sequential, self).__init__()
+        if len(args) == 1 and isinstance(args[0], OrderedDict):
+            for key, module in args[0].items():
+                self.add_module(key, module)
+        else:
+            for idx, module in enumerate(args):
+                self.add_module(str(idx), module)
+        for name, module in kwargs.items():
+            if sys.version_info < (3, 6):
+                raise ValueError('kwargs only supported in py36+')
+            if name in self._modules:
+                raise ValueError('name exists.')
+            self.add_module(name, module)
+
+    def __getitem__(self, idx):
+        if not -len(self) <= idx < len(self):
+            raise IndexError('index {} is out of range'.format(idx))
+        if idx < 0:
+            idx += len(self)
+        it = iter(self._modules.values())
+        for i in range(idx):
+            next(it)
+        return next(it)
+
+    def __len__(self):
+        return len(self._modules)
+
+    def add(self, module, name=None):
+        if name is None:
+            name = str(len(self._modules))
+            if name in self._modules:
+                raise KeyError('name exists')
+        self.add_module(name, module)
+
+    def forward(self, input):
+        for module in self._modules.values():
+            input = module(input)
+        return input
+
+
 class RPNV2(AnchorHead):
 
     def __init__(self, num_class, args, anchor_target_cfg, grid_size, **kwargs):
@@ -788,10 +919,10 @@ class RPNV2(AnchorHead):
             dir_cls_preds = self.conv_dir_cls(x)
             dir_cls_preds = dir_cls_preds.permute(0, 2, 3, 1).contiguous()
             ret_dict['dir_cls_preds'] = dir_cls_preds
-        ret_dict['anchors'] = torch.from_numpy(self.anchor_cache['anchors']).cuda()
+        ret_dict['anchors'] = torch.from_numpy(self.anchor_cache['anchors'])
         if self.training:
             targets_dict = self.assign_targets(gt_boxes=kwargs['gt_boxes'])
-            ret_dict.update({'box_cls_labels': torch.from_numpy(targets_dict['labels']).cuda(), 'box_reg_targets': torch.from_numpy(targets_dict['bbox_targets']).cuda(), 'reg_src_targets': torch.from_numpy(targets_dict['bbox_src_targets']).cuda(), 'reg_weights': torch.from_numpy(targets_dict['bbox_outside_weights']).cuda()})
+            ret_dict.update({'box_cls_labels': torch.from_numpy(targets_dict['labels']), 'box_reg_targets': torch.from_numpy(targets_dict['bbox_targets']), 'reg_src_targets': torch.from_numpy(targets_dict['bbox_src_targets']), 'reg_weights': torch.from_numpy(targets_dict['bbox_outside_weights'])})
         self.forward_ret_dict = ret_dict
         return ret_dict
 
@@ -799,7 +930,647 @@ class RPNV2(AnchorHead):
 bbox_head_modules = {'RPNV2': RPNV2}
 
 
-_global_config['LOCAL_RANK'] = 4
+def get_maxiou3d_with_same_class(rois, roi_labels, gt_boxes, gt_labels):
+    """
+    :param rois: (N, 7)
+    :param roi_labels: (N)
+    :param gt_boxes: (N, 8)
+    :return:
+    """
+    max_overlaps = rois.new_zeros(rois.shape[0])
+    gt_assignment = roi_labels.new_zeros(roi_labels.shape[0])
+    for k in range(gt_labels.min().item(), gt_labels.max().item() + 1):
+        roi_mask = roi_labels == k
+        gt_mask = gt_labels == k
+        if roi_mask.sum() > 0 and gt_mask.sum() > 0:
+            cur_roi = rois[roi_mask]
+            cur_gt = gt_boxes[gt_mask]
+            original_gt_assignment = gt_mask.nonzero().view(-1)
+            iou3d = iou3d_nms_utils.boxes_iou3d_gpu(cur_roi, cur_gt)
+            cur_max_overlaps, cur_gt_assignment = torch.max(iou3d, dim=1)
+            max_overlaps[roi_mask] = cur_max_overlaps
+            gt_assignment[roi_mask] = original_gt_assignment[cur_gt_assignment]
+    return max_overlaps, gt_assignment
+
+
+def sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image, roi_sampler_cfg):
+    if hard_bg_inds.numel() > 0 and easy_bg_inds.numel() > 0:
+        hard_bg_rois_num = int(bg_rois_per_this_image * roi_sampler_cfg.HARD_BG_RATIO)
+        easy_bg_rois_num = bg_rois_per_this_image - hard_bg_rois_num
+        rand_idx = torch.randint(low=0, high=hard_bg_inds.numel(), size=(hard_bg_rois_num,)).long()
+        hard_bg_inds = hard_bg_inds[rand_idx]
+        rand_idx = torch.randint(low=0, high=easy_bg_inds.numel(), size=(easy_bg_rois_num,)).long()
+        easy_bg_inds = easy_bg_inds[rand_idx]
+        bg_inds = torch.cat([hard_bg_inds, easy_bg_inds], dim=0)
+    elif hard_bg_inds.numel() > 0 and easy_bg_inds.numel() == 0:
+        hard_bg_rois_num = bg_rois_per_this_image
+        rand_idx = torch.randint(low=0, high=hard_bg_inds.numel(), size=(hard_bg_rois_num,)).long()
+        bg_inds = hard_bg_inds[rand_idx]
+    elif hard_bg_inds.numel() == 0 and easy_bg_inds.numel() > 0:
+        easy_bg_rois_num = bg_rois_per_this_image
+        rand_idx = torch.randint(low=0, high=easy_bg_inds.numel(), size=(easy_bg_rois_num,)).long()
+        bg_inds = easy_bg_inds[rand_idx]
+    else:
+        raise NotImplementedError
+    return bg_inds
+
+
+def sample_rois_for_rcnn(roi_boxes3d, gt_boxes3d, roi_raw_scores, roi_labels, roi_sampler_cfg):
+    """
+    :param roi_boxes3d: (B, M, 7 + ?) [x, y, z, w, l, h, ry] in LiDAR coords
+    :param gt_boxes3d: (B, N, 7 + ? + 1) [x, y, z, w, l, h, ry, class]
+    :param roi_raw_scores: (B, N)
+    :param roi_labels: (B, N)
+    :return
+        batch_rois: (B, N, 7)
+        batch_gt_of_rois: (B, N, 7 + 1)
+        batch_roi_iou: (B, N)
+    """
+    batch_size = roi_boxes3d.size(0)
+    fg_rois_per_image = int(np.round(roi_sampler_cfg.FG_RATIO * roi_sampler_cfg.ROI_PER_IMAGE))
+    code_size = roi_boxes3d.shape[-1]
+    batch_rois = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE, code_size).zero_()
+    batch_gt_of_rois = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE, code_size + 1).zero_()
+    batch_roi_iou = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE).zero_()
+    batch_roi_raw_scores = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE).zero_()
+    batch_roi_labels = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE).zero_().long()
+    for idx in range(batch_size):
+        cur_roi, cur_gt, cur_roi_raw_scores, cur_roi_labels = roi_boxes3d[idx], gt_boxes3d[idx], roi_raw_scores[idx], roi_labels[idx]
+        k = cur_gt.__len__() - 1
+        while k > 0 and cur_gt[k].sum() == 0:
+            k -= 1
+        cur_gt = cur_gt[:k + 1]
+        if len(cfg.CLASS_NAMES) == 1:
+            iou3d = iou3d_nms_utils.boxes_iou3d_gpu(cur_roi, cur_gt[:, 0:7])
+            max_overlaps, gt_assignment = torch.max(iou3d, dim=1)
+        else:
+            cur_gt_labels = cur_gt[:, (-1)].long()
+            max_overlaps, gt_assignment = get_maxiou3d_with_same_class(cur_roi, cur_roi_labels, cur_gt[:, 0:7], cur_gt_labels)
+        fg_thresh = min(roi_sampler_cfg.REG_FG_THRESH, roi_sampler_cfg.CLS_FG_THRESH)
+        fg_inds = torch.nonzero(max_overlaps >= fg_thresh).view(-1)
+        easy_bg_inds = torch.nonzero(max_overlaps < roi_sampler_cfg.CLS_BG_THRESH_LO).view(-1)
+        hard_bg_inds = torch.nonzero((max_overlaps < roi_sampler_cfg.REG_FG_THRESH) & (max_overlaps >= roi_sampler_cfg.CLS_BG_THRESH_LO)).view(-1)
+        fg_num_rois = fg_inds.numel()
+        bg_num_rois = hard_bg_inds.numel() + easy_bg_inds.numel()
+        if fg_num_rois > 0 and bg_num_rois > 0:
+            fg_rois_per_this_image = min(fg_rois_per_image, fg_num_rois)
+            rand_num = torch.from_numpy(np.random.permutation(fg_num_rois)).type_as(gt_boxes3d).long()
+            fg_inds = fg_inds[rand_num[:fg_rois_per_this_image]]
+            bg_rois_per_this_image = roi_sampler_cfg.ROI_PER_IMAGE - fg_rois_per_this_image
+            bg_inds = sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image, roi_sampler_cfg)
+        elif fg_num_rois > 0 and bg_num_rois == 0:
+            rand_num = np.floor(np.random.rand(roi_sampler_cfg.ROI_PER_IMAGE) * fg_num_rois)
+            rand_num = torch.from_numpy(rand_num).type_as(gt_boxes3d).long()
+            fg_inds = fg_inds[rand_num]
+            fg_rois_per_this_image = roi_sampler_cfg.ROI_PER_IMAGE
+            bg_rois_per_this_image = 0
+        elif bg_num_rois > 0 and fg_num_rois == 0:
+            bg_rois_per_this_image = roi_sampler_cfg.ROI_PER_IMAGE
+            bg_inds = sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image, roi_sampler_cfg)
+            fg_rois_per_this_image = 0
+        else:
+            None
+            None
+            raise NotImplementedError
+        roi_list, roi_iou_list, roi_gt_list, roi_score_list, roi_labels_list = [], [], [], [], []
+        if fg_rois_per_this_image > 0:
+            fg_rois = cur_roi[fg_inds]
+            gt_of_fg_rois = cur_gt[gt_assignment[fg_inds]]
+            fg_iou3d = max_overlaps[fg_inds]
+            roi_list.append(fg_rois)
+            roi_iou_list.append(fg_iou3d)
+            roi_gt_list.append(gt_of_fg_rois)
+            roi_score_list.append(cur_roi_raw_scores[fg_inds])
+            roi_labels_list.append(cur_roi_labels[fg_inds])
+        if bg_rois_per_this_image > 0:
+            bg_rois = cur_roi[bg_inds]
+            gt_of_bg_rois = cur_gt[gt_assignment[bg_inds]]
+            bg_iou3d = max_overlaps[bg_inds]
+            roi_list.append(bg_rois)
+            roi_iou_list.append(bg_iou3d)
+            roi_gt_list.append(gt_of_bg_rois)
+            roi_score_list.append(cur_roi_raw_scores[bg_inds])
+            roi_labels_list.append(cur_roi_labels[bg_inds])
+        rois = torch.cat(roi_list, dim=0)
+        iou_of_rois = torch.cat(roi_iou_list, dim=0)
+        gt_of_rois = torch.cat(roi_gt_list, dim=0)
+        cur_roi_raw_scores = torch.cat(roi_score_list, dim=0)
+        cur_roi_labels = torch.cat(roi_labels_list, dim=0)
+        batch_rois[idx] = rois
+        batch_gt_of_rois[idx] = gt_of_rois
+        batch_roi_iou[idx] = iou_of_rois
+        batch_roi_raw_scores[idx] = cur_roi_raw_scores
+        batch_roi_labels[idx] = cur_roi_labels
+    return batch_rois, batch_gt_of_rois, batch_roi_iou, batch_roi_raw_scores, batch_roi_labels
+
+
+def proposal_target_layer(input_dict, roi_sampler_cfg):
+    rois = input_dict['rois']
+    roi_raw_scores = input_dict['roi_raw_scores']
+    roi_labels = input_dict['roi_labels']
+    gt_boxes = input_dict['gt_boxes']
+    batch_rois, batch_gt_of_rois, batch_roi_iou, batch_roi_raw_scores, batch_roi_labels = sample_rois_for_rcnn(rois, gt_boxes, roi_raw_scores, roi_labels, roi_sampler_cfg)
+    reg_valid_mask = (batch_roi_iou > roi_sampler_cfg.REG_FG_THRESH).long()
+    if roi_sampler_cfg.CLS_SCORE_TYPE == 'cls':
+        batch_cls_label = (batch_roi_iou > roi_sampler_cfg.CLS_FG_THRESH).long()
+        invalid_mask = (batch_roi_iou > roi_sampler_cfg.CLS_BG_THRESH) & (batch_roi_iou < roi_sampler_cfg.CLS_FG_THRESH)
+        batch_cls_label[invalid_mask > 0] = -1
+    elif roi_sampler_cfg.CLS_SCORE_TYPE == 'roi_iou':
+        fg_mask = batch_roi_iou > roi_sampler_cfg.CLS_FG_THRESH
+        bg_mask = batch_roi_iou < roi_sampler_cfg.CLS_BG_THRESH
+        interval_mask = (fg_mask == 0) & (bg_mask == 0)
+        batch_cls_label = (fg_mask > 0).float()
+        batch_cls_label[interval_mask] = batch_roi_iou[interval_mask] * 2 - 0.5
+    else:
+        raise NotImplementedError
+    output_dict = {'rcnn_cls_labels': batch_cls_label.view(-1), 'reg_valid_mask': reg_valid_mask.view(-1), 'gt_of_rois': batch_gt_of_rois, 'gt_iou': batch_roi_iou, 'rois': batch_rois, 'roi_raw_scores': batch_roi_raw_scores, 'roi_labels': batch_roi_labels}
+    return output_dict
+
+
+class RCNNHead(nn.Module):
+
+    def __init__(self, rcnn_target_config):
+        super().__init__()
+        self.forward_ret_dict = None
+        self.rcnn_target_config = rcnn_target_config
+        self.box_coder = getattr(box_coder_utils, rcnn_target_config.BOX_CODER)()
+        losses_cfg = cfg.MODEL.LOSSES
+        code_weights = losses_cfg.LOSS_WEIGHTS['code_weights']
+        self.reg_loss_func = loss_utils.WeightedSmoothL1LocalizationLoss(sigma=3.0, code_weights=code_weights)
+
+    def assign_targets(self, batch_size, rcnn_dict):
+        with torch.no_grad():
+            targets_dict = proposal_target_layer(rcnn_dict, roi_sampler_cfg=self.rcnn_target_config)
+        rois = targets_dict['rois']
+        gt_of_rois = targets_dict['gt_of_rois']
+        targets_dict['gt_of_rois_src'] = gt_of_rois.clone().detach()
+        roi_center = rois[:, :, 0:3]
+        roi_ry = rois[:, :, (6)] % (2 * np.pi)
+        gt_of_rois[:, :, 0:3] = gt_of_rois[:, :, 0:3] - roi_center
+        gt_of_rois[:, :, (6)] = gt_of_rois[:, :, (6)] - roi_ry
+        for k in range(batch_size):
+            gt_of_rois[k] = common_utils.rotate_pc_along_z_torch(gt_of_rois[k].unsqueeze(dim=1), -(roi_ry[k] + np.pi / 2)).squeeze(dim=1)
+        ry_label = gt_of_rois[:, :, (6)] % (2 * np.pi)
+        opposite_flag = (ry_label > np.pi * 0.5) & (ry_label < np.pi * 1.5)
+        ry_label[opposite_flag] = (ry_label[opposite_flag] + np.pi) % (2 * np.pi)
+        flag = ry_label > np.pi
+        ry_label[flag] = ry_label[flag] - np.pi * 2
+        ry_label = torch.clamp(ry_label, min=-np.pi / 2, max=np.pi / 2)
+        gt_of_rois[:, :, (6)] = ry_label
+        targets_dict['gt_of_rois'] = gt_of_rois
+        return targets_dict
+
+    def get_loss(self, forward_ret_dict=None):
+        loss_cfgs = cfg.MODEL.LOSSES
+        LOSS_WEIGHTS = loss_cfgs.LOSS_WEIGHTS
+        forward_ret_dict = self.forward_ret_dict if forward_ret_dict is None else forward_ret_dict
+        code_size = self.box_coder.code_size
+        rcnn_cls = forward_ret_dict['rcnn_cls']
+        rcnn_cls_labels = forward_ret_dict['rcnn_cls_labels'].float().view(-1)
+        reg_valid_mask = forward_ret_dict['reg_valid_mask']
+        gt_boxes3d_ct = forward_ret_dict['gt_of_rois'][(...), 0:code_size]
+        gt_of_rois_src = forward_ret_dict['gt_of_rois_src'][(...), 0:code_size].view(-1, code_size)
+        rcnn_reg = forward_ret_dict['rcnn_reg']
+        roi_boxes3d = forward_ret_dict['rois']
+        rcnn_batch_size = rcnn_cls_labels.shape[0]
+        rcnn_loss = 0
+        if loss_cfgs.RCNN_CLS_LOSS == 'BinaryCrossEntropy':
+            rcnn_cls_flat = rcnn_cls.view(-1)
+            batch_loss_cls = F.binary_cross_entropy(torch.sigmoid(rcnn_cls_flat), rcnn_cls_labels, reduction='none')
+            cls_valid_mask = (rcnn_cls_labels >= 0).float()
+            rcnn_loss_cls = (batch_loss_cls * cls_valid_mask).sum() / torch.clamp(cls_valid_mask.sum(), min=1.0)
+            rcnn_loss_cls = rcnn_loss_cls * LOSS_WEIGHTS['rcnn_cls_weight']
+        else:
+            raise NotImplementedError
+        rcnn_loss += rcnn_loss_cls
+        tb_dict = {'rcnn_loss_cls': rcnn_loss_cls.item()}
+        fg_mask = reg_valid_mask > 0
+        fg_sum = fg_mask.long().sum().item()
+        if fg_sum == 0:
+            temp_rcnn_reg = rcnn_reg.view(rcnn_batch_size, -1)[0].unsqueeze(dim=0)
+            faked_reg_target = temp_rcnn_reg.detach()
+            rcnn_loss_reg = self.reg_loss_func(temp_rcnn_reg, faked_reg_target)
+            rcnn_loss_reg = rcnn_loss_reg.sum() / 1.0
+            tb_dict['rcnn_loss_reg'] = rcnn_loss_reg.item()
+        else:
+            fg_rcnn_reg = rcnn_reg.view(rcnn_batch_size, -1)[fg_mask]
+            fg_roi_boxes3d = roi_boxes3d.view(-1, code_size)[fg_mask]
+            if loss_cfgs.RCNN_REG_LOSS == 'smooth-l1':
+                rois_anchor = roi_boxes3d.clone().detach().view(-1, code_size)
+                rois_anchor[:, 0:3] = 0
+                rois_anchor[:, (6)] = 0
+                reg_targets = self.box_coder.encode_torch(gt_boxes3d_ct.view(rcnn_batch_size, code_size)[fg_mask], rois_anchor[fg_mask])
+                rcnn_loss_reg = self.reg_loss_func(rcnn_reg.view(rcnn_batch_size, -1)[fg_mask].unsqueeze(dim=0), reg_targets.unsqueeze(dim=0))
+                rcnn_loss_reg = rcnn_loss_reg.sum() / max(fg_sum, 0)
+                rcnn_loss_reg = rcnn_loss_reg * LOSS_WEIGHTS['rcnn_reg_weight']
+                tb_dict['rcnn_loss_reg'] = rcnn_loss_reg.item()
+                if loss_cfgs.CORNER_LOSS_REGULARIZATION:
+                    fg_roi_boxes3d = fg_roi_boxes3d.view(1, -1, code_size)
+                    batch_anchors = fg_roi_boxes3d.clone().detach()
+                    roi_ry = fg_roi_boxes3d[:, :, (6)].view(-1)
+                    roi_xyz = fg_roi_boxes3d[:, :, 0:3].view(-1, 3)
+                    batch_anchors[:, :, 0:3] = 0
+                    rcnn_boxes3d = self.box_coder.decode_torch(fg_rcnn_reg.view(batch_anchors.shape[0], -1, code_size), batch_anchors).view(-1, code_size)
+                    rcnn_boxes3d = common_utils.rotate_pc_along_z_torch(rcnn_boxes3d.unsqueeze(dim=1), roi_ry + np.pi / 2).squeeze(dim=1)
+                    rcnn_boxes3d[:, 0:3] += roi_xyz
+                    loss_corner = loss_utils.get_corner_loss_lidar(rcnn_boxes3d[:, 0:7], gt_of_rois_src[fg_mask][:, 0:7])
+                    loss_corner = loss_corner.mean()
+                    loss_corner = loss_corner * LOSS_WEIGHTS['rcnn_corner_weight']
+                    rcnn_loss_reg += loss_corner
+                    tb_dict['rcnn_loss_corner'] = loss_corner
+            else:
+                raise NotImplementedError
+        rcnn_loss += rcnn_loss_reg
+        tb_dict['rcnn_loss'] = rcnn_loss.item()
+        return rcnn_loss, tb_dict
+
+
+class FCRCNN(RCNNHead):
+
+    def __init__(self, num_point_features, rcnn_cfg, **kwargs):
+        super().__init__(rcnn_target_config=cfg.MODEL.RCNN.TARGET_CONFIG)
+        self.SA_modules = nn.ModuleList()
+        block = self.post_act_block
+        c0 = rcnn_cfg.SHARED_FC[0] // 2
+        self.conv_part = spconv.SparseSequential(block(4, 64, 3, padding=1, indice_key='rcnn_subm1'), block(64, c0, 3, padding=1, indice_key='rcnn_subm1_1'))
+        self.conv_rpn = spconv.SparseSequential(block(num_point_features, 64, 3, padding=1, indice_key='rcnn_subm2'), block(64, c0, 3, padding=1, indice_key='rcnn_subm1_2'))
+        shared_fc_list = []
+        pool_size = rcnn_cfg.ROI_AWARE_POOL_SIZE
+        pre_channel = rcnn_cfg.SHARED_FC[0] * pool_size * pool_size * pool_size
+        for k in range(1, rcnn_cfg.SHARED_FC.__len__()):
+            shared_fc_list.append(pt_utils.Conv1d(pre_channel, rcnn_cfg.SHARED_FC[k], bn=True))
+            pre_channel = rcnn_cfg.SHARED_FC[k]
+            if k != rcnn_cfg.SHARED_FC.__len__() - 1 and rcnn_cfg.DP_RATIO > 0:
+                shared_fc_list.append(nn.Dropout(rcnn_cfg.DP_RATIO))
+        self.shared_fc_layer = nn.Sequential(*shared_fc_list)
+        channel_in = rcnn_cfg.SHARED_FC[-1]
+        cls_channel = 1
+        cls_layers = []
+        pre_channel = channel_in
+        for k in range(0, rcnn_cfg.CLS_FC.__len__()):
+            cls_layers.append(pt_utils.Conv1d(pre_channel, rcnn_cfg.CLS_FC[k], bn=True))
+            pre_channel = rcnn_cfg.CLS_FC[k]
+        cls_layers.append(pt_utils.Conv1d(pre_channel, cls_channel, activation=None))
+        if rcnn_cfg.DP_RATIO >= 0:
+            cls_layers.insert(1, nn.Dropout(rcnn_cfg.DP_RATIO))
+        self.cls_layer = nn.Sequential(*cls_layers)
+        reg_layers = []
+        pre_channel = channel_in
+        for k in range(0, rcnn_cfg.REG_FC.__len__()):
+            reg_layers.append(pt_utils.Conv1d(pre_channel, rcnn_cfg.REG_FC[k], bn=True))
+            pre_channel = rcnn_cfg.REG_FC[k]
+        reg_layers.append(pt_utils.Conv1d(pre_channel, self.box_coder.code_size, activation=None))
+        if rcnn_cfg.DP_RATIO >= 0:
+            reg_layers.insert(1, nn.Dropout(rcnn_cfg.DP_RATIO))
+        self.reg_layer = nn.Sequential(*reg_layers)
+        self.roiaware_pool3d_layer = roiaware_pool3d_utils.RoIAwarePool3d(out_size=rcnn_cfg.ROI_AWARE_POOL_SIZE, max_pts_each_voxel=128)
+        self.init_weights(weight_init='xavier')
+
+    def init_weights(self, weight_init='xavier'):
+        if weight_init == 'kaiming':
+            init_func = nn.init.kaiming_normal_
+        elif weight_init == 'xavier':
+            init_func = nn.init.xavier_normal_
+        elif weight_init == 'normal':
+            init_func = nn.init.normal_
+        else:
+            raise NotImplementedError
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv1d):
+                if weight_init == 'normal':
+                    init_func(m.weight, mean=0, std=0.001)
+                else:
+                    init_func(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+        nn.init.normal_(self.reg_layer[-1].conv.weight, mean=0, std=0.001)
+
+    def post_act_block(self, in_channels, out_channels, kernel_size, indice_key, stride=1, padding=0, conv_type='subm'):
+        if conv_type == 'subm':
+            m = spconv.SparseSequential(spconv.SubMConv3d(in_channels, out_channels, kernel_size, bias=False, indice_key=indice_key), nn.BatchNorm1d(out_channels, eps=0.001, momentum=0.01), nn.ReLU())
+        elif conv_type == 'spconv':
+            m = spconv.SparseSequential(spconv.SparseConv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=False, indice_key=indice_key), nn.BatchNorm1d(out_channels, eps=0.001, momentum=0.01), nn.ReLU())
+        elif conv_type == 'inverseconv':
+            m = spconv.SparseSequential(spconv.SparseInverseConv3d(in_channels, out_channels, kernel_size, indice_key=indice_key, bias=False), nn.BatchNorm1d(out_channels, eps=0.001, momentum=0.01), nn.ReLU())
+        else:
+            raise NotImplementedError
+        return m
+
+    def roiaware_pool(self, batch_rois, rcnn_dict):
+        """
+        :param batch_rois: (B, N, 7 + ?) [x, y, z, w, l, h, rz] in LiDAR coords
+        :param rcnn_dict:
+        :return:
+        """
+        voxel_centers = rcnn_dict['voxel_centers']
+        rpn_features = rcnn_dict['rpn_seg_features']
+        coords = rcnn_dict['coordinates']
+        rpn_seg_score = rcnn_dict['rpn_seg_scores'].detach()
+        rpn_seg_mask = rpn_seg_score > cfg.MODEL.RPN.BACKBONE.SEG_MASK_SCORE_THRESH
+        rpn_part_offsets = rcnn_dict['rpn_part_offsets'].clone().detach()
+        rpn_part_offsets[rpn_seg_mask == 0] = 0
+        part_features = torch.cat((rpn_part_offsets, rpn_seg_score.view(-1, 1)), dim=1)
+        batch_size = batch_rois.shape[0]
+        pooled_part_features_list, pooled_rpn_features_list = [], []
+        for bs_idx in range(batch_size):
+            bs_mask = coords[:, (0)] == bs_idx
+            cur_voxel_centers = voxel_centers[bs_mask]
+            cur_part_features = part_features[bs_mask]
+            cur_rpn_features = rpn_features[bs_mask]
+            cur_roi = batch_rois[bs_idx][:, 0:7].contiguous()
+            pooled_part_features = self.roiaware_pool3d_layer.forward(cur_roi, cur_voxel_centers, cur_part_features, pool_method='avg')
+            pooled_rpn_features = self.roiaware_pool3d_layer.forward(cur_roi, cur_voxel_centers, cur_rpn_features, pool_method='max')
+            pooled_part_features_list.append(pooled_part_features)
+            pooled_rpn_features_list.append(pooled_rpn_features)
+        pooled_part_features = torch.cat(pooled_part_features_list, dim=0)
+        pooled_rpn_features = torch.cat(pooled_rpn_features_list, dim=0)
+        return pooled_part_features, pooled_rpn_features
+
+    def _break_up_pc(self, pc):
+        xyz = pc[(...), 0:3].contiguous()
+        features = pc[(...), 3:].transpose(1, 2).contiguous() if pc.size(-1) > 3 else None
+        return xyz, features
+
+    def fake_sparse_idx(self, sparse_idx, batch_size_rcnn):
+        None
+        sparse_idx = sparse_idx.new_zeros((batch_size_rcnn, 3))
+        bs_idxs = torch.arange(batch_size_rcnn).type_as(sparse_idx).view(-1, 1)
+        sparse_idx = torch.cat((bs_idxs, sparse_idx), dim=1)
+        return sparse_idx
+
+    def forward(self, rcnn_dict):
+        """
+        :param input_data: input dict
+        :return:
+        """
+        rois = rcnn_dict['rois']
+        batch_size = rois.shape[0]
+        if self.training:
+            targets_dict = self.assign_targets(batch_size, rcnn_dict)
+            rois = targets_dict['rois']
+            rcnn_dict['roi_raw_scores'] = targets_dict['roi_raw_scores']
+            rcnn_dict['roi_labels'] = targets_dict['roi_labels']
+        pooled_part_features, pooled_rpn_features = self.roiaware_pool(rois, rcnn_dict)
+        batch_size_rcnn = pooled_part_features.shape[0]
+        sparse_shape = np.array(pooled_part_features.shape[1:4], dtype=np.int32)
+        sparse_idx = pooled_part_features.sum(dim=-1).nonzero()
+        if sparse_idx.shape[0] < 3:
+            sparse_idx = self.fake_sparse_idx(sparse_idx, batch_size_rcnn)
+            if self.training:
+                targets_dict['rcnn_cls_labels'].fill_(-1)
+                targets_dict['reg_valid_mask'].fill_(-1)
+        part_features = pooled_part_features[sparse_idx[:, (0)], sparse_idx[:, (1)], sparse_idx[:, (2)], sparse_idx[:, (3)]]
+        rpn_features = pooled_rpn_features[sparse_idx[:, (0)], sparse_idx[:, (1)], sparse_idx[:, (2)], sparse_idx[:, (3)]]
+        coords = sparse_idx.int()
+        part_features = spconv.SparseConvTensor(part_features, coords, sparse_shape, batch_size_rcnn)
+        rpn_features = spconv.SparseConvTensor(rpn_features, coords, sparse_shape, batch_size_rcnn)
+        x_part = self.conv_part(part_features)
+        x_rpn = self.conv_rpn(rpn_features)
+        merged_feature = torch.cat((x_rpn.features, x_part.features), dim=1)
+        shared_feature = spconv.SparseConvTensor(merged_feature, coords, sparse_shape, batch_size_rcnn)
+        shared_feature = shared_feature.dense().view(batch_size_rcnn, -1, 1)
+        shared_feature = self.shared_fc_layer(shared_feature)
+        rcnn_cls = self.cls_layer(shared_feature).transpose(1, 2).contiguous().squeeze(dim=1)
+        rcnn_reg = self.reg_layer(shared_feature).transpose(1, 2).contiguous().squeeze(dim=1)
+        ret_dict = {'rcnn_cls': rcnn_cls, 'rcnn_reg': rcnn_reg, 'rois': rois, 'roi_raw_scores': rcnn_dict['roi_raw_scores'], 'roi_labels': rcnn_dict['roi_labels']}
+        if self.training:
+            ret_dict.update(targets_dict)
+        self.forward_ret_dict = ret_dict
+        return ret_dict
+
+
+class SpConvRCNN(RCNNHead):
+
+    def __init__(self, num_point_features, rcnn_cfg, **kwargs):
+        super().__init__(rcnn_target_config=cfg.MODEL.RCNN.TARGET_CONFIG)
+        self.SA_modules = nn.ModuleList()
+        block = self.post_act_block
+        self.conv_part = spconv.SparseSequential(block(4, 64, 3, padding=1, indice_key='rcnn_subm1'), block(64, 64, 3, padding=1, indice_key='rcnn_subm1_1'))
+        self.conv_rpn = spconv.SparseSequential(block(num_point_features, 64, 3, padding=1, indice_key='rcnn_subm2'), block(64, 64, 3, padding=1, indice_key='rcnn_subm1_2'))
+        self.conv_down = spconv.SparseSequential(block(128, 128, 3, padding=1, indice_key='rcnn_subm2'), block(128, 128, 3, padding=1, indice_key='rcnn_subm2'), spconv.SparseMaxPool3d(kernel_size=2, stride=2), block(128, 128, 3, padding=1, indice_key='rcnn_subm3'), block(128, rcnn_cfg.SHARED_FC[0], 3, padding=1, indice_key='rcnn_subm3'))
+        shared_fc_list = []
+        pool_size = rcnn_cfg.ROI_AWARE_POOL_SIZE // 2
+        pre_channel = rcnn_cfg.SHARED_FC[0] * pool_size * pool_size * pool_size
+        for k in range(1, rcnn_cfg.SHARED_FC.__len__()):
+            shared_fc_list.append(pt_utils.Conv1d(pre_channel, rcnn_cfg.SHARED_FC[k], bn=True))
+            pre_channel = rcnn_cfg.SHARED_FC[k]
+            if k != rcnn_cfg.SHARED_FC.__len__() - 1 and rcnn_cfg.DP_RATIO > 0:
+                shared_fc_list.append(nn.Dropout(rcnn_cfg.DP_RATIO))
+        self.shared_fc_layer = nn.Sequential(*shared_fc_list)
+        channel_in = rcnn_cfg.SHARED_FC[-1]
+        cls_channel = 1
+        cls_layers = []
+        pre_channel = channel_in
+        for k in range(0, rcnn_cfg.CLS_FC.__len__()):
+            cls_layers.append(pt_utils.Conv1d(pre_channel, rcnn_cfg.CLS_FC[k], bn=True))
+            pre_channel = rcnn_cfg.CLS_FC[k]
+        cls_layers.append(pt_utils.Conv1d(pre_channel, cls_channel, activation=None))
+        if rcnn_cfg.DP_RATIO >= 0:
+            cls_layers.insert(1, nn.Dropout(rcnn_cfg.DP_RATIO))
+        self.cls_layer = nn.Sequential(*cls_layers)
+        reg_layers = []
+        pre_channel = channel_in
+        for k in range(0, rcnn_cfg.REG_FC.__len__()):
+            reg_layers.append(pt_utils.Conv1d(pre_channel, rcnn_cfg.REG_FC[k], bn=True))
+            pre_channel = rcnn_cfg.REG_FC[k]
+        reg_layers.append(pt_utils.Conv1d(pre_channel, self.box_coder.code_size, activation=None))
+        if rcnn_cfg.DP_RATIO >= 0:
+            reg_layers.insert(1, nn.Dropout(rcnn_cfg.DP_RATIO))
+        self.reg_layer = nn.Sequential(*reg_layers)
+        self.roiaware_pool3d_layer = roiaware_pool3d_utils.RoIAwarePool3d(out_size=rcnn_cfg.ROI_AWARE_POOL_SIZE, max_pts_each_voxel=128)
+        self.init_weights(weight_init='xavier')
+
+    def init_weights(self, weight_init='xavier'):
+        if weight_init == 'kaiming':
+            init_func = nn.init.kaiming_normal_
+        elif weight_init == 'xavier':
+            init_func = nn.init.xavier_normal_
+        elif weight_init == 'normal':
+            init_func = nn.init.normal_
+        else:
+            raise NotImplementedError
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv1d):
+                if weight_init == 'normal':
+                    init_func(m.weight, mean=0, std=0.001)
+                else:
+                    init_func(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+        nn.init.normal_(self.reg_layer[-1].conv.weight, mean=0, std=0.001)
+
+    def post_act_block(self, in_channels, out_channels, kernel_size, indice_key, stride=1, padding=0, conv_type='subm'):
+        if conv_type == 'subm':
+            m = spconv.SparseSequential(spconv.SubMConv3d(in_channels, out_channels, kernel_size, bias=False, indice_key=indice_key), nn.BatchNorm1d(out_channels, eps=0.001, momentum=0.01), nn.ReLU())
+        elif conv_type == 'spconv':
+            m = spconv.SparseSequential(spconv.SparseConv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=False, indice_key=indice_key), nn.BatchNorm1d(out_channels, eps=0.001, momentum=0.01), nn.ReLU())
+        elif conv_type == 'inverseconv':
+            m = spconv.SparseSequential(spconv.SparseInverseConv3d(in_channels, out_channels, kernel_size, indice_key=indice_key, bias=False), nn.BatchNorm1d(out_channels, eps=0.001, momentum=0.01), nn.ReLU())
+        else:
+            raise NotImplementedError
+        return m
+
+    def roiaware_pool(self, batch_rois, rcnn_dict):
+        """
+        :param batch_rois: (B, N, 7 + ?) [x, y, z, w, l, h, rz] in LiDAR coords
+        :param rcnn_dict:
+        :return:
+        """
+        voxel_centers = rcnn_dict['voxel_centers']
+        rpn_features = rcnn_dict['rpn_seg_features']
+        coords = rcnn_dict['coordinates']
+        rpn_seg_score = rcnn_dict['rpn_seg_scores'].detach()
+        rpn_seg_mask = rpn_seg_score > cfg.MODEL.RPN.BACKBONE.SEG_MASK_SCORE_THRESH
+        rpn_part_offsets = rcnn_dict['rpn_part_offsets'].clone().detach()
+        rpn_part_offsets[rpn_seg_mask == 0] = 0
+        part_features = torch.cat((rpn_part_offsets, rpn_seg_score.view(-1, 1)), dim=1)
+        batch_size = batch_rois.shape[0]
+        pooled_part_features_list, pooled_rpn_features_list = [], []
+        for bs_idx in range(batch_size):
+            bs_mask = coords[:, (0)] == bs_idx
+            cur_voxel_centers = voxel_centers[bs_mask]
+            cur_part_features = part_features[bs_mask]
+            cur_rpn_features = rpn_features[bs_mask]
+            cur_roi = batch_rois[bs_idx][:, 0:7].contiguous()
+            pooled_part_features = self.roiaware_pool3d_layer.forward(cur_roi, cur_voxel_centers, cur_part_features, pool_method='avg')
+            pooled_rpn_features = self.roiaware_pool3d_layer.forward(cur_roi, cur_voxel_centers, cur_rpn_features, pool_method='max')
+            pooled_part_features_list.append(pooled_part_features)
+            pooled_rpn_features_list.append(pooled_rpn_features)
+        pooled_part_features = torch.cat(pooled_part_features_list, dim=0)
+        pooled_rpn_features = torch.cat(pooled_rpn_features_list, dim=0)
+        return pooled_part_features, pooled_rpn_features
+
+    def _break_up_pc(self, pc):
+        xyz = pc[(...), 0:3].contiguous()
+        features = pc[(...), 3:].transpose(1, 2).contiguous() if pc.size(-1) > 3 else None
+        return xyz, features
+
+    def fake_sparse_idx(self, sparse_idx, batch_size_rcnn):
+        None
+        sparse_idx = sparse_idx.new_zeros((batch_size_rcnn, 3))
+        bs_idxs = torch.arange(batch_size_rcnn).type_as(sparse_idx).view(-1, 1)
+        sparse_idx = torch.cat((bs_idxs, sparse_idx), dim=1)
+        return sparse_idx
+
+    def forward(self, rcnn_dict):
+        """
+        :param input_data: input dict
+        :return:
+        """
+        rois = rcnn_dict['rois']
+        batch_size = rois.shape[0]
+        if self.training:
+            targets_dict = self.assign_targets(batch_size, rcnn_dict)
+            rois = targets_dict['rois']
+            rcnn_dict['roi_raw_scores'] = targets_dict['roi_raw_scores']
+            rcnn_dict['roi_labels'] = targets_dict['roi_labels']
+        pooled_part_features, pooled_rpn_features = self.roiaware_pool(rois, rcnn_dict)
+        batch_size_rcnn = pooled_part_features.shape[0]
+        sparse_shape = np.array(pooled_part_features.shape[1:4], dtype=np.int32)
+        sparse_idx = pooled_part_features.sum(dim=-1).nonzero()
+        if sparse_idx.shape[0] < 3:
+            sparse_idx = self.fake_sparse_idx(sparse_idx, batch_size_rcnn)
+            if self.training:
+                targets_dict['rcnn_cls_labels'].fill_(-1)
+                targets_dict['reg_valid_mask'].fill_(-1)
+        part_features = pooled_part_features[sparse_idx[:, (0)], sparse_idx[:, (1)], sparse_idx[:, (2)], sparse_idx[:, (3)]]
+        rpn_features = pooled_rpn_features[sparse_idx[:, (0)], sparse_idx[:, (1)], sparse_idx[:, (2)], sparse_idx[:, (3)]]
+        coords = sparse_idx.int()
+        part_features = spconv.SparseConvTensor(part_features, coords, sparse_shape, batch_size_rcnn)
+        rpn_features = spconv.SparseConvTensor(rpn_features, coords, sparse_shape, batch_size_rcnn)
+        x_part = self.conv_part(part_features)
+        x_rpn = self.conv_rpn(rpn_features)
+        merged_feature = torch.cat((x_rpn.features, x_part.features), dim=1)
+        shared_feature = spconv.SparseConvTensor(merged_feature, coords, sparse_shape, batch_size_rcnn)
+        x = self.conv_down(shared_feature)
+        shared_feature = x.dense().view(batch_size_rcnn, -1, 1)
+        shared_feature = self.shared_fc_layer(shared_feature)
+        rcnn_cls = self.cls_layer(shared_feature).transpose(1, 2).contiguous().squeeze(dim=1)
+        rcnn_reg = self.reg_layer(shared_feature).transpose(1, 2).contiguous().squeeze(dim=1)
+        ret_dict = {'rcnn_cls': rcnn_cls, 'rcnn_reg': rcnn_reg, 'rois': rois, 'roi_raw_scores': rcnn_dict['roi_raw_scores'], 'roi_labels': rcnn_dict['roi_labels']}
+        if self.training:
+            ret_dict.update(targets_dict)
+        self.forward_ret_dict = ret_dict
+        return ret_dict
+
+
+rcnn_modules = {'FCRCNN': FCRCNN, 'SpConvRCNN': SpConvRCNN}
+
+
+class BackBone8x(nn.Module):
+
+    def __init__(self, input_channels):
+        super().__init__()
+        norm_fn = partial(nn.BatchNorm1d, eps=0.001, momentum=0.01)
+        self.conv_input = spconv.SparseSequential(spconv.SubMConv3d(input_channels, 16, 3, padding=1, bias=False, indice_key='subm1'), norm_fn(16), nn.ReLU())
+        block = self.post_act_block
+        self.conv1 = spconv.SparseSequential(block(16, 16, 3, norm_fn=norm_fn, padding=1, indice_key='subm1'))
+        self.conv2 = spconv.SparseSequential(block(16, 32, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv2', conv_type='spconv'), block(32, 32, 3, norm_fn=norm_fn, padding=1, indice_key='subm2'), block(32, 32, 3, norm_fn=norm_fn, padding=1, indice_key='subm2'))
+        self.conv3 = spconv.SparseSequential(block(32, 64, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv3', conv_type='spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3'))
+        self.conv4 = spconv.SparseSequential(block(64, 64, 3, norm_fn=norm_fn, stride=2, padding=(0, 1, 1), indice_key='spconv4', conv_type='spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4'))
+        last_pad = 0 if cfg.DATA_CONFIG.VOXEL_GENERATOR.VOXEL_SIZE[-1] in [0.1, 0.2] else (1, 0, 0)
+        self.conv_out = spconv.SparseSequential(spconv.SparseConv3d(64, 128, (3, 1, 1), stride=(2, 1, 1), padding=last_pad, bias=False, indice_key='spconv_down2'), norm_fn(128), nn.ReLU())
+
+    def forward(self, input_sp_tensor, **kwargs):
+        """
+        :param voxel_features:  (N, C)
+        :param coors:   (N, 4)  [batch_idx, z_idx, y_idx, x_idx],  sparse_shape: (z_size, y_size, x_size)
+        :param batch_size:
+        :return:
+        """
+        x = self.conv_input(input_sp_tensor)
+        x_conv1 = self.conv1(x)
+        x_conv2 = self.conv2(x_conv1)
+        x_conv3 = self.conv3(x_conv2)
+        x_conv4 = self.conv4(x_conv3)
+        out = self.conv_out(x_conv4)
+        spatial_features = out.dense()
+        N, C, D, H, W = spatial_features.shape
+        spatial_features = spatial_features.view(N, C * D, H, W)
+        ret = {'spatial_features': spatial_features}
+        return ret
+
+    def post_act_block(self, in_channels, out_channels, kernel_size, indice_key, stride=1, padding=0, conv_type='subm', norm_fn=None):
+        if conv_type == 'subm':
+            m = spconv.SparseSequential(spconv.SubMConv3d(in_channels, out_channels, kernel_size, bias=False, indice_key=indice_key), norm_fn(out_channels), nn.ReLU())
+        elif conv_type == 'spconv':
+            m = spconv.SparseSequential(spconv.SparseConv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=False, indice_key=indice_key), norm_fn(out_channels), nn.ReLU())
+        elif conv_type == 'inverseconv':
+            m = spconv.SparseSequential(spconv.SparseInverseConv3d(in_channels, out_channels, kernel_size, indice_key=indice_key, bias=False), norm_fn(out_channels), nn.ReLU())
+        else:
+            raise NotImplementedError
+        return m
+
+
+class PointPillarsScatter(nn.Module):
+
+    def __init__(self, input_channels=64, **kwargs):
+        """
+        Point Pillar's Scatter.
+        Converts learned features from dense tensor to sparse pseudo image.
+        :param output_shape: ([int]: 4). Required output shape of features.
+        :param num_input_features: <int>. Number of input features.
+        """
+        super().__init__()
+        self.nchannels = input_channels
+
+    def forward(self, voxel_features, coords, batch_size, **kwargs):
+        output_shape = kwargs['output_shape']
+        nz, ny, nx = output_shape
+        batch_canvas = []
+        for batch_itt in range(batch_size):
+            canvas = torch.zeros(self.nchannels, nz * nx * ny, dtype=voxel_features.dtype, device=voxel_features.device)
+            batch_mask = coords[:, (0)] == batch_itt
+            this_coords = coords[(batch_mask), :]
+            indices = this_coords[:, (1)] * nz + this_coords[:, (2)] * nx + this_coords[:, (3)]
+            indices = indices.type(torch.long)
+            voxels = voxel_features[(batch_mask), :]
+            voxels = voxels.t()
+            canvas[:, (indices)] = voxels
+            batch_canvas.append(canvas)
+        batch_canvas = torch.stack(batch_canvas, 0)
+        batch_canvas = batch_canvas.view(batch_size, self.nchannels * nz, ny, nx)
+        return batch_canvas
 
 
 def conv3x3(in_planes, out_planes, stride=1, indice_key=None):
@@ -807,7 +1578,388 @@ def conv3x3(in_planes, out_planes, stride=1, indice_key=None):
     return spconv.SubMConv3d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False, indice_key=indice_key)
 
 
-_global_config['DATA_CONFIG'] = 4
+class UNetHead(nn.Module):
+
+    def __init__(self, unet_target_cfg):
+        super().__init__()
+        self.gt_extend_width = unet_target_cfg.GT_EXTEND_WIDTH
+        if 'MEAN_SIZE' in unet_target_cfg:
+            self.mean_size = unet_target_cfg.MEAN_SIZE
+        self.target_generated_on = unet_target_cfg.GENERATED_ON
+        self.cls_loss_func = loss_utils.SigmoidFocalClassificationLoss(alpha=0.25, gamma=2.0)
+        self.forward_ret_dict = None
+
+    def assign_targets(self, batch_points, gt_boxes, generate_bbox_reg_labels=False):
+        """
+        :param points: [(N1, 3), (N2, 3), ...]
+        :param gt_boxes: (B, M, 8)
+        :param gt_classes: (B, M)
+        :param gt_names: (B, M)
+        :return:
+        """
+        batch_size = gt_boxes.shape[0]
+        cls_labels_list, part_reg_labels_list, bbox_reg_labels_list = [], [], []
+        for k in range(batch_size):
+            if True or self.target_generated_on == 'head_cpu':
+                cur_cls_labels, cur_part_reg_labels, cur_bbox_reg_labels = self.generate_part_targets_cpu(points=batch_points[k], gt_boxes=gt_boxes[k][:, 0:7], gt_classes=gt_boxes[k][:, (7)], generate_bbox_reg_labels=generate_bbox_reg_labels)
+            else:
+                raise NotImplementedError
+            cls_labels_list.append(cur_cls_labels)
+            part_reg_labels_list.append(cur_part_reg_labels)
+            bbox_reg_labels_list.append(cur_bbox_reg_labels)
+        cls_labels = torch.cat(cls_labels_list, dim=0)
+        part_reg_labels = torch.cat(part_reg_labels_list, dim=0)
+        bbox_reg_labels = torch.cat(bbox_reg_labels_list, dim=0) if generate_bbox_reg_labels else None
+        targets_dict = {'seg_labels': cls_labels, 'part_labels': part_reg_labels, 'bbox_reg_labels': bbox_reg_labels}
+        return targets_dict
+
+    def generate_part_targets_cpu(self, points, gt_boxes, gt_classes, generate_bbox_reg_labels=False):
+        """
+        :param voxel_centers: (N, 3) [x, y, z]
+        :param gt_boxes: (M, 7) [x, y, z, w, l, h, ry] in LiDAR coords
+        :return:
+        """
+        k = gt_boxes.__len__() - 1
+        while k > 0 and gt_boxes[k].sum() == 0:
+            k -= 1
+        gt_boxes = gt_boxes[:k + 1]
+        gt_classes = gt_classes[:k + 1]
+        extend_gt_boxes = common_utils.enlarge_box3d(gt_boxes, extra_width=self.gt_extend_width)
+        cls_labels = torch.zeros(points.shape[0]).int()
+        part_reg_labels = torch.zeros((points.shape[0], 3)).float()
+        bbox_reg_labels = torch.zeros((points.shape[0], 7)).float() if generate_bbox_reg_labels else None
+        point_indices = roiaware_pool3d_utils.points_in_boxes_cpu(points, gt_boxes).long()
+        extend_point_indices = roiaware_pool3d_utils.points_in_boxes_cpu(points, extend_gt_boxes).long()
+        for k in range(gt_boxes.shape[0]):
+            fg_pt_flag = point_indices[k] > 0
+            fg_points = points[fg_pt_flag]
+            cls_labels[fg_pt_flag] = gt_classes[k]
+            fg_enlarge_flag = extend_point_indices[k] > 0
+            ignore_flag = fg_pt_flag ^ fg_enlarge_flag
+            cls_labels[ignore_flag] = -1
+            transformed_points = fg_points - gt_boxes[(k), 0:3]
+            transformed_points = common_utils.rotate_pc_along_z_torch(transformed_points.view(1, -1, 3), -gt_boxes[k, 6])
+            part_reg_labels[fg_pt_flag] = transformed_points / gt_boxes[(k), 3:6] + torch.tensor([0.5, 0.5, 0]).float()
+            if generate_bbox_reg_labels:
+                center3d = gt_boxes[(k), 0:3].clone()
+                center3d[2] += gt_boxes[k][5] / 2
+                bbox_reg_labels[(fg_pt_flag), 0:3] = center3d - fg_points
+                bbox_reg_labels[fg_pt_flag, 6] = gt_boxes[k, 6]
+                cur_mean_size = torch.tensor(self.mean_size[cfg.CLASS_NAMES[gt_classes[k] - 1]])
+                bbox_reg_labels[(fg_pt_flag), 3:6] = (gt_boxes[(k), 3:6] - cur_mean_size) / cur_mean_size
+        return cls_labels, part_reg_labels, bbox_reg_labels
+
+    def get_loss(self, forward_ret_dict=None):
+        forward_ret_dict = self.forward_ret_dict if forward_ret_dict is None else forward_ret_dict
+        tb_dict = {}
+        u_seg_preds = forward_ret_dict['u_seg_preds'].squeeze(dim=-1)
+        u_reg_preds = forward_ret_dict['u_reg_preds']
+        u_cls_labels, u_reg_labels = forward_ret_dict['seg_labels'], forward_ret_dict['part_labels']
+        u_cls_target = (u_cls_labels > 0).float()
+        pos_mask = u_cls_labels > 0
+        pos = pos_mask.float()
+        neg = (u_cls_labels == 0).float()
+        u_cls_weights = pos + neg
+        pos_normalizer = pos.sum()
+        u_cls_weights = u_cls_weights / torch.clamp(pos_normalizer, min=1.0)
+        u_loss_cls = self.cls_loss_func(u_seg_preds, u_cls_target, weights=u_cls_weights)
+        u_loss_cls_pos = (u_loss_cls * pos).sum()
+        u_loss_cls_neg = (u_loss_cls * neg).sum()
+        u_loss_cls = u_loss_cls.sum()
+        loss_unet = u_loss_cls
+        if pos_normalizer > 0:
+            u_loss_reg = F.binary_cross_entropy(torch.sigmoid(u_reg_preds[pos_mask]), u_reg_labels[pos_mask])
+            loss_unet += u_loss_reg
+            tb_dict['rpn_u_loss_reg'] = u_loss_reg.item()
+        tb_dict['rpn_loss_u_cls'] = u_loss_cls.item()
+        tb_dict['rpn_loss_u_cls_pos'] = u_loss_cls_pos.item()
+        tb_dict['rpn_loss_u_cls_neg'] = u_loss_cls_neg.item()
+        tb_dict['rpn_loss_unet'] = loss_unet.item()
+        tb_dict['rpn_pos_num'] = pos_normalizer.item()
+        return loss_unet, tb_dict
+
+
+class UNetV0(UNetHead):
+
+    def __init__(self, input_channels, **kwargs):
+        super().__init__(unet_target_cfg=cfg.MODEL.RPN.BACKBONE.TARGET_CONFIG)
+        norm_fn = partial(nn.BatchNorm1d, eps=0.001, momentum=0.01)
+        self.conv_input = spconv.SparseSequential(spconv.SubMConv3d(input_channels, 16, 3, padding=1, bias=False, indice_key='subm1'), norm_fn(16), nn.ReLU())
+        block = self.post_act_block
+        self.conv1 = spconv.SparseSequential(block(16, 16, 3, norm_fn=norm_fn, padding=1, indice_key='subm1'))
+        self.conv2 = spconv.SparseSequential(block(16, 32, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv2', conv_type='spconv'), block(32, 32, 3, norm_fn=norm_fn, padding=1, indice_key='subm2'), block(32, 32, 3, norm_fn=norm_fn, padding=1, indice_key='subm2'))
+        self.conv3 = spconv.SparseSequential(block(32, 64, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv3', conv_type='spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3'))
+        self.conv4 = spconv.SparseSequential(block(64, 64, 3, norm_fn=norm_fn, stride=2, padding=(0, 1, 1), indice_key='spconv4', conv_type='spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4'))
+        last_pad = 0 if cfg.DATA_CONFIG.VOXEL_GENERATOR.VOXEL_SIZE[-1] in [0.1, 0.2] else (1, 0, 0)
+        self.conv_out = spconv.SparseSequential(spconv.SparseConv3d(128, 128, (3, 1, 1), stride=(2, 1, 1), padding=last_pad, bias=False, indice_key='spconv_down2'), norm_fn(128), nn.ReLU())
+        self.conv_up_t4 = SparseBasicBlock(64, 64, indice_key='subm4', norm_fn=norm_fn)
+        self.conv_up_m4 = block(128, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4')
+        self.inv_conv4 = block(64, 64, 3, norm_fn=norm_fn, indice_key='spconv4', conv_type='inverseconv')
+        self.conv_up_t3 = SparseBasicBlock(64, 64, indice_key='subm3', norm_fn=norm_fn)
+        self.conv_up_m3 = block(128, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3')
+        self.inv_conv3 = block(64, 32, 3, norm_fn=norm_fn, indice_key='spconv3', conv_type='inverseconv')
+        self.conv_up_t2 = SparseBasicBlock(32, 32, indice_key='subm2', norm_fn=norm_fn)
+        self.conv_up_m2 = block(64, 32, 3, norm_fn=norm_fn, indice_key='subm2')
+        self.inv_conv2 = block(32, 16, 3, norm_fn=norm_fn, indice_key='spconv2', conv_type='inverseconv')
+        self.conv_up_t1 = SparseBasicBlock(16, 16, indice_key='subm1', norm_fn=norm_fn)
+        self.conv_up_m1 = block(32, 16, 3, norm_fn=norm_fn, indice_key='subm1')
+        self.conv5 = spconv.SparseSequential(block(16, 16, 3, norm_fn=norm_fn, padding=1, indice_key='subm1'))
+        self.seg_cls_layer = nn.Linear(16, 1, bias=True)
+        self.seg_reg_layer = nn.Linear(16, 3, bias=True)
+
+    def UR_block_forward(self, x_lateral, x_bottom, conv_t, conv_m, conv_inv):
+        x_trans = conv_t(x_lateral)
+        x = x_trans
+        x.features = torch.cat((x_bottom.features, x_trans.features), dim=1)
+        x_m = conv_m(x)
+        x = self.channel_reduction(x, x_m.features.shape[1])
+        x.features = x_m.features + x.features
+        x = conv_inv(x)
+        return x
+
+    @staticmethod
+    def channel_reduction(x, out_channels):
+        """
+        :param x: x.features (N, C1)
+        :param out_channels: C2
+        :return:
+        """
+        features = x.features
+        n, in_channels = features.shape
+        assert in_channels % out_channels == 0 and in_channels >= out_channels
+        x.features = features.view(n, out_channels, -1).sum(dim=2)
+        return x
+
+    def post_act_block(self, in_channels, out_channels, kernel_size, indice_key, stride=1, padding=0, conv_type='subm', norm_fn=None):
+        if conv_type == 'subm':
+            m = spconv.SparseSequential(spconv.SubMConv3d(in_channels, out_channels, kernel_size, bias=False, indice_key=indice_key), norm_fn(out_channels), nn.ReLU())
+        elif conv_type == 'spconv':
+            m = spconv.SparseSequential(spconv.SparseConv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=False, indice_key=indice_key), norm_fn(out_channels), nn.ReLU())
+        elif conv_type == 'inverseconv':
+            m = spconv.SparseSequential(spconv.SparseInverseConv3d(in_channels, out_channels, kernel_size, indice_key=indice_key, bias=False), norm_fn(out_channels), nn.ReLU())
+        else:
+            raise NotImplementedError
+        return m
+
+    def forward(self, input_sp_tensor, **kwargs):
+        """
+        :param voxel_features:  (N, C)
+        :param coors:   (N, 4)  [batch_idx, z_idx, y_idx, x_idx],  sparse_shape: (z_size, y_size, x_size)
+        :param batch_size:
+        :return:
+        """
+        x = self.conv_input(input_sp_tensor)
+        x_conv1 = self.conv1(x)
+        x_conv2 = self.conv2(x_conv1)
+        x_conv3 = self.conv3(x_conv2)
+        x_conv4 = self.conv4(x_conv3)
+        out = self.conv_out(x_conv4)
+        spatial_features = out.dense()
+        N, C, D, H, W = spatial_features.shape
+        spatial_features = spatial_features.view(N, C * D, H, W)
+        ret_dict = {'spatial_features': spatial_features}
+        x_up4 = self.UR_block_forward(x_conv4, x_conv4, self.conv_up_t4, self.conv_up_m4, self.inv_conv4)
+        x_up3 = self.UR_block_forward(x_conv3, x_up4, self.conv_up_t3, self.conv_up_m3, self.inv_conv3)
+        x_up2 = self.UR_block_forward(x_conv2, x_up3, self.conv_up_t2, self.conv_up_m2, self.inv_conv2)
+        x_up1 = self.UR_block_forward(x_conv1, x_up2, self.conv_up_t1, self.conv_up_m1, self.conv5)
+        seg_features = x_up1.features
+        seg_cls_preds = self.seg_cls_layer(seg_features)
+        seg_reg_preds = self.seg_reg_layer(seg_features)
+        ret_dict.update({'u_seg_preds': seg_cls_preds, 'u_reg_preds': seg_reg_preds, 'seg_features': seg_features})
+        if self.training:
+            if self.target_generated_on == 'dataset':
+                targets_dict = {'seg_labels': kwargs['seg_labels'], 'part_labels': kwargs['part_labels'], 'bbox_reg_labels': kwargs.get('bbox_reg_labels', None)}
+            else:
+                batch_size = x_up1.batch_size
+                bs_idx, coords = x_up1.indices[:, (0)].cpu(), x_up1.indices[:, 1:].cpu()
+                voxel_size = torch.tensor(cfg.DATA_CONFIG.VOXEL_GENERATOR.VOXEL_SIZE)
+                pc_range = torch.tensor(cfg.DATA_CONFIG.POINT_CLOUD_RANGE)
+                voxel_centers = (coords[:, ([2, 1, 0])].float() + 0.5) * voxel_size + pc_range[0:3]
+                batch_points = [voxel_centers[bs_idx == k] for k in range(batch_size)]
+                targets_dict = self.assign_targets(batch_points=batch_points, gt_boxes=kwargs['gt_boxes'].cpu())
+            ret_dict['seg_labels'] = targets_dict['seg_labels']
+            ret_dict['part_labels'] = targets_dict['part_labels']
+            ret_dict['bbox_reg_labels'] = targets_dict.get('bbox_reg_labels', None)
+        self.forward_ret_dict = ret_dict
+        return ret_dict
+
+
+class UNetV2(UNetHead):
+
+    def __init__(self, input_channels, **kwargs):
+        super().__init__(unet_target_cfg=cfg.MODEL.RPN.BACKBONE.TARGET_CONFIG)
+        norm_fn = partial(nn.BatchNorm1d, eps=0.001, momentum=0.01)
+        self.conv_input = spconv.SparseSequential(spconv.SubMConv3d(input_channels, 16, 3, padding=1, bias=False, indice_key='subm1'), norm_fn(16), nn.ReLU())
+        block = self.post_act_block
+        self.conv1 = spconv.SparseSequential(block(16, 16, 3, norm_fn=norm_fn, padding=1, indice_key='subm1'))
+        self.conv2 = spconv.SparseSequential(block(16, 32, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv2', conv_type='spconv'), block(32, 32, 3, norm_fn=norm_fn, padding=1, indice_key='subm2'), block(32, 32, 3, norm_fn=norm_fn, padding=1, indice_key='subm2'))
+        self.conv3 = spconv.SparseSequential(block(32, 64, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv3', conv_type='spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3'))
+        self.conv4 = spconv.SparseSequential(block(64, 64, 3, norm_fn=norm_fn, stride=2, padding=(0, 1, 1), indice_key='spconv4', conv_type='spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4'))
+        last_pad = 0 if cfg.DATA_CONFIG.VOXEL_GENERATOR.VOXEL_SIZE[-1] in [0.1, 0.2] else (1, 0, 0)
+        self.conv_out = spconv.SparseSequential(spconv.SparseConv3d(64, 128, (3, 1, 1), stride=(2, 1, 1), padding=last_pad, bias=False, indice_key='spconv_down2'), norm_fn(128), nn.ReLU())
+        self.conv_up_t4 = SparseBasicBlock(64, 64, indice_key='subm4', norm_fn=norm_fn)
+        self.conv_up_m4 = block(128, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4')
+        self.inv_conv4 = block(64, 64, 3, norm_fn=norm_fn, indice_key='spconv4', conv_type='inverseconv')
+        self.conv_up_t3 = SparseBasicBlock(64, 64, indice_key='subm3', norm_fn=norm_fn)
+        self.conv_up_m3 = block(128, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3')
+        self.inv_conv3 = block(64, 32, 3, norm_fn=norm_fn, indice_key='spconv3', conv_type='inverseconv')
+        self.conv_up_t2 = SparseBasicBlock(32, 32, indice_key='subm2', norm_fn=norm_fn)
+        self.conv_up_m2 = block(64, 32, 3, norm_fn=norm_fn, indice_key='subm2')
+        self.inv_conv2 = block(32, 16, 3, norm_fn=norm_fn, indice_key='spconv2', conv_type='inverseconv')
+        self.conv_up_t1 = SparseBasicBlock(16, 16, indice_key='subm1', norm_fn=norm_fn)
+        self.conv_up_m1 = block(32, 16, 3, norm_fn=norm_fn, indice_key='subm1')
+        self.conv5 = spconv.SparseSequential(block(16, 16, 3, norm_fn=norm_fn, padding=1, indice_key='subm1'))
+        self.seg_cls_layer = nn.Linear(16, 1, bias=True)
+        self.seg_reg_layer = nn.Linear(16, 3, bias=True)
+
+    def UR_block_forward(self, x_lateral, x_bottom, conv_t, conv_m, conv_inv):
+        x_trans = conv_t(x_lateral)
+        x = x_trans
+        x.features = torch.cat((x_bottom.features, x_trans.features), dim=1)
+        x_m = conv_m(x)
+        x = self.channel_reduction(x, x_m.features.shape[1])
+        x.features = x_m.features + x.features
+        x = conv_inv(x)
+        return x
+
+    @staticmethod
+    def channel_reduction(x, out_channels):
+        """
+        :param x: x.features (N, C1)
+        :param out_channels: C2
+        :return:
+        """
+        features = x.features
+        n, in_channels = features.shape
+        assert in_channels % out_channels == 0 and in_channels >= out_channels
+        x.features = features.view(n, out_channels, -1).sum(dim=2)
+        return x
+
+    def post_act_block(self, in_channels, out_channels, kernel_size, indice_key, stride=1, padding=0, conv_type='subm', norm_fn=None):
+        if conv_type == 'subm':
+            m = spconv.SparseSequential(spconv.SubMConv3d(in_channels, out_channels, kernel_size, bias=False, indice_key=indice_key), norm_fn(out_channels), nn.ReLU())
+        elif conv_type == 'spconv':
+            m = spconv.SparseSequential(spconv.SparseConv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=False, indice_key=indice_key), norm_fn(out_channels), nn.ReLU())
+        elif conv_type == 'inverseconv':
+            m = spconv.SparseSequential(spconv.SparseInverseConv3d(in_channels, out_channels, kernel_size, indice_key=indice_key, bias=False), norm_fn(out_channels), nn.ReLU())
+        else:
+            raise NotImplementedError
+        return m
+
+    def forward(self, input_sp_tensor, **kwargs):
+        """
+        :param voxel_features:  (N, C)
+        :param coors:   (N, 4)  [batch_idx, z_idx, y_idx, x_idx],  sparse_shape: (z_size, y_size, x_size)
+        :param batch_size:
+        :return:
+        """
+        x = self.conv_input(input_sp_tensor)
+        x_conv1 = self.conv1(x)
+        x_conv2 = self.conv2(x_conv1)
+        x_conv3 = self.conv3(x_conv2)
+        x_conv4 = self.conv4(x_conv3)
+        out = self.conv_out(x_conv4)
+        spatial_features = out.dense()
+        N, C, D, H, W = spatial_features.shape
+        spatial_features = spatial_features.view(N, C * D, H, W)
+        ret_dict = {'spatial_features': spatial_features}
+        x_up4 = self.UR_block_forward(x_conv4, x_conv4, self.conv_up_t4, self.conv_up_m4, self.inv_conv4)
+        x_up3 = self.UR_block_forward(x_conv3, x_up4, self.conv_up_t3, self.conv_up_m3, self.inv_conv3)
+        x_up2 = self.UR_block_forward(x_conv2, x_up3, self.conv_up_t2, self.conv_up_m2, self.inv_conv2)
+        x_up1 = self.UR_block_forward(x_conv1, x_up2, self.conv_up_t1, self.conv_up_m1, self.conv5)
+        seg_features = x_up1.features
+        seg_cls_preds = self.seg_cls_layer(seg_features)
+        seg_reg_preds = self.seg_reg_layer(seg_features)
+        ret_dict.update({'u_seg_preds': seg_cls_preds, 'u_reg_preds': seg_reg_preds, 'seg_features': seg_features})
+        if self.training:
+            if self.target_generated_on == 'dataset':
+                targets_dict = {'seg_labels': kwargs['seg_labels'], 'part_labels': kwargs['part_labels'], 'bbox_reg_labels': kwargs.get('bbox_reg_labels', None)}
+            else:
+                batch_size = x_up1.batch_size
+                bs_idx, coords = x_up1.indices[:, (0)].cpu(), x_up1.indices[:, 1:].cpu()
+                voxel_size = torch.tensor(cfg.DATA_CONFIG.VOXEL_GENERATOR.VOXEL_SIZE)
+                pc_range = torch.tensor(cfg.DATA_CONFIG.POINT_CLOUD_RANGE)
+                voxel_centers = (coords[:, ([2, 1, 0])].float() + 0.5) * voxel_size + pc_range[0:3]
+                batch_points = [voxel_centers[bs_idx == k] for k in range(batch_size)]
+                targets_dict2 = self.assign_targets(batch_points=batch_points, gt_boxes=kwargs['gt_boxes'].cpu())
+            ret_dict['seg_labels'] = targets_dict['seg_labels']
+            ret_dict['part_labels'] = targets_dict['part_labels']
+            ret_dict['bbox_reg_labels'] = targets_dict.get('bbox_reg_labels', None)
+        self.forward_ret_dict = ret_dict
+        return ret_dict
+
+
+rpn_modules = {'UNetV2': UNetV2, 'UNetV0': UNetV0, 'BackBone8x': BackBone8x, 'PointPillarsScatter': PointPillarsScatter}
+
+
+class VoxelFeatureExtractor(nn.Module):
+
+    def __init__(self, **kwargs):
+        super().__init__()
+
+    def get_output_feature_dim(self):
+        raise NotImplementedError
+
+    def forward(self, **kwargs):
+        raise NotImplementedError
+
+
+class MeanVoxelFeatureExtractor(VoxelFeatureExtractor):
+
+    def __init__(self, **kwargs):
+        super().__init__()
+
+    def get_output_feature_dim(self):
+        return cfg.DATA_CONFIG.NUM_POINT_FEATURES['use']
+
+    def forward(self, features, num_voxels, **kwargs):
+        """
+        :param features: (N, max_points_of_each_voxel, 3 + C)
+        :param num_voxels: (N)
+        :param kwargs:
+        :return:
+        """
+        points_mean = features[:, :, :].sum(dim=1, keepdim=False) / num_voxels.type_as(features).view(-1, 1)
+        return points_mean.contiguous()
+
+
+class PFNLayer(nn.Module):
+
+    def __init__(self, in_channels, out_channels, use_norm=True, last_layer=False):
+        """
+        Pillar Feature Net Layer.
+        The Pillar Feature Net could be composed of a series of these layers, but the PointPillars paper results only
+        used a single PFNLayer.
+        :param in_channels: <int>. Number of input channels.
+        :param out_channels: <int>. Number of output channels.
+        :param use_norm: <bool>. Whether to include BatchNorm.
+        :param last_layer: <bool>. If last_layer, there is no concatenation of features.
+        """
+        super().__init__()
+        self.name = 'PFNLayer'
+        self.last_vfe = last_layer
+        if not self.last_vfe:
+            out_channels = out_channels // 2
+        self.units = out_channels
+        if use_norm:
+            self.linear = nn.Linear(in_channels, self.units, bias=False)
+            self.norm = nn.BatchNorm1d(self.units, eps=0.001, momentum=0.01)
+        else:
+            self.linear = nn.Linear(in_channels, self.units, bias=True)
+            self.norm = Empty(self.units)
+
+    def forward(self, inputs):
+        x = self.linear(inputs)
+        total_points, voxel_points, channels = x.shape
+        x = self.norm(x.view(-1, channels)).view(total_points, voxel_points, channels)
+        x = F.relu(x)
+        x_max = torch.max(x, dim=1, keepdim=True)[0]
+        if self.last_vfe:
+            return x_max
+        else:
+            x_repeat = x_max.repeat(1, inputs.shape[1], 1)
+            x_concatenated = torch.cat([x, x_repeat], dim=2)
+            return x_concatenated
 
 
 def get_paddings_indicator(actual_num, max_num, axis=0):
@@ -824,6 +1976,79 @@ def get_paddings_indicator(actual_num, max_num, axis=0):
     max_num = torch.arange(max_num, dtype=torch.int, device=actual_num.device).view(max_num_shape)
     paddings_indicator = actual_num.int() > max_num
     return paddings_indicator
+
+
+class PillarFeatureNetOld2(VoxelFeatureExtractor):
+
+    def __init__(self, num_input_features=4, use_norm=True, num_filters=(64,), with_distance=False, voxel_size=(0.2, 0.2, 4), pc_range=(0, -40, -3, 70.4, 40, 1)):
+        """
+        Pillar Feature Net.
+        The network prepares the pillar features and performs forward pass through PFNLayers.
+        :param num_input_features: <int>. Number of input features, either x, y, z or x, y, z, r.
+        :param use_norm: <bool>. Whether to include BatchNorm.
+        :param num_filters: (<int>: N). Number of features in each of the N PFNLayers.
+        :param with_distance: <bool>. Whether to include Euclidean distance to points.
+        :param voxel_size: (<float>: 3). Size of voxels, only utilize x and y size.
+        :param pc_range: (<float>: 6). Point cloud range, only utilize x and y min.
+        """
+        super().__init__()
+        self.name = 'PillarFeatureNetOld2'
+        assert len(num_filters) > 0
+        num_input_features += 6
+        if with_distance:
+            num_input_features += 1
+        self.with_distance = with_distance
+        self.num_filters = num_filters
+        num_filters = [num_input_features] + list(num_filters)
+        pfn_layers = []
+        for i in range(len(num_filters) - 1):
+            in_filters = num_filters[i]
+            out_filters = num_filters[i + 1]
+            if i < len(num_filters) - 2:
+                last_layer = False
+            else:
+                last_layer = True
+            pfn_layers.append(PFNLayer(in_filters, out_filters, use_norm, last_layer=last_layer))
+        self.pfn_layers = nn.ModuleList(pfn_layers)
+        self.vx = voxel_size[0]
+        self.vy = voxel_size[1]
+        self.vz = voxel_size[2]
+        self.x_offset = self.vx / 2 + pc_range[0]
+        self.y_offset = self.vy / 2 + pc_range[1]
+        self.z_offset = self.vz / 2 + pc_range[2]
+
+    def get_output_feature_dim(self):
+        return self.num_filters[-1]
+
+    def forward(self, features, num_voxels, coords):
+        """
+        :param features: (N, max_points_of_each_voxel, 3 + C)
+        :param num_voxels: (N)
+        :param coors:
+        :return:
+        """
+        dtype = features.dtype
+        points_mean = features[:, :, :3].sum(dim=1, keepdim=True) / num_voxels.type_as(features).view(-1, 1, 1)
+        f_cluster = features[:, :, :3] - points_mean
+        f_center = torch.zeros_like(features[:, :, :3])
+        f_center[:, :, (0)] = features[:, :, (0)] - (coords[:, (3)].unsqueeze(1) * self.vx + self.x_offset)
+        f_center[:, :, (1)] = features[:, :, (1)] - (coords[:, (2)].unsqueeze(1) * self.vy + self.y_offset)
+        f_center[:, :, (2)] = features[:, :, (2)] - (coords[:, (1)].unsqueeze(1) * self.vz + self.z_offset)
+        features_ls = [features, f_cluster, f_center]
+        if self.with_distance:
+            points_dist = torch.norm(features[:, :, :3], 2, 2, keepdim=True)
+            features_ls.append(points_dist)
+        features = torch.cat(features_ls, dim=-1)
+        voxel_count = features.shape[1]
+        mask = get_paddings_indicator(num_voxels, voxel_count, axis=0)
+        mask = torch.unsqueeze(mask, -1).type_as(features)
+        features *= mask
+        for pfn in self.pfn_layers:
+            features = pfn(features)
+        return features.squeeze()
+
+
+vfe_modules = {'MeanVoxelFeatureExtractor': MeanVoxelFeatureExtractor, 'PillarFeatureNetOld2': PillarFeatureNetOld2}
 
 
 class Detector3D(nn.Module):
@@ -1054,98 +2279,19 @@ class Detector3D(nn.Module):
         return it, epoch
 
 
-class Empty(torch.nn.Module):
+class _BNBase(nn.Sequential):
 
-    def __init__(self, *args, **kwargs):
-        super(Empty, self).__init__()
-
-    def forward(self, *args, **kwargs):
-        if len(args) == 1:
-            return args[0]
-        elif len(args) == 0:
-            return None
-        return args
-
-
-class Sequential(torch.nn.Module):
-    """A sequential container.
-    Modules will be added to it in the order they are passed in the constructor.
-    Alternatively, an ordered dict of modules can also be passed in.
-
-    To make it easier to understand, given is a small example::
-
-        # Example of using Sequential
-        model = Sequential(
-                  nn.Conv2d(1,20,5),
-                  nn.ReLU(),
-                  nn.Conv2d(20,64,5),
-                  nn.ReLU()
-                )
-
-        # Example of using Sequential with OrderedDict
-        model = Sequential(OrderedDict([
-                  ('conv1', nn.Conv2d(1,20,5)),
-                  ('relu1', nn.ReLU()),
-                  ('conv2', nn.Conv2d(20,64,5)),
-                  ('relu2', nn.ReLU())
-                ]))
-
-        # Example of using Sequential with kwargs(python 3.6+)
-        model = Sequential(
-                  conv1=nn.Conv2d(1,20,5),
-                  relu1=nn.ReLU(),
-                  conv2=nn.Conv2d(20,64,5),
-                  relu2=nn.ReLU()
-                )
-    """
-
-    def __init__(self, *args, **kwargs):
-        super(Sequential, self).__init__()
-        if len(args) == 1 and isinstance(args[0], OrderedDict):
-            for key, module in args[0].items():
-                self.add_module(key, module)
-        else:
-            for idx, module in enumerate(args):
-                self.add_module(str(idx), module)
-        for name, module in kwargs.items():
-            if sys.version_info < (3, 6):
-                raise ValueError('kwargs only supported in py36+')
-            if name in self._modules:
-                raise ValueError('name exists.')
-            self.add_module(name, module)
-
-    def __getitem__(self, idx):
-        if not -len(self) <= idx < len(self):
-            raise IndexError('index {} is out of range'.format(idx))
-        if idx < 0:
-            idx += len(self)
-        it = iter(self._modules.values())
-        for i in range(idx):
-            next(it)
-        return next(it)
-
-    def __len__(self):
-        return len(self._modules)
-
-    def add(self, module, name=None):
-        if name is None:
-            name = str(len(self._modules))
-            if name in self._modules:
-                raise KeyError('name exists')
-        self.add_module(name, module)
-
-    def forward(self, input):
-        for module in self._modules.values():
-            input = module(input)
-        return input
-
-
-class SharedMLP(nn.Sequential):
-
-    def __init__(self, args: List[int], *, bn: bool=False, activation=nn.ReLU(inplace=True), preact: bool=False, first: bool=False, name: str='', instance_norm: bool=False):
+    def __init__(self, in_size, batch_norm=None, name=''):
         super().__init__()
-        for i in range(len(args) - 1):
-            self.add_module(name + 'layer{}'.format(i), Conv2d(args[i], args[i + 1], bn=(not first or not preact or i != 0) and bn, activation=activation if not first or not preact or i != 0 else None, preact=preact, instance_norm=instance_norm))
+        self.add_module(name + 'bn', batch_norm(in_size))
+        nn.init.constant_(self[0].weight, 1.0)
+        nn.init.constant_(self[0].bias, 0)
+
+
+class BatchNorm2d(_BNBase):
+
+    def __init__(self, in_size: int, name: str=''):
+        super().__init__(in_size, batch_norm=nn.BatchNorm2d, name=name)
 
 
 class _ConvBase(nn.Sequential):
@@ -1184,19 +2330,30 @@ class _ConvBase(nn.Sequential):
                 self.add_module(name + 'in', in_unit)
 
 
-class _BNBase(nn.Sequential):
+class Conv2d(_ConvBase):
 
-    def __init__(self, in_size, batch_norm=None, name=''):
+    def __init__(self, in_size: int, out_size: int, *, kernel_size: Tuple[int, int]=(1, 1), stride: Tuple[int, int]=(1, 1), padding: Tuple[int, int]=(0, 0), activation=nn.ReLU(inplace=True), bn: bool=False, init=nn.init.kaiming_normal_, bias: bool=True, preact: bool=False, name: str='', instance_norm=False):
+        super().__init__(in_size, out_size, kernel_size, stride, padding, activation, bn, init, conv=nn.Conv2d, batch_norm=BatchNorm2d, bias=bias, preact=preact, name=name, instance_norm=instance_norm, instance_norm_func=nn.InstanceNorm2d)
+
+
+class SharedMLP(nn.Sequential):
+
+    def __init__(self, args: List[int], *, bn: bool=False, activation=nn.ReLU(inplace=True), preact: bool=False, first: bool=False, name: str='', instance_norm: bool=False):
         super().__init__()
-        self.add_module(name + 'bn', batch_norm(in_size))
-        nn.init.constant_(self[0].weight, 1.0)
-        nn.init.constant_(self[0].bias, 0)
+        for i in range(len(args) - 1):
+            self.add_module(name + 'layer{}'.format(i), Conv2d(args[i], args[i + 1], bn=(not first or not preact or i != 0) and bn, activation=activation if not first or not preact or i != 0 else None, preact=preact, instance_norm=instance_norm))
 
 
 class BatchNorm1d(_BNBase):
 
     def __init__(self, in_size: int, *, name: str=''):
         super().__init__(in_size, batch_norm=nn.BatchNorm1d, name=name)
+
+
+class Conv1d(_ConvBase):
+
+    def __init__(self, in_size: int, out_size: int, *, kernel_size: int=1, stride: int=1, padding: int=0, activation=nn.ReLU(inplace=True), bn: bool=False, init=nn.init.kaiming_normal_, bias: bool=True, preact: bool=False, name: str='', instance_norm=False):
+        super().__init__(in_size, out_size, kernel_size, stride, padding, activation, bn, init, conv=nn.Conv1d, batch_norm=BatchNorm1d, bias=bias, preact=preact, name=name, instance_norm=instance_norm, instance_norm_func=nn.InstanceNorm1d)
 
 
 class FC(nn.Sequential):
@@ -1219,489 +2376,6 @@ class FC(nn.Sequential):
                 self.add_module(name + 'bn', BatchNorm1d(out_size))
             if activation is not None:
                 self.add_module(name + 'activation', activation)
-
-
-def get_maxiou3d_with_same_class(rois, roi_labels, gt_boxes, gt_labels):
-    """
-    :param rois: (N, 7)
-    :param roi_labels: (N)
-    :param gt_boxes: (N, 8)
-    :return:
-    """
-    max_overlaps = rois.new_zeros(rois.shape[0])
-    gt_assignment = roi_labels.new_zeros(roi_labels.shape[0])
-    for k in range(gt_labels.min().item(), gt_labels.max().item() + 1):
-        roi_mask = roi_labels == k
-        gt_mask = gt_labels == k
-        if roi_mask.sum() > 0 and gt_mask.sum() > 0:
-            cur_roi = rois[roi_mask]
-            cur_gt = gt_boxes[gt_mask]
-            original_gt_assignment = gt_mask.nonzero().view(-1)
-            iou3d = iou3d_nms_utils.boxes_iou3d_gpu(cur_roi, cur_gt)
-            cur_max_overlaps, cur_gt_assignment = torch.max(iou3d, dim=1)
-            max_overlaps[roi_mask] = cur_max_overlaps
-            gt_assignment[roi_mask] = original_gt_assignment[cur_gt_assignment]
-    return max_overlaps, gt_assignment
-
-
-def sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image, roi_sampler_cfg):
-    if hard_bg_inds.numel() > 0 and easy_bg_inds.numel() > 0:
-        hard_bg_rois_num = int(bg_rois_per_this_image * roi_sampler_cfg.HARD_BG_RATIO)
-        easy_bg_rois_num = bg_rois_per_this_image - hard_bg_rois_num
-        rand_idx = torch.randint(low=0, high=hard_bg_inds.numel(), size=(hard_bg_rois_num,)).long()
-        hard_bg_inds = hard_bg_inds[rand_idx]
-        rand_idx = torch.randint(low=0, high=easy_bg_inds.numel(), size=(easy_bg_rois_num,)).long()
-        easy_bg_inds = easy_bg_inds[rand_idx]
-        bg_inds = torch.cat([hard_bg_inds, easy_bg_inds], dim=0)
-    elif hard_bg_inds.numel() > 0 and easy_bg_inds.numel() == 0:
-        hard_bg_rois_num = bg_rois_per_this_image
-        rand_idx = torch.randint(low=0, high=hard_bg_inds.numel(), size=(hard_bg_rois_num,)).long()
-        bg_inds = hard_bg_inds[rand_idx]
-    elif hard_bg_inds.numel() == 0 and easy_bg_inds.numel() > 0:
-        easy_bg_rois_num = bg_rois_per_this_image
-        rand_idx = torch.randint(low=0, high=easy_bg_inds.numel(), size=(easy_bg_rois_num,)).long()
-        bg_inds = easy_bg_inds[rand_idx]
-    else:
-        raise NotImplementedError
-    return bg_inds
-
-
-def sample_rois_for_rcnn(roi_boxes3d, gt_boxes3d, roi_raw_scores, roi_labels, roi_sampler_cfg):
-    """
-    :param roi_boxes3d: (B, M, 7 + ?) [x, y, z, w, l, h, ry] in LiDAR coords
-    :param gt_boxes3d: (B, N, 7 + ? + 1) [x, y, z, w, l, h, ry, class]
-    :param roi_raw_scores: (B, N)
-    :param roi_labels: (B, N)
-    :return
-        batch_rois: (B, N, 7)
-        batch_gt_of_rois: (B, N, 7 + 1)
-        batch_roi_iou: (B, N)
-    """
-    batch_size = roi_boxes3d.size(0)
-    fg_rois_per_image = int(np.round(roi_sampler_cfg.FG_RATIO * roi_sampler_cfg.ROI_PER_IMAGE))
-    code_size = roi_boxes3d.shape[-1]
-    batch_rois = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE, code_size).zero_()
-    batch_gt_of_rois = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE, code_size + 1).zero_()
-    batch_roi_iou = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE).zero_()
-    batch_roi_raw_scores = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE).zero_()
-    batch_roi_labels = gt_boxes3d.new(batch_size, roi_sampler_cfg.ROI_PER_IMAGE).zero_().long()
-    for idx in range(batch_size):
-        cur_roi, cur_gt, cur_roi_raw_scores, cur_roi_labels = roi_boxes3d[idx], gt_boxes3d[idx], roi_raw_scores[idx], roi_labels[idx]
-        k = cur_gt.__len__() - 1
-        while k > 0 and cur_gt[k].sum() == 0:
-            k -= 1
-        cur_gt = cur_gt[:k + 1]
-        if len(cfg.CLASS_NAMES) == 1:
-            iou3d = iou3d_nms_utils.boxes_iou3d_gpu(cur_roi, cur_gt[:, 0:7])
-            max_overlaps, gt_assignment = torch.max(iou3d, dim=1)
-        else:
-            cur_gt_labels = cur_gt[:, (-1)].long()
-            max_overlaps, gt_assignment = get_maxiou3d_with_same_class(cur_roi, cur_roi_labels, cur_gt[:, 0:7], cur_gt_labels)
-        fg_thresh = min(roi_sampler_cfg.REG_FG_THRESH, roi_sampler_cfg.CLS_FG_THRESH)
-        fg_inds = torch.nonzero(max_overlaps >= fg_thresh).view(-1)
-        easy_bg_inds = torch.nonzero(max_overlaps < roi_sampler_cfg.CLS_BG_THRESH_LO).view(-1)
-        hard_bg_inds = torch.nonzero((max_overlaps < roi_sampler_cfg.REG_FG_THRESH) & (max_overlaps >= roi_sampler_cfg.CLS_BG_THRESH_LO)).view(-1)
-        fg_num_rois = fg_inds.numel()
-        bg_num_rois = hard_bg_inds.numel() + easy_bg_inds.numel()
-        if fg_num_rois > 0 and bg_num_rois > 0:
-            fg_rois_per_this_image = min(fg_rois_per_image, fg_num_rois)
-            rand_num = torch.from_numpy(np.random.permutation(fg_num_rois)).type_as(gt_boxes3d).long()
-            fg_inds = fg_inds[rand_num[:fg_rois_per_this_image]]
-            bg_rois_per_this_image = roi_sampler_cfg.ROI_PER_IMAGE - fg_rois_per_this_image
-            bg_inds = sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image, roi_sampler_cfg)
-        elif fg_num_rois > 0 and bg_num_rois == 0:
-            rand_num = np.floor(np.random.rand(roi_sampler_cfg.ROI_PER_IMAGE) * fg_num_rois)
-            rand_num = torch.from_numpy(rand_num).type_as(gt_boxes3d).long()
-            fg_inds = fg_inds[rand_num]
-            fg_rois_per_this_image = roi_sampler_cfg.ROI_PER_IMAGE
-            bg_rois_per_this_image = 0
-        elif bg_num_rois > 0 and fg_num_rois == 0:
-            bg_rois_per_this_image = roi_sampler_cfg.ROI_PER_IMAGE
-            bg_inds = sample_bg_inds(hard_bg_inds, easy_bg_inds, bg_rois_per_this_image, roi_sampler_cfg)
-            fg_rois_per_this_image = 0
-        else:
-            print('maxoverlaps:(min=%f, max=%f)' % (max_overlaps.min().item(), max_overlaps.max().item()))
-            print('ERROR: FG=%d, BG=%d' % (fg_num_rois, bg_num_rois))
-            raise NotImplementedError
-        roi_list, roi_iou_list, roi_gt_list, roi_score_list, roi_labels_list = [], [], [], [], []
-        if fg_rois_per_this_image > 0:
-            fg_rois = cur_roi[fg_inds]
-            gt_of_fg_rois = cur_gt[gt_assignment[fg_inds]]
-            fg_iou3d = max_overlaps[fg_inds]
-            roi_list.append(fg_rois)
-            roi_iou_list.append(fg_iou3d)
-            roi_gt_list.append(gt_of_fg_rois)
-            roi_score_list.append(cur_roi_raw_scores[fg_inds])
-            roi_labels_list.append(cur_roi_labels[fg_inds])
-        if bg_rois_per_this_image > 0:
-            bg_rois = cur_roi[bg_inds]
-            gt_of_bg_rois = cur_gt[gt_assignment[bg_inds]]
-            bg_iou3d = max_overlaps[bg_inds]
-            roi_list.append(bg_rois)
-            roi_iou_list.append(bg_iou3d)
-            roi_gt_list.append(gt_of_bg_rois)
-            roi_score_list.append(cur_roi_raw_scores[bg_inds])
-            roi_labels_list.append(cur_roi_labels[bg_inds])
-        rois = torch.cat(roi_list, dim=0)
-        iou_of_rois = torch.cat(roi_iou_list, dim=0)
-        gt_of_rois = torch.cat(roi_gt_list, dim=0)
-        cur_roi_raw_scores = torch.cat(roi_score_list, dim=0)
-        cur_roi_labels = torch.cat(roi_labels_list, dim=0)
-        batch_rois[idx] = rois
-        batch_gt_of_rois[idx] = gt_of_rois
-        batch_roi_iou[idx] = iou_of_rois
-        batch_roi_raw_scores[idx] = cur_roi_raw_scores
-        batch_roi_labels[idx] = cur_roi_labels
-    return batch_rois, batch_gt_of_rois, batch_roi_iou, batch_roi_raw_scores, batch_roi_labels
-
-
-def proposal_target_layer(input_dict, roi_sampler_cfg):
-    rois = input_dict['rois']
-    roi_raw_scores = input_dict['roi_raw_scores']
-    roi_labels = input_dict['roi_labels']
-    gt_boxes = input_dict['gt_boxes']
-    batch_rois, batch_gt_of_rois, batch_roi_iou, batch_roi_raw_scores, batch_roi_labels = sample_rois_for_rcnn(rois, gt_boxes, roi_raw_scores, roi_labels, roi_sampler_cfg)
-    reg_valid_mask = (batch_roi_iou > roi_sampler_cfg.REG_FG_THRESH).long()
-    if roi_sampler_cfg.CLS_SCORE_TYPE == 'cls':
-        batch_cls_label = (batch_roi_iou > roi_sampler_cfg.CLS_FG_THRESH).long()
-        invalid_mask = (batch_roi_iou > roi_sampler_cfg.CLS_BG_THRESH) & (batch_roi_iou < roi_sampler_cfg.CLS_FG_THRESH)
-        batch_cls_label[invalid_mask > 0] = -1
-    elif roi_sampler_cfg.CLS_SCORE_TYPE == 'roi_iou':
-        fg_mask = batch_roi_iou > roi_sampler_cfg.CLS_FG_THRESH
-        bg_mask = batch_roi_iou < roi_sampler_cfg.CLS_BG_THRESH
-        interval_mask = (fg_mask == 0) & (bg_mask == 0)
-        batch_cls_label = (fg_mask > 0).float()
-        batch_cls_label[interval_mask] = batch_roi_iou[interval_mask] * 2 - 0.5
-    else:
-        raise NotImplementedError
-    output_dict = {'rcnn_cls_labels': batch_cls_label.view(-1), 'reg_valid_mask': reg_valid_mask.view(-1), 'gt_of_rois': batch_gt_of_rois, 'gt_iou': batch_roi_iou, 'rois': batch_rois, 'roi_raw_scores': batch_roi_raw_scores, 'roi_labels': batch_roi_labels}
-    return output_dict
-
-
-class RCNNHead(nn.Module):
-
-    def __init__(self, rcnn_target_config):
-        super().__init__()
-        self.forward_ret_dict = None
-        self.rcnn_target_config = rcnn_target_config
-        self.box_coder = getattr(box_coder_utils, rcnn_target_config.BOX_CODER)()
-        losses_cfg = cfg.MODEL.LOSSES
-        code_weights = losses_cfg.LOSS_WEIGHTS['code_weights']
-        self.reg_loss_func = loss_utils.WeightedSmoothL1LocalizationLoss(sigma=3.0, code_weights=code_weights)
-
-    def assign_targets(self, batch_size, rcnn_dict):
-        with torch.no_grad():
-            targets_dict = proposal_target_layer(rcnn_dict, roi_sampler_cfg=self.rcnn_target_config)
-        rois = targets_dict['rois']
-        gt_of_rois = targets_dict['gt_of_rois']
-        targets_dict['gt_of_rois_src'] = gt_of_rois.clone().detach()
-        roi_center = rois[:, :, 0:3]
-        roi_ry = rois[:, :, (6)] % (2 * np.pi)
-        gt_of_rois[:, :, 0:3] = gt_of_rois[:, :, 0:3] - roi_center
-        gt_of_rois[:, :, (6)] = gt_of_rois[:, :, (6)] - roi_ry
-        for k in range(batch_size):
-            gt_of_rois[k] = common_utils.rotate_pc_along_z_torch(gt_of_rois[k].unsqueeze(dim=1), -(roi_ry[k] + np.pi / 2)).squeeze(dim=1)
-        ry_label = gt_of_rois[:, :, (6)] % (2 * np.pi)
-        opposite_flag = (ry_label > np.pi * 0.5) & (ry_label < np.pi * 1.5)
-        ry_label[opposite_flag] = (ry_label[opposite_flag] + np.pi) % (2 * np.pi)
-        flag = ry_label > np.pi
-        ry_label[flag] = ry_label[flag] - np.pi * 2
-        ry_label = torch.clamp(ry_label, min=-np.pi / 2, max=np.pi / 2)
-        gt_of_rois[:, :, (6)] = ry_label
-        targets_dict['gt_of_rois'] = gt_of_rois
-        return targets_dict
-
-    def get_loss(self, forward_ret_dict=None):
-        loss_cfgs = cfg.MODEL.LOSSES
-        LOSS_WEIGHTS = loss_cfgs.LOSS_WEIGHTS
-        forward_ret_dict = self.forward_ret_dict if forward_ret_dict is None else forward_ret_dict
-        code_size = self.box_coder.code_size
-        rcnn_cls = forward_ret_dict['rcnn_cls']
-        rcnn_cls_labels = forward_ret_dict['rcnn_cls_labels'].float().view(-1)
-        reg_valid_mask = forward_ret_dict['reg_valid_mask']
-        gt_boxes3d_ct = forward_ret_dict['gt_of_rois'][(...), 0:code_size]
-        gt_of_rois_src = forward_ret_dict['gt_of_rois_src'][(...), 0:code_size].view(-1, code_size)
-        rcnn_reg = forward_ret_dict['rcnn_reg']
-        roi_boxes3d = forward_ret_dict['rois']
-        rcnn_batch_size = rcnn_cls_labels.shape[0]
-        rcnn_loss = 0
-        if loss_cfgs.RCNN_CLS_LOSS == 'BinaryCrossEntropy':
-            rcnn_cls_flat = rcnn_cls.view(-1)
-            batch_loss_cls = F.binary_cross_entropy(torch.sigmoid(rcnn_cls_flat), rcnn_cls_labels, reduction='none')
-            cls_valid_mask = (rcnn_cls_labels >= 0).float()
-            rcnn_loss_cls = (batch_loss_cls * cls_valid_mask).sum() / torch.clamp(cls_valid_mask.sum(), min=1.0)
-            rcnn_loss_cls = rcnn_loss_cls * LOSS_WEIGHTS['rcnn_cls_weight']
-        else:
-            raise NotImplementedError
-        rcnn_loss += rcnn_loss_cls
-        tb_dict = {'rcnn_loss_cls': rcnn_loss_cls.item()}
-        fg_mask = reg_valid_mask > 0
-        fg_sum = fg_mask.long().sum().item()
-        if fg_sum == 0:
-            temp_rcnn_reg = rcnn_reg.view(rcnn_batch_size, -1)[0].unsqueeze(dim=0)
-            faked_reg_target = temp_rcnn_reg.detach()
-            rcnn_loss_reg = self.reg_loss_func(temp_rcnn_reg, faked_reg_target)
-            rcnn_loss_reg = rcnn_loss_reg.sum() / 1.0
-            tb_dict['rcnn_loss_reg'] = rcnn_loss_reg.item()
-        else:
-            fg_rcnn_reg = rcnn_reg.view(rcnn_batch_size, -1)[fg_mask]
-            fg_roi_boxes3d = roi_boxes3d.view(-1, code_size)[fg_mask]
-            if loss_cfgs.RCNN_REG_LOSS == 'smooth-l1':
-                rois_anchor = roi_boxes3d.clone().detach().view(-1, code_size)
-                rois_anchor[:, 0:3] = 0
-                rois_anchor[:, (6)] = 0
-                reg_targets = self.box_coder.encode_torch(gt_boxes3d_ct.view(rcnn_batch_size, code_size)[fg_mask], rois_anchor[fg_mask])
-                rcnn_loss_reg = self.reg_loss_func(rcnn_reg.view(rcnn_batch_size, -1)[fg_mask].unsqueeze(dim=0), reg_targets.unsqueeze(dim=0))
-                rcnn_loss_reg = rcnn_loss_reg.sum() / max(fg_sum, 0)
-                rcnn_loss_reg = rcnn_loss_reg * LOSS_WEIGHTS['rcnn_reg_weight']
-                tb_dict['rcnn_loss_reg'] = rcnn_loss_reg.item()
-                if loss_cfgs.CORNER_LOSS_REGULARIZATION:
-                    fg_roi_boxes3d = fg_roi_boxes3d.view(1, -1, code_size)
-                    batch_anchors = fg_roi_boxes3d.clone().detach()
-                    roi_ry = fg_roi_boxes3d[:, :, (6)].view(-1)
-                    roi_xyz = fg_roi_boxes3d[:, :, 0:3].view(-1, 3)
-                    batch_anchors[:, :, 0:3] = 0
-                    rcnn_boxes3d = self.box_coder.decode_torch(fg_rcnn_reg.view(batch_anchors.shape[0], -1, code_size), batch_anchors).view(-1, code_size)
-                    rcnn_boxes3d = common_utils.rotate_pc_along_z_torch(rcnn_boxes3d.unsqueeze(dim=1), roi_ry + np.pi / 2).squeeze(dim=1)
-                    rcnn_boxes3d[:, 0:3] += roi_xyz
-                    loss_corner = loss_utils.get_corner_loss_lidar(rcnn_boxes3d[:, 0:7], gt_of_rois_src[fg_mask][:, 0:7])
-                    loss_corner = loss_corner.mean()
-                    loss_corner = loss_corner * LOSS_WEIGHTS['rcnn_corner_weight']
-                    rcnn_loss_reg += loss_corner
-                    tb_dict['rcnn_loss_corner'] = loss_corner
-            else:
-                raise NotImplementedError
-        rcnn_loss += rcnn_loss_reg
-        tb_dict['rcnn_loss'] = rcnn_loss.item()
-        return rcnn_loss, tb_dict
-
-
-class PointPillarsScatter(nn.Module):
-
-    def __init__(self, input_channels=64, **kwargs):
-        """
-        Point Pillar's Scatter.
-        Converts learned features from dense tensor to sparse pseudo image.
-        :param output_shape: ([int]: 4). Required output shape of features.
-        :param num_input_features: <int>. Number of input features.
-        """
-        super().__init__()
-        self.nchannels = input_channels
-
-    def forward(self, voxel_features, coords, batch_size, **kwargs):
-        output_shape = kwargs['output_shape']
-        nz, ny, nx = output_shape
-        batch_canvas = []
-        for batch_itt in range(batch_size):
-            canvas = torch.zeros(self.nchannels, nz * nx * ny, dtype=voxel_features.dtype, device=voxel_features.device)
-            batch_mask = coords[:, (0)] == batch_itt
-            this_coords = coords[(batch_mask), :]
-            indices = this_coords[:, (1)] * nz + this_coords[:, (2)] * nx + this_coords[:, (3)]
-            indices = indices.type(torch.long)
-            voxels = voxel_features[(batch_mask), :]
-            voxels = voxels.t()
-            canvas[:, (indices)] = voxels
-            batch_canvas.append(canvas)
-        batch_canvas = torch.stack(batch_canvas, 0)
-        batch_canvas = batch_canvas.view(batch_size, self.nchannels * nz, ny, nx)
-        return batch_canvas
-
-
-class BackBone8x(nn.Module):
-
-    def __init__(self, input_channels):
-        super().__init__()
-        norm_fn = partial(nn.BatchNorm1d, eps=0.001, momentum=0.01)
-        self.conv_input = spconv.SparseSequential(spconv.SubMConv3d(input_channels, 16, 3, padding=1, bias=False, indice_key='subm1'), norm_fn(16), nn.ReLU())
-        block = self.post_act_block
-        self.conv1 = spconv.SparseSequential(block(16, 16, 3, norm_fn=norm_fn, padding=1, indice_key='subm1'))
-        self.conv2 = spconv.SparseSequential(block(16, 32, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv2', conv_type='spconv'), block(32, 32, 3, norm_fn=norm_fn, padding=1, indice_key='subm2'), block(32, 32, 3, norm_fn=norm_fn, padding=1, indice_key='subm2'))
-        self.conv3 = spconv.SparseSequential(block(32, 64, 3, norm_fn=norm_fn, stride=2, padding=1, indice_key='spconv3', conv_type='spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm3'))
-        self.conv4 = spconv.SparseSequential(block(64, 64, 3, norm_fn=norm_fn, stride=2, padding=(0, 1, 1), indice_key='spconv4', conv_type='spconv'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4'), block(64, 64, 3, norm_fn=norm_fn, padding=1, indice_key='subm4'))
-        last_pad = 0 if cfg.DATA_CONFIG.VOXEL_GENERATOR.VOXEL_SIZE[-1] in [0.1, 0.2] else (1, 0, 0)
-        self.conv_out = spconv.SparseSequential(spconv.SparseConv3d(64, 128, (3, 1, 1), stride=(2, 1, 1), padding=last_pad, bias=False, indice_key='spconv_down2'), norm_fn(128), nn.ReLU())
-
-    def forward(self, input_sp_tensor, **kwargs):
-        """
-        :param voxel_features:  (N, C)
-        :param coors:   (N, 4)  [batch_idx, z_idx, y_idx, x_idx],  sparse_shape: (z_size, y_size, x_size)
-        :param batch_size:
-        :return:
-        """
-        x = self.conv_input(input_sp_tensor)
-        x_conv1 = self.conv1(x)
-        x_conv2 = self.conv2(x_conv1)
-        x_conv3 = self.conv3(x_conv2)
-        x_conv4 = self.conv4(x_conv3)
-        out = self.conv_out(x_conv4)
-        spatial_features = out.dense()
-        N, C, D, H, W = spatial_features.shape
-        spatial_features = spatial_features.view(N, C * D, H, W)
-        ret = {'spatial_features': spatial_features}
-        return ret
-
-    def post_act_block(self, in_channels, out_channels, kernel_size, indice_key, stride=1, padding=0, conv_type='subm', norm_fn=None):
-        if conv_type == 'subm':
-            m = spconv.SparseSequential(spconv.SubMConv3d(in_channels, out_channels, kernel_size, bias=False, indice_key=indice_key), norm_fn(out_channels), nn.ReLU())
-        elif conv_type == 'spconv':
-            m = spconv.SparseSequential(spconv.SparseConv3d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, bias=False, indice_key=indice_key), norm_fn(out_channels), nn.ReLU())
-        elif conv_type == 'inverseconv':
-            m = spconv.SparseSequential(spconv.SparseInverseConv3d(in_channels, out_channels, kernel_size, indice_key=indice_key, bias=False), norm_fn(out_channels), nn.ReLU())
-        else:
-            raise NotImplementedError
-        return m
-
-
-class UNetHead(nn.Module):
-
-    def __init__(self, unet_target_cfg):
-        super().__init__()
-        self.gt_extend_width = unet_target_cfg.GT_EXTEND_WIDTH
-        if 'MEAN_SIZE' in unet_target_cfg:
-            self.mean_size = unet_target_cfg.MEAN_SIZE
-        self.target_generated_on = unet_target_cfg.GENERATED_ON
-        self.cls_loss_func = loss_utils.SigmoidFocalClassificationLoss(alpha=0.25, gamma=2.0)
-        self.forward_ret_dict = None
-
-    def assign_targets(self, batch_points, gt_boxes, generate_bbox_reg_labels=False):
-        """
-        :param points: [(N1, 3), (N2, 3), ...]
-        :param gt_boxes: (B, M, 8)
-        :param gt_classes: (B, M)
-        :param gt_names: (B, M)
-        :return:
-        """
-        batch_size = gt_boxes.shape[0]
-        cls_labels_list, part_reg_labels_list, bbox_reg_labels_list = [], [], []
-        for k in range(batch_size):
-            if True or self.target_generated_on == 'head_cpu':
-                cur_cls_labels, cur_part_reg_labels, cur_bbox_reg_labels = self.generate_part_targets_cpu(points=batch_points[k], gt_boxes=gt_boxes[k][:, 0:7], gt_classes=gt_boxes[k][:, (7)], generate_bbox_reg_labels=generate_bbox_reg_labels)
-            else:
-                raise NotImplementedError
-            cls_labels_list.append(cur_cls_labels)
-            part_reg_labels_list.append(cur_part_reg_labels)
-            bbox_reg_labels_list.append(cur_bbox_reg_labels)
-        cls_labels = torch.cat(cls_labels_list, dim=0)
-        part_reg_labels = torch.cat(part_reg_labels_list, dim=0)
-        bbox_reg_labels = torch.cat(bbox_reg_labels_list, dim=0) if generate_bbox_reg_labels else None
-        targets_dict = {'seg_labels': cls_labels, 'part_labels': part_reg_labels, 'bbox_reg_labels': bbox_reg_labels}
-        return targets_dict
-
-    def generate_part_targets_cpu(self, points, gt_boxes, gt_classes, generate_bbox_reg_labels=False):
-        """
-        :param voxel_centers: (N, 3) [x, y, z]
-        :param gt_boxes: (M, 7) [x, y, z, w, l, h, ry] in LiDAR coords
-        :return:
-        """
-        k = gt_boxes.__len__() - 1
-        while k > 0 and gt_boxes[k].sum() == 0:
-            k -= 1
-        gt_boxes = gt_boxes[:k + 1]
-        gt_classes = gt_classes[:k + 1]
-        extend_gt_boxes = common_utils.enlarge_box3d(gt_boxes, extra_width=self.gt_extend_width)
-        cls_labels = torch.zeros(points.shape[0]).int()
-        part_reg_labels = torch.zeros((points.shape[0], 3)).float()
-        bbox_reg_labels = torch.zeros((points.shape[0], 7)).float() if generate_bbox_reg_labels else None
-        point_indices = roiaware_pool3d_utils.points_in_boxes_cpu(points, gt_boxes).long()
-        extend_point_indices = roiaware_pool3d_utils.points_in_boxes_cpu(points, extend_gt_boxes).long()
-        for k in range(gt_boxes.shape[0]):
-            fg_pt_flag = point_indices[k] > 0
-            fg_points = points[fg_pt_flag]
-            cls_labels[fg_pt_flag] = gt_classes[k]
-            fg_enlarge_flag = extend_point_indices[k] > 0
-            ignore_flag = fg_pt_flag ^ fg_enlarge_flag
-            cls_labels[ignore_flag] = -1
-            transformed_points = fg_points - gt_boxes[(k), 0:3]
-            transformed_points = common_utils.rotate_pc_along_z_torch(transformed_points.view(1, -1, 3), -gt_boxes[k, 6])
-            part_reg_labels[fg_pt_flag] = transformed_points / gt_boxes[(k), 3:6] + torch.tensor([0.5, 0.5, 0]).float()
-            if generate_bbox_reg_labels:
-                center3d = gt_boxes[(k), 0:3].clone()
-                center3d[2] += gt_boxes[k][5] / 2
-                bbox_reg_labels[(fg_pt_flag), 0:3] = center3d - fg_points
-                bbox_reg_labels[fg_pt_flag, 6] = gt_boxes[k, 6]
-                cur_mean_size = torch.tensor(self.mean_size[cfg.CLASS_NAMES[gt_classes[k] - 1]])
-                bbox_reg_labels[(fg_pt_flag), 3:6] = (gt_boxes[(k), 3:6] - cur_mean_size) / cur_mean_size
-        return cls_labels, part_reg_labels, bbox_reg_labels
-
-    def get_loss(self, forward_ret_dict=None):
-        forward_ret_dict = self.forward_ret_dict if forward_ret_dict is None else forward_ret_dict
-        tb_dict = {}
-        u_seg_preds = forward_ret_dict['u_seg_preds'].squeeze(dim=-1)
-        u_reg_preds = forward_ret_dict['u_reg_preds']
-        u_cls_labels, u_reg_labels = forward_ret_dict['seg_labels'], forward_ret_dict['part_labels']
-        u_cls_target = (u_cls_labels > 0).float()
-        pos_mask = u_cls_labels > 0
-        pos = pos_mask.float()
-        neg = (u_cls_labels == 0).float()
-        u_cls_weights = pos + neg
-        pos_normalizer = pos.sum()
-        u_cls_weights = u_cls_weights / torch.clamp(pos_normalizer, min=1.0)
-        u_loss_cls = self.cls_loss_func(u_seg_preds, u_cls_target, weights=u_cls_weights)
-        u_loss_cls_pos = (u_loss_cls * pos).sum()
-        u_loss_cls_neg = (u_loss_cls * neg).sum()
-        u_loss_cls = u_loss_cls.sum()
-        loss_unet = u_loss_cls
-        if pos_normalizer > 0:
-            u_loss_reg = F.binary_cross_entropy(torch.sigmoid(u_reg_preds[pos_mask]), u_reg_labels[pos_mask])
-            loss_unet += u_loss_reg
-            tb_dict['rpn_u_loss_reg'] = u_loss_reg.item()
-        tb_dict['rpn_loss_u_cls'] = u_loss_cls.item()
-        tb_dict['rpn_loss_u_cls_pos'] = u_loss_cls_pos.item()
-        tb_dict['rpn_loss_u_cls_neg'] = u_loss_cls_neg.item()
-        tb_dict['rpn_loss_unet'] = loss_unet.item()
-        tb_dict['rpn_pos_num'] = pos_normalizer.item()
-        return loss_unet, tb_dict
-
-
-class VoxelFeatureExtractor(nn.Module):
-
-    def __init__(self, **kwargs):
-        super().__init__()
-
-    def get_output_feature_dim(self):
-        raise NotImplementedError
-
-    def forward(self, **kwargs):
-        raise NotImplementedError
-
-
-class PFNLayer(nn.Module):
-
-    def __init__(self, in_channels, out_channels, use_norm=True, last_layer=False):
-        """
-        Pillar Feature Net Layer.
-        The Pillar Feature Net could be composed of a series of these layers, but the PointPillars paper results only
-        used a single PFNLayer.
-        :param in_channels: <int>. Number of input channels.
-        :param out_channels: <int>. Number of output channels.
-        :param use_norm: <bool>. Whether to include BatchNorm.
-        :param last_layer: <bool>. If last_layer, there is no concatenation of features.
-        """
-        super().__init__()
-        self.name = 'PFNLayer'
-        self.last_vfe = last_layer
-        if not self.last_vfe:
-            out_channels = out_channels // 2
-        self.units = out_channels
-        if use_norm:
-            self.linear = nn.Linear(in_channels, self.units, bias=False)
-            self.norm = nn.BatchNorm1d(self.units, eps=0.001, momentum=0.01)
-        else:
-            self.linear = nn.Linear(in_channels, self.units, bias=True)
-            self.norm = Empty(self.units)
-
-    def forward(self, inputs):
-        x = self.linear(inputs)
-        total_points, voxel_points, channels = x.shape
-        x = self.norm(x.view(-1, channels)).view(total_points, voxel_points, channels)
-        x = F.relu(x)
-        x_max = torch.max(x, dim=1, keepdim=True)[0]
-        if self.last_vfe:
-            return x_max
-        else:
-            x_repeat = x_max.repeat(1, inputs.shape[1], 1)
-            x_concatenated = torch.cat([x, x_repeat], dim=2)
-            return x_concatenated
 
 
 class RoIAwarePool3dFunction(Function):
@@ -1772,6 +2446,18 @@ TESTCASES = [
      lambda: ([], {'in_size': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      True),
+    (BatchNorm2d,
+     lambda: ([], {'in_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv1d,
+     lambda: ([], {'in_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
+    (Conv2d,
+     lambda: ([], {'in_size': 4, 'out_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (Empty,
      lambda: ([], {}),
      lambda: ([], {}),
@@ -1780,6 +2466,10 @@ TESTCASES = [
      lambda: ([], {'in_size': 4, 'out_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (MeanVoxelFeatureExtractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([64, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
     (PFNLayer,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -1805,4 +2495,16 @@ class Test_sshaoshuai_PCDet(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
 

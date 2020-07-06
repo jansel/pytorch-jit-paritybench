@@ -54,6 +54,7 @@ gtzan = _module
 librispeech = _module
 ljspeech = _module
 speechcommands = _module
+utils = _module
 vctk = _module
 yesno = _module
 functional = _module
@@ -61,29 +62,31 @@ kaldi_io = _module
 models = _module
 wav2letter = _module
 sox_effects = _module
+sox_effects = _module
 transforms = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-from typing import Tuple
+from torch.utils.cpp_extension import CppExtension
 
 
-import math
+from torch.utils.cpp_extension import BuildExtension as TorchBuildExtension
 
 
 import torch
@@ -92,19 +95,112 @@ import torch
 import torchaudio
 
 
-from torch import Tensor
+import time
+
+
+from collections import deque
+
+
+import numpy as np
+
+
+from typing import Iterable
+
+
+from typing import Union
+
+
+from torch.testing._internal.common_utils import TestCase
+
+
+import logging
+
+
+import random
+
+
+import math
+
+
+import torchaudio.functional as F
+
+
+import torchaudio.compliance.kaldi
+
+
+import torchaudio.compliance.kaldi as kaldi
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+import torchaudio.kaldi_io as kio
+
+
+import torchaudio.transforms as T
+
+
+import torchaudio.transforms as transforms
+
+
+from typing import Any
+
+
+from typing import Callable
 
 
 from typing import Optional
 
 
+from typing import Tuple
+
+
+from torch import Tensor
+
+
+from torchaudio import compliance
+
+
+from torchaudio import datasets
+
+
+from torchaudio import kaldi_io
+
+
+from torchaudio import sox_effects
+
+
+from torchaudio import transforms
+
+
+from torchaudio.datasets.utils import download_url
+
+
+from torchaudio.datasets.utils import extract_archive
+
+
+from torchaudio.datasets.utils import unicode_csv_reader
+
+
+from typing import List
+
+
+from typing import Dict
+
+
 import warnings
 
 
+from torchaudio.datasets.utils import walk_files
+
+
+from torch.utils.model_zoo import tqdm
+
+
 from torch import nn
-
-
-from typing import Callable
 
 
 from warnings import warn
@@ -796,6 +892,36 @@ class _AxisMasking(torch.nn.Module):
             return F.mask_along_axis(specgram, self.mask_param, mask_value, self.axis)
 
 
+class FrequencyMasking(_AxisMasking):
+    """Apply masking to a spectrogram in the frequency domain.
+
+    Args:
+        freq_mask_param (int): maximum possible length of the mask.
+            Indices uniformly sampled from [0, freq_mask_param).
+        iid_masks (bool, optional): whether to apply different masks to each
+            example/channel in the batch. (Default: ``False``)
+            This option is applicable only when the input tensor is 4D.
+    """
+
+    def __init__(self, freq_mask_param: int, iid_masks: bool=False) ->None:
+        super(FrequencyMasking, self).__init__(freq_mask_param, 1, iid_masks)
+
+
+class TimeMasking(_AxisMasking):
+    """Apply masking to a spectrogram in the time domain.
+
+    Args:
+        time_mask_param (int): maximum possible length of the mask.
+            Indices uniformly sampled from [0, time_mask_param).
+        iid_masks (bool, optional): whether to apply different masks to each
+            example/channel in the batch. (Default: ``False``)
+            This option is applicable only when the input tensor is 4D.
+    """
+
+    def __init__(self, time_mask_param: int, iid_masks: bool=False) ->None:
+        super(TimeMasking, self).__init__(time_mask_param, 2, iid_masks)
+
+
 class Vol(torch.nn.Module):
     """Add a volume to an waveform.
 
@@ -966,6 +1092,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (FrequencyMasking,
+     lambda: ([], {'freq_mask_param': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (MFCC,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 256, 256])], {}),
@@ -993,6 +1123,10 @@ TESTCASES = [
     (Spectrogram,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 256, 256])], {}),
+     True),
+    (TimeMasking,
+     lambda: ([], {'time_mask_param': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (Vol,
      lambda: ([], {'gain': 4}),
@@ -1036,4 +1170,10 @@ class Test_pytorch_audio(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

@@ -21,15 +21,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -62,6 +63,12 @@ import torch.backends.cudnn as cudnn
 
 
 from torch.utils.tensorboard import SummaryWriter
+
+
+import numpy as np
+
+
+import torchvision
 
 
 class AlexNet(nn.Module):
@@ -177,17 +184,62 @@ class CBAM(nn.Module):
         return x_out
 
 
+class SKConv(nn.Module):
+
+    def __init__(self, features, M, G, r, stride=1, L=32):
+        """ Constructor
+        Args:
+            features: input channel dimensionality.
+            M: the number of branchs.
+            G: num of convolution groups.
+            r: the radio for compute d, the length of z.
+            stride: stride, default 1.
+            L: the minimum dim of the vector z in paper, default 32.
+        """
+        super(SKConv, self).__init__()
+        d = max(int(features / r), L)
+        self.convs = nn.ModuleList([])
+        for i in range(M):
+            self.convs.append(nn.Sequential(nn.Conv2d(features, features, kernel_size=1 + i * 2, stride=stride, padding=i, groups=G), nn.BatchNorm2d(features), nn.ReLU(inplace=False)))
+        self.gap = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(features, d)
+        self.fcs = nn.ModuleList([])
+        for i in range(M):
+            self.fcs.append(nn.Linear(d, features))
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, x):
+        for i, conv in enumerate(self.convs):
+            fea = conv(x).unsqueeze_(dim=1)
+            if i == 0:
+                feas = fea
+            else:
+                feas = torch.cat([feas, fea], dim=1)
+        fea_U = torch.sum(feas, dim=1)
+        fea_s = self.gap(fea_U).squeeze_()
+        fea_z = self.fc(fea_s)
+        for i, fc in enumerate(self.fcs):
+            vector = fc(fea_z).unsqueeze_(dim=1)
+            if i == 0:
+                attention_vectors = vector
+            else:
+                attention_vectors = torch.cat([attention_vectors, vector], dim=1)
+        attention_vectors = self.softmax(attention_vectors)
+        attention_vectors = attention_vectors.unsqueeze(-1).unsqueeze(-1)
+        fea_v = (feas * attention_vectors).sum(dim=1)
+        return fea_v
+
+
 class Bottleneck(nn.Module):
 
-    def __init__(self, in_channels, out_channels, stride, cardinality, base_width, expansion):
+    def __init__(self, in_channels, out_channels, stride, cardinality, base_width, expansion, M, r, L):
         super(Bottleneck, self).__init__()
         width_ratio = out_channels / (expansion * 64.0)
         D = cardinality * int(base_width * width_ratio)
         self.relu = nn.ReLU(inplace=True)
-        self.cbam_module = CBAM(out_channels)
         self.conv_reduce = nn.Conv2d(in_channels, D, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_reduce = nn.BatchNorm2d(D)
-        self.conv_conv = nn.Conv2d(D, D, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
+        self.conv_sk = SKConv(D, M, cardinality, r, stride=stride, L=L)
         self.bn = nn.BatchNorm2d(D)
         self.conv_expand = nn.Conv2d(D, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn_expand = nn.BatchNorm2d(out_channels)
@@ -199,14 +251,12 @@ class Bottleneck(nn.Module):
     def forward(self, x):
         out = self.conv_reduce.forward(x)
         out = self.relu(self.bn_reduce.forward(out))
-        out = self.conv_conv.forward(out)
+        out = self.conv_sk.forward(out)
         out = self.relu(self.bn.forward(out))
         out = self.conv_expand.forward(out)
         out = self.bn_expand.forward(out)
         residual = self.shortcut.forward(x)
-        out = self.cbam_module(out) + residual
-        out = self.relu(out)
-        return out
+        return self.relu(residual + out)
 
 
 class SeResNeXt(nn.Module):
@@ -250,25 +300,9 @@ class SeResNeXt(nn.Module):
         x = self.stage_1.forward(x)
         x = self.stage_2.forward(x)
         x = self.stage_3.forward(x)
-        x = F.avg_pool2d(x, 8, 1)
+        x = F.avg_pool2d(x, x.size(3), 1)
         x = x.view(-1, self.stages[3])
         return self.fc(x)
-
-
-class Bottleneck(nn.Module):
-
-    def __init__(self, in_planes, growth_rate):
-        super(Bottleneck, self).__init__()
-        self.bn_1 = nn.BatchNorm2d(in_planes)
-        self.conv_1 = nn.Conv2d(in_planes, 4 * growth_rate, kernel_size=1, bias=False)
-        self.bn_2 = nn.BatchNorm2d(4 * growth_rate)
-        self.conv_2 = nn.Conv2d(4 * growth_rate, growth_rate, kernel_size=3, padding=1, bias=False)
-
-    def forward(self, x):
-        out = self.conv_1(F.relu(self.bn_1(x)))
-        out = self.conv_2(F.relu(self.bn_2(out)))
-        out = torch.cat([out, x], 1)
-        return out
 
 
 class Transition(nn.Module):
@@ -361,38 +395,6 @@ class GEModule(nn.Module):
         return out
 
 
-class Bottleneck(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride, spatial, cardinality, base_width, expansion):
-        super(Bottleneck, self).__init__()
-        width_ratio = out_channels / (expansion * 64.0)
-        D = cardinality * int(base_width * width_ratio)
-        self.relu = nn.ReLU(inplace=True)
-        self.ge_module = GEModule(in_channels, out_channels, spatial)
-        self.conv_reduce = nn.Conv2d(in_channels, D, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn_reduce = nn.BatchNorm2d(D)
-        self.conv_conv = nn.Conv2d(D, D, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
-        self.bn = nn.BatchNorm2d(D)
-        self.conv_expand = nn.Conv2d(D, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn_expand = nn.BatchNorm2d(out_channels)
-        self.shortcut = nn.Sequential()
-        if in_channels != out_channels:
-            self.shortcut.add_module('shortcut_conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
-            self.shortcut.add_module('shortcut_bn', nn.BatchNorm2d(out_channels))
-
-    def forward(self, x):
-        out = self.conv_reduce.forward(x)
-        out = self.relu(self.bn_reduce.forward(out))
-        out = self.conv_conv.forward(out)
-        out = self.relu(self.bn.forward(out))
-        out = self.conv_expand.forward(out)
-        out = self.bn_expand.forward(out)
-        residual = self.shortcut.forward(x)
-        out = self.ge_module(out) + residual
-        out = self.relu(out)
-        return out
-
-
 class GeResNeXt(nn.Module):
 
     def __init__(self, cardinality, depth, num_classes, base_width, expansion=4):
@@ -471,57 +473,25 @@ class BasicBlock(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
-        self.bn_1 = nn.BatchNorm2d(inplanes)
-        self.relu = nn.ReLU(inplace=True)
         self.conv_1 = conv3x3(inplanes, planes, stride)
-        self.bn_2 = nn.BatchNorm2d(planes)
-        self.conv_2 = conv3x3(planes, planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.bn_1(x)
-        out = self.relu(out)
-        out = self.conv_1(out)
-        out = self.bn_2(out)
-        out = self.relu(out)
-        out = self.conv_2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.bn_1 = nn.BatchNorm2d(inplanes)
-        self.conv_1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn_2 = nn.BatchNorm2d(planes)
-        self.conv_2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn_3 = nn.BatchNorm2d(planes)
-        self.conv_3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn_1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
+        self.conv_2 = conv3x3(planes, planes)
+        self.bn_2 = nn.BatchNorm2d(planes)
         self.downsample = downsample
         self.stride = stride
 
     def forward(self, x):
         residual = x
-        out = self.bn_1(x)
-        out = self.relu(out)
-        out = self.conv_1(out)
-        out = self.bn_2(out)
+        out = self.conv_1(x)
+        out = self.bn_1(out)
         out = self.relu(out)
         out = self.conv_2(out)
-        out = self.bn_3(out)
-        out = self.relu(out)
-        out = self.conv_3(out)
+        out = self.bn_2(out)
         if self.downsample is not None:
             residual = self.downsample(x)
         out += residual
+        out = self.relu(out)
         return out
 
 
@@ -579,65 +549,6 @@ class PreResNet(nn.Module):
         return x
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv_1 = conv3x3(inplanes, planes, stride)
-        self.bn_1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv_2 = conv3x3(planes, planes)
-        self.bn_2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv_1(x)
-        out = self.bn_1(out)
-        out = self.relu(out)
-        out = self.conv_2(out)
-        out = self.bn_2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv_1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn_1 = nn.BatchNorm2d(planes)
-        self.conv_2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn_2 = nn.BatchNorm2d(planes)
-        self.conv_3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn_3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv_1(x)
-        out = self.bn_1(out)
-        out = self.relu(out)
-        out = self.conv_2(out)
-        out = self.bn_2(out)
-        out = self.relu(out)
-        out = self.conv_3(out)
-        out = self.bn_3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
 class ResNet(nn.Module):
 
     def __init__(self, depth, num_classes, block_name='BasicBlock'):
@@ -690,35 +601,6 @@ class ResNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
-
-
-class Bottleneck(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride, cardinality, base_width, expansion):
-        super(Bottleneck, self).__init__()
-        width_ratio = out_channels / (expansion * 64.0)
-        D = cardinality * int(base_width * width_ratio)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv_reduce = nn.Conv2d(in_channels, D, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn_reduce = nn.BatchNorm2d(D)
-        self.conv_conv = nn.Conv2d(D, D, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
-        self.bn = nn.BatchNorm2d(D)
-        self.conv_expand = nn.Conv2d(D, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn_expand = nn.BatchNorm2d(out_channels)
-        self.shortcut = nn.Sequential()
-        if in_channels != out_channels:
-            self.shortcut.add_module('shortcut_conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
-            self.shortcut.add_module('shortcut_bn', nn.BatchNorm2d(out_channels))
-
-    def forward(self, x):
-        out = self.conv_reduce.forward(x)
-        out = self.relu(self.bn_reduce.forward(out))
-        out = self.conv_conv.forward(out)
-        out = self.relu(self.bn.forward(out))
-        out = self.conv_expand.forward(out)
-        out = self.bn_expand.forward(out)
-        residual = self.shortcut.forward(x)
-        return self.relu(residual + out)
 
 
 class ResNeXt(nn.Module):
@@ -799,84 +681,6 @@ class SEModule(nn.Module):
         return original * x
 
 
-class Bottleneck(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride, cardinality, base_width, expansion):
-        super(Bottleneck, self).__init__()
-        width_ratio = out_channels / (expansion * 64.0)
-        D = cardinality * int(base_width * width_ratio)
-        self.relu = nn.ReLU(inplace=True)
-        self.se_module = SEModule(out_channels)
-        self.conv_reduce = nn.Conv2d(in_channels, D, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn_reduce = nn.BatchNorm2d(D)
-        self.conv_conv = nn.Conv2d(D, D, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
-        self.bn = nn.BatchNorm2d(D)
-        self.conv_expand = nn.Conv2d(D, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn_expand = nn.BatchNorm2d(out_channels)
-        self.shortcut = nn.Sequential()
-        if in_channels != out_channels:
-            self.shortcut.add_module('shortcut_conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
-            self.shortcut.add_module('shortcut_bn', nn.BatchNorm2d(out_channels))
-
-    def forward(self, x):
-        out = self.conv_reduce.forward(x)
-        out = self.relu(self.bn_reduce.forward(out))
-        out = self.conv_conv.forward(out)
-        out = self.relu(self.bn.forward(out))
-        out = self.conv_expand.forward(out)
-        out = self.bn_expand.forward(out)
-        residual = self.shortcut.forward(x)
-        out = self.se_module(out) + residual
-        out = self.relu(out)
-        return out
-
-
-class SeResNeXt(nn.Module):
-
-    def __init__(self, cardinality, depth, num_classes, base_width, expansion=4):
-        super(SeResNeXt, self).__init__()
-        self.cardinality = cardinality
-        self.depth = depth
-        self.block_depth = (self.depth - 2) // 9
-        self.base_width = base_width
-        self.expansion = expansion
-        self.num_classes = num_classes
-        self.output_size = 64
-        self.stages = [64, 64 * self.expansion, 128 * self.expansion, 256 * self.expansion]
-        self.conv_1_3x3 = nn.Conv2d(3, 64, 3, 1, 1, bias=False)
-        self.bn_1 = nn.BatchNorm2d(64)
-        self.stage_1 = self.block('stage_1', self.stages[0], self.stages[1], 1)
-        self.stage_2 = self.block('stage_2', self.stages[1], self.stages[2], 2)
-        self.stage_3 = self.block('stage_3', self.stages[2], self.stages[3], 2)
-        self.fc = nn.Linear(self.stages[3], num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight.data)
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def block(self, name, in_channels, out_channels, pool_stride=2):
-        block = nn.Sequential()
-        for bottleneck in range(self.block_depth):
-            name_ = '%s_bottleneck_%d' % (name, bottleneck)
-            if bottleneck == 0:
-                block.add_module(name_, Bottleneck(in_channels, out_channels, pool_stride, self.cardinality, self.base_width, self.expansion))
-            else:
-                block.add_module(name_, Bottleneck(out_channels, out_channels, 1, self.cardinality, self.base_width, self.expansion))
-        return block
-
-    def forward(self, x):
-        x = self.conv_1_3x3.forward(x)
-        x = F.relu(self.bn_1.forward(x), inplace=True)
-        x = self.stage_1.forward(x)
-        x = self.stage_2.forward(x)
-        x = self.stage_3.forward(x)
-        x = F.avg_pool2d(x, x.size(3), 1)
-        x = x.view(-1, self.stages[3])
-        return self.fc(x)
-
-
 class Shortcut(nn.Module):
 
     def __init__(self, in_ch, out_ch, stride):
@@ -901,7 +705,7 @@ class ShakeShake(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x1, x2, training=True):
         if training:
-            alpha = torch.cuda.FloatTensor(x1.size(0)).uniform_()
+            alpha = torch.FloatTensor(x1.size(0)).uniform_()
             alpha = alpha.view(alpha.size(0), 1, 1, 1).expand_as(x1)
         else:
             alpha = 0.5
@@ -909,7 +713,7 @@ class ShakeShake(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        beta = torch.cuda.FloatTensor(grad_output.size(0)).uniform_()
+        beta = torch.FloatTensor(grad_output.size(0)).uniform_()
         beta = beta.view(beta.size(0), 1, 1, 1).expand_as(grad_output)
         beta = Variable(beta)
         return beta * grad_output, (1 - beta) * grad_output, None
@@ -975,81 +779,6 @@ class ShakeResNet(nn.Module):
             layers.append(ShakeBlock(in_ch, out_ch, stride=stride))
             in_ch, stride = out_ch, 1
         return nn.Sequential(*layers)
-
-
-class SKConv(nn.Module):
-
-    def __init__(self, features, M, G, r, stride=1, L=32):
-        """ Constructor
-        Args:
-            features: input channel dimensionality.
-            M: the number of branchs.
-            G: num of convolution groups.
-            r: the radio for compute d, the length of z.
-            stride: stride, default 1.
-            L: the minimum dim of the vector z in paper, default 32.
-        """
-        super(SKConv, self).__init__()
-        d = max(int(features / r), L)
-        self.convs = nn.ModuleList([])
-        for i in range(M):
-            self.convs.append(nn.Sequential(nn.Conv2d(features, features, kernel_size=1 + i * 2, stride=stride, padding=i, groups=G), nn.BatchNorm2d(features), nn.ReLU(inplace=False)))
-        self.gap = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(features, d)
-        self.fcs = nn.ModuleList([])
-        for i in range(M):
-            self.fcs.append(nn.Linear(d, features))
-        self.softmax = nn.Softmax(dim=1)
-
-    def forward(self, x):
-        for i, conv in enumerate(self.convs):
-            fea = conv(x).unsqueeze_(dim=1)
-            if i == 0:
-                feas = fea
-            else:
-                feas = torch.cat([feas, fea], dim=1)
-        fea_U = torch.sum(feas, dim=1)
-        fea_s = self.gap(fea_U).squeeze_()
-        fea_z = self.fc(fea_s)
-        for i, fc in enumerate(self.fcs):
-            vector = fc(fea_z).unsqueeze_(dim=1)
-            if i == 0:
-                attention_vectors = vector
-            else:
-                attention_vectors = torch.cat([attention_vectors, vector], dim=1)
-        attention_vectors = self.softmax(attention_vectors)
-        attention_vectors = attention_vectors.unsqueeze(-1).unsqueeze(-1)
-        fea_v = (feas * attention_vectors).sum(dim=1)
-        return fea_v
-
-
-class Bottleneck(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride, cardinality, base_width, expansion, M, r, L):
-        super(Bottleneck, self).__init__()
-        width_ratio = out_channels / (expansion * 64.0)
-        D = cardinality * int(base_width * width_ratio)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv_reduce = nn.Conv2d(in_channels, D, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn_reduce = nn.BatchNorm2d(D)
-        self.conv_sk = SKConv(D, M, cardinality, r, stride=stride, L=L)
-        self.bn = nn.BatchNorm2d(D)
-        self.conv_expand = nn.Conv2d(D, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn_expand = nn.BatchNorm2d(out_channels)
-        self.shortcut = nn.Sequential()
-        if in_channels != out_channels:
-            self.shortcut.add_module('shortcut_conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
-            self.shortcut.add_module('shortcut_bn', nn.BatchNorm2d(out_channels))
-
-    def forward(self, x):
-        out = self.conv_reduce.forward(x)
-        out = self.relu(self.bn_reduce.forward(out))
-        out = self.conv_sk.forward(out)
-        out = self.relu(self.bn.forward(out))
-        out = self.conv_expand.forward(out)
-        out = self.bn_expand.forward(out)
-        residual = self.shortcut.forward(x)
-        return self.relu(residual + out)
 
 
 class SkResNeXt(nn.Module):

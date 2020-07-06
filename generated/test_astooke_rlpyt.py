@@ -40,6 +40,7 @@ cat_dqn = _module
 dqn = _module
 r2d1 = _module
 a2c = _module
+base = _module
 ppo = _module
 ddpg = _module
 sac = _module
@@ -47,7 +48,11 @@ sac_v = _module
 td3 = _module
 utils = _module
 distributions = _module
+base = _module
+categorical = _module
 discrete = _module
+epsilon_greedy = _module
+gaussian = _module
 envs = _module
 atari_env = _module
 gym = _module
@@ -169,11 +174,13 @@ mujoco_ff_model = _module
 mujoco_lstm_model = _module
 mlp = _module
 running_mean_std = _module
+utils = _module
 replays = _module
 async_ = _module
 frame = _module
 n_step = _module
 non_sequence = _module
+n_step = _module
 prioritized = _module
 time_limit = _module
 uniform = _module
@@ -194,10 +201,13 @@ buffer = _module
 collections = _module
 parallel = _module
 cpu = _module
+collectors = _module
 sampler = _module
 gpu = _module
+sampler = _module
 worker = _module
 serial = _module
+sampler = _module
 spaces = _module
 composite = _module
 float_box = _module
@@ -205,6 +215,8 @@ gym_wrapper = _module
 gym_wrapper_schema = _module
 int_box = _module
 array = _module
+buffer = _module
+collections = _module
 launching = _module
 affinity = _module
 exp_launcher = _module
@@ -232,15 +244,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -260,10 +273,37 @@ import numpy as np
 from collections import namedtuple
 
 
+import math
+
+
 import torch.nn.functional as F
 
 
 import torch.distributed as dist
+
+
+import time
+
+
+from collections import deque
+
+
+import torch.distributed
+
+
+from collections import OrderedDict
+
+
+from inspect import Signature as Sig
+
+
+from inspect import Parameter as Param
+
+
+import string
+
+
+from enum import Enum
 
 
 def conv2d_output_shape(h, w, kernel_size=1, stride=1, padding=0, dilation=1):
@@ -325,6 +365,40 @@ class Conv2dModel(torch.nn.Module):
         return h * w * c
 
 
+class MlpModel(torch.nn.Module):
+    """Multilayer Perceptron with last layer linear.
+
+    Args:
+        input_size (int): number of inputs
+        hidden_sizes (list): can be empty list for none (linear model).
+        output_size: linear layer at output, or if ``None``, the last hidden size will be the output size and will have nonlinearity applied
+        nonlinearity: torch nonlinearity Module (not Functional).
+    """
+
+    def __init__(self, input_size, hidden_sizes, output_size=None, nonlinearity=torch.nn.ReLU):
+        super().__init__()
+        if isinstance(hidden_sizes, int):
+            hidden_sizes = [hidden_sizes]
+        hidden_layers = [torch.nn.Linear(n_in, n_out) for n_in, n_out in zip([input_size] + hidden_sizes[:-1], hidden_sizes)]
+        sequence = list()
+        for layer in hidden_layers:
+            sequence.extend([layer, nonlinearity()])
+        if output_size is not None:
+            last_size = hidden_sizes[-1] if hidden_sizes else input_size
+            sequence.append(torch.nn.Linear(last_size, output_size))
+        self.model = torch.nn.Sequential(*sequence)
+        self._output_size = hidden_sizes[-1] if output_size is None else output_size
+
+    def forward(self, input):
+        """Compute the model on the input, assuming input shape [B,input_size]."""
+        return self.model(input)
+
+    @property
+    def output_size(self):
+        """Retuns the output size of the model."""
+        return self._output_size
+
+
 class Conv2dHeadModel(torch.nn.Module):
     """Model component composed of a ``Conv2dModel`` component followed by 
     a fully-connected ``MlpModel`` head.  Requires full input image shape to
@@ -370,24 +444,79 @@ class DistributionalHeadModel(torch.nn.Module):
         return self.mlp(input).view(-1, self._output_size, self._n_atoms)
 
 
-def infer_leading_dims(array, dim):
-    """Determine any leading dimensions of ``array``, which can have up to two
-    leading dimensions more than the number of data dimensions, ``dim``.  Used
-    to check for [B] or [T,B] leading.  Returns size of leading dimensions (or
-    1 if they don't exist), the data shape, and whether the leading dimensions
-    where found.
+class ScaleGrad(torch.autograd.Function):
+    """Model component to scale gradients back from layer, without affecting
+    the forward pass.  Used e.g. in dueling heads DQN models."""
+
+    @staticmethod
+    def forward(ctx, tensor, scale):
+        """Stores the ``scale`` input to ``ctx`` for application in
+        ``backward()``; simply returns the input ``tensor``."""
+        ctx.scale = scale
+        return tensor
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """Return the ``grad_output`` multiplied by ``ctx.scale``.  Also returns
+        a ``None`` as placeholder corresponding to (non-existent) gradient of 
+        the input ``scale`` of ``forward()``."""
+        return grad_output * ctx.scale, None
+
+
+scale_grad = getattr(ScaleGrad, 'apply', None)
+
+
+class DistributionalDuelingHeadModel(torch.nn.Module):
+    """Model component for Dueling Distributional (Categorical) DQN, like
+    ``DuelingHeadModel``, but handles `n_atoms` outputs for each state-action
+    Q-value distribution.
     """
-    assert array.ndim in (dim, dim + 1, dim + 2)
-    shape = array.shape[len(array.shape) - dim:]
-    T = B = 1
-    has_T = has_B = False
-    if array.ndim == dim + 2:
-        T, B = array.shape[:2]
-        has_T = has_B = True
-    elif array.ndim == dim + 1:
-        B = array.shape[0]
-        has_B = True
-    return T, B, shape, has_T, has_B
+
+    def __init__(self, input_size, hidden_sizes, output_size, n_atoms, grad_scale=2 ** (-1 / 2)):
+        super().__init__()
+        if isinstance(hidden_sizes, int):
+            hidden_sizes = [hidden_sizes]
+        self.advantage_hidden = MlpModel(input_size, hidden_sizes)
+        self.advantage_out = torch.nn.Linear(hidden_sizes[-1], output_size * n_atoms, bias=False)
+        self.advantage_bias = torch.nn.Parameter(torch.zeros(n_atoms))
+        self.value = MlpModel(input_size, hidden_sizes, output_size=n_atoms)
+        self._grad_scale = grad_scale
+        self._output_size = output_size
+        self._n_atoms = n_atoms
+
+    def forward(self, input):
+        x = scale_grad(input, self._grad_scale)
+        advantage = self.advantage(x)
+        value = self.value(x).view(-1, 1, self._n_atoms)
+        return value + (advantage - advantage.mean(dim=1, keepdim=True))
+
+    def advantage(self, input):
+        x = self.advantage_hidden(input)
+        x = self.advantage_out(x)
+        x = x.view(-1, self._output_size, self._n_atoms)
+        return x + self.advantage_bias
+
+
+def infer_leading_dims(tensor, dim):
+    """Looks for up to two leading dimensions in ``tensor``, before
+    the data dimensions, of which there are assumed to be ``dim`` number.
+    For use at beginning of model's ``forward()`` method, which should 
+    finish with ``restore_leading_dims()`` (see that function for help.)
+    Returns:
+    lead_dim: int --number of leading dims found.
+    T: int --size of first leading dim, if two leading dims, o/w 1.
+    B: int --size of first leading dim if one, second leading dim if two, o/w 1.
+    shape: tensor shape after leading dims.
+    """
+    lead_dim = tensor.dim() - dim
+    assert lead_dim in (0, 1, 2)
+    if lead_dim == 2:
+        T, B = tensor.shape[:2]
+    else:
+        T = 1
+        B = 1 if lead_dim == 0 else tensor.shape[0]
+    shape = tensor.shape[lead_dim:]
+    return lead_dim, T, B, shape
 
 
 def restore_leading_dims(tensors, lead_dim, T=1, B=1):
@@ -436,6 +565,39 @@ class AtariCatDqnModel(torch.nn.Module):
         p = F.softmax(p, dim=-1)
         p = restore_leading_dims(p, lead_dim, T, B)
         return p
+
+
+class DuelingHeadModel(torch.nn.Module):
+    """Model component for dueling DQN.  For each state Q-value, uses a scalar
+    output for mean (bias), and vector output for relative advantages
+    associated with each action, so the Q-values are computed as: Mean +
+    (Advantages - mean(Advantages)).  Uses a shared bias for all Advantage
+    outputs.Gradient scaling can be applied, affecting preceding layers in the
+    backward pass.
+    """
+
+    def __init__(self, input_size, hidden_sizes, output_size, grad_scale=2 ** (-1 / 2)):
+        super().__init__()
+        if isinstance(hidden_sizes, int):
+            hidden_sizes = [hidden_sizes]
+        self.advantage_hidden = MlpModel(input_size, hidden_sizes)
+        self.advantage_out = torch.nn.Linear(hidden_sizes[-1], output_size, bias=False)
+        self.advantage_bias = torch.nn.Parameter(torch.zeros(1))
+        self.value = MlpModel(input_size, hidden_sizes, output_size=1)
+        self._grad_scale = grad_scale
+
+    def forward(self, input):
+        """Computes Q-values through value and advantage heads; applies gradient
+        scaling."""
+        x = scale_grad(input, self._grad_scale)
+        advantage = self.advantage(x)
+        value = self.value(x)
+        return value + (advantage - advantage.mean(dim=-1, keepdim=True))
+
+    def advantage(self, input):
+        """Computes shared-bias advantages."""
+        x = self.advantage_hidden(input)
+        return self.advantage_out(x) + self.advantage_bias
 
 
 class AtariDqnModel(torch.nn.Module):
@@ -620,126 +782,6 @@ class AtariR2d1Model(torch.nn.Module):
         return q, next_rnn_state
 
 
-class ScaleGrad(torch.autograd.Function):
-    """Model component to scale gradients back from layer, without affecting
-    the forward pass.  Used e.g. in dueling heads DQN models."""
-
-    @staticmethod
-    def forward(ctx, tensor, scale):
-        """Stores the ``scale`` input to ``ctx`` for application in
-        ``backward()``; simply returns the input ``tensor``."""
-        ctx.scale = scale
-        return tensor
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        """Return the ``grad_output`` multiplied by ``ctx.scale``.  Also returns
-        a ``None`` as placeholder corresponding to (non-existent) gradient of 
-        the input ``scale`` of ``forward()``."""
-        return grad_output * ctx.scale, None
-
-
-scale_grad = getattr(ScaleGrad, 'apply', None)
-
-
-class DuelingHeadModel(torch.nn.Module):
-    """Model component for dueling DQN.  For each state Q-value, uses a scalar
-    output for mean (bias), and vector output for relative advantages
-    associated with each action, so the Q-values are computed as: Mean +
-    (Advantages - mean(Advantages)).  Uses a shared bias for all Advantage
-    outputs.Gradient scaling can be applied, affecting preceding layers in the
-    backward pass.
-    """
-
-    def __init__(self, input_size, hidden_sizes, output_size, grad_scale=2 ** (-1 / 2)):
-        super().__init__()
-        if isinstance(hidden_sizes, int):
-            hidden_sizes = [hidden_sizes]
-        self.advantage_hidden = MlpModel(input_size, hidden_sizes)
-        self.advantage_out = torch.nn.Linear(hidden_sizes[-1], output_size, bias=False)
-        self.advantage_bias = torch.nn.Parameter(torch.zeros(1))
-        self.value = MlpModel(input_size, hidden_sizes, output_size=1)
-        self._grad_scale = grad_scale
-
-    def forward(self, input):
-        """Computes Q-values through value and advantage heads; applies gradient
-        scaling."""
-        x = scale_grad(input, self._grad_scale)
-        advantage = self.advantage(x)
-        value = self.value(x)
-        return value + (advantage - advantage.mean(dim=-1, keepdim=True))
-
-    def advantage(self, input):
-        """Computes shared-bias advantages."""
-        x = self.advantage_hidden(input)
-        return self.advantage_out(x) + self.advantage_bias
-
-
-class DistributionalDuelingHeadModel(torch.nn.Module):
-    """Model component for Dueling Distributional (Categorical) DQN, like
-    ``DuelingHeadModel``, but handles `n_atoms` outputs for each state-action
-    Q-value distribution.
-    """
-
-    def __init__(self, input_size, hidden_sizes, output_size, n_atoms, grad_scale=2 ** (-1 / 2)):
-        super().__init__()
-        if isinstance(hidden_sizes, int):
-            hidden_sizes = [hidden_sizes]
-        self.advantage_hidden = MlpModel(input_size, hidden_sizes)
-        self.advantage_out = torch.nn.Linear(hidden_sizes[-1], output_size * n_atoms, bias=False)
-        self.advantage_bias = torch.nn.Parameter(torch.zeros(n_atoms))
-        self.value = MlpModel(input_size, hidden_sizes, output_size=n_atoms)
-        self._grad_scale = grad_scale
-        self._output_size = output_size
-        self._n_atoms = n_atoms
-
-    def forward(self, input):
-        x = scale_grad(input, self._grad_scale)
-        advantage = self.advantage(x)
-        value = self.value(x).view(-1, 1, self._n_atoms)
-        return value + (advantage - advantage.mean(dim=1, keepdim=True))
-
-    def advantage(self, input):
-        x = self.advantage_hidden(input)
-        x = self.advantage_out(x)
-        x = x.view(-1, self._output_size, self._n_atoms)
-        return x + self.advantage_bias
-
-
-class MlpModel(torch.nn.Module):
-    """Multilayer Perceptron with last layer linear.
-
-    Args:
-        input_size (int): number of inputs
-        hidden_sizes (list): can be empty list for none (linear model).
-        output_size: linear layer at output, or if ``None``, the last hidden size will be the output size and will have nonlinearity applied
-        nonlinearity: torch nonlinearity Module (not Functional).
-    """
-
-    def __init__(self, input_size, hidden_sizes, output_size=None, nonlinearity=torch.nn.ReLU):
-        super().__init__()
-        if isinstance(hidden_sizes, int):
-            hidden_sizes = [hidden_sizes]
-        hidden_layers = [torch.nn.Linear(n_in, n_out) for n_in, n_out in zip([input_size] + hidden_sizes[:-1], hidden_sizes)]
-        sequence = list()
-        for layer in hidden_layers:
-            sequence.extend([layer, nonlinearity()])
-        if output_size is not None:
-            last_size = hidden_sizes[-1] if hidden_sizes else input_size
-            sequence.append(torch.nn.Linear(last_size, output_size))
-        self.model = torch.nn.Sequential(*sequence)
-        self._output_size = hidden_sizes[-1] if output_size is None else output_size
-
-    def forward(self, input):
-        """Compute the model on the input, assuming input shape [B,input_size]."""
-        return self.model(input)
-
-    @property
-    def output_size(self):
-        """Retuns the output size of the model."""
-        return self._output_size
-
-
 class AtariFfModel(torch.nn.Module):
     """
     Feedforward model for Atari agents: a convolutional network feeding an
@@ -809,6 +851,46 @@ class AtariLstmModel(torch.nn.Module):
         pi, v = restore_leading_dims((pi, v), lead_dim, T, B)
         next_rnn_state = RnnState(h=hn, c=cn)
         return pi, v, next_rnn_state
+
+
+class RunningMeanStdModel(torch.nn.Module):
+    """Adapted from OpenAI baselines.  Maintains a running estimate of mean
+    and variance of data along each dimension, accessible in the `mean` and
+    `var` attributes.  Supports multi-GPU training by all-reducing statistics
+    across GPUs."""
+
+    def __init__(self, shape):
+        super().__init__()
+        self.register_buffer('mean', torch.zeros(shape))
+        self.register_buffer('var', torch.ones(shape))
+        self.register_buffer('count', torch.zeros(()))
+        self.shape = shape
+
+    def update(self, x):
+        _, T, B, _ = infer_leading_dims(x, len(self.shape))
+        x = x.view(T * B, *self.shape)
+        batch_mean = x.mean(dim=0)
+        batch_var = x.var(dim=0, unbiased=False)
+        batch_count = T * B
+        if dist.is_initialized():
+            mean_var = torch.stack([batch_mean, batch_var])
+            dist.all_reduce(mean_var)
+            world_size = dist.get_world_size()
+            mean_var /= world_size
+            batch_count *= world_size
+            batch_mean, batch_var = mean_var[0], mean_var[1]
+        if self.count == 0:
+            self.mean[:] = batch_mean
+            self.var[:] = batch_var
+        else:
+            delta = batch_mean - self.mean
+            total = self.count + batch_count
+            self.mean[:] = self.mean + delta * batch_count / total
+            m_a = self.var * self.count
+            m_b = batch_var * batch_count
+            M2 = m_a + m_b + delta ** 2 * self.count * batch_count / total
+            self.var[:] = M2 / total
+        self.count += batch_count
 
 
 class MujocoFfModel(torch.nn.Module):
@@ -982,46 +1064,6 @@ class VMlpModel(torch.nn.Module):
         return v
 
 
-class RunningMeanStdModel(torch.nn.Module):
-    """Adapted from OpenAI baselines.  Maintains a running estimate of mean
-    and variance of data along each dimension, accessible in the `mean` and
-    `var` attributes.  Supports multi-GPU training by all-reducing statistics
-    across GPUs."""
-
-    def __init__(self, shape):
-        super().__init__()
-        self.register_buffer('mean', torch.zeros(shape))
-        self.register_buffer('var', torch.ones(shape))
-        self.register_buffer('count', torch.zeros(()))
-        self.shape = shape
-
-    def update(self, x):
-        _, T, B, _ = infer_leading_dims(x, len(self.shape))
-        x = x.view(T * B, *self.shape)
-        batch_mean = x.mean(dim=0)
-        batch_var = x.var(dim=0, unbiased=False)
-        batch_count = T * B
-        if dist.is_initialized():
-            mean_var = torch.stack([batch_mean, batch_var])
-            dist.all_reduce(mean_var)
-            world_size = dist.get_world_size()
-            mean_var /= world_size
-            batch_count *= world_size
-            batch_mean, batch_var = mean_var[0], mean_var[1]
-        if self.count == 0:
-            self.mean[:] = batch_mean
-            self.var[:] = batch_var
-        else:
-            delta = batch_mean - self.mean
-            total = self.count + batch_count
-            self.mean[:] = self.mean + delta * batch_count / total
-            m_a = self.var * self.count
-            m_b = batch_var * batch_count
-            M2 = m_a + m_b + delta ** 2 * self.count * batch_count / total
-            self.var[:] = M2 / total
-        self.count += batch_count
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1049,6 +1091,26 @@ TESTCASES = [
      lambda: ([], {'input_size': 4, 'hidden_sizes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (MuMlpModel,
+     lambda: ([], {'observation_shape': [4, 4], 'hidden_sizes': 4, 'action_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MujocoFfModel,
+     lambda: ([], {'observation_shape': [4, 4], 'action_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PiMlpModel,
+     lambda: ([], {'observation_shape': [4, 4], 'hidden_sizes': 4, 'action_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (QofMuMlpModel,
+     lambda: ([], {'observation_shape': [4, 4], 'hidden_sizes': 4, 'action_size': 4}),
+     lambda: ([torch.rand([4, 4, 2, 2]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (VMlpModel,
+     lambda: ([], {'observation_shape': [4, 4], 'hidden_sizes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
 ]
 
 class Test_astooke_rlpyt(_paritybench_base):
@@ -1066,4 +1128,19 @@ class Test_astooke_rlpyt(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

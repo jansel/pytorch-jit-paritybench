@@ -12,20 +12,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import random as r
+
+
+import numpy as np
+
+
+import math
 
 
 import torch.nn as nn
@@ -42,35 +52,33 @@ from torch.nn import init
 
 class make_dense(nn.Module):
 
-    def __init__(self, nChannels, growthRate, dilation):
+    def __init__(self, nChannels, growthRate):
         super(make_dense, self).__init__()
-        self.conv = nn.Conv2d(nChannels, growthRate, kernel_size=3, padding=dilation, dilation=dilation, bias=False)
-        self.bn = nn.BatchNorm2d(growthRate)
+        self.bn = nn.BatchNorm2d(nChannels)
+        self.act = nn.PReLU(nChannels)
+        self.conv = nn.Conv2d(nChannels, growthRate, kernel_size=3, padding=1, bias=False)
 
-    def forward(self, x):
-        out = F.relu(self.conv(x))
-        out = torch.cat((x, out), 1)
+    def forward(self, input):
+        x = self.bn(input)
+        x = self.act(x)
+        x = self.conv(x)
+        out = torch.cat((input, x), 1)
         return out
 
 
 class DenseBlock(nn.Module):
 
-    def __init__(self, nChannels, nDenselayer, growthRate, d, reset_channel=False):
+    def __init__(self, nChannels, nDenselayer, growthRate):
         super(DenseBlock, self).__init__()
         nChannels_ = nChannels
         modules = []
         for i in range(nDenselayer):
-            modules.append(make_dense(nChannels_, growthRate, dilation=d[i]))
+            modules.append(make_dense(nChannels_, growthRate))
             nChannels_ += growthRate
         self.dense_layers = nn.Sequential(*modules)
-        self.reset_channel = reset_channel
-        if self.reset_channel:
-            self.conv_1x1 = nn.Conv2d(nChannels_, nChannels, kernel_size=1, stride=1, padding=0, bias=False)
 
     def forward(self, x):
         out = self.dense_layers(x)
-        if self.reset_channel:
-            out = self.conv_1x1(out)
         return out
 
 
@@ -339,38 +347,6 @@ class MobileNet_v2_Dilate_Unet(nn.Module):
         heat_map = self.last_conv(feature_map)
         heat_map = F.upsample(heat_map, scale_factor=2, mode='bilinear', align_corners=True)
         return heat_map
-
-
-class make_dense(nn.Module):
-
-    def __init__(self, nChannels, growthRate):
-        super(make_dense, self).__init__()
-        self.bn = nn.BatchNorm2d(nChannels)
-        self.act = nn.PReLU(nChannels)
-        self.conv = nn.Conv2d(nChannels, growthRate, kernel_size=3, padding=1, bias=False)
-
-    def forward(self, input):
-        x = self.bn(input)
-        x = self.act(x)
-        x = self.conv(x)
-        out = torch.cat((input, x), 1)
-        return out
-
-
-class DenseBlock(nn.Module):
-
-    def __init__(self, nChannels, nDenselayer, growthRate):
-        super(DenseBlock, self).__init__()
-        nChannels_ = nChannels
-        modules = []
-        for i in range(nDenselayer):
-            modules.append(make_dense(nChannels_, growthRate))
-            nChannels_ += growthRate
-        self.dense_layers = nn.Sequential(*modules)
-
-    def forward(self, x):
-        out = self.dense_layers(x)
-        return out
 
 
 class DRB(nn.Module):

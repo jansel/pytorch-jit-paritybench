@@ -74,7 +74,9 @@ util = _module
 setup = _module
 conftest = _module
 gum_marsaglia = _module
+gum_marsaglia = _module
 rejection_sampling = _module
+proposal_uniform_truncated_normal_mixture = _module
 test_dataset = _module
 test_diagnostics = _module
 test_distributions = _module
@@ -93,20 +95,72 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+from collections import OrderedDict
+
+
+from collections import defaultdict
+
+
+import numpy as np
+
+
+import time
+
+
+import re
+
+
+from torch.distributions.kl import kl_divergence
+
+
+import copy
+
+
+import collections
+
+
+import random
+
+
+import math
+
+
+import enum
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import ConcatDataset
+
+
+from torch.utils.data import Sampler
+
+
+import torch.distributed as dist
+
+
+import uuid
+
+
+from collections import Counter
 
 
 import torch.nn as nn
@@ -118,28 +172,22 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 
 
-import torch.distributed as dist
-
-
 from torch.utils.data import DataLoader
 
 
-import time
+from torch.optim import Optimizer
 
 
-import uuid
+import inspect
 
 
-import copy
+from functools import reduce
 
 
-import math
+import torch.multiprocessing
 
 
 import torch.nn.functional as F
-
-
-import numpy as np
 
 
 import functools
@@ -265,572 +313,9 @@ class EmbeddingFeedForward(nn.Module):
         return x.view(torch.Size([-1]) + self._output_shape)
 
 
-class Batch:
-
-    def __init__(self, traces):
-        self.traces = traces
-        self.size = len(traces)
-        sub_batches = {}
-        total_length_controlled = 0
-        for trace in traces:
-            tl = trace.length_controlled
-            if tl == 0:
-                raise ValueError('Trace of length zero.')
-            total_length_controlled += tl
-            trace_hash = ''.join([variable.address for variable in trace.variables_controlled])
-            if trace_hash not in sub_batches:
-                sub_batches[trace_hash] = []
-            sub_batches[trace_hash].append(trace)
-        self.sub_batches = list(sub_batches.values())
-        self.mean_length_controlled = total_length_controlled / self.size
-
-    def __len__(self):
-        return len(self.traces)
-
-    def __getitem__(self, key):
-        return self.traces[key]
-
-    def to(self, device):
-        for trace in self.traces:
-            trace.to(device=device)
-
-
-class Optimizer(enum.Enum):
-    ADAM = 0
-    SGD = 1
-    ADAM_LARC = 2
-    SGD_LARC = 3
-
-
-class LearningRateScheduler(enum.Enum):
-    NONE = 0
-    POLY1 = 1
-    POLY2 = 2
-
-
-class ObserveEmbedding(enum.Enum):
+class InferenceNetwork(enum.Enum):
     FEEDFORWARD = 0
-    CNN2D5C = 1
-    CNN3D5C = 2
-
-
-class InferenceNetwork(nn.Module):
-
-    def __init__(self, model, observe_embeddings={}, network_type=''):
-        super().__init__()
-        self._model = model
-        self._layers_observe_embedding = nn.ModuleDict()
-        self._layers_observe_embedding_final = None
-        self._layers_pre_generated = False
-        self._layers_initialized = False
-        self._observe_embeddings = observe_embeddings
-        self._observe_embedding_dim = None
-        self._infer_observe = None
-        self._infer_observe_embedding = {}
-        self._optimizer = None
-        self._optimizer_type = None
-        self._optimizer_state = None
-        self._momentum = None
-        self._weight_decay = None
-        self._learning_rate_scheduler = None
-        self._learning_rate_scheduler_type = None
-        self._learning_rate_scheduler_state = None
-        self._total_train_seconds = 0
-        self._total_train_traces = 0
-        self._total_train_traces_end = None
-        self._total_train_iterations = 0
-        self._learning_rate_init = None
-        self._learning_rate_end = None
-        self._loss_init = None
-        self._loss_min = float('inf')
-        self._loss_max = None
-        self._loss_previous = float('inf')
-        self._history_train_loss = []
-        self._history_train_loss_trace = []
-        self._history_valid_loss = []
-        self._history_valid_loss_trace = []
-        self._history_num_params = []
-        self._history_num_params_trace = []
-        self._distributed_train_loss = util.to_tensor(0.0)
-        self._distributed_valid_loss = util.to_tensor(0.0)
-        self._distributed_history_train_loss = []
-        self._distributed_history_train_loss_trace = []
-        self._distributed_history_valid_loss = []
-        self._distributed_history_valid_loss_trace = []
-        self._modified = util.get_time_str()
-        self._updates = 0
-        self._on_cuda = False
-        self._device = torch.device('cpu')
-        self._learning_rate = None
-        self._momentum = None
-        self._batch_size = None
-        self._distributed_backend = None
-        self._distributed_world_size = None
-        self._network_type = network_type
-
-    def _init_layers_observe_embedding(self, observe_embeddings, example_trace):
-        if len(observe_embeddings) == 0:
-            raise ValueError('At least one observe embedding is needed to initialize inference network.')
-        if isinstance(observe_embeddings, set):
-            observe_embeddings = {o: {} for o in observe_embeddings}
-        observe_embedding_total_dim = 0
-        for name, value in observe_embeddings.items():
-            variable = example_trace.named_variables[name]
-            if 'reshape' in value:
-                input_shape = torch.Size(value['reshape'])
-                None
-            else:
-                input_shape = variable.value.size()
-                None
-            if 'dim' in value:
-                output_shape = torch.Size([value['dim']])
-                None
-            else:
-                None
-                output_shape = torch.Size([256])
-            if 'embedding' in value:
-                embedding = value['embedding']
-                None
-            else:
-                None
-                embedding = ObserveEmbedding.FEEDFORWARD
-            if embedding == ObserveEmbedding.FEEDFORWARD:
-                if 'depth' in value:
-                    depth = value['depth']
-                    None
-                else:
-                    None
-                    depth = 2
-                layer = EmbeddingFeedForward(input_shape=input_shape, output_shape=output_shape, num_layers=depth)
-            elif embedding == ObserveEmbedding.CNN2D5C:
-                layer = EmbeddingCNN2D5C(input_shape=input_shape, output_shape=output_shape)
-            elif embedding == ObserveEmbedding.CNN3D5C:
-                layer = EmbeddingCNN3D5C(input_shape=input_shape, output_shape=output_shape)
-            else:
-                raise ValueError('Unknown embedding: {}'.format(embedding))
-            layer
-            self._layers_observe_embedding[name] = layer
-            observe_embedding_total_dim += util.prod(output_shape)
-        self._observe_embedding_dim = observe_embedding_total_dim
-        None
-        self._layers_observe_embedding_final = EmbeddingFeedForward(input_shape=self._observe_embedding_dim, output_shape=self._observe_embedding_dim, num_layers=2)
-        self._layers_observe_embedding_final
-
-    def _embed_observe(self, traces=None):
-        embedding = []
-        for name, layer in self._layers_observe_embedding.items():
-            values = torch.stack([util.to_tensor(trace.named_variables[name].value) for trace in traces]).view(len(traces), -1)
-            embedding.append(layer(values))
-        embedding = torch.cat(embedding, dim=1)
-        embedding = self._layers_observe_embedding_final(embedding)
-        return embedding
-
-    def _infer_init(self, observe=None):
-        self._infer_observe = observe
-        embedding = []
-        for name, layer in self._layers_observe_embedding.items():
-            value = util.to_tensor(observe[name]).view(1, -1)
-            embedding.append(layer(value))
-        embedding = torch.cat(embedding, dim=1)
-        self._infer_observe_embedding = self._layers_observe_embedding_final(embedding)
-
-    def _init_layers(self):
-        raise NotImplementedError()
-
-    def _polymorph(self, batch):
-        raise NotImplementedError()
-
-    def _infer_step(self, variable, previous_variable=None, proposal_min_train_iterations=None):
-        raise NotImplementedError()
-
-    def _loss(self, batch):
-        raise NotImplementedError()
-
-    def _save(self, file_name):
-        self._modified = util.get_time_str()
-        self._updates += 1
-        data = {}
-        data['pyprob_version'] = __version__
-        data['torch_version'] = torch.__version__
-        data['inference_network'] = copy.copy(self)
-        data['inference_network']._model = None
-        data['inference_network']._optimizer = None
-        if self._optimizer is None:
-            data['inference_network']._optimizer_state = None
-        else:
-            data['inference_network']._optimizer_state = self._optimizer.state_dict()
-        data['inference_network']._learning_rate_scheduler = None
-        if self._learning_rate_scheduler is None:
-            data['inference_network']._learning_rate_scheduler_state = None
-        else:
-            data['inference_network']._learning_rate_scheduler_state = self._learning_rate_scheduler.state_dict()
-
-        def thread_save():
-            tmp_dir = tempfile.mkdtemp(suffix=str(uuid.uuid4()))
-            tmp_file_name = os.path.join(tmp_dir, 'pyprob_inference_network')
-            torch.save(data, tmp_file_name)
-            tar = tarfile.open(file_name, 'w:gz', compresslevel=2)
-            tar.add(tmp_file_name, arcname='pyprob_inference_network')
-            tar.close()
-            shutil.rmtree(tmp_dir)
-        t = Thread(target=thread_save)
-        t.start()
-        t.join()
-
-    @staticmethod
-    def _load(file_name):
-        try:
-            tar = tarfile.open(file_name, 'r:gz')
-            tmp_dir = tempfile.mkdtemp(suffix=str(uuid.uuid4()))
-            tmp_file = os.path.join(tmp_dir, 'pyprob_inference_network')
-            tar.extract('pyprob_inference_network', tmp_dir)
-            tar.close()
-            if util._cuda_enabled:
-                data = torch.load(tmp_file)
-            else:
-                data = torch.load(tmp_file, map_location=lambda storage, loc: storage)
-            shutil.rmtree(tmp_dir)
-        except Exception as e:
-            None
-            raise RuntimeError('Cannot load inference network.')
-        if data['pyprob_version'] != __version__:
-            None
-        if data['torch_version'] != torch.__version__:
-            None
-        ret = data['inference_network']
-        if util._cuda_enabled:
-            if ret._on_cuda:
-                if ret._device != util._device:
-                    None
-            else:
-                None
-        elif ret._on_cuda:
-            None
-        ret
-        if not hasattr(ret, '_distributed_train_loss'):
-            ret._distributed_train_loss = util.to_tensor(0.0)
-        if not hasattr(ret, '_distributed_valid_loss'):
-            ret._distributed_valid_loss = util.to_tensor(0.0)
-        if not hasattr(ret, '_distributed_history_train_loss'):
-            ret._distributed_history_train_loss = []
-        if not hasattr(ret, '_distributed_history_train_loss_trace'):
-            ret._distributed_history_train_loss_trace = []
-        if not hasattr(ret, '_distributed_history_valid_loss'):
-            ret._distributed_history_valid_loss = []
-        if not hasattr(ret, '_distributed_history_valid_loss_trace'):
-            ret._distributed_history_valid_loss_trace = []
-        if not hasattr(ret, '_optimizer_state'):
-            ret._optimizer_state = None
-        if not hasattr(ret, '_learning_rate_scheduler_state'):
-            ret._learning_rate_scheduler_state = None
-        if not hasattr(ret, '_total_train_traces_end'):
-            ret._total_train_traces_end = None
-        if not hasattr(ret, '_loss_init'):
-            ret._loss_init = None
-        if not hasattr(ret, '_learning_rate_init'):
-            ret._learning_rate_init = 0
-        if not hasattr(ret, '_learning_rate_end'):
-            ret._learning_rate_end = 0
-        if not hasattr(ret, '_weight_decay'):
-            ret._weight_decay = 0
-        if not hasattr(ret, '_learning_rate_scheduler_type'):
-            ret._learning_rate_scheduler_type = None
-        ret._create_optimizer(ret._optimizer_state)
-        ret._create_lr_scheduler(ret._learning_rate_scheduler_state)
-        return ret
-
-    def to(self, device=None, *args, **kwargs):
-        self._device = device
-        self._on_cuda = 'cuda' in str(device)
-        super()
-
-    def _pre_generate_layers(self, dataset, batch_size=64, save_file_name_prefix=None):
-        if not self._layers_initialized:
-            self._init_layers_observe_embedding(self._observe_embeddings, example_trace=dataset.__getitem__(0))
-            self._init_layers()
-            self._layers_initialized = True
-        self._layers_pre_generated = True
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0, collate_fn=lambda x: Batch(x))
-        util.progress_bar_init('Layer pre-generation...', len(dataset), 'Traces')
-        i = 0
-        for i_batch, batch in enumerate(dataloader):
-            i += len(batch)
-            layers_changed = self._polymorph(batch)
-            util.progress_bar_update(i)
-            if layers_changed and save_file_name_prefix is not None:
-                file_name = '{}_00000000_pre_generated.network'.format(save_file_name_prefix)
-                None
-                self._save(file_name)
-        util.progress_bar_end('Layer pre-generation complete')
-
-    def _distributed_sync_parameters(self):
-        """ broadcast rank 0 parameter to all ranks """
-        for param in self.parameters():
-            dist.broadcast(param.data, 0)
-
-    def _distributed_sync_grad(self, world_size):
-        """ all_reduce grads from all ranks """
-        ttmap = util.to_tensor([(1 if p.grad is not None else 0) for p in self.parameters()])
-        pytorch_allreduce_supports_list = True
-        try:
-            dist.all_reduce([ttmap])
-        except:
-            pytorch_allreduce_supports_list = False
-            dist.all_reduce(ttmap)
-        gl = []
-        for i, param in enumerate(self.parameters()):
-            if param.grad is not None:
-                gl.append(param.grad.data)
-            elif ttmap[i]:
-                param.grad = util.to_tensor(torch.zeros_like(param.data))
-                gl.append(param.grad.data)
-        if pytorch_allreduce_supports_list:
-            dist.all_reduce(gl)
-        else:
-            for g in gl:
-                dist.all_reduce(g)
-        for li in gl:
-            li /= float(world_size)
-
-    def _distributed_update_train_loss(self, loss, world_size):
-        self._distributed_train_loss = util.to_tensor(float(loss))
-        dist.all_reduce(self._distributed_train_loss)
-        self._distributed_train_loss /= float(world_size)
-        self._distributed_history_train_loss.append(float(self._distributed_train_loss))
-        self._distributed_history_train_loss_trace.append(self._total_train_traces)
-        return self._distributed_train_loss
-
-    def _distributed_update_valid_loss(self, loss, world_size):
-        self._distributed_valid_loss = util.to_tensor(float(loss))
-        dist.all_reduce(self._distributed_valid_loss)
-        self._distributed_valid_loss /= float(world_size)
-        self._distributed_history_valid_loss.append(float(self._distributed_valid_loss))
-        self._distributed_history_valid_loss_trace.append(self._total_train_traces)
-        return self._distributed_valid_loss
-
-    def _create_optimizer(self, state_dict=None):
-        if self._optimizer_type is None:
-            return
-        if self._optimizer_type in [Optimizer.ADAM, Optimizer.ADAM_LARC]:
-            self._optimizer = optim.Adam(self.parameters(), lr=self._learning_rate_init, weight_decay=self._weight_decay)
-        else:
-            self._optimizer = optim.SGD(self.parameters(), lr=self._learning_rate_init, momentum=self._momentum, nesterov=True, weight_decay=self._weight_decay)
-        if self._optimizer_type in [Optimizer.ADAM_LARC, Optimizer.SGD_LARC]:
-            self._optimizer = LARC(self._optimizer)
-        if state_dict is not None:
-            self._optimizer.load_state_dict(state_dict)
-
-    def _create_lr_scheduler(self, state_dict=None):
-        if self._learning_rate_scheduler_type is None:
-            return
-        learning_rate_scheduler_type = self._learning_rate_scheduler_type
-        iter_end = self._total_train_traces_end
-        lr_init = self._learning_rate_init
-        lr_end = self._learning_rate_end
-
-        def _poly_decay(iter, power):
-            return (lr_init - lr_end) * (1 - iter / iter_end) ** power + lr_end
-        if self._optimizer is None:
-            self._learning_rate_scheduler = None
-        elif learning_rate_scheduler_type == LearningRateScheduler.POLY1:
-            self._learning_rate_scheduler = lr_scheduler.LambdaLR(self._optimizer, lr_lambda=lambda iter: _poly_decay(iter, power=1.0) / lr_init)
-        elif learning_rate_scheduler_type == LearningRateScheduler.POLY2:
-            self._learning_rate_scheduler = lr_scheduler.LambdaLR(self._optimizer, lr_lambda=lambda iter: _poly_decay(iter, power=2.0) / lr_init)
-        else:
-            self._learning_rate_scheduler = None
-        if self._learning_rate_scheduler is not None and state_dict is not None:
-            self._learning_rate_scheduler.load_state_dict(state_dict)
-
-    def optimize(self, num_traces, dataset, dataset_valid=None, num_traces_end=1000000000.0, batch_size=64, valid_every=None, optimizer_type=Optimizer.ADAM, learning_rate_init=0.0001, learning_rate_end=1e-06, learning_rate_scheduler_type=LearningRateScheduler.NONE, momentum=0.9, weight_decay=1e-05, save_file_name_prefix=None, save_every_sec=600, distributed_backend=None, distributed_params_sync_every_iter=10000, distributed_num_buckets=10, dataloader_offline_num_workers=0, stop_with_bad_loss=False, log_file_name=None):
-        if not self._layers_initialized:
-            self._init_layers_observe_embedding(self._observe_embeddings, example_trace=dataset.__getitem__(0))
-            self._init_layers()
-            self._layers_initialized = True
-        if distributed_backend is None:
-            distributed_world_size = 1
-            distributed_rank = 0
-        else:
-            dist.init_process_group(backend=distributed_backend)
-            distributed_world_size = dist.get_world_size()
-            distributed_rank = dist.get_rank()
-            self._distributed_backend = distributed_backend
-            self._distributed_world_size = distributed_world_size
-        if isinstance(dataset, OfflineDataset):
-            if distributed_world_size == 1:
-                dataloader = DataLoader(dataset, batch_sampler=TraceBatchSampler(dataset, batch_size=batch_size, shuffle_batches=True), num_workers=dataloader_offline_num_workers, collate_fn=lambda x: Batch(x))
-            else:
-                dataloader = DataLoader(dataset, batch_sampler=DistributedTraceBatchSampler(dataset, batch_size=batch_size, num_buckets=distributed_num_buckets, shuffle_batches=True, shuffle_buckets=True), num_workers=dataloader_offline_num_workers, collate_fn=lambda x: Batch(x))
-        else:
-            dataloader = DataLoader(dataset, batch_size=batch_size, num_workers=0, collate_fn=lambda x: Batch(x))
-        if dataset_valid is not None:
-            if distributed_world_size == 1:
-                dataloader_valid = DataLoader(dataset_valid, batch_sampler=TraceBatchSampler(dataset_valid, batch_size=batch_size, shuffle_batches=True), num_workers=dataloader_offline_num_workers, collate_fn=lambda x: Batch(x))
-            else:
-                dataloader_valid = DataLoader(dataset_valid, batch_sampler=DistributedTraceBatchSampler(dataset_valid, batch_size=batch_size, num_buckets=distributed_num_buckets, shuffle_batches=True, shuffle_buckets=True), num_workers=dataloader_offline_num_workers, collate_fn=lambda x: Batch(x))
-            if not self._layers_pre_generated:
-                for i_batch, batch in enumerate(dataloader_valid):
-                    self._polymorph(batch)
-        if distributed_world_size > 1:
-            util.init_distributed_print(distributed_rank, distributed_world_size, False)
-            if distributed_rank == 0:
-                None
-                None
-                None
-                None
-                None
-                None
-                None
-                None
-        self.train()
-        prev_total_train_seconds = self._total_train_seconds
-        time_start = time.time()
-        time_loss_min = time_start
-        time_last_batch = time_start
-        if valid_every is None:
-            valid_every = max(100, num_traces / 1000)
-        last_validation_trace = -valid_every + 1
-        valid_loss = 0
-        if self._optimizer_type is None:
-            self._optimizer_type = optimizer_type
-        if self._momentum is None:
-            self._momentum = momentum
-        if self._weight_decay is None:
-            self._weight_decay = weight_decay
-        if self._learning_rate_scheduler_type is None:
-            self._learning_rate_scheduler_type = learning_rate_scheduler_type
-        if self._learning_rate_init is None:
-            self._learning_rate_init = learning_rate_init * math.sqrt(distributed_world_size)
-        if self._learning_rate_end is None:
-            self._learning_rate_end = learning_rate_end
-        if self._total_train_traces_end is None:
-            self._total_train_traces_end = num_traces_end
-        epoch = 0
-        trace = 0
-        stop = False
-        None
-        max_print_line_len = 0
-        loss_min_str = ''
-        time_since_loss_min_str = ''
-        loss_init_str = '' if self._loss_init is None else '{:+.2e}'.format(self._loss_init)
-        if save_every_sec is not None:
-            last_auto_save_time = time_start - save_every_sec
-        last_print = time_start - util._print_refresh_rate
-        if distributed_rank == 0 and log_file_name is not None:
-            log_file = open(log_file_name, mode='w', buffering=1)
-            log_file.write('time, iteration, trace, loss, valid_loss, learning_rate, mean_trace_length_controlled, sub_mini_batches, distributed_bucket_id, traces_per_second\n')
-        while not stop:
-            epoch += 1
-            for i_batch, batch in enumerate(dataloader):
-                time_batch = time.time()
-                if distributed_world_size > 1 and self._total_train_iterations % distributed_params_sync_every_iter == 0:
-                    self._distributed_sync_parameters()
-                if self._layers_pre_generated:
-                    layers_changed = False
-                else:
-                    layers_changed = self._polymorph(batch)
-                if self._optimizer is None or layers_changed:
-                    self._create_optimizer()
-                    self._create_lr_scheduler()
-                self._optimizer.zero_grad()
-                success, loss = self._loss(batch)
-                if not success:
-                    None
-                    if stop_with_bad_loss:
-                        return
-                else:
-                    loss.backward()
-                    if distributed_world_size > 1:
-                        self._distributed_sync_grad(distributed_world_size)
-                    self._optimizer.step()
-                    loss = float(loss)
-                    if distributed_world_size > 1:
-                        loss = self._distributed_update_train_loss(loss, distributed_world_size)
-                    if self._loss_init is None:
-                        self._loss_init = loss
-                        self._loss_max = loss
-                        loss_init_str = '{:+.2e}'.format(self._loss_init)
-                    if loss < self._loss_min:
-                        self._loss_min = loss
-                        loss_str = colored('{:+.2e}'.format(loss), 'green', attrs=['bold'])
-                        loss_min_str = colored('{:+.2e}'.format(self._loss_min), 'green', attrs=['bold'])
-                        time_loss_min = time_batch
-                        time_since_loss_min_str = colored(util.days_hours_mins_secs_str(0), 'green', attrs=['bold'])
-                    elif loss > self._loss_max:
-                        self._loss_max = loss
-                        loss_str = colored('{:+.2e}'.format(loss), 'red', attrs=['bold'])
-                    else:
-                        if loss < self._loss_previous:
-                            loss_str = colored('{:+.2e}'.format(loss), 'green')
-                        elif loss > self._loss_previous:
-                            loss_str = colored('{:+.2e}'.format(loss), 'red')
-                        else:
-                            loss_str = '{:+.2e}'.format(loss)
-                        loss_min_str = '{:+.2e}'.format(self._loss_min)
-                        time_since_loss_min_str = util.days_hours_mins_secs_str(time_batch - time_loss_min)
-                    self._loss_previous = loss
-                    self._total_train_iterations += 1
-                    trace += batch.size * distributed_world_size
-                    self._total_train_traces += batch.size * distributed_world_size
-                    self._total_train_seconds = prev_total_train_seconds + (time_batch - time_start)
-                    self._history_train_loss.append(loss)
-                    self._history_train_loss_trace.append(self._total_train_traces)
-                    traces_per_second = batch.size * distributed_world_size / (time_batch - time_last_batch)
-                    if dataset_valid is not None:
-                        if trace - last_validation_trace > valid_every:
-                            None
-                            valid_loss = 0
-                            with torch.no_grad():
-                                for i_batch, batch in enumerate(dataloader_valid):
-                                    _, v = self._loss(batch)
-                                    valid_loss += v
-                            valid_loss = float(valid_loss) / (len(dataloader_valid) / distributed_world_size)
-                            if distributed_world_size > 1:
-                                valid_loss = self._distributed_update_valid_loss(valid_loss, distributed_world_size)
-                            self._history_valid_loss.append(valid_loss)
-                            self._history_valid_loss_trace.append(self._total_train_traces)
-                            last_validation_trace = trace - 1
-                    if distributed_rank == 0 and save_file_name_prefix is not None and save_every_sec is not None:
-                        if time_batch - last_auto_save_time > save_every_sec:
-                            last_auto_save_time = time_batch
-                            file_name = '{}_{}_traces_{}.network'.format(save_file_name_prefix, util.get_time_stamp(), self._total_train_traces)
-                            None
-                            self._save(file_name)
-                    time_last_batch = time_batch
-                    if trace >= num_traces:
-                        None
-                        stop = True
-                    if self._total_train_traces >= self._total_train_traces_end:
-                        None
-                        if self._learning_rate_scheduler is not None:
-                            None
-                    if self._learning_rate_scheduler is not None:
-                        self._learning_rate_scheduler.step(self._total_train_traces)
-                    learning_rate_current = self._optimizer.param_groups[0]['lr']
-                    learning_rate_current_str = '{:+.2e}'.format(learning_rate_current)
-                    if time_batch - last_print > util._print_refresh_rate or stop:
-                        last_print = time_batch
-                        total_training_seconds_str = util.days_hours_mins_secs_str(self._total_train_seconds)
-                        epoch_str = '{:4}'.format('{:,}'.format(epoch))
-                        total_train_traces_str = '{:9}'.format('{:,}'.format(self._total_train_traces))
-                        traces_per_second_str = '{:,.1f}'.format(traces_per_second)
-                        print_line = '{} | {} | {} | {} | {} | {} | {} | {} | {} '.format(total_training_seconds_str, epoch_str, total_train_traces_str, loss_init_str, loss_min_str, loss_str, time_since_loss_min_str, learning_rate_current_str, traces_per_second_str)
-                        max_print_line_len = max(len(print_line), max_print_line_len)
-                        None
-                        sys.stdout.flush()
-                    if distributed_rank == 0 and log_file_name is not None:
-                        bucket_id = None
-                        if isinstance(dataloader.batch_sampler, DistributedTraceBatchSampler):
-                            bucket_id = dataloader.batch_sampler._current_bucket_id
-                        log_file.write('{}, {}, {}, {}, {}, {}, {}, {}, {}, {}\n'.format(self._total_train_seconds, self._total_train_iterations, self._total_train_traces, loss, valid_loss, learning_rate_current, batch.mean_length_controlled, len(batch.sub_batches), bucket_id, traces_per_second))
-                    if stop:
-                        break
-        if distributed_rank == 0 and log_file_name is not None:
-            log_file.close()
-        None
-        if distributed_rank == 0 and save_file_name_prefix is not None:
-            file_name = '{}_{}_traces_{}.network'.format(save_file_name_prefix, util.get_time_stamp(), self._total_train_traces)
-            None
-            self._save(file_name)
+    LSTM = 1
 
 
 class Distribution:
@@ -958,21 +443,6 @@ class Categorical(Distribution):
         return self._logits
 
 
-class ProposalCategoricalCategorical(nn.Module):
-
-    def __init__(self, input_shape, num_categories, num_layers=2):
-        super().__init__()
-        input_shape = util.to_size(input_shape)
-        self._ff = EmbeddingFeedForward(input_shape=input_shape, output_shape=torch.Size([num_categories]), num_layers=num_layers, activation=torch.relu, activation_last=None)
-        self._total_train_iterations = 0
-
-    def forward(self, x, prior_variables):
-        batch_size = x.size(0)
-        x = self._ff(x)
-        probs = torch.softmax(x, dim=1).view(batch_size, -1) + util._epsilon
-        return Categorical(probs)
-
-
 class Normal(Distribution):
 
     def __init__(self, loc, scale):
@@ -990,28 +460,33 @@ class Normal(Distribution):
         return self._torch_dist.icdf(value)
 
 
-class ProposalNormalNormal(nn.Module):
+class Poisson(Distribution):
 
-    def __init__(self, input_shape, output_shape, num_layers=2):
+    def __init__(self, rate):
+        rate = util.to_tensor(rate)
+        super().__init__(name='Poisson', address_suffix='Poisson', torch_dist=torch.distributions.Poisson(rate))
+
+    def __repr__(self):
+        return 'Poisson(rate: {})'.format(self.rate)
+
+    @property
+    def rate(self):
+        return self._torch_dist.mean
+
+
+class ProposalCategoricalCategorical(nn.Module):
+
+    def __init__(self, input_shape, num_categories, num_layers=2):
         super().__init__()
         input_shape = util.to_size(input_shape)
-        self._output_dim = util.prod(output_shape)
-        self._output_shape = torch.Size([-1]) + output_shape
-        self._ff = EmbeddingFeedForward(input_shape=input_shape, output_shape=torch.Size([self._output_dim * 2]), num_layers=num_layers, activation=torch.relu, activation_last=None)
+        self._ff = EmbeddingFeedForward(input_shape=input_shape, output_shape=torch.Size([num_categories]), num_layers=num_layers, activation=torch.relu, activation_last=None)
         self._total_train_iterations = 0
 
     def forward(self, x, prior_variables):
         batch_size = x.size(0)
         x = self._ff(x)
-        means = x[:, :self._output_dim].view(batch_size, -1)
-        stddevs = torch.exp(x[:, self._output_dim:]).view(batch_size, -1)
-        prior_means = torch.stack([v.distribution.mean for v in prior_variables]).view(means.size())
-        prior_stddevs = torch.stack([v.distribution.stddev for v in prior_variables]).view(stddevs.size())
-        means = prior_means + means * prior_stddevs
-        stddevs = stddevs * prior_stddevs
-        means = means.view(self._output_shape)
-        stddevs = stddevs.view(self._output_shape)
-        return Normal(means, stddevs)
+        probs = torch.softmax(x, dim=1).view(batch_size, -1) + util._epsilon
+        return Categorical(probs)
 
 
 class Mixture(Distribution):
@@ -1161,10 +636,10 @@ class TruncatedNormal(Distribution):
         if self._batch_length == 1:
             lp = lp.squeeze(0)
         if util.has_nan_or_inf(lp):
-            print(colored('Warning: NaN, -Inf, or Inf encountered in TruncatedNormal log_prob.', 'red', attrs=['bold']))
-            print('distribution', self)
-            print('value', value)
-            print('log_prob', lp)
+            None
+            None
+            None
+            None
         return torch.sum(lp) if sum else lp
 
     @property
@@ -1213,7 +688,7 @@ class TruncatedNormal(Distribution):
         while util.has_nan_or_inf(ret) or outside_domain:
             attempt_count += 1
             if attempt_count == 10000:
-                print('Warning: trying to sample from the tail of a truncated normal distribution, which can take a long time. A more efficient implementation is pending.')
+                None
             rand = util.to_tensor(torch.zeros(shape).uniform_())
             ret = self._standard_normal_dist.icdf(self._standard_normal_cdf_alpha + rand * (self._standard_normal_cdf_beta - self._standard_normal_cdf_alpha)) * self._stddev_non_truncated + self._mean_non_truncated
             lb = ret.ge(self._low).type_as(self._low)
@@ -1251,6 +726,78 @@ class ProposalPoissonTruncatedNormalMixture(nn.Module):
         means = prior_lows.view(batch_size, -1).expand_as(means) + means * (prior_highs - prior_lows).view(batch_size, -1).expand_as(means)
         distributions = [TruncatedNormal(means[:, i:i + 1].view(batch_size), stddevs[:, i:i + 1].view(batch_size), low=prior_lows, high=prior_highs) for i in range(self._mixture_components)]
         return Mixture(distributions, coeffs)
+
+
+class ProposalUniformTruncatedNormalMixture(nn.Module):
+
+    def __init__(self, input_shape, output_shape, num_layers=2, mixture_components=10):
+        super().__init__()
+        self._mixture_components = mixture_components
+        input_shape = util.to_size(input_shape)
+        self._ff = EmbeddingFeedForward(input_shape=input_shape, output_shape=torch.Size([3 * self._mixture_components]), num_layers=num_layers, activation=torch.relu, activation_last=None)
+        self._total_train_iterations = 0
+
+    def forward(self, x, prior_variables):
+        batch_size = x.size(0)
+        x = self._ff(x)
+        means = x[:, :self._mixture_components].view(batch_size, -1)
+        stddevs = x[:, self._mixture_components:2 * self._mixture_components].view(batch_size, -1)
+        coeffs = x[:, 2 * self._mixture_components:].view(batch_size, -1)
+        means = torch.sigmoid(means)
+        stddevs = torch.sigmoid(stddevs)
+        coeffs = torch.softmax(coeffs, dim=1)
+        means = means.view(batch_size, -1)
+        stddevs = stddevs.view(batch_size, -1)
+        prior_lows = torch.stack([util.to_tensor(v.distribution.low) for v in prior_variables]).view(batch_size)
+        prior_highs = torch.stack([util.to_tensor(v.distribution.high) for v in prior_variables]).view(batch_size)
+        prior_range = (prior_highs - prior_lows).view(batch_size, -1)
+        means = prior_lows.view(batch_size, -1) + means * prior_range
+        stddevs = prior_range / 1000 + stddevs * prior_range * 10
+        distributions = [TruncatedNormal(means[:, i:i + 1].view(batch_size), stddevs[:, i:i + 1].view(batch_size), low=prior_lows, high=prior_highs) for i in range(self._mixture_components)]
+        return Mixture(distributions, coeffs)
+
+
+class Uniform(Distribution):
+
+    def __init__(self, low, high):
+        low = util.to_tensor(low)
+        high = util.to_tensor(high)
+        super().__init__(name='Uniform', address_suffix='Uniform', torch_dist=torch.distributions.Uniform(low, high))
+
+    def __repr__(self):
+        return 'Uniform(low: {}, high: {})'.format(self.low, self.high)
+
+    @property
+    def low(self):
+        return self._torch_dist.low
+
+    @property
+    def high(self):
+        return self._torch_dist.high
+
+
+class ProposalNormalNormal(nn.Module):
+
+    def __init__(self, input_shape, output_shape, num_layers=2):
+        super().__init__()
+        input_shape = util.to_size(input_shape)
+        self._output_dim = util.prod(output_shape)
+        self._output_shape = torch.Size([-1]) + output_shape
+        self._ff = EmbeddingFeedForward(input_shape=input_shape, output_shape=torch.Size([self._output_dim * 2]), num_layers=num_layers, activation=torch.relu, activation_last=None)
+        self._total_train_iterations = 0
+
+    def forward(self, x, prior_variables):
+        batch_size = x.size(0)
+        x = self._ff(x)
+        means = x[:, :self._output_dim].view(batch_size, -1)
+        stddevs = torch.exp(x[:, self._output_dim:]).view(batch_size, -1)
+        prior_means = torch.stack([v.distribution.mean for v in prior_variables]).view(means.size())
+        prior_stddevs = torch.stack([v.distribution.stddev for v in prior_variables]).view(stddevs.size())
+        means = prior_means + means * prior_stddevs
+        stddevs = stddevs * prior_stddevs
+        means = means.view(self._output_shape)
+        stddevs = stddevs.view(self._output_shape)
+        return Normal(means, stddevs)
 
 
 class Beta(Distribution):
@@ -1338,34 +885,5 @@ class ProposalUniformBetaMixture(nn.Module):
         prior_lows = torch.stack([v.distribution.low for v in prior_variables]).view(batch_size)
         prior_highs = torch.stack([v.distribution.high for v in prior_variables]).view(batch_size)
         distributions = [Beta(concentration1s[:, i:i + 1].view(batch_size), concentration0s[:, i:i + 1].view(batch_size), low=prior_lows, high=prior_highs) for i in range(self._mixture_components)]
-        return Mixture(distributions, coeffs)
-
-
-class ProposalUniformTruncatedNormalMixture(nn.Module):
-
-    def __init__(self, input_shape, output_shape, num_layers=2, mixture_components=10):
-        super().__init__()
-        self._mixture_components = mixture_components
-        input_shape = util.to_size(input_shape)
-        self._ff = EmbeddingFeedForward(input_shape=input_shape, output_shape=torch.Size([3 * self._mixture_components]), num_layers=num_layers, activation=torch.relu, activation_last=None)
-        self._total_train_iterations = 0
-
-    def forward(self, x, prior_variables):
-        batch_size = x.size(0)
-        x = self._ff(x)
-        means = x[:, :self._mixture_components].view(batch_size, -1)
-        stddevs = x[:, self._mixture_components:2 * self._mixture_components].view(batch_size, -1)
-        coeffs = x[:, 2 * self._mixture_components:].view(batch_size, -1)
-        means = torch.sigmoid(means)
-        stddevs = torch.sigmoid(stddevs)
-        coeffs = torch.softmax(coeffs, dim=1)
-        means = means.view(batch_size, -1)
-        stddevs = stddevs.view(batch_size, -1)
-        prior_lows = torch.stack([util.to_tensor(v.distribution.low) for v in prior_variables]).view(batch_size)
-        prior_highs = torch.stack([util.to_tensor(v.distribution.high) for v in prior_variables]).view(batch_size)
-        prior_range = (prior_highs - prior_lows).view(batch_size, -1)
-        means = prior_lows.view(batch_size, -1) + means * prior_range
-        stddevs = prior_range / 1000 + stddevs * prior_range * 10
-        distributions = [TruncatedNormal(means[:, i:i + 1].view(batch_size), stddevs[:, i:i + 1].view(batch_size), low=prior_lows, high=prior_highs) for i in range(self._mixture_components)]
         return Mixture(distributions, coeffs)
 

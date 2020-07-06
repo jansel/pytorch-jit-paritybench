@@ -8,15 +8,24 @@ models = _module
 train = _module
 utils = _module
 ddpg_agent = _module
+demo = _module
 models = _module
+utils = _module
+demo = _module
 dqn_agent = _module
 models = _module
+demo = _module
 models = _module
 ppo_agent = _module
+utils = _module
+demo = _module
 models = _module
 sac_agent = _module
+utils = _module
+demo = _module
 models = _module
 trpo_agent = _module
+utils = _module
 rl_utils = _module
 env_wrapper = _module
 atari_wrapper = _module
@@ -29,6 +38,7 @@ bench = _module
 plot = _module
 mpi_utils = _module
 normalizer = _module
+utils = _module
 running_filter = _module
 seeds = _module
 setup = _module
@@ -37,15 +47,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -62,6 +73,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+from torch.distributions.categorical import Categorical
+
+
+import copy
+
+
 from torch import nn
 
 
@@ -71,7 +88,16 @@ from torch.nn import functional as F
 from torch import optim
 
 
-import copy
+from torch.distributions.normal import Normal
+
+
+from torch.distributions.beta import Beta
+
+
+import random
+
+
+from torch.distributions import Distribution
 
 
 class deepmind(nn.Module):
@@ -97,78 +123,6 @@ class deepmind(nn.Module):
         x = F.relu(self.conv3(x))
         x = x.view(-1, 32 * 7 * 7)
         x = F.relu(self.fc1(x))
-        return x
-
-
-class net(nn.Module):
-
-    def __init__(self, num_actions):
-        super(net, self).__init__()
-        self.cnn_layer = deepmind()
-        self.critic = nn.Linear(512, 1)
-        self.actor = nn.Linear(512, num_actions)
-        nn.init.orthogonal_(self.critic.weight.data)
-        nn.init.constant_(self.critic.bias.data, 0)
-        nn.init.orthogonal_(self.actor.weight.data, gain=0.01)
-        nn.init.constant_(self.actor.bias.data, 0)
-
-    def forward(self, inputs):
-        x = self.cnn_layer(inputs / 255.0)
-        value = self.critic(x)
-        pi = F.softmax(self.actor(x), dim=1)
-        return value, pi
-
-
-class actor(nn.Module):
-
-    def __init__(self, obs_dims, action_dims):
-        super(actor, self).__init__()
-        self.fc1 = nn.Linear(obs_dims, 400)
-        self.fc2 = nn.Linear(400, 300)
-        self.action_out = nn.Linear(300, action_dims)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        actions = torch.tanh(self.action_out(x))
-        return actions
-
-
-class critic(nn.Module):
-
-    def __init__(self, obs_dims, action_dims):
-        super(critic, self).__init__()
-        self.fc1 = nn.Linear(obs_dims, 400)
-        self.fc2 = nn.Linear(400 + action_dims, 300)
-        self.q_out = nn.Linear(300, 1)
-
-    def forward(self, x, actions):
-        x = F.relu(self.fc1(x))
-        x = torch.cat([x, actions], dim=1)
-        x = F.relu(self.fc2(x))
-        q_value = self.q_out(x)
-        return q_value
-
-
-class deepmind(nn.Module):
-
-    def __init__(self):
-        super(deepmind, self).__init__()
-        self.conv1 = nn.Conv2d(4, 32, 8, stride=4)
-        self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
-        self.conv3 = nn.Conv2d(64, 32, 3, stride=1)
-        nn.init.orthogonal_(self.conv1.weight.data, gain=nn.init.calculate_gain('relu'))
-        nn.init.orthogonal_(self.conv2.weight.data, gain=nn.init.calculate_gain('relu'))
-        nn.init.orthogonal_(self.conv3.weight.data, gain=nn.init.calculate_gain('relu'))
-        nn.init.constant_(self.conv1.bias.data, 0)
-        nn.init.constant_(self.conv2.bias.data, 0)
-        nn.init.constant_(self.conv3.bias.data, 0)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = x.view(-1, 32 * 7 * 7)
         return x
 
 
@@ -201,6 +155,40 @@ class net(nn.Module):
             action_value_center = action_value - action_value_mean
             action_value_out = state_value + action_value_center
         return action_value_out
+
+
+class actor(nn.Module):
+
+    def __init__(self, num_states, num_actions):
+        super(actor, self).__init__()
+        self.fc1 = nn.Linear(num_states, 64)
+        self.fc2 = nn.Linear(64, 64)
+        self.action_mean = nn.Linear(64, num_actions)
+        self.sigma_log = nn.Parameter(torch.zeros(1, num_actions))
+
+    def forward(self, x):
+        x = F.tanh(self.fc1(x))
+        x = F.tanh(self.fc2(x))
+        mean = self.action_mean(x)
+        sigma_log = self.sigma_log.expand_as(mean)
+        sigma = torch.exp(sigma_log)
+        pi = mean, sigma
+        return pi
+
+
+class critic(nn.Module):
+
+    def __init__(self, num_states):
+        super(critic, self).__init__()
+        self.fc1 = nn.Linear(num_states, 64)
+        self.fc2 = nn.Linear(64, 64)
+        self.value = nn.Linear(64, 1)
+
+    def forward(self, x):
+        x = F.tanh(self.fc1(x))
+        x = F.tanh(self.fc2(x))
+        value = self.value(x)
+        return value
 
 
 class mlp_net(nn.Module):
@@ -244,32 +232,6 @@ class mlp_net(nn.Module):
             beta = F.softplus(self.action_beta(x_a)) + 1
             pi = alpha, beta
         return state_value, pi
-
-
-class deepmind(nn.Module):
-
-    def __init__(self):
-        super(deepmind, self).__init__()
-        self.conv1 = nn.Conv2d(4, 32, 8, stride=4)
-        self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
-        self.conv3 = nn.Conv2d(64, 32, 3, stride=1)
-        self.fc1 = nn.Linear(32 * 7 * 7, 512)
-        nn.init.orthogonal_(self.conv1.weight.data, gain=nn.init.calculate_gain('relu'))
-        nn.init.orthogonal_(self.conv2.weight.data, gain=nn.init.calculate_gain('relu'))
-        nn.init.orthogonal_(self.conv3.weight.data, gain=nn.init.calculate_gain('relu'))
-        nn.init.orthogonal_(self.fc1.weight.data, gain=nn.init.calculate_gain('relu'))
-        nn.init.constant_(self.conv1.bias.data, 0)
-        nn.init.constant_(self.conv2.bias.data, 0)
-        nn.init.constant_(self.conv3.bias.data, 0)
-        nn.init.constant_(self.fc1.bias.data, 0)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
-        x = x.view(-1, 32 * 7 * 7)
-        x = F.relu(self.fc1(x))
-        return x
 
 
 class cnn_net(nn.Module):
@@ -338,40 +300,6 @@ class network(nn.Module):
         state_value = self.critic(x)
         pi = self.actor(x)
         return state_value, pi
-
-
-class critic(nn.Module):
-
-    def __init__(self, num_states):
-        super(critic, self).__init__()
-        self.fc1 = nn.Linear(num_states, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.value = nn.Linear(64, 1)
-
-    def forward(self, x):
-        x = F.tanh(self.fc1(x))
-        x = F.tanh(self.fc2(x))
-        value = self.value(x)
-        return value
-
-
-class actor(nn.Module):
-
-    def __init__(self, num_states, num_actions):
-        super(actor, self).__init__()
-        self.fc1 = nn.Linear(num_states, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.action_mean = nn.Linear(64, num_actions)
-        self.sigma_log = nn.Parameter(torch.zeros(1, num_actions))
-
-    def forward(self, x):
-        x = F.tanh(self.fc1(x))
-        x = F.tanh(self.fc2(x))
-        mean = self.action_mean(x)
-        sigma_log = self.sigma_log.expand_as(mean)
-        sigma = torch.exp(sigma_log)
-        pi = mean, sigma
-        return pi
 
 
 import torch

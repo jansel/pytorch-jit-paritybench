@@ -16,15 +16,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -71,6 +72,9 @@ from torchvision import transforms
 import torchvision
 
 
+from sklearn.linear_model import LinearRegression
+
+
 from torch import optim
 
 
@@ -78,6 +82,9 @@ from torch.autograd import grad
 
 
 from torchvision import utils
+
+
+from torch.utils.data import Dataset
 
 
 class PixelNorm(nn.Module):
@@ -161,6 +168,124 @@ class EqualConv2d(nn.Module):
         return self.conv(input)
 
 
+class StyledConvBlock2(nn.Module):
+
+    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1, style_dim=512):
+        super().__init__()
+        self.conv1 = EqualConv2d(in_channel, out_channel, kernel_size, padding=padding)
+        self.adain1 = AdaptiveInstanceNorm(out_channel, style_dim)
+        self.lrelu1 = nn.LeakyReLU(0.2)
+        self.conv2 = EqualConv2d(out_channel, out_channel, kernel_size, padding=padding)
+        self.adain2 = AdaptiveInstanceNorm(out_channel, style_dim)
+        self.lrelu2 = nn.LeakyReLU(0.2)
+
+    def forward(self, input, style):
+        out = self.conv1(input)
+        out = self.adain1(out, style)
+        out = self.lrelu1(out)
+        out = self.conv2(out)
+        out = self.adain2(out, style)
+        out = self.lrelu2(out)
+        return out
+
+
+class AdaptiveInstanceNorm3(nn.Module):
+
+    def __init__(self, in_channel, style_dim):
+        super().__init__()
+        self.norm = nn.InstanceNorm3d(in_channel)
+        self.style = EqualLinear(style_dim, in_channel * 2)
+        self.style.linear.bias.data[:in_channel] = 1
+        self.style.linear.bias.data[in_channel:] = 0
+
+    def forward(self, input, style):
+        style = self.style(style).unsqueeze(2).unsqueeze(3).unsqueeze(4)
+        gamma, beta = style.chunk(2, 1)
+        out = self.norm(input)
+        out = gamma * out + beta
+        return out
+
+
+class ConstantInput3(nn.Module):
+
+    def __init__(self, channel, size=4):
+        super().__init__()
+        self.input = nn.Parameter(torch.randn(1, channel, size, size, size))
+
+    def forward(self, batch_size):
+        out = self.input.repeat(batch_size, 1, 1, 1, 1)
+        return out
+
+
+class EqualConv3d(nn.Module):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        conv = nn.Conv3d(*args, **kwargs)
+        conv.weight.data.normal_()
+        conv.bias.data.zero_()
+        self.conv = equal_lr(conv)
+
+    def forward(self, input):
+        return self.conv(input)
+
+
+class StyledConvBlock3(nn.Module):
+
+    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1, style_dim=512, initial=False):
+        super().__init__()
+        if initial:
+            self.conv1 = ConstantInput3(in_channel)
+        else:
+            self.conv1 = EqualConv3d(in_channel, out_channel, kernel_size, padding=padding)
+        self.adain1 = AdaptiveInstanceNorm3(out_channel, style_dim)
+        self.lrelu1 = nn.LeakyReLU(0.2)
+        self.conv2 = EqualConv3d(out_channel, out_channel, kernel_size, padding=padding)
+        self.adain2 = AdaptiveInstanceNorm3(out_channel, style_dim)
+        self.lrelu2 = nn.LeakyReLU(0.2)
+
+    def forward(self, batch_size, style):
+        out = self.conv1(batch_size)
+        out = self.adain1(out, style)
+        out = self.lrelu1(out)
+        out = self.conv2(out)
+        out = self.adain2(out, style)
+        out = self.lrelu2(out)
+        return out
+
+
+class StyledConvBlock3_noAdaIN(nn.Module):
+
+    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1, style_dim=512, initial=False):
+        super().__init__()
+        self.conv1 = EqualConv3d(in_channel, out_channel, kernel_size, padding=padding)
+        self.lrelu1 = nn.LeakyReLU(0.2)
+        self.conv2 = EqualConv3d(out_channel, out_channel, kernel_size, padding=padding)
+        self.lrelu2 = nn.LeakyReLU(0.2)
+
+    def forward(self, input):
+        out = self.conv1(input)
+        out = self.lrelu1(out)
+        out = self.conv2(out)
+        out = self.lrelu2(out)
+        return out
+
+
+class projection_unit(nn.Module):
+
+    def __init__(self, in_channel, out_channel, kernel_size=1):
+        super().__init__()
+        self.conv = EqualConv2d(in_channel, out_channel, kernel_size, padding=0)
+        self.lrelu = nn.PReLU(1024)
+
+    def forward(self, input):
+        batch = input.shape[0]
+        out = input.view(batch, input.shape[1] * input.shape[2], input.shape[3], input.shape[4])
+        out = self.conv(out)
+        out = self.lrelu(out)
+        return out
+
+
 class VPASGenerator(nn.Module):
 
     def __init__(self, code_dim):
@@ -220,13 +345,37 @@ class VPAwareSynthesizer(nn.Module):
 class CELoss:
 
     def __init__(self):
-        self.CELoss = nn.CrossEntropyLoss().cuda()
+        self.CELoss = nn.CrossEntropyLoss()
 
     def compute_loss(self, tgts, Pred, GT):
         Loss = odict()
         for tgt in tgts:
             Loss[tgt] = self.CELoss(Pred[tgt].view(Pred[tgt].size()[0], 4), GT[tgt].view(Pred[tgt].size()[0]))
         return Loss
+
+
+class ConvBlock(nn.Module):
+
+    def __init__(self, in_channel, out_channel, kernel_size, padding, kernel_size2=None, padding2=None, pixel_norm=True, spectral_norm=False, instance_norm=False, last=False):
+        super().__init__()
+        pad1 = padding
+        pad2 = padding
+        if padding2 is not None:
+            pad2 = padding2
+        kernel1 = kernel_size
+        kernel2 = kernel_size
+        if kernel_size2 is not None:
+            kernel2 = kernel_size2
+        if instance_norm and last == True:
+            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel, kernel1, padding=pad1), nn.InstanceNorm2d(out_channel), nn.LeakyReLU(0.2), EqualConv2d(out_channel, out_channel, kernel2, padding=pad2), nn.LeakyReLU(0.2))
+        elif instance_norm and last == False:
+            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel, kernel1, padding=pad1), nn.InstanceNorm2d(out_channel), nn.LeakyReLU(0.2), EqualConv2d(out_channel, out_channel, kernel2, padding=pad2), nn.InstanceNorm2d(out_channel), nn.LeakyReLU(0.2))
+        else:
+            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel, kernel1, padding=pad1), nn.LeakyReLU(0.2), EqualConv2d(out_channel, out_channel, kernel2, padding=pad2), nn.LeakyReLU(0.2))
+
+    def forward(self, input):
+        out = self.conv(input)
+        return out
 
 
 class negDotLoss:
@@ -369,148 +518,6 @@ class VPNet(nn.Module):
         return vp_pred
 
 
-class EqualConv3d(nn.Module):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        conv = nn.Conv3d(*args, **kwargs)
-        conv.weight.data.normal_()
-        conv.bias.data.zero_()
-        self.conv = equal_lr(conv)
-
-    def forward(self, input):
-        return self.conv(input)
-
-
-class ConstantInput3(nn.Module):
-
-    def __init__(self, channel, size=4):
-        super().__init__()
-        self.input = nn.Parameter(torch.randn(1, channel, size, size, size))
-
-    def forward(self, batch_size):
-        out = self.input.repeat(batch_size, 1, 1, 1, 1)
-        return out
-
-
-class AdaptiveInstanceNorm3(nn.Module):
-
-    def __init__(self, in_channel, style_dim):
-        super().__init__()
-        self.norm = nn.InstanceNorm3d(in_channel)
-        self.style = EqualLinear(style_dim, in_channel * 2)
-        self.style.linear.bias.data[:in_channel] = 1
-        self.style.linear.bias.data[in_channel:] = 0
-
-    def forward(self, input, style):
-        style = self.style(style).unsqueeze(2).unsqueeze(3).unsqueeze(4)
-        gamma, beta = style.chunk(2, 1)
-        out = self.norm(input)
-        out = gamma * out + beta
-        return out
-
-
-class StyledConvBlock3(nn.Module):
-
-    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1, style_dim=512, initial=False):
-        super().__init__()
-        if initial:
-            self.conv1 = ConstantInput3(in_channel)
-        else:
-            self.conv1 = EqualConv3d(in_channel, out_channel, kernel_size, padding=padding)
-        self.adain1 = AdaptiveInstanceNorm3(out_channel, style_dim)
-        self.lrelu1 = nn.LeakyReLU(0.2)
-        self.conv2 = EqualConv3d(out_channel, out_channel, kernel_size, padding=padding)
-        self.adain2 = AdaptiveInstanceNorm3(out_channel, style_dim)
-        self.lrelu2 = nn.LeakyReLU(0.2)
-
-    def forward(self, batch_size, style):
-        out = self.conv1(batch_size)
-        out = self.adain1(out, style)
-        out = self.lrelu1(out)
-        out = self.conv2(out)
-        out = self.adain2(out, style)
-        out = self.lrelu2(out)
-        return out
-
-
-class StyledConvBlock3_noAdaIN(nn.Module):
-
-    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1, style_dim=512, initial=False):
-        super().__init__()
-        self.conv1 = EqualConv3d(in_channel, out_channel, kernel_size, padding=padding)
-        self.lrelu1 = nn.LeakyReLU(0.2)
-        self.conv2 = EqualConv3d(out_channel, out_channel, kernel_size, padding=padding)
-        self.lrelu2 = nn.LeakyReLU(0.2)
-
-    def forward(self, input):
-        out = self.conv1(input)
-        out = self.lrelu1(out)
-        out = self.conv2(out)
-        out = self.lrelu2(out)
-        return out
-
-
-class projection_unit(nn.Module):
-
-    def __init__(self, in_channel, out_channel, kernel_size=1):
-        super().__init__()
-        self.conv = EqualConv2d(in_channel, out_channel, kernel_size, padding=0)
-        self.lrelu = nn.PReLU(1024)
-
-    def forward(self, input):
-        batch = input.shape[0]
-        out = input.view(batch, input.shape[1] * input.shape[2], input.shape[3], input.shape[4])
-        out = self.conv(out)
-        out = self.lrelu(out)
-        return out
-
-
-class StyledConvBlock2(nn.Module):
-
-    def __init__(self, in_channel, out_channel, kernel_size=3, padding=1, style_dim=512):
-        super().__init__()
-        self.conv1 = EqualConv2d(in_channel, out_channel, kernel_size, padding=padding)
-        self.adain1 = AdaptiveInstanceNorm(out_channel, style_dim)
-        self.lrelu1 = nn.LeakyReLU(0.2)
-        self.conv2 = EqualConv2d(out_channel, out_channel, kernel_size, padding=padding)
-        self.adain2 = AdaptiveInstanceNorm(out_channel, style_dim)
-        self.lrelu2 = nn.LeakyReLU(0.2)
-
-    def forward(self, input, style):
-        out = self.conv1(input)
-        out = self.adain1(out, style)
-        out = self.lrelu1(out)
-        out = self.conv2(out)
-        out = self.adain2(out, style)
-        out = self.lrelu2(out)
-        return out
-
-
-class ConvBlock(nn.Module):
-
-    def __init__(self, in_channel, out_channel, kernel_size, padding, kernel_size2=None, padding2=None, pixel_norm=True, spectral_norm=False, instance_norm=False, last=False):
-        super().__init__()
-        pad1 = padding
-        pad2 = padding
-        if padding2 is not None:
-            pad2 = padding2
-        kernel1 = kernel_size
-        kernel2 = kernel_size
-        if kernel_size2 is not None:
-            kernel2 = kernel_size2
-        if instance_norm and last == True:
-            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel, kernel1, padding=pad1), nn.InstanceNorm2d(out_channel), nn.LeakyReLU(0.2), EqualConv2d(out_channel, out_channel, kernel2, padding=pad2), nn.LeakyReLU(0.2))
-        elif instance_norm and last == False:
-            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel, kernel1, padding=pad1), nn.InstanceNorm2d(out_channel), nn.LeakyReLU(0.2), EqualConv2d(out_channel, out_channel, kernel2, padding=pad2), nn.InstanceNorm2d(out_channel), nn.LeakyReLU(0.2))
-        else:
-            self.conv = nn.Sequential(EqualConv2d(in_channel, out_channel, kernel1, padding=pad1), nn.LeakyReLU(0.2), EqualConv2d(out_channel, out_channel, kernel2, padding=pad2), nn.LeakyReLU(0.2))
-
-    def forward(self, input):
-        out = self.conv(input)
-        return out
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -518,6 +525,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaptiveInstanceNorm,
+     lambda: ([], {'in_channel': 4, 'style_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (AdaptiveInstanceNorm3,
+     lambda: ([], {'in_channel': 4, 'style_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
     (ConvBlock,
      lambda: ([], {'in_channel': 4, 'out_channel': 4, 'kernel_size': 4, 'padding': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -569,4 +584,10 @@ class Test_NVlabs_SSV(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
 

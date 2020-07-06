@@ -21,29 +21,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+import random
+
+
+import collections
+
+
+import torch
+
+
+import torchvision
+
+
+from torch.utils import data
 
 
 import scipy
 
 
 from scipy import ndimage
-
-
-import numpy as np
-
-
-import torch
 
 
 from torch.autograd import Variable
@@ -53,9 +66,6 @@ import torchvision.models as models
 
 
 import torch.nn.functional as F
-
-
-from torch.utils import data
 
 
 from torch.utils import model_zoo
@@ -86,9 +96,6 @@ import scipy.misc
 
 
 import torch.backends.cudnn as cudnn
-
-
-import random
 
 
 affine_par = True
@@ -167,11 +174,11 @@ class Bottleneck(nn.Module):
 
 class Classifier_Module(nn.Module):
 
-    def __init__(self, dilation_series, padding_series, num_classes):
+    def __init__(self, dims_in, dilation_series, padding_series, num_classes):
         super(Classifier_Module, self).__init__()
         self.conv2d_list = nn.ModuleList()
         for dilation, padding in zip(dilation_series, padding_series):
-            self.conv2d_list.append(nn.Conv2d(2048, num_classes, kernel_size=3, stride=1, padding=padding, dilation=dilation, bias=True))
+            self.conv2d_list.append(nn.Conv2d(dims_in, num_classes, kernel_size=3, stride=1, padding=padding, dilation=dilation, bias=True))
         for m in self.conv2d_list:
             m.weight.data.normal_(0, 0.01)
 
@@ -271,89 +278,6 @@ class ResNet(nn.Module):
         return [{'params': self.get_1x_lr_params_NOscale(), 'lr': args.learning_rate}, {'params': self.get_10x_lr_params(), 'lr': 10 * args.learning_rate}]
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes, affine=affine_par)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes, affine=affine_par)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes, affine=affine_par)
-        for i in self.bn1.parameters():
-            i.requires_grad = False
-        padding = dilation
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=padding, bias=False, dilation=dilation)
-        self.bn2 = nn.BatchNorm2d(planes, affine=affine_par)
-        for i in self.bn2.parameters():
-            i.requires_grad = False
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4, affine=affine_par)
-        for i in self.bn3.parameters():
-            i.requires_grad = False
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Classifier_Module(nn.Module):
-
-    def __init__(self, inplanes, dilation_series, padding_series, num_classes):
-        super(Classifier_Module, self).__init__()
-        self.conv2d_list = nn.ModuleList()
-        for dilation, padding in zip(dilation_series, padding_series):
-            self.conv2d_list.append(nn.Conv2d(inplanes, num_classes, kernel_size=3, stride=1, padding=padding, dilation=dilation, bias=True))
-        for m in self.conv2d_list:
-            m.weight.data.normal_(0, 0.01)
-
-    def forward(self, x):
-        out = self.conv2d_list[0](x)
-        for i in range(len(self.conv2d_list) - 1):
-            out += self.conv2d_list[i + 1](x)
-            return out
-
-
 class ResNetMulti(nn.Module):
 
     def __init__(self, block, layers, num_classes):
@@ -444,23 +368,6 @@ class ResNetMulti(nn.Module):
 
     def optim_parameters(self, args):
         return [{'params': self.get_1x_lr_params_NOscale(), 'lr': args.learning_rate}, {'params': self.get_10x_lr_params(), 'lr': 10 * args.learning_rate}]
-
-
-class Classifier_Module(nn.Module):
-
-    def __init__(self, dims_in, dilation_series, padding_series, num_classes):
-        super(Classifier_Module, self).__init__()
-        self.conv2d_list = nn.ModuleList()
-        for dilation, padding in zip(dilation_series, padding_series):
-            self.conv2d_list.append(nn.Conv2d(dims_in, num_classes, kernel_size=3, stride=1, padding=padding, dilation=dilation, bias=True))
-        for m in self.conv2d_list:
-            m.weight.data.normal_(0, 0.01)
-
-    def forward(self, x):
-        out = self.conv2d_list[0](x)
-        for i in range(len(self.conv2d_list) - 1):
-            out += self.conv2d_list[i + 1](x)
-            return out
 
 
 class DeeplabVGG(nn.Module):

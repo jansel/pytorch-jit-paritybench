@@ -32,15 +32,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -61,31 +62,6 @@ import time
 
 
 import numpy as np
-
-
-class LSTMsum(nn.Module):
-
-    def __init__(self, emb_arr, emb_freeze, input_size, hidden_size, num_layers, bidir, dropout, l1_size, l2_size, num_classes):
-        super(LSTMsum, self).__init__()
-        self.embedding = nn.Embedding.from_pretrained(embeddings=emb_arr, freeze=emb_freeze)
-        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, bidirectional=bidir, batch_first=True, dropout=dropout)
-        if bidir:
-            self.l1 = nn.Linear(hidden_size * 2, l1_size)
-        else:
-            self.l1 = nn.Linear(hidden_size, l1_size)
-        self.l2 = nn.Linear(l1_size, l2_size)
-        self.l3 = nn.Linear(l2_size, num_classes)
-
-    def forward(self, input, input_lengths):
-        emb_out = self.embedding(input)
-        emb_out = rnn.pack_padded_sequence(emb_out, lengths=input_lengths, batch_first=True)
-        lstm_out, _ = self.lstm(emb_out)
-        lstm_out, _ = rnn.pad_packed_sequence(lstm_out, batch_first=True)
-        sum_out = torch.sum(lstm_out, dim=1)
-        l1_out = F.relu(self.l1(sum_out))
-        l2_out = F.relu(self.l2(l1_out))
-        l3_out = self.l3(l2_out)
-        return l3_out
 
 
 class LSTMsum(nn.Module):

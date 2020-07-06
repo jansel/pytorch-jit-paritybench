@@ -23,6 +23,7 @@ train = _module
 utils = _module
 balance = _module
 remove_lowshot = _module
+config = _module
 head = _module
 metrics = _module
 loss = _module
@@ -38,17 +39,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
 
 
 import torch
@@ -58,9 +63,6 @@ from torch.autograd import Variable
 
 
 import math
-
-
-import numpy as np
 
 
 import torch.nn as nn
@@ -123,20 +125,10 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 
-class Flatten(nn.Module):
+class Flatten(Module):
 
-    def __init__(self):
-        super(Flatten, self).__init__()
-
-    def forward(self, x):
-        """
-        Arguments:
-            x: a float tensor with shape [batch_size, c, h, w].
-        Returns:
-            a float tensor with shape [batch_size, c*h*w].
-        """
-        x = x.transpose(3, 2).contiguous()
-        return x.view(x.size(0), -1)
+    def forward(self, input):
+        return input.view(input.size(0), -1)
 
 
 class PNet(nn.Module):
@@ -220,12 +212,6 @@ class ONet(nn.Module):
         return c, b, a
 
 
-class Flatten(Module):
-
-    def forward(self, input):
-        return input.view(input.size(0), -1)
-
-
 class SEModule(Module):
 
     def __init__(self, channels, reduction):
@@ -279,8 +265,46 @@ class bottleneck_IR_SE(Module):
         return res + shortcut
 
 
-class Bottleneck(namedtuple('Block', ['in_channel', 'depth', 'stride'])):
-    """A named tuple describing a ResNet block."""
+def conv1x1(in_planes, out_planes, stride=1):
+    """1x1 convolution"""
+    return Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+
+
+class Bottleneck(Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = conv1x1(inplanes, planes)
+        self.bn1 = BatchNorm2d(planes)
+        self.conv2 = conv3x3(planes, planes, stride)
+        self.bn2 = BatchNorm2d(planes)
+        self.conv3 = conv1x1(planes, planes * self.expansion)
+        self.bn3 = BatchNorm2d(planes * self.expansion)
+        self.relu = ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        identity = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            identity = self.downsample(x)
+        out += identity
+        out = self.relu(out)
+        return out
 
 
 def get_block(in_channel, depth, num_units, stride=2):
@@ -345,11 +369,6 @@ class Backbone(Module):
                     m.bias.data.zero_()
 
 
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
-
-
 class BasicBlock(Module):
     expansion = 1
 
@@ -370,43 +389,6 @@ class BasicBlock(Module):
         out = self.relu(out)
         out = self.conv2(out)
         out = self.bn2(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu(out)
-        return out
-
-
-def conv1x1(in_planes, out_planes, stride=1):
-    """1x1 convolution"""
-    return Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
-
-
-class Bottleneck(Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = conv1x1(inplanes, planes)
-        self.bn1 = BatchNorm2d(planes)
-        self.conv2 = conv3x3(planes, planes, stride)
-        self.bn2 = BatchNorm2d(planes)
-        self.conv3 = conv1x1(planes, planes * self.expansion)
-        self.bn3 = BatchNorm2d(planes * self.expansion)
-        self.relu = ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
         if self.downsample is not None:
             identity = self.downsample(x)
         out += identity
@@ -474,196 +456,6 @@ class ResNet(Module):
         x = self.fc(x)
         x = self.bn_o2(x)
         return x
-
-
-class Softmax(nn.Module):
-    """Implement of Softmax (normal classification head):
-        Args:
-            in_features: size of each input sample
-            out_features: size of each output sample
-        """
-
-    def __init__(self, in_features, out_features):
-        super(Softmax, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.fc = nn.Linear(self.in_features, self.out_features)
-        self._initialize_weights()
-
-    def forward(self, x):
-        out = self.fc(x)
-        return out
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.xavier_uniform_(m.weight.data)
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm1d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight.data)
-                if m.bias is not None:
-                    m.bias.data.zero_()
-
-
-class ArcFace(nn.Module):
-    """Implement of ArcFace (https://arxiv.org/pdf/1801.07698v1.pdf):
-        Args:
-            in_features: size of each input sample
-            out_features: size of each output sample
-            s: norm of input feature
-            m: margin
-            cos(theta+m)
-        """
-
-    def __init__(self, in_features, out_features, s=64.0, m=0.5, easy_margin=False):
-        super(ArcFace, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.s = s
-        self.m = m
-        self.weight = Parameter(torch.FloatTensor(out_features, in_features))
-        nn.init.xavier_uniform_(self.weight)
-        self.easy_margin = easy_margin
-        self.cos_m = math.cos(m)
-        self.sin_m = math.sin(m)
-        self.th = math.cos(math.pi - m)
-        self.mm = math.sin(math.pi - m) * m
-
-    def forward(self, input, label):
-        cosine = F.linear(F.normalize(input), F.normalize(self.weight))
-        sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
-        phi = cosine * self.cos_m - sine * self.sin_m
-        if self.easy_margin:
-            phi = torch.where(cosine > 0, phi, cosine)
-        else:
-            phi = torch.where(cosine > self.th, phi, cosine - self.mm)
-        one_hot = torch.zeros(cosine.size(), device='cuda')
-        one_hot.scatter_(1, label.view(-1, 1).long(), 1)
-        output = one_hot * phi + (1.0 - one_hot) * cosine
-        output *= self.s
-        return output
-
-
-class CosFace(nn.Module):
-    """Implement of CosFace (https://arxiv.org/pdf/1801.09414.pdf):
-    Args:
-        in_features: size of each input sample
-        out_features: size of each output sample
-        s: norm of input feature
-        m: margin
-        cos(theta)-m
-    """
-
-    def __init__(self, in_features, out_features, s=64.0, m=0.35):
-        super(CosFace, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.s = s
-        self.m = m
-        self.weight = Parameter(torch.FloatTensor(out_features, in_features))
-        nn.init.xavier_uniform_(self.weight)
-
-    def forward(self, input, label):
-        cosine = F.linear(F.normalize(input), F.normalize(self.weight))
-        phi = cosine - self.m
-        one_hot = torch.zeros(cosine.size(), device='cuda')
-        one_hot.scatter_(1, label.view(-1, 1).long(), 1)
-        output = one_hot * phi + (1.0 - one_hot) * cosine
-        output *= self.s
-        return output
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features = ' + str(self.in_features) + ', out_features = ' + str(self.out_features) + ', s = ' + str(self.s) + ', m = ' + str(self.m) + ')'
-
-
-class SphereFace(nn.Module):
-    """Implement of SphereFace (https://arxiv.org/pdf/1704.08063.pdf):
-    Args:
-        in_features: size of each input sample
-        out_features: size of each output sample
-        m: margin
-        cos(m*theta)
-    """
-
-    def __init__(self, in_features, out_features, m=4.0):
-        super(SphereFace, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.m = m
-        self.base = 1000.0
-        self.gamma = 0.12
-        self.power = 1
-        self.LambdaMin = 5.0
-        self.iter = 0
-        self.weight = Parameter(torch.FloatTensor(out_features, in_features))
-        nn.init.xavier_uniform_(self.weight)
-        self.mlambda = [lambda x: x ** 0, lambda x: x ** 1, lambda x: 2 * x ** 2 - 1, lambda x: 4 * x ** 3 - 3 * x, lambda x: 8 * x ** 4 - 8 * x ** 2 + 1, lambda x: 16 * x ** 5 - 20 * x ** 3 + 5 * x]
-
-    def forward(self, input, label):
-        self.iter += 1
-        self.lamb = max(self.LambdaMin, self.base * (1 + self.gamma * self.iter) ** (-1 * self.power))
-        cos_theta = F.linear(F.normalize(input), F.normalize(self.weight))
-        cos_theta = cos_theta.clamp(-1, 1)
-        cos_m_theta = self.mlambda[self.m](cos_theta)
-        theta = cos_theta.data.acos()
-        k = (self.m * theta / 3.14159265).floor()
-        phi_theta = (-1.0) ** k * cos_m_theta - 2 * k
-        NormOfFeature = torch.norm(input, 2, 1)
-        one_hot = torch.zeros(cos_theta.size())
-        one_hot = one_hot if cos_theta.is_cuda else one_hot
-        one_hot.scatter_(1, label.view(-1, 1), 1)
-        output = one_hot * (phi_theta - cos_theta) / (1 + self.lamb) + cos_theta
-        output *= NormOfFeature.view(-1, 1)
-        return output
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features = ' + str(self.in_features) + ', out_features = ' + str(self.out_features) + ', m = ' + str(self.m) + ')'
-
-
-def l2_norm(input, axis=1):
-    norm = torch.norm(input, 2, axis, True)
-    output = torch.div(input, norm)
-    return output
-
-
-class Am_softmax(nn.Module):
-    """Implement of Am_softmax (https://arxiv.org/pdf/1704.06369.pdf):
-    Args:
-        in_features: size of each input sample
-        out_features: size of each output sample
-        m: margin
-        s: scale of outputs
-    """
-
-    def __init__(self, in_features, out_features, m=0.35, s=30.0):
-        super(Am_softmax, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.kernel = Parameter(torch.Tensor(self.in_features, self.out_features))
-        self.kernel.data.uniform_(-1, 1).renorm_(2, 1, 1e-05).mul_(100000.0)
-        self.m = m
-        self.s = s
-
-    def forward(self, embbedings, label):
-        kernel_norm = l2_norm(self.kernel, axis=0)
-        cos_theta = torch.mm(embbedings, kernel_norm)
-        cos_theta = cos_theta.clamp(-1, 1)
-        phi = cos_theta - self.m
-        label = label.view(-1, 1)
-        index = cos_theta.data * 0.0
-        index.scatter_(1, label.data.view(-1, 1), 1)
-        index = index.byte()
-        output = cos_theta * 1.0
-        output[index] = phi[index]
-        output *= self.s
-        return output
 
 
 class Softmax(nn.Module):
@@ -880,6 +672,12 @@ class SphereFace(nn.Module):
 
     def __repr__(self):
         return self.__class__.__name__ + '(' + 'in_features = ' + str(self.in_features) + ', out_features = ' + str(self.out_features) + ', m = ' + str(self.m) + ')'
+
+
+def l2_norm(input, axis=1):
+    norm = torch.norm(input, 2, axis, True)
+    output = torch.div(input, norm)
+    return output
 
 
 class Am_softmax(nn.Module):

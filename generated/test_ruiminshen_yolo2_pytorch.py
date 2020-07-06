@@ -40,8 +40,8 @@ channel = _module
 data = _module
 iou = _module
 numpy = _module
-torch = _module
 postprocess = _module
+train = _module
 visualize = _module
 variable_stat = _module
 video2image = _module
@@ -50,15 +50,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -69,13 +70,16 @@ import logging
 import logging.config
 
 
-import time
-
-
-import numpy as np
+import torch
 
 
 import torch.autograd
+
+
+import collections
+
+
+import numpy as np
 
 
 import torch.cuda
@@ -87,13 +91,16 @@ import torch.optim
 import torch.utils.data
 
 
+import torch.onnx
+
+
+import time
+
+
 import torch.nn.functional as F
 
 
 import inspect
-
-
-import torch
 
 
 import torch.nn as nn
@@ -147,9 +154,6 @@ from torchvision.models.inception import InceptionE
 import collections.abc
 
 
-import collections
-
-
 import re
 
 
@@ -165,7 +169,22 @@ import torchvision.models.vgg as _model
 from torchvision.models.vgg import model_urls
 
 
+import scipy.misc
+
+
 import torchvision.transforms
+
+
+import copy
+
+
+import random
+
+
+import sklearn.preprocessing
+
+
+import itertools
 
 
 def meshgrid(rows, cols, swap=False):
@@ -183,7 +202,7 @@ class Inference(nn.Module):
         self.anchors = anchors
 
     def forward(self, x):
-        device_id = x.get_device() if torch.is_available() else None
+        device_id = x.get_device() if torch.cuda.is_available() else None
         feature = self.dnn(x)
         rows, cols = feature.size()[-2:]
         cells = rows * cols
@@ -213,8 +232,8 @@ class Conv2d(nn.Module):
             else:
                 padding = (kernel_size - 1) // 2 if padding else 0
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding, bias=not bn)
-        self.bn = nn.BatchNorm2d(out_channels, eps=0.001, momentum=0.1, affine=True) if bn else lambda x: x
-        self.act = nn.ReLU(inplace=True) if act else lambda x: x
+        self.bn = nn.BatchNorm2d(out_channels, momentum=0.01) if bn else lambda x: x
+        self.act = nn.LeakyReLU(0.1, inplace=True) if act else lambda x: x
 
     def forward(self, x):
         x = self.conv(x)
@@ -624,26 +643,6 @@ class Bottleneck(nn.Module):
         out += residual
         out = self.relu(out)
         return out
-
-
-class Conv2d(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding=0, stride=1, bn=True, act=True):
-        nn.Module.__init__(self)
-        if isinstance(padding, bool):
-            if isinstance(kernel_size, collections.abc.Iterable):
-                padding = tuple((kernel_size - 1) // 2 for kernel_size in kernel_size) if padding else 0
-            else:
-                padding = (kernel_size - 1) // 2 if padding else 0
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding, bias=not bn)
-        self.bn = nn.BatchNorm2d(out_channels, momentum=0.01) if bn else lambda x: x
-        self.act = nn.LeakyReLU(0.1, inplace=True) if act else lambda x: x
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.act(x)
-        return x
 
 
 def reorg(x, stride_h=2, stride_w=2):

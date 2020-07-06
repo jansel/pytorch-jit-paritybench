@@ -13,15 +13,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -50,6 +51,21 @@ import time
 import itertools
 
 
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
+import torchvision
+
+
+import torchvision.transforms as transforms
+
+
+from torchvision.datasets import MNIST
+
+
 N = 1000
 
 
@@ -76,11 +92,14 @@ class Q_net(nn.Module):
         return xgauss
 
 
+n_classes = 10
+
+
 class P_net(nn.Module):
 
     def __init__(self):
         super(P_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim, N)
+        self.lin1 = nn.Linear(z_dim + n_classes, N)
         self.lin2 = nn.Linear(N, N)
         self.lin3 = nn.Linear(N, X_dim)
 
@@ -108,46 +127,6 @@ class D_net_gauss(nn.Module):
         x = F.dropout(self.lin2(x), p=0.2, training=self.training)
         x = F.relu(x)
         return F.sigmoid(self.lin3(x))
-
-
-n_classes = 10
-
-
-class Q_net(nn.Module):
-
-    def __init__(self):
-        super(Q_net, self).__init__()
-        self.lin1 = nn.Linear(X_dim, N)
-        self.lin2 = nn.Linear(N, N)
-        self.lin3gauss = nn.Linear(N, z_dim)
-        self.lin3cat = nn.Linear(N, n_classes)
-
-    def forward(self, x):
-        x = F.dropout(self.lin1(x), p=0.25, training=self.training)
-        x = F.relu(x)
-        x = F.dropout(self.lin2(x), p=0.25, training=self.training)
-        x = F.relu(x)
-        xgauss = self.lin3gauss(x)
-        xcat = F.softmax(self.lin3cat(x))
-        return xcat, xgauss
-
-
-class P_net(nn.Module):
-
-    def __init__(self):
-        super(P_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim + n_classes, N)
-        self.lin2 = nn.Linear(N, N)
-        self.lin3 = nn.Linear(N, X_dim)
-
-    def forward(self, x):
-        x = self.lin1(x)
-        x = F.dropout(x, p=0.25, training=self.training)
-        x = F.relu(x)
-        x = self.lin2(x)
-        x = F.dropout(x, p=0.25, training=self.training)
-        x = self.lin3(x)
-        return F.sigmoid(x)
 
 
 class D_net_cat(nn.Module):
@@ -166,73 +145,6 @@ class D_net_cat(nn.Module):
         x = F.relu(x)
         x = self.lin3(x)
         return F.sigmoid(x)
-
-
-class D_net_gauss(nn.Module):
-
-    def __init__(self):
-        super(D_net_gauss, self).__init__()
-        self.lin1 = nn.Linear(z_dim, N)
-        self.lin2 = nn.Linear(N, N)
-        self.lin3 = nn.Linear(N, 1)
-
-    def forward(self, x):
-        x = F.dropout(self.lin1(x), p=0.2, training=self.training)
-        x = F.relu(x)
-        x = F.dropout(self.lin2(x), p=0.2, training=self.training)
-        x = F.relu(x)
-        return F.sigmoid(self.lin3(x))
-
-
-class Q_net(nn.Module):
-
-    def __init__(self):
-        super(Q_net, self).__init__()
-        self.lin1 = nn.Linear(X_dim, N)
-        self.lin2 = nn.Linear(N, N)
-        self.lin3gauss = nn.Linear(N, z_dim)
-
-    def forward(self, x):
-        x = F.dropout(self.lin1(x), p=0.2, training=self.training)
-        x = F.relu(x)
-        x = F.dropout(self.lin2(x), p=0.2, training=self.training)
-        x = F.relu(x)
-        xgauss = self.lin3gauss(x)
-        return xgauss
-
-
-class P_net(nn.Module):
-
-    def __init__(self):
-        super(P_net, self).__init__()
-        self.lin1 = nn.Linear(z_dim + n_classes, N)
-        self.lin2 = nn.Linear(N, N)
-        self.lin3 = nn.Linear(N, X_dim)
-
-    def forward(self, x):
-        x = self.lin1(x)
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = F.relu(x)
-        x = self.lin2(x)
-        x = F.dropout(x, p=0.2, training=self.training)
-        x = self.lin3(x)
-        return F.sigmoid(x)
-
-
-class D_net_gauss(nn.Module):
-
-    def __init__(self):
-        super(D_net_gauss, self).__init__()
-        self.lin1 = nn.Linear(z_dim, N)
-        self.lin2 = nn.Linear(N, N)
-        self.lin3 = nn.Linear(N, 1)
-
-    def forward(self, x):
-        x = F.dropout(self.lin1(x), p=0.2, training=self.training)
-        x = F.relu(x)
-        x = F.dropout(self.lin2(x), p=0.2, training=self.training)
-        x = F.relu(x)
-        return F.sigmoid(self.lin3(x))
 
 
 import torch

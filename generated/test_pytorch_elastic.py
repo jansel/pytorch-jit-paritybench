@@ -23,6 +23,7 @@ sleep_script = _module
 test_script = _module
 launch_test = _module
 rpc = _module
+api_test = _module
 events = _module
 metrics = _module
 rendezvous = _module
@@ -40,12 +41,17 @@ cycling_iterator_test = _module
 version_test = _module
 torchelastic = _module
 agent = _module
+server = _module
 api = _module
 local_elastic_agent = _module
 launch = _module
+api = _module
+rendezvous = _module
+api = _module
 etcd_rendezvous = _module
 etcd_server = _module
 parameters = _module
+api = _module
 local_timer = _module
 cycling_iterator = _module
 elastic_distributed_sampler = _module
@@ -55,17 +61,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
 
 
 import time
@@ -78,9 +88,6 @@ from typing import Tuple
 
 
 import numpy
-
-
-import torch
 
 
 import torch.backends.cudnn as cudnn
@@ -120,6 +127,72 @@ from torch.optim import SGD
 
 
 from torch.utils.data import DataLoader
+
+
+import uuid
+
+
+from typing import Any
+
+
+from typing import Dict
+
+
+import torch.distributed.rpc as rpc
+
+
+from torch.distributed.rpc.backend_registry import BackendType
+
+
+from torch.multiprocessing import start_processes
+
+
+from torch.distributed import register_rendezvous_handler
+
+
+import logging
+
+
+import torch.multiprocessing as torch_mp
+
+
+import abc
+
+
+from enum import Enum
+
+
+from typing import Callable
+
+
+import torch.multiprocessing as mp
+
+
+from typing import Iterable
+
+
+import torch.distributed.rpc as torch_rpc
+
+
+import random
+
+
+from typing import Optional
+
+
+from torch.distributed import Store
+
+
+from torch.distributed import TCPStore
+
+
+from inspect import getframeinfo
+
+
+from inspect import stack
+
+
+from typing import Set
 
 
 import math

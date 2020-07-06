@@ -48,15 +48,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -79,6 +80,18 @@ import math
 import torch.utils.tensorboard
 
 
+import random
+
+
+import copy
+
+
+import itertools
+
+
+import numpy
+
+
 import time
 
 
@@ -88,7 +101,10 @@ from typing import NamedTuple
 from torch.jit import Final
 
 
-import itertools
+import functools
+
+
+from collections import Counter
 
 
 import collections
@@ -188,7 +204,7 @@ def neighbor_pairs(padding_mask: Tensor, coordinates: Tensor, cell: Tensor, shif
     shifts_outside = shifts.index_select(0, shift_index)
     shifts_all = torch.cat([shifts_center, shifts_outside])
     p12_all = torch.cat([p12_center, p12], dim=1)
-    shift_values = shifts_all.to(cell.dtype) @ cell
+    shift_values = shifts_all @ cell
     selected_coordinates = coordinates.index_select(1, p12_all.view(-1)).view(num_mols, 2, -1, 3)
     distances = (selected_coordinates[:, (0), (...)] - selected_coordinates[:, (1), (...)] + shift_values).norm(2, -1)
     padding_mask = padding_mask.index_select(1, p12_all.view(-1)).view(2, -1).any(0)
@@ -281,7 +297,7 @@ def triple_by_molecule(atom_index12: Tensor) ->Tuple[Tensor, Tensor, Tensor]:
     sorted_local_index12 += cumsum_from_zero(counts).index_select(0, pair_indices)
     local_index12 = rev_indices[sorted_local_index12]
     n = atom_index12.shape[1]
-    sign12 = (local_index12 < n).to(torch.int8) * 2 - 1
+    sign12 = (local_index12 < n) * 2 - 1
     return central_atom_index, local_index12 % n, sign12
 
 
@@ -300,7 +316,7 @@ def compute_aev(species: Tensor, coordinates: Tensor, triu_index: Tensor, consta
     else:
         cell, shifts = cell_shifts
         atom_index12, shifts = neighbor_pairs(species == -1, coordinates_, cell, shifts, Rcr)
-        shift_values = shifts.to(cell.dtype) @ cell
+        shift_values = shifts @ cell
         selected_coordinates = coordinates.index_select(0, atom_index12.view(-1)).view(2, -1, 3)
         vec = selected_coordinates[0] - selected_coordinates[1] + shift_values
     species = species.flatten()
@@ -347,7 +363,7 @@ def compute_shifts(cell: Tensor, pbc: Tensor, cutoff: float) ->Tensor:
     """
     reciprocal_cell = cell.inverse().t()
     inv_distances = reciprocal_cell.norm(2, -1)
-    num_repeats = torch.ceil(cutoff * inv_distances).to(torch.long)
+    num_repeats = torch.ceil(cutoff * inv_distances)
     num_repeats = torch.where(pbc, num_repeats, num_repeats.new_zeros(()))
     r1 = torch.arange(1, num_repeats[0] + 1, device=cell.device)
     r2 = torch.arange(1, num_repeats[1] + 1, device=cell.device)
@@ -477,6 +493,38 @@ class AEVComputer(torch.nn.Module):
             shifts = compute_shifts(cell, pbc, cutoff)
             aev = compute_aev(species, coordinates, self.triu_index, self.constants(), self.sizes, (cell, shifts))
         return SpeciesAEV(species, aev)
+
+
+class SpeciesCoordinates(NamedTuple):
+    species: Tensor
+    coordinates: Tensor
+
+
+class SpeciesConverter(torch.nn.Module):
+    """Converts tensors with species labeled as atomic numbers into tensors
+    labeled with internal torchani indices according to a custom ordering
+    scheme. It takes a custom species ordering as initialization parameter. If
+    the class is initialized with ['H', 'C', 'N', 'O'] for example, it will
+    convert a tensor [1, 1, 6, 7, 1, 8] into a tensor [0, 0, 1, 2, 0, 3]
+
+    Arguments:
+        species (:class:`collections.abc.Sequence` of :class:`str`):
+        sequence of all supported species, in order (it is recommended to order
+        according to atomic number).
+    """
+
+    def __init__(self, species):
+        super().__init__()
+        rev_idx = {s: k for k, s in enumerate(utils.PERIODIC_TABLE, 1)}
+        maxidx = max(rev_idx.values())
+        self.register_buffer('conv_tensor', torch.full((maxidx + 2,), -1, dtype=torch.long))
+        for i, s in enumerate(species):
+            self.conv_tensor[rev_idx[s]] = i
+
+    def forward(self, input_: Tuple[Tensor, Tensor], cell: Optional[Tensor]=None, pbc: Optional[Tensor]=None):
+        """Convert species from periodic table element index to 0, 1, 2, 3, ... indexing"""
+        species, coordinates = input_
+        return SpeciesCoordinates(self.conv_tensor[species], coordinates)
 
 
 class SpeciesEnergies(NamedTuple):
@@ -682,6 +730,84 @@ class BuiltinModel(torch.nn.Module):
         return ase.Calculator(self.species, self, **kwargs)
 
 
+class BuiltinEnsemble(BuiltinModel):
+    """Private template for the builtin ANI ensemble models.
+
+    ANI ensemble models form the ANI models zoo are instances of this class.
+    This class is a torch module that sequentially calculates
+    AEVs, then energies from a torchani.Ensemble and then uses EnergyShifter
+    to shift those energies. It is essentially a sequential
+
+    'AEVComputer -> Ensemble -> EnergyShifter'
+
+    (periodic_table_index=False), or a sequential
+
+    'SpeciesConverter -> AEVComputer -> Ensemble -> EnergyShifter'
+
+    (periodic_table_index=True).
+
+    .. note::
+        This class is for internal use only, avoid relying on anything from it
+        except the public methods, always use ANI1x, ANI1ccx, etc to instance
+        the models.
+        Also, don't confuse this class with torchani.Ensemble, which is only a
+        container for many ANIModel instances and shouldn't be used directly
+        for calculations.
+
+    Attributes:
+        species_converter (:class:`torchani.nn.SpeciesConverter`): Converts periodic table index to
+            internal indices. Only present if periodic_table_index is `True`.
+        aev_computer (:class:`torchani.AEVComputer`): AEV computer with
+            builtin constants
+        energy_shifter (:class:`torchani.EnergyShifter`): Energy shifter with
+            builtin Self Atomic Energies.
+        periodic_table_index (bool): Whether to use element number in periodic table
+            to index species. If set to `False`, then indices must be `0, 1, 2, ..., N - 1`
+            where `N` is the number of parametrized species.
+    """
+
+    def __init__(self, species_converter, aev_computer, neural_networks, energy_shifter, species_to_tensor, consts, sae_dict, periodic_table_index):
+        super(BuiltinEnsemble, self).__init__(species_converter, aev_computer, neural_networks, energy_shifter, species_to_tensor, consts, sae_dict, periodic_table_index)
+
+    @classmethod
+    def _from_neurochem_resources(cls, info_file_path, periodic_table_index=False):
+        consts, sae_file, ensemble_prefix, ensemble_size = cls._parse_neurochem_resources(info_file_path)
+        species_converter = SpeciesConverter(consts.species)
+        aev_computer = AEVComputer(**consts)
+        energy_shifter, sae_dict = neurochem.load_sae(sae_file, return_dict=True)
+        species_to_tensor = consts.species_to_tensor
+        neural_networks = neurochem.load_model_ensemble(consts.species, ensemble_prefix, ensemble_size)
+        return cls(species_converter, aev_computer, neural_networks, energy_shifter, species_to_tensor, consts, sae_dict, periodic_table_index)
+
+    def __getitem__(self, index):
+        """Get a single 'AEVComputer -> ANIModel -> EnergyShifter' sequential model
+
+        Get a single 'AEVComputer -> ANIModel -> EnergyShifter' sequential model
+        or
+        Indexing allows access to a single model inside the ensemble
+        that can be used directly for calculations. The model consists
+        of a sequence AEVComputer -> ANIModel -> EnergyShifter
+        and can return an ase calculator and convert species to tensor.
+
+        Args:
+            index (:class:`int`): Index of the model
+
+        Returns:
+            ret: (:class:`torchani.models.BuiltinModel`) Model ready for
+                calculations
+        """
+        ret = BuiltinModel(self.species_converter, self.aev_computer, self.neural_networks[index], self.energy_shifter, self._species_to_tensor, self.consts, self.sae_dict, self.periodic_table_index)
+        return ret
+
+    def __len__(self):
+        """Get the number of networks in the ensemble
+
+        Returns:
+            length (:class:`int`): Number of networks in the ensemble
+        """
+        return len(self.neural_networks)
+
+
 class ANIModel(torch.nn.ModuleDict):
     """ANI model that compute energies from species and AEVs.
 
@@ -765,38 +891,6 @@ class Gaussian(torch.nn.Module):
 
     def forward(self, x: Tensor) ->Tensor:
         return torch.exp(-x * x)
-
-
-class SpeciesCoordinates(NamedTuple):
-    species: Tensor
-    coordinates: Tensor
-
-
-class SpeciesConverter(torch.nn.Module):
-    """Converts tensors with species labeled as atomic numbers into tensors
-    labeled with internal torchani indices according to a custom ordering
-    scheme. It takes a custom species ordering as initialization parameter. If
-    the class is initialized with ['H', 'C', 'N', 'O'] for example, it will
-    convert a tensor [1, 1, 6, 7, 1, 8] into a tensor [0, 0, 1, 2, 0, 3]
-
-    Arguments:
-        species (:class:`collections.abc.Sequence` of :class:`str`):
-        sequence of all supported species, in order (it is recommended to order
-        according to atomic number).
-    """
-
-    def __init__(self, species):
-        super().__init__()
-        rev_idx = {s: k for k, s in enumerate(utils.PERIODIC_TABLE, 1)}
-        maxidx = max(rev_idx.values())
-        self.register_buffer('conv_tensor', torch.full((maxidx + 2,), -1, dtype=torch.long))
-        for i, s in enumerate(species):
-            self.conv_tensor[rev_idx[s]] = i
-
-    def forward(self, input_: Tuple[Tensor, Tensor], cell: Optional[Tensor]=None, pbc: Optional[Tensor]=None):
-        """Convert species from periodic table element index to 0, 1, 2, 3, ... indexing"""
-        species, coordinates = input_
-        return SpeciesCoordinates(self.conv_tensor[species], coordinates)
 
 
 class EnergyShifter(torch.nn.Module):

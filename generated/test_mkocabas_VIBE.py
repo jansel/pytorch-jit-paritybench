@@ -45,6 +45,7 @@ geometry = _module
 pose_tracker = _module
 renderer = _module
 smooth_bbox = _module
+utils = _module
 vis = _module
 test_2d_datasets = _module
 test_3d_datasets = _module
@@ -54,23 +55,57 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import time
 
 
 import torch
 
 
+import numpy as np
+
+
+from torch.utils.data import DataLoader
+
+
+import logging
+
+
 import torch.nn as nn
+
+
+import torchvision
+
+
+import random
+
+
+import torchvision.transforms as transforms
+
+
+from scipy.io import loadmat
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision.transforms.functional import to_tensor
+
+
+from torch.utils.data import ConcatDataset
 
 
 from torch import nn
@@ -88,16 +123,28 @@ from torchvision.models.utils import load_state_dict_from_url
 import math
 
 
-import numpy as np
-
-
 import torchvision.models.resnet as resnet
 
 
-import time
+from collections import OrderedDict
 
 
 from torch.nn import functional as F
+
+
+from functools import reduce
+
+
+from typing import List
+
+
+from typing import Union
+
+
+import torch.backends.cudnn as cudnn
+
+
+from torch.utils.tensorboard import SummaryWriter
 
 
 def batch_adv_disc_l2_loss(real_disc_value, fake_disc_value):
@@ -390,31 +437,27 @@ class BasicBlock(nn.Module):
         return out
 
 
-def conv1x1(in_planes, out_planes, stride=1):
-    """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
-
-
 class Bottleneck(nn.Module):
+    """
+    Redefinition of Bottleneck residual block
+    Adapted from the official PyTorch implementation
+    """
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, norm_layer=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
-        width = int(planes * (base_width / 64.0)) * groups
-        self.conv1 = conv1x1(inplanes, width)
-        self.bn1 = norm_layer(width)
-        self.conv2 = conv3x3(width, width, stride, groups, dilation)
-        self.bn2 = norm_layer(width)
-        self.conv3 = conv1x1(width, planes * self.expansion)
-        self.bn3 = norm_layer(planes * self.expansion)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
 
     def forward(self, x):
-        identity = x
+        residual = x
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
@@ -424,10 +467,15 @@ class Bottleneck(nn.Module):
         out = self.conv3(out)
         out = self.bn3(out)
         if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
+            residual = self.downsample(x)
+        out += residual
         out = self.relu(out)
         return out
+
+
+def conv1x1(in_planes, out_planes, stride=1):
+    """1x1 convolution"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class ResNet(nn.Module):
@@ -497,42 +545,6 @@ class ResNet(nn.Module):
         return x
 
 
-class Bottleneck(nn.Module):
-    """
-    Redefinition of Bottleneck residual block
-    Adapted from the official PyTorch implementation
-    """
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
 JOINT_MAP = {'OP Nose': 24, 'OP Neck': 12, 'OP RShoulder': 17, 'OP RElbow': 19, 'OP RWrist': 21, 'OP LShoulder': 16, 'OP LElbow': 18, 'OP LWrist': 20, 'OP MidHip': 0, 'OP RHip': 2, 'OP RKnee': 5, 'OP RAnkle': 8, 'OP LHip': 1, 'OP LKnee': 4, 'OP LAnkle': 7, 'OP REye': 25, 'OP LEye': 26, 'OP REar': 27, 'OP LEar': 28, 'OP LBigToe': 29, 'OP LSmallToe': 30, 'OP LHeel': 31, 'OP RBigToe': 32, 'OP RSmallToe': 33, 'OP RHeel': 34, 'Right Ankle': 8, 'Right Knee': 5, 'Right Hip': 45, 'Left Hip': 46, 'Left Knee': 4, 'Left Ankle': 7, 'Right Wrist': 21, 'Right Elbow': 19, 'Right Shoulder': 17, 'Left Shoulder': 16, 'Left Elbow': 18, 'Left Wrist': 20, 'Neck (LSP)': 47, 'Top of Head (LSP)': 48, 'Pelvis (MPII)': 49, 'Thorax (MPII)': 50, 'Spine (H36M)': 51, 'Jaw (H36M)': 52, 'Head (H36M)': 53, 'Nose': 24, 'Left Eye': 26, 'Right Eye': 25, 'Left Ear': 28, 'Right Ear': 27}
 
 
@@ -572,7 +584,7 @@ def projection(pred_joints, pred_camera):
     pred_cam_t = torch.stack([pred_camera[:, (1)], pred_camera[:, (2)], 2 * 5000.0 / (224.0 * pred_camera[:, (0)] + 1e-09)], dim=-1)
     batch_size = pred_joints.shape[0]
     camera_center = torch.zeros(batch_size, 2)
-    pred_keypoints_2d = perspective_projection(pred_joints, rotation=torch.eye(3).unsqueeze(0).expand(batch_size, -1, -1).to(pred_joints.device), translation=pred_cam_t, focal_length=5000.0, camera_center=camera_center)
+    pred_keypoints_2d = perspective_projection(pred_joints, rotation=torch.eye(3).unsqueeze(0).expand(batch_size, -1, -1), translation=pred_cam_t, focal_length=5000.0, camera_center=camera_center)
     pred_keypoints_2d = pred_keypoints_2d / (224.0 / 2.0)
     return pred_keypoints_2d
 

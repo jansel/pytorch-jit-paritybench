@@ -58,6 +58,7 @@ cutout = _module
 decorators = _module
 early_stopping = _module
 gradient_clipping = _module
+imaging = _module
 inside_cnns = _module
 init = _module
 label_smoothing = _module
@@ -76,6 +77,7 @@ weight_decay = _module
 cv_utils = _module
 magics = _module
 aggregators = _module
+decorators = _module
 default = _module
 lr = _module
 primitives = _module
@@ -90,15 +92,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -130,13 +133,19 @@ from torchvision import transforms
 import torchvision
 
 
-from torch import nn
-
-
 import warnings
 
 
+from torch import nn
+
+
 import torch.nn.functional as F
+
+
+from torch.autograd import Variable
+
+
+import numpy as np
 
 
 from torch.nn import Module
@@ -151,16 +160,22 @@ import torch.nn.init as init
 from torch.utils.data import DataLoader
 
 
+import functools
+
+
 from torch.distributions import Beta
 
 
-import numpy as np
+import types
 
 
 import torch.nn.init
 
 
 from torch.distributions.beta import Beta
+
+
+import random
 
 
 from collections import OrderedDict
@@ -175,16 +190,22 @@ import copy
 import math
 
 
-import functools
+from torch.utils.data import TensorDataset
+
+
+from torch.utils.data import Dataset
+
+
+from collections import deque
+
+
+import inspect
 
 
 import itertools
 
 
 import torch.nn
-
-
-from torch.utils.data import TensorDataset
 
 
 from torch.optim import Optimizer
@@ -207,19 +228,6 @@ class ToyModel(nn.Module):
 
     def forward(self, x):
         return self.net2(self.relu(self.net1(x)))
-
-
-class SimpleModel(nn.Module):
-
-    def __init__(self):
-        super(SimpleModel, self).__init__()
-        self.convs = nn.Sequential(nn.Conv2d(3, 16, stride=2, kernel_size=3), nn.BatchNorm2d(16), nn.ReLU(), nn.Conv2d(16, 32, stride=2, kernel_size=3), nn.BatchNorm2d(32), nn.ReLU(), nn.Conv2d(32, 64, stride=2, kernel_size=3), nn.BatchNorm2d(64), nn.ReLU())
-        self.classifier = nn.Linear(576, 10)
-
-    def forward(self, x):
-        x = self.convs(x)
-        x = x.view(-1, 576)
-        return self.classifier(x)
 
 
 class SimpleModel(nn.Module):
@@ -300,6 +308,14 @@ class Net(Module):
 
     def forward(self, _):
         return self.f()
+
+
+class NetWithState(Net):
+
+    def forward(self, _, state=None):
+        if state is None:
+            raise ValueError
+        return super(NetWithState, self).forward(_)
 
 
 class _CAMWrapper(nn.Module):

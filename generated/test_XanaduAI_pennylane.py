@@ -38,7 +38,6 @@ init = _module
 interfaces = _module
 autograd = _module
 tf = _module
-torch = _module
 io = _module
 measure = _module
 numpy = _module
@@ -68,7 +67,6 @@ tf_ops = _module
 qnn = _module
 cost = _module
 keras = _module
-torch = _module
 qnodes = _module
 base = _module
 decorator = _module
@@ -103,6 +101,7 @@ uccsd = _module
 utils = _module
 variable = _module
 vqe = _module
+vqe = _module
 wires = _module
 pennylane_qchem = _module
 qchem = _module
@@ -125,8 +124,10 @@ test_representation_resolver = _module
 test_circuit_graph = _module
 test_circuit_graph_hash = _module
 test_qasm = _module
+conftest = _module
 test_collections = _module
 test_qnode_collection = _module
+conftest = _module
 gate_data = _module
 test_autograd = _module
 test_tf = _module
@@ -182,23 +183,60 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import functools
+import abc
+
+
+import warnings
+
+
+from itertools import product
+
+
+import numpy as np
+
+
+import copy
+
+
+from collections.abc import Sequence
+
+
+from collections import Iterable
 
 
 import inspect
+
+
+from functools import partial
+
+
+import numbers
+
+
+import torch
+
+
+from torch.autograd.function import once_differentiable
+
+
+import numpy as onp
+
+
+import functools
 
 
 import math
@@ -213,7 +251,10 @@ from typing import Callable
 from typing import Optional
 
 
-import numpy as np
+from functools import lru_cache
+
+
+from torch.autograd import Variable
 
 
 def _get_default_args(func):

@@ -20,6 +20,8 @@ reorg_layer = _module
 build = _module
 reorg_layer = _module
 roi_pooling = _module
+roi_pooling = _module
+build = _module
 roi_pool = _module
 roi_pool_py = _module
 test = _module
@@ -41,15 +43,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -69,10 +72,57 @@ import torch.nn.functional as F
 from functools import partial
 
 
+from torch.multiprocessing import Pool
+
+
 from torch.autograd import Function
 
 
 from torch.autograd import Variable
+
+
+from random import randint
+
+
+class ReorgFunction(Function):
+
+    def __init__(self, stride=2):
+        self.stride = stride
+
+    def forward(self, x):
+        stride = self.stride
+        bsize, c, h, w = x.size()
+        out_w, out_h, out_c = int(w / stride), int(h / stride), c * (stride * stride)
+        out = torch.FloatTensor(bsize, out_c, out_h, out_w)
+        if x.is_cuda:
+            out = out
+            reorg_layer.reorg_cuda(x, out_w, out_h, out_c, bsize, stride, 0, out)
+        else:
+            reorg_layer.reorg_cpu(x, out_w, out_h, out_c, bsize, stride, 0, out)
+        return out
+
+    def backward(self, grad_top):
+        stride = self.stride
+        bsize, c, h, w = grad_top.size()
+        out_w, out_h, out_c = w * stride, h * stride, c / (stride * stride)
+        grad_bottom = torch.FloatTensor(bsize, int(out_c), out_h, out_w)
+        if grad_top.is_cuda:
+            grad_bottom = grad_bottom
+            reorg_layer.reorg_cuda(grad_top, w, h, c, bsize, stride, 1, grad_bottom)
+        else:
+            reorg_layer.reorg_cpu(grad_top, w, h, c, bsize, stride, 1, grad_bottom)
+        return grad_bottom
+
+
+class ReorgLayer(torch.nn.Module):
+
+    def __init__(self, stride):
+        super(ReorgLayer, self).__init__()
+        self.stride = stride
+
+    def forward(self, x):
+        x = ReorgFunction(self.stride)(x)
+        return x
 
 
 def _make_layers(in_channels, net_cfg):
@@ -90,33 +140,6 @@ def _make_layers(in_channels, net_cfg):
                 layers.append(net_utils.Conv2d_BatchNorm(in_channels, out_channels, ksize, same_padding=True))
                 in_channels = out_channels
     return nn.Sequential(*layers), in_channels
-
-
-_global_config['noobject_scale'] = 1.0
-
-
-_global_config['num_classes'] = 4
-
-
-_global_config['iou_thresh'] = 4
-
-
-_global_config['class_scale'] = 1.0
-
-
-_global_config['object_scale'] = 1.0
-
-
-_global_config['coord_scale'] = 1.0
-
-
-_global_config['anchors'] = 4
-
-
-_global_config['multi_scale_out_size'] = 1.0
-
-
-_global_config['multi_scale_inp_size'] = 1.0
 
 
 def _process_batch(data, size_index):
@@ -164,8 +187,8 @@ def _process_batch(data, size_index):
     ious_reshaped = np.reshape(ious, [hw, num_anchors, len(cell_inds)])
     for i, cell_ind in enumerate(cell_inds):
         if cell_ind >= hw or cell_ind < 0:
-            print('cell inds size {}'.format(len(cell_inds)))
-            print('cell over {} hw {}'.format(cell_ind, hw))
+            None
+            None
             continue
         a = anchor_inds[i]
         iou_pred_cell_anchor = iou_pred_np[(cell_ind), (a), :]
@@ -177,9 +200,6 @@ def _process_batch(data, size_index):
         _class_mask[(cell_ind), (a), :] = cfg.class_scale
         _classes[cell_ind, a, gt_classes[i]] = 1.0
     return _boxes, _ious, _classes, _box_mask, _iou_mask, _class_mask
-
-
-_global_config['num_anchors'] = 4
 
 
 class Darknet19(nn.Module):
@@ -273,96 +293,6 @@ class Darknet19(nn.Module):
                 if ptype == 'kernel':
                     param = param.permute(3, 2, 0, 1)
                 own_dict[key].copy_(param)
-
-
-class ReorgFunction(Function):
-
-    def __init__(self, stride=2):
-        self.stride = stride
-
-    def forward(self, x):
-        stride = self.stride
-        bsize, c, h, w = x.size()
-        out_w, out_h, out_c = int(w / stride), int(h / stride), c * (stride * stride)
-        out = torch.FloatTensor(bsize, out_c, out_h, out_w)
-        if x.is_cuda:
-            out = out.cuda()
-            reorg_layer.reorg_cuda(x, out_w, out_h, out_c, bsize, stride, 0, out)
-        else:
-            reorg_layer.reorg_cpu(x, out_w, out_h, out_c, bsize, stride, 0, out)
-        return out
-
-    def backward(self, grad_top):
-        stride = self.stride
-        bsize, c, h, w = grad_top.size()
-        out_w, out_h, out_c = w * stride, h * stride, c / (stride * stride)
-        grad_bottom = torch.FloatTensor(bsize, int(out_c), out_h, out_w)
-        if grad_top.is_cuda:
-            grad_bottom = grad_bottom.cuda()
-            reorg_layer.reorg_cuda(grad_top, w, h, c, bsize, stride, 1, grad_bottom)
-        else:
-            reorg_layer.reorg_cpu(grad_top, w, h, c, bsize, stride, 1, grad_bottom)
-        return grad_bottom
-
-
-class ReorgLayer(torch.nn.Module):
-
-    def __init__(self, stride):
-        super(ReorgLayer, self).__init__()
-        self.stride = stride
-
-    def forward(self, x):
-        x = ReorgFunction(self.stride)(x)
-        return x
-
-
-class RoIPoolFunction(Function):
-
-    def __init__(self, pooled_height, pooled_width, spatial_scale):
-        self.pooled_width = int(pooled_width)
-        self.pooled_height = int(pooled_height)
-        self.spatial_scale = float(spatial_scale)
-        self.output = None
-        self.argmax = None
-        self.rois = None
-        self.feature_size = None
-
-    def forward(self, features, rois):
-        batch_size, num_channels, data_height, data_width = features.size()
-        num_rois = rois.size()[0]
-        output = torch.zeros(num_rois, num_channels, self.pooled_height, self.pooled_width)
-        argmax = torch.IntTensor(num_rois, num_channels, self.pooled_height, self.pooled_width).zero_()
-        if not features.is_cuda:
-            _features = features.permute(0, 2, 3, 1)
-            roi_pooling.roi_pooling_forward(self.pooled_height, self.pooled_width, self.spatial_scale, _features, rois, output)
-        else:
-            output = output.cuda()
-            argmax = argmax.cuda()
-            roi_pooling.roi_pooling_forward_cuda(self.pooled_height, self.pooled_width, self.spatial_scale, features, rois, output, argmax)
-            self.output = output
-            self.argmax = argmax
-            self.rois = rois
-            self.feature_size = features.size()
-        return output
-
-    def backward(self, grad_output):
-        assert self.feature_size is not None and grad_output.is_cuda
-        batch_size, num_channels, data_height, data_width = self.feature_size
-        grad_input = torch.zeros(batch_size, num_channels, data_height, data_width).cuda()
-        roi_pooling.roi_pooling_backward_cuda(self.pooled_height, self.pooled_width, self.spatial_scale, grad_output, self.rois, grad_input, self.argmax)
-        return grad_input, None
-
-
-class RoIPool(torch.nn.Module):
-
-    def __init__(self, pooled_height, pooled_width, spatial_scale):
-        super(RoIPool, self).__init__()
-        self.pooled_width = int(pooled_width)
-        self.pooled_height = int(pooled_height)
-        self.spatial_scale = float(spatial_scale)
-
-    def forward(self, features, rois):
-        return RoIPoolFunction(self.pooled_height, self.pooled_width, self.spatial_scale)(features, rois)
 
 
 class RoIPool(nn.Module):

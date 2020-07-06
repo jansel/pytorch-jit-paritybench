@@ -36,26 +36,60 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch._six import int_classes as _int_classes
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data.sampler import RandomSampler
+
+
+from torch.utils.data.sampler import SequentialSampler
+
+
+from torch.utils.data import Sampler
+
+
+from torch.utils.data.dataloader import default_collate
+
+
+import torch.utils.data
+
+
+import numpy as np
+
+
+import torch
+
+
+from torchvision import transforms
+
+
+import types
+
+
+from numpy import random
 
 
 import torch.nn as nn
 
 
 import torch.nn.functional as F
-
-
-import torch
 
 
 from torch.nn import init
@@ -67,10 +101,10 @@ from torch.nn import DataParallel
 from torch import nn
 
 
-import numpy as np
-
-
 import time
+
+
+from math import sqrt
 
 
 import math
@@ -648,7 +682,7 @@ class postprocessor:
         self.height = cfg.MODEL.INPUT.IMAGE_SIZE
 
     def __call__(self, cls_logits, bbox_pred):
-        priors = priorbox(self.cfg)().to(self.cfg.DEVICE.MAINDEVICE)
+        priors = priorbox(self.cfg)()
         batches_scores = F.softmax(cls_logits, dim=2)
         boxes = convert_locations_to_boxes(bbox_pred, priors, self.cfg.MODEL.ANCHORS.CENTER_VARIANCE, self.cfg.MODEL.ANCHORS.CENTER_VARIANCE)
         batches_boxes = center_form_to_corner_form(boxes)
@@ -692,8 +726,52 @@ class postprocessor:
         return results
 
 
+class predictor(nn.Module):
+    """
+    分类(cls)及回归(reg)网络
+    """
+
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.cls_headers = nn.ModuleList()
+        self.reg_headers = nn.ModuleList()
+        for boxes_per_location, out_channels in zip(cfg.MODEL.ANCHORS.BOXES_PER_LOCATION, cfg.MODEL.ANCHORS.OUT_CHANNELS):
+            self.cls_headers.append(self.cls_block(out_channels, boxes_per_location))
+            self.reg_headers.append(self.reg_block(out_channels, boxes_per_location))
+        self.reset_parameters()
+
+    def cls_block(self, out_channels, boxes_per_location):
+        return nn.Conv2d(out_channels, boxes_per_location * self.cfg.DATA.DATASET.NUM_CLASSES, kernel_size=3, stride=1, padding=1)
+
+    def reg_block(self, out_channels, boxes_per_location):
+        return nn.Conv2d(out_channels, boxes_per_location * 4, kernel_size=3, stride=1, padding=1)
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.xavier_uniform_(m.weight)
+                nn.init.zeros_(m.bias)
+
+    def forward(self, features):
+        """
+        对输入的特征图中每个特征点进行分类及回归(不同特征图特征点对应的输出数是不一样的,以检测框数量为准)
+        :param features:    # base_model 输出的特征图,这里SSD_VGG_300 为六层特征图
+        :return:            # 每个特征点的类别预测与回归预测(输出数量以各自特征点上检测框数量为准)
+        """
+        cls_logits = []
+        bbox_pred = []
+        for feature, cls_header, reg_header in zip(features, self.cls_headers, self.reg_headers):
+            cls_logits.append(cls_header(feature).permute(0, 2, 3, 1).contiguous())
+            bbox_pred.append(reg_header(feature).permute(0, 2, 3, 1).contiguous())
+        batch_size = features[0].shape[0]
+        cls_logits = torch.cat([c.view(c.shape[0], -1) for c in cls_logits], dim=1).view(batch_size, -1, self.cfg.DATA.DATASET.NUM_CLASSES)
+        bbox_pred = torch.cat([l.view(l.shape[0], -1) for l in bbox_pred], dim=1).view(batch_size, -1, 4)
+        return cls_logits, bbox_pred
+
+
 def vgg(cfg, pretrained=True):
-    print(' --- base_model = vgg16_ssd{} --- '.format(cfg.MODEL.INPUT.IMAGE_SIZE))
+    None
     model = VGG(cfg)
     if pretrained:
         model.load_weights()
@@ -801,13 +879,19 @@ class SSD(nn.Module):
         return True
 
 
-def hard_negative_mining(loss, labels, neg_pos_ratio=3):
+def hard_negative_mining(loss, labels, neg_pos_ratio):
     """
-    用于训练过程中正负例比例的限制.默认在训练时,负例数量是正例数量的三倍
+    It used to suppress the presence of a large number of negative prediction.
+    It works on image level not batch level.
+    For any example/image, it keeps all the positive predictions and
+     cut the number of negative predictions to make sure the ratio
+     between the negative examples and positive examples is no more
+     the given ratio for an image.
+
     Args:
         loss (N, num_priors): the loss for each example.
         labels (N, num_priors): the labels.
-        neg_pos_ratio:  正负例比例: 负例数量/正例数量
+        neg_pos_ratio:  the ratio between the negative examples and positive examples.
     """
     pos_mask = labels > 0
     num_pos = pos_mask.long().sum(dim=1, keepdim=True)
@@ -852,50 +936,6 @@ class multiboxloss(nn.Module):
         smooth_l1_loss = F.smooth_l1_loss(predicted_locations, gt_locations, reduction='sum')
         num_pos = gt_locations.size(0)
         return smooth_l1_loss / num_pos, classification_loss / num_pos
-
-
-class predictor(nn.Module):
-    """
-    分类(cls)及回归(reg)网络
-    """
-
-    def __init__(self, cfg):
-        super().__init__()
-        self.cfg = cfg
-        self.cls_headers = nn.ModuleList()
-        self.reg_headers = nn.ModuleList()
-        for boxes_per_location, out_channels in zip(cfg.MODEL.ANCHORS.BOXES_PER_LOCATION, cfg.MODEL.ANCHORS.OUT_CHANNELS):
-            self.cls_headers.append(self.cls_block(out_channels, boxes_per_location))
-            self.reg_headers.append(self.reg_block(out_channels, boxes_per_location))
-        self.reset_parameters()
-
-    def cls_block(self, out_channels, boxes_per_location):
-        return nn.Conv2d(out_channels, boxes_per_location * self.cfg.DATA.DATASET.NUM_CLASSES, kernel_size=3, stride=1, padding=1)
-
-    def reg_block(self, out_channels, boxes_per_location):
-        return nn.Conv2d(out_channels, boxes_per_location * 4, kernel_size=3, stride=1, padding=1)
-
-    def reset_parameters(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.xavier_uniform_(m.weight)
-                nn.init.zeros_(m.bias)
-
-    def forward(self, features):
-        """
-        对输入的特征图中每个特征点进行分类及回归(不同特征图特征点对应的输出数是不一样的,以检测框数量为准)
-        :param features:    # base_model 输出的特征图,这里SSD_VGG_300 为六层特征图
-        :return:            # 每个特征点的类别预测与回归预测(输出数量以各自特征点上检测框数量为准)
-        """
-        cls_logits = []
-        bbox_pred = []
-        for feature, cls_header, reg_header in zip(features, self.cls_headers, self.reg_headers):
-            cls_logits.append(cls_header(feature).permute(0, 2, 3, 1).contiguous())
-            bbox_pred.append(reg_header(feature).permute(0, 2, 3, 1).contiguous())
-        batch_size = features[0].shape[0]
-        cls_logits = torch.cat([c.view(c.shape[0], -1) for c in cls_logits], dim=1).view(batch_size, -1, self.cfg.DATA.DATASET.NUM_CLASSES)
-        bbox_pred = torch.cat([l.view(l.shape[0], -1) for l in bbox_pred], dim=1).view(batch_size, -1, 4)
-        return cls_logits, bbox_pred
 
 
 import torch

@@ -23,15 +23,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -54,6 +55,21 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
+from sklearn.utils import shuffle
+
+
+from sklearn.preprocessing import MinMaxScaler
+
+
+import time
+
+
+import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
 class BaseModel(nn.Module):
 
     def __init__(self, inputDim, hiddenNum, outputDim, layerNum, cell, use_cuda=False):
@@ -71,6 +87,56 @@ class BaseModel(nn.Module):
             self.cell = nn.GRU(input_size=self.inputDim, hidden_size=self.hiddenNum, num_layers=self.layerNum, dropout=0.0, batch_first=True)
         None
         self.fc = nn.Linear(self.hiddenNum, self.outputDim)
+
+
+class RNNModel(BaseModel):
+
+    def __init__(self, inputDim, hiddenNum, outputDim, layerNum, cell, use_cuda):
+        super(RNNModel, self).__init__(inputDim, hiddenNum, outputDim, layerNum, cell, use_cuda)
+
+    def forward(self, x):
+        batchSize = x.size(0)
+        h0 = Variable(torch.zeros(self.layerNum * 1, batchSize, self.hiddenNum))
+        if self.use_cuda:
+            h0 = h0
+        rnnOutput, hn = self.cell(x, h0)
+        hn = hn.view(batchSize, self.hiddenNum)
+        fcOutput = self.fc(hn)
+        return fcOutput
+
+
+class LSTMModel(BaseModel):
+
+    def __init__(self, inputDim, hiddenNum, outputDim, layerNum, cell, use_cuda):
+        super(LSTMModel, self).__init__(inputDim, hiddenNum, outputDim, layerNum, cell, use_cuda)
+
+    def forward(self, x):
+        batchSize = x.size(0)
+        h0 = Variable(torch.zeros(self.layerNum * 1, batchSize, self.hiddenNum))
+        c0 = Variable(torch.zeros(self.layerNum * 1, batchSize, self.hiddenNum))
+        if self.use_cuda:
+            h0 = h0
+            c0 = c0
+        rnnOutput, hn = self.cell(x, (h0, c0))
+        hn = hn[0].view(batchSize, self.hiddenNum)
+        fcOutput = self.fc(hn)
+        return fcOutput
+
+
+class GRUModel(BaseModel):
+
+    def __init__(self, inputDim, hiddenNum, outputDim, layerNum, cell, use_cuda):
+        super(GRUModel, self).__init__(inputDim, hiddenNum, outputDim, layerNum, cell, use_cuda)
+
+    def forward(self, x):
+        batchSize = x.size(0)
+        h0 = Variable(torch.zeros(self.layerNum * 1, batchSize, self.hiddenNum))
+        if self.use_cuda:
+            h0 = h0
+        rnnOutput, hn = self.cell(x, h0)
+        hn = hn.view(batchSize, self.hiddenNum)
+        fcOutput = self.fc(hn)
+        return fcOutput
 
 
 class ResRNN_Cell(nn.Module):

@@ -20,15 +20,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -37,6 +38,18 @@ import numpy as np
 
 
 import torch
+
+
+from torch.autograd import gradcheck
+
+
+from torch.autograd import Variable
+
+
+from sklearn.datasets import make_classification
+
+
+import tensorflow as tf
 
 
 class ConjugateFunction(torch.autograd.Function):
@@ -75,6 +88,52 @@ class FYLoss(torch.nn.Module):
             return torch.mean(ret)
         else:
             return torch.sum(ret)
+
+
+class SquaredLoss(FYLoss):
+
+    def Omega(self, mu):
+        return 0.5 * torch.sum(mu ** 2, dim=1)
+
+    def predict(self, theta):
+        return theta
+
+
+class PerceptronLoss(FYLoss):
+
+    def predict(self, theta):
+        ret = torch.zeros_like(theta)
+        all_rows = torch.arange(theta.shape[0])
+        ret[all_rows, torch.argmax(theta, dim=1)] = 1
+        return ret
+
+    def Omega(self, theta):
+        return 0
+
+
+def Shannon_negentropy(p, dim):
+    tmp = torch.zeros_like(p)
+    mask = p > 0
+    tmp[mask] = p[mask] * torch.log(p[mask])
+    return torch.sum(tmp, dim)
+
+
+class LogisticLoss(FYLoss):
+
+    def predict(self, theta):
+        return torch.nn.Softmax(dim=1)(theta)
+
+    def Omega(self, p):
+        return Shannon_negentropy(p, dim=1)
+
+
+class Logistic_OVA_Loss(FYLoss):
+
+    def predict(self, theta):
+        return torch.nn.Sigmoid()(theta)
+
+    def Omega(self, p):
+        return Shannon_negentropy(p, dim=1) + Shannon_negentropy(1 - p, dim=1)
 
 
 def threshold_and_support(z, dim=0):
@@ -130,6 +189,15 @@ class Sparsemax(torch.nn.Module):
         return sparsemax(input, self.dim)
 
 
+class SparsemaxLoss(FYLoss):
+
+    def predict(self, theta):
+        return Sparsemax(dim=1)(theta)
+
+    def Omega(self, p):
+        return 0.5 * torch.sum(p ** 2, dim=1) - 0.5
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -137,13 +205,48 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (LogisticLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (Logistic_OVA_Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (PerceptronLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
     (Sparsemax,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SparsemaxLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (SquaredLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
 ]
 
 class Test_mblondel_fenchel_young_losses(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
 

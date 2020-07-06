@@ -15,6 +15,7 @@ resnet = _module
 vgg = _module
 multi_label_classifier = _module
 options = _module
+options = _module
 util = _module
 html = _module
 webvisualizer = _module
@@ -23,20 +24,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import random
+
+
 import logging
+
+
+import torch.utils.data as data
+
+
+import collections
+
+
+from torch.utils.data import DataLoader
 
 
 import torch
@@ -73,9 +87,6 @@ import time
 
 
 import copy
-
-
-import random
 
 
 import numpy as np
@@ -572,14 +583,6 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (VGG,
-     lambda: ([], {'features': _mock_layer()}),
-     lambda: ([torch.rand([25088, 25088])], {}),
-     True),
-    (VGGTemplet,
-     lambda: ([], {'features': _mock_layer()}),
-     lambda: ([torch.rand([25088, 25088])], {}),
-     True),
     (group,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -620,10 +623,4 @@ class Test_pangwong_pytorch_multi_label_classifier(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
 

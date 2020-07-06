@@ -15,15 +15,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -64,24 +65,24 @@ import torch.backends.cudnn as cudnn
 from torch.nn.parallel import DistributedDataParallel
 
 
-class AnyNeSt(nn.Module):
+class ConvBnAct(nn.Sequential):
 
-    def __init__(self, ls_num_blocks, ls_block_width, ls_bottleneck_ratio, ls_group_width, stride):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', act=True, norm_layer=nn.BatchNorm2d):
         super().__init__()
-        for block_width, bottleneck_ratio, group_width in zip(ls_block_width, ls_bottleneck_ratio, ls_group_width):
-            assert block_width % (bottleneck_ratio * group_width) == 0
-        self.net = nn.Sequential()
-        prev_block_width = 32
-        self.net.add_module('stem', ConvBnAct(3, prev_block_width, kernel_size=3, stride=2, padding=1, bias=False))
-        for i, (num_blocks, block_width, bottleneck_ratio, group_width) in enumerate(zip(ls_num_blocks, ls_block_width, ls_bottleneck_ratio, ls_group_width)):
-            self.net.add_module('stage_{}'.format(i), Stage(num_blocks, prev_block_width, block_width, bottleneck_ratio, group_width=group_width, stride=stride))
-            prev_block_width = block_width
-        self.net.add_module('pool', GlobalAvgPool2d())
-        self.net.add_module('fc', nn.Linear(ls_block_width[-1], 1000))
+        self.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode))
+        self.add_module('bn', nn.BatchNorm2d(out_channels))
+        if act:
+            self.add_module('relu', nn.ReLU())
 
-    def forward(self, x):
-        x = self.net(x)
-        return x
+
+class GlobalAvgPool2d(nn.Module):
+
+    def __init__(self):
+        """Global average pooling over the input's spatial dimensions"""
+        super(GlobalAvgPool2d, self).__init__()
+
+    def forward(self, inputs):
+        return nn.functional.adaptive_avg_pool2d(inputs, 1).view(inputs.size(0), -1)
 
 
 class Bottleneck(nn.Module):
@@ -125,24 +126,42 @@ class Stage(nn.Module):
         return x
 
 
-class ConvBnAct(nn.Sequential):
+class AnyNeSt(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', act=True, norm_layer=nn.BatchNorm2d):
+    def __init__(self, ls_num_blocks, ls_block_width, ls_bottleneck_ratio, ls_group_width, stride):
         super().__init__()
-        self.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode))
-        self.add_module('bn', nn.BatchNorm2d(out_channels))
-        if act:
-            self.add_module('relu', nn.ReLU())
+        for block_width, bottleneck_ratio, group_width in zip(ls_block_width, ls_bottleneck_ratio, ls_group_width):
+            assert block_width % (bottleneck_ratio * group_width) == 0
+        self.net = nn.Sequential()
+        prev_block_width = 32
+        self.net.add_module('stem', ConvBnAct(3, prev_block_width, kernel_size=3, stride=2, padding=1, bias=False))
+        for i, (num_blocks, block_width, bottleneck_ratio, group_width) in enumerate(zip(ls_num_blocks, ls_block_width, ls_bottleneck_ratio, ls_group_width)):
+            self.net.add_module('stage_{}'.format(i), Stage(num_blocks, prev_block_width, block_width, bottleneck_ratio, group_width=group_width, stride=stride))
+            prev_block_width = block_width
+        self.net.add_module('pool', GlobalAvgPool2d())
+        self.net.add_module('fc', nn.Linear(ls_block_width[-1], 1000))
+
+    def forward(self, x):
+        x = self.net(x)
+        return x
 
 
-class GlobalAvgPool2d(nn.Module):
+class RegNet(AnyNeSt):
 
-    def __init__(self):
-        """Global average pooling over the input's spatial dimensions"""
-        super(GlobalAvgPool2d, self).__init__()
-
-    def forward(self, inputs):
-        return nn.functional.adaptive_avg_pool2d(inputs, 1).view(inputs.size(0), -1)
+    def __init__(self, initial_width, slope, quantized_param, network_depth, bottleneck_ratio, group_width, stride=2):
+        parameterized_width = initial_width + slope * np.arange(network_depth)
+        parameterized_block = np.log(parameterized_width / initial_width) / np.log(quantized_param)
+        parameterized_block = np.round(parameterized_block)
+        quantized_width = initial_width * np.power(quantized_param, parameterized_block)
+        quantized_width = 8 * np.round(quantized_width / 8)
+        ls_block_width, ls_num_blocks = np.unique(quantized_width.astype(np.int), return_counts=True)
+        ls_group_width = np.array([min(group_width, block_width // bottleneck_ratio) for block_width in ls_block_width])
+        ls_block_width = np.round(ls_block_width // bottleneck_ratio / group_width) * group_width
+        ls_group_width = ls_group_width.astype(np.int) * bottleneck_ratio
+        ls_bottleneck_ratio = [bottleneck_ratio for _ in range(len(ls_block_width))]
+        ls_group_width = ls_group_width.tolist()
+        ls_block_width = ls_block_width.astype(np.int).tolist()
+        super().__init__(ls_num_blocks, ls_block_width, ls_bottleneck_ratio, ls_group_width, stride=stride)
 
 
 import torch

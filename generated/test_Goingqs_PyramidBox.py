@@ -22,15 +22,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -38,10 +39,31 @@ __version__ = '1.0.0'
 import torch
 
 
-import torch.nn as nn
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
+import numpy as np
+
+
+import math
 
 
 from torch.autograd import Function
+
+
+from math import sqrt as sqrt
+
+
+from math import floor as floor
+
+
+from itertools import product as product
+
+
+import torch.nn as nn
 
 
 from torch.autograd import Variable
@@ -56,25 +78,22 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 
 
-import torchvision.transforms as transforms
-
-
 import scipy.io as sio
-
-
-import numpy as np
-
-
-import math
 
 
 import torch.optim as optim
 
 
-import torch.utils.data as data
-
-
 import time
+
+
+from torchvision import transforms
+
+
+import types
+
+
+from numpy import random
 
 
 class L2Norm(nn.Module):
@@ -128,35 +147,10 @@ def encode(matched, priors, variances):
 
 
 def intersect(box_a, box_b):
-    """ We resize both tensors to [A,B,2] without new malloc:
-    [A,2] -> [A,1,2] -> [A,B,2]
-    [B,2] -> [1,B,2] -> [A,B,2]
-    Then we compute the area of intersect between box_a and box_b.
-    Args:
-      box_a: (tensor) bounding boxes, Shape: [A,4].
-      box_b: (tensor) bounding boxes, Shape: [B,4].
-    Return:
-      (tensor) intersection area, Shape: [A,B].
-    """
-    A = box_a.size(0)
-    B = box_b.size(0)
-    if A * B * 2 / 1024 / 1024 * 4 > 1000:
-        print('Warning! Memory is:', A * B * 2 / 1024 / 1024 * 4, 'MB')
-        box_a_cpu = box_a.cpu()
-        box_b_cpu = box_b.cpu()
-        max_xy_cpu = torch.min(box_a_cpu[:, 2:].unsqueeze(1).expand(A, B, 2), box_b_cpu[:, 2:].unsqueeze(0).expand(A, B, 2))
-        max_xy_cpu = torch.max(box_a_cpu[:, :2].unsqueeze(1).expand(A, B, 2), box_b_cpu[:, :2].unsqueeze(0).expand(A, B, 2))
-        max_xy_cpu -= max_xy_cpu
-        max_xy_cpu.clamp_(min=0)
-        res_cpu = max_xy_cpu[:, :, (0)] * max_xy_cpu[:, :, (1)]
-        res = res_cpu
-    else:
-        max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
-        min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
-        max_xy -= min_xy
-        max_xy.clamp_(min=0)
-        res = max_xy[:, :, (0)] * max_xy[:, :, (1)]
-    return res
+    max_xy = np.minimum(box_a[:, 2:], box_b[2:])
+    min_xy = np.maximum(box_a[:, :2], box_b[:2])
+    inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
+    return inter[:, (0)] * inter[:, (1)]
 
 
 def jaccard(box_a, box_b):
@@ -218,10 +212,10 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     best_prior_overlap, best_prior_idx = overlaps.max(1, keepdim=True)
     best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
     if not best_truth_overlap.is_cuda:
-        best_prior_overlap = best_prior_overlap.cuda()
-        best_prior_idx = best_prior_idx.cuda()
-        best_truth_overlap = best_truth_overlap.cuda()
-        best_truth_idx = best_truth_idx.cuda()
+        best_prior_overlap = best_prior_overlap
+        best_prior_idx = best_prior_idx
+        best_truth_overlap = best_truth_overlap
+        best_truth_idx = best_truth_idx
     best_truth_idx.squeeze_(0)
     best_truth_overlap.squeeze_(0)
     best_prior_idx.squeeze_(1)
@@ -257,8 +251,8 @@ def matchNoBipartite(threshold, truths, priors, variances, labels, loc_t, conf_t
     overlaps = jaccard(truths, point_form(priors))
     best_truth_overlap, best_truth_idx = overlaps.max(0, keepdim=True)
     if not best_truth_overlap.is_cuda:
-        best_truth_overlap = best_truth_overlap.cuda()
-        best_truth_idx = best_truth_idx.cuda()
+        best_truth_overlap = best_truth_overlap
+        best_truth_idx = best_truth_idx
     best_truth_idx.squeeze_(0)
     best_truth_overlap.squeeze_(0)
     matches = truths[best_truth_idx]
@@ -267,9 +261,6 @@ def matchNoBipartite(threshold, truths, priors, variances, labels, loc_t, conf_t
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
-
-
-_global_config['variance'] = 4
 
 
 class MultiBoxLoss(nn.Module):

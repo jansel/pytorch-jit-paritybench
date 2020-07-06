@@ -16,20 +16,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 import torch
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import datasets
+
+
+from torch.autograd import Variable
 
 
 import torch.nn as nn
@@ -38,10 +51,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from torch.autograd import Variable
-
-
 import numpy as np
+
+
+from torchvision import transforms
+
+
+import torch.optim as optim
 
 
 import random
@@ -54,9 +70,6 @@ import torchvision.transforms as transforms
 
 
 import math
-
-
-import time
 
 
 class Upsample(nn.Module):
@@ -112,8 +125,8 @@ def bbox_wh_iou(wh1, wh2):
 
 
 def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
-    ByteTensor = torch.cuda.ByteTensor if pred_boxes.is_cuda else torch.ByteTensor
-    FloatTensor = torch.cuda.FloatTensor if pred_boxes.is_cuda else torch.FloatTensor
+    ByteTensor = torch.ByteTensor if pred_boxes.is_cuda else torch.ByteTensor
+    FloatTensor = torch.FloatTensor if pred_boxes.is_cuda else torch.FloatTensor
     nB = pred_boxes.size(0)
     nA = pred_boxes.size(1)
     nC = pred_cls.size(-1)

@@ -53,23 +53,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import numpy as np
-
-
 import torch
+
+
+import logging
+
+
+import numpy as np
 
 
 import torch.nn as nn
@@ -84,6 +88,9 @@ import random
 import torch.nn.functional as F
 
 
+import torchvision
+
+
 import math
 
 
@@ -94,389 +101,6 @@ from torch import nn
 
 
 from torchvision.models import ResNet
-
-
-import torchvision
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, min_val, max_val):
-        super(LayerTest, self).__init__()
-        self.htanh = nn.Hardtanh(min_val=min_val, max_val=max_val)
-
-    def forward(self, x):
-        x = self.htanh(x)
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self, min_val, max_val):
-        super(FTest, self).__init__()
-        self.min_val = min_val
-        self.max_val = max_val
-
-    def forward(self, x):
-        from torch.nn import functional as F
-        return F.hardtanh(x, min_val=self.min_val, max_val=self.max_val)
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, negative_slope):
-        super(LayerTest, self).__init__()
-        self.relu = nn.LeakyReLU(negative_slope=negative_slope)
-
-    def forward(self, x):
-        x = self.relu(x)
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self, negative_slope):
-        super(FTest, self).__init__()
-        self.negative_slope = negative_slope
-
-    def forward(self, x):
-        from torch.nn import functional as F
-        return F.leaky_relu(x, self.negative_slope)
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self):
-        super(LayerTest, self).__init__()
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        x = self.relu(x)
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self):
-        super(FTest, self).__init__()
-
-    def forward(self, x):
-        from torch.nn import functional as F
-        return F.relu(x)
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self):
-        super(LayerTest, self).__init__()
-        self.selu = nn.SELU()
-
-    def forward(self, x):
-        x = self.selu(x)
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self):
-        super(FTest, self).__init__()
-
-    def forward(self, x):
-        from torch.nn import functional as F
-        return F.selu(x)
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self):
-        super(LayerTest, self).__init__()
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        x = self.sigmoid(x)
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self):
-        super(FTest, self).__init__()
-
-    def forward(self, x):
-        from torch.nn import functional as F
-        return F.sigmoid(x)
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, dim):
-        super(LayerTest, self).__init__()
-        self.softmax = nn.Softmax(dim=dim)
-
-    def forward(self, x):
-        x = self.softmax(x)
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self, dim):
-        super(FTest, self).__init__()
-        self.dim = dim
-
-    def forward(self, x):
-        from torch.nn import functional as F
-        return F.softmax(x, dim=self.dim)
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self):
-        super(LayerTest, self).__init__()
-        self.tanh = nn.Tanh()
-
-    def forward(self, x):
-        x = self.tanh(x)
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self):
-        super(FTest, self).__init__()
-
-    def forward(self, x):
-        from torch.nn import functional as F
-        return F.tanh(x)
-
-
-class FTest(nn.Module):
-
-    def __init__(self):
-        super(FTest, self).__init__()
-
-    def forward(self, x):
-        return x + torch.FloatTensor([1.0])
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, inp, out, kernel_size=3, padding=1, stride=1, bias=False, dilation=1):
-        super(LayerTest, self).__init__()
-        self.conv = nn.Conv1d(inp, out, kernel_size=kernel_size, padding=padding, stride=stride, bias=bias, dilation=dilation)
-
-    def forward(self, x):
-        x = self.conv(x)
-        return x
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, inp, out, kernel_size=3, padding=1, stride=1, bias=False, dilation=1, groups=1):
-        super(LayerTest, self).__init__()
-        self.conv = nn.Conv2d(inp, out, kernel_size=kernel_size, padding=padding, stride=stride, bias=bias, dilation=dilation, groups=groups)
-
-    def forward(self, x):
-        x = self.conv(x)
-        return x
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, inp, out, kernel_size=3, padding=1, stride=1, bias=False):
-        super(LayerTest, self).__init__()
-        self.conv = nn.ConvTranspose2d(inp, out, kernel_size=kernel_size, padding=padding, stride=stride, bias=bias)
-
-    def forward(self, x):
-        x = self.conv(x)
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self):
-        super(FTest, self).__init__()
-
-    def forward(self, x, y):
-        x = x + y
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self):
-        super(FTest, self).__init__()
-
-    def forward(self, x, y):
-        x = x / y
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self):
-        super(FTest, self).__init__()
-
-    def forward(self, x, y):
-        x = x * y
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self):
-        super(FTest, self).__init__()
-
-    def forward(self, x, y):
-        x = x - y
-        return x
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, input_size, embedd_size):
-        super(LayerTest, self).__init__()
-        self.embedd = nn.Embedding(input_size, embedd_size)
-
-    def forward(self, x):
-        x = self.embedd(x)
-        return x
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, inp, out, bias=False):
-        super(LayerTest, self).__init__()
-        self.fc = nn.Linear(inp, out, bias=bias)
-
-    def forward(self, x):
-        x = self.fc(x)
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self):
-        super(FTest, self).__init__()
-
-    def forward(self, x, y, z):
-        from torch.nn import functional as F
-        return F.relu(x) + F.relu(y) + F.relu(z)
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, out, eps, momentum):
-        super(LayerTest, self).__init__()
-        self.bn = nn.BatchNorm2d(out, eps=eps, momentum=momentum)
-
-    def forward(self, x):
-        x = self.bn(x)
-        return x
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, p):
-        super(LayerTest, self).__init__()
-        self.do = nn.Dropout2d(p=p)
-
-    def forward(self, x):
-        x = x + 0
-        x = self.do(x)
-        return x
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, out, eps, momentum):
-        super(LayerTest, self).__init__()
-        self.in2d = nn.InstanceNorm2d(out, eps=eps, momentum=momentum)
-
-    def forward(self, x):
-        x = self.in2d(x)
-        return x
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, kernel_size=3, padding=1, stride=1):
-        super(LayerTest, self).__init__()
-        self.pool = nn.AvgPool2d(kernel_size=kernel_size, padding=padding, stride=stride)
-
-    def forward(self, x):
-        x = self.pool(x)
-        return x
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self):
-        super(LayerTest, self).__init__()
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-
-    def forward(self, x):
-        x = self.pool(x)
-        return x
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self):
-        super(LayerTest, self).__init__()
-        self.pool = nn.AdaptiveMaxPool2d((1, 1))
-
-    def forward(self, x):
-        x = self.pool(x)
-        return x
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, kernel_size=3, padding=1, stride=1):
-        super(LayerTest, self).__init__()
-        self.pool = nn.MaxPool2d(kernel_size=kernel_size, padding=padding, stride=stride)
-
-    def forward(self, x):
-        x = self.pool(x)
-        return x
-
-
-class TestUpsampleNearest2d(nn.Module):
-    """Module for UpsampleNearest2d conversion testing
-    """
-
-    def __init__(self, inp=10, out=16, kernel_size=3, bias=True):
-        super(TestUpsampleNearest2d, self).__init__()
-        self.conv2d = nn.Conv2d(inp, out, kernel_size=kernel_size, bias=bias)
-        self.up = nn.UpsamplingNearest2d(scale_factor=2)
-
-    def forward(self, x):
-        x = self.conv2d(x)
-        x = F.upsample(x, scale_factor=2)
-        x = self.up(x)
-        return x
-
-
-class LayerTest(nn.Module):
-
-    def __init__(self, scale_factor=2):
-        super(LayerTest, self).__init__()
-        self.up = nn.UpsamplingBilinear2d(scale_factor=scale_factor)
-
-    def forward(self, x):
-        x = self.up(x)
-        return x
-
-
-class FTest(nn.Module):
-
-    def __init__(self):
-        super(FTest, self).__init__()
-
-    def forward(self, x):
-        from torch.nn import functional as F
-        return F.upsample_bilinear(x, scale_factor=2)
 
 
 class LayerTest(nn.Module):
@@ -498,6 +122,22 @@ class FTest(nn.Module):
     def forward(self, x):
         from torch.nn import functional as F
         return F.upsample_nearest(x, scale_factor=2)
+
+
+class TestUpsampleNearest2d(nn.Module):
+    """Module for UpsampleNearest2d conversion testing
+    """
+
+    def __init__(self, inp=10, out=16, kernel_size=3, bias=True):
+        super(TestUpsampleNearest2d, self).__init__()
+        self.conv2d = nn.Conv2d(inp, out, kernel_size=kernel_size, bias=bias)
+        self.up = nn.UpsamplingNearest2d(scale_factor=2)
+
+    def forward(self, x):
+        x = self.conv2d(x)
+        x = F.upsample(x, scale_factor=2)
+        x = self.up(x)
+        return x
 
 
 BatchNorm = nn.BatchNorm2d
@@ -1341,6 +981,25 @@ class CifarSEResNet(nn.Module):
         x = x.view([int(x.size(0)), -1])
         x = self.fc(x)
         return x
+
+
+class CifarSEPreActResNet(CifarSEResNet):
+
+    def __init__(self, block, n_size, num_classes=10, reduction=16):
+        super(CifarSEPreActResNet, self).__init__(block, n_size, num_classes, reduction)
+        self.bn1 = nn.BatchNorm2d(self.inplane)
+        self.initialize()
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.avgpool(x)
+        x = x.view([int(x.size(0)), -1])
+        x = self.fc(x)
 
 
 class Fire(nn.Module):

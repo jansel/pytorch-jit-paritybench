@@ -24,15 +24,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -49,10 +50,40 @@ from torch.nn import functional as F
 import numpy as np
 
 
+from torch.optim import Optimizer
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+import scipy
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
+
+
 import torch.nn.functional as F
 
 
+import scipy.io
+
+
 import torch.nn as nn
+
+
+import logging
+
+
+from torch import optim
+
+
+from torch.optim import lr_scheduler
+
+
+import torchvision
 
 
 def conv2d_block(in_c, out_c):

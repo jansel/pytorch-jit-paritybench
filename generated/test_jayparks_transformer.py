@@ -20,26 +20,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+import torchtext.data as data
+
+
+from torchtext.data import Field
+
+
+from torchtext.data import Iterator
+
+
+from torchtext.data import BucketIterator
+
+
+from collections import Counter
 
 
 import time
 
 
 import math
-
-
-import torch
 
 
 import torch.nn as nn
@@ -60,6 +76,112 @@ import torch.nn.init as init
 from torch.autograd import Variable
 
 
+class LayerNormalization(nn.Module):
+
+    def __init__(self, d_hid, eps=1e-06):
+        super(LayerNormalization, self).__init__()
+        self.gamma = nn.Parameter(torch.ones(d_hid))
+        self.beta = nn.Parameter(torch.zeros(d_hid))
+        self.eps = eps
+
+    def forward(self, z):
+        mean = z.mean(dim=-1, keepdim=True)
+        std = z.std(dim=-1, keepdim=True)
+        ln_out = (z - mean) / (std + self.eps)
+        ln_out = self.gamma * ln_out + self.beta
+        return ln_out
+
+
+class Linear(nn.Module):
+
+    def __init__(self, in_features, out_features, bias=True):
+        super(Linear, self).__init__()
+        self.linear = nn.Linear(in_features, out_features, bias=bias)
+        init.xavier_normal_(self.linear.weight)
+        init.zeros_(self.linear.bias)
+
+    def forward(self, inputs):
+        return self.linear(inputs)
+
+
+class ScaledDotProductAttention(nn.Module):
+
+    def __init__(self, d_k, dropout=0.1):
+        super(ScaledDotProductAttention, self).__init__()
+        self.scale_factor = np.sqrt(d_k)
+        self.softmax = nn.Softmax(dim=-1)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, q, k, v, attn_mask=None):
+        scores = torch.matmul(q, k.transpose(-1, -2)) / self.scale_factor
+        if attn_mask is not None:
+            assert attn_mask.size() == scores.size()
+            scores.masked_fill_(attn_mask, -1000000000.0)
+        attn = self.dropout(self.softmax(scores))
+        context = torch.matmul(attn, v)
+        return context, attn
+
+
+class _MultiHeadAttention(nn.Module):
+
+    def __init__(self, d_k, d_v, d_model, n_heads, dropout):
+        super(_MultiHeadAttention, self).__init__()
+        self.d_k = d_k
+        self.d_v = d_v
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.w_q = Linear([d_model, d_k * n_heads])
+        self.w_k = Linear([d_model, d_k * n_heads])
+        self.w_v = Linear([d_model, d_v * n_heads])
+        self.attention = ScaledDotProductAttention(d_k, dropout)
+
+    def forward(self, q, k, v, attn_mask):
+        b_size = q.size(0)
+        q_s = self.w_q(q).view(b_size, -1, self.n_heads, self.d_k).transpose(1, 2)
+        k_s = self.w_k(k).view(b_size, -1, self.n_heads, self.d_k).transpose(1, 2)
+        v_s = self.w_v(v).view(b_size, -1, self.n_heads, self.d_v).transpose(1, 2)
+        if attn_mask:
+            attn_mask = attn_mask.unsqueeze(1).repeat(1, self.n_heads, 1, 1)
+        context, attn = self.attention(q_s, k_s, v_s, attn_mask=attn_mask)
+        context = context.transpose(1, 2).contiguous().view(b_size, -1, self.n_heads * self.d_v)
+        return context, attn
+
+
+class MultiHeadAttention(nn.Module):
+
+    def __init__(self, d_k, d_v, d_model, n_heads, dropout):
+        super(MultiHeadAttention, self).__init__()
+        self.n_heads = n_heads
+        self.multihead_attn = _MultiHeadAttention(d_k, d_v, d_model, n_heads, dropout)
+        self.proj = Linear(n_heads * d_v, d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.layer_norm = LayerNormalization(d_model)
+
+    def forward(self, q, k, v, attn_mask):
+        residual = q
+        context, attn = self.multihead_attn(q, k, v, attn_mask=attn_mask)
+        output = self.dropout(self.proj(context))
+        return self.layer_norm(residual + output), attn
+
+
+class PoswiseFeedForwardNet(nn.Module):
+
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super(PoswiseFeedForwardNet, self).__init__()
+        self.relu = nn.ReLU()
+        self.conv1 = nn.Conv1d(in_channels=d_model, out_channels=d_ff, kernel_size=1)
+        self.conv2 = nn.Conv1d(in_channels=d_ff, out_channels=d_model, kernel_size=1)
+        self.dropout = nn.Dropout(dropout)
+        self.layer_norm = LayerNormalization(d_model)
+
+    def forward(self, inputs):
+        residual = inputs
+        output = self.relu(self.conv1(inputs.transpose(1, 2)))
+        output = self.conv2(output).transpose(1, 2)
+        output = self.dropout(output)
+        return self.layer_norm(residual + output)
+
+
 class EncoderLayer(nn.Module):
 
     def __init__(self, d_k, d_v, d_model, d_ff, n_heads, dropout=0.1):
@@ -71,6 +193,38 @@ class EncoderLayer(nn.Module):
         enc_outputs, attn = self.enc_self_attn(enc_inputs, enc_inputs, enc_inputs, attn_mask=self_attn_mask)
         enc_outputs = self.pos_ffn(enc_outputs)
         return enc_outputs, attn
+
+
+class MultiBranchAttention(nn.Module):
+
+    def __init__(self, d_k, d_v, d_model, d_ff, n_branches, dropout):
+        super(MultiBranchAttention, self).__init__()
+        self.d_k = d_k
+        self.d_v = d_v
+        self.d_model = d_model
+        self.d_ff = d_ff
+        self.n_branches = n_branches
+        self.multihead_attn = _MultiHeadAttention(d_k, d_v, d_model, n_branches, dropout)
+        self.w_o = nn.ModuleList([Linear(d_v, d_model) for _ in range(n_branches)])
+        self.w_kp = torch.rand(n_branches)
+        self.w_kp = nn.Parameter(self.w_kp / self.w_kp.sum())
+        self.w_a = torch.rand(n_branches)
+        self.w_a = nn.Parameter(self.w_a / self.w_a.sum())
+        self.pos_ffn = nn.ModuleList([PoswiseFeedForwardNet(d_model, d_ff // n_branches, dropout) for _ in range(n_branches)])
+        self.dropout = nn.Dropout(dropout)
+        self.layer_norm = LayerNormalization(d_model)
+        init.xavier_normal(self.w_o)
+
+    def forward(self, q, k, v, attn_mask):
+        residual = q
+        context, attn = self.multih_attn(q, k, v, attn_mask=attn_mask)
+        context = context.split(self.d_v, dim=-1)
+        outputs = [self.w_o[i](context[i]) for i in range(self.n_branches)]
+        outputs = [(kappa * output) for kappa, output in zip(self.w_kp, outputs)]
+        outputs = [pos_ffn(output) for pos_ffn, output in zip(self.pos_ffn, outputs)]
+        outputs = [(alpha * output) for alpha, output in zip(self.w_a, outputs)]
+        output = self.dropout(torch.stack(outputs).sum(dim=0))
+        return self.layer_norm(residual + output), attn
 
 
 class WeightedEncoderLayer(nn.Module):
@@ -111,6 +265,25 @@ class WeightedDecoderLayer(nn.Module):
         return dec_outputs, dec_self_attn, dec_enc_attn
 
 
+class PosEncoding(nn.Module):
+
+    def __init__(self, max_seq_len, d_word_vec):
+        super(PosEncoding, self).__init__()
+        pos_enc = np.array([[(pos / np.power(10000, 2.0 * (j // 2) / d_word_vec)) for j in range(d_word_vec)] for pos in range(max_seq_len)])
+        pos_enc[:, 0::2] = np.sin(pos_enc[:, 0::2])
+        pos_enc[:, 1::2] = np.cos(pos_enc[:, 1::2])
+        pad_row = np.zeros([1, d_word_vec])
+        pos_enc = np.concatenate([pad_row, pos_enc]).astype(np.float32)
+        self.pos_enc = nn.Embedding(max_seq_len + 1, d_word_vec)
+        self.pos_enc.weight = nn.Parameter(torch.from_numpy(pos_enc), requires_grad=False)
+
+    def forward(self, input_len):
+        max_len = torch.max(input_len)
+        tensor = torch.LongTensor if input_len.is_cuda else torch.LongTensor
+        input_pos = tensor([(list(range(1, len + 1)) + [0] * (max_len - len)) for len in input_len])
+        return self.pos_enc(input_pos)
+
+
 def get_attn_pad_mask(seq_q, seq_k):
     assert seq_q.dim() == 2 and seq_k.dim() == 2
     b_size, len_q = seq_q.size()
@@ -149,7 +322,7 @@ def get_attn_subsequent_mask(seq):
     subsequent_mask = np.triu(np.ones(attn_shape), k=1)
     subsequent_mask = torch.from_numpy(subsequent_mask).byte()
     if seq.is_cuda:
-        subsequent_mask = subsequent_mask.cuda()
+        subsequent_mask = subsequent_mask
     return subsequent_mask
 
 
@@ -240,163 +413,6 @@ class Transformer(nn.Module):
                     param.data = proj_prob_simplex(param.data)
         else:
             pass
-
-
-class Linear(nn.Module):
-
-    def __init__(self, in_features, out_features, bias=True):
-        super(Linear, self).__init__()
-        self.linear = nn.Linear(in_features, out_features, bias=bias)
-        init.xavier_normal_(self.linear.weight)
-        init.zeros_(self.linear.bias)
-
-    def forward(self, inputs):
-        return self.linear(inputs)
-
-
-class ScaledDotProductAttention(nn.Module):
-
-    def __init__(self, d_k, dropout=0.1):
-        super(ScaledDotProductAttention, self).__init__()
-        self.scale_factor = np.sqrt(d_k)
-        self.softmax = nn.Softmax(dim=-1)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, q, k, v, attn_mask=None):
-        scores = torch.matmul(q, k.transpose(-1, -2)) / self.scale_factor
-        if attn_mask is not None:
-            assert attn_mask.size() == scores.size()
-            scores.masked_fill_(attn_mask, -1000000000.0)
-        attn = self.dropout(self.softmax(scores))
-        context = torch.matmul(attn, v)
-        return context, attn
-
-
-class LayerNormalization(nn.Module):
-
-    def __init__(self, d_hid, eps=1e-06):
-        super(LayerNormalization, self).__init__()
-        self.gamma = nn.Parameter(torch.ones(d_hid))
-        self.beta = nn.Parameter(torch.zeros(d_hid))
-        self.eps = eps
-
-    def forward(self, z):
-        mean = z.mean(dim=-1, keepdim=True)
-        std = z.std(dim=-1, keepdim=True)
-        ln_out = (z - mean) / (std + self.eps)
-        ln_out = self.gamma * ln_out + self.beta
-        return ln_out
-
-
-class PosEncoding(nn.Module):
-
-    def __init__(self, max_seq_len, d_word_vec):
-        super(PosEncoding, self).__init__()
-        pos_enc = np.array([[(pos / np.power(10000, 2.0 * (j // 2) / d_word_vec)) for j in range(d_word_vec)] for pos in range(max_seq_len)])
-        pos_enc[:, 0::2] = np.sin(pos_enc[:, 0::2])
-        pos_enc[:, 1::2] = np.cos(pos_enc[:, 1::2])
-        pad_row = np.zeros([1, d_word_vec])
-        pos_enc = np.concatenate([pad_row, pos_enc]).astype(np.float32)
-        self.pos_enc = nn.Embedding(max_seq_len + 1, d_word_vec)
-        self.pos_enc.weight = nn.Parameter(torch.from_numpy(pos_enc), requires_grad=False)
-
-    def forward(self, input_len):
-        max_len = torch.max(input_len)
-        tensor = torch.LongTensor if input_len.is_cuda else torch.LongTensor
-        input_pos = tensor([(list(range(1, len + 1)) + [0] * (max_len - len)) for len in input_len])
-        return self.pos_enc(input_pos)
-
-
-class _MultiHeadAttention(nn.Module):
-
-    def __init__(self, d_k, d_v, d_model, n_heads, dropout):
-        super(_MultiHeadAttention, self).__init__()
-        self.d_k = d_k
-        self.d_v = d_v
-        self.d_model = d_model
-        self.n_heads = n_heads
-        self.w_q = Linear([d_model, d_k * n_heads])
-        self.w_k = Linear([d_model, d_k * n_heads])
-        self.w_v = Linear([d_model, d_v * n_heads])
-        self.attention = ScaledDotProductAttention(d_k, dropout)
-
-    def forward(self, q, k, v, attn_mask):
-        b_size = q.size(0)
-        q_s = self.w_q(q).view(b_size, -1, self.n_heads, self.d_k).transpose(1, 2)
-        k_s = self.w_k(k).view(b_size, -1, self.n_heads, self.d_k).transpose(1, 2)
-        v_s = self.w_v(v).view(b_size, -1, self.n_heads, self.d_v).transpose(1, 2)
-        if attn_mask:
-            attn_mask = attn_mask.unsqueeze(1).repeat(1, self.n_heads, 1, 1)
-        context, attn = self.attention(q_s, k_s, v_s, attn_mask=attn_mask)
-        context = context.transpose(1, 2).contiguous().view(b_size, -1, self.n_heads * self.d_v)
-        return context, attn
-
-
-class MultiHeadAttention(nn.Module):
-
-    def __init__(self, d_k, d_v, d_model, n_heads, dropout):
-        super(MultiHeadAttention, self).__init__()
-        self.n_heads = n_heads
-        self.multihead_attn = _MultiHeadAttention(d_k, d_v, d_model, n_heads, dropout)
-        self.proj = Linear(n_heads * d_v, d_model)
-        self.dropout = nn.Dropout(dropout)
-        self.layer_norm = LayerNormalization(d_model)
-
-    def forward(self, q, k, v, attn_mask):
-        residual = q
-        context, attn = self.multihead_attn(q, k, v, attn_mask=attn_mask)
-        output = self.dropout(self.proj(context))
-        return self.layer_norm(residual + output), attn
-
-
-class MultiBranchAttention(nn.Module):
-
-    def __init__(self, d_k, d_v, d_model, d_ff, n_branches, dropout):
-        super(MultiBranchAttention, self).__init__()
-        self.d_k = d_k
-        self.d_v = d_v
-        self.d_model = d_model
-        self.d_ff = d_ff
-        self.n_branches = n_branches
-        self.multihead_attn = _MultiHeadAttention(d_k, d_v, d_model, n_branches, dropout)
-        self.w_o = nn.ModuleList([Linear(d_v, d_model) for _ in range(n_branches)])
-        self.w_kp = torch.rand(n_branches)
-        self.w_kp = nn.Parameter(self.w_kp / self.w_kp.sum())
-        self.w_a = torch.rand(n_branches)
-        self.w_a = nn.Parameter(self.w_a / self.w_a.sum())
-        self.pos_ffn = nn.ModuleList([PoswiseFeedForwardNet(d_model, d_ff // n_branches, dropout) for _ in range(n_branches)])
-        self.dropout = nn.Dropout(dropout)
-        self.layer_norm = LayerNormalization(d_model)
-        init.xavier_normal(self.w_o)
-
-    def forward(self, q, k, v, attn_mask):
-        residual = q
-        context, attn = self.multih_attn(q, k, v, attn_mask=attn_mask)
-        context = context.split(self.d_v, dim=-1)
-        outputs = [self.w_o[i](context[i]) for i in range(self.n_branches)]
-        outputs = [(kappa * output) for kappa, output in zip(self.w_kp, outputs)]
-        outputs = [pos_ffn(output) for pos_ffn, output in zip(self.pos_ffn, outputs)]
-        outputs = [(alpha * output) for alpha, output in zip(self.w_a, outputs)]
-        output = self.dropout(torch.stack(outputs).sum(dim=0))
-        return self.layer_norm(residual + output), attn
-
-
-class PoswiseFeedForwardNet(nn.Module):
-
-    def __init__(self, d_model, d_ff, dropout=0.1):
-        super(PoswiseFeedForwardNet, self).__init__()
-        self.relu = nn.ReLU()
-        self.conv1 = nn.Conv1d(in_channels=d_model, out_channels=d_ff, kernel_size=1)
-        self.conv2 = nn.Conv1d(in_channels=d_ff, out_channels=d_model, kernel_size=1)
-        self.dropout = nn.Dropout(dropout)
-        self.layer_norm = LayerNormalization(d_model)
-
-    def forward(self, inputs):
-        residual = inputs
-        output = self.relu(self.conv1(inputs.transpose(1, 2)))
-        output = self.conv2(output).transpose(1, 2)
-        output = self.dropout(output)
-        return self.layer_norm(residual + output)
 
 
 import torch

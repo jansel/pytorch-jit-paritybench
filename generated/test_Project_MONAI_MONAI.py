@@ -6,11 +6,18 @@ densenet_evaluation_array = _module
 densenet_evaluation_dict = _module
 densenet_training_array = _module
 densenet_training_dict = _module
+densenet_evaluation_array = _module
+densenet_evaluation_dict = _module
 densenet_training_array = _module
 densenet_training_dict = _module
 unet_evaluation_array = _module
 unet_evaluation_dict = _module
 unet_training_array = _module
+unet_training_dict = _module
+unet_evaluation_array = _module
+unet_evaluation_dict = _module
+unet_training_array = _module
+unet_training_dict = _module
 unet_training_dict = _module
 monai = _module
 _version = _module
@@ -32,6 +39,7 @@ engines = _module
 evaluator = _module
 multi_gpu_supervised_trainer = _module
 trainer = _module
+utils = _module
 workflow = _module
 handlers = _module
 checkpoint_loader = _module
@@ -74,11 +82,13 @@ array = _module
 dictionary = _module
 intensity = _module
 io = _module
+array = _module
 post = _module
 spatial = _module
 array = _module
 dictionary = _module
 utility = _module
+array = _module
 aliases = _module
 decorators = _module
 misc = _module
@@ -228,21 +238,23 @@ test_zipdataset = _module
 test_zoom = _module
 test_zoom_affine = _module
 test_zoomd = _module
+utils = _module
 versioneer = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -262,10 +274,52 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 
-import torch.nn.functional as F
+from collections import OrderedDict
+
+
+import math
+
+
+from torch.utils.data import IterableDataset
+
+
+from torch.utils.data import Dataset
 
 
 import warnings
+
+
+from itertools import starmap
+
+
+from itertools import product
+
+
+from torch.utils.data._utils.collate import default_collate
+
+
+import enum
+
+
+from abc import ABC
+
+
+from abc import abstractmethod
+
+
+from typing import Callable
+
+
+from typing import Optional
+
+
+from typing import Sequence
+
+
+from typing import Union
+
+
+import torch.nn.functional as F
 
 
 from torch.nn.modules.loss import _Loss
@@ -277,16 +331,31 @@ from torch.nn.modules.loss import _WeightedLoss
 import torch.nn as nn
 
 
-from typing import Callable
-
-
-from collections import OrderedDict
-
-
 import torch.nn.functional as f
 
 
+from typing import Hashable
+
+
+from torch.utils.data._utils.collate import np_str_obj_array_pattern
+
+
 import scipy.ndimage
+
+
+import time
+
+
+import itertools
+
+
+from collections.abc import Iterable
+
+
+from torch import Tensor
+
+
+import re
 
 
 import torch.optim as optim

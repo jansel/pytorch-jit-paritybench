@@ -18,15 +18,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -40,16 +41,39 @@ import torch.nn as nn
 from torch.nn.utils.weight_norm import weight_norm
 
 
-from torch.autograd import Variable
-
-
 import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+from torch.autograd import Variable
 
 
 from torch.utils.data import DataLoader
 
 
 import time
+
+
+class FCNet(nn.Module):
+    """Simple class for non-linear fully connect network
+    """
+
+    def __init__(self, dims):
+        super(FCNet, self).__init__()
+        layers = []
+        for i in range(len(dims) - 2):
+            in_dim = dims[i]
+            out_dim = dims[i + 1]
+            layers.append(weight_norm(nn.Linear(in_dim, out_dim), dim=None))
+            layers.append(nn.ReLU())
+        layers.append(weight_norm(nn.Linear(dims[-2], dims[-1]), dim=None))
+        layers.append(nn.ReLU())
+        self.main = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.main(x)
 
 
 class Attention(nn.Module):
@@ -146,26 +170,6 @@ class SimpleClassifier(nn.Module):
     def forward(self, x):
         logits = self.main(x)
         return logits
-
-
-class FCNet(nn.Module):
-    """Simple class for non-linear fully connect network
-    """
-
-    def __init__(self, dims):
-        super(FCNet, self).__init__()
-        layers = []
-        for i in range(len(dims) - 2):
-            in_dim = dims[i]
-            out_dim = dims[i + 1]
-            layers.append(weight_norm(nn.Linear(in_dim, out_dim), dim=None))
-            layers.append(nn.ReLU())
-        layers.append(weight_norm(nn.Linear(dims[-2], dims[-1]), dim=None))
-        layers.append(nn.ReLU())
-        self.main = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.main(x)
 
 
 class WordEmbedding(nn.Module):

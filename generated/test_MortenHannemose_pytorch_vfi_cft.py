@@ -12,15 +12,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -77,6 +78,24 @@ class Cyclic(nn.Module):
         out_dict['interp2_pyramid'] = interp2_pyramid
 
 
+class VGG(nn.Module):
+
+    def __init__(self):
+        super(VGG, self).__init__()
+        vgg = vgg19(pretrained=True)
+        self.vgg_mean = FloatTensor([[[[0.485]], [[0.456]], [[0.406]]]])
+        self.vgg_std = FloatTensor([[[[0.229]], [[0.224]], [[0.225]]]])
+        self.vgg_relu4_4 = vgg.features[:27]
+
+    def forward(self, input):
+        vgg_mean = FloatTensor([[[[0.485]], [[0.456]], [[0.406]]]])
+        vgg_std = FloatTensor([[[[0.229]], [[0.224]], [[0.225]]]])
+        return self.vgg_relu4_4((input - vgg_mean) / vgg_std)
+
+    def feat_loss(self, feat1, feat2):
+        return ((feat1 - feat2) ** 2).mean(1).mean(1).mean(1)
+
+
 class SMLoss(nn.Module):
 
     def __init__(self, weights):
@@ -131,29 +150,11 @@ class SMLoss(nn.Module):
         return loss_list
 
 
-class VGG(nn.Module):
-
-    def __init__(self):
-        super(VGG, self).__init__()
-        vgg = vgg19(pretrained=True)
-        self.vgg_mean = FloatTensor([[[[0.485]], [[0.456]], [[0.406]]]])
-        self.vgg_std = FloatTensor([[[[0.229]], [[0.224]], [[0.225]]]])
-        self.vgg_relu4_4 = vgg.features[:27]
-
-    def forward(self, input):
-        vgg_mean = FloatTensor([[[[0.485]], [[0.456]], [[0.406]]]])
-        vgg_std = FloatTensor([[[[0.229]], [[0.224]], [[0.225]]]])
-        return self.vgg_relu4_4((input - vgg_mean) / vgg_std)
-
-    def feat_loss(self, feat1, feat2):
-        return ((feat1 - feat2) ** 2).mean(1).mean(1).mean(1)
-
-
 class Network(nn.Module):
 
     def __init__(self):
         super(Network, self).__init__()
-        if not torch.is_available():
+        if not torch.cuda.is_available():
             None
         self.device = utils.get_device()
 

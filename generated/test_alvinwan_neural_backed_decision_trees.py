@@ -26,15 +26,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -78,22 +79,46 @@ import random
 import time
 
 
+from sklearn.cluster import AgglomerativeClustering
+
+
+from torch.hub import load_state_dict_from_url
+
+
 import math
 
 
 import torch.nn.init as init
 
 
-def get_roots(G):
+def get_non_leaves(G):
     for node in G.nodes:
-        if len(G.pred[node]) == 0:
+        if len(G.succ[node]) > 0:
             yield node
 
 
-def get_root(G):
-    roots = list(get_roots(G))
-    assert len(roots) == 1, f'Multiple ({len(roots)}) found'
-    return roots[0]
+def fwd():
+    """Get file's working directory"""
+    return Path(__file__).parent.absolute()
+
+
+def get_wnids(path_wnids):
+    if not os.path.exists(path_wnids):
+        parent = Path(fwd()).parent
+        None
+        path_wnids = parent / path_wnids
+    with open(path_wnids) as f:
+        wnids = [wnid.strip() for wnid in f.readlines()]
+    return wnids
+
+
+def read_graph(path):
+    if not os.path.exists(path):
+        parent = Path(fwd()).parent
+        None
+        path = parent / path
+    with open(path) as f:
+        return node_link_graph(json.load(f))
 
 
 def synset_to_name(synset):
@@ -124,7 +149,6 @@ class FakeSynset:
 
 
 def wnid_to_synset(wnid):
-    from nltk.corpus import wordnet as wn
     offset = int(wnid[1:])
     pos = wnid[0]
     try:
@@ -135,36 +159,6 @@ def wnid_to_synset(wnid):
 
 def wnid_to_name(wnid):
     return synset_to_name(wnid_to_synset(wnid))
-
-
-def get_non_leaves(G):
-    for node in G.nodes:
-        if len(G.succ[node]) > 0:
-            yield node
-
-
-def fwd():
-    """Get file's working directory"""
-    return Path(__file__).parent.absolute()
-
-
-def get_wnids(path_wnids):
-    if not os.path.exists(path_wnids):
-        parent = Path(fwd()).parent
-        print(f'No such file or directory: {path_wnids}. Looking in {str(parent)}')
-        path_wnids = parent / path_wnids
-    with open(path_wnids) as f:
-        wnids = [wnid.strip() for wnid in f.readlines()]
-    return wnids
-
-
-def read_graph(path):
-    if not os.path.exists(path):
-        parent = Path(fwd()).parent
-        print(f'No such file or directory: {path}. Looking in {str(parent)}')
-        path = parent / path
-    with open(path) as f:
-        return node_link_graph(json.load(f))
 
 
 class Node:
@@ -370,6 +364,253 @@ class EmbeddedDecisionRules(nn.Module):
         return self.get_all_node_outputs(outputs, self.nodes)
 
 
+def get_roots(G):
+    for node in G.nodes:
+        if len(G.pred[node]) == 0:
+            yield node
+
+
+def get_root(G):
+    roots = list(get_roots(G))
+    assert len(roots) == 1, f'Multiple ({len(roots)}) found'
+    return roots[0]
+
+
+class HardEmbeddedDecisionRules(EmbeddedDecisionRules):
+
+    @classmethod
+    def get_node_logits_filtered(cls, node, outputs, targets):
+        """'Smarter' inference for a hard node.
+
+        If you have targets for the node, you can selectively perform inference,
+        only for nodes where the label of a sample is well-defined.
+        """
+        classes = [node.old_to_new_classes[int(t)] for t in targets]
+        selector = [bool(cls) for cls in classes]
+        targets_sub = [cls[0] for cls in classes if cls]
+        outputs = outputs[selector]
+        if outputs.size(0) == 0:
+            return selector, outputs[:, :node.num_classes], targets_sub
+        outputs_sub = cls.get_node_logits(outputs, node)
+        return selector, outputs_sub, targets_sub
+
+    @classmethod
+    def traverse_tree(cls, wnid_to_outputs, nodes, wnid_to_class, classes):
+        """Convert node outputs to final prediction.
+
+        Note that the prediction output for this function can NOT be trained
+        on. The outputs have been detached from the computation graph.
+        """
+        example = wnid_to_outputs[nodes[0].wnid]
+        n_samples = int(example['logits'].size(0))
+        for wnid in tuple(wnid_to_outputs.keys()):
+            outputs = wnid_to_outputs[wnid]
+            outputs['preds'] = list(map(int, outputs['preds'].cpu()))
+            outputs['probs'] = outputs['probs'].detach().cpu()
+        wnid_to_node = {node.wnid: node for node in nodes}
+        wnid_root = get_root(nodes[0].G)
+        node_root = wnid_to_node[wnid_root]
+        decisions = []
+        preds = []
+        for index in range(n_samples):
+            decision = [{'node': node_root, 'name': 'root', 'prob': 1}]
+            wnid, node = wnid_root, node_root
+            while node is not None:
+                if node.wnid not in wnid_to_outputs:
+                    wnid = node = None
+                    break
+                outputs = wnid_to_outputs[node.wnid]
+                index_child = outputs['preds'][index]
+                prob_child = float(outputs['probs'][index][index_child])
+                wnid = node.children[index_child]
+                node = wnid_to_node.get(wnid, None)
+                decision.append({'node': node, 'name': wnid_to_name(wnid), 'prob': prob_child})
+            cls = wnid_to_class.get(wnid, None)
+            pred = -1 if cls is None else classes.index(cls)
+            preds.append(pred)
+            decisions.append(decision)
+        return torch.Tensor(preds).long(), decisions
+
+    def predicted_to_logits(self, predicted):
+        """Convert predicted classes to one-hot logits."""
+        if self.I.device != predicted.device:
+            self.I = self.I
+        return self.I[predicted]
+
+    def forward_with_decisions(self, outputs):
+        wnid_to_outputs = self.forward_nodes(outputs)
+        predicted, decisions = self.traverse_tree(wnid_to_outputs, self.nodes, self.wnid_to_class, self.classes)
+        logits = self.predicted_to_logits(predicted)
+        logits._nbdt_output_flag = True
+        return logits, decisions
+
+    def forward(self, outputs):
+        outputs, _ = self.forward_with_decisions(outputs)
+        return outputs
+
+
+class TreeSupLoss(nn.Module):
+    accepts_criterion = lambda criterion, **kwargs: criterion
+    accepts_dataset = lambda trainset, **kwargs: trainset.__class__.__name__
+    accepts_path_graph = True
+    accepts_path_wnids = True
+    accepts_classes = True
+    accepts_tree_supervision_weight = True
+    accepts_classes = lambda trainset, **kwargs: trainset.classes
+
+    def __init__(self, dataset, criterion, path_graph=None, path_wnids=None, classes=None, hierarchy=None, Rules=HardEmbeddedDecisionRules, **kwargs):
+        super().__init__()
+        if dataset and hierarchy and not path_graph:
+            path_graph = hierarchy_to_path_graph(dataset, hierarchy)
+        if dataset and not path_graph:
+            path_graph = dataset_to_default_path_graph(dataset)
+        if dataset and not path_wnids:
+            path_wnids = dataset_to_default_path_wnids(dataset)
+        if dataset and not classes:
+            classes = dataset_to_dummy_classes(dataset)
+        self.init(dataset, criterion, path_graph, path_wnids, classes, Rules=Rules, **kwargs)
+
+    def init(self, dataset, criterion, path_graph, path_wnids, classes, Rules, tree_supervision_weight=1.0):
+        """
+        Extra init method makes clear which arguments are finally necessary for
+        this class to function. The constructor for this class may generate
+        some of these required arguments if initially missing.
+        """
+        self.dataset = dataset
+        self.num_classes = len(classes)
+        self.nodes = Node.get_nodes(path_graph, path_wnids, classes)
+        self.rules = Rules(dataset, path_graph, path_wnids, classes)
+        self.tree_supervision_weight = tree_supervision_weight
+        self.criterion = criterion
+
+    @staticmethod
+    def assert_output_not_nbdt(outputs):
+        """
+        >>> x = torch.randn(1, 3, 224, 224)
+        >>> TreeSupLoss.assert_output_not_nbdt(x)  # all good!
+        >>> x._nbdt_output_flag = True
+        >>> TreeSupLoss.assert_output_not_nbdt(x)  #doctest: +ELLIPSIS
+        Traceback (most recent call last):
+            ...
+        AssertionError: ...
+        >>> from nbdt.model import NBDT
+        >>> import torchvision.models as models
+        >>> model = models.resnet18()
+        >>> y = model(x)
+        >>> TreeSupLoss.assert_output_not_nbdt(y)  # all good!
+        >>> model = NBDT('CIFAR10', model, arch='ResNet18')
+        >>> y = model(x)
+        >>> TreeSupLoss.assert_output_not_nbdt(y)  #doctest: +ELLIPSIS
+        Traceback (most recent call last):
+            ...
+        AssertionError: ...
+        """
+        assert getattr(outputs, '_nbdt_output_flag', False) is False, "Uh oh! Looks like you passed an NBDT model's output to an NBDT loss. NBDT losses are designed to take in the *original* model's outputs, as input. NBDT models are designed to only be used during validation and inference, not during training. Confused?  Check out github.com/alvinwan/nbdt#convert-neural-networks-to-decision-trees for examples and instructions."
+
+
+class HardTreeSupLoss(TreeSupLoss):
+
+    def forward(self, outputs, targets):
+        """
+        The supplementary losses are all uniformly down-weighted so that on
+        average, each sample incurs half of its loss from standard cross entropy
+        and half of its loss from all nodes.
+
+        The code below is structured weirdly to minimize number of tensors
+        constructed and moved from CPU to GPU or vice versa. In short,
+        all outputs and targets for nodes with 2 children are gathered and
+        moved onto GPU at once. Same with those with 3, with 4 etc. On CIFAR10,
+        the max is 2. On CIFAR100, the max is 8.
+        """
+        self.assert_output_not_nbdt(outputs)
+        loss = self.criterion(outputs, targets)
+        num_losses = outputs.size(0) * len(self.nodes) / 2.0
+        outputs_subs = defaultdict(lambda : [])
+        targets_subs = defaultdict(lambda : [])
+        targets_ints = [int(target) for target in targets.cpu().long()]
+        for node in self.nodes:
+            _, outputs_sub, targets_sub = HardEmbeddedDecisionRules.get_node_logits_filtered(node, outputs, targets_ints)
+            key = node.num_classes
+            assert outputs_sub.size(0) == len(targets_sub)
+            outputs_subs[key].append(outputs_sub)
+            targets_subs[key].extend(targets_sub)
+        for key in outputs_subs:
+            outputs_sub = torch.cat(outputs_subs[key], dim=0)
+            targets_sub = torch.Tensor(targets_subs[key]).long()
+            if not outputs_sub.size(0):
+                continue
+            fraction = outputs_sub.size(0) / float(num_losses) * self.tree_supervision_weight
+            loss += self.criterion(outputs_sub, targets_sub) * fraction
+        return loss
+
+
+class SoftEmbeddedDecisionRules(EmbeddedDecisionRules):
+
+    @classmethod
+    def traverse_tree(cls, wnid_to_outputs, nodes):
+        """
+        In theory, the loop over children below could be replaced with just a
+        few lines:
+
+            for index_child in range(len(node.children)):
+                old_indexes = node.new_to_old_classes[index_child]
+                class_probs[:,old_indexes] *= output[:,index_child][:,None]
+
+        However, we collect all indices first, so that only one tensor operation
+        is run. The output is a single distribution over all leaves. The
+        ordering is determined by the original ordering of the provided logits.
+        (I think. Need to check nbdt.data.custom.Node)
+        """
+        example = wnid_to_outputs[nodes[0].wnid]
+        num_samples = example['logits'].size(0)
+        num_classes = len(nodes[0].original_classes)
+        device = example['logits'].device
+        class_probs = torch.ones((num_samples, num_classes))
+        for node in nodes:
+            outputs = wnid_to_outputs[node.wnid]
+            old_indices, new_indices = [], []
+            for index_child in range(len(node.children)):
+                old = node.new_to_old_classes[index_child]
+                old_indices.extend(old)
+                new_indices.extend([index_child] * len(old))
+            assert len(set(old_indices)) == len(old_indices), 'All old indices must be unique in order for this operation to be correct.'
+            class_probs[:, (old_indices)] *= outputs['probs'][:, (new_indices)]
+        return class_probs
+
+    def forward_with_decisions(self, outputs):
+        outputs = self.forward(outputs)
+        _, predicted = outputs.max(1)
+        decisions = []
+        node = self.nodes[0]
+        leaf_to_path_nodes = Node.get_leaf_to_path(self.nodes)
+        for index, prediction in enumerate(predicted):
+            leaf = node.wnids[prediction]
+            decision = leaf_to_path_nodes[leaf]
+            for justification in decision:
+                justification['prob'] = -1
+            decisions.append(decision)
+        return outputs, decisions
+
+    def forward(self, outputs):
+        wnid_to_outputs = self.forward_nodes(outputs)
+        logits = self.traverse_tree(wnid_to_outputs, self.nodes)
+        logits._nbdt_output_flag = True
+        return logits
+
+
+class SoftTreeSupLoss(TreeSupLoss):
+
+    def __init__(self, *args, Rules=None, **kwargs):
+        super().__init__(*args, Rules=SoftEmbeddedDecisionRules, **kwargs)
+
+    def forward(self, outputs, targets):
+        self.assert_output_not_nbdt(outputs)
+        loss = self.criterion(outputs, targets)
+        bayesian_outputs = self.rules(outputs)
+        loss += self.criterion(bayesian_outputs, targets) * self.tree_supervision_weight
+        return loss
+
+
 def coerce_state_dict(state_dict, reference_state_dict):
     if 'net' in state_dict:
         state_dict = state_dict['net']
@@ -390,6 +631,75 @@ def load_state_dict_from_key(keys, model_urls, pretrained=False, progress=True, 
 
 
 model_urls = {('wrn28_10', 'TinyImagenet200'): 'https://github.com/alvinwan/neural-backed-decision-trees/releases/download/0.0.1/ckpt-TinyImagenet200-wrn28_10.pth'}
+
+
+class NBDT(nn.Module):
+
+    def __init__(self, dataset, model, arch=None, path_graph=None, path_wnids=None, classes=None, hierarchy=None, pretrained=None, **kwargs):
+        super().__init__()
+        if dataset and not hierarchy and not path_graph:
+            assert arch, 'Must specify `arch` if no `hierarchy` or `path_graph`'
+            hierarchy = f'induced-{arch}'
+        if dataset and hierarchy and not path_graph:
+            path_graph = hierarchy_to_path_graph(dataset, hierarchy)
+        if dataset and not path_graph:
+            path_graph = dataset_to_default_path_graph(dataset)
+        if dataset and not path_wnids:
+            path_wnids = dataset_to_default_path_wnids(dataset)
+        if dataset and not classes:
+            classes = dataset_to_dummy_classes(dataset)
+        if pretrained and not arch:
+            raise UserWarning('To load a pretrained NBDT, you need to specify the `arch`. `arch` is the name of the architecture. e.g., ResNet18')
+        if isinstance(model, str):
+            raise NotImplementedError('Model must be nn.Module')
+        self.init(dataset, model, path_graph, path_wnids, classes, arch=arch, pretrained=pretrained, hierarchy=hierarchy, **kwargs)
+
+    def init(self, dataset, model, path_graph, path_wnids, classes, arch=None, pretrained=False, hierarchy=None, eval=True, Rules=HardEmbeddedDecisionRules):
+        """
+        Extra init method makes clear which arguments are finally necessary for
+        this class to function. The constructor for this class may generate
+        some of these required arguments if initially missing.
+        """
+        self.rules = Rules(dataset, path_graph, path_wnids, classes)
+        self.model = model
+        if pretrained:
+            assert arch is not None
+            keys = [(arch, dataset), (arch, dataset, hierarchy)]
+            state_dict = load_state_dict_from_key(keys, model_urls, pretrained=True)
+            self.load_state_dict(state_dict)
+        if eval:
+            self.eval()
+
+    def load_state_dict(self, state_dict, **kwargs):
+        state_dict = coerce_state_dict(state_dict, self.model.state_dict())
+        return self.model.load_state_dict(state_dict, **kwargs)
+
+    def state_dict(self):
+        return self.model.state_dict()
+
+    def forward(self, x):
+        x = self.model(x)
+        x = self.rules(x)
+        return x
+
+    def forward_with_decisions(self, x):
+        x = self.model(x)
+        x, decisions = self.rules.forward_with_decisions(x)
+        return x, decisions
+
+
+class HardNBDT(NBDT):
+
+    def __init__(self, *args, **kwargs):
+        kwargs.update({'Rules': HardEmbeddedDecisionRules})
+        super().__init__(*args, **kwargs)
+
+
+class SoftNBDT(NBDT):
+
+    def __init__(self, *args, **kwargs):
+        kwargs.update({'Rules': SoftEmbeddedDecisionRules})
+        super().__init__(*args, **kwargs)
 
 
 class BasicBlock(nn.Module):

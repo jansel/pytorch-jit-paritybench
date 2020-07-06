@@ -22,15 +22,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -485,7 +486,7 @@ def _view_transform(src, to, in_shape, checkin=False):
         check_int_tuple(in_shape)
     src = tsn_to_tuple(src)
     if len(src) != len(in_shape):
-        print(f'{src}, {in_shape}')
+        None
         raise ValueError("Source DimExpr does not match input tensor's shape")
     to = tsn_to_tuple(to)
     assert isinstance(in_shape, (list, tuple))
@@ -526,7 +527,7 @@ def align_transform(src, to, tile=False):
                 except:
                     expand_ratio.append(S)
     if lhs_pos != len(lhs):
-        print(f'Unable to align {src} to {to}: {src} not a subsequence of {to}')
+        None
         raise ValueError
     return ','.join(expand_dims), expand_ratio
 
@@ -882,7 +883,7 @@ def warp(x, tfms, tfm_names, backend=None, debug=False):
     ret = x
     for sym, l, r in tfm_list:
         if debug:
-            print(f'*** processing transform.. {sym}\n {l} -> {r}')
+            None
         if sym == 'v' or sym == 'r':
             new_shape = _view_transform(l, r, be.shape(ret))
             ret = be.view(ret, new_shape)
@@ -899,7 +900,7 @@ def warp(x, tfms, tfm_names, backend=None, debug=False):
         else:
             assert False, f'Invalid transform symbol {sym}'
         if debug:
-            print(f'after transform, shape is: {be.shape(ret)}')
+            None
     return ret
 
 

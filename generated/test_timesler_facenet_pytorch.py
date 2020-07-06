@@ -15,15 +15,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -49,7 +50,25 @@ from torchvision.transforms import functional as F
 from torchvision.ops.boxes import batched_nms
 
 
+import tensorflow as tf
+
+
 import time
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import RandomSampler
+
+
+from time import time
 
 
 class BasicConv2d(nn.Module):
@@ -195,7 +214,7 @@ def load_weights(mdl, name):
     for i, path in enumerate([features_path, logits_path]):
         cached_file = os.path.join(model_dir, '{}_{}.pt'.format(name, path[-10:]))
         if not os.path.exists(cached_file):
-            print('Downloading parameters ({}/2)'.format(i + 1))
+            None
             s = requests.Session()
             s.mount('https://', HTTPAdapter(max_retries=10))
             r = s.get(path, allow_redirects=True)
@@ -474,7 +493,7 @@ def batched_nms_numpy(boxes, scores, idxs, threshold, method):
     if boxes.numel() == 0:
         return torch.empty((0,), dtype=torch.int64, device=device)
     max_coordinate = boxes.max()
-    offsets = idxs.to(boxes) * (max_coordinate + 1)
+    offsets = idxs * (max_coordinate + 1)
     boxes_for_nms = boxes + offsets[:, (None)]
     boxes_for_nms = boxes_for_nms.cpu().numpy()
     scores = scores.cpu().numpy()

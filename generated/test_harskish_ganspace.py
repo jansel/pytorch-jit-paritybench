@@ -19,7 +19,6 @@ model = _module
 stylegan2 = _module
 wrappers = _module
 netdissect = _module
-__main__ = _module
 aceoptimize = _module
 aceplotablate = _module
 acesummarize = _module
@@ -73,26 +72,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+import time
 
 
 import torch
 
 
-import numpy as np
+from torch.autograd import Variable
+
+
+import re
 
 
 from types import SimpleNamespace
+
+
+from scipy.cluster.vq import kmeans
 
 
 from torch.nn.functional import interpolate
@@ -122,9 +134,6 @@ import math
 from collections import OrderedDict
 
 
-import re
-
-
 import random
 
 
@@ -134,13 +143,25 @@ from abc import abstractmethod
 from abc import ABC as AbstractBaseClass
 
 
+import numbers
+
+
 import numpy
+
+
+from torchvision import transforms
 
 
 from torch.utils.data import TensorDataset
 
 
 from scipy.ndimage.morphology import binary_dilation
+
+
+from torchvision.datasets.folder import default_loader
+
+
+from scipy import ndimage
 
 
 import types
@@ -152,16 +173,34 @@ import torchvision
 from collections import defaultdict
 
 
-import numbers
-
-
-from torchvision import transforms
+import torch.utils.data as data
 
 
 import itertools
 
 
+from torch.utils.data.sampler import Sampler
+
+
+from torchvision.transforms.functional import to_tensor
+
+
+from torchvision.transforms.functional import normalize
+
+
 from torch.utils.data import DataLoader
+
+
+from collections.abc import MutableMapping
+
+
+from collections.abc import Mapping
+
+
+from scipy.io import savemat
+
+
+import torch.autograd as ag
 
 
 def snconv2d(eps=1e-12, **kwargs):
@@ -330,235 +369,165 @@ class Generator(nn.Module):
         return z
 
 
-class BigGANConfig(object):
-    """ Configuration class to store the configuration of a `BigGAN`. 
-        Defaults are for the 128x128 model.
-        layers tuple are (up-sample in the layer ?, input channels, output channels)
-    """
+class BaseModel(AbstractBaseClass, torch.nn.Module):
 
-    def __init__(self, output_dim=128, z_dim=128, class_embed_dim=128, channel_width=128, num_classes=1000, layers=[(False, 16, 16), (True, 16, 16), (False, 16, 16), (True, 16, 8), (False, 8, 8), (True, 8, 4), (False, 4, 4), (True, 4, 2), (False, 2, 2), (True, 2, 1)], attention_layer_position=8, eps=0.0001, n_stats=51):
-        """Constructs BigGANConfig. """
-        self.output_dim = output_dim
-        self.z_dim = z_dim
-        self.class_embed_dim = class_embed_dim
-        self.channel_width = channel_width
-        self.num_classes = num_classes
-        self.layers = layers
-        self.attention_layer_position = attention_layer_position
-        self.eps = eps
-        self.n_stats = n_stats
+    def __init__(self, model_name, class_name):
+        super(BaseModel, self).__init__()
+        self.model_name = model_name
+        self.outclass = class_name
 
-    @classmethod
-    def from_dict(cls, json_object):
-        """Constructs a `BigGANConfig` from a Python dictionary of parameters."""
-        config = BigGANConfig()
-        for key, value in json_object.items():
-            config.__dict__[key] = value
-        return config
+    @abstractmethod
+    def partial_forward(self, x, layer_name):
+        pass
 
-    @classmethod
-    def from_json_file(cls, json_file):
-        """Constructs a `BigGANConfig` from a json file of parameters."""
-        with open(json_file, 'r', encoding='utf-8') as reader:
-            text = reader.read()
-        return cls.from_dict(json.loads(text))
+    @abstractmethod
+    def sample_latent(self, n_samples=1, seed=None, truncation=None):
+        pass
 
-    def __repr__(self):
-        return str(self.to_json_string())
+    def get_max_latents(self):
+        return 1
 
-    def to_dict(self):
-        """Serializes this instance to a Python dictionary."""
-        output = copy.deepcopy(self.__dict__)
-        return output
+    def latent_space_name(self):
+        return 'Z'
 
-    def to_json_string(self):
-        """Serializes this instance to a JSON string."""
-        return json.dumps(self.to_dict(), indent=2, sort_keys=True) + '\n'
+    def get_latent_shape(self):
+        return tuple(self.sample_latent(1).shape)
 
+    def get_latent_dims(self):
+        return np.prod(self.get_latent_shape())
 
-CONFIG_NAME = 'config.json'
+    def set_output_class(self, new_class):
+        self.outclass = new_class
 
+    def forward(self, x):
+        out = self.model.forward(x)
+        return 0.5 * (out + 1)
 
-PRETRAINED_CONFIG_ARCHIVE_MAP = {'biggan-deep-128': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-config.json', 'biggan-deep-256': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-256-config.json', 'biggan-deep-512': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-512-config.json'}
+    def sample_np(self, z=None, n_samples=1, seed=None):
+        if z is None:
+            z = self.sample_latent(n_samples, seed=seed)
+        elif isinstance(z, list):
+            z = [(torch.tensor(l) if not torch.is_tensor(l) else l) for l in z]
+        elif not torch.is_tensor(z):
+            z = torch.tensor(z)
+        img = self.forward(z)
+        img_np = img.permute(0, 2, 3, 1).cpu().detach().numpy()
+        return np.clip(img_np, 0.0, 1.0).squeeze()
 
+    def get_conditional_state(self, z):
+        return None
 
-PRETRAINED_MODEL_ARCHIVE_MAP = {'biggan-deep-128': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-128-pytorch_model.bin', 'biggan-deep-256': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-256-pytorch_model.bin', 'biggan-deep-512': 'https://s3.amazonaws.com/models.huggingface.co/biggan/biggan-deep-512-pytorch_model.bin'}
-
-
-WEIGHTS_NAME = 'pytorch_model.bin'
-
-
-def http_get(url, temp_file):
-    req = requests.get(url, stream=True)
-    content_length = req.headers.get('Content-Length')
-    total = int(content_length) if content_length is not None else None
-    progress = tqdm(unit='B', total=total)
-    for chunk in req.iter_content(chunk_size=1024):
-        if chunk:
-            progress.update(len(chunk))
-            temp_file.write(chunk)
-    progress.close()
-
-
-logger = logging.getLogger(__name__)
-
-
-def s3_request(func):
-    """
-    Wrapper function for s3 requests in order to create more helpful error
-    messages.
-    """
-
-    @wraps(func)
-    def wrapper(url, *args, **kwargs):
-        try:
-            return func(url, *args, **kwargs)
-        except ClientError as exc:
-            if int(exc.response['Error']['Code']) == 404:
-                raise EnvironmentError('file {} not found'.format(url))
-            else:
-                raise
-    return wrapper
-
-
-def split_s3_path(url):
-    """Split a full s3 path into the bucket name and path."""
-    parsed = urlparse(url)
-    if not parsed.netloc or not parsed.path:
-        raise ValueError('bad s3 path {}'.format(url))
-    bucket_name = parsed.netloc
-    s3_path = parsed.path
-    if s3_path.startswith('/'):
-        s3_path = s3_path[1:]
-    return bucket_name, s3_path
-
-
-def url_to_filename(url, etag=None):
-    """
-    Convert `url` into a hashed filename in a repeatable way.
-    If `etag` is specified, append its hash to the url's, delimited
-    by a period.
-    """
-    url_bytes = url.encode('utf-8')
-    url_hash = sha256(url_bytes)
-    filename = url_hash.hexdigest()
-    if etag:
-        etag_bytes = etag.encode('utf-8')
-        etag_hash = sha256(etag_bytes)
-        filename += '.' + etag_hash.hexdigest()
-    return filename
-
-
-def get_from_cache(url, cache_dir=None):
-    """
-    Given a URL, look for the corresponding dataset in the local cache.
-    If it's not there, download it. Then return the path to the cached file.
-    """
-    if cache_dir is None:
-        cache_dir = PYTORCH_PRETRAINED_BIGGAN_CACHE
-    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
-        cache_dir = str(cache_dir)
-    if not os.path.exists(cache_dir):
-        os.makedirs(cache_dir)
-    if url.startswith('s3://'):
-        etag = s3_etag(url)
-    else:
-        response = requests.head(url, allow_redirects=True)
-        if response.status_code != 200:
-            raise IOError('HEAD request failed for url {} with status code {}'.format(url, response.status_code))
-        etag = response.headers.get('ETag')
-    filename = url_to_filename(url, etag)
-    cache_path = os.path.join(cache_dir, filename)
-    if not os.path.exists(cache_path):
-        with tempfile.NamedTemporaryFile() as temp_file:
-            logger.info('%s not found in cache, downloading to %s', url, temp_file.name)
-            if url.startswith('s3://'):
-                s3_get(url, temp_file)
-            else:
-                http_get(url, temp_file)
-            temp_file.flush()
-            temp_file.seek(0)
-            logger.info('copying %s to cache at %s', temp_file.name, cache_path)
-            with open(cache_path, 'wb') as cache_file:
-                shutil.copyfileobj(temp_file, cache_file)
-            logger.info('creating metadata file for %s', cache_path)
-            meta = {'url': url, 'etag': etag}
-            meta_path = cache_path + '.json'
-            with open(meta_path, 'w', encoding='utf-8') as meta_file:
-                json.dump(meta, meta_file)
-            logger.info('removing temp file %s', temp_file.name)
-    return cache_path
-
-
-def cached_path(url_or_filename, cache_dir=None):
-    """
-    Given something that might be a URL (or might be a local path),
-    determine which. If it's a URL, download the file and cache it, and
-    return the path to the cached file. If it's already a local path,
-    make sure the file exists and then return the path.
-    """
-    if cache_dir is None:
-        cache_dir = PYTORCH_PRETRAINED_BIGGAN_CACHE
-    if sys.version_info[0] == 3 and isinstance(url_or_filename, Path):
-        url_or_filename = str(url_or_filename)
-    if sys.version_info[0] == 3 and isinstance(cache_dir, Path):
-        cache_dir = str(cache_dir)
-    parsed = urlparse(url_or_filename)
-    if parsed.scheme in ('http', 'https', 's3'):
-        return get_from_cache(url_or_filename, cache_dir)
-    elif os.path.exists(url_or_filename):
-        return url_or_filename
-    elif parsed.scheme == '':
-        raise EnvironmentError('file {} not found'.format(url_or_filename))
-    else:
-        raise ValueError('unable to parse {} as a URL or as a local path'.format(url_or_filename))
-
-
-class BigGAN(nn.Module):
-    """BigGAN Generator."""
-
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None, *inputs, **kwargs):
-        if pretrained_model_name_or_path in PRETRAINED_MODEL_ARCHIVE_MAP:
-            model_file = PRETRAINED_MODEL_ARCHIVE_MAP[pretrained_model_name_or_path]
-            config_file = PRETRAINED_CONFIG_ARCHIVE_MAP[pretrained_model_name_or_path]
-        else:
-            model_file = os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)
-            config_file = os.path.join(pretrained_model_name_or_path, CONFIG_NAME)
-        try:
-            resolved_model_file = cached_path(model_file, cache_dir=cache_dir)
-            resolved_config_file = cached_path(config_file, cache_dir=cache_dir)
-        except EnvironmentError:
-            logger.error('Wrong model name, should be a valid path to a folder containing a {} file and a {} file or a model name in {}'.format(WEIGHTS_NAME, CONFIG_NAME, PRETRAINED_MODEL_ARCHIVE_MAP.keys()))
-            raise
-        logger.info('loading model {} from cache at {}'.format(pretrained_model_name_or_path, resolved_model_file))
-        config = BigGANConfig.from_json_file(resolved_config_file)
-        logger.info('Model config {}'.format(config))
-        model = cls(config, *inputs, **kwargs)
-        state_dict = torch.load(resolved_model_file, map_location='cpu' if not torch.is_available() else None)
-        model.load_state_dict(state_dict, strict=False)
-        return model
-
-    def __init__(self, config):
-        super(BigGAN, self).__init__()
-        self.config = config
-        self.embeddings = nn.Linear(config.num_classes, config.z_dim, bias=False)
-        self.generator = Generator(config)
-        self.n_latents = len(config.layers) + 1
-
-    def forward(self, z, class_label, truncation):
-        assert 0 < truncation <= 1
-        if not isinstance(z, list):
-            z = self.n_latents * [z]
-        if isinstance(class_label, list):
-            embed = [self.embeddings(l) for l in class_label]
-        else:
-            embed = self.n_latents * [self.embeddings(class_label)]
-        assert len(z) == self.n_latents, f'Expected {self.n_latents} latents, got {len(z)}'
-        assert len(embed) == self.n_latents, f'Expected {self.n_latents} class vectors, got {len(class_label)}'
-        cond_vectors = [torch.cat((z, e), dim=1) for z, e in zip(z, embed)]
-        z = self.generator(cond_vectors, truncation)
+    def set_conditional_state(self, z, c):
         return z
+
+    def named_modules(self, *args, **kwargs):
+        return self.model.named_modules(*args, **kwargs)
+
+
+class BigGAN(BaseModel):
+
+    def __init__(self, device, resolution, class_name, truncation=1.0):
+        super(BigGAN, self).__init__(f'BigGAN-{resolution}', class_name)
+        self.device = device
+        self.truncation = truncation
+        self.load_model(f'biggan-deep-{resolution}')
+        self.set_output_class(class_name or 'husky')
+        self.name = f'BigGAN-{resolution}-{self.outclass}-t{self.truncation}'
+        self.has_latent_residual = True
+
+    def load_model(self, name):
+        if name not in biggan.model.PRETRAINED_MODEL_ARCHIVE_MAP:
+            raise RuntimeError('Unknown BigGAN model name', name)
+        checkpoint_root = os.environ.get('GANCONTROL_CHECKPOINT_DIR', Path(__file__).parent / 'checkpoints')
+        model_path = Path(checkpoint_root) / name
+        os.makedirs(model_path, exist_ok=True)
+        model_file = model_path / biggan.model.WEIGHTS_NAME
+        config_file = model_path / biggan.model.CONFIG_NAME
+        model_url = biggan.model.PRETRAINED_MODEL_ARCHIVE_MAP[name]
+        config_url = biggan.model.PRETRAINED_CONFIG_ARCHIVE_MAP[name]
+        for filename, url in ((model_file, model_url), (config_file, config_url)):
+            if not filename.is_file():
+                None
+                with open(filename, 'wb') as f:
+                    if url.startswith('s3://'):
+                        biggan.s3_get(url, f)
+                    else:
+                        biggan.http_get(url, f)
+        self.model = biggan.BigGAN.from_pretrained(model_path)
+
+    def sample_latent(self, n_samples=1, truncation=None, seed=None):
+        if seed is None:
+            seed = np.random.randint(np.iinfo(np.int32).max)
+        noise_vector = biggan.truncated_noise_sample(truncation=truncation or self.truncation, batch_size=n_samples, seed=seed)
+        noise = torch.from_numpy(noise_vector)
+        return noise
+
+    def get_max_latents(self):
+        return len(self.model.config.layers) + 1
+
+    def get_conditional_state(self, z):
+        return self.v_class
+
+    def set_conditional_state(self, z, c):
+        self.v_class = c
+
+    def is_valid_class(self, class_id):
+        if isinstance(class_id, int):
+            return class_id < 1000
+        elif isinstance(class_id, str):
+            return biggan.one_hot_from_names([class_id.replace(' ', '_')]) is not None
+        else:
+            raise RuntimeError(f'Unknown class identifier {class_id}')
+
+    def set_output_class(self, class_id):
+        if isinstance(class_id, int):
+            self.v_class = torch.from_numpy(biggan.one_hot_from_int([class_id]))
+            self.outclass = f'class{class_id}'
+        elif isinstance(class_id, str):
+            self.outclass = class_id.replace(' ', '_')
+            self.v_class = torch.from_numpy(biggan.one_hot_from_names([class_id]))
+        else:
+            raise RuntimeError(f'Unknown class identifier {class_id}')
+
+    def forward(self, x):
+        if isinstance(x, list):
+            c = self.v_class.repeat(x[0].shape[0], 1)
+            class_vector = len(x) * [c]
+        else:
+            class_vector = self.v_class.repeat(x.shape[0], 1)
+        out = self.model.forward(x, class_vector, self.truncation)
+        return 0.5 * (out + 1)
+
+    def partial_forward(self, x, layer_name):
+        if layer_name in ['embeddings', 'generator.gen_z']:
+            n_layers = 0
+        elif 'generator.layers' in layer_name:
+            layer_base = re.match('^generator\\.layers\\.[0-9]+', layer_name)[0]
+            n_layers = int(layer_base.split('.')[-1]) + 1
+        else:
+            n_layers = len(self.model.config.layers)
+        if not isinstance(x, list):
+            x = self.model.n_latents * [x]
+        if isinstance(self.v_class, list):
+            labels = [c.repeat(x[0].shape[0], 1) for c in class_label]
+            embed = [self.model.embeddings(l) for l in labels]
+        else:
+            class_label = self.v_class.repeat(x[0].shape[0], 1)
+            embed = len(x) * [self.model.embeddings(class_label)]
+        assert len(x) == self.model.n_latents, f'Expected {self.model.n_latents} latents, got {len(x)}'
+        assert len(embed) == self.model.n_latents, f'Expected {self.model.n_latents} class vectors, got {len(class_label)}'
+        cond_vectors = [torch.cat((z, e), dim=1) for z, e in zip(x, embed)]
+        z = self.model.generator.gen_z(cond_vectors[0])
+        z = z.view(-1, 4, 4, 16 * self.model.generator.config.channel_width)
+        z = z.permute(0, 3, 1, 2).contiguous()
+        cond_idx = 1
+        for i, layer in enumerate(self.model.generator.layers[:n_layers]):
+            if isinstance(layer, biggan.GenBlock):
+                z = layer(z, cond_vectors[cond_idx], self.truncation)
+                cond_idx += 1
+            else:
+                z = layer(z)
+        return None
 
 
 class MyLinear(nn.Module):
@@ -585,6 +554,29 @@ class MyLinear(nn.Module):
         if bias is not None:
             bias = bias * self.b_mul
         return F.linear(x, self.weight * self.w_mul, bias)
+
+
+def upscale2d(x, factor=2, gain=1):
+    assert x.dim() == 4
+    if gain != 1:
+        x = x * gain
+    if factor != 1:
+        shape = x.shape
+        x = x.view(shape[0], shape[1], shape[2], 1, shape[3], 1).expand(-1, -1, -1, factor, -1, factor)
+        x = x.contiguous().view(shape[0], shape[1], factor * shape[2], factor * shape[3])
+    return x
+
+
+class Upscale2d(nn.Module):
+
+    def __init__(self, factor=2, gain=1):
+        super().__init__()
+        assert isinstance(factor, int) and factor >= 1
+        self.gain = gain
+        self.factor = factor
+
+    def forward(self, x):
+        return upscale2d(x, factor=self.factor, gain=self.gain)
 
 
 class MyConv2d(nn.Module):
@@ -670,12 +662,11 @@ class StyleMod(nn.Module):
 
 class PixelNormLayer(nn.Module):
 
-    def __init__(self, epsilon=1e-08):
-        super().__init__()
-        self.epsilon = epsilon
+    def __init__(self):
+        super(PixelNormLayer, self).__init__()
 
     def forward(self, x):
-        return x * torch.rsqrt(torch.mean(x ** 2, dim=1, keepdim=True) + self.epsilon)
+        return x / torch.sqrt(torch.mean(x ** 2, dim=1, keepdim=True) + 1e-08)
 
 
 class BlurLayer(nn.Module):
@@ -697,29 +688,6 @@ class BlurLayer(nn.Module):
         kernel = self.kernel.expand(x.size(1), -1, -1, -1)
         x = F.conv2d(x, kernel, stride=self.stride, padding=int((self.kernel.size(2) - 1) / 2), groups=x.size(1))
         return x
-
-
-def upscale2d(x, factor=2, gain=1):
-    assert x.dim() == 4
-    if gain != 1:
-        x = x * gain
-    if factor != 1:
-        shape = x.shape
-        x = x.view(shape[0], shape[1], shape[2], 1, shape[3], 1).expand(-1, -1, -1, factor, -1, factor)
-        x = x.contiguous().view(shape[0], shape[1], factor * shape[2], factor * shape[3])
-    return x
-
-
-class Upscale2d(nn.Module):
-
-    def __init__(self, factor=2, gain=1):
-        super().__init__()
-        assert isinstance(factor, int) and factor >= 1
-        self.gain = gain
-        self.factor = factor
-
-    def forward(self, x):
-        return upscale2d(x, factor=self.factor, gain=self.gain)
 
 
 class G_mapping(nn.Sequential):
@@ -934,59 +902,345 @@ class StyleGAN_G(nn.Sequential):
         torch.save(self.state_dict(), Path(pickle_path).with_suffix('.pt'))
 
 
-class BaseModel(AbstractBaseClass, torch.nn.Module):
+def download_manual(url, output_name):
+    outpath = Path(output_name).resolve()
+    while not outpath.is_file():
+        None
+        None
+        input('Press any key to continue...')
 
-    def __init__(self, model_name, class_name):
-        super(BaseModel, self).__init__()
-        self.model_name = model_name
-        self.outclass = class_name
 
-    @abstractmethod
-    def partial_forward(self, x, layer_name):
-        pass
+def download_generic(url, output_name):
+    None
+    session = requests.Session()
+    r = session.get(url, allow_redirects=True)
+    r.raise_for_status()
+    if r.encoding is None:
+        with open(output_name, 'wb') as f:
+            f.write(r.content)
+    else:
+        download_manual(url, output_name)
 
-    @abstractmethod
-    def sample_latent(self, n_samples=1, seed=None, truncation=None):
-        pass
 
-    def get_max_latents(self):
-        return 1
+def download_google_drive(url, output_name):
+    None
+    session = requests.Session()
+    r = session.get(url, allow_redirects=True)
+    r.raise_for_status()
+    if r.encoding is not None:
+        tokens = re.search('(confirm=.+)&amp;id', str(r.content))
+        assert tokens is not None, 'Could not extract token from response'
+        url = url.replace('id=', f'{tokens[1]}&id=')
+        r = session.get(url, allow_redirects=True)
+        r.raise_for_status()
+    assert r.encoding is None, f'Failed to download weight file from {url}'
+    with open(output_name, 'wb') as f:
+        f.write(r.content)
+
+
+def download_ckpt(url, output_name):
+    if 'drive.google' in url:
+        download_google_drive(url, output_name)
+    elif 'mega.nz' in url:
+        download_manual(url, output_name)
+    else:
+        download_generic(url, output_name)
+
+
+class StyleGAN2(BaseModel):
+
+    def __init__(self, device, class_name, truncation=1.0, use_w=False):
+        super(StyleGAN2, self).__init__('StyleGAN2', class_name or 'ffhq')
+        self.device = device
+        self.truncation = truncation
+        self.latent_avg = None
+        self.w_primary = use_w
+        configs = {'ffhq': 1024, 'car': 512, 'cat': 256, 'church': 256, 'horse': 256, 'bedrooms': 256, 'kitchen': 256, 'places': 256}
+        assert self.outclass in configs, f"Invalid StyleGAN2 class {self.outclass}, should be one of [{', '.join(configs.keys())}]"
+        self.resolution = configs[self.outclass]
+        self.name = f'StyleGAN2-{self.outclass}'
+        self.has_latent_residual = True
+        self.load_model()
+        self.set_noise_seed(0)
 
     def latent_space_name(self):
-        return 'Z'
+        return 'W' if self.w_primary else 'Z'
 
-    def get_latent_shape(self):
-        return tuple(self.sample_latent(1).shape)
+    def use_w(self):
+        self.w_primary = True
 
-    def get_latent_dims(self):
-        return np.prod(self.get_latent_shape())
+    def use_z(self):
+        self.w_primary = False
 
-    def set_output_class(self, new_class):
-        self.outclass = new_class
+    def download_checkpoint(self, outfile):
+        checkpoints = {'horse': 'https://drive.google.com/uc?export=download&id=18SkqWAkgt0fIwDEf2pqeaenNi4OoCo-0', 'ffhq': 'https://drive.google.com/uc?export=download&id=1FJRwzAkV-XWbxgTwxEmEACvuqF5DsBiV', 'church': 'https://drive.google.com/uc?export=download&id=1HFM694112b_im01JT7wop0faftw9ty5g', 'car': 'https://drive.google.com/uc?export=download&id=1iRoWclWVbDBAy5iXYZrQnKYSbZUqXI6y', 'cat': 'https://drive.google.com/uc?export=download&id=15vJP8GDr0FlRYpE8gD7CdeEz2mXrQMgN', 'places': 'https://drive.google.com/uc?export=download&id=1X8-wIH3aYKjgDZt4KMOtQzN1m4AlCVhm', 'bedrooms': 'https://drive.google.com/uc?export=download&id=1nZTW7mjazs-qPhkmbsOLLA_6qws-eNQu', 'kitchen': 'https://drive.google.com/uc?export=download&id=15dCpnZ1YLAnETAPB0FGmXwdBclbwMEkZ'}
+        url = checkpoints[self.outclass]
+        download_ckpt(url, outfile)
 
-    def forward(self, x):
-        out = self.model.forward(x)
-        return 0.5 * (out + 1)
+    def load_model(self):
+        checkpoint_root = os.environ.get('GANCONTROL_CHECKPOINT_DIR', Path(__file__).parent / 'checkpoints')
+        checkpoint = Path(checkpoint_root) / f'stylegan2/stylegan2_{self.outclass}_{self.resolution}.pt'
+        self.model = stylegan2.Generator(self.resolution, 512, 8)
+        if not checkpoint.is_file():
+            os.makedirs(checkpoint.parent, exist_ok=True)
+            self.download_checkpoint(checkpoint)
+        ckpt = torch.load(checkpoint)
+        self.model.load_state_dict(ckpt['g_ema'], strict=False)
+        self.latent_avg = ckpt['latent_avg']
 
-    def sample_np(self, z=None, n_samples=1, seed=None):
-        if z is None:
-            z = self.sample_latent(n_samples, seed=seed)
-        elif isinstance(z, list):
-            z = [(torch.tensor(l) if not torch.is_tensor(l) else l) for l in z]
-        elif not torch.is_tensor(z):
-            z = torch.tensor(z)
-        img = self.forward(z)
-        img_np = img.permute(0, 2, 3, 1).cpu().detach().numpy()
-        return np.clip(img_np, 0.0, 1.0).squeeze()
-
-    def get_conditional_state(self, z):
-        return None
-
-    def set_conditional_state(self, z, c):
+    def sample_latent(self, n_samples=1, seed=None, truncation=None):
+        if seed is None:
+            seed = np.random.randint(np.iinfo(np.int32).max)
+        rng = np.random.RandomState(seed)
+        z = torch.from_numpy(rng.standard_normal(512 * n_samples).reshape(n_samples, 512)).float()
+        if self.w_primary:
+            z = self.model.style(z)
         return z
 
-    def named_modules(self, *args, **kwargs):
-        return self.model.named_modules(*args, **kwargs)
+    def get_max_latents(self):
+        return self.model.n_latent
+
+    def set_output_class(self, new_class):
+        if self.outclass != new_class:
+            raise RuntimeError('StyleGAN2: cannot change output class without reloading')
+
+    def forward(self, x):
+        x = x if isinstance(x, list) else [x]
+        out, _ = self.model(x, noise=self.noise, truncation=self.truncation, truncation_latent=self.latent_avg, input_is_w=self.w_primary)
+        return 0.5 * (out + 1)
+
+    def partial_forward(self, x, layer_name):
+        styles = x if isinstance(x, list) else [x]
+        inject_index = None
+        noise = self.noise
+        if not self.w_primary:
+            styles = [self.model.style(s) for s in styles]
+        if len(styles) == 1:
+            inject_index = self.model.n_latent
+            latent = self.model.strided_style(styles[0].unsqueeze(1).repeat(1, inject_index, 1))
+        elif len(styles) == 2:
+            if inject_index is None:
+                inject_index = random.randint(1, self.model.n_latent - 1)
+            latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
+            latent2 = styles[1].unsqueeze(1).repeat(1, self.model.n_latent - inject_index, 1)
+            latent = self.model.strided_style(torch.cat([latent, latent2], 1))
+        else:
+            assert len(styles) == self.model.n_latent, f'Expected {self.model.n_latents} latents, got {len(styles)}'
+            styles = torch.stack(styles, dim=1)
+            latent = self.model.strided_style(styles)
+        if 'style' in layer_name:
+            return
+        out = self.model.input(latent)
+        if 'input' == layer_name:
+            return
+        out = self.model.conv1(out, latent[:, (0)], noise=noise[0])
+        if 'conv1' in layer_name:
+            return
+        skip = self.model.to_rgb1(out, latent[:, (1)])
+        if 'to_rgb1' in layer_name:
+            return
+        i = 1
+        noise_i = 1
+        for conv1, conv2, to_rgb in zip(self.model.convs[::2], self.model.convs[1::2], self.model.to_rgbs):
+            out = conv1(out, latent[:, (i)], noise=noise[noise_i])
+            if f'convs.{i - 1}' in layer_name:
+                return
+            out = conv2(out, latent[:, (i + 1)], noise=noise[noise_i + 1])
+            if f'convs.{i}' in layer_name:
+                return
+            skip = to_rgb(out, latent[:, (i + 2)], skip)
+            if f'to_rgbs.{i // 2}' in layer_name:
+                return
+            i += 2
+            noise_i += 2
+        image = skip
+        raise RuntimeError(f'Layer {layer_name} not encountered in partial_forward')
+
+    def set_noise_seed(self, seed):
+        torch.manual_seed(seed)
+        self.noise = [torch.randn(1, 1, 2 ** 2, 2 ** 2, device=self.device)]
+        for i in range(3, self.model.log_size + 1):
+            for _ in range(2):
+                self.noise.append(torch.randn(1, 1, 2 ** i, 2 ** i, device=self.device))
+
+
+class StyleGAN(BaseModel):
+
+    def __init__(self, device, class_name, truncation=1.0, use_w=False):
+        super(StyleGAN, self).__init__('StyleGAN', class_name or 'ffhq')
+        self.device = device
+        self.w_primary = use_w
+        configs = {'ffhq': 1024, 'celebahq': 1024, 'bedrooms': 256, 'cars': 512, 'cats': 256, 'vases': 1024, 'wikiart': 512, 'fireworks': 512, 'abstract': 512, 'anime': 512, 'ukiyo-e': 512}
+        assert self.outclass in configs, f"Invalid StyleGAN class {self.outclass}, should be one of [{', '.join(configs.keys())}]"
+        self.resolution = configs[self.outclass]
+        self.name = f'StyleGAN-{self.outclass}'
+        self.has_latent_residual = True
+        self.load_model()
+        self.set_noise_seed(0)
+
+    def latent_space_name(self):
+        return 'W' if self.w_primary else 'Z'
+
+    def use_w(self):
+        self.w_primary = True
+
+    def use_z(self):
+        self.w_primary = False
+
+    def load_model(self):
+        checkpoint_root = os.environ.get('GANCONTROL_CHECKPOINT_DIR', Path(__file__).parent / 'checkpoints')
+        checkpoint = Path(checkpoint_root) / f'stylegan/stylegan_{self.outclass}_{self.resolution}.pt'
+        self.model = stylegan.StyleGAN_G(self.resolution)
+        urls_tf = {'vases': 'https://thisvesseldoesnotexist.s3-us-west-2.amazonaws.com/public/network-snapshot-008980.pkl', 'fireworks': 'https://mega.nz/#!7uBHnACY!quIW-pjdDa7NqnZOYh1z5UemWwPOW6HkYSoJ4usCg9U', 'abstract': 'https://mega.nz/#!vCQyHQZT!zdeOg3VvT4922Z2UfxO51xgAfJD-NAK2nW7H_jMlilU', 'anime': 'https://mega.nz/#!vawjXISI!F7s13yRicxDA3QYqYDL2kjnc2K7Zk3DwCIYETREmBP4', 'ukiyo-e': 'https://drive.google.com/uc?id=1CHbJlci9NhVFifNQb3vCGu6zw4eqzvTd'}
+        urls_torch = {'celebahq': 'https://drive.google.com/uc?export=download&id=1lGcRwNoXy_uwXkD6sy43aAa-rMHRR7Ad', 'bedrooms': 'https://drive.google.com/uc?export=download&id=1r0_s83-XK2dKlyY3WjNYsfZ5-fnH8QgI', 'ffhq': 'https://drive.google.com/uc?export=download&id=1GcxTcLDPYxQqcQjeHpLUutGzwOlXXcks', 'cars': 'https://drive.google.com/uc?export=download&id=1aaUXHRHjQ9ww91x4mtPZD0w50fsIkXWt', 'cats': 'https://drive.google.com/uc?export=download&id=1JzA5iiS3qPrztVofQAjbb0N4xKdjOOyV', 'wikiart': 'https://drive.google.com/uc?export=download&id=1fN3noa7Rsl9slrDXsgZVDsYFxV0O08Vx'}
+        if not checkpoint.is_file():
+            os.makedirs(checkpoint.parent, exist_ok=True)
+            if self.outclass in urls_torch:
+                download_ckpt(urls_torch[self.outclass], checkpoint)
+            else:
+                checkpoint_tf = checkpoint.with_suffix('.pkl')
+                if not checkpoint_tf.is_file():
+                    download_ckpt(urls_tf[self.outclass], checkpoint_tf)
+                None
+                self.model.export_from_tf(checkpoint_tf)
+        self.model.load_weights(checkpoint)
+
+    def sample_latent(self, n_samples=1, seed=None, truncation=None):
+        if seed is None:
+            seed = np.random.randint(np.iinfo(np.int32).max)
+        rng = np.random.RandomState(seed)
+        noise = torch.from_numpy(rng.standard_normal(512 * n_samples).reshape(n_samples, 512)).float()
+        if self.w_primary:
+            noise = self.model._modules['g_mapping'].forward(noise)
+        return noise
+
+    def get_max_latents(self):
+        return 18
+
+    def set_output_class(self, new_class):
+        if self.outclass != new_class:
+            raise RuntimeError('StyleGAN: cannot change output class without reloading')
+
+    def forward(self, x):
+        out = self.model.forward(x, latent_is_w=self.w_primary)
+        return 0.5 * (out + 1)
+
+    def partial_forward(self, x, layer_name):
+        mapping = self.model._modules['g_mapping']
+        G = self.model._modules['g_synthesis']
+        trunc = self.model._modules.get('truncation', lambda x: x)
+        if not self.w_primary:
+            x = mapping.forward(x)
+        if isinstance(x, list):
+            x = torch.stack(x, dim=1)
+        else:
+            x = x.unsqueeze(1).expand(-1, 18, -1)
+        if 'g_mapping' in layer_name:
+            return
+        x = trunc(x)
+        if layer_name == 'truncation':
+            return
+
+        def iterate(m, name, seen):
+            children = getattr(m, '_modules', [])
+            if len(children) > 0:
+                for child_name, module in children.items():
+                    seen += iterate(module, f'{name}.{child_name}', seen)
+                return seen
+            else:
+                return [name]
+        batch_size = x.size(0)
+        for i, (n, m) in enumerate(G.blocks.items()):
+            if i == 0:
+                r = m(x[:, 2 * i:2 * i + 2])
+            else:
+                r = m(r, x[:, 2 * i:2 * i + 2])
+            children = iterate(m, f'g_synthesis.blocks.{n}', [])
+            for c in children:
+                if layer_name in c:
+                    return
+        raise RuntimeError(f'Layer {layer_name} not encountered in partial_forward')
+
+    def set_noise_seed(self, seed):
+        G = self.model._modules['g_synthesis']
+
+        def for_each_child(this, name, func):
+            children = getattr(this, '_modules', [])
+            for child_name, module in children.items():
+                for_each_child(module, f'{name}.{child_name}', func)
+            func(this, name)
+
+        def modify(m, name):
+            if isinstance(m, stylegan.NoiseLayer):
+                H, W = [int(s) for s in name.split('.')[2].split('x')]
+                torch.random.manual_seed(seed)
+                m.noise = torch.randn(1, 1, H, W, device=self.device, dtype=torch.float32)
+        for_each_child(G, 'g_synthesis', modify)
+
+
+class GANZooModel(BaseModel):
+
+    def __init__(self, device, model_name):
+        super(GANZooModel, self).__init__(model_name, 'default')
+        self.device = device
+        self.base_model = torch.hub.load('facebookresearch/pytorch_GAN_zoo:hub', model_name, pretrained=True, useGPU=device.type == 'cuda')
+        self.model = self.base_model.netG
+        self.name = model_name
+        self.has_latent_residual = False
+
+    def sample_latent(self, n_samples=1, seed=0, truncation=None):
+        noise, _ = self.base_model.buildNoiseData(n_samples)
+        return noise
+
+    def partial_forward(self, x, layer_name):
+        return self.forward(x)
+
+    def get_conditional_state(self, z):
+        return z[:, -20:]
+
+    def set_conditional_state(self, z, c):
+        z[:, -20:] = c
+        return z
+
+    def forward(self, x):
+        out = self.base_model.test(x)
+        return 0.5 * (out + 1)
+
+
+class ProGAN(BaseModel):
+
+    def __init__(self, device, lsun_class=None):
+        super(ProGAN, self).__init__('ProGAN', lsun_class)
+        self.device = device
+        valid_classes = ['bedroom', 'churchoutdoor', 'conferenceroom', 'diningroom', 'kitchen', 'livingroom', 'restaurant']
+        assert self.outclass in valid_classes, f'Invalid LSUN class {self.outclass}, should be one of {valid_classes}'
+        self.load_model()
+        self.name = f'ProGAN-{self.outclass}'
+        self.has_latent_residual = False
+
+    def load_model(self):
+        checkpoint_root = os.environ.get('GANCONTROL_CHECKPOINT_DIR', Path(__file__).parent / 'checkpoints')
+        checkpoint = Path(checkpoint_root) / f'progan/{self.outclass}_lsun.pth'
+        if not checkpoint.is_file():
+            os.makedirs(checkpoint.parent, exist_ok=True)
+            url = f'http://netdissect.csail.mit.edu/data/ganmodel/karras/{self.outclass}_lsun.pth'
+            download_ckpt(url, checkpoint)
+        self.model = proggan.from_pth_file(str(checkpoint.resolve()))
+
+    def sample_latent(self, n_samples=1, seed=None, truncation=None):
+        if seed is None:
+            seed = np.random.randint(np.iinfo(np.int32).max)
+        noise = zdataset.z_sample_for_model(self.model, n_samples, seed=seed)[...]
+        return noise
+
+    def partial_forward(self, x, layer_name):
+        assert isinstance(self.model, torch.nn.Sequential), 'Expected sequential model'
+        x = x.view(x.shape[0], x.shape[1], 1, 1)
+        for name, module in self.model._modules.items():
+            x = module(x)
+            if name == layer_name:
+                return
+        raise RuntimeError(f'Layer {layer_name} not encountered in partial_forward')
 
 
 def make_matching_tensor(valuedict, name, data):
@@ -1002,7 +1256,7 @@ def make_matching_tensor(valuedict, name, data):
         valuedict[name] = v
     if not v.device == data.device or not v.dtype == data.dtype:
         assert not v.requires_grad, '%s wrong device or type' % name
-        v = v.to(device=data.device, dtype=data.dtype)
+        v = v
         valuedict[name] = v
     if len(v.shape) < len(data.shape):
         assert not v.requires_grad, '%s wrong dimensions' % name
@@ -1228,6 +1482,78 @@ class InstrumentedModel(torch.nn.Module):
         assert len(self._old_forward) == 0
 
 
+class WScaleLayer(nn.Module):
+
+    def __init__(self, size, fan_in, gain=numpy.sqrt(2)):
+        super(WScaleLayer, self).__init__()
+        self.scale = gain / numpy.sqrt(fan_in)
+        self.b = nn.Parameter(torch.randn(size))
+        self.size = size
+
+    def forward(self, x):
+        x_size = x.size()
+        x = x * self.scale + self.b.view(1, -1, 1, 1).expand(x_size[0], self.size, x_size[2], x_size[3])
+        return x
+
+
+class NormConvBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, padding):
+        super(NormConvBlock, self).__init__()
+        self.norm = PixelNormLayer()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1, padding, bias=False)
+        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.sqrt(2) / kernel_size)
+        self.relu = nn.LeakyReLU(inplace=True, negative_slope=0.2)
+
+    def forward(self, x):
+        x = self.norm(x)
+        x = self.conv(x)
+        x = self.relu(self.wscale(x))
+        return x
+
+
+class DoubleResolutionLayer(nn.Module):
+
+    def forward(self, x):
+        x = nn.functional.interpolate(x, scale_factor=2, mode='nearest')
+        return x
+
+
+class NormUpscaleConvBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, padding):
+        super(NormUpscaleConvBlock, self).__init__()
+        self.norm = PixelNormLayer()
+        self.up = DoubleResolutionLayer()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1, padding, bias=False)
+        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.sqrt(2) / kernel_size)
+        self.relu = nn.LeakyReLU(inplace=True, negative_slope=0.2)
+
+    def forward(self, x):
+        x = self.norm(x)
+        x = self.up(x)
+        x = self.conv(x)
+        x = self.relu(self.wscale(x))
+        return x
+
+
+class OutputConvBlock(nn.Module):
+
+    def __init__(self, in_channels, tanh=False):
+        super().__init__()
+        self.norm = PixelNormLayer()
+        self.conv = nn.Conv2d(in_channels, 3, kernel_size=1, padding=0, bias=False)
+        self.wscale = WScaleLayer(3, in_channels, gain=1)
+        self.clamp = nn.Hardtanh() if tanh else lambda x: x
+
+    def forward(self, x):
+        x = self.norm(x)
+        x = self.conv(x)
+        x = self.wscale(x)
+        x = self.clamp(x)
+        return x
+
+
 class ProgressiveGenerator(nn.Sequential):
 
     def __init__(self, resolution=None, sizes=None, modify_sequence=None, output_tanh=False):
@@ -1278,99 +1604,106 @@ class ProgressiveGenerator(nn.Sequential):
         return super().forward(x)
 
 
-class PixelNormLayer(nn.Module):
-
-    def __init__(self):
-        super(PixelNormLayer, self).__init__()
-
-    def forward(self, x):
-        return x / torch.sqrt(torch.mean(x ** 2, dim=1, keepdim=True) + 1e-08)
-
-
-class DoubleResolutionLayer(nn.Module):
-
-    def forward(self, x):
-        x = nn.functional.interpolate(x, scale_factor=2, mode='nearest')
-        return x
-
-
-class WScaleLayer(nn.Module):
-
-    def __init__(self, size, fan_in, gain=numpy.sqrt(2)):
-        super(WScaleLayer, self).__init__()
-        self.scale = gain / numpy.sqrt(fan_in)
-        self.b = nn.Parameter(torch.randn(size))
-        self.size = size
-
-    def forward(self, x):
-        x_size = x.size()
-        x = x * self.scale + self.b.view(1, -1, 1, 1).expand(x_size[0], self.size, x_size[2], x_size[3])
-        return x
-
-
-class NormConvBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding):
-        super(NormConvBlock, self).__init__()
-        self.norm = PixelNormLayer()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1, padding, bias=False)
-        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.sqrt(2) / kernel_size)
-        self.relu = nn.LeakyReLU(inplace=True, negative_slope=0.2)
-
-    def forward(self, x):
-        x = self.norm(x)
-        x = self.conv(x)
-        x = self.relu(self.wscale(x))
-        return x
-
-
-class NormUpscaleConvBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding):
-        super(NormUpscaleConvBlock, self).__init__()
-        self.norm = PixelNormLayer()
-        self.up = DoubleResolutionLayer()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, 1, padding, bias=False)
-        self.wscale = WScaleLayer(out_channels, in_channels, gain=numpy.sqrt(2) / kernel_size)
-        self.relu = nn.LeakyReLU(inplace=True, negative_slope=0.2)
-
-    def forward(self, x):
-        x = self.norm(x)
-        x = self.up(x)
-        x = self.conv(x)
-        x = self.relu(self.wscale(x))
-        return x
-
-
-class OutputConvBlock(nn.Module):
-
-    def __init__(self, in_channels, tanh=False):
-        super().__init__()
-        self.norm = PixelNormLayer()
-        self.conv = nn.Conv2d(in_channels, 3, kernel_size=1, padding=0, bias=False)
-        self.wscale = WScaleLayer(3, in_channels, gain=1)
-        self.clamp = nn.Hardtanh() if tanh else lambda x: x
-
-    def forward(self, x):
-        x = self.norm(x)
-        x = self.conv(x)
-        x = self.wscale(x)
-        x = self.clamp(x)
-        return x
-
-
 class SegmentationModuleBase(nn.Module):
 
     def __init__(self):
         super(SegmentationModuleBase, self).__init__()
 
-    def pixel_acc(self, pred, label):
+    @staticmethod
+    def pixel_acc(pred, label, ignore_index=-1):
         _, preds = torch.max(pred, dim=1)
-        valid = (label >= 0).long()
+        valid = (label != ignore_index).long()
         acc_sum = torch.sum(valid * (preds == label).long())
         pixel_sum = torch.sum(valid)
         acc = acc_sum.float() / (pixel_sum.float() + 1e-10)
         return acc
+
+    @staticmethod
+    def part_pixel_acc(pred_part, gt_seg_part, gt_seg_object, object_label, valid):
+        mask_object = gt_seg_object == object_label
+        _, pred = torch.max(pred_part, dim=1)
+        acc_sum = mask_object * (pred == gt_seg_part)
+        acc_sum = torch.sum(acc_sum.view(acc_sum.size(0), -1), dim=1)
+        acc_sum = torch.sum(acc_sum * valid)
+        pixel_sum = torch.sum(mask_object.view(mask_object.size(0), -1), dim=1)
+        pixel_sum = torch.sum(pixel_sum * valid)
+        return acc_sum, pixel_sum
+
+    @staticmethod
+    def part_loss(pred_part, gt_seg_part, gt_seg_object, object_label, valid):
+        mask_object = gt_seg_object == object_label
+        loss = F.nll_loss(pred_part, gt_seg_part * mask_object.long(), reduction='none')
+        loss = loss * mask_object.float()
+        loss = torch.sum(loss.view(loss.size(0), -1), dim=1)
+        nr_pixel = torch.sum(mask_object.view(mask_object.shape[0], -1), dim=1)
+        sum_pixel = (nr_pixel * valid).sum()
+        loss = (loss * valid.float()).sum() / torch.clamp(sum_pixel, 1).float()
+        return loss
+
+
+class SegmentationModule(SegmentationModuleBase):
+
+    def __init__(self, net_enc, net_dec, labeldata, loss_scale=None):
+        super(SegmentationModule, self).__init__()
+        self.encoder = net_enc
+        self.decoder = net_dec
+        self.crit_dict = nn.ModuleDict()
+        if loss_scale is None:
+            self.loss_scale = {'object': 1, 'part': 0.5, 'scene': 0.25, 'material': 1}
+        else:
+            self.loss_scale = loss_scale
+        self.crit_dict['object'] = nn.NLLLoss(ignore_index=0)
+        self.crit_dict['material'] = nn.NLLLoss(ignore_index=0)
+        self.crit_dict['scene'] = nn.NLLLoss(ignore_index=-1)
+        self.labeldata = labeldata
+        object_to_num = {k: v for v, k in enumerate(labeldata['object'])}
+        part_to_num = {k: v for v, k in enumerate(labeldata['part'])}
+        self.object_part = {object_to_num[k]: [part_to_num[p] for p in v] for k, v in labeldata['object_part'].items()}
+        self.object_with_part = sorted(self.object_part.keys())
+        self.decoder.object_part = self.object_part
+        self.decoder.object_with_part = self.object_with_part
+
+    def forward(self, feed_dict, *, seg_size=None):
+        if seg_size is None:
+            if feed_dict['source_idx'] == 0:
+                output_switch = {'object': True, 'part': True, 'scene': True, 'material': False}
+            elif feed_dict['source_idx'] == 1:
+                output_switch = {'object': False, 'part': False, 'scene': False, 'material': True}
+            else:
+                raise ValueError
+            pred = self.decoder(self.encoder(feed_dict['img'], return_feature_maps=True), output_switch=output_switch)
+            loss_dict = {}
+            if pred['object'] is not None:
+                loss_dict['object'] = self.crit_dict['object'](pred['object'], feed_dict['seg_object'])
+            if pred['part'] is not None:
+                part_loss = 0
+                for idx_part, object_label in enumerate(self.object_with_part):
+                    part_loss += self.part_loss(pred['part'][idx_part], feed_dict['seg_part'], feed_dict['seg_object'], object_label, feed_dict['valid_part'][:, (idx_part)])
+                loss_dict['part'] = part_loss
+            if pred['scene'] is not None:
+                loss_dict['scene'] = self.crit_dict['scene'](pred['scene'], feed_dict['scene_label'])
+            if pred['material'] is not None:
+                loss_dict['material'] = self.crit_dict['material'](pred['material'], feed_dict['seg_material'])
+            loss_dict['total'] = sum([(loss_dict[k] * self.loss_scale[k]) for k in loss_dict.keys()])
+            metric_dict = {}
+            if pred['object'] is not None:
+                metric_dict['object'] = self.pixel_acc(pred['object'], feed_dict['seg_object'], ignore_index=0)
+            if pred['material'] is not None:
+                metric_dict['material'] = self.pixel_acc(pred['material'], feed_dict['seg_material'], ignore_index=0)
+            if pred['part'] is not None:
+                acc_sum, pixel_sum = 0, 0
+                for idx_part, object_label in enumerate(self.object_with_part):
+                    acc, pixel = self.part_pixel_acc(pred['part'][idx_part], feed_dict['seg_part'], feed_dict['seg_object'], object_label, feed_dict['valid_part'][:, (idx_part)])
+                    acc_sum += acc
+                    pixel_sum += pixel
+                metric_dict['part'] = acc_sum.float() / (pixel_sum.float() + 1e-10)
+            if pred['scene'] is not None:
+                metric_dict['scene'] = self.pixel_acc(pred['scene'], feed_dict['scene_label'], ignore_index=-1)
+            return {'metric': metric_dict, 'loss': loss_dict}
+        else:
+            output_switch = {'object': True, 'part': True, 'scene': True, 'material': True}
+            pred = self.decoder(self.encoder(feed_dict['img'], return_feature_maps=True), output_switch=output_switch, seg_size=seg_size)
+            return pred
 
 
 class Resnet(nn.Module):
@@ -1594,337 +1927,6 @@ class PPMBilinearDeepsup(nn.Module):
 
 class UPerNet(nn.Module):
 
-    def __init__(self, num_class=150, fc_dim=4096, inference=False, use_softmax=False, pool_scales=(1, 2, 3, 6), fpn_inplanes=(256, 512, 1024, 2048), fpn_dim=256):
-        super(UPerNet, self).__init__()
-        self.use_softmax = use_softmax
-        self.inference = inference
-        self.ppm_pooling = []
-        self.ppm_conv = []
-        for scale in pool_scales:
-            self.ppm_pooling.append(nn.AdaptiveAvgPool2d(scale))
-            self.ppm_conv.append(nn.Sequential(nn.Conv2d(fc_dim, 512, kernel_size=1, bias=False), SynchronizedBatchNorm2d(512), nn.ReLU(inplace=True)))
-        self.ppm_pooling = nn.ModuleList(self.ppm_pooling)
-        self.ppm_conv = nn.ModuleList(self.ppm_conv)
-        self.ppm_last_conv = conv3x3_bn_relu(fc_dim + len(pool_scales) * 512, fpn_dim, 1)
-        self.fpn_in = []
-        for fpn_inplane in fpn_inplanes[:-1]:
-            self.fpn_in.append(nn.Sequential(nn.Conv2d(fpn_inplane, fpn_dim, kernel_size=1, bias=False), SynchronizedBatchNorm2d(fpn_dim), nn.ReLU(inplace=True)))
-        self.fpn_in = nn.ModuleList(self.fpn_in)
-        self.fpn_out = []
-        for i in range(len(fpn_inplanes) - 1):
-            self.fpn_out.append(nn.Sequential(conv3x3_bn_relu(fpn_dim, fpn_dim, 1)))
-        self.fpn_out = nn.ModuleList(self.fpn_out)
-        self.conv_last = nn.Sequential(conv3x3_bn_relu(len(fpn_inplanes) * fpn_dim, fpn_dim, 1), nn.Conv2d(fpn_dim, num_class, kernel_size=1))
-
-    def forward(self, conv_out, segSize=None):
-        conv5 = conv_out[-1]
-        input_size = conv5.size()
-        ppm_out = [conv5]
-        for pool_scale, pool_conv in zip(self.ppm_pooling, self.ppm_conv):
-            ppm_out.append(pool_conv(nn.functional.interploate(pool_scale(conv5), (input_size[2], input_size[3]), mode='bilinear', align_corners=False)))
-        ppm_out = torch.cat(ppm_out, 1)
-        f = self.ppm_last_conv(ppm_out)
-        fpn_feature_list = [f]
-        for i in reversed(range(len(conv_out) - 1)):
-            conv_x = conv_out[i]
-            conv_x = self.fpn_in[i](conv_x)
-            f = nn.functional.interpolate(f, size=conv_x.size()[2:], mode='bilinear', align_corners=False)
-            f = conv_x + f
-            fpn_feature_list.append(self.fpn_out[i](f))
-        fpn_feature_list.reverse()
-        output_size = fpn_feature_list[0].size()[2:]
-        fusion_list = [fpn_feature_list[0]]
-        for i in range(1, len(fpn_feature_list)):
-            fusion_list.append(nn.functional.interpolate(fpn_feature_list[i], output_size, mode='bilinear', align_corners=False))
-        fusion_out = torch.cat(fusion_list, 1)
-        x = self.conv_last(fusion_out)
-        if self.inference or self.use_softmax:
-            x = nn.functional.interpolate(x, size=segSize, mode='bilinear', align_corners=False)
-            if self.use_softmax:
-                x = nn.functional.softmax(x, dim=1)
-            return x
-        x = nn.functional.log_softmax(x, dim=1)
-        return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = SynchronizedBatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = SynchronizedBatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = SynchronizedBatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = SynchronizedBatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = SynchronizedBatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes=1000):
-        self.inplanes = 128
-        super(ResNet, self).__init__()
-        self.conv1 = conv3x3(3, 64, stride=2)
-        self.bn1 = SynchronizedBatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(64, 64)
-        self.bn2 = SynchronizedBatchNorm2d(64)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv3 = conv3x3(64, 128)
-        self.bn3 = SynchronizedBatchNorm2d(128)
-        self.relu3 = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), SynchronizedBatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-
-class GroupBottleneck(nn.Module):
-    expansion = 2
-
-    def __init__(self, inplanes, planes, stride=1, groups=1, downsample=None):
-        super(GroupBottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = SynchronizedBatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, groups=groups, bias=False)
-        self.bn2 = SynchronizedBatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 2, kernel_size=1, bias=False)
-        self.bn3 = SynchronizedBatchNorm2d(planes * 2)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNeXt(nn.Module):
-
-    def __init__(self, block, layers, groups=32, num_classes=1000):
-        self.inplanes = 128
-        super(ResNeXt, self).__init__()
-        self.conv1 = conv3x3(3, 64, stride=2)
-        self.bn1 = SynchronizedBatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(64, 64)
-        self.bn2 = SynchronizedBatchNorm2d(64)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv3 = conv3x3(64, 128)
-        self.bn3 = SynchronizedBatchNorm2d(128)
-        self.relu3 = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 128, layers[0], groups=groups)
-        self.layer2 = self._make_layer(block, 256, layers[1], stride=2, groups=groups)
-        self.layer3 = self._make_layer(block, 512, layers[2], stride=2, groups=groups)
-        self.layer4 = self._make_layer(block, 1024, layers[3], stride=2, groups=groups)
-        self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.fc = nn.Linear(1024 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels // m.groups
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1, groups=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), SynchronizedBatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, groups, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=groups))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-
-class SegmentationModuleBase(nn.Module):
-
-    def __init__(self):
-        super(SegmentationModuleBase, self).__init__()
-
-    @staticmethod
-    def pixel_acc(pred, label, ignore_index=-1):
-        _, preds = torch.max(pred, dim=1)
-        valid = (label != ignore_index).long()
-        acc_sum = torch.sum(valid * (preds == label).long())
-        pixel_sum = torch.sum(valid)
-        acc = acc_sum.float() / (pixel_sum.float() + 1e-10)
-        return acc
-
-    @staticmethod
-    def part_pixel_acc(pred_part, gt_seg_part, gt_seg_object, object_label, valid):
-        mask_object = gt_seg_object == object_label
-        _, pred = torch.max(pred_part, dim=1)
-        acc_sum = mask_object * (pred == gt_seg_part)
-        acc_sum = torch.sum(acc_sum.view(acc_sum.size(0), -1), dim=1)
-        acc_sum = torch.sum(acc_sum * valid)
-        pixel_sum = torch.sum(mask_object.view(mask_object.size(0), -1), dim=1)
-        pixel_sum = torch.sum(pixel_sum * valid)
-        return acc_sum, pixel_sum
-
-    @staticmethod
-    def part_loss(pred_part, gt_seg_part, gt_seg_object, object_label, valid):
-        mask_object = gt_seg_object == object_label
-        loss = F.nll_loss(pred_part, gt_seg_part * mask_object.long(), reduction='none')
-        loss = loss * mask_object.float()
-        loss = torch.sum(loss.view(loss.size(0), -1), dim=1)
-        nr_pixel = torch.sum(mask_object.view(mask_object.shape[0], -1), dim=1)
-        sum_pixel = (nr_pixel * valid).sum()
-        loss = (loss * valid.float()).sum() / torch.clamp(sum_pixel, 1).float()
-        return loss
-
-
-class Resnet(nn.Module):
-
-    def __init__(self, orig_resnet):
-        super(Resnet, self).__init__()
-        self.conv1 = orig_resnet.conv1
-        self.bn1 = orig_resnet.bn1
-        self.relu1 = orig_resnet.relu1
-        self.conv2 = orig_resnet.conv2
-        self.bn2 = orig_resnet.bn2
-        self.relu2 = orig_resnet.relu2
-        self.conv3 = orig_resnet.conv3
-        self.bn3 = orig_resnet.bn3
-        self.relu3 = orig_resnet.relu3
-        self.maxpool = orig_resnet.maxpool
-        self.layer1 = orig_resnet.layer1
-        self.layer2 = orig_resnet.layer2
-        self.layer3 = orig_resnet.layer3
-        self.layer4 = orig_resnet.layer4
-
-    def forward(self, x, return_feature_maps=False):
-        conv_out = []
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        conv_out.append(x)
-        x = self.layer2(x)
-        conv_out.append(x)
-        x = self.layer3(x)
-        conv_out.append(x)
-        x = self.layer4(x)
-        conv_out.append(x)
-        if return_feature_maps:
-            return conv_out
-        return [x]
-
-
-class UPerNet(nn.Module):
-
     def __init__(self, nr_classes, fc_dim=4096, use_softmax=False, pool_scales=(1, 2, 3, 6), fpn_inplanes=(256, 512, 1024, 2048), fpn_dim=256):
         super(UPerNet, self).__init__()
         self.use_softmax = use_softmax
@@ -2030,18 +2032,6 @@ class UPerNet(nn.Module):
         return output_dict
 
 
-class PrRoIPool2D(nn.Module):
-
-    def __init__(self, pooled_height, pooled_width, spatial_scale):
-        super().__init__()
-        self.pooled_height = int(pooled_height)
-        self.pooled_width = int(pooled_width)
-        self.spatial_scale = float(spatial_scale)
-
-    def forward(self, features, rois):
-        return prroi_pool2d(features, rois, self.pooled_height, self.pooled_width, self.spatial_scale)
-
-
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -2241,6 +2231,53 @@ class ResNeXt(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
+
+
+class PrRoIPool2DFunction(ag.Function):
+
+    @staticmethod
+    def forward(ctx, features, rois, pooled_height, pooled_width, spatial_scale):
+        assert 'FloatTensor' in features.type() and 'FloatTensor' in rois.type(), 'Precise RoI Pooling only takes float input, got {} for features and {} for rois.'.format(features.type(), rois.type())
+        pooled_height = int(pooled_height)
+        pooled_width = int(pooled_width)
+        spatial_scale = float(spatial_scale)
+        features = features.contiguous()
+        rois = rois.contiguous()
+        params = pooled_height, pooled_width, spatial_scale
+        if features.is_cuda:
+            output = _prroi_pooling.prroi_pooling_forward_cuda(features, rois, *params)
+            ctx.params = params
+            ctx.save_for_backward(features, rois, output)
+        else:
+            raise NotImplementedError('Precise RoI Pooling only supports GPU (cuda) implememtations.')
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        features, rois, output = ctx.saved_tensors
+        grad_input = grad_coor = None
+        if features.requires_grad:
+            grad_output = grad_output.contiguous()
+            grad_input = _prroi_pooling.prroi_pooling_backward_cuda(features, rois, output, grad_output, *ctx.params)
+        if rois.requires_grad:
+            grad_output = grad_output.contiguous()
+            grad_coor = _prroi_pooling.prroi_pooling_coor_backward_cuda(features, rois, output, grad_output, *ctx.params)
+        return grad_input, grad_coor, None, None, None
+
+
+prroi_pool2d = PrRoIPool2DFunction.apply
+
+
+class PrRoIPool2D(nn.Module):
+
+    def __init__(self, pooled_height, pooled_width, spatial_scale):
+        super().__init__()
+        self.pooled_height = int(pooled_height)
+        self.pooled_width = int(pooled_width)
+        self.spatial_scale = float(spatial_scale)
+
+    def forward(self, features, rois):
+        return prroi_pool2d(features, rois, self.pooled_height, self.pooled_width, self.spatial_scale)
 
 
 import torch

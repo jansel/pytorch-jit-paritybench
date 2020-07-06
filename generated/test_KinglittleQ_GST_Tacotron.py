@@ -19,20 +19,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
 import torch
+
+
+import re
 
 
 import torch.nn as nn
@@ -44,32 +54,16 @@ import torch.nn.init as init
 import torch.nn.functional as F
 
 
+from scipy.io.wavfile import write
+
+
 import torch.optim as optim
-
-
-from torch.utils.data import DataLoader
 
 
 from torch.nn import DataParallel
 
 
-from scipy.io.wavfile import write
-
-
 from time import time
-
-
-class GST(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.encoder = ReferenceEncoder()
-        self.stl = STL()
-
-    def forward(self, inputs):
-        enc_out = self.encoder(inputs)
-        style_embed = self.stl(enc_out)
-        return style_embed
 
 
 class ReferenceEncoder(nn.Module):
@@ -109,27 +103,6 @@ class ReferenceEncoder(nn.Module):
         return L
 
 
-class STL(nn.Module):
-    """
-    inputs --- [N, E//2]
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.embed = nn.Parameter(torch.FloatTensor(hp.token_num, hp.E // hp.num_heads))
-        d_q = hp.E // 2
-        d_k = hp.E // hp.num_heads
-        self.attention = MultiHeadAttention(query_dim=d_q, key_dim=d_k, num_units=hp.E, num_heads=hp.num_heads)
-        init.normal_(self.embed, mean=0, std=0.5)
-
-    def forward(self, inputs):
-        N = inputs.size(0)
-        query = inputs.unsqueeze(1)
-        keys = F.tanh(self.embed).unsqueeze(0).expand(N, -1, -1)
-        style_embed = self.attention(query, keys)
-        return style_embed
-
-
 class MultiHeadAttention(nn.Module):
     """
     input:
@@ -162,6 +135,40 @@ class MultiHeadAttention(nn.Module):
         out = torch.matmul(scores, values)
         out = torch.cat(torch.split(out, 1, dim=0), dim=3).squeeze(0)
         return out
+
+
+class STL(nn.Module):
+    """
+    inputs --- [N, E//2]
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.embed = nn.Parameter(torch.FloatTensor(hp.token_num, hp.E // hp.num_heads))
+        d_q = hp.E // 2
+        d_k = hp.E // hp.num_heads
+        self.attention = MultiHeadAttention(query_dim=d_q, key_dim=d_k, num_units=hp.E, num_heads=hp.num_heads)
+        init.normal_(self.embed, mean=0, std=0.5)
+
+    def forward(self, inputs):
+        N = inputs.size(0)
+        query = inputs.unsqueeze(1)
+        keys = F.tanh(self.embed).unsqueeze(0).expand(N, -1, -1)
+        style_embed = self.attention(query, keys)
+        return style_embed
+
+
+class GST(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.encoder = ReferenceEncoder()
+        self.stl = STL()
+
+    def forward(self, inputs):
+        enc_out = self.encoder(inputs)
+        style_embed = self.stl(enc_out)
+        return style_embed
 
 
 class MultiHeadAttention2(nn.Module):
@@ -255,6 +262,21 @@ class Highway(nn.Module):
         return out
 
 
+class BatchNorm1d(nn.Module):
+    """
+    inputs: [N, T, C]
+    outputs: [N, T, C]
+    """
+
+    def __init__(self, num_features):
+        super().__init__()
+        self.bn = nn.BatchNorm1d(num_features)
+
+    def forward(self, inputs):
+        out = self.bn(inputs.transpose(1, 2).contiguous())
+        return out.transpose(1, 2)
+
+
 class Conv1dBank(nn.Module):
     """
         inputs: [N, T, C_in]
@@ -279,21 +301,6 @@ class Conv1dBank(nn.Module):
         outputs = self.bn(outputs)
         outputs = F.relu(outputs)
         return outputs
-
-
-class BatchNorm1d(nn.Module):
-    """
-    inputs: [N, T, C]
-    outputs: [N, T, C]
-    """
-
-    def __init__(self, num_features):
-        super().__init__()
-        self.bn = nn.BatchNorm1d(num_features)
-
-    def forward(self, inputs):
-        out = self.bn(inputs.transpose(1, 2).contiguous())
-        return out.transpose(1, 2)
 
 
 class PreNet(nn.Module):
@@ -353,34 +360,6 @@ class AttentionRNN(nn.Module):
         return attn_weights, outputs, hidden
 
 
-class Tacotron(nn.Module):
-    """
-    input:
-        texts: [N, T_x]
-        mels: [N, T_y/r, n_mels*r]
-    output:
-        mels --- [N, T_y/r, n_mels*r]
-        mags --- [N, T_y, 1+n_fft//2]
-        attn_weights --- [N, T_y/r, T_x]
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.embedding = nn.Embedding(len(hp.vocab), hp.E)
-        self.encoder = Encoder()
-        self.decoder = Decoder()
-        self.gst = GST()
-
-    def forward(self, texts, mels, ref_mels):
-        embedded = self.embedding(texts)
-        memory, encoder_hidden = self.encoder(embedded)
-        style_embed = self.gst(ref_mels)
-        style_embed = style_embed.expand_as(memory)
-        memory = memory + style_embed
-        mels_hat, mags_hat, attn_weights = self.decoder(mels, memory)
-        return mels_hat, mags_hat, attn_weights
-
-
 def max_pool1d(inputs, kernel_size, stride=1, padding='same'):
     """
     inputs: [N, T, C]
@@ -399,30 +378,29 @@ def max_pool1d(inputs, kernel_size, stride=1, padding='same'):
     return outputs
 
 
-class Encoder(nn.Module):
+class DecoderCBHG(nn.Module):
     """
     input:
-        inputs: [N, T_x, E]
+        inputs: [N, T/r, n_mels * r]
     output:
-        outputs: [N, T_x, E]
+        outputs: [N, T, E]
         hidden: [2, N, E//2]
     """
 
     def __init__(self):
         super().__init__()
-        self.prenet = PreNet(in_features=hp.E)
-        self.conv1d_bank = Conv1dBank(K=hp.K, in_channels=hp.E // 2, out_channels=hp.E // 2)
-        self.conv1d_1 = Conv1d(in_channels=hp.K * hp.E // 2, out_channels=hp.E // 2, kernel_size=3)
-        self.conv1d_2 = Conv1d(in_channels=hp.E // 2, out_channels=hp.E // 2, kernel_size=3)
-        self.bn1 = BatchNorm1d(num_features=hp.E // 2)
-        self.bn2 = BatchNorm1d(num_features=hp.E // 2)
+        self.conv1d_bank = Conv1dBank(K=hp.decoder_K, in_channels=hp.n_mels, out_channels=hp.E // 2)
+        self.conv1d_1 = Conv1d(in_channels=hp.decoder_K * hp.E // 2, out_channels=hp.E, kernel_size=3)
+        self.bn1 = BatchNorm1d(hp.E)
+        self.conv1d_2 = Conv1d(in_channels=hp.E, out_channels=hp.n_mels, kernel_size=3)
+        self.bn2 = BatchNorm1d(hp.n_mels)
         self.highways = nn.ModuleList()
         for i in range(hp.num_highways):
-            self.highways.append(Highway(in_features=hp.E // 2, out_features=hp.E // 2))
-        self.gru = nn.GRU(input_size=hp.E // 2, hidden_size=hp.E // 2, num_layers=2, bidirectional=True, batch_first=True)
+            self.highways.append(Highway(in_features=hp.n_mels, out_features=hp.n_mels))
+        self.gru = nn.GRU(input_size=hp.n_mels, hidden_size=hp.E // 2, num_layers=2, bidirectional=True, batch_first=True)
 
     def forward(self, inputs, prev_hidden=None):
-        inputs = self.prenet(inputs)
+        inputs = inputs.view(inputs.size(0), -1, hp.n_mels)
         outputs = self.conv1d_bank(inputs)
         outputs = max_pool1d(outputs, kernel_size=2)
         outputs = self.conv1d_1(outputs)
@@ -505,29 +483,30 @@ class Decoder(nn.Module):
             return mels, mags, attn_weights
 
 
-class DecoderCBHG(nn.Module):
+class Encoder(nn.Module):
     """
     input:
-        inputs: [N, T/r, n_mels * r]
+        inputs: [N, T_x, E]
     output:
-        outputs: [N, T, E]
+        outputs: [N, T_x, E]
         hidden: [2, N, E//2]
     """
 
     def __init__(self):
         super().__init__()
-        self.conv1d_bank = Conv1dBank(K=hp.decoder_K, in_channels=hp.n_mels, out_channels=hp.E // 2)
-        self.conv1d_1 = Conv1d(in_channels=hp.decoder_K * hp.E // 2, out_channels=hp.E, kernel_size=3)
-        self.bn1 = BatchNorm1d(hp.E)
-        self.conv1d_2 = Conv1d(in_channels=hp.E, out_channels=hp.n_mels, kernel_size=3)
-        self.bn2 = BatchNorm1d(hp.n_mels)
+        self.prenet = PreNet(in_features=hp.E)
+        self.conv1d_bank = Conv1dBank(K=hp.K, in_channels=hp.E // 2, out_channels=hp.E // 2)
+        self.conv1d_1 = Conv1d(in_channels=hp.K * hp.E // 2, out_channels=hp.E // 2, kernel_size=3)
+        self.conv1d_2 = Conv1d(in_channels=hp.E // 2, out_channels=hp.E // 2, kernel_size=3)
+        self.bn1 = BatchNorm1d(num_features=hp.E // 2)
+        self.bn2 = BatchNorm1d(num_features=hp.E // 2)
         self.highways = nn.ModuleList()
         for i in range(hp.num_highways):
-            self.highways.append(Highway(in_features=hp.n_mels, out_features=hp.n_mels))
-        self.gru = nn.GRU(input_size=hp.n_mels, hidden_size=hp.E // 2, num_layers=2, bidirectional=True, batch_first=True)
+            self.highways.append(Highway(in_features=hp.E // 2, out_features=hp.E // 2))
+        self.gru = nn.GRU(input_size=hp.E // 2, hidden_size=hp.E // 2, num_layers=2, bidirectional=True, batch_first=True)
 
     def forward(self, inputs, prev_hidden=None):
-        inputs = inputs.view(inputs.size(0), -1, hp.n_mels)
+        inputs = self.prenet(inputs)
         outputs = self.conv1d_bank(inputs)
         outputs = max_pool1d(outputs, kernel_size=2)
         outputs = self.conv1d_1(outputs)
@@ -541,6 +520,34 @@ class DecoderCBHG(nn.Module):
         self.gru.flatten_parameters()
         outputs, hidden = self.gru(outputs, prev_hidden)
         return outputs, hidden
+
+
+class Tacotron(nn.Module):
+    """
+    input:
+        texts: [N, T_x]
+        mels: [N, T_y/r, n_mels*r]
+    output:
+        mels --- [N, T_y/r, n_mels*r]
+        mags --- [N, T_y, 1+n_fft//2]
+        attn_weights --- [N, T_y/r, T_x]
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.embedding = nn.Embedding(len(hp.vocab), hp.E)
+        self.encoder = Encoder()
+        self.decoder = Decoder()
+        self.gst = GST()
+
+    def forward(self, texts, mels, ref_mels):
+        embedded = self.embedding(texts)
+        memory, encoder_hidden = self.encoder(embedded)
+        style_embed = self.gst(ref_mels)
+        style_embed = style_embed.expand_as(memory)
+        memory = memory + style_embed
+        mels_hat, mags_hat, attn_weights = self.decoder(mels, memory)
+        return mels_hat, mags_hat, attn_weights
 
 
 import torch

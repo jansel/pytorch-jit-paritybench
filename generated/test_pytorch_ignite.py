@@ -7,6 +7,7 @@ utils = _module
 benchmark_fp32 = _module
 benchmark_nvidia_apex = _module
 benchmark_torch_cuda_amp = _module
+utils = _module
 mnist_with_neptune_logger = _module
 mnist_with_tensorboard_logger = _module
 mnist_with_tqdm_logger = _module
@@ -16,6 +17,7 @@ mnist_with_wandb_logger = _module
 handlers = _module
 neural_style = _module
 transformer_net = _module
+utils = _module
 vgg = _module
 dcgan = _module
 mnist = _module
@@ -30,13 +32,21 @@ vis = _module
 common_training = _module
 mlflow_training = _module
 plx_training = _module
+handlers = _module
 baseline_resnet50 = _module
 check_baseline_resnet50 = _module
 code = _module
+dataloaders = _module
 datasets = _module
+transforms = _module
+vis = _module
 scripts = _module
+common_training = _module
 download_dataset = _module
+mlflow_training = _module
+plx_training = _module
 trains_training = _module
+handlers = _module
 baseline_resnet101 = _module
 baseline_resnet101_sbd = _module
 actor_critic = _module
@@ -87,11 +97,14 @@ roc_auc = _module
 distributed = _module
 auto = _module
 comp_models = _module
+base = _module
 native = _module
 xla = _module
 launcher = _module
+utils = _module
 engine = _module
 deterministic = _module
+engine = _module
 events = _module
 exceptions = _module
 checkpoint = _module
@@ -115,6 +128,7 @@ recall = _module
 root_mean_squared_error = _module
 running_average = _module
 top_k_categorical_accuracy = _module
+utils = _module
 setup = _module
 tests = _module
 test_mixins = _module
@@ -163,7 +177,9 @@ test_xla = _module
 test_auto = _module
 test_launcher = _module
 test_utils = _module
+engine = _module
 test_create_supervised = _module
+test_custom_events = _module
 test_deterministic = _module
 test_engine = _module
 test_engine_state_dict = _module
@@ -191,20 +207,22 @@ test_recall = _module
 test_root_mean_squared_error = _module
 test_running_average = _module
 test_top_k_categorical_accuracy = _module
+test_utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -230,19 +248,22 @@ from torchvision.models import wide_resnet50_2
 from torch.cuda.amp import GradScaler
 
 
-import torch.nn.functional as F
+import random
 
 
-from torch import nn
-
-
-from torch.utils.data import DataLoader
-
-
-from torchvision.datasets import MNIST
+from torchvision.datasets.cifar import CIFAR100
 
 
 from torchvision.transforms import Compose
+
+
+from torchvision.transforms import RandomCrop
+
+
+from torchvision.transforms import Pad
+
+
+from torchvision.transforms import RandomHorizontalFlip
 
 
 from torchvision.transforms import ToTensor
@@ -251,10 +272,25 @@ from torchvision.transforms import ToTensor
 from torchvision.transforms import Normalize
 
 
+from torchvision.transforms import RandomErasing
+
+
+from torch.utils.data import Subset
+
+
+from torch.utils.data import DataLoader
+
+
+import torch.nn.functional as F
+
+
+from torch import nn
+
+
+from torchvision.datasets import MNIST
+
+
 import numpy as np
-
-
-import random
 
 
 from torch.optim import Adam
@@ -287,16 +323,58 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.tensorboard import SummaryWriter
 
 
+from typing import Callable
+
+
+from typing import Optional
+
+
+from typing import Tuple
+
+
+from typing import Union
+
+
+from torch.utils.data import Sampler
+
+
+from torch.utils.data.dataset import Subset
+
+
+import torch.utils.data.distributed as data_dist
+
+
+from torchvision.datasets import ImageNet
+
+
+from typing import Type
+
+
+import torch.distributed as dist
+
+
 from functools import partial
 
 
 import torch.optim.lr_scheduler as lrs
 
 
-import torch.distributed as dist
-
-
 from torchvision.models.resnet import resnet50
+
+
+from torch.utils.data.dataset import ConcatDataset
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision.datasets.voc import VOCSegmentation
+
+
+from torchvision.datasets.sbd import SBDataset
+
+
+from collections.abc import Mapping
 
 
 from torchvision.models.segmentation import deeplabv3_resnet101
@@ -306,9 +384,6 @@ from torch.distributions import Categorical
 
 
 import numbers
-
-
-from collections.abc import Mapping
 
 
 from collections.abc import Sequence
@@ -329,19 +404,34 @@ from typing import Any
 from typing import Mapping
 
 
-from typing import Optional
+import logging
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+import math
+
+
+from copy import copy
+
+
+from typing import List
 
 
 from torch.optim.optimizer import Optimizer
 
 
-from torch.utils.data import Dataset
-
-
 from torch.utils.data.sampler import Sampler
 
 
-from typing import Callable
+from numbers import Number
+
+
+import torch.multiprocessing as mp
+
+
+from functools import wraps
 
 
 from typing import Dict
@@ -350,10 +440,25 @@ from typing import Dict
 from typing import Sequence
 
 
-from typing import Tuple
+from typing import Generator
 
 
-from typing import Union
+from typing import Iterator
+
+
+from torch.utils.data.sampler import BatchSampler
+
+
+import functools
+
+
+import time
+
+
+from collections import defaultdict
+
+
+from typing import Iterable
 
 
 import collections.abc as collections
@@ -362,10 +467,31 @@ import collections.abc as collections
 from torch.nn.functional import pairwise_distance
 
 
+import itertools
+
+
+import re
+
+
 import copy
 
 
-import math
+from torch.optim.lr_scheduler import ExponentialLR
+
+
+from sklearn.metrics import r2_score
+
+
+from sklearn.metrics import average_precision_score
+
+
+from sklearn.metrics import precision_recall_curve
+
+
+from sklearn.metrics import roc_auc_score
+
+
+from sklearn.metrics import roc_curve
 
 
 from torch.utils.data.sampler import RandomSampler
@@ -380,30 +506,34 @@ from torch.nn import Linear
 from torch.nn.functional import mse_loss
 
 
+from enum import Enum
+
+
+from sklearn.metrics import accuracy_score
+
+
+from sklearn.metrics import confusion_matrix
+
+
+from sklearn.metrics import precision_score
+
+
+from sklearn.metrics import recall_score
+
+
+from sklearn.metrics import fbeta_score
+
+
 from numpy.testing import assert_almost_equal
 
 
 from torch.nn.functional import nll_loss
 
 
-class Net(nn.Module):
+from sklearn.metrics import f1_score
 
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
 
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=-1)
+from sklearn.exceptions import UndefinedMetricWarning
 
 
 class Net(nn.Module):
@@ -424,123 +554,6 @@ class Net(nn.Module):
         x = F.dropout(x, training=self.training)
         x = self.fc2(x)
         return F.log_softmax(x, dim=-1)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=-1)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=-1)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=-1)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=-1)
-
-
-class TransformerNet(torch.nn.Module):
-
-    def __init__(self):
-        super(TransformerNet, self).__init__()
-        self.conv1 = ConvLayer(3, 32, kernel_size=9, stride=1)
-        self.in1 = torch.nn.InstanceNorm2d(32, affine=True)
-        self.conv2 = ConvLayer(32, 64, kernel_size=3, stride=2)
-        self.in2 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.conv3 = ConvLayer(64, 128, kernel_size=3, stride=2)
-        self.in3 = torch.nn.InstanceNorm2d(128, affine=True)
-        self.res1 = ResidualBlock(128)
-        self.res2 = ResidualBlock(128)
-        self.res3 = ResidualBlock(128)
-        self.res4 = ResidualBlock(128)
-        self.res5 = ResidualBlock(128)
-        self.deconv1 = UpsampleConvLayer(128, 64, kernel_size=3, stride=1, upsample=2)
-        self.in4 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3, stride=1, upsample=2)
-        self.in5 = torch.nn.InstanceNorm2d(32, affine=True)
-        self.deconv3 = ConvLayer(32, 3, kernel_size=9, stride=1)
-        self.relu = torch.nn.ReLU()
-
-    def forward(self, X):
-        y = self.relu(self.in1(self.conv1(X)))
-        y = self.relu(self.in2(self.conv2(y)))
-        y = self.relu(self.in3(self.conv3(y)))
-        y = self.res1(y)
-        y = self.res2(y)
-        y = self.res3(y)
-        y = self.res4(y)
-        y = self.res5(y)
-        y = self.relu(self.in4(self.deconv1(y)))
-        y = self.relu(self.in5(self.deconv2(y)))
-        y = self.deconv3(y)
-        return y
 
 
 class ConvLayer(torch.nn.Module):
@@ -602,6 +615,43 @@ class UpsampleConvLayer(torch.nn.Module):
         return out
 
 
+class TransformerNet(torch.nn.Module):
+
+    def __init__(self):
+        super(TransformerNet, self).__init__()
+        self.conv1 = ConvLayer(3, 32, kernel_size=9, stride=1)
+        self.in1 = torch.nn.InstanceNorm2d(32, affine=True)
+        self.conv2 = ConvLayer(32, 64, kernel_size=3, stride=2)
+        self.in2 = torch.nn.InstanceNorm2d(64, affine=True)
+        self.conv3 = ConvLayer(64, 128, kernel_size=3, stride=2)
+        self.in3 = torch.nn.InstanceNorm2d(128, affine=True)
+        self.res1 = ResidualBlock(128)
+        self.res2 = ResidualBlock(128)
+        self.res3 = ResidualBlock(128)
+        self.res4 = ResidualBlock(128)
+        self.res5 = ResidualBlock(128)
+        self.deconv1 = UpsampleConvLayer(128, 64, kernel_size=3, stride=1, upsample=2)
+        self.in4 = torch.nn.InstanceNorm2d(64, affine=True)
+        self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3, stride=1, upsample=2)
+        self.in5 = torch.nn.InstanceNorm2d(32, affine=True)
+        self.deconv3 = ConvLayer(32, 3, kernel_size=9, stride=1)
+        self.relu = torch.nn.ReLU()
+
+    def forward(self, X):
+        y = self.relu(self.in1(self.conv1(X)))
+        y = self.relu(self.in2(self.conv2(y)))
+        y = self.relu(self.in3(self.conv3(y)))
+        y = self.res1(y)
+        y = self.res2(y)
+        y = self.res3(y)
+        y = self.res4(y)
+        y = self.res5(y)
+        y = self.relu(self.in4(self.deconv1(y)))
+        y = self.relu(self.in5(self.deconv2(y)))
+        y = self.deconv3(y)
+        return y
+
+
 class Vgg16(torch.nn.Module):
 
     def __init__(self, requires_grad=False):
@@ -637,140 +687,37 @@ class Vgg16(torch.nn.Module):
         return out
 
 
-class Net(nn.Module):
-    """ A base class for both generator and the discriminator.
-    Provides a common weight initialization scheme.
+class Generator(Net):
+    """ Generator network.
 
+    Args:
+        nf (int): Number of filters in the second-to-last deconv layer
     """
 
-    def weights_init(self):
-        for m in self.modules():
-            classname = m.__class__.__name__
-            if 'Conv' in classname:
-                m.weight.data.normal_(0.0, 0.02)
-            elif 'BatchNorm' in classname:
-                m.weight.data.normal_(1.0, 0.02)
-                m.bias.data.fill_(0)
+    def __init__(self, z_dim, nf, nc):
+        super(Generator, self).__init__()
+        self.net = nn.Sequential(nn.ConvTranspose2d(in_channels=z_dim, out_channels=nf * 8, kernel_size=4, stride=1, padding=0, bias=False), nn.BatchNorm2d(nf * 8), nn.ReLU(inplace=True), nn.ConvTranspose2d(in_channels=nf * 8, out_channels=nf * 4, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(nf * 4), nn.ReLU(inplace=True), nn.ConvTranspose2d(in_channels=nf * 4, out_channels=nf * 2, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(nf * 2), nn.ReLU(inplace=True), nn.ConvTranspose2d(in_channels=nf * 2, out_channels=nf, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(nf), nn.ReLU(inplace=True), nn.ConvTranspose2d(in_channels=nf, out_channels=nc, kernel_size=4, stride=2, padding=1, bias=False), nn.Tanh())
+        self.weights_init()
 
     def forward(self, x):
-        return x
+        return self.net(x)
 
 
-class Net(nn.Module):
+class Discriminator(Net):
+    """ Discriminator network.
 
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
+    Args:
+        nf (int): Number of filters in the first conv layer.
+    """
 
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=-1)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
+    def __init__(self, nc, nf):
+        super(Discriminator, self).__init__()
+        self.net = nn.Sequential(nn.Conv2d(in_channels=nc, out_channels=nf, kernel_size=4, stride=2, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=nf, out_channels=nf * 2, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(nf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=nf * 2, out_channels=nf * 4, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(nf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=nf * 4, out_channels=nf * 8, kernel_size=4, stride=2, padding=1, bias=False), nn.BatchNorm2d(nf * 8), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=nf * 8, out_channels=1, kernel_size=4, stride=1, padding=0, bias=False), nn.Sigmoid())
+        self.weights_init()
 
     def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=-1)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=-1)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=-1)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=-1)
-
-
-class Policy(nn.Module):
-
-    def __init__(self):
-        super(Policy, self).__init__()
-        self.affine1 = nn.Linear(4, 128)
-        self.action_head = nn.Linear(128, 2)
-        self.value_head = nn.Linear(128, 1)
-        self.saved_actions = []
-        self.rewards = []
-
-    def forward(self, x):
-        x = F.relu(self.affine1(x))
-        action_scores = self.action_head(x)
-        state_values = self.value_head(x)
-        return F.softmax(action_scores, dim=-1), state_values
+        output = self.net(x)
+        return output.view(-1, 1).squeeze(1)
 
 
 class Policy(nn.Module):
@@ -786,36 +733,6 @@ class Policy(nn.Module):
         x = F.relu(self.affine1(x))
         action_scores = self.affine2(x)
         return F.softmax(action_scores, dim=1)
-
-
-class DummyModel(nn.Module):
-
-    def __init__(self):
-        super(DummyModel, self).__init__()
-        self.net = nn.Linear(1, 1)
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class DummyModel(nn.Module):
-
-    def __init__(self):
-        super(DummyModel, self).__init__()
-        self.net = nn.Linear(1, 1)
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class DummyModel(torch.nn.Module):
-
-    def __init__(self):
-        super(DummyModel, self).__init__()
-        self.net = torch.nn.Linear(2, 2)
-
-    def forward(self, x):
-        return self.net(x)
 
 
 class DummyModel(nn.Module):

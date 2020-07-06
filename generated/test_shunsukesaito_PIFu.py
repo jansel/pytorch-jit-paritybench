@@ -48,15 +48,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -67,16 +68,25 @@ import time
 import numpy as np
 
 
-import random
-
-
 import torch
+
+
+from torch.utils.data import DataLoader
+
+
+import torchvision.transforms as transforms
+
+
+import random
 
 
 import torch.nn as nn
 
 
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset
+
+
+import logging
 
 
 import torch.nn.functional as F
@@ -327,6 +337,215 @@ class DepthNormalizer(nn.Module):
         return z_feat
 
 
+class SurfaceClassifier(nn.Module):
+
+    def __init__(self, filter_channels, num_views=1, no_residual=True, last_op=None):
+        super(SurfaceClassifier, self).__init__()
+        self.filters = []
+        self.num_views = num_views
+        self.no_residual = no_residual
+        filter_channels = filter_channels
+        self.last_op = last_op
+        if self.no_residual:
+            for l in range(0, len(filter_channels) - 1):
+                self.filters.append(nn.Conv1d(filter_channels[l], filter_channels[l + 1], 1))
+                self.add_module('conv%d' % l, self.filters[l])
+        else:
+            for l in range(0, len(filter_channels) - 1):
+                if 0 != l:
+                    self.filters.append(nn.Conv1d(filter_channels[l] + filter_channels[0], filter_channels[l + 1], 1))
+                else:
+                    self.filters.append(nn.Conv1d(filter_channels[l], filter_channels[l + 1], 1))
+                self.add_module('conv%d' % l, self.filters[l])
+
+    def forward(self, feature):
+        """
+
+        :param feature: list of [BxC_inxHxW] tensors of image features
+        :param xy: [Bx3xN] tensor of (x,y) coodinates in the image plane
+        :return: [BxC_outxN] tensor of features extracted at the coordinates
+        """
+        y = feature
+        tmpy = feature
+        for i, f in enumerate(self.filters):
+            if self.no_residual:
+                y = f(y)
+            else:
+                y = f(y if i == 0 else torch.cat([y, tmpy], 1))
+            if i != len(self.filters) - 1:
+                y = F.leaky_relu(y)
+            if self.num_views > 1 and i == len(self.filters) // 2:
+                y = y.view(-1, self.num_views, y.shape[1], y.shape[2]).mean(dim=1)
+                tmpy = feature.view(-1, self.num_views, feature.shape[1], feature.shape[2]).mean(dim=1)
+        if self.last_op:
+            y = self.last_op(y)
+        return y
+
+
+def init_weights(net, init_type='normal', init_gain=0.02):
+    """Initialize network weights.
+
+    Parameters:
+        net (network)   -- network to be initialized
+        init_type (str) -- the name of an initialization method: normal | xavier | kaiming | orthogonal
+        init_gain (float)    -- scaling factor for normal, xavier and orthogonal.
+
+    We use 'normal' in the original pix2pix and CycleGAN paper. But xavier and kaiming might
+    work better for some applications. Feel free to try yourself.
+    """
+
+    def init_func(m):
+        classname = m.__class__.__name__
+        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
+            if init_type == 'normal':
+                init.normal_(m.weight.data, 0.0, init_gain)
+            elif init_type == 'xavier':
+                init.xavier_normal_(m.weight.data, gain=init_gain)
+            elif init_type == 'kaiming':
+                init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
+            elif init_type == 'orthogonal':
+                init.orthogonal_(m.weight.data, gain=init_gain)
+            else:
+                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
+            if hasattr(m, 'bias') and m.bias is not None:
+                init.constant_(m.bias.data, 0.0)
+        elif classname.find('BatchNorm2d') != -1:
+            init.normal_(m.weight.data, 1.0, init_gain)
+            init.constant_(m.bias.data, 0.0)
+    None
+    net.apply(init_func)
+
+
+def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
+    """Initialize a network: 1. register CPU/GPU device (with multi-GPU support); 2. initialize the network weights
+    Parameters:
+        net (network)      -- the network to be initialized
+        init_type (str)    -- the name of an initialization method: normal | xavier | kaiming | orthogonal
+        gain (float)       -- scaling factor for normal, xavier and orthogonal.
+        gpu_ids (int list) -- which GPUs the network runs on: e.g., 0,1,2
+
+    Return an initialized network.
+    """
+    if len(gpu_ids) > 0:
+        assert torch.cuda.is_available()
+        net
+        net = torch.nn.DataParallel(net, gpu_ids)
+    init_weights(net, init_type, init_gain=init_gain)
+    return net
+
+
+class ConvPIFuNet(BasePIFuNet):
+    """
+    Conv Piximp network is the standard 3-phase network that we will use.
+    The image filter is a pure multi-layer convolutional network,
+    while during feature extraction phase all features in the pyramid at the projected location
+    will be aggregated.
+    It does the following:
+        1. Compute image feature pyramids and store it in self.im_feat_list
+        2. Calculate calibration and indexing on each of the feat, and append them together
+        3. Classification.
+    """
+
+    def __init__(self, opt, projection_mode='orthogonal', error_term=nn.MSELoss()):
+        super(ConvPIFuNet, self).__init__(projection_mode=projection_mode, error_term=error_term)
+        self.name = 'convpifu'
+        self.opt = opt
+        self.num_views = self.opt.num_views
+        self.image_filter = self.define_imagefilter(opt)
+        self.surface_classifier = SurfaceClassifier(filter_channels=self.opt.mlp_dim, num_views=self.opt.num_views, no_residual=self.opt.no_residual, last_op=nn.Sigmoid())
+        self.normalizer = DepthNormalizer(opt)
+        self.im_feat_list = []
+        init_net(self)
+
+    def define_imagefilter(self, opt):
+        net = None
+        if opt.netIMF == 'multiconv':
+            net = MultiConv(opt.enc_dim)
+        elif 'resnet' in opt.netIMF:
+            net = ResNet(model=opt.netIMF)
+        elif opt.netIMF == 'vgg16':
+            net = Vgg16()
+        else:
+            raise NotImplementedError('model name [%s] is not recognized' % opt.imf_type)
+        return net
+
+    def filter(self, images):
+        """
+        Filter the input images
+        store all intermediate features.
+        :param images: [B, C, H, W] input images
+        """
+        self.im_feat_list = self.image_filter(images)
+
+    def query(self, points, calibs, transforms=None, labels=None):
+        """
+        Given 3D points, query the network predictions for each point.
+        Image features should be pre-computed before this call.
+        store all intermediate features.
+        query() function may behave differently during training/testing.
+        :param points: [B, 3, N] world space coordinates of points
+        :param calibs: [B, 3, 4] calibration matrices for each image
+        :param transforms: Optional [B, 2, 3] image space coordinate transforms
+        :param labels: Optional [B, Res, N] gt labeling
+        :return: [B, Res, N] predictions for each point
+        """
+        if labels is not None:
+            self.labels = labels
+        xyz = self.projection(points, calibs, transforms)
+        xy = xyz[:, :2, :]
+        z = xyz[:, 2:3, :]
+        z_feat = self.normalizer(z)
+        point_local_feat_list = [self.index(im_feat, xy) for im_feat in self.im_feat_list]
+        point_local_feat_list.append(z_feat)
+        point_local_feat = torch.cat(point_local_feat_list, 1)
+        self.preds = self.surface_classifier(point_local_feat)
+
+
+def conv3x3(in_planes, out_planes, strd=1, padding=1, bias=False):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=strd, padding=padding, bias=bias)
+
+
+class ConvBlock(nn.Module):
+
+    def __init__(self, in_planes, out_planes, norm='batch'):
+        super(ConvBlock, self).__init__()
+        self.conv1 = conv3x3(in_planes, int(out_planes / 2))
+        self.conv2 = conv3x3(int(out_planes / 2), int(out_planes / 4))
+        self.conv3 = conv3x3(int(out_planes / 4), int(out_planes / 4))
+        if norm == 'batch':
+            self.bn1 = nn.BatchNorm2d(in_planes)
+            self.bn2 = nn.BatchNorm2d(int(out_planes / 2))
+            self.bn3 = nn.BatchNorm2d(int(out_planes / 4))
+            self.bn4 = nn.BatchNorm2d(in_planes)
+        elif norm == 'group':
+            self.bn1 = nn.GroupNorm(32, in_planes)
+            self.bn2 = nn.GroupNorm(32, int(out_planes / 2))
+            self.bn3 = nn.GroupNorm(32, int(out_planes / 4))
+            self.bn4 = nn.GroupNorm(32, in_planes)
+        if in_planes != out_planes:
+            self.downsample = nn.Sequential(self.bn4, nn.ReLU(True), nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, bias=False))
+        else:
+            self.downsample = None
+
+    def forward(self, x):
+        residual = x
+        out1 = self.bn1(x)
+        out1 = F.relu(out1, True)
+        out1 = self.conv1(out1)
+        out2 = self.bn2(out1)
+        out2 = F.relu(out2, True)
+        out2 = self.conv2(out2)
+        out3 = self.bn3(out2)
+        out3 = F.relu(out3, True)
+        out3 = self.conv3(out3)
+        out3 = torch.cat((out1, out2, out3), 1)
+        if self.downsample is not None:
+            residual = self.downsample(residual)
+        out3 += residual
+        return out3
+
+
 class HourGlass(nn.Module):
 
     def __init__(self, num_modules, depth, num_features, norm='batch'):
@@ -430,6 +649,99 @@ class HGFilter(nn.Module):
         return outputs, tmpx.detach(), normx
 
 
+class HGPIFuNet(BasePIFuNet):
+    """
+    HG PIFu network uses Hourglass stacks as the image filter.
+    It does the following:
+        1. Compute image feature stacks and store it in self.im_feat_list
+            self.im_feat_list[-1] is the last stack (output stack)
+        2. Calculate calibration
+        3. If training, it index on every intermediate stacks,
+            If testing, it index on the last stack.
+        4. Classification.
+        5. During training, error is calculated on all stacks.
+    """
+
+    def __init__(self, opt, projection_mode='orthogonal', error_term=nn.MSELoss()):
+        super(HGPIFuNet, self).__init__(projection_mode=projection_mode, error_term=error_term)
+        self.name = 'hgpifu'
+        self.opt = opt
+        self.num_views = self.opt.num_views
+        self.image_filter = HGFilter(opt)
+        self.surface_classifier = SurfaceClassifier(filter_channels=self.opt.mlp_dim, num_views=self.opt.num_views, no_residual=self.opt.no_residual, last_op=nn.Sigmoid())
+        self.normalizer = DepthNormalizer(opt)
+        self.im_feat_list = []
+        self.tmpx = None
+        self.normx = None
+        self.intermediate_preds_list = []
+        init_net(self)
+
+    def filter(self, images):
+        """
+        Filter the input images
+        store all intermediate features.
+        :param images: [B, C, H, W] input images
+        """
+        self.im_feat_list, self.tmpx, self.normx = self.image_filter(images)
+        if not self.training:
+            self.im_feat_list = [self.im_feat_list[-1]]
+
+    def query(self, points, calibs, transforms=None, labels=None):
+        """
+        Given 3D points, query the network predictions for each point.
+        Image features should be pre-computed before this call.
+        store all intermediate features.
+        query() function may behave differently during training/testing.
+        :param points: [B, 3, N] world space coordinates of points
+        :param calibs: [B, 3, 4] calibration matrices for each image
+        :param transforms: Optional [B, 2, 3] image space coordinate transforms
+        :param labels: Optional [B, Res, N] gt labeling
+        :return: [B, Res, N] predictions for each point
+        """
+        if labels is not None:
+            self.labels = labels
+        xyz = self.projection(points, calibs, transforms)
+        xy = xyz[:, :2, :]
+        z = xyz[:, 2:3, :]
+        in_img = (xy[:, (0)] >= -1.0) & (xy[:, (0)] <= 1.0) & (xy[:, (1)] >= -1.0) & (xy[:, (1)] <= 1.0)
+        z_feat = self.normalizer(z, calibs=calibs)
+        if self.opt.skip_hourglass:
+            tmpx_local_feature = self.index(self.tmpx, xy)
+        self.intermediate_preds_list = []
+        for im_feat in self.im_feat_list:
+            point_local_feat_list = [self.index(im_feat, xy), z_feat]
+            if self.opt.skip_hourglass:
+                point_local_feat_list.append(tmpx_local_feature)
+            point_local_feat = torch.cat(point_local_feat_list, 1)
+            pred = in_img[:, (None)].float() * self.surface_classifier(point_local_feat)
+            self.intermediate_preds_list.append(pred)
+        self.preds = self.intermediate_preds_list[-1]
+
+    def get_im_feat(self):
+        """
+        Get the image filter
+        :return: [B, C_feat, H, W] image feature after filtering
+        """
+        return self.im_feat_list[-1]
+
+    def get_error(self):
+        """
+        Hourglass has its own intermediate supervision scheme
+        """
+        error = 0
+        for preds in self.intermediate_preds_list:
+            error += self.error_term(preds, self.labels)
+        error /= len(self.intermediate_preds_list)
+        return error
+
+    def forward(self, images, points, calibs, transforms=None, labels=None):
+        self.filter(images)
+        self.query(points=points, calibs=calibs, transforms=transforms, labels=labels)
+        res = self.get_preds()
+        error = self.get_error()
+        return res, error
+
+
 class ResnetBlock(nn.Module):
     """Define a Resnet block"""
 
@@ -529,100 +841,138 @@ class ResnetFilter(nn.Module):
         return self.model(input)
 
 
-class SurfaceClassifier(nn.Module):
+def get_norm_layer(norm_type='instance'):
+    """Return a normalization layer
+    Parameters:
+        norm_type (str) -- the name of the normalization layer: batch | instance | none
+    For BatchNorm, we use learnable affine parameters and track running statistics (mean/stddev).
+    For InstanceNorm, we do not use learnable affine parameters. We do not track running statistics.
+    """
+    if norm_type == 'batch':
+        norm_layer = functools.partial(nn.BatchNorm2d, affine=True, track_running_stats=True)
+    elif norm_type == 'instance':
+        norm_layer = functools.partial(nn.InstanceNorm2d, affine=False, track_running_stats=False)
+    elif norm_type == 'group':
+        norm_layer = functools.partial(nn.GroupNorm, 32)
+    elif norm_type == 'none':
+        norm_layer = None
+    else:
+        raise NotImplementedError('normalization layer [%s] is not found' % norm_type)
+    return norm_layer
 
-    def __init__(self, filter_channels, num_views=1, no_residual=True, last_op=None):
-        super(SurfaceClassifier, self).__init__()
-        self.filters = []
+
+class ResBlkPIFuNet(BasePIFuNet):
+
+    def __init__(self, opt, projection_mode='orthogonal'):
+        if opt.color_loss_type == 'l1':
+            error_term = nn.L1Loss()
+        elif opt.color_loss_type == 'mse':
+            error_term = nn.MSELoss()
+        super(ResBlkPIFuNet, self).__init__(projection_mode=projection_mode, error_term=error_term)
+        self.name = 'respifu'
+        self.opt = opt
+        norm_type = get_norm_layer(norm_type=opt.norm_color)
+        self.image_filter = ResnetFilter(opt, norm_layer=norm_type)
+        self.surface_classifier = SurfaceClassifier(filter_channels=self.opt.mlp_dim_color, num_views=self.opt.num_views, no_residual=self.opt.no_residual, last_op=nn.Tanh())
+        self.normalizer = DepthNormalizer(opt)
+        init_net(self)
+
+    def filter(self, images):
+        """
+        Filter the input images
+        store all intermediate features.
+        :param images: [B, C, H, W] input images
+        """
+        self.im_feat = self.image_filter(images)
+
+    def attach(self, im_feat):
+        self.im_feat = torch.cat([im_feat, self.im_feat], 1)
+
+    def query(self, points, calibs, transforms=None, labels=None):
+        """
+        Given 3D points, query the network predictions for each point.
+        Image features should be pre-computed before this call.
+        store all intermediate features.
+        query() function may behave differently during training/testing.
+        :param points: [B, 3, N] world space coordinates of points
+        :param calibs: [B, 3, 4] calibration matrices for each image
+        :param transforms: Optional [B, 2, 3] image space coordinate transforms
+        :param labels: Optional [B, Res, N] gt labeling
+        :return: [B, Res, N] predictions for each point
+        """
+        if labels is not None:
+            self.labels = labels
+        xyz = self.projection(points, calibs, transforms)
+        xy = xyz[:, :2, :]
+        z = xyz[:, 2:3, :]
+        z_feat = self.normalizer(z)
+        point_local_feat_list = [self.index(self.im_feat, xy), z_feat]
+        point_local_feat = torch.cat(point_local_feat_list, 1)
+        self.preds = self.surface_classifier(point_local_feat)
+
+    def forward(self, images, im_feat, points, calibs, transforms=None, labels=None):
+        self.filter(images)
+        self.attach(im_feat)
+        self.query(points, calibs, transforms, labels)
+        res = self.get_preds()
+        error = self.get_error()
+        return res, error
+
+
+class VhullPIFuNet(BasePIFuNet):
+    """
+    Vhull Piximp network is a minimal network demonstrating how the template works
+    also, it helps debugging the training/test schemes
+    It does the following:
+        1. Compute the masks of images and stores under self.im_feats
+        2. Calculate calibration and indexing
+        3. Return if the points fall into the intersection of all masks
+    """
+
+    def __init__(self, num_views, projection_mode='orthogonal', error_term=nn.MSELoss()):
+        super(VhullPIFuNet, self).__init__(projection_mode=projection_mode, error_term=error_term)
+        self.name = 'vhull'
         self.num_views = num_views
-        self.no_residual = no_residual
-        filter_channels = filter_channels
-        self.last_op = last_op
-        if self.no_residual:
-            for l in range(0, len(filter_channels) - 1):
-                self.filters.append(nn.Conv1d(filter_channels[l], filter_channels[l + 1], 1))
-                self.add_module('conv%d' % l, self.filters[l])
+        self.im_feat = None
+
+    def filter(self, images):
+        """
+        Filter the input images
+        store all intermediate features.
+        :param images: [B, C, H, W] input images
+        """
+        if images.shape[1] > 3:
+            self.im_feat = images[:, 3:4, :, :]
         else:
-            for l in range(0, len(filter_channels) - 1):
-                if 0 != l:
-                    self.filters.append(nn.Conv1d(filter_channels[l] + filter_channels[0], filter_channels[l + 1], 1))
-                else:
-                    self.filters.append(nn.Conv1d(filter_channels[l], filter_channels[l + 1], 1))
-                self.add_module('conv%d' % l, self.filters[l])
+            self.im_feat = images[:, 0:1, :, :]
 
-    def forward(self, feature):
+    def query(self, points, calibs, transforms=None, labels=None):
         """
-
-        :param feature: list of [BxC_inxHxW] tensors of image features
-        :param xy: [Bx3xN] tensor of (x,y) coodinates in the image plane
-        :return: [BxC_outxN] tensor of features extracted at the coordinates
+        Given 3D points, query the network predictions for each point.
+        Image features should be pre-computed before this call.
+        store all intermediate features.
+        query() function may behave differently during training/testing.
+        :param points: [B, 3, N] world space coordinates of points
+        :param calibs: [B, 3, 4] calibration matrices for each image
+        :param transforms: Optional [B, 2, 3] image space coordinate transforms
+        :param labels: Optional [B, Res, N] gt labeling
+        :return: [B, Res, N] predictions for each point
         """
-        y = feature
-        tmpy = feature
-        for i, f in enumerate(self.filters):
-            if self.no_residual:
-                y = f(y)
-            else:
-                y = f(y if i == 0 else torch.cat([y, tmpy], 1))
-            if i != len(self.filters) - 1:
-                y = F.leaky_relu(y)
-            if self.num_views > 1 and i == len(self.filters) // 2:
-                y = y.view(-1, self.num_views, y.shape[1], y.shape[2]).mean(dim=1)
-                tmpy = feature.view(-1, self.num_views, feature.shape[1], feature.shape[2]).mean(dim=1)
-        if self.last_op:
-            y = self.last_op(y)
-        return y
+        if labels is not None:
+            self.labels = labels
+        xyz = self.projection(points, calibs, transforms)
+        xy = xyz[:, :2, :]
+        point_local_feat = self.index(self.im_feat, xy)
+        local_shape = point_local_feat.shape
+        point_feat = point_local_feat.view(local_shape[0] // self.num_views, local_shape[1] * self.num_views, -1)
+        pred = torch.prod(point_feat, dim=1)
+        self.preds = pred.unsqueeze(1)
 
 
 class Flatten(nn.Module):
 
     def forward(self, input):
         return input.view(input.size(0), -1)
-
-
-def conv3x3(in_planes, out_planes, strd=1, padding=1, bias=False):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=strd, padding=padding, bias=bias)
-
-
-class ConvBlock(nn.Module):
-
-    def __init__(self, in_planes, out_planes, norm='batch'):
-        super(ConvBlock, self).__init__()
-        self.conv1 = conv3x3(in_planes, int(out_planes / 2))
-        self.conv2 = conv3x3(int(out_planes / 2), int(out_planes / 4))
-        self.conv3 = conv3x3(int(out_planes / 4), int(out_planes / 4))
-        if norm == 'batch':
-            self.bn1 = nn.BatchNorm2d(in_planes)
-            self.bn2 = nn.BatchNorm2d(int(out_planes / 2))
-            self.bn3 = nn.BatchNorm2d(int(out_planes / 4))
-            self.bn4 = nn.BatchNorm2d(in_planes)
-        elif norm == 'group':
-            self.bn1 = nn.GroupNorm(32, in_planes)
-            self.bn2 = nn.GroupNorm(32, int(out_planes / 2))
-            self.bn3 = nn.GroupNorm(32, int(out_planes / 4))
-            self.bn4 = nn.GroupNorm(32, in_planes)
-        if in_planes != out_planes:
-            self.downsample = nn.Sequential(self.bn4, nn.ReLU(True), nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, bias=False))
-        else:
-            self.downsample = None
-
-    def forward(self, x):
-        residual = x
-        out1 = self.bn1(x)
-        out1 = F.relu(out1, True)
-        out1 = self.conv1(out1)
-        out2 = self.bn2(out1)
-        out2 = F.relu(out2, True)
-        out2 = self.conv2(out2)
-        out3 = self.bn3(out2)
-        out3 = F.relu(out3, True)
-        out3 = self.conv3(out3)
-        out3 = torch.cat((out1, out2, out3), 1)
-        if self.downsample is not None:
-            residual = self.downsample(residual)
-        out3 += residual
-        return out3
 
 
 import torch
@@ -672,6 +1022,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
+    (VhullPIFuNet,
+     lambda: ([], {'num_views': 4}),
+     lambda: ([torch.rand([4, 3, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
 ]
 
 class Test_shunsukesaito_PIFu(_paritybench_base):
@@ -704,4 +1058,7 @@ class Test_shunsukesaito_PIFu(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

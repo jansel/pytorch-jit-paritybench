@@ -8,23 +8,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import time
-
-
 import torch
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
+import time
 
 
 import torch.nn as nn
@@ -45,7 +52,7 @@ class LeafNode:
         self.args = args
         self.param = torch.randn(self.args.output_dim)
         if self.args.cuda:
-            self.param = self.param.cuda()
+            self.param = self.param
         self.param = nn.Parameter(self.param)
         self.leaf = True
         self.softmax = nn.Softmax()
@@ -69,7 +76,7 @@ class InnerNode:
         self.fc = nn.Linear(self.args.input_dim, 1)
         beta = torch.randn(1)
         if self.args.cuda:
-            beta = beta.cuda()
+            beta = beta
         self.beta = nn.Parameter(beta)
         self.leaf = False
         self.prob = None

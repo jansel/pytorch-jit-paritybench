@@ -4,7 +4,6 @@ del sys
 hubconf = _module
 ig65m = _module
 cli = _module
-__main__ = _module
 client = _module
 convert = _module
 dreamer = _module
@@ -21,15 +20,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -56,6 +56,15 @@ import numpy as np
 
 
 from torch.utils.data import DataLoader
+
+
+import math
+
+
+from torch.utils.data import IterableDataset
+
+
+from torch.utils.data import get_worker_info
 
 
 import torch.hub
@@ -97,32 +106,6 @@ def r2plus1d_34_32_ig65m(num_classes, pretrained=False, progress=False):
 
 class VideoModel(nn.Module):
 
-    def __init__(self):
-        super().__init__()
-        self.model = r2plus1d_34_32_ig65m(num_classes=359, pretrained=True, progress=True)
-
-    def forward(self, x):
-        x = self.model.stem(x)
-        x = self.model.layer1(x)
-        x = self.model.layer2(x)
-        return x
-
-
-class TotalVariationLoss(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, inputs):
-        loss = 0.0
-        loss += (inputs[:, :, :-1, :, :] - inputs[:, :, 1:, :, :]).abs().sum()
-        loss += (inputs[:, :, :, :-1, :] - inputs[:, :, :, 1:, :]).abs().sum()
-        loss += (inputs[:, :, :, :, :-1] - inputs[:, :, :, :, 1:]).abs().sum()
-        return loss
-
-
-class VideoModel(nn.Module):
-
     def __init__(self, pool_spatial='mean', pool_temporal='mean'):
         super().__init__()
         self.model = r2plus1d_34_32_ig65m(num_classes=359, pretrained=True, progress=True)
@@ -138,4 +121,17 @@ class VideoModel(nn.Module):
         x = self.pool_spatial(x)
         x = self.pool_temporal(x)
         return x
+
+
+class TotalVariationLoss(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, inputs):
+        loss = 0.0
+        loss += (inputs[:, :, :-1, :, :] - inputs[:, :, 1:, :, :]).abs().sum()
+        loss += (inputs[:, :, :, :-1, :] - inputs[:, :, :, 1:, :]).abs().sum()
+        loss += (inputs[:, :, :, :, :-1] - inputs[:, :, :, :, 1:]).abs().sum()
+        return loss
 

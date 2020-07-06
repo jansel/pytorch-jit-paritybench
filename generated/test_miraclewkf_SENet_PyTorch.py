@@ -10,17 +10,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torchvision import transforms
+
+
+from torchvision import datasets
+
+
+import torch
+
+
+import scipy.io as scio
 
 
 import torch.nn as nn
@@ -30,9 +43,6 @@ import math
 
 
 import torch.utils.model_zoo as model_zoo
-
-
-import torch
 
 
 import torch.optim as optim
@@ -102,15 +112,17 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, num_group=32):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes * 2, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes * 2)
+        self.conv2 = nn.Conv2d(planes * 2, planes * 2, kernel_size=3, stride=stride, padding=1, bias=False, groups=num_group)
+        self.bn2 = nn.BatchNorm2d(planes * 2)
+        self.conv3 = nn.Conv2d(planes * 2, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
         if planes == 64:
             self.globalAvgPool = nn.AvgPool2d(56, stride=1)
         elif planes == 128:
@@ -122,8 +134,6 @@ class Bottleneck(nn.Module):
         self.fc1 = nn.Linear(in_features=planes * 4, out_features=round(planes / 4))
         self.fc2 = nn.Linear(in_features=round(planes / 4), out_features=planes * 4)
         self.sigmoid = nn.Sigmoid()
-        self.downsample = downsample
-        self.stride = stride
 
     def forward(self, x):
         residual = x
@@ -198,58 +208,6 @@ class SENet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, num_group=32):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes * 2, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes * 2)
-        self.conv2 = nn.Conv2d(planes * 2, planes * 2, kernel_size=3, stride=stride, padding=1, bias=False, groups=num_group)
-        self.bn2 = nn.BatchNorm2d(planes * 2)
-        self.conv3 = nn.Conv2d(planes * 2, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-        if planes == 64:
-            self.globalAvgPool = nn.AvgPool2d(56, stride=1)
-        elif planes == 128:
-            self.globalAvgPool = nn.AvgPool2d(28, stride=1)
-        elif planes == 256:
-            self.globalAvgPool = nn.AvgPool2d(14, stride=1)
-        elif planes == 512:
-            self.globalAvgPool = nn.AvgPool2d(7, stride=1)
-        self.fc1 = nn.Linear(in_features=planes * 4, out_features=round(planes / 4))
-        self.fc2 = nn.Linear(in_features=round(planes / 4), out_features=planes * 4)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        original_out = out
-        out = self.globalAvgPool(out)
-        out = out.view(out.size(0), -1)
-        out = self.fc1(out)
-        out = self.relu(out)
-        out = self.fc2(out)
-        out = self.sigmoid(out)
-        out = out.view(out.size(0), out.size(1), 1, 1)
-        out = out * original_out
-        out += residual
-        out = self.relu(out)
-        return out
 
 
 class SE_ResNeXt(nn.Module):

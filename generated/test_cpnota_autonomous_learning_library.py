@@ -41,6 +41,8 @@ time = _module
 time_test = _module
 vision = _module
 environments = _module
+abstract = _module
+atari = _module
 atari_wrappers = _module
 gym = _module
 state = _module
@@ -80,13 +82,35 @@ soft_deterministic = _module
 softmax = _module
 softmax_test = _module
 presets = _module
+a2c = _module
+c51 = _module
+ddqn = _module
 dqn = _module
 models = _module
 test_ = _module
+ppo = _module
+rainbow = _module
+vac = _module
+vpg = _module
+vqn = _module
+vsarsa = _module
 atari_test = _module
 classic_control = _module
+a2c = _module
+c51 = _module
+ddqn = _module
+dqn = _module
+ppo = _module
+rainbow = _module
+vac = _module
+vpg = _module
+vqn = _module
+vsarsa = _module
 classic_control_test = _module
 continuous = _module
+ddpg = _module
+ppo = _module
+sac = _module
 continuous_test = _module
 validate_agent = _module
 atari40 = _module
@@ -107,17 +131,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from abc import ABC
+
+
+from abc import abstractmethod
 
 
 from torch.nn.functional import mse_loss
@@ -126,25 +157,40 @@ from torch.nn.functional import mse_loss
 import torch
 
 
+import numpy as np
+
+
 from torch.distributions.normal import Normal
 
 
 from torch.nn import utils
 
 
-from torch.nn import functional as F
+import warnings
 
 
 from torch import nn
 
 
+from torch.nn import functional as F
+
+
 from torch.nn.functional import smooth_l1_loss
 
 
-import numpy as np
+import copy
+
+
+import time
+
+
+import random
 
 
 from torch.nn import *
+
+
+from torch.distributions.independent import Independent
 
 
 from torch.nn import functional
@@ -181,8 +227,8 @@ class State:
 
     @classmethod
     def from_gym(cls, numpy_arr, done, info, device='cpu', dtype=np.float32):
-        raw = torch.from_numpy(np.array(numpy_arr, dtype=dtype)).unsqueeze(0).to(device)
-        mask = DONE.to(device) if done else NOT_DONE.to(device)
+        raw = torch.from_numpy(np.array(numpy_arr, dtype=dtype)).unsqueeze(0)
+        mask = DONE if done else NOT_DONE
         return cls(raw, mask=mask, info=[info])
 
     @property
@@ -441,6 +487,104 @@ class TanhActionBound(nn.Module):
 
     def forward(self, x):
         return torch.tanh(x) * self.weight + self.bias
+
+
+class DeterministicPolicyNetwork(RLNetwork):
+
+    def __init__(self, model, space):
+        super().__init__(model)
+        self._action_dim = space.shape[0]
+        self._tanh_scale = torch.tensor((space.high - space.low) / 2)
+        self._tanh_mean = torch.tensor((space.high + space.low) / 2)
+
+    def forward(self, state):
+        return self._squash(super().forward(state))
+
+    def _squash(self, x):
+        return torch.tanh(x) * self._tanh_scale + self._tanh_mean
+
+    def to(self, device):
+        self._tanh_mean = self._tanh_mean
+        self._tanh_scale = self._tanh_scale
+        return super()
+
+
+class GaussianPolicyNetwork(RLNetwork):
+
+    def __init__(self, model, space):
+        super().__init__(model)
+        self._center = torch.tensor((space.high + space.low) / 2)
+        self._scale = torch.tensor((space.high - space.low) / 2)
+
+    def forward(self, state):
+        outputs = super().forward(state)
+        action_dim = outputs.shape[1] // 2
+        means = self._squash(torch.tanh(outputs[:, 0:action_dim]))
+        if not self.training:
+            return means
+        logvars = outputs[:, action_dim:] * self._scale
+        std = logvars.exp_()
+        return Independent(Normal(means, std), 1)
+
+    def _squash(self, x):
+        return torch.tanh(x) * self._scale + self._center
+
+    def to(self, device):
+        self._center = self._center
+        self._scale = self._scale
+        return super()
+
+
+class SoftDeterministicPolicyNetwork(RLNetwork):
+
+    def __init__(self, model, space):
+        super().__init__(model)
+        self._action_dim = space.shape[0]
+        self._tanh_scale = torch.tensor((space.high - space.low) / 2)
+        self._tanh_mean = torch.tensor((space.high + space.low) / 2)
+
+    def forward(self, state):
+        outputs = super().forward(state)
+        normal = self._normal(outputs)
+        if self.training:
+            action, log_prob = self._sample(normal)
+            return action, log_prob
+        return self._squash(normal.loc)
+
+    def _normal(self, outputs):
+        means = outputs[:, 0:self._action_dim]
+        logvars = outputs[:, self._action_dim:]
+        std = logvars.mul(0.5).exp_()
+        return torch.distributions.normal.Normal(means, std)
+
+    def _sample(self, normal):
+        raw = normal.rsample()
+        action = self._squash(raw)
+        log_prob = normal.log_prob(raw)
+        log_prob -= torch.log(1 - action.pow(2) + 1e-06)
+        log_prob = log_prob.sum(1)
+        return action, log_prob
+
+    def _squash(self, x):
+        return torch.tanh(x) * self._tanh_scale + self._tanh_mean
+
+    def to(self, device):
+        self._tanh_mean = self._tanh_mean
+        self._tanh_scale = self._tanh_scale
+        return super()
+
+
+class SoftmaxPolicyNetwork(RLNetwork):
+
+    def __init__(self, model):
+        super().__init__(model)
+
+    def forward(self, state):
+        outputs = super().forward(state)
+        probs = functional.softmax(outputs, dim=-1)
+        if self.training:
+            return torch.distributions.Categorical(probs)
+        return torch.argmax(probs, dim=1)
 
 
 import torch

@@ -33,29 +33,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data.sampler import Sampler
+
+
+import numpy as np
+
+
+import torchvision.transforms as transforms
 
 
 import time
 
 
 import logging
-
-
-import numpy as np
-
-
-import torch
 
 
 import torch.nn as nn
@@ -68,9 +78,6 @@ import torch.optim
 
 
 from torch.utils.data import DataLoader
-
-
-import torchvision.transforms as transforms
 
 
 import torch.nn.functional as F
@@ -187,74 +194,18 @@ class DenseNet(nn.Module):
         return out
 
 
-class Inception3(nn.Module):
+class BasicConv2d(nn.Module):
 
-    def __init__(self, feature_dim, aux_logits=False, transform_input=False):
-        super(Inception3, self).__init__()
-        self.feature_dim = feature_dim
-        self.aux_logits = aux_logits
-        self.transform_input = transform_input
-        self.Conv2d_1a_3x3 = BasicConv2d(3, 32, kernel_size=3, stride=2)
-        self.Conv2d_2a_3x3 = BasicConv2d(32, 32, kernel_size=3)
-        self.Conv2d_2b_3x3 = BasicConv2d(32, 64, kernel_size=3, padding=1)
-        self.Conv2d_3b_1x1 = BasicConv2d(64, 80, kernel_size=1)
-        self.Conv2d_4a_3x3 = BasicConv2d(80, 192, kernel_size=3)
-        self.Mixed_5b = InceptionA(192, pool_features=32)
-        self.Mixed_5c = InceptionA(256, pool_features=64)
-        self.Mixed_5d = InceptionA(288, pool_features=64)
-        self.Mixed_6a = InceptionB(288)
-        self.Mixed_6b = InceptionC(768, channels_7x7=128)
-        self.Mixed_6c = InceptionC(768, channels_7x7=160)
-        self.Mixed_6d = InceptionC(768, channels_7x7=160)
-        self.Mixed_6e = InceptionC(768, channels_7x7=192)
-        if aux_logits:
-            self.AuxLogits = InceptionAux(768, num_classes)
-        self.Mixed_7a = InceptionD(768)
-        self.Mixed_7b = InceptionE(1280)
-        self.Mixed_7c = InceptionE(2048)
-        self.layer1x1 = nn.Sequential(nn.Conv2d(2048, 256, 1, 1, 0, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=False))
-        self.drop1 = nn.Dropout(0.5)
-        self.feature = nn.Linear(6400, feature_dim)
-        self.drop2 = nn.Dropout(0.5)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
+        super(BasicConv2d, self).__init__()
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1, affine=True)
+        self.relu = nn.ReLU(inplace=False)
 
     def forward(self, x):
-        if self.transform_input:
-            x = x.clone()
-            x[:, (0)] = x[:, (0)] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
-            x[:, (1)] = x[:, (1)] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
-            x[:, (2)] = x[:, (2)] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
-        x = self.Conv2d_1a_3x3(x)
-        x = self.Conv2d_2a_3x3(x)
-        x = self.Conv2d_2b_3x3(x)
-        x = F.max_pool2d(x, kernel_size=3, stride=2)
-        x = self.Conv2d_3b_1x1(x)
-        x = self.Conv2d_4a_3x3(x)
-        x = F.max_pool2d(x, kernel_size=3, stride=2)
-        x = self.Mixed_5b(x)
-        x = self.Mixed_5c(x)
-        x = self.Mixed_5d(x)
-        x = self.Mixed_6a(x)
-        x = self.Mixed_6b(x)
-        x = self.Mixed_6c(x)
-        x = self.Mixed_6d(x)
-        x = self.Mixed_6e(x)
-        if self.training and self.aux_logits:
-            aux = self.AuxLogits(x)
-        x = self.Mixed_7a(x)
-        x = self.Mixed_7b(x)
-        x = self.Mixed_7c(x)
-        x = self.layer1x1(x)
-        x = self.drop1(x)
-        x = x.view(x.size(0), -1)
-        x = self.feature(x)
-        x = self.drop2(x)
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
         return x
 
 
@@ -281,6 +232,25 @@ class InceptionA(nn.Module):
         branch_pool = self.branch_pool(branch_pool)
         outputs = [branch1x1, branch5x5, branch3x3dbl, branch_pool]
         return torch.cat(outputs, 1)
+
+
+class InceptionAux(nn.Module):
+
+    def __init__(self, in_channels, num_classes):
+        super(InceptionAux, self).__init__()
+        self.conv0 = BasicConv2d(in_channels, 128, kernel_size=1)
+        self.conv1 = BasicConv2d(128, 768, kernel_size=5)
+        self.conv1.stddev = 0.01
+        self.fc = nn.Linear(768, num_classes)
+        self.fc.stddev = 0.001
+
+    def forward(self, x):
+        x = F.avg_pool2d(x, kernel_size=5, stride=3)
+        x = self.conv0(x)
+        x = self.conv1(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
 
 
 class InceptionB(nn.Module):
@@ -386,50 +356,74 @@ class InceptionE(nn.Module):
         return torch.cat(outputs, 1)
 
 
-class InceptionAux(nn.Module):
+class Inception3(nn.Module):
 
-    def __init__(self, in_channels, num_classes):
-        super(InceptionAux, self).__init__()
-        self.conv0 = BasicConv2d(in_channels, 128, kernel_size=1)
-        self.conv1 = BasicConv2d(128, 768, kernel_size=5)
-        self.conv1.stddev = 0.01
-        self.fc = nn.Linear(768, num_classes)
-        self.fc.stddev = 0.001
+    def __init__(self, feature_dim, aux_logits=False, transform_input=False):
+        super(Inception3, self).__init__()
+        self.feature_dim = feature_dim
+        self.aux_logits = aux_logits
+        self.transform_input = transform_input
+        self.Conv2d_1a_3x3 = BasicConv2d(3, 32, kernel_size=3, stride=2)
+        self.Conv2d_2a_3x3 = BasicConv2d(32, 32, kernel_size=3)
+        self.Conv2d_2b_3x3 = BasicConv2d(32, 64, kernel_size=3, padding=1)
+        self.Conv2d_3b_1x1 = BasicConv2d(64, 80, kernel_size=1)
+        self.Conv2d_4a_3x3 = BasicConv2d(80, 192, kernel_size=3)
+        self.Mixed_5b = InceptionA(192, pool_features=32)
+        self.Mixed_5c = InceptionA(256, pool_features=64)
+        self.Mixed_5d = InceptionA(288, pool_features=64)
+        self.Mixed_6a = InceptionB(288)
+        self.Mixed_6b = InceptionC(768, channels_7x7=128)
+        self.Mixed_6c = InceptionC(768, channels_7x7=160)
+        self.Mixed_6d = InceptionC(768, channels_7x7=160)
+        self.Mixed_6e = InceptionC(768, channels_7x7=192)
+        if aux_logits:
+            self.AuxLogits = InceptionAux(768, num_classes)
+        self.Mixed_7a = InceptionD(768)
+        self.Mixed_7b = InceptionE(1280)
+        self.Mixed_7c = InceptionE(2048)
+        self.layer1x1 = nn.Sequential(nn.Conv2d(2048, 256, 1, 1, 0, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=False))
+        self.drop1 = nn.Dropout(0.5)
+        self.feature = nn.Linear(6400, feature_dim)
+        self.drop2 = nn.Dropout(0.5)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
 
     def forward(self, x):
-        x = F.avg_pool2d(x, kernel_size=5, stride=3)
-        x = self.conv0(x)
-        x = self.conv1(x)
+        if self.transform_input:
+            x = x.clone()
+            x[:, (0)] = x[:, (0)] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
+            x[:, (1)] = x[:, (1)] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
+            x[:, (2)] = x[:, (2)] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
+        x = self.Conv2d_1a_3x3(x)
+        x = self.Conv2d_2a_3x3(x)
+        x = self.Conv2d_2b_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Conv2d_3b_1x1(x)
+        x = self.Conv2d_4a_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Mixed_5b(x)
+        x = self.Mixed_5c(x)
+        x = self.Mixed_5d(x)
+        x = self.Mixed_6a(x)
+        x = self.Mixed_6b(x)
+        x = self.Mixed_6c(x)
+        x = self.Mixed_6d(x)
+        x = self.Mixed_6e(x)
+        if self.training and self.aux_logits:
+            aux = self.AuxLogits(x)
+        x = self.Mixed_7a(x)
+        x = self.Mixed_7b(x)
+        x = self.Mixed_7c(x)
+        x = self.layer1x1(x)
+        x = self.drop1(x)
         x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-
-class BasicConv2d(nn.Module):
-
-    def __init__(self, in_channels, out_channels, **kwargs):
-        super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, bias=False, **kwargs)
-        self.bn = nn.BatchNorm2d(out_channels, eps=0.001)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        return F.relu(x, inplace=True)
-
-
-class BasicConv2d(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
-        super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1, affine=True)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
+        x = self.feature(x)
+        x = self.drop2(x)
         return x
 
 
@@ -702,6 +696,24 @@ class BranchSeparablesStem(nn.Module):
         return x
 
 
+class BranchSeparablesReduction(BranchSeparables):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, z_padding=1, bias=False):
+        BranchSeparables.__init__(self, in_channels, out_channels, kernel_size, stride, padding, bias)
+        self.padding = nn.ZeroPad2d((z_padding, 0, z_padding, 0))
+
+    def forward(self, x):
+        x = self.relu(x)
+        x = self.padding(x)
+        x = self.separable_1(x)
+        x = x[:, :, 1:, 1:].contiguous()
+        x = self.bn_sep_1(x)
+        x = self.relu1(x)
+        x = self.separable_2(x)
+        x = self.bn_sep_2(x)
+        return x
+
+
 class CellStem0(nn.Module):
 
     def __init__(self):
@@ -885,24 +897,6 @@ class NormalCell(nn.Module):
         x_comb_iter_4 = x_comb_iter_4_left + x_right
         x_out = torch.cat([x_left, x_comb_iter_0, x_comb_iter_1, x_comb_iter_2, x_comb_iter_3, x_comb_iter_4], 1)
         return x_out
-
-
-class BranchSeparablesReduction(BranchSeparables):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, z_padding=1, bias=False):
-        BranchSeparables.__init__(self, in_channels, out_channels, kernel_size, stride, padding, bias)
-        self.padding = nn.ZeroPad2d((z_padding, 0, z_padding, 0))
-
-    def forward(self, x):
-        x = self.relu(x)
-        x = self.padding(x)
-        x = self.separable_1(x)
-        x = x[:, :, 1:, 1:].contiguous()
-        x = self.bn_sep_1(x)
-        x = self.relu1(x)
-        x = self.separable_2(x)
-        x = self.bn_sep_2(x)
-        return x
 
 
 class ReductionCell0(nn.Module):
@@ -1417,4 +1411,169 @@ class MultiTaskWithLoss(nn.Module):
                 x = [self.fcs[k](feature[slice_idx[k]:slice_idx[k + 1], (...)], target[slice_idx[k]:slice_idx[k + 1]]) for k in range(self.num_tasks)]
             target_slice = [target[slice_idx[k]:slice_idx[k + 1]] for k in range(self.num_tasks)]
             return [self.criterion(xx, tg) for xx, tg in zip(x, target_slice)]
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AvgPoolPad,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicConv2d,
+     lambda: ([], {'in_planes': 4, 'out_planes': 4, 'kernel_size': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Block17,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1088, 64, 64])], {}),
+     True),
+    (Block35,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 320, 64, 64])], {}),
+     True),
+    (Block8,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 2080, 64, 64])], {}),
+     True),
+    (BranchSeparables,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BranchSeparablesReduction,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BranchSeparablesStem,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (CellStem0,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 96, 64, 64])], {}),
+     True),
+    (CellStem1,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 96, 4, 4]), torch.rand([4, 168, 64, 64])], {}),
+     True),
+    (InceptionResNetV2,
+     lambda: ([], {'avgpool': 4, 'feature_dim': 4}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     False),
+    (MaxPoolPad,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Mixed_5b,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 192, 64, 64])], {}),
+     True),
+    (Mixed_6a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 320, 64, 64])], {}),
+     True),
+    (Mixed_7a,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1088, 64, 64])], {}),
+     True),
+    (NormalCell,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReductionCell0,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ReductionCell1,
+     lambda: ([], {'in_channels_left': 4, 'out_channels_left': 4, 'in_channels_right': 4, 'out_channels_right': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (SeparableConv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dw_kernel': 4, 'dw_stride': 1, 'dw_padding': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (VGG,
+     lambda: ([], {'features': _mock_layer(), 'feature_dim': 4}),
+     lambda: ([torch.rand([25088, 25088])], {}),
+     True),
+    (_Transition,
+     lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_XiaohangZhan_face_recognition_framework(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
 

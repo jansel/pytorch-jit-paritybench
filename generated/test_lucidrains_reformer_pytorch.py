@@ -16,15 +16,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -104,313 +105,53 @@ from torch.utils.checkpoint import get_device_states
 from torch.utils.checkpoint import set_device_states
 
 
-def pad_to_multiple(tensor, seqlen, multiple, dim=-1):
-    m = seqlen / multiple
-    if m.is_integer():
-        return tensor
-    remainder = math.ceil(m) * multiple - seqlen
-    pad_offset = (0,) * (-1 - dim) * 2
-    return F.pad(tensor, (*pad_offset, 0, remainder), value=0)
-
-
-class Autopadder(nn.Module):
-
-    def __init__(self, net):
-        super().__init__()
-        assert isinstance(net, (LSHSelfAttention, Reformer, ReformerLM)), 'only modules LSHSelfAttention, Reformer, ReformerLM accepted'
-        self.net = net
-        reformer = net.reformer if isinstance(net, ReformerLM) else net
-        self.pad_dim = -1 if isinstance(net, ReformerLM) else -2
-        self.bucket_size = reformer.bucket_size
-        self.num_mem_kv = reformer.num_mem_kv
-        self.full_attn_thres = reformer.full_attn_thres
-
-    def forward(self, x, **kwargs):
-        b, t, m, device = *x.shape[:2], self.num_mem_kv, x.device
-        keys = kwargs.get('keys')
-        input_mask = kwargs.get('input_mask')
-        input_attn_mask = kwargs.get('input_attn_mask')
-        k_len = 0 if keys is None else keys.shape[1]
-        seqlen = t + m + k_len
-        if seqlen > self.full_attn_thres:
-            if input_mask is None:
-                input_mask = torch.full_like(x, True, device=x.device, dtype=torch.bool)
-            x = pad_to_multiple(x, seqlen, self.bucket_size * 2, dim=self.pad_dim)
-            if input_mask is not None:
-                new_mask = F.pad(input_mask, (0, x.shape[1] - input_mask.shape[1]), value=False)
-                kwargs.update(input_mask=new_mask)
-            if input_attn_mask is not None:
-                offset = x.shape[1] - input_attn_mask.shape[1]
-                new_mask = F.pad(input_attn_mask, (0, offset, 0, offset), value=False)
-                kwargs.update(input_attn_mask=new_mask)
-        out = self.net(x, **kwargs)
-        return out[:, 0:t]
-
-
-def top_k(logits, thres=0.9):
-    k = int((1 - thres) * logits.shape[-1])
-    val, ind = torch.topk(logits, k)
-    probs = torch.full_like(logits, float('-inf'))
-    probs.scatter_(1, ind, val)
-    return probs
-
-
-class TrainingWrapper(nn.Module):
-
-    def __init__(self, net, ignore_index=-100, pad_value=0):
-        super().__init__()
-        assert isinstance(net, ReformerLM), 'generative trainer wrapper can only accept ReformerLM class'
-        self.pad_value = pad_value
-        self.ignore_index = ignore_index
-        self.net = Autopadder(net)
-        self.max_seq_len = net.max_seq_len
-
-    @torch.no_grad()
-    def generate(self, start_tokens, seq_len, eos_token=None, temperature=1.0, filter_logits_fn=top_k, filter_thres=0.9, **kwargs):
-        was_training = self.net.training
-        num_dims = len(start_tokens.shape)
-        if num_dims == 1:
-            start_tokens = start_tokens[(None), :]
-        b, t = start_tokens.shape
-        self.net.eval()
-        out = start_tokens
-        input_mask = kwargs.pop('input_mask', None)
-        if input_mask is None:
-            input_mask = torch.full_like(out, True, dtype=torch.bool, device=out.device)
-        for _ in range(seq_len):
-            x = out[:, -self.max_seq_len:]
-            input_mask = input_mask[:, -self.max_seq_len:]
-            logits = self.net(x, input_mask=input_mask, **kwargs)[:, (-1), :]
-            filtered_logits = filter_logits_fn(logits, thres=filter_thres)
-            probs = F.softmax(filtered_logits / temperature, dim=-1)
-            sample = torch.multinomial(probs, 1)
-            out = torch.cat((out, sample), dim=-1)
-            input_mask = F.pad(input_mask, (0, 1), value=True)
-            if eos_token is not None and (sample == eos_token).all():
-                break
-        out = out[:, t:]
-        if num_dims == 1:
-            out = out.squeeze(0)
-        self.net.train(was_training)
-        return out
-
-    def forward(self, x, return_loss=False, **kwargs):
-        pad = partial(pad_sequence, batch_first=True, padding_value=self.pad_value)
-        if not return_loss:
-            if not isinstance(x, torch.Tensor):
-                x = pad(x)
-            return self.net(x, **kwargs)
-        if isinstance(x, torch.Tensor):
-            xi = x[:, :-1]
-            xo = x[:, 1:]
-        else:
-            xi = pad(list(map(lambda t: t[:-1], x)))
-            xo = pad(list(map(lambda t: t[1:], x)))
-        out = self.net(xi, **kwargs)
-        loss = F.cross_entropy(out.transpose(1, 2), xo, ignore_index=self.ignore_index)
-        return loss
-
-
-class Recorder(nn.Module):
-
-    def __init__(self, net):
-        super().__init__()
-        self.iter = 0
-        self.recordings = defaultdict(list)
-        self.net = net
-        self.on = True
-        self.ejected = False
-
-    def eject(self):
-        self.ejected = True
-        self.clear()
-        self.unwire()
-        return self.net
-
-    def wire(self):
-        for module in self.net.modules():
-            if isinstance(module, LSHAttention):
-                module._return_attn = True
-            if isinstance(module, LSHSelfAttention):
-                module.callback = self.record
-
-    def unwire(self):
-        for module in self.net.modules():
-            if isinstance(module, LSHAttention):
-                module._return_attn = False
-            if isinstance(module, LSHSelfAttention):
-                module.callback = None
-
-    def turn_on(self):
-        self.on = True
-
-    def turn_off(self):
-        self.on = False
-
-    def clear(self):
-        del self.recordings
-        self.recordings = defaultdict(list)
-        self.iter = 0
-
-    def record(self, attn, buckets):
-        if not self.on:
-            return
-        data = {'attn': attn.detach().cpu(), 'buckets': buckets.detach().cpu()}
-        self.recordings[self.iter].append(data)
-
-    def forward(self, x, **kwargs):
-        assert not self.ejected, 'Recorder has already been ejected and disposed'
-        if self.on:
-            self.wire()
-        out = self.net(x, **kwargs)
-        self.iter += 1
-        self.unwire()
-        return out
-
-
-DEC_PREFIX = 'dec_'
-
-
-ENC_PREFIX = 'enc_'
-
-
-def group_dict_by_key(cond, d):
-    return_val = [dict(), dict()]
-    for key in d.keys():
-        match = bool(cond(key))
-        ind = int(not match)
-        return_val[ind][key] = d[key]
-    return *return_val,
-
-
-def string_begins_with(prefix, str):
-    return bool(re.match(f'^{prefix}', str))
-
-
-def group_by_key_prefix_and_remove_prefix(prefix, d):
-    kwargs_with_prefix, kwargs = group_dict_by_key(lambda x: string_begins_with(prefix, x), d)
-    kwargs_without_prefix = dict(map(lambda x: (x[0][len(prefix):], x[1]), tuple(kwargs_with_prefix.items())))
-    return kwargs_without_prefix, kwargs
-
-
-def extract_enc_dec_kwargs(kwargs):
-    enc_kwargs, kwargs = group_by_key_prefix_and_remove_prefix(ENC_PREFIX, kwargs)
-    dec_kwargs, kwargs = group_by_key_prefix_and_remove_prefix(DEC_PREFIX, kwargs)
-    return enc_kwargs, dec_kwargs, kwargs
-
-
-def extract_and_set_enc_dec_kwargs(kwargs):
-    enc_kwargs, dec_kwargs, kwargs = extract_enc_dec_kwargs(kwargs)
-    if 'input_mask' in enc_kwargs:
-        dec_kwargs.setdefault('context_mask', enc_kwargs['input_mask'])
-    return enc_kwargs, dec_kwargs, kwargs
-
-
-class ReformerEncDec(nn.Module):
-
-    def __init__(self, dim, ignore_index=-100, pad_value=0, **kwargs):
-        super().__init__()
-        enc_kwargs, dec_kwargs, _ = extract_enc_dec_kwargs(kwargs)
-        assert 'return_embedding' not in enc_kwargs, 'you cannot manually set the return embeddings flag for the encoder'
-        assert 'dim' not in dec_kwargs and 'dim' not in enc_kwargs, 'you must set the dim for both encoder and decoder'
-        enc_kwargs['dim'] = dec_kwargs['dim'] = dim
-        enc_kwargs['return_embeddings'] = True
-        dec_kwargs['causal'] = True
-        enc_kwargs.setdefault('bucket_size', 64)
-        dec_kwargs.setdefault('bucket_size', enc_kwargs['bucket_size'] * 2)
-        enc = ReformerLM(**enc_kwargs)
-        dec = ReformerLM(**dec_kwargs)
-        self.enc = TrainingWrapper(enc, ignore_index=ignore_index, pad_value=pad_value)
-        self.dec = TrainingWrapper(dec, ignore_index=ignore_index, pad_value=pad_value)
-
-    def generate(self, seq_in, seq_out_start, seq_len, **kwargs):
-        enc_kwargs, dec_kwargs, kwargs = extract_and_set_enc_dec_kwargs(kwargs)
-        enc_keys = self.enc(seq_in, **enc_kwargs)
-        return self.dec.generate(seq_out_start, seq_len, keys=enc_keys, **{**dec_kwargs, **kwargs})
-
-    def forward(self, seq_in, seq_out, return_loss=False, **kwargs):
-        enc_kwargs, dec_kwargs, kwargs = extract_and_set_enc_dec_kwargs(kwargs)
-        enc_keys = self.enc(seq_in, **enc_kwargs)
-        return self.dec(seq_out, return_loss=return_loss, keys=enc_keys, **dec_kwargs)
-
-
-class MatrixMultiply(nn.Module):
-
-    def __init__(self, tensor, transpose=False, normalize=False):
-        super().__init__()
-        self.tensor = tensor
-        self.transpose = transpose
-        self.normalize = normalize
-
-    def forward(self, x):
-        tensor = self.tensor
-        if self.normalize:
-            tensor = F.normalize(tensor, dim=-1)
-        if self.transpose:
-            tensor = tensor.t()
-        return x @ tensor
-
-
-class ReZero(nn.Module):
-
-    def __init__(self, fn):
-        super().__init__()
-        self.g = nn.Parameter(torch.zeros(1))
-        self.fn = fn
-
-    def forward(self, x, **kwargs):
-        return self.fn(x, **kwargs) * self.g
-
-
-class ScaleNorm(nn.Module):
-
-    def __init__(self, dim, eps=1e-05):
-        super().__init__()
-        self.g = nn.Parameter(torch.ones(1))
-        self.eps = eps
-
-    def forward(self, x):
-        n = torch.norm(x, dim=-1, keepdim=True).clamp(min=self.eps)
-        return x / n * self.g
-
-
-class PreNorm(nn.Module):
-
-    def __init__(self, norm_class, dim, fn):
-        super().__init__()
-        self.norm = norm_class(dim)
-        self.fn = fn
-
-    def forward(self, x, **kwargs):
-        x = self.norm(x)
-        return self.fn(x, **kwargs)
-
-
-class Chunk(nn.Module):
-
-    def __init__(self, chunks, fn, along_dim=-1):
-        super().__init__()
-        self.dim = along_dim
-        self.chunks = chunks
-        self.fn = fn
-
-    def forward(self, x, **kwargs):
-        if self.chunks == 1:
-            return self.fn(x, **kwargs)
-        chunks = x.chunk(self.chunks, dim=self.dim)
-        return torch.cat([self.fn(c, **kwargs) for c in chunks], dim=self.dim)
-
-
 TOKEN_SELF_ATTN_VALUE = -50000.0
+
+
+def default(val, default_val):
+    return default_val if val is None else val
+
+
+def max_neg_value(tensor):
+    return -torch.finfo(tensor.dtype).max
+
+
+class FullQKAttention(nn.Module):
+
+    def __init__(self, causal=False, dropout=0.0):
+        super().__init__()
+        self.causal = causal
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, qk, v, query_len=None, input_mask=None, input_attn_mask=None, **kwargs):
+        b, seq_len, dim = qk.shape
+        query_len = default(query_len, seq_len)
+        t = query_len
+        q = qk[:, 0:query_len]
+        qk = F.normalize(qk, 2, dim=-1).type(q.type())
+        dot = torch.einsum('bie,bje->bij', q, qk) * dim ** -0.5
+        i = torch.arange(t)
+        dot[:, (i), (i)] = TOKEN_SELF_ATTN_VALUE
+        masked_value = max_neg_value(dot)
+        if input_mask is not None:
+            mask = input_mask[:, 0:query_len, (None)] * input_mask[:, (None), :]
+            mask = F.pad(mask, (0, seq_len - mask.shape[-1]), value=True)
+            dot.masked_fill_(~mask, masked_value)
+        if input_attn_mask is not None:
+            input_attn_mask = F.pad(input_attn_mask, (0, seq_len - input_attn_mask.shape[-1]), value=True)
+            dot.masked_fill_(~input_attn_mask, masked_value)
+        if self.causal:
+            i, j = torch.triu_indices(t, t, 1)
+            dot[:, (i), (j)] = masked_value
+        dot = dot.softmax(dim=-1)
+        dot = self.dropout(dot)
+        out = torch.einsum('bij,bje->bie', dot, v)
+        return out, dot, torch.empty(0)
 
 
 def batched_index_select(values, indices):
     last_dim = values.shape[-1]
     return values.gather(1, indices[:, :, (None)].expand(-1, -1, last_dim))
-
-
-def default(val, default_val):
-    return default_val if val is None else val
 
 
 def cache_method_decorator(cache_attr, cache_namespace, reexecute=False):
@@ -440,10 +181,6 @@ def chunked_sum(tensor, chunks=1):
     tensor = tensor.reshape(-1, last_dim)
     summed_tensors = [c.sum(dim=-1) for c in tensor.chunk(chunks, dim=0)]
     return torch.cat(summed_tensors, dim=0).reshape(orig_size)
-
-
-def max_neg_value(tensor):
-    return -torch.finfo(tensor.dtype).max
 
 
 def sort_key_val(t1, t2, dim=-1):
@@ -699,39 +436,6 @@ class LocalAttention(nn.Module):
         return out
 
 
-class FullQKAttention(nn.Module):
-
-    def __init__(self, causal=False, dropout=0.0):
-        super().__init__()
-        self.causal = causal
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, qk, v, query_len=None, input_mask=None, input_attn_mask=None, **kwargs):
-        b, seq_len, dim = qk.shape
-        query_len = default(query_len, seq_len)
-        t = query_len
-        q = qk[:, 0:query_len]
-        qk = F.normalize(qk, 2, dim=-1).type(q.type())
-        dot = torch.einsum('bie,bje->bij', q, qk) * dim ** -0.5
-        i = torch.arange(t)
-        dot[:, (i), (i)] = TOKEN_SELF_ATTN_VALUE
-        masked_value = max_neg_value(dot)
-        if input_mask is not None:
-            mask = input_mask[:, 0:query_len, (None)] * input_mask[:, (None), :]
-            mask = F.pad(mask, (0, seq_len - mask.shape[-1]), value=True)
-            dot.masked_fill_(~mask, masked_value)
-        if input_attn_mask is not None:
-            input_attn_mask = F.pad(input_attn_mask, (0, seq_len - input_attn_mask.shape[-1]), value=True)
-            dot.masked_fill_(~input_attn_mask, masked_value)
-        if self.causal:
-            i, j = torch.triu_indices(t, t, 1)
-            dot[:, (i), (j)] = masked_value
-        dot = dot.softmax(dim=-1)
-        dot = self.dropout(dot)
-        out = torch.einsum('bij,bje->bie', dot, v)
-        return out, dot, torch.empty(0)
-
-
 def expand_dim(dim, k, t):
     t = t.unsqueeze(dim)
     expand_shape = [-1] * len(t.shape)
@@ -838,6 +542,21 @@ class LSHSelfAttention(nn.Module):
         return self.post_attn_dropout(out)
 
 
+class Chunk(nn.Module):
+
+    def __init__(self, chunks, fn, along_dim=-1):
+        super().__init__()
+        self.dim = along_dim
+        self.chunks = chunks
+        self.fn = fn
+
+    def forward(self, x, **kwargs):
+        if self.chunks == 1:
+            return self.fn(x, **kwargs)
+        chunks = x.chunk(self.chunks, dim=self.dim)
+        return torch.cat([self.fn(c, **kwargs) for c in chunks], dim=self.dim)
+
+
 class GELU_(nn.Module):
 
     def forward(self, x):
@@ -870,116 +589,41 @@ class FeedForward(nn.Module):
         return x
 
 
-class AbsolutePositionalEmbedding(nn.Module):
+class PreNorm(nn.Module):
 
-    def __init__(self, dim, max_seq_len):
+    def __init__(self, norm_class, dim, fn):
         super().__init__()
-        self.emb = nn.Embedding(max_seq_len, dim)
-
-    def forward(self, x):
-        t = torch.arange(x.shape[1], device=x.device)
-        return self.emb(t)
-
-
-class FixedPositionalEmbedding(nn.Module):
-
-    def __init__(self, dim):
-        super().__init__()
-        inv_freq = 1.0 / 10000 ** (torch.arange(0, dim, 2).float() / dim)
-        self.register_buffer('inv_freq', inv_freq)
-
-    def forward(self, x):
-        t = torch.arange(x.shape[1], device=x.device).type(self.inv_freq.type())
-        sinusoid_inp = torch.einsum('i,j->ij', t, self.inv_freq)
-        emb = torch.cat((sinusoid_inp.sin(), sinusoid_inp.cos()), dim=-1)
-        return emb[(None), :, :]
-
-
-def cache_fn(f):
-    cache = None
-
-    @wraps(f)
-    def cached_fn(*args, **kwargs):
-        nonlocal cache
-        if cache is not None:
-            return cache
-        cache = f(*args, **kwargs)
-        return cache
-    return cached_fn
-
-
-def cast_tuple(x):
-    return x if isinstance(x, tuple) else (x,)
-
-
-class Reformer(nn.Module):
-
-    def __init__(self, dim, depth, max_seq_len, heads=8, bucket_size=64, n_hashes=8, ff_chunks=100, attn_chunks=None, causal=False, weight_tie=False, lsh_dropout=0.0, ff_dropout=0.0, ff_activation=None, ff_mult=4, ff_glu=False, post_attn_dropout=0.0, layer_dropout=0.0, lsh_attend_across_buckets=True, lsh_allow_duplicate_attention=True, random_rotations_per_head=False, twin_attention=False, use_scale_norm=False, use_rezero=False, use_full_attn=False, full_attn_thres=0, reverse_thres=0, num_mem_kv=0, one_value_head=False, n_local_attn_heads=0, pkm_layers=tuple(), pkm_num_keys=128):
-        super().__init__()
-        self.dim = dim
-        self.depth = depth
-        self.bucket_size = bucket_size
-        self.num_mem_kv = num_mem_kv
-        self.twin_attention = twin_attention
-        self.full_attn_thres = full_attn_thres
-        get_attn = lambda : LSHSelfAttention(dim, heads, bucket_size, n_hashes, causal=causal, dropout=lsh_dropout, post_attn_dropout=post_attn_dropout, attn_chunks=attn_chunks, allow_duplicate_attention=lsh_allow_duplicate_attention, attend_across_buckets=lsh_attend_across_buckets, random_rotations_per_head=random_rotations_per_head, num_mem_kv=num_mem_kv, use_full_attn=use_full_attn, full_attn_thres=full_attn_thres, one_value_head=one_value_head, n_local_attn_heads=n_local_attn_heads)
-        get_ff = lambda : Chunk(ff_chunks, FeedForward(dim, dropout=ff_dropout, activation=ff_activation, mult=ff_mult, glu=ff_glu), along_dim=-2)
-        get_pkm = lambda : PKM(dim, num_keys=pkm_num_keys)
-        if weight_tie:
-            get_attn, get_ff, get_pkm = map(cache_fn, (get_attn, get_ff, get_pkm))
-        blocks = []
-        norm_type = ScaleNorm if use_scale_norm else nn.LayerNorm
-        residual_fn_wrapper = ReZero if use_rezero else partial(PreNorm, norm_type, dim)
-        for ind in range(depth):
-            layer_num = ind + 1
-            use_pkm = layer_num in cast_tuple(pkm_layers)
-            parallel_net = None
-            attn = get_attn()
-            if use_pkm:
-                parallel_net = get_pkm()
-            elif twin_attention:
-                parallel_net = get_attn()
-            else:
-                parallel_net = get_ff()
-            f = residual_fn_wrapper(attn)
-            g = residual_fn_wrapper(parallel_net)
-            blocks.append(nn.ModuleList([f, g]))
-        self.layers = ReversibleSequence(nn.ModuleList(blocks), layer_dropout=layer_dropout, reverse_thres=reverse_thres, send_signal=True)
+        self.norm = norm_class(dim)
+        self.fn = fn
 
     def forward(self, x, **kwargs):
-        x = torch.cat([x, x], dim=-1)
-        arg_route = True, self.twin_attention
-        x = self.layers(x, arg_route=arg_route, **kwargs)
-        return torch.stack(x.chunk(2, dim=-1)).mean(dim=0)
+        x = self.norm(x)
+        return self.fn(x, **kwargs)
 
 
-class ReformerLM(nn.Module):
+class ReZero(nn.Module):
 
-    def __init__(self, num_tokens, dim, depth, max_seq_len, heads=8, bucket_size=64, n_hashes=4, ff_chunks=100, attn_chunks=1, causal=False, weight_tie=False, lsh_dropout=0.0, ff_dropout=0.0, ff_mult=4, ff_activation=None, ff_glu=False, post_attn_dropout=0.0, layer_dropout=0.0, random_rotations_per_head=False, twin_attention=False, use_scale_norm=False, use_rezero=False, use_full_attn=False, full_attn_thres=0, reverse_thres=0, num_mem_kv=0, one_value_head=False, emb_dim=None, return_embeddings=False, weight_tie_embedding=False, fixed_position_emb=False, absolute_position_emb=False, axial_position_shape=None, n_local_attn_heads=0, pkm_layers=tuple(), pkm_num_keys=128):
+    def __init__(self, fn):
         super().__init__()
-        emb_dim = default(emb_dim, dim)
-        self.max_seq_len = max_seq_len
-        self.token_emb = nn.Embedding(num_tokens, emb_dim)
-        self.to_model_dim = Identity() if emb_dim == dim else nn.Linear(emb_dim, dim)
-        if absolute_position_emb:
-            self.pos_emb = AbsolutePositionalEmbedding(emb_dim, max_seq_len)
-        elif fixed_position_emb:
-            self.pos_emb = FixedPositionalEmbedding(emb_dim)
-        else:
-            axial_position_shape = default(axial_position_shape, (max_seq_len // bucket_size, bucket_size))
-            self.pos_emb = AxialPositionalEmbedding(emb_dim, axial_position_shape)
-        self.reformer = Reformer(dim, depth, max_seq_len, heads=heads, bucket_size=bucket_size, n_hashes=n_hashes, ff_chunks=ff_chunks, attn_chunks=attn_chunks, causal=causal, weight_tie=weight_tie, lsh_dropout=lsh_dropout, ff_mult=ff_mult, ff_activation=ff_activation, ff_glu=ff_glu, ff_dropout=ff_dropout, post_attn_dropout=0.0, layer_dropout=layer_dropout, random_rotations_per_head=random_rotations_per_head, twin_attention=twin_attention, use_scale_norm=use_scale_norm, use_rezero=use_rezero, use_full_attn=use_full_attn, full_attn_thres=full_attn_thres, reverse_thres=reverse_thres, num_mem_kv=num_mem_kv, one_value_head=one_value_head, n_local_attn_heads=n_local_attn_heads, pkm_layers=pkm_layers, pkm_num_keys=pkm_num_keys)
-        if return_embeddings:
-            self.out = Identity()
-            return
-        self.out = nn.Sequential(nn.Linear(dim, emb_dim) if emb_dim != dim else Identity(), nn.Linear(emb_dim, num_tokens) if not weight_tie_embedding else MatrixMultiply(self.token_emb.weight, transpose=True, normalize=True))
+        self.g = nn.Parameter(torch.zeros(1))
+        self.fn = fn
 
     def forward(self, x, **kwargs):
-        x = self.token_emb(x)
-        x = x + self.pos_emb(x).type(x.type())
-        x = self.to_model_dim(x)
-        x = self.reformer(x, **kwargs)
-        return self.out(x)
+        return self.fn(x, **kwargs) * self.g
+
+
+class IrreversibleBlock(nn.Module):
+
+    def __init__(self, f, g):
+        super().__init__()
+        self.f = f
+        self.g = g
+
+    def forward(self, x, f_args, g_args):
+        x1, x2 = torch.chunk(x, 2, dim=2)
+        y1 = x1 + self.f(x2, **f_args)
+        y2 = x2 + self.g(y1, **g_args)
+        return torch.cat([y1, y2], dim=2)
 
 
 class Deterministic(nn.Module):
@@ -994,7 +638,7 @@ class Deterministic(nn.Module):
 
     def record_rng(self, *args):
         self.cpu_state = torch.get_rng_state()
-        if torch._initialized:
+        if torch.cuda._initialized:
             self.cuda_in_fwd = True
             self.gpu_devices, self.gpu_states = get_device_states(*args)
 
@@ -1066,20 +710,6 @@ class ReversibleBlock(nn.Module):
         return x, dx
 
 
-class IrreversibleBlock(nn.Module):
-
-    def __init__(self, f, g):
-        super().__init__()
-        self.f = f
-        self.g = g
-
-    def forward(self, x, f_args, g_args):
-        x1, x2 = torch.chunk(x, 2, dim=2)
-        y1 = x1 + self.f(x2, **f_args)
-        y2 = x2 + self.g(y1, **g_args)
-        return torch.cat([y1, y2], dim=2)
-
-
 class _ReversibleFunction(Function):
 
     @staticmethod
@@ -1123,6 +753,377 @@ class ReversibleSequence(nn.Module):
                 x = block(x, **block_kwargs)
             return x
         return _ReversibleFunction.apply(x, blocks, block_kwargs)
+
+
+class ScaleNorm(nn.Module):
+
+    def __init__(self, dim, eps=1e-05):
+        super().__init__()
+        self.g = nn.Parameter(torch.ones(1))
+        self.eps = eps
+
+    def forward(self, x):
+        n = torch.norm(x, dim=-1, keepdim=True).clamp(min=self.eps)
+        return x / n * self.g
+
+
+def cache_fn(f):
+    cache = None
+
+    @wraps(f)
+    def cached_fn(*args, **kwargs):
+        nonlocal cache
+        if cache is not None:
+            return cache
+        cache = f(*args, **kwargs)
+        return cache
+    return cached_fn
+
+
+def cast_tuple(x):
+    return x if isinstance(x, tuple) else (x,)
+
+
+class Reformer(nn.Module):
+
+    def __init__(self, dim, depth, max_seq_len, heads=8, bucket_size=64, n_hashes=8, ff_chunks=100, attn_chunks=None, causal=False, weight_tie=False, lsh_dropout=0.0, ff_dropout=0.0, ff_activation=None, ff_mult=4, ff_glu=False, post_attn_dropout=0.0, layer_dropout=0.0, lsh_attend_across_buckets=True, lsh_allow_duplicate_attention=True, random_rotations_per_head=False, twin_attention=False, use_scale_norm=False, use_rezero=False, use_full_attn=False, full_attn_thres=0, reverse_thres=0, num_mem_kv=0, one_value_head=False, n_local_attn_heads=0, pkm_layers=tuple(), pkm_num_keys=128):
+        super().__init__()
+        self.dim = dim
+        self.depth = depth
+        self.bucket_size = bucket_size
+        self.num_mem_kv = num_mem_kv
+        self.twin_attention = twin_attention
+        self.full_attn_thres = full_attn_thres
+        get_attn = lambda : LSHSelfAttention(dim, heads, bucket_size, n_hashes, causal=causal, dropout=lsh_dropout, post_attn_dropout=post_attn_dropout, attn_chunks=attn_chunks, allow_duplicate_attention=lsh_allow_duplicate_attention, attend_across_buckets=lsh_attend_across_buckets, random_rotations_per_head=random_rotations_per_head, num_mem_kv=num_mem_kv, use_full_attn=use_full_attn, full_attn_thres=full_attn_thres, one_value_head=one_value_head, n_local_attn_heads=n_local_attn_heads)
+        get_ff = lambda : Chunk(ff_chunks, FeedForward(dim, dropout=ff_dropout, activation=ff_activation, mult=ff_mult, glu=ff_glu), along_dim=-2)
+        get_pkm = lambda : PKM(dim, num_keys=pkm_num_keys)
+        if weight_tie:
+            get_attn, get_ff, get_pkm = map(cache_fn, (get_attn, get_ff, get_pkm))
+        blocks = []
+        norm_type = ScaleNorm if use_scale_norm else nn.LayerNorm
+        residual_fn_wrapper = ReZero if use_rezero else partial(PreNorm, norm_type, dim)
+        for ind in range(depth):
+            layer_num = ind + 1
+            use_pkm = layer_num in cast_tuple(pkm_layers)
+            parallel_net = None
+            attn = get_attn()
+            if use_pkm:
+                parallel_net = get_pkm()
+            elif twin_attention:
+                parallel_net = get_attn()
+            else:
+                parallel_net = get_ff()
+            f = residual_fn_wrapper(attn)
+            g = residual_fn_wrapper(parallel_net)
+            blocks.append(nn.ModuleList([f, g]))
+        self.layers = ReversibleSequence(nn.ModuleList(blocks), layer_dropout=layer_dropout, reverse_thres=reverse_thres, send_signal=True)
+
+    def forward(self, x, **kwargs):
+        x = torch.cat([x, x], dim=-1)
+        arg_route = True, self.twin_attention
+        x = self.layers(x, arg_route=arg_route, **kwargs)
+        return torch.stack(x.chunk(2, dim=-1)).mean(dim=0)
+
+
+class AbsolutePositionalEmbedding(nn.Module):
+
+    def __init__(self, dim, max_seq_len):
+        super().__init__()
+        self.emb = nn.Embedding(max_seq_len, dim)
+
+    def forward(self, x):
+        t = torch.arange(x.shape[1], device=x.device)
+        return self.emb(t)
+
+
+class FixedPositionalEmbedding(nn.Module):
+
+    def __init__(self, dim):
+        super().__init__()
+        inv_freq = 1.0 / 10000 ** (torch.arange(0, dim, 2).float() / dim)
+        self.register_buffer('inv_freq', inv_freq)
+
+    def forward(self, x):
+        t = torch.arange(x.shape[1], device=x.device).type(self.inv_freq.type())
+        sinusoid_inp = torch.einsum('i,j->ij', t, self.inv_freq)
+        emb = torch.cat((sinusoid_inp.sin(), sinusoid_inp.cos()), dim=-1)
+        return emb[(None), :, :]
+
+
+class MatrixMultiply(nn.Module):
+
+    def __init__(self, tensor, transpose=False, normalize=False):
+        super().__init__()
+        self.tensor = tensor
+        self.transpose = transpose
+        self.normalize = normalize
+
+    def forward(self, x):
+        tensor = self.tensor
+        if self.normalize:
+            tensor = F.normalize(tensor, dim=-1)
+        if self.transpose:
+            tensor = tensor.t()
+        return x @ tensor
+
+
+class ReformerLM(nn.Module):
+
+    def __init__(self, num_tokens, dim, depth, max_seq_len, heads=8, bucket_size=64, n_hashes=4, ff_chunks=100, attn_chunks=1, causal=False, weight_tie=False, lsh_dropout=0.0, ff_dropout=0.0, ff_mult=4, ff_activation=None, ff_glu=False, post_attn_dropout=0.0, layer_dropout=0.0, random_rotations_per_head=False, twin_attention=False, use_scale_norm=False, use_rezero=False, use_full_attn=False, full_attn_thres=0, reverse_thres=0, num_mem_kv=0, one_value_head=False, emb_dim=None, return_embeddings=False, weight_tie_embedding=False, fixed_position_emb=False, absolute_position_emb=False, axial_position_shape=None, n_local_attn_heads=0, pkm_layers=tuple(), pkm_num_keys=128):
+        super().__init__()
+        emb_dim = default(emb_dim, dim)
+        self.max_seq_len = max_seq_len
+        self.token_emb = nn.Embedding(num_tokens, emb_dim)
+        self.to_model_dim = Identity() if emb_dim == dim else nn.Linear(emb_dim, dim)
+        if absolute_position_emb:
+            self.pos_emb = AbsolutePositionalEmbedding(emb_dim, max_seq_len)
+        elif fixed_position_emb:
+            self.pos_emb = FixedPositionalEmbedding(emb_dim)
+        else:
+            axial_position_shape = default(axial_position_shape, (max_seq_len // bucket_size, bucket_size))
+            self.pos_emb = AxialPositionalEmbedding(emb_dim, axial_position_shape)
+        self.reformer = Reformer(dim, depth, max_seq_len, heads=heads, bucket_size=bucket_size, n_hashes=n_hashes, ff_chunks=ff_chunks, attn_chunks=attn_chunks, causal=causal, weight_tie=weight_tie, lsh_dropout=lsh_dropout, ff_mult=ff_mult, ff_activation=ff_activation, ff_glu=ff_glu, ff_dropout=ff_dropout, post_attn_dropout=0.0, layer_dropout=layer_dropout, random_rotations_per_head=random_rotations_per_head, twin_attention=twin_attention, use_scale_norm=use_scale_norm, use_rezero=use_rezero, use_full_attn=use_full_attn, full_attn_thres=full_attn_thres, reverse_thres=reverse_thres, num_mem_kv=num_mem_kv, one_value_head=one_value_head, n_local_attn_heads=n_local_attn_heads, pkm_layers=pkm_layers, pkm_num_keys=pkm_num_keys)
+        if return_embeddings:
+            self.out = Identity()
+            return
+        self.out = nn.Sequential(nn.Linear(dim, emb_dim) if emb_dim != dim else Identity(), nn.Linear(emb_dim, num_tokens) if not weight_tie_embedding else MatrixMultiply(self.token_emb.weight, transpose=True, normalize=True))
+
+    def forward(self, x, **kwargs):
+        x = self.token_emb(x)
+        x = x + self.pos_emb(x).type(x.type())
+        x = self.to_model_dim(x)
+        x = self.reformer(x, **kwargs)
+        return self.out(x)
+
+
+def pad_to_multiple(tensor, seqlen, multiple, dim=-1):
+    m = seqlen / multiple
+    if m.is_integer():
+        return tensor
+    remainder = math.ceil(m) * multiple - seqlen
+    pad_offset = (0,) * (-1 - dim) * 2
+    return F.pad(tensor, (*pad_offset, 0, remainder), value=0)
+
+
+class Autopadder(nn.Module):
+
+    def __init__(self, net):
+        super().__init__()
+        assert isinstance(net, (LSHSelfAttention, Reformer, ReformerLM)), 'only modules LSHSelfAttention, Reformer, ReformerLM accepted'
+        self.net = net
+        reformer = net.reformer if isinstance(net, ReformerLM) else net
+        self.pad_dim = -1 if isinstance(net, ReformerLM) else -2
+        self.bucket_size = reformer.bucket_size
+        self.num_mem_kv = reformer.num_mem_kv
+        self.full_attn_thres = reformer.full_attn_thres
+
+    def forward(self, x, **kwargs):
+        b, t, m, device = *x.shape[:2], self.num_mem_kv, x.device
+        keys = kwargs.get('keys')
+        input_mask = kwargs.get('input_mask')
+        input_attn_mask = kwargs.get('input_attn_mask')
+        k_len = 0 if keys is None else keys.shape[1]
+        seqlen = t + m + k_len
+        if seqlen > self.full_attn_thres:
+            if input_mask is None:
+                input_mask = torch.full_like(x, True, device=x.device, dtype=torch.bool)
+            x = pad_to_multiple(x, seqlen, self.bucket_size * 2, dim=self.pad_dim)
+            if input_mask is not None:
+                new_mask = F.pad(input_mask, (0, x.shape[1] - input_mask.shape[1]), value=False)
+                kwargs.update(input_mask=new_mask)
+            if input_attn_mask is not None:
+                offset = x.shape[1] - input_attn_mask.shape[1]
+                new_mask = F.pad(input_attn_mask, (0, offset, 0, offset), value=False)
+                kwargs.update(input_attn_mask=new_mask)
+        out = self.net(x, **kwargs)
+        return out[:, 0:t]
+
+
+def top_k(logits, thres=0.9):
+    k = int((1 - thres) * logits.shape[-1])
+    val, ind = torch.topk(logits, k)
+    probs = torch.full_like(logits, float('-inf'))
+    probs.scatter_(1, ind, val)
+    return probs
+
+
+class TrainingWrapper(nn.Module):
+
+    def __init__(self, net, ignore_index=-100, pad_value=0):
+        super().__init__()
+        assert isinstance(net, ReformerLM), 'generative trainer wrapper can only accept ReformerLM class'
+        self.pad_value = pad_value
+        self.ignore_index = ignore_index
+        self.net = Autopadder(net)
+        self.max_seq_len = net.max_seq_len
+
+    @torch.no_grad()
+    def generate(self, start_tokens, seq_len, eos_token=None, temperature=1.0, filter_logits_fn=top_k, filter_thres=0.9, **kwargs):
+        was_training = self.net.training
+        num_dims = len(start_tokens.shape)
+        if num_dims == 1:
+            start_tokens = start_tokens[(None), :]
+        b, t = start_tokens.shape
+        self.net.eval()
+        out = start_tokens
+        input_mask = kwargs.pop('input_mask', None)
+        if input_mask is None:
+            input_mask = torch.full_like(out, True, dtype=torch.bool, device=out.device)
+        for _ in range(seq_len):
+            x = out[:, -self.max_seq_len:]
+            input_mask = input_mask[:, -self.max_seq_len:]
+            logits = self.net(x, input_mask=input_mask, **kwargs)[:, (-1), :]
+            filtered_logits = filter_logits_fn(logits, thres=filter_thres)
+            probs = F.softmax(filtered_logits / temperature, dim=-1)
+            sample = torch.multinomial(probs, 1)
+            out = torch.cat((out, sample), dim=-1)
+            input_mask = F.pad(input_mask, (0, 1), value=True)
+            if eos_token is not None and (sample == eos_token).all():
+                break
+        out = out[:, t:]
+        if num_dims == 1:
+            out = out.squeeze(0)
+        self.net.train(was_training)
+        return out
+
+    def forward(self, x, return_loss=False, **kwargs):
+        pad = partial(pad_sequence, batch_first=True, padding_value=self.pad_value)
+        if not return_loss:
+            if not isinstance(x, torch.Tensor):
+                x = pad(x)
+            return self.net(x, **kwargs)
+        if isinstance(x, torch.Tensor):
+            xi = x[:, :-1]
+            xo = x[:, 1:]
+        else:
+            xi = pad(list(map(lambda t: t[:-1], x)))
+            xo = pad(list(map(lambda t: t[1:], x)))
+        out = self.net(xi, **kwargs)
+        loss = F.cross_entropy(out.transpose(1, 2), xo, ignore_index=self.ignore_index)
+        return loss
+
+
+class Recorder(nn.Module):
+
+    def __init__(self, net):
+        super().__init__()
+        self.iter = 0
+        self.recordings = defaultdict(list)
+        self.net = net
+        self.on = True
+        self.ejected = False
+
+    def eject(self):
+        self.ejected = True
+        self.clear()
+        self.unwire()
+        return self.net
+
+    def wire(self):
+        for module in self.net.modules():
+            if isinstance(module, LSHAttention):
+                module._return_attn = True
+            if isinstance(module, LSHSelfAttention):
+                module.callback = self.record
+
+    def unwire(self):
+        for module in self.net.modules():
+            if isinstance(module, LSHAttention):
+                module._return_attn = False
+            if isinstance(module, LSHSelfAttention):
+                module.callback = None
+
+    def turn_on(self):
+        self.on = True
+
+    def turn_off(self):
+        self.on = False
+
+    def clear(self):
+        del self.recordings
+        self.recordings = defaultdict(list)
+        self.iter = 0
+
+    def record(self, attn, buckets):
+        if not self.on:
+            return
+        data = {'attn': attn.detach().cpu(), 'buckets': buckets.detach().cpu()}
+        self.recordings[self.iter].append(data)
+
+    def forward(self, x, **kwargs):
+        assert not self.ejected, 'Recorder has already been ejected and disposed'
+        if self.on:
+            self.wire()
+        out = self.net(x, **kwargs)
+        self.iter += 1
+        self.unwire()
+        return out
+
+
+DEC_PREFIX = 'dec_'
+
+
+ENC_PREFIX = 'enc_'
+
+
+def group_dict_by_key(cond, d):
+    return_val = [dict(), dict()]
+    for key in d.keys():
+        match = bool(cond(key))
+        ind = int(not match)
+        return_val[ind][key] = d[key]
+    return *return_val,
+
+
+def string_begins_with(prefix, str):
+    return bool(re.match(f'^{prefix}', str))
+
+
+def group_by_key_prefix_and_remove_prefix(prefix, d):
+    kwargs_with_prefix, kwargs = group_dict_by_key(lambda x: string_begins_with(prefix, x), d)
+    kwargs_without_prefix = dict(map(lambda x: (x[0][len(prefix):], x[1]), tuple(kwargs_with_prefix.items())))
+    return kwargs_without_prefix, kwargs
+
+
+def extract_enc_dec_kwargs(kwargs):
+    enc_kwargs, kwargs = group_by_key_prefix_and_remove_prefix(ENC_PREFIX, kwargs)
+    dec_kwargs, kwargs = group_by_key_prefix_and_remove_prefix(DEC_PREFIX, kwargs)
+    return enc_kwargs, dec_kwargs, kwargs
+
+
+def extract_and_set_enc_dec_kwargs(kwargs):
+    enc_kwargs, dec_kwargs, kwargs = extract_enc_dec_kwargs(kwargs)
+    if 'input_mask' in enc_kwargs:
+        dec_kwargs.setdefault('context_mask', enc_kwargs['input_mask'])
+    return enc_kwargs, dec_kwargs, kwargs
+
+
+class ReformerEncDec(nn.Module):
+
+    def __init__(self, dim, ignore_index=-100, pad_value=0, **kwargs):
+        super().__init__()
+        enc_kwargs, dec_kwargs, _ = extract_enc_dec_kwargs(kwargs)
+        assert 'return_embedding' not in enc_kwargs, 'you cannot manually set the return embeddings flag for the encoder'
+        assert 'dim' not in dec_kwargs and 'dim' not in enc_kwargs, 'you must set the dim for both encoder and decoder'
+        enc_kwargs['dim'] = dec_kwargs['dim'] = dim
+        enc_kwargs['return_embeddings'] = True
+        dec_kwargs['causal'] = True
+        enc_kwargs.setdefault('bucket_size', 64)
+        dec_kwargs.setdefault('bucket_size', enc_kwargs['bucket_size'] * 2)
+        enc = ReformerLM(**enc_kwargs)
+        dec = ReformerLM(**dec_kwargs)
+        self.enc = TrainingWrapper(enc, ignore_index=ignore_index, pad_value=pad_value)
+        self.dec = TrainingWrapper(dec, ignore_index=ignore_index, pad_value=pad_value)
+
+    def generate(self, seq_in, seq_out_start, seq_len, **kwargs):
+        enc_kwargs, dec_kwargs, kwargs = extract_and_set_enc_dec_kwargs(kwargs)
+        enc_keys = self.enc(seq_in, **enc_kwargs)
+        return self.dec.generate(seq_out_start, seq_len, keys=enc_keys, **{**dec_kwargs, **kwargs})
+
+    def forward(self, seq_in, seq_out, return_loss=False, **kwargs):
+        enc_kwargs, dec_kwargs, kwargs = extract_and_set_enc_dec_kwargs(kwargs)
+        enc_keys = self.enc(seq_in, **enc_kwargs)
+        return self.dec(seq_out, return_loss=return_loss, keys=enc_keys, **dec_kwargs)
 
 
 import torch

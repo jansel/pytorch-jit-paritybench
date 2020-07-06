@@ -63,17 +63,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils.data import Dataset
+
+
+import numpy as np
+
+
+import random
+
+
+import logging
+
+
+import math
 
 
 import torch
@@ -85,19 +101,10 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 
-import math
-
-
 import torch.utils.model_zoo as model_zoo
 
 
 import torch.nn.functional as F
-
-
-import logging
-
-
-import numpy as np
 
 
 import time
@@ -351,19 +358,100 @@ class ResNet(nn.Module):
         return p2, p3, p4
 
 
-class ResDownS(nn.Module):
+class Features(nn.Module):
 
-    def __init__(self, inplane, outplane):
-        super(ResDownS, self).__init__()
-        self.downsample = nn.Sequential(nn.Conv2d(inplane, outplane, kernel_size=1, bias=False), nn.BatchNorm2d(outplane))
+    def __init__(self):
+        super(Features, self).__init__()
+        self.feature_size = -1
 
     def forward(self, x):
-        x = self.downsample(x)
-        if x.size(3) < 20:
-            l = 4
-            r = -4
-            x = x[:, :, l:r, l:r]
-        return x
+        raise NotImplementedError
+
+    def param_groups(self, start_lr, feature_mult=1):
+        params = filter(lambda x: x.requires_grad, self.parameters())
+        params = [{'params': params, 'lr': start_lr * feature_mult}]
+        return params
+
+    def load_model(self, f='pretrain.model'):
+        with open(f) as f:
+            pretrained_dict = torch.load(f)
+            model_dict = self.state_dict()
+            None
+            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+            None
+            model_dict.update(pretrained_dict)
+            self.load_state_dict(model_dict)
+
+
+class Bottleneck(Features):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=1):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        padding = 2 - stride
+        assert stride == 1 or dilation == 1, 'stride and dilation must have one equals to zero at least'
+        if dilation > 1:
+            padding = dilation
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=padding, bias=False, dilation=dilation)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        if out.size() != residual.size():
+            None
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class ResAdjust(nn.Module):
+
+    def __init__(self, block=Bottleneck, out_channels=256, adjust_number=1, fuse_layers=[2, 3, 4]):
+        super(ResAdjust, self).__init__()
+        self.fuse_layers = set(fuse_layers)
+        if 2 in self.fuse_layers:
+            self.layer2 = self._make_layer(block, 128, 1, out_channels, adjust_number)
+        if 3 in self.fuse_layers:
+            self.layer3 = self._make_layer(block, 256, 2, out_channels, adjust_number)
+        if 4 in self.fuse_layers:
+            self.layer4 = self._make_layer(block, 512, 4, out_channels, adjust_number)
+        self.feature_size = out_channels * len(self.fuse_layers)
+
+    def _make_layer(self, block, plances, dilation, out, number=1):
+        layers = []
+        for _ in range(number):
+            layer = block(plances * block.expansion, plances, dilation=dilation)
+            layers.append(layer)
+        downsample = nn.Sequential(nn.Conv2d(plances * block.expansion, out, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(out))
+        layers.append(downsample)
+        return nn.Sequential(*layers)
+
+    def forward(self, p2, p3, p4):
+        outputs = []
+        if 2 in self.fuse_layers:
+            outputs.append(self.layer2(p2))
+        if 3 in self.fuse_layers:
+            outputs.append(self.layer3(p3))
+        if 4 in self.fuse_layers:
+            outputs.append(self.layer4(p4))
+        return outputs
 
 
 class Refine(nn.Module):
@@ -417,292 +505,51 @@ class Refine(nn.Module):
         return params
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
+logger = logging.getLogger('global')
 
 
-class Bottleneck_nop(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck_nop, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=0, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        s = residual.size(3)
-        residual = residual[:, :, 1:s - 1, 1:s - 1]
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, layer4=False, layer3=False):
-        self.inplanes = 64
-        super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.feature_size = 128 * block.expansion
-        if layer3:
-            self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
-            self.feature_size = (256 + 128) * block.expansion
-        else:
-            self.layer3 = lambda x: x
-        if layer4:
-            self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4)
-            self.feature_size = 512 * block.expansion
-        else:
-            self.layer4 = lambda x: x
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
-        downsample = None
-        dd = dilation
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            if stride == 1 and dilation == 1:
-                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
-            else:
-                if dilation > 1:
-                    dd = dilation // 2
-                    padding = dd
-                else:
-                    dd = 1
-                    padding = 0
-                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=3, stride=stride, bias=False, padding=padding, dilation=dd), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, dilation=dd))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        p0 = self.relu(x)
-        x = self.maxpool(p0)
-        p1 = self.layer1(x)
-        p2 = self.layer2(p1)
-        p3 = self.layer3(p2)
-        return p0, p1, p2, p3
-
-
-class ResDownS(nn.Module):
-
-    def __init__(self, inplane, outplane):
-        super(ResDownS, self).__init__()
-        self.downsample = nn.Sequential(nn.Conv2d(inplane, outplane, kernel_size=1, bias=False), nn.BatchNorm2d(outplane))
-
-    def forward(self, x):
-        x = self.downsample(x)
-        if x.size(3) < 20:
-            l = 4
-            r = -4
-            x = x[:, :, l:r, l:r]
-        return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck_nop(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck_nop, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=0, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        s = residual.size(3)
-        residual = residual[:, :, 1:s - 1, 1:s - 1]
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, layer4=False, layer3=False):
-        self.inplanes = 64
-        super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=0, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.feature_size = 128 * block.expansion
-        if layer3:
-            self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
-            self.feature_size = (256 + 128) * block.expansion
-        else:
-            self.layer3 = lambda x: x
-        if layer4:
-            self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4)
-            self.feature_size = 512 * block.expansion
-        else:
-            self.layer4 = lambda x: x
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
-        downsample = None
-        dd = dilation
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            if stride == 1 and dilation == 1:
-                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
-            else:
-                if dilation > 1:
-                    dd = dilation // 2
-                    padding = dd
-                else:
-                    dd = 1
-                    padding = 0
-                downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=3, stride=stride, bias=False, padding=padding, dilation=dd), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, dilation=dd))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        p1 = self.layer1(x)
-        p2 = self.layer2(p1)
-        p3 = self.layer3(p2)
-        log_once('p3 {}'.format(p3.size()))
-        p4 = self.layer4(p3)
-        return p2, p3, p4
-
-
-class Features(nn.Module):
+class MultiStageFeature(Features):
 
     def __init__(self):
-        super(Features, self).__init__()
-        self.feature_size = -1
+        super(MultiStageFeature, self).__init__()
+        self.layers = []
+        self.train_num = -1
+        self.change_point = []
+        self.train_nums = []
 
-    def forward(self, x):
-        raise NotImplementedError
+    def unfix(self, ratio=0.0):
+        if self.train_num == -1:
+            self.train_num = 0
+            self.unlock()
+            self.eval()
+        for p, t in reversed(list(zip(self.change_point, self.train_nums))):
+            if ratio >= p:
+                if self.train_num != t:
+                    self.train_num = t
+                    self.unlock()
+                    return True
+                break
+        return False
 
-    def param_groups(self, start_lr, feature_mult=1):
-        params = filter(lambda x: x.requires_grad, self.parameters())
-        params = [{'params': params, 'lr': start_lr * feature_mult}]
-        return params
+    def train_layers(self):
+        return self.layers[:self.train_num]
 
-    def load_model(self, f='pretrain.model'):
-        with open(f) as f:
-            pretrained_dict = torch.load(f)
-            model_dict = self.state_dict()
-            None
-            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
-            None
-            model_dict.update(pretrained_dict)
-            self.load_state_dict(model_dict)
+    def unlock(self):
+        for p in self.parameters():
+            p.requires_grad = False
+        logger.info('Current training {} layers:\n\t'.format(self.train_num, self.train_layers()))
+        for m in self.train_layers():
+            for p in m.parameters():
+                p.requires_grad = True
+
+    def train(self, mode):
+        self.training = mode
+        if mode == False:
+            super(MultiStageFeature, self).train(False)
+        else:
+            for m in self.train_layers():
+                m.train(True)
+        return self
 
 
 class Mask(nn.Module):
@@ -885,8 +732,8 @@ def get_cls_loss(pred, label, select):
 def select_cross_entropy_loss(pred, label):
     pred = pred.view(-1, 2)
     label = label.view(-1)
-    pos = Variable(label.data.eq(1).nonzero().squeeze()).cuda()
-    neg = Variable(label.data.eq(0).nonzero().squeeze()).cuda()
+    pos = Variable(label.data.eq(1).nonzero().squeeze())
+    neg = Variable(label.data.eq(0).nonzero().squeeze())
     loss_pos = get_cls_loss(pred, label, pos)
     loss_neg = get_cls_loss(pred, label, neg)
     return loss_pos * 0.5 + loss_neg * 0.5
@@ -934,103 +781,6 @@ def weight_l1_loss(pred_loc, label_loc, loss_weight):
     diff = diff.sum(dim=1).view(b, -1, sh, sw)
     loss = diff * loss_weight
     return loss.sum().div(b)
-
-
-class SiamMask(nn.Module):
-
-    def __init__(self, anchors=None, o_sz=63, g_sz=127):
-        super(SiamMask, self).__init__()
-        self.anchors = anchors
-        self.anchor_num = len(self.anchors['ratios']) * len(self.anchors['scales'])
-        self.anchor = Anchors(anchors)
-        self.features = None
-        self.rpn_model = None
-        self.mask_model = None
-        self.o_sz = o_sz
-        self.g_sz = g_sz
-        self.upSample = nn.UpsamplingBilinear2d(size=[g_sz, g_sz])
-        self.all_anchors = None
-
-    def set_all_anchors(self, image_center, size):
-        if not self.anchor.generate_all_anchors(image_center, size):
-            return
-        all_anchors = self.anchor.all_anchors[1]
-        self.all_anchors = torch.from_numpy(all_anchors).float()
-        self.all_anchors = [self.all_anchors[i] for i in range(4)]
-
-    def feature_extractor(self, x):
-        return self.features(x)
-
-    def rpn(self, template, search):
-        pred_cls, pred_loc = self.rpn_model(template, search)
-        return pred_cls, pred_loc
-
-    def mask(self, template, search):
-        pred_mask = self.mask_model(template, search)
-        return pred_mask
-
-    def _add_rpn_loss(self, label_cls, label_loc, lable_loc_weight, label_mask, label_mask_weight, rpn_pred_cls, rpn_pred_loc, rpn_pred_mask):
-        rpn_loss_cls = select_cross_entropy_loss(rpn_pred_cls, label_cls)
-        rpn_loss_loc = weight_l1_loss(rpn_pred_loc, label_loc, lable_loc_weight)
-        rpn_loss_mask, iou_m, iou_5, iou_7 = select_mask_logistic_loss(rpn_pred_mask, label_mask, label_mask_weight)
-        return rpn_loss_cls, rpn_loss_loc, rpn_loss_mask, iou_m, iou_5, iou_7
-
-    def run(self, template, search, softmax=False):
-        """
-        run network
-        """
-        template_feature = self.feature_extractor(template)
-        search_feature = self.feature_extractor(search)
-        rpn_pred_cls, rpn_pred_loc = self.rpn(template_feature, search_feature)
-        rpn_pred_mask = self.mask(template_feature, search_feature)
-        if softmax:
-            rpn_pred_cls = self.softmax(rpn_pred_cls)
-        return rpn_pred_cls, rpn_pred_loc, rpn_pred_mask, template_feature, search_feature
-
-    def softmax(self, cls):
-        b, a2, h, w = cls.size()
-        cls = cls.view(b, 2, a2 // 2, h, w)
-        cls = cls.permute(0, 2, 3, 4, 1).contiguous()
-        cls = F.log_softmax(cls, dim=4)
-        return cls
-
-    def forward(self, input):
-        """
-        :param input: dict of input with keys of:
-                'template': [b, 3, h1, w1], input template image.
-                'search': [b, 3, h2, w2], input search image.
-                'label_cls':[b, max_num_gts, 5] or None(self.training==False),
-                                     each gt contains x1,y1,x2,y2,class.
-        :return: dict of loss, predict, accuracy
-        """
-        template = input['template']
-        search = input['search']
-        if self.training:
-            label_cls = input['label_cls']
-            label_loc = input['label_loc']
-            lable_loc_weight = input['label_loc_weight']
-            label_mask = input['label_mask']
-            label_mask_weight = input['label_mask_weight']
-        rpn_pred_cls, rpn_pred_loc, rpn_pred_mask, template_feature, search_feature = self.run(template, search, softmax=self.training)
-        outputs = dict()
-        outputs['predict'] = [rpn_pred_loc, rpn_pred_cls, rpn_pred_mask, template_feature, search_feature]
-        if self.training:
-            rpn_loss_cls, rpn_loss_loc, rpn_loss_mask, iou_acc_mean, iou_acc_5, iou_acc_7 = self._add_rpn_loss(label_cls, label_loc, lable_loc_weight, label_mask, label_mask_weight, rpn_pred_cls, rpn_pred_loc, rpn_pred_mask)
-            outputs['losses'] = [rpn_loss_cls, rpn_loss_loc, rpn_loss_mask]
-            outputs['accuracy'] = [iou_acc_mean, iou_acc_5, iou_acc_7]
-        return outputs
-
-    def template(self, z):
-        self.zf = self.feature_extractor(z)
-        cls_kernel, loc_kernel = self.rpn_model.template(self.zf)
-        return cls_kernel, loc_kernel
-
-    def track(self, x, cls_kernel=None, loc_kernel=None, softmax=False):
-        xf = self.feature_extractor(x)
-        rpn_pred_cls, rpn_pred_loc = self.rpn_model.track(xf, cls_kernel, loc_kernel)
-        if softmax:
-            rpn_pred_cls = self.softmax(rpn_pred_cls)
-        return rpn_pred_cls, rpn_pred_loc
 
 
 class SiamMask(nn.Module):
@@ -1237,6 +987,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'hidden': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ResAdjust,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64, 64]), torch.rand([4, 1024, 64, 64]), torch.rand([4, 2048, 64, 64])], {}),
+     False),
     (ResDownS,
      lambda: ([], {'inplane': 4, 'outplane': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1252,4 +1006,7 @@ class Test_foolwood_SiamMask(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

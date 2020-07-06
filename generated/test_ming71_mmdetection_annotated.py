@@ -156,6 +156,8 @@ build_loader = _module
 sampler = _module
 my_dataset = _module
 registry = _module
+transforms = _module
+utils = _module
 voc = _module
 wider_face = _module
 xml_style = _module
@@ -177,6 +179,7 @@ ssd_vgg = _module
 bbox_heads = _module
 bbox_head = _module
 convfc_bbox_head = _module
+builder = _module
 detectors = _module
 base = _module
 cascade_rcnn = _module
@@ -233,6 +236,7 @@ pascal_voc = _module
 detectron2pytorch = _module
 publish_model = _module
 test = _module
+train = _module
 upgrade_model_version = _module
 voc_eval = _module
 
@@ -240,32 +244,54 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import warnings
+import torch
+
+
+import logging
+
+
+import random
 
 
 import numpy as np
 
 
-import torch
+import torch.distributed as dist
+
+
+import torch.multiprocessing as mp
+
+
+import warnings
 
 
 import re
 
 
 from collections import OrderedDict
+
+
+from abc import ABCMeta
+
+
+from abc import abstractmethod
+
+
+from torch.utils.data import Dataset
 
 
 import functools
@@ -280,6 +306,27 @@ import copy
 import torch.nn as nn
 
 
+from collections import abc
+
+
+from torch._utils import _flatten_dense_tensors
+
+
+from torch._utils import _unflatten_dense_tensors
+
+
+from torch._utils import _take_tensors
+
+
+from torch.utils.data.dataset import ConcatDataset as _ConcatDataset
+
+
+from functools import partial
+
+
+from torch.utils.data import DataLoader
+
+
 import math
 
 
@@ -289,10 +336,10 @@ from torch.utils.data import Sampler
 from torch.utils.data import DistributedSampler as _DistributedSampler
 
 
+from collections import Sequence
+
+
 import torch.nn.functional as F
-
-
-import logging
 
 
 from torch.nn.modules.batchnorm import _BatchNorm
@@ -301,16 +348,22 @@ from torch.nn.modules.batchnorm import _BatchNorm
 import torch.utils.checkpoint as cp
 
 
-from abc import ABCMeta
-
-
-from abc import abstractmethod
+from torch import nn
 
 
 from torch.utils.checkpoint import checkpoint
 
 
 import inspect
+
+
+import time
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
 
 
 class AnchorGenerator(object):
@@ -355,7 +408,7 @@ class AnchorGenerator(object):
             return yy, xx
 
     def grid_anchors(self, featmap_size, stride=16, device='cuda'):
-        base_anchors = self.base_anchors.to(device)
+        base_anchors = self.base_anchors
         feat_h, feat_w = featmap_size
         shift_x = torch.arange(0, feat_w, device=device) * stride
         shift_y = torch.arange(0, feat_h, device=device) * stride
@@ -765,7 +818,7 @@ def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1], max_shape=No
 
 def cast_tensor_type(inputs, src_type, dst_type):
     if isinstance(inputs, torch.Tensor):
-        return inputs.to(dst_type)
+        return inputs
     elif isinstance(inputs, str):
         return inputs
     elif isinstance(inputs, np.ndarray):
@@ -901,7 +954,6 @@ def normal_init(module, mean=0, std=1, bias=0):
         nn.init.constant_(module.bias, bias)
 
 
-@HEADS.register_module
 class AnchorHead(nn.Module):
     """Anchor-based head (RPN, RetinaNet, SSD, etc.).
 
@@ -1067,7 +1119,204 @@ class AnchorHead(nn.Module):
         return det_bboxes, det_labels
 
 
+def conv_ws_2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, eps=1e-05):
+    c_in = weight.size(0)
+    weight_flat = weight.view(c_in, -1)
+    mean = weight_flat.mean(dim=1, keepdim=True).view(c_in, 1, 1, 1)
+    std = weight_flat.std(dim=1, keepdim=True).view(c_in, 1, 1, 1)
+    weight = (weight - mean) / (std + eps)
+    return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
+
+
+class ConvWS2d(nn.Conv2d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, eps=1e-05):
+        super(ConvWS2d, self).__init__(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.eps = eps
+
+    def forward(self, x):
+        return conv_ws_2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.eps)
+
+
+conv_cfg = {'Conv': nn.Conv2d, 'ConvWS': ConvWS2d}
+
+
+def build_conv_layer(cfg, *args, **kwargs):
+    """ Build convolution layer
+
+    Args:
+        cfg (None or dict): cfg should contain:
+            type (str): identify conv layer type.
+            layer args: args needed to instantiate a conv layer.
+
+    Returns:
+        layer (nn.Module): created conv layer
+    """
+    if cfg is None:
+        cfg_ = dict(type='Conv')
+    else:
+        assert isinstance(cfg, dict) and 'type' in cfg
+        cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in conv_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        conv_layer = conv_cfg[layer_type]
+    layer = conv_layer(*args, **kwargs, **cfg_)
+    return layer
+
+
+norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm), 'GN': ('gn', nn.GroupNorm)}
+
+
+def build_norm_layer(cfg, num_features, postfix=''):
+    """ Build normalization layer
+
+    Args:
+        cfg (dict): cfg should contain:
+            type (str): identify norm layer type.
+            layer args: args needed to instantiate a norm layer.
+            requires_grad (bool): [optional] whether stop gradient updates
+        num_features (int): number of channels from input.
+        postfix (int, str): appended into norm abbreviation to
+            create named layer.
+
+    Returns:
+        name (str): abbreviation + postfix
+        layer (nn.Module): created norm layer
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in norm_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        abbr, norm_layer = norm_cfg[layer_type]
+        if norm_layer is None:
+            raise NotImplementedError
+    assert isinstance(postfix, (int, str))
+    name = abbr + str(postfix)
+    requires_grad = cfg_.pop('requires_grad', True)
+    cfg_.setdefault('eps', 1e-05)
+    if layer_type != 'GN':
+        layer = norm_layer(num_features, **cfg_)
+        if layer_type == 'SyncBN':
+            layer._specify_ddp_gpu_num(1)
+    else:
+        assert 'num_groups' in cfg_
+        layer = norm_layer(num_channels=num_features, **cfg_)
+    for param in layer.parameters():
+        param.requires_grad = requires_grad
+    return name, layer
+
+
+def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0, distribution='normal'):
+    assert distribution in ['uniform', 'normal']
+    if distribution == 'uniform':
+        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=nonlinearity)
+    else:
+        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=nonlinearity)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
+
+
+class ConvModule(nn.Module):
+    """Conv-Norm-Activation block.
+
+    Args:
+        in_channels (int): Same as nn.Conv2d.
+        out_channels (int): Same as nn.Conv2d.
+        kernel_size (int or tuple[int]): Same as nn.Conv2d.
+        stride (int or tuple[int]): Same as nn.Conv2d.
+        padding (int or tuple[int]): Same as nn.Conv2d.
+        dilation (int or tuple[int]): Same as nn.Conv2d.
+        groups (int): Same as nn.Conv2d.
+        bias (bool or str): If specified as `auto`, it will be decided by the
+            norm_cfg. Bias will be set as True if norm_cfg is None, otherwise
+            False.
+        conv_cfg (dict): Config dict for convolution layer.
+        norm_cfg (dict): Config dict for normalization layer.
+        activation (str or None): Activation type, "ReLU" by default.
+        inplace (bool): Whether to use inplace mode for activation.
+        activate_last (bool): Whether to apply the activation layer in the
+            last. (Do not use this flag since the behavior and api may be
+            changed in the future.)
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias='auto', conv_cfg=None, norm_cfg=None, activation='relu', inplace=True, activate_last=True):
+        super(ConvModule, self).__init__()
+        assert conv_cfg is None or isinstance(conv_cfg, dict)
+        assert norm_cfg is None or isinstance(norm_cfg, dict)
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.activation = activation
+        self.inplace = inplace
+        self.activate_last = activate_last
+        self.with_norm = norm_cfg is not None
+        self.with_activatation = activation is not None
+        if bias == 'auto':
+            bias = False if self.with_norm else True
+        self.with_bias = bias
+        if self.with_norm and self.with_bias:
+            warnings.warn('ConvModule has norm and bias at the same time')
+        self.conv = build_conv_layer(conv_cfg, in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.in_channels = self.conv.in_channels
+        self.out_channels = self.conv.out_channels
+        self.kernel_size = self.conv.kernel_size
+        self.stride = self.conv.stride
+        self.padding = self.conv.padding
+        self.dilation = self.conv.dilation
+        self.transposed = self.conv.transposed
+        self.output_padding = self.conv.output_padding
+        self.groups = self.conv.groups
+        if self.with_norm:
+            norm_channels = out_channels if self.activate_last else in_channels
+            self.norm_name, norm = build_norm_layer(norm_cfg, norm_channels)
+            self.add_module(self.norm_name, norm)
+        if self.with_activatation:
+            if self.activation not in ['relu']:
+                raise ValueError('{} is currently not supported.'.format(self.activation))
+            if self.activation == 'relu':
+                self.activate = nn.ReLU(inplace=inplace)
+        self.init_weights()
+
+    @property
+    def norm(self):
+        return getattr(self, self.norm_name)
+
+    def init_weights(self):
+        nonlinearity = 'relu' if self.activation is None else self.activation
+        kaiming_init(self.conv, nonlinearity=nonlinearity)
+        if self.with_norm:
+            constant_init(self.norm, 1, bias=0)
+
+    def forward(self, x, activate=True, norm=True):
+        if self.activate_last:
+            x = self.conv(x)
+            if norm and self.with_norm:
+                x = self.norm(x)
+            if activate and self.with_activatation:
+                x = self.activate(x)
+        else:
+            if norm and self.with_norm:
+                x = self.norm(x)
+            if activate and self.with_activatation:
+                x = self.activate(x)
+            x = self.conv(x)
+        return x
+
+
 INF = 100000000.0
+
+
+class Scale(nn.Module):
+
+    def __init__(self, scale=1.0):
+        super(Scale, self).__init__()
+        self.scale = nn.Parameter(torch.tensor(scale, dtype=torch.float))
+
+    def forward(self, x):
+        return x * self.scale
 
 
 def bias_init_with_prob(prior_prob):
@@ -1100,7 +1349,6 @@ def distance2bbox(points, distance, max_shape=None):
     return torch.stack([x1, y1, x2, y2], -1)
 
 
-@HEADS.register_module
 class FCOSHead(nn.Module):
 
     def __init__(self, num_classes, in_channels, feat_channels=256, stacked_convs=4, strides=(4, 8, 16, 32, 64), regress_ranges=((-1, 64), (64, 128), (128, 256), (256, 512), (512, INF)), loss_cls=dict(type='FocalLoss', use_sigmoid=True, gamma=2.0, alpha=0.25, loss_weight=1.0), loss_bbox=dict(type='IoULoss', loss_weight=1.0), loss_centerness=dict(type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0), conv_cfg=None, norm_cfg=dict(type='GN', num_groups=32, requires_grad=True)):
@@ -1345,73 +1593,829 @@ class FeatureAdaption(nn.Module):
         return x
 
 
-def build_conv_layer(cfg, *args, **kwargs):
-    """ Build convolution layer
+def calc_region(bbox, ratio, featmap_size=None):
+    """Calculate a proportional bbox region.
+
+    The bbox center are fixed and the new h' and w' is h * ratio and w * ratio.
 
     Args:
-        cfg (None or dict): cfg should contain:
-            type (str): identify conv layer type.
-            layer args: args needed to instantiate a conv layer.
+        bbox (Tensor): Bboxes to calculate regions, shape (n, 4)
+        ratio (float): Ratio of the output region.
+        featmap_size (tuple): Feature map size used for clipping the boundary.
 
     Returns:
-        layer (nn.Module): created conv layer
+        tuple: x1, y1, x2, y2
     """
-    if cfg is None:
-        cfg_ = dict(type='Conv')
-    else:
-        assert isinstance(cfg, dict) and 'type' in cfg
-        cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in conv_cfg:
-        raise KeyError('Unrecognized norm type {}'.format(layer_type))
-    else:
-        conv_layer = conv_cfg[layer_type]
-    layer = conv_layer(*args, **kwargs, **cfg_)
-    return layer
+    x1 = torch.round((1 - ratio) * bbox[0] + ratio * bbox[2]).long()
+    y1 = torch.round((1 - ratio) * bbox[1] + ratio * bbox[3]).long()
+    x2 = torch.round(ratio * bbox[0] + (1 - ratio) * bbox[2]).long()
+    y2 = torch.round(ratio * bbox[1] + (1 - ratio) * bbox[3]).long()
+    if featmap_size is not None:
+        x1 = x1.clamp(min=0, max=featmap_size[1] - 1)
+        y1 = y1.clamp(min=0, max=featmap_size[0] - 1)
+        x2 = x2.clamp(min=0, max=featmap_size[1] - 1)
+        y2 = y2.clamp(min=0, max=featmap_size[0] - 1)
+    return x1, y1, x2, y2
 
 
-norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm), 'GN': ('gn', nn.GroupNorm)}
+def ga_loc_target(gt_bboxes_list, featmap_sizes, anchor_scale, anchor_strides, center_ratio=0.2, ignore_ratio=0.5):
+    """Compute location targets for guided anchoring.
 
-
-def build_norm_layer(cfg, num_features, postfix=''):
-    """ Build normalization layer
+    Each feature map is divided into positive, negative and ignore regions.
+    - positive regions: target 1, weight 1
+    - ignore regions: target 0, weight 0
+    - negative regions: target 0, weight 0.1
 
     Args:
-        cfg (dict): cfg should contain:
-            type (str): identify norm layer type.
-            layer args: args needed to instantiate a norm layer.
-            requires_grad (bool): [optional] whether stop gradient updates
-        num_features (int): number of channels from input.
-        postfix (int, str): appended into norm abbreviation to
-            create named layer.
+        gt_bboxes_list (list[Tensor]): Gt bboxes of each image.
+        featmap_sizes (list[tuple]): Multi level sizes of each feature maps.
+        anchor_scale (int): Anchor scale.
+        anchor_strides ([list[int]]): Multi level anchor strides.
+        center_ratio (float): Ratio of center region.
+        ignore_ratio (float): Ratio of ignore region.
 
     Returns:
-        name (str): abbreviation + postfix
-        layer (nn.Module): created norm layer
+        tuple
     """
-    assert isinstance(cfg, dict) and 'type' in cfg
-    cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in norm_cfg:
-        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    img_per_gpu = len(gt_bboxes_list)
+    num_lvls = len(featmap_sizes)
+    r1 = (1 - center_ratio) / 2
+    r2 = (1 - ignore_ratio) / 2
+    all_loc_targets = []
+    all_loc_weights = []
+    all_ignore_map = []
+    for lvl_id in range(num_lvls):
+        h, w = featmap_sizes[lvl_id]
+        loc_targets = torch.zeros(img_per_gpu, 1, h, w, device=gt_bboxes_list[0].device, dtype=torch.float32)
+        loc_weights = torch.full_like(loc_targets, -1)
+        ignore_map = torch.zeros_like(loc_targets)
+        all_loc_targets.append(loc_targets)
+        all_loc_weights.append(loc_weights)
+        all_ignore_map.append(ignore_map)
+    for img_id in range(img_per_gpu):
+        gt_bboxes = gt_bboxes_list[img_id]
+        scale = torch.sqrt((gt_bboxes[:, (2)] - gt_bboxes[:, (0)] + 1) * (gt_bboxes[:, (3)] - gt_bboxes[:, (1)] + 1))
+        min_anchor_size = scale.new_full((1,), float(anchor_scale * anchor_strides[0]))
+        target_lvls = torch.floor(torch.log2(scale) - torch.log2(min_anchor_size) + 0.5)
+        target_lvls = target_lvls.clamp(min=0, max=num_lvls - 1).long()
+        for gt_id in range(gt_bboxes.size(0)):
+            lvl = target_lvls[gt_id].item()
+            gt_ = gt_bboxes[(gt_id), :4] / anchor_strides[lvl]
+            ignore_x1, ignore_y1, ignore_x2, ignore_y2 = calc_region(gt_, r2, featmap_sizes[lvl])
+            ctr_x1, ctr_y1, ctr_x2, ctr_y2 = calc_region(gt_, r1, featmap_sizes[lvl])
+            all_loc_targets[lvl][(img_id), (0), ctr_y1:ctr_y2 + 1, ctr_x1:ctr_x2 + 1] = 1
+            all_loc_weights[lvl][(img_id), (0), ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 0
+            all_loc_weights[lvl][(img_id), (0), ctr_y1:ctr_y2 + 1, ctr_x1:ctr_x2 + 1] = 1
+            if lvl > 0:
+                d_lvl = lvl - 1
+                gt_ = gt_bboxes[(gt_id), :4] / anchor_strides[d_lvl]
+                ignore_x1, ignore_y1, ignore_x2, ignore_y2 = calc_region(gt_, r2, featmap_sizes[d_lvl])
+                all_ignore_map[d_lvl][(img_id), (0), ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 1
+            if lvl < num_lvls - 1:
+                u_lvl = lvl + 1
+                gt_ = gt_bboxes[(gt_id), :4] / anchor_strides[u_lvl]
+                ignore_x1, ignore_y1, ignore_x2, ignore_y2 = calc_region(gt_, r2, featmap_sizes[u_lvl])
+                all_ignore_map[u_lvl][(img_id), (0), ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 1
+    for lvl_id in range(num_lvls):
+        all_loc_weights[lvl_id][(all_loc_weights[lvl_id] < 0) & (all_ignore_map[lvl_id] > 0)] = 0
+        all_loc_weights[lvl_id][all_loc_weights[lvl_id] < 0] = 0.1
+    loc_avg_factor = sum([(t.size(0) * t.size(-1) * t.size(-2)) for t in all_loc_targets]) / 200
+    return all_loc_targets, all_loc_weights, loc_avg_factor
+
+
+def ga_shape_target_single(flat_approxs, inside_flags, flat_squares, gt_bboxes, gt_bboxes_ignore, img_meta, approxs_per_octave, cfg, sampling=True, unmap_outputs=True):
+    """Compute guided anchoring targets.
+
+    This function returns sampled anchors and gt bboxes directly
+    rather than calculates regression targets.
+
+    Args:
+        flat_approxs (Tensor): flat approxs of a single image,
+            shape (n, 4)
+        inside_flags (Tensor): inside flags of a single image,
+            shape (n, ).
+        flat_squares (Tensor): flat squares of a single image,
+            shape (approxs_per_octave * n, 4)
+        gt_bboxes (Tensor): Ground truth bboxes of a single image.
+        img_meta (dict): Meta info of a single image.
+        approxs_per_octave (int): number of approxs per octave
+        cfg (dict): RPN train configs.
+        sampling (bool): sampling or not.
+        unmap_outputs (bool): unmap outputs or not.
+
+    Returns:
+        tuple
+    """
+    if not inside_flags.any():
+        return (None,) * 6
+    expand_inside_flags = inside_flags[:, (None)].expand(-1, approxs_per_octave).reshape(-1)
+    approxs = flat_approxs[(expand_inside_flags), :]
+    squares = flat_squares[(inside_flags), :]
+    bbox_assigner = build_assigner(cfg.ga_assigner)
+    assign_result = bbox_assigner.assign(approxs, squares, approxs_per_octave, gt_bboxes, gt_bboxes_ignore)
+    if sampling:
+        bbox_sampler = build_sampler(cfg.ga_sampler)
     else:
-        abbr, norm_layer = norm_cfg[layer_type]
-        if norm_layer is None:
-            raise NotImplementedError
-    assert isinstance(postfix, (int, str))
-    name = abbr + str(postfix)
-    requires_grad = cfg_.pop('requires_grad', True)
-    cfg_.setdefault('eps', 1e-05)
-    if layer_type != 'GN':
-        layer = norm_layer(num_features, **cfg_)
-        if layer_type == 'SyncBN':
-            layer._specify_ddp_gpu_num(1)
+        bbox_sampler = PseudoSampler()
+    sampling_result = bbox_sampler.sample(assign_result, squares, gt_bboxes)
+    bbox_anchors = torch.zeros_like(squares)
+    bbox_gts = torch.zeros_like(squares)
+    bbox_weights = torch.zeros_like(squares)
+    pos_inds = sampling_result.pos_inds
+    neg_inds = sampling_result.neg_inds
+    if len(pos_inds) > 0:
+        bbox_anchors[(pos_inds), :] = sampling_result.pos_bboxes
+        bbox_gts[(pos_inds), :] = sampling_result.pos_gt_bboxes
+        bbox_weights[(pos_inds), :] = 1.0
+    if unmap_outputs:
+        num_total_anchors = flat_squares.size(0)
+        bbox_anchors = unmap(bbox_anchors, num_total_anchors, inside_flags)
+        bbox_gts = unmap(bbox_gts, num_total_anchors, inside_flags)
+        bbox_weights = unmap(bbox_weights, num_total_anchors, inside_flags)
+    return bbox_anchors, bbox_gts, bbox_weights, pos_inds, neg_inds
+
+
+def ga_shape_target(approx_list, inside_flag_list, square_list, gt_bboxes_list, img_metas, approxs_per_octave, cfg, gt_bboxes_ignore_list=None, sampling=True, unmap_outputs=True):
+    """Compute guided anchoring targets.
+
+    Args:
+        approx_list (list[list]): Multi level approxs of each image.
+        inside_flag_list (list[list]): Multi level inside flags of each image.
+        square_list (list[list]): Multi level squares of each image.
+        gt_bboxes_list (list[Tensor]): Ground truth bboxes of each image.
+        img_metas (list[dict]): Meta info of each image.
+        approxs_per_octave (int): number of approxs per octave
+        cfg (dict): RPN train configs.
+        gt_bboxes_ignore_list (list[Tensor]): ignore list of gt bboxes.
+        sampling (bool): sampling or not.
+        unmap_outputs (bool): unmap outputs or not.
+
+    Returns:
+        tuple
+    """
+    num_imgs = len(img_metas)
+    assert len(approx_list) == len(inside_flag_list) == len(square_list) == num_imgs
+    num_level_squares = [squares.size(0) for squares in square_list[0]]
+    inside_flag_flat_list = []
+    approx_flat_list = []
+    square_flat_list = []
+    for i in range(num_imgs):
+        assert len(square_list[i]) == len(inside_flag_list[i])
+        inside_flag_flat_list.append(torch.cat(inside_flag_list[i]))
+        approx_flat_list.append(torch.cat(approx_list[i]))
+        square_flat_list.append(torch.cat(square_list[i]))
+    if gt_bboxes_ignore_list is None:
+        gt_bboxes_ignore_list = [None for _ in range(num_imgs)]
+    all_bbox_anchors, all_bbox_gts, all_bbox_weights, pos_inds_list, neg_inds_list = multi_apply(ga_shape_target_single, approx_flat_list, inside_flag_flat_list, square_flat_list, gt_bboxes_list, gt_bboxes_ignore_list, img_metas, approxs_per_octave=approxs_per_octave, cfg=cfg, sampling=sampling, unmap_outputs=unmap_outputs)
+    if any([(bbox_anchors is None) for bbox_anchors in all_bbox_anchors]):
+        return None
+    num_total_pos = sum([max(inds.numel(), 1) for inds in pos_inds_list])
+    num_total_neg = sum([max(inds.numel(), 1) for inds in neg_inds_list])
+    bbox_anchors_list = images_to_levels(all_bbox_anchors, num_level_squares)
+    bbox_gts_list = images_to_levels(all_bbox_gts, num_level_squares)
+    bbox_weights_list = images_to_levels(all_bbox_weights, num_level_squares)
+    return bbox_anchors_list, bbox_gts_list, bbox_weights_list, num_total_pos, num_total_neg
+
+
+class GuidedAnchorHead(AnchorHead):
+    """Guided-Anchor-based head (GA-RPN, GA-RetinaNet, etc.).
+
+    This GuidedAnchorHead will predict high-quality feature guided
+    anchors and locations where anchors will be kept in inference.
+    There are mainly 3 categories of bounding-boxes.
+    - Sampled (9) pairs for target assignment. (approxes)
+    - The square boxes where the predicted anchors are based on.
+        (squares)
+    - Guided anchors.
+    Please refer to https://arxiv.org/abs/1901.03278 for more details.
+
+    Args:
+        num_classes (int): Number of classes.
+        in_channels (int): Number of channels in the input feature map.
+        feat_channels (int): Number of channels of the feature map.
+        octave_base_scale (int): Base octave scale of each level of
+            feature map.
+        scales_per_octave (int): Number of octave scales in each level of
+            feature map
+        octave_ratios (Iterable): octave aspect ratios.
+        anchor_strides (Iterable): Anchor strides.
+        anchor_base_sizes (Iterable): Anchor base sizes.
+        anchoring_means (Iterable): Mean values of anchoring targets.
+        anchoring_stds (Iterable): Std values of anchoring targets.
+        target_means (Iterable): Mean values of regression targets.
+        target_stds (Iterable): Std values of regression targets.
+        deformable_groups: (int): Group number of DCN in
+            FeatureAdaption module.
+        loc_filter_thr (float): Threshold to filter out unconcerned regions.
+        loss_loc (dict): Config of location loss.
+        loss_shape (dict): Config of anchor shape loss.
+        loss_cls (dict): Config of classification loss.
+        loss_bbox (dict): Config of bbox regression loss.
+    """
+
+    def __init__(self, num_classes, in_channels, feat_channels=256, octave_base_scale=8, scales_per_octave=3, octave_ratios=[0.5, 1.0, 2.0], anchor_strides=[4, 8, 16, 32, 64], anchor_base_sizes=None, anchoring_means=(0.0, 0.0, 0.0, 0.0), anchoring_stds=(1.0, 1.0, 1.0, 1.0), target_means=(0.0, 0.0, 0.0, 0.0), target_stds=(1.0, 1.0, 1.0, 1.0), deformable_groups=4, loc_filter_thr=0.01, loss_loc=dict(type='FocalLoss', use_sigmoid=True, gamma=2.0, alpha=0.25, loss_weight=1.0), loss_shape=dict(type='BoundedIoULoss', beta=0.2, loss_weight=1.0), loss_cls=dict(type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0), loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)):
+        super(AnchorHead, self).__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+        self.feat_channels = feat_channels
+        self.octave_base_scale = octave_base_scale
+        self.scales_per_octave = scales_per_octave
+        self.octave_scales = octave_base_scale * np.array([(2 ** (i / scales_per_octave)) for i in range(scales_per_octave)])
+        self.approxs_per_octave = len(self.octave_scales) * len(octave_ratios)
+        self.octave_ratios = octave_ratios
+        self.anchor_strides = anchor_strides
+        self.anchor_base_sizes = list(anchor_strides) if anchor_base_sizes is None else anchor_base_sizes
+        self.anchoring_means = anchoring_means
+        self.anchoring_stds = anchoring_stds
+        self.target_means = target_means
+        self.target_stds = target_stds
+        self.deformable_groups = deformable_groups
+        self.loc_filter_thr = loc_filter_thr
+        self.approx_generators = []
+        self.square_generators = []
+        for anchor_base in self.anchor_base_sizes:
+            self.approx_generators.append(AnchorGenerator(anchor_base, self.octave_scales, self.octave_ratios))
+            self.square_generators.append(AnchorGenerator(anchor_base, [self.octave_base_scale], [1.0]))
+        self.num_anchors = 1
+        self.use_sigmoid_cls = loss_cls.get('use_sigmoid', False)
+        self.cls_focal_loss = loss_cls['type'] in ['FocalLoss']
+        self.loc_focal_loss = loss_loc['type'] in ['FocalLoss']
+        if self.use_sigmoid_cls:
+            self.cls_out_channels = self.num_classes - 1
+        else:
+            self.cls_out_channels = self.num_classes
+        self.loss_loc = build_loss(loss_loc)
+        self.loss_shape = build_loss(loss_shape)
+        self.loss_cls = build_loss(loss_cls)
+        self.loss_bbox = build_loss(loss_bbox)
+        self.fp16_enabled = False
+        self._init_layers()
+
+    def _init_layers(self):
+        self.relu = nn.ReLU(inplace=True)
+        self.conv_loc = nn.Conv2d(self.feat_channels, 1, 1)
+        self.conv_shape = nn.Conv2d(self.feat_channels, self.num_anchors * 2, 1)
+        self.feature_adaption = FeatureAdaption(self.feat_channels, self.feat_channels, kernel_size=3, deformable_groups=self.deformable_groups)
+        self.conv_cls = MaskedConv2d(self.feat_channels, self.num_anchors * self.cls_out_channels, 1)
+        self.conv_reg = MaskedConv2d(self.feat_channels, self.num_anchors * 4, 1)
+
+    def init_weights(self):
+        normal_init(self.conv_cls, std=0.01)
+        normal_init(self.conv_reg, std=0.01)
+        bias_cls = bias_init_with_prob(0.01)
+        normal_init(self.conv_loc, std=0.01, bias=bias_cls)
+        normal_init(self.conv_shape, std=0.01)
+        self.feature_adaption.init_weights()
+
+    def forward_single(self, x):
+        loc_pred = self.conv_loc(x)
+        shape_pred = self.conv_shape(x)
+        x = self.feature_adaption(x, shape_pred)
+        if not self.training:
+            mask = loc_pred.sigmoid()[0] >= self.loc_filter_thr
+        else:
+            mask = None
+        cls_score = self.conv_cls(x, mask)
+        bbox_pred = self.conv_reg(x, mask)
+        return cls_score, bbox_pred, shape_pred, loc_pred
+
+    def forward(self, feats):
+        return multi_apply(self.forward_single, feats)
+
+    def get_sampled_approxs(self, featmap_sizes, img_metas, cfg):
+        """Get sampled approxs and inside flags according to feature map sizes.
+
+        Args:
+            featmap_sizes (list[tuple]): Multi-level feature map sizes.
+            img_metas (list[dict]): Image meta info.
+
+        Returns:
+            tuple: approxes of each image, inside flags of each image
+        """
+        num_imgs = len(img_metas)
+        num_levels = len(featmap_sizes)
+        multi_level_approxs = []
+        for i in range(num_levels):
+            approxs = self.approx_generators[i].grid_anchors(featmap_sizes[i], self.anchor_strides[i])
+            multi_level_approxs.append(approxs)
+        approxs_list = [multi_level_approxs for _ in range(num_imgs)]
+        inside_flag_list = []
+        for img_id, img_meta in enumerate(img_metas):
+            multi_level_flags = []
+            multi_level_approxs = approxs_list[img_id]
+            for i in range(num_levels):
+                approxs = multi_level_approxs[i]
+                anchor_stride = self.anchor_strides[i]
+                feat_h, feat_w = featmap_sizes[i]
+                h, w, _ = img_meta['pad_shape']
+                valid_feat_h = min(int(np.ceil(h / anchor_stride)), feat_h)
+                valid_feat_w = min(int(np.ceil(w / anchor_stride)), feat_w)
+                flags = self.approx_generators[i].valid_flags((feat_h, feat_w), (valid_feat_h, valid_feat_w))
+                inside_flags_list = []
+                for i in range(self.approxs_per_octave):
+                    split_valid_flags = flags[i::self.approxs_per_octave]
+                    split_approxs = approxs[i::self.approxs_per_octave, :]
+                    inside_flags = anchor_inside_flags(split_approxs, split_valid_flags, img_meta['img_shape'][:2], cfg.allowed_border)
+                    inside_flags_list.append(inside_flags)
+                inside_flags = torch.stack(inside_flags_list, 0).sum(dim=0) > 0
+                multi_level_flags.append(inside_flags)
+            inside_flag_list.append(multi_level_flags)
+        return approxs_list, inside_flag_list
+
+    def get_anchors(self, featmap_sizes, shape_preds, loc_preds, img_metas, use_loc_filter=False):
+        """Get squares according to feature map sizes and guided
+        anchors.
+
+        Args:
+            featmap_sizes (list[tuple]): Multi-level feature map sizes.
+            shape_preds (list[tensor]): Multi-level shape predictions.
+            loc_preds (list[tensor]): Multi-level location predictions.
+            img_metas (list[dict]): Image meta info.
+            use_loc_filter (bool): Use loc filter or not.
+
+        Returns:
+            tuple: square approxs of each image, guided anchors of each image,
+                loc masks of each image
+        """
+        num_imgs = len(img_metas)
+        num_levels = len(featmap_sizes)
+        multi_level_squares = []
+        for i in range(num_levels):
+            squares = self.square_generators[i].grid_anchors(featmap_sizes[i], self.anchor_strides[i])
+            multi_level_squares.append(squares)
+        squares_list = [multi_level_squares for _ in range(num_imgs)]
+        guided_anchors_list = []
+        loc_mask_list = []
+        for img_id, img_meta in enumerate(img_metas):
+            multi_level_guided_anchors = []
+            multi_level_loc_mask = []
+            for i in range(num_levels):
+                squares = squares_list[img_id][i]
+                shape_pred = shape_preds[i][img_id]
+                loc_pred = loc_preds[i][img_id]
+                guided_anchors, loc_mask = self.get_guided_anchors_single(squares, shape_pred, loc_pred, use_loc_filter=use_loc_filter)
+                multi_level_guided_anchors.append(guided_anchors)
+                multi_level_loc_mask.append(loc_mask)
+            guided_anchors_list.append(multi_level_guided_anchors)
+            loc_mask_list.append(multi_level_loc_mask)
+        return squares_list, guided_anchors_list, loc_mask_list
+
+    def get_guided_anchors_single(self, squares, shape_pred, loc_pred, use_loc_filter=False):
+        """Get guided anchors and loc masks for a single level.
+
+        Args:
+            square (tensor): Squares of a single level.
+            shape_pred (tensor): Shape predections of a single level.
+            loc_pred (tensor): Loc predections of a single level.
+            use_loc_filter (list[tensor]): Use loc filter or not.
+
+        Returns:
+            tuple: guided anchors, location masks
+        """
+        loc_pred = loc_pred.sigmoid().detach()
+        if use_loc_filter:
+            loc_mask = loc_pred >= self.loc_filter_thr
+        else:
+            loc_mask = loc_pred >= 0.0
+        mask = loc_mask.permute(1, 2, 0).expand(-1, -1, self.num_anchors)
+        mask = mask.contiguous().view(-1)
+        squares = squares[mask]
+        anchor_deltas = shape_pred.permute(1, 2, 0).contiguous().view(-1, 2).detach()[mask]
+        bbox_deltas = anchor_deltas.new_full(squares.size(), 0)
+        bbox_deltas[:, 2:] = anchor_deltas
+        guided_anchors = delta2bbox(squares, bbox_deltas, self.anchoring_means, self.anchoring_stds, wh_ratio_clip=1e-06)
+        return guided_anchors, mask
+
+    def loss_shape_single(self, shape_pred, bbox_anchors, bbox_gts, anchor_weights, anchor_total_num):
+        shape_pred = shape_pred.permute(0, 2, 3, 1).contiguous().view(-1, 2)
+        bbox_anchors = bbox_anchors.contiguous().view(-1, 4)
+        bbox_gts = bbox_gts.contiguous().view(-1, 4)
+        anchor_weights = anchor_weights.contiguous().view(-1, 4)
+        bbox_deltas = bbox_anchors.new_full(bbox_anchors.size(), 0)
+        bbox_deltas[:, 2:] += shape_pred
+        inds = torch.nonzero(anchor_weights[:, (0)] > 0).squeeze(1)
+        bbox_deltas_ = bbox_deltas[inds]
+        bbox_anchors_ = bbox_anchors[inds]
+        bbox_gts_ = bbox_gts[inds]
+        anchor_weights_ = anchor_weights[inds]
+        pred_anchors_ = delta2bbox(bbox_anchors_, bbox_deltas_, self.anchoring_means, self.anchoring_stds, wh_ratio_clip=1e-06)
+        loss_shape = self.loss_shape(pred_anchors_, bbox_gts_, anchor_weights_, avg_factor=anchor_total_num)
+        return loss_shape
+
+    def loss_loc_single(self, loc_pred, loc_target, loc_weight, loc_avg_factor, cfg):
+        loss_loc = self.loss_loc(loc_pred.reshape(-1, 1), loc_target.reshape(-1, 1).long(), loc_weight.reshape(-1, 1), avg_factor=loc_avg_factor)
+        return loss_loc
+
+    @force_fp32(apply_to=('cls_scores', 'bbox_preds', 'shape_preds', 'loc_preds'))
+    def loss(self, cls_scores, bbox_preds, shape_preds, loc_preds, gt_bboxes, gt_labels, img_metas, cfg, gt_bboxes_ignore=None):
+        featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
+        assert len(featmap_sizes) == len(self.approx_generators)
+        loc_targets, loc_weights, loc_avg_factor = ga_loc_target(gt_bboxes, featmap_sizes, self.octave_base_scale, self.anchor_strides, center_ratio=cfg.center_ratio, ignore_ratio=cfg.ignore_ratio)
+        approxs_list, inside_flag_list = self.get_sampled_approxs(featmap_sizes, img_metas, cfg)
+        squares_list, guided_anchors_list, _ = self.get_anchors(featmap_sizes, shape_preds, loc_preds, img_metas)
+        sampling = False if not hasattr(cfg, 'ga_sampler') else True
+        shape_targets = ga_shape_target(approxs_list, inside_flag_list, squares_list, gt_bboxes, img_metas, self.approxs_per_octave, cfg, sampling=sampling)
+        if shape_targets is None:
+            return None
+        bbox_anchors_list, bbox_gts_list, anchor_weights_list, anchor_fg_num, anchor_bg_num = shape_targets
+        anchor_total_num = anchor_fg_num if not sampling else anchor_fg_num + anchor_bg_num
+        sampling = False if self.cls_focal_loss else True
+        label_channels = self.cls_out_channels if self.use_sigmoid_cls else 1
+        cls_reg_targets = anchor_target(guided_anchors_list, inside_flag_list, gt_bboxes, img_metas, self.target_means, self.target_stds, cfg, gt_bboxes_ignore_list=gt_bboxes_ignore, gt_labels_list=gt_labels, label_channels=label_channels, sampling=sampling)
+        if cls_reg_targets is None:
+            return None
+        labels_list, label_weights_list, bbox_targets_list, bbox_weights_list, num_total_pos, num_total_neg = cls_reg_targets
+        num_total_samples = num_total_pos if self.cls_focal_loss else num_total_pos + num_total_neg
+        losses_cls, losses_bbox = multi_apply(self.loss_single, cls_scores, bbox_preds, labels_list, label_weights_list, bbox_targets_list, bbox_weights_list, num_total_samples=num_total_samples, cfg=cfg)
+        losses_loc = []
+        for i in range(len(loc_preds)):
+            loss_loc = self.loss_loc_single(loc_preds[i], loc_targets[i], loc_weights[i], loc_avg_factor=loc_avg_factor, cfg=cfg)
+            losses_loc.append(loss_loc)
+        losses_shape = []
+        for i in range(len(shape_preds)):
+            loss_shape = self.loss_shape_single(shape_preds[i], bbox_anchors_list[i], bbox_gts_list[i], anchor_weights_list[i], anchor_total_num=anchor_total_num)
+            losses_shape.append(loss_shape)
+        return dict(loss_cls=losses_cls, loss_bbox=losses_bbox, loss_shape=losses_shape, loss_loc=losses_loc)
+
+    @force_fp32(apply_to=('cls_scores', 'bbox_preds', 'shape_preds', 'loc_preds'))
+    def get_bboxes(self, cls_scores, bbox_preds, shape_preds, loc_preds, img_metas, cfg, rescale=False):
+        assert len(cls_scores) == len(bbox_preds) == len(shape_preds) == len(loc_preds)
+        num_levels = len(cls_scores)
+        featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
+        _, guided_anchors, loc_masks = self.get_anchors(featmap_sizes, shape_preds, loc_preds, img_metas, use_loc_filter=not self.training)
+        result_list = []
+        for img_id in range(len(img_metas)):
+            cls_score_list = [cls_scores[i][img_id].detach() for i in range(num_levels)]
+            bbox_pred_list = [bbox_preds[i][img_id].detach() for i in range(num_levels)]
+            guided_anchor_list = [guided_anchors[img_id][i].detach() for i in range(num_levels)]
+            loc_mask_list = [loc_masks[img_id][i].detach() for i in range(num_levels)]
+            img_shape = img_metas[img_id]['img_shape']
+            scale_factor = img_metas[img_id]['scale_factor']
+            proposals = self.get_bboxes_single(cls_score_list, bbox_pred_list, guided_anchor_list, loc_mask_list, img_shape, scale_factor, cfg, rescale)
+            result_list.append(proposals)
+        return result_list
+
+    def get_bboxes_single(self, cls_scores, bbox_preds, mlvl_anchors, mlvl_masks, img_shape, scale_factor, cfg, rescale=False):
+        assert len(cls_scores) == len(bbox_preds) == len(mlvl_anchors)
+        mlvl_bboxes = []
+        mlvl_scores = []
+        for cls_score, bbox_pred, anchors, mask in zip(cls_scores, bbox_preds, mlvl_anchors, mlvl_masks):
+            assert cls_score.size()[-2:] == bbox_pred.size()[-2:]
+            if mask.sum() == 0:
+                continue
+            cls_score = cls_score.permute(1, 2, 0).reshape(-1, self.cls_out_channels)
+            if self.use_sigmoid_cls:
+                scores = cls_score.sigmoid()
+            else:
+                scores = cls_score.softmax(-1)
+            bbox_pred = bbox_pred.permute(1, 2, 0).reshape(-1, 4)
+            scores = scores[(mask), :]
+            bbox_pred = bbox_pred[(mask), :]
+            if scores.dim() == 0:
+                anchors = anchors.unsqueeze(0)
+                scores = scores.unsqueeze(0)
+                bbox_pred = bbox_pred.unsqueeze(0)
+            nms_pre = cfg.get('nms_pre', -1)
+            if nms_pre > 0 and scores.shape[0] > nms_pre:
+                if self.use_sigmoid_cls:
+                    max_scores, _ = scores.max(dim=1)
+                else:
+                    max_scores, _ = scores[:, 1:].max(dim=1)
+                _, topk_inds = max_scores.topk(nms_pre)
+                anchors = anchors[(topk_inds), :]
+                bbox_pred = bbox_pred[(topk_inds), :]
+                scores = scores[(topk_inds), :]
+            bboxes = delta2bbox(anchors, bbox_pred, self.target_means, self.target_stds, img_shape)
+            mlvl_bboxes.append(bboxes)
+            mlvl_scores.append(scores)
+        mlvl_bboxes = torch.cat(mlvl_bboxes)
+        if rescale:
+            mlvl_bboxes /= mlvl_bboxes.new_tensor(scale_factor)
+        mlvl_scores = torch.cat(mlvl_scores)
+        if self.use_sigmoid_cls:
+            padding = mlvl_scores.new_zeros(mlvl_scores.shape[0], 1)
+            mlvl_scores = torch.cat([padding, mlvl_scores], dim=1)
+        det_bboxes, det_labels = multiclass_nms(mlvl_bboxes, mlvl_scores, cfg.score_thr, cfg.nms, cfg.max_per_img)
+        return det_bboxes, det_labels
+
+
+class RetinaHead(AnchorHead):
+
+    def __init__(self, num_classes, in_channels, stacked_convs=4, octave_base_scale=4, scales_per_octave=3, conv_cfg=None, norm_cfg=None, **kwargs):
+        self.stacked_convs = stacked_convs
+        self.octave_base_scale = octave_base_scale
+        self.scales_per_octave = scales_per_octave
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        octave_scales = np.array([(2 ** (i / scales_per_octave)) for i in range(scales_per_octave)])
+        anchor_scales = octave_scales * octave_base_scale
+        super(RetinaHead, self).__init__(num_classes, in_channels, anchor_scales=anchor_scales, **kwargs)
+
+    def _init_layers(self):
+        self.relu = nn.ReLU(inplace=True)
+        self.cls_convs = nn.ModuleList()
+        self.reg_convs = nn.ModuleList()
+        for i in range(self.stacked_convs):
+            chn = self.in_channels if i == 0 else self.feat_channels
+            self.cls_convs.append(ConvModule(chn, self.feat_channels, 3, stride=1, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+            self.reg_convs.append(ConvModule(chn, self.feat_channels, 3, stride=1, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+        self.retina_cls = nn.Conv2d(self.feat_channels, self.num_anchors * self.cls_out_channels, 3, padding=1)
+        self.retina_reg = nn.Conv2d(self.feat_channels, self.num_anchors * 4, 3, padding=1)
+
+    def init_weights(self):
+        for m in self.cls_convs:
+            normal_init(m.conv, std=0.01)
+        for m in self.reg_convs:
+            normal_init(m.conv, std=0.01)
+        bias_cls = bias_init_with_prob(0.01)
+        normal_init(self.retina_cls, std=0.01, bias=bias_cls)
+        normal_init(self.retina_reg, std=0.01)
+
+    def forward_single(self, x):
+        cls_feat = x
+        reg_feat = x
+        for cls_conv in self.cls_convs:
+            cls_feat = cls_conv(cls_feat)
+        for reg_conv in self.reg_convs:
+            reg_feat = reg_conv(reg_feat)
+        cls_score = self.retina_cls(cls_feat)
+        bbox_pred = self.retina_reg(reg_feat)
+        return cls_score, bbox_pred
+
+
+class RPNHead(AnchorHead):
+
+    def __init__(self, in_channels, **kwargs):
+        super(RPNHead, self).__init__(2, in_channels, **kwargs)
+
+    def _init_layers(self):
+        self.rpn_conv = nn.Conv2d(self.in_channels, self.feat_channels, 3, padding=1)
+        self.rpn_cls = nn.Conv2d(self.feat_channels, self.num_anchors * self.cls_out_channels, 1)
+        self.rpn_reg = nn.Conv2d(self.feat_channels, self.num_anchors * 4, 1)
+
+    def init_weights(self):
+        normal_init(self.rpn_conv, std=0.01)
+        normal_init(self.rpn_cls, std=0.01)
+        normal_init(self.rpn_reg, std=0.01)
+
+    def forward_single(self, x):
+        x = self.rpn_conv(x)
+        x = F.relu(x, inplace=True)
+        rpn_cls_score = self.rpn_cls(x)
+        rpn_bbox_pred = self.rpn_reg(x)
+        return rpn_cls_score, rpn_bbox_pred
+
+    def loss(self, cls_scores, bbox_preds, gt_bboxes, img_metas, cfg, gt_bboxes_ignore=None):
+        losses = super(RPNHead, self).loss(cls_scores, bbox_preds, gt_bboxes, None, img_metas, cfg, gt_bboxes_ignore=gt_bboxes_ignore)
+        return dict(loss_rpn_cls=losses['loss_cls'], loss_rpn_bbox=losses['loss_bbox'])
+
+    def get_bboxes_single(self, cls_scores, bbox_preds, mlvl_anchors, img_shape, scale_factor, cfg, rescale=False):
+        mlvl_proposals = []
+        for idx in range(len(cls_scores)):
+            rpn_cls_score = cls_scores[idx]
+            rpn_bbox_pred = bbox_preds[idx]
+            assert rpn_cls_score.size()[-2:] == rpn_bbox_pred.size()[-2:]
+            anchors = mlvl_anchors[idx]
+            rpn_cls_score = rpn_cls_score.permute(1, 2, 0)
+            if self.use_sigmoid_cls:
+                rpn_cls_score = rpn_cls_score.reshape(-1)
+                scores = rpn_cls_score.sigmoid()
+            else:
+                rpn_cls_score = rpn_cls_score.reshape(-1, 2)
+                scores = rpn_cls_score.softmax(dim=1)[:, (1)]
+            rpn_bbox_pred = rpn_bbox_pred.permute(1, 2, 0).reshape(-1, 4)
+            if cfg.nms_pre > 0 and scores.shape[0] > cfg.nms_pre:
+                _, topk_inds = scores.topk(cfg.nms_pre)
+                rpn_bbox_pred = rpn_bbox_pred[(topk_inds), :]
+                anchors = anchors[(topk_inds), :]
+                scores = scores[topk_inds]
+            proposals = delta2bbox(anchors, rpn_bbox_pred, self.target_means, self.target_stds, img_shape)
+            if cfg.min_bbox_size > 0:
+                w = proposals[:, (2)] - proposals[:, (0)] + 1
+                h = proposals[:, (3)] - proposals[:, (1)] + 1
+                valid_inds = torch.nonzero((w >= cfg.min_bbox_size) & (h >= cfg.min_bbox_size)).squeeze()
+                proposals = proposals[(valid_inds), :]
+                scores = scores[valid_inds]
+            proposals = torch.cat([proposals, scores.unsqueeze(-1)], dim=-1)
+            proposals, _ = nms(proposals, cfg.nms_thr)
+            proposals = proposals[:cfg.nms_post, :]
+            mlvl_proposals.append(proposals)
+        proposals = torch.cat(mlvl_proposals, 0)
+        if cfg.nms_across_levels:
+            proposals, _ = nms(proposals, cfg.nms_thr)
+            proposals = proposals[:cfg.max_num, :]
+        else:
+            scores = proposals[:, (4)]
+            num = min(cfg.max_num, proposals.shape[0])
+            _, topk_inds = scores.topk(num)
+            proposals = proposals[(topk_inds), :]
+        return proposals
+
+
+def reduce_loss(loss, reduction):
+    """Reduce loss as specified.
+
+    Args:
+        loss (Tensor): Elementwise loss tensor.
+        reduction (str): Options are "none", "mean" and "sum".
+
+    Return:
+        Tensor: Reduced loss tensor.
+    """
+    reduction_enum = F._Reduction.get_enum(reduction)
+    if reduction_enum == 0:
+        return loss
+    elif reduction_enum == 1:
+        return loss.mean()
+    elif reduction_enum == 2:
+        return loss.sum()
+
+
+def weight_reduce_loss(loss, weight=None, reduction='mean', avg_factor=None):
+    """Apply element-wise weight and reduce loss.
+
+    Args:
+        loss (Tensor): Element-wise loss.
+        weight (Tensor): Element-wise weights.
+        reduction (str): Same as built-in losses of PyTorch.
+        avg_factor (float): Avarage factor when computing the mean of losses.
+
+    Returns:
+        Tensor: Processed loss values.
+    """
+    if weight is not None:
+        loss = loss * weight
+    if avg_factor is None:
+        loss = reduce_loss(loss, reduction)
+    elif reduction == 'mean':
+        loss = loss.sum() / avg_factor
+    elif reduction != 'none':
+        raise ValueError('avg_factor can not be used with reduction="sum"')
+    return loss
+
+
+def weighted_loss(loss_func):
+    """Create a weighted version of a given loss function.
+
+    To use this decorator, the loss function must have the signature like
+    `loss_func(pred, target, **kwargs)`. The function only needs to compute
+    element-wise loss without any reduction. This decorator will add weight
+    and reduction arguments to the function. The decorated function will have
+    the signature like `loss_func(pred, target, weight=None, reduction='mean',
+    avg_factor=None, **kwargs)`.
+
+    :Example:
+
+    >>> @weighted_loss
+    >>> def l1_loss(pred, target):
+    >>>     return (pred - target).abs()
+
+    >>> pred = torch.Tensor([0, 2, 3])
+    >>> target = torch.Tensor([1, 1, 1])
+    >>> weight = torch.Tensor([1, 0, 1])
+
+    >>> l1_loss(pred, target)
+    tensor(1.3333)
+    >>> l1_loss(pred, target, weight)
+    tensor(1.)
+    >>> l1_loss(pred, target, reduction='none')
+    tensor([1., 1., 2.])
+    >>> l1_loss(pred, target, weight, avg_factor=2)
+    tensor(1.5000)
+    """
+
+    @functools.wraps(loss_func)
+    def wrapper(pred, target, weight=None, reduction='mean', avg_factor=None, **kwargs):
+        loss = loss_func(pred, target, **kwargs)
+        loss = weight_reduce_loss(loss, weight, reduction, avg_factor)
+        return loss
+    return wrapper
+
+
+@weighted_loss
+def smooth_l1_loss(pred, target, beta=1.0):
+    assert beta > 0
+    assert pred.size() == target.size() and target.numel() > 0
+    diff = torch.abs(pred - target)
+    loss = torch.where(diff < beta, 0.5 * diff * diff / beta, diff - 0.5 * beta)
+    return loss
+
+
+def xavier_init(module, gain=1, bias=0, distribution='normal'):
+    assert distribution in ['uniform', 'normal']
+    if distribution == 'uniform':
+        nn.init.xavier_uniform_(module.weight, gain=gain)
     else:
-        assert 'num_groups' in cfg_
-        layer = norm_layer(num_channels=num_features, **cfg_)
-    for param in layer.parameters():
-        param.requires_grad = requires_grad
-    return name, layer
+        nn.init.xavier_normal_(module.weight, gain=gain)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
+
+
+class SSDHead(AnchorHead):
+
+    def __init__(self, input_size=300, num_classes=81, in_channels=(512, 1024, 512, 256, 256, 256), anchor_strides=(8, 16, 32, 64, 100, 300), basesize_ratio_range=(0.1, 0.9), anchor_ratios=([2], [2, 3], [2, 3], [2, 3], [2], [2]), target_means=(0.0, 0.0, 0.0, 0.0), target_stds=(1.0, 1.0, 1.0, 1.0)):
+        super(AnchorHead, self).__init__()
+        self.input_size = input_size
+        self.num_classes = num_classes
+        self.in_channels = in_channels
+        self.cls_out_channels = num_classes
+        num_anchors = [(len(ratios) * 2 + 2) for ratios in anchor_ratios]
+        reg_convs = []
+        cls_convs = []
+        for i in range(len(in_channels)):
+            reg_convs.append(nn.Conv2d(in_channels[i], num_anchors[i] * 4, kernel_size=3, padding=1))
+            cls_convs.append(nn.Conv2d(in_channels[i], num_anchors[i] * num_classes, kernel_size=3, padding=1))
+        self.reg_convs = nn.ModuleList(reg_convs)
+        self.cls_convs = nn.ModuleList(cls_convs)
+        min_ratio, max_ratio = basesize_ratio_range
+        min_ratio = int(min_ratio * 100)
+        max_ratio = int(max_ratio * 100)
+        step = int(np.floor(max_ratio - min_ratio) / (len(in_channels) - 2))
+        min_sizes = []
+        max_sizes = []
+        for r in range(int(min_ratio), int(max_ratio) + 1, step):
+            min_sizes.append(int(input_size * r / 100))
+            max_sizes.append(int(input_size * (r + step) / 100))
+        if input_size == 300:
+            if basesize_ratio_range[0] == 0.15:
+                min_sizes.insert(0, int(input_size * 7 / 100))
+                max_sizes.insert(0, int(input_size * 15 / 100))
+            elif basesize_ratio_range[0] == 0.2:
+                min_sizes.insert(0, int(input_size * 10 / 100))
+                max_sizes.insert(0, int(input_size * 20 / 100))
+        elif input_size == 512:
+            if basesize_ratio_range[0] == 0.1:
+                min_sizes.insert(0, int(input_size * 4 / 100))
+                max_sizes.insert(0, int(input_size * 10 / 100))
+            elif basesize_ratio_range[0] == 0.15:
+                min_sizes.insert(0, int(input_size * 7 / 100))
+                max_sizes.insert(0, int(input_size * 15 / 100))
+        self.anchor_generators = []
+        self.anchor_strides = anchor_strides
+        for k in range(len(anchor_strides)):
+            base_size = min_sizes[k]
+            stride = anchor_strides[k]
+            ctr = (stride - 1) / 2.0, (stride - 1) / 2.0
+            scales = [1.0, np.sqrt(max_sizes[k] / min_sizes[k])]
+            ratios = [1.0]
+            for r in anchor_ratios[k]:
+                ratios += [1 / r, r]
+            anchor_generator = AnchorGenerator(base_size, scales, ratios, scale_major=False, ctr=ctr)
+            indices = list(range(len(ratios)))
+            indices.insert(1, len(indices))
+            anchor_generator.base_anchors = torch.index_select(anchor_generator.base_anchors, 0, torch.LongTensor(indices))
+            self.anchor_generators.append(anchor_generator)
+        self.target_means = target_means
+        self.target_stds = target_stds
+        self.use_sigmoid_cls = False
+        self.cls_focal_loss = False
+        self.fp16_enabled = False
+
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                xavier_init(m, distribution='uniform', bias=0)
+
+    def forward(self, feats):
+        cls_scores = []
+        bbox_preds = []
+        for feat, reg_conv, cls_conv in zip(feats, self.reg_convs, self.cls_convs):
+            cls_scores.append(cls_conv(feat))
+            bbox_preds.append(reg_conv(feat))
+        return cls_scores, bbox_preds
+
+    def loss_single(self, cls_score, bbox_pred, labels, label_weights, bbox_targets, bbox_weights, num_total_samples, cfg):
+        loss_cls_all = F.cross_entropy(cls_score, labels, reduction='none') * label_weights
+        pos_inds = (labels > 0).nonzero().view(-1)
+        neg_inds = (labels == 0).nonzero().view(-1)
+        num_pos_samples = pos_inds.size(0)
+        num_neg_samples = cfg.neg_pos_ratio * num_pos_samples
+        if num_neg_samples > neg_inds.size(0):
+            num_neg_samples = neg_inds.size(0)
+        topk_loss_cls_neg, _ = loss_cls_all[neg_inds].topk(num_neg_samples)
+        loss_cls_pos = loss_cls_all[pos_inds].sum()
+        loss_cls_neg = topk_loss_cls_neg.sum()
+        loss_cls = (loss_cls_pos + loss_cls_neg) / num_total_samples
+        loss_bbox = smooth_l1_loss(bbox_pred, bbox_targets, bbox_weights, beta=cfg.smoothl1_beta, avg_factor=num_total_samples)
+        return loss_cls[None], loss_bbox
+
+    def loss(self, cls_scores, bbox_preds, gt_bboxes, gt_labels, img_metas, cfg, gt_bboxes_ignore=None):
+        featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
+        assert len(featmap_sizes) == len(self.anchor_generators)
+        anchor_list, valid_flag_list = self.get_anchors(featmap_sizes, img_metas)
+        cls_reg_targets = anchor_target(anchor_list, valid_flag_list, gt_bboxes, img_metas, self.target_means, self.target_stds, cfg, gt_bboxes_ignore_list=gt_bboxes_ignore, gt_labels_list=gt_labels, label_channels=1, sampling=False, unmap_outputs=False)
+        if cls_reg_targets is None:
+            return None
+        labels_list, label_weights_list, bbox_targets_list, bbox_weights_list, num_total_pos, num_total_neg = cls_reg_targets
+        num_images = len(img_metas)
+        all_cls_scores = torch.cat([s.permute(0, 2, 3, 1).reshape(num_images, -1, self.cls_out_channels) for s in cls_scores], 1)
+        all_labels = torch.cat(labels_list, -1).view(num_images, -1)
+        all_label_weights = torch.cat(label_weights_list, -1).view(num_images, -1)
+        all_bbox_preds = torch.cat([b.permute(0, 2, 3, 1).reshape(num_images, -1, 4) for b in bbox_preds], -2)
+        all_bbox_targets = torch.cat(bbox_targets_list, -2).view(num_images, -1, 4)
+        all_bbox_weights = torch.cat(bbox_weights_list, -2).view(num_images, -1, 4)
+        losses_cls, losses_bbox = multi_apply(self.loss_single, all_cls_scores, all_bbox_preds, all_labels, all_label_weights, all_bbox_targets, all_bbox_weights, num_total_samples=num_total_pos, cfg=cfg)
+        return dict(loss_cls=losses_cls, loss_bbox=losses_bbox)
 
 
 class HRModule(nn.Module):
@@ -1505,16 +2509,6 @@ class HRModule(nn.Module):
 BACKBONES = Registry('backbone')
 
 
-def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0, distribution='normal'):
-    assert distribution in ['uniform', 'normal']
-    if distribution == 'uniform':
-        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=nonlinearity)
-    else:
-        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=nonlinearity)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
-
-
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -1557,122 +2551,6 @@ class BasicBlock(nn.Module):
         return out
 
 
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, style='pytorch', with_cp=False, conv_cfg=None, norm_cfg=dict(type='BN'), dcn=None, gcb=None, gen_attention=None):
-        """Bottleneck block for ResNet.
-        If style is "pytorch", the stride-two layer is the 3x3 conv layer,
-        if it is "caffe", the stride-two layer is the first 1x1 conv layer.
-        """
-        super(Bottleneck, self).__init__()
-        assert style in ['pytorch', 'caffe']
-        assert dcn is None or isinstance(dcn, dict)
-        assert gcb is None or isinstance(gcb, dict)
-        assert gen_attention is None or isinstance(gen_attention, dict)
-        self.inplanes = inplanes
-        self.planes = planes
-        self.stride = stride
-        self.dilation = dilation
-        self.style = style
-        self.with_cp = with_cp
-        self.conv_cfg = conv_cfg
-        self.norm_cfg = norm_cfg
-        self.dcn = dcn
-        self.with_dcn = dcn is not None
-        self.gcb = gcb
-        self.with_gcb = gcb is not None
-        self.gen_attention = gen_attention
-        self.with_gen_attention = gen_attention is not None
-        if self.style == 'pytorch':
-            self.conv1_stride = 1
-            self.conv2_stride = stride
-        else:
-            self.conv1_stride = stride
-            self.conv2_stride = 1
-        self.norm1_name, norm1 = build_norm_layer(norm_cfg, planes, postfix=1)
-        self.norm2_name, norm2 = build_norm_layer(norm_cfg, planes, postfix=2)
-        self.norm3_name, norm3 = build_norm_layer(norm_cfg, planes * self.expansion, postfix=3)
-        self.conv1 = build_conv_layer(conv_cfg, inplanes, planes, kernel_size=1, stride=self.conv1_stride, bias=False)
-        self.add_module(self.norm1_name, norm1)
-        fallback_on_stride = False
-        self.with_modulated_dcn = False
-        if self.with_dcn:
-            fallback_on_stride = dcn.get('fallback_on_stride', False)
-            self.with_modulated_dcn = dcn.get('modulated', False)
-        if not self.with_dcn or fallback_on_stride:
-            self.conv2 = build_conv_layer(conv_cfg, planes, planes, kernel_size=3, stride=self.conv2_stride, padding=dilation, dilation=dilation, bias=False)
-        else:
-            assert conv_cfg is None, 'conv_cfg must be None for DCN'
-            deformable_groups = dcn.get('deformable_groups', 1)
-            if not self.with_modulated_dcn:
-                conv_op = DeformConv
-                offset_channels = 18
-            else:
-                conv_op = ModulatedDeformConv
-                offset_channels = 27
-            self.conv2_offset = nn.Conv2d(planes, deformable_groups * offset_channels, kernel_size=3, stride=self.conv2_stride, padding=dilation, dilation=dilation)
-            self.conv2 = conv_op(planes, planes, kernel_size=3, stride=self.conv2_stride, padding=dilation, dilation=dilation, deformable_groups=deformable_groups, bias=False)
-        self.add_module(self.norm2_name, norm2)
-        self.conv3 = build_conv_layer(conv_cfg, planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.add_module(self.norm3_name, norm3)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        if self.with_gcb:
-            gcb_inplanes = planes * self.expansion
-            self.context_block = ContextBlock(inplanes=gcb_inplanes, **gcb)
-        if self.with_gen_attention:
-            self.gen_attention_block = GeneralizedAttention(planes, **gen_attention)
-
-    @property
-    def norm1(self):
-        return getattr(self, self.norm1_name)
-
-    @property
-    def norm2(self):
-        return getattr(self, self.norm2_name)
-
-    @property
-    def norm3(self):
-        return getattr(self, self.norm3_name)
-
-    def forward(self, x):
-
-        def _inner_forward(x):
-            identity = x
-            out = self.conv1(x)
-            out = self.norm1(out)
-            out = self.relu(out)
-            if not self.with_dcn:
-                out = self.conv2(out)
-            elif self.with_modulated_dcn:
-                offset_mask = self.conv2_offset(out)
-                offset = offset_mask[:, :18, :, :]
-                mask = offset_mask[:, -9:, :, :].sigmoid()
-                out = self.conv2(out, offset, mask)
-            else:
-                offset = self.conv2_offset(out)
-                out = self.conv2(out, offset)
-            out = self.norm2(out)
-            out = self.relu(out)
-            if self.with_gen_attention:
-                out = self.gen_attention_block(out)
-            out = self.conv3(out)
-            out = self.norm3(out)
-            if self.with_gcb:
-                out = self.context_block(out)
-            if self.downsample is not None:
-                identity = self.downsample(x)
-            out += identity
-            return out
-        if self.with_cp and x.requires_grad:
-            out = cp.checkpoint(_inner_forward, x)
-        else:
-            out = _inner_forward(x)
-        out = self.relu(out)
-        return out
-
-
 def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1, groups=1, base_width=4, style='pytorch', with_cp=False, conv_cfg=None, norm_cfg=dict(type='BN'), dcn=None, gcb=None):
     downsample = None
     if stride != 1 or inplanes != planes * block.expansion:
@@ -1683,147 +2561,6 @@ def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1, groups
     for i in range(1, blocks):
         layers.append(block(inplanes=inplanes, planes=planes, stride=1, dilation=dilation, groups=groups, base_width=base_width, style=style, with_cp=with_cp, conv_cfg=conv_cfg, norm_cfg=norm_cfg, dcn=dcn, gcb=gcb))
     return nn.Sequential(*layers)
-
-
-@BACKBONES.register_module
-class ResNet(nn.Module):
-    """ResNet backbone.
-
-    Args:
-        depth (int): Depth of resnet, from {18, 34, 50, 101, 152}.
-        num_stages (int): Resnet stages, normally 4.
-        strides (Sequence[int]): Strides of the first block of each stage.
-        dilations (Sequence[int]): Dilation of each stage.
-        out_indices (Sequence[int]): Output from which stages.
-        style (str): `pytorch` or `caffe`. If set to "pytorch", the stride-two
-            layer is the 3x3 conv layer, otherwise the stride-two layer is
-            the first 1x1 conv layer.
-        frozen_stages (int): Stages to be frozen (stop grad and set eval mode).
-            -1 means not freezing any parameters.
-        norm_cfg (dict): dictionary to construct and config norm layer.
-        norm_eval (bool): Whether to set norm layers to eval mode, namely,
-            freeze running stats (mean and var). Note: Effect on Batch Norm
-            and its variants only.
-        with_cp (bool): Use checkpoint or not. Using checkpoint will save some
-            memory while slowing down the training speed.
-        zero_init_residual (bool): whether to use zero init for last norm layer
-            in resblocks to let them behave as identity.
-    """
-    arch_settings = {(18): (BasicBlock, (2, 2, 2, 2)), (34): (BasicBlock, (3, 4, 6, 3)), (50): (Bottleneck, (3, 4, 6, 3)), (101): (Bottleneck, (3, 4, 23, 3)), (152): (Bottleneck, (3, 8, 36, 3))}
-
-    def __init__(self, depth, num_stages=4, strides=(1, 2, 2, 2), dilations=(1, 1, 1, 1), out_indices=(0, 1, 2, 3), style='pytorch', frozen_stages=-1, conv_cfg=None, norm_cfg=dict(type='BN', requires_grad=True), norm_eval=True, dcn=None, stage_with_dcn=(False, False, False, False), gcb=None, stage_with_gcb=(False, False, False, False), gen_attention=None, stage_with_gen_attention=((), (), (), ()), with_cp=False, zero_init_residual=True):
-        super(ResNet, self).__init__()
-        if depth not in self.arch_settings:
-            raise KeyError('invalid depth {} for resnet'.format(depth))
-        self.depth = depth
-        self.num_stages = num_stages
-        assert num_stages >= 1 and num_stages <= 4
-        self.strides = strides
-        self.dilations = dilations
-        assert len(strides) == len(dilations) == num_stages
-        self.out_indices = out_indices
-        assert max(out_indices) < num_stages
-        self.style = style
-        self.frozen_stages = frozen_stages
-        self.conv_cfg = conv_cfg
-        self.norm_cfg = norm_cfg
-        self.with_cp = with_cp
-        self.norm_eval = norm_eval
-        self.dcn = dcn
-        self.stage_with_dcn = stage_with_dcn
-        if dcn is not None:
-            assert len(stage_with_dcn) == num_stages
-        self.gen_attention = gen_attention
-        self.gcb = gcb
-        self.stage_with_gcb = stage_with_gcb
-        if gcb is not None:
-            assert len(stage_with_gcb) == num_stages
-        self.zero_init_residual = zero_init_residual
-        self.block, stage_blocks = self.arch_settings[depth]
-        self.stage_blocks = stage_blocks[:num_stages]
-        self.inplanes = 64
-        self._make_stem_layer()
-        self.res_layers = []
-        for i, num_blocks in enumerate(self.stage_blocks):
-            stride = strides[i]
-            dilation = dilations[i]
-            dcn = self.dcn if self.stage_with_dcn[i] else None
-            gcb = self.gcb if self.stage_with_gcb[i] else None
-            planes = 64 * 2 ** i
-            res_layer = make_res_layer(self.block, self.inplanes, planes, num_blocks, stride=stride, dilation=dilation, style=self.style, with_cp=with_cp, conv_cfg=conv_cfg, norm_cfg=norm_cfg, dcn=dcn, gcb=gcb, gen_attention=gen_attention, gen_attention_blocks=stage_with_gen_attention[i])
-            self.inplanes = planes * self.block.expansion
-            layer_name = 'layer{}'.format(i + 1)
-            self.add_module(layer_name, res_layer)
-            self.res_layers.append(layer_name)
-        self._freeze_stages()
-        self.feat_dim = self.block.expansion * 64 * 2 ** (len(self.stage_blocks) - 1)
-
-    @property
-    def norm1(self):
-        return getattr(self, self.norm1_name)
-
-    def _make_stem_layer(self):
-        self.conv1 = build_conv_layer(self.conv_cfg, 3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.norm1_name, norm1 = build_norm_layer(self.norm_cfg, 64, postfix=1)
-        self.add_module(self.norm1_name, norm1)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-
-    def _freeze_stages(self):
-        if self.frozen_stages >= 0:
-            self.norm1.eval()
-            for m in [self.conv1, self.norm1]:
-                for param in m.parameters():
-                    param.requires_grad = False
-        for i in range(1, self.frozen_stages + 1):
-            m = getattr(self, 'layer{}'.format(i))
-            m.eval()
-            for param in m.parameters():
-                param.requires_grad = False
-
-    def init_weights(self, pretrained=None):
-        if isinstance(pretrained, str):
-            logger = logging.getLogger()
-            load_checkpoint(self, pretrained, strict=False, logger=logger)
-        elif pretrained is None:
-            for m in self.modules():
-                if isinstance(m, nn.Conv2d):
-                    kaiming_init(m)
-                elif isinstance(m, (_BatchNorm, nn.GroupNorm)):
-                    constant_init(m, 1)
-            if self.dcn is not None:
-                for m in self.modules():
-                    if isinstance(m, Bottleneck) and hasattr(m, 'conv2_offset'):
-                        constant_init(m.conv2_offset, 0)
-            if self.zero_init_residual:
-                for m in self.modules():
-                    if isinstance(m, Bottleneck):
-                        constant_init(m.norm3, 0)
-                    elif isinstance(m, BasicBlock):
-                        constant_init(m.norm2, 0)
-        else:
-            raise TypeError('pretrained must be a str or None')
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.norm1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        outs = []
-        for i, layer_name in enumerate(self.res_layers):
-            res_layer = getattr(self, layer_name)
-            x = res_layer(x)
-            if i in self.out_indices:
-                outs.append(x)
-        return tuple(outs)
-
-    def train(self, mode=True):
-        super(ResNet, self).train(mode)
-        self._freeze_stages()
-        if mode and self.norm_eval:
-            for m in self.modules():
-                if isinstance(m, _BatchNorm):
-                    m.eval()
 
 
 class L2Norm(nn.Module):
@@ -1952,7 +2689,6 @@ def bbox_target(pos_bboxes_list, neg_bboxes_list, pos_gt_bboxes_list, pos_gt_lab
     return labels, label_weights, bbox_targets, bbox_weights
 
 
-@HEADS.register_module
 class BBoxHead(nn.Module):
     """Simplest RoI head, with only two fc layers for classification and
     regression respectively"""
@@ -2107,6 +2843,120 @@ class BBoxHead(nn.Module):
         return new_rois
 
 
+class ConvFCBBoxHead(BBoxHead):
+    """More general bbox head, with shared conv and fc layers and two optional
+    separated branches.
+
+                                /-> cls convs -> cls fcs -> cls
+    shared convs -> shared fcs
+                                \\-> reg convs -> reg fcs -> reg
+    """
+
+    def __init__(self, num_shared_convs=0, num_shared_fcs=0, num_cls_convs=0, num_cls_fcs=0, num_reg_convs=0, num_reg_fcs=0, conv_out_channels=256, fc_out_channels=1024, conv_cfg=None, norm_cfg=None, *args, **kwargs):
+        super(ConvFCBBoxHead, self).__init__(*args, **kwargs)
+        assert num_shared_convs + num_shared_fcs + num_cls_convs + num_cls_fcs + num_reg_convs + num_reg_fcs > 0
+        if num_cls_convs > 0 or num_reg_convs > 0:
+            assert num_shared_fcs == 0
+        if not self.with_cls:
+            assert num_cls_convs == 0 and num_cls_fcs == 0
+        if not self.with_reg:
+            assert num_reg_convs == 0 and num_reg_fcs == 0
+        self.num_shared_convs = num_shared_convs
+        self.num_shared_fcs = num_shared_fcs
+        self.num_cls_convs = num_cls_convs
+        self.num_cls_fcs = num_cls_fcs
+        self.num_reg_convs = num_reg_convs
+        self.num_reg_fcs = num_reg_fcs
+        self.conv_out_channels = conv_out_channels
+        self.fc_out_channels = fc_out_channels
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.shared_convs, self.shared_fcs, last_layer_dim = self._add_conv_fc_branch(self.num_shared_convs, self.num_shared_fcs, self.in_channels, True)
+        self.shared_out_channels = last_layer_dim
+        self.cls_convs, self.cls_fcs, self.cls_last_dim = self._add_conv_fc_branch(self.num_cls_convs, self.num_cls_fcs, self.shared_out_channels)
+        self.reg_convs, self.reg_fcs, self.reg_last_dim = self._add_conv_fc_branch(self.num_reg_convs, self.num_reg_fcs, self.shared_out_channels)
+        if self.num_shared_fcs == 0 and not self.with_avg_pool:
+            if self.num_cls_fcs == 0:
+                self.cls_last_dim *= self.roi_feat_size * self.roi_feat_size
+            if self.num_reg_fcs == 0:
+                self.reg_last_dim *= self.roi_feat_size * self.roi_feat_size
+        self.relu = nn.ReLU(inplace=True)
+        if self.with_cls:
+            self.fc_cls = nn.Linear(self.cls_last_dim, self.num_classes)
+        if self.with_reg:
+            out_dim_reg = 4 if self.reg_class_agnostic else 4 * self.num_classes
+            self.fc_reg = nn.Linear(self.reg_last_dim, out_dim_reg)
+
+    def _add_conv_fc_branch(self, num_branch_convs, num_branch_fcs, in_channels, is_shared=False):
+        """Add shared or separable branch
+
+        convs -> avg pool (optional) -> fcs
+        """
+        last_layer_dim = in_channels
+        branch_convs = nn.ModuleList()
+        if num_branch_convs > 0:
+            for i in range(num_branch_convs):
+                conv_in_channels = last_layer_dim if i == 0 else self.conv_out_channels
+                branch_convs.append(ConvModule(conv_in_channels, self.conv_out_channels, 3, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+            last_layer_dim = self.conv_out_channels
+        branch_fcs = nn.ModuleList()
+        if num_branch_fcs > 0:
+            if (is_shared or self.num_shared_fcs == 0) and not self.with_avg_pool:
+                last_layer_dim *= self.roi_feat_size * self.roi_feat_size
+            for i in range(num_branch_fcs):
+                fc_in_channels = last_layer_dim if i == 0 else self.fc_out_channels
+                branch_fcs.append(nn.Linear(fc_in_channels, self.fc_out_channels))
+            last_layer_dim = self.fc_out_channels
+        return branch_convs, branch_fcs, last_layer_dim
+
+    def init_weights(self):
+        super(ConvFCBBoxHead, self).init_weights()
+        for module_list in [self.shared_fcs, self.cls_fcs, self.reg_fcs]:
+            for m in module_list.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        if self.num_shared_convs > 0:
+            for conv in self.shared_convs:
+                x = conv(x)
+        if self.num_shared_fcs > 0:
+            if self.with_avg_pool:
+                x = self.avg_pool(x)
+            x = x.view(x.size(0), -1)
+            for fc in self.shared_fcs:
+                x = self.relu(fc(x))
+        x_cls = x
+        x_reg = x
+        for conv in self.cls_convs:
+            x_cls = conv(x_cls)
+        if x_cls.dim() > 2:
+            if self.with_avg_pool:
+                x_cls = self.avg_pool(x_cls)
+            x_cls = x_cls.view(x_cls.size(0), -1)
+        for fc in self.cls_fcs:
+            x_cls = self.relu(fc(x_cls))
+        for conv in self.reg_convs:
+            x_reg = conv(x_reg)
+        if x_reg.dim() > 2:
+            if self.with_avg_pool:
+                x_reg = self.avg_pool(x_reg)
+            x_reg = x_reg.view(x_reg.size(0), -1)
+        for fc in self.reg_fcs:
+            x_reg = self.relu(fc(x_reg))
+        cls_score = self.fc_cls(x_cls) if self.with_cls else None
+        bbox_pred = self.fc_reg(x_reg) if self.with_reg else None
+        return cls_score, bbox_pred
+
+
+class SharedFCBBoxHead(ConvFCBBoxHead):
+
+    def __init__(self, num_fcs=2, fc_out_channels=1024, *args, **kwargs):
+        assert num_fcs >= 1
+        super(SharedFCBBoxHead, self).__init__(*args, num_shared_convs=0, num_shared_fcs=num_fcs, num_cls_convs=0, num_cls_fcs=0, num_reg_convs=0, num_reg_fcs=0, fc_out_channels=fc_out_channels, **kwargs)
+
+
 dataset_aliases = {'voc': ['voc', 'pascal_voc', 'voc07', 'voc12'], 'imagenet_det': ['det', 'imagenet_det', 'ilsvrc_det'], 'imagenet_vid': ['vid', 'imagenet_vid', 'ilsvrc_vid'], 'coco': ['coco', 'mscoco', 'ms_coco'], 'wider_face': ['WIDERFaceDataset', 'wider_face', 'WDIERFace']}
 
 
@@ -2242,6 +3092,908 @@ class BaseDetector(nn.Module):
             mmcv.imshow_det_bboxes(img_show, bboxes, labels, class_names=class_names, score_thr=score_thr)
 
 
+DETECTORS = Registry('detector')
+
+
+def bbox_flip(bboxes, img_shape):
+    """Flip bboxes horizontally.
+
+    Args:
+        bboxes(ndarray): shape (..., 4*k)
+        img_shape(tuple): (height, width)
+    """
+    assert bboxes.shape[-1] % 4 == 0
+    w = img_shape[1]
+    flipped = bboxes.copy()
+    flipped[(...), 0::4] = w - bboxes[(...), 2::4] - 1
+    flipped[(...), 2::4] = w - bboxes[(...), 0::4] - 1
+    return flipped
+
+
+def bbox_mapping_back(bboxes, img_shape, scale_factor, flip):
+    """Map bboxes from testing scale to original image scale"""
+    new_bboxes = bbox_flip(bboxes, img_shape) if flip else bboxes
+    new_bboxes = new_bboxes / scale_factor
+    return new_bboxes
+
+
+def merge_aug_proposals(aug_proposals, img_metas, rpn_test_cfg):
+    """Merge augmented proposals (multiscale, flip, etc.)
+
+    Args:
+        aug_proposals (list[Tensor]): proposals from different testing
+            schemes, shape (n, 5). Note that they are not rescaled to the
+            original image size.
+        img_metas (list[dict]): image info including "shape_scale" and "flip".
+        rpn_test_cfg (dict): rpn test config.
+
+    Returns:
+        Tensor: shape (n, 4), proposals corresponding to original image scale.
+    """
+    recovered_proposals = []
+    for proposals, img_info in zip(aug_proposals, img_metas):
+        img_shape = img_info['img_shape']
+        scale_factor = img_info['scale_factor']
+        flip = img_info['flip']
+        _proposals = proposals.clone()
+        _proposals[:, :4] = bbox_mapping_back(_proposals[:, :4], img_shape, scale_factor, flip)
+        recovered_proposals.append(_proposals)
+    aug_proposals = torch.cat(recovered_proposals, dim=0)
+    merged_proposals, _ = nms(aug_proposals, rpn_test_cfg.nms_thr)
+    scores = merged_proposals[:, (4)]
+    _, order = scores.sort(0, descending=True)
+    num = min(rpn_test_cfg.max_num, merged_proposals.shape[0])
+    order = order[:num]
+    merged_proposals = merged_proposals[(order), :]
+    return merged_proposals
+
+
+class RPNTestMixin(object):
+
+    def simple_test_rpn(self, x, img_meta, rpn_test_cfg):
+        rpn_outs = self.rpn_head(x)
+        proposal_inputs = rpn_outs + (img_meta, rpn_test_cfg)
+        proposal_list = self.rpn_head.get_bboxes(*proposal_inputs)
+        return proposal_list
+
+    def aug_test_rpn(self, feats, img_metas, rpn_test_cfg):
+        imgs_per_gpu = len(img_metas[0])
+        aug_proposals = [[] for _ in range(imgs_per_gpu)]
+        for x, img_meta in zip(feats, img_metas):
+            proposal_list = self.simple_test_rpn(x, img_meta, rpn_test_cfg)
+            for i, proposals in enumerate(proposal_list):
+                aug_proposals[i].append(proposals)
+        aug_img_metas = []
+        for i in range(imgs_per_gpu):
+            aug_img_meta = []
+            for j in range(len(img_metas)):
+                aug_img_meta.append(img_metas[j][i])
+            aug_img_metas.append(aug_img_meta)
+        merged_proposals = [merge_aug_proposals(proposals, aug_img_meta, rpn_test_cfg) for proposals, aug_img_meta in zip(aug_proposals, aug_img_metas)]
+        return merged_proposals
+
+
+def bbox2result(bboxes, labels, num_classes):
+    """Convert detection results to a list of numpy arrays.
+
+    Args:
+        bboxes (Tensor): shape (n, 5)
+        labels (Tensor): shape (n, )
+        num_classes (int): class number, including background class
+
+    Returns:
+        list(ndarray): bbox results of each class
+    """
+    if bboxes.shape[0] == 0:
+        return [np.zeros((0, 5), dtype=np.float32) for i in range(num_classes - 1)]
+    else:
+        bboxes = bboxes.cpu().numpy()
+        labels = labels.cpu().numpy()
+        return [bboxes[(labels == i), :] for i in range(num_classes - 1)]
+
+
+def bbox2roi(bbox_list):
+    """Convert a list of bboxes to roi format.
+
+    Args:
+        bbox_list (list[Tensor]): a list of bboxes corresponding to a batch
+            of images.
+
+    Returns:
+        Tensor: shape (n, 5), [batch_ind, x1, y1, x2, y2]
+    """
+    rois_list = []
+    for img_id, bboxes in enumerate(bbox_list):
+        if bboxes.size(0) > 0:
+            img_inds = bboxes.new_full((bboxes.size(0), 1), img_id)
+            rois = torch.cat([img_inds, bboxes[:, :4]], dim=-1)
+        else:
+            rois = bboxes.new_zeros((0, 5))
+        rois_list.append(rois)
+    rois = torch.cat(rois_list, 0)
+    return rois
+
+
+def merge_aug_masks(aug_masks, img_metas, rcnn_test_cfg, weights=None):
+    """Merge augmented mask prediction.
+
+    Args:
+        aug_masks (list[ndarray]): shape (n, #class, h, w)
+        img_shapes (list[ndarray]): shape (3, ).
+        rcnn_test_cfg (dict): rcnn test config.
+
+    Returns:
+        tuple: (bboxes, scores)
+    """
+    recovered_masks = [(mask if not img_info[0]['flip'] else mask[(...), ::-1]) for mask, img_info in zip(aug_masks, img_metas)]
+    if weights is None:
+        merged_masks = np.mean(recovered_masks, axis=0)
+    else:
+        merged_masks = np.average(np.array(recovered_masks), axis=0, weights=np.array(weights))
+    return merged_masks
+
+
+class CascadeRCNN(BaseDetector, RPNTestMixin):
+
+    def __init__(self, num_stages, backbone, neck=None, shared_head=None, rpn_head=None, bbox_roi_extractor=None, bbox_head=None, mask_roi_extractor=None, mask_head=None, train_cfg=None, test_cfg=None, pretrained=None):
+        assert bbox_roi_extractor is not None
+        assert bbox_head is not None
+        super(CascadeRCNN, self).__init__()
+        self.num_stages = num_stages
+        self.backbone = builder.build_backbone(backbone)
+        if neck is not None:
+            self.neck = builder.build_neck(neck)
+        if rpn_head is not None:
+            self.rpn_head = builder.build_head(rpn_head)
+        if shared_head is not None:
+            self.shared_head = builder.build_shared_head(shared_head)
+        if bbox_head is not None:
+            self.bbox_roi_extractor = nn.ModuleList()
+            self.bbox_head = nn.ModuleList()
+            if not isinstance(bbox_roi_extractor, list):
+                bbox_roi_extractor = [bbox_roi_extractor for _ in range(num_stages)]
+            if not isinstance(bbox_head, list):
+                bbox_head = [bbox_head for _ in range(num_stages)]
+            assert len(bbox_roi_extractor) == len(bbox_head) == self.num_stages
+            for roi_extractor, head in zip(bbox_roi_extractor, bbox_head):
+                self.bbox_roi_extractor.append(builder.build_roi_extractor(roi_extractor))
+                self.bbox_head.append(builder.build_head(head))
+        if mask_head is not None:
+            self.mask_head = nn.ModuleList()
+            if not isinstance(mask_head, list):
+                mask_head = [mask_head for _ in range(num_stages)]
+            assert len(mask_head) == self.num_stages
+            for head in mask_head:
+                self.mask_head.append(builder.build_head(head))
+            if mask_roi_extractor is not None:
+                self.share_roi_extractor = False
+                self.mask_roi_extractor = nn.ModuleList()
+                if not isinstance(mask_roi_extractor, list):
+                    mask_roi_extractor = [mask_roi_extractor for _ in range(num_stages)]
+                assert len(mask_roi_extractor) == self.num_stages
+                for roi_extractor in mask_roi_extractor:
+                    self.mask_roi_extractor.append(builder.build_roi_extractor(roi_extractor))
+            else:
+                self.share_roi_extractor = True
+                self.mask_roi_extractor = self.bbox_roi_extractor
+        self.train_cfg = train_cfg
+        self.test_cfg = test_cfg
+        self.init_weights(pretrained=pretrained)
+
+    @property
+    def with_rpn(self):
+        return hasattr(self, 'rpn_head') and self.rpn_head is not None
+
+    def init_weights(self, pretrained=None):
+        super(CascadeRCNN, self).init_weights(pretrained)
+        self.backbone.init_weights(pretrained=pretrained)
+        if self.with_neck:
+            if isinstance(self.neck, nn.Sequential):
+                for m in self.neck:
+                    m.init_weights()
+            else:
+                self.neck.init_weights()
+        if self.with_rpn:
+            self.rpn_head.init_weights()
+        if self.with_shared_head:
+            self.shared_head.init_weights(pretrained=pretrained)
+        for i in range(self.num_stages):
+            if self.with_bbox:
+                self.bbox_roi_extractor[i].init_weights()
+                self.bbox_head[i].init_weights()
+            if self.with_mask:
+                if not self.share_roi_extractor:
+                    self.mask_roi_extractor[i].init_weights()
+                self.mask_head[i].init_weights()
+
+    def extract_feat(self, img):
+        x = self.backbone(img)
+        if self.with_neck:
+            x = self.neck(x)
+        return x
+
+    def forward_train(self, img, img_meta, gt_bboxes, gt_labels, gt_bboxes_ignore=None, gt_masks=None, proposals=None):
+        x = self.extract_feat(img)
+        losses = dict()
+        if self.with_rpn:
+            rpn_outs = self.rpn_head(x)
+            rpn_loss_inputs = rpn_outs + (gt_bboxes, img_meta, self.train_cfg.rpn)
+            rpn_losses = self.rpn_head.loss(*rpn_loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
+            losses.update(rpn_losses)
+            proposal_cfg = self.train_cfg.get('rpn_proposal', self.test_cfg.rpn)
+            proposal_inputs = rpn_outs + (img_meta, proposal_cfg)
+            proposal_list = self.rpn_head.get_bboxes(*proposal_inputs)
+        else:
+            proposal_list = proposals
+        for i in range(self.num_stages):
+            self.current_stage = i
+            rcnn_train_cfg = self.train_cfg.rcnn[i]
+            lw = self.train_cfg.stage_loss_weights[i]
+            sampling_results = []
+            if self.with_bbox or self.with_mask:
+                bbox_assigner = build_assigner(rcnn_train_cfg.assigner)
+                bbox_sampler = build_sampler(rcnn_train_cfg.sampler, context=self)
+                num_imgs = img.size(0)
+                if gt_bboxes_ignore is None:
+                    gt_bboxes_ignore = [None for _ in range(num_imgs)]
+                for j in range(num_imgs):
+                    assign_result = bbox_assigner.assign(proposal_list[j], gt_bboxes[j], gt_bboxes_ignore[j], gt_labels[j])
+                    sampling_result = bbox_sampler.sample(assign_result, proposal_list[j], gt_bboxes[j], gt_labels[j], feats=[lvl_feat[j][None] for lvl_feat in x])
+                    sampling_results.append(sampling_result)
+            bbox_roi_extractor = self.bbox_roi_extractor[i]
+            bbox_head = self.bbox_head[i]
+            rois = bbox2roi([res.bboxes for res in sampling_results])
+            bbox_feats = bbox_roi_extractor(x[:bbox_roi_extractor.num_inputs], rois)
+            if self.with_shared_head:
+                bbox_feats = self.shared_head(bbox_feats)
+            cls_score, bbox_pred = bbox_head(bbox_feats)
+            bbox_targets = bbox_head.get_target(sampling_results, gt_bboxes, gt_labels, rcnn_train_cfg)
+            loss_bbox = bbox_head.loss(cls_score, bbox_pred, *bbox_targets)
+            for name, value in loss_bbox.items():
+                losses['s{}.{}'.format(i, name)] = value * lw if 'loss' in name else value
+            if self.with_mask:
+                if not self.share_roi_extractor:
+                    mask_roi_extractor = self.mask_roi_extractor[i]
+                    pos_rois = bbox2roi([res.pos_bboxes for res in sampling_results])
+                    mask_feats = mask_roi_extractor(x[:mask_roi_extractor.num_inputs], pos_rois)
+                    if self.with_shared_head:
+                        mask_feats = self.shared_head(mask_feats)
+                else:
+                    pos_inds = []
+                    device = bbox_feats.device
+                    for res in sampling_results:
+                        pos_inds.append(torch.ones(res.pos_bboxes.shape[0], device=device, dtype=torch.uint8))
+                        pos_inds.append(torch.zeros(res.neg_bboxes.shape[0], device=device, dtype=torch.uint8))
+                    pos_inds = torch.cat(pos_inds)
+                    mask_feats = bbox_feats[pos_inds]
+                mask_head = self.mask_head[i]
+                mask_pred = mask_head(mask_feats)
+                mask_targets = mask_head.get_target(sampling_results, gt_masks, rcnn_train_cfg)
+                pos_labels = torch.cat([res.pos_gt_labels for res in sampling_results])
+                loss_mask = mask_head.loss(mask_pred, mask_targets, pos_labels)
+                for name, value in loss_mask.items():
+                    losses['s{}.{}'.format(i, name)] = value * lw if 'loss' in name else value
+            if i < self.num_stages - 1:
+                pos_is_gts = [res.pos_is_gt for res in sampling_results]
+                roi_labels = bbox_targets[0]
+                with torch.no_grad():
+                    proposal_list = bbox_head.refine_bboxes(rois, roi_labels, bbox_pred, pos_is_gts, img_meta)
+        return losses
+
+    def simple_test(self, img, img_meta, proposals=None, rescale=False):
+        x = self.extract_feat(img)
+        proposal_list = self.simple_test_rpn(x, img_meta, self.test_cfg.rpn) if proposals is None else proposals
+        img_shape = img_meta[0]['img_shape']
+        ori_shape = img_meta[0]['ori_shape']
+        scale_factor = img_meta[0]['scale_factor']
+        ms_bbox_result = {}
+        ms_segm_result = {}
+        ms_scores = []
+        rcnn_test_cfg = self.test_cfg.rcnn
+        rois = bbox2roi(proposal_list)
+        for i in range(self.num_stages):
+            bbox_roi_extractor = self.bbox_roi_extractor[i]
+            bbox_head = self.bbox_head[i]
+            bbox_feats = bbox_roi_extractor(x[:len(bbox_roi_extractor.featmap_strides)], rois)
+            if self.with_shared_head:
+                bbox_feats = self.shared_head(bbox_feats)
+            cls_score, bbox_pred = bbox_head(bbox_feats)
+            ms_scores.append(cls_score)
+            if self.test_cfg.keep_all_stages:
+                det_bboxes, det_labels = bbox_head.get_det_bboxes(rois, cls_score, bbox_pred, img_shape, scale_factor, rescale=rescale, cfg=rcnn_test_cfg)
+                bbox_result = bbox2result(det_bboxes, det_labels, bbox_head.num_classes)
+                ms_bbox_result['stage{}'.format(i)] = bbox_result
+                if self.with_mask:
+                    mask_roi_extractor = self.mask_roi_extractor[i]
+                    mask_head = self.mask_head[i]
+                    if det_bboxes.shape[0] == 0:
+                        segm_result = [[] for _ in range(mask_head.num_classes - 1)]
+                    else:
+                        _bboxes = det_bboxes[:, :4] * scale_factor if rescale else det_bboxes
+                        mask_rois = bbox2roi([_bboxes])
+                        mask_feats = mask_roi_extractor(x[:len(mask_roi_extractor.featmap_strides)], mask_rois)
+                        if self.with_shared_head:
+                            mask_feats = self.shared_head(mask_feats, i)
+                        mask_pred = mask_head(mask_feats)
+                        segm_result = mask_head.get_seg_masks(mask_pred, _bboxes, det_labels, rcnn_test_cfg, ori_shape, scale_factor, rescale)
+                    ms_segm_result['stage{}'.format(i)] = segm_result
+            if i < self.num_stages - 1:
+                bbox_label = cls_score.argmax(dim=1)
+                rois = bbox_head.regress_by_class(rois, bbox_label, bbox_pred, img_meta[0])
+        cls_score = sum(ms_scores) / self.num_stages
+        det_bboxes, det_labels = self.bbox_head[-1].get_det_bboxes(rois, cls_score, bbox_pred, img_shape, scale_factor, rescale=rescale, cfg=rcnn_test_cfg)
+        bbox_result = bbox2result(det_bboxes, det_labels, self.bbox_head[-1].num_classes)
+        ms_bbox_result['ensemble'] = bbox_result
+        if self.with_mask:
+            if det_bboxes.shape[0] == 0:
+                segm_result = [[] for _ in range(self.mask_head[-1].num_classes - 1)]
+            else:
+                _bboxes = det_bboxes[:, :4] * scale_factor if rescale else det_bboxes
+                mask_rois = bbox2roi([_bboxes])
+                aug_masks = []
+                for i in range(self.num_stages):
+                    mask_roi_extractor = self.mask_roi_extractor[i]
+                    mask_feats = mask_roi_extractor(x[:len(mask_roi_extractor.featmap_strides)], mask_rois)
+                    if self.with_shared_head:
+                        mask_feats = self.shared_head(mask_feats)
+                    mask_pred = self.mask_head[i](mask_feats)
+                    aug_masks.append(mask_pred.sigmoid().cpu().numpy())
+                merged_masks = merge_aug_masks(aug_masks, [img_meta] * self.num_stages, self.test_cfg.rcnn)
+                segm_result = self.mask_head[-1].get_seg_masks(merged_masks, _bboxes, det_labels, rcnn_test_cfg, ori_shape, scale_factor, rescale)
+            ms_segm_result['ensemble'] = segm_result
+        if not self.test_cfg.keep_all_stages:
+            if self.with_mask:
+                results = ms_bbox_result['ensemble'], ms_segm_result['ensemble']
+            else:
+                results = ms_bbox_result['ensemble']
+        elif self.with_mask:
+            results = {stage: (ms_bbox_result[stage], ms_segm_result[stage]) for stage in ms_bbox_result}
+        else:
+            results = ms_bbox_result
+        return results
+
+    def aug_test(self, img, img_meta, proposals=None, rescale=False):
+        raise NotImplementedError
+
+    def show_result(self, data, result, img_norm_cfg, **kwargs):
+        if self.with_mask:
+            ms_bbox_result, ms_segm_result = result
+            if isinstance(ms_bbox_result, dict):
+                result = ms_bbox_result['ensemble'], ms_segm_result['ensemble']
+        elif isinstance(result, dict):
+            result = result['ensemble']
+        super(CascadeRCNN, self).show_result(data, result, img_norm_cfg, **kwargs)
+
+
+class HybridTaskCascade(CascadeRCNN):
+
+    def __init__(self, num_stages, backbone, semantic_roi_extractor=None, semantic_head=None, semantic_fusion=('bbox', 'mask'), interleaved=True, mask_info_flow=True, **kwargs):
+        super(HybridTaskCascade, self).__init__(num_stages, backbone, **kwargs)
+        assert self.with_bbox and self.with_mask
+        assert not self.with_shared_head
+        if semantic_head is not None:
+            self.semantic_roi_extractor = builder.build_roi_extractor(semantic_roi_extractor)
+            self.semantic_head = builder.build_head(semantic_head)
+        self.semantic_fusion = semantic_fusion
+        self.interleaved = interleaved
+        self.mask_info_flow = mask_info_flow
+
+    @property
+    def with_semantic(self):
+        if hasattr(self, 'semantic_head') and self.semantic_head is not None:
+            return True
+        else:
+            return False
+
+    def _bbox_forward_train(self, stage, x, sampling_results, gt_bboxes, gt_labels, rcnn_train_cfg, semantic_feat=None):
+        rois = bbox2roi([res.bboxes for res in sampling_results])
+        bbox_roi_extractor = self.bbox_roi_extractor[stage]
+        bbox_head = self.bbox_head[stage]
+        bbox_feats = bbox_roi_extractor(x[:bbox_roi_extractor.num_inputs], rois)
+        if self.with_semantic and 'bbox' in self.semantic_fusion:
+            bbox_semantic_feat = self.semantic_roi_extractor([semantic_feat], rois)
+            if bbox_semantic_feat.shape[-2:] != bbox_feats.shape[-2:]:
+                bbox_semantic_feat = F.adaptive_avg_pool2d(bbox_semantic_feat, bbox_feats.shape[-2:])
+            bbox_feats += bbox_semantic_feat
+        cls_score, bbox_pred = bbox_head(bbox_feats)
+        bbox_targets = bbox_head.get_target(sampling_results, gt_bboxes, gt_labels, rcnn_train_cfg)
+        loss_bbox = bbox_head.loss(cls_score, bbox_pred, *bbox_targets)
+        return loss_bbox, rois, bbox_targets, bbox_pred
+
+    def _mask_forward_train(self, stage, x, sampling_results, gt_masks, rcnn_train_cfg, semantic_feat=None):
+        mask_roi_extractor = self.mask_roi_extractor[stage]
+        mask_head = self.mask_head[stage]
+        pos_rois = bbox2roi([res.pos_bboxes for res in sampling_results])
+        mask_feats = mask_roi_extractor(x[:mask_roi_extractor.num_inputs], pos_rois)
+        if self.with_semantic and 'mask' in self.semantic_fusion:
+            mask_semantic_feat = self.semantic_roi_extractor([semantic_feat], pos_rois)
+            if mask_semantic_feat.shape[-2:] != mask_feats.shape[-2:]:
+                mask_semantic_feat = F.adaptive_avg_pool2d(mask_semantic_feat, mask_feats.shape[-2:])
+            mask_feats += mask_semantic_feat
+        if self.mask_info_flow:
+            last_feat = None
+            for i in range(stage):
+                last_feat = self.mask_head[i](mask_feats, last_feat, return_logits=False)
+            mask_pred = mask_head(mask_feats, last_feat, return_feat=False)
+        else:
+            mask_pred = mask_head(mask_feats)
+        mask_targets = mask_head.get_target(sampling_results, gt_masks, rcnn_train_cfg)
+        pos_labels = torch.cat([res.pos_gt_labels for res in sampling_results])
+        loss_mask = mask_head.loss(mask_pred, mask_targets, pos_labels)
+        return loss_mask
+
+    def _bbox_forward_test(self, stage, x, rois, semantic_feat=None):
+        bbox_roi_extractor = self.bbox_roi_extractor[stage]
+        bbox_head = self.bbox_head[stage]
+        bbox_feats = bbox_roi_extractor(x[:len(bbox_roi_extractor.featmap_strides)], rois)
+        if self.with_semantic and 'bbox' in self.semantic_fusion:
+            bbox_semantic_feat = self.semantic_roi_extractor([semantic_feat], rois)
+            if bbox_semantic_feat.shape[-2:] != bbox_feats.shape[-2:]:
+                bbox_semantic_feat = F.adaptive_avg_pool2d(bbox_semantic_feat, bbox_feats.shape[-2:])
+            bbox_feats += bbox_semantic_feat
+        cls_score, bbox_pred = bbox_head(bbox_feats)
+        return cls_score, bbox_pred
+
+    def _mask_forward_test(self, stage, x, bboxes, semantic_feat=None):
+        mask_roi_extractor = self.mask_roi_extractor[stage]
+        mask_head = self.mask_head[stage]
+        mask_rois = bbox2roi([bboxes])
+        mask_feats = mask_roi_extractor(x[:len(mask_roi_extractor.featmap_strides)], mask_rois)
+        if self.with_semantic and 'mask' in self.semantic_fusion:
+            mask_semantic_feat = self.semantic_roi_extractor([semantic_feat], mask_rois)
+            if mask_semantic_feat.shape[-2:] != mask_feats.shape[-2:]:
+                mask_semantic_feat = F.adaptive_avg_pool2d(mask_semantic_feat, mask_feats.shape[-2:])
+            mask_feats += mask_semantic_feat
+        if self.mask_info_flow:
+            last_feat = None
+            last_pred = None
+            for i in range(stage):
+                mask_pred, last_feat = self.mask_head[i](mask_feats, last_feat)
+                if last_pred is not None:
+                    mask_pred = mask_pred + last_pred
+                last_pred = mask_pred
+            mask_pred = mask_head(mask_feats, last_feat, return_feat=False)
+            if last_pred is not None:
+                mask_pred = mask_pred + last_pred
+        else:
+            mask_pred = mask_head(mask_feats)
+        return mask_pred
+
+    def forward_train(self, img, img_meta, gt_bboxes, gt_labels, gt_bboxes_ignore=None, gt_masks=None, gt_semantic_seg=None, proposals=None):
+        x = self.extract_feat(img)
+        losses = dict()
+        if self.with_rpn:
+            rpn_outs = self.rpn_head(x)
+            rpn_loss_inputs = rpn_outs + (gt_bboxes, img_meta, self.train_cfg.rpn)
+            rpn_losses = self.rpn_head.loss(*rpn_loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
+            losses.update(rpn_losses)
+            proposal_cfg = self.train_cfg.get('rpn_proposal', self.test_cfg.rpn)
+            proposal_inputs = rpn_outs + (img_meta, proposal_cfg)
+            proposal_list = self.rpn_head.get_bboxes(*proposal_inputs)
+        else:
+            proposal_list = proposals
+        if self.with_semantic:
+            semantic_pred, semantic_feat = self.semantic_head(x)
+            loss_seg = self.semantic_head.loss(semantic_pred, gt_semantic_seg)
+            losses['loss_semantic_seg'] = loss_seg
+        else:
+            semantic_feat = None
+        for i in range(self.num_stages):
+            self.current_stage = i
+            rcnn_train_cfg = self.train_cfg.rcnn[i]
+            lw = self.train_cfg.stage_loss_weights[i]
+            sampling_results = []
+            bbox_assigner = build_assigner(rcnn_train_cfg.assigner)
+            bbox_sampler = build_sampler(rcnn_train_cfg.sampler, context=self)
+            num_imgs = img.size(0)
+            if gt_bboxes_ignore is None:
+                gt_bboxes_ignore = [None for _ in range(num_imgs)]
+            for j in range(num_imgs):
+                assign_result = bbox_assigner.assign(proposal_list[j], gt_bboxes[j], gt_bboxes_ignore[j], gt_labels[j])
+                sampling_result = bbox_sampler.sample(assign_result, proposal_list[j], gt_bboxes[j], gt_labels[j], feats=[lvl_feat[j][None] for lvl_feat in x])
+                sampling_results.append(sampling_result)
+            loss_bbox, rois, bbox_targets, bbox_pred = self._bbox_forward_train(i, x, sampling_results, gt_bboxes, gt_labels, rcnn_train_cfg, semantic_feat)
+            roi_labels = bbox_targets[0]
+            for name, value in loss_bbox.items():
+                losses['s{}.{}'.format(i, name)] = value * lw if 'loss' in name else value
+            if self.with_mask:
+                if self.interleaved:
+                    pos_is_gts = [res.pos_is_gt for res in sampling_results]
+                    with torch.no_grad():
+                        proposal_list = self.bbox_head[i].refine_bboxes(rois, roi_labels, bbox_pred, pos_is_gts, img_meta)
+                        sampling_results = []
+                        for j in range(num_imgs):
+                            assign_result = bbox_assigner.assign(proposal_list[j], gt_bboxes[j], gt_bboxes_ignore[j], gt_labels[j])
+                            sampling_result = bbox_sampler.sample(assign_result, proposal_list[j], gt_bboxes[j], gt_labels[j], feats=[lvl_feat[j][None] for lvl_feat in x])
+                            sampling_results.append(sampling_result)
+                loss_mask = self._mask_forward_train(i, x, sampling_results, gt_masks, rcnn_train_cfg, semantic_feat)
+                for name, value in loss_mask.items():
+                    losses['s{}.{}'.format(i, name)] = value * lw if 'loss' in name else value
+            if i < self.num_stages - 1 and not self.interleaved:
+                pos_is_gts = [res.pos_is_gt for res in sampling_results]
+                with torch.no_grad():
+                    proposal_list = self.bbox_head[i].refine_bboxes(rois, roi_labels, bbox_pred, pos_is_gts, img_meta)
+        return losses
+
+    def simple_test(self, img, img_meta, proposals=None, rescale=False):
+        x = self.extract_feat(img)
+        proposal_list = self.simple_test_rpn(x, img_meta, self.test_cfg.rpn) if proposals is None else proposals
+        if self.with_semantic:
+            _, semantic_feat = self.semantic_head(x)
+        else:
+            semantic_feat = None
+        img_shape = img_meta[0]['img_shape']
+        ori_shape = img_meta[0]['ori_shape']
+        scale_factor = img_meta[0]['scale_factor']
+        ms_bbox_result = {}
+        ms_segm_result = {}
+        ms_scores = []
+        rcnn_test_cfg = self.test_cfg.rcnn
+        rois = bbox2roi(proposal_list)
+        for i in range(self.num_stages):
+            bbox_head = self.bbox_head[i]
+            cls_score, bbox_pred = self._bbox_forward_test(i, x, rois, semantic_feat=semantic_feat)
+            ms_scores.append(cls_score)
+            if self.test_cfg.keep_all_stages:
+                det_bboxes, det_labels = bbox_head.get_det_bboxes(rois, cls_score, bbox_pred, img_shape, scale_factor, rescale=rescale, nms_cfg=rcnn_test_cfg)
+                bbox_result = bbox2result(det_bboxes, det_labels, bbox_head.num_classes)
+                ms_bbox_result['stage{}'.format(i)] = bbox_result
+                if self.with_mask:
+                    mask_head = self.mask_head[i]
+                    if det_bboxes.shape[0] == 0:
+                        segm_result = [[] for _ in range(mask_head.num_classes - 1)]
+                    else:
+                        _bboxes = det_bboxes[:, :4] * scale_factor if rescale else det_bboxes
+                        mask_pred = self._mask_forward_test(i, x, _bboxes, semantic_feat=semantic_feat)
+                        segm_result = mask_head.get_seg_masks(mask_pred, _bboxes, det_labels, rcnn_test_cfg, ori_shape, scale_factor, rescale)
+                    ms_segm_result['stage{}'.format(i)] = segm_result
+            if i < self.num_stages - 1:
+                bbox_label = cls_score.argmax(dim=1)
+                rois = bbox_head.regress_by_class(rois, bbox_label, bbox_pred, img_meta[0])
+        cls_score = sum(ms_scores) / float(len(ms_scores))
+        det_bboxes, det_labels = self.bbox_head[-1].get_det_bboxes(rois, cls_score, bbox_pred, img_shape, scale_factor, rescale=rescale, cfg=rcnn_test_cfg)
+        bbox_result = bbox2result(det_bboxes, det_labels, self.bbox_head[-1].num_classes)
+        ms_bbox_result['ensemble'] = bbox_result
+        if self.with_mask:
+            if det_bboxes.shape[0] == 0:
+                segm_result = [[] for _ in range(self.mask_head[-1].num_classes - 1)]
+            else:
+                _bboxes = det_bboxes[:, :4] * scale_factor if rescale else det_bboxes
+                mask_rois = bbox2roi([_bboxes])
+                aug_masks = []
+                mask_roi_extractor = self.mask_roi_extractor[-1]
+                mask_feats = mask_roi_extractor(x[:len(mask_roi_extractor.featmap_strides)], mask_rois)
+                if self.with_semantic and 'mask' in self.semantic_fusion:
+                    mask_semantic_feat = self.semantic_roi_extractor([semantic_feat], mask_rois)
+                    mask_feats += mask_semantic_feat
+                last_feat = None
+                for i in range(self.num_stages):
+                    mask_head = self.mask_head[i]
+                    if self.mask_info_flow:
+                        mask_pred, last_feat = mask_head(mask_feats, last_feat)
+                    else:
+                        mask_pred = mask_head(mask_feats)
+                    aug_masks.append(mask_pred.sigmoid().cpu().numpy())
+                merged_masks = merge_aug_masks(aug_masks, [img_meta] * self.num_stages, self.test_cfg.rcnn)
+                segm_result = self.mask_head[-1].get_seg_masks(merged_masks, _bboxes, det_labels, rcnn_test_cfg, ori_shape, scale_factor, rescale)
+            ms_segm_result['ensemble'] = segm_result
+        if not self.test_cfg.keep_all_stages:
+            if self.with_mask:
+                results = ms_bbox_result['ensemble'], ms_segm_result['ensemble']
+            else:
+                results = ms_bbox_result['ensemble']
+        elif self.with_mask:
+            results = {stage: (ms_bbox_result[stage], ms_segm_result[stage]) for stage in ms_bbox_result}
+        else:
+            results = ms_bbox_result
+        return results
+
+    def aug_test(self, img, img_meta, proposals=None, rescale=False):
+        raise NotImplementedError
+
+
+class SingleStageDetector(BaseDetector):
+
+    def __init__(self, backbone, neck=None, bbox_head=None, train_cfg=None, test_cfg=None, pretrained=None):
+        super(SingleStageDetector, self).__init__()
+        self.backbone = builder.build_backbone(backbone)
+        if neck is not None:
+            self.neck = builder.build_neck(neck)
+        self.bbox_head = builder.build_head(bbox_head)
+        self.train_cfg = train_cfg
+        self.test_cfg = test_cfg
+        self.init_weights(pretrained=pretrained)
+
+    def init_weights(self, pretrained=None):
+        super(SingleStageDetector, self).init_weights(pretrained)
+        self.backbone.init_weights(pretrained=pretrained)
+        if self.with_neck:
+            if isinstance(self.neck, nn.Sequential):
+                for m in self.neck:
+                    m.init_weights()
+            else:
+                self.neck.init_weights()
+        self.bbox_head.init_weights()
+
+    def extract_feat(self, img):
+        x = self.backbone(img)
+        if self.with_neck:
+            x = self.neck(x)
+        return x
+
+    def forward_train(self, img, img_metas, gt_bboxes, gt_labels, gt_bboxes_ignore=None):
+        x = self.extract_feat(img)
+        outs = self.bbox_head(x)
+        loss_inputs = outs + (gt_bboxes, gt_labels, img_metas, self.train_cfg)
+        losses = self.bbox_head.loss(*loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
+        return losses
+
+    def simple_test(self, img, img_meta, rescale=False):
+        x = self.extract_feat(img)
+        outs = self.bbox_head(x)
+        bbox_inputs = outs + (img_meta, self.test_cfg, rescale)
+        bbox_list = self.bbox_head.get_bboxes(*bbox_inputs)
+        bbox_results = [bbox2result(det_bboxes, det_labels, self.bbox_head.num_classes) for det_bboxes, det_labels in bbox_list]
+        return bbox_results[0]
+
+    def aug_test(self, imgs, img_metas, rescale=False):
+        raise NotImplementedError
+
+
+def bbox_mapping(bboxes, img_shape, scale_factor, flip):
+    """Map bboxes from the original image scale to testing scale"""
+    new_bboxes = bboxes * scale_factor
+    if flip:
+        new_bboxes = bbox_flip(new_bboxes, img_shape)
+    return new_bboxes
+
+
+def merge_aug_bboxes(aug_bboxes, aug_scores, img_metas, rcnn_test_cfg):
+    """Merge augmented detection bboxes and scores.
+
+    Args:
+        aug_bboxes (list[Tensor]): shape (n, 4*#class)
+        aug_scores (list[Tensor] or None): shape (n, #class)
+        img_shapes (list[Tensor]): shape (3, ).
+        rcnn_test_cfg (dict): rcnn test config.
+
+    Returns:
+        tuple: (bboxes, scores)
+    """
+    recovered_bboxes = []
+    for bboxes, img_info in zip(aug_bboxes, img_metas):
+        img_shape = img_info[0]['img_shape']
+        scale_factor = img_info[0]['scale_factor']
+        flip = img_info[0]['flip']
+        bboxes = bbox_mapping_back(bboxes, img_shape, scale_factor, flip)
+        recovered_bboxes.append(bboxes)
+    bboxes = torch.stack(recovered_bboxes).mean(dim=0)
+    if aug_scores is None:
+        return bboxes
+    else:
+        scores = torch.stack(aug_scores).mean(dim=0)
+        return bboxes, scores
+
+
+class BBoxTestMixin(object):
+
+    def simple_test_bboxes(self, x, img_meta, proposals, rcnn_test_cfg, rescale=False):
+        """Test only det bboxes without augmentation."""
+        rois = bbox2roi(proposals)
+        roi_feats = self.bbox_roi_extractor(x[:len(self.bbox_roi_extractor.featmap_strides)], rois)
+        if self.with_shared_head:
+            roi_feats = self.shared_head(roi_feats)
+        cls_score, bbox_pred = self.bbox_head(roi_feats)
+        img_shape = img_meta[0]['img_shape']
+        scale_factor = img_meta[0]['scale_factor']
+        det_bboxes, det_labels = self.bbox_head.get_det_bboxes(rois, cls_score, bbox_pred, img_shape, scale_factor, rescale=rescale, cfg=rcnn_test_cfg)
+        return det_bboxes, det_labels
+
+    def aug_test_bboxes(self, feats, img_metas, proposal_list, rcnn_test_cfg):
+        aug_bboxes = []
+        aug_scores = []
+        for x, img_meta in zip(feats, img_metas):
+            img_shape = img_meta[0]['img_shape']
+            scale_factor = img_meta[0]['scale_factor']
+            flip = img_meta[0]['flip']
+            proposals = bbox_mapping(proposal_list[0][:, :4], img_shape, scale_factor, flip)
+            rois = bbox2roi([proposals])
+            roi_feats = self.bbox_roi_extractor(x[:len(self.bbox_roi_extractor.featmap_strides)], rois)
+            if self.with_shared_head:
+                roi_feats = self.shared_head(roi_feats)
+            cls_score, bbox_pred = self.bbox_head(roi_feats)
+            bboxes, scores = self.bbox_head.get_det_bboxes(rois, cls_score, bbox_pred, img_shape, scale_factor, rescale=False, cfg=None)
+            aug_bboxes.append(bboxes)
+            aug_scores.append(scores)
+        merged_bboxes, merged_scores = merge_aug_bboxes(aug_bboxes, aug_scores, img_metas, rcnn_test_cfg)
+        det_bboxes, det_labels = multiclass_nms(merged_bboxes, merged_scores, rcnn_test_cfg.score_thr, rcnn_test_cfg.nms, rcnn_test_cfg.max_per_img)
+        return det_bboxes, det_labels
+
+
+class MaskTestMixin(object):
+
+    def simple_test_mask(self, x, img_meta, det_bboxes, det_labels, rescale=False):
+        ori_shape = img_meta[0]['ori_shape']
+        scale_factor = img_meta[0]['scale_factor']
+        if det_bboxes.shape[0] == 0:
+            segm_result = [[] for _ in range(self.mask_head.num_classes - 1)]
+        else:
+            _bboxes = det_bboxes[:, :4] * scale_factor if rescale else det_bboxes
+            mask_rois = bbox2roi([_bboxes])
+            mask_feats = self.mask_roi_extractor(x[:len(self.mask_roi_extractor.featmap_strides)], mask_rois)
+            if self.with_shared_head:
+                mask_feats = self.shared_head(mask_feats)
+            mask_pred = self.mask_head(mask_feats)
+            segm_result = self.mask_head.get_seg_masks(mask_pred, _bboxes, det_labels, self.test_cfg.rcnn, ori_shape, scale_factor, rescale)
+        return segm_result
+
+    def aug_test_mask(self, feats, img_metas, det_bboxes, det_labels):
+        if det_bboxes.shape[0] == 0:
+            segm_result = [[] for _ in range(self.mask_head.num_classes - 1)]
+        else:
+            aug_masks = []
+            for x, img_meta in zip(feats, img_metas):
+                img_shape = img_meta[0]['img_shape']
+                scale_factor = img_meta[0]['scale_factor']
+                flip = img_meta[0]['flip']
+                _bboxes = bbox_mapping(det_bboxes[:, :4], img_shape, scale_factor, flip)
+                mask_rois = bbox2roi([_bboxes])
+                mask_feats = self.mask_roi_extractor(x[:len(self.mask_roi_extractor.featmap_strides)], mask_rois)
+                if self.with_shared_head:
+                    mask_feats = self.shared_head(mask_feats)
+                mask_pred = self.mask_head(mask_feats)
+                aug_masks.append(mask_pred.sigmoid().cpu().numpy())
+            merged_masks = merge_aug_masks(aug_masks, img_metas, self.test_cfg.rcnn)
+            ori_shape = img_metas[0][0]['ori_shape']
+            segm_result = self.mask_head.get_seg_masks(merged_masks, det_bboxes, det_labels, self.test_cfg.rcnn, ori_shape, scale_factor=1.0, rescale=False)
+        return segm_result
+
+
+class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin, MaskTestMixin):
+
+    def __init__(self, backbone, neck=None, shared_head=None, rpn_head=None, bbox_roi_extractor=None, bbox_head=None, mask_roi_extractor=None, mask_head=None, train_cfg=None, test_cfg=None, pretrained=None):
+        super(TwoStageDetector, self).__init__()
+        self.backbone = builder.build_backbone(backbone)
+        if neck is not None:
+            self.neck = builder.build_neck(neck)
+        if shared_head is not None:
+            self.shared_head = builder.build_shared_head(shared_head)
+        if rpn_head is not None:
+            self.rpn_head = builder.build_head(rpn_head)
+        if bbox_head is not None:
+            self.bbox_roi_extractor = builder.build_roi_extractor(bbox_roi_extractor)
+            self.bbox_head = builder.build_head(bbox_head)
+        if mask_head is not None:
+            if mask_roi_extractor is not None:
+                self.mask_roi_extractor = builder.build_roi_extractor(mask_roi_extractor)
+                self.share_roi_extractor = False
+            else:
+                self.share_roi_extractor = True
+                self.mask_roi_extractor = self.bbox_roi_extractor
+            self.mask_head = builder.build_head(mask_head)
+        self.train_cfg = train_cfg
+        self.test_cfg = test_cfg
+        self.init_weights(pretrained=pretrained)
+
+    @property
+    def with_rpn(self):
+        return hasattr(self, 'rpn_head') and self.rpn_head is not None
+
+    def init_weights(self, pretrained=None):
+        super(TwoStageDetector, self).init_weights(pretrained)
+        self.backbone.init_weights(pretrained=pretrained)
+        if self.with_neck:
+            if isinstance(self.neck, nn.Sequential):
+                for m in self.neck:
+                    m.init_weights()
+            else:
+                self.neck.init_weights()
+        if self.with_shared_head:
+            self.shared_head.init_weights(pretrained=pretrained)
+        if self.with_rpn:
+            self.rpn_head.init_weights()
+        if self.with_bbox:
+            self.bbox_roi_extractor.init_weights()
+            self.bbox_head.init_weights()
+        if self.with_mask:
+            self.mask_head.init_weights()
+            if not self.share_roi_extractor:
+                self.mask_roi_extractor.init_weights()
+
+    def extract_feat(self, img):
+        x = self.backbone(img)
+        if self.with_neck:
+            x = self.neck(x)
+        return x
+
+    def forward_train(self, img, img_meta, gt_bboxes, gt_labels, gt_bboxes_ignore=None, gt_masks=None, proposals=None):
+        x = self.extract_feat(img)
+        losses = dict()
+        if self.with_rpn:
+            rpn_outs = self.rpn_head(x)
+            rpn_loss_inputs = rpn_outs + (gt_bboxes, img_meta, self.train_cfg.rpn)
+            rpn_losses = self.rpn_head.loss(*rpn_loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
+            losses.update(rpn_losses)
+            proposal_cfg = self.train_cfg.get('rpn_proposal', self.test_cfg.rpn)
+            proposal_inputs = rpn_outs + (img_meta, proposal_cfg)
+            proposal_list = self.rpn_head.get_bboxes(*proposal_inputs)
+        else:
+            proposal_list = proposals
+        if self.with_bbox or self.with_mask:
+            bbox_assigner = build_assigner(self.train_cfg.rcnn.assigner)
+            bbox_sampler = build_sampler(self.train_cfg.rcnn.sampler, context=self)
+            num_imgs = img.size(0)
+            if gt_bboxes_ignore is None:
+                gt_bboxes_ignore = [None for _ in range(num_imgs)]
+            sampling_results = []
+            for i in range(num_imgs):
+                assign_result = bbox_assigner.assign(proposal_list[i], gt_bboxes[i], gt_bboxes_ignore[i], gt_labels[i])
+                sampling_result = bbox_sampler.sample(assign_result, proposal_list[i], gt_bboxes[i], gt_labels[i], feats=[lvl_feat[i][None] for lvl_feat in x])
+                sampling_results.append(sampling_result)
+        if self.with_bbox:
+            rois = bbox2roi([res.bboxes for res in sampling_results])
+            bbox_feats = self.bbox_roi_extractor(x[:self.bbox_roi_extractor.num_inputs], rois)
+            if self.with_shared_head:
+                bbox_feats = self.shared_head(bbox_feats)
+            cls_score, bbox_pred = self.bbox_head(bbox_feats)
+            bbox_targets = self.bbox_head.get_target(sampling_results, gt_bboxes, gt_labels, self.train_cfg.rcnn)
+            loss_bbox = self.bbox_head.loss(cls_score, bbox_pred, *bbox_targets)
+            losses.update(loss_bbox)
+        if self.with_mask:
+            if not self.share_roi_extractor:
+                pos_rois = bbox2roi([res.pos_bboxes for res in sampling_results])
+                mask_feats = self.mask_roi_extractor(x[:self.mask_roi_extractor.num_inputs], pos_rois)
+                if self.with_shared_head:
+                    mask_feats = self.shared_head(mask_feats)
+            else:
+                pos_inds = []
+                device = bbox_feats.device
+                for res in sampling_results:
+                    pos_inds.append(torch.ones(res.pos_bboxes.shape[0], device=device, dtype=torch.uint8))
+                    pos_inds.append(torch.zeros(res.neg_bboxes.shape[0], device=device, dtype=torch.uint8))
+                pos_inds = torch.cat(pos_inds)
+                mask_feats = bbox_feats[pos_inds]
+            mask_pred = self.mask_head(mask_feats)
+            mask_targets = self.mask_head.get_target(sampling_results, gt_masks, self.train_cfg.rcnn)
+            pos_labels = torch.cat([res.pos_gt_labels for res in sampling_results])
+            loss_mask = self.mask_head.loss(mask_pred, mask_targets, pos_labels)
+            losses.update(loss_mask)
+        return losses
+
+    def simple_test(self, img, img_meta, proposals=None, rescale=False):
+        """Test without augmentation."""
+        assert self.with_bbox, 'Bbox head must be implemented.'
+        x = self.extract_feat(img)
+        proposal_list = self.simple_test_rpn(x, img_meta, self.test_cfg.rpn) if proposals is None else proposals
+        det_bboxes, det_labels = self.simple_test_bboxes(x, img_meta, proposal_list, self.test_cfg.rcnn, rescale=rescale)
+        bbox_results = bbox2result(det_bboxes, det_labels, self.bbox_head.num_classes)
+        if not self.with_mask:
+            return bbox_results
+        else:
+            segm_results = self.simple_test_mask(x, img_meta, det_bboxes, det_labels, rescale=rescale)
+            return bbox_results, segm_results
+
+    def aug_test(self, imgs, img_metas, rescale=False):
+        """Test with augmentations.
+
+        If rescale is False, then returned bboxes and masks will fit the scale
+        of imgs[0].
+        """
+        proposal_list = self.aug_test_rpn(self.extract_feats(imgs), img_metas, self.test_cfg.rpn)
+        det_bboxes, det_labels = self.aug_test_bboxes(self.extract_feats(imgs), img_metas, proposal_list, self.test_cfg.rcnn)
+        if rescale:
+            _det_bboxes = det_bboxes
+        else:
+            _det_bboxes = det_bboxes.clone()
+            _det_bboxes[:, :4] *= img_metas[0][0]['scale_factor']
+        bbox_results = bbox2result(_det_bboxes, det_labels, self.bbox_head.num_classes)
+        if self.with_mask:
+            segm_results = self.aug_test_mask(self.extract_feats(imgs), img_metas, det_bboxes, det_labels)
+            return bbox_results, segm_results
+        else:
+            return bbox_results
+
+
 class Accuracy(nn.Module):
 
     def __init__(self, topk=(1,)):
@@ -2250,86 +4002,6 @@ class Accuracy(nn.Module):
 
     def forward(self, pred, target):
         return accuracy(pred, target, self.topk)
-
-
-def reduce_loss(loss, reduction):
-    """Reduce loss as specified.
-
-    Args:
-        loss (Tensor): Elementwise loss tensor.
-        reduction (str): Options are "none", "mean" and "sum".
-
-    Return:
-        Tensor: Reduced loss tensor.
-    """
-    reduction_enum = F._Reduction.get_enum(reduction)
-    if reduction_enum == 0:
-        return loss
-    elif reduction_enum == 1:
-        return loss.mean()
-    elif reduction_enum == 2:
-        return loss.sum()
-
-
-def weight_reduce_loss(loss, weight=None, reduction='mean', avg_factor=None):
-    """Apply element-wise weight and reduce loss.
-
-    Args:
-        loss (Tensor): Element-wise loss.
-        weight (Tensor): Element-wise weights.
-        reduction (str): Same as built-in losses of PyTorch.
-        avg_factor (float): Avarage factor when computing the mean of losses.
-
-    Returns:
-        Tensor: Processed loss values.
-    """
-    if weight is not None:
-        loss = loss * weight
-    if avg_factor is None:
-        loss = reduce_loss(loss, reduction)
-    elif reduction == 'mean':
-        loss = loss.sum() / avg_factor
-    elif reduction != 'none':
-        raise ValueError('avg_factor can not be used with reduction="sum"')
-    return loss
-
-
-def weighted_loss(loss_func):
-    """Create a weighted version of a given loss function.
-
-    To use this decorator, the loss function must have the signature like
-    `loss_func(pred, target, **kwargs)`. The function only needs to compute
-    element-wise loss without any reduction. This decorator will add weight
-    and reduction arguments to the function. The decorated function will have
-    the signature like `loss_func(pred, target, weight=None, reduction='mean',
-    avg_factor=None, **kwargs)`.
-
-    :Example:
-
-    >>> @weighted_loss
-    >>> def l1_loss(pred, target):
-    >>>     return (pred - target).abs()
-
-    >>> pred = torch.Tensor([0, 2, 3])
-    >>> target = torch.Tensor([1, 1, 1])
-    >>> weight = torch.Tensor([1, 0, 1])
-
-    >>> l1_loss(pred, target)
-    tensor(1.3333)
-    >>> l1_loss(pred, target, weight)
-    tensor(1.)
-    >>> l1_loss(pred, target, reduction='none')
-    tensor([1., 1., 2.])
-    >>> l1_loss(pred, target, weight, avg_factor=2)
-    tensor(1.5000)
-    """
-
-    @functools.wraps(loss_func)
-    def wrapper(pred, target, weight=None, reduction='mean', avg_factor=None, **kwargs):
-        loss = loss_func(pred, target, **kwargs)
-        loss = weight_reduce_loss(loss, weight, reduction, avg_factor)
-        return loss
-    return wrapper
 
 
 @weighted_loss
@@ -2342,7 +4014,6 @@ def balanced_l1_loss(pred, target, beta=1.0, alpha=0.5, gamma=1.5, reduction='me
     return loss
 
 
-@LOSSES.register_module
 class BalancedL1Loss(nn.Module):
     """Balanced L1 Loss
 
@@ -2399,7 +4070,6 @@ def mask_cross_entropy(pred, target, label, reduction='mean', avg_factor=None):
     return F.binary_cross_entropy_with_logits(pred_slice, target, reduction='mean')[None]
 
 
-@LOSSES.register_module
 class CrossEntropyLoss(nn.Module):
 
     def __init__(self, use_sigmoid=False, use_mask=False, reduction='mean', loss_weight=1.0):
@@ -2431,7 +4101,6 @@ def sigmoid_focal_loss(pred, target, weight=None, gamma=2.0, alpha=0.25, reducti
     return loss
 
 
-@LOSSES.register_module
 class FocalLoss(nn.Module):
 
     def __init__(self, use_sigmoid=True, gamma=2.0, alpha=0.25, reduction='mean', loss_weight=1.0):
@@ -2453,7 +4122,6 @@ class FocalLoss(nn.Module):
         return loss_cls
 
 
-@LOSSES.register_module
 class GHMC(nn.Module):
     """GHM Classification Loss.
 
@@ -2520,7 +4188,6 @@ class GHMC(nn.Module):
         return loss * self.loss_weight
 
 
-@LOSSES.register_module
 class GHMR(nn.Module):
     """GHM Regression Loss.
 
@@ -2657,7 +4324,6 @@ def iou_loss(pred, target, eps=1e-06):
     return loss
 
 
-@LOSSES.register_module
 class IoULoss(nn.Module):
 
     def __init__(self, eps=1e-06, reduction='mean', loss_weight=1.0):
@@ -2706,7 +4372,6 @@ def bounded_iou_loss(pred, target, beta=0.2, eps=0.001):
     return loss
 
 
-@LOSSES.register_module
 class BoundedIoULoss(nn.Module):
 
     def __init__(self, beta=0.2, eps=0.001, reduction='mean', loss_weight=1.0):
@@ -2728,7 +4393,6 @@ class BoundedIoULoss(nn.Module):
 mse_loss = weighted_loss(F.mse_loss)
 
 
-@LOSSES.register_module
 class MSELoss(nn.Module):
 
     def __init__(self, reduction='mean', loss_weight=1.0):
@@ -2741,16 +4405,6 @@ class MSELoss(nn.Module):
         return loss
 
 
-@weighted_loss
-def smooth_l1_loss(pred, target, beta=1.0):
-    assert beta > 0
-    assert pred.size() == target.size() and target.numel() > 0
-    diff = torch.abs(pred - target)
-    loss = torch.where(diff < beta, 0.5 * diff * diff / beta, diff - 0.5 * beta)
-    return loss
-
-
-@LOSSES.register_module
 class SmoothL1Loss(nn.Module):
 
     def __init__(self, beta=1.0, reduction='mean', loss_weight=1.0):
@@ -2781,7 +4435,7 @@ def mask_target_single(pos_proposals, pos_assigned_gt_inds, gt_masks, cfg):
             h = np.maximum(y2 - y1 + 1, 1)
             target = mmcv.imresize(gt_mask[y1:y1 + h, x1:x1 + w], (mask_size, mask_size))
             mask_targets.append(target)
-        mask_targets = torch.from_numpy(np.stack(mask_targets)).float().to(pos_proposals.device)
+        mask_targets = torch.from_numpy(np.stack(mask_targets)).float()
     else:
         mask_targets = pos_proposals.new_zeros((0, mask_size, mask_size))
     return mask_targets
@@ -2794,7 +4448,6 @@ def mask_target(pos_proposals_list, pos_assigned_gt_inds_list, gt_masks_list, cf
     return mask_targets
 
 
-@HEADS.register_module
 class FCNMaskHead(nn.Module):
 
     def __init__(self, num_convs=4, roi_feat_size=14, in_channels=256, conv_kernel_size=3, conv_out_channels=256, upsample_method='deconv', upsample_ratio=2, num_classes=81, class_agnostic=False, conv_cfg=None, norm_cfg=None, loss_mask=dict(type='CrossEntropyLoss', use_mask=True, loss_weight=1.0)):
@@ -2914,7 +4567,6 @@ class FCNMaskHead(nn.Module):
         return cls_segms
 
 
-@HEADS.register_module
 class FusedSemanticHead(nn.Module):
     """Multi-level fused semantic segmentation head.
 
@@ -2978,7 +4630,6 @@ class FusedSemanticHead(nn.Module):
         return loss_semantic_seg
 
 
-@HEADS.register_module
 class GridHead(nn.Module):
 
     def __init__(self, grid_points=9, num_convs=8, roi_feat_size=14, in_channels=256, conv_kernel_size=3, point_feat_channels=64, deconv_kernel_size=4, class_agnostic=False, loss_grid=dict(type='CrossEntropyLoss', use_sigmoid=True, loss_weight=15), conv_cfg=None, norm_cfg=dict(type='GN', num_groups=36)):
@@ -3188,7 +4839,6 @@ class GridHead(nn.Module):
         return bbox_res
 
 
-@HEADS.register_module
 class MaskIoUHead(nn.Module):
     """Mask IoU Head.
 
@@ -3319,17 +4969,71 @@ class MaskIoUHead(nn.Module):
 NECKS = Registry('neck')
 
 
-def xavier_init(module, gain=1, bias=0, distribution='normal'):
-    assert distribution in ['uniform', 'normal']
-    if distribution == 'uniform':
-        nn.init.xavier_uniform_(module.weight, gain=gain)
-    else:
-        nn.init.xavier_normal_(module.weight, gain=gain)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
+class NonLocal2D(nn.Module):
+    """Non-local module.
+
+    See https://arxiv.org/abs/1711.07971 for details.
+
+    Args:
+        in_channels (int): Channels of the input feature map.
+        reduction (int): Channel reduction ratio.
+        use_scale (bool): Whether to scale pairwise_weight by 1/inter_channels.
+        conv_cfg (dict): The config dict for convolution layers.
+            (only applicable to conv_out)
+        norm_cfg (dict): The config dict for normalization layers.
+            (only applicable to conv_out)
+        mode (str): Options are `embedded_gaussian` and `dot_product`.
+    """
+
+    def __init__(self, in_channels, reduction=2, use_scale=True, conv_cfg=None, norm_cfg=None, mode='embedded_gaussian'):
+        super(NonLocal2D, self).__init__()
+        self.in_channels = in_channels
+        self.reduction = reduction
+        self.use_scale = use_scale
+        self.inter_channels = in_channels // reduction
+        self.mode = mode
+        assert mode in ['embedded_gaussian', 'dot_product']
+        self.g = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
+        self.theta = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
+        self.phi = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
+        self.conv_out = ConvModule(self.inter_channels, self.in_channels, kernel_size=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg, activation=None)
+        self.init_weights()
+
+    def init_weights(self, std=0.01, zeros_init=True):
+        for m in [self.g, self.theta, self.phi]:
+            normal_init(m.conv, std=std)
+        if zeros_init:
+            constant_init(self.conv_out.conv, 0)
+        else:
+            normal_init(self.conv_out.conv, std=std)
+
+    def embedded_gaussian(self, theta_x, phi_x):
+        pairwise_weight = torch.matmul(theta_x, phi_x)
+        if self.use_scale:
+            pairwise_weight /= theta_x.shape[-1] ** -0.5
+        pairwise_weight = pairwise_weight.softmax(dim=-1)
+        return pairwise_weight
+
+    def dot_product(self, theta_x, phi_x):
+        pairwise_weight = torch.matmul(theta_x, phi_x)
+        pairwise_weight /= pairwise_weight.shape[-1]
+        return pairwise_weight
+
+    def forward(self, x):
+        n, _, h, w = x.shape
+        g_x = self.g(x).view(n, self.inter_channels, -1)
+        g_x = g_x.permute(0, 2, 1)
+        theta_x = self.theta(x).view(n, self.inter_channels, -1)
+        theta_x = theta_x.permute(0, 2, 1)
+        phi_x = self.phi(x).view(n, self.inter_channels, -1)
+        pairwise_func = getattr(self, self.mode)
+        pairwise_weight = pairwise_func(theta_x, phi_x)
+        y = torch.matmul(pairwise_weight, g_x)
+        y = y.permute(0, 2, 1).reshape(n, self.inter_channels, h, w)
+        output = x + self.conv_out(y)
+        return output
 
 
-@NECKS.register_module
 class BFP(nn.Module):
     """BFP (Balanced Feature Pyrmamids)
 
@@ -3394,7 +5098,6 @@ class BFP(nn.Module):
         return tuple(outs)
 
 
-@NECKS.register_module
 class FPN(nn.Module):
 
     def __init__(self, in_channels, out_channels, num_outs, start_level=0, end_level=-1, add_extra_convs=False, extra_convs_on_inputs=True, relu_before_extra_convs=False, conv_cfg=None, norm_cfg=None, activation=None):
@@ -3466,7 +5169,6 @@ class FPN(nn.Module):
         return tuple(outs)
 
 
-@NECKS.register_module
 class HRFPN(nn.Module):
     """HRFPN (High Resolution Feature Pyrmamids)
 
@@ -3720,75 +5422,9 @@ class GeneralizedAttention(nn.Module):
                 kaiming_init(m, mode='fan_in', nonlinearity='leaky_relu', bias=0, distribution='uniform', a=1)
 
 
-class NonLocal2D(nn.Module):
-    """Non-local module.
-
-    See https://arxiv.org/abs/1711.07971 for details.
-
-    Args:
-        in_channels (int): Channels of the input feature map.
-        reduction (int): Channel reduction ratio.
-        use_scale (bool): Whether to scale pairwise_weight by 1/inter_channels.
-        conv_cfg (dict): The config dict for convolution layers.
-            (only applicable to conv_out)
-        norm_cfg (dict): The config dict for normalization layers.
-            (only applicable to conv_out)
-        mode (str): Options are `embedded_gaussian` and `dot_product`.
-    """
-
-    def __init__(self, in_channels, reduction=2, use_scale=True, conv_cfg=None, norm_cfg=None, mode='embedded_gaussian'):
-        super(NonLocal2D, self).__init__()
-        self.in_channels = in_channels
-        self.reduction = reduction
-        self.use_scale = use_scale
-        self.inter_channels = in_channels // reduction
-        self.mode = mode
-        assert mode in ['embedded_gaussian', 'dot_product']
-        self.g = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
-        self.theta = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
-        self.phi = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
-        self.conv_out = ConvModule(self.inter_channels, self.in_channels, kernel_size=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg, activation=None)
-        self.init_weights()
-
-    def init_weights(self, std=0.01, zeros_init=True):
-        for m in [self.g, self.theta, self.phi]:
-            normal_init(m.conv, std=std)
-        if zeros_init:
-            constant_init(self.conv_out.conv, 0)
-        else:
-            normal_init(self.conv_out.conv, std=std)
-
-    def embedded_gaussian(self, theta_x, phi_x):
-        pairwise_weight = torch.matmul(theta_x, phi_x)
-        if self.use_scale:
-            pairwise_weight /= theta_x.shape[-1] ** -0.5
-        pairwise_weight = pairwise_weight.softmax(dim=-1)
-        return pairwise_weight
-
-    def dot_product(self, theta_x, phi_x):
-        pairwise_weight = torch.matmul(theta_x, phi_x)
-        pairwise_weight /= pairwise_weight.shape[-1]
-        return pairwise_weight
-
-    def forward(self, x):
-        n, _, h, w = x.shape
-        g_x = self.g(x).view(n, self.inter_channels, -1)
-        g_x = g_x.permute(0, 2, 1)
-        theta_x = self.theta(x).view(n, self.inter_channels, -1)
-        theta_x = theta_x.permute(0, 2, 1)
-        phi_x = self.phi(x).view(n, self.inter_channels, -1)
-        pairwise_func = getattr(self, self.mode)
-        pairwise_weight = pairwise_func(theta_x, phi_x)
-        y = torch.matmul(pairwise_weight, g_x)
-        y = y.permute(0, 2, 1).reshape(n, self.inter_channels, h, w)
-        output = x + self.conv_out(y)
-        return output
-
-
 ROI_EXTRACTORS = Registry('roi_extractor')
 
 
-@ROI_EXTRACTORS.register_module
 class SingleRoIExtractor(nn.Module):
     """Extract RoI features from a single level feature map.
 
@@ -3866,7 +5502,6 @@ class SingleRoIExtractor(nn.Module):
 SHARED_HEADS = Registry('shared_head')
 
 
-@SHARED_HEADS.register_module
 class ResLayer(nn.Module):
 
     def __init__(self, depth, stage=3, stride=2, dilation=1, style='pytorch', norm_cfg=dict(type='BN', requires_grad=True), norm_eval=True, with_cp=False, dcn=None):
@@ -3909,121 +5544,6 @@ class ResLayer(nn.Module):
                     m.eval()
 
 
-class ConvModule(nn.Module):
-    """Conv-Norm-Activation block.
-
-    Args:
-        in_channels (int): Same as nn.Conv2d.
-        out_channels (int): Same as nn.Conv2d.
-        kernel_size (int or tuple[int]): Same as nn.Conv2d.
-        stride (int or tuple[int]): Same as nn.Conv2d.
-        padding (int or tuple[int]): Same as nn.Conv2d.
-        dilation (int or tuple[int]): Same as nn.Conv2d.
-        groups (int): Same as nn.Conv2d.
-        bias (bool or str): If specified as `auto`, it will be decided by the
-            norm_cfg. Bias will be set as True if norm_cfg is None, otherwise
-            False.
-        conv_cfg (dict): Config dict for convolution layer.
-        norm_cfg (dict): Config dict for normalization layer.
-        activation (str or None): Activation type, "ReLU" by default.
-        inplace (bool): Whether to use inplace mode for activation.
-        activate_last (bool): Whether to apply the activation layer in the
-            last. (Do not use this flag since the behavior and api may be
-            changed in the future.)
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias='auto', conv_cfg=None, norm_cfg=None, activation='relu', inplace=True, activate_last=True):
-        super(ConvModule, self).__init__()
-        assert conv_cfg is None or isinstance(conv_cfg, dict)
-        assert norm_cfg is None or isinstance(norm_cfg, dict)
-        self.conv_cfg = conv_cfg
-        self.norm_cfg = norm_cfg
-        self.activation = activation
-        self.inplace = inplace
-        self.activate_last = activate_last
-        self.with_norm = norm_cfg is not None
-        self.with_activatation = activation is not None
-        if bias == 'auto':
-            bias = False if self.with_norm else True
-        self.with_bias = bias
-        if self.with_norm and self.with_bias:
-            warnings.warn('ConvModule has norm and bias at the same time')
-        self.conv = build_conv_layer(conv_cfg, in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.in_channels = self.conv.in_channels
-        self.out_channels = self.conv.out_channels
-        self.kernel_size = self.conv.kernel_size
-        self.stride = self.conv.stride
-        self.padding = self.conv.padding
-        self.dilation = self.conv.dilation
-        self.transposed = self.conv.transposed
-        self.output_padding = self.conv.output_padding
-        self.groups = self.conv.groups
-        if self.with_norm:
-            norm_channels = out_channels if self.activate_last else in_channels
-            self.norm_name, norm = build_norm_layer(norm_cfg, norm_channels)
-            self.add_module(self.norm_name, norm)
-        if self.with_activatation:
-            if self.activation not in ['relu']:
-                raise ValueError('{} is currently not supported.'.format(self.activation))
-            if self.activation == 'relu':
-                self.activate = nn.ReLU(inplace=inplace)
-        self.init_weights()
-
-    @property
-    def norm(self):
-        return getattr(self, self.norm_name)
-
-    def init_weights(self):
-        nonlinearity = 'relu' if self.activation is None else self.activation
-        kaiming_init(self.conv, nonlinearity=nonlinearity)
-        if self.with_norm:
-            constant_init(self.norm, 1, bias=0)
-
-    def forward(self, x, activate=True, norm=True):
-        if self.activate_last:
-            x = self.conv(x)
-            if norm and self.with_norm:
-                x = self.norm(x)
-            if activate and self.with_activatation:
-                x = self.activate(x)
-        else:
-            if norm and self.with_norm:
-                x = self.norm(x)
-            if activate and self.with_activatation:
-                x = self.activate(x)
-            x = self.conv(x)
-        return x
-
-
-def conv_ws_2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, eps=1e-05):
-    c_in = weight.size(0)
-    weight_flat = weight.view(c_in, -1)
-    mean = weight_flat.mean(dim=1, keepdim=True).view(c_in, 1, 1, 1)
-    std = weight_flat.std(dim=1, keepdim=True).view(c_in, 1, 1, 1)
-    weight = (weight - mean) / (std + eps)
-    return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
-
-
-class ConvWS2d(nn.Conv2d):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, eps=1e-05):
-        super(ConvWS2d, self).__init__(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.eps = eps
-
-    def forward(self, x):
-        return conv_ws_2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.eps)
-
-
-class Scale(nn.Module):
-
-    def __init__(self, scale=1.0):
-        super(Scale, self).__init__()
-        self.scale = nn.Parameter(torch.tensor(scale, dtype=torch.float))
-
-    def forward(self, x):
-        return x * self.scale
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -4039,9 +5559,17 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (BoundedIoULoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (ConvWS2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
@@ -4110,4 +5638,10 @@ class Test_ming71_mmdetection_annotated(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
 

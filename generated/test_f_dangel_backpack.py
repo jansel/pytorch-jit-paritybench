@@ -35,8 +35,12 @@ base = _module
 batch_grad = _module
 batch_grad_base = _module
 batch_l2_grad = _module
+conv2d = _module
+linear = _module
 gradient = _module
 sum_grad_squared = _module
+conv2d = _module
+linear = _module
 variance = _module
 variance_base = _module
 mat_to_mat_jac_base = _module
@@ -47,9 +51,12 @@ diag_ggn_base = _module
 diag_hessian = _module
 conv2d = _module
 diag_h_base = _module
+linear = _module
 hbp = _module
+conv2d = _module
 hbp_options = _module
 hbpbase = _module
+linear = _module
 hessianfree = _module
 ggnvp = _module
 hvp = _module
@@ -61,6 +68,7 @@ convert_parameters = _module
 ein = _module
 examples = _module
 kroneckers = _module
+linear = _module
 unsqueeze = _module
 example_all_in_one = _module
 example_diag_ggn_optimizer = _module
@@ -112,15 +120,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -236,7 +245,16 @@ from torch.nn import functional
 from torch.nn import Sequential
 
 
+from numpy import prod
+
+
+from torch import clamp
+
+
 from torch.nn import Unfold
+
+
+import torchvision
 
 
 from torch.optim import Optimizer
@@ -246,6 +264,9 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+import numpy as np
 
 
 from functools import partial
@@ -269,7 +290,13 @@ from random import randint
 from torch import Tensor
 
 
-import numpy as np
+from torch import nn
+
+
+import random
+
+
+import scipy.linalg
 
 
 class MyFirstResNet(torch.nn.Module):

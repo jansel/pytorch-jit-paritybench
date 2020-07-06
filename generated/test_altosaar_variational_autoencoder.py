@@ -10,15 +10,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -48,38 +49,6 @@ import logging
 
 
 import random
-
-
-class InverseAutoregressiveFlow(nn.Module):
-    """Inverse Autoregressive Flows with LSTM-type update. One block.
-  
-  Eq 11-14 of https://arxiv.org/abs/1606.04934
-  """
-
-    def __init__(self, num_input, num_hidden, num_context):
-        super().__init__()
-        self.made = MADE(num_input=num_input, num_output=num_input * 2, num_hidden=num_hidden, num_context=num_context)
-        self.sigmoid_arg_bias = nn.Parameter(torch.ones(num_input) * 2)
-        self.sigmoid = nn.Sigmoid()
-        self.log_sigmoid = nn.LogSigmoid()
-
-    def forward(self, input, context=None):
-        m, s = torch.chunk(self.made(input, context), chunks=2, dim=-1)
-        s = s + self.sigmoid_arg_bias
-        sigmoid = self.sigmoid(s)
-        z = sigmoid * input + (1 - sigmoid) * m
-        return z, -self.log_sigmoid(s)
-
-
-class FlowSequential(nn.Sequential):
-    """Forward pass."""
-
-    def forward(self, input, context=None):
-        total_log_prob = torch.zeros_like(input, device=input.device)
-        for block in self._modules.values():
-            input, log_prob = block(input, context)
-            total_log_prob += log_prob
-        return input, total_log_prob
 
 
 class MaskedLinear(nn.Module):
@@ -159,6 +128,38 @@ class MADE(nn.Module):
         return self.net(hidden)
 
 
+class InverseAutoregressiveFlow(nn.Module):
+    """Inverse Autoregressive Flows with LSTM-type update. One block.
+  
+  Eq 11-14 of https://arxiv.org/abs/1606.04934
+  """
+
+    def __init__(self, num_input, num_hidden, num_context):
+        super().__init__()
+        self.made = MADE(num_input=num_input, num_output=num_input * 2, num_hidden=num_hidden, num_context=num_context)
+        self.sigmoid_arg_bias = nn.Parameter(torch.ones(num_input) * 2)
+        self.sigmoid = nn.Sigmoid()
+        self.log_sigmoid = nn.LogSigmoid()
+
+    def forward(self, input, context=None):
+        m, s = torch.chunk(self.made(input, context), chunks=2, dim=-1)
+        s = s + self.sigmoid_arg_bias
+        sigmoid = self.sigmoid(s)
+        z = sigmoid * input + (1 - sigmoid) * m
+        return z, -self.log_sigmoid(s)
+
+
+class FlowSequential(nn.Sequential):
+    """Forward pass."""
+
+    def forward(self, input, context=None):
+        total_log_prob = torch.zeros_like(input, device=input.device)
+        for block in self._modules.values():
+            input, log_prob = block(input, context)
+            total_log_prob += log_prob
+        return input, total_log_prob
+
+
 class Reverse(nn.Module):
     """ An implementation of a reversing layer from
   Density estimation using Real NVP
@@ -179,6 +180,37 @@ class Reverse(nn.Module):
             return inputs[:, :, (self.inv_perm)], torch.zeros_like(inputs, device=inputs.device)
         else:
             raise ValueError('Mode must be one of {forward, inverse}.')
+
+
+class BernoulliLogProb(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.bce_with_logits = nn.BCEWithLogitsLoss(reduction='none')
+
+    def forward(self, logits, target):
+        return -self.bce_with_logits(logits, target)
+
+
+class NeuralNetwork(nn.Module):
+
+    def __init__(self, input_size, output_size, hidden_size):
+        super().__init__()
+        modules = [nn.Linear(input_size, hidden_size), nn.ReLU(), nn.Linear(hidden_size, hidden_size), nn.ReLU(), nn.Linear(hidden_size, output_size)]
+        self.net = nn.Sequential(*modules)
+
+    def forward(self, input):
+        return self.net(input)
+
+
+class NormalLogProb(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, loc, scale, z):
+        var = torch.pow(scale, 2)
+        return -0.5 * torch.log(2 * np.pi * var) - torch.pow(z - loc, 2) / (2 * var)
 
 
 class Model(nn.Module):
@@ -245,37 +277,6 @@ class VariationalFlow(nn.Module):
         z_T, log_q_z_flow = self.q_z_flow(z_0, context=h)
         log_q_z = (log_q_z_0 + log_q_z_flow).sum(-1, keepdim=True)
         return z_T, log_q_z
-
-
-class NeuralNetwork(nn.Module):
-
-    def __init__(self, input_size, output_size, hidden_size):
-        super().__init__()
-        modules = [nn.Linear(input_size, hidden_size), nn.ReLU(), nn.Linear(hidden_size, hidden_size), nn.ReLU(), nn.Linear(hidden_size, output_size)]
-        self.net = nn.Sequential(*modules)
-
-    def forward(self, input):
-        return self.net(input)
-
-
-class NormalLogProb(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, loc, scale, z):
-        var = torch.pow(scale, 2)
-        return -0.5 * torch.log(2 * np.pi * var) - torch.pow(z - loc, 2) / (2 * var)
-
-
-class BernoulliLogProb(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.bce_with_logits = nn.BCEWithLogitsLoss(reduction='none')
-
-    def forward(self, logits, target):
-        return -self.bce_with_logits(logits, target)
 
 
 import torch

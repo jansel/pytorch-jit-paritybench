@@ -7,20 +7,23 @@ main = _module
 utils = _module
 DQN = _module
 discrete_BCQ = _module
+main = _module
+utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -42,19 +45,17 @@ import torch.nn.functional as F
 
 class Actor(nn.Module):
 
-    def __init__(self, state_dim, action_dim, max_action, phi=0.05):
+    def __init__(self, state_dim, action_dim, max_action):
         super(Actor, self).__init__()
-        self.l1 = nn.Linear(state_dim + action_dim, 400)
+        self.l1 = nn.Linear(state_dim, 400)
         self.l2 = nn.Linear(400, 300)
         self.l3 = nn.Linear(300, action_dim)
         self.max_action = max_action
-        self.phi = phi
 
-    def forward(self, state, action):
-        a = F.relu(self.l1(torch.cat([state, action], 1)))
+    def forward(self, state):
+        a = F.relu(self.l1(state))
         a = F.relu(self.l2(a))
-        a = self.phi * self.max_action * torch.tanh(self.l3(a))
-        return (a + action).clamp(-self.max_action, self.max_action)
+        return self.max_action * torch.tanh(self.l3(a))
 
 
 class Critic(nn.Module):
@@ -64,24 +65,11 @@ class Critic(nn.Module):
         self.l1 = nn.Linear(state_dim + action_dim, 400)
         self.l2 = nn.Linear(400, 300)
         self.l3 = nn.Linear(300, 1)
-        self.l4 = nn.Linear(state_dim + action_dim, 400)
-        self.l5 = nn.Linear(400, 300)
-        self.l6 = nn.Linear(300, 1)
 
     def forward(self, state, action):
-        q1 = F.relu(self.l1(torch.cat([state, action], 1)))
-        q1 = F.relu(self.l2(q1))
-        q1 = self.l3(q1)
-        q2 = F.relu(self.l4(torch.cat([state, action], 1)))
-        q2 = F.relu(self.l5(q2))
-        q2 = self.l6(q2)
-        return q1, q2
-
-    def q1(self, state, action):
-        q1 = F.relu(self.l1(torch.cat([state, action], 1)))
-        q1 = F.relu(self.l2(q1))
-        q1 = self.l3(q1)
-        return q1
+        q = F.relu(self.l1(torch.cat([state, action], 1)))
+        q = F.relu(self.l2(q))
+        return self.l3(q)
 
 
 class VAE(nn.Module):
@@ -115,67 +103,6 @@ class VAE(nn.Module):
         a = F.relu(self.d1(torch.cat([state, z], 1)))
         a = F.relu(self.d2(a))
         return self.max_action * torch.tanh(self.d3(a))
-
-
-class Actor(nn.Module):
-
-    def __init__(self, state_dim, action_dim, max_action):
-        super(Actor, self).__init__()
-        self.l1 = nn.Linear(state_dim, 400)
-        self.l2 = nn.Linear(400, 300)
-        self.l3 = nn.Linear(300, action_dim)
-        self.max_action = max_action
-
-    def forward(self, state):
-        a = F.relu(self.l1(state))
-        a = F.relu(self.l2(a))
-        return self.max_action * torch.tanh(self.l3(a))
-
-
-class Critic(nn.Module):
-
-    def __init__(self, state_dim, action_dim):
-        super(Critic, self).__init__()
-        self.l1 = nn.Linear(state_dim + action_dim, 400)
-        self.l2 = nn.Linear(400, 300)
-        self.l3 = nn.Linear(300, 1)
-
-    def forward(self, state, action):
-        q = F.relu(self.l1(torch.cat([state, action], 1)))
-        q = F.relu(self.l2(q))
-        return self.l3(q)
-
-
-class Conv_Q(nn.Module):
-
-    def __init__(self, frames, num_actions):
-        super(Conv_Q, self).__init__()
-        self.c1 = nn.Conv2d(frames, 32, kernel_size=8, stride=4)
-        self.c2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        self.c3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self.l1 = nn.Linear(3136, 512)
-        self.l2 = nn.Linear(512, num_actions)
-
-    def forward(self, state):
-        q = F.relu(self.c1(state))
-        q = F.relu(self.c2(q))
-        q = F.relu(self.c3(q))
-        q = F.relu(self.l1(q.reshape(-1, 3136)))
-        return self.l2(q)
-
-
-class FC_Q(nn.Module):
-
-    def __init__(self, state_dim, num_actions):
-        super(FC_Q, self).__init__()
-        self.l1 = nn.Linear(state_dim, 256)
-        self.l2 = nn.Linear(256, 256)
-        self.l3 = nn.Linear(256, num_actions)
-
-    def forward(self, state):
-        q = F.relu(self.l1(state))
-        q = F.relu(self.l2(q))
-        return self.l3(q)
 
 
 class Conv_Q(nn.Module):

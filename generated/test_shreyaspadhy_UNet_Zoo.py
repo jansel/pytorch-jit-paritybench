@@ -15,15 +15,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -37,22 +38,28 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 
-import torch.functional as f
+import re
+
+
+from torch.utils.data.dataset import Dataset
 
 
 import numpy as np
-
-
-import torch.optim as optim
-
-
-from torch.utils.data import DataLoader
 
 
 import scipy.io as sio
 
 
 import torchvision.transforms as tr
+
+
+import torch.functional as f
+
+
+import torch.optim as optim
+
+
+from torch.utils.data import DataLoader
 
 
 class CLSTMCell(nn.Module):
@@ -196,6 +203,32 @@ class DICELoss(nn.Module):
         return loss
 
 
+class Conv3x3(nn.Module):
+
+    def __init__(self, in_feat, out_feat):
+        super(Conv3x3, self).__init__()
+        self.conv1 = nn.Sequential(nn.Conv2d(in_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(out_feat), nn.ReLU())
+        self.conv2 = nn.Sequential(nn.Conv2d(out_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(out_feat), nn.ReLU())
+
+    def forward(self, inputs):
+        outputs = self.conv1(inputs)
+        outputs = self.conv2(outputs)
+        return outputs
+
+
+class UpConcat(nn.Module):
+
+    def __init__(self, in_feat, out_feat):
+        super(UpConcat, self).__init__()
+        self.up = nn.UpsamplingBilinear2d(scale_factor=2)
+        self.deconv = nn.ConvTranspose2d(in_feat, out_feat, kernel_size=2, stride=2)
+
+    def forward(self, inputs, down_outputs):
+        outputs = self.deconv(inputs)
+        out = torch.cat([down_outputs, outputs], 1)
+        return out
+
+
 class UNet(nn.Module):
 
     def __init__(self, num_channels=1, num_classes=2):
@@ -237,6 +270,32 @@ class UNet(nn.Module):
         return outputs
 
 
+class Conv3x3Small(nn.Module):
+
+    def __init__(self, in_feat, out_feat):
+        super(Conv3x3Small, self).__init__()
+        self.conv1 = nn.Sequential(nn.Conv2d(in_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.ELU(), nn.Dropout(p=0.2))
+        self.conv2 = nn.Sequential(nn.Conv2d(out_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.ELU())
+
+    def forward(self, inputs):
+        outputs = self.conv1(inputs)
+        outputs = self.conv2(outputs)
+        return outputs
+
+
+class UpSample(nn.Module):
+
+    def __init__(self, in_feat, out_feat):
+        super(UpSample, self).__init__()
+        self.up = nn.Upsample(scale_factor=2, mode='nearest')
+        self.deconv = nn.ConvTranspose2d(in_feat, out_feat, kernel_size=2, stride=2)
+
+    def forward(self, inputs, down_outputs):
+        outputs = self.up(inputs)
+        out = torch.cat([outputs, down_outputs], 1)
+        return out
+
+
 class UNetSmall(nn.Module):
 
     def __init__(self, num_channels=1, num_classes=2):
@@ -272,19 +331,6 @@ class UNetSmall(nn.Module):
         return outputs
 
 
-class Conv3x3(nn.Module):
-
-    def __init__(self, in_feat, out_feat):
-        super(Conv3x3, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(out_feat), nn.ReLU())
-        self.conv2 = nn.Sequential(nn.Conv2d(out_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.BatchNorm2d(out_feat), nn.ReLU())
-
-    def forward(self, inputs):
-        outputs = self.conv1(inputs)
-        outputs = self.conv2(outputs)
-        return outputs
-
-
 class Conv3x3Drop(nn.Module):
 
     def __init__(self, in_feat, out_feat):
@@ -296,45 +342,6 @@ class Conv3x3Drop(nn.Module):
         outputs = self.conv1(inputs)
         outputs = self.conv2(outputs)
         return outputs
-
-
-class Conv3x3Small(nn.Module):
-
-    def __init__(self, in_feat, out_feat):
-        super(Conv3x3Small, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.ELU(), nn.Dropout(p=0.2))
-        self.conv2 = nn.Sequential(nn.Conv2d(out_feat, out_feat, kernel_size=3, stride=1, padding=1), nn.ELU())
-
-    def forward(self, inputs):
-        outputs = self.conv1(inputs)
-        outputs = self.conv2(outputs)
-        return outputs
-
-
-class UpConcat(nn.Module):
-
-    def __init__(self, in_feat, out_feat):
-        super(UpConcat, self).__init__()
-        self.up = nn.UpsamplingBilinear2d(scale_factor=2)
-        self.deconv = nn.ConvTranspose2d(in_feat, out_feat, kernel_size=2, stride=2)
-
-    def forward(self, inputs, down_outputs):
-        outputs = self.deconv(inputs)
-        out = torch.cat([down_outputs, outputs], 1)
-        return out
-
-
-class UpSample(nn.Module):
-
-    def __init__(self, in_feat, out_feat):
-        super(UpSample, self).__init__()
-        self.up = nn.Upsample(scale_factor=2, mode='nearest')
-        self.deconv = nn.ConvTranspose2d(in_feat, out_feat, kernel_size=2, stride=2)
-
-    def forward(self, inputs, down_outputs):
-        outputs = self.up(inputs)
-        out = torch.cat([outputs, down_outputs], 1)
-        return out
 
 
 import torch

@@ -40,15 +40,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -65,19 +66,7 @@ from torch.autograd import Variable
 import math
 
 
-from functools import reduce
-
-
-import torch.nn.functional as F
-
-
 import time
-
-
-from torch.autograd import Variable as V
-
-
-import torch.backends.cudnn as cudnn
 
 
 import torchvision.datasets as dset
@@ -86,16 +75,43 @@ import torchvision.datasets as dset
 import torchvision.transforms as trn
 
 
-import torchvision.models as models
-
-
-import torch.utils.model_zoo as model_zoo
+import torch.utils.data as data
 
 
 import numpy as np
 
 
+from scipy.ndimage import zoom as scizoom
+
+
+from scipy.ndimage.interpolation import map_coordinates
+
+
+import warnings
+
+
 import collections
+
+
+import numbers
+
+
+from functools import reduce
+
+
+import torch.nn.functional as F
+
+
+from torch.autograd import Variable as V
+
+
+import torch.backends.cudnn as cudnn
+
+
+import torchvision.models as models
+
+
+import torch.utils.model_zoo as model_zoo
 
 
 from scipy.stats import rankdata
@@ -104,7 +120,56 @@ from scipy.stats import rankdata
 import torchvision.transforms.functional as trn_F
 
 
+from torchvision.datasets.folder import DatasetFolder
+
+
+from torchvision.transforms import *
+
+
+import random
+
+
 from torch.autograd import Function
+
+
+def ShuffleLayer(x, groups):
+    batchsize, num_channels, height, width = x.data.size()
+    channels_per_group = num_channels // groups
+    x = x.view(batchsize, groups, channels_per_group, height, width)
+    x = torch.transpose(x, 1, 2).contiguous()
+    x = x.view(batchsize, -1, height, width)
+    return x
+
+
+class CondenseConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1):
+        super(CondenseConv, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.groups = groups
+        self.norm = nn.BatchNorm2d(self.in_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=self.groups, bias=False)
+        self.register_buffer('index', torch.LongTensor(self.in_channels))
+        self.index.fill_(0)
+
+    def forward(self, x):
+        x = torch.index_select(x, 1, Variable(self.index))
+        x = self.norm(x)
+        x = self.relu(x)
+        x = self.conv(x)
+        x = ShuffleLayer(x, self.groups)
+        return x
+
+
+class Conv(nn.Sequential):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1):
+        super(Conv, self).__init__()
+        self.add_module('norm', nn.BatchNorm2d(in_channels))
+        self.add_module('relu', nn.ReLU(inplace=True))
+        self.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False, groups=groups))
 
 
 class _DenseLayer(nn.Module):
@@ -140,6 +205,21 @@ class _Transition(nn.Module):
 
     def forward(self, x):
         x = self.pool(x)
+        return x
+
+
+class CondenseLinear(nn.Module):
+
+    def __init__(self, in_features, out_features, drop_rate=0.5):
+        super(CondenseLinear, self).__init__()
+        self.in_features = int(in_features * drop_rate)
+        self.out_features = out_features
+        self.linear = nn.Linear(self.in_features, self.out_features)
+        self.register_buffer('index', torch.LongTensor(self.in_features))
+
+    def forward(self, x):
+        x = torch.index_select(x, 1, Variable(self.index))
+        x = self.linear(x)
         return x
 
 
@@ -205,6 +285,24 @@ class LambdaBase(nn.Sequential):
         for module in self._modules.values():
             output.append(module(input))
         return output if output else input
+
+
+class Lambda(LambdaBase):
+
+    def forward(self, input):
+        return self.lambda_func(self.forward_prepare(input))
+
+
+class LambdaMap(LambdaBase):
+
+    def forward(self, input):
+        return list(map(self.lambda_func, self.forward_prepare(input)))
+
+
+class LambdaReduce(LambdaBase):
+
+    def forward(self, input):
+        return reduce(self.lambda_func, self.forward_prepare(input))
 
 
 class LearnedGroupConv(nn.Module):
@@ -330,15 +428,6 @@ class CondensingLinear(nn.Module):
         return x
 
 
-def ShuffleLayer(x, groups):
-    batchsize, num_channels, height, width = x.data.size()
-    channels_per_group = num_channels // groups
-    x = x.view(batchsize, groups, channels_per_group, height, width)
-    x = torch.transpose(x, 1, 2).contiguous()
-    x = x.view(batchsize, -1, height, width)
-    return x
-
-
 class CondensingConv(nn.Module):
 
     def __init__(self, model):
@@ -376,138 +465,62 @@ class CondensingConv(nn.Module):
         return x
 
 
-class CondenseLinear(nn.Module):
-
-    def __init__(self, in_features, out_features, drop_rate=0.5):
-        super(CondenseLinear, self).__init__()
-        self.in_features = int(in_features * drop_rate)
-        self.out_features = out_features
-        self.linear = nn.Linear(self.in_features, self.out_features)
-        self.register_buffer('index', torch.LongTensor(self.in_features))
-
-    def forward(self, x):
-        x = torch.index_select(x, 1, Variable(self.index))
-        x = self.linear(x)
-        return x
-
-
-class CondenseConv(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1):
-        super(CondenseConv, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.groups = groups
-        self.norm = nn.BatchNorm2d(self.in_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=self.groups, bias=False)
-        self.register_buffer('index', torch.LongTensor(self.in_channels))
-        self.index.fill_(0)
-
-    def forward(self, x):
-        x = torch.index_select(x, 1, Variable(self.index))
-        x = self.norm(x)
-        x = self.relu(x)
-        x = self.conv(x)
-        x = ShuffleLayer(x, self.groups)
-        return x
-
-
-class Conv(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, groups=1):
-        super(Conv, self).__init__()
-        self.add_module('norm', nn.BatchNorm2d(in_channels))
-        self.add_module('relu', nn.ReLU(inplace=True))
-        self.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=False, groups=groups))
-
-
-class LambdaBase(nn.Sequential):
-
-    def __init__(self, fn, *args):
-        super(LambdaBase, self).__init__(*args)
-        self.lambda_func = fn
-
-    def forward_prepare(self, input):
-        output = []
-        for module in self._modules.values():
-            output.append(module(input))
-        return output if output else input
-
-
-class LambdaBase(nn.Sequential):
-
-    def __init__(self, fn, *args):
-        super(LambdaBase, self).__init__(*args)
-        self.lambda_func = fn
-
-    def forward_prepare(self, input):
-        output = []
-        for module in self._modules.values():
-            output.append(module(input))
-        return output if output else input
-
-
-class LambdaBase(nn.Sequential):
-
-    def __init__(self, fn, *args):
-        super(LambdaBase, self).__init__(*args)
-        self.lambda_func = fn
-
-    def forward_prepare(self, input):
-        output = []
-        for module in self._modules.values():
-            output.append(module(input))
-        return output if output else input
-
-
-class LambdaBase(nn.Sequential):
-
-    def __init__(self, fn, *args):
-        super(LambdaBase, self).__init__(*args)
-        self.lambda_func = fn
-
-    def forward_prepare(self, input):
-        output = []
-        for module in self._modules.values():
-            output.append(module(input))
-        return output if output else input
-
-
 class BasicBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, drop_rate):
+    def __init__(self, in_planes, out_planes, stride, dropRate=0.0):
         super(BasicBlock, self).__init__()
-        self.drop_rate = drop_rate
-        self.bn = nn.BatchNorm2d(in_channels)
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(in_planes)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_planes)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.droprate = dropRate
+        self.equalInOut = in_planes == out_planes
+        self.convShortcut = not self.equalInOut and nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False) or None
 
     def forward(self, x):
-        y = self.conv(F.relu(self.bn(x), inplace=True))
-        if self.drop_rate > 0:
-            y = F.dropout(y, p=self.drop_rate, training=self.training, inplace=False)
-        return torch.cat([x, y], dim=1)
+        if not self.equalInOut:
+            x = self.relu1(self.bn1(x))
+        else:
+            out = self.relu1(self.bn1(x))
+        if self.equalInOut:
+            out = self.relu2(self.bn2(self.conv1(out)))
+        else:
+            out = self.relu2(self.bn2(self.conv1(x)))
+        if self.droprate > 0:
+            out = F.dropout(out, p=self.droprate, training=self.training)
+        out = self.conv2(out)
+        if not self.equalInOut:
+            return torch.add(self.convShortcut(x), out)
+        else:
+            return torch.add(x, out)
 
 
 class BottleneckBlock(nn.Module):
+    expansion = 4
 
-    def __init__(self, in_channels, out_channels, drop_rate):
+    def __init__(self, in_channels, out_channels, stride, cardinality):
         super(BottleneckBlock, self).__init__()
-        self.drop_rate = drop_rate
-        bottleneck_channels = out_channels * 4
-        self.bn1 = nn.BatchNorm2d(in_channels)
+        bottleneck_channels = cardinality * out_channels // self.expansion
         self.conv1 = nn.Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn1 = nn.BatchNorm2d(bottleneck_channels)
+        self.conv2 = nn.Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
         self.bn2 = nn.BatchNorm2d(bottleneck_channels)
-        self.conv2 = nn.Conv2d(bottleneck_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv3 = nn.Conv2d(bottleneck_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn3 = nn.BatchNorm2d(out_channels)
+        self.shortcut = nn.Sequential()
+        if in_channels != out_channels:
+            self.shortcut.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
+            self.shortcut.add_module('bn', nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
-        y = self.conv1(F.relu(self.bn1(x), inplace=True))
-        if self.drop_rate > 0:
-            y = F.dropout(y, p=self.drop_rate, training=self.training, inplace=False)
-        y = self.conv2(F.relu(self.bn2(y), inplace=True))
-        if self.drop_rate > 0:
-            y = F.dropout(y, p=self.drop_rate, training=self.training, inplace=False)
-        return torch.cat([x, y], dim=1)
+        y = F.relu(self.bn1(self.conv1(x)), inplace=True)
+        y = F.relu(self.bn2(self.conv2(y)), inplace=True)
+        y = self.bn3(self.conv3(y))
+        y += self.shortcut(x)
+        y = F.relu(y, inplace=True)
+        return y
 
 
 class TransitionBlock(nn.Module):
@@ -627,6 +640,43 @@ class _DynamicInputDenseBlock(nn.Module):
                 None
                 None
         return out
+
+
+class GCN(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size=7, stride=1, padding=1):
+        """
+        Global convolutional network module implementation
+
+        :param in_channels: number of input channels
+        :param out_channels: number of output channels
+        :param kernel_size: size of conv kernel
+        :param stride: stride to use in the conv parts
+        :param padding: padding to use in the conv parts
+        :param share_weights: use shared weights for every side of GCN
+        """
+        super(GCN, self).__init__()
+        self.conv_l1 = nn.Conv2d(in_channels, out_channels, kernel_size=(kernel_size, 1), padding=(padding, 0), stride=(stride, 1))
+        self.conv_l2 = nn.Conv2d(out_channels, out_channels, kernel_size=(1, kernel_size), padding=(0, padding), stride=(1, stride))
+        self.conv_r1 = nn.Conv2d(in_channels, out_channels, kernel_size=(1, kernel_size), padding=(0, padding), stride=(1, stride))
+        self.conv_r2 = nn.Conv2d(out_channels, out_channels, kernel_size=(kernel_size, 1), padding=(padding, 0), stride=(stride, 1))
+
+    def forward(self, x):
+        if GCN.share_weights:
+            self.conv_l1.shared = 2
+            self.conv_l2.shared = 2
+            xt = x.transpose(2, 3)
+            xl = self.conv_l1(x)
+            xl = self.conv_l2(xl)
+            xrt = self.conv_l1(xt)
+            xrt = self.conv_l2(xrt)
+            xr = xrt.transpose(2, 3)
+        else:
+            xl = self.conv_l1(x)
+            xl = self.conv_l2(xl)
+            xr = self.conv_r1(x)
+            xr = self.conv_r2(xr)
+        return xl + xr
 
 
 def get_conv_params(use_gcn, args):
@@ -916,43 +966,6 @@ class CifarClassifier(nn.Module):
         return x
 
 
-class GCN(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size=7, stride=1, padding=1):
-        """
-        Global convolutional network module implementation
-
-        :param in_channels: number of input channels
-        :param out_channels: number of output channels
-        :param kernel_size: size of conv kernel
-        :param stride: stride to use in the conv parts
-        :param padding: padding to use in the conv parts
-        :param share_weights: use shared weights for every side of GCN
-        """
-        super(GCN, self).__init__()
-        self.conv_l1 = nn.Conv2d(in_channels, out_channels, kernel_size=(kernel_size, 1), padding=(padding, 0), stride=(stride, 1))
-        self.conv_l2 = nn.Conv2d(out_channels, out_channels, kernel_size=(1, kernel_size), padding=(0, padding), stride=(1, stride))
-        self.conv_r1 = nn.Conv2d(in_channels, out_channels, kernel_size=(1, kernel_size), padding=(0, padding), stride=(1, stride))
-        self.conv_r2 = nn.Conv2d(out_channels, out_channels, kernel_size=(kernel_size, 1), padding=(padding, 0), stride=(stride, 1))
-
-    def forward(self, x):
-        if GCN.share_weights:
-            self.conv_l1.shared = 2
-            self.conv_l2.shared = 2
-            xt = x.transpose(2, 3)
-            xl = self.conv_l1(x)
-            xl = self.conv_l2(xl)
-            xrt = self.conv_l1(xt)
-            xrt = self.conv_l2(xrt)
-            xr = xrt.transpose(2, 3)
-        else:
-            xl = self.conv_l1(x)
-            xl = self.conv_l2(xl)
-            xr = self.conv_r1(x)
-            xr = self.conv_r2(xr)
-        return xl + xr
-
-
 class MSDNet(nn.Module):
 
     def __init__(self, args):
@@ -1094,54 +1107,6 @@ class MSDNet(nn.Module):
         return outputs
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, in_channels, out_channels, stride):
-        super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(out_channels)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-        self.shortcut = nn.Sequential()
-        if in_channels != out_channels:
-            self.shortcut.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
-            self.shortcut.add_module('bn', nn.BatchNorm2d(out_channels))
-
-    def forward(self, x):
-        y = F.relu(self.bn1(self.conv1(x)), inplace=True)
-        y = self.bn2(self.conv2(y))
-        y += self.shortcut(x)
-        y = F.relu(y, inplace=True)
-        return y
-
-
-class BottleneckBlock(nn.Module):
-    expansion = 4
-
-    def __init__(self, in_channels, out_channels, stride):
-        super(BottleneckBlock, self).__init__()
-        bottleneck_channels = out_channels // self.expansion
-        self.conv1 = nn.Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn1 = nn.BatchNorm2d(bottleneck_channels)
-        self.conv2 = nn.Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(bottleneck_channels)
-        self.conv3 = nn.Conv2d(bottleneck_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_channels)
-        self.shortcut = nn.Sequential()
-        if in_channels != out_channels:
-            self.shortcut.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
-            self.shortcut.add_module('bn', nn.BatchNorm2d(out_channels))
-
-    def forward(self, x):
-        y = F.relu(self.bn1(self.conv1(x)), inplace=True)
-        y = F.relu(self.bn2(self.conv2(y)), inplace=True)
-        y = self.bn3(self.conv3(y))
-        y += self.shortcut(x)
-        y = F.relu(y, inplace=True)
-        return y
-
-
 class ResNet(nn.Module):
 
     def __init__(self, config):
@@ -1195,32 +1160,6 @@ class ResNet(nn.Module):
         return x
 
 
-class BottleneckBlock(nn.Module):
-    expansion = 4
-
-    def __init__(self, in_channels, out_channels, stride, cardinality):
-        super(BottleneckBlock, self).__init__()
-        bottleneck_channels = cardinality * out_channels // self.expansion
-        self.conv1 = nn.Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn1 = nn.BatchNorm2d(bottleneck_channels)
-        self.conv2 = nn.Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
-        self.bn2 = nn.BatchNorm2d(bottleneck_channels)
-        self.conv3 = nn.Conv2d(bottleneck_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_channels)
-        self.shortcut = nn.Sequential()
-        if in_channels != out_channels:
-            self.shortcut.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False))
-            self.shortcut.add_module('bn', nn.BatchNorm2d(out_channels))
-
-    def forward(self, x):
-        y = F.relu(self.bn1(self.conv1(x)), inplace=True)
-        y = F.relu(self.bn2(self.conv2(y)), inplace=True)
-        y = self.bn3(self.conv3(y))
-        y += self.shortcut(x)
-        y = F.relu(y, inplace=True)
-        return y
-
-
 class ResNeXt(nn.Module):
 
     def __init__(self, config):
@@ -1229,29 +1168,28 @@ class ResNeXt(nn.Module):
         n_classes = config['n_classes']
         base_channels = config['base_channels']
         depth = config['depth']
-        self.cardinality = config['cardinality']
-        n_blocks_per_stage = (depth - 2) // 9
-        assert n_blocks_per_stage * 9 + 2 == depth
-        block = BottleneckBlock
-        n_channels = [base_channels, base_channels * block.expansion, base_channels * 2 * block.expansion, base_channels * 4 * block.expansion]
+        self.shake_config = config['shake_forward'], config['shake_backward'], config['shake_image']
+        block = BasicBlock
+        n_blocks_per_stage = (depth - 2) // 6
+        assert n_blocks_per_stage * 6 + 2 == depth
+        n_channels = [base_channels, base_channels * 2, base_channels * 4]
         self.conv = nn.Conv2d(input_shape[1], n_channels[0], kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn = nn.BatchNorm2d(n_channels[0])
-        self.stage1 = self._make_stage(n_channels[0], n_channels[1], n_blocks_per_stage, stride=1)
-        self.stage2 = self._make_stage(n_channels[1], n_channels[2], n_blocks_per_stage, stride=2)
-        self.stage3 = self._make_stage(n_channels[2], n_channels[3], n_blocks_per_stage, stride=2)
-        with torch.no_grad():
-            self.feature_size = self._forward_conv(torch.zeros(*input_shape)).view(-1).shape[0]
+        self.bn = nn.BatchNorm2d(base_channels)
+        self.stage1 = self._make_stage(n_channels[0], n_channels[0], n_blocks_per_stage, block, stride=1)
+        self.stage2 = self._make_stage(n_channels[0], n_channels[1], n_blocks_per_stage, block, stride=2)
+        self.stage3 = self._make_stage(n_channels[1], n_channels[2], n_blocks_per_stage, block, stride=2)
+        self.feature_size = self._forward_conv(torch.zeros(*input_shape)).view(-1).shape[0]
         self.fc = nn.Linear(self.feature_size, n_classes)
         self.apply(initialize_weights)
 
-    def _make_stage(self, in_channels, out_channels, n_blocks, stride):
+    def _make_stage(self, in_channels, out_channels, n_blocks, block, stride):
         stage = nn.Sequential()
         for index in range(n_blocks):
             block_name = 'block{}'.format(index + 1)
             if index == 0:
-                stage.add_module(block_name, BottleneckBlock(in_channels, out_channels, stride, self.cardinality))
+                stage.add_module(block_name, block(in_channels, out_channels, stride=stride, shake_config=self.shake_config))
             else:
-                stage.add_module(block_name, BottleneckBlock(out_channels, out_channels, 1, self.cardinality))
+                stage.add_module(block_name, block(out_channels, out_channels, stride=1, shake_config=self.shake_config))
         return stage
 
     def _forward_conv(self, x):
@@ -1305,149 +1243,6 @@ class DownsamplingShortcut(nn.Module):
         return z
 
 
-def get_alpha_beta(batch_size, shake_config, is_cuda):
-    forward_shake, backward_shake, shake_image = shake_config
-    if forward_shake and not shake_image:
-        alpha = torch.rand(1)
-    elif forward_shake and shake_image:
-        alpha = torch.rand(batch_size).view(batch_size, 1, 1, 1)
-    else:
-        alpha = torch.tensor(0.5)
-    if backward_shake and not shake_image:
-        beta = torch.rand(1)
-    elif backward_shake and shake_image:
-        beta = torch.rand(batch_size).view(batch_size, 1, 1, 1)
-    else:
-        beta = torch.tensor(0.5)
-    if is_cuda:
-        alpha, beta = alpha.cuda(), beta.cuda()
-    return alpha, beta
-
-
-class ShakeFunction(Function):
-
-    @staticmethod
-    def forward(ctx, x1, x2, alpha, beta):
-        ctx.save_for_backward(x1, x2, alpha, beta)
-        y = x1 * alpha.data + x2 * (1 - alpha.data)
-        return y
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        x1, x2, alpha, beta = ctx.saved_variables
-        grad_x1 = grad_x2 = grad_alpha = grad_beta = None
-        if ctx.needs_input_grad[0]:
-            grad_x1 = grad_output * beta
-        if ctx.needs_input_grad[1]:
-            grad_x2 = grad_output * (1 - beta)
-        return grad_x1, grad_x2, grad_alpha, grad_beta
-
-
-shake_function = ShakeFunction.apply
-
-
-class BasicBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride, shake_config):
-        super(BasicBlock, self).__init__()
-        self.shake_config = shake_config
-        self.residual_path1 = ResidualPath(in_channels, out_channels, stride)
-        self.residual_path2 = ResidualPath(in_channels, out_channels, stride)
-        self.shortcut = nn.Sequential()
-        if in_channels != out_channels:
-            self.shortcut.add_module('downsample', DownsamplingShortcut(in_channels))
-
-    def forward(self, x):
-        x1 = self.residual_path1(x)
-        x2 = self.residual_path2(x)
-        if self.training:
-            shake_config = self.shake_config
-        else:
-            shake_config = False, False, False
-        alpha, beta = get_alpha_beta(x.size(0), shake_config, x.is_cuda)
-        y = shake_function(x1, x2, alpha, beta)
-        return self.shortcut(x) + y
-
-
-class ResNeXt(nn.Module):
-
-    def __init__(self, config):
-        super(ResNeXt, self).__init__()
-        input_shape = config['input_shape']
-        n_classes = config['n_classes']
-        base_channels = config['base_channels']
-        depth = config['depth']
-        self.shake_config = config['shake_forward'], config['shake_backward'], config['shake_image']
-        block = BasicBlock
-        n_blocks_per_stage = (depth - 2) // 6
-        assert n_blocks_per_stage * 6 + 2 == depth
-        n_channels = [base_channels, base_channels * 2, base_channels * 4]
-        self.conv = nn.Conv2d(input_shape[1], n_channels[0], kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn = nn.BatchNorm2d(base_channels)
-        self.stage1 = self._make_stage(n_channels[0], n_channels[0], n_blocks_per_stage, block, stride=1)
-        self.stage2 = self._make_stage(n_channels[0], n_channels[1], n_blocks_per_stage, block, stride=2)
-        self.stage3 = self._make_stage(n_channels[1], n_channels[2], n_blocks_per_stage, block, stride=2)
-        self.feature_size = self._forward_conv(torch.zeros(*input_shape)).view(-1).shape[0]
-        self.fc = nn.Linear(self.feature_size, n_classes)
-        self.apply(initialize_weights)
-
-    def _make_stage(self, in_channels, out_channels, n_blocks, block, stride):
-        stage = nn.Sequential()
-        for index in range(n_blocks):
-            block_name = 'block{}'.format(index + 1)
-            if index == 0:
-                stage.add_module(block_name, block(in_channels, out_channels, stride=stride, shake_config=self.shake_config))
-            else:
-                stage.add_module(block_name, block(out_channels, out_channels, stride=1, shake_config=self.shake_config))
-        return stage
-
-    def _forward_conv(self, x):
-        x = F.relu(self.bn(self.conv(x)), inplace=True)
-        x = self.stage1(x)
-        x = self.stage2(x)
-        x = self.stage3(x)
-        x = F.adaptive_avg_pool2d(x, output_size=1)
-        return x
-
-    def forward(self, x):
-        x = self._forward_conv(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-
-class BasicBlock(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride, dropRate=0.0):
-        super(BasicBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_planes)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.droprate = dropRate
-        self.equalInOut = in_planes == out_planes
-        self.convShortcut = not self.equalInOut and nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False) or None
-
-    def forward(self, x):
-        if not self.equalInOut:
-            x = self.relu1(self.bn1(x))
-        else:
-            out = self.relu1(self.bn1(x))
-        if self.equalInOut:
-            out = self.relu2(self.bn2(self.conv1(out)))
-        else:
-            out = self.relu2(self.bn2(self.conv1(x)))
-        if self.droprate > 0:
-            out = F.dropout(out, p=self.droprate, training=self.training)
-        out = self.conv2(out)
-        if not self.equalInOut:
-            return torch.add(self.convShortcut(x), out)
-        else:
-            return torch.add(x, out)
-
-
 class NetworkBlock(nn.Module):
 
     def __init__(self, nb_layers, in_planes, out_planes, block, stride, dropRate=0.0):
@@ -1499,49 +1294,6 @@ class WideResNet(nn.Module):
         out = F.avg_pool2d(out, 8)
         out = out.view(-1, self.nChannels)
         return self.fc(out)
-
-
-class FineTuneModel(nn.Module):
-    """
-    This freezes the weights of all layers except the last one.
-
-    Arguments:
-        original_model: Model to finetune
-        arch: Name of model architecture
-        num_classes: Number of classes to tune for
-    """
-
-    def __init__(self, original_model, arch, num_classes):
-        super(FineTuneModel, self).__init__()
-        if arch.startswith('alexnet') or arch.startswith('vgg'):
-            self.features = original_model.features
-            self.fc = nn.Sequential(*list(original_model.classifier.children())[:-1])
-            self.classifier = nn.Sequential(nn.Linear(4096, num_classes))
-        elif arch.startswith('resnet') or arch.startswith('resnext'):
-            self.features = nn.Sequential(*list(original_model.children())[:-1])
-            if arch == 'resnet18':
-                self.classifier = nn.Sequential(nn.Linear(512, num_classes))
-            else:
-                self.classifier = nn.Sequential(nn.Linear(2048, num_classes))
-        else:
-            raise 'Finetuning not supported on this architecture yet. Feel free to add'
-        self.unfreeze(False)
-
-    def unfreeze(self, unfreeze):
-        for p in self.features.parameters():
-            p.requires_grad = unfreeze
-        if hasattr(self, 'fc'):
-            for p in self.fc.parameters():
-                p.requires_grad = unfreeze
-
-    def forward(self, x):
-        f = self.features(x)
-        if hasattr(self, 'fc'):
-            f = f.view(f.size(0), -1)
-            f = self.fc(f)
-        f = f.view(f.size(0), -1)
-        y = self.classifier(f)
-        return y
 
 
 class FineTuneModel(nn.Module):

@@ -11,15 +11,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -39,6 +40,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+from torch.autograd import Variable
+
+
+from torchvision.utils import save_image
+
+
 import random
 
 
@@ -54,7 +61,7 @@ from torch.utils.data import DataLoader
 from torchvision import datasets
 
 
-from torchvision.utils import save_image
+from torchvision import transforms
 
 
 class VGG16(torch.nn.Module):
@@ -92,26 +99,6 @@ class VGG16(torch.nn.Module):
         return out
 
 
-class TransformerNet(torch.nn.Module):
-
-    def __init__(self):
-        super(TransformerNet, self).__init__()
-        self.model = nn.Sequential(ConvBlock(3, 32, kernel_size=9, stride=1), ConvBlock(32, 64, kernel_size=3, stride=2), ConvBlock(64, 128, kernel_size=3, stride=2), ResidualBlock(128), ResidualBlock(128), ResidualBlock(128), ResidualBlock(128), ResidualBlock(128), ConvBlock(128, 64, kernel_size=3, upsample=True), ConvBlock(64, 32, kernel_size=3, upsample=True), ConvBlock(32, 3, kernel_size=9, stride=1, normalize=False, relu=False))
-
-    def forward(self, x):
-        return self.model(x)
-
-
-class ResidualBlock(torch.nn.Module):
-
-    def __init__(self, channels):
-        super(ResidualBlock, self).__init__()
-        self.block = nn.Sequential(ConvBlock(channels, channels, kernel_size=3, stride=1, normalize=True, relu=True), ConvBlock(channels, channels, kernel_size=3, stride=1, normalize=True, relu=False))
-
-    def forward(self, x):
-        return self.block(x) + x
-
-
 class ConvBlock(torch.nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, upsample=False, normalize=True, relu=True):
@@ -130,6 +117,26 @@ class ConvBlock(torch.nn.Module):
         if self.relu:
             x = F.relu(x)
         return x
+
+
+class ResidualBlock(torch.nn.Module):
+
+    def __init__(self, channels):
+        super(ResidualBlock, self).__init__()
+        self.block = nn.Sequential(ConvBlock(channels, channels, kernel_size=3, stride=1, normalize=True, relu=True), ConvBlock(channels, channels, kernel_size=3, stride=1, normalize=True, relu=False))
+
+    def forward(self, x):
+        return self.block(x) + x
+
+
+class TransformerNet(torch.nn.Module):
+
+    def __init__(self):
+        super(TransformerNet, self).__init__()
+        self.model = nn.Sequential(ConvBlock(3, 32, kernel_size=9, stride=1), ConvBlock(32, 64, kernel_size=3, stride=2), ConvBlock(64, 128, kernel_size=3, stride=2), ResidualBlock(128), ResidualBlock(128), ResidualBlock(128), ResidualBlock(128), ResidualBlock(128), ConvBlock(128, 64, kernel_size=3, upsample=True), ConvBlock(64, 32, kernel_size=3, upsample=True), ConvBlock(32, 3, kernel_size=9, stride=1, normalize=False, relu=False))
+
+    def forward(self, x):
+        return self.model(x)
 
 
 import torch

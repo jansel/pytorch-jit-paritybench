@@ -51,17 +51,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import logging
+
+
+import torch
 
 
 import re
@@ -73,13 +80,7 @@ import time
 import math
 
 
-import logging
-
-
 import numpy as np
-
-
-import torch
 
 
 import torch.nn as nn
@@ -116,6 +117,25 @@ from torch.nn import functional as F
 
 
 from torch.autograd import Function
+
+
+from torch.utils.data.sampler import Sampler
+
+
+class ShiftConvDownsample(nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.relu = nn.ReLU(inplace=True)
+        self.conv = nn.Conv2d(in_channels=2 * in_channels, out_channels=out_channels, kernel_size=1, groups=2)
+        self.bn = nn.BatchNorm2d(out_channels)
+
+    def forward(self, x):
+        x = torch.cat((x[:, :, 0::2, 0::2], x[:, :, 1::2, 1::2]), dim=1)
+        x = self.relu(x)
+        x = self.conv(x)
+        x = self.bn(x)
+        return x
 
 
 class ResNet224x224(nn.Module):
@@ -332,22 +352,6 @@ class ShakeShakeBlock(nn.Module):
         if self.downsample is not None:
             residual = self.downsample(x)
         return residual + ab
-
-
-class ShiftConvDownsample(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.relu = nn.ReLU(inplace=True)
-        self.conv = nn.Conv2d(in_channels=2 * in_channels, out_channels=out_channels, kernel_size=1, groups=2)
-        self.bn = nn.BatchNorm2d(out_channels)
-
-    def forward(self, x):
-        x = torch.cat((x[:, :, 0::2, 0::2], x[:, :, 1::2, 1::2]), dim=1)
-        x = self.relu(x)
-        x = self.conv(x)
-        x = self.bn(x)
-        return x
 
 
 import torch

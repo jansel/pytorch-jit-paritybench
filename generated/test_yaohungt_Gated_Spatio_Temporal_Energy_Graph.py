@@ -26,20 +26,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+from collections import OrderedDict
+
+
+import torch.utils.data
+
+
+import torch.utils.data.distributed
+
+
+import torchvision.transforms as transforms
+
+
+import torch.utils.data as data
+
+
+import numpy as np
+
+
+import random
 
 
 import torch.nn as nn
@@ -60,12 +82,6 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
-import numpy as np
-
-
-from collections import OrderedDict
-
-
 import math
 
 
@@ -73,6 +89,12 @@ from random import random
 
 
 from torch.autograd import Function
+
+
+import time
+
+
+import itertools
 
 
 class MaxPool3dSamePadding(nn.MaxPool3d):
@@ -400,6 +422,59 @@ class AsyncTFBase(nn.Module):
         return s, o, v, so, ov, vs, ss, oo, vv, so_t, ov_t, vs_t, os_t, vo_t, sv_t
 
 
+class ScaleGrad(Function):
+
+    @staticmethod
+    def forward(ctx, inputs, weights):
+        ctx.save_for_backward(inputs, weights)
+        return inputs.clone()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        _, weights = ctx.saved_variables
+        return grad_output * weights, None
+
+
+def populate(dict, ind, val=0):
+    if ind not in dict:
+        dict[ind] = val
+
+
+class BalanceLabels(nn.Module):
+
+    def __init__(self):
+        super(BalanceLabels, self).__init__()
+        self.zerocounts = {}
+        self.counts = {}
+        self.total = 0
+
+    def update_counts(self, target):
+        n = target.shape[0]
+        tt = target.sum(0)
+        for j, t in enumerate(tt):
+            populate(self.counts, j)
+            populate(self.zerocounts, j)
+            self.counts[j] += t.item()
+            self.zerocounts[j] += n - t.item()
+        self.total += n
+
+    def get_weights(self, target):
+        weights = torch.zeros(*target.shape)
+        for i in range(target.shape[0]):
+            for j in range(target.shape[1]):
+                if target[i, j].item() == 0:
+                    weights[i, j] = self.zerocounts[j]
+                else:
+                    weights[i, j] = self.counts[j]
+        avg = self.total / 2
+        return Variable(avg / weights)
+
+    def forward(self, inputs, target):
+        self.update_counts(target)
+        weights = self.get_weights(target)
+        return ScaleGrad.apply(inputs, weights)
+
+
 def avg(iterator, weight=1.0):
     item, w = next(iterator)
     total = item.clone() * w
@@ -441,7 +516,7 @@ class MessagePassing(object):
         s_out = [meta(ids, time, s_size, s_storage) for ids, time in idtime]
         o_out = [meta(ids, time, o_size, o_storage) for ids, time in idtime]
         v_out = [meta(ids, time, v_size, v_storage) for ids, time in idtime]
-        return Variable(torch.stack(s_out, 0).cuda()), Variable(torch.stack(o_out, 0).cuda()), Variable(torch.stack(v_out, 0).cuda())
+        return Variable(torch.stack(s_out, 0)), Variable(torch.stack(o_out, 0)), Variable(torch.stack(v_out, 0))
 
     def get_msg(self, idtime, time='past', s_storage=None, o_storage=None, v_storage=None):
         s_storage = self.s_storage if s_storage is None else s_storage
@@ -493,10 +568,7 @@ def gtmat(sizes, target):
             out[(i), (t), :] = 1
         else:
             out[i, t] = 1
-    if type(target) is Variable:
-        return Variable(out.cuda())
-    else:
-        return out.cuda()
+    return out
 
 
 def winsmooth(mat, kernelsize=1):
@@ -588,59 +660,6 @@ class AsyncTFCriterion(nn.Module, MessagePassing):
             return s_out, o_out, v_out, loss
         else:
             return self.forward(s, o, v, so, ov, vs, ss, oo, vv, so_t, ov_t, vs_t, os_t, vo_t, sv_t, s_target, o_target, v_target, id_time, n=n + 1, synchronous=synchronous)
-
-
-class ScaleGrad(Function):
-
-    @staticmethod
-    def forward(ctx, inputs, weights):
-        ctx.save_for_backward(inputs, weights)
-        return inputs.clone()
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        _, weights = ctx.saved_variables
-        return grad_output * weights, None
-
-
-def populate(dict, ind, val=0):
-    if ind not in dict:
-        dict[ind] = val
-
-
-class BalanceLabels(nn.Module):
-
-    def __init__(self):
-        super(BalanceLabels, self).__init__()
-        self.zerocounts = {}
-        self.counts = {}
-        self.total = 0
-
-    def update_counts(self, target):
-        n = target.shape[0]
-        tt = target.sum(0)
-        for j, t in enumerate(tt):
-            populate(self.counts, j)
-            populate(self.zerocounts, j)
-            self.counts[j] += t.item()
-            self.zerocounts[j] += n - t.item()
-        self.total += n
-
-    def get_weights(self, target):
-        weights = torch.zeros(*target.shape)
-        for i in range(target.shape[0]):
-            for j in range(target.shape[1]):
-                if target[i, j].item() == 0:
-                    weights[i, j] = self.zerocounts[j]
-                else:
-                    weights[i, j] = self.counts[j]
-        avg = self.total / 2
-        return Variable(avg / weights)
-
-    def forward(self, inputs, target):
-        self.update_counts(target)
-        weights = self.get_weights(target)
-        return ScaleGrad.apply(inputs, weights)
 
 
 import torch

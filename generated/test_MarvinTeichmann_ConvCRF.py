@@ -17,15 +17,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -66,97 +67,6 @@ from torch.nn.parameter import Parameter
 import torch.nn.functional as F
 
 
-class GaussCRF(nn.Module):
-    """ Implements ConvCRF with hand-crafted features.
-
-        It uses the more generic ConvCRF class as basis and utilizes a config
-        dict to easily set hyperparameters and follows the design choices of:
-        Philipp Kraehenbuehl and Vladlen Koltun, "Efficient Inference in Fully
-        "Connected CRFs with Gaussian Edge Pots" (arxiv.org/abs/1210.5644)
-    """
-
-    def __init__(self, conf, shape, nclasses=None):
-        super(GaussCRF, self).__init__()
-        self.conf = conf
-        self.shape = shape
-        self.nclasses = nclasses
-        self.trainable = conf['trainable']
-        if not conf['trainable_bias']:
-            self.register_buffer('mesh', self._create_mesh())
-        else:
-            self.register_parameter('mesh', Parameter(self._create_mesh()))
-        if self.trainable:
-
-            def register(name, tensor):
-                self.register_parameter(name, Parameter(tensor))
-        else:
-
-            def register(name, tensor):
-                self.register_buffer(name, Variable(tensor))
-        register('pos_sdims', torch.Tensor([1 / conf['pos_feats']['sdims']]))
-        if conf['col_feats']['use_bias']:
-            register('col_sdims', torch.Tensor([1 / conf['col_feats']['sdims']]))
-        else:
-            self.col_sdims = None
-        register('col_schan', torch.Tensor([1 / conf['col_feats']['schan']]))
-        register('col_compat', torch.Tensor([conf['col_feats']['compat']]))
-        register('pos_compat', torch.Tensor([conf['pos_feats']['compat']]))
-        if conf['weight'] is None:
-            weight = None
-        elif conf['weight'] == 'scalar':
-            val = conf['weight_init']
-            weight = torch.Tensor([val])
-        elif conf['weight'] == 'vector':
-            val = conf['weight_init']
-            weight = val * torch.ones(1, nclasses, 1, 1)
-        self.CRF = ConvCRF(shape, nclasses, mode='col', conf=conf, use_gpu=True, filter_size=conf['filter_size'], norm=conf['norm'], blur=conf['blur'], trainable=conf['trainable'], convcomp=conf['convcomp'], weight=weight, final_softmax=conf['final_softmax'], unary_weight=conf['unary_weight'], pyinn=conf['pyinn'])
-        return
-
-    def forward(self, unary, img, num_iter=5):
-        """ Run a forward pass through ConvCRF.
-
-        Arguments:
-            unary: torch.Tensor with shape [bs, num_classes, height, width].
-                The unary predictions. Logsoftmax is applied to the unaries
-                during inference. When using CNNs don't apply softmax,
-                use unnormalized output (logits) instead.
-
-            img: torch.Tensor with shape [bs, 3, height, width]
-                The input image. Default config assumes image
-                data in [0, 255]. For normalized images adapt
-                `schan`. Try schan = 0.1 for images in [-0.5, 0.5]
-        """
-        conf = self.conf
-        bs, c, x, y = img.shape
-        pos_feats = self.create_position_feats(sdims=self.pos_sdims, bs=bs)
-        col_feats = self.create_colour_feats(img, sdims=self.col_sdims, schan=self.col_schan, bias=conf['col_feats']['use_bias'], bs=bs)
-        compats = [self.pos_compat, self.col_compat]
-        self.CRF.add_pairwise_energies([pos_feats, col_feats], compats, conf['merge'])
-        prediction = self.CRF.inference(unary, num_iter=num_iter)
-        self.CRF.clean_filters()
-        return prediction
-
-    def _create_mesh(self, requires_grad=False):
-        hcord_range = [range(s) for s in self.shape]
-        mesh = np.array(np.meshgrid(*hcord_range, indexing='ij'), dtype=np.float32)
-        return torch.from_numpy(mesh)
-
-    def create_colour_feats(self, img, schan, sdims=0.0, bias=True, bs=1):
-        norm_img = img * schan
-        if bias:
-            norm_mesh = self.create_position_feats(sdims=sdims, bs=bs)
-            feats = torch.cat([norm_mesh, norm_img], dim=1)
-        else:
-            feats = norm_img
-        return feats
-
-    def create_position_feats(self, sdims, bs=1):
-        if type(self.mesh) is Parameter:
-            return torch.stack(bs * [self.mesh * sdims])
-        else:
-            return torch.stack(bs * [Variable(self.mesh) * sdims])
-
-
 def _get_ind(dz):
     if dz == 0:
         return 0, 0
@@ -180,7 +90,6 @@ def _negative(dz):
 
 
 def show_memusage(device=0, name=''):
-    import gpustat
     gc.collect()
     gpu_stats = gpustat.GPUStatCollection.new_query()
     item = gpu_stats.jsonify()['gpus'][device]
@@ -230,7 +139,7 @@ class MessagePassingCol:
         norm_tensor = torch.ones([1, 1, self.npixels[0], self.npixels[1]])
         normalization_feats = torch.autograd.Variable(norm_tensor)
         if self.use_gpu:
-            normalization_feats = normalization_feats.cuda()
+            normalization_feats = normalization_feats
         norm_out = self._compute_gaussian(normalization_feats, gaussian=gaus)
         return 1 / torch.sqrt(norm_out + 1e-20)
 
@@ -359,7 +268,7 @@ class ConvCRF(nn.Module):
         self.conf = conf
         self.unary_weight = unary_weight
         if self.use_gpu:
-            if not torch.is_available():
+            if not torch.cuda.is_available():
                 logging.error('GPU mode requested but not avaible.')
                 logging.error('Please run using use_gpu=False.')
                 raise ValueError
@@ -424,4 +333,95 @@ class ConvCRF(nn.Module):
 
     def step_inference(self):
         pass
+
+
+class GaussCRF(nn.Module):
+    """ Implements ConvCRF with hand-crafted features.
+
+        It uses the more generic ConvCRF class as basis and utilizes a config
+        dict to easily set hyperparameters and follows the design choices of:
+        Philipp Kraehenbuehl and Vladlen Koltun, "Efficient Inference in Fully
+        "Connected CRFs with Gaussian Edge Pots" (arxiv.org/abs/1210.5644)
+    """
+
+    def __init__(self, conf, shape, nclasses=None):
+        super(GaussCRF, self).__init__()
+        self.conf = conf
+        self.shape = shape
+        self.nclasses = nclasses
+        self.trainable = conf['trainable']
+        if not conf['trainable_bias']:
+            self.register_buffer('mesh', self._create_mesh())
+        else:
+            self.register_parameter('mesh', Parameter(self._create_mesh()))
+        if self.trainable:
+
+            def register(name, tensor):
+                self.register_parameter(name, Parameter(tensor))
+        else:
+
+            def register(name, tensor):
+                self.register_buffer(name, Variable(tensor))
+        register('pos_sdims', torch.Tensor([1 / conf['pos_feats']['sdims']]))
+        if conf['col_feats']['use_bias']:
+            register('col_sdims', torch.Tensor([1 / conf['col_feats']['sdims']]))
+        else:
+            self.col_sdims = None
+        register('col_schan', torch.Tensor([1 / conf['col_feats']['schan']]))
+        register('col_compat', torch.Tensor([conf['col_feats']['compat']]))
+        register('pos_compat', torch.Tensor([conf['pos_feats']['compat']]))
+        if conf['weight'] is None:
+            weight = None
+        elif conf['weight'] == 'scalar':
+            val = conf['weight_init']
+            weight = torch.Tensor([val])
+        elif conf['weight'] == 'vector':
+            val = conf['weight_init']
+            weight = val * torch.ones(1, nclasses, 1, 1)
+        self.CRF = ConvCRF(shape, nclasses, mode='col', conf=conf, use_gpu=True, filter_size=conf['filter_size'], norm=conf['norm'], blur=conf['blur'], trainable=conf['trainable'], convcomp=conf['convcomp'], weight=weight, final_softmax=conf['final_softmax'], unary_weight=conf['unary_weight'], pyinn=conf['pyinn'])
+        return
+
+    def forward(self, unary, img, num_iter=5):
+        """ Run a forward pass through ConvCRF.
+
+        Arguments:
+            unary: torch.Tensor with shape [bs, num_classes, height, width].
+                The unary predictions. Logsoftmax is applied to the unaries
+                during inference. When using CNNs don't apply softmax,
+                use unnormalized output (logits) instead.
+
+            img: torch.Tensor with shape [bs, 3, height, width]
+                The input image. Default config assumes image
+                data in [0, 255]. For normalized images adapt
+                `schan`. Try schan = 0.1 for images in [-0.5, 0.5]
+        """
+        conf = self.conf
+        bs, c, x, y = img.shape
+        pos_feats = self.create_position_feats(sdims=self.pos_sdims, bs=bs)
+        col_feats = self.create_colour_feats(img, sdims=self.col_sdims, schan=self.col_schan, bias=conf['col_feats']['use_bias'], bs=bs)
+        compats = [self.pos_compat, self.col_compat]
+        self.CRF.add_pairwise_energies([pos_feats, col_feats], compats, conf['merge'])
+        prediction = self.CRF.inference(unary, num_iter=num_iter)
+        self.CRF.clean_filters()
+        return prediction
+
+    def _create_mesh(self, requires_grad=False):
+        hcord_range = [range(s) for s in self.shape]
+        mesh = np.array(np.meshgrid(*hcord_range, indexing='ij'), dtype=np.float32)
+        return torch.from_numpy(mesh)
+
+    def create_colour_feats(self, img, schan, sdims=0.0, bias=True, bs=1):
+        norm_img = img * schan
+        if bias:
+            norm_mesh = self.create_position_feats(sdims=sdims, bs=bs)
+            feats = torch.cat([norm_mesh, norm_img], dim=1)
+        else:
+            feats = norm_img
+        return feats
+
+    def create_position_feats(self, sdims, bs=1):
+        if type(self.mesh) is Parameter:
+            return torch.stack(bs * [self.mesh * sdims])
+        else:
+            return torch.stack(bs * [Variable(self.mesh) * sdims])
 

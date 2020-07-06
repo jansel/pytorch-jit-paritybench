@@ -62,9 +62,11 @@ losses_builder = _module
 lr_scheduler_builder = _module
 optimizer_builder = _module
 second_builder = _module
+box_coders = _module
 box_torch_ops = _module
 ghm_loss = _module
 losses = _module
+inference = _module
 models = _module
 middle = _module
 net_multi_head = _module
@@ -109,20 +111,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 import torch
+
+
+import numpy as np
+
+
+from torch.utils.data import Dataset
 
 
 from torch import nn
@@ -131,13 +143,19 @@ from torch import nn
 from functools import partial
 
 
+import math
+
+
+from functools import reduce
+
+
+from torch import stack as tstack
+
+
 from abc import ABCMeta
 
 
 from abc import abstractmethod
-
-
-import numpy as np
 
 
 from torch.autograd import Variable
@@ -146,13 +164,7 @@ from torch.autograd import Variable
 from torch.nn import functional as F
 
 
-import time
-
-
 from enum import Enum
-
-
-from functools import reduce
 
 
 from torchvision.models import resnet
@@ -168,6 +180,12 @@ import torch.nn.functional as F
 
 
 from collections import OrderedDict
+
+
+import functools
+
+
+import inspect
 
 
 import logging
@@ -189,6 +207,22 @@ from torch._utils import _unflatten_dense_tensors
 
 
 from torch.nn.utils import parameters_to_vector
+
+
+from torch.optim.optimizer import Optimizer
+
+
+class Empty(torch.nn.Module):
+
+    def __init__(self, *args, **kwargs):
+        super(Empty, self).__init__()
+
+    def forward(self, *args, **kwargs):
+        if len(args) == 1:
+            return args[0]
+        elif len(args) == 0:
+            return None
+        return args
 
 
 def get_pos_to_kw_map(func):
@@ -227,6 +261,264 @@ def register_middle(cls, name=None):
     assert name not in REGISTERED_MIDDLE_CLASSES, f'exist class: {REGISTERED_MIDDLE_CLASSES}'
     REGISTERED_MIDDLE_CLASSES[name] = cls
     return cls
+
+
+class SparseMiddleExtractor(nn.Module):
+
+    def __init__(self, output_shape, use_norm=True, num_input_features=128, num_filters_down1=[64], num_filters_down2=[64, 64], name='SparseMiddleExtractor'):
+        super(SparseMiddleExtractor, self).__init__()
+        self.name = name
+        if use_norm:
+            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm1d)
+            Linear = change_default_args(bias=False)(nn.Linear)
+        else:
+            BatchNorm1d = Empty
+            Linear = change_default_args(bias=True)(nn.Linear)
+        sparse_shape = np.array(output_shape[1:4]) + [1, 0, 0]
+        None
+        self.sparse_shape = sparse_shape
+        self.scn_input = scn.InputLayer(3, sparse_shape.tolist())
+        self.voxel_output_shape = output_shape
+        middle_layers = []
+        num_filters = [num_input_features] + num_filters_down1
+        filters_pairs_d1 = [[num_filters[i], num_filters[i + 1]] for i in range(len(num_filters) - 1)]
+        for i, o in filters_pairs_d1:
+            middle_layers.append(spconv.SubMConv3d(i, o, 3, bias=False, indice_key='subm0'))
+            middle_layers.append(BatchNorm1d(o))
+            middle_layers.append(nn.ReLU())
+        middle_layers.append(spconv.SparseConv3d(num_filters[-1], num_filters[-1], (3, 1, 1), (2, 1, 1), bias=False))
+        middle_layers.append(BatchNorm1d(num_filters[-1]))
+        middle_layers.append(nn.ReLU())
+        if len(num_filters_down1) == 0:
+            num_filters = [num_filters[-1]] + num_filters_down2
+        else:
+            num_filters = [num_filters_down1[-1]] + num_filters_down2
+        filters_pairs_d2 = [[num_filters[i], num_filters[i + 1]] for i in range(len(num_filters) - 1)]
+        for i, o in filters_pairs_d2:
+            middle_layers.append(spconv.SubMConv3d(i, o, 3, bias=False, indice_key='subm1'))
+            middle_layers.append(BatchNorm1d(o))
+            middle_layers.append(nn.ReLU())
+        middle_layers.append(spconv.SparseConv3d(num_filters[-1], num_filters[-1], (3, 1, 1), (2, 1, 1), bias=False))
+        middle_layers.append(BatchNorm1d(num_filters[-1]))
+        middle_layers.append(nn.ReLU())
+        self.middle_conv = spconv.SparseSequential(*middle_layers)
+
+    def forward(self, voxel_features, coors, batch_size):
+        coors = coors.int()
+        ret = spconv.SparseConvTensor(voxel_features, coors, self.sparse_shape, batch_size)
+        ret = self.middle_conv(ret)
+        ret = ret.dense()
+        N, C, D, H, W = ret.shape
+        ret = ret.view(N, C * D, H, W)
+        return ret
+
+
+class SpMiddleFHD(nn.Module):
+
+    def __init__(self, output_shape, use_norm=True, num_input_features=128, num_filters_down1=[64], num_filters_down2=[64, 64], name='SpMiddleFHD'):
+        super(SpMiddleFHD, self).__init__()
+        self.name = name
+        if use_norm:
+            BatchNorm2d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm2d)
+            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm1d)
+            Conv2d = change_default_args(bias=False)(nn.Conv2d)
+            SpConv3d = change_default_args(bias=False)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=False)(spconv.SubMConv3d)
+            ConvTranspose2d = change_default_args(bias=False)(nn.ConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            BatchNorm1d = Empty
+            Conv2d = change_default_args(bias=True)(nn.Conv2d)
+            SpConv3d = change_default_args(bias=True)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=True)(spconv.SubMConv3d)
+            ConvTranspose2d = change_default_args(bias=True)(nn.ConvTranspose2d)
+        sparse_shape = np.array(output_shape[1:4]) + [1, 0, 0]
+        None
+        self.sparse_shape = sparse_shape
+        self.voxel_output_shape = output_shape
+        self.middle_conv = spconv.SparseSequential(SubMConv3d(num_input_features, 16, 3, indice_key='subm0'), BatchNorm1d(16), nn.ReLU(), SubMConv3d(16, 16, 3, indice_key='subm0'), BatchNorm1d(16), nn.ReLU(), SpConv3d(16, 32, 3, 2, padding=1), BatchNorm1d(32), nn.ReLU(), SubMConv3d(32, 32, 3, indice_key='subm1'), BatchNorm1d(32), nn.ReLU(), SubMConv3d(32, 32, 3, indice_key='subm1'), BatchNorm1d(32), nn.ReLU(), SpConv3d(32, 64, 3, 2, padding=1), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm2'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm2'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm2'), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, 3, 2, padding=[0, 1, 1]), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm3'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm3'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm3'), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, (3, 1, 1), (2, 1, 1)), BatchNorm1d(64), nn.ReLU())
+        self.max_batch_size = 6
+
+    def forward(self, voxel_features, coors, batch_size):
+        coors = coors.int()
+        ret = spconv.SparseConvTensor(voxel_features, coors, self.sparse_shape, batch_size)
+        ret = self.middle_conv(ret)
+        ret = ret.dense()
+        N, C, D, H, W = ret.shape
+        ret = ret.view(N, C * D, H, W)
+        return ret
+
+
+class SpMiddleFHDPeople(nn.Module):
+
+    def __init__(self, output_shape, use_norm=True, num_input_features=128, num_filters_down1=[64], num_filters_down2=[64, 64], name='SpMiddleFHD'):
+        super(SpMiddleFHDPeople, self).__init__()
+        self.name = name
+        if use_norm:
+            BatchNorm2d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm2d)
+            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm1d)
+            Conv2d = change_default_args(bias=False)(nn.Conv2d)
+            SpConv3d = change_default_args(bias=False)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=False)(spconv.SubMConv3d)
+            ConvTranspose2d = change_default_args(bias=False)(nn.ConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            BatchNorm1d = Empty
+            Conv2d = change_default_args(bias=True)(nn.Conv2d)
+            SpConv3d = change_default_args(bias=True)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=True)(spconv.SubMConv3d)
+            ConvTranspose2d = change_default_args(bias=True)(nn.ConvTranspose2d)
+        sparse_shape = np.array(output_shape[1:4]) + [1, 0, 0]
+        None
+        self.sparse_shape = sparse_shape
+        self.voxel_output_shape = output_shape
+        self.middle_conv = spconv.SparseSequential(SubMConv3d(num_input_features, 16, 3, indice_key='subm0'), BatchNorm1d(16), nn.ReLU(), SubMConv3d(16, 16, 3, indice_key='subm0'), BatchNorm1d(16), nn.ReLU(), SpConv3d(16, 32, 3, 2, padding=1), BatchNorm1d(32), nn.ReLU(), SubMConv3d(32, 32, 3, indice_key='subm1'), BatchNorm1d(32), nn.ReLU(), SubMConv3d(32, 32, 3, indice_key='subm1'), BatchNorm1d(32), nn.ReLU(), SpConv3d(32, 64, 3, 2, padding=[0, 1, 1]), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm2'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm2'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm2'), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, (3, 1, 1), (2, 1, 1)), BatchNorm1d(64), nn.ReLU())
+        self.max_batch_size = 6
+
+    def forward(self, voxel_features, coors, batch_size):
+        coors = coors.int()
+        ret = spconv.SparseConvTensor(voxel_features, coors, self.sparse_shape, batch_size)
+        ret = self.middle_conv(ret)
+        ret = ret.dense()
+        N, C, D, H, W = ret.shape
+        ret = ret.view(N, C * D, H, W)
+        return ret
+
+
+class SpMiddle2K(nn.Module):
+
+    def __init__(self, output_shape, use_norm=True, num_input_features=128, num_filters_down1=[64], num_filters_down2=[64, 64], name='SpMiddle2K'):
+        super(SpMiddle2K, self).__init__()
+        self.name = name
+        if use_norm:
+            BatchNorm2d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm2d)
+            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm1d)
+            Conv2d = change_default_args(bias=False)(nn.Conv2d)
+            SpConv3d = change_default_args(bias=False)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=False)(spconv.SubMConv3d)
+            ConvTranspose2d = change_default_args(bias=False)(nn.ConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            BatchNorm1d = Empty
+            Conv2d = change_default_args(bias=True)(nn.Conv2d)
+            SpConv3d = change_default_args(bias=True)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=True)(spconv.SubMConv3d)
+            ConvTranspose2d = change_default_args(bias=True)(nn.ConvTranspose2d)
+        sparse_shape = np.array(output_shape[1:4]) + [1, 0, 0]
+        None
+        self.sparse_shape = sparse_shape
+        self.voxel_output_shape = output_shape
+        self.middle_conv = spconv.SparseSequential(SubMConv3d(num_input_features, 8, 3, indice_key='subm0'), BatchNorm1d(8), nn.ReLU(), SubMConv3d(8, 8, 3, indice_key='subm0'), BatchNorm1d(8), nn.ReLU(), SpConv3d(8, 16, 3, 2, padding=1), BatchNorm1d(16), nn.ReLU(), SubMConv3d(16, 16, 3, indice_key='subm1'), BatchNorm1d(16), nn.ReLU(), SubMConv3d(16, 16, 3, indice_key='subm1'), BatchNorm1d(16), nn.ReLU(), SpConv3d(16, 32, 3, 2, padding=1), BatchNorm1d(32), nn.ReLU(), SubMConv3d(32, 32, 3, indice_key='subm2'), BatchNorm1d(32), nn.ReLU(), SubMConv3d(32, 32, 3, indice_key='subm2'), BatchNorm1d(32), nn.ReLU(), SpConv3d(32, 64, 3, 2, padding=1), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm3'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm3'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm3'), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, 3, 2, padding=[0, 1, 1]), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm4'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm4'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm4'), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, (3, 1, 1), (2, 1, 1)), BatchNorm1d(64), nn.ReLU())
+        self.max_batch_size = 3
+        self.grid = torch.full([self.max_batch_size, *sparse_shape], -1, dtype=torch.int32)
+
+    def forward(self, voxel_features, coors, batch_size):
+        coors = coors.int()
+        ret = spconv.SparseConvTensor(voxel_features, coors, self.sparse_shape, batch_size, self.grid)
+        ret = self.middle_conv(ret)
+        ret = ret.dense()
+        N, C, D, H, W = ret.shape
+        ret = ret.view(N, C * D, H, W)
+        return ret
+
+
+class SpMiddleFHDLite(nn.Module):
+
+    def __init__(self, output_shape, use_norm=True, num_input_features=128, num_filters_down1=[64], num_filters_down2=[64, 64], name='SpMiddleFHDLite'):
+        super(SpMiddleFHDLite, self).__init__()
+        self.name = name
+        if use_norm:
+            BatchNorm2d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm2d)
+            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm1d)
+            Conv2d = change_default_args(bias=False)(nn.Conv2d)
+            SpConv3d = change_default_args(bias=False)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=False)(spconv.SubMConv3d)
+            ConvTranspose2d = change_default_args(bias=False)(nn.ConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            BatchNorm1d = Empty
+            Conv2d = change_default_args(bias=True)(nn.Conv2d)
+            SpConv3d = change_default_args(bias=True)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=True)(spconv.SubMConv3d)
+            ConvTranspose2d = change_default_args(bias=True)(nn.ConvTranspose2d)
+        sparse_shape = np.array(output_shape[1:4]) + [1, 0, 0]
+        None
+        self.sparse_shape = sparse_shape
+        self.voxel_output_shape = output_shape
+        self.middle_conv = spconv.SparseSequential(SpConv3d(num_input_features, 16, 3, 2, padding=1), BatchNorm1d(16), nn.ReLU(), SpConv3d(16, 32, 3, 2, padding=1), BatchNorm1d(32), nn.ReLU(), SpConv3d(32, 64, 3, 2, padding=[0, 1, 1]), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, (3, 1, 1), (2, 1, 1)), BatchNorm1d(64), nn.ReLU())
+
+    def forward(self, voxel_features, coors, batch_size):
+        coors = coors.int()
+        ret = spconv.SparseConvTensor(voxel_features, coors, self.sparse_shape, batch_size)
+        ret = self.middle_conv(ret)
+        ret = ret.dense()
+        N, C, D, H, W = ret.shape
+        ret = ret.view(N, C * D, H, W)
+        return ret
+
+
+class SpMiddleFHDLiteHRZ(nn.Module):
+
+    def __init__(self, output_shape, use_norm=True, num_input_features=128, num_filters_down1=[64], num_filters_down2=[64, 64], name='SpMiddleFHDLite'):
+        super(SpMiddleFHDLiteHRZ, self).__init__()
+        self.name = name
+        if use_norm:
+            BatchNorm2d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm2d)
+            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm1d)
+            Conv2d = change_default_args(bias=False)(nn.Conv2d)
+            SpConv3d = change_default_args(bias=False)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=False)(spconv.SubMConv3d)
+            ConvTranspose2d = change_default_args(bias=False)(nn.ConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            BatchNorm1d = Empty
+            Conv2d = change_default_args(bias=True)(nn.Conv2d)
+            SpConv3d = change_default_args(bias=True)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=True)(spconv.SubMConv3d)
+            ConvTranspose2d = change_default_args(bias=True)(nn.ConvTranspose2d)
+        sparse_shape = np.array(output_shape[1:4]) + [1, 0, 0]
+        None
+        self.sparse_shape = sparse_shape
+        self.voxel_output_shape = output_shape
+        self.middle_conv = spconv.SparseSequential(SpConv3d(num_input_features, 32, 3, 2, padding=1), BatchNorm1d(32), nn.ReLU(), SpConv3d(32, 64, 3, 2, padding=1), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, 3, 2, padding=1), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, (3, 1, 1), (2, 1, 1)), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, (3, 1, 1), (2, 1, 1)), BatchNorm1d(64), nn.ReLU())
+
+    def forward(self, voxel_features, coors, batch_size):
+        coors = coors.int()
+        ret = spconv.SparseConvTensor(voxel_features, coors, self.sparse_shape, batch_size)
+        ret = self.middle_conv(ret)
+        ret = ret.dense()
+        N, C, D, H, W = ret.shape
+        ret = ret.view(N, C * D, H, W)
+        return ret
+
+
+class SpMiddleFHDHRZ(nn.Module):
+
+    def __init__(self, output_shape, use_norm=True, num_input_features=128, num_filters_down1=[64], num_filters_down2=[64, 64], name='SpMiddleFHD'):
+        super(SpMiddleFHDHRZ, self).__init__()
+        self.name = name
+        if use_norm:
+            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm1d)
+            SpConv3d = change_default_args(bias=False)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=False)(spconv.SubMConv3d)
+        else:
+            BatchNorm1d = Empty
+            SpConv3d = change_default_args(bias=True)(spconv.SparseConv3d)
+            SubMConv3d = change_default_args(bias=True)(spconv.SubMConv3d)
+        sparse_shape = np.array(output_shape[1:4]) + [1, 0, 0]
+        None
+        self.sparse_shape = sparse_shape
+        self.voxel_output_shape = output_shape
+        self.middle_conv = spconv.SparseSequential(SubMConv3d(num_input_features, 16, 3, indice_key='subm0'), BatchNorm1d(16), nn.ReLU(), SubMConv3d(16, 16, 3, indice_key='subm0'), BatchNorm1d(16), nn.ReLU(), SpConv3d(16, 32, 3, 2, padding=1), BatchNorm1d(32), nn.ReLU(), SubMConv3d(32, 32, 3, indice_key='subm1'), BatchNorm1d(32), nn.ReLU(), SubMConv3d(32, 32, 3, indice_key='subm1'), BatchNorm1d(32), nn.ReLU(), SpConv3d(32, 64, 3, 2, padding=1), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm2'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm2'), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, 3, 2, padding=1), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm3'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm3'), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, (3, 1, 1), (2, 1, 1)), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm4'), BatchNorm1d(64), nn.ReLU(), SubMConv3d(64, 64, 3, indice_key='subm4'), BatchNorm1d(64), nn.ReLU(), SpConv3d(64, 64, (3, 1, 1), (2, 1, 1)), BatchNorm1d(64), nn.ReLU())
+
+    def forward(self, voxel_features, coors, batch_size):
+        coors = coors.int()
+        ret = spconv.SparseConvTensor(voxel_features, coors, self.sparse_shape, batch_size)
+        ret = self.middle_conv(ret)
+        ret = ret.dense()
+        N, C, D, H, W = ret.shape
+        ret = ret.view(N, C * D, H, W)
+        return ret
 
 
 class SmallObjectHead(nn.Module):
@@ -366,6 +658,366 @@ def register_vfe(cls, name=None):
     return cls
 
 
+class PillarFeatureNetOld(nn.Module):
+
+    def __init__(self, num_input_features=4, use_norm=True, num_filters=(64,), with_distance=False, voxel_size=(0.2, 0.2, 4), pc_range=(0, -40, -3, 70.4, 40, 1)):
+        """
+        Pillar Feature Net.
+        The network prepares the pillar features and performs forward pass through PFNLayers. This net performs a
+        similar role to SECOND's second.pytorch.voxelnet.VoxelFeatureExtractor.
+        :param num_input_features: <int>. Number of input features, either x, y, z or x, y, z, r.
+        :param use_norm: <bool>. Whether to include BatchNorm.
+        :param num_filters: (<int>: N). Number of features in each of the N PFNLayers.
+        :param with_distance: <bool>. Whether to include Euclidean distance to points.
+        :param voxel_size: (<float>: 3). Size of voxels, only utilize x and y size.
+        :param pc_range: (<float>: 6). Point cloud range, only utilize x and y min.
+        """
+        super().__init__()
+        self.name = 'PillarFeatureNetOld'
+        assert len(num_filters) > 0
+        num_input_features += 5
+        if with_distance:
+            num_input_features += 1
+        self._with_distance = with_distance
+        num_filters = [num_input_features] + list(num_filters)
+        pfn_layers = []
+        for i in range(len(num_filters) - 1):
+            in_filters = num_filters[i]
+            out_filters = num_filters[i + 1]
+            if i < len(num_filters) - 2:
+                last_layer = False
+            else:
+                last_layer = True
+            pfn_layers.append(PFNLayer(in_filters, out_filters, use_norm, last_layer=last_layer))
+        self.pfn_layers = nn.ModuleList(pfn_layers)
+        self.vx = voxel_size[0]
+        self.vy = voxel_size[1]
+        self.x_offset = self.vx / 2 + pc_range[0]
+        self.y_offset = self.vy / 2 + pc_range[1]
+
+    def forward(self, features, num_voxels, coors):
+        device = features.device
+        dtype = features.dtype
+        points_mean = features[:, :, :3].sum(dim=1, keepdim=True) / num_voxels.type_as(features).view(-1, 1, 1)
+        f_cluster = features[:, :, :3] - points_mean
+        f_center = features[:, :, :2]
+        f_center[:, :, (0)] = f_center[:, :, (0)] - (coors[:, (3)].unsqueeze(1) * self.vx + self.x_offset)
+        f_center[:, :, (1)] = f_center[:, :, (1)] - (coors[:, (2)].unsqueeze(1) * self.vy + self.y_offset)
+        features_ls = [features, f_cluster, f_center]
+        if self._with_distance:
+            points_dist = torch.norm(features[:, :, :3], 2, 2, keepdim=True)
+            features_ls.append(points_dist)
+        features = torch.cat(features_ls, dim=-1)
+        voxel_count = features.shape[1]
+        mask = get_paddings_indicator(num_voxels, voxel_count, axis=0)
+        mask = torch.unsqueeze(mask, -1).type_as(features)
+        features *= mask
+        for pfn in self.pfn_layers:
+            features = pfn(features)
+        return features.squeeze()
+
+
+class PillarFeatureNet(nn.Module):
+
+    def __init__(self, num_input_features=4, use_norm=True, num_filters=(64,), with_distance=False, voxel_size=(0.2, 0.2, 4), pc_range=(0, -40, -3, 70.4, 40, 1)):
+        """
+        Pillar Feature Net.
+        The network prepares the pillar features and performs forward pass through PFNLayers. This net performs a
+        similar role to SECOND's second.pytorch.voxelnet.VoxelFeatureExtractor.
+        :param num_input_features: <int>. Number of input features, either x, y, z or x, y, z, r.
+        :param use_norm: <bool>. Whether to include BatchNorm.
+        :param num_filters: (<int>: N). Number of features in each of the N PFNLayers.
+        :param with_distance: <bool>. Whether to include Euclidean distance to points.
+        :param voxel_size: (<float>: 3). Size of voxels, only utilize x and y size.
+        :param pc_range: (<float>: 6). Point cloud range, only utilize x and y min.
+        """
+        super().__init__()
+        self.name = 'PillarFeatureNetOld'
+        assert len(num_filters) > 0
+        num_input_features += 5
+        if with_distance:
+            num_input_features += 1
+        self._with_distance = with_distance
+        num_filters = [num_input_features] + list(num_filters)
+        pfn_layers = []
+        for i in range(len(num_filters) - 1):
+            in_filters = num_filters[i]
+            out_filters = num_filters[i + 1]
+            if i < len(num_filters) - 2:
+                last_layer = False
+            else:
+                last_layer = True
+            pfn_layers.append(PFNLayer(in_filters, out_filters, use_norm, last_layer=last_layer))
+        self.pfn_layers = nn.ModuleList(pfn_layers)
+        self.vx = voxel_size[0]
+        self.vy = voxel_size[1]
+        self.x_offset = self.vx / 2 + pc_range[0]
+        self.y_offset = self.vy / 2 + pc_range[1]
+
+    def forward(self, features, num_voxels, coors):
+        device = features.device
+        dtype = features.dtype
+        points_mean = features[:, :, :3].sum(dim=1, keepdim=True) / num_voxels.type_as(features).view(-1, 1, 1)
+        f_cluster = features[:, :, :3] - points_mean
+        f_center = torch.zeros_like(features[:, :, :2])
+        f_center[:, :, (0)] = features[:, :, (0)] - (coors[:, (3)].unsqueeze(1) * self.vx + self.x_offset)
+        f_center[:, :, (1)] = features[:, :, (1)] - (coors[:, (2)].unsqueeze(1) * self.vy + self.y_offset)
+        features_ls = [features, f_cluster, f_center]
+        if self._with_distance:
+            points_dist = torch.norm(features[:, :, :3], 2, 2, keepdim=True)
+            features_ls.append(points_dist)
+        features = torch.cat(features_ls, dim=-1)
+        voxel_count = features.shape[1]
+        mask = get_paddings_indicator(num_voxels, voxel_count, axis=0)
+        mask = torch.unsqueeze(mask, -1).type_as(features)
+        features *= mask
+        for pfn in self.pfn_layers:
+            features = pfn(features)
+        return features.squeeze()
+
+
+class PillarFeatureNetRadius(nn.Module):
+
+    def __init__(self, num_input_features=4, use_norm=True, num_filters=(64,), with_distance=False, voxel_size=(0.2, 0.2, 4), pc_range=(0, -40, -3, 70.4, 40, 1)):
+        """
+        Pillar Feature Net.
+        The network prepares the pillar features and performs forward pass through PFNLayers. This net performs a
+        similar role to SECOND's second.pytorch.voxelnet.VoxelFeatureExtractor.
+        :param num_input_features: <int>. Number of input features, either x, y, z or x, y, z, r.
+        :param use_norm: <bool>. Whether to include BatchNorm.
+        :param num_filters: (<int>: N). Number of features in each of the N PFNLayers.
+        :param with_distance: <bool>. Whether to include Euclidean distance to points.
+        :param voxel_size: (<float>: 3). Size of voxels, only utilize x and y size.
+        :param pc_range: (<float>: 6). Point cloud range, only utilize x and y min.
+        """
+        super().__init__()
+        self.name = 'PillarFeatureNetRadius'
+        assert len(num_filters) > 0
+        num_input_features += 5
+        num_input_features -= 1
+        if with_distance:
+            num_input_features += 1
+        self._with_distance = with_distance
+        num_filters = [num_input_features] + list(num_filters)
+        pfn_layers = []
+        for i in range(len(num_filters) - 1):
+            in_filters = num_filters[i]
+            out_filters = num_filters[i + 1]
+            if i < len(num_filters) - 2:
+                last_layer = False
+            else:
+                last_layer = True
+            pfn_layers.append(PFNLayer(in_filters, out_filters, use_norm, last_layer=last_layer))
+        self.pfn_layers = nn.ModuleList(pfn_layers)
+        self.vx = voxel_size[0]
+        self.vy = voxel_size[1]
+        self.x_offset = self.vx / 2 + pc_range[0]
+        self.y_offset = self.vy / 2 + pc_range[1]
+
+    def forward(self, features, num_voxels, coors):
+        device = features.device
+        dtype = features.dtype
+        points_mean = features[:, :, :3].sum(dim=1, keepdim=True) / num_voxels.type_as(features).view(-1, 1, 1)
+        f_cluster = features[:, :, :3] - points_mean
+        f_center = torch.zeros_like(features[:, :, :2])
+        f_center[:, :, (0)] = features[:, :, (0)] - (coors[:, (3)].unsqueeze(1) * self.vx + self.x_offset)
+        f_center[:, :, (1)] = features[:, :, (1)] - (coors[:, (2)].unsqueeze(1) * self.vy + self.y_offset)
+        features_radius = torch.norm(features[:, :, :2], p=2, dim=2, keepdim=True)
+        features_radius = torch.cat([features_radius, features[:, :, 2:]], dim=2)
+        features_ls = [features_radius, f_cluster, f_center]
+        if self._with_distance:
+            points_dist = torch.norm(features[:, :, :3], 2, 2, keepdim=True)
+            features_ls.append(points_dist)
+        features = torch.cat(features_ls, dim=-1)
+        voxel_count = features.shape[1]
+        mask = get_paddings_indicator(num_voxels, voxel_count, axis=0)
+        mask = torch.unsqueeze(mask, -1).type_as(features)
+        features *= mask
+        for pfn in self.pfn_layers:
+            features = pfn(features)
+        return features.squeeze()
+
+
+class PillarFeatureNetRadiusHeight(nn.Module):
+
+    def __init__(self, num_input_features=4, use_norm=True, num_filters=(64,), with_distance=False, voxel_size=(0.2, 0.2, 4), pc_range=(0, -40, -3, 70.4, 40, 1)):
+        """
+        Pillar Feature Net.
+        The network prepares the pillar features and performs forward pass through PFNLayers. This net performs a
+        similar role to SECOND's second.pytorch.voxelnet.VoxelFeatureExtractor.
+        :param num_input_features: <int>. Number of input features, either x, y, z or x, y, z, r.
+        :param use_norm: <bool>. Whether to include BatchNorm.
+        :param num_filters: (<int>: N). Number of features in each of the N PFNLayers.
+        :param with_distance: <bool>. Whether to include Euclidean distance to points.
+        :param voxel_size: (<float>: 3). Size of voxels, only utilize x and y size.
+        :param pc_range: (<float>: 6). Point cloud range, only utilize x and y min.
+        """
+        super().__init__()
+        self.name = 'PillarFeatureNetRadiusHeight'
+        assert len(num_filters) > 0
+        num_input_features += 6
+        num_input_features -= 1
+        if with_distance:
+            num_input_features += 1
+        self._with_distance = with_distance
+        num_filters = [num_input_features] + list(num_filters)
+        pfn_layers = []
+        for i in range(len(num_filters) - 1):
+            in_filters = num_filters[i]
+            out_filters = num_filters[i + 1]
+            if i < len(num_filters) - 2:
+                last_layer = False
+            else:
+                last_layer = True
+            pfn_layers.append(PFNLayer(in_filters, out_filters, use_norm, last_layer=last_layer))
+        self.pfn_layers = nn.ModuleList(pfn_layers)
+        self.vx = voxel_size[0]
+        self.vy = voxel_size[1]
+        self.x_offset = self.vx / 2 + pc_range[0]
+        self.y_offset = self.vy / 2 + pc_range[1]
+
+    def forward(self, features, num_voxels, coors):
+        device = features.device
+        dtype = features.dtype
+        points_mean = features[:, :, :3].sum(dim=1, keepdim=True) / num_voxels.type_as(features).view(-1, 1, 1)
+        f_cluster = features[:, :, :3] - points_mean
+        pp_min = features[:, :, 2:3].min(dim=1, keepdim=True)[0]
+        pp_max = features[:, :, 2:3].max(dim=1, keepdim=True)[0]
+        pp_height = pp_max - pp_min
+        f_height = torch.zeros_like(features[:, :, :1])
+        f_height[:] = pp_height
+        f_center = torch.zeros_like(features[:, :, :2])
+        f_center[:, :, (0)] = features[:, :, (0)] - (coors[:, (3)].unsqueeze(1) * self.vx + self.x_offset)
+        f_center[:, :, (1)] = features[:, :, (1)] - (coors[:, (2)].unsqueeze(1) * self.vy + self.y_offset)
+        features_radius = torch.norm(features[:, :, :2], p=2, dim=2, keepdim=True)
+        features_radius = torch.cat([features_radius, features[:, :, 2:]], dim=2)
+        features_ls = [features_radius, f_cluster, f_center, f_height]
+        if self._with_distance:
+            points_dist = torch.norm(features[:, :, :3], 2, 2, keepdim=True)
+            features_ls.append(points_dist)
+        features = torch.cat(features_ls, dim=-1)
+        voxel_count = features.shape[1]
+        mask = get_paddings_indicator(num_voxels, voxel_count, axis=0)
+        mask = torch.unsqueeze(mask, -1).type_as(features)
+        features *= mask
+        for pfn in self.pfn_layers:
+            features = pfn(features)
+        return features.squeeze()
+
+
+class PointPillarsScatter(nn.Module):
+
+    def __init__(self, output_shape, use_norm=True, num_input_features=64, num_filters_down1=[64], num_filters_down2=[64, 64], name='SpMiddle2K'):
+        """
+        Point Pillar's Scatter.
+        Converts learned features from dense tensor to sparse pseudo image. This replaces SECOND's
+        second.pytorch.voxelnet.SparseMiddleExtractor.
+        :param output_shape: ([int]: 4). Required output shape of features.
+        :param num_input_features: <int>. Number of input features.
+        """
+        super().__init__()
+        self.name = 'PointPillarsScatter'
+        self.output_shape = output_shape
+        self.ny = output_shape[2]
+        self.nx = output_shape[3]
+        self.nchannels = num_input_features
+
+    def forward(self, voxel_features, coords, batch_size):
+        batch_canvas = []
+        for batch_itt in range(batch_size):
+            canvas = torch.zeros(self.nchannels, self.nx * self.ny, dtype=voxel_features.dtype, device=voxel_features.device)
+            batch_mask = coords[:, (0)] == batch_itt
+            this_coords = coords[(batch_mask), :]
+            indices = this_coords[:, (2)] * self.nx + this_coords[:, (3)]
+            indices = indices.type(torch.long)
+            voxels = voxel_features[(batch_mask), :]
+            voxels = voxels.t()
+            canvas[:, (indices)] = voxels
+            batch_canvas.append(canvas)
+        batch_canvas = torch.stack(batch_canvas, 0)
+        batch_canvas = batch_canvas.view(batch_size, self.nchannels, self.ny, self.nx)
+        return batch_canvas
+
+
+class GroupNorm(torch.nn.GroupNorm):
+
+    def __init__(self, num_channels, num_groups, eps=1e-05, affine=True):
+        super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps, affine=affine)
+
+
+class Sequential(torch.nn.Module):
+    """A sequential container.
+    Modules will be added to it in the order they are passed in the constructor.
+    Alternatively, an ordered dict of modules can also be passed in.
+
+    To make it easier to understand, given is a small example::
+
+        # Example of using Sequential
+        model = Sequential(
+                  nn.Conv2d(1,20,5),
+                  nn.ReLU(),
+                  nn.Conv2d(20,64,5),
+                  nn.ReLU()
+                )
+
+        # Example of using Sequential with OrderedDict
+        model = Sequential(OrderedDict([
+                  ('conv1', nn.Conv2d(1,20,5)),
+                  ('relu1', nn.ReLU()),
+                  ('conv2', nn.Conv2d(20,64,5)),
+                  ('relu2', nn.ReLU())
+                ]))
+        
+        # Example of using Sequential with kwargs(python 3.6+)
+        model = Sequential(
+                  conv1=nn.Conv2d(1,20,5),
+                  relu1=nn.ReLU(),
+                  conv2=nn.Conv2d(20,64,5),
+                  relu2=nn.ReLU()
+                )
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(Sequential, self).__init__()
+        if len(args) == 1 and isinstance(args[0], OrderedDict):
+            for key, module in args[0].items():
+                self.add_module(key, module)
+        else:
+            for idx, module in enumerate(args):
+                self.add_module(str(idx), module)
+        for name, module in kwargs.items():
+            if sys.version_info < (3, 6):
+                raise ValueError('kwargs only supported in py36+')
+            if name in self._modules:
+                raise ValueError('name exists.')
+            self.add_module(name, module)
+
+    def __getitem__(self, idx):
+        if not -len(self) <= idx < len(self):
+            raise IndexError('index {} is out of range'.format(idx))
+        if idx < 0:
+            idx += len(self)
+        it = iter(self._modules.values())
+        for i in range(idx):
+            next(it)
+        return next(it)
+
+    def __len__(self):
+        return len(self._modules)
+
+    def add(self, module, name=None):
+        if name is None:
+            name = str(len(self._modules))
+            if name in self._modules:
+                raise KeyError('name exists')
+        self.add_module(name, module)
+
+    def forward(self, input):
+        for module in self._modules.values():
+            input = module(input)
+        return input
+
+
 def register_rpn(cls, name=None):
     global REGISTERED_RPN_CLASSES
     if name is None:
@@ -373,6 +1025,90 @@ def register_rpn(cls, name=None):
     assert name not in REGISTERED_RPN_CLASSES, f'exist class: {REGISTERED_RPN_CLASSES}'
     REGISTERED_RPN_CLASSES[name] = cls
     return cls
+
+
+class RPN(nn.Module):
+
+    def __init__(self, use_norm=True, num_class=2, layer_nums=(3, 5, 5), layer_strides=(2, 2, 2), num_filters=(128, 128, 256), upsample_strides=(1, 2, 4), num_upsample_filters=(256, 256, 256), num_input_features=128, num_anchor_per_loc=2, encode_background_as_zeros=True, use_direction_classifier=True, use_groupnorm=False, num_groups=32, box_code_size=7, num_direction_bins=2, name='rpn'):
+        """deprecated. exists for checkpoint backward compilability (SECOND v1.0)
+        """
+        super(RPN, self).__init__()
+        self._num_anchor_per_loc = num_anchor_per_loc
+        self._use_direction_classifier = use_direction_classifier
+        assert len(layer_nums) == 3
+        assert len(layer_strides) == len(layer_nums)
+        assert len(num_filters) == len(layer_nums)
+        assert len(upsample_strides) == len(layer_nums)
+        assert len(num_upsample_filters) == len(layer_nums)
+        upsample_strides = [np.round(u).astype(np.int64) for u in upsample_strides]
+        factors = []
+        for i in range(len(layer_nums)):
+            assert int(np.prod(layer_strides[:i + 1])) % upsample_strides[i] == 0
+            factors.append(np.prod(layer_strides[:i + 1]) // upsample_strides[i])
+        assert all([(x == factors[0]) for x in factors])
+        if use_norm:
+            if use_groupnorm:
+                BatchNorm2d = change_default_args(num_groups=num_groups, eps=0.001)(GroupNorm)
+            else:
+                BatchNorm2d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm2d)
+            Conv2d = change_default_args(bias=False)(nn.Conv2d)
+            ConvTranspose2d = change_default_args(bias=False)(nn.ConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            Conv2d = change_default_args(bias=True)(nn.Conv2d)
+            ConvTranspose2d = change_default_args(bias=True)(nn.ConvTranspose2d)
+        block2_input_filters = num_filters[0]
+        self.block1 = Sequential(nn.ZeroPad2d(1), Conv2d(num_input_features, num_filters[0], 3, stride=layer_strides[0]), BatchNorm2d(num_filters[0]), nn.ReLU())
+        for i in range(layer_nums[0]):
+            self.block1.add(Conv2d(num_filters[0], num_filters[0], 3, padding=1))
+            self.block1.add(BatchNorm2d(num_filters[0]))
+            self.block1.add(nn.ReLU())
+        self.deconv1 = Sequential(ConvTranspose2d(num_filters[0], num_upsample_filters[0], upsample_strides[0], stride=upsample_strides[0]), BatchNorm2d(num_upsample_filters[0]), nn.ReLU())
+        self.block2 = Sequential(nn.ZeroPad2d(1), Conv2d(block2_input_filters, num_filters[1], 3, stride=layer_strides[1]), BatchNorm2d(num_filters[1]), nn.ReLU())
+        for i in range(layer_nums[1]):
+            self.block2.add(Conv2d(num_filters[1], num_filters[1], 3, padding=1))
+            self.block2.add(BatchNorm2d(num_filters[1]))
+            self.block2.add(nn.ReLU())
+        self.deconv2 = Sequential(ConvTranspose2d(num_filters[1], num_upsample_filters[1], upsample_strides[1], stride=upsample_strides[1]), BatchNorm2d(num_upsample_filters[1]), nn.ReLU())
+        self.block3 = Sequential(nn.ZeroPad2d(1), Conv2d(num_filters[1], num_filters[2], 3, stride=layer_strides[2]), BatchNorm2d(num_filters[2]), nn.ReLU())
+        for i in range(layer_nums[2]):
+            self.block3.add(Conv2d(num_filters[2], num_filters[2], 3, padding=1))
+            self.block3.add(BatchNorm2d(num_filters[2]))
+            self.block3.add(nn.ReLU())
+        self.deconv3 = Sequential(ConvTranspose2d(num_filters[2], num_upsample_filters[2], upsample_strides[2], stride=upsample_strides[2]), BatchNorm2d(num_upsample_filters[2]), nn.ReLU())
+        if encode_background_as_zeros:
+            num_cls = num_anchor_per_loc * num_class
+        else:
+            num_cls = num_anchor_per_loc * (num_class + 1)
+        self.conv_cls = nn.Conv2d(sum(num_upsample_filters), num_cls, 1)
+        self.conv_box = nn.Conv2d(sum(num_upsample_filters), num_anchor_per_loc * box_code_size, 1)
+        if use_direction_classifier:
+            self.conv_dir_cls = nn.Conv2d(sum(num_upsample_filters), num_anchor_per_loc * num_direction_bins, 1)
+        if self._use_rc_net:
+            self.conv_rc = nn.Conv2d(sum(num_upsample_filters), num_anchor_per_loc * box_code_size, 1)
+
+    def forward(self, x):
+        x = self.block1(x)
+        up1 = self.deconv1(x)
+        x = self.block2(x)
+        up2 = self.deconv2(x)
+        x = self.block3(x)
+        up3 = self.deconv3(x)
+        x = torch.cat([up1, up2, up3], dim=1)
+        box_preds = self.conv_box(x)
+        cls_preds = self.conv_cls(x)
+        box_preds = box_preds.permute(0, 2, 3, 1).contiguous()
+        cls_preds = cls_preds.permute(0, 2, 3, 1).contiguous()
+        ret_dict = {'box_preds': box_preds, 'cls_preds': cls_preds}
+        if self._use_direction_classifier:
+            dir_cls_preds = self.conv_dir_cls(x)
+            dir_cls_preds = dir_cls_preds.permute(0, 2, 3, 1).contiguous()
+            ret_dict['dir_cls_preds'] = dir_cls_preds
+        if self._use_rc_net:
+            rc_preds = self.conv_rc(x)
+            rc_preds = rc_preds.permute(0, 2, 3, 1).contiguous()
+            ret_dict['rc_preds'] = rc_preds
+        return ret_dict
 
 
 class RPNNoHeadBase(nn.Module):
@@ -459,6 +1195,128 @@ class RPNNoHeadBase(nn.Module):
         return res
 
 
+class RPNBase(RPNNoHeadBase):
+
+    def __init__(self, use_norm=True, num_class=2, layer_nums=(3, 5, 5), layer_strides=(2, 2, 2), num_filters=(128, 128, 256), upsample_strides=(1, 2, 4), num_upsample_filters=(256, 256, 256), num_input_features=128, num_anchor_per_loc=2, encode_background_as_zeros=True, use_direction_classifier=True, use_groupnorm=False, num_groups=32, box_code_size=7, num_direction_bins=2, name='rpn'):
+        """upsample_strides support float: [0.25, 0.5, 1]
+        if upsample_strides < 1, conv2d will be used instead of convtranspose2d.
+        """
+        super(RPNBase, self).__init__(use_norm=use_norm, num_class=num_class, layer_nums=layer_nums, layer_strides=layer_strides, num_filters=num_filters, upsample_strides=upsample_strides, num_upsample_filters=num_upsample_filters, num_input_features=num_input_features, num_anchor_per_loc=num_anchor_per_loc, encode_background_as_zeros=encode_background_as_zeros, use_direction_classifier=use_direction_classifier, use_groupnorm=use_groupnorm, num_groups=num_groups, box_code_size=box_code_size, num_direction_bins=num_direction_bins, name=name)
+        self._num_anchor_per_loc = num_anchor_per_loc
+        self._num_direction_bins = num_direction_bins
+        self._num_class = num_class
+        self._use_direction_classifier = use_direction_classifier
+        self._box_code_size = box_code_size
+        if encode_background_as_zeros:
+            num_cls = num_anchor_per_loc * num_class
+        else:
+            num_cls = num_anchor_per_loc * (num_class + 1)
+        if len(num_upsample_filters) == 0:
+            final_num_filters = self._num_out_filters
+        else:
+            final_num_filters = sum(num_upsample_filters)
+        self.conv_cls = nn.Conv2d(final_num_filters, num_cls, 1)
+        self.conv_box = nn.Conv2d(final_num_filters, num_anchor_per_loc * box_code_size, 1)
+        if use_direction_classifier:
+            self.conv_dir_cls = nn.Conv2d(final_num_filters, num_anchor_per_loc * num_direction_bins, 1)
+
+    def forward(self, x):
+        res = super().forward(x)
+        x = res['out']
+        box_preds = self.conv_box(x)
+        cls_preds = self.conv_cls(x)
+        C, H, W = box_preds.shape[1:]
+        box_preds = box_preds.view(-1, self._num_anchor_per_loc, self._box_code_size, H, W).permute(0, 1, 3, 4, 2).contiguous()
+        cls_preds = cls_preds.view(-1, self._num_anchor_per_loc, self._num_class, H, W).permute(0, 1, 3, 4, 2).contiguous()
+        ret_dict = {'box_preds': box_preds, 'cls_preds': cls_preds}
+        if self._use_direction_classifier:
+            dir_cls_preds = self.conv_dir_cls(x)
+            dir_cls_preds = dir_cls_preds.view(-1, self._num_anchor_per_loc, self._num_direction_bins, H, W).permute(0, 1, 3, 4, 2).contiguous()
+            ret_dict['dir_cls_preds'] = dir_cls_preds
+        return ret_dict
+
+
+def conv1x1(in_planes, out_planes, stride=1):
+    """1x1 convolution"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
+
+
+class ResNetRPN(RPNBase):
+
+    def __init__(self, *args, **kw):
+        self.inplanes = -1
+        super(ResNetRPN, self).__init__(*args, **kw)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+        for m in self.modules():
+            if isinstance(m, resnet.Bottleneck):
+                nn.init.constant_(m.bn3.weight, 0)
+            elif isinstance(m, resnet.BasicBlock):
+                nn.init.constant_(m.bn2.weight, 0)
+
+    def _make_layer(self, inplanes, planes, num_blocks, stride=1):
+        if self.inplanes == -1:
+            self.inplanes = self._num_input_features
+        block = resnet.BasicBlock
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), nn.BatchNorm2d(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for _ in range(1, num_blocks):
+            layers.append(block(self.inplanes, planes))
+        return nn.Sequential(*layers), self.inplanes
+
+
+class RPNV2(RPNBase):
+
+    def _make_layer(self, inplanes, planes, num_blocks, stride=1):
+        if self._use_norm:
+            if self._use_groupnorm:
+                BatchNorm2d = change_default_args(num_groups=self._num_groups, eps=0.001)(GroupNorm)
+            else:
+                BatchNorm2d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm2d)
+            Conv2d = change_default_args(bias=False)(nn.Conv2d)
+            ConvTranspose2d = change_default_args(bias=False)(nn.ConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            Conv2d = change_default_args(bias=True)(nn.Conv2d)
+            ConvTranspose2d = change_default_args(bias=True)(nn.ConvTranspose2d)
+        block = Sequential(nn.ZeroPad2d(1), Conv2d(inplanes, planes, 3, stride=stride), BatchNorm2d(planes), nn.ReLU())
+        for j in range(num_blocks):
+            block.add(Conv2d(planes, planes, 3, padding=1))
+            block.add(BatchNorm2d(planes))
+            block.add(nn.ReLU())
+        return block, planes
+
+
+class RPNNoHead(RPNNoHeadBase):
+
+    def _make_layer(self, inplanes, planes, num_blocks, stride=1):
+        if self._use_norm:
+            if self._use_groupnorm:
+                BatchNorm2d = change_default_args(num_groups=self._num_groups, eps=0.001)(GroupNorm)
+            else:
+                BatchNorm2d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm2d)
+            Conv2d = change_default_args(bias=False)(nn.Conv2d)
+            ConvTranspose2d = change_default_args(bias=False)(nn.ConvTranspose2d)
+        else:
+            BatchNorm2d = Empty
+            Conv2d = change_default_args(bias=True)(nn.Conv2d)
+            ConvTranspose2d = change_default_args(bias=True)(nn.ConvTranspose2d)
+        block = Sequential(nn.ZeroPad2d(1), Conv2d(inplanes, planes, 3, stride=stride), BatchNorm2d(planes), nn.ReLU())
+        for j in range(num_blocks):
+            block.add(Conv2d(planes, planes, 3, padding=1))
+            block.add(BatchNorm2d(planes))
+            block.add(nn.ReLU())
+        return block, planes
+
+
 class VFELayer(nn.Module):
 
     def __init__(self, in_channels, out_channels, use_norm=True, name='vfe'):
@@ -483,6 +1341,124 @@ class VFELayer(nn.Module):
         repeated = aggregated.repeat(1, voxel_count, 1)
         concatenated = torch.cat([pointwise, repeated], dim=2)
         return concatenated
+
+
+class VoxelFeatureExtractor(nn.Module):
+
+    def __init__(self, num_input_features=4, use_norm=True, num_filters=[32, 128], with_distance=False, voxel_size=(0.2, 0.2, 4), pc_range=(0, -40, -3, 70.4, 40, 1), name='VoxelFeatureExtractor'):
+        super(VoxelFeatureExtractor, self).__init__()
+        self.name = name
+        if use_norm:
+            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm1d)
+            Linear = change_default_args(bias=False)(nn.Linear)
+        else:
+            BatchNorm1d = Empty
+            Linear = change_default_args(bias=True)(nn.Linear)
+        assert len(num_filters) == 2
+        num_input_features += 3
+        if with_distance:
+            num_input_features += 1
+        self._with_distance = with_distance
+        self.vfe1 = VFELayer(num_input_features, num_filters[0], use_norm)
+        self.vfe2 = VFELayer(num_filters[0], num_filters[1], use_norm)
+        self.linear = Linear(num_filters[1], num_filters[1])
+        self.norm = BatchNorm1d(num_filters[1])
+
+    def forward(self, features, num_voxels, coors):
+        points_mean = features[:, :, :3].sum(dim=1, keepdim=True) / num_voxels.type_as(features).view(-1, 1, 1)
+        features_relative = features[:, :, :3] - points_mean
+        if self._with_distance:
+            points_dist = torch.norm(features[:, :, :3], 2, 2, keepdim=True)
+            features = torch.cat([features, features_relative, points_dist], dim=-1)
+        else:
+            features = torch.cat([features, features_relative], dim=-1)
+        voxel_count = features.shape[1]
+        mask = get_paddings_indicator(num_voxels, voxel_count, axis=0)
+        mask = torch.unsqueeze(mask, -1).type_as(features)
+        x = self.vfe1(features)
+        x *= mask
+        x = self.vfe2(x)
+        x *= mask
+        x = self.linear(x)
+        x = self.norm(x.permute(0, 2, 1).contiguous()).permute(0, 2, 1).contiguous()
+        x = F.relu(x)
+        x *= mask
+        voxelwise = torch.max(x, dim=1)[0]
+        return voxelwise
+
+
+class VoxelFeatureExtractorV2(nn.Module):
+    """VoxelFeatureExtractor with arbitrary number of VFE. deprecated.
+    """
+
+    def __init__(self, num_input_features=4, use_norm=True, num_filters=[32, 128], with_distance=False, voxel_size=(0.2, 0.2, 4), pc_range=(0, -40, -3, 70.4, 40, 1), name='VoxelFeatureExtractor'):
+        super(VoxelFeatureExtractorV2, self).__init__()
+        self.name = name
+        if use_norm:
+            BatchNorm1d = change_default_args(eps=0.001, momentum=0.01)(nn.BatchNorm1d)
+            Linear = change_default_args(bias=False)(nn.Linear)
+        else:
+            BatchNorm1d = Empty
+            Linear = change_default_args(bias=True)(nn.Linear)
+        assert len(num_filters) > 0
+        num_input_features += 3
+        if with_distance:
+            num_input_features += 1
+        self._with_distance = with_distance
+        num_filters = [num_input_features] + num_filters
+        filters_pairs = [[num_filters[i], num_filters[i + 1]] for i in range(len(num_filters) - 1)]
+        self.vfe_layers = nn.ModuleList([VFELayer(i, o, use_norm) for i, o in filters_pairs])
+        self.linear = Linear(num_filters[-1], num_filters[-1])
+        self.norm = BatchNorm1d(num_filters[-1])
+
+    def forward(self, features, num_voxels, coors):
+        points_mean = features[:, :, :3].sum(dim=1, keepdim=True) / num_voxels.type_as(features).view(-1, 1, 1)
+        features_relative = features[:, :, :3] - points_mean
+        if self._with_distance:
+            points_dist = torch.norm(features[:, :, :3], 2, 2, keepdim=True)
+            features = torch.cat([features, features_relative, points_dist], dim=-1)
+        else:
+            features = torch.cat([features, features_relative], dim=-1)
+        voxel_count = features.shape[1]
+        mask = get_paddings_indicator(num_voxels, voxel_count, axis=0)
+        mask = torch.unsqueeze(mask, -1).type_as(features)
+        for vfe in self.vfe_layers:
+            features = vfe(features)
+            features *= mask
+        features = self.linear(features)
+        features = self.norm(features.permute(0, 2, 1).contiguous()).permute(0, 2, 1).contiguous()
+        features = F.relu(features)
+        features *= mask
+        voxelwise = torch.max(features, dim=1)[0]
+        return voxelwise
+
+
+class SimpleVoxel(nn.Module):
+
+    def __init__(self, num_input_features=4, use_norm=True, num_filters=[32, 128], with_distance=False, voxel_size=(0.2, 0.2, 4), pc_range=(0, -40, -3, 70.4, 40, 1), name='VoxelFeatureExtractor'):
+        super(SimpleVoxel, self).__init__()
+        self.name = name
+        self.num_input_features = num_input_features
+
+    def forward(self, features, num_voxels, coors):
+        points_mean = features[:, :, :self.num_input_features].sum(dim=1, keepdim=False) / num_voxels.type_as(features).view(-1, 1)
+        return points_mean.contiguous()
+
+
+class SimpleVoxelRadius(nn.Module):
+    """Simple voxel encoder. only keep r, z and reflection feature.
+    """
+
+    def __init__(self, num_input_features=4, use_norm=True, num_filters=(32, 128), with_distance=False, voxel_size=(0.2, 0.2, 4), pc_range=(0, -40, -3, 70.4, 40, 1), name='SimpleVoxelRadius'):
+        super(SimpleVoxelRadius, self).__init__()
+        self.num_input_features = num_input_features
+        self.name = name
+
+    def forward(self, features, num_voxels, coors):
+        points_mean = features[:, :, :self.num_input_features].sum(dim=1, keepdim=False) / num_voxels.type_as(features).view(-1, 1)
+        feature = torch.norm(points_mean[:, :2], p=2, dim=1, keepdim=True)
+        res = torch.cat([feature, points_mean[:, 2:self.num_input_features]], dim=1)
+        return res
 
 
 class LossNormType(Enum):
@@ -570,7 +1546,7 @@ class WeightedSmoothL1LocalizationLoss(Loss):
     """
         diff = prediction_tensor - target_tensor
         if self._code_weights is not None:
-            code_weights = self._code_weights.type_as(prediction_tensor).to(target_tensor.device)
+            code_weights = self._code_weights.type_as(prediction_tensor)
             diff = code_weights.view(1, 1, -1) * diff
         abs_diff = torch.abs(diff)
         abs_diff_lt_1 = torch.le(abs_diff, 1 / self._sigma ** 2).type_as(abs_diff)
@@ -969,98 +1945,6 @@ class PrecisionRecall(nn.Module):
         self.rec_total.zero_()
 
 
-class Empty(torch.nn.Module):
-
-    def __init__(self, *args, **kwargs):
-        super(Empty, self).__init__()
-
-    def forward(self, *args, **kwargs):
-        if len(args) == 1:
-            return args[0]
-        elif len(args) == 0:
-            return None
-        return args
-
-
-class Sequential(torch.nn.Module):
-    """A sequential container.
-    Modules will be added to it in the order they are passed in the constructor.
-    Alternatively, an ordered dict of modules can also be passed in.
-
-    To make it easier to understand, given is a small example::
-
-        # Example of using Sequential
-        model = Sequential(
-                  nn.Conv2d(1,20,5),
-                  nn.ReLU(),
-                  nn.Conv2d(20,64,5),
-                  nn.ReLU()
-                )
-
-        # Example of using Sequential with OrderedDict
-        model = Sequential(OrderedDict([
-                  ('conv1', nn.Conv2d(1,20,5)),
-                  ('relu1', nn.ReLU()),
-                  ('conv2', nn.Conv2d(20,64,5)),
-                  ('relu2', nn.ReLU())
-                ]))
-        
-        # Example of using Sequential with kwargs(python 3.6+)
-        model = Sequential(
-                  conv1=nn.Conv2d(1,20,5),
-                  relu1=nn.ReLU(),
-                  conv2=nn.Conv2d(20,64,5),
-                  relu2=nn.ReLU()
-                )
-    """
-
-    def __init__(self, *args, **kwargs):
-        super(Sequential, self).__init__()
-        if len(args) == 1 and isinstance(args[0], OrderedDict):
-            for key, module in args[0].items():
-                self.add_module(key, module)
-        else:
-            for idx, module in enumerate(args):
-                self.add_module(str(idx), module)
-        for name, module in kwargs.items():
-            if sys.version_info < (3, 6):
-                raise ValueError('kwargs only supported in py36+')
-            if name in self._modules:
-                raise ValueError('name exists.')
-            self.add_module(name, module)
-
-    def __getitem__(self, idx):
-        if not -len(self) <= idx < len(self):
-            raise IndexError('index {} is out of range'.format(idx))
-        if idx < 0:
-            idx += len(self)
-        it = iter(self._modules.values())
-        for i in range(idx):
-            next(it)
-        return next(it)
-
-    def __len__(self):
-        return len(self._modules)
-
-    def add(self, module, name=None):
-        if name is None:
-            name = str(len(self._modules))
-            if name in self._modules:
-                raise KeyError('name exists')
-        self.add_module(name, module)
-
-    def forward(self, input):
-        for module in self._modules.values():
-            input = module(input)
-        return input
-
-
-class GroupNorm(torch.nn.GroupNorm):
-
-    def __init__(self, num_channels, num_groups, eps=1e-05, affine=True):
-        super().__init__(num_groups=num_groups, num_channels=num_channels, eps=eps, affine=affine)
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1084,10 +1968,30 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      True),
+    (RPNNoHead,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     False),
+    (RPNV2,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     False),
+    (ResNetRPN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     False),
     (Sequential,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (SimpleVoxel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([64, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
+    (SimpleVoxelRadius,
+     lambda: ([], {}),
+     lambda: ([torch.rand([64, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
     (SmallObjectHead,
      lambda: ([], {'num_filters': 4, 'num_class': 4, 'num_anchor_per_loc': 4, 'box_code_size': 4, 'num_direction_bins': 4, 'use_direction_classifier': 4, 'encode_background_as_zeros': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1119,4 +2023,19 @@ class Test_traveller59_second_pytorch(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
 

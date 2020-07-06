@@ -87,15 +87,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -127,6 +128,9 @@ from collections import Counter
 import torch.optim as optim
 
 
+from torch import optim
+
+
 import copy
 
 
@@ -142,11 +146,44 @@ from torch.optim import Adam
 import torch.nn.functional as functional
 
 
-from torch import optim
-
-
 from torch.distributions import Normal
 
 
 from torch import nn
+
+
+from torch.distributions import Categorical
+
+
+from torch.distributions.normal import Normal
+
+
+from torch.optim import Optimizer
+
+
+from torch.multiprocessing import Pool
+
+
+from random import randint
+
+
+import math
+
+
+from abc import ABCMeta
+
+
+from torch.distributions import normal
+
+
+from torch.distributions import MultivariateNormal
+
+
+from collections import namedtuple
+
+
+from collections import deque
+
+
+from torch.distributions import Distribution
 

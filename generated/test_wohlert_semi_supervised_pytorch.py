@@ -19,23 +19,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import math
-
-
 import torch
+
+
+import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data.sampler import SubsetRandomSampler
+
+
+import math
 
 
 import torch.nn.functional as F
@@ -112,7 +125,7 @@ def enumerate_discrete(x, y_dim):
     batch_size = x.size(0)
     generated = torch.cat([batch(batch_size, i) for i in range(y_dim)])
     if x.is_cuda:
-        generated = generated.cuda()
+        generated = generated
     return Variable(generated.float())
 
 
@@ -234,6 +247,77 @@ class Stochastic(nn.Module):
         return z
 
 
+class GaussianSample(Stochastic):
+    """
+    Layer that represents a sample from a
+    Gaussian distribution.
+    """
+
+    def __init__(self, in_features, out_features):
+        super(GaussianSample, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.mu = nn.Linear(in_features, out_features)
+        self.log_var = nn.Linear(in_features, out_features)
+
+    def forward(self, x):
+        mu = self.mu(x)
+        log_var = F.softplus(self.log_var(x))
+        return self.reparametrize(mu, log_var), mu, log_var
+
+
+class GaussianMerge(GaussianSample):
+    """
+    Precision weighted merging of two Gaussian
+    distributions.
+    Merges information from z into the given
+    mean and log variance and produces
+    a sample from this new distribution.
+    """
+
+    def __init__(self, in_features, out_features):
+        super(GaussianMerge, self).__init__(in_features, out_features)
+
+    def forward(self, z, mu1, log_var1):
+        mu2 = self.mu(z)
+        log_var2 = F.softplus(self.log_var(z))
+        precision1, precision2 = 1 / torch.exp(log_var1), 1 / torch.exp(log_var2)
+        mu = (mu1 * precision1 + mu2 * precision2) / (precision1 + precision2)
+        var = 1 / (precision1 + precision2)
+        log_var = torch.log(var + 1e-08)
+        return self.reparametrize(mu, log_var), mu, log_var
+
+
+class GumbelSoftmax(Stochastic):
+    """
+    Layer that represents a sample from a categorical
+    distribution. Enables sampling and stochastic
+    backpropagation using the Gumbel-Softmax trick.
+    """
+
+    def __init__(self, in_features, out_features, n_distributions):
+        super(GumbelSoftmax, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.n_distributions = n_distributions
+        self.logits = nn.Linear(in_features, n_distributions * out_features)
+
+    def forward(self, x, tau=1.0):
+        logits = self.logits(x).view(-1, self.n_distributions)
+        softmax = F.softmax(logits, dim=-1)
+        sample = self.reparametrize(logits, tau).view(-1, self.n_distributions, self.out_features)
+        sample = torch.mean(sample, dim=1)
+        return sample, softmax
+
+    def reparametrize(self, logits, tau=1.0):
+        epsilon = Variable(torch.rand(logits.size()), requires_grad=False)
+        if logits.is_cuda:
+            epsilon = epsilon
+        gumbel = -torch.log(-torch.log(epsilon + 1e-08) + 1e-08)
+        y = F.softmax((logits + gumbel) / tau, dim=1)
+        return y
+
+
 class Classifier(nn.Module):
 
     def __init__(self, dims):
@@ -269,25 +353,6 @@ class Perceptron(nn.Module):
             else:
                 x = self.activation_fn(x)
         return x
-
-
-class GaussianSample(Stochastic):
-    """
-    Layer that represents a sample from a
-    Gaussian distribution.
-    """
-
-    def __init__(self, in_features, out_features):
-        super(GaussianSample, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.mu = nn.Linear(in_features, out_features)
-        self.log_var = nn.Linear(in_features, out_features)
-
-    def forward(self, x):
-        mu = self.mu(x)
-        log_var = F.softplus(self.log_var(x))
-        return self.reparametrize(mu, log_var), mu, log_var
 
 
 class Encoder(nn.Module):
@@ -449,36 +514,6 @@ class VariationalAutoencoder(nn.Module):
         return self.decoder(z)
 
 
-class GumbelSoftmax(Stochastic):
-    """
-    Layer that represents a sample from a categorical
-    distribution. Enables sampling and stochastic
-    backpropagation using the Gumbel-Softmax trick.
-    """
-
-    def __init__(self, in_features, out_features, n_distributions):
-        super(GumbelSoftmax, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.n_distributions = n_distributions
-        self.logits = nn.Linear(in_features, n_distributions * out_features)
-
-    def forward(self, x, tau=1.0):
-        logits = self.logits(x).view(-1, self.n_distributions)
-        softmax = F.softmax(logits, dim=-1)
-        sample = self.reparametrize(logits, tau).view(-1, self.n_distributions, self.out_features)
-        sample = torch.mean(sample, dim=1)
-        return sample, softmax
-
-    def reparametrize(self, logits, tau=1.0):
-        epsilon = Variable(torch.rand(logits.size()), requires_grad=False)
-        if logits.is_cuda:
-            epsilon = epsilon.cuda()
-        gumbel = -torch.log(-torch.log(epsilon + 1e-08) + 1e-08)
-        y = F.softmax((logits + gumbel) / tau, dim=1)
-        return y
-
-
 class GumbelAutoencoder(nn.Module):
 
     def __init__(self, dims, n_samples=100):
@@ -537,28 +572,6 @@ class LadderEncoder(nn.Module):
         return x, self.sample(x)
 
 
-class GaussianMerge(GaussianSample):
-    """
-    Precision weighted merging of two Gaussian
-    distributions.
-    Merges information from z into the given
-    mean and log variance and produces
-    a sample from this new distribution.
-    """
-
-    def __init__(self, in_features, out_features):
-        super(GaussianMerge, self).__init__(in_features, out_features)
-
-    def forward(self, z, mu1, log_var1):
-        mu2 = self.mu(z)
-        log_var2 = F.softplus(self.log_var(z))
-        precision1, precision2 = 1 / torch.exp(log_var1), 1 / torch.exp(log_var2)
-        mu = (mu1 * precision1 + mu2 * precision2) / (precision1 + precision2)
-        var = 1 / (precision1 + precision2)
-        log_var = torch.log(var + 1e-08)
-        return self.reparametrize(mu, log_var), mu, log_var
-
-
 class LadderDecoder(nn.Module):
 
     def __init__(self, dims):
@@ -591,6 +604,53 @@ class LadderDecoder(nn.Module):
         if l_mu is None:
             return z
         return z, (q_z, (q_mu, q_log_var), (p_mu, p_log_var))
+
+
+class LadderVariationalAutoencoder(VariationalAutoencoder):
+
+    def __init__(self, dims):
+        """
+        Ladder Variational Autoencoder as described by
+        [Sønderby 2016]. Adds several stochastic
+        layers to improve the log-likelihood estimate.
+
+        :param dims: x, z and hidden dimensions of the networks
+        """
+        [x_dim, z_dim, h_dim] = dims
+        super(LadderVariationalAutoencoder, self).__init__([x_dim, z_dim[0], h_dim])
+        neurons = [x_dim, *h_dim]
+        encoder_layers = [LadderEncoder([neurons[i - 1], neurons[i], z_dim[i - 1]]) for i in range(1, len(neurons))]
+        decoder_layers = [LadderDecoder([z_dim[i - 1], h_dim[i - 1], z_dim[i]]) for i in range(1, len(h_dim))][::-1]
+        self.encoder = nn.ModuleList(encoder_layers)
+        self.decoder = nn.ModuleList(decoder_layers)
+        self.reconstruction = Decoder([z_dim[0], h_dim, x_dim])
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                init.xavier_normal(m.weight.data)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+
+    def forward(self, x):
+        latents = []
+        for encoder in self.encoder:
+            x, (z, mu, log_var) = encoder(x)
+            latents.append((mu, log_var))
+        latents = list(reversed(latents))
+        self.kl_divergence = 0
+        for i, decoder in enumerate([-1, *self.decoder]):
+            l_mu, l_log_var = latents[i]
+            if i == 0:
+                self.kl_divergence += self._kld(z, (l_mu, l_log_var))
+            else:
+                z, kl = decoder(z, l_mu, l_log_var)
+                self.kl_divergence += self._kld(*kl)
+        x_mu = self.reconstruction(z)
+        return x_mu
+
+    def sample(self, z):
+        for decoder in self.decoder:
+            z = decoder(z)
+        return self.reconstruction(z)
 
 
 import torch

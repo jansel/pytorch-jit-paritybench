@@ -48,15 +48,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -64,7 +65,25 @@ __version__ = '1.0.0'
 import torch
 
 
+from torch.utils.data import DataLoader
+
+
+import torchvision.transforms as transforms
+
+
+import numpy as np
+
+
+from torch.utils.data.sampler import Sampler
+
+
+import torch.utils.data as data
+
+
 import torch.nn as nn
+
+
+import logging
 
 
 import torch.nn
@@ -82,10 +101,10 @@ from torch import set_grad_enabled
 import math
 
 
-import numpy as np
-
-
 import random
+
+
+import time
 
 
 from torchvision.datasets.cifar import CIFAR10
@@ -483,6 +502,13 @@ class AdditiveCoupling(nn.Module):
         else:
             raise NotImplementedError('Inverse for selected implementation ({}) not implemented...'.format(self.implementation_bwd))
         return x
+
+
+class AdditiveBlock(AdditiveCoupling):
+
+    def __init__(self, Fm, Gm=None, implementation_fwd=1, implementation_bwd=1):
+        warnings.warn('This class has been deprecated. Use the AdditiveCoupling class instead.', DeprecationWarning)
+        super(AdditiveBlock, self).__init__(Fm=Fm, Gm=Gm, implementation_fwd=implementation_fwd, implementation_bwd=implementation_bwd)
 
 
 class AffineAdapterNaive(nn.Module):
@@ -937,133 +963,16 @@ class AffineCoupling(nn.Module):
         return x
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
+class AffineBlock(AffineCoupling):
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
-        super(BasicBlock, self).__init__()
-        self.basicblock_sub = BasicBlockSub(inplanes, planes, stride, noactivation)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.basicblock_sub(x)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
-        super(Bottleneck, self).__init__()
-        self.bottleneck_sub = BottleneckSub(inplanes, planes, stride, noactivation)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.bottleneck_sub(x)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        return out
-
-
-def create_coupling(Fm, Gm=None, coupling='additive', implementation_fwd=-1, implementation_bwd=-1, adapter=None):
-    if coupling == 'additive':
-        fn = AdditiveCoupling(Fm, Gm, implementation_fwd=implementation_fwd, implementation_bwd=implementation_bwd)
-    elif coupling == 'affine':
-        fn = AffineCoupling(Fm, Gm, adapter=adapter, implementation_fwd=implementation_fwd, implementation_bwd=implementation_bwd)
-    else:
-        raise NotImplementedError('Unknown coupling method: %s' % coupling)
-    return fn
-
-
-class RevBasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
-        super(RevBasicBlock, self).__init__()
-        if downsample is None and stride == 1:
-            gm = BasicBlockSub(inplanes // 2, planes // 2, stride, noactivation)
-            fm = BasicBlockSub(inplanes // 2, planes // 2, stride, noactivation)
-            coupling = create_coupling(Fm=fm, Gm=gm, coupling='additive')
-            self.revblock = InvertibleModuleWrapper(fn=coupling, keep_input=False)
-        else:
-            self.basicblock_sub = BasicBlockSub(inplanes, planes, stride, noactivation)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        if self.downsample is not None:
-            out = self.basicblock_sub(x)
-            residual = self.downsample(x)
-            out += residual
-        else:
-            out = self.revblock(x)
-        return out
-
-
-class RevBottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
-        super(RevBottleneck, self).__init__()
-        if downsample is None and stride == 1:
-            gm = BottleneckSub(inplanes // 2, planes // 2, stride, noactivation)
-            fm = BottleneckSub(inplanes // 2, planes // 2, stride, noactivation)
-            coupling = create_coupling(Fm=fm, Gm=gm, coupling='additive')
-            self.revblock = InvertibleModuleWrapper(fn=coupling, keep_input=False)
-        else:
-            self.bottleneck_sub = BottleneckSub(inplanes, planes, stride, noactivation)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        if self.downsample is not None:
-            out = self.bottleneck_sub(x)
-            residual = self.downsample(x)
-            out += residual
-        else:
-            out = self.revblock(x)
-        return out
+    def __init__(self, Fm, Gm=None, implementation_fwd=1, implementation_bwd=1):
+        warnings.warn('This class has been deprecated. Use the AffineCoupling class instead.', DeprecationWarning)
+        super(AffineBlock, self).__init__(Fm=Fm, Gm=Gm, implementation_fwd=implementation_fwd, implementation_bwd=implementation_bwd)
 
 
 def batch_norm(x):
     """match Tensorflow batch norm settings"""
     return nn.BatchNorm2d(x, momentum=0.99, eps=0.001)
-
-
-class BottleneckSub(nn.Module):
-
-    def __init__(self, inplanes, planes, stride=1, noactivation=False):
-        super(BottleneckSub, self).__init__()
-        self.noactivation = noactivation
-        if not self.noactivation:
-            self.bn1 = batch_norm(inplanes)
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn2 = batch_norm(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn3 = batch_norm(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        if not self.noactivation:
-            x = self.bn1(x)
-            x = self.relu(x)
-        x = self.conv1(x)
-        x = self.bn2(x)
-        x = self.relu(x)
-        x = self.conv2(x)
-        x = self.bn3(x)
-        x = self.relu(x)
-        x = self.conv3(x)
-        return x
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -1094,88 +1003,68 @@ class BasicBlockSub(nn.Module):
         return x
 
 
-class ResNet(nn.Module):
+class BasicBlock(nn.Module):
+    expansion = 1
 
-    def __init__(self, block, layers, num_classes=1000, channels_per_layer=None, strides=None, init_max_pool=False, init_kernel_size=7, batch_norm_fix=True, implementation=0):
-        if channels_per_layer is None:
-            channels_per_layer = [(2 ** (i + 6)) for i in range(len(layers))]
-            channels_per_layer = [channels_per_layer[0]] + channels_per_layer
-        if strides is None:
-            strides = [2] * len(channels_per_layer)
-        self.batch_norm_fix = batch_norm_fix
-        self.channels_per_layer = channels_per_layer
-        self.strides = strides
-        self.init_max_pool = init_max_pool
-        self.implementation = implementation
-        assert len(self.channels_per_layer) == len(layers) + 1
-        self.inplanes = channels_per_layer[0]
-        super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=init_kernel_size, stride=strides[0], padding=(init_kernel_size - 1) // 2, bias=False)
-        self.bn1 = batch_norm(self.inplanes)
-        self.relu = nn.ReLU(inplace=False)
-        if self.init_max_pool:
-            self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, channels_per_layer[1], layers[0], stride=strides[1], noactivation=True)
-        self.layer2 = self._make_layer(block, channels_per_layer[2], layers[1], stride=strides[2])
-        self.layer3 = self._make_layer(block, channels_per_layer[3], layers[2], stride=strides[3])
-        self.has_4_layers = len(layers) >= 4
-        if self.has_4_layers:
-            self.layer4 = self._make_layer(block, channels_per_layer[4], layers[3], stride=strides[4])
-        self.bn_final = batch_norm(self.inplanes)
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(channels_per_layer[-1] * block.expansion, num_classes)
-        self.configure()
-        self.init_weights()
-
-    def init_weights(self):
-        """Initialization using He initialization"""
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.reset_parameters()
-
-    def configure(self):
-        """Initialization specific configuration settings"""
-        for m in self.modules():
-            if isinstance(m, InvertibleModuleWrapper):
-                m.implementation = self.implementation
-            elif isinstance(m, nn.BatchNorm2d):
-                if self.batch_norm_fix:
-                    m.momentum = 0.99
-                    m.eps = 0.001
-                else:
-                    m.momentum = 0.1
-                    m.eps = 1e-05
-
-    def _make_layer(self, block, planes, blocks, stride=1, noactivation=False):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), batch_norm(planes * block.expansion))
-        layers = [block(self.inplanes, planes, stride, downsample, noactivation)]
-        self.inplanes = planes * block.expansion
-        for _ in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
+    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
+        super(BasicBlock, self).__init__()
+        self.basicblock_sub = BasicBlockSub(inplanes, planes, stride, noactivation)
+        self.downsample = downsample
+        self.stride = stride
 
     def forward(self, x):
+        residual = x
+        out = self.basicblock_sub(x)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        return out
+
+
+class BottleneckSub(nn.Module):
+
+    def __init__(self, inplanes, planes, stride=1, noactivation=False):
+        super(BottleneckSub, self).__init__()
+        self.noactivation = noactivation
+        if not self.noactivation:
+            self.bn1 = batch_norm(inplanes)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn2 = batch_norm(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn3 = batch_norm(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        if not self.noactivation:
+            x = self.bn1(x)
+            x = self.relu(x)
         x = self.conv1(x)
-        x = self.bn1(x)
+        x = self.bn2(x)
         x = self.relu(x)
-        if self.init_max_pool:
-            x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        if self.has_4_layers:
-            x = self.layer4(x)
-        x = self.bn_final(x)
+        x = self.conv2(x)
+        x = self.bn3(x)
         x = self.relu(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
+        x = self.conv3(x)
         return x
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
+        super(Bottleneck, self).__init__()
+        self.bottleneck_sub = BottleneckSub(inplanes, planes, stride, noactivation)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.bottleneck_sub(x)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        return out
 
 
 class InvertibleCheckpointFunction(torch.autograd.Function):
@@ -1339,6 +1228,224 @@ class InvertibleModuleWrapper(nn.Module):
         if isinstance(x, tuple) and len(x) == 1:
             return x[0]
         return x
+
+
+def create_coupling(Fm, Gm=None, coupling='additive', implementation_fwd=-1, implementation_bwd=-1, adapter=None):
+    if coupling == 'additive':
+        fn = AdditiveCoupling(Fm, Gm, implementation_fwd=implementation_fwd, implementation_bwd=implementation_bwd)
+    elif coupling == 'affine':
+        fn = AffineCoupling(Fm, Gm, adapter=adapter, implementation_fwd=implementation_fwd, implementation_bwd=implementation_bwd)
+    else:
+        raise NotImplementedError('Unknown coupling method: %s' % coupling)
+    return fn
+
+
+class RevBasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
+        super(RevBasicBlock, self).__init__()
+        if downsample is None and stride == 1:
+            gm = BasicBlockSub(inplanes // 2, planes // 2, stride, noactivation)
+            fm = BasicBlockSub(inplanes // 2, planes // 2, stride, noactivation)
+            coupling = create_coupling(Fm=fm, Gm=gm, coupling='additive')
+            self.revblock = InvertibleModuleWrapper(fn=coupling, keep_input=False)
+        else:
+            self.basicblock_sub = BasicBlockSub(inplanes, planes, stride, noactivation)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        if self.downsample is not None:
+            out = self.basicblock_sub(x)
+            residual = self.downsample(x)
+            out += residual
+        else:
+            out = self.revblock(x)
+        return out
+
+
+class RevBottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, noactivation=False):
+        super(RevBottleneck, self).__init__()
+        if downsample is None and stride == 1:
+            gm = BottleneckSub(inplanes // 2, planes // 2, stride, noactivation)
+            fm = BottleneckSub(inplanes // 2, planes // 2, stride, noactivation)
+            coupling = create_coupling(Fm=fm, Gm=gm, coupling='additive')
+            self.revblock = InvertibleModuleWrapper(fn=coupling, keep_input=False)
+        else:
+            self.bottleneck_sub = BottleneckSub(inplanes, planes, stride, noactivation)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        if self.downsample is not None:
+            out = self.bottleneck_sub(x)
+            residual = self.downsample(x)
+            out += residual
+        else:
+            out = self.revblock(x)
+        return out
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, block, layers, num_classes=1000, channels_per_layer=None, strides=None, init_max_pool=False, init_kernel_size=7, batch_norm_fix=True, implementation=0):
+        if channels_per_layer is None:
+            channels_per_layer = [(2 ** (i + 6)) for i in range(len(layers))]
+            channels_per_layer = [channels_per_layer[0]] + channels_per_layer
+        if strides is None:
+            strides = [2] * len(channels_per_layer)
+        self.batch_norm_fix = batch_norm_fix
+        self.channels_per_layer = channels_per_layer
+        self.strides = strides
+        self.init_max_pool = init_max_pool
+        self.implementation = implementation
+        assert len(self.channels_per_layer) == len(layers) + 1
+        self.inplanes = channels_per_layer[0]
+        super(ResNet, self).__init__()
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=init_kernel_size, stride=strides[0], padding=(init_kernel_size - 1) // 2, bias=False)
+        self.bn1 = batch_norm(self.inplanes)
+        self.relu = nn.ReLU(inplace=False)
+        if self.init_max_pool:
+            self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, channels_per_layer[1], layers[0], stride=strides[1], noactivation=True)
+        self.layer2 = self._make_layer(block, channels_per_layer[2], layers[1], stride=strides[2])
+        self.layer3 = self._make_layer(block, channels_per_layer[3], layers[2], stride=strides[3])
+        self.has_4_layers = len(layers) >= 4
+        if self.has_4_layers:
+            self.layer4 = self._make_layer(block, channels_per_layer[4], layers[3], stride=strides[4])
+        self.bn_final = batch_norm(self.inplanes)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(channels_per_layer[-1] * block.expansion, num_classes)
+        self.configure()
+        self.init_weights()
+
+    def init_weights(self):
+        """Initialization using He initialization"""
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.reset_parameters()
+
+    def configure(self):
+        """Initialization specific configuration settings"""
+        for m in self.modules():
+            if isinstance(m, InvertibleModuleWrapper):
+                m.implementation = self.implementation
+            elif isinstance(m, nn.BatchNorm2d):
+                if self.batch_norm_fix:
+                    m.momentum = 0.99
+                    m.eps = 0.001
+                else:
+                    m.momentum = 0.1
+                    m.eps = 1e-05
+
+    def _make_layer(self, block, planes, blocks, stride=1, noactivation=False):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), batch_norm(planes * block.expansion))
+        layers = [block(self.inplanes, planes, stride, downsample, noactivation)]
+        self.inplanes = planes * block.expansion
+        for _ in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        if self.init_max_pool:
+            x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        if self.has_4_layers:
+            x = self.layer4(x)
+        x = self.bn_final(x)
+        x = self.relu(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
+
+
+class ReversibleBlock(InvertibleModuleWrapper):
+
+    def __init__(self, Fm, Gm=None, coupling='additive', keep_input=False, keep_input_inverse=False, implementation_fwd=-1, implementation_bwd=-1, adapter=None):
+        """The ReversibleBlock
+
+        Warning
+        -------
+        This class has been deprecated. Use the more flexible InvertibleModuleWrapper class.
+
+        Note
+        ----
+        The `implementation_fwd` and `implementation_bwd` parameters can be set to one of the following implementations:
+
+        * -1 Naive implementation without reconstruction on the backward pass.
+        * 0  Memory efficient implementation, compute gradients directly.
+        * 1  Memory efficient implementation, similar to approach in Gomez et al. 2017.
+
+
+        Parameters
+        ----------
+            Fm : :obj:`torch.nn.Module`
+                A torch.nn.Module encapsulating an arbitrary function
+
+            Gm : :obj:`torch.nn.Module`, optional
+                A torch.nn.Module encapsulating an arbitrary function
+                (If not specified a deepcopy of Fm is used as a Module)
+
+            coupling : :obj:`str`, optional
+                Type of coupling ['additive', 'affine']. Default = 'additive'
+
+            keep_input : :obj:`bool`, optional
+                Set to retain the input information on forward, by default it can be discarded since it will be
+                reconstructed upon the backward pass.
+
+            keep_input_inverse : :obj:`bool`, optional
+                Set to retain the input information on inverse, by default it can be discarded since it will be
+                reconstructed upon the backward pass.
+
+            implementation_fwd : :obj:`int`, optional
+                Switch between different Operation implementations for forward training (Default = 1).
+                If using the naive implementation (-1) then `keep_input` should be True.
+
+            implementation_bwd : :obj:`int`, optional
+                Switch between different Operation implementations for backward training (Default = 1).
+                If using the naive implementation (-1) then `keep_input_inverse` should be True.
+
+            adapter : :obj:`class`, optional
+                Only relevant when using the 'affine' coupling.
+                Should be a class of type :obj:`torch.nn.Module` that serves as an
+                optional wrapper class A for Fm and Gm which must output
+                s, t = A(x) with shape(s) = shape(t) = shape(x).
+                s, t are respectively the scale and shift tensors for the affine coupling.
+
+        Attributes
+        ----------
+            keep_input : :obj:`bool`, optional
+                Set to retain the input information on forward, by default it can be discarded since it will be
+                reconstructed upon the backward pass.
+
+            keep_input_inverse : :obj:`bool`, optional
+                Set to retain the input information on inverse, by default it can be discarded since it will be
+                reconstructed upon the backward pass.
+
+        Raises
+        ------
+        NotImplementedError
+            If an unknown coupling or implementation is given.
+
+        """
+        warnings.warn('This class has been deprecated. Use the more flexible InvertibleModuleWrapper class', DeprecationWarning)
+        fn = create_coupling(Fm=Fm, Gm=Gm, coupling=coupling, implementation_fwd=implementation_fwd, implementation_bwd=implementation_bwd, adapter=adapter)
+        super(ReversibleBlock, self).__init__(fn, keep_input=keep_input, keep_input_inverse=keep_input_inverse)
 
 
 class MultiplicationInverse(torch.nn.Module):

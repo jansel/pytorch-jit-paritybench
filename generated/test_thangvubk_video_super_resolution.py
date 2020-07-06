@@ -14,23 +14,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import torch.nn as nn
+import numpy as np
 
 
 import torch
+
+
+from torch.utils.data import Dataset
+
+
+import torch.nn as nn
 
 
 import torch.nn.functional as F
@@ -40,9 +47,6 @@ import math
 
 
 from torch.autograd import Variable
-
-
-import numpy as np
 
 
 from math import exp
@@ -98,6 +102,17 @@ class VSRCNN(nn.Module):
         return x
 
 
+class Conv_ReLU_Block(nn.Module):
+
+    def __init__(self):
+        super(Conv_ReLU_Block, self).__init__()
+        self.conv = nn.Conv2d(64, 64, 3, padding=1, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        return self.relu(self.conv(x))
+
+
 class VRES(nn.Module):
 
     def __init__(self):
@@ -130,17 +145,6 @@ class VRES(nn.Module):
         return out
 
 
-class Conv_ReLU_Block(nn.Module):
-
-    def __init__(self):
-        super(Conv_ReLU_Block, self).__init__()
-        self.conv = nn.Conv2d(64, 64, 3, padding=1, bias=False)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        return self.relu(self.conv(x))
-
-
 class MFCNN(nn.Module):
 
     def __init__(self):
@@ -161,6 +165,38 @@ class MFCNN(nn.Module):
         x = F.relu(self.conv5(x))
         x = self.conv6(x)
         return x
+
+
+class VRES10(VRES):
+
+    def __init__(self):
+        super(VRES10, self).__init__()
+        self.name = 'VRES10'
+        self.residual_layer = self.make_layer(Conv_ReLU_Block, 8)
+
+
+class VRES5(VRES):
+
+    def __init__(self):
+        super(VRES5, self).__init__()
+        self.name = 'VRES5'
+        self.residual_layer = self.make_layer(Conv_ReLU_Block, 3)
+
+
+class VRES15(VRES):
+
+    def __init__(self):
+        super(VRES15, self).__init__()
+        self.name = 'VRES15'
+        self.residual_layer = self.make_layer(Conv_ReLU_Block, 13)
+
+
+class VRES7(VRES):
+
+    def __init__(self):
+        super(VRES7, self).__init__()
+        self.name = 'VRES7'
+        self.residual_layer = self.make_layer(Conv_ReLU_Block, 5)
 
 
 def _ssim(img1, img2, window, window_size, channel, size_average=True):
@@ -243,6 +279,22 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 5, 64, 64])], {}),
      True),
+    (VRES10,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 5, 64, 64])], {}),
+     True),
+    (VRES15,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 5, 64, 64])], {}),
+     True),
+    (VRES5,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 5, 64, 64])], {}),
+     True),
+    (VRES7,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 5, 64, 64])], {}),
+     True),
     (VSRCNN,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1, 64, 64])], {}),
@@ -267,4 +319,16 @@ class Test_thangvubk_video_super_resolution(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

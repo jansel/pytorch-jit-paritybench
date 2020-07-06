@@ -38,15 +38,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -54,10 +55,13 @@ __version__ = '1.0.0'
 import torch
 
 
+import numpy as np
+
+
 import torch.nn as nn
 
 
-import numpy as np
+import math
 
 
 import torch.nn.functional as F
@@ -66,57 +70,13 @@ import torch.nn.functional as F
 from torch.autograd import Function
 
 
-import math
-
-
 import numpy
 
 
-class Model(nn.Module):
-
-    def __init__(self, filename_obj, filename_ref):
-        super(Model, self).__init__()
-        vertices, faces = nr.load_obj(filename_obj)
-        self.vertices = nn.Parameter(vertices[(None), :, :])
-        self.register_buffer('faces', faces[(None), :, :])
-        texture_size = 2
-        textures = torch.ones(1, self.faces.shape[1], texture_size, texture_size, texture_size, 3, dtype=torch.float32)
-        self.register_buffer('textures', textures)
-        image_ref = torch.from_numpy(imread(filename_ref).astype(np.float32).mean(-1) / 255.0)[(None), :]
-        self.register_buffer('image_ref', image_ref)
-        renderer = nr.Renderer(camera_mode='look_at')
-        self.renderer = renderer
-
-    def forward(self):
-        self.renderer.eye = nr.get_points_from_angles(2.732, 0, 90)
-        image = self.renderer(self.vertices, self.faces, mode='silhouettes')
-        loss = torch.sum((image - self.image_ref[(None), :, :]) ** 2)
-        return loss
+from torch.utils.cpp_extension import BuildExtension
 
 
-class Model(nn.Module):
-
-    def __init__(self, filename_obj, filename_ref):
-        super(Model, self).__init__()
-        vertices, faces = nr.load_obj(filename_obj)
-        self.register_buffer('vertices', vertices[(None), :, :])
-        self.register_buffer('faces', faces[(None), :, :])
-        texture_size = 4
-        textures = torch.zeros(1, self.faces.shape[1], texture_size, texture_size, texture_size, 3, dtype=torch.float32)
-        self.textures = nn.Parameter(textures)
-        image_ref = torch.from_numpy(imread(filename_ref).astype('float32') / 255.0).permute(2, 0, 1)[(None), :]
-        self.register_buffer('image_ref', image_ref)
-        renderer = nr.Renderer(camera_mode='look_at')
-        renderer.perspective = False
-        renderer.light_intensity_directional = 0.0
-        renderer.light_intensity_ambient = 1.0
-        self.renderer = renderer
-
-    def forward(self):
-        self.renderer.eye = nr.get_points_from_angles(2.732, 0, np.random.uniform(0, 360))
-        image, _, _ = self.renderer(self.vertices, self.faces, torch.tanh(self.textures))
-        loss = torch.sum((image - self.image_ref) ** 2)
-        return loss
+from torch.utils.cpp_extension import CUDAExtension
 
 
 class Model(nn.Module):
@@ -169,27 +129,27 @@ class RasterizeFunction(Function):
             textures = textures.contiguous()
             ctx.texture_size = textures.shape[2]
         else:
-            textures = torch.cuda.FloatTensor(1).fill_(0)
+            textures = torch.FloatTensor(1).fill_(0)
             ctx.texture_size = None
-        face_index_map = torch.cuda.IntTensor(ctx.batch_size, ctx.image_size, ctx.image_size).fill_(-1)
-        weight_map = torch.cuda.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 3).fill_(0.0)
-        depth_map = torch.cuda.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size).fill_(ctx.far)
+        face_index_map = torch.IntTensor(ctx.batch_size, ctx.image_size, ctx.image_size).fill_(-1)
+        weight_map = torch.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 3).fill_(0.0)
+        depth_map = torch.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size).fill_(ctx.far)
         if ctx.return_rgb:
-            rgb_map = torch.cuda.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 3).fill_(0)
-            sampling_index_map = torch.cuda.IntTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 8).fill_(0)
-            sampling_weight_map = torch.cuda.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 8).fill_(0)
+            rgb_map = torch.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 3).fill_(0)
+            sampling_index_map = torch.IntTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 8).fill_(0)
+            sampling_weight_map = torch.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 8).fill_(0)
         else:
-            rgb_map = torch.cuda.FloatTensor(1).fill_(0)
-            sampling_index_map = torch.cuda.FloatTensor(1).fill_(0)
-            sampling_weight_map = torch.cuda.FloatTensor(1).fill_(0)
+            rgb_map = torch.FloatTensor(1).fill_(0)
+            sampling_index_map = torch.FloatTensor(1).fill_(0)
+            sampling_weight_map = torch.FloatTensor(1).fill_(0)
         if ctx.return_alpha:
-            alpha_map = torch.cuda.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size).fill_(0)
+            alpha_map = torch.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size).fill_(0)
         else:
-            alpha_map = torch.cuda.FloatTensor(1).fill_(0)
+            alpha_map = torch.FloatTensor(1).fill_(0)
         if ctx.return_depth:
-            face_inv_map = torch.cuda.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 3, 3).fill_(0)
+            face_inv_map = torch.FloatTensor(ctx.batch_size, ctx.image_size, ctx.image_size, 3, 3).fill_(0)
         else:
-            face_inv_map = torch.cuda.FloatTensor(1).fill_(0)
+            face_inv_map = torch.FloatTensor(1).fill_(0)
         face_index_map, weight_map, depth_map, face_inv_map = RasterizeFunction.forward_face_index_map(ctx, faces, face_index_map, weight_map, depth_map, face_inv_map)
         rgb_map, sampling_index_map, sampling_weight_map = RasterizeFunction.forward_texture_sampling(ctx, faces, textures, face_index_map, weight_map, depth_map, rgb_map, sampling_index_map, sampling_weight_map)
         rgb_map = RasterizeFunction.forward_background(ctx, face_index_map, rgb_map)
@@ -214,28 +174,28 @@ class RasterizeFunction(Function):
         if ctx.return_rgb:
             grad_textures = torch.zeros_like(textures, dtype=torch.float32)
         else:
-            grad_textures = torch.cuda.FloatTensor(1).fill_(0.0)
+            grad_textures = torch.FloatTensor(1).fill_(0.0)
         if ctx.return_rgb:
             if grad_rgb_map is not None:
                 grad_rgb_map = grad_rgb_map.contiguous()
             else:
                 grad_rgb_map = torch.zeros_like(rgb_map)
         else:
-            grad_rgb_map = torch.cuda.FloatTensor(1).fill_(0.0)
+            grad_rgb_map = torch.FloatTensor(1).fill_(0.0)
         if ctx.return_alpha:
             if grad_alpha_map is not None:
                 grad_alpha_map = grad_alpha_map.contiguous()
             else:
                 grad_alpha_map = torch.zeros_like(alpha_map)
         else:
-            grad_alpha_map = torch.cuda.FloatTensor(1).fill_(0.0)
+            grad_alpha_map = torch.FloatTensor(1).fill_(0.0)
         if ctx.return_depth:
             if grad_depth_map is not None:
                 grad_depth_map = grad_depth_map.contiguous()
             else:
                 grad_depth_map = torch.zeros_like(ctx.depth_map)
         else:
-            grad_depth_map = torch.cuda.FloatTensor(1).fill_(0.0)
+            grad_depth_map = torch.FloatTensor(1).fill_(0.0)
         grad_faces = RasterizeFunction.backward_pixel_map(ctx, faces, face_index_map, rgb_map, alpha_map, grad_rgb_map, grad_alpha_map, grad_faces)
         grad_textures = RasterizeFunction.backward_textures(ctx, face_index_map, sampling_weight_map, sampling_index_map, grad_rgb_map, grad_textures)
         grad_faces = RasterizeFunction.backward_depth_map(ctx, faces, depth_map, face_index_map, face_inv_map, weight_map, grad_depth_map, grad_faces)
@@ -264,7 +224,7 @@ class RasterizeFunction(Function):
     @staticmethod
     def forward_background(ctx, face_index_map, rgb_map):
         if ctx.return_rgb:
-            background_color = torch.cuda.FloatTensor(ctx.background_color)
+            background_color = torch.FloatTensor(ctx.background_color)
             mask = (face_index_map >= 0).float()[:, :, :, (None)]
             if background_color.ndimension() == 1:
                 rgb_map = rgb_map * mask + (1 - mask) * background_color[(None), (None), (None), :]

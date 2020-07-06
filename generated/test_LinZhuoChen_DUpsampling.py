@@ -36,17 +36,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch.utils.data as data
+
+
+import torch.utils.data
+
+
+import numpy as np
+
+
+import random
+
+
+import collections
+
+
+import torch
+
+
+import torchvision
+
+
+from torch.utils import data
 
 
 from collections import OrderedDict
@@ -58,16 +83,16 @@ from collections import Iterable
 from itertools import repeat
 
 
-import torch
-
-
 import torch.nn as nn
 
 
 import torch.autograd as autograd
 
 
-import numpy as np
+import torch.cuda.comm as comm
+
+
+from torch.autograd.function import once_differentiable
 
 
 from torch.nn import functional as F
@@ -80,6 +105,9 @@ import torch.nn.functional as F
 
 
 from torch.autograd import Variable
+
+
+import time
 
 
 class ABN(nn.Sequential):
@@ -151,131 +179,168 @@ def _count_samples(x):
     return count
 
 
-class InPlaceABN(nn.Module):
-    """InPlace Activated Batch Normalization"""
+class InPlaceABN(autograd.Function):
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates an InPlace Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(InPlaceABN, self).__init__()
-        self.num_features = num_features
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        self.activation = activation
-        self.slope = slope
-        if self.affine:
-            self.weight = nn.Parameter(torch.Tensor(num_features))
-            self.bias = nn.Parameter(torch.Tensor(num_features))
+    @staticmethod
+    def forward(ctx, x, weight, bias, running_mean, running_var, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01):
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        n = _count_samples(x)
+        if ctx.training:
+            mean = x.new().resize_as_(running_mean)
+            var = x.new().resize_as_(running_var)
+            _check_contiguous(x, mean, var)
+            _check(_ext.bn_mean_var_cuda, x, mean, var)
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * n / (n - 1))
         else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
+            mean, var = running_mean, running_var
+        _check_contiguous(x, mean, var, weight, bias)
+        _check(_ext.bn_forward_cuda, x, mean, var, weight if weight is not None else x.new(), bias if bias is not None else x.new(), x, x, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, weight, bias, running_mean, running_var)
+        ctx.mark_dirty(x)
+        return x
 
-    def reset_parameters(self):
-        self.running_mean.zero_()
-        self.running_var.fill_(1)
-        if self.affine:
-            self.weight.data.fill_(1)
-            self.bias.data.zero_()
-
-    def forward(self, x):
-        return inplace_abn(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), self.training, self.momentum, self.eps, self.activation, self.slope)
-
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ' slope={slope})'
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, weight, bias, running_mean, running_var = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.needs_input_grad[0]:
+            dx = dz.new().resize_as_(dz)
         else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
-
-
-class InPlaceABNSync(nn.Module):
-    """InPlace Activated Batch Normalization with cross-GPU synchronization
-
-    This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DataParallel`.
-    """
-
-    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates a synchronized, InPlace Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        devices : list of int or None
-            IDs of the GPUs that will run the replicas of this module.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(InPlaceABNSync, self).__init__()
-        self.num_features = num_features
-        self.devices = devices if devices else list(range(torch.device_count()))
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        self.activation = activation
-        self.slope = slope
-        if self.affine:
-            self.weight = nn.Parameter(torch.Tensor(num_features))
-            self.bias = nn.Parameter(torch.Tensor(num_features))
+            dx = None
+        if ctx.needs_input_grad[1]:
+            dweight = dz.new().resize_as_(running_mean).zero_()
         else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
-        self.worker_ids = self.devices[1:]
-        self.master_queue = Queue(len(self.worker_ids))
-        self.worker_queues = [Queue(1) for _ in self.worker_ids]
-
-    def reset_parameters(self):
-        self.running_mean.zero_()
-        self.running_var.fill_(1)
-        if self.affine:
-            self.weight.data.fill_(1)
-            self.bias.data.zero_()
-
-    def forward(self, x):
-        if x.get_device() == self.devices[0]:
-            extra = {'is_master': True, 'master_queue': self.master_queue, 'worker_queues': self.worker_queues, 'worker_ids': self.worker_ids}
+            dweight = None
+        if ctx.needs_input_grad[2]:
+            dbias = dz.new().resize_as_(running_mean).zero_()
         else:
-            extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
-        return inplace_abn_sync(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), extra, self.training, self.momentum, self.eps, self.activation, self.slope)
-
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ' slope={slope})'
+            dbias = None
+        if ctx.training:
+            edz = dz.new().resize_as_(running_mean)
+            eydz = dz.new().resize_as_(running_mean)
+            _check_contiguous(z, dz, weight, bias, edz, eydz)
+            _check(_ext.bn_edz_eydz_cuda, z, dz, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, ctx.eps)
         else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
+            edz = dz.new().resize_as_(running_mean).zero_()
+            eydz = dz.new().resize_as_(running_mean).zero_()
+        _check_contiguous(dz, z, ctx.var, weight, bias, edz, eydz, dx, dweight, dbias)
+        _check(_ext.bn_backard_cuda, dz, z, ctx.var, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, dx if dx is not None else dz.new(), dweight if dweight is not None else dz.new(), dbias if dbias is not None else dz.new(), ctx.eps)
+        del ctx.var
+        return dx, dweight, dbias, None, None, None, None, None, None, None
+
+
+class InPlaceABNSync(autograd.Function):
+
+    @classmethod
+    def forward(cls, ctx, x, weight, bias, running_mean, running_var, extra, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01):
+        cls._parse_extra(ctx, extra)
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        n = _count_samples(x) * (ctx.master_queue.maxsize + 1)
+        if ctx.training:
+            mean = x.new().resize_(1, running_mean.size(0))
+            var = x.new().resize_(1, running_var.size(0))
+            _check_contiguous(x, mean, var)
+            _check(_ext.bn_mean_var_cuda, x, mean, var)
+            if ctx.is_master:
+                means, vars = [mean], [var]
+                for _ in range(ctx.master_queue.maxsize):
+                    mean_w, var_w = ctx.master_queue.get()
+                    ctx.master_queue.task_done()
+                    means.append(mean_w)
+                    vars.append(var_w)
+                means = comm.gather(means)
+                vars = comm.gather(vars)
+                mean = means.mean(0)
+                var = (vars + (mean - means) ** 2).mean(0)
+                tensors = comm.broadcast_coalesced((mean, var), [mean.get_device()] + ctx.worker_ids)
+                for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                    queue.put(ts)
+            else:
+                ctx.master_queue.put((mean, var))
+                mean, var = ctx.worker_queue.get()
+                ctx.worker_queue.task_done()
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * n / (n - 1))
+        else:
+            mean, var = running_mean, running_var
+        _check_contiguous(x, mean, var, weight, bias)
+        _check(_ext.bn_forward_cuda, x, mean, var, weight if weight is not None else x.new(), bias if bias is not None else x.new(), x, x, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, weight, bias, running_mean, running_var)
+        ctx.mark_dirty(x)
+        return x
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, weight, bias, running_mean, running_var = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.needs_input_grad[0]:
+            dx = dz.new().resize_as_(dz)
+        else:
+            dx = None
+        if ctx.needs_input_grad[1]:
+            dweight = dz.new().resize_as_(running_mean).zero_()
+        else:
+            dweight = None
+        if ctx.needs_input_grad[2]:
+            dbias = dz.new().resize_as_(running_mean).zero_()
+        else:
+            dbias = None
+        if ctx.training:
+            edz = dz.new().resize_as_(running_mean)
+            eydz = dz.new().resize_as_(running_mean)
+            _check_contiguous(z, dz, weight, bias, edz, eydz)
+            _check(_ext.bn_edz_eydz_cuda, z, dz, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, ctx.eps)
+            if ctx.is_master:
+                edzs, eydzs = [edz], [eydz]
+                for _ in range(len(ctx.worker_queues)):
+                    edz_w, eydz_w = ctx.master_queue.get()
+                    ctx.master_queue.task_done()
+                    edzs.append(edz_w)
+                    eydzs.append(eydz_w)
+                edz = comm.reduce_add(edzs) / (ctx.master_queue.maxsize + 1)
+                eydz = comm.reduce_add(eydzs) / (ctx.master_queue.maxsize + 1)
+                tensors = comm.broadcast_coalesced((edz, eydz), [edz.get_device()] + ctx.worker_ids)
+                for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                    queue.put(ts)
+            else:
+                ctx.master_queue.put((edz, eydz))
+                edz, eydz = ctx.worker_queue.get()
+                ctx.worker_queue.task_done()
+        else:
+            edz = dz.new().resize_as_(running_mean).zero_()
+            eydz = dz.new().resize_as_(running_mean).zero_()
+        _check_contiguous(dz, z, ctx.var, weight, bias, edz, eydz, dx, dweight, dbias)
+        _check(_ext.bn_backard_cuda, dz, z, ctx.var, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, dx if dx is not None else dz.new(), dweight if dweight is not None else dz.new(), dbias if dbias is not None else dz.new(), ctx.eps)
+        del ctx.var
+        return dx, dweight, dbias, None, None, None, None, None, None, None, None
+
+    @staticmethod
+    def _parse_extra(ctx, extra):
+        ctx.is_master = extra['is_master']
+        if ctx.is_master:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queues = extra['worker_queues']
+            ctx.worker_ids = extra['worker_ids']
+        else:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queue = extra['worker_queue']
 
 
 class InPlaceABNWrapper(nn.Module):
@@ -415,17 +480,20 @@ class DUpsampling(nn.Module):
         return x
 
 
+BatchNorm2d = functools.partial(InPlaceABNSync, activation='none')
+
+
 class Bottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, fist_dilation=1, multi_grid=1):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
+        self.bn1 = BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation * multi_grid, dilation=dilation * multi_grid, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.bn2 = BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
+        self.bn3 = BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=False)
         self.relu_inplace = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -455,14 +523,12 @@ affine_par = True
 class ResNet(nn.Module):
 
     def __init__(self, block, layers):
-        self.inplanes = 128
+        self.inplanes = 64
         super(ResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
+        self.bn1 = BatchNorm2d(64)
         self.relu1 = nn.ReLU(inplace=False)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=False)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
@@ -471,7 +537,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion, affine=affine_par))
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
         layers = []
         generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
         layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
@@ -521,180 +587,13 @@ def load_pretrained_model(net, state_dict, strict=True):
                 try:
                     own_state[name].copy_(param)
                 except Exception:
-                    print('Ignoring Error: While copying the parameter named {}, whose dimensions in the model are {} and whose dimensions in the checkpoint are {}.'.format(name, own_state[name].size(), param.size()))
+                    None
         elif strict:
             raise KeyError('unexpected key "{}" in state_dict'.format(name))
     if strict:
         missing = set(own_state.keys()) - set(state_dict.keys())
         if len(missing) > 0:
             raise KeyError('missing keys in state_dict: "{}"'.format(missing))
-
-
-class Encoder(nn.Module):
-
-    def __init__(self, pretrain=False, model_path=' '):
-        super(Encoder, self).__init__()
-        self.model = ResNet(Bottleneck, [3, 4, 6, 3])
-        if pretrain:
-            load_pretrained_model(self.model, torch.load(model_path), strict=False)
-
-    def forward(self, x):
-        x, x_low = self.model(x)
-        return x, x_low
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, num_class, bn_momentum=0.1):
-        super(Decoder, self).__init__()
-        self.conv1 = nn.Conv2d(1152, 48, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(48)
-        self.relu = nn.ReLU()
-        self.conv2 = nn.Conv2d(2096, 256, kernel_size=3, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(256)
-        self.dropout2 = nn.Dropout(0.5)
-        self.conv3 = nn.Conv2d(256, 256, kernel_size=3, padding=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(256)
-        self.dropout3 = nn.Dropout(0.1)
-        self.conv4 = nn.Conv2d(256, 256, kernel_size=1)
-        self.dupsample = DUpsampling(256, 16, num_class=21)
-        self._init_weight()
-        self.T = torch.nn.Parameter(torch.Tensor([1.0]))
-
-    def forward(self, x, low_level_feature):
-        low_level_feature = self.conv1(low_level_feature)
-        low_level_feature = self.bn1(low_level_feature)
-        low_level_feature = self.relu(low_level_feature)
-        x_4_cat = torch.cat((x, low_level_feature), dim=1)
-        x_4_cat = self.conv2(x_4_cat)
-        x_4_cat = self.bn2(x_4_cat)
-        x_4_cat = self.relu(x_4_cat)
-        x_4_cat = self.dropout2(x_4_cat)
-        x_4_cat = self.conv3(x_4_cat)
-        x_4_cat = self.bn3(x_4_cat)
-        x_4_cat = self.relu(x_4_cat)
-        x_4_cat = self.dropout3(x_4_cat)
-        x_4_cat = self.conv4(x_4_cat)
-        out = self.dupsample(x_4_cat)
-        out = out / self.T
-        return out
-
-    def _init_weight(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                torch.nn.init.kaiming_normal_(m.weight)
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-
-class DUNet(nn.Module):
-
-    def __init__(self, encoder_pretrain=False, model_path=' ', num_class=21):
-        super(DUNet, self).__init__()
-        self.encoder = Encoder(pretrain=encoder_pretrain, model_path=model_path)
-        self.decoder = Decoder(num_class)
-
-    def forward(self, x):
-        x, x_low = self.encoder(x)
-        x = self.decoder(x, x_low)
-        return x
-
-
-class DUpsampling(nn.Module):
-
-    def __init__(self, inplanes, scale, num_class=21, pad=0):
-        super(DUpsampling, self).__init__()
-        self.conv_w = nn.Conv2d(inplanes, num_class * scale * scale, kernel_size=1, padding=pad, bias=False)
-        self.conv_p = nn.Conv2d(num_class * scale * scale, inplanes, kernel_size=1, padding=pad, bias=False)
-        self.scale = scale
-
-    def forward(self, x):
-        x = self.conv_w(x)
-        N, C, H, W = x.size()
-        x_permuted = x.permute(0, 3, 2, 1)
-        x_permuted = x_permuted.contiguous().view((N, W, H * self.scale, int(C / self.scale)))
-        x_permuted = x_permuted.permute(0, 2, 1, 3)
-        x_permuted = x_permuted.contiguous().view((N, W * self.scale, H * self.scale, int(C / (self.scale * self.scale))))
-        x = x_permuted.permute(0, 3, 1, 2)
-        return x
-
-
-BatchNorm2d = functools.partial(InPlaceABNSync, activation='none')
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, fist_dilation=1, multi_grid=1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation * multi_grid, dilation=dilation * multi_grid, bias=False)
-        self.bn2 = BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=False)
-        self.relu_inplace = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.dilation = dilation
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = out + residual
-        out = self.relu_inplace(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers):
-        self.inplanes = 64
-        super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = BatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=2, multi_grid=(1, 1, 1))
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
-        layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x_13 = x
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x_46 = x
-        x = self.layer4(x)
-        x_13 = F.interpolate(x_13, [x_46.size()[2], x_46.size()[3]], mode='bilinear', align_corners=True)
-        x_low = torch.cat((x_13, x_46), dim=1)
-        return x, x_low
 
 
 class Encoder(nn.Module):

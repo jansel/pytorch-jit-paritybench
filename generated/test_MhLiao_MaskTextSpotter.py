@@ -24,6 +24,7 @@ distributed = _module
 grouped_batch_sampler = _module
 iteration_based_batch_sampler = _module
 transforms = _module
+transforms = _module
 inference = _module
 text_inference = _module
 trainer = _module
@@ -36,6 +37,7 @@ roi_align = _module
 roi_pool = _module
 smooth_l1_loss = _module
 modeling = _module
+backbone = _module
 backbone = _module
 fpn = _module
 resnet = _module
@@ -68,6 +70,7 @@ loss = _module
 rpn = _module
 utils = _module
 solver = _module
+build = _module
 lr_scheduler = _module
 structures = _module
 bounding_box = _module
@@ -97,23 +100,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import math
+import logging
+
+
+import torch.utils.data
 
 
 import torch
+
+
+import torchvision
+
+
+import numpy as np
+
+
+from torch.utils.data.dataset import ConcatDataset as _ConcatDataset
+
+
+import math
 
 
 import torch.distributed as dist
@@ -122,10 +141,22 @@ import torch.distributed as dist
 from torch.utils.data.sampler import Sampler
 
 
-import logging
+import itertools
+
+
+from torch.utils.data.sampler import BatchSampler
+
+
+import random
+
+
+from torchvision.transforms import functional as F
 
 
 import time
+
+
+from collections import OrderedDict
 
 
 from torch import nn
@@ -152,13 +183,31 @@ from collections import namedtuple
 from torch.nn import functional as F
 
 
-import numpy as np
+from torch.utils.collect_env import get_pretty_env_info
 
 
-import random
+from collections import defaultdict
 
 
-from collections import OrderedDict
+from collections import deque
+
+
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from torch.utils.data.sampler import SequentialSampler
+
+
+from torch.utils.data.sampler import RandomSampler
+
+
+from torchvision import transforms as T
 
 
 class FrozenBatchNorm2d(nn.Module):
@@ -213,6 +262,23 @@ class ConvTranspose2d(torch.nn.ConvTranspose2d):
         output_shape = [((i - 1) * d - 2 * p + (di * (k - 1) + 1) + op) for i, p, di, k, d, op in zip(x.shape[-2:], self.padding, self.dilation, self.kernel_size, self.stride, self.output_padding)]
         output_shape = [x.shape[0], self.bias.shape[0]] + output_shape
         return _NewEmptyTensorOp.apply(x, output_shape)
+
+
+def _load_C_extensions():
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    this_dir = os.path.dirname(this_dir)
+    this_dir = os.path.join(this_dir, 'csrc')
+    main_file = glob.glob(os.path.join(this_dir, '*.cpp'))
+    source_cpu = glob.glob(os.path.join(this_dir, 'cpu', '*.cpp'))
+    source_cuda = glob.glob(os.path.join(this_dir, 'cuda', '*.cu'))
+    source = main_file + source_cpu
+    extra_cflags = []
+    if torch.cuda.is_available() and CUDA_HOME is not None:
+        source.extend(source_cuda)
+        extra_cflags = ['-DWITH_CUDA']
+    source = [os.path.join(this_dir, s) for s in source]
+    extra_include_paths = [this_dir]
+    return load_ext('torchvision', source, extra_cflags=extra_cflags, extra_include_paths=extra_include_paths)
 
 
 class _ROIAlign(Function):
@@ -385,6 +451,60 @@ ResNet50StagesTo5 = (StageSpec(index=i, block_count=c, return_features=r) for i,
 _STAGE_SPECS = {'R-50-C4': ResNet50StagesTo4, 'R-50-C5': ResNet50StagesTo5, 'R-50-FPN': ResNet50FPNStagesTo5, 'R-101-FPN': ResNet101FPNStagesTo5}
 
 
+class StemWithFixedBatchNorm(nn.Module):
+
+    def __init__(self, cfg):
+        super(StemWithFixedBatchNorm, self).__init__()
+        out_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
+        self.conv1 = Conv2d(3, out_channels, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = FrozenBatchNorm2d(out_channels)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = F.relu_(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2, padding=1)
+        return x
+
+
+_STEM_MODULES = {'StemWithFixedBatchNorm': StemWithFixedBatchNorm}
+
+
+class BottleneckWithFixedBatchNorm(nn.Module):
+
+    def __init__(self, in_channels, bottleneck_channels, out_channels, num_groups=1, stride_in_1x1=True, stride=1):
+        super(BottleneckWithFixedBatchNorm, self).__init__()
+        self.downsample = None
+        if in_channels != out_channels:
+            self.downsample = nn.Sequential(Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False), FrozenBatchNorm2d(out_channels))
+        stride_1x1, stride_3x3 = (stride, 1) if stride_in_1x1 else (1, stride)
+        self.conv1 = Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=stride_1x1, bias=False)
+        self.bn1 = FrozenBatchNorm2d(bottleneck_channels)
+        self.conv2 = Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride_3x3, padding=1, bias=False, groups=num_groups)
+        self.bn2 = FrozenBatchNorm2d(bottleneck_channels)
+        self.conv3 = Conv2d(bottleneck_channels, out_channels, kernel_size=1, bias=False)
+        self.bn3 = FrozenBatchNorm2d(out_channels)
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = F.relu_(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = F.relu_(out)
+        out0 = self.conv3(out)
+        out = self.bn3(out0)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = F.relu_(out)
+        return out
+
+
+_TRANSFORMATION_MODULES = {'BottleneckWithFixedBatchNorm': BottleneckWithFixedBatchNorm}
+
+
 def _make_stage(transformation_module, in_channels, bottleneck_channels, out_channels, block_count, num_groups, stride_in_1x1, first_stride):
     blocks = []
     stride = first_stride
@@ -468,54 +588,6 @@ class ResNetHead(nn.Module):
         return x
 
 
-class BottleneckWithFixedBatchNorm(nn.Module):
-
-    def __init__(self, in_channels, bottleneck_channels, out_channels, num_groups=1, stride_in_1x1=True, stride=1):
-        super(BottleneckWithFixedBatchNorm, self).__init__()
-        self.downsample = None
-        if in_channels != out_channels:
-            self.downsample = nn.Sequential(Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False), FrozenBatchNorm2d(out_channels))
-        stride_1x1, stride_3x3 = (stride, 1) if stride_in_1x1 else (1, stride)
-        self.conv1 = Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=stride_1x1, bias=False)
-        self.bn1 = FrozenBatchNorm2d(bottleneck_channels)
-        self.conv2 = Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride_3x3, padding=1, bias=False, groups=num_groups)
-        self.bn2 = FrozenBatchNorm2d(bottleneck_channels)
-        self.conv3 = Conv2d(bottleneck_channels, out_channels, kernel_size=1, bias=False)
-        self.bn3 = FrozenBatchNorm2d(out_channels)
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = F.relu_(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = F.relu_(out)
-        out0 = self.conv3(out)
-        out = self.bn3(out0)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = F.relu_(out)
-        return out
-
-
-class StemWithFixedBatchNorm(nn.Module):
-
-    def __init__(self, cfg):
-        super(StemWithFixedBatchNorm, self).__init__()
-        out_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
-        self.conv1 = Conv2d(3, out_channels, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = FrozenBatchNorm2d(out_channels)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = F.relu_(x)
-        x = F.max_pool2d(x, kernel_size=3, stride=2, padding=1)
-        return x
-
-
 def build_resnet_backbone(cfg):
     body = resnet.ResNet(cfg)
     model = nn.Sequential(OrderedDict([('body', body)]))
@@ -538,216 +610,29 @@ def build_backbone(cfg):
     return build_resnet_backbone(cfg)
 
 
-def build_roi_box_head(cfg):
+class CombinedROIHeads(torch.nn.ModuleDict):
     """
-    Constructs a new box head.
-    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
-    and make it a parameter in the config
-    """
-    return ROIBoxHead(cfg)
-
-
-class Matcher(object):
-    """
-    This class assigns to each predicted "element" (e.g., a box) a ground-truth
-    element. Each predicted element will have exactly zero or one matches; each
-    ground-truth element may be assigned to zero or more predicted elements.
-
-    Matching is based on the MxN match_quality_matrix, that characterizes how well
-    each (ground-truth, predicted)-pair match. For example, if the elements are
-    boxes, the matrix may contain box IoU overlap values.
-
-    The matcher returns a tensor of size N containing the index of the ground-truth
-    element m that matches to prediction n. If there is no match, a negative value
-    is returned.
-    """
-    BELOW_LOW_THRESHOLD = -1
-    BETWEEN_THRESHOLDS = -2
-
-    def __init__(self, high_threshold, low_threshold, allow_low_quality_matches=False):
-        """
-        Args:
-            high_threshold (float): quality values greater than or equal to
-                this value are candidate matches.
-            low_threshold (float): a lower quality threshold used to stratify
-                matches into three levels:
-                1) matches >= high_threshold
-                2) BETWEEN_THRESHOLDS matches in [low_threshold, high_threshold)
-                3) BELOW_LOW_THRESHOLD matches in [0, low_threshold)
-            allow_low_quality_matches (bool): if True, produce additional matches
-                for predictions that have only low-quality match candidates. See
-                set_low_quality_matches_ for more details.
-        """
-        assert low_threshold <= high_threshold
-        self.high_threshold = high_threshold
-        self.low_threshold = low_threshold
-        self.allow_low_quality_matches = allow_low_quality_matches
-
-    def __call__(self, match_quality_matrix):
-        """
-        Args:
-            match_quality_matrix (Tensor[float]): an MxN tensor, containing the
-            pairwise quality between M ground-truth elements and N predicted elements.
-
-        Returns:
-            matches (Tensor[int64]): an N tensor where N[i] is a matched gt in
-            [0, M - 1] or a negative value indicating that prediction i could not
-            be matched.
-        """
-        if match_quality_matrix.numel() == 0:
-            device = match_quality_matrix.device
-            return torch.empty((0,), dtype=torch.int64, device=device)
-        matched_vals, matches = match_quality_matrix.max(dim=0)
-        if self.allow_low_quality_matches:
-            all_matches = matches.clone()
-        below_low_threshold = matched_vals < self.low_threshold
-        between_thresholds = (matched_vals >= self.low_threshold) & (matched_vals < self.high_threshold)
-        matches[below_low_threshold] = Matcher.BELOW_LOW_THRESHOLD
-        matches[between_thresholds] = Matcher.BETWEEN_THRESHOLDS
-        if self.allow_low_quality_matches:
-            self.set_low_quality_matches_(matches, all_matches, match_quality_matrix)
-        return matches
-
-    def set_low_quality_matches_(self, matches, all_matches, match_quality_matrix):
-        """
-        Produce additional matches for predictions that have only low-quality matches.
-        Specifically, for each ground-truth find the set of predictions that have
-        maximum overlap with it (including ties); for each prediction in that set, if
-        it is unmatched, then match it to the ground-truth with which it has the highest
-        quality value.
-        """
-        highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
-        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, (None)])
-        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
-        matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
-
-
-def build_roi_mask_head(cfg):
-    matcher = Matcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
-    return ROIMaskHead(cfg, matcher, (cfg.MODEL.ROI_MASK_HEAD.RESOLUTION_H, cfg.MODEL.ROI_MASK_HEAD.RESOLUTION_W))
-
-
-def build_roi_heads(cfg):
-    roi_heads = []
-    if not cfg.MODEL.RPN_ONLY:
-        roi_heads.append(('box', build_roi_box_head(cfg)))
-    if cfg.MODEL.MASK_ON:
-        roi_heads.append(('mask', build_roi_mask_head(cfg)))
-    if roi_heads:
-        roi_heads = CombinedROIHeads(cfg, roi_heads)
-    return roi_heads
-
-
-def build_rpn(cfg):
-    """
-    This gives the gist of it. Not super important because it doesn't change as much
-    """
-    return RPNModule(cfg)
-
-
-class ImageList(object):
-    """
-    Structure that holds a list of images (of possibly
-    varying sizes) as a single tensor.
-    This works by padding the images to the same size,
-    and storing in a field the original sizes of each image
+    Combines a set of individual heads (for box prediction or masks) into a single
+    head.
     """
 
-    def __init__(self, tensors, image_sizes):
-        """
-        Arguments:
-            tensors (tensor)
-            image_sizes (list[tuple[int, int]])
-        """
-        self.tensors = tensors
-        self.image_sizes = image_sizes
+    def __init__(self, cfg, heads):
+        super(CombinedROIHeads, self).__init__(heads)
+        self.cfg = cfg.clone()
+        if cfg.MODEL.MASK_ON and cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+            self.mask.feature_extractor = self.box.feature_extractor
 
-    def to(self, *args, **kwargs):
-        cast_tensor = self.tensors.to(*args, **kwargs)
-        return ImageList(cast_tensor, self.image_sizes)
-
-
-def to_image_list(tensors, size_divisible=0):
-    """
-    tensors can be an ImageList, a torch.Tensor or
-    an iterable of Tensors. It can't be a numpy array.
-    When tensors is an iterable of Tensors, it pads
-    the Tensors with zeros so that they have the same
-    shape
-    """
-    if isinstance(tensors, torch.Tensor) and size_divisible > 0:
-        tensors = [tensors]
-    if isinstance(tensors, ImageList):
-        return tensors
-    elif isinstance(tensors, torch.Tensor):
-        assert tensors.dim() == 4
-        image_sizes = [tensor.shape[-2:] for tensor in tensors]
-        return ImageList(tensors, image_sizes)
-    elif isinstance(tensors, (tuple, list)):
-        max_size = tuple(max(s) for s in zip(*[img.shape for img in tensors]))
-        if size_divisible > 0:
-            import math
-            stride = size_divisible
-            max_size = list(max_size)
-            max_size[1] = int(math.ceil(max_size[1] / stride) * stride)
-            max_size[2] = int(math.ceil(max_size[2] / stride) * stride)
-            max_size = tuple(max_size)
-        batch_shape = (len(tensors),) + max_size
-        batched_imgs = tensors[0].new(*batch_shape).zero_()
-        for img, pad_img in zip(tensors, batched_imgs):
-            pad_img[:img.shape[0], :img.shape[1], :img.shape[2]].copy_(img)
-        image_sizes = [im.shape[-2:] for im in tensors]
-        return ImageList(batched_imgs, image_sizes)
-    else:
-        raise TypeError('Unsupported type for to_image_list: {}'.format(type(tensors)))
-
-
-class GeneralizedRCNN(nn.Module):
-    """
-    Main class for Generalized R-CNN. Currently supports boxes and masks.
-    It consists of three main parts:
-    - backbone
-    = rpn
-    - heads: takes the features + the proposals from the RPN and computes
-        detections / masks from it.
-    """
-
-    def __init__(self, cfg):
-        super(GeneralizedRCNN, self).__init__()
-        self.backbone = build_backbone(cfg)
-        self.rpn = build_rpn(cfg)
-        self.roi_heads = build_roi_heads(cfg)
-
-    def forward(self, images, targets=None):
-        """
-        Arguments:
-            images (list[Tensor] or ImageList): images to be processed
-            targets (list[BoxList]): ground-truth boxes present in the image (optional)
-
-        Returns:
-            result (list[BoxList] or dict[Tensor]): the output from the model.
-                During training, it returns a dict[Tensor] which contains the losses.
-                During testing, it returns list[BoxList] contains additional fields
-                like `scores`, `labels` and `mask` (for Mask R-CNN models).
-
-        """
-        if self.training and targets is None:
-            raise ValueError('In training mode, targets should be passed')
-        images = to_image_list(images)
-        features = self.backbone(images.tensors)
-        proposals, proposal_losses = self.rpn(images, features, targets)
-        if self.roi_heads:
-            x, result, detector_losses = self.roi_heads(features, proposals, targets)
-        else:
-            x = features
-            result = proposals
-            detector_losses = {}
-        if self.training:
-            losses = {}
-            losses.update(detector_losses)
-            losses.update(proposal_losses)
-            return losses
-        return result
+    def forward(self, features, proposals, targets=None):
+        losses = {}
+        x, detections, loss_box = self.box(features, proposals, targets)
+        losses.update(loss_box)
+        if self.cfg.MODEL.MASK_ON:
+            mask_features = features
+            if self.training and self.cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+                mask_features = x
+            x, detections, loss_mask = self.mask(mask_features, detections, targets)
+            losses.update(loss_mask)
+        return x, detections, losses
 
 
 def cat(tensors, dim=0):
@@ -788,7 +673,7 @@ class LevelMapper(object):
         s = torch.sqrt(cat([boxlist.area() for boxlist in boxlists]))
         target_lvls = torch.floor(self.lvl0 + torch.log2(s / self.s0 + self.eps))
         target_lvls = torch.clamp(target_lvls, min=self.k_min, max=self.k_max)
-        return target_lvls.to(torch.int64) - self.k_min
+        return target_lvls - self.k_min
 
 
 class Pooler(nn.Module):
@@ -849,6 +734,56 @@ class Pooler(nn.Module):
             rois_per_level = rois[idx_in_level]
             result[idx_in_level] = pooler(per_level_feature, rois_per_level)
         return result
+
+
+class FPN2MLPFeatureExtractor(nn.Module):
+    """
+    Heads for FPN for classification
+    """
+
+    def __init__(self, cfg):
+        super(FPN2MLPFeatureExtractor, self).__init__()
+        resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_BOX_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        input_size = cfg.MODEL.BACKBONE.OUT_CHANNELS * resolution ** 2
+        representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
+        self.pooler = pooler
+        self.fc6 = nn.Linear(input_size, representation_size)
+        self.fc7 = nn.Linear(representation_size, representation_size)
+        for l in [self.fc6, self.fc7]:
+            nn.init.kaiming_uniform_(l.weight, a=1)
+            nn.init.constant_(l.bias, 0)
+
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc6(x))
+        x = F.relu(self.fc7(x))
+        return x
+
+
+class ResNet50Conv5ROIFeatureExtractor(nn.Module):
+
+    def __init__(self, config):
+        super(ResNet50Conv5ROIFeatureExtractor, self).__init__()
+        resolution = config.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        scales = config.MODEL.ROI_BOX_HEAD.POOLER_SCALES
+        sampling_ratio = config.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        stage = resnet.StageSpec(index=4, block_count=3, return_features=False)
+        head = resnet.ResNetHead(block_module=config.MODEL.RESNETS.TRANS_FUNC, stages=(stage,), num_groups=config.MODEL.RESNETS.NUM_GROUPS, width_per_group=config.MODEL.RESNETS.WIDTH_PER_GROUP, stride_in_1x1=config.MODEL.RESNETS.STRIDE_IN_1X1, stride_init=None, res2_out_channels=config.MODEL.RESNETS.RES2_OUT_CHANNELS)
+        self.pooler = pooler
+        self.head = head
+
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        x = self.head(x)
+        return x
+
+
+_ROI_BOX_FEATURE_EXTRACTORS = {'ResNet50Conv5ROIFeatureExtractor': ResNet50Conv5ROIFeatureExtractor, 'FPN2MLPFeatureExtractor': FPN2MLPFeatureExtractor}
 
 
 def make_roi_box_feature_extractor(cfg):
@@ -958,7 +893,7 @@ class BoxCoder(object):
             rel_codes (Tensor): encoded boxes
             boxes (Tensor): reference boxes.
         """
-        boxes = boxes.to(rel_codes.dtype)
+        boxes = boxes
         TO_REMOVE = 1
         widths = boxes[:, (2)] - boxes[:, (0)] + TO_REMOVE
         heights = boxes[:, (3)] - boxes[:, (1)] + TO_REMOVE
@@ -981,6 +916,81 @@ class BoxCoder(object):
         pred_boxes[:, 2::4] = pred_ctr_x + 0.5 * pred_w - 1
         pred_boxes[:, 3::4] = pred_ctr_y + 0.5 * pred_h - 1
         return pred_boxes
+
+
+class Matcher(object):
+    """
+    This class assigns to each predicted "element" (e.g., a box) a ground-truth
+    element. Each predicted element will have exactly zero or one matches; each
+    ground-truth element may be assigned to zero or more predicted elements.
+
+    Matching is based on the MxN match_quality_matrix, that characterizes how well
+    each (ground-truth, predicted)-pair match. For example, if the elements are
+    boxes, the matrix may contain box IoU overlap values.
+
+    The matcher returns a tensor of size N containing the index of the ground-truth
+    element m that matches to prediction n. If there is no match, a negative value
+    is returned.
+    """
+    BELOW_LOW_THRESHOLD = -1
+    BETWEEN_THRESHOLDS = -2
+
+    def __init__(self, high_threshold, low_threshold, allow_low_quality_matches=False):
+        """
+        Args:
+            high_threshold (float): quality values greater than or equal to
+                this value are candidate matches.
+            low_threshold (float): a lower quality threshold used to stratify
+                matches into three levels:
+                1) matches >= high_threshold
+                2) BETWEEN_THRESHOLDS matches in [low_threshold, high_threshold)
+                3) BELOW_LOW_THRESHOLD matches in [0, low_threshold)
+            allow_low_quality_matches (bool): if True, produce additional matches
+                for predictions that have only low-quality match candidates. See
+                set_low_quality_matches_ for more details.
+        """
+        assert low_threshold <= high_threshold
+        self.high_threshold = high_threshold
+        self.low_threshold = low_threshold
+        self.allow_low_quality_matches = allow_low_quality_matches
+
+    def __call__(self, match_quality_matrix):
+        """
+        Args:
+            match_quality_matrix (Tensor[float]): an MxN tensor, containing the
+            pairwise quality between M ground-truth elements and N predicted elements.
+
+        Returns:
+            matches (Tensor[int64]): an N tensor where N[i] is a matched gt in
+            [0, M - 1] or a negative value indicating that prediction i could not
+            be matched.
+        """
+        if match_quality_matrix.numel() == 0:
+            device = match_quality_matrix.device
+            return torch.empty((0,), dtype=torch.int64, device=device)
+        matched_vals, matches = match_quality_matrix.max(dim=0)
+        if self.allow_low_quality_matches:
+            all_matches = matches.clone()
+        below_low_threshold = matched_vals < self.low_threshold
+        between_thresholds = (matched_vals >= self.low_threshold) & (matched_vals < self.high_threshold)
+        matches[below_low_threshold] = Matcher.BELOW_LOW_THRESHOLD
+        matches[between_thresholds] = Matcher.BETWEEN_THRESHOLDS
+        if self.allow_low_quality_matches:
+            self.set_low_quality_matches_(matches, all_matches, match_quality_matrix)
+        return matches
+
+    def set_low_quality_matches_(self, matches, all_matches, match_quality_matrix):
+        """
+        Produce additional matches for predictions that have only low-quality matches.
+        Specifically, for each ground-truth find the set of predictions that have
+        maximum overlap with it (including ties); for each prediction in that set, if
+        it is unmatched, then match it to the ground-truth with which it has the highest
+        quality value.
+        """
+        highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
+        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, (None)])
+        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
+        matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
 
 
 def boxlist_iou(boxlist1, boxlist2):
@@ -1058,7 +1068,7 @@ class FastRCNNLossComputation(object):
             matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
             matched_idxs = matched_targets.get_field('matched_idxs')
             labels_per_image = matched_targets.get_field('labels')
-            labels_per_image = labels_per_image.to(dtype=torch.int64)
+            labels_per_image = labels_per_image
             bg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
             labels_per_image[bg_inds] = 0
             ignore_inds = matched_idxs == Matcher.BETWEEN_THRESHOLDS
@@ -1128,60 +1138,6 @@ def make_roi_box_loss_evaluator(cfg):
     fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE, cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION)
     loss_evaluator = FastRCNNLossComputation(matcher, fg_bg_sampler, box_coder)
     return loss_evaluator
-
-
-def make_roi_box_post_processor(cfg):
-    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
-    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
-    box_coder = BoxCoder(weights=bbox_reg_weights)
-    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
-    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
-    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
-    postprocessor = PostProcessor(score_thresh, nms_thresh, detections_per_img, box_coder)
-    return postprocessor
-
-
-def make_roi_box_predictor(cfg):
-    func = _ROI_BOX_PREDICTOR[cfg.MODEL.ROI_BOX_HEAD.PREDICTOR]
-    return func(cfg)
-
-
-class ROIBoxHead(torch.nn.Module):
-    """
-    Generic Box Head class.
-    """
-
-    def __init__(self, cfg):
-        super(ROIBoxHead, self).__init__()
-        self.feature_extractor = make_roi_box_feature_extractor(cfg)
-        self.predictor = make_roi_box_predictor(cfg)
-        self.post_processor = make_roi_box_post_processor(cfg)
-        self.loss_evaluator = make_roi_box_loss_evaluator(cfg)
-
-    def forward(self, features, proposals, targets=None):
-        """
-        Arguments:
-            features (list[Tensor]): feature-maps from possibly several levels
-            proposals (list[BoxList]): proposal boxes
-            targets (list[BoxList], optional): the ground-truth targets.
-
-        Returns:
-            x (Tensor): the result of the feature extractor
-            proposals (list[BoxList]): during training, the subsampled proposals
-                are returned. During testing, the predicted boxlists are returned
-            losses (dict[Tensor]): During training, returns the losses for the
-                head. During testing, returns an empty dict.
-        """
-        if self.training:
-            with torch.no_grad():
-                proposals = self.loss_evaluator.subsample(proposals, targets)
-        x = self.feature_extractor(features, proposals)
-        class_logits, box_regression = self.predictor(x)
-        if not self.training:
-            result = self.post_processor((class_logits, box_regression), proposals)
-            return x, result, {}
-        loss_classifier, loss_box_reg = self.loss_evaluator([class_logits], [box_regression])
-        return x, proposals, dict(loss_classifier=loss_classifier, loss_box_reg=loss_box_reg)
 
 
 FLIP_LEFT_RIGHT = 0
@@ -1377,10 +1333,10 @@ class BoxList(object):
         return bbox.convert(self.mode)
 
     def to(self, device):
-        bbox = BoxList(self.bbox.to(device), self.size, self.mode, self.use_char_ann)
+        bbox = BoxList(self.bbox, self.size, self.mode, self.use_char_ann)
         for k, v in self.extra_fields.items():
             if hasattr(v, 'to'):
-                v = v.to(device)
+                v = v
             bbox.add_field(k, v)
         return bbox
 
@@ -1587,51 +1543,34 @@ class PostProcessor(nn.Module):
         return result
 
 
-class ResNet50Conv5ROIFeatureExtractor(nn.Module):
-
-    def __init__(self, config):
-        super(ResNet50Conv5ROIFeatureExtractor, self).__init__()
-        resolution = config.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
-        scales = config.MODEL.ROI_BOX_HEAD.POOLER_SCALES
-        sampling_ratio = config.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
-        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
-        stage = resnet.StageSpec(index=4, block_count=3, return_features=False)
-        head = resnet.ResNetHead(block_module=config.MODEL.RESNETS.TRANS_FUNC, stages=(stage,), num_groups=config.MODEL.RESNETS.NUM_GROUPS, width_per_group=config.MODEL.RESNETS.WIDTH_PER_GROUP, stride_in_1x1=config.MODEL.RESNETS.STRIDE_IN_1X1, stride_init=None, res2_out_channels=config.MODEL.RESNETS.RES2_OUT_CHANNELS)
-        self.pooler = pooler
-        self.head = head
-
-    def forward(self, x, proposals):
-        x = self.pooler(x, proposals)
-        x = self.head(x)
-        return x
+def make_roi_box_post_processor(cfg):
+    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
+    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    box_coder = BoxCoder(weights=bbox_reg_weights)
+    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
+    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
+    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
+    postprocessor = PostProcessor(score_thresh, nms_thresh, detections_per_img, box_coder)
+    return postprocessor
 
 
-class FPN2MLPFeatureExtractor(nn.Module):
-    """
-    Heads for FPN for classification
-    """
+class FPNPredictor(nn.Module):
 
     def __init__(self, cfg):
-        super(FPN2MLPFeatureExtractor, self).__init__()
-        resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
-        scales = cfg.MODEL.ROI_BOX_HEAD.POOLER_SCALES
-        sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
-        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
-        input_size = cfg.MODEL.BACKBONE.OUT_CHANNELS * resolution ** 2
+        super(FPNPredictor, self).__init__()
+        num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
         representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
-        self.pooler = pooler
-        self.fc6 = nn.Linear(input_size, representation_size)
-        self.fc7 = nn.Linear(representation_size, representation_size)
-        for l in [self.fc6, self.fc7]:
-            nn.init.kaiming_uniform_(l.weight, a=1)
+        self.cls_score = nn.Linear(representation_size, num_classes)
+        self.bbox_pred = nn.Linear(representation_size, num_classes * 4)
+        nn.init.normal_(self.cls_score.weight, std=0.01)
+        nn.init.normal_(self.bbox_pred.weight, std=0.001)
+        for l in [self.cls_score, self.bbox_pred]:
             nn.init.constant_(l.bias, 0)
 
-    def forward(self, x, proposals):
-        x = self.pooler(x, proposals)
-        x = x.view(x.size(0), -1)
-        x = F.relu(self.fc6(x))
-        x = F.relu(self.fc7(x))
-        return x
+    def forward(self, x):
+        scores = self.cls_score(x)
+        bbox_deltas = self.bbox_pred(x)
+        return scores, bbox_deltas
 
 
 class FastRCNNPredictor(nn.Module):
@@ -1659,117 +1598,59 @@ class FastRCNNPredictor(nn.Module):
         return cls_logit, bbox_pred
 
 
-class FPNPredictor(nn.Module):
+_ROI_BOX_PREDICTOR = {'FastRCNNPredictor': FastRCNNPredictor, 'FPNPredictor': FPNPredictor}
+
+
+def make_roi_box_predictor(cfg):
+    func = _ROI_BOX_PREDICTOR[cfg.MODEL.ROI_BOX_HEAD.PREDICTOR]
+    return func(cfg)
+
+
+class ROIBoxHead(torch.nn.Module):
+    """
+    Generic Box Head class.
+    """
 
     def __init__(self, cfg):
-        super(FPNPredictor, self).__init__()
-        num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
-        representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
-        self.cls_score = nn.Linear(representation_size, num_classes)
-        self.bbox_pred = nn.Linear(representation_size, num_classes * 4)
-        nn.init.normal_(self.cls_score.weight, std=0.01)
-        nn.init.normal_(self.bbox_pred.weight, std=0.001)
-        for l in [self.cls_score, self.bbox_pred]:
-            nn.init.constant_(l.bias, 0)
+        super(ROIBoxHead, self).__init__()
+        self.feature_extractor = make_roi_box_feature_extractor(cfg)
+        self.predictor = make_roi_box_predictor(cfg)
+        self.post_processor = make_roi_box_post_processor(cfg)
+        self.loss_evaluator = make_roi_box_loss_evaluator(cfg)
 
-    def forward(self, x):
-        scores = self.cls_score(x)
-        bbox_deltas = self.bbox_pred(x)
-        return scores, bbox_deltas
-
-
-class MaskPostProcessor(nn.Module):
-    """
-    From the results of the CNN, post process the masks
-    by taking the mask corresponding to the class with max
-    probability (which are of fixed size and directly output
-    by the CNN) and return the masks in the mask field of the BoxList.
-
-    If a masker object is passed, it will additionally
-    project the masks in the image according to the locations in boxes,
-    """
-
-    def __init__(self, masker=None):
-        super(MaskPostProcessor, self).__init__()
-        self.masker = masker
-
-    def forward(self, x, boxes):
+    def forward(self, features, proposals, targets=None):
         """
         Arguments:
-            x (Tensor): the mask logits
-            boxes (list[BoxList]): bounding boxes that are used as
-                reference, one for ech image
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
 
         Returns:
-            results (list[BoxList]): one BoxList for each image, containing
-                the extra field mask
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the subsampled proposals
+                are returned. During testing, the predicted boxlists are returned
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
         """
-        mask_prob = x.sigmoid()
-        num_masks = x.shape[0]
-        labels = [bbox.get_field('labels') for bbox in boxes]
-        labels = torch.cat(labels)
-        index = torch.arange(num_masks, device=labels.device)
-        mask_prob = mask_prob[index, labels][:, (None)]
-        if self.masker:
-            mask_prob = self.masker(mask_prob, boxes)
-        boxes_per_image = [len(box) for box in boxes]
-        mask_prob = mask_prob.split(boxes_per_image, dim=0)
-        results = []
-        for prob, box in zip(mask_prob, boxes):
-            bbox = BoxList(box.bbox, box.size, mode='xyxy')
-            for field in box.fields():
-                bbox.add_field(field, box.get_field(field))
-            bbox.add_field('mask', prob)
-            results.append(bbox)
-        return results
+        if self.training:
+            with torch.no_grad():
+                proposals = self.loss_evaluator.subsample(proposals, targets)
+        x = self.feature_extractor(features, proposals)
+        class_logits, box_regression = self.predictor(x)
+        if not self.training:
+            result = self.post_processor((class_logits, box_regression), proposals)
+            return x, result, {}
+        loss_classifier, loss_box_reg = self.loss_evaluator([class_logits], [box_regression])
+        return x, proposals, dict(loss_classifier=loss_classifier, loss_box_reg=loss_box_reg)
 
 
-class CharMaskPostProcessor(nn.Module):
+def build_roi_box_head(cfg):
     """
-    From the results of the CNN, post process the masks
-    by taking the mask corresponding to the class with max
-    probability (which are of fixed size and directly output
-    by the CNN) and return the masks in the mask field of the BoxList.
-
-    If a masker object is passed, it will additionally
-    project the masks in the image according to the locations in boxes,
+    Constructs a new box head.
+    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
+    and make it a parameter in the config
     """
-
-    def __init__(self, cfg, masker=None):
-        super(CharMaskPostProcessor, self).__init__()
-        self.masker = masker
-        self.cfg = cfg
-
-    def forward(self, x, char_mask, boxes, seq_outputs=None, seq_scores=None, detailed_seq_scores=None):
-        """
-        Arguments:
-            x (Tensor): the mask logits
-            char_mask (Tensor): the char mask logits
-            boxes (list[BoxList]): bounding boxes that are used as
-                reference, one for ech image
-
-        Returns:
-            results (list[BoxList]): one BoxList for each image, containing
-                the extra field mask
-        """
-        mask_prob = x.sigmoid()
-        char_mask_softmax = F.softmax(char_mask, dim=1)
-        image_width, image_height = boxes[0].size
-        char_results = {'char_mask': char_mask_softmax.cpu().numpy(), 'boxes': boxes[0].bbox.cpu().numpy(), 'seq_outputs': seq_outputs, 'seq_scores': seq_scores, 'detailed_seq_scores': detailed_seq_scores}
-        num_masks = x.shape[0]
-        mask_prob = mask_prob.squeeze(dim=1)[:, (None)]
-        if self.masker:
-            mask_prob = self.masker(mask_prob, boxes)
-        boxes_per_image = [len(box) for box in boxes]
-        mask_prob = mask_prob.split(boxes_per_image, dim=0)
-        results = []
-        for prob, box in zip(mask_prob, boxes):
-            bbox = BoxList(box.bbox, box.size, mode='xyxy')
-            for field in box.fields():
-                bbox.add_field(field, box.get_field(field))
-            bbox.add_field('mask', prob)
-            results.append(bbox)
-        return [results, char_results]
+    return ROIBoxHead(cfg)
 
 
 def keep_only_positive_boxes(boxes, batch_size_per_im):
@@ -1797,6 +1678,52 @@ def keep_only_positive_boxes(boxes, batch_size_per_im):
         positive_boxes.append(boxes_per_image[new_inds])
         positive_inds.append(inds_mask)
     return positive_boxes, positive_inds
+
+
+class MaskRCNNFPNFeatureExtractor(nn.Module):
+    """
+    Heads for FPN for classification
+    """
+
+    def __init__(self, cfg):
+        """
+        Arguments:
+            num_classes (int): number of output classes
+            input_size (int): number of channels of the input once it's flattened
+            representation_size (int): size of the intermediate representation
+        """
+        super(MaskRCNNFPNFeatureExtractor, self).__init__()
+        if cfg.MODEL.CHAR_MASK_ON:
+            resolution_h = cfg.MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION_H
+            resolution_w = cfg.MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION_W
+        else:
+            resolution_h = cfg.MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION
+            resolution_w = cfg.MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_MASK_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_MASK_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution_h, resolution_w), scales=scales, sampling_ratio=sampling_ratio)
+        input_size = cfg.MODEL.BACKBONE.OUT_CHANNELS
+        self.pooler = pooler
+        layers = cfg.MODEL.ROI_MASK_HEAD.CONV_LAYERS
+        next_feature = input_size
+        self.blocks = []
+        for layer_idx, layer_features in enumerate(layers, 1):
+            layer_name = 'mask_fcn{}'.format(layer_idx)
+            module = Conv2d(next_feature, layer_features, 3, stride=1, padding=1)
+            nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.constant_(module.bias, 0)
+            self.add_module(layer_name, module)
+            next_feature = layer_features
+            self.blocks.append(layer_name)
+
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        for layer_name in self.blocks:
+            x = F.relu(getattr(self, layer_name)(x))
+        return x
+
+
+_ROI_MASK_FEATURE_EXTRACTORS = {'ResNet50Conv5ROIFeatureExtractor': ResNet50Conv5ROIFeatureExtractor, 'MaskRCNNFPNFeatureExtractor': MaskRCNNFPNFeatureExtractor}
 
 
 def make_roi_mask_feature_extractor(cfg):
@@ -1855,7 +1782,7 @@ def project_masks_on_boxes(segmentation_masks, proposals, discretization_size):
     device = proposals.bbox.device
     proposals = proposals.convert('xyxy')
     assert segmentation_masks.size == proposals.size, '{}, {}'.format(segmentation_masks, proposals)
-    proposals = proposals.bbox.to(torch.device('cpu'))
+    proposals = proposals.bbox
     for segmentation_mask, proposal in zip(segmentation_masks, proposals):
         cropped_mask = segmentation_mask.crop(proposal)
         scaled_mask = cropped_mask.resize((M, M))
@@ -1863,7 +1790,7 @@ def project_masks_on_boxes(segmentation_masks, proposals, discretization_size):
         masks.append(mask)
     if len(masks) == 0:
         return torch.empty(0, dtype=torch.float32, device=device)
-    return torch.stack(masks, dim=0).to(device, dtype=torch.float32)
+    return torch.stack(masks, dim=0)
 
 
 class MaskRCNNLossComputation(object):
@@ -1892,7 +1819,7 @@ class MaskRCNNLossComputation(object):
             matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
             matched_idxs = matched_targets.get_field('matched_idxs')
             labels_per_image = matched_targets.get_field('labels')
-            labels_per_image = labels_per_image.to(dtype=torch.int64)
+            labels_per_image = labels_per_image
             neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
             labels_per_image[neg_inds] = 0
             positive_inds = torch.nonzero(labels_per_image > 0).squeeze(1)
@@ -1934,6 +1861,100 @@ def make_roi_mask_loss_evaluator(cfg):
     return loss_evaluator
 
 
+class CharMaskPostProcessor(nn.Module):
+    """
+    From the results of the CNN, post process the masks
+    by taking the mask corresponding to the class with max
+    probability (which are of fixed size and directly output
+    by the CNN) and return the masks in the mask field of the BoxList.
+
+    If a masker object is passed, it will additionally
+    project the masks in the image according to the locations in boxes,
+    """
+
+    def __init__(self, cfg, masker=None):
+        super(CharMaskPostProcessor, self).__init__()
+        self.masker = masker
+        self.cfg = cfg
+
+    def forward(self, x, char_mask, boxes, seq_outputs=None, seq_scores=None, detailed_seq_scores=None):
+        """
+        Arguments:
+            x (Tensor): the mask logits
+            char_mask (Tensor): the char mask logits
+            boxes (list[BoxList]): bounding boxes that are used as
+                reference, one for ech image
+
+        Returns:
+            results (list[BoxList]): one BoxList for each image, containing
+                the extra field mask
+        """
+        mask_prob = x.sigmoid()
+        char_mask_softmax = F.softmax(char_mask, dim=1)
+        image_width, image_height = boxes[0].size
+        char_results = {'char_mask': char_mask_softmax.cpu().numpy(), 'boxes': boxes[0].bbox.cpu().numpy(), 'seq_outputs': seq_outputs, 'seq_scores': seq_scores, 'detailed_seq_scores': detailed_seq_scores}
+        num_masks = x.shape[0]
+        mask_prob = mask_prob.squeeze(dim=1)[:, (None)]
+        if self.masker:
+            mask_prob = self.masker(mask_prob, boxes)
+        boxes_per_image = [len(box) for box in boxes]
+        mask_prob = mask_prob.split(boxes_per_image, dim=0)
+        results = []
+        for prob, box in zip(mask_prob, boxes):
+            bbox = BoxList(box.bbox, box.size, mode='xyxy')
+            for field in box.fields():
+                bbox.add_field(field, box.get_field(field))
+            bbox.add_field('mask', prob)
+            results.append(bbox)
+        return [results, char_results]
+
+
+class MaskPostProcessor(nn.Module):
+    """
+    From the results of the CNN, post process the masks
+    by taking the mask corresponding to the class with max
+    probability (which are of fixed size and directly output
+    by the CNN) and return the masks in the mask field of the BoxList.
+
+    If a masker object is passed, it will additionally
+    project the masks in the image according to the locations in boxes,
+    """
+
+    def __init__(self, masker=None):
+        super(MaskPostProcessor, self).__init__()
+        self.masker = masker
+
+    def forward(self, x, boxes):
+        """
+        Arguments:
+            x (Tensor): the mask logits
+            boxes (list[BoxList]): bounding boxes that are used as
+                reference, one for ech image
+
+        Returns:
+            results (list[BoxList]): one BoxList for each image, containing
+                the extra field mask
+        """
+        mask_prob = x.sigmoid()
+        num_masks = x.shape[0]
+        labels = [bbox.get_field('labels') for bbox in boxes]
+        labels = torch.cat(labels)
+        index = torch.arange(num_masks, device=labels.device)
+        mask_prob = mask_prob[index, labels][:, (None)]
+        if self.masker:
+            mask_prob = self.masker(mask_prob, boxes)
+        boxes_per_image = [len(box) for box in boxes]
+        mask_prob = mask_prob.split(boxes_per_image, dim=0)
+        results = []
+        for prob, box in zip(mask_prob, boxes):
+            bbox = BoxList(box.bbox, box.size, mode='xyxy')
+            for field in box.fields():
+                bbox.add_field(field, box.get_field(field))
+            bbox.add_field('mask', prob)
+            results.append(bbox)
+        return results
+
+
 def make_roi_mask_post_processor(cfg):
     masker = None
     if cfg.MODEL.CHAR_MASK_ON:
@@ -1941,222 +1962,6 @@ def make_roi_mask_post_processor(cfg):
     else:
         mask_post_processor = MaskPostProcessor(masker)
     return mask_post_processor
-
-
-def make_roi_mask_predictor(cfg):
-    func = _ROI_MASK_PREDICTOR[cfg.MODEL.ROI_MASK_HEAD.PREDICTOR]
-    return func(cfg)
-
-
-def project_char_masks_on_boxes(segmentation_masks, segmentation_char_masks, proposals, discretization_size):
-    """
-    Given segmentation masks and the bounding boxes corresponding
-    to the location of the masks in the image, this function
-    crops and resizes the masks in the position defined by the
-    boxes. This prepares the masks for them to be fed to the
-    loss computation as the targets.
-
-    Arguments:
-        segmentation_masks: an instance of SegmentationMask
-        proposals: an instance of BoxList
-    """
-    masks = []
-    char_masks = []
-    char_mask_weights = []
-    decoder_targets = []
-    word_targets = []
-    M_H, M_W = discretization_size[0], discretization_size[1]
-    device = proposals.bbox.device
-    proposals = proposals.convert('xyxy')
-    assert segmentation_masks.size == proposals.size, '{}, {}'.format(segmentation_masks, proposals)
-    assert segmentation_char_masks.size == proposals.size, '{}, {}'.format(segmentation_char_masks, proposals)
-    proposals = proposals.bbox.to(torch.device('cpu'))
-    for segmentation_mask, segmentation_char_mask, proposal in zip(segmentation_masks, segmentation_char_masks, proposals):
-        cropped_mask = segmentation_mask.crop(proposal)
-        scaled_mask = cropped_mask.resize((M_W, M_H))
-        mask = scaled_mask.convert(mode='mask')
-        masks.append(mask)
-        cropped_char_mask = segmentation_char_mask.crop(proposal)
-        scaled_char_mask = cropped_char_mask.resize((M_W, M_H))
-        char_mask, char_mask_weight, decoder_target, word_target = scaled_char_mask.convert(mode='seq_char_mask')
-        char_masks.append(char_mask)
-        char_mask_weights.append(char_mask_weight)
-        decoder_targets.append(decoder_target)
-        word_targets.append(word_target)
-    if len(masks) == 0:
-        return torch.empty(0, dtype=torch.float32, device=device), torch.empty(0, dtype=torch.long, device=device), torch.empty(0, dtype=torch.float32, device=device), torch.empty(0, dtype=torch.long, device=device)
-    return torch.stack(masks, dim=0).to(device, dtype=torch.float32), torch.stack(char_masks, dim=0).to(device, dtype=torch.long), torch.stack(char_mask_weights, dim=0).to(device, dtype=torch.float32), torch.stack(decoder_targets, dim=0).to(device, dtype=torch.long), torch.stack(word_targets, dim=0).to(device, dtype=torch.long)
-
-
-class ROIMaskHead(torch.nn.Module):
-
-    def __init__(self, cfg, proposal_matcher, discretization_size):
-        super(ROIMaskHead, self).__init__()
-        self.proposal_matcher = proposal_matcher
-        self.discretization_size = discretization_size
-        self.cfg = cfg.clone()
-        self.feature_extractor = make_roi_mask_feature_extractor(cfg)
-        self.predictor = make_roi_mask_predictor(cfg)
-        self.post_processor = make_roi_mask_post_processor(cfg)
-        self.loss_evaluator = make_roi_mask_loss_evaluator(cfg)
-
-    def match_targets_to_proposals(self, proposal, target):
-        match_quality_matrix = boxlist_iou(target, proposal)
-        matched_idxs = self.proposal_matcher(match_quality_matrix)
-        target = target.copy_with_fields(['labels', 'masks', 'char_masks'])
-        matched_targets = target[matched_idxs.clamp(min=0)]
-        matched_targets.add_field('matched_idxs', matched_idxs)
-        return matched_targets
-
-    def prepare_targets(self, proposals, targets):
-        masks = []
-        char_masks = []
-        char_mask_weights = []
-        decoder_targets = []
-        word_targets = []
-        for proposals_per_image, targets_per_image in zip(proposals, targets):
-            matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
-            matched_idxs = matched_targets.get_field('matched_idxs')
-            labels_per_image = matched_targets.get_field('labels')
-            labels_per_image = labels_per_image
-            neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
-            labels_per_image[neg_inds] = 0
-            positive_inds = torch.nonzero(labels_per_image > 0).squeeze(1)
-            segmentation_masks = matched_targets.get_field('masks')
-            segmentation_masks = segmentation_masks[positive_inds]
-            char_segmentation_masks = matched_targets.get_field('char_masks')
-            char_segmentation_masks = char_segmentation_masks[positive_inds]
-            positive_proposals = proposals_per_image[positive_inds]
-            masks_per_image, char_masks_per_image, char_masks_weight_per_image, decoder_targets_per_image, word_targets_per_image = project_char_masks_on_boxes(segmentation_masks, char_segmentation_masks, positive_proposals, self.discretization_size)
-            masks.append(masks_per_image)
-            char_masks.append(char_masks_per_image)
-            char_mask_weights.append(char_masks_weight_per_image)
-            decoder_targets.append(decoder_targets_per_image)
-            word_targets.append(word_targets_per_image)
-        return masks, char_masks, char_mask_weights, decoder_targets, word_targets
-
-    def forward(self, features, proposals, targets=None):
-        """
-        Arguments:
-            features (list[Tensor]): feature-maps from possibly several levels
-            proposals (list[BoxList]): proposal boxes
-            targets (list[BoxList], optional): the ground-truth targets.
-
-        Returns:
-            x (Tensor): the result of the feature extractor
-            proposals (list[BoxList]): during training, the original proposals
-                are returned. During testing, the predicted boxlists are returned
-                with the `mask` field set
-            losses (dict[Tensor]): During training, returns the losses for the
-                head. During testing, returns an empty dict.
-        """
-        if self.training:
-            all_proposals = proposals
-            proposals, positive_inds = keep_only_positive_boxes(proposals, self.cfg.MODEL.ROI_MASK_HEAD.MASK_BATCH_SIZE_PER_IM)
-        if self.training and self.cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-            x = features
-            x = x[torch.cat(positive_inds, dim=0)]
-        else:
-            x = self.feature_extractor(features, proposals)
-        if self.training and self.cfg.MODEL.CHAR_MASK_ON:
-            mask_targets, char_mask_targets, char_mask_weights, decoder_targets, word_targets = self.prepare_targets(proposals, targets)
-            decoder_targets = cat(decoder_targets, dim=0)
-            word_targets = cat(word_targets, dim=0)
-        if self.cfg.MODEL.CHAR_MASK_ON:
-            if self.cfg.SEQUENCE.SEQ_ON:
-                if not self.training:
-                    if x.numel() > 0:
-                        mask_logits, char_mask_logits, seq_outputs, seq_scores, detailed_seq_scores = self.predictor(x)
-                        result = self.post_processor(mask_logits, char_mask_logits, proposals, seq_outputs=seq_outputs, seq_scores=seq_scores, detailed_seq_scores=detailed_seq_scores)
-                        return x, result, {}
-                    else:
-                        return None, None, {}
-                mask_logits, char_mask_logits, seq_outputs = self.predictor(x, decoder_targets=decoder_targets, word_targets=word_targets)
-                loss_mask, loss_char_mask = self.loss_evaluator(proposals, mask_logits, char_mask_logits, mask_targets, char_mask_targets, char_mask_weights)
-                return x, all_proposals, dict(loss_mask=loss_mask, loss_char_mask=loss_char_mask, loss_seq=seq_outputs)
-            else:
-                mask_logits, char_mask_logits = self.predictor(x)
-                if not self.training:
-                    result = self.post_processor(mask_logits, char_mask_logits, proposals)
-                    return x, result, {}
-                loss_mask, loss_char_mask = self.loss_evaluator(proposals, mask_logits, char_mask_logits, mask_targets, char_mask_targets, char_mask_weights)
-                return x, all_proposals, dict(loss_mask=loss_mask, loss_char_mask=loss_char_mask)
-        else:
-            mask_logits = self.predictor(x)
-            if not self.training:
-                result = self.post_processor(mask_logits, proposals)
-                return x, result, {}
-            loss_mask = self.loss_evaluator(proposals, mask_logits, targets)
-            return x, all_proposals, dict(loss_mask=loss_mask)
-
-
-class MaskRCNNFPNFeatureExtractor(nn.Module):
-    """
-    Heads for FPN for classification
-    """
-
-    def __init__(self, cfg):
-        """
-        Arguments:
-            num_classes (int): number of output classes
-            input_size (int): number of channels of the input once it's flattened
-            representation_size (int): size of the intermediate representation
-        """
-        super(MaskRCNNFPNFeatureExtractor, self).__init__()
-        if cfg.MODEL.CHAR_MASK_ON:
-            resolution_h = cfg.MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION_H
-            resolution_w = cfg.MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION_W
-        else:
-            resolution_h = cfg.MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION
-            resolution_w = cfg.MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION
-        scales = cfg.MODEL.ROI_MASK_HEAD.POOLER_SCALES
-        sampling_ratio = cfg.MODEL.ROI_MASK_HEAD.POOLER_SAMPLING_RATIO
-        pooler = Pooler(output_size=(resolution_h, resolution_w), scales=scales, sampling_ratio=sampling_ratio)
-        input_size = cfg.MODEL.BACKBONE.OUT_CHANNELS
-        self.pooler = pooler
-        layers = cfg.MODEL.ROI_MASK_HEAD.CONV_LAYERS
-        next_feature = input_size
-        self.blocks = []
-        for layer_idx, layer_features in enumerate(layers, 1):
-            layer_name = 'mask_fcn{}'.format(layer_idx)
-            module = Conv2d(next_feature, layer_features, 3, stride=1, padding=1)
-            nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
-            nn.init.constant_(module.bias, 0)
-            self.add_module(layer_name, module)
-            next_feature = layer_features
-            self.blocks.append(layer_name)
-
-    def forward(self, x, proposals):
-        x = self.pooler(x, proposals)
-        for layer_name in self.blocks:
-            x = F.relu(getattr(self, layer_name)(x))
-        return x
-
-
-class MaskRCNNC4Predictor(nn.Module):
-
-    def __init__(self, cfg):
-        super(MaskRCNNC4Predictor, self).__init__()
-        num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
-        dim_reduced = cfg.MODEL.ROI_MASK_HEAD.CONV_LAYERS[-1]
-        if cfg.MODEL.ROI_HEADS.USE_FPN:
-            num_inputs = dim_reduced
-        else:
-            stage_index = 4
-            stage2_relative_factor = 2 ** (stage_index - 1)
-            res2_out_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
-            num_inputs = res2_out_channels * stage2_relative_factor
-        self.conv5_mask = ConvTranspose2d(num_inputs, dim_reduced, 2, 2, 0)
-        self.mask_fcn_logits = Conv2d(dim_reduced, num_classes, 1, 1, 0)
-        for name, param in self.named_parameters():
-            if 'bias' in name:
-                nn.init.constant_(param, 0)
-            elif 'weight' in name:
-                nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
-
-    def forward(self, x):
-        x = F.relu(self.conv5_mask(x))
-        return self.mask_fcn_logits(x)
 
 
 class CharMaskRCNNC4Predictor(nn.Module):
@@ -2190,16 +1995,11 @@ class CharMaskRCNNC4Predictor(nn.Module):
         return self.mask_fcn_logits(x), self.char_mask_fcn_logits(x)
 
 
-def make_roi_seq_predictor(cfg, dim_in):
-    return SequencePredictor(cfg, dim_in)
-
-
-class SeqCharMaskRCNNC4Predictor(nn.Module):
+class MaskRCNNC4Predictor(nn.Module):
 
     def __init__(self, cfg):
-        super(SeqCharMaskRCNNC4Predictor, self).__init__()
-        num_classes = 1
-        char_num_classes = cfg.MODEL.ROI_MASK_HEAD.CHAR_NUM_CLASSES
+        super(MaskRCNNC4Predictor, self).__init__()
+        num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
         dim_reduced = cfg.MODEL.ROI_MASK_HEAD.CONV_LAYERS[-1]
         if cfg.MODEL.ROI_HEADS.USE_FPN:
             num_inputs = dim_reduced
@@ -2209,26 +2009,95 @@ class SeqCharMaskRCNNC4Predictor(nn.Module):
             res2_out_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
             num_inputs = res2_out_channels * stage2_relative_factor
         self.conv5_mask = ConvTranspose2d(num_inputs, dim_reduced, 2, 2, 0)
-        if cfg.MODEL.CHAR_MASK_ON:
-            self.mask_fcn_logits = Conv2d(dim_reduced, num_classes, 1, 1, 0)
-            self.char_mask_fcn_logits = Conv2d(dim_reduced, char_num_classes, 1, 1, 0)
-            self.seq = make_roi_seq_predictor(cfg, dim_reduced)
-        else:
-            self.mask_fcn_logits = Conv2d(dim_reduced, num_classes, 1, 1, 0)
+        self.mask_fcn_logits = Conv2d(dim_reduced, num_classes, 1, 1, 0)
         for name, param in self.named_parameters():
             if 'bias' in name:
                 nn.init.constant_(param, 0)
             elif 'weight' in name:
                 nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
 
-    def forward(self, x, decoder_targets=None, word_targets=None):
+    def forward(self, x):
         x = F.relu(self.conv5_mask(x))
-        if self.training:
-            loss_seq_decoder = self.seq(x, decoder_targets=decoder_targets, word_targets=word_targets)
-            return self.mask_fcn_logits(x), self.char_mask_fcn_logits(x), loss_seq_decoder
+        return self.mask_fcn_logits(x)
+
+
+class Attn(nn.Module):
+
+    def __init__(self, method, hidden_size, embed_size):
+        super(Attn, self).__init__()
+        self.method = method
+        self.hidden_size = hidden_size
+        self.embed_size = embed_size
+        self.attn = nn.Linear(2 * self.hidden_size + 32 + 8, hidden_size)
+        self.v = nn.Parameter(torch.rand(hidden_size))
+        stdv = 1.0 / math.sqrt(self.v.size(0))
+        self.v.data.normal_(mean=0, std=stdv)
+
+    def forward(self, hidden, encoder_outputs):
+        """
+        :param hidden: 
+            previous hidden state of the decoder, in shape (B, hidden_size)
+        :param encoder_outputs:
+            encoder outputs from Encoder, in shape (H*W, B, hidden_size)
+        :return
+            attention energies in shape (B, H*W)
+        """
+        max_len = encoder_outputs.size(0)
+        this_batch_size = encoder_outputs.size(1)
+        H = hidden.repeat(max_len, 1, 1).transpose(0, 1)
+        encoder_outputs = encoder_outputs.transpose(0, 1)
+        attn_energies = self.score(H, encoder_outputs)
+        return F.softmax(attn_energies, dim=1).unsqueeze(1)
+
+    def score(self, hidden, encoder_outputs):
+        energy = torch.tanh(self.attn(torch.cat([hidden, encoder_outputs], 2)))
+        energy = energy.transpose(2, 1)
+        v = self.v.repeat(encoder_outputs.data.shape[0], 1).unsqueeze(1)
+        energy = torch.bmm(v, energy)
+        return energy.squeeze(1)
+
+
+class BahdanauAttnDecoderRNN(nn.Module):
+
+    def __init__(self, hidden_size, embed_size, output_size, n_layers=1, dropout_p=0, bidirectional=False):
+        super(BahdanauAttnDecoderRNN, self).__init__()
+        self.hidden_size = hidden_size
+        self.embed_size = embed_size
+        self.output_size = output_size
+        self.n_layers = n_layers
+        self.dropout_p = dropout_p
+        self.embedding = nn.Embedding(output_size, embed_size)
+        self.embedding.weight.data = torch.eye(embed_size)
+        self.word_linear = nn.Linear(embed_size, hidden_size)
+        self.attn = Attn('concat', hidden_size, embed_size)
+        self.rnn = nn.GRUCell(2 * hidden_size + 32 + 8, hidden_size)
+        self.out = nn.Linear(hidden_size, output_size)
+
+    def forward(self, word_input, last_hidden, encoder_outputs):
+        """
+        :param word_input:
+            word input for current time step, in shape (B)
+        :param last_hidden:
+            last hidden stat of the decoder, in shape (layers*direction*B, hidden_size)
+        :param encoder_outputs:
+            encoder outputs in shape (H*W, B, C)
+        :return
+            decoder output
+        """
+        word_embedded_onehot = self.embedding(word_input).view(1, word_input.size(0), -1)
+        word_embedded = self.word_linear(word_embedded_onehot)
+        attn_weights = self.attn(last_hidden, encoder_outputs)
+        context = attn_weights.bmm(encoder_outputs.transpose(0, 1))
+        context = context.transpose(0, 1)
+        rnn_input = torch.cat((word_embedded, context), 2)
+        last_hidden = last_hidden.view(last_hidden.size(0), -1)
+        rnn_input = rnn_input.view(word_input.size(0), -1)
+        hidden = self.rnn(rnn_input, last_hidden)
+        if not self.training:
+            output = F.softmax(self.out(hidden), dim=1)
         else:
-            decoded_chars, decoded_scores, detailed_decoded_scores = self.seq(x, use_beam_search=True)
-            return self.mask_fcn_logits(x), self.char_mask_fcn_logits(x), decoded_chars, decoded_scores, detailed_decoded_scores
+            output = F.log_softmax(self.out(hidden), dim=1)
+        return output, hidden, attn_weights
 
 
 def check_all_done(seqs):
@@ -2406,108 +2275,240 @@ class SequencePredictor(nn.Module):
         return top_seqs
 
 
-class Attn(nn.Module):
-
-    def __init__(self, method, hidden_size, embed_size):
-        super(Attn, self).__init__()
-        self.method = method
-        self.hidden_size = hidden_size
-        self.embed_size = embed_size
-        self.attn = nn.Linear(2 * self.hidden_size + 32 + 8, hidden_size)
-        self.v = nn.Parameter(torch.rand(hidden_size))
-        stdv = 1.0 / math.sqrt(self.v.size(0))
-        self.v.data.normal_(mean=0, std=stdv)
-
-    def forward(self, hidden, encoder_outputs):
-        """
-        :param hidden: 
-            previous hidden state of the decoder, in shape (B, hidden_size)
-        :param encoder_outputs:
-            encoder outputs from Encoder, in shape (H*W, B, hidden_size)
-        :return
-            attention energies in shape (B, H*W)
-        """
-        max_len = encoder_outputs.size(0)
-        this_batch_size = encoder_outputs.size(1)
-        H = hidden.repeat(max_len, 1, 1).transpose(0, 1)
-        encoder_outputs = encoder_outputs.transpose(0, 1)
-        attn_energies = self.score(H, encoder_outputs)
-        return F.softmax(attn_energies, dim=1).unsqueeze(1)
-
-    def score(self, hidden, encoder_outputs):
-        energy = torch.tanh(self.attn(torch.cat([hidden, encoder_outputs], 2)))
-        energy = energy.transpose(2, 1)
-        v = self.v.repeat(encoder_outputs.data.shape[0], 1).unsqueeze(1)
-        energy = torch.bmm(v, energy)
-        return energy.squeeze(1)
+def make_roi_seq_predictor(cfg, dim_in):
+    return SequencePredictor(cfg, dim_in)
 
 
-class BahdanauAttnDecoderRNN(nn.Module):
+class SeqCharMaskRCNNC4Predictor(nn.Module):
 
-    def __init__(self, hidden_size, embed_size, output_size, n_layers=1, dropout_p=0, bidirectional=False):
-        super(BahdanauAttnDecoderRNN, self).__init__()
-        self.hidden_size = hidden_size
-        self.embed_size = embed_size
-        self.output_size = output_size
-        self.n_layers = n_layers
-        self.dropout_p = dropout_p
-        self.embedding = nn.Embedding(output_size, embed_size)
-        self.embedding.weight.data = torch.eye(embed_size)
-        self.word_linear = nn.Linear(embed_size, hidden_size)
-        self.attn = Attn('concat', hidden_size, embed_size)
-        self.rnn = nn.GRUCell(2 * hidden_size + 32 + 8, hidden_size)
-        self.out = nn.Linear(hidden_size, output_size)
-
-    def forward(self, word_input, last_hidden, encoder_outputs):
-        """
-        :param word_input:
-            word input for current time step, in shape (B)
-        :param last_hidden:
-            last hidden stat of the decoder, in shape (layers*direction*B, hidden_size)
-        :param encoder_outputs:
-            encoder outputs in shape (H*W, B, C)
-        :return
-            decoder output
-        """
-        word_embedded_onehot = self.embedding(word_input).view(1, word_input.size(0), -1)
-        word_embedded = self.word_linear(word_embedded_onehot)
-        attn_weights = self.attn(last_hidden, encoder_outputs)
-        context = attn_weights.bmm(encoder_outputs.transpose(0, 1))
-        context = context.transpose(0, 1)
-        rnn_input = torch.cat((word_embedded, context), 2)
-        last_hidden = last_hidden.view(last_hidden.size(0), -1)
-        rnn_input = rnn_input.view(word_input.size(0), -1)
-        hidden = self.rnn(rnn_input, last_hidden)
-        if not self.training:
-            output = F.softmax(self.out(hidden), dim=1)
+    def __init__(self, cfg):
+        super(SeqCharMaskRCNNC4Predictor, self).__init__()
+        num_classes = 1
+        char_num_classes = cfg.MODEL.ROI_MASK_HEAD.CHAR_NUM_CLASSES
+        dim_reduced = cfg.MODEL.ROI_MASK_HEAD.CONV_LAYERS[-1]
+        if cfg.MODEL.ROI_HEADS.USE_FPN:
+            num_inputs = dim_reduced
         else:
-            output = F.log_softmax(self.out(hidden), dim=1)
-        return output, hidden, attn_weights
+            stage_index = 4
+            stage2_relative_factor = 2 ** (stage_index - 1)
+            res2_out_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS
+            num_inputs = res2_out_channels * stage2_relative_factor
+        self.conv5_mask = ConvTranspose2d(num_inputs, dim_reduced, 2, 2, 0)
+        if cfg.MODEL.CHAR_MASK_ON:
+            self.mask_fcn_logits = Conv2d(dim_reduced, num_classes, 1, 1, 0)
+            self.char_mask_fcn_logits = Conv2d(dim_reduced, char_num_classes, 1, 1, 0)
+            self.seq = make_roi_seq_predictor(cfg, dim_reduced)
+        else:
+            self.mask_fcn_logits = Conv2d(dim_reduced, num_classes, 1, 1, 0)
+        for name, param in self.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param, 0)
+            elif 'weight' in name:
+                nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
+
+    def forward(self, x, decoder_targets=None, word_targets=None):
+        x = F.relu(self.conv5_mask(x))
+        if self.training:
+            loss_seq_decoder = self.seq(x, decoder_targets=decoder_targets, word_targets=word_targets)
+            return self.mask_fcn_logits(x), self.char_mask_fcn_logits(x), loss_seq_decoder
+        else:
+            decoded_chars, decoded_scores, detailed_decoded_scores = self.seq(x, use_beam_search=True)
+            return self.mask_fcn_logits(x), self.char_mask_fcn_logits(x), decoded_chars, decoded_scores, detailed_decoded_scores
 
 
-class CombinedROIHeads(torch.nn.ModuleDict):
+_ROI_MASK_PREDICTOR = {'MaskRCNNC4Predictor': MaskRCNNC4Predictor, 'CharMaskRCNNC4Predictor': CharMaskRCNNC4Predictor, 'SeqCharMaskRCNNC4Predictor': SeqCharMaskRCNNC4Predictor}
+
+
+def make_roi_mask_predictor(cfg):
+    func = _ROI_MASK_PREDICTOR[cfg.MODEL.ROI_MASK_HEAD.PREDICTOR]
+    return func(cfg)
+
+
+def project_char_masks_on_boxes(segmentation_masks, segmentation_char_masks, proposals, discretization_size):
     """
-    Combines a set of individual heads (for box prediction or masks) into a single
-    head.
-    """
+    Given segmentation masks and the bounding boxes corresponding
+    to the location of the masks in the image, this function
+    crops and resizes the masks in the position defined by the
+    boxes. This prepares the masks for them to be fed to the
+    loss computation as the targets.
 
-    def __init__(self, cfg, heads):
-        super(CombinedROIHeads, self).__init__(heads)
+    Arguments:
+        segmentation_masks: an instance of SegmentationMask
+        proposals: an instance of BoxList
+    """
+    masks = []
+    char_masks = []
+    char_mask_weights = []
+    decoder_targets = []
+    word_targets = []
+    M_H, M_W = discretization_size[0], discretization_size[1]
+    device = proposals.bbox.device
+    proposals = proposals.convert('xyxy')
+    assert segmentation_masks.size == proposals.size, '{}, {}'.format(segmentation_masks, proposals)
+    assert segmentation_char_masks.size == proposals.size, '{}, {}'.format(segmentation_char_masks, proposals)
+    proposals = proposals.bbox
+    for segmentation_mask, segmentation_char_mask, proposal in zip(segmentation_masks, segmentation_char_masks, proposals):
+        cropped_mask = segmentation_mask.crop(proposal)
+        scaled_mask = cropped_mask.resize((M_W, M_H))
+        mask = scaled_mask.convert(mode='mask')
+        masks.append(mask)
+        cropped_char_mask = segmentation_char_mask.crop(proposal)
+        scaled_char_mask = cropped_char_mask.resize((M_W, M_H))
+        char_mask, char_mask_weight, decoder_target, word_target = scaled_char_mask.convert(mode='seq_char_mask')
+        char_masks.append(char_mask)
+        char_mask_weights.append(char_mask_weight)
+        decoder_targets.append(decoder_target)
+        word_targets.append(word_target)
+    if len(masks) == 0:
+        return torch.empty(0, dtype=torch.float32, device=device), torch.empty(0, dtype=torch.long, device=device), torch.empty(0, dtype=torch.float32, device=device), torch.empty(0, dtype=torch.long, device=device)
+    return torch.stack(masks, dim=0), torch.stack(char_masks, dim=0), torch.stack(char_mask_weights, dim=0), torch.stack(decoder_targets, dim=0), torch.stack(word_targets, dim=0)
+
+
+class ROIMaskHead(torch.nn.Module):
+
+    def __init__(self, cfg, proposal_matcher, discretization_size):
+        super(ROIMaskHead, self).__init__()
+        self.proposal_matcher = proposal_matcher
+        self.discretization_size = discretization_size
         self.cfg = cfg.clone()
-        if cfg.MODEL.MASK_ON and cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-            self.mask.feature_extractor = self.box.feature_extractor
+        self.feature_extractor = make_roi_mask_feature_extractor(cfg)
+        self.predictor = make_roi_mask_predictor(cfg)
+        self.post_processor = make_roi_mask_post_processor(cfg)
+        self.loss_evaluator = make_roi_mask_loss_evaluator(cfg)
+
+    def match_targets_to_proposals(self, proposal, target):
+        match_quality_matrix = boxlist_iou(target, proposal)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields(['labels', 'masks', 'char_masks'])
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, proposals, targets):
+        masks = []
+        char_masks = []
+        char_mask_weights = []
+        decoder_targets = []
+        word_targets = []
+        for proposals_per_image, targets_per_image in zip(proposals, targets):
+            matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = matched_targets.get_field('labels')
+            labels_per_image = labels_per_image
+            neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[neg_inds] = 0
+            positive_inds = torch.nonzero(labels_per_image > 0).squeeze(1)
+            segmentation_masks = matched_targets.get_field('masks')
+            segmentation_masks = segmentation_masks[positive_inds]
+            char_segmentation_masks = matched_targets.get_field('char_masks')
+            char_segmentation_masks = char_segmentation_masks[positive_inds]
+            positive_proposals = proposals_per_image[positive_inds]
+            masks_per_image, char_masks_per_image, char_masks_weight_per_image, decoder_targets_per_image, word_targets_per_image = project_char_masks_on_boxes(segmentation_masks, char_segmentation_masks, positive_proposals, self.discretization_size)
+            masks.append(masks_per_image)
+            char_masks.append(char_masks_per_image)
+            char_mask_weights.append(char_masks_weight_per_image)
+            decoder_targets.append(decoder_targets_per_image)
+            word_targets.append(word_targets_per_image)
+        return masks, char_masks, char_mask_weights, decoder_targets, word_targets
 
     def forward(self, features, proposals, targets=None):
-        losses = {}
-        x, detections, loss_box = self.box(features, proposals, targets)
-        losses.update(loss_box)
-        if self.cfg.MODEL.MASK_ON:
-            mask_features = features
-            if self.training and self.cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-                mask_features = x
-            x, detections, loss_mask = self.mask(mask_features, detections, targets)
-            losses.update(loss_mask)
-        return x, detections, losses
+        """
+        Arguments:
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
+
+        Returns:
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the original proposals
+                are returned. During testing, the predicted boxlists are returned
+                with the `mask` field set
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
+        """
+        if self.training:
+            all_proposals = proposals
+            proposals, positive_inds = keep_only_positive_boxes(proposals, self.cfg.MODEL.ROI_MASK_HEAD.MASK_BATCH_SIZE_PER_IM)
+        if self.training and self.cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+            x = features
+            x = x[torch.cat(positive_inds, dim=0)]
+        else:
+            x = self.feature_extractor(features, proposals)
+        if self.training and self.cfg.MODEL.CHAR_MASK_ON:
+            mask_targets, char_mask_targets, char_mask_weights, decoder_targets, word_targets = self.prepare_targets(proposals, targets)
+            decoder_targets = cat(decoder_targets, dim=0)
+            word_targets = cat(word_targets, dim=0)
+        if self.cfg.MODEL.CHAR_MASK_ON:
+            if self.cfg.SEQUENCE.SEQ_ON:
+                if not self.training:
+                    if x.numel() > 0:
+                        mask_logits, char_mask_logits, seq_outputs, seq_scores, detailed_seq_scores = self.predictor(x)
+                        result = self.post_processor(mask_logits, char_mask_logits, proposals, seq_outputs=seq_outputs, seq_scores=seq_scores, detailed_seq_scores=detailed_seq_scores)
+                        return x, result, {}
+                    else:
+                        return None, None, {}
+                mask_logits, char_mask_logits, seq_outputs = self.predictor(x, decoder_targets=decoder_targets, word_targets=word_targets)
+                loss_mask, loss_char_mask = self.loss_evaluator(proposals, mask_logits, char_mask_logits, mask_targets, char_mask_targets, char_mask_weights)
+                return x, all_proposals, dict(loss_mask=loss_mask, loss_char_mask=loss_char_mask, loss_seq=seq_outputs)
+            else:
+                mask_logits, char_mask_logits = self.predictor(x)
+                if not self.training:
+                    result = self.post_processor(mask_logits, char_mask_logits, proposals)
+                    return x, result, {}
+                loss_mask, loss_char_mask = self.loss_evaluator(proposals, mask_logits, char_mask_logits, mask_targets, char_mask_targets, char_mask_weights)
+                return x, all_proposals, dict(loss_mask=loss_mask, loss_char_mask=loss_char_mask)
+        else:
+            mask_logits = self.predictor(x)
+            if not self.training:
+                result = self.post_processor(mask_logits, proposals)
+                return x, result, {}
+            loss_mask = self.loss_evaluator(proposals, mask_logits, targets)
+            return x, all_proposals, dict(loss_mask=loss_mask)
+
+
+def build_roi_mask_head(cfg):
+    matcher = Matcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
+    return ROIMaskHead(cfg, matcher, (cfg.MODEL.ROI_MASK_HEAD.RESOLUTION_H, cfg.MODEL.ROI_MASK_HEAD.RESOLUTION_W))
+
+
+def build_roi_heads(cfg):
+    roi_heads = []
+    if not cfg.MODEL.RPN_ONLY:
+        roi_heads.append(('box', build_roi_box_head(cfg)))
+    if cfg.MODEL.MASK_ON:
+        roi_heads.append(('mask', build_roi_mask_head(cfg)))
+    if roi_heads:
+        roi_heads = CombinedROIHeads(cfg, roi_heads)
+    return roi_heads
+
+
+class RPNHead(nn.Module):
+    """
+    Adds a simple RPN Head with classification and regression heads
+    """
+
+    def __init__(self, in_channels, num_anchors):
+        """
+        Arguments:
+            in_channels (int): number of channels of the input feature
+            num_anchors (int): number of anchors to be predicted
+        """
+        super(RPNHead, self).__init__()
+        self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
+        self.cls_logits = nn.Conv2d(in_channels, num_anchors, kernel_size=1, stride=1)
+        self.bbox_pred = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=1, stride=1)
+        for l in [self.conv, self.cls_logits, self.bbox_pred]:
+            torch.nn.init.normal_(l.weight, std=0.01)
+            torch.nn.init.constant_(l.bias, 0)
+
+    def forward(self, x):
+        logits = []
+        bbox_reg = []
+        for feature in x:
+            t = F.relu(self.conv(feature))
+            logits.append(self.cls_logits(t))
+            bbox_reg.append(self.bbox_pred(t))
+        return logits, bbox_reg
 
 
 class BufferList(nn.Module):
@@ -2651,6 +2652,103 @@ class AnchorGenerator(nn.Module):
         return anchors
 
 
+def make_anchor_generator(config):
+    anchor_sizes = config.MODEL.RPN.ANCHOR_SIZES
+    aspect_ratios = config.MODEL.RPN.ASPECT_RATIOS
+    anchor_stride = config.MODEL.RPN.ANCHOR_STRIDE
+    straddle_thresh = config.MODEL.RPN.STRADDLE_THRESH
+    if config.MODEL.RPN.USE_FPN:
+        assert len(anchor_stride) == len(anchor_sizes), 'FPN should have len(ANCHOR_STRIDE) == len(ANCHOR_SIZES)'
+    else:
+        assert len(anchor_stride) == 1, 'Non-FPN should have a single ANCHOR_STRIDE'
+    anchor_generator = AnchorGenerator(anchor_sizes, aspect_ratios, anchor_stride, straddle_thresh)
+    return anchor_generator
+
+
+class RPNLossComputation(object):
+    """
+    This class computes the RPN loss.
+    """
+
+    def __init__(self, proposal_matcher, fg_bg_sampler, box_coder):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            fg_bg_sampler (BalancedPositiveNegativeSampler)
+            box_coder (BoxCoder)
+        """
+        self.proposal_matcher = proposal_matcher
+        self.fg_bg_sampler = fg_bg_sampler
+        self.box_coder = box_coder
+
+    def match_targets_to_anchors(self, anchor, target):
+        match_quality_matrix = boxlist_iou(target, anchor)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields([])
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, anchors, targets):
+        labels = []
+        regression_targets = []
+        for anchors_per_image, targets_per_image in zip(anchors, targets):
+            matched_targets = self.match_targets_to_anchors(anchors_per_image, targets_per_image)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = matched_idxs >= 0
+            labels_per_image = labels_per_image
+            labels_per_image[~anchors_per_image.get_field('visibility')] = -1
+            inds_to_discard = matched_idxs == Matcher.BETWEEN_THRESHOLDS
+            labels_per_image[inds_to_discard] = -1
+            regression_targets_per_image = self.box_coder.encode(matched_targets.bbox, anchors_per_image.bbox)
+            labels.append(labels_per_image)
+            regression_targets.append(regression_targets_per_image)
+        return labels, regression_targets
+
+    def __call__(self, anchors, objectness, box_regression, targets):
+        """
+        Arguments:
+            anchors (list[BoxList])
+            objectness (list[Tensor])
+            box_regression (list[Tensor])
+            targets (list[BoxList])
+
+        Returns:
+            objectness_loss (Tensor)
+            box_loss (Tensor
+        """
+        anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in anchors]
+        labels, regression_targets = self.prepare_targets(anchors, targets)
+        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
+        sampled_pos_inds = torch.nonzero(torch.cat(sampled_pos_inds, dim=0)).squeeze(1)
+        sampled_neg_inds = torch.nonzero(torch.cat(sampled_neg_inds, dim=0)).squeeze(1)
+        sampled_inds = torch.cat([sampled_pos_inds, sampled_neg_inds], dim=0)
+        objectness_flattened = []
+        box_regression_flattened = []
+        for objectness_per_level, box_regression_per_level in zip(objectness, box_regression):
+            N, A, H, W = objectness_per_level.shape
+            objectness_per_level = objectness_per_level.permute(0, 2, 3, 1).reshape(N, -1)
+            box_regression_per_level = box_regression_per_level.view(N, -1, 4, H, W)
+            box_regression_per_level = box_regression_per_level.permute(0, 3, 4, 1, 2)
+            box_regression_per_level = box_regression_per_level.reshape(N, -1, 4)
+            objectness_flattened.append(objectness_per_level)
+            box_regression_flattened.append(box_regression_per_level)
+        objectness = cat(objectness_flattened, dim=1).reshape(-1)
+        box_regression = cat(box_regression_flattened, dim=1).reshape(-1, 4)
+        labels = torch.cat(labels, dim=0)
+        regression_targets = torch.cat(regression_targets, dim=0)
+        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds], regression_targets[sampled_pos_inds], beta=1.0 / 9, size_average=False) / sampled_inds.numel()
+        objectness_loss = F.binary_cross_entropy_with_logits(objectness[sampled_inds], labels[sampled_inds])
+        return objectness_loss, box_loss
+
+
+def make_rpn_loss_evaluator(cfg, box_coder):
+    matcher = Matcher(cfg.MODEL.RPN.FG_IOU_THRESHOLD, cfg.MODEL.RPN.BG_IOU_THRESHOLD, allow_low_quality_matches=True)
+    fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.RPN.BATCH_SIZE_PER_IMAGE, cfg.MODEL.RPN.POSITIVE_FRACTION)
+    loss_evaluator = RPNLossComputation(matcher, fg_bg_sampler, box_coder)
+    return loss_evaluator
+
+
 def remove_small_boxes(boxlist, min_size):
     """
     Only keep boxes with both sides >= min_size
@@ -2784,132 +2882,6 @@ class RPNPostProcessor(torch.nn.Module):
         return boxlists
 
 
-class RPNHead(nn.Module):
-    """
-    Adds a simple RPN Head with classification and regression heads
-    """
-
-    def __init__(self, in_channels, num_anchors):
-        """
-        Arguments:
-            in_channels (int): number of channels of the input feature
-            num_anchors (int): number of anchors to be predicted
-        """
-        super(RPNHead, self).__init__()
-        self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
-        self.cls_logits = nn.Conv2d(in_channels, num_anchors, kernel_size=1, stride=1)
-        self.bbox_pred = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=1, stride=1)
-        for l in [self.conv, self.cls_logits, self.bbox_pred]:
-            torch.nn.init.normal_(l.weight, std=0.01)
-            torch.nn.init.constant_(l.bias, 0)
-
-    def forward(self, x):
-        logits = []
-        bbox_reg = []
-        for feature in x:
-            t = F.relu(self.conv(feature))
-            logits.append(self.cls_logits(t))
-            bbox_reg.append(self.bbox_pred(t))
-        return logits, bbox_reg
-
-
-def make_anchor_generator(config):
-    anchor_sizes = config.MODEL.RPN.ANCHOR_SIZES
-    aspect_ratios = config.MODEL.RPN.ASPECT_RATIOS
-    anchor_stride = config.MODEL.RPN.ANCHOR_STRIDE
-    straddle_thresh = config.MODEL.RPN.STRADDLE_THRESH
-    if config.MODEL.RPN.USE_FPN:
-        assert len(anchor_stride) == len(anchor_sizes), 'FPN should have len(ANCHOR_STRIDE) == len(ANCHOR_SIZES)'
-    else:
-        assert len(anchor_stride) == 1, 'Non-FPN should have a single ANCHOR_STRIDE'
-    anchor_generator = AnchorGenerator(anchor_sizes, aspect_ratios, anchor_stride, straddle_thresh)
-    return anchor_generator
-
-
-class RPNLossComputation(object):
-    """
-    This class computes the RPN loss.
-    """
-
-    def __init__(self, proposal_matcher, fg_bg_sampler, box_coder):
-        """
-        Arguments:
-            proposal_matcher (Matcher)
-            fg_bg_sampler (BalancedPositiveNegativeSampler)
-            box_coder (BoxCoder)
-        """
-        self.proposal_matcher = proposal_matcher
-        self.fg_bg_sampler = fg_bg_sampler
-        self.box_coder = box_coder
-
-    def match_targets_to_anchors(self, anchor, target):
-        match_quality_matrix = boxlist_iou(target, anchor)
-        matched_idxs = self.proposal_matcher(match_quality_matrix)
-        target = target.copy_with_fields([])
-        matched_targets = target[matched_idxs.clamp(min=0)]
-        matched_targets.add_field('matched_idxs', matched_idxs)
-        return matched_targets
-
-    def prepare_targets(self, anchors, targets):
-        labels = []
-        regression_targets = []
-        for anchors_per_image, targets_per_image in zip(anchors, targets):
-            matched_targets = self.match_targets_to_anchors(anchors_per_image, targets_per_image)
-            matched_idxs = matched_targets.get_field('matched_idxs')
-            labels_per_image = matched_idxs >= 0
-            labels_per_image = labels_per_image.to(dtype=torch.float32)
-            labels_per_image[~anchors_per_image.get_field('visibility')] = -1
-            inds_to_discard = matched_idxs == Matcher.BETWEEN_THRESHOLDS
-            labels_per_image[inds_to_discard] = -1
-            regression_targets_per_image = self.box_coder.encode(matched_targets.bbox, anchors_per_image.bbox)
-            labels.append(labels_per_image)
-            regression_targets.append(regression_targets_per_image)
-        return labels, regression_targets
-
-    def __call__(self, anchors, objectness, box_regression, targets):
-        """
-        Arguments:
-            anchors (list[BoxList])
-            objectness (list[Tensor])
-            box_regression (list[Tensor])
-            targets (list[BoxList])
-
-        Returns:
-            objectness_loss (Tensor)
-            box_loss (Tensor
-        """
-        anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in anchors]
-        labels, regression_targets = self.prepare_targets(anchors, targets)
-        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
-        sampled_pos_inds = torch.nonzero(torch.cat(sampled_pos_inds, dim=0)).squeeze(1)
-        sampled_neg_inds = torch.nonzero(torch.cat(sampled_neg_inds, dim=0)).squeeze(1)
-        sampled_inds = torch.cat([sampled_pos_inds, sampled_neg_inds], dim=0)
-        objectness_flattened = []
-        box_regression_flattened = []
-        for objectness_per_level, box_regression_per_level in zip(objectness, box_regression):
-            N, A, H, W = objectness_per_level.shape
-            objectness_per_level = objectness_per_level.permute(0, 2, 3, 1).reshape(N, -1)
-            box_regression_per_level = box_regression_per_level.view(N, -1, 4, H, W)
-            box_regression_per_level = box_regression_per_level.permute(0, 3, 4, 1, 2)
-            box_regression_per_level = box_regression_per_level.reshape(N, -1, 4)
-            objectness_flattened.append(objectness_per_level)
-            box_regression_flattened.append(box_regression_per_level)
-        objectness = cat(objectness_flattened, dim=1).reshape(-1)
-        box_regression = cat(box_regression_flattened, dim=1).reshape(-1, 4)
-        labels = torch.cat(labels, dim=0)
-        regression_targets = torch.cat(regression_targets, dim=0)
-        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds], regression_targets[sampled_pos_inds], beta=1.0 / 9, size_average=False) / sampled_inds.numel()
-        objectness_loss = F.binary_cross_entropy_with_logits(objectness[sampled_inds], labels[sampled_inds])
-        return objectness_loss, box_loss
-
-
-def make_rpn_loss_evaluator(cfg, box_coder):
-    matcher = Matcher(cfg.MODEL.RPN.FG_IOU_THRESHOLD, cfg.MODEL.RPN.BG_IOU_THRESHOLD, allow_low_quality_matches=True)
-    fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.RPN.BATCH_SIZE_PER_IMAGE, cfg.MODEL.RPN.POSITIVE_FRACTION)
-    loss_evaluator = RPNLossComputation(matcher, fg_bg_sampler, box_coder)
-    return loss_evaluator
-
-
 def make_rpn_postprocessor(config, rpn_box_coder, is_train):
     fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
     if not is_train:
@@ -2985,6 +2957,137 @@ class RPNModule(torch.nn.Module):
             inds = [box.get_field('objectness').sort(descending=True)[1] for box in boxes]
             boxes = [box[ind] for box, ind in zip(boxes, inds)]
         return boxes, {}
+
+
+def build_rpn(cfg):
+    """
+    This gives the gist of it. Not super important because it doesn't change as much
+    """
+    return RPNModule(cfg)
+
+
+class ImageList(object):
+    """
+    Structure that holds a list of images (of possibly
+    varying sizes) as a single tensor.
+    This works by padding the images to the same size,
+    and storing in a field the original sizes of each image
+    """
+
+    def __init__(self, tensors, image_sizes):
+        """
+        Arguments:
+            tensors (tensor)
+            image_sizes (list[tuple[int, int]])
+        """
+        self.tensors = tensors
+        self.image_sizes = image_sizes
+
+    def to(self, *args, **kwargs):
+        cast_tensor = self.tensors
+        return ImageList(cast_tensor, self.image_sizes)
+
+
+def to_image_list(tensors, size_divisible=0):
+    """
+    tensors can be an ImageList, a torch.Tensor or
+    an iterable of Tensors. It can't be a numpy array.
+    When tensors is an iterable of Tensors, it pads
+    the Tensors with zeros so that they have the same
+    shape
+    """
+    if isinstance(tensors, torch.Tensor) and size_divisible > 0:
+        tensors = [tensors]
+    if isinstance(tensors, ImageList):
+        return tensors
+    elif isinstance(tensors, torch.Tensor):
+        assert tensors.dim() == 4
+        image_sizes = [tensor.shape[-2:] for tensor in tensors]
+        return ImageList(tensors, image_sizes)
+    elif isinstance(tensors, (tuple, list)):
+        max_size = tuple(max(s) for s in zip(*[img.shape for img in tensors]))
+        if size_divisible > 0:
+            import math
+            stride = size_divisible
+            max_size = list(max_size)
+            max_size[1] = int(math.ceil(max_size[1] / stride) * stride)
+            max_size[2] = int(math.ceil(max_size[2] / stride) * stride)
+            max_size = tuple(max_size)
+        batch_shape = (len(tensors),) + max_size
+        batched_imgs = tensors[0].new(*batch_shape).zero_()
+        for img, pad_img in zip(tensors, batched_imgs):
+            pad_img[:img.shape[0], :img.shape[1], :img.shape[2]].copy_(img)
+        image_sizes = [im.shape[-2:] for im in tensors]
+        return ImageList(batched_imgs, image_sizes)
+    else:
+        raise TypeError('Unsupported type for to_image_list: {}'.format(type(tensors)))
+
+
+class GeneralizedRCNN(nn.Module):
+    """
+    Main class for Generalized R-CNN. Currently supports boxes and masks.
+    It consists of three main parts:
+    - backbone
+    = rpn
+    - heads: takes the features + the proposals from the RPN and computes
+        detections / masks from it.
+    """
+
+    def __init__(self, cfg):
+        super(GeneralizedRCNN, self).__init__()
+        self.backbone = build_backbone(cfg)
+        self.rpn = build_rpn(cfg)
+        self.roi_heads = build_roi_heads(cfg)
+
+    def forward(self, images, targets=None):
+        """
+        Arguments:
+            images (list[Tensor] or ImageList): images to be processed
+            targets (list[BoxList]): ground-truth boxes present in the image (optional)
+
+        Returns:
+            result (list[BoxList] or dict[Tensor]): the output from the model.
+                During training, it returns a dict[Tensor] which contains the losses.
+                During testing, it returns list[BoxList] contains additional fields
+                like `scores`, `labels` and `mask` (for Mask R-CNN models).
+
+        """
+        if self.training and targets is None:
+            raise ValueError('In training mode, targets should be passed')
+        images = to_image_list(images)
+        features = self.backbone(images.tensors)
+        proposals, proposal_losses = self.rpn(images, features, targets)
+        if self.roi_heads:
+            x, result, detector_losses = self.roi_heads(features, proposals, targets)
+        else:
+            x = features
+            result = proposals
+            detector_losses = {}
+        if self.training:
+            losses = {}
+            losses.update(detector_losses)
+            losses.update(proposal_losses)
+            return losses
+        return result
+
+
+class MaskPostProcessorCOCOFormat(MaskPostProcessor):
+    """
+    From the results of the CNN, post process the results
+    so that the masks are pasted in the image, and
+    additionally convert the results to COCO format.
+    """
+
+    def forward(self, x, boxes):
+        import numpy as np
+        results = super(MaskPostProcessorCOCOFormat, self).forward(x, boxes)
+        for result in results:
+            masks = result.get_field('mask').cpu()
+            rles = [mask_util.encode(np.array(mask[(0), :, :, (np.newaxis)], order='F'))[0] for mask in masks]
+            for rle in rles:
+                rle['counts'] = rle['counts'].decode('utf-8')
+            result.add_field('mask', rles)
+        return results
 
 
 import torch

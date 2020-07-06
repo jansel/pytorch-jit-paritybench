@@ -3,6 +3,7 @@ _module = sys.modules[__name__]
 del sys
 auto_crop = _module
 bitcoding = _module
+bitcoding = _module
 coders = _module
 coders_helpers = _module
 part_suffix_helper = _module
@@ -57,32 +58,48 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-from collections import namedtuple
+import math
+
+
+import itertools
+
+
+import torch
+
+
+import functools
 
 
 import numpy as np
 
 
-import torch
+from collections import namedtuple
 
 
 import torch.nn.functional as F
 
 
 import torchvision
+
+
+import torchvision.transforms as transforms
+
+
+from torch.utils.data import Dataset
 
 
 from torch.nn import functional as F
@@ -97,7 +114,7 @@ import re
 from torch.optim import optimizer
 
 
-import math
+import torch.backends.cudnn
 
 
 import torch.nn as nn
@@ -112,13 +129,28 @@ from torch import nn as nn
 from collections import defaultdict
 
 
-from torch.utils.data import Dataset
+import collections
 
 
-import itertools
+from torchvision import transforms
 
 
-import functools
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from torch import optim
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import transforms as transforms
 
 
 class MeanShift(nn.Conv2d):
@@ -189,22 +221,6 @@ class Upsampler(nn.Sequential):
         super(Upsampler, self).__init__(*m)
 
 
-class RGBHead(nn.Module):
-    """ Go from 3 channels (RGB) to Cf channels, also normalize RGB """
-
-    def __init__(self, config_ms):
-        super(RGBHead, self).__init__()
-        assert 'Subsampling' not in config_ms.enc.cls, 'For Subsampling encoders, head should be ID'
-        self.head = nn.Sequential(edsr.MeanShift(0, (0.0, 0.0, 0.0), (128.0, 128.0, 128.0)), Head(config_ms, Cin=3))
-        self._repr = 'MeanShift//Head(C=3)'
-
-    def __repr__(self):
-        return f'RGBHead({self._repr})'
-
-    def forward(self, x):
-        return self.head(x)
-
-
 class Head(nn.Module):
     """
     Go from Cin channels to Cf channels.
@@ -220,6 +236,22 @@ class Head(nn.Module):
 
     def __repr__(self):
         return f'Head({self._repr})'
+
+    def forward(self, x):
+        return self.head(x)
+
+
+class RGBHead(nn.Module):
+    """ Go from 3 channels (RGB) to Cf channels, also normalize RGB """
+
+    def __init__(self, config_ms):
+        super(RGBHead, self).__init__()
+        assert 'Subsampling' not in config_ms.enc.cls, 'For Subsampling encoders, head should be ID'
+        self.head = nn.Sequential(edsr.MeanShift(0, (0.0, 0.0, 0.0), (128.0, 128.0, 128.0)), Head(config_ms, Cin=3))
+        self._repr = 'MeanShift//Head(C=3)'
+
+    def __repr__(self):
+        return f'RGBHead({self._repr})'
 
     def forward(self, x):
         return self.head(x)
@@ -273,18 +305,6 @@ def resize_bicubic_batch(t, fac):
     return torch.stack([resize_bicubic(t[n, ...], fac) for n in range(N)], dim=0)
 
 
-class Net(nn.Module):
-
-    def __init__(self, config_ms, scale):
-        super(Net, self).__init__()
-        self.config_ms = config_ms
-        self.enc = {'EDSRLikeEnc': EDSRLikeEnc, 'BicubicSubsampling': BicubicDownsamplingEnc}[config_ms.enc.cls](config_ms, scale)
-        self.dec = {'EDSRDec': EDSRDec}[config_ms.dec.cls](config_ms, scale)
-
-    def forward(self, x):
-        raise NotImplementedError()
-
-
 DecOut = namedtuple('DecOut', ['F'])
 
 
@@ -315,6 +335,74 @@ class EDSRDec(nn.Module):
         x = self.body(x) + x
         x = self.tail(x)
         return DecOut(x)
+
+
+class Quantizer(nn.Module):
+
+    def __init__(self, levels, sigma=1.0):
+        super(Quantizer, self).__init__()
+        assert levels.dim() == 1, 'Expected 1D levels, got {}'.format(levels)
+        self.levels = levels
+        self.sigma = sigma
+        self.L = self.levels.size()[0]
+
+    def __repr__(self):
+        return '{}(sigma={})'.format(self._get_name(), self.sigma)
+
+    def forward(self, x):
+        """
+        :param x: NCHW
+        :return:, x_soft, symbols
+        """
+        assert x.dim() == 4, 'Expected NCHW, got {}'.format(x.size())
+        N, C, H, W = x.shape
+        x = x.view(N, C, H * W, 1)
+        d = torch.pow(x - self.levels, 2)
+        phi_soft = F.softmax(-self.sigma * d, dim=-1)
+        x_soft = torch.sum(self.levels * phi_soft, dim=-1)
+        x_soft = x_soft.view(N, C, H, W)
+        _, symbols_hard = torch.min(d.detach(), dim=-1)
+        symbols_hard = symbols_hard.view(N, C, H, W)
+        x_hard = self.levels[symbols_hard]
+        x_soft.data = x_hard
+        return x_soft, x_hard, symbols_hard
+
+
+class Net(nn.Module):
+
+    def __init__(self, config_ms, scale):
+        super(Net, self).__init__()
+        self.config_ms = config_ms
+        self.enc = {'EDSRLikeEnc': EDSRLikeEnc, 'BicubicSubsampling': BicubicDownsamplingEnc}[config_ms.enc.cls](config_ms, scale)
+        self.dec = {'EDSRDec': EDSRDec}[config_ms.dec.cls](config_ms, scale)
+
+    def forward(self, x):
+        raise NotImplementedError()
+
+
+class StackedAtrousConvs(nn.Module):
+
+    def __init__(self, atrous_rates_str, Cin, Cout, bias=True, kernel_size=3):
+        super(StackedAtrousConvs, self).__init__()
+        atrous_rates = self._parse_atrous_rates_str(atrous_rates_str)
+        self.atrous = nn.ModuleList([conv(Cin, Cin, kernel_size, rate=rate) for rate in atrous_rates])
+        self.lin = conv(len(atrous_rates) * Cin, Cout, 1, bias=bias)
+        self._extra_repr = 'rates={}'.format(atrous_rates)
+
+    @staticmethod
+    def _parse_atrous_rates_str(atrous_rates_str):
+        if isinstance(atrous_rates_str, int):
+            return [atrous_rates_str]
+        else:
+            return list(map(int, atrous_rates_str.split(',')))
+
+    def extra_repr(self):
+        return self._extra_repr
+
+    def forward(self, x):
+        x = torch.cat([atrous(x) for atrous in self.atrous], dim=1)
+        x = self.lin(x)
+        return x
 
 
 _NUM_PARAMS_OTHER = 3
@@ -349,62 +437,6 @@ class AtrousProbabilityClassifier(nn.Module):
         :return: NKpHW
         """
         return self.atrous(x)
-
-
-class StackedAtrousConvs(nn.Module):
-
-    def __init__(self, atrous_rates_str, Cin, Cout, bias=True, kernel_size=3):
-        super(StackedAtrousConvs, self).__init__()
-        atrous_rates = self._parse_atrous_rates_str(atrous_rates_str)
-        self.atrous = nn.ModuleList([conv(Cin, Cin, kernel_size, rate=rate) for rate in atrous_rates])
-        self.lin = conv(len(atrous_rates) * Cin, Cout, 1, bias=bias)
-        self._extra_repr = 'rates={}'.format(atrous_rates)
-
-    @staticmethod
-    def _parse_atrous_rates_str(atrous_rates_str):
-        if isinstance(atrous_rates_str, int):
-            return [atrous_rates_str]
-        else:
-            return list(map(int, atrous_rates_str.split(',')))
-
-    def extra_repr(self):
-        return self._extra_repr
-
-    def forward(self, x):
-        x = torch.cat([atrous(x) for atrous in self.atrous], dim=1)
-        x = self.lin(x)
-        return x
-
-
-class Quantizer(nn.Module):
-
-    def __init__(self, levels, sigma=1.0):
-        super(Quantizer, self).__init__()
-        assert levels.dim() == 1, 'Expected 1D levels, got {}'.format(levels)
-        self.levels = levels
-        self.sigma = sigma
-        self.L = self.levels.size()[0]
-
-    def __repr__(self):
-        return '{}(sigma={})'.format(self._get_name(), self.sigma)
-
-    def forward(self, x):
-        """
-        :param x: NCHW
-        :return:, x_soft, symbols
-        """
-        assert x.dim() == 4, 'Expected NCHW, got {}'.format(x.size())
-        N, C, H, W = x.shape
-        x = x.view(N, C, H * W, 1)
-        d = torch.pow(x - self.levels, 2)
-        phi_soft = F.softmax(-self.sigma * d, dim=-1)
-        x_soft = torch.sum(self.levels * phi_soft, dim=-1)
-        x_soft = x_soft.view(N, C, H, W)
-        _, symbols_hard = torch.min(d.detach(), dim=-1)
-        symbols_hard = symbols_hard.view(N, C, H, W)
-        x_hard = self.levels[symbols_hard]
-        x_soft.data = x_hard
-        return x_soft, x_hard, symbols_hard
 
 
 class LambdaModule(nn.Module):

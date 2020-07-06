@@ -24,38 +24,78 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import torch
-
-
-import torch.nn.functional as F
 
 
 import torch as th
 
 
+import numpy as np
+
+
+import logging
+
+
+import torch.multiprocessing as mp
+
+
+import time
+
+
+import torch
+
+
+import warnings
+
+
 from torch.autograd import Function
 
 
-import numpy as np
+import torch.nn.functional as F
+
+
+from collections import defaultdict as ddict
+
+
+from numpy.random import choice
+
+
+from torch.utils.data import Dataset as DS
+
+
+from sklearn.metrics import average_precision_score
+
+
+from functools import partial
 
 
 from torch.nn import Embedding
 
 
 from abc import abstractmethod
+
+
+from torch.optim.optimizer import Optimizer
+
+
+from torch.optim.optimizer import required
+
+
+from numpy.random import randint
+
+
+from torch.utils import data as torch_data
 
 
 class EnergyFunction(torch.nn.Module):
@@ -80,4 +120,31 @@ class EnergyFunction(torch.nn.Module):
 
     def loss_function(self, inp, target, **kwargs):
         raise NotImplementedError
+
+
+class DistanceEnergyFunction(EnergyFunction):
+
+    def energy(self, s, o):
+        return self.manifold.distance(s, o)
+
+    def loss(self, inp, target, **kwargs):
+        return F.cross_entropy(inp.neg(), target)
+
+
+class EntailmentConeEnergyFunction(EnergyFunction):
+
+    def __init__(self, *args, margin=0.1, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert self.manifold.K is not None, 'K cannot be none for EntailmentConeEnergyFunction'
+        assert hasattr(self.manifold, 'angle_at_u'), 'Missing `angle_at_u` method'
+        self.margin = margin
+
+    def energy(self, s, o):
+        energy = self.manifold.angle_at_u(o, s) - self.manifold.half_aperture(o)
+        return energy.clamp(min=0)
+
+    def loss(self, inp, target, **kwargs):
+        loss = inp[:, (0)].clamp_(min=0).sum()
+        loss += (self.margin - inp[:, 1:]).clamp_(min=0).sum()
+        return loss / inp.numel()
 

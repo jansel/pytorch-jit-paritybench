@@ -10,6 +10,7 @@ test = _module
 train = _module
 utils = _module
 data_loader = _module
+utils = _module
 eval = _module
 eval_final = _module
 input = _module
@@ -38,15 +39,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -87,7 +89,62 @@ import math
 from collections import OrderedDict
 
 
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from collections import defaultdict
+
+
+from collections import Counter
+
+
+import string
+
+
+from itertools import groupby
+
+
 import copy
+
+
+class GraphAttentionLayer(nn.Module):
+    """
+    Simple GAT layer, similar to https://arxiv.org/abs/1710.10903
+    """
+
+    def __init__(self, in_features, out_features, dropout, alpha, concat=True):
+        super(GraphAttentionLayer, self).__init__()
+        self.dropout = dropout
+        self.in_features = in_features
+        self.out_features = out_features
+        self.alpha = alpha
+        self.concat = concat
+        self.W = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(in_features, out_features).type(torch.FloatTensor if torch.cuda.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
+        self.a1 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(out_features, 1).type(torch.FloatTensor if torch.cuda.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
+        self.a2 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(out_features, 1).type(torch.FloatTensor if torch.cuda.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
+        self.leakyrelu = nn.LeakyReLU(self.alpha)
+
+    def forward(self, input, adj):
+        h = torch.mm(input, self.W)
+        N = h.size()[0]
+        f_1 = h @ self.a1
+        f_2 = h @ self.a2
+        e = self.leakyrelu(f_1 + f_2.transpose(0, 1))
+        zero_vec = -9000000000000000.0 * torch.ones_like(e)
+        attention = torch.where(adj > 0, e, zero_vec)
+        attention = F.softmax(attention, dim=1)
+        attention = F.dropout(attention, self.dropout, training=self.training)
+        h_prime = torch.matmul(attention, h)
+        if self.concat:
+            return F.sigmoid(h_prime)
+        else:
+            return h_prime
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class GAT(nn.Module):
@@ -104,6 +161,31 @@ class GAT(nn.Module):
         x = torch.cat([att(x, adj) for att in self.attentions], dim=1)
         x = F.dropout(x, self.dropout, training=self.training)
         return x
+
+
+class TAT(nn.Module):
+    """
+    A Bi-LSTM layer with attention
+    """
+
+    def __init__(self, embedding_dim, voc_size):
+        super(TAT, self).__init__()
+        self.hidden_dim = embedding_dim
+        self.word_embeddings = nn.Embedding(voc_size, embedding_dim)
+        self.lstm = nn.LSTM(embedding_dim, self.hidden_dim // 2, bidirectional=True)
+        self.attF = nn.Linear(self.hidden_dim, self.hidden_dim)
+
+    def forward(self, sentence, orders, lengths, ent_emb):
+        embedded = self.word_embeddings(sentence)
+        padded_sent = pack_padded_sequence(embedded, lengths, batch_first=True)
+        output = padded_sent
+        output, hidden = self.lstm(output)
+        output, _ = pad_packed_sequence(output, batch_first=True)
+        output = output[orders]
+        att = torch.unsqueeze(self.attF(ent_emb), 2)
+        att_score = F.softmax(torch.bmm(output, att), dim=1)
+        o = torch.squeeze(torch.bmm(output.transpose(1, 2), att_score))
+        return o
 
 
 class GATA(nn.Module):
@@ -136,68 +218,6 @@ class GATA(nn.Module):
         tail = gate_t * tg + (1 - gate_t) * tt
         s = (head + r - tail) ** 2
         return s
-
-
-class TAT(nn.Module):
-    """
-    A Bi-LSTM layer with attention
-    """
-
-    def __init__(self, embedding_dim, voc_size):
-        super(TAT, self).__init__()
-        self.hidden_dim = embedding_dim
-        self.word_embeddings = nn.Embedding(voc_size, embedding_dim)
-        self.lstm = nn.LSTM(embedding_dim, self.hidden_dim // 2, bidirectional=True)
-        self.attF = nn.Linear(self.hidden_dim, self.hidden_dim)
-
-    def forward(self, sentence, orders, lengths, ent_emb):
-        embedded = self.word_embeddings(sentence)
-        padded_sent = pack_padded_sequence(embedded, lengths, batch_first=True)
-        output = padded_sent
-        output, hidden = self.lstm(output)
-        output, _ = pad_packed_sequence(output, batch_first=True)
-        output = output[orders]
-        att = torch.unsqueeze(self.attF(ent_emb), 2)
-        att_score = F.softmax(torch.bmm(output, att), dim=1)
-        o = torch.squeeze(torch.bmm(output.transpose(1, 2), att_score))
-        return o
-
-
-class GraphAttentionLayer(nn.Module):
-    """
-    Simple GAT layer, similar to https://arxiv.org/abs/1710.10903
-    """
-
-    def __init__(self, in_features, out_features, dropout, alpha, concat=True):
-        super(GraphAttentionLayer, self).__init__()
-        self.dropout = dropout
-        self.in_features = in_features
-        self.out_features = out_features
-        self.alpha = alpha
-        self.concat = concat
-        self.W = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(in_features, out_features).type(torch.FloatTensor if torch.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
-        self.a1 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(out_features, 1).type(torch.FloatTensor if torch.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
-        self.a2 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(out_features, 1).type(torch.FloatTensor if torch.is_available() else torch.FloatTensor), gain=np.sqrt(2.0)), requires_grad=True)
-        self.leakyrelu = nn.LeakyReLU(self.alpha)
-
-    def forward(self, input, adj):
-        h = torch.mm(input, self.W)
-        N = h.size()[0]
-        f_1 = h @ self.a1
-        f_2 = h @ self.a2
-        e = self.leakyrelu(f_1 + f_2.transpose(0, 1))
-        zero_vec = -9000000000000000.0 * torch.ones_like(e)
-        attention = torch.where(adj > 0, e, zero_vec)
-        attention = F.softmax(attention, dim=1)
-        attention = F.dropout(attention, self.dropout, training=self.training)
-        h_prime = torch.matmul(attention, h)
-        if self.concat:
-            return F.sigmoid(h_prime)
-        else:
-            return h_prime
-
-    def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class TermEncoder(nn.Module):
@@ -295,14 +315,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (GAT,
+     lambda: ([], {'nfeat': 4, 'nhid': 4, 'dropout': 0.5, 'alpha': 4, 'nheads': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GraphAttentionLayer,
+     lambda: ([], {'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (MemoryComponent,
      lambda: ([], {'hop': 4, 'h': 4, 'd_model': 4, 'dropout_p': 0.5}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
      False),
-    (TAT,
-     lambda: ([], {'embedding_dim': 4, 'voc_size': 4}),
-     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {}),
-     True),
     (TermEncoder,
      lambda: ([], {'embedding': _mock_layer(), 'input_dropout_p': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -318,4 +342,7 @@ class Test_EagleW_PaperRobot(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

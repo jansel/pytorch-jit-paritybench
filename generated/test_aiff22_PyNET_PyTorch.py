@@ -15,15 +15,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -40,6 +41,15 @@ import torch
 import math
 
 
+from torch.utils.data import Dataset
+
+
+from torchvision import transforms
+
+
+from scipy import misc
+
+
 import torch.nn as nn
 
 
@@ -49,16 +59,90 @@ import torch.nn.functional as F
 from math import exp
 
 
-from scipy import misc
-
-
-from torchvision import transforms
-
-
 from torch.optim import Adam
 
 
 from torchvision import models
+
+
+class ConvLayer(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride, relu=True, instance_norm=False):
+        super(ConvLayer, self).__init__()
+        reflection_padding = kernel_size // 2
+        self.reflection_pad = nn.ReflectionPad2d(reflection_padding)
+        self.conv2d = nn.Conv2d(in_channels, out_channels, kernel_size, stride)
+        self.instance_norm = instance_norm
+        self.instance = None
+        self.relu = None
+        if instance_norm:
+            self.instance = nn.InstanceNorm2d(out_channels, affine=True)
+        if relu:
+            self.relu = nn.LeakyReLU(0.2)
+
+    def forward(self, x):
+        out = self.reflection_pad(x)
+        out = self.conv2d(out)
+        if self.instance_norm:
+            out = self.instance(out)
+        if self.relu:
+            out = self.relu(out)
+        return out
+
+
+class ConvMultiBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, max_conv_size, instance_norm):
+        super(ConvMultiBlock, self).__init__()
+        self.max_conv_size = max_conv_size
+        self.conv_3a = ConvLayer(in_channels, out_channels, kernel_size=3, stride=1, instance_norm=instance_norm)
+        self.conv_3b = ConvLayer(out_channels, out_channels, kernel_size=3, stride=1, instance_norm=instance_norm)
+        if max_conv_size >= 5:
+            self.conv_5a = ConvLayer(in_channels, out_channels, kernel_size=5, stride=1, instance_norm=instance_norm)
+            self.conv_5b = ConvLayer(out_channels, out_channels, kernel_size=5, stride=1, instance_norm=instance_norm)
+        if max_conv_size >= 7:
+            self.conv_7a = ConvLayer(in_channels, out_channels, kernel_size=7, stride=1, instance_norm=instance_norm)
+            self.conv_7b = ConvLayer(out_channels, out_channels, kernel_size=7, stride=1, instance_norm=instance_norm)
+        if max_conv_size >= 9:
+            self.conv_9a = ConvLayer(in_channels, out_channels, kernel_size=9, stride=1, instance_norm=instance_norm)
+            self.conv_9b = ConvLayer(out_channels, out_channels, kernel_size=9, stride=1, instance_norm=instance_norm)
+
+    def forward(self, x):
+        out_3 = self.conv_3a(x)
+        output_tensor = self.conv_3b(out_3)
+        if self.max_conv_size >= 5:
+            out_5 = self.conv_5a(x)
+            out_5 = self.conv_5b(out_5)
+            output_tensor = torch.cat([output_tensor, out_5], 1)
+        if self.max_conv_size >= 7:
+            out_7 = self.conv_7a(x)
+            out_7 = self.conv_7b(out_7)
+            output_tensor = torch.cat([output_tensor, out_7], 1)
+        if self.max_conv_size >= 9:
+            out_9 = self.conv_9a(x)
+            out_9 = self.conv_9b(out_9)
+            output_tensor = torch.cat([output_tensor, out_9], 1)
+        return output_tensor
+
+
+class UpsampleConvLayer(torch.nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, upsample=2, stride=1, relu=True):
+        super(UpsampleConvLayer, self).__init__()
+        self.upsample = nn.Upsample(scale_factor=upsample, mode='bilinear', align_corners=True)
+        reflection_padding = kernel_size // 2
+        self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)
+        self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)
+        if relu:
+            self.relu = nn.LeakyReLU(0.2)
+
+    def forward(self, x):
+        out = self.upsample(x)
+        out = self.reflection_pad(out)
+        out = self.conv2d(out)
+        if self.relu:
+            out = self.relu(out)
+        return out
 
 
 class PyNET(nn.Module):
@@ -242,86 +326,6 @@ class PyNET(nn.Module):
         return enhanced
 
 
-class ConvMultiBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, max_conv_size, instance_norm):
-        super(ConvMultiBlock, self).__init__()
-        self.max_conv_size = max_conv_size
-        self.conv_3a = ConvLayer(in_channels, out_channels, kernel_size=3, stride=1, instance_norm=instance_norm)
-        self.conv_3b = ConvLayer(out_channels, out_channels, kernel_size=3, stride=1, instance_norm=instance_norm)
-        if max_conv_size >= 5:
-            self.conv_5a = ConvLayer(in_channels, out_channels, kernel_size=5, stride=1, instance_norm=instance_norm)
-            self.conv_5b = ConvLayer(out_channels, out_channels, kernel_size=5, stride=1, instance_norm=instance_norm)
-        if max_conv_size >= 7:
-            self.conv_7a = ConvLayer(in_channels, out_channels, kernel_size=7, stride=1, instance_norm=instance_norm)
-            self.conv_7b = ConvLayer(out_channels, out_channels, kernel_size=7, stride=1, instance_norm=instance_norm)
-        if max_conv_size >= 9:
-            self.conv_9a = ConvLayer(in_channels, out_channels, kernel_size=9, stride=1, instance_norm=instance_norm)
-            self.conv_9b = ConvLayer(out_channels, out_channels, kernel_size=9, stride=1, instance_norm=instance_norm)
-
-    def forward(self, x):
-        out_3 = self.conv_3a(x)
-        output_tensor = self.conv_3b(out_3)
-        if self.max_conv_size >= 5:
-            out_5 = self.conv_5a(x)
-            out_5 = self.conv_5b(out_5)
-            output_tensor = torch.cat([output_tensor, out_5], 1)
-        if self.max_conv_size >= 7:
-            out_7 = self.conv_7a(x)
-            out_7 = self.conv_7b(out_7)
-            output_tensor = torch.cat([output_tensor, out_7], 1)
-        if self.max_conv_size >= 9:
-            out_9 = self.conv_9a(x)
-            out_9 = self.conv_9b(out_9)
-            output_tensor = torch.cat([output_tensor, out_9], 1)
-        return output_tensor
-
-
-class ConvLayer(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride, relu=True, instance_norm=False):
-        super(ConvLayer, self).__init__()
-        reflection_padding = kernel_size // 2
-        self.reflection_pad = nn.ReflectionPad2d(reflection_padding)
-        self.conv2d = nn.Conv2d(in_channels, out_channels, kernel_size, stride)
-        self.instance_norm = instance_norm
-        self.instance = None
-        self.relu = None
-        if instance_norm:
-            self.instance = nn.InstanceNorm2d(out_channels, affine=True)
-        if relu:
-            self.relu = nn.LeakyReLU(0.2)
-
-    def forward(self, x):
-        out = self.reflection_pad(x)
-        out = self.conv2d(out)
-        if self.instance_norm:
-            out = self.instance(out)
-        if self.relu:
-            out = self.relu(out)
-        return out
-
-
-class UpsampleConvLayer(torch.nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, upsample=2, stride=1, relu=True):
-        super(UpsampleConvLayer, self).__init__()
-        self.upsample = nn.Upsample(scale_factor=upsample, mode='bilinear', align_corners=True)
-        reflection_padding = kernel_size // 2
-        self.reflection_pad = torch.nn.ReflectionPad2d(reflection_padding)
-        self.conv2d = torch.nn.Conv2d(in_channels, out_channels, kernel_size, stride)
-        if relu:
-            self.relu = nn.LeakyReLU(0.2)
-
-    def forward(self, x):
-        out = self.upsample(x)
-        out = self.reflection_pad(out)
-        out = self.conv2d(out)
-        if self.relu:
-            out = self.relu(out)
-        return out
-
-
 def gaussian(window_size, sigma):
     gauss = torch.Tensor([exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2)) for x in range(window_size)])
     return gauss / gauss.sum()
@@ -351,7 +355,7 @@ def ssim(img1, img2, window_size=11, window=None, size_average=True, full=False,
     _, channel, height, width = img1.size()
     if window is None:
         real_size = min(window_size, height, width)
-        window = create_window(real_size, channel=channel).to(img1.device)
+        window = create_window(real_size, channel=channel)
     mu1 = F.conv2d(img1, window, padding=padd, groups=channel)
     mu2 = F.conv2d(img2, window, padding=padd, groups=channel)
     mu1_sq = mu1.pow(2)
@@ -398,7 +402,7 @@ class SSIM(torch.nn.Module):
 
 def msssim(img1, img2, window_size=11, size_average=True, val_range=None, normalize=False):
     device = img1.device
-    weights = torch.FloatTensor([0.0448, 0.2856, 0.3001, 0.2363, 0.1333]).to(device)
+    weights = torch.FloatTensor([0.0448, 0.2856, 0.3001, 0.2363, 0.1333])
     levels = weights.size()[0]
     mssim = []
     mcs = []

@@ -28,17 +28,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import copy
+
+
+from torch.utils.data import Dataset
 
 
 import functools
@@ -71,16 +78,52 @@ import torchvision
 import torch.nn.functional as functional
 
 
+import torch.autograd as autograd
+
+
+import torch.cuda.comm as comm
+
+
+from torch.autograd.function import once_differentiable
+
+
+from torch.utils.cpp_extension import load
+
+
 from torch import nn
 
 
 from torch.nn import functional as F
 
 
+import time
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision.transforms import *
+
+
+from torch.utils.data import ConcatDataset
+
+
+import torchvision.utils as vutils
+
+
 import torch.optim as optim
 
 
 import torch.backends.cudnn as cudnn
+
+
+import math
+
+
+from torch.optim.optimizer import Optimizer
+
+
+from torch.optim.lr_scheduler import _LRScheduler
 
 
 class StableBCELoss(torch.nn.modules.Module):
@@ -152,6 +195,177 @@ class ABN(nn.BatchNorm2d):
         if self.activation == 'leaky_relu':
             rep += ', slope={slope}'.format(**self.__dict__)
         return rep
+
+
+ACT_LEAKY_RELU = 'leaky_relu'
+
+
+ACT_ELU = 'elu'
+
+
+ACT_NONE = 'none'
+
+
+def _act_backward(ctx, x, dx):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _backend.leaky_relu_backward(x, dx, ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _backend.elu_backward(x, dx)
+    elif ctx.activation == ACT_NONE:
+        pass
+
+
+def _act_forward(ctx, x):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _backend.leaky_relu_forward(x, ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _backend.elu_forward(x)
+    elif ctx.activation == ACT_NONE:
+        pass
+
+
+def _count_samples(x):
+    count = 1
+    for i, s in enumerate(x.size()):
+        if i != 1:
+            count *= s
+    return count
+
+
+class InPlaceABN(autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, weight, bias, running_mean, running_var, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01):
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        ctx.affine = weight is not None and bias is not None
+        count = _count_samples(x)
+        x = x.contiguous()
+        weight = weight.contiguous() if ctx.affine else x.new_empty(0)
+        bias = bias.contiguous() if ctx.affine else x.new_empty(0)
+        if ctx.training:
+            mean, var = _backend.mean_var(x)
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * count / (count - 1))
+            ctx.mark_dirty(x, running_mean, running_var)
+        else:
+            mean, var = running_mean.contiguous(), running_var.contiguous()
+            ctx.mark_dirty(x)
+        _backend.forward(x, mean, var, weight, bias, ctx.affine, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, var, weight, bias)
+        return x
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, var, weight, bias = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.training:
+            edz, eydz = _backend.edz_eydz(z, dz, weight, bias, ctx.affine, ctx.eps)
+        else:
+            edz = dz.new_zeros(dz.size(1))
+            eydz = dz.new_zeros(dz.size(1))
+        dx, dweight, dbias = _backend.backward(z, dz, var, weight, bias, edz, eydz, ctx.affine, ctx.eps)
+        dweight = dweight if ctx.affine else None
+        dbias = dbias if ctx.affine else None
+        return dx, dweight, dbias, None, None, None, None, None, None, None
+
+
+class InPlaceABNSync(autograd.Function):
+
+    @classmethod
+    def forward(cls, ctx, x, weight, bias, running_mean, running_var, extra, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01):
+        cls._parse_extra(ctx, extra)
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        ctx.affine = weight is not None and bias is not None
+        count = _count_samples(x) * (ctx.master_queue.maxsize + 1)
+        x = x.contiguous()
+        weight = weight.contiguous() if ctx.affine else x.new_empty(0)
+        bias = bias.contiguous() if ctx.affine else x.new_empty(0)
+        if ctx.training:
+            mean, var = _backend.mean_var(x)
+            if ctx.is_master:
+                means, vars = [mean.unsqueeze(0)], [var.unsqueeze(0)]
+                for _ in range(ctx.master_queue.maxsize):
+                    mean_w, var_w = ctx.master_queue.get()
+                    ctx.master_queue.task_done()
+                    means.append(mean_w.unsqueeze(0))
+                    vars.append(var_w.unsqueeze(0))
+                means = comm.gather(means)
+                vars = comm.gather(vars)
+                mean = means.mean(0)
+                var = (vars + (mean - means) ** 2).mean(0)
+                tensors = comm.broadcast_coalesced((mean, var), [mean.get_device()] + ctx.worker_ids)
+                for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                    queue.put(ts)
+            else:
+                ctx.master_queue.put((mean, var))
+                mean, var = ctx.worker_queue.get()
+                ctx.worker_queue.task_done()
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * count / (count - 1))
+            ctx.mark_dirty(x, running_mean, running_var)
+        else:
+            mean, var = running_mean.contiguous(), running_var.contiguous()
+            ctx.mark_dirty(x)
+        _backend.forward(x, mean, var, weight, bias, ctx.affine, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, var, weight, bias)
+        return x
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, var, weight, bias = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.training:
+            edz, eydz = _backend.edz_eydz(z, dz, weight, bias, ctx.affine, ctx.eps)
+            if ctx.is_master:
+                edzs, eydzs = [edz], [eydz]
+                for _ in range(len(ctx.worker_queues)):
+                    edz_w, eydz_w = ctx.master_queue.get()
+                    ctx.master_queue.task_done()
+                    edzs.append(edz_w)
+                    eydzs.append(eydz_w)
+                edz = comm.reduce_add(edzs) / (ctx.master_queue.maxsize + 1)
+                eydz = comm.reduce_add(eydzs) / (ctx.master_queue.maxsize + 1)
+                tensors = comm.broadcast_coalesced((edz, eydz), [edz.get_device()] + ctx.worker_ids)
+                for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                    queue.put(ts)
+            else:
+                ctx.master_queue.put((edz, eydz))
+                edz, eydz = ctx.worker_queue.get()
+                ctx.worker_queue.task_done()
+        else:
+            edz = dz.new_zeros(dz.size(1))
+            eydz = dz.new_zeros(dz.size(1))
+        dx, dweight, dbias = _backend.backward(z, dz, var, weight, bias, edz, eydz, ctx.affine, ctx.eps)
+        dweight = dweight if ctx.affine else None
+        dbias = dbias if ctx.affine else None
+        return dx, dweight, dbias, None, None, None, None, None, None, None, None
+
+    @staticmethod
+    def _parse_extra(ctx, extra):
+        ctx.is_master = extra['is_master']
+        if ctx.is_master:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queues = extra['worker_queues']
+            ctx.worker_ids = extra['worker_ids']
+        else:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queue = extra['worker_queue']
 
 
 class SelfAttentionBlock2D(nn.Module):
@@ -266,7 +480,6 @@ class AdaptiveConcatPool2d(nn.Module):
 
 
 def darknet(pretrained):
-    from .darknet import KitModel as DarkNet
     net = DarkNet()
     if pretrained:
         state_dict = torch.load('/media/data/model_zoo/coco/pytorch_yolov3.pth')
@@ -341,7 +554,6 @@ def resnet(name, pretrained):
 
 
 def resnext(name, pretrained):
-    import pretrainedmodels
     if name in ['resnext101_32x4d', 'resnext101_64x4d']:
         imagenet_pretrained = 'imagenet' if pretrained == 'imagenet' else None
         resnext = pretrainedmodels.__dict__[name](num_classes=1000, pretrained=imagenet_pretrained)
@@ -415,7 +627,6 @@ def replace_bn_in_sequential(layer0, block=None):
 
 
 def se_net(name, pretrained):
-    import pretrainedmodels
     if name in ['se_resnet50', 'se_resnet101', 'se_resnet152', 'se_resnext50_32x4d', 'se_resnext101_32x4d', 'senet154']:
         imagenet_pretrained = 'imagenet' if pretrained == 'imagenet' else None
         senet = pretrainedmodels.__dict__[name](num_classes=1000, pretrained=imagenet_pretrained)
@@ -610,10 +821,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (ABN,
-     lambda: ([], {'num_features': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
     (AdaptiveConcatPool2d,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -644,7 +851,4 @@ class Test_tugstugi_pytorch_saltnet(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

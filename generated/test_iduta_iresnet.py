@@ -18,15 +18,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -89,53 +90,34 @@ def conv3x3(in_planes, out_planes, stride=1):
 class ResGroupBlock(nn.Module):
     reduction = 2
 
-    def __init__(self, inplanes, planes, groups, stride=1, downsample=None, norm_layer=None, start_block=False, end_block=False, exclude_bn0=False):
+    def __init__(self, inplanes, planes, groups, stride=1, downsample=None, norm_layer=None):
         super(ResGroupBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
-        if not start_block and not exclude_bn0:
-            self.bn0 = norm_layer(inplanes)
         self.conv1 = conv1x1(inplanes, planes)
         self.bn1 = norm_layer(planes)
         self.conv2 = conv3x3(planes, planes, groups=groups, stride=stride)
         self.bn2 = norm_layer(planes)
         self.conv3 = conv1x1(planes, planes // self.reduction)
-        if start_block:
-            self.bn3 = norm_layer(planes // self.reduction)
-        if end_block:
-            self.bn3 = norm_layer(planes // self.reduction)
+        self.bn3 = norm_layer(planes // self.reduction)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-        self.start_block = start_block
-        self.end_block = end_block
-        self.exclude_bn0 = exclude_bn0
 
     def forward(self, x):
         identity = x
-        if self.start_block:
-            out = self.conv1(x)
-        elif self.exclude_bn0:
-            out = self.relu(x)
-            out = self.conv1(out)
-        else:
-            out = self.bn0(x)
-            out = self.relu(out)
-            out = self.conv1(out)
+        out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
         out = self.conv2(out)
         out = self.bn2(out)
         out = self.relu(out)
         out = self.conv3(out)
-        if self.start_block:
-            out = self.bn3(out)
+        out = self.bn3(out)
         if self.downsample is not None:
             identity = self.downsample(x)
         out += identity
-        if self.end_block:
-            out = self.bn3(out)
-            out = self.relu(out)
+        out = self.relu(out)
         return out
 
 
@@ -207,59 +189,6 @@ class iResGroup(nn.Module):
             x = self.dp(x)
         x = self.fc(x)
         return x
-
-
-class ResGroupBlock(nn.Module):
-    reduction = 2
-
-    def __init__(self, inplanes, planes, groups, stride=1, downsample=None, norm_layer=None, start_block=False, end_block=False, exclude_bn0=False):
-        super(ResGroupBlock, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
-        if not start_block and not exclude_bn0:
-            self.bn0 = norm_layer(inplanes)
-        self.conv1 = conv1x1(inplanes, planes)
-        self.bn1 = norm_layer(planes)
-        self.conv2 = conv3x3(planes, planes, groups=groups, stride=stride)
-        self.bn2 = norm_layer(planes)
-        self.conv3 = conv1x1(planes, planes // self.reduction)
-        if start_block:
-            self.bn3 = norm_layer(planes // self.reduction)
-        if end_block:
-            self.bn3 = norm_layer(planes // self.reduction)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-        self.start_block = start_block
-        self.end_block = end_block
-        self.exclude_bn0 = exclude_bn0
-
-    def forward(self, x):
-        identity = x
-        if self.start_block:
-            out = self.conv1(x)
-        elif self.exclude_bn0:
-            out = self.relu(x)
-            out = self.conv1(out)
-        else:
-            out = self.bn0(x)
-            out = self.relu(out)
-            out = self.conv1(out)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        if self.start_block:
-            out = self.bn3(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        if self.end_block:
-            out = self.bn3(out)
-            out = self.relu(out)
-        return out
 
 
 class iResGroupFix(nn.Module):
@@ -503,40 +432,6 @@ class iResNet(nn.Module):
         return x
 
 
-class ResGroupBlock(nn.Module):
-    reduction = 2
-
-    def __init__(self, inplanes, planes, groups, stride=1, downsample=None, norm_layer=None):
-        super(ResGroupBlock, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
-        self.conv1 = conv1x1(inplanes, planes)
-        self.bn1 = norm_layer(planes)
-        self.conv2 = conv3x3(planes, planes, groups=groups, stride=stride)
-        self.bn2 = norm_layer(planes)
-        self.conv3 = conv1x1(planes, planes // self.reduction)
-        self.bn3 = norm_layer(planes // self.reduction)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu(out)
-        return out
-
-
 class ResGroup(nn.Module):
 
     def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, norm_layer=None, groups=None):
@@ -595,40 +490,6 @@ class ResGroup(nn.Module):
         return x
 
 
-class ResGroupBlock(nn.Module):
-    reduction = 2
-
-    def __init__(self, inplanes, planes, groups, stride=1, downsample=None, norm_layer=None):
-        super(ResGroupBlock, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
-        self.conv1 = conv1x1(inplanes, planes)
-        self.bn1 = norm_layer(planes)
-        self.conv2 = conv3x3(planes, planes, groups=groups, stride=stride)
-        self.bn2 = norm_layer(planes)
-        self.conv3 = conv1x1(planes, planes // self.reduction)
-        self.bn3 = norm_layer(planes // self.reduction)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu(out)
-        return out
-
-
 class ResGroupFix(nn.Module):
 
     def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, norm_layer=None, groups=None):
@@ -685,69 +546,6 @@ class ResGroupFix(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None):
-        super(BasicBlock, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = norm_layer(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = norm_layer(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None):
-        super(Bottleneck, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
-        self.conv1 = conv1x1(inplanes, planes)
-        self.bn1 = norm_layer(planes)
-        self.conv2 = conv3x3(planes, planes, stride)
-        self.bn2 = norm_layer(planes)
-        self.conv3 = conv1x1(planes, planes * self.expansion)
-        self.bn3 = norm_layer(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu(out)
-        return out
 
 
 class ResNet(nn.Module):
@@ -813,107 +611,6 @@ class ResNet(nn.Module):
             x = self.dp(x)
         x = self.fc(x)
         return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None, start_block=False, end_block=False, exclude_bn0=False):
-        super(BasicBlock, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
-        if not start_block and not exclude_bn0:
-            self.bn0 = norm_layer(inplanes)
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = norm_layer(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        if start_block:
-            self.bn2 = norm_layer(planes)
-        if end_block:
-            self.bn2 = norm_layer(planes)
-        self.downsample = downsample
-        self.stride = stride
-        self.start_block = start_block
-        self.end_block = end_block
-        self.exclude_bn0 = exclude_bn0
-
-    def forward(self, x):
-        identity = x
-        if self.start_block:
-            out = self.conv1(x)
-        elif self.exclude_bn0:
-            out = self.relu(x)
-            out = self.conv1(out)
-        else:
-            out = self.bn0(x)
-            out = self.relu(out)
-            out = self.conv1(out)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        if self.start_block:
-            out = self.bn2(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        if self.end_block:
-            out = self.bn2(out)
-            out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None, start_block=False, end_block=False, exclude_bn0=False):
-        super(Bottleneck, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
-        if not start_block and not exclude_bn0:
-            self.bn0 = norm_layer(inplanes)
-        self.conv1 = conv1x1(inplanes, planes)
-        self.bn1 = norm_layer(planes)
-        self.conv2 = conv3x3(planes, planes, stride)
-        self.bn2 = norm_layer(planes)
-        self.conv3 = conv1x1(planes, planes * self.expansion)
-        if start_block:
-            self.bn3 = norm_layer(planes * self.expansion)
-        if end_block:
-            self.bn3 = norm_layer(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-        self.start_block = start_block
-        self.end_block = end_block
-        self.exclude_bn0 = exclude_bn0
-
-    def forward(self, x):
-        identity = x
-        if self.start_block:
-            out = self.conv1(x)
-        elif self.exclude_bn0:
-            out = self.relu(x)
-            out = self.conv1(out)
-        else:
-            out = self.bn0(x)
-            out = self.relu(out)
-            out = self.conv1(out)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        if self.start_block:
-            out = self.bn3(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        if self.end_block:
-            out = self.bn3(out)
-            out = self.relu(out)
-        return out
 
 
 class ResStage(nn.Module):

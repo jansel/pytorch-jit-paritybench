@@ -13,15 +13,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -30,6 +31,18 @@ import numpy as np
 
 
 import torch
+
+
+import tensorflow as tf
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision.datasets import ImageFolder
+
+
+from torchvision import transforms
 
 
 import torch.nn as nn
@@ -51,6 +64,47 @@ import copy
 
 
 import time
+
+
+class Swish(nn.Module):
+
+    def forward(self, x):
+        return x * torch.sigmoid(x)
+
+
+class SEModule(nn.Module):
+
+    def __init__(self, in_, squeeze_ch):
+        super().__init__()
+        self.se = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Conv2d(in_, squeeze_ch, kernel_size=1, stride=1, padding=0, bias=True), Swish(), nn.Conv2d(squeeze_ch, in_, kernel_size=1, stride=1, padding=0, bias=True))
+
+    def forward(self, x):
+        return x * torch.sigmoid(self.se(x))
+
+
+class SamePadConv2d(nn.Conv2d):
+    """
+    Conv with TF padding='same'
+    https://github.com/pytorch/pytorch/issues/3867#issuecomment-349279036
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True, padding_mode='zeros'):
+        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias, padding_mode)
+
+    def get_pad_odd(self, in_, weight, stride, dilation):
+        effective_filter_size_rows = (weight - 1) * dilation + 1
+        out_rows = (in_ + stride - 1) // stride
+        padding_needed = max(0, (out_rows - 1) * stride + effective_filter_size_rows - in_)
+        padding_rows = max(0, (out_rows - 1) * stride + (weight - 1) * dilation + 1 - in_)
+        rows_odd = padding_rows % 2 != 0
+        return padding_rows, rows_odd
+
+    def forward(self, x):
+        padding_rows, rows_odd = self.get_pad_odd(x.shape[2], self.weight.shape[2], self.stride[0], self.dilation[0])
+        padding_cols, cols_odd = self.get_pad_odd(x.shape[3], self.weight.shape[3], self.stride[1], self.dilation[1])
+        if rows_odd or cols_odd:
+            x = F.pad(x, [0, int(cols_odd), 0, int(rows_odd)])
+        return F.conv2d(x, self.weight, self.bias, self.stride, padding=(padding_rows // 2, padding_cols // 2), dilation=self.dilation, groups=self.groups)
 
 
 def conv_bn_act(in_, out_, kernel_size, stride=1, groups=1, bias=True, eps=0.001, momentum=0.01):
@@ -93,6 +147,12 @@ class MBBlock(nn.Module):
         return self.layers(x)
 
 
+class Flatten(nn.Module):
+
+    def forward(self, x):
+        return x.view(x.shape[0], -1)
+
+
 class EfficientNet(nn.Module):
 
     def __init__(self, width_coeff, depth_coeff, depth_div=8, min_depth=None, dropout_rate=0.2, drop_connect_rate=0.2, num_classes=1000):
@@ -128,53 +188,6 @@ class EfficientNet(nn.Module):
         x = self.blocks(stem)
         head = self.head(x)
         return head
-
-
-class SamePadConv2d(nn.Conv2d):
-    """
-    Conv with TF padding='same'
-    https://github.com/pytorch/pytorch/issues/3867#issuecomment-349279036
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True, padding_mode='zeros'):
-        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias, padding_mode)
-
-    def get_pad_odd(self, in_, weight, stride, dilation):
-        effective_filter_size_rows = (weight - 1) * dilation + 1
-        out_rows = (in_ + stride - 1) // stride
-        padding_needed = max(0, (out_rows - 1) * stride + effective_filter_size_rows - in_)
-        padding_rows = max(0, (out_rows - 1) * stride + (weight - 1) * dilation + 1 - in_)
-        rows_odd = padding_rows % 2 != 0
-        return padding_rows, rows_odd
-
-    def forward(self, x):
-        padding_rows, rows_odd = self.get_pad_odd(x.shape[2], self.weight.shape[2], self.stride[0], self.dilation[0])
-        padding_cols, cols_odd = self.get_pad_odd(x.shape[3], self.weight.shape[3], self.stride[1], self.dilation[1])
-        if rows_odd or cols_odd:
-            x = F.pad(x, [0, int(cols_odd), 0, int(rows_odd)])
-        return F.conv2d(x, self.weight, self.bias, self.stride, padding=(padding_rows // 2, padding_cols // 2), dilation=self.dilation, groups=self.groups)
-
-
-class Swish(nn.Module):
-
-    def forward(self, x):
-        return x * torch.sigmoid(x)
-
-
-class Flatten(nn.Module):
-
-    def forward(self, x):
-        return x.view(x.shape[0], -1)
-
-
-class SEModule(nn.Module):
-
-    def __init__(self, in_, squeeze_ch):
-        super().__init__()
-        self.se = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Conv2d(in_, squeeze_ch, kernel_size=1, stride=1, padding=0, bias=True), Swish(), nn.Conv2d(squeeze_ch, in_, kernel_size=1, stride=1, padding=0, bias=True))
-
-    def forward(self, x):
-        return x * torch.sigmoid(self.se(x))
 
 
 class DropConnect(nn.Module):

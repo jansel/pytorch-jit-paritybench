@@ -21,17 +21,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils.data import Dataset
+
+
+from scipy.io import loadmat
 
 
 import logging
@@ -118,94 +125,17 @@ class SPPLayer(nn.Module):
         return spp
 
 
-class Inception3(nn.Module):
+class BasicConv2d(nn.Module):
 
-    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False):
-        super(Inception3, self).__init__()
-        self.aux_logits = aux_logits
-        self.transform_input = transform_input
-        self.Conv2d_1a_3x3 = BasicConv2d(3, 32, kernel_size=3, stride=2)
-        self.Conv2d_2a_3x3 = BasicConv2d(32, 32, kernel_size=3)
-        self.Conv2d_2b_3x3 = BasicConv2d(32, 64, kernel_size=3, padding=1)
-        self.Conv2d_3b_1x1 = BasicConv2d(64, 80, kernel_size=1)
-        self.Conv2d_4a_3x3 = BasicConv2d(80, 192, kernel_size=3)
-        self.Mixed_5b = InceptionA(192, pool_features=32)
-        self.Mixed_5c = InceptionA(256, pool_features=64)
-        self.Mixed_5d = InceptionA(288, pool_features=64)
-        self.Mixed_6a = InceptionB(288)
-        self.Mixed_6b = InceptionC(768, channels_7x7=128)
-        self.Mixed_6c = InceptionC(768, channels_7x7=160)
-        self.Mixed_6d = InceptionC(768, channels_7x7=160)
-        self.Mixed_6e = InceptionC(768, channels_7x7=192)
-        if aux_logits:
-            self.AuxLogits = InceptionAux(768, num_classes)
-        self.Mixed_7a = InceptionD(768)
-        self.Mixed_7b = InceptionE(1280)
-        self.Mixed_7c = InceptionE(2048)
-        self.fc = nn.Linear(2048, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                import scipy.stats as stats
-                stddev = m.stddev if hasattr(m, 'stddev') else 0.1
-                X = stats.truncnorm(-2, 2, scale=stddev)
-                values = torch.Tensor(X.rvs(m.weight.data.numel()))
-                values = values.view(m.weight.data.size())
-                m.weight.data.copy_(values)
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+    def __init__(self, in_channels, out_channels, **kwargs):
+        super(BasicConv2d, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, bias=False, **kwargs)
+        self.bn = nn.BatchNorm2d(out_channels, eps=0.001)
 
     def forward(self, x):
-        if self.transform_input:
-            x = x.clone()
-            x[:, (0)] = x[:, (0)] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
-            x[:, (1)] = x[:, (1)] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
-            x[:, (2)] = x[:, (2)] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
-        x = self.Conv2d_1a_3x3(x)
-        x = self.Conv2d_2a_3x3(x)
-        x = self.Conv2d_2b_3x3(x)
-        x = F.max_pool2d(x, kernel_size=3, stride=2)
-        x = self.Conv2d_3b_1x1(x)
-        x = self.Conv2d_4a_3x3(x)
-        x = F.max_pool2d(x, kernel_size=3, stride=2)
-        x = self.Mixed_5b(x)
-        x = self.Mixed_5c(x)
-        x = self.Mixed_5d(x)
-        x = self.Mixed_6a(x)
-        x = self.Mixed_6b(x)
-        x = self.Mixed_6c(x)
-        x = self.Mixed_6d(x)
-        x = self.Mixed_6e(x)
-        if self.training and self.aux_logits:
-            aux = self.AuxLogits(x)
-        x = self.Mixed_7a(x)
-        x = self.Mixed_7b(x)
-        x = self.Mixed_7c(x)
-        x = F.avg_pool2d(x, kernel_size=8)
-        x = F.dropout(x, training=self.training)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        if self.training and self.aux_logits:
-            return x, aux
-        return x
-
-    def get_features_mixed_6e(self):
-        return nn.Sequential(self.Conv2d_1a_3x3, self.Conv2d_2a_3x3, self.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.Conv2d_3b_1x1, self.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.Mixed_5b, self.Mixed_5c, self.Mixed_5d, self.Mixed_6a, self.Mixed_6b, self.Mixed_6c, self.Mixed_6d, self.Mixed_6e)
-
-    def get_features_mixed_7c(self):
-        return nn.Sequential(self.Conv2d_1a_3x3, self.Conv2d_2a_3x3, self.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.Conv2d_3b_1x1, self.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.Mixed_5b, self.Mixed_5c, self.Mixed_5d, self.Mixed_6a, self.Mixed_6b, self.Mixed_6c, self.Mixed_6d, self.Mixed_6e, self.Mixed_7a, self.Mixed_7b, self.Mixed_7c)
-
-    def load_state_dict(self, state_dict, strict=True):
-        model_dict = self.state_dict()
-        pretrained_dict = {k: v for k, v in state_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
-        if len(pretrained_dict) == len(state_dict):
-            logging.info('%s: All params loaded' % type(self).__name__)
-        else:
-            logging.info('%s: Some params were not loaded:' % type(self).__name__)
-            not_loaded_keys = [k for k in state_dict.keys() if k not in pretrained_dict.keys()]
-            logging.info(('%s, ' * (len(not_loaded_keys) - 1) + '%s') % tuple(not_loaded_keys))
-        model_dict.update(pretrained_dict)
-        super(Inception3, self).load_state_dict(model_dict)
+        x = self.conv(x)
+        x = self.bn(x)
+        return F.relu(x, inplace=True)
 
 
 class InceptionA(nn.Module):
@@ -231,6 +161,25 @@ class InceptionA(nn.Module):
         branch_pool = self.branch_pool(branch_pool)
         outputs = [branch1x1, branch5x5, branch3x3dbl, branch_pool]
         return torch.cat(outputs, 1)
+
+
+class InceptionAux(nn.Module):
+
+    def __init__(self, in_channels, num_classes):
+        super(InceptionAux, self).__init__()
+        self.conv0 = BasicConv2d(in_channels, 128, kernel_size=1)
+        self.conv1 = BasicConv2d(128, 768, kernel_size=5)
+        self.conv1.stddev = 0.01
+        self.fc = nn.Linear(768, num_classes)
+        self.fc.stddev = 0.001
+
+    def forward(self, x):
+        x = F.avg_pool2d(x, kernel_size=5, stride=3)
+        x = self.conv0(x)
+        x = self.conv1(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
 
 
 class InceptionB(nn.Module):
@@ -336,36 +285,94 @@ class InceptionE(nn.Module):
         return torch.cat(outputs, 1)
 
 
-class InceptionAux(nn.Module):
+class Inception3(nn.Module):
 
-    def __init__(self, in_channels, num_classes):
-        super(InceptionAux, self).__init__()
-        self.conv0 = BasicConv2d(in_channels, 128, kernel_size=1)
-        self.conv1 = BasicConv2d(128, 768, kernel_size=5)
-        self.conv1.stddev = 0.01
-        self.fc = nn.Linear(768, num_classes)
-        self.fc.stddev = 0.001
+    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False):
+        super(Inception3, self).__init__()
+        self.aux_logits = aux_logits
+        self.transform_input = transform_input
+        self.Conv2d_1a_3x3 = BasicConv2d(3, 32, kernel_size=3, stride=2)
+        self.Conv2d_2a_3x3 = BasicConv2d(32, 32, kernel_size=3)
+        self.Conv2d_2b_3x3 = BasicConv2d(32, 64, kernel_size=3, padding=1)
+        self.Conv2d_3b_1x1 = BasicConv2d(64, 80, kernel_size=1)
+        self.Conv2d_4a_3x3 = BasicConv2d(80, 192, kernel_size=3)
+        self.Mixed_5b = InceptionA(192, pool_features=32)
+        self.Mixed_5c = InceptionA(256, pool_features=64)
+        self.Mixed_5d = InceptionA(288, pool_features=64)
+        self.Mixed_6a = InceptionB(288)
+        self.Mixed_6b = InceptionC(768, channels_7x7=128)
+        self.Mixed_6c = InceptionC(768, channels_7x7=160)
+        self.Mixed_6d = InceptionC(768, channels_7x7=160)
+        self.Mixed_6e = InceptionC(768, channels_7x7=192)
+        if aux_logits:
+            self.AuxLogits = InceptionAux(768, num_classes)
+        self.Mixed_7a = InceptionD(768)
+        self.Mixed_7b = InceptionE(1280)
+        self.Mixed_7c = InceptionE(2048)
+        self.fc = nn.Linear(2048, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                import scipy.stats as stats
+                stddev = m.stddev if hasattr(m, 'stddev') else 0.1
+                X = stats.truncnorm(-2, 2, scale=stddev)
+                values = torch.Tensor(X.rvs(m.weight.data.numel()))
+                values = values.view(m.weight.data.size())
+                m.weight.data.copy_(values)
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
 
     def forward(self, x):
-        x = F.avg_pool2d(x, kernel_size=5, stride=3)
-        x = self.conv0(x)
-        x = self.conv1(x)
+        if self.transform_input:
+            x = x.clone()
+            x[:, (0)] = x[:, (0)] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
+            x[:, (1)] = x[:, (1)] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
+            x[:, (2)] = x[:, (2)] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
+        x = self.Conv2d_1a_3x3(x)
+        x = self.Conv2d_2a_3x3(x)
+        x = self.Conv2d_2b_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Conv2d_3b_1x1(x)
+        x = self.Conv2d_4a_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Mixed_5b(x)
+        x = self.Mixed_5c(x)
+        x = self.Mixed_5d(x)
+        x = self.Mixed_6a(x)
+        x = self.Mixed_6b(x)
+        x = self.Mixed_6c(x)
+        x = self.Mixed_6d(x)
+        x = self.Mixed_6e(x)
+        if self.training and self.aux_logits:
+            aux = self.AuxLogits(x)
+        x = self.Mixed_7a(x)
+        x = self.Mixed_7b(x)
+        x = self.Mixed_7c(x)
+        x = F.avg_pool2d(x, kernel_size=8)
+        x = F.dropout(x, training=self.training)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
+        if self.training and self.aux_logits:
+            return x, aux
         return x
 
+    def get_features_mixed_6e(self):
+        return nn.Sequential(self.Conv2d_1a_3x3, self.Conv2d_2a_3x3, self.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.Conv2d_3b_1x1, self.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.Mixed_5b, self.Mixed_5c, self.Mixed_5d, self.Mixed_6a, self.Mixed_6b, self.Mixed_6c, self.Mixed_6d, self.Mixed_6e)
 
-class BasicConv2d(nn.Module):
+    def get_features_mixed_7c(self):
+        return nn.Sequential(self.Conv2d_1a_3x3, self.Conv2d_2a_3x3, self.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.Conv2d_3b_1x1, self.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2), self.Mixed_5b, self.Mixed_5c, self.Mixed_5d, self.Mixed_6a, self.Mixed_6b, self.Mixed_6c, self.Mixed_6d, self.Mixed_6e, self.Mixed_7a, self.Mixed_7b, self.Mixed_7c)
 
-    def __init__(self, in_channels, out_channels, **kwargs):
-        super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, bias=False, **kwargs)
-        self.bn = nn.BatchNorm2d(out_channels, eps=0.001)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        return F.relu(x, inplace=True)
+    def load_state_dict(self, state_dict, strict=True):
+        model_dict = self.state_dict()
+        pretrained_dict = {k: v for k, v in state_dict.items() if k in model_dict and model_dict[k].size() == v.size()}
+        if len(pretrained_dict) == len(state_dict):
+            logging.info('%s: All params loaded' % type(self).__name__)
+        else:
+            logging.info('%s: Some params were not loaded:' % type(self).__name__)
+            not_loaded_keys = [k for k in state_dict.keys() if k not in pretrained_dict.keys()]
+            logging.info(('%s, ' * (len(not_loaded_keys) - 1) + '%s') % tuple(not_loaded_keys))
+        model_dict.update(pretrained_dict)
+        super(Inception3, self).load_state_dict(model_dict)
 
 
 class BasicBlock(nn.Module):
@@ -699,6 +706,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (Inception3,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     False),
     (InceptionA,
      lambda: ([], {'in_channels': 4, 'pool_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -723,6 +734,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (WSDAN,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
 ]
 
 class Test_GuYuc_WS_DAN_PyTorch(_paritybench_base):
@@ -758,4 +773,10 @@ class Test_GuYuc_WS_DAN_PyTorch(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
 

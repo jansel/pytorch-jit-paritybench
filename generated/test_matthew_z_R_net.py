@@ -25,15 +25,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -157,6 +158,43 @@ class _PairEncodeCell(nn.Module):
         attention_vector = torch.sum(attention_scores.unsqueeze(-1) * memory, dim=0)
         new_input = torch.cat([inputs, attention_vector], dim=-1)
         return self.cell(new_input, state)
+
+
+class PairEncodeCell(_PairEncodeCell):
+
+    def __init__(self, input_size, cell, attention_size, memory_size=None, batch_first=False):
+        super().__init__(input_size, cell, attention_size, memory_size=memory_size, use_state_in_attention=True, batch_first=batch_first)
+
+
+class SelfMatchCell(_PairEncodeCell):
+
+    def __init__(self, input_size, cell, attention_size, memory_size=None, batch_first=False):
+        super().__init__(input_size, cell, attention_size, memory_size=memory_size, use_state_in_attention=False, batch_first=batch_first)
+
+
+def unroll_attention_cell(cell, inputs, memory, memory_mask, batch_first=False, initial_state=None, backward=False):
+    if batch_first:
+        inputs = inputs.transpose(0, 1)
+    output = []
+    state = initial_state
+    steps = range(inputs.size(0))
+    if backward:
+        steps = range(inputs.size(0) - 1, -1, -1)
+    for t in steps:
+        state = cell(inputs[t], memory=memory, memory_mask=memory_mask, state=state)
+        output.append(state)
+    if backward:
+        output = output[::-1]
+    output = torch.stack(output, dim=1 if batch_first else 0)
+    return output, state
+
+
+def bidirectional_unroll_attention_cell(cell_fw, cell_bw, inputs, memory, memory_mask, batch_first=False, initial_state=None):
+    if initial_state is None:
+        initial_state = [None, None]
+    output_fw, state_fw = unroll_attention_cell(cell_fw, inputs, memory, memory_mask, batch_first=batch_first, initial_state=initial_state[0], backward=False)
+    output_bw, state_bw = unroll_attention_cell(cell_bw, inputs, memory, memory_mask, batch_first=batch_first, initial_state=initial_state[1], backward=True)
+    return torch.cat([output_fw, output_bw], dim=-1), (state_fw, state_bw)
 
 
 import torch

@@ -13,15 +13,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -62,152 +63,10 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 
 
+from torch.utils.data import Dataset
+
+
 from torch.nn import Parameter
-
-
-class WaveGlow(nn.Module):
-    """Implements the WaveGlow model."""
-
-    def __init__(self, squeeze_factor=8, num_layers=12, wn_filter_width=3, wn_dilation_layers=8, wn_residual_channels=512, wn_dilation_channels=256, wn_skip_channels=256, local_condition_channels=None):
-        """Initializes the WaveGlow model.
-
-        Args:
-            local_condition_channels: Number of channels in local conditioning
-                vector. None indicates there is no local conditioning.
-        """
-        super(WaveGlow, self).__init__()
-        self.squeeze_factor = squeeze_factor
-        self.num_layers = num_layers
-        self.num_scales = squeeze_factor // 2
-        self.squeeze_layer = SqueezeLayer(squeeze_factor)
-        self.layers = nn.ModuleList()
-        for i in range(num_layers):
-            self.layers.append(FlowStep(squeeze_factor, wn_filter_width=wn_filter_width, wn_dilation_layers=wn_dilation_layers, wn_residual_channels=wn_residual_channels, wn_dilation_channels=wn_dilation_channels, wn_skip_channels=wn_skip_channels, local_condition_channels=local_condition_channels))
-            if (i + 1) % self.num_scales == 0:
-                squeeze_factor -= 2
-
-    def forward(self, input, logdet, reverse, local_condition):
-        if not reverse:
-            output, logdet = self.squeeze_layer(input, logdet=logdet, rerverse=False)
-            early_outputs = []
-            for i, layer in enumerate(self.layers):
-                output, logdet = layer(output, logdet=logdet, reverse=False, local_condition=local_condition)
-                if (i + 1) % self.num_scales == 0:
-                    early_output, output = output.split([2, output.size(1) - 2], 1)
-                    early_outputs.append(early_output)
-            early_outputs.append(output)
-            return torch.cat(early_outputs, 1), logdet
-        else:
-            output = input
-            for i, layer in enumerate(reversed(self.layers)):
-                curr_input = output[:, -2 * (i // self.num_scales + 2):, :]
-                curr_output, logdet = layer(curr_input, logdet=logdet, reverse=True, local_condition=local_condition)
-                output[:, -2 * (i // self.num_scales + 2):, :] = curr_output
-            output, logdet = self.squeeze_layer(output, logdet=logdet, reverse=True)
-            return output, logdet
-
-
-class SqueezeLayer(nn.Module):
-
-    def __init__(self, factor):
-        super(SqueezeLayer, self).__init__()
-        self.factor = factor
-
-    def forward(self, input, logdet=None, reverse=False, **kwargs):
-        if not reverse:
-            assert input.size(-1) % self.factor == 0
-            output = input.view(input.size(0), input.size(1), -1, self.factor)
-            output = output.permute(0, 1, 3, 2).contiguous()
-            output = output.view(input.size(0), -1, input.size(-1) // self.factor)
-            return output, logdet
-        else:
-            assert input.size(1) % self.factor == 0
-            output = input.view(input.size(0), -1, self.factor, input.size(-1))
-            output = output.permute(0, 1, 3, 2).contiguous()
-            output = output.view(input.size(0), input.size(1) // self.factor, -1)
-            return output, logdet
-
-
-class InvertibleConv1d(nn.Module):
-
-    def __init__(self, channels):
-        super(InvertibleConv1d, self).__init__()
-        w_shape = [channels, channels]
-        w_init = np.linalg.qr(np.random.randn(*w_shape))[0].astype(np.float32)
-        self.register_parameter('weight', nn.Parameter(torch.Tensor(w_init)))
-        self.w_shape = w_shape
-
-    def get_weight(self, input, reverse):
-        w_shape = self.w_shape
-        dlogdet = torch.log(torch.abs(torch.det(self.weight))) * input.size(-1)
-        if not reverse:
-            weight = self.weight.view(w_shape[0], w_shape[1], 1)
-        else:
-            weight = torch.inverse(self.weight).view(w_shape[0], w_shape[1], 1)
-        return weight, dlogdet
-
-    def forward(self, input, logdet=None, reverse=False, **kwargs):
-        weight, dlogdet = self.get_weight(input, reverse)
-        if not reverse:
-            output = F.conv1d(input, weight)
-            if logdet is not None:
-                logdet = logdet + dlogdet
-            return output, logdet
-        else:
-            output = F.conv1d(input, weight)
-            if logdet is not None:
-                logdet = logdet - dlogdet
-            return output, logdet
-
-    def extra_repr(self):
-        return '{}, {}, kernel_size={}, stride={}'.format(self.w_shape[0], self.w_shape[1], (1,), (1,))
-
-
-class AffineCouplingLayer(nn.Module):
-
-    def __init__(self, input_channels, wn_filter_width, wn_dilation_layers, wn_residual_channels, wn_dilation_channels, wn_skip_channels, local_condition_channels):
-        super(AffineCouplingLayer, self).__init__()
-        self.input_channels = input_channels
-        self.wavenet = WaveNet(filter_width=wn_filter_width, dilations=[(2 ** i) for i in range(wn_dilation_layers)], residual_channels=wn_residual_channels, dilation_channels=wn_dilation_channels, skip_channels=wn_skip_channels, input_channels=input_channels // 2, output_channels=input_channels, local_condition_channels=local_condition_channels)
-
-    def forward(self, input, logdet=None, reverse=False, local_condition=None):
-        if not reverse:
-            x_a, x_b = torch.split(input, self.input_channels // 2, 1)
-            log_s, t = torch.split(self.wavenet(x_a, local_condition), self.input_channels // 2, 1)
-            x_b = torch.exp(log_s) * x_b + t
-            output = torch.cat([x_a, x_b], 1)
-            if logdet is not None:
-                logdet = logdet + torch.sum(log_s, (1, 2))
-            return output, logdet
-        else:
-            x_a, x_b = torch.split(input, self.input_channels // 2, 1)
-            log_s, t = torch.split(self.wavenet(x_a, local_condition), self.input_channels // 2, 1)
-            x_b = (x_b - t) * torch.exp(-log_s)
-            output = torch.cat([x_a, x_b], 1)
-            if logdet is not None:
-                logdet = logdet - torch.sum(log_s, (1, 2))
-            return output, logdet
-
-
-class FlowStep(nn.Module):
-
-    def __init__(self, input_channels, wn_filter_width, wn_dilation_layers, wn_residual_channels, wn_dilation_channels, wn_skip_channels, local_condition_channels):
-        super(FlowStep, self).__init__()
-        self.input_channels = input_channels
-        self.layers = nn.ModuleList()
-        self.layers.extend([InvertibleConv1d(input_channels), AffineCouplingLayer(input_channels, wn_filter_width, wn_dilation_layers, wn_residual_channels, wn_dilation_channels, wn_skip_channels, local_condition_channels)])
-
-    def forward(self, input, logdet=None, reverse=False, local_condition=None):
-        if not reverse:
-            output = input
-            for layer in self.layers:
-                output, logdet = layer(output, logdet=logdet, reverse=reverse, local_condition=local_condition)
-            return output, logdet
-        else:
-            output = input
-            for layer in reversed(self.layers):
-                output, logdet = layer(output, logdet=logdet, reverse=reverse, local_condition=local_condition)
-            return output, logdet
 
 
 class GatedDilatedConv1d(nn.Module):
@@ -328,6 +187,151 @@ class WaveNet(nn.Module):
         for postprocessing_layer in self.postprocessing_layers:
             current_layer = postprocessing_layer(current_layer)
         return current_layer
+
+
+class AffineCouplingLayer(nn.Module):
+
+    def __init__(self, input_channels, wn_filter_width, wn_dilation_layers, wn_residual_channels, wn_dilation_channels, wn_skip_channels, local_condition_channels):
+        super(AffineCouplingLayer, self).__init__()
+        self.input_channels = input_channels
+        self.wavenet = WaveNet(filter_width=wn_filter_width, dilations=[(2 ** i) for i in range(wn_dilation_layers)], residual_channels=wn_residual_channels, dilation_channels=wn_dilation_channels, skip_channels=wn_skip_channels, input_channels=input_channels // 2, output_channels=input_channels, local_condition_channels=local_condition_channels)
+
+    def forward(self, input, logdet=None, reverse=False, local_condition=None):
+        if not reverse:
+            x_a, x_b = torch.split(input, self.input_channels // 2, 1)
+            log_s, t = torch.split(self.wavenet(x_a, local_condition), self.input_channels // 2, 1)
+            x_b = torch.exp(log_s) * x_b + t
+            output = torch.cat([x_a, x_b], 1)
+            if logdet is not None:
+                logdet = logdet + torch.sum(log_s, (1, 2))
+            return output, logdet
+        else:
+            x_a, x_b = torch.split(input, self.input_channels // 2, 1)
+            log_s, t = torch.split(self.wavenet(x_a, local_condition), self.input_channels // 2, 1)
+            x_b = (x_b - t) * torch.exp(-log_s)
+            output = torch.cat([x_a, x_b], 1)
+            if logdet is not None:
+                logdet = logdet - torch.sum(log_s, (1, 2))
+            return output, logdet
+
+
+class InvertibleConv1d(nn.Module):
+
+    def __init__(self, channels):
+        super(InvertibleConv1d, self).__init__()
+        w_shape = [channels, channels]
+        w_init = np.linalg.qr(np.random.randn(*w_shape))[0].astype(np.float32)
+        self.register_parameter('weight', nn.Parameter(torch.Tensor(w_init)))
+        self.w_shape = w_shape
+
+    def get_weight(self, input, reverse):
+        w_shape = self.w_shape
+        dlogdet = torch.log(torch.abs(torch.det(self.weight))) * input.size(-1)
+        if not reverse:
+            weight = self.weight.view(w_shape[0], w_shape[1], 1)
+        else:
+            weight = torch.inverse(self.weight).view(w_shape[0], w_shape[1], 1)
+        return weight, dlogdet
+
+    def forward(self, input, logdet=None, reverse=False, **kwargs):
+        weight, dlogdet = self.get_weight(input, reverse)
+        if not reverse:
+            output = F.conv1d(input, weight)
+            if logdet is not None:
+                logdet = logdet + dlogdet
+            return output, logdet
+        else:
+            output = F.conv1d(input, weight)
+            if logdet is not None:
+                logdet = logdet - dlogdet
+            return output, logdet
+
+    def extra_repr(self):
+        return '{}, {}, kernel_size={}, stride={}'.format(self.w_shape[0], self.w_shape[1], (1,), (1,))
+
+
+class FlowStep(nn.Module):
+
+    def __init__(self, input_channels, wn_filter_width, wn_dilation_layers, wn_residual_channels, wn_dilation_channels, wn_skip_channels, local_condition_channels):
+        super(FlowStep, self).__init__()
+        self.input_channels = input_channels
+        self.layers = nn.ModuleList()
+        self.layers.extend([InvertibleConv1d(input_channels), AffineCouplingLayer(input_channels, wn_filter_width, wn_dilation_layers, wn_residual_channels, wn_dilation_channels, wn_skip_channels, local_condition_channels)])
+
+    def forward(self, input, logdet=None, reverse=False, local_condition=None):
+        if not reverse:
+            output = input
+            for layer in self.layers:
+                output, logdet = layer(output, logdet=logdet, reverse=reverse, local_condition=local_condition)
+            return output, logdet
+        else:
+            output = input
+            for layer in reversed(self.layers):
+                output, logdet = layer(output, logdet=logdet, reverse=reverse, local_condition=local_condition)
+            return output, logdet
+
+
+class SqueezeLayer(nn.Module):
+
+    def __init__(self, factor):
+        super(SqueezeLayer, self).__init__()
+        self.factor = factor
+
+    def forward(self, input, logdet=None, reverse=False, **kwargs):
+        if not reverse:
+            assert input.size(-1) % self.factor == 0
+            output = input.view(input.size(0), input.size(1), -1, self.factor)
+            output = output.permute(0, 1, 3, 2).contiguous()
+            output = output.view(input.size(0), -1, input.size(-1) // self.factor)
+            return output, logdet
+        else:
+            assert input.size(1) % self.factor == 0
+            output = input.view(input.size(0), -1, self.factor, input.size(-1))
+            output = output.permute(0, 1, 3, 2).contiguous()
+            output = output.view(input.size(0), input.size(1) // self.factor, -1)
+            return output, logdet
+
+
+class WaveGlow(nn.Module):
+    """Implements the WaveGlow model."""
+
+    def __init__(self, squeeze_factor=8, num_layers=12, wn_filter_width=3, wn_dilation_layers=8, wn_residual_channels=512, wn_dilation_channels=256, wn_skip_channels=256, local_condition_channels=None):
+        """Initializes the WaveGlow model.
+
+        Args:
+            local_condition_channels: Number of channels in local conditioning
+                vector. None indicates there is no local conditioning.
+        """
+        super(WaveGlow, self).__init__()
+        self.squeeze_factor = squeeze_factor
+        self.num_layers = num_layers
+        self.num_scales = squeeze_factor // 2
+        self.squeeze_layer = SqueezeLayer(squeeze_factor)
+        self.layers = nn.ModuleList()
+        for i in range(num_layers):
+            self.layers.append(FlowStep(squeeze_factor, wn_filter_width=wn_filter_width, wn_dilation_layers=wn_dilation_layers, wn_residual_channels=wn_residual_channels, wn_dilation_channels=wn_dilation_channels, wn_skip_channels=wn_skip_channels, local_condition_channels=local_condition_channels))
+            if (i + 1) % self.num_scales == 0:
+                squeeze_factor -= 2
+
+    def forward(self, input, logdet, reverse, local_condition):
+        if not reverse:
+            output, logdet = self.squeeze_layer(input, logdet=logdet, rerverse=False)
+            early_outputs = []
+            for i, layer in enumerate(self.layers):
+                output, logdet = layer(output, logdet=logdet, reverse=False, local_condition=local_condition)
+                if (i + 1) % self.num_scales == 0:
+                    early_output, output = output.split([2, output.size(1) - 2], 1)
+                    early_outputs.append(early_output)
+            early_outputs.append(output)
+            return torch.cat(early_outputs, 1), logdet
+        else:
+            output = input
+            for i, layer in enumerate(reversed(self.layers)):
+                curr_input = output[:, -2 * (i // self.num_scales + 2):, :]
+                curr_output, logdet = layer(curr_input, logdet=logdet, reverse=True, local_condition=local_condition)
+                output[:, -2 * (i // self.num_scales + 2):, :] = curr_output
+            output, logdet = self.squeeze_layer(output, logdet=logdet, reverse=True)
+            return output, logdet
 
 
 class UpsampleNet(nn.Module):

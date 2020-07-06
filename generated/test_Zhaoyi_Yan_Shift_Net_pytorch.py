@@ -62,35 +62,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import torch.nn as nn
-
-
-import torch
-
-
-from torch.nn import functional as F
-
-
-import time
+import random
 
 
 import torchvision.transforms as transforms
 
 
+import torch
+
+
+import torch.utils.data as data
+
+
+import torch.utils.data
+
+
+import torch.nn as nn
+
+
 import numpy as np
+
+
+import time
+
+
+from torch.nn import functional as F
 
 
 import re
@@ -121,9 +131,6 @@ from torchvision import models
 
 
 import numpy as numpy
-
-
-import random
 
 
 import math
@@ -202,15 +209,15 @@ class InnerFaceShiftTripleFunction(torch.autograd.Function):
         ctx.show_flow = show_flow
         ctx.bz, c_real, ctx.h, ctx.w = input.size()
         c = c_real
-        ctx.ind_lst = torch.Tensor(ctx.bz, ctx.h * ctx.w, ctx.h * ctx.w).zero_().to(input)
+        ctx.ind_lst = torch.Tensor(ctx.bz, ctx.h * ctx.w, ctx.h * ctx.w).zero_()
         ctx.ind_lst_flip = ctx.ind_lst.clone()
         former_all = input.narrow(1, 0, c // 2)
         latter_all = input.narrow(1, c // 2, c // 2)
         shift_masked_all = torch.Tensor(former_all.size()).type_as(former_all).zero_()
         if not flip_feat is None:
             assert flip_feat.size() == former_all.size(), 'flip_feat size should be equal to former size'
-            ctx.flag = ctx.flag.to(input).long()
-            ctx.flag_flip = ctx.flag_flip.to(input).long()
+            ctx.flag = ctx.flag.long()
+            ctx.flag_flip = ctx.flag_flip.long()
             Nonparm = Modified_NonparametricShift()
             ctx.shift_offsets = []
             for idx in range(ctx.bz):
@@ -295,7 +302,7 @@ class InnerFaceShiftTriple(nn.Module):
         self.mask_all = util.cal_feat_mask(mask_global, self.layer_to_last)
 
     def _split_mask(self, cur_bsize):
-        cur_device = torch.current_device()
+        cur_device = torch.cuda.current_device()
         self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 1) * cur_bsize, :, :, :]
 
     def forward(self, input, flip_feat=None):
@@ -532,7 +539,7 @@ def spatial_discounting_mask(mask_width, mask_height, discounting_gamma, discoun
     gamma = discounting_gamma
     shape = [1, 1, mask_width, mask_height]
     if discounting:
-        print('Use spatial discounting l1 loss.')
+        None
         mask_values = np.ones((mask_width, mask_height), dtype='float32')
         for i in range(mask_width):
             for j in range(mask_height):
@@ -757,22 +764,263 @@ class ResnetBlock(nn.Module):
         return out
 
 
-class UnetGeneratorShiftTriple(nn.Module):
+class UnetSkipConnectionBlock(nn.Module):
 
-    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list, shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
-        super(UnetGeneratorShiftTriple, self).__init__()
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, use_spectral_norm=use_spectral_norm)
-        None
-        for i in range(num_downs - 5):
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
-        unet_shift_block = UnetSkipConnectionShiftBlock(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_shift_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
-        self.model = unet_block
+    def __init__(self, outer_nc, inner_nc, input_nc, submodule=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
+        super(UnetSkipConnectionBlock, self).__init__()
+        self.outermost = outermost
+        if input_nc is None:
+            input_nc = outer_nc
+        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
+        downrelu = nn.LeakyReLU(0.2, True)
+        downnorm = norm_layer(inner_nc)
+        uprelu = nn.ReLU(True)
+        upnorm = norm_layer(outer_nc)
+        if outermost:
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
+            down = [downconv]
+            up = [uprelu, upconv, nn.Tanh()]
+            model = down + [submodule] + up
+        elif innermost:
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
+            down = [downrelu, downconv]
+            up = [uprelu, upconv, upnorm]
+            model = down + up
+        else:
+            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
+            down = [downrelu, downconv, downnorm]
+            up = [uprelu, upconv, upnorm]
+            model = down + [submodule] + up
+        self.model = nn.Sequential(*model)
+
+    def forward(self, x):
+        if self.outermost:
+            return self.model(x)
+        else:
+            x_latter = self.model(x)
+            _, _, h, w = x.size()
+            if h != x_latter.size(2) or w != x_latter.size(3):
+                x_latter = F.interpolate(x_latter, (h, w), mode='bilinear')
+            return torch.cat([x_latter, x], 1)
+
+
+class InnerCosFunction(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input, criterion, strength, target, mask):
+        ctx.c = input.size(1)
+        ctx.strength = strength
+        ctx.criterion = criterion
+        if len(target.size()) == 0:
+            target = target.expand_as(input.narrow(1, ctx.c // 2, ctx.c // 2)).type_as(input)
+        ctx.save_for_backward(input, target, mask)
+        return input
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        with torch.enable_grad():
+            input, target, mask = ctx.saved_tensors
+            former = input.narrow(1, 0, ctx.c // 2)
+            former_in_mask = torch.mul(former, mask)
+            if former_in_mask.size() != target.size():
+                target = target.narrow(0, 0, 1).expand_as(former_in_mask).type_as(former_in_mask)
+            former_in_mask_clone = former_in_mask.clone().detach().requires_grad_(True)
+            ctx.loss = ctx.criterion(former_in_mask_clone, target) * ctx.strength
+            ctx.loss.backward()
+        grad_output[:, 0:ctx.c // 2, :, :] += former_in_mask_clone.grad
+        return grad_output, None, None, None, None
+
+
+class InnerCos(nn.Module):
+
+    def __init__(self, crit='MSE', strength=1, skip=0, layer_to_last=3, device='gpu'):
+        super(InnerCos, self).__init__()
+        self.crit = crit
+        self.criterion = torch.nn.MSELoss() if self.crit == 'MSE' else torch.nn.L1Loss()
+        self.strength = strength
+        self.skip = skip
+        self.layer_to_last = layer_to_last
+        self.device = device
+        self.target = torch.tensor(1.0)
+
+    def set_mask(self, mask_global):
+        mask_all = util.cal_feat_mask(mask_global, self.layer_to_last)
+        self.mask_all = mask_all.float()
+
+    def _split_mask(self, cur_bsize):
+        cur_device = torch.cuda.current_device()
+        self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 1) * cur_bsize, :, :, :]
+
+    def forward(self, in_data):
+        self.bz, self.c, _, _ = in_data.size()
+        if self.device != 'cpu':
+            self._split_mask(self.bz)
+        else:
+            self.cur_mask = self.mask_all
+        self.cur_mask = self.cur_mask
+        if not self.skip:
+            self.output = InnerCosFunction.apply(in_data, self.criterion, self.strength, self.target, self.cur_mask)
+            self.target = in_data.narrow(1, self.c // 2, self.c // 2).detach()
+        else:
+            self.output = in_data
+        return self.output
+
+    def __repr__(self):
+        skip_str = 'True' if not self.skip else 'False'
+        return self.__class__.__name__ + '(' + 'skip: ' + skip_str + 'layer ' + str(self.layer_to_last) + ' to last' + ' ,strength: ' + str(self.strength) + ')'
+
+
+class Batch_NonShift(object):
+
+    def _extract_patches_from_flag(self, img, patch_size, stride, flag, value):
+        input_windows = self._unfold(img, patch_size, stride)
+        input_windows = self._filter(input_windows, flag, value)
+        return self._norm(input_windows)
+
+    def cosine_similarity(self, former, latter, patch_size, stride, flag, with_former=False):
+        former_windows = self._unfold(former, patch_size, stride)
+        former = self._filter(former_windows, flag, 1)
+        latter_windows, i_2, i_3, i_1 = self._unfold(latter, patch_size, stride, with_indexes=True)
+        latter = self._filter(latter_windows, flag, 0)
+        num = torch.einsum('bik,bjk->bij', [former, latter])
+        norm_latter = torch.einsum('bij,bij->bi', [latter, latter])
+        norm_former = torch.einsum('bij,bij->bi', [former, former])
+        den = torch.sqrt(torch.einsum('bi,bj->bij', [norm_former, norm_latter]))
+        if not with_former:
+            return num / den, latter_windows, i_2, i_3, i_1
+        else:
+            return num / den, latter_windows, former_windows, i_2, i_3, i_1
+
+    def _paste(self, input_windows, transition_matrix, i_2, i_3, i_1):
+        bz = input_windows.size(0)
+        input_windows = torch.bmm(transition_matrix, input_windows)
+        input_windows = input_windows.view(bz, i_2, i_3, i_1)
+        input_windows = input_windows.permute(0, 3, 1, 2)
+        return input_windows
+
+    def _unfold(self, img, patch_size, stride, with_indexes=False):
+        n_dim = 4
+        assert img.dim() == n_dim, 'image must be of dimension 4.'
+        kH, kW = patch_size, patch_size
+        dH, dW = stride, stride
+        input_windows = img.unfold(2, kH, dH).unfold(3, kW, dW)
+        i_0, i_1, i_2, i_3, i_4, i_5 = input_windows.size()
+        if with_indexes:
+            input_windows = input_windows.permute(0, 2, 3, 1, 4, 5).contiguous().view(i_0, i_2 * i_3, i_1)
+            return input_windows, i_2, i_3, i_1
+        else:
+            input_windows = input_windows.permute(0, 2, 3, 1, 4, 5).contiguous().view(i_0, i_2 * i_3, i_1, i_4, i_5)
+            return input_windows
+
+    def _filter(self, input_windows, flag, value):
+        assert flag.dim() == 2, 'flag should be batch version'
+        input_window = input_windows[flag == value]
+        bz = flag.size(0)
+        return input_window.view(bz, input_window.size(0) // bz, -1)
+
+
+class InnerShiftTripleFunction(torch.autograd.Function):
+    ctx = None
+
+    @staticmethod
+    def forward(ctx, input, shift_sz, stride, triple_w, flag, show_flow):
+        InnerShiftTripleFunction.ctx = ctx
+        assert input.dim() == 4, 'Input Dim has to be 4'
+        ctx.triple_w = triple_w
+        ctx.flag = flag
+        ctx.show_flow = show_flow
+        ctx.bz, c_real, ctx.h, ctx.w = input.size()
+        c = c_real
+        ctx.ind_lst = torch.Tensor(ctx.bz, ctx.h * ctx.w, ctx.h * ctx.w).zero_()
+        former_all = input.narrow(1, 0, c // 2)
+        latter_all = input.narrow(1, c // 2, c // 2)
+        shift_masked_all = torch.Tensor(former_all.size()).type_as(former_all).zero_()
+        ctx.flag = ctx.flag.long()
+        bNonparm = Batch_NonShift()
+        ctx.shift_offsets = []
+        cosine, latter_windows, i_2, i_3, i_1 = bNonparm.cosine_similarity(former_all.clone(), latter_all.clone(), 1, stride, flag)
+        _, indexes = torch.max(cosine, dim=2)
+        mask_indexes = (flag == 1).nonzero()[:, (1)].view(ctx.bz, -1)
+        non_mask_indexes = (flag == 0).nonzero()[:, (1)].view(ctx.bz, -1).gather(1, indexes)
+        idx_b = torch.arange(ctx.bz).long().unsqueeze(1).expand(ctx.bz, mask_indexes.size(1))
+        ctx.ind_lst[idx_b, mask_indexes, non_mask_indexes] = 1
+        shift_masked_all = bNonparm._paste(latter_windows, ctx.ind_lst, i_2, i_3, i_1)
+        if ctx.show_flow:
+            assert 1 == 2, 'I do not want maintance the functionality of `show flow`... ^_^'
+            ctx.shift_offsets = torch.cat(ctx.shift_offsets, dim=0).float()
+            mask_nums = ctx.shift_offsets.size(0) // ctx.bz
+            ctx.flow_srcs = torch.zeros(ctx.bz, 3, ctx.h, ctx.w).type_as(input)
+            for idx in range(ctx.bz):
+                shift_offset = ctx.shift_offsets.narrow(0, idx * mask_nums, mask_nums)
+                shift_offsets_map = torch.zeros(1, ctx.h, ctx.w, 2).type_as(input)
+                shift_offsets_map[:, ((flag_cur == 1).nonzero().squeeze() // ctx.w), ((flag_cur == 1).nonzero().squeeze() % ctx.w), :] = shift_offset.unsqueeze(0)
+                flow_src = util.highlight_flow(shift_offsets_map, flag_cur.unsqueeze(0))
+                ctx.flow_srcs[idx] = flow_src
+        return torch.cat((former_all, latter_all, shift_masked_all), 1)
+
+    @staticmethod
+    def get_flow_src():
+        return InnerShiftTripleFunction.ctx.flow_srcs
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        ind_lst = ctx.ind_lst
+        c = grad_output.size(1)
+        grad_former_all = grad_output[:, 0:c // 3, :, :]
+        grad_latter_all = grad_output[:, c // 3:c * 2 // 3, :, :].clone()
+        grad_shifted_all = grad_output[:, c * 2 // 3:c, :, :].clone()
+        W_mat_t = ind_lst.permute(0, 2, 1).contiguous()
+        grad = grad_shifted_all.view(ctx.bz, c // 3, -1).permute(0, 2, 1)
+        grad_shifted_weighted = torch.bmm(W_mat_t, grad)
+        grad_shifted_weighted = grad_shifted_weighted.permute(0, 2, 1).contiguous().view(ctx.bz, c // 3, ctx.h, ctx.w)
+        grad_latter_all = torch.add(grad_latter_all, grad_shifted_weighted.mul(ctx.triple_w))
+        grad_input = torch.cat([grad_former_all, grad_latter_all], 1)
+        return grad_input, None, None, None, None, None, None
+
+
+class InnerShiftTriple(nn.Module):
+
+    def __init__(self, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, layer_to_last=3, device='gpu'):
+        super(InnerShiftTriple, self).__init__()
+        self.shift_sz = shift_sz
+        self.stride = stride
+        self.mask_thred = mask_thred
+        self.triple_weight = triple_weight
+        self.layer_to_last = layer_to_last
+        self.device = device
+        self.show_flow = False
+        self.flow_srcs = None
+
+    def set_mask(self, mask_global):
+        self.mask_all = util.cal_feat_mask(mask_global, self.layer_to_last)
+
+    def _split_mask(self, cur_bsize):
+        cur_device = torch.cuda.current_device()
+        self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 1) * cur_bsize, :, :, :]
 
     def forward(self, input):
-        return self.model(input)
+        self.bz, self.c, self.h, self.w = input.size()
+        if self.device != 'cpu':
+            self._split_mask(self.bz)
+        else:
+            self.cur_mask = self.mask_all
+        self.flag = util.cal_flag_given_mask_thred(self.cur_mask, self.shift_sz, self.stride, self.mask_thred)
+        final_out = InnerShiftTripleFunction.apply(input, self.shift_sz, self.stride, self.triple_weight, self.flag, self.show_flow)
+        if self.show_flow:
+            self.flow_srcs = InnerShiftTripleFunction.get_flow_src()
+        return final_out
+
+    def get_flow(self):
+        return self.flow_srcs
+
+    def set_flow_true(self):
+        self.show_flow = True
+
+    def set_flow_false(self):
+        self.show_flow = False
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
 
 
 class UnetSkipConnectionShiftBlock(nn.Module):
@@ -820,6 +1068,24 @@ class UnetSkipConnectionShiftBlock(nn.Module):
             if h != x_latter.size(2) or w != x_latter.size(3):
                 x_latter = F.interpolate(x_latter, (h, w), mode='bilinear')
             return torch.cat([x_latter, x], 1)
+
+
+class UnetGeneratorShiftTriple(nn.Module):
+
+    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list, shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
+        super(UnetGeneratorShiftTriple, self).__init__()
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, use_spectral_norm=use_spectral_norm)
+        None
+        for i in range(num_downs - 5):
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_shift_block = UnetSkipConnectionShiftBlock(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_shift_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        self.model = unet_block
+
+    def forward(self, input):
+        return self.model(input)
 
 
 class FaceUnetGenerator(nn.Module):
@@ -885,22 +1151,53 @@ class FaceUnetGenerator(nn.Module):
         return d8, innerFeat
 
 
-class ResUnetGeneratorShiftTriple(nn.Module):
+class InnerResShiftTriple(nn.Module):
 
-    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list, shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
-        super(ResUnetGeneratorShiftTriple, self).__init__()
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, use_spectral_norm=use_spectral_norm)
-        None
-        for i in range(num_downs - 5):
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
-        unet_shift_block = ResUnetSkipConnectionBlock(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_shift_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
-        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
-        self.model = unet_block
+    def __init__(self, inner_nc, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, layer_to_last=3):
+        super(InnerResShiftTriple, self).__init__()
+        self.shift_sz = shift_sz
+        self.stride = stride
+        self.mask_thred = mask_thred
+        self.triple_weight = triple_weight
+        self.show_flow = False
+        self.flow_srcs = None
+        self.layer_to_last = layer_to_last
+        self.inner_nc = inner_nc
+        self.res_net = nn.Sequential(nn.Conv2d(inner_nc * 2, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc), nn.ReLU(True), nn.Conv2d(inner_nc, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc))
+
+    def set_mask(self, mask_global):
+        mask = util.cal_feat_mask(mask_global, self.layer_to_last)
+        self.mask = mask.squeeze()
+        return self.mask
 
     def forward(self, input):
-        return self.model(input)
+        _, self.c, self.h, self.w = input.size()
+        self.flag = util.cal_flag_given_mask_thred(self.mask, self.shift_sz, self.stride, self.mask_thred)
+        shift_out = InnerShiftTripleFunction.apply(input, self.shift_sz, self.stride, self.triple_weight, self.flag, self.show_flow)
+        c_out = shift_out.size(1)
+        F_c = shift_out.narrow(1, 0, c_out // 3)
+        F_s = shift_out.narrow(1, c_out // 3, c_out // 3)
+        F_shift = shift_out.narrow(1, c_out * 2 // 3, c_out // 3)
+        F_fuse = F_c * F_shift
+        F_com = torch.cat([F_c, F_fuse], dim=1)
+        res_out = self.res_net(F_com)
+        F_c = F_c + res_out
+        final_out = torch.cat([F_c, F_s], dim=1)
+        if self.show_flow:
+            self.flow_srcs = InnerShiftTripleFunction.get_flow_src()
+        return final_out
+
+    def get_flow(self):
+        return self.flow_srcs
+
+    def set_flow_true(self):
+        self.show_flow = True
+
+    def set_flow_false(self):
+        self.show_flow = False
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
 
 
 class ResUnetSkipConnectionBlock(nn.Module):
@@ -950,22 +1247,116 @@ class ResUnetSkipConnectionBlock(nn.Module):
             return torch.cat([x_latter, x], 1)
 
 
-class PatchSoftUnetGeneratorShiftTriple(nn.Module):
+class ResUnetGeneratorShiftTriple(nn.Module):
 
     def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list, shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
-        super(PatchSoftUnetGeneratorShiftTriple, self).__init__()
+        super(ResUnetGeneratorShiftTriple, self).__init__()
         unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, use_spectral_norm=use_spectral_norm)
         None
         for i in range(num_downs - 5):
             unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
         unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
-        unet_shift_block = PatchSoftUnetSkipConnectionShiftTriple(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
+        unet_shift_block = ResUnetSkipConnectionBlock(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
         unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_shift_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
         unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
         self.model = unet_block
 
     def forward(self, input):
         return self.model(input)
+
+
+class InnerPatchSoftShiftTripleModule(nn.Module):
+
+    def forward(self, input, stride, triple_w, mask, mask_thred, shift_sz, show_flow, fuse=True):
+        assert input.dim() == 4, 'Input Dim has to be 4'
+        assert mask.dim() == 4, 'Mask Dim has to be 4'
+        self.triple_w = triple_w
+        self.mask = mask
+        self.mask_thred = mask_thred
+        self.show_flow = show_flow
+        self.bz, self.c, self.h, self.w = input.size()
+        self.Tensor = torch.FloatTensor if torch.cuda.is_available else torch.FloatTensor
+        self.ind_lst = self.Tensor(self.bz, self.h * self.w, self.h * self.w).zero_()
+        former_all = input.narrow(1, 0, self.c // 2)
+        latter_all = input.narrow(1, self.c // 2, self.c // 2)
+        shift_masked_all = torch.Tensor(former_all.size()).type_as(former_all)
+        self.mask = self.mask
+        latter_all_pad = F.pad(latter_all, [shift_sz // 2, shift_sz // 2, shift_sz // 2, shift_sz // 2], 'constant', 0)
+        latter_all_windows = latter_all_pad.unfold(2, shift_sz, stride).unfold(3, shift_sz, stride)
+        latter_all_windows = latter_all_windows.contiguous().view(self.bz, -1, self.c // 2, shift_sz, shift_sz)
+        m_pad = F.pad(self.mask, (shift_sz // 2, shift_sz // 2, shift_sz // 2, shift_sz // 2), 'constant', 0)
+        m = m_pad.unfold(2, shift_sz, stride).unfold(3, shift_sz, stride)
+        m = m.contiguous().view(self.bz, 1, -1, shift_sz, shift_sz)
+        m = torch.mean(torch.mean(m, dim=3, keepdim=True), dim=4, keepdim=True)
+        mm = m.le(self.mask_thred / (1.0 * shift_sz ** 2)).float()
+        fuse_weight = torch.eye(shift_sz).view(1, 1, shift_sz, shift_sz).type_as(input)
+        self.shift_offsets = []
+        for idx in range(self.bz):
+            mm_cur = mm[idx]
+            latter_win = latter_all_windows.narrow(0, idx, 1)[0]
+            former = former_all.narrow(0, idx, 1)
+            latter_den = torch.sqrt(torch.einsum('bcij,bcij->b', [latter_win, latter_win]))
+            latter_den = torch.max(latter_den, self.Tensor([0.0001]))
+            latter_win_normed = latter_win / latter_den.view(-1, 1, 1, 1)
+            y_i = F.conv2d(former, latter_win_normed, stride=1, padding=shift_sz // 2)
+            if fuse:
+                y_i = y_i.view(1, 1, self.h * self.w, self.h * self.w)
+                y_i = F.conv2d(y_i, fuse_weight, stride=1, padding=1)
+                y_i = y_i.contiguous().view(1, self.h, self.w, self.h, self.w)
+                y_i = y_i.permute(0, 2, 1, 4, 3)
+                y_i = y_i.contiguous().view(1, 1, self.h * self.w, self.h * self.w)
+                y_i = F.conv2d(y_i, fuse_weight, stride=1, padding=1)
+                y_i = y_i.contiguous().view(1, self.w, self.h, self.w, self.h)
+                y_i = y_i.permute(0, 2, 1, 4, 3)
+            y_i = y_i.contiguous().view(1, self.h * self.w, self.h, self.w)
+            y_i = y_i * mm_cur
+            cosine = F.softmax(y_i * 10, dim=1)
+            cosine = cosine * mm_cur
+            shift_i = F.conv_transpose2d(cosine, latter_win, stride=1, padding=shift_sz // 2) / 9.0
+            shift_masked_all[idx] = shift_i
+        return torch.cat((former_all, latter_all, shift_masked_all), 1)
+
+    def get_flow_src(self):
+        return self.flow_srcs
+
+
+class InnerPatchSoftShiftTriple(nn.Module):
+
+    def __init__(self, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, fuse=True, layer_to_last=3):
+        super(InnerPatchSoftShiftTriple, self).__init__()
+        self.shift_sz = shift_sz
+        self.stride = stride
+        self.mask_thred = mask_thred
+        self.triple_weight = triple_weight
+        self.show_flow = False
+        self.flow_srcs = None
+        self.fuse = fuse
+        self.layer_to_last = layer_to_last
+        self.softShift = InnerPatchSoftShiftTripleModule()
+
+    def set_mask(self, mask_global):
+        mask = util.cal_feat_mask(mask_global, self.layer_to_last)
+        self.mask = mask
+        return self.mask
+
+    def forward(self, input):
+        _, self.c, self.h, self.w = input.size()
+        final_out = self.softShift(input, self.stride, self.triple_weight, self.mask, self.mask_thred, self.shift_sz, self.show_flow, self.fuse)
+        if self.show_flow:
+            self.flow_srcs = self.softShift.get_flow_src()
+        return final_out
+
+    def get_flow(self):
+        return self.flow_srcs
+
+    def set_flow_true(self):
+        self.show_flow = True
+
+    def set_flow_false(self):
+        self.show_flow = False
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
 
 
 class PatchSoftUnetSkipConnectionShiftTriple(nn.Module):
@@ -1015,22 +1406,72 @@ class PatchSoftUnetSkipConnectionShiftTriple(nn.Module):
             return torch.cat([x_latter, x], 1)
 
 
-class ResPatchSoftUnetGeneratorShiftTriple(nn.Module):
+class PatchSoftUnetGeneratorShiftTriple(nn.Module):
 
     def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list, shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
-        super(ResPatchSoftUnetGeneratorShiftTriple, self).__init__()
+        super(PatchSoftUnetGeneratorShiftTriple, self).__init__()
         unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, use_spectral_norm=use_spectral_norm)
         None
         for i in range(num_downs - 5):
             unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
         unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
-        unet_shift_block = ResPatchSoftUnetSkipConnectionShiftTriple(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
+        unet_shift_block = PatchSoftUnetSkipConnectionShiftTriple(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
         unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_shift_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
         unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
         self.model = unet_block
 
     def forward(self, input):
         return self.model(input)
+
+
+class InnerResPatchSoftShiftTriple(nn.Module):
+
+    def __init__(self, inner_nc, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, fuse=True, layer_to_last=3):
+        super(InnerResPatchSoftShiftTriple, self).__init__()
+        self.shift_sz = shift_sz
+        self.stride = stride
+        self.mask_thred = mask_thred
+        self.triple_weight = triple_weight
+        self.show_flow = False
+        self.flow_srcs = None
+        self.fuse = fuse
+        self.layer_to_last = layer_to_last
+        self.softShift = InnerPatchSoftShiftTripleModule()
+        self.inner_nc = inner_nc
+        self.res_net = nn.Sequential(nn.Conv2d(inner_nc * 2, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc), nn.ReLU(True), nn.Conv2d(inner_nc, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc))
+
+    def set_mask(self, mask_global):
+        mask = util.cal_feat_mask(mask_global, self.layer_to_last)
+        self.mask = mask
+        return self.mask
+
+    def forward(self, input):
+        _, self.c, self.h, self.w = input.size()
+        shift_out = self.softShift(input, self.stride, self.triple_weight, self.mask, self.mask_thred, self.shift_sz, self.show_flow, self.fuse)
+        c_out = shift_out.size(1)
+        F_c = shift_out.narrow(1, 0, c_out // 3)
+        F_s = shift_out.narrow(1, c_out // 3, c_out // 3)
+        F_shift = shift_out.narrow(1, c_out * 2 // 3, c_out // 3)
+        F_fuse = F_c * F_shift
+        F_com = torch.cat([F_c, F_fuse], dim=1)
+        res_out = self.res_net(F_com)
+        F_c = F_c + res_out
+        final_out = torch.cat([F_c, F_s], dim=1)
+        if self.show_flow:
+            self.flow_srcs = self.softShift.get_flow_src()
+        return final_out
+
+    def get_flow(self):
+        return self.flow_srcs
+
+    def set_flow_true(self):
+        self.show_flow = True
+
+    def set_flow_false(self):
+        self.show_flow = False
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
 
 
 class ResPatchSoftUnetSkipConnectionShiftTriple(nn.Module):
@@ -1080,6 +1521,24 @@ class ResPatchSoftUnetSkipConnectionShiftTriple(nn.Module):
             return torch.cat([x_latter, x], 1)
 
 
+class ResPatchSoftUnetGeneratorShiftTriple(nn.Module):
+
+    def __init__(self, input_nc, output_nc, num_downs, opt, innerCos_list, shift_list, mask_global, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
+        super(ResPatchSoftUnetGeneratorShiftTriple, self).__init__()
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True, use_spectral_norm=use_spectral_norm)
+        None
+        for i in range(num_downs - 5):
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_shift_block = ResPatchSoftUnetSkipConnectionShiftTriple(ngf * 2, ngf * 4, opt, innerCos_list, shift_list, mask_global, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm, layer_to_last=3)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_shift_block, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer, use_spectral_norm=use_spectral_norm)
+        self.model = unet_block
+
+    def forward(self, input):
+        return self.model(input)
+
+
 class UnetGenerator(nn.Module):
 
     def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
@@ -1095,46 +1554,6 @@ class UnetGenerator(nn.Module):
 
     def forward(self, input):
         return self.model(input)
-
-
-class UnetSkipConnectionBlock(nn.Module):
-
-    def __init__(self, outer_nc, inner_nc, input_nc, submodule=None, outermost=False, innermost=False, norm_layer=nn.BatchNorm2d, use_spectral_norm=False):
-        super(UnetSkipConnectionBlock, self).__init__()
-        self.outermost = outermost
-        if input_nc is None:
-            input_nc = outer_nc
-        downconv = spectral_norm(nn.Conv2d(input_nc, inner_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
-        downrelu = nn.LeakyReLU(0.2, True)
-        downnorm = norm_layer(inner_nc)
-        uprelu = nn.ReLU(True)
-        upnorm = norm_layer(outer_nc)
-        if outermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
-            down = [downconv]
-            up = [uprelu, upconv, nn.Tanh()]
-            model = down + [submodule] + up
-        elif innermost:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
-            down = [downrelu, downconv]
-            up = [uprelu, upconv, upnorm]
-            model = down + up
-        else:
-            upconv = spectral_norm(nn.ConvTranspose2d(inner_nc * 2, outer_nc, kernel_size=4, stride=2, padding=1), use_spectral_norm)
-            down = [downrelu, downconv, downnorm]
-            up = [uprelu, upconv, upnorm]
-            model = down + [submodule] + up
-        self.model = nn.Sequential(*model)
-
-    def forward(self, x):
-        if self.outermost:
-            return self.model(x)
-        else:
-            x_latter = self.model(x)
-            _, _, h, w = x.size()
-            if h != x_latter.size(2) or w != x_latter.size(3):
-                x_latter = F.interpolate(x_latter, (h, w), mode='bilinear')
-            return torch.cat([x_latter, x], 1)
 
 
 class EasyUnetGenerator(nn.Module):
@@ -1190,418 +1609,6 @@ class EasyUnetGenerator(nn.Module):
         d8 = self.d8_c(F.relu_(torch.cat([d7, e1], 1)))
         d8 = torch.tanh(d8)
         return d8
-
-
-class InnerPatchSoftShiftTriple(nn.Module):
-
-    def __init__(self, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, fuse=True, layer_to_last=3):
-        super(InnerPatchSoftShiftTriple, self).__init__()
-        self.shift_sz = shift_sz
-        self.stride = stride
-        self.mask_thred = mask_thred
-        self.triple_weight = triple_weight
-        self.show_flow = False
-        self.flow_srcs = None
-        self.fuse = fuse
-        self.layer_to_last = layer_to_last
-        self.softShift = InnerPatchSoftShiftTripleModule()
-
-    def set_mask(self, mask_global):
-        mask = util.cal_feat_mask(mask_global, self.layer_to_last)
-        self.mask = mask
-        return self.mask
-
-    def forward(self, input):
-        _, self.c, self.h, self.w = input.size()
-        final_out = self.softShift(input, self.stride, self.triple_weight, self.mask, self.mask_thred, self.shift_sz, self.show_flow, self.fuse)
-        if self.show_flow:
-            self.flow_srcs = self.softShift.get_flow_src()
-        return final_out
-
-    def get_flow(self):
-        return self.flow_srcs
-
-    def set_flow_true(self):
-        self.show_flow = True
-
-    def set_flow_false(self):
-        self.show_flow = False
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
-
-
-class InnerPatchSoftShiftTripleModule(nn.Module):
-
-    def forward(self, input, stride, triple_w, mask, mask_thred, shift_sz, show_flow, fuse=True):
-        assert input.dim() == 4, 'Input Dim has to be 4'
-        assert mask.dim() == 4, 'Mask Dim has to be 4'
-        self.triple_w = triple_w
-        self.mask = mask
-        self.mask_thred = mask_thred
-        self.show_flow = show_flow
-        self.bz, self.c, self.h, self.w = input.size()
-        self.Tensor = torch.FloatTensor if torch.is_available else torch.FloatTensor
-        self.ind_lst = self.Tensor(self.bz, self.h * self.w, self.h * self.w).zero_()
-        former_all = input.narrow(1, 0, self.c // 2)
-        latter_all = input.narrow(1, self.c // 2, self.c // 2)
-        shift_masked_all = torch.Tensor(former_all.size()).type_as(former_all)
-        self.mask = self.mask
-        latter_all_pad = F.pad(latter_all, [shift_sz // 2, shift_sz // 2, shift_sz // 2, shift_sz // 2], 'constant', 0)
-        latter_all_windows = latter_all_pad.unfold(2, shift_sz, stride).unfold(3, shift_sz, stride)
-        latter_all_windows = latter_all_windows.contiguous().view(self.bz, -1, self.c // 2, shift_sz, shift_sz)
-        m_pad = F.pad(self.mask, (shift_sz // 2, shift_sz // 2, shift_sz // 2, shift_sz // 2), 'constant', 0)
-        m = m_pad.unfold(2, shift_sz, stride).unfold(3, shift_sz, stride)
-        m = m.contiguous().view(self.bz, 1, -1, shift_sz, shift_sz)
-        m = torch.mean(torch.mean(m, dim=3, keepdim=True), dim=4, keepdim=True)
-        mm = m.le(self.mask_thred / (1.0 * shift_sz ** 2)).float()
-        fuse_weight = torch.eye(shift_sz).view(1, 1, shift_sz, shift_sz).type_as(input)
-        self.shift_offsets = []
-        for idx in range(self.bz):
-            mm_cur = mm[idx]
-            latter_win = latter_all_windows.narrow(0, idx, 1)[0]
-            former = former_all.narrow(0, idx, 1)
-            latter_den = torch.sqrt(torch.einsum('bcij,bcij->b', [latter_win, latter_win]))
-            latter_den = torch.max(latter_den, self.Tensor([0.0001]))
-            latter_win_normed = latter_win / latter_den.view(-1, 1, 1, 1)
-            y_i = F.conv2d(former, latter_win_normed, stride=1, padding=shift_sz // 2)
-            if fuse:
-                y_i = y_i.view(1, 1, self.h * self.w, self.h * self.w)
-                y_i = F.conv2d(y_i, fuse_weight, stride=1, padding=1)
-                y_i = y_i.contiguous().view(1, self.h, self.w, self.h, self.w)
-                y_i = y_i.permute(0, 2, 1, 4, 3)
-                y_i = y_i.contiguous().view(1, 1, self.h * self.w, self.h * self.w)
-                y_i = F.conv2d(y_i, fuse_weight, stride=1, padding=1)
-                y_i = y_i.contiguous().view(1, self.w, self.h, self.w, self.h)
-                y_i = y_i.permute(0, 2, 1, 4, 3)
-            y_i = y_i.contiguous().view(1, self.h * self.w, self.h, self.w)
-            y_i = y_i * mm_cur
-            cosine = F.softmax(y_i * 10, dim=1)
-            cosine = cosine * mm_cur
-            shift_i = F.conv_transpose2d(cosine, latter_win, stride=1, padding=shift_sz // 2) / 9.0
-            shift_masked_all[idx] = shift_i
-        return torch.cat((former_all, latter_all, shift_masked_all), 1)
-
-    def get_flow_src(self):
-        return self.flow_srcs
-
-
-class InnerResPatchSoftShiftTriple(nn.Module):
-
-    def __init__(self, inner_nc, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, fuse=True, layer_to_last=3):
-        super(InnerResPatchSoftShiftTriple, self).__init__()
-        self.shift_sz = shift_sz
-        self.stride = stride
-        self.mask_thred = mask_thred
-        self.triple_weight = triple_weight
-        self.show_flow = False
-        self.flow_srcs = None
-        self.fuse = fuse
-        self.layer_to_last = layer_to_last
-        self.softShift = InnerPatchSoftShiftTripleModule()
-        self.inner_nc = inner_nc
-        self.res_net = nn.Sequential(nn.Conv2d(inner_nc * 2, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc), nn.ReLU(True), nn.Conv2d(inner_nc, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc))
-
-    def set_mask(self, mask_global):
-        mask = util.cal_feat_mask(mask_global, self.layer_to_last)
-        self.mask = mask
-        return self.mask
-
-    def forward(self, input):
-        _, self.c, self.h, self.w = input.size()
-        shift_out = self.softShift(input, self.stride, self.triple_weight, self.mask, self.mask_thred, self.shift_sz, self.show_flow, self.fuse)
-        c_out = shift_out.size(1)
-        F_c = shift_out.narrow(1, 0, c_out // 3)
-        F_s = shift_out.narrow(1, c_out // 3, c_out // 3)
-        F_shift = shift_out.narrow(1, c_out * 2 // 3, c_out // 3)
-        F_fuse = F_c * F_shift
-        F_com = torch.cat([F_c, F_fuse], dim=1)
-        res_out = self.res_net(F_com)
-        F_c = F_c + res_out
-        final_out = torch.cat([F_c, F_s], dim=1)
-        if self.show_flow:
-            self.flow_srcs = self.softShift.get_flow_src()
-        return final_out
-
-    def get_flow(self):
-        return self.flow_srcs
-
-    def set_flow_true(self):
-        self.show_flow = True
-
-    def set_flow_false(self):
-        self.show_flow = False
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
-
-
-class Batch_NonShift(object):
-
-    def _extract_patches_from_flag(self, img, patch_size, stride, flag, value):
-        input_windows = self._unfold(img, patch_size, stride)
-        input_windows = self._filter(input_windows, flag, value)
-        return self._norm(input_windows)
-
-    def cosine_similarity(self, former, latter, patch_size, stride, flag, with_former=False):
-        former_windows = self._unfold(former, patch_size, stride)
-        former = self._filter(former_windows, flag, 1)
-        latter_windows, i_2, i_3, i_1 = self._unfold(latter, patch_size, stride, with_indexes=True)
-        latter = self._filter(latter_windows, flag, 0)
-        num = torch.einsum('bik,bjk->bij', [former, latter])
-        norm_latter = torch.einsum('bij,bij->bi', [latter, latter])
-        norm_former = torch.einsum('bij,bij->bi', [former, former])
-        den = torch.sqrt(torch.einsum('bi,bj->bij', [norm_former, norm_latter]))
-        if not with_former:
-            return num / den, latter_windows, i_2, i_3, i_1
-        else:
-            return num / den, latter_windows, former_windows, i_2, i_3, i_1
-
-    def _paste(self, input_windows, transition_matrix, i_2, i_3, i_1):
-        bz = input_windows.size(0)
-        input_windows = torch.bmm(transition_matrix, input_windows)
-        input_windows = input_windows.view(bz, i_2, i_3, i_1)
-        input_windows = input_windows.permute(0, 3, 1, 2)
-        return input_windows
-
-    def _unfold(self, img, patch_size, stride, with_indexes=False):
-        n_dim = 4
-        assert img.dim() == n_dim, 'image must be of dimension 4.'
-        kH, kW = patch_size, patch_size
-        dH, dW = stride, stride
-        input_windows = img.unfold(2, kH, dH).unfold(3, kW, dW)
-        i_0, i_1, i_2, i_3, i_4, i_5 = input_windows.size()
-        if with_indexes:
-            input_windows = input_windows.permute(0, 2, 3, 1, 4, 5).contiguous().view(i_0, i_2 * i_3, i_1)
-            return input_windows, i_2, i_3, i_1
-        else:
-            input_windows = input_windows.permute(0, 2, 3, 1, 4, 5).contiguous().view(i_0, i_2 * i_3, i_1, i_4, i_5)
-            return input_windows
-
-    def _filter(self, input_windows, flag, value):
-        assert flag.dim() == 2, 'flag should be batch version'
-        input_window = input_windows[flag == value]
-        bz = flag.size(0)
-        return input_window.view(bz, input_window.size(0) // bz, -1)
-
-
-class InnerShiftTripleFunction(torch.autograd.Function):
-    ctx = None
-
-    @staticmethod
-    def forward(ctx, input, shift_sz, stride, triple_w, flag, show_flow):
-        InnerShiftTripleFunction.ctx = ctx
-        assert input.dim() == 4, 'Input Dim has to be 4'
-        ctx.triple_w = triple_w
-        ctx.flag = flag
-        ctx.show_flow = show_flow
-        ctx.bz, c_real, ctx.h, ctx.w = input.size()
-        c = c_real
-        ctx.ind_lst = torch.Tensor(ctx.bz, ctx.h * ctx.w, ctx.h * ctx.w).zero_().to(input)
-        former_all = input.narrow(1, 0, c // 2)
-        latter_all = input.narrow(1, c // 2, c // 2)
-        shift_masked_all = torch.Tensor(former_all.size()).type_as(former_all).zero_()
-        ctx.flag = ctx.flag.to(input).long()
-        bNonparm = Batch_NonShift()
-        ctx.shift_offsets = []
-        cosine, latter_windows, i_2, i_3, i_1 = bNonparm.cosine_similarity(former_all.clone(), latter_all.clone(), 1, stride, flag)
-        _, indexes = torch.max(cosine, dim=2)
-        mask_indexes = (flag == 1).nonzero()[:, (1)].view(ctx.bz, -1)
-        non_mask_indexes = (flag == 0).nonzero()[:, (1)].view(ctx.bz, -1).gather(1, indexes)
-        idx_b = torch.arange(ctx.bz).long().unsqueeze(1).expand(ctx.bz, mask_indexes.size(1))
-        ctx.ind_lst[idx_b, mask_indexes, non_mask_indexes] = 1
-        shift_masked_all = bNonparm._paste(latter_windows, ctx.ind_lst, i_2, i_3, i_1)
-        if ctx.show_flow:
-            assert 1 == 2, 'I do not want maintance the functionality of `show flow`... ^_^'
-            ctx.shift_offsets = torch.cat(ctx.shift_offsets, dim=0).float()
-            mask_nums = ctx.shift_offsets.size(0) // ctx.bz
-            ctx.flow_srcs = torch.zeros(ctx.bz, 3, ctx.h, ctx.w).type_as(input)
-            for idx in range(ctx.bz):
-                shift_offset = ctx.shift_offsets.narrow(0, idx * mask_nums, mask_nums)
-                shift_offsets_map = torch.zeros(1, ctx.h, ctx.w, 2).type_as(input)
-                shift_offsets_map[:, ((flag_cur == 1).nonzero().squeeze() // ctx.w), ((flag_cur == 1).nonzero().squeeze() % ctx.w), :] = shift_offset.unsqueeze(0)
-                flow_src = util.highlight_flow(shift_offsets_map, flag_cur.unsqueeze(0))
-                ctx.flow_srcs[idx] = flow_src
-        return torch.cat((former_all, latter_all, shift_masked_all), 1)
-
-    @staticmethod
-    def get_flow_src():
-        return InnerShiftTripleFunction.ctx.flow_srcs
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        ind_lst = ctx.ind_lst
-        c = grad_output.size(1)
-        grad_former_all = grad_output[:, 0:c // 3, :, :]
-        grad_latter_all = grad_output[:, c // 3:c * 2 // 3, :, :].clone()
-        grad_shifted_all = grad_output[:, c * 2 // 3:c, :, :].clone()
-        W_mat_t = ind_lst.permute(0, 2, 1).contiguous()
-        grad = grad_shifted_all.view(ctx.bz, c // 3, -1).permute(0, 2, 1)
-        grad_shifted_weighted = torch.bmm(W_mat_t, grad)
-        grad_shifted_weighted = grad_shifted_weighted.permute(0, 2, 1).contiguous().view(ctx.bz, c // 3, ctx.h, ctx.w)
-        grad_latter_all = torch.add(grad_latter_all, grad_shifted_weighted.mul(ctx.triple_w))
-        grad_input = torch.cat([grad_former_all, grad_latter_all], 1)
-        return grad_input, None, None, None, None, None, None
-
-
-class InnerResShiftTriple(nn.Module):
-
-    def __init__(self, inner_nc, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, layer_to_last=3):
-        super(InnerResShiftTriple, self).__init__()
-        self.shift_sz = shift_sz
-        self.stride = stride
-        self.mask_thred = mask_thred
-        self.triple_weight = triple_weight
-        self.show_flow = False
-        self.flow_srcs = None
-        self.layer_to_last = layer_to_last
-        self.inner_nc = inner_nc
-        self.res_net = nn.Sequential(nn.Conv2d(inner_nc * 2, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc), nn.ReLU(True), nn.Conv2d(inner_nc, inner_nc, kernel_size=3, stride=1, padding=1), nn.InstanceNorm2d(inner_nc))
-
-    def set_mask(self, mask_global):
-        mask = util.cal_feat_mask(mask_global, self.layer_to_last)
-        self.mask = mask.squeeze()
-        return self.mask
-
-    def forward(self, input):
-        _, self.c, self.h, self.w = input.size()
-        self.flag = util.cal_flag_given_mask_thred(self.mask, self.shift_sz, self.stride, self.mask_thred)
-        shift_out = InnerShiftTripleFunction.apply(input, self.shift_sz, self.stride, self.triple_weight, self.flag, self.show_flow)
-        c_out = shift_out.size(1)
-        F_c = shift_out.narrow(1, 0, c_out // 3)
-        F_s = shift_out.narrow(1, c_out // 3, c_out // 3)
-        F_shift = shift_out.narrow(1, c_out * 2 // 3, c_out // 3)
-        F_fuse = F_c * F_shift
-        F_com = torch.cat([F_c, F_fuse], dim=1)
-        res_out = self.res_net(F_com)
-        F_c = F_c + res_out
-        final_out = torch.cat([F_c, F_s], dim=1)
-        if self.show_flow:
-            self.flow_srcs = InnerShiftTripleFunction.get_flow_src()
-        return final_out
-
-    def get_flow(self):
-        return self.flow_srcs
-
-    def set_flow_true(self):
-        self.show_flow = True
-
-    def set_flow_false(self):
-        self.show_flow = False
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
-
-
-class InnerCosFunction(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, input, criterion, strength, target, mask):
-        ctx.c = input.size(1)
-        ctx.strength = strength
-        ctx.criterion = criterion
-        if len(target.size()) == 0:
-            target = target.expand_as(input.narrow(1, ctx.c // 2, ctx.c // 2)).type_as(input)
-        ctx.save_for_backward(input, target, mask)
-        return input
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        with torch.enable_grad():
-            input, target, mask = ctx.saved_tensors
-            former = input.narrow(1, 0, ctx.c // 2)
-            former_in_mask = torch.mul(former, mask)
-            if former_in_mask.size() != target.size():
-                target = target.narrow(0, 0, 1).expand_as(former_in_mask).type_as(former_in_mask)
-            former_in_mask_clone = former_in_mask.clone().detach().requires_grad_(True)
-            ctx.loss = ctx.criterion(former_in_mask_clone, target) * ctx.strength
-            ctx.loss.backward()
-        grad_output[:, 0:ctx.c // 2, :, :] += former_in_mask_clone.grad
-        return grad_output, None, None, None, None
-
-
-class InnerCos(nn.Module):
-
-    def __init__(self, crit='MSE', strength=1, skip=0, layer_to_last=3, device='gpu'):
-        super(InnerCos, self).__init__()
-        self.crit = crit
-        self.criterion = torch.nn.MSELoss() if self.crit == 'MSE' else torch.nn.L1Loss()
-        self.strength = strength
-        self.skip = skip
-        self.layer_to_last = layer_to_last
-        self.device = device
-        self.target = torch.tensor(1.0)
-
-    def set_mask(self, mask_global):
-        mask_all = util.cal_feat_mask(mask_global, self.layer_to_last)
-        self.mask_all = mask_all.float()
-
-    def _split_mask(self, cur_bsize):
-        cur_device = torch.current_device()
-        self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 1) * cur_bsize, :, :, :]
-
-    def forward(self, in_data):
-        self.bz, self.c, _, _ = in_data.size()
-        if self.device != 'cpu':
-            self._split_mask(self.bz)
-        else:
-            self.cur_mask = self.mask_all
-        self.cur_mask = self.cur_mask
-        if not self.skip:
-            self.output = InnerCosFunction.apply(in_data, self.criterion, self.strength, self.target, self.cur_mask)
-            self.target = in_data.narrow(1, self.c // 2, self.c // 2).detach()
-        else:
-            self.output = in_data
-        return self.output
-
-    def __repr__(self):
-        skip_str = 'True' if not self.skip else 'False'
-        return self.__class__.__name__ + '(' + 'skip: ' + skip_str + 'layer ' + str(self.layer_to_last) + ' to last' + ' ,strength: ' + str(self.strength) + ')'
-
-
-class InnerShiftTriple(nn.Module):
-
-    def __init__(self, shift_sz=1, stride=1, mask_thred=1, triple_weight=1, layer_to_last=3, device='gpu'):
-        super(InnerShiftTriple, self).__init__()
-        self.shift_sz = shift_sz
-        self.stride = stride
-        self.mask_thred = mask_thred
-        self.triple_weight = triple_weight
-        self.layer_to_last = layer_to_last
-        self.device = device
-        self.show_flow = False
-        self.flow_srcs = None
-
-    def set_mask(self, mask_global):
-        self.mask_all = util.cal_feat_mask(mask_global, self.layer_to_last)
-
-    def _split_mask(self, cur_bsize):
-        cur_device = torch.current_device()
-        self.cur_mask = self.mask_all[cur_device * cur_bsize:(cur_device + 1) * cur_bsize, :, :, :]
-
-    def forward(self, input):
-        self.bz, self.c, self.h, self.w = input.size()
-        if self.device != 'cpu':
-            self._split_mask(self.bz)
-        else:
-            self.cur_mask = self.mask_all
-        self.flag = util.cal_flag_given_mask_thred(self.cur_mask, self.shift_sz, self.stride, self.mask_thred)
-        final_out = InnerShiftTripleFunction.apply(input, self.shift_sz, self.stride, self.triple_weight, self.flag, self.show_flow)
-        if self.show_flow:
-            self.flow_srcs = InnerShiftTripleFunction.get_flow_src()
-        return final_out
-
-    def get_flow(self):
-        return self.flow_srcs
-
-    def set_flow_true(self):
-        self.show_flow = True
-
-    def set_flow_false(self):
-        self.show_flow = False
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + ' ,triple_weight ' + str(self.triple_weight) + ')'
 
 
 class VGG16FeatureExtractor(nn.Module):

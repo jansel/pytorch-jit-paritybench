@@ -46,17 +46,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+from copy import deepcopy
+
+
+import torch
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data.sampler import SubsetRandomSampler
+
+
+import random
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision import transforms
+
+
+from scipy import ndimage
 
 
 import logging
@@ -65,28 +93,19 @@ import logging
 import torch.nn as nn
 
 
-import numpy as np
-
-
 import math
 
 
-import torch
-
-
 from torch.utils import tensorboard
+
+
+import scipy.io as sio
 
 
 import scipy
 
 
 import torch.nn.functional as F
-
-
-from torchvision import transforms
-
-
-from scipy import ndimage
 
 
 from math import ceil
@@ -107,13 +126,22 @@ import torchvision
 from torch import nn
 
 
+import inspect
+
+
 import time
 
 
 from torchvision.utils import make_grid
 
 
+from sklearn.utils import class_weight
+
+
 from torch.autograd import Variable
+
+
+from torch.optim.lr_scheduler import _LRScheduler
 
 
 import collections
@@ -132,6 +160,9 @@ from torch.nn.parallel.data_parallel import DataParallel
 
 
 from collections import OrderedDict
+
+
+import numbers
 
 
 class BaseModel(nn.Module):
@@ -173,10 +204,10 @@ class ResNet(nn.Module):
         super(ResNet, self).__init__()
         model = getattr(models, backbone)(pretrained)
         if not pretrained or in_channels != 3:
-            self.layer0 = nn.Sequential(nn.Conv2d(in_channels, 64, 7, stride=2, padding=3, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
-            initialize_weights(self.layer0)
+            self.initial = nn.Sequential(nn.Conv2d(in_channels, 64, 7, stride=2, padding=3, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
+            initialize_weights(self.initial)
         else:
-            self.layer0 = nn.Sequential(*list(model.children())[:4])
+            self.initial = nn.Sequential(*list(model.children())[:4])
         self.layer1 = model.layer1
         self.layer2 = model.layer2
         self.layer3 = model.layer3
@@ -202,13 +233,12 @@ class ResNet(nn.Module):
                 m.stride = s4, s4
 
     def forward(self, x):
-        x = self.layer0(x)
-        x = self.layer1(x)
-        low_level_features = x
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        return x, low_level_features
+        x = self.initial(x)
+        x1 = self.layer1(x)
+        x2 = self.layer2(x1)
+        x3 = self.layer3(x2)
+        x4 = self.layer4(x3)
+        return [x1, x2, x3, x4]
 
 
 class SeparableConv2d(nn.Module):
@@ -372,19 +402,22 @@ def assp_branch(in_channels, out_channles, kernel_size, dilation):
 
 class ASSP(nn.Module):
 
-    def __init__(self, in_channels, output_stride):
+    def __init__(self, in_channels, output_stride, assp_channels=6):
         super(ASSP, self).__init__()
-        assert output_stride in [8, 16], 'Only output strides of 8 or 16 are suported'
-        if output_stride == 16:
-            dilations = [1, 6, 12, 18]
-        elif output_stride == 8:
-            dilations = [1, 12, 24, 36]
+        assert output_stride in [4, 8], 'Only output strides of 8 or 16 are suported'
+        assert assp_channels in [4, 6], 'Number of suported ASSP branches are 4 or 6'
+        dilations = [1, 6, 12, 18, 24, 36]
+        dilations = dilations[:assp_channels]
+        self.assp_channels = assp_channels
         self.aspp1 = assp_branch(in_channels, 256, 1, dilation=dilations[0])
         self.aspp2 = assp_branch(in_channels, 256, 3, dilation=dilations[1])
         self.aspp3 = assp_branch(in_channels, 256, 3, dilation=dilations[2])
         self.aspp4 = assp_branch(in_channels, 256, 3, dilation=dilations[3])
+        if self.assp_channels == 6:
+            self.aspp5 = assp_branch(in_channels, 256, 3, dilation=dilations[4])
+            self.aspp6 = assp_branch(in_channels, 256, 3, dilation=dilations[5])
         self.avg_pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(in_channels, 256, 1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True))
-        self.conv1 = nn.Conv2d(256 * 5, 256, 1, bias=False)
+        self.conv1 = nn.Conv2d(256 * (self.assp_channels + 1), 256, 1, bias=False)
         self.bn1 = nn.BatchNorm2d(256)
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout(0.5)
@@ -395,29 +428,16 @@ class ASSP(nn.Module):
         x2 = self.aspp2(x)
         x3 = self.aspp3(x)
         x4 = self.aspp4(x)
-        x5 = F.interpolate(self.avg_pool(x), size=(x.size(2), x.size(3)), mode='bilinear', align_corners=True)
-        x = self.conv1(torch.cat((x1, x2, x3, x4, x5), dim=1))
+        if self.assp_channels == 6:
+            x5 = self.aspp5(x)
+            x6 = self.aspp6(x)
+        x_avg_pool = F.interpolate(self.avg_pool(x), size=(x.size(2), x.size(3)), mode='bilinear', align_corners=True)
+        if self.assp_channels == 6:
+            x = self.conv1(torch.cat((x1, x2, x3, x4, x5, x6, x_avg_pool), dim=1))
+        else:
+            x = self.conv1(torch.cat((x1, x2, x3, x4, x_avg_pool), dim=1))
         x = self.bn1(x)
         x = self.dropout(self.relu(x))
-        return x
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, low_level_channels, num_classes):
-        super(Decoder, self).__init__()
-        self.conv1 = nn.Conv2d(low_level_channels, 48, 1, bias=False)
-        self.bn1 = nn.BatchNorm2d(48)
-        self.relu = nn.ReLU(inplace=True)
-        self.output = nn.Sequential(nn.Conv2d(48 + 256, 256, 3, stride=1, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.Conv2d(256, 256, 3, stride=1, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.Dropout(0.1), nn.Conv2d(256, num_classes, 1, stride=1))
-        initialize_weights(self)
-
-    def forward(self, x, low_level_features):
-        low_level_features = self.conv1(low_level_features)
-        low_level_features = self.relu(self.bn1(low_level_features))
-        H, W = low_level_features.size(2), low_level_features.size(3)
-        x = F.interpolate(x, size=(H, W), mode='bilinear', align_corners=True)
-        x = self.output(torch.cat((low_level_features, x), dim=1))
         return x
 
 
@@ -455,6 +475,63 @@ class DUC(nn.Module):
         kernel = kernel.contiguous().view(transposed_shape)
         kernel = kernel.transpose(0, 1)
         return kernel
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, low_level_channels, num_classes):
+        super(Decoder, self).__init__()
+        self.conv1 = nn.Conv2d(low_level_channels, 48, 1, bias=False)
+        self.bn1 = nn.BatchNorm2d(48)
+        self.relu = nn.ReLU(inplace=True)
+        self.DUC = DUC(256, 256, upscale=2)
+        self.output = nn.Sequential(nn.Conv2d(48 + 256, 256, 3, stride=1, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.Conv2d(256, 256, 3, stride=1, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.Dropout(0.1), nn.Conv2d(256, num_classes, 1, stride=1))
+        initialize_weights(self)
+
+    def forward(self, x, low_level_features):
+        low_level_features = self.conv1(low_level_features)
+        low_level_features = self.relu(self.bn1(low_level_features))
+        x = self.DUC(x)
+        if x.size() != low_level_features.size():
+            x = x[:, :, :low_level_features.size(2), :low_level_features.size(3)]
+        x = self.output(torch.cat((low_level_features, x), dim=1))
+        return x
+
+
+class DeepLab(BaseModel):
+
+    def __init__(self, num_classes, in_channels=3, backbone='xception', pretrained=True, output_stride=16, freeze_bn=False, **_):
+        super(DeepLab, self).__init__()
+        assert 'xception' or 'resnet' in backbone
+        if 'resnet' in backbone:
+            self.backbone = ResNet(in_channels=in_channels, output_stride=output_stride, pretrained=pretrained)
+            low_level_channels = 256
+        else:
+            self.backbone = Xception(output_stride=output_stride, pretrained=pretrained)
+            low_level_channels = 128
+        self.ASSP = ASSP(in_channels=2048, output_stride=output_stride)
+        self.decoder = Decoder(low_level_channels, num_classes)
+        if freeze_bn:
+            self.freeze_bn()
+
+    def forward(self, x):
+        H, W = x.size(2), x.size(3)
+        x, low_level_features = self.backbone(x)
+        x = self.ASSP(x)
+        x = self.decoder(x, low_level_features)
+        x = F.interpolate(x, size=(H, W), mode='bilinear', align_corners=True)
+        return x
+
+    def get_backbone_params(self):
+        return self.backbone.parameters()
+
+    def get_decoder_params(self):
+        return chain(self.ASSP.parameters(), self.decoder.parameters())
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
 
 
 class ResNet_HDC_DUC(nn.Module):
@@ -507,66 +584,36 @@ class ResNet_HDC_DUC(nn.Module):
         return x, low_level_features
 
 
-class ASSP(nn.Module):
+class DeepLab_DUC_HDC(BaseModel):
 
-    def __init__(self, in_channels, output_stride, assp_channels=6):
-        super(ASSP, self).__init__()
-        assert output_stride in [4, 8], 'Only output strides of 8 or 16 are suported'
-        assert assp_channels in [4, 6], 'Number of suported ASSP branches are 4 or 6'
-        dilations = [1, 6, 12, 18, 24, 36]
-        dilations = dilations[:assp_channels]
-        self.assp_channels = assp_channels
-        self.aspp1 = assp_branch(in_channels, 256, 1, dilation=dilations[0])
-        self.aspp2 = assp_branch(in_channels, 256, 3, dilation=dilations[1])
-        self.aspp3 = assp_branch(in_channels, 256, 3, dilation=dilations[2])
-        self.aspp4 = assp_branch(in_channels, 256, 3, dilation=dilations[3])
-        if self.assp_channels == 6:
-            self.aspp5 = assp_branch(in_channels, 256, 3, dilation=dilations[4])
-            self.aspp6 = assp_branch(in_channels, 256, 3, dilation=dilations[5])
-        self.avg_pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(in_channels, 256, 1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True))
-        self.conv1 = nn.Conv2d(256 * (self.assp_channels + 1), 256, 1, bias=False)
-        self.bn1 = nn.BatchNorm2d(256)
-        self.relu = nn.ReLU(inplace=True)
-        self.dropout = nn.Dropout(0.5)
-        initialize_weights(self)
+    def __init__(self, num_classes, in_channels=3, pretrained=True, output_stride=8, freeze_bn=False, **_):
+        super(DeepLab_DUC_HDC, self).__init__()
+        self.backbone = ResNet_HDC_DUC(in_channels=in_channels, output_stride=output_stride, pretrained=pretrained)
+        low_level_channels = 256
+        self.ASSP = ASSP(in_channels=2048, output_stride=output_stride)
+        self.decoder = Decoder(low_level_channels, num_classes)
+        self.DUC_out = DUC(num_classes, num_classes, 4)
+        if freeze_bn:
+            self.freeze_bn()
 
     def forward(self, x):
-        x1 = self.aspp1(x)
-        x2 = self.aspp2(x)
-        x3 = self.aspp3(x)
-        x4 = self.aspp4(x)
-        if self.assp_channels == 6:
-            x5 = self.aspp5(x)
-            x6 = self.aspp6(x)
-        x_avg_pool = F.interpolate(self.avg_pool(x), size=(x.size(2), x.size(3)), mode='bilinear', align_corners=True)
-        if self.assp_channels == 6:
-            x = self.conv1(torch.cat((x1, x2, x3, x4, x5, x6, x_avg_pool), dim=1))
-        else:
-            x = self.conv1(torch.cat((x1, x2, x3, x4, x_avg_pool), dim=1))
-        x = self.bn1(x)
-        x = self.dropout(self.relu(x))
+        H, W = x.size(2), x.size(3)
+        x, low_level_features = self.backbone(x)
+        x = self.ASSP(x)
+        x = self.decoder(x, low_level_features)
+        x = self.DUC_out(x)
         return x
 
+    def get_backbone_params(self):
+        return self.backbone.parameters()
 
-class Decoder(nn.Module):
+    def get_decoder_params(self):
+        return chain(self.ASSP.parameters(), self.decoder.parameters(), self.DUC_out.parameters())
 
-    def __init__(self, low_level_channels, num_classes):
-        super(Decoder, self).__init__()
-        self.conv1 = nn.Conv2d(low_level_channels, 48, 1, bias=False)
-        self.bn1 = nn.BatchNorm2d(48)
-        self.relu = nn.ReLU(inplace=True)
-        self.DUC = DUC(256, 256, upscale=2)
-        self.output = nn.Sequential(nn.Conv2d(48 + 256, 256, 3, stride=1, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.Conv2d(256, 256, 3, stride=1, padding=1, bias=False), nn.BatchNorm2d(256), nn.ReLU(inplace=True), nn.Dropout(0.1), nn.Conv2d(256, num_classes, 1, stride=1))
-        initialize_weights(self)
-
-    def forward(self, x, low_level_features):
-        low_level_features = self.conv1(low_level_features)
-        low_level_features = self.relu(self.bn1(low_level_features))
-        x = self.DUC(x)
-        if x.size() != low_level_features.size():
-            x = x[:, :, :low_level_features.size(2), :low_level_features.size(3)]
-        x = self.output(torch.cat((low_level_features, x), dim=1))
-        return x
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
 
 
 class InitalBlock(nn.Module):
@@ -648,7 +695,7 @@ class BottleNeck(nn.Module):
         """
         if self.pad > 0:
             extras = torch.zeros((identity.size(0), self.pad, identity.size(2), identity.size(3)))
-            if torch.is_available():
+            if torch.cuda.is_available():
                 extras = extras
             identity = torch.cat((identity, extras), dim=1)
         x = self.conv1(x)
@@ -670,6 +717,164 @@ class BottleNeck(nn.Module):
         if self.downsample:
             return x, idx
         return x
+
+
+class ENet(BaseModel):
+
+    def __init__(self, num_classes, in_channels=3, freeze_bn=False, **_):
+        super(ENet, self).__init__()
+        self.initial = InitalBlock(in_channels)
+        self.bottleneck10 = BottleNeck(16, 64, downsample=True, p_drop=0.01)
+        self.bottleneck11 = BottleNeck(64, p_drop=0.01)
+        self.bottleneck12 = BottleNeck(64, p_drop=0.01)
+        self.bottleneck13 = BottleNeck(64, p_drop=0.01)
+        self.bottleneck14 = BottleNeck(64, p_drop=0.01)
+        self.bottleneck20 = BottleNeck(64, 128, downsample=True, p_drop=0.1)
+        self.bottleneck21 = BottleNeck(128, p_drop=0.1)
+        self.bottleneck22 = BottleNeck(128, dilation=2, p_drop=0.1)
+        self.bottleneck23 = BottleNeck(128, asymetric=True, p_drop=0.1)
+        self.bottleneck24 = BottleNeck(128, dilation=4, p_drop=0.1)
+        self.bottleneck25 = BottleNeck(128, p_drop=0.1)
+        self.bottleneck26 = BottleNeck(128, dilation=8, p_drop=0.1)
+        self.bottleneck27 = BottleNeck(128, asymetric=True, p_drop=0.1)
+        self.bottleneck28 = BottleNeck(128, dilation=16, p_drop=0.1)
+        self.bottleneck31 = BottleNeck(128, p_drop=0.1)
+        self.bottleneck32 = BottleNeck(128, dilation=2, p_drop=0.1)
+        self.bottleneck33 = BottleNeck(128, asymetric=True, p_drop=0.1)
+        self.bottleneck34 = BottleNeck(128, dilation=4, p_drop=0.1)
+        self.bottleneck35 = BottleNeck(128, p_drop=0.1)
+        self.bottleneck36 = BottleNeck(128, dilation=8, p_drop=0.1)
+        self.bottleneck37 = BottleNeck(128, asymetric=True, p_drop=0.1)
+        self.bottleneck38 = BottleNeck(128, dilation=16, p_drop=0.1)
+        self.bottleneck40 = BottleNeck(128, 64, upsample=True, p_drop=0.1, use_prelu=False)
+        self.bottleneck41 = BottleNeck(64, p_drop=0.1, use_prelu=False)
+        self.bottleneck42 = BottleNeck(64, p_drop=0.1, use_prelu=False)
+        self.bottleneck50 = BottleNeck(64, 16, upsample=True, p_drop=0.1, use_prelu=False)
+        self.bottleneck51 = BottleNeck(16, p_drop=0.1, use_prelu=False)
+        self.fullconv = nn.ConvTranspose2d(16, num_classes, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False)
+        initialize_weights(self)
+        if freeze_bn:
+            self.freeze_bn()
+
+    def forward(self, x):
+        x = self.initial(x)
+        sz1 = x.size()
+        x, indices1 = self.bottleneck10(x)
+        x = self.bottleneck11(x)
+        x = self.bottleneck12(x)
+        x = self.bottleneck13(x)
+        x = self.bottleneck14(x)
+        sz2 = x.size()
+        x, indices2 = self.bottleneck20(x)
+        x = self.bottleneck21(x)
+        x = self.bottleneck22(x)
+        x = self.bottleneck23(x)
+        x = self.bottleneck24(x)
+        x = self.bottleneck25(x)
+        x = self.bottleneck26(x)
+        x = self.bottleneck27(x)
+        x = self.bottleneck28(x)
+        x = self.bottleneck31(x)
+        x = self.bottleneck32(x)
+        x = self.bottleneck33(x)
+        x = self.bottleneck34(x)
+        x = self.bottleneck35(x)
+        x = self.bottleneck36(x)
+        x = self.bottleneck37(x)
+        x = self.bottleneck38(x)
+        x = self.bottleneck40(x, indices=indices2, output_size=sz2)
+        x = self.bottleneck41(x)
+        x = self.bottleneck42(x)
+        x = self.bottleneck50(x, indices=indices1, output_size=sz1)
+        x = self.bottleneck51(x)
+        x = self.fullconv(x)
+        return x
+
+    def get_backbone_params(self):
+        return []
+
+    def get_decoder_params(self):
+        return self.parameters()
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
+
+
+def get_upsampling_weight(in_channels, out_channels, kernel_size):
+    factor = (kernel_size + 1) // 2
+    if kernel_size % 2 == 1:
+        center = factor - 1
+    else:
+        center = factor - 0.5
+    og = np.ogrid[:kernel_size, :kernel_size]
+    filt = (1 - abs(og[0] - center) / factor) * (1 - abs(og[1] - center) / factor)
+    weight = np.zeros((in_channels, out_channels, kernel_size, kernel_size), dtype=np.float64)
+    weight[(list(range(in_channels))), (list(range(out_channels))), :, :] = filt
+    return torch.from_numpy(weight).float()
+
+
+class FCN8(BaseModel):
+
+    def __init__(self, num_classes, pretrained=True, freeze_bn=False, **_):
+        super(FCN8, self).__init__()
+        vgg = models.vgg16(pretrained)
+        features = list(vgg.features.children())
+        classifier = list(vgg.classifier.children())
+        features[0].padding = 100, 100
+        for layer in features:
+            if 'MaxPool' in layer.__class__.__name__:
+                layer.ceil_mode = True
+        self.pool3 = nn.Sequential(*features[:17])
+        self.pool4 = nn.Sequential(*features[17:24])
+        self.pool5 = nn.Sequential(*features[24:])
+        self.adj_pool3 = nn.Conv2d(256, num_classes, kernel_size=1)
+        self.adj_pool4 = nn.Conv2d(512, num_classes, kernel_size=1)
+        conv6 = nn.Conv2d(512, 4096, kernel_size=7)
+        conv7 = nn.Conv2d(4096, 4096, kernel_size=1)
+        output = nn.Conv2d(4096, num_classes, kernel_size=1)
+        conv6.weight.data.copy_(classifier[0].weight.data.view(conv6.weight.data.size()))
+        conv6.bias.data.copy_(classifier[0].bias.data)
+        conv7.weight.data.copy_(classifier[3].weight.data.view(conv7.weight.data.size()))
+        conv7.bias.data.copy_(classifier[3].bias.data)
+        self.output = nn.Sequential(conv6, nn.ReLU(inplace=True), nn.Dropout(), conv7, nn.ReLU(inplace=True), nn.Dropout(), output)
+        self.up_output = nn.ConvTranspose2d(num_classes, num_classes, kernel_size=4, stride=2, bias=False)
+        self.up_pool4_out = nn.ConvTranspose2d(num_classes, num_classes, kernel_size=4, stride=2, bias=False)
+        self.up_final = nn.ConvTranspose2d(num_classes, num_classes, kernel_size=16, stride=8, bias=False)
+        self.up_output.weight.data.copy_(get_upsampling_weight(num_classes, num_classes, 4))
+        self.up_pool4_out.weight.data.copy_(get_upsampling_weight(num_classes, num_classes, 4))
+        self.up_final.weight.data.copy_(get_upsampling_weight(num_classes, num_classes, 16))
+        for m in self.modules():
+            if isinstance(m, nn.ConvTranspose2d):
+                m.weight.requires_grad = False
+        if freeze_bn:
+            self.freeze_bn()
+
+    def forward(self, x):
+        imh_H, img_W = x.size()[2], x.size()[3]
+        pool3 = self.pool3(x)
+        pool4 = self.pool4(pool3)
+        pool5 = self.pool5(pool4)
+        output = self.output(pool5)
+        up_output = self.up_output(output)
+        adjstd_pool4 = self.adj_pool4(0.01 * pool4)
+        add_out_pool4 = self.up_pool4_out(adjstd_pool4[:, :, 5:5 + up_output.size()[2], 5:5 + up_output.size()[3]] + up_output)
+        adjstd_pool3 = self.adj_pool3(0.0001 * pool3)
+        final_value = self.up_final(adjstd_pool3[:, :, 9:9 + add_out_pool4.size()[2], 9:9 + add_out_pool4.size()[3]] + add_out_pool4)
+        final_value = final_value[:, :, 31:31 + imh_H, 31:31 + img_W].contiguous()
+        return final_value
+
+    def get_backbone_params(self):
+        return chain(self.pool3.parameters(), self.pool4.parameters(), self.pool5.parameters(), self.output.parameters())
+
+    def get_decoder_params(self):
+        return chain(self.up_output.parameters(), self.adj_pool4.parameters(), self.up_pool4_out.parameters(), self.adj_pool3.parameters(), self.up_final.parameters())
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
 
 
 class Block_Resnet_GCN(nn.Module):
@@ -821,6 +1026,83 @@ class BR_Block(nn.Module):
         return x
 
 
+class GCN(BaseModel):
+
+    def __init__(self, num_classes, in_channels=3, pretrained=True, use_resnet_gcn=False, backbone='resnet50', use_deconv=False, num_filters=11, freeze_bn=False, **_):
+        super(GCN, self).__init__()
+        self.use_deconv = use_deconv
+        if use_resnet_gcn:
+            self.backbone = ResnetGCN(in_channels, backbone=backbone)
+        else:
+            self.backbone = Resnet(in_channels, pretrained=pretrained, backbone=backbone)
+        if backbone == 'resnet34' or backbone == 'resnet18':
+            resnet_channels = [64, 128, 256, 512]
+        else:
+            resnet_channels = [256, 512, 1024, 2048]
+        self.gcn1 = GCN_Block(num_filters, resnet_channels[0], num_classes)
+        self.br1 = BR_Block(num_classes)
+        self.gcn2 = GCN_Block(num_filters, resnet_channels[1], num_classes)
+        self.br2 = BR_Block(num_classes)
+        self.gcn3 = GCN_Block(num_filters, resnet_channels[2], num_classes)
+        self.br3 = BR_Block(num_classes)
+        self.gcn4 = GCN_Block(num_filters, resnet_channels[3], num_classes)
+        self.br4 = BR_Block(num_classes)
+        self.br5 = BR_Block(num_classes)
+        self.br6 = BR_Block(num_classes)
+        self.br7 = BR_Block(num_classes)
+        self.br8 = BR_Block(num_classes)
+        self.br9 = BR_Block(num_classes)
+        if self.use_deconv:
+            self.decon1 = nn.ConvTranspose2d(num_classes, num_classes, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False)
+            self.decon2 = nn.ConvTranspose2d(num_classes, num_classes, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False)
+            self.decon3 = nn.ConvTranspose2d(num_classes, num_classes, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False)
+            self.decon4 = nn.ConvTranspose2d(num_classes, num_classes, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False)
+            self.decon5 = nn.ConvTranspose2d(num_classes, num_classes, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False)
+        self.final_conv = nn.Conv2d(num_classes, num_classes, kernel_size=1)
+        if freeze_bn:
+            self.freeze_bn()
+
+    def forward(self, x):
+        x1, x2, x3, x4, conv1_sz = self.backbone(x)
+        x1 = self.br1(self.gcn1(x1))
+        x2 = self.br2(self.gcn2(x2))
+        x3 = self.br3(self.gcn3(x3))
+        x4 = self.br4(self.gcn4(x4))
+        if self.use_deconv:
+            x4 = self.decon4(x4)
+            if x4.size() != x3.size():
+                x4 = self._pad(x4, x3)
+            x3 = self.decon3(self.br5(x3 + x4))
+            if x3.size() != x2.size():
+                x3 = self._pad(x3, x2)
+            x2 = self.decon2(self.br6(x2 + x3))
+            x1 = self.decon1(self.br7(x1 + x2))
+            x = self.br9(self.decon5(self.br8(x1)))
+        else:
+            x4 = F.interpolate(x4, size=x3.size()[2:], mode='bilinear', align_corners=True)
+            x3 = F.interpolate(self.br5(x3 + x4), size=x2.size()[2:], mode='bilinear', align_corners=True)
+            x2 = F.interpolate(self.br6(x2 + x3), size=x1.size()[2:], mode='bilinear', align_corners=True)
+            x1 = F.interpolate(self.br7(x1 + x2), size=conv1_sz, mode='bilinear', align_corners=True)
+            x = self.br9(F.interpolate(self.br8(x1), size=x.size()[2:], mode='bilinear', align_corners=True))
+        return self.final_conv(x)
+
+    def _pad(self, x_topad, x):
+        pad = x.size(3) - x_topad.size(3), 0, x.size(2) - x_topad.size(2), 0
+        x_topad = F.pad(x_topad, pad, 'constant', 0)
+        return x_topad
+
+    def get_backbone_params(self):
+        return self.backbone.parameters()
+
+    def get_decoder_params(self):
+        return [p for n, p in self.named_parameters() if 'backbone' not in n]
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
+
+
 class _PSPModule(nn.Module):
 
     def __init__(self, in_channels, bin_sizes, norm_layer):
@@ -842,6 +1124,142 @@ class _PSPModule(nn.Module):
         pyramids.extend([F.interpolate(stage(features), size=(h, w), mode='bilinear', align_corners=True) for stage in self.stages])
         output = self.bottleneck(torch.cat(pyramids, dim=1))
         return output
+
+
+def apply_leaf(m, f):
+    c = m if isinstance(m, (list, tuple)) else list(m.children())
+    if isinstance(m, nn.Module):
+        f(m)
+    if len(c) > 0:
+        for l in c:
+            apply_leaf(l, f)
+
+
+def set_trainable_attr(m, b):
+    m.trainable = b
+    for p in m.parameters():
+        p.requires_grad = b
+
+
+def set_trainable(l, b):
+    apply_leaf(l, lambda m: set_trainable_attr(m, b))
+
+
+class PSPNet(BaseModel):
+
+    def __init__(self, num_classes, in_channels=3, backbone='resnet152', pretrained=True, use_aux=True, freeze_bn=False, freeze_backbone=False):
+        super(PSPNet, self).__init__()
+        norm_layer = nn.BatchNorm2d
+        model = getattr(resnet, backbone)(pretrained, norm_layer=norm_layer)
+        m_out_sz = model.fc.in_features
+        self.use_aux = use_aux
+        self.initial = nn.Sequential(*list(model.children())[:4])
+        if in_channels != 3:
+            self.initial[0] = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.initial = nn.Sequential(*self.initial)
+        self.layer1 = model.layer1
+        self.layer2 = model.layer2
+        self.layer3 = model.layer3
+        self.layer4 = model.layer4
+        self.master_branch = nn.Sequential(_PSPModule(m_out_sz, bin_sizes=[1, 2, 3, 6], norm_layer=norm_layer), nn.Conv2d(m_out_sz // 4, num_classes, kernel_size=1))
+        self.auxiliary_branch = nn.Sequential(nn.Conv2d(m_out_sz // 2, m_out_sz // 4, kernel_size=3, padding=1, bias=False), norm_layer(m_out_sz // 4), nn.ReLU(inplace=True), nn.Dropout2d(0.1), nn.Conv2d(m_out_sz // 4, num_classes, kernel_size=1))
+        initialize_weights(self.master_branch, self.auxiliary_branch)
+        if freeze_bn:
+            self.freeze_bn()
+        if freeze_backbone:
+            set_trainable([self.initial, self.layer1, self.layer2, self.layer3, self.layer4], False)
+
+    def forward(self, x):
+        input_size = x.size()[2], x.size()[3]
+        x = self.initial(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x_aux = self.layer3(x)
+        x = self.layer4(x_aux)
+        output = self.master_branch(x)
+        output = F.interpolate(output, size=input_size, mode='bilinear')
+        output = output[:, :, :input_size[0], :input_size[1]]
+        if self.training and self.use_aux:
+            aux = self.auxiliary_branch(x_aux)
+            aux = F.interpolate(aux, size=input_size, mode='bilinear')
+            aux = aux[:, :, :input_size[0], :input_size[1]]
+            return output, aux
+        return output
+
+    def get_backbone_params(self):
+        return chain(self.initial.parameters(), self.layer1.parameters(), self.layer2.parameters(), self.layer3.parameters(), self.layer4.parameters())
+
+    def get_decoder_params(self):
+        return chain(self.master_branch.parameters(), self.auxiliary_branch.parameters())
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
+
+
+class PSPDenseNet(BaseModel):
+
+    def __init__(self, num_classes, in_channels=3, backbone='densenet201', pretrained=True, use_aux=True, freeze_bn=False, **_):
+        super(PSPDenseNet, self).__init__()
+        self.use_aux = use_aux
+        model = getattr(models, backbone)(pretrained)
+        m_out_sz = model.classifier.in_features
+        aux_out_sz = model.features.transition3.conv.out_channels
+        if not pretrained or in_channels != 3:
+            block0 = [nn.Conv2d(in_channels, 64, 3, stride=2, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True)]
+            block0.extend([nn.Conv2d(64, 64, 3, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True)] * 2)
+            self.block0 = nn.Sequential(*block0, nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
+            initialize_weights(self.block0)
+        else:
+            self.block0 = nn.Sequential(*list(model.features.children())[:4])
+        self.block1 = model.features.denseblock1
+        self.block2 = model.features.denseblock2
+        self.block3 = model.features.denseblock3
+        self.block4 = model.features.denseblock4
+        self.transition1 = model.features.transition1
+        self.transition2 = nn.Sequential(*list(model.features.transition2.children())[:-1])
+        self.transition3 = nn.Sequential(*list(model.features.transition3.children())[:-1])
+        for n, m in self.block3.named_modules():
+            if 'conv2' in n:
+                m.dilation, m.padding = (2, 2), (2, 2)
+        for n, m in self.block4.named_modules():
+            if 'conv2' in n:
+                m.dilation, m.padding = (4, 4), (4, 4)
+        self.master_branch = nn.Sequential(_PSPModule(m_out_sz, bin_sizes=[1, 2, 3, 6], norm_layer=nn.BatchNorm2d), nn.Conv2d(m_out_sz // 4, num_classes, kernel_size=1))
+        self.auxiliary_branch = nn.Sequential(nn.Conv2d(aux_out_sz, m_out_sz // 4, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(m_out_sz // 4), nn.ReLU(inplace=True), nn.Dropout2d(0.1), nn.Conv2d(m_out_sz // 4, num_classes, kernel_size=1))
+        initialize_weights(self.master_branch, self.auxiliary_branch)
+        if freeze_bn:
+            self.freeze_bn()
+
+    def forward(self, x):
+        input_size = x.size()[2], x.size()[3]
+        x = self.block0(x)
+        x = self.block1(x)
+        x = self.transition1(x)
+        x = self.block2(x)
+        x = self.transition2(x)
+        x = self.block3(x)
+        x_aux = self.transition3(x)
+        x = self.block4(x_aux)
+        output = self.master_branch(x)
+        output = F.interpolate(output, size=input_size, mode='bilinear')
+        if self.training and self.use_aux:
+            aux = self.auxiliary_branch(x_aux)
+            aux = F.interpolate(aux, size=input_size, mode='bilinear')
+            return output, aux
+        return output
+
+    def get_backbone_params(self):
+        return chain(self.block0.parameters(), self.block1.parameters(), self.block2.parameters(), self.block3.parameters(), self.transition1.parameters(), self.transition2.parameters(), self.transition3.parameters())
+
+    def get_decoder_params(self):
+        return chain(self.master_branch.parameters(), self.auxiliary_branch.parameters())
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
 
 
 class BasicBlock(nn.Module):
@@ -915,80 +1333,88 @@ class Bottleneck(nn.Module):
         return out
 
 
-class ResNet(nn.Module):
-    """Dilated Pre-trained ResNet Model, which preduces the stride of 8 featuremaps at conv5.
+class SegNet(BaseModel):
 
-    Reference:
-        - He, Kaiming, et al. "Deep residual learning for image recognition." CVPR. 2016.
-        - Yu, Fisher, and Vladlen Koltun. "Multi-scale context aggregation by dilated convolutions."
-    """
+    def __init__(self, num_classes, in_channels=3, pretrained=True, freeze_bn=False, **_):
+        super(SegNet, self).__init__()
+        vgg_bn = models.vgg16_bn(pretrained=pretrained)
+        encoder = list(vgg_bn.features.children())
+        if in_channels != 3:
+            encoder[0] = nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1)
+        self.stage1_encoder = nn.Sequential(*encoder[:6])
+        self.stage2_encoder = nn.Sequential(*encoder[7:13])
+        self.stage3_encoder = nn.Sequential(*encoder[14:23])
+        self.stage4_encoder = nn.Sequential(*encoder[24:33])
+        self.stage5_encoder = nn.Sequential(*encoder[34:-1])
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
+        decoder = encoder
+        decoder = [i for i in list(reversed(decoder)) if not isinstance(i, nn.MaxPool2d)]
+        decoder[-1] = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        decoder = [item for i in range(0, len(decoder), 3) for item in decoder[i:i + 3][::-1]]
+        for i, module in enumerate(decoder):
+            if isinstance(module, nn.Conv2d):
+                if module.in_channels != module.out_channels:
+                    decoder[i + 1] = nn.BatchNorm2d(module.in_channels)
+                    decoder[i] = nn.Conv2d(module.out_channels, module.in_channels, kernel_size=3, stride=1, padding=1)
+        self.stage1_decoder = nn.Sequential(*decoder[0:9])
+        self.stage2_decoder = nn.Sequential(*decoder[9:18])
+        self.stage3_decoder = nn.Sequential(*decoder[18:27])
+        self.stage4_decoder = nn.Sequential(*decoder[27:33])
+        self.stage5_decoder = nn.Sequential(*decoder[33:], nn.Conv2d(64, num_classes, kernel_size=3, stride=1, padding=1))
+        self.unpool = nn.MaxUnpool2d(kernel_size=2, stride=2)
+        self._initialize_weights(self.stage1_decoder, self.stage2_decoder, self.stage3_decoder, self.stage4_decoder, self.stage5_decoder)
+        if freeze_bn:
+            self.freeze_bn()
 
-    def __init__(self, block, layers, num_classes=1000, dilated=True, multi_grid=False, deep_base=True, norm_layer=nn.BatchNorm2d):
-        self.inplanes = 128 if deep_base else 64
-        super(ResNet, self).__init__()
-        if deep_base:
-            self.conv1 = nn.Sequential(nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False), norm_layer(64), nn.ReLU(inplace=True), nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=False), norm_layer(64), nn.ReLU(inplace=True), nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=False))
-        else:
-            self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = norm_layer(self.inplanes)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], norm_layer=norm_layer)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, norm_layer=norm_layer)
-        if dilated:
-            self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2, norm_layer=norm_layer)
-            if multi_grid:
-                self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, norm_layer=norm_layer, multi_grid=True)
-            else:
-                self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, norm_layer=norm_layer)
-        else:
-            self.layer3 = self._make_layer(block, 256, layers[2], stride=2, norm_layer=norm_layer)
-            self.layer4 = self._make_layer(block, 512, layers[3], stride=2, norm_layer=norm_layer)
-        self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, norm_layer):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, norm_layer=None, multi_grid=False):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), norm_layer(planes * block.expansion))
-        layers = []
-        multi_dilations = [4, 8, 16]
-        if multi_grid:
-            layers.append(block(self.inplanes, planes, stride, dilation=multi_dilations[0], downsample=downsample, previous_dilation=dilation, norm_layer=norm_layer))
-        elif dilation == 1 or dilation == 2:
-            layers.append(block(self.inplanes, planes, stride, dilation=1, downsample=downsample, previous_dilation=dilation, norm_layer=norm_layer))
-        elif dilation == 4:
-            layers.append(block(self.inplanes, planes, stride, dilation=2, downsample=downsample, previous_dilation=dilation, norm_layer=norm_layer))
-        else:
-            raise RuntimeError('=> unknown dilation size: {}'.format(dilation))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            if multi_grid:
-                layers.append(block(self.inplanes, planes, dilation=multi_dilations[i], previous_dilation=dilation, norm_layer=norm_layer))
-            else:
-                layers.append(block(self.inplanes, planes, dilation=dilation, previous_dilation=dilation, norm_layer=norm_layer))
-        return nn.Sequential(*layers)
+    def _initialize_weights(self, *stages):
+        for modules in stages:
+            for module in modules.modules():
+                if isinstance(module, nn.Conv2d):
+                    nn.init.kaiming_normal_(module.weight)
+                    if module.bias is not None:
+                        module.bias.data.zero_()
+                elif isinstance(module, nn.BatchNorm2d):
+                    module.weight.data.fill_(1)
+                    module.bias.data.zero_()
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
+        x = self.stage1_encoder(x)
+        x1_size = x.size()
+        x, indices1 = self.pool(x)
+        x = self.stage2_encoder(x)
+        x2_size = x.size()
+        x, indices2 = self.pool(x)
+        x = self.stage3_encoder(x)
+        x3_size = x.size()
+        x, indices3 = self.pool(x)
+        x = self.stage4_encoder(x)
+        x4_size = x.size()
+        x, indices4 = self.pool(x)
+        x = self.stage5_encoder(x)
+        x5_size = x.size()
+        x, indices5 = self.pool(x)
+        x = self.unpool(x, indices=indices5, output_size=x5_size)
+        x = self.stage1_decoder(x)
+        x = self.unpool(x, indices=indices4, output_size=x4_size)
+        x = self.stage2_decoder(x)
+        x = self.unpool(x, indices=indices3, output_size=x3_size)
+        x = self.stage3_decoder(x)
+        x = self.unpool(x, indices=indices2, output_size=x2_size)
+        x = self.stage4_decoder(x)
+        x = self.unpool(x, indices=indices1, output_size=x1_size)
+        x = self.stage5_decoder(x)
         return x
+
+    def get_backbone_params(self):
+        return []
+
+    def get_decoder_params(self):
+        return self.parameters()
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
 
 
 class DecoderBottleneck(nn.Module):
@@ -1047,6 +1473,67 @@ class LastBottleneck(nn.Module):
         return out
 
 
+class SegResNet(BaseModel):
+
+    def __init__(self, num_classes, in_channels=3, pretrained=True, freeze_bn=False, **_):
+        super(SegResNet, self).__init__()
+        resnet50 = models.resnet50(pretrained=pretrained)
+        encoder = list(resnet50.children())
+        if in_channels != 3:
+            encoder[0] = nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1)
+        encoder[3].return_indices = True
+        self.first_conv = nn.Sequential(*encoder[:4])
+        resnet50_blocks = list(resnet50.children())[4:-2]
+        self.encoder = nn.Sequential(*resnet50_blocks)
+        resnet50_untrained = models.resnet50(pretrained=False)
+        resnet50_blocks = list(resnet50_untrained.children())[4:-2][::-1]
+        decoder = []
+        channels = 2048, 1024, 512
+        for i, block in enumerate(resnet50_blocks[:-1]):
+            new_block = list(block.children())[::-1][:-1]
+            decoder.append(nn.Sequential(*new_block, DecoderBottleneck(channels[i])))
+        new_block = list(resnet50_blocks[-1].children())[::-1][:-1]
+        decoder.append(nn.Sequential(*new_block, LastBottleneck(256)))
+        self.decoder = nn.Sequential(*decoder)
+        self.last_conv = nn.Sequential(nn.ConvTranspose2d(64, 64, kernel_size=2, stride=2, bias=False), nn.Conv2d(64, num_classes, kernel_size=3, stride=1, padding=1))
+        if freeze_bn:
+            self.freeze_bn()
+
+    def forward(self, x):
+        inputsize = x.size()
+        x, indices = self.first_conv(x)
+        x = self.encoder(x)
+        x = self.decoder(x)
+        h_diff = ceil((x.size()[2] - indices.size()[2]) / 2)
+        w_diff = ceil((x.size()[3] - indices.size()[3]) / 2)
+        if indices.size()[2] % 2 == 1:
+            x = x[:, :, h_diff:x.size()[2] - (h_diff - 1), w_diff:x.size()[3] - (w_diff - 1)]
+        else:
+            x = x[:, :, h_diff:x.size()[2] - h_diff, w_diff:x.size()[3] - w_diff]
+        x = F.max_unpool2d(x, indices, kernel_size=2, stride=2)
+        x = self.last_conv(x)
+        if inputsize != x.size():
+            h_diff = (x.size()[2] - inputsize[2]) // 2
+            w_diff = (x.size()[3] - inputsize[3]) // 2
+            x = x[:, :, h_diff:x.size()[2] - h_diff, w_diff:x.size()[3] - w_diff]
+            if h_diff % 2 != 0:
+                x = x[:, :, :-1, :]
+            if w_diff % 2 != 0:
+                x = x[:, :, :, :-1]
+        return x
+
+    def get_backbone_params(self):
+        return chain(self.first_conv.parameters(), self.encoder.parameters())
+
+    def get_decoder_params(self):
+        return chain(self.decoder.parameters(), self.last_conv.parameters())
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
+
+
 class encoder(nn.Module):
 
     def __init__(self, in_channels, out_channels):
@@ -1080,6 +1567,59 @@ class decoder(nn.Module):
         return x
 
 
+class UNet(BaseModel):
+
+    def __init__(self, num_classes, in_channels=3, freeze_bn=False, **_):
+        super(UNet, self).__init__()
+        self.down1 = encoder(in_channels, 64)
+        self.down2 = encoder(64, 128)
+        self.down3 = encoder(128, 256)
+        self.down4 = encoder(256, 512)
+        self.middle_conv = nn.Sequential(nn.Conv2d(512, 1024, kernel_size=3, padding=1), nn.BatchNorm2d(1024), nn.ReLU(inplace=True), nn.Conv2d(1024, 1024, kernel_size=3, padding=1), nn.BatchNorm2d(1024), nn.ReLU(inplace=True))
+        self.up1 = decoder(1024, 512)
+        self.up2 = decoder(512, 256)
+        self.up3 = decoder(256, 128)
+        self.up4 = decoder(128, 64)
+        self.final_conv = nn.Conv2d(64, num_classes, kernel_size=1)
+        self._initialize_weights()
+        if freeze_bn:
+            self.freeze_bn()
+
+    def _initialize_weights(self):
+        for module in self.modules():
+            if isinstance(module, nn.Conv2d) or isinstance(module, nn.Linear):
+                nn.init.kaiming_normal_(module.weight)
+                if module.bias is not None:
+                    module.bias.data.zero_()
+            elif isinstance(module, nn.BatchNorm2d):
+                module.weight.data.fill_(1)
+                module.bias.data.zero_()
+
+    def forward(self, x):
+        x1, x = self.down1(x)
+        x2, x = self.down2(x)
+        x3, x = self.down3(x)
+        x4, x = self.down4(x)
+        x = self.middle_conv(x)
+        x = self.up1(x4, x)
+        x = self.up2(x3, x)
+        x = self.up3(x2, x)
+        x = self.up4(x1, x)
+        x = self.final_conv(x)
+        return x
+
+    def get_backbone_params(self):
+        return []
+
+    def get_decoder_params(self):
+        return self.parameters()
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
+
+
 class PSPModule(nn.Module):
 
     def __init__(self, in_channels, bin_sizes=[1, 2, 4, 6]):
@@ -1101,49 +1641,6 @@ class PSPModule(nn.Module):
         pyramids.extend([F.interpolate(stage(features), size=(h, w), mode='bilinear', align_corners=True) for stage in self.stages])
         output = self.bottleneck(torch.cat(pyramids, dim=1))
         return output
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, in_channels=3, output_stride=16, backbone='resnet101', pretrained=True):
-        super(ResNet, self).__init__()
-        model = getattr(models, backbone)(pretrained)
-        if not pretrained or in_channels != 3:
-            self.initial = nn.Sequential(nn.Conv2d(in_channels, 64, 7, stride=2, padding=3, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
-            initialize_weights(self.initial)
-        else:
-            self.initial = nn.Sequential(*list(model.children())[:4])
-        self.layer1 = model.layer1
-        self.layer2 = model.layer2
-        self.layer3 = model.layer3
-        self.layer4 = model.layer4
-        if output_stride == 16:
-            s3, s4, d3, d4 = 2, 1, 1, 2
-        elif output_stride == 8:
-            s3, s4, d3, d4 = 1, 1, 2, 4
-        if output_stride == 8:
-            for n, m in self.layer3.named_modules():
-                if 'conv1' in n and (backbone == 'resnet34' or backbone == 'resnet18'):
-                    m.dilation, m.padding, m.stride = (d3, d3), (d3, d3), (s3, s3)
-                elif 'conv2' in n:
-                    m.dilation, m.padding, m.stride = (d3, d3), (d3, d3), (s3, s3)
-                elif 'downsample.0' in n:
-                    m.stride = s3, s3
-        for n, m in self.layer4.named_modules():
-            if 'conv1' in n and (backbone == 'resnet34' or backbone == 'resnet18'):
-                m.dilation, m.padding, m.stride = (d4, d4), (d4, d4), (s4, s4)
-            elif 'conv2' in n:
-                m.dilation, m.padding, m.stride = (d4, d4), (d4, d4), (s4, s4)
-            elif 'downsample.0' in n:
-                m.stride = s4, s4
-
-    def forward(self, x):
-        x = self.initial(x)
-        x1 = self.layer1(x)
-        x2 = self.layer2(x1)
-        x3 = self.layer3(x2)
-        x4 = self.layer4(x3)
-        return [x1, x2, x3, x4]
 
 
 def up_and_add(x, y):
@@ -1171,6 +1668,41 @@ class FPN_fuse(nn.Module):
         return x
 
 
+class UperNet(BaseModel):
+
+    def __init__(self, num_classes, in_channels=3, backbone='resnet101', pretrained=True, use_aux=True, fpn_out=256, freeze_bn=False, **_):
+        super(UperNet, self).__init__()
+        if backbone == 'resnet34' or backbone == 'resnet18':
+            feature_channels = [64, 128, 256, 512]
+        else:
+            feature_channels = [256, 512, 1024, 2048]
+        self.backbone = ResNet(in_channels, pretrained=pretrained)
+        self.PPN = PSPModule(feature_channels[-1])
+        self.FPN = FPN_fuse(feature_channels, fpn_out=fpn_out)
+        self.head = nn.Conv2d(fpn_out, num_classes, kernel_size=3, padding=1)
+        if freeze_bn:
+            self.freeze_bn()
+
+    def forward(self, x):
+        input_size = x.size()[2], x.size()[3]
+        features = self.backbone(x)
+        features[-1] = self.PPN(features[-1])
+        x = self.head(self.FPN(features))
+        x = F.interpolate(x, size=input_size, mode='bilinear')
+        return x
+
+    def get_backbone_params(self):
+        return self.backbone.parameters()
+
+    def get_decoder_params(self):
+        return chain(self.PPN.parameters(), self.FPN.parameters(), self.head.parameters())
+
+    def freeze_bn(self):
+        for module in self.modules():
+            if isinstance(module, nn.BatchNorm2d):
+                module.eval()
+
+
 class CrossEntropyLoss2d(nn.Module):
 
     def __init__(self, weight=None, ignore_index=255, reduction='mean'):
@@ -1183,7 +1715,7 @@ class CrossEntropyLoss2d(nn.Module):
 
 
 def make_one_hot(labels, classes):
-    one_hot = torch.cuda.FloatTensor(labels.size()[0], classes, labels.size()[2], labels.size()[3]).zero_()
+    one_hot = torch.FloatTensor(labels.size()[0], classes, labels.size()[2], labels.size()[3]).zero_()
     target = one_hot.scatter_(1, labels.data, 1)
     return target
 
@@ -1572,6 +2104,193 @@ class _SynchronizedBatchNorm(_BatchNorm):
         return mean, bias_var.clamp(self.eps) ** -0.5
 
 
+class SynchronizedBatchNorm1d(_SynchronizedBatchNorm):
+    """Applies Synchronized Batch Normalization over a 2d or 3d input that is seen as a
+    mini-batch.
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm1d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, L)` slices, it's common terminology to call this Temporal BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of size
+            `batch_size x num_features [x width]`
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm1d, self)._check_input_dim(input)
+
+
+class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 4d input that is seen as a mini-batch
+    of 3d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm2d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm2d, self)._check_input_dim(input)
+
+
+class SynchronizedBatchNorm3d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 5d input that is seen as a mini-batch
+    of 4d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm3d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, D, H, W)` slices, it's common terminology to call this Volumetric BatchNorm
+    or Spatio-temporal BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x depth x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C, D, H, W)`
+        - Output: :math:`(N, C, D, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45, 10))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm3d, self)._check_input_dim(input)
+
+
 class BatchNorm2dReimpl(nn.Module):
     """
     A re-implementation of batch normalization, used for testing the numerical
@@ -1708,6 +2427,22 @@ TESTCASES = [
      lambda: ([], {'inchannels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (DeepLab_DUC_HDC,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ENet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (FCN8,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (GCN,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
     (InitalBlock,
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1719,6 +2454,10 @@ TESTCASES = [
     (LovaszSoftmax,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (PSPDenseNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
     (PSPModule,
      lambda: ([], {'in_channels': 4}),
@@ -1732,6 +2471,14 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'output_stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SegNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (SegResNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
     (SeparableConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1740,9 +2487,21 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (UNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (UperNet,
+     lambda: ([], {'num_classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
     (Xception,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     True),
+    (_PSPModule,
+     lambda: ([], {'in_channels': 4, 'bin_sizes': [4, 4], 'norm_layer': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (encoder,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
@@ -1807,4 +2566,34 @@ class Test_yassouali_pytorch_segmentation(_paritybench_base):
 
     def test_018(self):
         self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
+
+    def test_025(self):
+        self._check(*TESTCASES[25])
+
+    def test_026(self):
+        self._check(*TESTCASES[26])
+
+    def test_027(self):
+        self._check(*TESTCASES[27])
+
+    def test_028(self):
+        self._check(*TESTCASES[28])
 

@@ -20,34 +20,48 @@ utils = _module
 criterion = _module
 encoding = _module
 loss = _module
+utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+import random
+
+
+import collections
+
+
+import torch
+
+
+import torchvision
+
+
+from torch.utils import data
 
 
 import scipy
 
 
 from scipy import ndimage
-
-
-import numpy as np
-
-
-import torch
 
 
 from torch.autograd import Variable
@@ -57,9 +71,6 @@ import torchvision.models as models
 
 
 import torch.nn.functional as F
-
-
-from torch.utils import data
 
 
 from collections import OrderedDict
@@ -83,6 +94,12 @@ from itertools import repeat
 import torch.autograd as autograd
 
 
+import torch.cuda.comm as comm
+
+
+from torch.autograd.function import once_differentiable
+
+
 from torch.nn import functional as F
 
 
@@ -104,16 +121,10 @@ import scipy.misc
 import torch.backends.cudnn as cudnn
 
 
-import random
-
-
 import logging
 
 
 from torch.autograd import Function
-
-
-import torch.cuda.comm as comm
 
 
 from torch.nn.parallel.data_parallel import DataParallel
@@ -197,131 +208,168 @@ def _count_samples(x):
     return count
 
 
-class InPlaceABN(nn.Module):
-    """InPlace Activated Batch Normalization"""
+class InPlaceABN(autograd.Function):
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates an InPlace Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(InPlaceABN, self).__init__()
-        self.num_features = num_features
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        self.activation = activation
-        self.slope = slope
-        if self.affine:
-            self.weight = nn.Parameter(torch.Tensor(num_features))
-            self.bias = nn.Parameter(torch.Tensor(num_features))
+    @staticmethod
+    def forward(ctx, x, weight, bias, running_mean, running_var, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01):
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        n = _count_samples(x)
+        if ctx.training:
+            mean = x.new().resize_as_(running_mean)
+            var = x.new().resize_as_(running_var)
+            _check_contiguous(x, mean, var)
+            _check(_ext.bn_mean_var_cuda, x, mean, var)
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * n / (n - 1))
         else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
+            mean, var = running_mean, running_var
+        _check_contiguous(x, mean, var, weight, bias)
+        _check(_ext.bn_forward_cuda, x, mean, var, weight if weight is not None else x.new(), bias if bias is not None else x.new(), x, x, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, weight, bias, running_mean, running_var)
+        ctx.mark_dirty(x)
+        return x
 
-    def reset_parameters(self):
-        self.running_mean.zero_()
-        self.running_var.fill_(1)
-        if self.affine:
-            self.weight.data.fill_(1)
-            self.bias.data.zero_()
-
-    def forward(self, x):
-        return inplace_abn(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), self.training, self.momentum, self.eps, self.activation, self.slope)
-
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ' slope={slope})'
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, weight, bias, running_mean, running_var = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.needs_input_grad[0]:
+            dx = dz.new().resize_as_(dz)
         else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
-
-
-class InPlaceABNSync(nn.Module):
-    """InPlace Activated Batch Normalization with cross-GPU synchronization
-
-    This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DataParallel`.
-    """
-
-    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates a synchronized, InPlace Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        devices : list of int or None
-            IDs of the GPUs that will run the replicas of this module.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(InPlaceABNSync, self).__init__()
-        self.num_features = num_features
-        self.devices = devices if devices else list(range(torch.device_count()))
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        self.activation = activation
-        self.slope = slope
-        if self.affine:
-            self.weight = nn.Parameter(torch.Tensor(num_features))
-            self.bias = nn.Parameter(torch.Tensor(num_features))
+            dx = None
+        if ctx.needs_input_grad[1]:
+            dweight = dz.new().resize_as_(running_mean).zero_()
         else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
-        self.worker_ids = self.devices[1:]
-        self.master_queue = Queue(len(self.worker_ids))
-        self.worker_queues = [Queue(1) for _ in self.worker_ids]
-
-    def reset_parameters(self):
-        self.running_mean.zero_()
-        self.running_var.fill_(1)
-        if self.affine:
-            self.weight.data.fill_(1)
-            self.bias.data.zero_()
-
-    def forward(self, x):
-        if x.get_device() == self.devices[0]:
-            extra = {'is_master': True, 'master_queue': self.master_queue, 'worker_queues': self.worker_queues, 'worker_ids': self.worker_ids}
+            dweight = None
+        if ctx.needs_input_grad[2]:
+            dbias = dz.new().resize_as_(running_mean).zero_()
         else:
-            extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
-        return inplace_abn_sync(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), extra, self.training, self.momentum, self.eps, self.activation, self.slope)
-
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ' slope={slope})'
+            dbias = None
+        if ctx.training:
+            edz = dz.new().resize_as_(running_mean)
+            eydz = dz.new().resize_as_(running_mean)
+            _check_contiguous(z, dz, weight, bias, edz, eydz)
+            _check(_ext.bn_edz_eydz_cuda, z, dz, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, ctx.eps)
         else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
+            edz = dz.new().resize_as_(running_mean).zero_()
+            eydz = dz.new().resize_as_(running_mean).zero_()
+        _check_contiguous(dz, z, ctx.var, weight, bias, edz, eydz, dx, dweight, dbias)
+        _check(_ext.bn_backard_cuda, dz, z, ctx.var, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, dx if dx is not None else dz.new(), dweight if dweight is not None else dz.new(), dbias if dbias is not None else dz.new(), ctx.eps)
+        del ctx.var
+        return dx, dweight, dbias, None, None, None, None, None, None, None
+
+
+class InPlaceABNSync(autograd.Function):
+
+    @classmethod
+    def forward(cls, ctx, x, weight, bias, running_mean, running_var, extra, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01):
+        cls._parse_extra(ctx, extra)
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        n = _count_samples(x) * (ctx.master_queue.maxsize + 1)
+        if ctx.training:
+            mean = x.new().resize_(1, running_mean.size(0))
+            var = x.new().resize_(1, running_var.size(0))
+            _check_contiguous(x, mean, var)
+            _check(_ext.bn_mean_var_cuda, x, mean, var)
+            if ctx.is_master:
+                means, vars = [mean], [var]
+                for _ in range(ctx.master_queue.maxsize):
+                    mean_w, var_w = ctx.master_queue.get()
+                    ctx.master_queue.task_done()
+                    means.append(mean_w)
+                    vars.append(var_w)
+                means = comm.gather(means)
+                vars = comm.gather(vars)
+                mean = means.mean(0)
+                var = (vars + (mean - means) ** 2).mean(0)
+                tensors = comm.broadcast_coalesced((mean, var), [mean.get_device()] + ctx.worker_ids)
+                for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                    queue.put(ts)
+            else:
+                ctx.master_queue.put((mean, var))
+                mean, var = ctx.worker_queue.get()
+                ctx.worker_queue.task_done()
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * n / (n - 1))
+        else:
+            mean, var = running_mean, running_var
+        _check_contiguous(x, mean, var, weight, bias)
+        _check(_ext.bn_forward_cuda, x, mean, var, weight if weight is not None else x.new(), bias if bias is not None else x.new(), x, x, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, weight, bias, running_mean, running_var)
+        ctx.mark_dirty(x)
+        return x
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, weight, bias, running_mean, running_var = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.needs_input_grad[0]:
+            dx = dz.new().resize_as_(dz)
+        else:
+            dx = None
+        if ctx.needs_input_grad[1]:
+            dweight = dz.new().resize_as_(running_mean).zero_()
+        else:
+            dweight = None
+        if ctx.needs_input_grad[2]:
+            dbias = dz.new().resize_as_(running_mean).zero_()
+        else:
+            dbias = None
+        if ctx.training:
+            edz = dz.new().resize_as_(running_mean)
+            eydz = dz.new().resize_as_(running_mean)
+            _check_contiguous(z, dz, weight, bias, edz, eydz)
+            _check(_ext.bn_edz_eydz_cuda, z, dz, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, ctx.eps)
+            if ctx.is_master:
+                edzs, eydzs = [edz], [eydz]
+                for _ in range(len(ctx.worker_queues)):
+                    edz_w, eydz_w = ctx.master_queue.get()
+                    ctx.master_queue.task_done()
+                    edzs.append(edz_w)
+                    eydzs.append(eydz_w)
+                edz = comm.reduce_add(edzs) / (ctx.master_queue.maxsize + 1)
+                eydz = comm.reduce_add(eydzs) / (ctx.master_queue.maxsize + 1)
+                tensors = comm.broadcast_coalesced((edz, eydz), [edz.get_device()] + ctx.worker_ids)
+                for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                    queue.put(ts)
+            else:
+                ctx.master_queue.put((edz, eydz))
+                edz, eydz = ctx.worker_queue.get()
+                ctx.worker_queue.task_done()
+        else:
+            edz = dz.new().resize_as_(running_mean).zero_()
+            eydz = dz.new().resize_as_(running_mean).zero_()
+        _check_contiguous(dz, z, ctx.var, weight, bias, edz, eydz, dx, dweight, dbias)
+        _check(_ext.bn_backard_cuda, dz, z, ctx.var, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, dx if dx is not None else dz.new(), dweight if dweight is not None else dz.new(), dbias if dbias is not None else dz.new(), ctx.eps)
+        del ctx.var
+        return dx, dweight, dbias, None, None, None, None, None, None, None, None
+
+    @staticmethod
+    def _parse_extra(ctx, extra):
+        ctx.is_master = extra['is_master']
+        if ctx.is_master:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queues = extra['worker_queues']
+            ctx.worker_ids = extra['worker_ids']
+        else:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queue = extra['worker_queue']
 
 
 class InPlaceABNWrapper(nn.Module):
@@ -506,98 +554,6 @@ class ASPPModule(nn.Module):
         return bottle
 
 
-affine_par = True
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes):
-        self.inplanes = 128
-        super(ResNet, self).__init__()
-        self.conv1 = conv3x3(3, 64, stride=2)
-        self.bn1 = BatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=False)
-        self.conv2 = conv3x3(64, 64)
-        self.bn2 = BatchNorm2d(64)
-        self.relu2 = nn.ReLU(inplace=False)
-        self.conv3 = conv3x3(64, 128)
-        self.bn3 = BatchNorm2d(128)
-        self.relu3 = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
-        self.head = nn.Sequential(ASPPModule(2048), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
-        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.1), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
-        layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x_dsn = self.dsn(x)
-        x = self.layer4(x)
-        x = self.head(x)
-        return [x, x_dsn]
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, fist_dilation=1, multi_grid=1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation * multi_grid, dilation=dilation * multi_grid, bias=False)
-        self.bn2 = BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=False)
-        self.relu_inplace = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.dilation = dilation
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = out + residual
-        out = self.relu_inplace(out)
-        return out
-
-
 class PSPModule(nn.Module):
     """
     Reference: 
@@ -621,6 +577,14 @@ class PSPModule(nn.Module):
         priors = [F.upsample(input=stage(feats), size=(h, w), mode='bilinear', align_corners=True) for stage in self.stages] + [feats]
         bottle = self.bottleneck(torch.cat(priors, 1))
         return bottle
+
+
+affine_par = True
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
 
 
 class ResNet(nn.Module):
@@ -692,6 +656,79 @@ class CriterionDSN(nn.Module):
         scale_pred = F.upsample(input=preds[1], size=(h, w), mode='bilinear', align_corners=True)
         loss2 = self.criterion(scale_pred, target)
         return loss1 + loss2 * 0.4
+
+
+class OhemCrossEntropy2d(nn.Module):
+
+    def __init__(self, ignore_label=255, thresh=0.7, min_kept=100000, factor=8):
+        super(OhemCrossEntropy2d, self).__init__()
+        self.ignore_label = ignore_label
+        self.thresh = float(thresh)
+        self.min_kept = int(min_kept)
+        self.factor = factor
+        self.criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_label)
+
+    def find_threshold(self, np_predict, np_target):
+        factor = self.factor
+        predict = nd.zoom(np_predict, (1.0, 1.0, 1.0 / factor, 1.0 / factor), order=1)
+        target = nd.zoom(np_target, (1.0, 1.0 / factor, 1.0 / factor), order=0)
+        n, c, h, w = predict.shape
+        min_kept = self.min_kept // (factor * factor)
+        input_label = target.ravel().astype(np.int32)
+        input_prob = np.rollaxis(predict, 1).reshape((c, -1))
+        valid_flag = input_label != self.ignore_label
+        valid_inds = np.where(valid_flag)[0]
+        label = input_label[valid_flag]
+        num_valid = valid_flag.sum()
+        if min_kept >= num_valid:
+            threshold = 1.0
+        elif num_valid > 0:
+            prob = input_prob[:, (valid_flag)]
+            pred = prob[label, np.arange(len(label), dtype=np.int32)]
+            threshold = self.thresh
+            if min_kept > 0:
+                k_th = min(len(pred), min_kept) - 1
+                new_array = np.partition(pred, k_th)
+                new_threshold = new_array[k_th]
+                if new_threshold > self.thresh:
+                    threshold = new_threshold
+        return threshold
+
+    def generate_new_target(self, predict, target):
+        np_predict = predict.data.cpu().numpy()
+        np_target = target.data.cpu().numpy()
+        n, c, h, w = np_predict.shape
+        threshold = self.find_threshold(np_predict, np_target)
+        input_label = np_target.ravel().astype(np.int32)
+        input_prob = np.rollaxis(np_predict, 1).reshape((c, -1))
+        valid_flag = input_label != self.ignore_label
+        valid_inds = np.where(valid_flag)[0]
+        label = input_label[valid_flag]
+        num_valid = valid_flag.sum()
+        if num_valid > 0:
+            prob = input_prob[:, (valid_flag)]
+            pred = prob[label, np.arange(len(label), dtype=np.int32)]
+            kept_flag = pred <= threshold
+            valid_inds = valid_inds[kept_flag]
+            None
+        label = input_label[valid_inds].copy()
+        input_label.fill(self.ignore_label)
+        input_label[valid_inds] = label
+        new_target = torch.from_numpy(input_label.reshape(target.size())).long()
+        return new_target
+
+    def forward(self, predict, target, weight=None):
+        """
+            Args:
+                predict:(n, c, h, w)
+                target:(n, h, w)
+                weight (Tensor, optional): a manual rescaling weight given to each class.
+                                           If given, has to be a Tensor of size "nclasses"
+        """
+        assert not target.requires_grad
+        input_prob = F.softmax(predict, 1)
+        target = self.generate_new_target(input_prob, target)
+        return self.criterion(predict, target)
 
 
 class CriterionOhemDSN(nn.Module):
@@ -820,7 +857,7 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices
         try:
             if not isinstance(input, tuple):
                 input = input,
-            with torch.cuda.device(device):
+            with torch.device(device):
                 output = module(*(input + target), **kwargs)
             with lock:
                 results[i] = output
@@ -874,79 +911,6 @@ class DataParallelCriterion(DataParallel):
         replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
         outputs = _criterion_parallel_apply(replicas, inputs, targets, kwargs)
         return Reduce.apply(*outputs) / len(outputs)
-
-
-class OhemCrossEntropy2d(nn.Module):
-
-    def __init__(self, ignore_label=255, thresh=0.7, min_kept=100000, factor=8):
-        super(OhemCrossEntropy2d, self).__init__()
-        self.ignore_label = ignore_label
-        self.thresh = float(thresh)
-        self.min_kept = int(min_kept)
-        self.factor = factor
-        self.criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_label)
-
-    def find_threshold(self, np_predict, np_target):
-        factor = self.factor
-        predict = nd.zoom(np_predict, (1.0, 1.0, 1.0 / factor, 1.0 / factor), order=1)
-        target = nd.zoom(np_target, (1.0, 1.0 / factor, 1.0 / factor), order=0)
-        n, c, h, w = predict.shape
-        min_kept = self.min_kept // (factor * factor)
-        input_label = target.ravel().astype(np.int32)
-        input_prob = np.rollaxis(predict, 1).reshape((c, -1))
-        valid_flag = input_label != self.ignore_label
-        valid_inds = np.where(valid_flag)[0]
-        label = input_label[valid_flag]
-        num_valid = valid_flag.sum()
-        if min_kept >= num_valid:
-            threshold = 1.0
-        elif num_valid > 0:
-            prob = input_prob[:, (valid_flag)]
-            pred = prob[label, np.arange(len(label), dtype=np.int32)]
-            threshold = self.thresh
-            if min_kept > 0:
-                k_th = min(len(pred), min_kept) - 1
-                new_array = np.partition(pred, k_th)
-                new_threshold = new_array[k_th]
-                if new_threshold > self.thresh:
-                    threshold = new_threshold
-        return threshold
-
-    def generate_new_target(self, predict, target):
-        np_predict = predict.data.cpu().numpy()
-        np_target = target.data.cpu().numpy()
-        n, c, h, w = np_predict.shape
-        threshold = self.find_threshold(np_predict, np_target)
-        input_label = np_target.ravel().astype(np.int32)
-        input_prob = np.rollaxis(np_predict, 1).reshape((c, -1))
-        valid_flag = input_label != self.ignore_label
-        valid_inds = np.where(valid_flag)[0]
-        label = input_label[valid_flag]
-        num_valid = valid_flag.sum()
-        if num_valid > 0:
-            prob = input_prob[:, (valid_flag)]
-            pred = prob[label, np.arange(len(label), dtype=np.int32)]
-            kept_flag = pred <= threshold
-            valid_inds = valid_inds[kept_flag]
-            None
-        label = input_label[valid_inds].copy()
-        input_label.fill(self.ignore_label)
-        input_label[valid_inds] = label
-        new_target = torch.from_numpy(input_label.reshape(target.size())).long()
-        return new_target
-
-    def forward(self, predict, target, weight=None):
-        """
-            Args:
-                predict:(n, c, h, w)
-                target:(n, h, w)
-                weight (Tensor, optional): a manual rescaling weight given to each class.
-                                           If given, has to be a Tensor of size "nclasses"
-        """
-        assert not target.requires_grad
-        input_prob = F.softmax(predict, 1)
-        target = self.generate_new_target(input_prob, target)
-        return self.criterion(predict, target)
 
 
 import torch

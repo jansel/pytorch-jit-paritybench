@@ -61,6 +61,9 @@ alexnet = _module
 resnet = _module
 vgg = _module
 pytorch = _module
+extract_model = _module
+extractor = _module
+imagenet_test = _module
 tensorflow = _module
 inception_resnet_v1 = _module
 inception_resnet_v2 = _module
@@ -88,6 +91,7 @@ paddle_parser = _module
 pytorch_emitter = _module
 pytorch_graph = _module
 pytorch_parser = _module
+saver = _module
 torch_to_np = _module
 rewriter = _module
 folder = _module
@@ -99,7 +103,6 @@ tensorflow_emitter = _module
 tensorflow_frozenparser = _module
 tensorflow_graph = _module
 tensorflow_parser = _module
-torch = _module
 torch_graph = _module
 torch_parser = _module
 GenerateMdByDataset = _module
@@ -146,18 +149,49 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import torch
+
+
+from collections import OrderedDict
+
+
+import torchvision.models as models
+
+
 import numpy as np
+
+
+import torch.jit
+
+
+import torch.autograd
+
+
+import torch.serialization
+
+
+from torch.jit import _unique_state_dict
+
+
+import torchvision
+
+
+from tensorflow.core.framework.node_def_pb2 import NodeDef
+
+
+from tensorflow.core.framework import attr_value_pb2
 

@@ -19,26 +19,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
 
 
 import torch
 
 
 from torch import nn
-
-
-import numpy as np
 
 
 from torch.autograd import Variable
@@ -57,6 +58,9 @@ from torch.utils.data import Dataset
 
 
 from torch import autograd
+
+
+import torchvision
 
 
 class generator_loss(torch.nn.Module):
@@ -91,38 +95,6 @@ class generator(nn.Module):
         self.image_size = 64
         self.num_channels = 3
         self.noise_dim = 100
-        self.ngf = 64
-        self.netG = nn.Sequential(nn.ConvTranspose2d(self.noise_dim, self.ngf * 8, 4, 1, 0, bias=False), nn.BatchNorm2d(self.ngf * 8), nn.ReLU(True), nn.ConvTranspose2d(self.ngf * 8, self.ngf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(self.ngf * 4, self.ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ngf * 2), nn.ReLU(True), nn.ConvTranspose2d(self.ngf * 2, self.ngf, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ngf), nn.ReLU(True), nn.ConvTranspose2d(self.ngf, self.num_channels, 4, 2, 1, bias=False), nn.Tanh())
-
-    def forward(self, z):
-        return self.netG(z)
-
-
-class discriminator(nn.Module):
-
-    def __init__(self):
-        super(discriminator, self).__init__()
-        self.image_size = 64
-        self.num_channels = 3
-        self.ndf = 64
-        self.B_dim = 128
-        self.C_dim = 16
-        self.netD_1 = nn.Sequential(nn.Conv2d(self.num_channels, self.ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf, self.ndf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ndf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf * 2, self.ndf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf * 4, self.ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ndf * 8), nn.LeakyReLU(0.2, inplace=True))
-        self.netD_2 = nn.Sequential(nn.Conv2d(self.ndf * 8, 1, 4, 1, 0, bias=False), nn.Sigmoid())
-
-    def forward(self, inp):
-        x_intermediate = self.netD_1(inp)
-        output = self.netD_2(x_intermediate)
-        return output.view(-1, 1).squeeze(1), x_intermediate
-
-
-class generator(nn.Module):
-
-    def __init__(self):
-        super(generator, self).__init__()
-        self.image_size = 64
-        self.num_channels = 3
-        self.noise_dim = 100
         self.embed_dim = 1024
         self.projected_embed_dim = 128
         self.latent_dim = self.noise_dim + self.projected_embed_dim
@@ -137,82 +109,17 @@ class generator(nn.Module):
         return output
 
 
-class discriminator(nn.Module):
+class Concat_embed(nn.Module):
 
-    def __init__(self):
-        super(discriminator, self).__init__()
-        self.image_size = 64
-        self.num_channels = 3
-        self.embed_dim = 1024
-        self.projected_embed_dim = 128
-        self.ndf = 64
-        self.B_dim = 128
-        self.C_dim = 16
-        self.netD_1 = nn.Sequential(nn.Conv2d(self.num_channels, self.ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf, self.ndf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ndf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf * 2, self.ndf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf * 4, self.ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ndf * 8), nn.LeakyReLU(0.2, inplace=True))
-        self.projector = Concat_embed(self.embed_dim, self.projected_embed_dim)
-        self.netD_2 = nn.Sequential(nn.Conv2d(self.ndf * 8 + self.projected_embed_dim, 1, 4, 1, 0, bias=False), nn.Sigmoid())
+    def __init__(self, embed_dim, projected_embed_dim):
+        super(Concat_embed, self).__init__()
+        self.projection = nn.Sequential(nn.Linear(in_features=embed_dim, out_features=projected_embed_dim), nn.BatchNorm1d(num_features=projected_embed_dim), nn.LeakyReLU(negative_slope=0.2, inplace=True))
 
     def forward(self, inp, embed):
-        x_intermediate = self.netD_1(inp)
-        x = self.projector(x_intermediate, embed)
-        x = self.netD_2(x)
-        return x.view(-1, 1).squeeze(1), x_intermediate
-
-
-class generator(nn.Module):
-
-    def __init__(self):
-        super(generator, self).__init__()
-        self.image_size = 64
-        self.num_channels = 3
-        self.noise_dim = 100
-        self.ngf = 64
-        self.netG = nn.Sequential(nn.ConvTranspose2d(self.noise_dim, self.ngf * 8, 4, 1, 0, bias=False), nn.BatchNorm2d(self.ngf * 8), nn.ReLU(True), nn.ConvTranspose2d(self.ngf * 8, self.ngf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(self.ngf * 4, self.ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ngf * 2), nn.ReLU(True), nn.ConvTranspose2d(self.ngf * 2, self.ngf, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ngf), nn.ReLU(True), nn.ConvTranspose2d(self.ngf, self.num_channels, 4, 2, 1, bias=False), nn.Tanh())
-
-    def forward(self, z):
-        output = self.netG(z)
-        return output
-
-
-class discriminator(nn.Module):
-
-    def __init__(self, improved=False):
-        super(discriminator, self).__init__()
-        self.image_size = 64
-        self.num_channels = 3
-        self.ndf = 64
-        if improved:
-            self.netD_1 = nn.Sequential(nn.Conv2d(self.num_channels, self.ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf, self.ndf * 2, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf * 2, self.ndf * 4, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf * 4, self.ndf * 8, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True))
-        else:
-            self.netD_1 = nn.Sequential(nn.Conv2d(self.num_channels, self.ndf, 4, 2, 1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf, self.ndf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ndf * 2), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf * 2, self.ndf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ndf * 4), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(self.ndf * 4, self.ndf * 8, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ndf * 8), nn.LeakyReLU(0.2, inplace=True))
-        self.netD_2 = nn.Sequential(nn.Conv2d(self.ndf * 8, 1, 4, 1, 0, bias=False))
-
-    def forward(self, inp):
-        x_intermediate = self.netD_1(inp)
-        x = self.netD_2(x_intermediate)
-        x = x.mean(0)
-        return x.view(1), x_intermediate
-
-
-class generator(nn.Module):
-
-    def __init__(self):
-        super(generator, self).__init__()
-        self.image_size = 64
-        self.num_channels = 3
-        self.noise_dim = 100
-        self.embed_dim = 1024
-        self.projected_embed_dim = 128
-        self.latent_dim = self.noise_dim + self.projected_embed_dim
-        self.ngf = 64
-        self.projection = nn.Sequential(nn.Linear(in_features=self.embed_dim, out_features=self.projected_embed_dim), nn.BatchNorm1d(num_features=self.projected_embed_dim), nn.LeakyReLU(negative_slope=0.2, inplace=True))
-        self.netG = nn.Sequential(nn.ConvTranspose2d(self.latent_dim, self.ngf * 8, 4, 1, 0, bias=False), nn.BatchNorm2d(self.ngf * 8), nn.ReLU(True), nn.ConvTranspose2d(self.ngf * 8, self.ngf * 4, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ngf * 4), nn.ReLU(True), nn.ConvTranspose2d(self.ngf * 4, self.ngf * 2, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ngf * 2), nn.ReLU(True), nn.ConvTranspose2d(self.ngf * 2, self.ngf, 4, 2, 1, bias=False), nn.BatchNorm2d(self.ngf), nn.ReLU(True), nn.ConvTranspose2d(self.ngf, self.num_channels, 4, 2, 1, bias=False), nn.Tanh())
-
-    def forward(self, embed_vector, z):
-        projected_embed = self.projection(embed_vector).unsqueeze(2).unsqueeze(3)
-        latent_vector = torch.cat([projected_embed, z], 1)
-        output = self.netG(latent_vector)
-        return output
+        projected_embed = self.projection(embed)
+        replicated_embed = projected_embed.repeat(4, 4, 1, 1).permute(2, 3, 0, 1)
+        hidden_concat = torch.cat([inp, replicated_embed], 1)
+        return hidden_concat
 
 
 class discriminator(nn.Module):
@@ -237,19 +144,6 @@ class discriminator(nn.Module):
         x = self.netD_2(x)
         x = x.mean(0)
         return x.view(1), x_intermediate
-
-
-class Concat_embed(nn.Module):
-
-    def __init__(self, embed_dim, projected_embed_dim):
-        super(Concat_embed, self).__init__()
-        self.projection = nn.Sequential(nn.Linear(in_features=embed_dim, out_features=projected_embed_dim), nn.BatchNorm1d(num_features=projected_embed_dim), nn.LeakyReLU(negative_slope=0.2, inplace=True))
-
-    def forward(self, inp, embed):
-        projected_embed = self.projection(embed)
-        replicated_embed = projected_embed.repeat(4, 4, 1, 1).permute(2, 3, 0, 1)
-        hidden_concat = torch.cat([inp, replicated_embed], 1)
-        return hidden_concat
 
 
 class minibatch_discriminator(nn.Module):

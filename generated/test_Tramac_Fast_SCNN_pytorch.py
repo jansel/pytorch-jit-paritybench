@@ -18,20 +18,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import random
+
+
+import numpy as np
+
+
 import torch
+
+
+import torch.utils.data as data
+
+
+from torchvision import transforms
 
 
 import torch.nn as nn
@@ -43,58 +56,10 @@ import torch.nn.functional as F
 import time
 
 
-import torch.utils.data as data
-
-
 import torch.backends.cudnn as cudnn
 
 
-from torchvision import transforms
-
-
-import numpy as np
-
-
 from torch.autograd import Variable
-
-
-class FastSCNN(nn.Module):
-
-    def __init__(self, num_classes, aux=False, **kwargs):
-        super(FastSCNN, self).__init__()
-        self.aux = aux
-        self.learning_to_downsample = LearningToDownsample(32, 48, 64)
-        self.global_feature_extractor = GlobalFeatureExtractor(64, [64, 96, 128], 128, 6, [3, 3, 3])
-        self.feature_fusion = FeatureFusionModule(64, 128, 128)
-        self.classifier = Classifer(128, num_classes)
-        if self.aux:
-            self.auxlayer = nn.Sequential(nn.Conv2d(64, 32, 3, padding=1, bias=False), nn.BatchNorm2d(32), nn.ReLU(True), nn.Dropout(0.1), nn.Conv2d(32, num_classes, 1))
-
-    def forward(self, x):
-        size = x.size()[2:]
-        higher_res_features = self.learning_to_downsample(x)
-        x = self.global_feature_extractor(higher_res_features)
-        x = self.feature_fusion(higher_res_features, x)
-        x = self.classifier(x)
-        outputs = []
-        x = F.interpolate(x, size, mode='bilinear', align_corners=True)
-        outputs.append(x)
-        if self.aux:
-            auxout = self.auxlayer(higher_res_features)
-            auxout = F.interpolate(auxout, size, mode='bilinear', align_corners=True)
-            outputs.append(auxout)
-        return tuple(outputs)
-
-
-class _ConvBNReLU(nn.Module):
-    """Conv-BN-ReLU"""
-
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, **kwargs):
-        super(_ConvBNReLU, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True))
-
-    def forward(self, x):
-        return self.conv(x)
 
 
 class _DSConv(nn.Module):
@@ -108,11 +73,58 @@ class _DSConv(nn.Module):
         return self.conv(x)
 
 
+class Classifer(nn.Module):
+    """Classifer"""
+
+    def __init__(self, dw_channels, num_classes, stride=1, **kwargs):
+        super(Classifer, self).__init__()
+        self.dsconv1 = _DSConv(dw_channels, dw_channels, stride)
+        self.dsconv2 = _DSConv(dw_channels, dw_channels, stride)
+        self.conv = nn.Sequential(nn.Dropout(0.1), nn.Conv2d(dw_channels, num_classes, 1))
+
+    def forward(self, x):
+        x = self.dsconv1(x)
+        x = self.dsconv2(x)
+        x = self.conv(x)
+        return x
+
+
 class _DWConv(nn.Module):
 
     def __init__(self, dw_channels, out_channels, stride=1, **kwargs):
         super(_DWConv, self).__init__()
         self.conv = nn.Sequential(nn.Conv2d(dw_channels, out_channels, 3, stride, 1, groups=dw_channels, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True))
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class FeatureFusionModule(nn.Module):
+    """Feature fusion module"""
+
+    def __init__(self, highter_in_channels, lower_in_channels, out_channels, scale_factor=4, **kwargs):
+        super(FeatureFusionModule, self).__init__()
+        self.scale_factor = scale_factor
+        self.dwconv = _DWConv(lower_in_channels, out_channels, 1)
+        self.conv_lower_res = nn.Sequential(nn.Conv2d(out_channels, out_channels, 1), nn.BatchNorm2d(out_channels))
+        self.conv_higher_res = nn.Sequential(nn.Conv2d(highter_in_channels, out_channels, 1), nn.BatchNorm2d(out_channels))
+        self.relu = nn.ReLU(True)
+
+    def forward(self, higher_res_feature, lower_res_feature):
+        lower_res_feature = F.interpolate(lower_res_feature, scale_factor=4, mode='bilinear', align_corners=True)
+        lower_res_feature = self.dwconv(lower_res_feature)
+        lower_res_feature = self.conv_lower_res(lower_res_feature)
+        higher_res_feature = self.conv_higher_res(higher_res_feature)
+        out = higher_res_feature + lower_res_feature
+        return self.relu(out)
+
+
+class _ConvBNReLU(nn.Module):
+    """Conv-BN-ReLU"""
+
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, **kwargs):
+        super(_ConvBNReLU, self).__init__()
+        self.conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True))
 
     def forward(self, x):
         return self.conv(x)
@@ -163,22 +175,6 @@ class PyramidPooling(nn.Module):
         return x
 
 
-class LearningToDownsample(nn.Module):
-    """Learning to downsample module"""
-
-    def __init__(self, dw_channels1=32, dw_channels2=48, out_channels=64, **kwargs):
-        super(LearningToDownsample, self).__init__()
-        self.conv = _ConvBNReLU(3, dw_channels1, 3, 2)
-        self.dsconv1 = _DSConv(dw_channels1, dw_channels2, 2)
-        self.dsconv2 = _DSConv(dw_channels2, out_channels, 2)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.dsconv1(x)
-        x = self.dsconv2(x)
-        return x
-
-
 class GlobalFeatureExtractor(nn.Module):
     """Global feature extractor module"""
 
@@ -204,40 +200,48 @@ class GlobalFeatureExtractor(nn.Module):
         return x
 
 
-class FeatureFusionModule(nn.Module):
-    """Feature fusion module"""
+class LearningToDownsample(nn.Module):
+    """Learning to downsample module"""
 
-    def __init__(self, highter_in_channels, lower_in_channels, out_channels, scale_factor=4, **kwargs):
-        super(FeatureFusionModule, self).__init__()
-        self.scale_factor = scale_factor
-        self.dwconv = _DWConv(lower_in_channels, out_channels, 1)
-        self.conv_lower_res = nn.Sequential(nn.Conv2d(out_channels, out_channels, 1), nn.BatchNorm2d(out_channels))
-        self.conv_higher_res = nn.Sequential(nn.Conv2d(highter_in_channels, out_channels, 1), nn.BatchNorm2d(out_channels))
-        self.relu = nn.ReLU(True)
-
-    def forward(self, higher_res_feature, lower_res_feature):
-        lower_res_feature = F.interpolate(lower_res_feature, scale_factor=4, mode='bilinear', align_corners=True)
-        lower_res_feature = self.dwconv(lower_res_feature)
-        lower_res_feature = self.conv_lower_res(lower_res_feature)
-        higher_res_feature = self.conv_higher_res(higher_res_feature)
-        out = higher_res_feature + lower_res_feature
-        return self.relu(out)
-
-
-class Classifer(nn.Module):
-    """Classifer"""
-
-    def __init__(self, dw_channels, num_classes, stride=1, **kwargs):
-        super(Classifer, self).__init__()
-        self.dsconv1 = _DSConv(dw_channels, dw_channels, stride)
-        self.dsconv2 = _DSConv(dw_channels, dw_channels, stride)
-        self.conv = nn.Sequential(nn.Dropout(0.1), nn.Conv2d(dw_channels, num_classes, 1))
+    def __init__(self, dw_channels1=32, dw_channels2=48, out_channels=64, **kwargs):
+        super(LearningToDownsample, self).__init__()
+        self.conv = _ConvBNReLU(3, dw_channels1, 3, 2)
+        self.dsconv1 = _DSConv(dw_channels1, dw_channels2, 2)
+        self.dsconv2 = _DSConv(dw_channels2, out_channels, 2)
 
     def forward(self, x):
+        x = self.conv(x)
         x = self.dsconv1(x)
         x = self.dsconv2(x)
-        x = self.conv(x)
         return x
+
+
+class FastSCNN(nn.Module):
+
+    def __init__(self, num_classes, aux=False, **kwargs):
+        super(FastSCNN, self).__init__()
+        self.aux = aux
+        self.learning_to_downsample = LearningToDownsample(32, 48, 64)
+        self.global_feature_extractor = GlobalFeatureExtractor(64, [64, 96, 128], 128, 6, [3, 3, 3])
+        self.feature_fusion = FeatureFusionModule(64, 128, 128)
+        self.classifier = Classifer(128, num_classes)
+        if self.aux:
+            self.auxlayer = nn.Sequential(nn.Conv2d(64, 32, 3, padding=1, bias=False), nn.BatchNorm2d(32), nn.ReLU(True), nn.Dropout(0.1), nn.Conv2d(32, num_classes, 1))
+
+    def forward(self, x):
+        size = x.size()[2:]
+        higher_res_features = self.learning_to_downsample(x)
+        x = self.global_feature_extractor(higher_res_features)
+        x = self.feature_fusion(higher_res_features, x)
+        x = self.classifier(x)
+        outputs = []
+        x = F.interpolate(x, size, mode='bilinear', align_corners=True)
+        outputs.append(x)
+        if self.aux:
+            auxout = self.auxlayer(higher_res_features)
+            auxout = F.interpolate(auxout, size, mode='bilinear', align_corners=True)
+            outputs.append(auxout)
+        return tuple(outputs)
 
 
 class MixSoftmaxCrossEntropyLoss(nn.CrossEntropyLoss):
@@ -314,6 +318,30 @@ class SoftmaxCrossEntropyOHEMLoss(nn.Module):
         valid_flag_new = input_label != self.ignore_label
         target = Variable(torch.from_numpy(input_label.reshape(target.size())).long())
         return self.criterion(predict, target)
+
+
+class MixSoftmaxCrossEntropyOHEMLoss(SoftmaxCrossEntropyOHEMLoss):
+
+    def __init__(self, aux=False, aux_weight=0.2, ignore_index=-1, **kwargs):
+        super(MixSoftmaxCrossEntropyOHEMLoss, self).__init__(ignore_label=ignore_index, **kwargs)
+        self.aux = aux
+        self.aux_weight = aux_weight
+
+    def _aux_forward(self, *inputs, **kwargs):
+        *preds, target = tuple(inputs)
+        loss = super(MixSoftmaxCrossEntropyOHEMLoss, self).forward(preds[0], target)
+        for i in range(1, len(preds)):
+            aux_loss = super(MixSoftmaxCrossEntropyOHEMLoss, self).forward(preds[i], target)
+            loss += self.aux_weight * aux_loss
+        return loss
+
+    def forward(self, *inputs, **kwargs):
+        preds, target = tuple(inputs)
+        inputs = tuple(list(preds) + [target])
+        if self.aux:
+            return self._aux_forward(*inputs)
+        else:
+            return super(MixSoftmaxCrossEntropyOHEMLoss, self).forward(*inputs)
 
 
 import torch

@@ -20,39 +20,61 @@ model = _module
 optim = _module
 train = _module
 caption = _module
+data_loader = _module
 model = _module
 optim = _module
 rouge = _module
 train = _module
+corpus = _module
+data_loader = _module
 model = _module
+train = _module
+const = _module
+data_loader = _module
 game = _module
 mcts = _module
 net = _module
 play = _module
+train = _module
+corpus = _module
+data_loader = _module
 model = _module
 segment = _module
 train = _module
+corpus = _module
+data_loader = _module
 model = _module
 predict = _module
 train = _module
 base_layer = _module
 model = _module
 module_utils = _module
+corpus = _module
+data_loader = _module
 main = _module
 model = _module
 main = _module
+corpus = _module
+data_loader = _module
 generate = _module
 model = _module
 train = _module
+corpus = _module
+data_loader = _module
 main = _module
 model = _module
+corpus = _module
+data_loader = _module
 model = _module
 prepare_data = _module
 skeleton2conll = _module
 train = _module
 utils = _module
+data_loader = _module
 model = _module
 train = _module
+corpus = _module
+data_loader = _module
 example = _module
 model = _module
 train = _module
@@ -61,63 +83,99 @@ predict = _module
 train = _module
 dqn = _module
 reinforce = _module
+corpus = _module
+data_loader = _module
 model = _module
 train = _module
 common = _module
+corpus = _module
+data_loader = _module
 download = _module
 model = _module
 predict = _module
 train = _module
+corpus = _module
+data_loader = _module
 main = _module
 model = _module
+img_loader = _module
 model = _module
 train = _module
 main = _module
+corpus = _module
+data_loader = _module
 module = _module
 predict = _module
 train = _module
 common = _module
+corpus = _module
+data_loader = _module
 layers = _module
 model = _module
+predict = _module
+train = _module
+corpus = _module
+data_loader = _module
 model = _module
 rouge = _module
 train = _module
 transform = _module
+corpus = _module
+data_loader = _module
 model = _module
 train = _module
+corpus = _module
+data_loader = _module
 model = _module
 train = _module
+corpus = _module
+data_loader = _module
 layers = _module
 model = _module
 train = _module
 transform = _module
 utils = _module
+corpus = _module
+data_loader = _module
 highway = _module
 model = _module
 optim = _module
 train = _module
 darknet = _module
 detect = _module
+img_loader = _module
 layer = _module
+train = _module
+utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import random
+
+
+import numpy as np
+
+
+from torch.utils.data import Dataset
 
 
 import torch.nn as nn
@@ -132,22 +190,13 @@ import math
 from torch.nn import init
 
 
-import numpy as np
-
-
 from torch.optim import Optimizer
-
-
-import random
 
 
 from torch.utils.data import DataLoader
 
 
 import torch.nn.init as init
-
-
-from torch.utils.data import Dataset
 
 
 from torch.nn.parallel.data_parallel import DataParallel
@@ -168,6 +217,15 @@ import time
 from torch.autograd import Variable
 
 
+import re
+
+
+import torchvision
+
+
+from torchvision import transforms
+
+
 from torch.nn.parameter import Parameter
 
 
@@ -177,7 +235,13 @@ from torchvision.models import inception_v3
 from torch.optim import Adam
 
 
-import re
+import logging
+
+
+import copy
+
+
+from collections import deque
 
 
 import torch.autograd as autograd
@@ -187,6 +251,9 @@ from torch.nn.functional import cosine_similarity
 
 
 import torch.optim as optim
+
+
+import collections
 
 
 from torch.nn.functional import binary_cross_entropy
@@ -213,49 +280,7 @@ from itertools import count
 from torch.distributions import Categorical
 
 
-import copy
-
-
 from torchvision.models import vgg19
-
-
-INIT_RANGE = 0.02
-
-
-class Classifier(nn.Module):
-
-    def __init__(self, lsz, args):
-        super().__init__()
-        self.bert = BERT(args)
-        self.sent_predict = nn.Linear(args.d_model, lsz)
-        self.sent_predict.weight.data.normal_(INIT_RANGE)
-        self.sent_predict.bias.data.zero_()
-
-    def get_trainable_parameters(self):
-        return self.bert.get_trainable_parameters()
-
-    def forward(self, inp, pos, segment_label):
-        _, sent_encode = self.bert(inp, pos, segment_label)
-        return F.log_softmax(self.sent_predict(sent_encode), dim=-1)
-
-    def load_model(self, path='model.pt'):
-        data = torch.load(path)
-        self.bert.load_model(data['weights'])
-
-
-class WordCrossEntropy(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, props, tgt):
-        tgt_props = props.gather(2, tgt.unsqueeze(2)).squeeze()
-        mask = (tgt > 0).float()
-        tgt_sum = mask.sum()
-        loss = -(tgt_props * mask).sum() / tgt_sum
-        _, index = torch.max(props, -1)
-        corrects = ((index.data == tgt).float() * mask).sum()
-        return loss, corrects, tgt_sum
 
 
 class LayerNorm(nn.Module):
@@ -263,36 +288,14 @@ class LayerNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-06):
         super().__init__()
         self.eps = eps
-        self.gamma = nn.Parameter(torch.ones(hidden_size))
-        self.beta = nn.Parameter(torch.zeros(hidden_size))
+        self.weight = nn.Parameter(torch.ones(hidden_size))
+        self.bias = nn.Parameter(torch.zeros(hidden_size))
 
     def forward(self, input):
         mu = torch.mean(input, dim=-1, keepdim=True)
         sigma = torch.std(input, dim=-1, keepdim=True).clamp(min=self.eps)
         output = (input - mu) / sigma
-        return output * self.gamma.expand_as(output) + self.beta.expand_as(output)
-
-
-class GELU(nn.Module):
-    """
-    different from 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
-    """
-
-    def forward(self, x):
-        return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
-
-
-class PositionWise(nn.Module):
-
-    def __init__(self, d_model, d_ff, dropout):
-        super().__init__()
-        self.seq = nn.Sequential(nn.Conv1d(d_model, d_ff, 1), GELU(), nn.Conv1d(d_ff, d_model, 1), nn.Dropout(dropout))
-        self.lm = LayerNorm(d_model)
-
-    def forward(self, input):
-        residual = input
-        out = self.seq(input.transpose(1, 2)).transpose(1, 2)
-        return self.lm(residual + out)
+        return output * self.weight.expand_as(output) + self.bias.expand_as(output)
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -301,7 +304,7 @@ class ScaledDotProductAttention(nn.Module):
         super().__init__()
         self.temper = np.power(d_k, 0.5)
         self.dropout = nn.Dropout(dropout)
-        self.softmax = nn.Softmax(dim=-1)
+        self.softmax = nn.Softmax()
 
     def forward(self, q, k, v, attn_mask):
         attn = torch.bmm(q, k.transpose(1, 2)) / self.temper
@@ -323,7 +326,7 @@ class MultiHeadAtt(nn.Module):
         self.lm = LayerNorm(d_model)
         self.w_o = nn.Linear(d_model, d_model, bias=False)
         self.dropout = dropout
-        self.reset_parameters()
+        self._init_weight()
 
     def forward(self, q, k, v, attn_mask):
         d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
@@ -343,11 +346,24 @@ class MultiHeadAtt(nn.Module):
         outputs = F.dropout(self.w_o(outputs), p=self.dropout).view(bsz, len_q, -1)
         return self.lm(outputs + residual)
 
-    def reset_parameters(self):
-        self.w_qs.data.normal_(std=INIT_RANGE)
-        self.w_ks.data.normal_(std=INIT_RANGE)
-        self.w_vs.data.normal_(std=INIT_RANGE)
-        self.w_o.weight.data.normal_(std=INIT_RANGE)
+    def _init_weight(self):
+        init.xavier_normal(self.w_qs)
+        init.xavier_normal(self.w_ks)
+        init.xavier_normal(self.w_vs)
+        init.xavier_normal(self.w_o.weight)
+
+
+class PositionWise(nn.Module):
+
+    def __init__(self, d_model, d_ff, dropout):
+        super().__init__()
+        self.seq = nn.Sequential(nn.Conv1d(d_model, d_ff, 1), nn.ReLU(), nn.Conv1d(d_ff, d_model, 1), nn.Dropout(dropout))
+        self.lm = LayerNorm(d_model)
+
+    def forward(self, input):
+        residual = input
+        out = self.seq(input.transpose(1, 2)).transpose(1, 2)
+        return self.lm(residual + out)
 
 
 class EncoderLayer(nn.Module):
@@ -361,6 +377,18 @@ class EncoderLayer(nn.Module):
         enc_output = self.mh(enc_input, enc_input, enc_input, slf_attn_mask)
         enc_output = self.pw(enc_output)
         return enc_output
+
+
+class GELU(nn.Module):
+    """
+    different from 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+    """
+
+    def forward(self, x):
+        return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
+
+
+INIT_RANGE = 0.02
 
 
 class Pooler(nn.Module):
@@ -438,6 +466,42 @@ class BERT(nn.Module):
     def load_model(self, weights):
         self.load_state_dict(weights)
         self
+
+
+class Classifier(nn.Module):
+
+    def __init__(self, lsz, args):
+        super().__init__()
+        self.bert = BERT(args)
+        self.sent_predict = nn.Linear(args.d_model, lsz)
+        self.sent_predict.weight.data.normal_(INIT_RANGE)
+        self.sent_predict.bias.data.zero_()
+
+    def get_trainable_parameters(self):
+        return self.bert.get_trainable_parameters()
+
+    def forward(self, inp, pos, segment_label):
+        _, sent_encode = self.bert(inp, pos, segment_label)
+        return F.log_softmax(self.sent_predict(sent_encode), dim=-1)
+
+    def load_model(self, path='model.pt'):
+        data = torch.load(path)
+        self.bert.load_model(data['weights'])
+
+
+class WordCrossEntropy(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, props, tgt):
+        tgt_props = props.gather(2, tgt.unsqueeze(2)).squeeze()
+        mask = (tgt > 0).float()
+        tgt_sum = mask.sum()
+        loss = -(tgt_props * mask).sum() / tgt_sum
+        _, index = torch.max(props, -1)
+        corrects = ((index.data == tgt).float() * mask).sum()
+        return loss, corrects, tgt_sum
 
 
 NOT_USE_WEIGHT_DECAY = ['bias', 'gamma', 'beta']
@@ -542,19 +606,83 @@ class C_LSTMCell(nn.Module):
         return hy, cy
 
 
-class model(nn.Module):
+class Decoder(nn.Module):
 
-    def __init__(self, vocab_size, label_size, max_len, embed_dim=128, dropout=0.5):
+    def __init__(self, embed_dim, latent_dim, hidden_size, num_layers, dropout, vocab_size):
         super().__init__()
-        self.lookup_table = nn.Embedding(vocab_size, embed_dim)
-        self.logistic = nn.Linear(embed_dim * max_len, label_size)
-        self.dropout = nn.Dropout(dropout)
+        self.hidden_size = hidden_size
+        self.dropout = dropout
+        self.num_layers = num_layers
+        self.latent_dim = latent_dim
+        self.rnn = nn.LSTM(embed_dim + latent_dim, hidden_size, num_layers, dropout=dropout, batch_first=True)
+        self.lr = nn.Linear(hidden_size, vocab_size)
+        self._init_weight()
 
-    def forward(self, x):
-        x = self.lookup_table(x)
-        x = self.logistic(x.view(x.size(0), -1))
-        x = self.dropout(x)
-        return F.log_softmax(x, dim=-1)
+    def forward(self, input, z, hidden):
+        bsz, _len, _ = input.size()
+        z = z.unsqueeze(1).expand(bsz, _len, self.latent_dim)
+        input = torch.cat((input, z), -1)
+        rnn_out, hidden = self.rnn(input, hidden)
+        rnn_out = F.dropout(rnn_out, p=self.dropout)
+        out = self.lr(rnn_out.contiguous().view(-1, self.hidden_size))
+        return F.log_softmax(out, dim=-1), hidden
+
+    def init_hidden(self, bsz):
+        size = self.num_layers, bsz, self.hidden_size
+        weight = next(self.parameters()).data
+        return Variable(weight.new(*size).zero_()), Variable(weight.new(*size).zero_())
+
+    def _init_weight(self, scope=0.1):
+        self.lr.weight.data.uniform_(-scope, scope)
+        self.lr.bias.data.fill_(0)
+
+
+class Encoder(nn.Module):
+
+    def __init__(self, embed_dim, hidden_size, num_layers, dropout):
+        super().__init__()
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+        self.dropout = dropout
+        self.rnn = nn.LSTM(embed_dim, hidden_size, num_layers, dropout, bidirectional=True)
+
+    def forward(self, input, hidden):
+        _, hidden = self.rnn(input.transpose(0, 1), hidden)
+        out = F.dropout(torch.cat((hidden[0][-2], hidden[0][-1]), -1), p=self.dropout)
+        return out, hidden
+
+    def init_hidden(self, bsz):
+        size = self.num_layers * 2, bsz, self.hidden_size
+        weight = next(self.parameters()).data
+        return Variable(weight.new(*size).zero_()), Variable(weight.new(*size).zero_())
+
+
+class Transformer(nn.Module):
+
+    def __init__(self, args):
+        super().__init__()
+        for k, v in args.__dict__.items():
+            self.__setattr__(k, v)
+        self.enc = Encoder(self.enc_vocab_size, self.max_word_len, self.n_stack_layers, self.d_model, self.d_ff, self.n_head, self.dropout)
+        self.dec = Decoder(self.dec_vocab_size, self.max_word_len, self.n_stack_layers, self.d_model, self.d_ff, self.n_head, self.dropout)
+        self.linear = nn.Linear(self.d_model, self.dec_vocab_size, bias=False)
+        self._init_weight()
+
+    def _init_weight(self):
+        if self.share_linear:
+            self.linear.weight = self.dec.dec_ebd.weight
+        else:
+            init.xavier_normal(self.linear.weight)
+
+    def get_trainable_parameters(self):
+        return filter(lambda m: m.requires_grad, self.parameters())
+
+    def forward(self, src, src_pos, tgt, tgt_pos):
+        tgt, tgt_pos = tgt[:, :-1], tgt_pos[:, :-1]
+        enc_outputs = self.enc(src, src_pos)
+        dec_output = self.dec(enc_outputs, src, tgt, tgt_pos)
+        out = self.linear(dec_output)
+        return F.log_softmax(out.view(-1, self.dec_vocab_size))
 
 
 class _Transition(nn.Module):
@@ -656,7 +784,7 @@ class Actor(nn.Module):
 
     def __init__(self, vocab_size, dec_hsz, rnn_layers, bsz, max_len, dropout, use_cuda):
         super().__init__()
-        self.torch = torch if use_cuda else torch
+        self.torch = torch.cuda if use_cuda else torch
         self.dec_hsz = dec_hsz
         self.rnn_layers = rnn_layers
         self.bsz = bsz
@@ -764,7 +892,7 @@ STOP = 2
 def gather_index(encode, k1, k2, n=6):
     x = torch.arange(start=0, end=n / (n - 1.0), step=1.0 / (n - 1), dtype=torch.float)
     if k1.is_cuda:
-        x = x.cuda()
+        x = x
     k1 = x * k1.float()
     k2 = (1 - x) * k2.float()
     index = torch.round(k1 + k2).long()
@@ -785,7 +913,7 @@ class CRF(nn.Module):
         self.label_size = label_size
         self.transitions = nn.Parameter(torch.randn(label_size, label_size))
         self._init_weight()
-        self.torch = torch if is_cuda else torch
+        self.torch = torch.cuda if is_cuda else torch
 
     def _init_weight(self):
         init.xavier_uniform_(self.transitions)
@@ -910,29 +1038,51 @@ class Model(nn.Module):
         super().__init__()
         for k, v in args.__dict__.items():
             self.__setattr__(k, v)
-        self.cnn = CNN(self.char_size, self.char_ebd_dim, self.kernel_num, self.filter_size, self.dropout)
-        self.bilstm = BiLSTM(self.word_size, self.word_ebd_dim, self.kernel_num, self.lstm_hsz, self.lstm_layers, self.dropout, self.batch_size)
-        self.logistic = nn.Linear(self.lstm_hsz, self.label_size)
-        self.crf = CRF(self.label_size, self.use_cuda)
-        self._init_weights()
+        self.emb = nn.Embedding(self.dict_size, self.emb_dim)
+        self.first_gru = nn.GRU(input_size=self.emb_dim, hidden_size=self.first_rnn_hsz, num_layers=1, batch_first=True)
+        self.transform_A = nn.Linear(self.first_rnn_hsz, self.first_rnn_hsz, bias=False)
+        self.cnn = nn.Conv2d(in_channels=2, out_channels=self.fillters, kernel_size=self.kernel_size)
+        self.match_vec = nn.Linear(16 * 16 * 8, self.match_vec_dim)
+        self.second_gru = nn.GRU(input_size=self.match_vec_dim, hidden_size=self.second_rnn_hsz, num_layers=1)
+        self.pred = nn.Linear(self.match_vec_dim, 2)
+        self._reset_parameters()
 
-    def forward(self, words, chars, labels, hidden=None):
-        char_feats = self.cnn(chars)
-        output, _ = self.bilstm(words, char_feats, hidden)
-        output = self.logistic(output)
-        pre_score = self.crf(output)
-        label_score = self.crf._score_sentence(output, labels)
-        return (pre_score - label_score).mean(), None
+    def _reset_parameters(self):
+        stdv = 1.0 / math.sqrt(self.emb_dim)
+        self.emb.weight.data.uniform_(-stdv, stdv)
+        self.transform_A.weight.data.uniform_(-stdv, stdv)
+        self.match_vec.weight.data.uniform_(-stdv, stdv)
+        self.match_vec.bias.data.fill_(0)
+        self.pred.weight.data.uniform_(-stdv, stdv)
+        self.pred.bias.data.fill_(0)
 
-    def predict(self, word, char):
-        char_out = self.cnn(char)
-        lstm_out, _ = self.bilstm(word, char_out)
-        out = self.logistic(lstm_out)
-        return self.crf.viterbi_decode(out)
-
-    def _init_weights(self, scope=1.0):
-        self.logistic.weight.data.uniform_(-scope, scope)
-        self.logistic.bias.data.fill_(0)
+    def forward(self, utterances, responses):
+        bsz = utterances.size(0)
+        resps_emb = self.emb(responses)
+        resps_gru, _ = self.first_gru(resps_emb)
+        resps_gru = F.dropout(resps_gru, p=self.dropout)
+        resps_emb_t = resps_emb.transpose(1, 2)
+        resps_gru_t = resps_gru.transpose(1, 2)
+        uttes_t = utterances.transpose(0, 1)
+        match_vecs = []
+        for utte in uttes_t:
+            utte_emb = self.emb(utte)
+            mat_1 = torch.matmul(utte_emb, resps_emb_t)
+            utte_gru, _ = self.first_gru(utte_emb)
+            utte_gru = F.dropout(utte_gru, p=self.dropout)
+            mat_2 = torch.matmul(self.transform_A(utte_gru), resps_gru_t)
+            M = torch.stack([mat_1, mat_2], 1)
+            cnn_layer = F.relu(self.cnn(M))
+            pool_layer = F.max_pool2d(cnn_layer, self.kernel_size, stride=self.kernel_size)
+            pool_layer = pool_layer.view(bsz, -1)
+            match_vec = F.relu(self.match_vec(pool_layer))
+            match_vecs.append(match_vec)
+        match_vecs = torch.stack(match_vecs, 0)
+        match_vecs = F.dropout(match_vecs, p=self.dropout)
+        _, hidden = self.second_gru(match_vecs)
+        hidden = F.dropout(hidden[-1], p=self.dropout)
+        props = F.log_softmax(self.pred(hidden), dim=-1)
+        return props
 
 
 RES_BLOCK_FILLTERS = 128
@@ -1572,7 +1722,7 @@ def to_one_hot(x, length, use_cuda, is_zero=True):
             x_one_hot[i, x_list[i]] = -1.0
     x_one_hot = Variable(x_one_hot)
     if use_cuda:
-        x_one_hot = x_one_hot.cuda()
+        x_one_hot = x_one_hot
     return x_one_hot
 
 
@@ -1659,36 +1809,6 @@ class CBOW(nn.Module):
         self.lr2.bias.data.fill_(0)
 
 
-class Model(nn.Module):
-
-    def __init__(self, args):
-        super().__init__()
-        for k, v in args.__dict__.items():
-            self.__setattr__(k, v)
-        self.num_directions = 2 if self.bidirectional else 1
-        self.lookup_table = nn.Embedding(self.vocab_size, self.embed_dim)
-        self.lstm = nn.LSTM(self.embed_dim, self.hidden_size, self.lstm_layers, batch_first=True, dropout=self.dropout, bidirectional=self.bidirectional)
-        self.lr = nn.Linear(self.hidden_size * self.num_directions, self.vocab_size)
-        self._init_weights()
-
-    def _init_weights(self, scope=0.1):
-        self.lookup_table.weight.data.uniform_(-scope, scope)
-        self.lr.weight.data.uniform_(-scope, scope)
-        self.lr.bias.data.fill_(0)
-
-    def init_hidden(self, bsz):
-        num_layers = self.lstm_layers * self.num_directions
-        weight = next(self.parameters()).data
-        return Variable(weight.new(num_layers, bsz, self.hidden_size).zero_()), Variable(weight.new(num_layers, bsz, self.hidden_size).zero_())
-
-    def forward(self, input, hidden):
-        encode = self.lookup_table(input)
-        lstm_out, hidden = self.lstm(encode, hidden)
-        lstm_out = F.dropout(lstm_out, p=self.dropout)
-        out = self.lr(lstm_out.contiguous().view(-1, lstm_out.size(2)))
-        return F.log_softmax(out, dim=-1), hidden
-
-
 class CNN_Text(nn.Module):
 
     def __init__(self, args):
@@ -1736,80 +1856,6 @@ class Score(nn.Module):
 
     def forward(self, x):
         return self.score(x)
-
-
-class GELU(nn.Module):
-    """
-    different from 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
-    """
-
-    def forward(self, x):
-        return x * 0.5 * (1.0 + torch.erf(x / math.sqrt(2.0)))
-
-
-class LayerNorm(nn.Module):
-
-    def __init__(self, hidden_size, eps=1e-06):
-        super().__init__()
-        self.eps = eps
-        self.gamma = nn.Parameter(torch.ones(hidden_size))
-        self.beta = nn.Parameter(torch.zeros(hidden_size))
-
-    def forward(self, input):
-        mu = torch.mean(input, dim=-1, keepdim=True)
-        sigma = torch.std(input, dim=-1, keepdim=True).clamp(min=self.eps)
-        output = (input - mu) / sigma
-        return output * self.gamma.expand_as(output) + self.beta.expand_as(output)
-
-
-class ScaledDotProductAttention(nn.Module):
-
-    def __init__(self, d_k, dropout):
-        super().__init__()
-        self.temper = np.power(d_k, 0.5)
-        self.dropout = nn.Dropout(dropout)
-        self.softmax = nn.Softmax(dim=-1)
-
-    def forward(self, q, k, v):
-        attn = torch.bmm(q, k.transpose(1, 2)) / self.temper
-        attn = self.softmax(attn.view(-1, attn.size(2))).view(*attn.size())
-        attn = self.dropout(attn)
-        return torch.bmm(attn, v)
-
-
-class MultiHeadAtt(nn.Module):
-
-    def __init__(self, n_head, d_model, dropout):
-        super().__init__()
-        self.n_head = n_head
-        self.d_v = self.d_k = d_k = d_model // n_head
-        for name in ['w_qs', 'w_ks', 'w_vs']:
-            self.__setattr__(name, nn.Parameter(torch.FloatTensor(n_head, d_model, d_k)))
-        self.attention = ScaledDotProductAttention(d_k, dropout)
-        self.lm = LayerNorm(d_model)
-        self.w_o = nn.Linear(d_model, d_model, bias=False)
-        self.dropout = nn.Dropout(dropout)
-        self.w_qs.data.normal_(std=const.INIT_RANGE)
-        self.w_ks.data.normal_(std=const.INIT_RANGE)
-        self.w_vs.data.normal_(std=const.INIT_RANGE)
-
-    def forward(self, q, k, v):
-        d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
-        residual = q
-        bsz, len_q, d_model = q.size()
-        len_k, len_v = k.size(1), v.size(1)
-
-        def reshape(x):
-            """[bsz, len, d_*] -> [n_head x (bsz*len) x d_*]"""
-            return x.repeat(n_head, 1, 1).view(n_head, -1, d_model)
-        q_s, k_s, v_s = map(reshape, [q, k, v])
-        q_s = torch.bmm(q_s, self.w_qs).view(-1, len_q, d_k)
-        k_s = torch.bmm(k_s, self.w_ks).view(-1, len_k, d_k)
-        v_s = torch.bmm(v_s, self.w_vs).view(-1, len_v, d_v)
-        outputs = self.attention(q_s, k_s, v_s)
-        outputs = torch.cat(torch.split(outputs, bsz, dim=0), dim=-1).view(-1, n_head * d_v)
-        outputs = self.dropout(self.w_o(outputs)).view(bsz, len_q, -1)
-        return self.lm(outputs + residual)
 
 
 class Distance(nn.Module):
@@ -2176,73 +2222,6 @@ class ActorCritic(nn.Module):
         return action.data[0]
 
 
-def multi_view_att(ori_memory, att_w, dec_hidden, *args):
-    bsz, max_len, rnn_hsz = args
-    dec_hidden = att_w(dec_hidden.squeeze())
-    ori_memory_t = ori_memory.transpose(1, 2)
-    beta_is = torch.exp(torch.tanh(torch.matmul(dec_hidden, ori_memory_t)))
-    beta_i_sum = torch.sum(beta_is, 0, keepdim=True)
-    beta_is = torch.div(beta_is, beta_i_sum)
-    return torch.sum(torch.matmul(beta_is, ori_memory), dim=0)
-
-
-class Model(nn.Module):
-
-    def __init__(self, args, use_cuda):
-        super().__init__()
-        for k, v in args.__dict__.items():
-            self.__setattr__(k, v)
-        self.torch = torch if use_cuda else torch
-        self.emb = nn.Embedding(self.dict_size, self.emb_dim)
-        self.encode = torch.nn.LSTM(input_size=self.emb_dim, hidden_size=self.rnn_hsz, num_layers=1, bidirectional=True)
-        self.decode = torch.nn.LSTM(input_size=self.rnn_hsz, hidden_size=self.rnn_hsz, num_layers=1)
-        self.summ_att_w = nn.Linear(self.rnn_hsz, self.rnn_hsz, bias=False)
-        self.cls_att_w = nn.Linear(self.rnn_hsz, self.rnn_hsz, bias=False)
-        self.summ_gen = nn.Linear(self.rnn_hsz, self.dict_size)
-        self.cls_pred = nn.Linear((self.max_ori_len + self.max_sum_len) * self.rnn_hsz, self.label_size)
-        self.dropout = nn.Dropout(self.dropout)
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.emb_dim)
-        self.emb.weight.data.uniform_(-stdv, stdv)
-        self.summ_att_w.weight.data.uniform_(-stdv, stdv)
-        self.cls_att_w.weight.data.uniform_(-stdv, stdv)
-        self.summ_gen.weight.data.uniform_(-stdv, stdv)
-        self.summ_gen.bias.data.fill_(0)
-        self.cls_pred.weight.data.uniform_(-stdv, stdv)
-        self.cls_pred.bias.data.fill_(0)
-
-    def forward(self, original):
-        bsz = original.size(0)
-        ori_emb = self.emb(original)
-        ori_emb_t = ori_emb.transpose(0, 1)
-        encodes, (h, _) = self.encode(ori_emb_t)
-        ori_memory = encodes[:, :, :self.rnn_hsz] + encodes[:, :, self.rnn_hsz:]
-        ori_hidden = (h[0] + h[1]).unsqueeze(0)
-        c = Variable(next(self.parameters()).data.new(1, bsz, self.rnn_hsz).zero_())
-        ori_memory = self.dropout(ori_memory)
-        ori_hidden = self.dropout(ori_hidden)
-        dec_hidden = ori_hidden, c
-        word = Variable(self.torch.LongTensor([[BOS]] * bsz))
-        v_ts, summ_props = [], []
-        for _ in range(self.max_sum_len):
-            summ_emb = self.emb(word).transpose(0, 1)
-            _, dec_hidden = self.decode(summ_emb, dec_hidden)
-            h_state = self.dropout(dec_hidden[0])
-            v_c = multi_view_att(ori_memory, self.summ_att_w, h_state, bsz, self.max_ori_len, self.rnn_hsz)
-            v_t = multi_view_att(ori_memory, self.cls_att_w, h_state, bsz, self.max_ori_len, self.rnn_hsz)
-            props = F.log_softmax(self.summ_gen(v_c), -1)
-            _, word = torch.max(props, -1, keepdim=True)
-            v_ts.append(v_t.unsqueeze(1))
-            summ_props.append(props.unsqueeze(1))
-        summ_props = torch.cat(summ_props, 1)
-        v_ts = self.dropout(torch.cat(v_ts, 1))
-        r = torch.cat([v_ts, ori_memory.transpose(0, 1)], 1)
-        l_props = self.cls_pred(r.view(bsz, -1))
-        return summ_props, l_props
-
-
 class NlpCrossEntropy(nn.Module):
 
     def __init__(self):
@@ -2280,72 +2259,6 @@ class DgCNN(nn.Module):
         for layer in self.cnn1ds:
             x = layer(x) * mask
         return x
-
-
-class LayerNorm(nn.Module):
-
-    def __init__(self, hidden_size, eps=1e-06):
-        super().__init__()
-        self.eps = eps
-        self.gamma = nn.Parameter(torch.ones(hidden_size))
-        self.beta = nn.Parameter(torch.zeros(hidden_size))
-
-    def forward(self, input):
-        mu = torch.mean(input, dim=-1, keepdim=True)
-        sigma = torch.std(input, dim=-1, keepdim=True).clamp(min=self.eps)
-        output = (input - mu) / sigma
-        return output * self.gamma.expand_as(output) + self.beta.expand_as(output)
-
-
-class ScaledDotProductAttention(nn.Module):
-
-    def __init__(self, d_k, dropout):
-        super().__init__()
-        self.temper = np.power(d_k, 0.5)
-        self.dropout = nn.Dropout(dropout)
-        self.softmax = nn.Softmax(dim=-1)
-
-    def forward(self, q, k, v, attn_mask):
-        attn = torch.bmm(q, k.transpose(1, 2)) / self.temper
-        attn.data.masked_fill_(attn_mask, -float('inf'))
-        attn = self.softmax(attn.view(-1, attn.size(2))).view(*attn.size())
-        attn = self.dropout(attn)
-        return torch.bmm(attn, v)
-
-
-class MultiHeadAtt(nn.Module):
-
-    def __init__(self, n_head, d_model, dropout=0.5):
-        super().__init__()
-        self.n_head = n_head
-        self.d_v = self.d_k = d_k = d_model // n_head
-        for name in ['w_qs', 'w_ks', 'w_vs']:
-            self.__setattr__(name, nn.Parameter(torch.FloatTensor(n_head, d_model, d_k)))
-        self.attention = ScaledDotProductAttention(d_k, dropout)
-        self.lm = LayerNorm(d_model)
-        self.w_o = nn.Linear(d_model, d_model, bias=False)
-        self.dropout = nn.Dropout(dropout)
-        self.w_qs.data.normal_(std=const.INIT_RANGE)
-        self.w_ks.data.normal_(std=const.INIT_RANGE)
-        self.w_vs.data.normal_(std=const.INIT_RANGE)
-
-    def forward(self, q, k, v, attn_mask):
-        d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
-        residual = q
-        bsz, len_q, d_model = q.size()
-        len_k, len_v = k.size(1), v.size(1)
-
-        def reshape(x):
-            """[bsz, len, d_*] -> [n_head x (bsz*len) x d_*]"""
-            return x.repeat(n_head, 1, 1).view(n_head, -1, d_model)
-        q_s, k_s, v_s = map(reshape, [q, k, v])
-        q_s = torch.bmm(q_s, self.w_qs).view(-1, len_q, d_k)
-        k_s = torch.bmm(k_s, self.w_ks).view(-1, len_k, d_k)
-        v_s = torch.bmm(v_s, self.w_vs).view(-1, len_v, d_v)
-        outputs = self.attention(q_s, k_s, v_s, attn_mask.repeat(n_head, 1, 1))
-        outputs = torch.cat(torch.split(outputs, bsz, dim=0), dim=-1).view(-1, n_head * d_v)
-        outputs = self.dropout(self.w_o(outputs)).view(bsz, len_q, -1)
-        return self.lm(outputs + residual)
 
 
 class SubjectLinear(nn.Module):
@@ -2414,103 +2327,6 @@ class ObjectRnn(nn.Module):
         s_pos = pos_ebd(torch.abs(pos_idx - sidx.long()))
         e_pos = pos_ebd(torch.abs(pos_idx - eidx.long()))
         return torch.cat((s_pos, e_pos), dim=-1)
-
-
-def get_padding_mask(x):
-    return x.eq(0)
-
-
-class Model(nn.Module):
-
-    def __init__(self, args):
-        super().__init__()
-        self.args = args
-        self.char_ebd = nn.Embedding(args.char_size, args.inp_dim)
-        self.word_ebd = nn.Embedding(args.word_size, args.inp_dim)
-        self.pos_ebd = nn.Embedding(args.max_len + 1, args.d_model)
-        self.char_lr = nn.Linear(args.inp_dim, args.d_model)
-        self.word_lr = nn.Linear(args.inp_dim, args.d_model)
-        self.encode_dropout = nn.Dropout(0.25)
-        self.dgcnn = DgCNN(args.d_model, args.dilation_rates)
-        self.sl1 = SubjectLinear(args.d_model)
-        self.sl2 = SubjectLinear(args.d_model)
-        self.sbj_att = MultiHeadAtt(args.n_head, args.d_model)
-        self.subModel = SubModel(args.d_model)
-        self.objectRnn = ObjectRnn(args.d_model)
-        self.obj_att = MultiHeadAtt(args.n_head, args.d_model)
-        self.objModel = ObjModel(args.d_model, args.num_classes)
-        self._reset_parameters()
-        if 'charW' in args.__dict__ and 'wordW' in args.__dict__:
-            self.use_vecs()
-        else:
-            self.char_ebd.weight.data.uniform_(-0.1, 0.1)
-            self.word_ebd.weight.data.uniform_(-0.1, 0.1)
-
-    def use_vecs(self):
-        args = self.args
-        self.char_ebd.weight.data.copy_(torch.from_numpy(args.charW))
-        self.word_ebd.weight.data.copy_(torch.from_numpy(args.wordW))
-
-    def _reset_parameters(self):
-        self.pos_ebd.weight.data.uniform_(-0.1, 0.1)
-        for layer in self.modules():
-            if type(layer) == nn.Linear:
-                layer.weight.data.normal_(std=const.INIT_RANGE)
-
-    def encode(self, chars, words, posits):
-        mask = get_padding_mask(chars)
-        attn_mask = get_attn_padding_mask(chars, chars)
-        ebd_encode = self.char_lr(self.char_ebd(chars)) + self.word_lr(self.word_ebd(words)) + self.pos_ebd(posits)
-        ebd_encode = self.encode_dropout(ebd_encode)
-        encode = self.dgcnn(ebd_encode, mask)
-        shareFeat1 = self.sl1(encode)
-        shareFeat2 = self.sl2(encode)
-        return encode, shareFeat1, shareFeat2, attn_mask, mask
-
-    def sub_predict(self, encode, attn_mask, shareFeat1, shareFeat2):
-        attn = self.sbj_att(encode, encode, encode, attn_mask)
-        output = torch.cat((attn, encode), dim=-1)
-        sub_sidx, sub_eidx = self.subModel(output)
-        return sub_sidx * shareFeat1, sub_eidx * shareFeat2
-
-    def obj_predict(self, encode, shareFeat1, shareFeat2, sub_slidx, sub_elidx, attn_mask):
-        rnn_encode = self.objectRnn(encode, sub_slidx, sub_elidx, self.pos_ebd)
-        attn = self.obj_att(encode, encode, encode, attn_mask)
-        encode = torch.cat((attn, encode, rnn_encode), dim=-1)
-        obj_sidx, obj_eidx = self.objModel(encode, shareFeat1, shareFeat2)
-        return obj_sidx, obj_eidx
-
-    def forward(self, chars, words, posits, sub_slidx, sub_elidx):
-        encode, shareFeat1, shareFeat2, attn_mask, mask = self.encode(chars, words, posits)
-        sub_sidx, sub_eidx = self.sub_predict(encode, attn_mask, shareFeat1, shareFeat2)
-        obj_sidx, obj_eidx = self.obj_predict(encode, shareFeat1, shareFeat2, sub_slidx, sub_elidx, attn_mask)
-        return sub_sidx, sub_eidx, obj_sidx, obj_eidx, mask
-
-    def save_model(self, path):
-        torch.save(self.state_dict(), path)
-
-    def load_model(self, path, cuda):
-        if cuda:
-            self.load_state_dict(torch.load(path))
-            self
-        else:
-            self.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
-            self.cpu()
-
-
-class LayerNorm(nn.Module):
-
-    def __init__(self, hidden_size, eps=1e-06):
-        super().__init__()
-        self.eps = eps
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.bias = nn.Parameter(torch.zeros(hidden_size))
-
-    def forward(self, input):
-        mu = torch.mean(input, dim=-1, keepdim=True)
-        sigma = torch.std(input, dim=-1, keepdim=True).clamp(min=self.eps)
-        output = (input - mu) / sigma
-        return output * self.weight.expand_as(output) + self.bias.expand_as(output)
 
 
 class LSTM_Text(nn.Module):
@@ -2683,25 +2499,6 @@ class CNN_Ranking(nn.Module):
         init.xavier_uniform(self.logistic.weight)
 
 
-class ScaledDotProductAttention(nn.Module):
-
-    def __init__(self, d_k, dropout=0.1):
-        super().__init__()
-        self.temperature = np.power(d_k, 0.5)
-        self.dropout = nn.Dropout(dropout)
-        self.softmax = nn.Softmax(dim=2)
-
-    def forward(self, q, k, v, mask=None):
-        attn = torch.bmm(q, k.transpose(1, 2))
-        attn = attn / self.temperature
-        if mask is not None:
-            attn = attn.masked_fill(mask, -np.inf)
-        attn = self.softmax(attn)
-        attn = self.dropout(attn)
-        output = torch.bmm(attn, v)
-        return output, attn
-
-
 class MultiHeadAttention(nn.Module):
 
     def __init__(self, n_head, d_model, d_k, d_v, dropout=0.1):
@@ -2739,173 +2536,19 @@ class MultiHeadAttention(nn.Module):
         return output, attn
 
 
-class PositionWise(nn.Module):
-
-    def __init__(self, d_model, d_ff, dropout):
-        super().__init__()
-        self.seq = nn.Sequential(nn.Conv1d(d_model, d_ff, 1), nn.ReLU(), nn.Conv1d(d_ff, d_model, 1), nn.Dropout(dropout))
-        self.lm = nn.LayerNorm(d_model)
-
-    def forward(self, input):
-        residual = input
-        input = self.lm(input)
-        out = self.seq(input.transpose(1, 2)).transpose(1, 2)
-        return residual + out
-
-
-class EncoderLayer(nn.Module):
-
-    def __init__(self, d_model, d_ff, d_k, d_v, n_head, dropout=0.1):
-        super().__init__()
-        self.mh = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout)
-        self.pw = PositionWise(d_model, d_ff, dropout)
-
-    def forward(self, enc_input, non_pad_mask=None, slf_attn_mask=None):
-        enc_output, enc_slf_attn = self.mh(enc_input, enc_input, enc_input, slf_attn_mask)
-        enc_output *= non_pad_mask
-        enc_output = self.pw(enc_output)
-        enc_output *= non_pad_mask
-        return enc_output, enc_slf_attn
-
-
 class DecoderLayer(nn.Module):
 
-    def __init__(self, d_model, d_ff, d_k, d_v, n_head, dropout=0.1):
+    def __init__(self, d_model, d_ff, n_head, dropout=0.1):
         super().__init__()
-        self.slf_mh = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout)
-        self.dec_mh = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout)
+        self.slf_mh = MultiHeadAtt(n_head, d_model, dropout)
+        self.dec_mh = MultiHeadAtt(n_head, d_model, dropout)
         self.pw = PositionWise(d_model, d_ff, dropout)
 
-    def forward(self, dec_input, enc_output, non_pad_mask=None, slf_attn_mask=None, dec_enc_attn_mask=None):
-        dec_output, dec_slf_attn = self.slf_mh(dec_input, dec_input, dec_input, slf_attn_mask)
-        dec_output *= non_pad_mask
-        m_dec_output = dec_output
-        dec_output, dec_enc_attn = self.dec_mh(dec_output, enc_output, enc_output, dec_enc_attn_mask)
-        dec_output *= non_pad_mask
+    def forward(self, dec_input, enc_output, slf_attn_mask, dec_enc_attn_mask):
+        dec_output = self.slf_mh(dec_input, dec_input, dec_input, slf_attn_mask)
+        dec_output = self.dec_mh(dec_output, enc_output, enc_output, dec_enc_attn_mask)
         dec_output = self.pw(dec_output)
-        dec_output *= non_pad_mask
-        return dec_output, m_dec_output
-
-
-class CrossEntropy(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, props, tgt):
-        tgt_props = props.gather(2, tgt.unsqueeze(2)).squeeze()
-        mask = (tgt > 0).float()
-        return -(tgt_props * mask).sum() / (mask.sum() + 1e-09)
-
-
-class Encoder(nn.Module):
-
-    def __init__(self, n_enc, d_model, d_ff, d_k, d_v, n_head, dropout):
-        super().__init__()
-        self.encodes = nn.ModuleList([EncoderLayer(d_model, d_ff, d_k, d_v, n_head, dropout) for _ in range(n_enc)])
-
-    def forward(self, encode, slf_attn_mask, non_pad_mask):
-        enc_output = encode
-        for layer in self.encodes:
-            enc_output, _ = layer(enc_output, non_pad_mask, slf_attn_mask)
-        return enc_output
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, n_dec, d_model, d_ff, d_k, d_v, n_head, dropout):
-        super().__init__()
-        self.decodes = nn.ModuleList([DecoderLayer(d_model, d_ff, d_k, d_v, n_head, dropout) for _ in range(n_dec)])
-
-    def forward(self, dec_output, enc_output, non_pad_mask, slf_attn_mask, dec_enc_attn_mask):
-        for layer in self.decodes:
-            dec_output, m_dec_output = layer(dec_output, enc_output, non_pad_mask, slf_attn_mask, dec_enc_attn_mask)
-        return dec_output, m_dec_output
-
-
-class Transformer(nn.Module):
-
-    def __init__(self, args):
-        super().__init__()
-        self.args = args
-        self.n_position = args.max_context_len
-        self.turn_embedding = nn.Embedding(args.turn_size, args.d_model, padding_idx=const.PAD)
-        self.word_embedding = nn.Embedding(args.vocab_size, args.d_model, padding_idx=const.PAD)
-        self.pos_embedding = nn.Embedding.from_pretrained(common.get_sinusoid_encoding_table(self.n_position, args.d_model, padding_idx=const.PAD))
-        self.enc = Encoder(args.n_stack_layers, args.d_model, args.d_ff, args.d_k, args.d_v, args.n_head, args.dropout)
-        self.dec = Decoder(args.n_stack_layers, args.d_model, args.d_ff, args.d_k, args.d_v, args.n_head, args.dropout)
-        self.encode_w = nn.Linear(args.d_model, args.d_model, bias=False)
-        self.decode_w = nn.Linear(args.d_model, args.d_model, bias=False)
-        self.vt = nn.Linear(args.d_model, 1, bias=False)
-        self.droupout = nn.Dropout(args.dropout)
-        self._reset_parameters()
-
-    def _reset_parameters(self, scope=0.1):
-        self.word_embedding.weight.data.uniform_(-scope, scope)
-        self.turn_embedding.weight.data.uniform_(-scope, scope)
-        for layer in self.modules():
-            if type(layer) == nn.Linear:
-                layer.weight.data.normal_(std=const.INIT_RANGE)
-
-    def get_trainable_parameters(self):
-        return filter(lambda m: m.requires_grad, self.parameters())
-
-    def forward(self, src_tensor, src_postion, turns_tensor, tgt_tensor):
-        encode = self.word_embedding(src_tensor) + self.pos_embedding(src_postion) + self.turn_embedding(turns_tensor)
-        encode = self.droupout(encode)
-        slf_attn_mask = common.get_attn_key_pad_mask(src_tensor, src_tensor)
-        non_pad_mask = common.get_non_pad_mask(src_tensor)
-        enc_output = self.enc(encode, slf_attn_mask, non_pad_mask)
-        dec_output = self.word_embedding(tgt_tensor)
-        dec_output = self.droupout(dec_output)
-        non_pad_mask = common.get_non_pad_mask(tgt_tensor)
-        slf_attn_mask_subseq = common.get_subsequent_mask(tgt_tensor)
-        slf_attn_mask_keypad = common.get_attn_key_pad_mask(tgt_tensor, tgt_tensor, True)
-        slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
-        dec_enc_attn_mask = common.get_attn_key_pad_mask(src_tensor, tgt_tensor)
-        dec_output, m_dec_output = self.dec(dec_output, enc_output, non_pad_mask, slf_attn_mask, dec_enc_attn_mask)
-        distributes = self.attention(m_dec_output, enc_output)
-        return distributes
-
-    def attention(self, dec_output, last_enc_output):
-        distributes = []
-        last_enc_output = self.encode_w(last_enc_output)
-        for step in range(dec_output.shape[1]):
-            dec_slice = self.decode_w(dec_output[:, (step)]).unsqueeze(1)
-            attn_encode = torch.tanh(dec_slice + last_enc_output)
-            attn_encode = self.vt(attn_encode).squeeze(2)
-            distributes.append(F.log_softmax(attn_encode, dim=-1) + 1e-09)
-        return torch.stack(distributes, dim=1)
-
-    def encode(self, src_tensor, src_postion, turns_tensor):
-        encode = self.word_embedding(src_tensor) + self.pos_embedding(src_postion) + self.turn_embedding(turns_tensor)
-        slf_attn_mask = common.get_attn_key_pad_mask(src_tensor, src_tensor)
-        non_pad_mask = common.get_non_pad_mask(src_tensor)
-        enc_output = self.enc(encode, slf_attn_mask, non_pad_mask)
-        return enc_output
-
-    def decode(self, tgt_tensor, src_tensor, enc_output):
-        dec_output = self.word_embedding(tgt_tensor)
-        dec_output = self.droupout(dec_output)
-        non_pad_mask = common.get_non_pad_mask(tgt_tensor)
-        slf_attn_mask_subseq = common.get_subsequent_mask(tgt_tensor)
-        slf_attn_mask_keypad = common.get_attn_key_pad_mask(tgt_tensor, tgt_tensor, True)
-        slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
-        dec_enc_attn_mask = common.get_attn_key_pad_mask(src_tensor, tgt_tensor)
-        dec_output, m_dec_output = self.dec(dec_output, enc_output, non_pad_mask, slf_attn_mask, dec_enc_attn_mask)
-        distributes = self.attention(m_dec_output, enc_output)
-        return distributes
-
-    def save_model(self, path):
-        torch.save(self.state_dict(), path)
-
-    def load_model(self, path, cuda):
-        if cuda:
-            self.load_state_dict(torch.load(path))
-            self
-        else:
-            self.load_state_dict(torch.load(path, map_location=lambda storage, loc: storage))
-            self.cpu()
+        return dec_output
 
 
 class CrossEntropy(nn.Module):
@@ -2931,65 +2574,6 @@ class SelfCriticCriterion(nn.Module):
         advantage = advantage.unsqueeze(1).repeat(1, mask.size(1))
         advantage = advantage.detach()
         return -(s_props * mask * advantage).sum() / mask.sum()
-
-
-class Model(nn.Module):
-
-    def __init__(self, args):
-        super().__init__()
-        for k, v in args.__dict__.items():
-            self.__setattr__(k, v)
-        self.torch = torch if args.use_cuda else torch
-        self.bsz = args.batch_size
-        self.rnn_hsz = args.rnn_hsz
-        self.max_len = args.max_len
-        self.src_emb = nn.Embedding(args.src_vs, args.emb_dim, padding_idx=PAD)
-        self.tgt_emb = nn.Embedding(args.tgt_vs, args.emb_dim, padding_idx=PAD)
-        self.enc = nn.LSTM(args.emb_dim, args.rnn_hsz, 1, batch_first=True, dropout=args.dropout)
-        self.dec_hidden = nn.Linear(args.rnn_hsz, args.rnn_hsz)
-        self.dec = nn.LSTM(args.rnn_hsz, args.rnn_hsz, 1, batch_first=True, dropout=args.dropout)
-        self.out = nn.Linear(self.rnn_hsz, args.tgt_vs)
-
-    def encode(self, src_inp):
-        emb = self.src_emb(src_inp)
-        _, (hidden, _) = self.enc(emb)
-        dec_hidden = self.dec_hidden(hidden)
-        weight = next(self.parameters()).data
-        c = Variable(weight.new(1, self.bsz, self.rnn_hsz).zero_())
-        return dec_hidden.contiguous(), c.contiguous()
-
-    def forward(self, src_inp, tgt_inp):
-        hiiden = self.encode(src_inp)
-        word = Variable(self.torch.LongTensor([[BOS]] * self.bsz))
-        emb = self.tgt_emb(word)
-        outputs = []
-        for i in range(self.max_len):
-            _, hiiden = self.dec(emb, hiiden)
-            props = F.log_softmax(self.out(hiiden[0][-1]), dim=-1)
-            emb = self.tgt_emb(tgt_inp[:, (i)]).unsqueeze(1)
-            outputs.append(props.unsqueeze(1))
-        return torch.cat(outputs, 1)
-
-    def sample(self, src_inp, max_props=True):
-        hiiden = self.encode(src_inp)
-        word = Variable(self.torch.LongTensor([[BOS]] * self.bsz))
-        emb = self.tgt_emb(word)
-        outputs, words = [], []
-        for i in range(self.max_len):
-            _, hiiden = self.dec(emb, hiiden)
-            props = F.log_softmax(self.out(hiiden[0][-1]), dim=-1)
-            if max_props:
-                _, word = props.max(-1, keepdim=True)
-            else:
-                _props = props.data.clone().exp()
-                word = Variable(_props.multinomial(1))
-                outputs.append(props.unsqueeze(1))
-            emb = self.tgt_emb(word)
-            words.append(word)
-        if max_props:
-            return torch.cat(words, 1)
-        else:
-            return torch.cat(words, 1), torch.cat(outputs, 1)
 
 
 class RelationNet(nn.Module):
@@ -3073,346 +2657,6 @@ class RelationNet(nn.Module):
         return out
 
 
-class Model(nn.Module):
-
-    def __init__(self, args):
-        super().__init__()
-        for k, v in args.__dict__.items():
-            self.__setattr__(k, v)
-        self.emb = nn.Embedding(self.dict_size, self.emb_dim)
-        self.first_gru = nn.GRU(input_size=self.emb_dim, hidden_size=self.first_rnn_hsz, num_layers=1, batch_first=True)
-        self.transform_A = nn.Linear(self.first_rnn_hsz, self.first_rnn_hsz, bias=False)
-        self.cnn = nn.Conv2d(in_channels=2, out_channels=self.fillters, kernel_size=self.kernel_size)
-        self.match_vec = nn.Linear(16 * 16 * 8, self.match_vec_dim)
-        self.second_gru = nn.GRU(input_size=self.match_vec_dim, hidden_size=self.second_rnn_hsz, num_layers=1)
-        self.pred = nn.Linear(self.match_vec_dim, 2)
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.emb_dim)
-        self.emb.weight.data.uniform_(-stdv, stdv)
-        self.transform_A.weight.data.uniform_(-stdv, stdv)
-        self.match_vec.weight.data.uniform_(-stdv, stdv)
-        self.match_vec.bias.data.fill_(0)
-        self.pred.weight.data.uniform_(-stdv, stdv)
-        self.pred.bias.data.fill_(0)
-
-    def forward(self, utterances, responses):
-        bsz = utterances.size(0)
-        resps_emb = self.emb(responses)
-        resps_gru, _ = self.first_gru(resps_emb)
-        resps_gru = F.dropout(resps_gru, p=self.dropout)
-        resps_emb_t = resps_emb.transpose(1, 2)
-        resps_gru_t = resps_gru.transpose(1, 2)
-        uttes_t = utterances.transpose(0, 1)
-        match_vecs = []
-        for utte in uttes_t:
-            utte_emb = self.emb(utte)
-            mat_1 = torch.matmul(utte_emb, resps_emb_t)
-            utte_gru, _ = self.first_gru(utte_emb)
-            utte_gru = F.dropout(utte_gru, p=self.dropout)
-            mat_2 = torch.matmul(self.transform_A(utte_gru), resps_gru_t)
-            M = torch.stack([mat_1, mat_2], 1)
-            cnn_layer = F.relu(self.cnn(M))
-            pool_layer = F.max_pool2d(cnn_layer, self.kernel_size, stride=self.kernel_size)
-            pool_layer = pool_layer.view(bsz, -1)
-            match_vec = F.relu(self.match_vec(pool_layer))
-            match_vecs.append(match_vec)
-        match_vecs = torch.stack(match_vecs, 0)
-        match_vecs = F.dropout(match_vecs, p=self.dropout)
-        _, hidden = self.second_gru(match_vecs)
-        hidden = F.dropout(hidden[-1], p=self.dropout)
-        props = F.log_softmax(self.pred(hidden), dim=-1)
-        return props
-
-
-class LayerNorm(nn.Module):
-
-    def __init__(self, hidden_size, eps=1e-06):
-        super().__init__()
-        self.eps = eps
-        self.weight = nn.Parameter(torch.ones(hidden_size))
-        self.bias = nn.Parameter(torch.zeros(hidden_size))
-
-    def forward(self, input):
-        mu = torch.mean(input, dim=-1, keepdim=True)
-        sigma = torch.std(input, dim=-1, keepdim=True).clamp(min=self.eps)
-        output = (input - mu) / sigma
-        return output * self.weight.expand_as(output) + self.bias.expand_as(output)
-
-
-class ScaledDotProductAttention(nn.Module):
-
-    def __init__(self, d_k, dropout):
-        super().__init__()
-        self.temper = np.power(d_k, 0.5)
-        self.dropout = nn.Dropout(dropout)
-        self.softmax = nn.Softmax()
-
-    def forward(self, q, k, v, attn_mask):
-        attn = torch.bmm(q, k.transpose(1, 2)) / self.temper
-        attn.data.masked_fill_(attn_mask, -float('inf'))
-        attn = self.softmax(attn.view(-1, attn.size(2))).view(*attn.size())
-        attn = self.dropout(attn)
-        return torch.bmm(attn, v)
-
-
-class MultiHeadAtt(nn.Module):
-
-    def __init__(self, n_head, d_model, dropout):
-        super().__init__()
-        self.n_head = n_head
-        self.d_v = self.d_k = d_k = d_model // n_head
-        for name in ['w_qs', 'w_ks', 'w_vs']:
-            self.__setattr__(name, nn.Parameter(torch.FloatTensor(n_head, d_model, d_k)))
-        self.attention = ScaledDotProductAttention(d_k, dropout)
-        self.lm = LayerNorm(d_model)
-        self.w_o = nn.Linear(d_model, d_model, bias=False)
-        self.dropout = dropout
-        self._init_weight()
-
-    def forward(self, q, k, v, attn_mask):
-        d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
-        residual = q
-        bsz, len_q, d_model = q.size()
-        len_k, len_v = k.size(1), v.size(1)
-
-        def reshape(x):
-            """[bsz, len, d_*] -> [n_head x (bsz*len) x d_*]"""
-            return x.repeat(n_head, 1, 1).view(n_head, -1, d_model)
-        q_s, k_s, v_s = map(reshape, [q, k, v])
-        q_s = torch.bmm(q_s, self.w_qs).view(-1, len_q, d_k)
-        k_s = torch.bmm(k_s, self.w_ks).view(-1, len_k, d_k)
-        v_s = torch.bmm(v_s, self.w_vs).view(-1, len_v, d_v)
-        outputs = self.attention(q_s, k_s, v_s, attn_mask.repeat(n_head, 1, 1))
-        outputs = torch.cat(torch.split(outputs, bsz, dim=0), dim=-1).view(-1, n_head * d_v)
-        outputs = F.dropout(self.w_o(outputs), p=self.dropout).view(bsz, len_q, -1)
-        return self.lm(outputs + residual)
-
-    def _init_weight(self):
-        init.xavier_normal(self.w_qs)
-        init.xavier_normal(self.w_ks)
-        init.xavier_normal(self.w_vs)
-        init.xavier_normal(self.w_o.weight)
-
-
-class PositionWise(nn.Module):
-
-    def __init__(self, d_model, d_ff, dropout):
-        super().__init__()
-        self.seq = nn.Sequential(nn.Conv1d(d_model, d_ff, 1), nn.ReLU(), nn.Conv1d(d_ff, d_model, 1), nn.Dropout(dropout))
-        self.lm = LayerNorm(d_model)
-
-    def forward(self, input):
-        residual = input
-        out = self.seq(input.transpose(1, 2)).transpose(1, 2)
-        return self.lm(residual + out)
-
-
-class EncoderLayer(nn.Module):
-
-    def __init__(self, d_model, d_ff, n_head, dropout):
-        super().__init__()
-        self.mh = MultiHeadAtt(n_head, d_model, dropout)
-        self.pw = PositionWise(d_model, d_ff, dropout)
-
-    def forward(self, enc_input, slf_attn_mask):
-        enc_output = self.mh(enc_input, enc_input, enc_input, slf_attn_mask)
-        enc_output = self.pw(enc_output)
-        return enc_output
-
-
-class DecoderLayer(nn.Module):
-
-    def __init__(self, d_model, d_ff, n_head, dropout=0.1):
-        super().__init__()
-        self.slf_mh = MultiHeadAtt(n_head, d_model, dropout)
-        self.dec_mh = MultiHeadAtt(n_head, d_model, dropout)
-        self.pw = PositionWise(d_model, d_ff, dropout)
-
-    def forward(self, dec_input, enc_output, slf_attn_mask, dec_enc_attn_mask):
-        dec_output = self.slf_mh(dec_input, dec_input, dec_input, slf_attn_mask)
-        dec_output = self.dec_mh(dec_output, enc_output, enc_output, dec_enc_attn_mask)
-        dec_output = self.pw(dec_output)
-        return dec_output
-
-
-class Encoder(nn.Module):
-
-    def __init__(self, enc_vocab_size, max_word_len, n_enc, d_model, d_ff, n_head, dropout):
-        super().__init__()
-        self.n_position = max_word_len + 1
-        self.enc_vocab_size = enc_vocab_size
-        self.d_model = d_model
-        self.enc_ebd = nn.Embedding(enc_vocab_size, d_model, padding_idx=PAD)
-        self.pos_ebd = nn.Embedding(self.n_position, d_model, padding_idx=PAD)
-        self.encodes = nn.ModuleList([EncoderLayer(d_model, d_ff, n_head, dropout) for _ in range(n_enc)])
-        self._init_weight()
-
-    def _init_weight(self, scope=0.1):
-        self.enc_ebd.weight.data.uniform_(-scope, scope)
-        self.pos_ebd.weight.data = position(self.n_position, self.d_model)
-        self.pos_ebd.weight.requires_grad = False
-
-    def forward(self, input, pos):
-        encode = self.enc_ebd(input) + self.pos_ebd(pos)
-        enc_outputs, enc_output = [], encode
-        slf_attn_mask = get_attn_padding_mask(input, input)
-        for layer in self.encodes:
-            enc_output = layer(enc_output, slf_attn_mask)
-            enc_outputs.append(enc_output)
-        return enc_outputs
-
-
-def get_attn_subsequent_mask(seq):
-    assert seq.dim() == 2
-    attn_shape = seq.size(0), seq.size(1), seq.size(1)
-    subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
-    subsequent_mask = torch.from_numpy(subsequent_mask)
-    if seq.is_cuda:
-        subsequent_mask = subsequent_mask.cuda()
-    return subsequent_mask
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, dec_vocab_size, max_word_len, n_dec, d_model, d_ff, n_head, dropout):
-        super().__init__()
-        self.d_model = d_model
-        self.n_position = max_word_len + 1
-        self.pos_ebd = nn.Embedding(self.n_position, d_model, padding_idx=PAD)
-        self.dec_ebd = nn.Embedding(dec_vocab_size, d_model, padding_idx=PAD)
-        self.decodes = nn.ModuleList([DecoderLayer(d_model, d_ff, n_head, dropout) for _ in range(n_dec)])
-        self._init_weight()
-
-    def _init_weight(self, scope=0.1):
-        self.dec_ebd.weight.data.uniform_(-scope, scope)
-        self.pos_ebd.weight.data = position(self.n_position, self.d_model)
-        self.pos_ebd.weight.requires_grad = False
-
-    def forward(self, enc_outputs, enc_input, dec_input, dec_pos):
-        dec_output = self.dec_ebd(dec_input) + self.pos_ebd(dec_pos)
-        dec_slf_attn_mask = torch.gt(get_attn_padding_mask(dec_input, dec_input) + get_attn_subsequent_mask(dec_input), 0)
-        dec_enc_attn_pad_mask = get_attn_padding_mask(dec_input, enc_input)
-        for layer, enc_output in zip(self.decodes, enc_outputs):
-            dec_output = layer(dec_output, enc_output, dec_slf_attn_mask, dec_enc_attn_pad_mask)
-        return dec_output
-
-
-class Transformer(nn.Module):
-
-    def __init__(self, args):
-        super().__init__()
-        for k, v in args.__dict__.items():
-            self.__setattr__(k, v)
-        self.enc = Encoder(self.enc_vocab_size, self.max_word_len, self.n_stack_layers, self.d_model, self.d_ff, self.n_head, self.dropout)
-        self.dec = Decoder(self.dec_vocab_size, self.max_word_len, self.n_stack_layers, self.d_model, self.d_ff, self.n_head, self.dropout)
-        self.linear = nn.Linear(self.d_model, self.dec_vocab_size, bias=False)
-        self._init_weight()
-
-    def _init_weight(self):
-        if self.share_linear:
-            self.linear.weight = self.dec.dec_ebd.weight
-        else:
-            init.xavier_normal(self.linear.weight)
-
-    def get_trainable_parameters(self):
-        return filter(lambda m: m.requires_grad, self.parameters())
-
-    def forward(self, src, src_pos, tgt, tgt_pos):
-        tgt, tgt_pos = tgt[:, :-1], tgt_pos[:, :-1]
-        enc_outputs = self.enc(src, src_pos)
-        dec_output = self.dec(enc_outputs, src, tgt, tgt_pos)
-        out = self.linear(dec_output)
-        return F.log_softmax(out.view(-1, self.dec_vocab_size))
-
-
-class highway_layer(nn.Module):
-
-    def __init__(self, hsz, active):
-        super().__init__()
-        self.hsz = hsz
-        self.active = active
-        self.gate = nn.Linear(hsz, hsz)
-        self.h = nn.Linear(hsz, hsz)
-
-    def _init_weight(self):
-        stdv = 1.0 / math.sqrt(self.hsz)
-        self.gate.weight.data.uniform_(-stdv, stdv)
-        self.gate.bias.data.fill_(-1)
-        if active.__name__ == 'relu':
-            init.xavier_normal(self.h.weight)
-        else:
-            self.h.weight.data.uniform_(-stdv, stdv)
-
-    def forward(self, x):
-        gate = F.sigmoid(self.gate(x))
-        return torch.mul(self.active(self.h(x)), gate) + torch.mul(x, 1 - gate)
-
-
-class Highway(nn.Module):
-
-    def __init__(self, num_layers, hsz, active):
-        super().__init__()
-        self.layers = nn.ModuleList([highway_layer(hsz, active) for _ in range(num_layers)])
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return x
-
-
-class Encoder(nn.Module):
-
-    def __init__(self, embed_dim, hidden_size, num_layers, dropout):
-        super().__init__()
-        self.num_layers = num_layers
-        self.hidden_size = hidden_size
-        self.dropout = dropout
-        self.rnn = nn.LSTM(embed_dim, hidden_size, num_layers, dropout, bidirectional=True)
-
-    def forward(self, input, hidden):
-        _, hidden = self.rnn(input.transpose(0, 1), hidden)
-        out = F.dropout(torch.cat((hidden[0][-2], hidden[0][-1]), -1), p=self.dropout)
-        return out, hidden
-
-    def init_hidden(self, bsz):
-        size = self.num_layers * 2, bsz, self.hidden_size
-        weight = next(self.parameters()).data
-        return Variable(weight.new(*size).zero_()), Variable(weight.new(*size).zero_())
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, embed_dim, latent_dim, hidden_size, num_layers, dropout, vocab_size):
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.dropout = dropout
-        self.num_layers = num_layers
-        self.latent_dim = latent_dim
-        self.rnn = nn.LSTM(embed_dim + latent_dim, hidden_size, num_layers, dropout=dropout, batch_first=True)
-        self.lr = nn.Linear(hidden_size, vocab_size)
-        self._init_weight()
-
-    def forward(self, input, z, hidden):
-        bsz, _len, _ = input.size()
-        z = z.unsqueeze(1).expand(bsz, _len, self.latent_dim)
-        input = torch.cat((input, z), -1)
-        rnn_out, hidden = self.rnn(input, hidden)
-        rnn_out = F.dropout(rnn_out, p=self.dropout)
-        out = self.lr(rnn_out.contiguous().view(-1, self.hidden_size))
-        return F.log_softmax(out, dim=-1), hidden
-
-    def init_hidden(self, bsz):
-        size = self.num_layers, bsz, self.hidden_size
-        weight = next(self.parameters()).data
-        return Variable(weight.new(*size).zero_()), Variable(weight.new(*size).zero_())
-
-    def _init_weight(self, scope=0.1):
-        self.lr.weight.data.uniform_(-scope, scope)
-        self.lr.bias.data.fill_(0)
-
-
 class VAE(nn.Module):
 
     def __init__(self, args):
@@ -3480,79 +2724,6 @@ class VAE(nn.Module):
         return portry[:-1] + '。'
 
 
-def load_classes(inp='data/coco.names'):
-    return [c.strip() for c in open(inp)]
-
-
-OUT_DIM = 3 * (len(load_classes()) + 5)
-
-
-DETECT_DICT = {'first': [1024, (512, 1, 1, 0), (1024, 3, 1, 1), (512, 1, 1, 0), (1024, 3, 1, 1), (512, 1, 1, 0), (1024, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)], 'second': [768, (256, 1, 1, 0), (512, 3, 1, 1), (256, 1, 1, 0), (512, 3, 1, 1), (256, 1, 1, 0), (512, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)], 'third': [384, (128, 1, 1, 0), (256, 3, 1, 1), (128, 1, 1, 0), (256, 3, 1, 1), (128, 1, 1, 0), (256, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)]}
-
-
-LOSS_NAMES = ['x', 'y', 'w', 'h', 'conf', 'cls', 'recall', 'precision']
-
-
-class DarkNet(nn.Module):
-
-    def __init__(self, use_cuda, nClasses):
-        super().__init__()
-        self.conv_1 = BasicConv(256, 512, 3, 2, 1)
-        self.seq_1 = nn.Sequential(BasicConv(3, 32, 3, 1, 1), BasicConv(32, 64, 3, 2, 1), LayerOne(), BasicConv(64, 128, 3, 2, 1), LayerTwo(), BasicConv(128, 256, 3, 2, 1), LayerThree())
-        self.seq_2 = nn.Sequential(BasicConv(512, 1024, 3, 2, 1), LayerFive())
-        self.layer_4 = LayerFour()
-        self.uns_1 = nn.Sequential(BasicConv(512, 256, 1, 1, 0), nn.Upsample(scale_factor=2, mode='bilinear'))
-        self.uns_2 = nn.Sequential(BasicConv(256, 128, 1, 1, 0), nn.Upsample(scale_factor=2, mode='bilinear'))
-        self.pred_1 = FirstPred(DETECT_DICT['first'], use_cuda, nClasses)
-        self.pred_2 = SecondPred(DETECT_DICT['second'], use_cuda, nClasses)
-        self.pred_3 = ThirdPred(DETECT_DICT['third'], use_cuda, nClasses)
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        for layer in self.modules():
-            if type(layer) == nn.Conv2d:
-                layer.weight.data.normal_(0.0, 0.02)
-            if type(layer) == nn.BatchNorm2d:
-                layer.weight.data.normal_(1.0, 0.02)
-                layer.bias.data.fill_(0)
-
-    def forward(self, x, targets=None):
-        gather_losses = defaultdict(float)
-        x = self.seq_1(x)
-        r_0 = x
-        x = self.layer_4(self.conv_1(x))
-        r_1 = x
-        x = self.seq_2(x)
-        if targets is not None:
-            (sum_loss, *losses), x = self.pred_1(x, targets)
-            for name, loss in zip(LOSS_NAMES, losses):
-                gather_losses[name] += loss
-        else:
-            det_1, x = self.pred_1(x)
-        x = self.uns_1(x)
-        x = torch.cat((x, r_1), 1)
-        if targets is not None:
-            (this_loss, *losses), x = self.pred_2(x, targets)
-            sum_loss += this_loss
-            for name, loss in zip(LOSS_NAMES, losses):
-                gather_losses[name] += loss
-        else:
-            det_2, x = self.pred_2(x)
-        x = self.uns_2(x)
-        x = torch.cat((x, r_0), 1)
-        if targets is not None:
-            this_loss, *losses = self.pred_3(x, targets)
-            sum_loss += this_loss
-            for name, loss in zip(LOSS_NAMES, losses):
-                gather_losses[name] += loss
-            gather_losses['recall'] /= 3
-            gather_losses['precision'] /= 3
-            return sum_loss, gather_losses
-        else:
-            det_3 = self.pred_3(x)
-            return torch.cat((det_1, det_2, det_3), 1)
-
-
 class BasicConv(nn.Module):
 
     def __init__(self, ind, outd, kr_size, stride, padding, lr=0.1, bias=False):
@@ -3563,23 +2734,14 @@ class BasicConv(nn.Module):
         return self.layers(x)
 
 
-class BasicLayer(nn.Module):
+def load_classes(inp='data/coco.names'):
+    return [c.strip() for c in open(inp)]
 
-    def __init__(self, conv_1, conv_2, times):
-        super().__init__()
-        self.layers = nn.ModuleList()
-        for _ in range(times):
-            self.layers.append(BasicConv(*conv_1))
-            self.layers.append(BasicConv(*conv_2))
 
-    def forward(self, x):
-        residual = x
-        for index, layer in enumerate(self.layers):
-            x = layer(x)
-            if index % 2 == 1:
-                x += residual
-                residual = x
-        return x
+OUT_DIM = 3 * (len(load_classes()) + 5)
+
+
+DETECT_DICT = {'first': [1024, (512, 1, 1, 0), (1024, 3, 1, 1), (512, 1, 1, 0), (1024, 3, 1, 1), (512, 1, 1, 0), (1024, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)], 'second': [768, (256, 1, 1, 0), (512, 3, 1, 1), (256, 1, 1, 0), (512, 3, 1, 1), (256, 1, 1, 0), (512, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)], 'third': [384, (128, 1, 1, 0), (256, 3, 1, 1), (128, 1, 1, 0), (256, 3, 1, 1), (128, 1, 1, 0), (256, 3, 1, 1), (OUT_DIM, 1, 1, 0, 0)]}
 
 
 def bbox_iou(box1, box2, x1y1x2y2=True):
@@ -3610,7 +2772,7 @@ class BasicPred(nn.Module):
         self.classes = classes
         self.height = height
         self.anchors = anchors
-        self.torch = torch if use_cuda else torch
+        self.torch = torch.cuda if use_cuda else torch
         self.mse_loss = nn.MSELoss()
         self.bce_loss = nn.BCELoss()
         self.ce_loss = nn.CrossEntropyLoss()
@@ -3744,6 +2906,136 @@ class BasicPred(nn.Module):
             return output
 
 
+class FirstPred(BasicPred):
+
+    def __init__(self, structs, use_cuda, classes, route_index=4, anchors=[(116, 90), (156, 198), (373, 326)]):
+        super().__init__(structs, use_cuda, anchors, classes, route_index=route_index)
+
+
+LOSS_NAMES = ['x', 'y', 'w', 'h', 'conf', 'cls', 'recall', 'precision']
+
+
+class BasicLayer(nn.Module):
+
+    def __init__(self, conv_1, conv_2, times):
+        super().__init__()
+        self.layers = nn.ModuleList()
+        for _ in range(times):
+            self.layers.append(BasicConv(*conv_1))
+            self.layers.append(BasicConv(*conv_2))
+
+    def forward(self, x):
+        residual = x
+        for index, layer in enumerate(self.layers):
+            x = layer(x)
+            if index % 2 == 1:
+                x += residual
+                residual = x
+        return x
+
+
+class LayerFive(BasicLayer):
+
+    def __init__(self):
+        super().__init__((1024, 512, 1, 1, 0), (512, 1024, 3, 1, 1), 4)
+
+
+class LayerFour(BasicLayer):
+
+    def __init__(self):
+        super().__init__((512, 256, 1, 1, 0), (256, 512, 3, 1, 1), 8)
+
+
+class LayerOne(BasicLayer):
+
+    def __init__(self):
+        super().__init__((64, 32, 1, 1, 0), (32, 64, 3, 1, 1), 1)
+
+
+class LayerThree(BasicLayer):
+
+    def __init__(self):
+        super().__init__((256, 128, 1, 1, 0), (128, 256, 3, 1, 1), 8)
+
+
+class LayerTwo(BasicLayer):
+
+    def __init__(self):
+        super().__init__((128, 64, 1, 1, 0), (64, 128, 3, 1, 1), 2)
+
+
+class SecondPred(BasicPred):
+
+    def __init__(self, structs, use_cuda, classes, route_index=4, anchors=[(30, 61), (62, 45), (59, 119)]):
+        super().__init__(structs, use_cuda, anchors, classes, route_index=route_index)
+
+
+class ThirdPred(BasicPred):
+
+    def __init__(self, structs, use_cuda, classes, height=416, anchors=[(10, 13), (16, 30), (33, 23)]):
+        super().__init__(structs, use_cuda, anchors, classes)
+
+
+class DarkNet(nn.Module):
+
+    def __init__(self, use_cuda, nClasses):
+        super().__init__()
+        self.conv_1 = BasicConv(256, 512, 3, 2, 1)
+        self.seq_1 = nn.Sequential(BasicConv(3, 32, 3, 1, 1), BasicConv(32, 64, 3, 2, 1), LayerOne(), BasicConv(64, 128, 3, 2, 1), LayerTwo(), BasicConv(128, 256, 3, 2, 1), LayerThree())
+        self.seq_2 = nn.Sequential(BasicConv(512, 1024, 3, 2, 1), LayerFive())
+        self.layer_4 = LayerFour()
+        self.uns_1 = nn.Sequential(BasicConv(512, 256, 1, 1, 0), nn.Upsample(scale_factor=2, mode='bilinear'))
+        self.uns_2 = nn.Sequential(BasicConv(256, 128, 1, 1, 0), nn.Upsample(scale_factor=2, mode='bilinear'))
+        self.pred_1 = FirstPred(DETECT_DICT['first'], use_cuda, nClasses)
+        self.pred_2 = SecondPred(DETECT_DICT['second'], use_cuda, nClasses)
+        self.pred_3 = ThirdPred(DETECT_DICT['third'], use_cuda, nClasses)
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        for layer in self.modules():
+            if type(layer) == nn.Conv2d:
+                layer.weight.data.normal_(0.0, 0.02)
+            if type(layer) == nn.BatchNorm2d:
+                layer.weight.data.normal_(1.0, 0.02)
+                layer.bias.data.fill_(0)
+
+    def forward(self, x, targets=None):
+        gather_losses = defaultdict(float)
+        x = self.seq_1(x)
+        r_0 = x
+        x = self.layer_4(self.conv_1(x))
+        r_1 = x
+        x = self.seq_2(x)
+        if targets is not None:
+            (sum_loss, *losses), x = self.pred_1(x, targets)
+            for name, loss in zip(LOSS_NAMES, losses):
+                gather_losses[name] += loss
+        else:
+            det_1, x = self.pred_1(x)
+        x = self.uns_1(x)
+        x = torch.cat((x, r_1), 1)
+        if targets is not None:
+            (this_loss, *losses), x = self.pred_2(x, targets)
+            sum_loss += this_loss
+            for name, loss in zip(LOSS_NAMES, losses):
+                gather_losses[name] += loss
+        else:
+            det_2, x = self.pred_2(x)
+        x = self.uns_2(x)
+        x = torch.cat((x, r_0), 1)
+        if targets is not None:
+            this_loss, *losses = self.pred_3(x, targets)
+            sum_loss += this_loss
+            for name, loss in zip(LOSS_NAMES, losses):
+                gather_losses[name] += loss
+            gather_losses['recall'] /= 3
+            gather_losses['precision'] /= 3
+            return sum_loss, gather_losses
+        else:
+            det_3 = self.pred_3(x)
+            return torch.cat((det_1, det_2, det_3), 1)
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -3771,6 +3063,14 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
+    (BiLSTM,
+     lambda: ([], {'word_size': 4, 'word_ebd_dim': 4, 'kernel_num': 4, 'lstm_hsz': 4, 'lstm_layers': 1, 'dropout': 0.5, 'batch_size': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4, 4])], {}),
+     False),
+    (BiRNN,
+     lambda: ([], {'vsz': 4, 'embed_dim': 4, 'dropout': 0.5, 'hsz': 4, 'layers': 1}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
     (CNN,
      lambda: ([], {'char_size': 4, 'char_ebd_dim': 4, 'kernel_num': 4, 'filter_size': 4, 'dropout': 0.5}),
      lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
@@ -3783,9 +3083,21 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 256, 64, 64])], {}),
      True),
+    (CrossEntropy,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
     (DQN,
      lambda: ([], {'state_dim': 4, 'out_dim': 4, 'capacity': 4, 'bsz': 4, 'epsilon': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (DeepBiLSTMModel,
+     lambda: ([], {'vsz': 4, 'lsz': 4, 'ebd_dim': 4, 'lstm_hsz': 4, 'lstm_layers': 1, 'dropout_prob': 0.5, 'is_cuda': False}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+    (DgCNN,
+     lambda: ([], {'dim': 4, 'dilation_rates': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      True),
     (DigitCap,
      lambda: ([], {'use_cuda': False, 'num_primary_units': 4, 'labels': 4, 'output_unit_size': 4, 'primary_unit_size': 4, 'iterations': 4}),
@@ -3823,9 +3135,29 @@ TESTCASES = [
      lambda: ([], {'isz': 4, 'hsz': 4, 'dropout_prob': 0.5, 'is_cuda': False}),
      lambda: ([torch.rand([4, 4])], {}),
      False),
+    (LayerFive,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1024, 64, 64])], {}),
+     True),
+    (LayerFour,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 512, 64, 64])], {}),
+     True),
     (LayerNorm,
      lambda: ([], {'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LayerOne,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 64, 64, 64])], {}),
+     True),
+    (LayerThree,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 64, 64])], {}),
+     True),
+    (LayerTwo,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 128, 64, 64])], {}),
      True),
     (MaxpoolMatchLay,
      lambda: ([], {'mp_dim': 4, 'cont_dim': 4}),
@@ -3834,6 +3166,10 @@ TESTCASES = [
     (Net,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 8, 64, 64])], {}),
+     True),
+    (NlpCrossEntropy,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
      True),
     (ObjModel,
      lambda: ([], {'dim': 4, 'num_classes': 4}),
@@ -3871,6 +3207,10 @@ TESTCASES = [
      lambda: ([], {'in_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SelfCriticCriterion,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4]), torch.rand([4])], {}),
+     True),
     (SubModel,
      lambda: ([], {'dim': 4}),
      lambda: ([torch.rand([4, 8, 8])], {}),
@@ -3882,6 +3222,10 @@ TESTCASES = [
     (Value,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 128, 64, 64])], {}),
+     True),
+    (WordCrossEntropy,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
      True),
     (_DenseBLayer,
      lambda: ([], {'in_channels': 4, 'growth_rate': 4, 'dropout': 0.5}),
@@ -4012,4 +3356,43 @@ class Test_ne7ermore_torch_light(_paritybench_base):
 
     def test_036(self):
         self._check(*TESTCASES[36])
+
+    def test_037(self):
+        self._check(*TESTCASES[37])
+
+    def test_038(self):
+        self._check(*TESTCASES[38])
+
+    def test_039(self):
+        self._check(*TESTCASES[39])
+
+    def test_040(self):
+        self._check(*TESTCASES[40])
+
+    def test_041(self):
+        self._check(*TESTCASES[41])
+
+    def test_042(self):
+        self._check(*TESTCASES[42])
+
+    def test_043(self):
+        self._check(*TESTCASES[43])
+
+    def test_044(self):
+        self._check(*TESTCASES[44])
+
+    def test_045(self):
+        self._check(*TESTCASES[45])
+
+    def test_046(self):
+        self._check(*TESTCASES[46])
+
+    def test_047(self):
+        self._check(*TESTCASES[47])
+
+    def test_048(self):
+        self._check(*TESTCASES[48])
+
+    def test_049(self):
+        self._check(*TESTCASES[49])
 

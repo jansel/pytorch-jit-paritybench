@@ -10,15 +10,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -96,6 +97,28 @@ class AngularPenaltySMLoss(nn.Module):
         return -torch.mean(L)
 
 
+class ConvNet(nn.Module):
+
+    def __init__(self):
+        super(ConvNet, self).__init__()
+        self.layer1 = nn.Sequential(nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(32))
+        self.layer2 = nn.Sequential(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(64))
+        self.layer3 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.BatchNorm2d(128), nn.MaxPool2d(kernel_size=2, stride=2))
+        self.layer4 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(256))
+        self.layer5 = nn.Sequential(nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(512), nn.MaxPool2d(kernel_size=8, stride=1))
+        self.fc_projection = nn.Linear(512, 3)
+
+    def forward(self, x, embed=False):
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.layer5(x)
+        x = x.reshape(x.size(0), -1)
+        x = self.fc_projection(x)
+        return x
+
+
 class ConvBaseline(nn.Module):
 
     def __init__(self, num_classes=10):
@@ -124,28 +147,6 @@ class ConvAngularPen(nn.Module):
             return x
         L = self.adms_loss(x, labels)
         return L
-
-
-class ConvNet(nn.Module):
-
-    def __init__(self):
-        super(ConvNet, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(32))
-        self.layer2 = nn.Sequential(nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(64))
-        self.layer3 = nn.Sequential(nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1), nn.ReLU(), nn.BatchNorm2d(128), nn.MaxPool2d(kernel_size=2, stride=2))
-        self.layer4 = nn.Sequential(nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(256))
-        self.layer5 = nn.Sequential(nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=0), nn.ReLU(), nn.BatchNorm2d(512), nn.MaxPool2d(kernel_size=8, stride=1))
-        self.fc_projection = nn.Linear(512, 3)
-
-    def forward(self, x, embed=False):
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.layer5(x)
-        x = x.reshape(x.size(0), -1)
-        x = self.fc_projection(x)
-        return x
 
 
 import torch

@@ -12,15 +12,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -85,8 +86,42 @@ import torch.optim as optim
 import math
 
 
+class injective_pad(nn.Module):
+
+    def __init__(self, pad_size):
+        super(injective_pad, self).__init__()
+        self.pad_size = pad_size
+        self.pad = nn.ZeroPad2d((0, 0, 0, pad_size))
+
+    def forward(self, x):
+        x = x.permute(0, 2, 1, 3)
+        x = self.pad(x)
+        return x.permute(0, 2, 1, 3)
+
+    def inverse(self, x):
+        return x[:, :x.size(1) - self.pad_size, :, :]
+
+
 def merge(x1, x2):
     return torch.cat((x1, x2), 1)
+
+
+class psi(nn.Module):
+
+    def __init__(self, block_size):
+        super(psi, self).__init__()
+        self.block_size = block_size
+        self.block_size_sq = block_size * block_size
+
+    def inverse(self, input):
+        bl, bl_sq = self.block_size, self.block_size_sq
+        bs, new_d, h, w = input.shape[0], input.shape[1] // bl_sq, input.shape[2], input.shape[3]
+        return input.reshape(bs, bl, bl, new_d, h, w).permute(0, 3, 4, 1, 5, 2).reshape(bs, new_d, h * bl, w * bl)
+
+    def forward(self, input):
+        bl, bl_sq = self.block_size, self.block_size_sq
+        bs, d, new_h, new_w = input.shape[0], input.shape[1], input.shape[2] // bl, input.shape[3] // bl
+        return input.reshape(bs, d, new_h, bl, new_w, bl).permute(0, 3, 5, 1, 2, 4).reshape(bs, d * bl_sq, new_h, new_w)
 
 
 def split(x):
@@ -218,40 +253,6 @@ class iRevNet(nn.Module):
         else:
             x = out
         return x
-
-
-class injective_pad(nn.Module):
-
-    def __init__(self, pad_size):
-        super(injective_pad, self).__init__()
-        self.pad_size = pad_size
-        self.pad = nn.ZeroPad2d((0, 0, 0, pad_size))
-
-    def forward(self, x):
-        x = x.permute(0, 2, 1, 3)
-        x = self.pad(x)
-        return x.permute(0, 2, 1, 3)
-
-    def inverse(self, x):
-        return x[:, :x.size(1) - self.pad_size, :, :]
-
-
-class psi(nn.Module):
-
-    def __init__(self, block_size):
-        super(psi, self).__init__()
-        self.block_size = block_size
-        self.block_size_sq = block_size * block_size
-
-    def inverse(self, input):
-        bl, bl_sq = self.block_size, self.block_size_sq
-        bs, new_d, h, w = input.shape[0], input.shape[1] // bl_sq, input.shape[2], input.shape[3]
-        return input.reshape(bs, bl, bl, new_d, h, w).permute(0, 3, 4, 1, 5, 2).reshape(bs, new_d, h * bl, w * bl)
-
-    def forward(self, input):
-        bl, bl_sq = self.block_size, self.block_size_sq
-        bs, d, new_h, new_w = input.shape[0], input.shape[1], input.shape[2] // bl, input.shape[3] // bl
-        return input.reshape(bs, d, new_h, bl, new_w, bl).permute(0, 3, 5, 1, 2, 4).reshape(bs, d * bl_sq, new_h, new_w)
 
 
 class psi_legacy(nn.Module):

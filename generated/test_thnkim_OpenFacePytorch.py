@@ -8,15 +8,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -142,6 +143,12 @@ class LambdaBase(nn.Sequential):
         return output if output else input
 
 
+class Lambda(LambdaBase):
+
+    def forward(self, input):
+        return self.lambda_func(self.forward_prepare(input))
+
+
 def BatchNorm(dim):
     l = torch.nn.BatchNorm2d(dim)
     return l
@@ -217,18 +224,12 @@ class Inception(nn.Module):
         return output
 
 
-class Lambda(LambdaBase):
-
-    def forward(self, input):
-        return self.lambda_func(self.forward_prepare(input))
-
-
 def CrossMapLRN(size, alpha, beta, k=1.0, gpuDevice=0):
     if SpatialCrossMapLRN_temp is not None:
         lrn = SpatialCrossMapLRN_temp(size, alpha, beta, k, gpuDevice=gpuDevice)
-        n = Lambda(lambda x, lrn=lrn: Variable(lrn.forward(x.data).cuda(gpuDevice)) if x.data.is_cuda else Variable(lrn.forward(x.data)))
+        n = Lambda(lambda x, lrn=lrn: Variable(lrn.forward(x.data)) if x.data.is_cuda else Variable(lrn.forward(x.data)))
     else:
-        n = nn.LocalResponseNorm(size, alpha, beta, k).cuda(gpuDevice)
+        n = nn.LocalResponseNorm(size, alpha, beta, k)
     return n
 
 

@@ -10,15 +10,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -163,7 +164,7 @@ def read_node_labels(args):
     :return identifiers: Hash table of unique node labels in the dataset.
     :return class_number: Number of unique graph classes in the dataset.
     """
-    print('\nCollecting unique node labels.\n')
+    None
     labels = set()
     targets = set()
     graphs = glob.glob(args.train_graph_folder + '*.json')
@@ -177,7 +178,7 @@ def read_node_labels(args):
         targets = targets.union(set([data['target']]))
     identifiers = {label: i for i, label in enumerate(list(labels))}
     class_number = len(targets)
-    print('\n\nThe number of graph classes is: ' + str(class_number) + '.\n')
+    None
     return identifiers, class_number
 
 

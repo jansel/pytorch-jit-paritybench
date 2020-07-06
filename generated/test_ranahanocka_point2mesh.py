@@ -20,15 +20,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -36,13 +37,19 @@ __version__ = '1.0.0'
 import torch
 
 
+import numpy as np
+
+
+import time
+
+
+import copy
+
+
 import torch.nn as nn
 
 
 import torch.nn.functional as F
-
-
-import numpy as np
 
 
 from torch.nn import ConstantPad2d
@@ -58,6 +65,9 @@ from torch import optim
 
 
 from typing import List
+
+
+import uuid
 
 
 class MeshConv(nn.Module):
@@ -383,126 +393,6 @@ class MeshUnpool(nn.Module):
         return torch.matmul(features, unroll_mat)
 
 
-def build_v(x, meshes):
-    mesh = meshes[0]
-    x = x.reshape(len(meshes), 2, 3, -1)
-    vs_to_sum = torch.zeros([len(meshes), len(mesh.vs_in), mesh.max_nvs, 3], dtype=x.dtype, device=x.device)
-    x = x[:, (mesh.vei), :, (mesh.ve_in)].transpose(0, 1)
-    vs_to_sum[:, (mesh.nvsi), (mesh.nvsin), :] = x
-    vs_sum = torch.sum(vs_to_sum, dim=2)
-    nvs = mesh.nvs
-    vs = vs_sum / nvs[(None), :, (None)]
-    return vs
-
-
-def init_weights(net, init_type, init_gain):
-
-    def init_func(m):
-        classname = m.__class__.__name__
-        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
-            if init_type == 'normal':
-                init.normal_(m.weight.data, 0.0, init_gain)
-            elif init_type == 'xavier':
-                init.xavier_normal_(m.weight.data, gain=init_gain)
-            elif init_type == 'kaiming':
-                init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
-            elif init_type == 'orthogonal':
-                init.orthogonal_(m.weight.data, gain=init_gain)
-            else:
-                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
-        elif classname.find('BatchNorm2d') != -1:
-            init.normal_(m.weight.data, 1.0, init_gain)
-            init.constant_(m.bias.data, 0.0)
-    net.apply(init_func)
-
-
-class PriorNet(nn.Module):
-    """
-    network for
-    """
-
-    def __init__(self, n_edges, in_ch=6, convs=[32, 64], pool=[], res_blocks=0, init_verts=None, transfer_data=False, leaky=0, init_weights_size=0.002):
-        super(PriorNet, self).__init__()
-        down_convs = [in_ch] + convs
-        up_convs = convs[::-1] + [in_ch]
-        pool_res = [n_edges] + pool
-        self.encoder_decoder = MeshEncoderDecoder(pools=pool_res, down_convs=down_convs, up_convs=up_convs, blocks=res_blocks, transfer_data=transfer_data, leaky=leaky)
-        self.last_conv = MeshConv(6, 6)
-        init_weights(self, 'normal', init_weights_size)
-        eps = 1e-08
-        self.last_conv.conv.weight.data.uniform_(-1 * eps, eps)
-        self.last_conv.conv.bias.data.uniform_(-1 * eps, eps)
-        self.init_verts = init_verts
-
-    def forward(self, x, meshes):
-        meshes_new = [i.deep_copy() for i in meshes]
-        x, _ = self.encoder_decoder(x, meshes_new)
-        x = x.squeeze(-1)
-        x = self.last_conv(x, meshes_new).squeeze(-1)
-        est_verts = build_v(x.unsqueeze(0), meshes)
-        return est_verts.float() + self.init_verts.expand_as(est_verts)
-
-
-class MeshEncoderDecoder(nn.Module):
-    """Network for fully-convolutional tasks (segmentation)
-    """
-
-    def __init__(self, pools, down_convs, up_convs, blocks=0, transfer_data=True, leaky=0):
-        super(MeshEncoderDecoder, self).__init__()
-        self.transfer_data = transfer_data
-        self.encoder = MeshEncoder(pools, down_convs, blocks=blocks, leaky=leaky)
-        unrolls = pools[:-1].copy()
-        unrolls.reverse()
-        self.decoder = MeshDecoder(unrolls, up_convs, blocks=blocks, transfer_data=transfer_data, leaky=leaky)
-        self.bn = nn.InstanceNorm2d(up_convs[-1])
-
-    def forward(self, x, meshes):
-        fe, before_pool = self.encoder((x, meshes))
-        fe = self.decoder((fe, meshes), before_pool)
-        fe = self.bn(fe.unsqueeze(-1))
-        return fe, None
-
-
-class DownConv(nn.Module):
-
-    def __init__(self, in_channels, out_channels, blocks=0, pool=0, leaky=0):
-        super(DownConv, self).__init__()
-        self.leaky = leaky
-        self.bn = []
-        self.pool = None
-        self.conv1 = ConvBlock(in_channels, out_channels)
-        self.conv2 = []
-        for _ in range(blocks):
-            self.conv2.append(ConvBlock(out_channels, out_channels))
-            self.conv2 = nn.ModuleList(self.conv2)
-        for _ in range(blocks + 1):
-            self.bn.append(nn.InstanceNorm2d(out_channels))
-            self.bn = nn.ModuleList(self.bn)
-        if pool:
-            self.pool = MeshPool(pool)
-
-    def forward(self, x):
-        fe, meshes = x[0], x[1]
-        x1 = self.conv1(fe, meshes)
-        x1 = F.leaky_relu(x1, self.leaky)
-        if self.bn:
-            x1 = self.bn[0](x1)
-        x2 = x1
-        for idx, conv in enumerate(self.conv2):
-            x2 = conv(x1, meshes)
-            x2 = F.leaky_relu(x2, self.leaky)
-            if self.bn:
-                x2 = self.bn[idx + 1](x2)
-            x2 = x2 + x1
-            x1 = x2
-        x2 = x2.squeeze(3)
-        before_pool = None
-        if self.pool:
-            before_pool = x2
-            x2 = self.pool(x2, meshes)
-        return x2, before_pool
-
-
 class ConvBlock(nn.Module):
 
     def __init__(self, in_feat, out_feat, k=1):
@@ -578,30 +468,6 @@ def reset_params(model):
         weight_init(m)
 
 
-class MeshEncoder(nn.Module):
-
-    def __init__(self, pools, convs, blocks=0, leaky=0):
-        super(MeshEncoder, self).__init__()
-        self.leaky = leaky
-        self.convs = []
-        for i in range(len(convs) - 1):
-            if i + 1 < len(pools):
-                pool = pools[i + 1]
-            else:
-                pool = 0
-            self.convs.append(DownConv(convs[i], convs[i + 1], blocks=blocks, pool=pool, leaky=leaky))
-        self.convs = nn.ModuleList(self.convs)
-        reset_params(self)
-
-    def forward(self, x):
-        fe, meshes = x
-        encoder_outs = []
-        for conv in self.convs:
-            fe, before_pool = conv((fe, meshes))
-            encoder_outs.append(before_pool)
-        return fe, encoder_outs
-
-
 class MeshDecoder(nn.Module):
 
     def __init__(self, unrolls, convs, blocks=0, batch_norm=True, transfer_data=True, leaky=0):
@@ -629,4 +495,202 @@ class MeshDecoder(nn.Module):
 
     def __call__(self, x, encoder_outs=None):
         return self.forward(x, encoder_outs)
+
+
+class DownConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels, blocks=0, pool=0, leaky=0):
+        super(DownConv, self).__init__()
+        self.leaky = leaky
+        self.bn = []
+        self.pool = None
+        self.conv1 = ConvBlock(in_channels, out_channels)
+        self.conv2 = []
+        for _ in range(blocks):
+            self.conv2.append(ConvBlock(out_channels, out_channels))
+            self.conv2 = nn.ModuleList(self.conv2)
+        for _ in range(blocks + 1):
+            self.bn.append(nn.InstanceNorm2d(out_channels))
+            self.bn = nn.ModuleList(self.bn)
+        if pool:
+            self.pool = MeshPool(pool)
+
+    def forward(self, x):
+        fe, meshes = x[0], x[1]
+        x1 = self.conv1(fe, meshes)
+        x1 = F.leaky_relu(x1, self.leaky)
+        if self.bn:
+            x1 = self.bn[0](x1)
+        x2 = x1
+        for idx, conv in enumerate(self.conv2):
+            x2 = conv(x1, meshes)
+            x2 = F.leaky_relu(x2, self.leaky)
+            if self.bn:
+                x2 = self.bn[idx + 1](x2)
+            x2 = x2 + x1
+            x1 = x2
+        x2 = x2.squeeze(3)
+        before_pool = None
+        if self.pool:
+            before_pool = x2
+            x2 = self.pool(x2, meshes)
+        return x2, before_pool
+
+
+class MeshEncoder(nn.Module):
+
+    def __init__(self, pools, convs, blocks=0, leaky=0):
+        super(MeshEncoder, self).__init__()
+        self.leaky = leaky
+        self.convs = []
+        for i in range(len(convs) - 1):
+            if i + 1 < len(pools):
+                pool = pools[i + 1]
+            else:
+                pool = 0
+            self.convs.append(DownConv(convs[i], convs[i + 1], blocks=blocks, pool=pool, leaky=leaky))
+        self.convs = nn.ModuleList(self.convs)
+        reset_params(self)
+
+    def forward(self, x):
+        fe, meshes = x
+        encoder_outs = []
+        for conv in self.convs:
+            fe, before_pool = conv((fe, meshes))
+            encoder_outs.append(before_pool)
+        return fe, encoder_outs
+
+
+class MeshEncoderDecoder(nn.Module):
+    """Network for fully-convolutional tasks (segmentation)
+    """
+
+    def __init__(self, pools, down_convs, up_convs, blocks=0, transfer_data=True, leaky=0):
+        super(MeshEncoderDecoder, self).__init__()
+        self.transfer_data = transfer_data
+        self.encoder = MeshEncoder(pools, down_convs, blocks=blocks, leaky=leaky)
+        unrolls = pools[:-1].copy()
+        unrolls.reverse()
+        self.decoder = MeshDecoder(unrolls, up_convs, blocks=blocks, transfer_data=transfer_data, leaky=leaky)
+        self.bn = nn.InstanceNorm2d(up_convs[-1])
+
+    def forward(self, x, meshes):
+        fe, before_pool = self.encoder((x, meshes))
+        fe = self.decoder((fe, meshes), before_pool)
+        fe = self.bn(fe.unsqueeze(-1))
+        return fe, None
+
+
+def build_v(x, meshes):
+    mesh = meshes[0]
+    x = x.reshape(len(meshes), 2, 3, -1)
+    vs_to_sum = torch.zeros([len(meshes), len(mesh.vs_in), mesh.max_nvs, 3], dtype=x.dtype, device=x.device)
+    x = x[:, (mesh.vei), :, (mesh.ve_in)].transpose(0, 1)
+    vs_to_sum[:, (mesh.nvsi), (mesh.nvsin), :] = x
+    vs_sum = torch.sum(vs_to_sum, dim=2)
+    nvs = mesh.nvs
+    vs = vs_sum / nvs[(None), :, (None)]
+    return vs
+
+
+def init_weights(net, init_type, init_gain):
+
+    def init_func(m):
+        classname = m.__class__.__name__
+        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
+            if init_type == 'normal':
+                init.normal_(m.weight.data, 0.0, init_gain)
+            elif init_type == 'xavier':
+                init.xavier_normal_(m.weight.data, gain=init_gain)
+            elif init_type == 'kaiming':
+                init.kaiming_normal_(m.weight.data, a=0, mode='fan_in')
+            elif init_type == 'orthogonal':
+                init.orthogonal_(m.weight.data, gain=init_gain)
+            else:
+                raise NotImplementedError('initialization method [%s] is not implemented' % init_type)
+        elif classname.find('BatchNorm2d') != -1:
+            init.normal_(m.weight.data, 1.0, init_gain)
+            init.constant_(m.bias.data, 0.0)
+    net.apply(init_func)
+
+
+class PriorNet(nn.Module):
+    """
+    network for
+    """
+
+    def __init__(self, n_edges, in_ch=6, convs=[32, 64], pool=[], res_blocks=0, init_verts=None, transfer_data=False, leaky=0, init_weights_size=0.002):
+        super(PriorNet, self).__init__()
+        down_convs = [in_ch] + convs
+        up_convs = convs[::-1] + [in_ch]
+        pool_res = [n_edges] + pool
+        self.encoder_decoder = MeshEncoderDecoder(pools=pool_res, down_convs=down_convs, up_convs=up_convs, blocks=res_blocks, transfer_data=transfer_data, leaky=leaky)
+        self.last_conv = MeshConv(6, 6)
+        init_weights(self, 'normal', init_weights_size)
+        eps = 1e-08
+        self.last_conv.conv.weight.data.uniform_(-1 * eps, eps)
+        self.last_conv.conv.bias.data.uniform_(-1 * eps, eps)
+        self.init_verts = init_verts
+
+    def forward(self, x, meshes):
+        meshes_new = [i.deep_copy() for i in meshes]
+        x, _ = self.encoder_decoder(x, meshes_new)
+        x = x.squeeze(-1)
+        x = self.last_conv(x, meshes_new).squeeze(-1)
+        est_verts = build_v(x.unsqueeze(0), meshes)
+        return est_verts.float() + self.init_verts.expand_as(est_verts)
+
+
+class PartNet(PriorNet):
+
+    def __init__(self, init_part_mesh, in_ch=6, convs=[32, 64], pool=[], res_blocks=0, init_verts=None, transfer_data=False, leaky=0, init_weights_size=0.002):
+        temp = torch.linspace(len(convs), 1, len(convs)).long().tolist()
+        super().__init__(temp[0], in_ch=in_ch, convs=convs, pool=temp[1:], res_blocks=res_blocks, init_verts=init_verts, transfer_data=transfer_data, leaky=leaky, init_weights_size=init_weights_size)
+        self.mesh_pools = []
+        self.mesh_unpools = []
+        self.factor_pools = pool
+        for i in self.modules():
+            if isinstance(i, MeshPool):
+                self.mesh_pools.append(i)
+            if isinstance(i, MeshUnpool):
+                self.mesh_unpools.append(i)
+        self.mesh_pools = sorted(self.mesh_pools, key=lambda x: x._MeshPool__out_target, reverse=True)
+        self.mesh_unpools = sorted(self.mesh_unpools, key=lambda x: x.unroll_target, reverse=False)
+        self.init_part_verts = nn.ParameterList([torch.nn.Parameter(i) for i in init_part_mesh.init_verts])
+        for i in self.init_part_verts:
+            i.requires_grad = False
+
+    def __set_pools(self, n_edges: int, new_pools: List[int]):
+        for i, l in enumerate(self.mesh_pools):
+            l._MeshPool__out_target = new_pools[i]
+        new_pools = [n_edges] + new_pools
+        new_pools = new_pools[:-1]
+        new_pools.reverse()
+        for i, l in enumerate(self.mesh_unpools):
+            l.unroll_target = new_pools[i]
+
+    def forward(self, x, partmesh):
+        """
+        forward PartNet
+        :param x: BXfXn_edges
+        :param partmesh:
+        :return:
+        """
+        for i, p in enumerate(partmesh):
+            n_edges = p.edges_count
+            self.init_verts = self.init_part_verts[i]
+            temp_pools = [int(n_edges - i) for i in self.make3(PartNet.array_times(n_edges, self.factor_pools))]
+            self.__set_pools(n_edges, temp_pools)
+            relevant_edges = x[:, :, (partmesh.sub_mesh_edge_index[i])]
+            results = super().forward(relevant_edges, [p])
+            yield results
+
+    @staticmethod
+    def array_times(num: int, iterable):
+        return [(i * num) for i in iterable]
+
+    @staticmethod
+    def make3(array):
+        diff = [(i % 3) for i in array]
+        return [(array[i] - diff[i]) for i in range(len(array))]
 

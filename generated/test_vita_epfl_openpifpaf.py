@@ -21,6 +21,7 @@ field_config = _module
 generator = _module
 cifcaf = _module
 cifdet = _module
+generator = _module
 instance_scorer = _module
 nms = _module
 occupancy = _module
@@ -31,6 +32,7 @@ encoder = _module
 annrescaler = _module
 caf = _module
 cif = _module
+cifdet = _module
 eval_coco = _module
 export_onnx = _module
 logs = _module
@@ -87,29 +89,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import copy
-
-
-import numpy as np
 
 
 import torch
 
 
+from collections import defaultdict
+
+
+import copy
+
+
 import logging
+
+
+import numpy as np
+
+
+import torch.utils.data
+
+
+from abc import abstractmethod
 
 
 import time
@@ -137,6 +149,18 @@ from typing import Union
 
 
 import random
+
+
+import scipy
+
+
+import math
+
+
+import warnings
+
+
+import scipy.ndimage
 
 
 class InstanceScorer(torch.nn.Module):
@@ -264,7 +288,7 @@ def index_field_torch(shape, *, device=None, n_unsqueeze=2):
     xy = np.flip(yx, axis=0)
     xy = torch.from_numpy(xy.copy())
     if device is not None:
-        xy = xy.to(device, non_blocking=True)
+        xy = xy
     for _ in range(n_unsqueeze):
         xy = torch.unsqueeze(xy, 0)
     return xy

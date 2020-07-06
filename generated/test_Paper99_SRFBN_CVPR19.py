@@ -23,17 +23,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch.utils.data as data
+
+
+import torch.utils.data
 
 
 import torch
@@ -50,15 +57,33 @@ import math
 
 class MeanShift(nn.Conv2d):
 
-    def __init__(self, rgb_mean, rgb_std, sign=-1):
+    def __init__(self, rgb_range=255, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std=(1.0, 1.0, 1.0), sign=-1):
         super(MeanShift, self).__init__(3, 3, kernel_size=1)
         std = torch.Tensor(rgb_std)
-        self.weight.data = torch.eye(3).view(3, 3, 1, 1)
-        self.weight.data.div_(std.view(3, 1, 1, 1))
-        self.bias.data = sign * 255.0 * torch.Tensor(rgb_mean)
-        self.bias.data.div_(std)
+        self.weight.data = torch.eye(3).view(3, 3, 1, 1) / std.view(3, 1, 1, 1)
+        self.bias.data = sign * rgb_range * torch.Tensor(rgb_mean) / std
         for p in self.parameters():
             p.requires_grad = False
+
+
+class ResBlock(nn.Module):
+
+    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
+        super(ResBlock, self).__init__()
+        m = []
+        for i in range(2):
+            m.append(conv(n_feats, n_feats, kernel_size, bias=bias))
+            if bn:
+                m.append(nn.BatchNorm2d(n_feats))
+            if i == 0:
+                m.append(act)
+        self.body = nn.Sequential(*m)
+        self.res_scale = res_scale
+
+    def forward(self, x):
+        res = self.body(x).mul(self.res_scale)
+        res += x
+        return res
 
 
 def activation(act_type='relu', inplace=True, slope=0.2, n_prelu=1):
@@ -140,22 +165,6 @@ def ConvBlock(in_channels, out_channels, kernel_size, stride=1, dilation=1, bias
         act = activation(act_type, inplace=False) if act_type else None
         n = norm(in_channels, norm_type) if norm_type else None
         return sequential(n, act, p, conv)
-
-
-class ResBlock(nn.Module):
-
-    def __init__(self, in_channel, out_channle, mid_channel, kernel_size, stride=1, valid_padding=True, padding=0, dilation=1, bias=True, pad_type='zero', norm_type='bn', act_type='relu', mode='CNA', res_scale=1):
-        super(ResBlock, self).__init__()
-        conv0 = ConvBlock(in_channel, mid_channel, kernel_size, stride, dilation, bias, valid_padding, padding, act_type, norm_type, pad_type, mode)
-        act_type = None
-        norm_type = None
-        conv1 = ConvBlock(mid_channel, out_channle, kernel_size, stride, dilation, bias, valid_padding, padding, act_type, norm_type, pad_type, mode)
-        self.res = sequential(conv0, conv1)
-        self.res_scale = res_scale
-
-    def forward(self, x):
-        res = self.res(x).mul(self.res_scale)
-        return x + res
 
 
 def DeconvBlock(in_channels, out_channels, kernel_size, stride=1, dilation=1, bias=True, padding=0, act_type='relu', norm_type='bn', pad_type='zero', mode='CNA'):
@@ -393,17 +402,6 @@ class D_DBPN(nn.Module):
         return self.network(x)
 
 
-class MeanShift(nn.Conv2d):
-
-    def __init__(self, rgb_range=255, rgb_mean=(0.4488, 0.4371, 0.404), rgb_std=(1.0, 1.0, 1.0), sign=-1):
-        super(MeanShift, self).__init__(3, 3, kernel_size=1)
-        std = torch.Tensor(rgb_std)
-        self.weight.data = torch.eye(3).view(3, 3, 1, 1) / std.view(3, 1, 1, 1)
-        self.bias.data = sign * rgb_range * torch.Tensor(rgb_mean) / std
-        for p in self.parameters():
-            p.requires_grad = False
-
-
 class BasicBlock(nn.Sequential):
 
     def __init__(self, conv, in_channels, out_channels, kernel_size, stride=1, bias=False, bn=True, act=nn.ReLU(True)):
@@ -413,26 +411,6 @@ class BasicBlock(nn.Sequential):
         if act is not None:
             m.append(act)
         super(BasicBlock, self).__init__(*m)
-
-
-class ResBlock(nn.Module):
-
-    def __init__(self, conv, n_feats, kernel_size, bias=True, bn=False, act=nn.ReLU(True), res_scale=1):
-        super(ResBlock, self).__init__()
-        m = []
-        for i in range(2):
-            m.append(conv(n_feats, n_feats, kernel_size, bias=bias))
-            if bn:
-                m.append(nn.BatchNorm2d(n_feats))
-            if i == 0:
-                m.append(act)
-        self.body = nn.Sequential(*m)
-        self.res_scale = res_scale
-
-    def forward(self, x):
-        res = self.body(x).mul(self.res_scale)
-        res += x
-        return res
 
 
 class Upsampler(nn.Sequential):

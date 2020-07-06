@@ -31,15 +31,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -47,16 +48,28 @@ __version__ = '1.0.0'
 import torch
 
 
+from sklearn.metrics import roc_auc_score
+
+
 from torch.utils.data import DataLoader
+
+
+from collections import defaultdict
 
 
 import numpy as np
 
 
-import torch.nn.functional as F
+import torch.utils.data
 
 
 import math
+
+
+from functools import lru_cache
+
+
+import torch.nn.functional as F
 
 
 class FeaturesLinear(torch.nn.Module):
@@ -741,10 +754,46 @@ TESTCASES = [
      lambda: ([], {'input_dim': 4, 'num_layers': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (DeepCrossNetworkModel,
+     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'num_layers': 1, 'mlp_dims': [4, 4], 'dropout': 0.5}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
+     False),
+    (DeepFactorizationMachineModel,
+     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'mlp_dims': [4, 4], 'dropout': 0.5}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
+     False),
+    (ExtremeDeepFactorizationMachineModel,
+     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'mlp_dims': [4, 4], 'dropout': 0.5, 'cross_layer_sizes': [4, 4]}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
+     False),
     (FactorizationMachine,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (FactorizationMachineModel,
+     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
+     False),
+    (FactorizationSupportedNeuralNetworkModel,
+     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'mlp_dims': [4, 4], 'dropout': 0.5}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
+     False),
+    (FeaturesEmbedding,
+     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
+     False),
+    (FeaturesLinear,
+     lambda: ([], {'field_dims': [4, 4]}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
+     False),
+    (FieldAwareFactorizationMachine,
+     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
+     False),
+    (FieldAwareFactorizationMachineModel,
+     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
+     False),
     (InnerProductNetwork,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -753,6 +802,10 @@ TESTCASES = [
      lambda: ([], {'num_fields': 4, 'embed_dim': 4, 'LNN_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (LogisticRegressionModel,
+     lambda: ([], {'field_dims': [4, 4]}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
+     False),
     (MultiLayerPerceptron,
      lambda: ([], {'input_dim': 4, 'embed_dims': [4, 4], 'dropout': 0.5}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -760,6 +813,14 @@ TESTCASES = [
     (OuterProductNetwork,
      lambda: ([], {'num_fields': 4, 'embed_dim': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (ProductNeuralNetworkModel,
+     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'mlp_dims': [4, 4], 'dropout': 0.5}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
+     False),
+    (WideAndDeepModel,
+     lambda: ([], {'field_dims': [4, 4], 'embed_dim': 4, 'mlp_dims': [4, 4], 'dropout': 0.5}),
+     lambda: ([torch.zeros([4, 2], dtype=torch.int64)], {}),
      False),
 ]
 
@@ -784,4 +845,40 @@ class Test_rixwew_pytorch_fm(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
 

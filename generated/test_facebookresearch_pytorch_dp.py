@@ -30,15 +30,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -121,10 +122,19 @@ from torch import nn
 from torch.nn.parameter import Parameter
 
 
-import types
+from typing import Tuple
 
 
 from typing import Union
+
+
+import types
+
+
+from enum import IntEnum
+
+
+from typing import Any
 
 
 from torch.functional import F
@@ -142,13 +152,7 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import FakeData
 
 
-from typing import Tuple
-
-
 import math
-
-
-from enum import IntEnum
 
 
 from typing import Callable
@@ -197,18 +201,37 @@ class SampleConvNet(nn.Module):
 
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 16, 8, 2, padding=3)
-        self.conv2 = nn.Conv2d(16, 32, 4, 2)
-        self.fc1 = nn.Linear(32 * 4 * 4, 32)
-        self.fc2 = nn.Linear(32, 10)
+        self.conv1 = nn.Conv2d(1, 16, 8, 3)
+        self.gnorm1 = nn.GroupNorm(4, 16)
+        self.conv2 = nn.Conv1d(16, 32, 3, 1)
+        self.lnorm1 = nn.LayerNorm((32, 23))
+        self.conv3 = nn.Conv1d(32, 32, 3, 1)
+        self.instnorm1 = nn.InstanceNorm1d(32, affine=True)
+        self.convf = nn.Conv1d(32, 32, 1, 1)
+        for p in self.convf.parameters():
+            p.requires_grad = False
+        self.fc1 = nn.Linear(21, 17)
+        self.lnorm2 = nn.LayerNorm(17)
+        self.fc2 = nn.Linear(32 * 17, 10)
+        for layer in (self.gnorm1, self.lnorm1, self.lnorm2, self.instnorm1):
+            nn.init.uniform_(layer.weight)
+            nn.init.uniform_(layer.bias)
 
     def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 1)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 1)
-        x = x.view(-1, 32 * 4 * 4)
-        x = F.relu(self.fc1(x))
+        x = self.conv1(x)
+        x = self.gnorm1(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2, 2)
+        x = x.view(x.shape[0], x.shape[1], x.shape[2] * x.shape[3])
+        x = self.conv2(x)
+        x = self.lnorm1(x)
+        x = F.relu(x)
+        x = self.conv3(x)
+        x = self.instnorm1(x)
+        x = self.convf(x)
+        x = self.fc1(x)
+        x = self.lnorm2(x)
+        x = x.view(-1, x.shape[-2] * x.shape[-1])
         x = self.fc2(x)
         return x
 
@@ -392,75 +415,6 @@ class DPMultiheadAttention(nn.Module):
             return attn_output, attn_output_weights.sum(dim=1) / self.num_heads
         else:
             return attn_output, None
-
-
-class SampleConvNet(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 16, 8, 3)
-        self.conv2 = nn.Conv1d(16, 32, 3, 1)
-        self.convf = nn.Conv1d(32, 32, 1, 1)
-        for p in self.convf.parameters():
-            p.requires_grad = False
-        self.fc1 = nn.Linear(23, 17)
-        self.fc2 = nn.Linear(32 * 17, 10)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(x.shape[0], x.shape[1], x.shape[2] * x.shape[3])
-        x = F.relu(self.conv2(x))
-        x = self.convf(x)
-        x = self.fc1(x)
-        x = x.view(-1, x.shape[-2] * x.shape[-1])
-        x = self.fc2(x)
-        return x
-
-    def name(self):
-        return 'SampleConvNet'
-
-
-class SampleConvNet(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 16, 8, 3)
-        self.gnorm1 = nn.GroupNorm(4, 16)
-        self.conv2 = nn.Conv1d(16, 32, 3, 1)
-        self.lnorm1 = nn.LayerNorm((32, 23))
-        self.conv3 = nn.Conv1d(32, 32, 3, 1)
-        self.instnorm1 = nn.InstanceNorm1d(32, affine=True)
-        self.convf = nn.Conv1d(32, 32, 1, 1)
-        for p in self.convf.parameters():
-            p.requires_grad = False
-        self.fc1 = nn.Linear(21, 17)
-        self.lnorm2 = nn.LayerNorm(17)
-        self.fc2 = nn.Linear(32 * 17, 10)
-        for layer in (self.gnorm1, self.lnorm1, self.lnorm2, self.instnorm1):
-            nn.init.uniform_(layer.weight)
-            nn.init.uniform_(layer.bias)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.gnorm1(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(x.shape[0], x.shape[1], x.shape[2] * x.shape[3])
-        x = self.conv2(x)
-        x = self.lnorm1(x)
-        x = F.relu(x)
-        x = self.conv3(x)
-        x = self.instnorm1(x)
-        x = self.convf(x)
-        x = self.fc1(x)
-        x = self.lnorm2(x)
-        x = x.view(-1, x.shape[-2] * x.shape[-1])
-        x = self.fc2(x)
-        return x
-
-    def name(self):
-        return 'SampleConvNet'
 
 
 class BasicModel(nn.Module):

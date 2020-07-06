@@ -17,6 +17,8 @@ seg_data_base = _module
 utils = _module
 downloader = _module
 ade20k = _module
+cityscapes = _module
+mscoco = _module
 models = _module
 backbones = _module
 build = _module
@@ -84,23 +86,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import logging
 
 
 import torch
 
 
-import logging
+import numpy as np
+
+
+import scipy.io as sio
+
+
+from torch.utils.model_zoo import tqdm
 
 
 import torch.utils.model_zoo as model_zoo
@@ -116,9 +128,6 @@ import torch.nn.functional as F
 
 
 import torch._utils
-
-
-import numpy as np
 
 
 from collections import OrderedDict
@@ -151,6 +160,9 @@ from torch.nn.modules.batchnorm import _BatchNorm
 from torch.autograd import Variable
 
 
+from typing import List
+
+
 from torch import optim
 
 
@@ -161,6 +173,9 @@ from torch.utils.data.sampler import Sampler
 
 
 from torch.utils.data.sampler import BatchSampler
+
+
+import random
 
 
 import torch.cuda.comm as comm
@@ -175,13 +190,108 @@ from torch.nn.parallel._functions import Broadcast
 from torch.autograd import Function
 
 
+from torch import distributed as dist
+
+
+import copy
+
+
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
 from torchvision import transforms
 
 
 import time
 
 
-import copy
+class _BNPReLU(nn.Module):
+
+    def __init__(self, out_channels, norm_layer=nn.BatchNorm2d):
+        super(_BNPReLU, self).__init__()
+        self.bn = norm_layer(out_channels)
+        self.prelu = nn.PReLU(out_channels)
+
+    def forward(self, x):
+        x = self.bn(x)
+        x = self.prelu(x)
+        return x
+
+
+class _ConvBN(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, norm_layer=nn.BatchNorm2d, **kwargs):
+        super(_ConvBN, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias=False)
+        self.bn = norm_layer(out_channels)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        return x
+
+
+class _ConvBNPReLU(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, norm_layer=nn.BatchNorm2d):
+        super(_ConvBNPReLU, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias=False)
+        self.bn = norm_layer(out_channels)
+        self.prelu = nn.PReLU(out_channels)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.prelu(x)
+        return x
+
+
+class EESP(nn.Module):
+
+    def __init__(self, in_channels, out_channels, stride=1, k=4, r_lim=7, down_method='esp', norm_layer=nn.BatchNorm2d):
+        super(EESP, self).__init__()
+        self.stride = stride
+        n = int(out_channels / k)
+        n1 = out_channels - (k - 1) * n
+        assert down_method in ['avg', 'esp'], 'One of these is suppported (avg or esp)'
+        assert n == n1, 'n(={}) and n1(={}) should be equal for Depth-wise Convolution '.format(n, n1)
+        self.proj_1x1 = _ConvBNPReLU(in_channels, n, 1, stride=1, groups=k, norm_layer=norm_layer)
+        map_receptive_ksize = {(3): 1, (5): 2, (7): 3, (9): 4, (11): 5, (13): 6, (15): 7, (17): 8}
+        self.k_sizes = list()
+        for i in range(k):
+            ksize = int(3 + 2 * i)
+            ksize = ksize if ksize <= r_lim else 3
+            self.k_sizes.append(ksize)
+        self.k_sizes.sort()
+        self.spp_dw = nn.ModuleList()
+        for i in range(k):
+            dilation = map_receptive_ksize[self.k_sizes[i]]
+            self.spp_dw.append(nn.Conv2d(n, n, 3, stride, dilation, dilation=dilation, groups=n, bias=False))
+        self.conv_1x1_exp = _ConvBN(out_channels, out_channels, 1, 1, groups=k, norm_layer=norm_layer)
+        self.br_after_cat = _BNPReLU(out_channels, norm_layer)
+        self.module_act = nn.PReLU(out_channels)
+        self.downAvg = True if down_method == 'avg' else False
+
+    def forward(self, x):
+        output1 = self.proj_1x1(x)
+        output = [self.spp_dw[0](output1)]
+        for k in range(1, len(self.spp_dw)):
+            out_k = self.spp_dw[k](output1)
+            out_k = out_k + output[k - 1]
+            output.append(out_k)
+        expanded = self.conv_1x1_exp(self.br_after_cat(torch.cat(output, 1)))
+        del output
+        if self.stride == 2 and self.downAvg:
+            return expanded
+        if expanded.size() == x.size():
+            expanded = expanded + x
+        return self.module_act(expanded)
 
 
 class DownSampler(nn.Module):
@@ -325,35 +435,37 @@ class BasicBlock(nn.Module):
 
 
 class Bottleneck(nn.Module):
-    expansion = 4
+    """Bottlenecks include regular, asymmetric, downsampling, dilated"""
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, in_channels, inter_channels, out_channels, dilation=1, asymmetric=False, downsampling=False, norm_layer=nn.BatchNorm2d, **kwargs):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
+        self.downsamping = downsampling
+        if downsampling:
+            self.maxpool = nn.MaxPool2d(2, 2, return_indices=True)
+            self.conv_down = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels))
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 1, bias=False), norm_layer(inter_channels), nn.PReLU())
+        if downsampling:
+            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 2, stride=2, bias=False), norm_layer(inter_channels), nn.PReLU())
+        elif asymmetric:
+            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, (5, 1), padding=(2, 0), bias=False), nn.Conv2d(inter_channels, inter_channels, (1, 5), padding=(0, 2), bias=False), norm_layer(inter_channels), nn.PReLU())
+        else:
+            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 3, dilation=dilation, padding=dilation, bias=False), norm_layer(inter_channels), nn.PReLU())
+        self.conv3 = nn.Sequential(nn.Conv2d(inter_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.Dropout2d(0.1))
+        self.act = nn.PReLU()
 
     def forward(self, x):
-        residual = x
+        identity = x
+        if self.downsamping:
+            identity, max_indices = self.maxpool(identity)
+            identity = self.conv_down(identity)
         out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
         out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
         out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
+        out = self.act(out + identity)
+        if self.downsamping:
+            return out, max_indices
+        else:
+            return out
 
 
 class HighResolutionModule(nn.Module):
@@ -446,160 +558,1185 @@ class HighResolutionModule(nn.Module):
         return x_fuse
 
 
-blocks_dict = {'BASIC': BasicBlock, 'BOTTLENECK': Bottleneck}
+class Registry(object):
+    """
+    The registry that provides name -> object mapping, to support third-party users' custom modules.
+
+    To create a registry (inside segmentron):
+
+    .. code-block:: python
+
+        BACKBONE_REGISTRY = Registry('BACKBONE')
+
+    To register an object:
+
+    .. code-block:: python
+
+        @BACKBONE_REGISTRY.register()
+        class MyBackbone():
+            ...
+
+    Or:
+
+    .. code-block:: python
+
+        BACKBONE_REGISTRY.register(MyBackbone)
+    """
+
+    def __init__(self, name):
+        """
+        Args:
+            name (str): the name of this registry
+        """
+        self._name = name
+        self._obj_map = {}
+
+    def _do_register(self, name, obj):
+        assert name not in self._obj_map, "An object named '{}' was already registered in '{}' registry!".format(name, self._name)
+        self._obj_map[name] = obj
+
+    def register(self, obj=None, name=None):
+        """
+        Register the given object under the the name `obj.__name__`.
+        Can be used as either a decorator or not. See docstring of this class for usage.
+        """
+        if obj is None:
+
+            def deco(func_or_class, name=name):
+                if name is None:
+                    name = func_or_class.__name__
+                self._do_register(name, func_or_class)
+                return func_or_class
+            return deco
+        if name is None:
+            name = obj.__name__
+        self._do_register(name, obj)
+
+    def get(self, name):
+        ret = self._obj_map.get(name)
+        if ret is None:
+            raise KeyError("No object named '{}' found in '{}' registry!".format(name, self._name))
+        return ret
+
+    def get_list(self):
+        return list(self._obj_map.keys())
 
 
-_global_config['MODEL'] = 4
+MODEL_REGISTRY = Registry('MODEL')
 
 
-class HighResolutionNet(nn.Module):
+def _flip_image(img):
+    assert img.ndim == 4
+    return img.flip(3)
 
-    def __init__(self, norm_layer=nn.BatchNorm2d):
-        super(HighResolutionNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)
-        self.bn1 = norm_layer(64)
-        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1, bias=False)
-        self.bn2 = norm_layer(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.stage1_cfg = cfg.MODEL.HRNET.STAGE1
-        num_channels = self.stage1_cfg['NUM_CHANNELS'][0]
-        block = blocks_dict[self.stage1_cfg['BLOCK']]
-        num_blocks = self.stage1_cfg['NUM_BLOCKS'][0]
-        self.layer1 = self._make_layer(block, 64, num_channels, num_blocks, norm_layer=norm_layer)
-        stage1_out_channel = block.expansion * num_channels
-        self.stage2_cfg = cfg.MODEL.HRNET.STAGE2
-        num_channels = self.stage2_cfg['NUM_CHANNELS']
-        block = blocks_dict[self.stage2_cfg['BLOCK']]
-        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
-        self.transition1 = self._make_transition_layer([stage1_out_channel], num_channels, norm_layer=norm_layer)
-        self.stage2, pre_stage_channels = self._make_stage(self.stage2_cfg, num_channels)
-        self.stage3_cfg = cfg.MODEL.HRNET.STAGE3
-        num_channels = self.stage3_cfg['NUM_CHANNELS']
-        block = blocks_dict[self.stage3_cfg['BLOCK']]
-        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
-        self.transition2 = self._make_transition_layer(pre_stage_channels, num_channels)
-        self.stage3, pre_stage_channels = self._make_stage(self.stage3_cfg, num_channels)
-        self.stage4_cfg = cfg.MODEL.HRNET.STAGE4
-        num_channels = self.stage4_cfg['NUM_CHANNELS']
-        block = blocks_dict[self.stage4_cfg['BLOCK']]
-        num_channels = [(num_channels[i] * block.expansion) for i in range(len(num_channels))]
-        self.transition3 = self._make_transition_layer(pre_stage_channels, num_channels)
-        self.stage4, pre_stage_channels = self._make_stage(self.stage4_cfg, num_channels, multi_scale_output=True)
-        self.last_inp_channels = np.int(np.sum(pre_stage_channels))
 
-    def _make_head(self, pre_stage_channels):
-        head_block = Bottleneck
-        head_channels = [32, 64, 128, 256]
-        incre_modules = []
-        for i, channels in enumerate(pre_stage_channels):
-            incre_module = self._make_layer(head_block, channels, head_channels[i], 1, stride=1)
-            incre_modules.append(incre_module)
-        incre_modules = nn.ModuleList(incre_modules)
-        downsamp_modules = []
-        for i in range(len(pre_stage_channels) - 1):
-            in_channels = head_channels[i] * head_block.expansion
-            out_channels = head_channels[i + 1] * head_block.expansion
-            downsamp_module = nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=2, padding=1), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
-            downsamp_modules.append(downsamp_module)
-        downsamp_modules = nn.ModuleList(downsamp_modules)
-        final_layer = nn.Sequential(nn.Conv2d(in_channels=head_channels[3] * head_block.expansion, out_channels=2048, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(2048), nn.ReLU(inplace=True))
-        return incre_modules, downsamp_modules, final_layer
+def _pad_image(img, crop_size):
+    b, c, h, w = img.shape
+    assert c == 3
+    padh = crop_size[0] - h if h < crop_size[0] else 0
+    padw = crop_size[1] - w if w < crop_size[1] else 0
+    if padh == 0 and padw == 0:
+        return img
+    img_pad = F.pad(img, (0, padh, 0, padw))
+    return img_pad
 
-    def _make_transition_layer(self, num_channels_pre_layer, num_channels_cur_layer, norm_layer=nn.BatchNorm2d):
-        num_branches_cur = len(num_channels_cur_layer)
-        num_branches_pre = len(num_channels_pre_layer)
-        transition_layers = []
-        for i in range(num_branches_cur):
-            if i < num_branches_pre:
-                if num_channels_cur_layer[i] != num_channels_pre_layer[i]:
-                    transition_layers.append(nn.Sequential(nn.Conv2d(num_channels_pre_layer[i], num_channels_cur_layer[i], 3, 1, 1, bias=False), norm_layer(num_channels_cur_layer[i]), nn.ReLU(inplace=True)))
-                else:
-                    transition_layers.append(None)
+
+def _resize_image(img, h, w):
+    return F.interpolate(img, size=[h, w], mode='bilinear', align_corners=True)
+
+
+def _to_tuple(size):
+    if isinstance(size, (list, tuple)):
+        assert len(size), 'Expect eval crop size contains two element, but received {}'.format(len(size))
+        return tuple(size)
+    elif isinstance(size, numbers.Number):
+        return tuple((size, size))
+    else:
+        raise ValueError('Unsupport datatype: {}'.format(type(size)))
+
+
+class SegmentationDataset(object):
+    """Segmentation Base Dataset"""
+
+    def __init__(self, root, split, mode, transform, base_size=520, crop_size=480):
+        super(SegmentationDataset, self).__init__()
+        self.root = os.path.join(cfg.ROOT_PATH, root)
+        self.transform = transform
+        self.split = split
+        self.mode = mode if mode is not None else split
+        self.base_size = base_size
+        self.crop_size = self.to_tuple(crop_size)
+        self.color_jitter = self._get_color_jitter()
+
+    def to_tuple(self, size):
+        if isinstance(size, (list, tuple)):
+            return tuple(size)
+        elif isinstance(size, (int, float)):
+            return tuple((size, size))
+        else:
+            raise ValueError('Unsupport datatype: {}'.format(type(size)))
+
+    def _get_color_jitter(self):
+        color_jitter = cfg.AUG.COLOR_JITTER
+        if color_jitter is None:
+            return None
+        if isinstance(color_jitter, (list, tuple)):
+            assert len(color_jitter) in (3, 4)
+        else:
+            color_jitter = (float(color_jitter),) * 3
+        return torchvision.transforms.ColorJitter(*color_jitter)
+
+    def _val_sync_transform(self, img, mask):
+        outsize = self.crop_size
+        short_size = min(outsize)
+        w, h = img.size
+        if w > h:
+            oh = short_size
+            ow = int(1.0 * w * oh / h)
+        else:
+            ow = short_size
+            oh = int(1.0 * h * ow / w)
+        img = img.resize((ow, oh), Image.BILINEAR)
+        mask = mask.resize((ow, oh), Image.NEAREST)
+        w, h = img.size
+        x1 = int(round((w - outsize[1]) / 2.0))
+        y1 = int(round((h - outsize[0]) / 2.0))
+        img = img.crop((x1, y1, x1 + outsize[1], y1 + outsize[0]))
+        mask = mask.crop((x1, y1, x1 + outsize[1], y1 + outsize[0]))
+        img, mask = self._img_transform(img), self._mask_transform(mask)
+        return img, mask
+
+    def _sync_transform(self, img, mask):
+        if cfg.AUG.MIRROR and random.random() < 0.5:
+            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+            mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
+        crop_size = self.crop_size
+        short_size = random.randint(int(self.base_size * 0.5), int(self.base_size * 2.0))
+        w, h = img.size
+        if h > w:
+            ow = short_size
+            oh = int(1.0 * h * ow / w)
+        else:
+            oh = short_size
+            ow = int(1.0 * w * oh / h)
+        img = img.resize((ow, oh), Image.BILINEAR)
+        mask = mask.resize((ow, oh), Image.NEAREST)
+        if short_size < min(crop_size):
+            padh = crop_size[0] - oh if oh < crop_size[0] else 0
+            padw = crop_size[1] - ow if ow < crop_size[1] else 0
+            img = ImageOps.expand(img, border=(0, 0, padw, padh), fill=0)
+            mask = ImageOps.expand(mask, border=(0, 0, padw, padh), fill=-1)
+        w, h = img.size
+        x1 = random.randint(0, w - crop_size[1])
+        y1 = random.randint(0, h - crop_size[0])
+        img = img.crop((x1, y1, x1 + crop_size[1], y1 + crop_size[0]))
+        mask = mask.crop((x1, y1, x1 + crop_size[1], y1 + crop_size[0]))
+        if cfg.AUG.BLUR_PROB > 0 and random.random() < cfg.AUG.BLUR_PROB:
+            radius = cfg.AUG.BLUR_RADIUS if cfg.AUG.BLUR_RADIUS > 0 else random.random()
+            img = img.filter(ImageFilter.GaussianBlur(radius=radius))
+        if self.color_jitter:
+            img = self.color_jitter(img)
+        img, mask = self._img_transform(img), self._mask_transform(mask)
+        return img, mask
+
+    def _img_transform(self, img):
+        return np.array(img)
+
+    def _mask_transform(self, mask):
+        return np.array(mask).astype('int32')
+
+    @property
+    def num_class(self):
+        """Number of categories."""
+        return self.NUM_CLASS
+
+    @property
+    def pred_offset(self):
+        return 0
+
+
+def _get_ade20k_pairs(folder, mode='train'):
+    img_paths = []
+    mask_paths = []
+    if mode == 'train':
+        img_folder = os.path.join(folder, 'images/training')
+        mask_folder = os.path.join(folder, 'annotations/training')
+    else:
+        img_folder = os.path.join(folder, 'images/validation')
+        mask_folder = os.path.join(folder, 'annotations/validation')
+    for filename in os.listdir(img_folder):
+        basename, _ = os.path.splitext(filename)
+        if filename.endswith('.jpg'):
+            imgpath = os.path.join(img_folder, filename)
+            maskname = basename + '.png'
+            maskpath = os.path.join(mask_folder, maskname)
+            if os.path.isfile(maskpath):
+                img_paths.append(imgpath)
+                mask_paths.append(maskpath)
             else:
-                conv3x3s = []
-                for j in range(i + 1 - num_branches_pre):
-                    inchannels = num_channels_pre_layer[-1]
-                    outchannels = num_channels_cur_layer[i] if j == i - num_branches_pre else inchannels
-                    conv3x3s.append(nn.Sequential(nn.Conv2d(inchannels, outchannels, 3, 2, 1, bias=False), norm_layer(outchannels), nn.ReLU(inplace=True)))
-                transition_layers.append(nn.Sequential(*conv3x3s))
-        return nn.ModuleList(transition_layers)
+                logging.info('cannot find the mask:', maskpath)
+    return img_paths, mask_paths
 
-    def _make_layer(self, block, inplanes, planes, blocks, stride=1, norm_layer=nn.BatchNorm2d):
-        downsample = None
-        if stride != 1 or inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), norm_layer(planes * block.expansion))
-        layers = []
-        layers.append(block(inplanes, planes, stride, downsample))
-        inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(inplanes, planes))
-        return nn.Sequential(*layers)
 
-    def _make_stage(self, layer_config, num_inchannels, multi_scale_output=True):
-        num_modules = layer_config['NUM_MODULES']
-        num_branches = layer_config['NUM_BRANCHES']
-        num_blocks = layer_config['NUM_BLOCKS']
-        num_channels = layer_config['NUM_CHANNELS']
-        block = blocks_dict[layer_config['BLOCK']]
-        fuse_method = layer_config['FUSE_METHOD']
-        modules = []
-        for i in range(num_modules):
-            if not multi_scale_output and i == num_modules - 1:
-                reset_multi_scale_output = False
+class ADE20KSegmentation(SegmentationDataset):
+    """ADE20K Semantic Segmentation Dataset.
+
+    Parameters
+    ----------
+    root : string
+        Path to ADE20K folder. Default is './datasets/ade'
+    split: string
+        'train', 'val' or 'test'
+    transform : callable, optional
+        A function that transforms the image
+    Examples
+    --------
+    >>> from torchvision import transforms
+    >>> import torch.utils.data as data
+    >>> # Transforms for Normalization
+    >>> input_transform = transforms.Compose([
+    >>>     transforms.ToTensor(),
+    >>>     transforms.Normalize((.485, .456, .406), (.229, .224, .225)),
+    >>> ])
+    >>> # Create Dataset
+    >>> trainset = ADE20KSegmentation(split='train', transform=input_transform)
+    >>> # Create Training Loader
+    >>> train_data = data.DataLoader(
+    >>>     trainset, 4, shuffle=True,
+    >>>     num_workers=4)
+    """
+    BASE_DIR = 'ADEChallengeData2016'
+    NUM_CLASS = 150
+
+    def __init__(self, root='datasets/ade', split='test', mode=None, transform=None, **kwargs):
+        super(ADE20KSegmentation, self).__init__(root, split, mode, transform, **kwargs)
+        root = os.path.join(self.root, self.BASE_DIR)
+        assert os.path.exists(root), 'Please put the data in {SEG_ROOT}/datasets/ade'
+        self.images, self.masks = _get_ade20k_pairs(root, split)
+        assert len(self.images) == len(self.masks)
+        if len(self.images) == 0:
+            raise RuntimeError('Found 0 images in subfolders of:' + root + '\n')
+        logging.info('Found {} images in the folder {}'.format(len(self.images), root))
+
+    def __getitem__(self, index):
+        img = Image.open(self.images[index]).convert('RGB')
+        if self.mode == 'test':
+            img = self._img_transform(img)
+            if self.transform is not None:
+                img = self.transform(img)
+            return img, os.path.basename(self.images[index])
+        mask = Image.open(self.masks[index])
+        if self.mode == 'train':
+            img, mask = self._sync_transform(img, mask)
+        elif self.mode == 'val':
+            img, mask = self._val_sync_transform(img, mask)
+        else:
+            assert self.mode == 'testval'
+            img, mask = self._img_transform(img), self._mask_transform(mask)
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, mask, os.path.basename(self.images[index])
+
+    def _mask_transform(self, mask):
+        return torch.LongTensor(np.array(mask).astype('int32') - 1)
+
+    def __len__(self):
+        return len(self.images)
+
+    @property
+    def pred_offset(self):
+        return 1
+
+    @property
+    def classes(self):
+        """Category names."""
+        return 'wall', 'building, edifice', 'sky', 'floor, flooring', 'tree', 'ceiling', 'road, route', 'bed', 'windowpane, window', 'grass', 'cabinet', 'sidewalk, pavement', 'person, individual, someone, somebody, mortal, soul', 'earth, ground', 'door, double door', 'table', 'mountain, mount', 'plant, flora, plant life', 'curtain, drape, drapery, mantle, pall', 'chair', 'car, auto, automobile, machine, motorcar', 'water', 'painting, picture', 'sofa, couch, lounge', 'shelf', 'house', 'sea', 'mirror', 'rug, carpet, carpeting', 'field', 'armchair', 'seat', 'fence, fencing', 'desk', 'rock, stone', 'wardrobe, closet, press', 'lamp', 'bathtub, bathing tub, bath, tub', 'railing, rail', 'cushion', 'base, pedestal, stand', 'box', 'column, pillar', 'signboard, sign', 'chest of drawers, chest, bureau, dresser', 'counter', 'sand', 'sink', 'skyscraper', 'fireplace, hearth, open fireplace', 'refrigerator, icebox', 'grandstand, covered stand', 'path', 'stairs, steps', 'runway', 'case, display case, showcase, vitrine', 'pool table, billiard table, snooker table', 'pillow', 'screen door, screen', 'stairway, staircase', 'river', 'bridge, span', 'bookcase', 'blind, screen', 'coffee table, cocktail table', 'toilet, can, commode, crapper, pot, potty, stool, throne', 'flower', 'book', 'hill', 'bench', 'countertop', 'stove, kitchen stove, range, kitchen range, cooking stove', 'palm, palm tree', 'kitchen island', 'computer, computing machine, computing device, data processor, electronic computer, information processing system', 'swivel chair', 'boat', 'bar', 'arcade machine', 'hovel, hut, hutch, shack, shanty', 'bus, autobus, coach, charabanc, double-decker, jitney, motorbus, motorcoach, omnibus, passenger vehicle', 'towel', 'light, light source', 'truck, motortruck', 'tower', 'chandelier, pendant, pendent', 'awning, sunshade, sunblind', 'streetlight, street lamp', 'booth, cubicle, stall, kiosk', 'television receiver, television, television set, tv, tv set, idiot box, boob tube, telly, goggle box', 'airplane, aeroplane, plane', 'dirt track', 'apparel, wearing apparel, dress, clothes', 'pole', 'land, ground, soil', 'bannister, banister, balustrade, balusters, handrail', 'escalator, moving staircase, moving stairway', 'ottoman, pouf, pouffe, puff, hassock', 'bottle', 'buffet, counter, sideboard', 'poster, posting, placard, notice, bill, card', 'stage', 'van', 'ship', 'fountain', 'conveyer belt, conveyor belt, conveyer, conveyor, transporter', 'canopy', 'washer, automatic washer, washing machine', 'plaything, toy', 'swimming pool, swimming bath, natatorium', 'stool', 'barrel, cask', 'basket, handbasket', 'waterfall, falls', 'tent, collapsible shelter', 'bag', 'minibike, motorbike', 'cradle', 'oven', 'ball', 'food, solid food', 'step, stair', 'tank, storage tank', 'trade name, brand name, brand, marque', 'microwave, microwave oven', 'pot, flowerpot', 'animal, animate being, beast, brute, creature, fauna', 'bicycle, bike, wheel, cycle', 'lake', 'dishwasher, dish washer, dishwashing machine', 'screen, silver screen, projection screen', 'blanket, cover', 'sculpture', 'hood, exhaust hood', 'sconce', 'vase', 'traffic light, traffic signal, stoplight', 'tray', 'ashcan, trash can, garbage can, wastebin, ash bin, ash-bin, ashbin, dustbin, trash barrel, trash bin', 'fan', 'pier, wharf, wharfage, dock', 'crt screen', 'plate', 'monitor, monitoring device', 'bulletin board, notice board', 'shower', 'radiator', 'glass, drinking glass', 'clock', 'flag'
+
+
+class COCOSegmentation(SegmentationDataset):
+    """COCO Semantic Segmentation Dataset for VOC Pre-training.
+
+    Parameters
+    ----------
+    root : string
+        Path to ADE20K folder. Default is './datasets/coco'
+    split: string
+        'train', 'val' or 'test'
+    transform : callable, optional
+        A function that transforms the image
+    Examples
+    --------
+    >>> from torchvision import transforms
+    >>> import torch.utils.data as data
+    >>> # Transforms for Normalization
+    >>> input_transform = transforms.Compose([
+    >>>     transforms.ToTensor(),
+    >>>     transforms.Normalize((.485, .456, .406), (.229, .224, .225)),
+    >>> ])
+    >>> # Create Dataset
+    >>> trainset = COCOSegmentation(split='train', transform=input_transform)
+    >>> # Create Training Loader
+    >>> train_data = data.DataLoader(
+    >>>     trainset, 4, shuffle=True,
+    >>>     num_workers=4)
+    """
+    CAT_LIST = [0, 5, 2, 16, 9, 44, 6, 3, 17, 62, 21, 67, 18, 19, 4, 1, 64, 20, 63, 7, 72]
+    NUM_CLASS = 21
+
+    def __init__(self, root='datasets/coco', split='train', mode=None, transform=None, **kwargs):
+        super(COCOSegmentation, self).__init__(root, split, mode, transform, **kwargs)
+        if split == 'train':
+            None
+            ann_file = os.path.join(root, 'annotations/instances_train2017.json')
+            ids_file = os.path.join(root, 'annotations/train_ids.pkl')
+            self.root = os.path.join(root, 'train2017')
+        else:
+            None
+            ann_file = os.path.join(root, 'annotations/instances_val2017.json')
+            ids_file = os.path.join(root, 'annotations/val_ids.pkl')
+            self.root = os.path.join(root, 'val2017')
+        self.coco = COCO(ann_file)
+        self.coco_mask = mask
+        if os.path.exists(ids_file):
+            with open(ids_file, 'rb') as f:
+                self.ids = pickle.load(f)
+        else:
+            ids = list(self.coco.imgs.keys())
+            self.ids = self._preprocess(ids, ids_file)
+        self.transform = transform
+
+    def __getitem__(self, index):
+        coco = self.coco
+        img_id = self.ids[index]
+        img_metadata = coco.loadImgs(img_id)[0]
+        path = img_metadata['file_name']
+        img = Image.open(os.path.join(self.root, path)).convert('RGB')
+        cocotarget = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
+        mask = Image.fromarray(self._gen_seg_mask(cocotarget, img_metadata['height'], img_metadata['width']))
+        if self.mode == 'train':
+            img, mask = self._sync_transform(img, mask)
+        elif self.mode == 'val':
+            img, mask = self._val_sync_transform(img, mask)
+        else:
+            assert self.mode == 'testval'
+            img, mask = self._img_transform(img), self._mask_transform(mask)
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, mask, os.path.basename(path)
+
+    def __len__(self):
+        return len(self.ids)
+
+    def _mask_transform(self, mask):
+        return torch.LongTensor(np.array(mask).astype('int32'))
+
+    def _gen_seg_mask(self, target, h, w):
+        mask = np.zeros((h, w), dtype=np.uint8)
+        coco_mask = self.coco_mask
+        for instance in target:
+            rle = coco_mask.frPyObjects(instance['segmentation'], h, w)
+            m = coco_mask.decode(rle)
+            cat = instance['category_id']
+            if cat in self.CAT_LIST:
+                c = self.CAT_LIST.index(cat)
             else:
-                reset_multi_scale_output = True
-            modules.append(HighResolutionModule(num_branches, block, num_blocks, num_inchannels, num_channels, fuse_method, reset_multi_scale_output))
-            num_inchannels = modules[-1].get_num_inchannels()
-        return nn.Sequential(*modules), num_inchannels
+                continue
+            if len(m.shape) < 3:
+                mask[:, :] += (mask == 0) * (m * c)
+            else:
+                mask[:, :] += (mask == 0) * ((np.sum(m, axis=2) > 0) * c).astype(np.uint8)
+        return mask
+
+    def _preprocess(self, ids, ids_file):
+        None
+        tbar = trange(len(ids))
+        new_ids = []
+        for i in tbar:
+            img_id = ids[i]
+            cocotarget = self.coco.loadAnns(self.coco.getAnnIds(imgIds=img_id))
+            img_metadata = self.coco.loadImgs(img_id)[0]
+            mask = self._gen_seg_mask(cocotarget, img_metadata['height'], img_metadata['width'])
+            if (mask > 0).sum() > 1000:
+                new_ids.append(img_id)
+            tbar.set_description('Doing: {}/{}, got {} qualified images'.format(i, len(ids), len(new_ids)))
+        None
+        with open(ids_file, 'wb') as f:
+            pickle.dump(new_ids, f)
+        return new_ids
+
+    @property
+    def classes(self):
+        """Category names."""
+        return 'background', 'airplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep', 'sofa', 'train', 'tv'
+
+
+def _get_city_pairs(folder, split='train'):
+
+    def get_path_pairs(img_folder, mask_folder):
+        img_paths = []
+        mask_paths = []
+        for root, _, files in os.walk(img_folder):
+            for filename in files:
+                if filename.startswith('._'):
+                    continue
+                if filename.endswith('.png'):
+                    imgpath = os.path.join(root, filename)
+                    foldername = os.path.basename(os.path.dirname(imgpath))
+                    maskname = filename.replace('leftImg8bit', 'gtFine_labelIds')
+                    maskpath = os.path.join(mask_folder, foldername, maskname)
+                    if os.path.isfile(imgpath) and os.path.isfile(maskpath):
+                        img_paths.append(imgpath)
+                        mask_paths.append(maskpath)
+                    else:
+                        logging.info('cannot find the mask or image:', imgpath, maskpath)
+        logging.info('Found {} images in the folder {}'.format(len(img_paths), img_folder))
+        return img_paths, mask_paths
+    if split in ('train', 'val'):
+        img_folder = os.path.join(folder, 'leftImg8bit/' + split)
+        mask_folder = os.path.join(folder, 'gtFine/' + split)
+        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
+        return img_paths, mask_paths
+    else:
+        assert split == 'trainval'
+        logging.info('trainval set')
+        train_img_folder = os.path.join(folder, 'leftImg8bit/train')
+        train_mask_folder = os.path.join(folder, 'gtFine/train')
+        val_img_folder = os.path.join(folder, 'leftImg8bit/val')
+        val_mask_folder = os.path.join(folder, 'gtFine/val')
+        train_img_paths, train_mask_paths = get_path_pairs(train_img_folder, train_mask_folder)
+        val_img_paths, val_mask_paths = get_path_pairs(val_img_folder, val_mask_folder)
+        img_paths = train_img_paths + val_img_paths
+        mask_paths = train_mask_paths + val_mask_paths
+    return img_paths, mask_paths
+
+
+class CitySegmentation(SegmentationDataset):
+    """Cityscapes Semantic Segmentation Dataset.
+
+    Parameters
+    ----------
+    root : string
+        Path to Cityscapes folder. Default is './datasets/cityscapes'
+    split: string
+        'train', 'val' or 'test'
+    transform : callable, optional
+        A function that transforms the image
+    Examples
+    --------
+    >>> from torchvision import transforms
+    >>> import torch.utils.data as data
+    >>> # Transforms for Normalization
+    >>> input_transform = transforms.Compose([
+    >>>     transforms.ToTensor(),
+    >>>     transforms.Normalize((.485, .456, .406), (.229, .224, .225)),
+    >>> ])
+    >>> # Create Dataset
+    >>> trainset = CitySegmentation(split='train', transform=input_transform)
+    >>> # Create Training Loader
+    >>> train_data = data.DataLoader(
+    >>>     trainset, 4, shuffle=True,
+    >>>     num_workers=4)
+    """
+    BASE_DIR = 'cityscapes'
+    NUM_CLASS = 19
+
+    def __init__(self, root='datasets/cityscapes', split='train', mode=None, transform=None, **kwargs):
+        super(CitySegmentation, self).__init__(root, split, mode, transform, **kwargs)
+        assert os.path.exists(self.root), 'Please put dataset in {SEG_ROOT}/datasets/cityscapes'
+        self.images, self.mask_paths = _get_city_pairs(self.root, self.split)
+        assert len(self.images) == len(self.mask_paths)
+        if len(self.images) == 0:
+            raise RuntimeError('Found 0 images in subfolders of:' + root + '\n')
+        self.valid_classes = [7, 8, 11, 12, 13, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32, 33]
+        self._key = np.array([-1, -1, -1, -1, -1, -1, -1, -1, 0, 1, -1, -1, 2, 3, 4, -1, -1, -1, 5, -1, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1, -1, 16, 17, 18])
+        self._mapping = np.array(range(-1, len(self._key) - 1)).astype('int32')
+
+    def _class_to_index(self, mask):
+        values = np.unique(mask)
+        for value in values:
+            assert value in self._mapping
+        index = np.digitize(mask.ravel(), self._mapping, right=True)
+        return self._key[index].reshape(mask.shape)
+
+    def __getitem__(self, index):
+        img = Image.open(self.images[index]).convert('RGB')
+        if self.mode == 'test':
+            if self.transform is not None:
+                img = self.transform(img)
+            return img, os.path.basename(self.images[index])
+        mask = Image.open(self.mask_paths[index])
+        if self.mode == 'train':
+            img, mask = self._sync_transform(img, mask)
+        elif self.mode == 'val':
+            img, mask = self._val_sync_transform(img, mask)
+        else:
+            assert self.mode == 'testval'
+            img, mask = self._img_transform(img), self._mask_transform(mask)
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, mask, os.path.basename(self.images[index])
+
+    def _mask_transform(self, mask):
+        target = self._class_to_index(np.array(mask).astype('int32'))
+        return torch.LongTensor(np.array(target).astype('int32'))
+
+    def __len__(self):
+        return len(self.images)
+
+    @property
+    def pred_offset(self):
+        return 0
+
+    @property
+    def classes(self):
+        """Category names."""
+        return 'road', 'sidewalk', 'building', 'wall', 'fence', 'pole', 'traffic light', 'traffic sign', 'vegetation', 'terrain', 'sky', 'person', 'rider', 'car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle'
+
+
+def _get_sbu_pairs(folder, split='train'):
+
+    def get_path_pairs(img_folder, mask_folder):
+        img_paths = []
+        mask_paths = []
+        for root, _, files in os.walk(img_folder):
+            None
+            for filename in files:
+                if filename.endswith('.jpg'):
+                    imgpath = os.path.join(root, filename)
+                    maskname = filename.replace('.jpg', '.png')
+                    maskpath = os.path.join(mask_folder, maskname)
+                    if os.path.isfile(imgpath) and os.path.isfile(maskpath):
+                        img_paths.append(imgpath)
+                        mask_paths.append(maskpath)
+                    else:
+                        None
+        None
+        return img_paths, mask_paths
+    if split == 'train':
+        img_folder = os.path.join(folder, 'SBUTrain4KRecoveredSmall/ShadowImages')
+        mask_folder = os.path.join(folder, 'SBUTrain4KRecoveredSmall/ShadowMasks')
+        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
+    else:
+        assert split in ('val', 'test')
+        img_folder = os.path.join(folder, 'SBU-Test/ShadowImages')
+        mask_folder = os.path.join(folder, 'SBU-Test/ShadowMasks')
+        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
+    return img_paths, mask_paths
+
+
+class SBUSegmentation(SegmentationDataset):
+    """SBU Shadow Segmentation Dataset
+    """
+    NUM_CLASS = 2
+
+    def __init__(self, root='datasets/sbu', split='train', mode=None, transform=None, **kwargs):
+        super(SBUSegmentation, self).__init__(root, split, mode, transform, **kwargs)
+        assert os.path.exists(self.root)
+        self.images, self.masks = _get_sbu_pairs(self.root, self.split)
+        assert len(self.images) == len(self.masks)
+        if len(self.images) == 0:
+            raise RuntimeError('Found 0 images in subfolders of:' + root + '\n')
+
+    def __getitem__(self, index):
+        img = Image.open(self.images[index]).convert('RGB')
+        if self.mode == 'test':
+            if self.transform is not None:
+                img = self.transform(img)
+            return img, os.path.basename(self.images[index])
+        mask = Image.open(self.masks[index])
+        if self.mode == 'train':
+            img, mask = self._sync_transform(img, mask)
+        elif self.mode == 'val':
+            img, mask = self._val_sync_transform(img, mask)
+        else:
+            assert self.mode == 'testval'
+            img, mask = self._img_transform(img), self._mask_transform(mask)
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, mask, os.path.basename(self.images[index])
+
+    def _mask_transform(self, mask):
+        target = np.array(mask).astype('int32')
+        target[target > 0] = 1
+        return torch.from_numpy(target).long()
+
+    def __len__(self):
+        return len(self.images)
+
+    @property
+    def pred_offset(self):
+        return 0
+
+
+class VOCAugSegmentation(SegmentationDataset):
+    """Pascal VOC Augmented Semantic Segmentation Dataset.
+
+    Parameters
+    ----------
+    root : string
+        Path to VOCdevkit folder. Default is './datasets/voc'
+    split: string
+        'train', 'val' or 'test'
+    transform : callable, optional
+        A function that transforms the image
+    Examples
+    --------
+    >>> from torchvision import transforms
+    >>> import torch.utils.data as data
+    >>> # Transforms for Normalization
+    >>> input_transform = transforms.Compose([
+    >>>     transforms.ToTensor(),
+    >>>     transforms.Normalize([.485, .456, .406], [.229, .224, .225]),
+    >>> ])
+    >>> # Create Dataset
+    >>> trainset = VOCAugSegmentation(split='train', transform=input_transform)
+    >>> # Create Training Loader
+    >>> train_data = data.DataLoader(
+    >>>     trainset, 4, shuffle=True,
+    >>>     num_workers=4)
+    """
+    BASE_DIR = 'VOCaug/dataset/'
+    NUM_CLASS = 21
+
+    def __init__(self, root='datasets/voc', split='train', mode=None, transform=None, **kwargs):
+        super(VOCAugSegmentation, self).__init__(root, split, mode, transform, **kwargs)
+        _voc_root = os.path.join(root, self.BASE_DIR)
+        _mask_dir = os.path.join(_voc_root, 'cls')
+        _image_dir = os.path.join(_voc_root, 'img')
+        if split == 'train':
+            _split_f = os.path.join(_voc_root, 'trainval.txt')
+        elif split == 'val':
+            _split_f = os.path.join(_voc_root, 'val.txt')
+        else:
+            raise RuntimeError('Unknown dataset split: {}'.format(split))
+        self.images = []
+        self.masks = []
+        with open(os.path.join(_split_f), 'r') as lines:
+            for line in lines:
+                _image = os.path.join(_image_dir, line.rstrip('\n') + '.jpg')
+                assert os.path.isfile(_image)
+                self.images.append(_image)
+                _mask = os.path.join(_mask_dir, line.rstrip('\n') + '.mat')
+                assert os.path.isfile(_mask)
+                self.masks.append(_mask)
+        assert len(self.images) == len(self.masks)
+        None
+
+    def __getitem__(self, index):
+        img = Image.open(self.images[index]).convert('RGB')
+        target = self._load_mat(self.masks[index])
+        if self.mode == 'train':
+            img, target = self._sync_transform(img, target)
+        elif self.mode == 'val':
+            img, target = self._val_sync_transform(img, target)
+        elif self.mode == 'testval':
+            logging.warn('Use mode of testval, you should set batch size=1')
+            img, target = self._img_transform(img), self._mask_transform(target)
+        else:
+            raise RuntimeError('unknown mode for dataloader: {}'.format(self.mode))
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, target, os.path.basename(self.images[index])
+
+    def _mask_transform(self, mask):
+        return torch.LongTensor(np.array(mask).astype('int32'))
+
+    def _load_mat(self, filename):
+        mat = sio.loadmat(filename, mat_dtype=True, squeeze_me=True, struct_as_record=False)
+        mask = mat['GTcls'].Segmentation
+        return Image.fromarray(mask)
+
+    def __len__(self):
+        return len(self.images)
+
+    @property
+    def classes(self):
+        """Category names."""
+        return 'background', 'airplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep', 'sofa', 'train', 'tv'
+
+
+class VOCSegmentation(SegmentationDataset):
+    """Pascal VOC Semantic Segmentation Dataset.
+
+    Parameters
+    ----------
+    root : string
+        Path to VOCdevkit folder. Default is './datasets/VOCdevkit'
+    split: string
+        'train', 'val' or 'test'
+    transform : callable, optional
+        A function that transforms the image
+    Examples
+    --------
+    >>> from torchvision import transforms
+    >>> import torch.utils.data as data
+    >>> # Transforms for Normalization
+    >>> input_transform = transforms.Compose([
+    >>>     transforms.ToTensor(),
+    >>>     transforms.Normalize([.485, .456, .406], [.229, .224, .225]),
+    >>> ])
+    >>> # Create Dataset
+    >>> trainset = VOCSegmentation(split='train', transform=input_transform)
+    >>> # Create Training Loader
+    >>> train_data = data.DataLoader(
+    >>>     trainset, 4, shuffle=True,
+    >>>     num_workers=4)
+    """
+    BASE_DIR = 'VOC2012'
+    NUM_CLASS = 21
+
+    def __init__(self, root='datasets/voc', split='train', mode=None, transform=None, **kwargs):
+        super(VOCSegmentation, self).__init__(root, split, mode, transform, **kwargs)
+        _voc_root = os.path.join(root, self.BASE_DIR)
+        _mask_dir = os.path.join(_voc_root, 'SegmentationClass')
+        _image_dir = os.path.join(_voc_root, 'JPEGImages')
+        _splits_dir = os.path.join(_voc_root, 'ImageSets/Segmentation')
+        if split == 'train':
+            _split_f = os.path.join(_splits_dir, 'train.txt')
+        elif split == 'val':
+            _split_f = os.path.join(_splits_dir, 'val.txt')
+        elif split == 'test':
+            _split_f = os.path.join(_splits_dir, 'test.txt')
+        else:
+            raise RuntimeError('Unknown dataset split.')
+        self.images = []
+        self.masks = []
+        with open(os.path.join(_split_f), 'r') as lines:
+            for line in lines:
+                _image = os.path.join(_image_dir, line.rstrip('\n') + '.jpg')
+                assert os.path.isfile(_image)
+                self.images.append(_image)
+                if split != 'test':
+                    _mask = os.path.join(_mask_dir, line.rstrip('\n') + '.png')
+                    assert os.path.isfile(_mask)
+                    self.masks.append(_mask)
+        if split != 'test':
+            assert len(self.images) == len(self.masks)
+        None
+
+    def __getitem__(self, index):
+        img = Image.open(self.images[index]).convert('RGB')
+        if self.mode == 'test':
+            img = self._img_transform(img)
+            if self.transform is not None:
+                img = self.transform(img)
+            return img, os.path.basename(self.images[index])
+        mask = Image.open(self.masks[index])
+        if self.mode == 'train':
+            img, mask = self._sync_transform(img, mask)
+        elif self.mode == 'val':
+            img, mask = self._val_sync_transform(img, mask)
+        else:
+            assert self.mode == 'testval'
+            img, mask = self._img_transform(img), self._mask_transform(mask)
+        if self.transform is not None:
+            img = self.transform(img)
+        return img, mask, os.path.basename(self.images[index])
+
+    def __len__(self):
+        return len(self.images)
+
+    def _mask_transform(self, mask):
+        target = np.array(mask).astype('int32')
+        target[target == 255] = -1
+        return torch.from_numpy(target).long()
+
+    @property
+    def classes(self):
+        """Category names."""
+        return 'background', 'airplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep', 'sofa', 'train', 'tv'
+
+
+datasets = {'ade20k': ADE20KSegmentation, 'pascal_voc': VOCSegmentation, 'pascal_aug': VOCAugSegmentation, 'coco': COCOSegmentation, 'cityscape': CitySegmentation, 'sbu': SBUSegmentation}
+
+
+class FrozenBatchNorm2d(nn.Module):
+    """
+    BatchNorm2d where the batch statistics and the affine parameters are fixed.
+
+    It contains non-trainable buffers called
+    "weight" and "bias", "running_mean", "running_var",
+    initialized to perform identity transformation.
+
+    The pre-trained backbone models from Caffe2 only contain "weight" and "bias",
+    which are computed from the original four parameters of BN.
+    The affine transform `x * weight + bias` will perform the equivalent
+    computation of `(x - running_mean) / sqrt(running_var) * weight + bias`.
+    When loading a backbone model from Caffe2, "running_mean" and "running_var"
+    will be left unchanged as identity transformation.
+
+    Other pre-trained backbone models may contain all 4 parameters.
+
+    The forward is implemented by `F.batch_norm(..., training=False)`.
+    """
+    _version = 3
+
+    def __init__(self, num_features, eps=1e-05):
+        super().__init__()
+        self.num_features = num_features
+        self.eps = eps
+        self.register_buffer('weight', torch.ones(num_features))
+        self.register_buffer('bias', torch.zeros(num_features))
+        self.register_buffer('running_mean', torch.zeros(num_features))
+        self.register_buffer('running_var', torch.ones(num_features) - eps)
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = self.relu(x)
-        x = self.layer1(x)
-        x_list = []
-        for i in range(self.stage2_cfg['NUM_BRANCHES']):
-            if self.transition1[i] is not None:
-                x_list.append(self.transition1[i](x))
-            else:
-                x_list.append(x)
-        y_list = self.stage2(x_list)
-        x_list = []
-        for i in range(self.stage3_cfg['NUM_BRANCHES']):
-            if self.transition2[i] is not None:
-                x_list.append(self.transition2[i](y_list[-1]))
-            else:
-                x_list.append(y_list[i])
-        y_list = self.stage3(x_list)
-        x_list = []
-        for i in range(self.stage4_cfg['NUM_BRANCHES']):
-            if self.transition3[i] is not None:
-                x_list.append(self.transition3[i](y_list[-1]))
-            else:
-                x_list.append(y_list[i])
-        y_list = self.stage4(x_list)
-        return tuple(y_list)
+        scale = self.weight * (self.running_var + self.eps).rsqrt()
+        bias = self.bias - self.running_mean * scale
+        scale = scale.reshape(1, -1, 1, 1)
+        bias = bias.reshape(1, -1, 1, 1)
+        return x * scale + bias
 
-    def init_weights(self, pretrained=''):
-        logging.info('=> init weights from normal distribution')
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-        if os.path.isfile(pretrained):
-            pretrained_dict = torch.load(pretrained)
-            logging.info('=> loading pretrained model {}'.format(pretrained))
-            model_dict = self.state_dict()
-            pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict.keys()}
-            for k, _ in pretrained_dict.items():
-                logging.info('=> loading {} pretrained model {}'.format(k, pretrained))
-            model_dict.update(pretrained_dict)
-            self.load_state_dict(model_dict)
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        version = local_metadata.get('version', None)
+        if version is None or version < 2:
+            if prefix + 'running_mean' not in state_dict:
+                state_dict[prefix + 'running_mean'] = torch.zeros_like(self.running_mean)
+            if prefix + 'running_var' not in state_dict:
+                state_dict[prefix + 'running_var'] = torch.ones_like(self.running_var)
+        if version is not None and version < 3:
+            logging.info('FrozenBatchNorm {} is upgraded to version 3.'.format(prefix.rstrip('.')))
+            state_dict[prefix + 'running_var'] -= self.eps
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+
+    def __repr__(self):
+        return 'FrozenBatchNorm2d(num_features={}, eps={})'.format(self.num_features, self.eps)
+
+    @classmethod
+    def convert_frozen_batchnorm(cls, module):
+        """
+        Convert BatchNorm/SyncBatchNorm in module into FrozenBatchNorm.
+
+        Args:
+            module (torch.nn.Module):
+
+        Returns:
+            If module is BatchNorm/SyncBatchNorm, returns a new module.
+            Otherwise, in-place convert module and return it.
+
+        Similar to convert_sync_batchnorm in
+        https://github.com/pytorch/pytorch/blob/master/torch/nn/modules/batchnorm.py
+        """
+        bn_module = nn.modules.batchnorm
+        bn_module = bn_module.BatchNorm2d, bn_module.SyncBatchNorm
+        res = module
+        if isinstance(module, bn_module):
+            res = cls(module.num_features)
+            if module.affine:
+                res.weight.data = module.weight.data.clone().detach()
+                res.bias.data = module.bias.data.clone().detach()
+            res.running_mean.data = module.running_mean.data
+            res.running_var.data = module.running_var.data + module.eps
+        else:
+            for name, child in module.named_children():
+                new_child = cls.convert_frozen_batchnorm(child)
+                if new_child is not child:
+                    res.add_module(name, new_child)
+        return res
+
+
+class AllReduce(Function):
+
+    @staticmethod
+    def forward(ctx, input):
+        input_list = [torch.zeros_like(input) for k in range(dist.get_world_size())]
+        dist.all_gather(input_list, input, async_op=False)
+        inputs = torch.stack(input_list, dim=0)
+        return torch.sum(inputs, dim=0)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        dist.all_reduce(grad_output, async_op=False)
+        return grad_output
+
+
+def get_world_size():
+    if not dist.is_available():
+        return 1
+    if not dist.is_initialized():
+        return 1
+    return dist.get_world_size()
+
+
+class NaiveSyncBatchNorm(nn.BatchNorm2d):
+    """
+    `torch.nn.SyncBatchNorm` has known unknown bugs.
+    It produces significantly worse AP (and sometimes goes NaN)
+    when the batch size on each worker is quite different
+    (e.g., when scale augmentation is used, or when it is applied to mask head).
+
+    Use this implementation before `nn.SyncBatchNorm` is fixed.
+    It is slower than `nn.SyncBatchNorm`.
+    """
+
+    def forward(self, input):
+        if get_world_size() == 1 or not self.training:
+            return super().forward(input)
+        assert input.shape[0] > 0, 'SyncBatchNorm does not support empty inputs'
+        C = input.shape[1]
+        mean = torch.mean(input, dim=[0, 2, 3])
+        meansqr = torch.mean(input * input, dim=[0, 2, 3])
+        vec = torch.cat([mean, meansqr], dim=0)
+        vec = AllReduce.apply(vec) * (1.0 / dist.get_world_size())
+        mean, meansqr = torch.split(vec, C)
+        var = meansqr - mean * mean
+        self.running_mean += self.momentum * (mean.detach() - self.running_mean)
+        self.running_var += self.momentum * (var.detach() - self.running_var)
+        invstd = torch.rsqrt(var + self.eps)
+        scale = self.weight * invstd
+        bias = self.bias - mean * scale
+        scale = scale.reshape(1, -1, 1, 1)
+        bias = bias.reshape(1, -1, 1, 1)
+        return input * scale + bias
+
+
+def groupNorm(num_channels, eps=1e-05, momentum=0.1, affine=True):
+    return nn.GroupNorm(min(32, num_channels), num_channels, eps=eps, affine=affine)
+
+
+def get_norm(norm):
+    """
+    Args:
+        norm (str or callable):
+
+    Returns:
+        nn.Module or None: the normalization layer
+    """
+    support_norm_type = ['BN', 'SyncBN', 'FrozenBN', 'GN', 'nnSyncBN']
+    assert norm in support_norm_type, 'Unknown norm type {}, support norm types are {}'.format(norm, support_norm_type)
+    if isinstance(norm, str):
+        if len(norm) == 0:
+            return None
+        norm = {'BN': nn.BatchNorm2d, 'SyncBN': NaiveSyncBatchNorm, 'FrozenBN': FrozenBatchNorm2d, 'GN': groupNorm, 'nnSyncBN': nn.SyncBatchNorm}[norm]
+    return norm
+
+
+BACKBONE_REGISTRY = Registry('BACKBONE')
+
+
+def check_sha1(filename, sha1_hash):
+    """Check whether the sha1 hash of the file content matches the expected hash.
+    Parameters
+    ----------
+    filename : str
+        Path to the file.
+    sha1_hash : str
+        Expected sha1 hash in hexadecimal digits.
+    Returns
+    -------
+    bool
+        Whether the file content matches the expected hash.
+    """
+    sha1 = hashlib.sha1()
+    with open(filename, 'rb') as f:
+        while True:
+            data = f.read(1048576)
+            if not data:
+                break
+            sha1.update(data)
+    sha1_file = sha1.hexdigest()
+    l = min(len(sha1_file), len(sha1_hash))
+    return sha1.hexdigest()[0:l] == sha1_hash[0:l]
+
+
+def download(url, path=None, overwrite=False, sha1_hash=None):
+    """Download an given URL
+    Parameters
+    ----------
+    url : str
+        URL to download
+    path : str, optional
+        Destination path to store downloaded file. By default stores to the
+        current directory with same name as in url.
+    overwrite : bool, optional
+        Whether to overwrite destination file if already exists.
+    sha1_hash : str, optional
+        Expected sha1 hash in hexadecimal digits. Will ignore existing file when hash is specified
+        but doesn't match.
+    Returns
+    -------
+    str
+        The file path of the downloaded file.
+    """
+    if path is None:
+        fname = url.split('/')[-1]
+    else:
+        path = os.path.expanduser(path)
+        if os.path.isdir(path):
+            fname = os.path.join(path, url.split('/')[-1])
+        else:
+            fname = path
+    if overwrite or not os.path.exists(fname) or sha1_hash and not check_sha1(fname, sha1_hash):
+        dirname = os.path.dirname(os.path.abspath(os.path.expanduser(fname)))
+        if not os.path.exists(dirname):
+            os.makedirs(dirname)
+        None
+        r = requests.get(url, stream=True)
+        if r.status_code != 200:
+            raise RuntimeError('Failed downloading url %s' % url)
+        total_length = r.headers.get('content-length')
+        with open(fname, 'wb') as f:
+            if total_length is None:
+                for chunk in r.iter_content(chunk_size=1024):
+                    if chunk:
+                        f.write(chunk)
+            else:
+                total_length = int(total_length)
+                for chunk in tqdm(r.iter_content(chunk_size=1024), total=int(total_length / 1024.0 + 0.5), unit='KB', unit_scale=False, dynamic_ncols=True):
+                    f.write(chunk)
+        if sha1_hash and not check_sha1(fname, sha1_hash):
+            raise UserWarning('File {} is downloaded but the content hash does not match. The repo may be outdated or download may be incomplete. If the "repo_url" is overridden, consider switching to the default repo.'.format(fname))
+    return fname
+
+
+model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth', 'resnet50c': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet50-25c4b509.pth', 'resnet101c': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet101-2a57e44d.pth', 'resnet152c': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet152-0d43d698.pth', 'xception65': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/tf-xception65-270e81cf.pth', 'hrnet_w18_small_v1': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/hrnet-w18-small-v1-08f8ae64.pth', 'mobilenet_v2': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/mobilenetV2-15498621.pth'}
+
+
+def load_backbone_pretrained(model, backbone):
+    if cfg.PHASE == 'train' and cfg.TRAIN.BACKBONE_PRETRAINED and not cfg.TRAIN.PRETRAINED_MODEL_PATH:
+        if os.path.isfile(cfg.TRAIN.BACKBONE_PRETRAINED_PATH):
+            logging.info('Load backbone pretrained model from {}'.format(cfg.TRAIN.BACKBONE_PRETRAINED_PATH))
+            msg = model.load_state_dict(torch.load(cfg.TRAIN.BACKBONE_PRETRAINED_PATH), strict=False)
+            logging.info(msg)
+        elif backbone not in model_urls:
+            logging.info('{} has no pretrained model'.format(backbone))
+            return
+        else:
+            logging.info('load backbone pretrained model from url..')
+            try:
+                msg = model.load_state_dict(model_zoo.load_url(model_urls[backbone]), strict=False)
+            except Exception as e:
+                logging.warning(e)
+                logging.info('Use torch download failed, try custom method!')
+                msg = model.load_state_dict(torch.load(download(model_urls[backbone], path=os.path.join(torch.hub._get_torch_home(), 'checkpoints'))), strict=False)
+            logging.info(msg)
+
+
+def get_segmentation_backbone(backbone, norm_layer=torch.nn.BatchNorm2d):
+    """
+    Built the backbone model, defined by `cfg.MODEL.BACKBONE`.
+    """
+    model = BACKBONE_REGISTRY.get(backbone)(norm_layer)
+    load_backbone_pretrained(model, backbone)
+    return model
+
+
+class SegBaseModel(nn.Module):
+    """Base Model for Semantic Segmentation
+    """
+
+    def __init__(self, need_backbone=True):
+        super(SegBaseModel, self).__init__()
+        self.nclass = datasets[cfg.DATASET.NAME].NUM_CLASS
+        self.aux = cfg.SOLVER.AUX
+        self.norm_layer = get_norm(cfg.MODEL.BN_TYPE)
+        self.backbone = None
+        self.encoder = None
+        if need_backbone:
+            self.get_backbone()
+
+    def get_backbone(self):
+        self.backbone = cfg.MODEL.BACKBONE.lower()
+        self.encoder = get_segmentation_backbone(self.backbone, self.norm_layer)
+
+    def base_forward(self, x):
+        """forwarding backbone network"""
+        c1, c2, c3, c4 = self.encoder(x)
+        return c1, c2, c3, c4
+
+    def demo(self, x):
+        pred = self.forward(x)
+        if self.aux:
+            pred = pred[0]
+        return pred
+
+    def evaluate(self, image):
+        """evaluating network with inputs and targets"""
+        scales = cfg.TEST.SCALES
+        flip = cfg.TEST.FLIP
+        crop_size = _to_tuple(cfg.TEST.CROP_SIZE) if cfg.TEST.CROP_SIZE else None
+        batch, _, h, w = image.shape
+        base_size = max(h, w)
+        scores = None
+        for scale in scales:
+            long_size = int(math.ceil(base_size * scale))
+            if h > w:
+                height = long_size
+                width = int(1.0 * w * long_size / h + 0.5)
+            else:
+                width = long_size
+                height = int(1.0 * h * long_size / w + 0.5)
+            cur_img = _resize_image(image, height, width)
+            if crop_size is not None:
+                assert crop_size[0] >= h and crop_size[1] >= w
+                crop_size_scaled = int(math.ceil(crop_size[0] * scale)), int(math.ceil(crop_size[1] * scale))
+                cur_img = _pad_image(cur_img, crop_size_scaled)
+            outputs = self.forward(cur_img)[0][(...), :height, :width]
+            if flip:
+                outputs += _flip_image(self.forward(_flip_image(cur_img))[0])[(...), :height, :width]
+            score = _resize_image(outputs, h, w)
+            if scores is None:
+                scores = score
+            else:
+                scores += score
+        return scores
+
+
+class _HRNetHead(nn.Module):
+
+    def __init__(self, nclass, last_inp_channels, norm_layer=nn.BatchNorm2d):
+        super(_HRNetHead, self).__init__()
+        self.last_layer = nn.Sequential(nn.Conv2d(in_channels=last_inp_channels, out_channels=last_inp_channels, kernel_size=1, stride=1, padding=0), norm_layer(last_inp_channels), nn.ReLU(inplace=False), nn.Conv2d(in_channels=last_inp_channels, out_channels=nclass, kernel_size=cfg.MODEL.HRNET.FINAL_CONV_KERNEL, stride=1, padding=1 if cfg.MODEL.HRNET.FINAL_CONV_KERNEL == 3 else 0))
+
+    def forward(self, x):
+        x0_h, x0_w = x[0].size(2), x[0].size(3)
+        x1 = F.interpolate(x[1], size=(x0_h, x0_w), mode='bilinear', align_corners=False)
+        x2 = F.interpolate(x[2], size=(x0_h, x0_w), mode='bilinear', align_corners=False)
+        x3 = F.interpolate(x[3], size=(x0_h, x0_w), mode='bilinear', align_corners=False)
+        x = torch.cat([x[0], x1, x2, x3], 1)
+        x = self.last_layer(x)
+        return x
+
+
+class HighResolutionNet(SegBaseModel):
+
+    def __init__(self):
+        super(HighResolutionNet, self).__init__()
+        self.hrnet_head = _HRNetHead(self.nclass, self.encoder.last_inp_channels)
+        self.__setattr__('decoder', ['hrnet_head'])
+
+    def forward(self, x):
+        shape = x.shape[2:]
+        x = self.encoder(x)
+        x = self.hrnet_head(x)
+        x = F.interpolate(x, size=shape, mode='bilinear', align_corners=False)
+        return [x]
+
+
+class _ConvBNReLU(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu6=False, norm_layer=nn.BatchNorm2d):
+        super(_ConvBNReLU, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias=False)
+        self.bn = norm_layer(out_channels)
+        self.relu = nn.ReLU6(True) if relu6 else nn.ReLU(True)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        return x
+
+
+class _DepthwiseConv(nn.Module):
+    """conv_dw in MobileNet"""
+
+    def __init__(self, in_channels, out_channels, stride, norm_layer=nn.BatchNorm2d, **kwargs):
+        super(_DepthwiseConv, self).__init__()
+        self.conv = nn.Sequential(_ConvBNReLU(in_channels, in_channels, 3, stride, 1, groups=in_channels, norm_layer=norm_layer), _ConvBNReLU(in_channels, out_channels, 1, norm_layer=norm_layer))
+
+    def forward(self, x):
+        return self.conv(x)
 
 
 class MobileNet(nn.Module):
@@ -636,6 +1773,26 @@ class MobileNet(nn.Module):
         x = self.features(x)
         x = self.classifier(x.view(x.size(0), x.size(1)))
         return x
+
+
+class InvertedResidual(nn.Module):
+
+    def __init__(self, in_channels, out_channels, stride, expand_ratio, dilation=1, norm_layer=nn.BatchNorm2d):
+        super(InvertedResidual, self).__init__()
+        assert stride in [1, 2]
+        self.use_res_connect = stride == 1 and in_channels == out_channels
+        layers = list()
+        inter_channels = int(round(in_channels * expand_ratio))
+        if expand_ratio != 1:
+            layers.append(_ConvBNReLU(in_channels, inter_channels, 1, relu6=True, norm_layer=norm_layer))
+        layers.extend([_ConvBNReLU(inter_channels, inter_channels, 3, stride, dilation, dilation, groups=inter_channels, relu6=True, norm_layer=norm_layer), nn.Conv2d(inter_channels, out_channels, 1, bias=False), norm_layer(out_channels)])
+        self.conv = nn.Sequential(*layers)
+
+    def forward(self, x):
+        if self.use_res_connect:
+            return x + self.conv(x)
+        else:
+            return self.conv(x)
 
 
 class MobileNetV2(nn.Module):
@@ -837,6 +1994,23 @@ class ResNetV1(nn.Module):
         c3 = self.layer3(c2)
         c4 = self.layer4(c3)
         return c1, c2, c3, c4
+
+
+class SeparableConv2d(nn.Module):
+
+    def __init__(self, inplanes, planes, kernel_size=3, stride=1, dilation=1, relu_first=True, bias=False, norm_layer=nn.BatchNorm2d):
+        super().__init__()
+        depthwise = nn.Conv2d(inplanes, inplanes, kernel_size, stride=stride, padding=dilation, dilation=dilation, groups=inplanes, bias=bias)
+        bn_depth = norm_layer(inplanes)
+        pointwise = nn.Conv2d(inplanes, planes, 1, bias=bias)
+        bn_point = norm_layer(planes)
+        if relu_first:
+            self.block = nn.Sequential(OrderedDict([('relu', nn.ReLU()), ('depthwise', depthwise), ('bn_depth', bn_depth), ('pointwise', pointwise), ('bn_point', bn_point)]))
+        else:
+            self.block = nn.Sequential(OrderedDict([('depthwise', depthwise), ('bn_depth', bn_depth), ('relu1', nn.ReLU(inplace=True)), ('pointwise', pointwise), ('bn_point', bn_point), ('relu2', nn.ReLU(inplace=True))]))
+
+    def forward(self, x):
+        return self.block(x)
 
 
 class XceptionBlock(nn.Module):
@@ -1143,17 +2317,63 @@ class FeatureFusion(nn.Module):
         return out
 
 
-class _CCHead(nn.Module):
+class _CAMap(torch.autograd.Function):
 
-    def __init__(self, nclass, norm_layer=nn.BatchNorm2d):
-        super(_CCHead, self).__init__()
-        self.rcca = _RCCAModule(2048, 512, norm_layer)
-        self.out = nn.Conv2d(512, nclass, 1)
+    @staticmethod
+    def forward(ctx, weight, g):
+        out = _C.ca_map_forward(weight, g)
+        ctx.save_for_backward(weight, g)
+        return out
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dout):
+        weight, g = ctx.saved_tensors
+        dw, dg = _C.ca_map_backward(dout, weight, g)
+        return dw, dg
+
+
+ca_map = _CAMap.apply
+
+
+class _CAWeight(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, t, f):
+        weight = _C.ca_forward(t, f)
+        ctx.save_for_backward(t, f)
+        return weight
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dw):
+        t, f = ctx.saved_tensors
+        dt, df = _C.ca_backward(dw, t, f)
+        return dt, df
+
+
+ca_weight = _CAWeight.apply
+
+
+class CrissCrossAttention(nn.Module):
+    """Criss-Cross Attention Module"""
+
+    def __init__(self, in_channels):
+        super(CrissCrossAttention, self).__init__()
+        self.query_conv = nn.Conv2d(in_channels, in_channels // 8, 1)
+        self.key_conv = nn.Conv2d(in_channels, in_channels // 8, 1)
+        self.value_conv = nn.Conv2d(in_channels, in_channels, 1)
+        self.gamma = nn.Parameter(torch.zeros(1))
 
     def forward(self, x):
-        x = self.rcca(x)
-        x = self.out(x)
-        return x
+        proj_query = self.query_conv(x)
+        proj_key = self.key_conv(x)
+        proj_value = self.value_conv(x)
+        energy = ca_weight(proj_query, proj_key)
+        attention = F.softmax(energy, 1)
+        out = ca_map(attention, proj_value)
+        out = self.gamma * out + x
+        return out
 
 
 class _RCCAModule(nn.Module):
@@ -1175,6 +2395,19 @@ class _RCCAModule(nn.Module):
         out = torch.cat([x, out], dim=1)
         out = self.bottleneck(out)
         return out
+
+
+class _CCHead(nn.Module):
+
+    def __init__(self, nclass, norm_layer=nn.BatchNorm2d):
+        super(_CCHead, self).__init__()
+        self.rcca = _RCCAModule(2048, 512, norm_layer)
+        self.out = nn.Conv2d(512, nclass, 1)
+
+    def forward(self, x):
+        x = self.rcca(x)
+        x = self.out(x)
+        return x
 
 
 class _ChannelWiseConv(nn.Module):
@@ -1357,18 +2590,18 @@ class Deep_net(nn.Module):
 
 
 class FeatureFusionModule(nn.Module):
+    """Feature fusion module"""
 
-    def __init__(self, highter_in_channels, lower_in_channels, out_channels, scale_factor=4, **kwargs):
+    def __init__(self, highter_in_channels, lower_in_channels, out_channels, scale_factor=4, norm_layer=nn.BatchNorm2d):
         super(FeatureFusionModule, self).__init__()
         self.scale_factor = scale_factor
-        self.dwconv = DepthConv(lower_in_channels, out_channels, 1)
-        self.conv_lower_res = nn.Sequential(nn.Conv2d(out_channels, out_channels, 1), nn.BatchNorm2d(out_channels))
-        self.conv_higher_res = nn.Sequential(nn.Conv2d(highter_in_channels, out_channels, 1), nn.BatchNorm2d(out_channels))
+        self.dwconv = _ConvBNReLU(lower_in_channels, out_channels, 1, norm_layer=norm_layer)
+        self.conv_lower_res = nn.Sequential(nn.Conv2d(out_channels, out_channels, 1), norm_layer(out_channels))
+        self.conv_higher_res = nn.Sequential(nn.Conv2d(highter_in_channels, out_channels, 1), norm_layer(out_channels))
         self.relu = nn.ReLU(True)
 
     def forward(self, higher_res_feature, lower_res_feature):
-        _, _, h, w = higher_res_feature.size()
-        lower_res_feature = F.interpolate(lower_res_feature, size=(h, w), mode='bilinear', align_corners=True)
+        lower_res_feature = F.interpolate(lower_res_feature, scale_factor=4, mode='bilinear', align_corners=True)
         lower_res_feature = self.dwconv(lower_res_feature)
         lower_res_feature = self.conv_lower_res(lower_res_feature)
         higher_res_feature = self.conv_higher_res(higher_res_feature)
@@ -1377,18 +2610,32 @@ class FeatureFusionModule(nn.Module):
 
 
 class Classifer(nn.Module):
+    """Classifer"""
 
-    def __init__(self, dw_channels, num_classes, stride=1, **kwargs):
+    def __init__(self, dw_channels, num_classes, stride=1, norm_layer=nn.BatchNorm2d):
         super(Classifer, self).__init__()
-        self.dsconv1 = DepthSepConv(dw_channels, dw_channels, stride)
-        self.dsconv2 = DepthSepConv(dw_channels, dw_channels, stride)
-        self.conv = nn.Sequential(nn.Dropout(0.1), nn.Conv2d(dw_channels, num_classes, 1))
+        self.dsconv1 = SeparableConv2d(dw_channels, dw_channels, stride=stride, relu_first=False, norm_layer=norm_layer)
+        self.dsconv2 = SeparableConv2d(dw_channels, dw_channels, stride=stride, relu_first=False, norm_layer=norm_layer)
+        self.conv = nn.Sequential(nn.Dropout2d(0.1), nn.Conv2d(dw_channels, num_classes, 1))
 
     def forward(self, x):
         x = self.dsconv1(x)
         x = self.dsconv2(x)
         x = self.conv(x)
         return x
+
+
+class BNPReLU(nn.Module):
+
+    def __init__(self, nIn):
+        super().__init__()
+        self.bn = nn.BatchNorm2d(nIn, eps=0.001)
+        self.acti = nn.PReLU(nIn)
+
+    def forward(self, input):
+        output = self.bn(input)
+        output = self.acti(output)
+        return output
 
 
 class Conv(nn.Module):
@@ -1404,19 +2651,6 @@ class Conv(nn.Module):
         output = self.conv(input)
         if self.bn_acti:
             output = self.bn_prelu(output)
-        return output
-
-
-class BNPReLU(nn.Module):
-
-    def __init__(self, nIn):
-        super().__init__()
-        self.bn = nn.BatchNorm2d(nIn, eps=0.001)
-        self.acti = nn.PReLU(nIn)
-
-    def forward(self, input):
-        output = self.bn(input)
-        output = self.acti(output)
         return output
 
 
@@ -1483,6 +2717,68 @@ class InputInjection(nn.Module):
         return input
 
 
+class CAM_Module(nn.Module):
+    """ Channel attention module"""
+
+    def __init__(self, in_dim):
+        super(CAM_Module, self).__init__()
+        self.chanel_in = in_dim
+        self.gamma = nn.Parameter(torch.zeros(1))
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x):
+        """
+            inputs :
+                x : input feature maps( B X C X H X W)
+            returns :
+                out : attention value + input feature
+                attention: B X C X C
+        """
+        m_batchsize, C, height, width = x.size()
+        proj_query = x.view(m_batchsize, C, -1)
+        proj_key = x.view(m_batchsize, C, -1).permute(0, 2, 1)
+        energy = torch.bmm(proj_query, proj_key)
+        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy) - energy
+        attention = self.softmax(energy_new)
+        proj_value = x.view(m_batchsize, C, -1)
+        out = torch.bmm(attention, proj_value)
+        out = out.view(m_batchsize, C, height, width)
+        out = self.gamma * out + x
+        return out
+
+
+class PAM_Module(nn.Module):
+    """ Position attention module"""
+
+    def __init__(self, in_dim):
+        super(PAM_Module, self).__init__()
+        self.chanel_in = in_dim
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x):
+        """
+            inputs :
+                x : input feature maps( B X C X H X W)
+            returns :
+                out : attention value + input feature
+                attention: B X (HxW) X (HxW)
+        """
+        m_batchsize, C, height, width = x.size()
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
+        proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
+        energy = torch.bmm(proj_query, proj_key)
+        attention = self.softmax(energy)
+        proj_value = self.value_conv(x).view(m_batchsize, -1, width * height)
+        out = torch.bmm(proj_value, attention.permute(0, 2, 1))
+        out = out.view(m_batchsize, C, height, width)
+        out = self.gamma * out + x
+        return out
+
+
 class DANetHead(nn.Module):
 
     def __init__(self, in_channels, out_channels, norm_layer=nn.BatchNorm2d):
@@ -1515,6 +2811,44 @@ class DANetHead(nn.Module):
         return tuple(output)
 
 
+class _ASPP(nn.Module):
+
+    def __init__(self, in_channels=2048, out_channels=256):
+        super().__init__()
+        output_stride = cfg.MODEL.OUTPUT_STRIDE
+        if output_stride == 16:
+            dilations = [6, 12, 18]
+        elif output_stride == 8:
+            dilations = [12, 24, 36]
+        elif output_stride == 32:
+            dilations = [6, 12, 18]
+        else:
+            raise NotImplementedError
+        self.aspp0 = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_channels, out_channels, 1, bias=False)), ('bn', nn.BatchNorm2d(out_channels)), ('relu', nn.ReLU(inplace=True))]))
+        self.aspp1 = SeparableConv2d(in_channels, out_channels, dilation=dilations[0], relu_first=False)
+        self.aspp2 = SeparableConv2d(in_channels, out_channels, dilation=dilations[1], relu_first=False)
+        self.aspp3 = SeparableConv2d(in_channels, out_channels, dilation=dilations[2], relu_first=False)
+        self.image_pooling = nn.Sequential(OrderedDict([('gap', nn.AdaptiveAvgPool2d((1, 1))), ('conv', nn.Conv2d(in_channels, out_channels, 1, bias=False)), ('bn', nn.BatchNorm2d(out_channels)), ('relu', nn.ReLU(inplace=True))]))
+        self.conv = nn.Conv2d(out_channels * 5, out_channels, 1, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.dropout = nn.Dropout2d(p=0.1)
+
+    def forward(self, x):
+        pool = self.image_pooling(x)
+        pool = F.interpolate(pool, size=x.shape[2:], mode='bilinear', align_corners=True)
+        x0 = self.aspp0(x)
+        x1 = self.aspp1(x)
+        x2 = self.aspp2(x)
+        x3 = self.aspp3(x)
+        x = torch.cat((pool, x0, x1, x2, x3), dim=1)
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+        return x
+
+
 class _DeepLabHead(nn.Module):
 
     def __init__(self, nclass, c1_channels=256, c4_channels=2048, norm_layer=nn.BatchNorm2d):
@@ -1538,18 +2872,6 @@ class _DeepLabHead(nn.Module):
             x = F.interpolate(x, size, mode='bilinear', align_corners=True)
             c1 = self.c1_block(c1)
             return self.block(torch.cat([x, c1], dim=1))
-        return self.block(x)
-
-
-class _DenseASPPHead(nn.Module):
-
-    def __init__(self, in_channels, nclass, norm_layer=nn.BatchNorm2d, norm_kwargs=None):
-        super(_DenseASPPHead, self).__init__()
-        self.dense_aspp_block = _DenseASPPBlock(in_channels, 256, 64, norm_layer, norm_kwargs)
-        self.block = nn.Sequential(nn.Dropout(0.1), nn.Conv2d(in_channels + 5 * 64, nclass, 1))
-
-    def forward(self, x):
-        x = self.dense_aspp_block(x)
         return self.block(x)
 
 
@@ -1594,6 +2916,18 @@ class _DenseASPPBlock(nn.Module):
         aspp24 = self.aspp_24(x)
         x = torch.cat([aspp24, x], dim=1)
         return x
+
+
+class _DenseASPPHead(nn.Module):
+
+    def __init__(self, in_channels, nclass, norm_layer=nn.BatchNorm2d, norm_kwargs=None):
+        super(_DenseASPPHead, self).__init__()
+        self.dense_aspp_block = _DenseASPPBlock(in_channels, 256, 64, norm_layer, norm_kwargs)
+        self.block = nn.Sequential(nn.Dropout(0.1), nn.Conv2d(in_channels + 5 * 64, nclass, 1))
+
+    def forward(self, x):
+        x = self.dense_aspp_block(x)
+        return self.block(x)
 
 
 class FeatureFused(nn.Module):
@@ -1699,50 +3033,6 @@ class EDABlock(nn.Module):
         return output
 
 
-class _EncHead(nn.Module):
-
-    def __init__(self, in_channels, nclass, se_loss=True, lateral=True, norm_layer=nn.BatchNorm2d, norm_kwargs=None):
-        super(_EncHead, self).__init__()
-        self.lateral = lateral
-        self.conv5 = nn.Sequential(nn.Conv2d(in_channels, 512, 3, padding=1, bias=False), norm_layer(512, **{} if norm_kwargs is None else norm_kwargs), nn.ReLU(True))
-        if lateral:
-            self.connect = nn.ModuleList([nn.Sequential(nn.Conv2d(512, 512, 1, bias=False), norm_layer(512, **{} if norm_kwargs is None else norm_kwargs), nn.ReLU(True)), nn.Sequential(nn.Conv2d(1024, 512, 1, bias=False), norm_layer(512, **{} if norm_kwargs is None else norm_kwargs), nn.ReLU(True))])
-            self.fusion = nn.Sequential(nn.Conv2d(3 * 512, 512, 3, padding=1, bias=False), norm_layer(512, **{} if norm_kwargs is None else norm_kwargs), nn.ReLU(True))
-        self.encmodule = EncModule(512, nclass, ncodes=32, se_loss=se_loss, norm_layer=norm_layer, norm_kwargs=norm_kwargs)
-        self.conv6 = nn.Sequential(nn.Dropout(0.1, False), nn.Conv2d(512, nclass, 1))
-
-    def forward(self, *inputs):
-        feat = self.conv5(inputs[-1])
-        if self.lateral:
-            c2 = self.connect[0](inputs[1])
-            c3 = self.connect[1](inputs[2])
-            feat = self.fusion(torch.cat([feat, c2, c3], 1))
-        outs = list(self.encmodule(feat))
-        outs[0] = self.conv6(outs[0])
-        return tuple(outs)
-
-
-class EncModule(nn.Module):
-
-    def __init__(self, in_channels, nclass, ncodes=32, se_loss=True, norm_layer=nn.BatchNorm2d, norm_kwargs=None):
-        super(EncModule, self).__init__()
-        self.se_loss = se_loss
-        self.encoding = nn.Sequential(nn.Conv2d(in_channels, in_channels, 1, bias=False), norm_layer(in_channels, **{} if norm_kwargs is None else norm_kwargs), nn.ReLU(True), Encoding(D=in_channels, K=ncodes), nn.BatchNorm1d(ncodes), nn.ReLU(True), Mean(dim=1))
-        self.fc = nn.Sequential(nn.Linear(in_channels, in_channels), nn.Sigmoid())
-        if self.se_loss:
-            self.selayer = nn.Linear(in_channels, nclass)
-
-    def forward(self, x):
-        en = self.encoding(x)
-        b, c, _, _ = x.size()
-        gamma = self.fc(en)
-        y = gamma.view(b, c, 1, 1)
-        outputs = [F.relu_(x + x * y)]
-        if self.se_loss:
-            outputs.append(self.selayer(en))
-        return tuple(outputs)
-
-
 class Encoding(nn.Module):
 
     def __init__(self, D, K):
@@ -1803,6 +3093,50 @@ class Mean(nn.Module):
         return input.mean(self.dim, self.keep_dim)
 
 
+class EncModule(nn.Module):
+
+    def __init__(self, in_channels, nclass, ncodes=32, se_loss=True, norm_layer=nn.BatchNorm2d, norm_kwargs=None):
+        super(EncModule, self).__init__()
+        self.se_loss = se_loss
+        self.encoding = nn.Sequential(nn.Conv2d(in_channels, in_channels, 1, bias=False), norm_layer(in_channels, **{} if norm_kwargs is None else norm_kwargs), nn.ReLU(True), Encoding(D=in_channels, K=ncodes), nn.BatchNorm1d(ncodes), nn.ReLU(True), Mean(dim=1))
+        self.fc = nn.Sequential(nn.Linear(in_channels, in_channels), nn.Sigmoid())
+        if self.se_loss:
+            self.selayer = nn.Linear(in_channels, nclass)
+
+    def forward(self, x):
+        en = self.encoding(x)
+        b, c, _, _ = x.size()
+        gamma = self.fc(en)
+        y = gamma.view(b, c, 1, 1)
+        outputs = [F.relu_(x + x * y)]
+        if self.se_loss:
+            outputs.append(self.selayer(en))
+        return tuple(outputs)
+
+
+class _EncHead(nn.Module):
+
+    def __init__(self, in_channels, nclass, se_loss=True, lateral=True, norm_layer=nn.BatchNorm2d, norm_kwargs=None):
+        super(_EncHead, self).__init__()
+        self.lateral = lateral
+        self.conv5 = nn.Sequential(nn.Conv2d(in_channels, 512, 3, padding=1, bias=False), norm_layer(512, **{} if norm_kwargs is None else norm_kwargs), nn.ReLU(True))
+        if lateral:
+            self.connect = nn.ModuleList([nn.Sequential(nn.Conv2d(512, 512, 1, bias=False), norm_layer(512, **{} if norm_kwargs is None else norm_kwargs), nn.ReLU(True)), nn.Sequential(nn.Conv2d(1024, 512, 1, bias=False), norm_layer(512, **{} if norm_kwargs is None else norm_kwargs), nn.ReLU(True))])
+            self.fusion = nn.Sequential(nn.Conv2d(3 * 512, 512, 3, padding=1, bias=False), norm_layer(512, **{} if norm_kwargs is None else norm_kwargs), nn.ReLU(True))
+        self.encmodule = EncModule(512, nclass, ncodes=32, se_loss=se_loss, norm_layer=norm_layer, norm_kwargs=norm_kwargs)
+        self.conv6 = nn.Sequential(nn.Dropout(0.1, False), nn.Conv2d(512, nclass, 1))
+
+    def forward(self, *inputs):
+        feat = self.conv5(inputs[-1])
+        if self.lateral:
+            c2 = self.connect[0](inputs[1])
+            c3 = self.connect[1](inputs[2])
+            feat = self.fusion(torch.cat([feat, c2, c3], 1))
+        outs = list(self.encmodule(feat))
+        outs[0] = self.conv6(outs[0])
+        return tuple(outs)
+
+
 class InitialBlock(nn.Module):
     """ENet initial block"""
 
@@ -1820,40 +3154,6 @@ class InitialBlock(nn.Module):
         x = self.bn(x)
         x = self.act(x)
         return x
-
-
-class Bottleneck(nn.Module):
-    """Bottlenecks include regular, asymmetric, downsampling, dilated"""
-
-    def __init__(self, in_channels, inter_channels, out_channels, dilation=1, asymmetric=False, downsampling=False, norm_layer=nn.BatchNorm2d, **kwargs):
-        super(Bottleneck, self).__init__()
-        self.downsamping = downsampling
-        if downsampling:
-            self.maxpool = nn.MaxPool2d(2, 2, return_indices=True)
-            self.conv_down = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels))
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 1, bias=False), norm_layer(inter_channels), nn.PReLU())
-        if downsampling:
-            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 2, stride=2, bias=False), norm_layer(inter_channels), nn.PReLU())
-        elif asymmetric:
-            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, (5, 1), padding=(2, 0), bias=False), nn.Conv2d(inter_channels, inter_channels, (1, 5), padding=(0, 2), bias=False), norm_layer(inter_channels), nn.PReLU())
-        else:
-            self.conv2 = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 3, dilation=dilation, padding=dilation, bias=False), norm_layer(inter_channels), nn.PReLU())
-        self.conv3 = nn.Sequential(nn.Conv2d(inter_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.Dropout2d(0.1))
-        self.act = nn.PReLU()
-
-    def forward(self, x):
-        identity = x
-        if self.downsamping:
-            identity, max_indices = self.maxpool(identity)
-            identity = self.conv_down(identity)
-        out = self.conv1(x)
-        out = self.conv2(out)
-        out = self.conv3(out)
-        out = self.act(out + identity)
-        if self.downsamping:
-            return out, max_indices
-        else:
-            return out
 
 
 class UpsamplingBottleneck(nn.Module):
@@ -1907,6 +3207,25 @@ class LearningToDownsample(nn.Module):
         return x
 
 
+class PyramidPooling(nn.Module):
+
+    def __init__(self, in_channels, sizes=(1, 2, 3, 6), norm_layer=nn.BatchNorm2d, **kwargs):
+        super(PyramidPooling, self).__init__()
+        out_channels = int(in_channels / 4)
+        self.avgpools = nn.ModuleList()
+        self.convs = nn.ModuleList()
+        for size in sizes:
+            self.avgpools.append(nn.AdaptiveAvgPool2d(size))
+            self.convs.append(_ConvBNReLU(in_channels, out_channels, 1, norm_layer=norm_layer, **kwargs))
+
+    def forward(self, x):
+        size = x.size()[2:]
+        feats = [x]
+        for avgpool, conv in zip(self.avgpools, self.convs):
+            feats.append(F.interpolate(conv(avgpool(x)), size, mode='bilinear', align_corners=True))
+        return torch.cat(feats, dim=1)
+
+
 class GlobalFeatureExtractor(nn.Module):
     """Global feature extractor module"""
 
@@ -1931,42 +3250,6 @@ class GlobalFeatureExtractor(nn.Module):
         x = self.bottleneck3(x)
         x = self.ppm(x)
         x = self.out(x)
-        return x
-
-
-class FeatureFusionModule(nn.Module):
-    """Feature fusion module"""
-
-    def __init__(self, highter_in_channels, lower_in_channels, out_channels, scale_factor=4, norm_layer=nn.BatchNorm2d):
-        super(FeatureFusionModule, self).__init__()
-        self.scale_factor = scale_factor
-        self.dwconv = _ConvBNReLU(lower_in_channels, out_channels, 1, norm_layer=norm_layer)
-        self.conv_lower_res = nn.Sequential(nn.Conv2d(out_channels, out_channels, 1), norm_layer(out_channels))
-        self.conv_higher_res = nn.Sequential(nn.Conv2d(highter_in_channels, out_channels, 1), norm_layer(out_channels))
-        self.relu = nn.ReLU(True)
-
-    def forward(self, higher_res_feature, lower_res_feature):
-        lower_res_feature = F.interpolate(lower_res_feature, scale_factor=4, mode='bilinear', align_corners=True)
-        lower_res_feature = self.dwconv(lower_res_feature)
-        lower_res_feature = self.conv_lower_res(lower_res_feature)
-        higher_res_feature = self.conv_higher_res(higher_res_feature)
-        out = higher_res_feature + lower_res_feature
-        return self.relu(out)
-
-
-class Classifer(nn.Module):
-    """Classifer"""
-
-    def __init__(self, dw_channels, num_classes, stride=1, norm_layer=nn.BatchNorm2d):
-        super(Classifer, self).__init__()
-        self.dsconv1 = SeparableConv2d(dw_channels, dw_channels, stride=stride, relu_first=False, norm_layer=norm_layer)
-        self.dsconv2 = SeparableConv2d(dw_channels, dw_channels, stride=stride, relu_first=False, norm_layer=norm_layer)
-        self.conv = nn.Sequential(nn.Dropout2d(0.1), nn.Conv2d(dw_channels, num_classes, 1))
-
-    def forward(self, x):
-        x = self.dsconv1(x)
-        x = self.dsconv2(x)
-        x = self.conv(x)
         return x
 
 
@@ -2158,20 +3441,23 @@ class TransitionUp(nn.Module):
         return out
 
 
-class _HRNetHead(nn.Module):
+class CascadeFeatureFusion(nn.Module):
+    """CFF Unit"""
 
-    def __init__(self, nclass, last_inp_channels, norm_layer=nn.BatchNorm2d):
-        super(_HRNetHead, self).__init__()
-        self.last_layer = nn.Sequential(nn.Conv2d(in_channels=last_inp_channels, out_channels=last_inp_channels, kernel_size=1, stride=1, padding=0), norm_layer(last_inp_channels), nn.ReLU(inplace=False), nn.Conv2d(in_channels=last_inp_channels, out_channels=nclass, kernel_size=cfg.MODEL.HRNET.FINAL_CONV_KERNEL, stride=1, padding=1 if cfg.MODEL.HRNET.FINAL_CONV_KERNEL == 3 else 0))
+    def __init__(self, low_channels, high_channels, out_channels, nclass, norm_layer=nn.BatchNorm2d):
+        super(CascadeFeatureFusion, self).__init__()
+        self.conv_low = nn.Sequential(nn.Conv2d(low_channels, out_channels, 3, padding=2, dilation=2, bias=False), norm_layer(out_channels))
+        self.conv_high = nn.Sequential(nn.Conv2d(high_channels, out_channels, 1, bias=False), norm_layer(out_channels))
+        self.conv_low_cls = nn.Conv2d(out_channels, nclass, 1, bias=False)
 
-    def forward(self, x):
-        x0_h, x0_w = x[0].size(2), x[0].size(3)
-        x1 = F.interpolate(x[1], size=(x0_h, x0_w), mode='bilinear', align_corners=False)
-        x2 = F.interpolate(x[2], size=(x0_h, x0_w), mode='bilinear', align_corners=False)
-        x3 = F.interpolate(x[3], size=(x0_h, x0_w), mode='bilinear', align_corners=False)
-        x = torch.cat([x[0], x1, x2, x3], 1)
-        x = self.last_layer(x)
-        return x
+    def forward(self, x_low, x_high):
+        x_low = F.interpolate(x_low, size=x_high.size()[2:], mode='bilinear', align_corners=True)
+        x_low = self.conv_low(x_low)
+        x_high = self.conv_high(x_high)
+        x = x_low + x_high
+        x = F.relu(x, inplace=True)
+        x_low_cls = self.conv_low_cls(x_low)
+        return x, x_low_cls
 
 
 class _ICHead(nn.Module):
@@ -2196,25 +3482,6 @@ class _ICHead(nn.Module):
         outputs.append(up_x8)
         outputs.reverse()
         return outputs
-
-
-class CascadeFeatureFusion(nn.Module):
-    """CFF Unit"""
-
-    def __init__(self, low_channels, high_channels, out_channels, nclass, norm_layer=nn.BatchNorm2d):
-        super(CascadeFeatureFusion, self).__init__()
-        self.conv_low = nn.Sequential(nn.Conv2d(low_channels, out_channels, 3, padding=2, dilation=2, bias=False), norm_layer(out_channels))
-        self.conv_high = nn.Sequential(nn.Conv2d(high_channels, out_channels, 1, bias=False), norm_layer(out_channels))
-        self.conv_low_cls = nn.Conv2d(out_channels, nclass, 1, bias=False)
-
-    def forward(self, x_low, x_high):
-        x_low = F.interpolate(x_low, size=x_high.size()[2:], mode='bilinear', align_corners=True)
-        x_low = self.conv_low(x_low)
-        x_high = self.conv_high(x_high)
-        x = x_low + x_high
-        x = F.relu(x, inplace=True)
-        x_low_cls = self.conv_low_cls(x_low)
-        return x, x_low_cls
 
 
 class Downsampling(nn.Module):
@@ -2290,25 +3557,6 @@ class APNModule(nn.Module):
         return out
 
 
-class _OCHead(nn.Module):
-
-    def __init__(self, nclass, oc_arch, norm_layer=nn.BatchNorm2d, **kwargs):
-        super(_OCHead, self).__init__()
-        if oc_arch == 'base':
-            self.context = nn.Sequential(nn.Conv2d(2048, 512, 3, 1, padding=1, bias=False), norm_layer(512), nn.ReLU(True), BaseOCModule(512, 512, 256, 256, scales=[1], norm_layer=norm_layer, **kwargs))
-        elif oc_arch == 'pyramid':
-            self.context = nn.Sequential(nn.Conv2d(2048, 512, 3, 1, padding=1, bias=False), norm_layer(512), nn.ReLU(True), PyramidOCModule(512, 512, 256, 512, scales=[1, 2, 3, 6], norm_layer=norm_layer, **kwargs))
-        elif oc_arch == 'asp':
-            self.context = ASPOCModule(2048, 512, 256, 512, norm_layer=norm_layer, **kwargs)
-        else:
-            raise ValueError('Unknown OC architecture!')
-        self.out = nn.Conv2d(512, nclass, 1)
-
-    def forward(self, x):
-        x = self.context(x)
-        return self.out(x)
-
-
 class BaseAttentionBlock(nn.Module):
     """The basic implementation for self-attention block/non-local block."""
 
@@ -2361,6 +3609,30 @@ class BaseOCModule(nn.Module):
         if self.concat:
             context = torch.cat([context, x], 1)
         out = self.project(context)
+        return out
+
+
+class ASPOCModule(nn.Module):
+    """ASP-OC"""
+
+    def __init__(self, in_channels, out_channels, key_channels, value_channels, atrous_rates=(12, 24, 36), norm_layer=nn.BatchNorm2d, **kwargs):
+        super(ASPOCModule, self).__init__()
+        self.context = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1), norm_layer(out_channels), nn.ReLU(True), BaseOCModule(out_channels, out_channels, key_channels, value_channels, [2], norm_layer, False, **kwargs))
+        rate1, rate2, rate3 = tuple(atrous_rates)
+        self.b1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=rate1, dilation=rate1, bias=False), norm_layer(out_channels), nn.ReLU(True))
+        self.b2 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=rate2, dilation=rate2, bias=False), norm_layer(out_channels), nn.ReLU(True))
+        self.b3 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=rate3, dilation=rate3, bias=False), norm_layer(out_channels), nn.ReLU(True))
+        self.b4 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True))
+        self.project = nn.Sequential(nn.Conv2d(out_channels * 5, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True), nn.Dropout2d(0.1))
+
+    def forward(self, x):
+        feat1 = self.context(x)
+        feat2 = self.b1(x)
+        feat3 = self.b2(x)
+        feat4 = self.b3(x)
+        feat5 = self.b4(x)
+        out = torch.cat((feat1, feat2, feat3, feat4, feat5), dim=1)
+        out = self.project(out)
         return out
 
 
@@ -2442,28 +3714,23 @@ class PyramidOCModule(nn.Module):
         return out
 
 
-class ASPOCModule(nn.Module):
-    """ASP-OC"""
+class _OCHead(nn.Module):
 
-    def __init__(self, in_channels, out_channels, key_channels, value_channels, atrous_rates=(12, 24, 36), norm_layer=nn.BatchNorm2d, **kwargs):
-        super(ASPOCModule, self).__init__()
-        self.context = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1), norm_layer(out_channels), nn.ReLU(True), BaseOCModule(out_channels, out_channels, key_channels, value_channels, [2], norm_layer, False, **kwargs))
-        rate1, rate2, rate3 = tuple(atrous_rates)
-        self.b1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=rate1, dilation=rate1, bias=False), norm_layer(out_channels), nn.ReLU(True))
-        self.b2 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=rate2, dilation=rate2, bias=False), norm_layer(out_channels), nn.ReLU(True))
-        self.b3 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=rate3, dilation=rate3, bias=False), norm_layer(out_channels), nn.ReLU(True))
-        self.b4 = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True))
-        self.project = nn.Sequential(nn.Conv2d(out_channels * 5, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True), nn.Dropout2d(0.1))
+    def __init__(self, nclass, oc_arch, norm_layer=nn.BatchNorm2d, **kwargs):
+        super(_OCHead, self).__init__()
+        if oc_arch == 'base':
+            self.context = nn.Sequential(nn.Conv2d(2048, 512, 3, 1, padding=1, bias=False), norm_layer(512), nn.ReLU(True), BaseOCModule(512, 512, 256, 256, scales=[1], norm_layer=norm_layer, **kwargs))
+        elif oc_arch == 'pyramid':
+            self.context = nn.Sequential(nn.Conv2d(2048, 512, 3, 1, padding=1, bias=False), norm_layer(512), nn.ReLU(True), PyramidOCModule(512, 512, 256, 512, scales=[1, 2, 3, 6], norm_layer=norm_layer, **kwargs))
+        elif oc_arch == 'asp':
+            self.context = ASPOCModule(2048, 512, 256, 512, norm_layer=norm_layer, **kwargs)
+        else:
+            raise ValueError('Unknown OC architecture!')
+        self.out = nn.Conv2d(512, nclass, 1)
 
     def forward(self, x):
-        feat1 = self.context(x)
-        feat2 = self.b1(x)
-        feat3 = self.b2(x)
-        feat4 = self.b3(x)
-        feat5 = self.b4(x)
-        out = torch.cat((feat1, feat2, feat3, feat4, feat5), dim=1)
-        out = self.project(out)
-        return out
+        x = self.context(x)
+        return self.out(x)
 
 
 def point_sample(input, point_coords, **kwargs):
@@ -2516,8 +3783,8 @@ def sampling_points(mask, N, k=3, beta=0.75, training=True):
         uncertainty_map = -1 * (mask[:, (0)] - mask[:, (1)])
         _, idx = uncertainty_map.view(B, -1).topk(N, dim=1)
         points = torch.zeros(B, N, 2, dtype=torch.float, device=device)
-        points[:, :, (0)] = W_step / 2.0 + (idx % W).to(torch.float) * W_step
-        points[:, :, (1)] = H_step / 2.0 + (idx // W).to(torch.float) * H_step
+        points[:, :, (0)] = W_step / 2.0 + idx % W * W_step
+        points[:, :, (1)] = H_step / 2.0 + idx // W * H_step
         return idx, points
     over_generation = torch.rand(B, k * N, 2, device=device)
     over_generation_map = point_sample(mask, over_generation, align_corners=False)
@@ -2527,7 +3794,7 @@ def sampling_points(mask, N, k=3, beta=0.75, training=True):
     idx += shift[:, (None)]
     importance = over_generation.view(-1, 2)[(idx.view(-1)), :].view(B, int(beta * N), 2)
     coverage = torch.rand(B, N - int(beta * N), 2, device=device)
-    return torch.cat([importance, coverage], 1).to(device)
+    return torch.cat([importance, coverage], 1)
 
 
 class PointHead(nn.Module):
@@ -2597,6 +3864,25 @@ class _PSPHead(nn.Module):
         return self.block(x)
 
 
+class CRPBlock(nn.Module):
+
+    def __init__(self, in_planes, out_planes, n_stages):
+        super(CRPBlock, self).__init__()
+        for i in range(n_stages):
+            setattr(self, '{}_{}'.format(i + 1, 'outvar_dimred'), nn.Conv2d(in_planes if i == 0 else out_planes, out_planes, 1, stride=1, bias=False))
+        self.stride = 1
+        self.n_stages = n_stages
+        self.maxpool = nn.MaxPool2d(kernel_size=5, stride=1, padding=2)
+
+    def forward(self, x):
+        top = x
+        for i in range(self.n_stages):
+            top = self.maxpool(top)
+            top = getattr(self, '{}_{}'.format(i + 1, 'outvar_dimred'))(top)
+            x = top + x
+        return x
+
+
 class _RefineHead(nn.Module):
 
     def __init__(self, nclass, norm_layer=nn.BatchNorm2d):
@@ -2654,1049 +3940,6 @@ class _RefineHead(nn.Module):
         return out
 
 
-class CRPBlock(nn.Module):
-
-    def __init__(self, in_planes, out_planes, n_stages):
-        super(CRPBlock, self).__init__()
-        for i in range(n_stages):
-            setattr(self, '{}_{}'.format(i + 1, 'outvar_dimred'), nn.Conv2d(in_planes if i == 0 else out_planes, out_planes, 1, stride=1, bias=False))
-        self.stride = 1
-        self.n_stages = n_stages
-        self.maxpool = nn.MaxPool2d(kernel_size=5, stride=1, padding=2)
-
-    def forward(self, x):
-        top = x
-        for i in range(self.n_stages):
-            top = self.maxpool(top)
-            top = getattr(self, '{}_{}'.format(i + 1, 'outvar_dimred'))(top)
-            x = top + x
-        return x
-
-
-def _flip_image(img):
-    assert img.ndim == 4
-    return img.flip(3)
-
-
-def _pad_image(img, crop_size):
-    b, c, h, w = img.shape
-    assert c == 3
-    padh = crop_size[0] - h if h < crop_size[0] else 0
-    padw = crop_size[1] - w if w < crop_size[1] else 0
-    if padh == 0 and padw == 0:
-        return img
-    img_pad = F.pad(img, (0, padh, 0, padw))
-    return img_pad
-
-
-def _resize_image(img, h, w):
-    return F.interpolate(img, size=[h, w], mode='bilinear', align_corners=True)
-
-
-def _to_tuple(size):
-    if isinstance(size, (list, tuple)):
-        assert len(size), 'Expect eval crop size contains two element, but received {}'.format(len(size))
-        return tuple(size)
-    elif isinstance(size, numbers.Number):
-        return tuple((size, size))
-    else:
-        raise ValueError('Unsupport datatype: {}'.format(type(size)))
-
-
-_global_config['AUG'] = 4
-
-
-_global_config['ROOT_PATH'] = 4
-
-
-class SegmentationDataset(object):
-    """Segmentation Base Dataset"""
-
-    def __init__(self, root, split, mode, transform, base_size=520, crop_size=480):
-        super(SegmentationDataset, self).__init__()
-        self.root = os.path.join(cfg.ROOT_PATH, root)
-        self.transform = transform
-        self.split = split
-        self.mode = mode if mode is not None else split
-        self.base_size = base_size
-        self.crop_size = self.to_tuple(crop_size)
-        self.color_jitter = self._get_color_jitter()
-
-    def to_tuple(self, size):
-        if isinstance(size, (list, tuple)):
-            return tuple(size)
-        elif isinstance(size, (int, float)):
-            return tuple((size, size))
-        else:
-            raise ValueError('Unsupport datatype: {}'.format(type(size)))
-
-    def _get_color_jitter(self):
-        color_jitter = cfg.AUG.COLOR_JITTER
-        if color_jitter is None:
-            return None
-        if isinstance(color_jitter, (list, tuple)):
-            assert len(color_jitter) in (3, 4)
-        else:
-            color_jitter = (float(color_jitter),) * 3
-        return torchvision.transforms.ColorJitter(*color_jitter)
-
-    def _val_sync_transform(self, img, mask):
-        outsize = self.crop_size
-        short_size = min(outsize)
-        w, h = img.size
-        if w > h:
-            oh = short_size
-            ow = int(1.0 * w * oh / h)
-        else:
-            ow = short_size
-            oh = int(1.0 * h * ow / w)
-        img = img.resize((ow, oh), Image.BILINEAR)
-        mask = mask.resize((ow, oh), Image.NEAREST)
-        w, h = img.size
-        x1 = int(round((w - outsize[1]) / 2.0))
-        y1 = int(round((h - outsize[0]) / 2.0))
-        img = img.crop((x1, y1, x1 + outsize[1], y1 + outsize[0]))
-        mask = mask.crop((x1, y1, x1 + outsize[1], y1 + outsize[0]))
-        img, mask = self._img_transform(img), self._mask_transform(mask)
-        return img, mask
-
-    def _sync_transform(self, img, mask):
-        if cfg.AUG.MIRROR and random.random() < 0.5:
-            img = img.transpose(Image.FLIP_LEFT_RIGHT)
-            mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
-        crop_size = self.crop_size
-        short_size = random.randint(int(self.base_size * 0.5), int(self.base_size * 2.0))
-        w, h = img.size
-        if h > w:
-            ow = short_size
-            oh = int(1.0 * h * ow / w)
-        else:
-            oh = short_size
-            ow = int(1.0 * w * oh / h)
-        img = img.resize((ow, oh), Image.BILINEAR)
-        mask = mask.resize((ow, oh), Image.NEAREST)
-        if short_size < min(crop_size):
-            padh = crop_size[0] - oh if oh < crop_size[0] else 0
-            padw = crop_size[1] - ow if ow < crop_size[1] else 0
-            img = ImageOps.expand(img, border=(0, 0, padw, padh), fill=0)
-            mask = ImageOps.expand(mask, border=(0, 0, padw, padh), fill=-1)
-        w, h = img.size
-        x1 = random.randint(0, w - crop_size[1])
-        y1 = random.randint(0, h - crop_size[0])
-        img = img.crop((x1, y1, x1 + crop_size[1], y1 + crop_size[0]))
-        mask = mask.crop((x1, y1, x1 + crop_size[1], y1 + crop_size[0]))
-        if cfg.AUG.BLUR_PROB > 0 and random.random() < cfg.AUG.BLUR_PROB:
-            radius = cfg.AUG.BLUR_RADIUS if cfg.AUG.BLUR_RADIUS > 0 else random.random()
-            img = img.filter(ImageFilter.GaussianBlur(radius=radius))
-        if self.color_jitter:
-            img = self.color_jitter(img)
-        img, mask = self._img_transform(img), self._mask_transform(mask)
-        return img, mask
-
-    def _img_transform(self, img):
-        return np.array(img)
-
-    def _mask_transform(self, mask):
-        return np.array(mask).astype('int32')
-
-    @property
-    def num_class(self):
-        """Number of categories."""
-        return self.NUM_CLASS
-
-    @property
-    def pred_offset(self):
-        return 0
-
-
-def _get_ade20k_pairs(folder, mode='train'):
-    img_paths = []
-    mask_paths = []
-    if mode == 'train':
-        img_folder = os.path.join(folder, 'images/training')
-        mask_folder = os.path.join(folder, 'annotations/training')
-    else:
-        img_folder = os.path.join(folder, 'images/validation')
-        mask_folder = os.path.join(folder, 'annotations/validation')
-    for filename in os.listdir(img_folder):
-        basename, _ = os.path.splitext(filename)
-        if filename.endswith('.jpg'):
-            imgpath = os.path.join(img_folder, filename)
-            maskname = basename + '.png'
-            maskpath = os.path.join(mask_folder, maskname)
-            if os.path.isfile(maskpath):
-                img_paths.append(imgpath)
-                mask_paths.append(maskpath)
-            else:
-                logging.info('cannot find the mask:', maskpath)
-    return img_paths, mask_paths
-
-
-class ADE20KSegmentation(SegmentationDataset):
-    """ADE20K Semantic Segmentation Dataset.
-
-    Parameters
-    ----------
-    root : string
-        Path to ADE20K folder. Default is './datasets/ade'
-    split: string
-        'train', 'val' or 'test'
-    transform : callable, optional
-        A function that transforms the image
-    Examples
-    --------
-    >>> from torchvision import transforms
-    >>> import torch.utils.data as data
-    >>> # Transforms for Normalization
-    >>> input_transform = transforms.Compose([
-    >>>     transforms.ToTensor(),
-    >>>     transforms.Normalize((.485, .456, .406), (.229, .224, .225)),
-    >>> ])
-    >>> # Create Dataset
-    >>> trainset = ADE20KSegmentation(split='train', transform=input_transform)
-    >>> # Create Training Loader
-    >>> train_data = data.DataLoader(
-    >>>     trainset, 4, shuffle=True,
-    >>>     num_workers=4)
-    """
-    BASE_DIR = 'ADEChallengeData2016'
-    NUM_CLASS = 150
-
-    def __init__(self, root='datasets/ade', split='test', mode=None, transform=None, **kwargs):
-        super(ADE20KSegmentation, self).__init__(root, split, mode, transform, **kwargs)
-        root = os.path.join(self.root, self.BASE_DIR)
-        assert os.path.exists(root), 'Please put the data in {SEG_ROOT}/datasets/ade'
-        self.images, self.masks = _get_ade20k_pairs(root, split)
-        assert len(self.images) == len(self.masks)
-        if len(self.images) == 0:
-            raise RuntimeError('Found 0 images in subfolders of:' + root + '\n')
-        logging.info('Found {} images in the folder {}'.format(len(self.images), root))
-
-    def __getitem__(self, index):
-        img = Image.open(self.images[index]).convert('RGB')
-        if self.mode == 'test':
-            img = self._img_transform(img)
-            if self.transform is not None:
-                img = self.transform(img)
-            return img, os.path.basename(self.images[index])
-        mask = Image.open(self.masks[index])
-        if self.mode == 'train':
-            img, mask = self._sync_transform(img, mask)
-        elif self.mode == 'val':
-            img, mask = self._val_sync_transform(img, mask)
-        else:
-            assert self.mode == 'testval'
-            img, mask = self._img_transform(img), self._mask_transform(mask)
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, mask, os.path.basename(self.images[index])
-
-    def _mask_transform(self, mask):
-        return torch.LongTensor(np.array(mask).astype('int32') - 1)
-
-    def __len__(self):
-        return len(self.images)
-
-    @property
-    def pred_offset(self):
-        return 1
-
-    @property
-    def classes(self):
-        """Category names."""
-        return 'wall', 'building, edifice', 'sky', 'floor, flooring', 'tree', 'ceiling', 'road, route', 'bed', 'windowpane, window', 'grass', 'cabinet', 'sidewalk, pavement', 'person, individual, someone, somebody, mortal, soul', 'earth, ground', 'door, double door', 'table', 'mountain, mount', 'plant, flora, plant life', 'curtain, drape, drapery, mantle, pall', 'chair', 'car, auto, automobile, machine, motorcar', 'water', 'painting, picture', 'sofa, couch, lounge', 'shelf', 'house', 'sea', 'mirror', 'rug, carpet, carpeting', 'field', 'armchair', 'seat', 'fence, fencing', 'desk', 'rock, stone', 'wardrobe, closet, press', 'lamp', 'bathtub, bathing tub, bath, tub', 'railing, rail', 'cushion', 'base, pedestal, stand', 'box', 'column, pillar', 'signboard, sign', 'chest of drawers, chest, bureau, dresser', 'counter', 'sand', 'sink', 'skyscraper', 'fireplace, hearth, open fireplace', 'refrigerator, icebox', 'grandstand, covered stand', 'path', 'stairs, steps', 'runway', 'case, display case, showcase, vitrine', 'pool table, billiard table, snooker table', 'pillow', 'screen door, screen', 'stairway, staircase', 'river', 'bridge, span', 'bookcase', 'blind, screen', 'coffee table, cocktail table', 'toilet, can, commode, crapper, pot, potty, stool, throne', 'flower', 'book', 'hill', 'bench', 'countertop', 'stove, kitchen stove, range, kitchen range, cooking stove', 'palm, palm tree', 'kitchen island', 'computer, computing machine, computing device, data processor, electronic computer, information processing system', 'swivel chair', 'boat', 'bar', 'arcade machine', 'hovel, hut, hutch, shack, shanty', 'bus, autobus, coach, charabanc, double-decker, jitney, motorbus, motorcoach, omnibus, passenger vehicle', 'towel', 'light, light source', 'truck, motortruck', 'tower', 'chandelier, pendant, pendent', 'awning, sunshade, sunblind', 'streetlight, street lamp', 'booth, cubicle, stall, kiosk', 'television receiver, television, television set, tv, tv set, idiot box, boob tube, telly, goggle box', 'airplane, aeroplane, plane', 'dirt track', 'apparel, wearing apparel, dress, clothes', 'pole', 'land, ground, soil', 'bannister, banister, balustrade, balusters, handrail', 'escalator, moving staircase, moving stairway', 'ottoman, pouf, pouffe, puff, hassock', 'bottle', 'buffet, counter, sideboard', 'poster, posting, placard, notice, bill, card', 'stage', 'van', 'ship', 'fountain', 'conveyer belt, conveyor belt, conveyer, conveyor, transporter', 'canopy', 'washer, automatic washer, washing machine', 'plaything, toy', 'swimming pool, swimming bath, natatorium', 'stool', 'barrel, cask', 'basket, handbasket', 'waterfall, falls', 'tent, collapsible shelter', 'bag', 'minibike, motorbike', 'cradle', 'oven', 'ball', 'food, solid food', 'step, stair', 'tank, storage tank', 'trade name, brand name, brand, marque', 'microwave, microwave oven', 'pot, flowerpot', 'animal, animate being, beast, brute, creature, fauna', 'bicycle, bike, wheel, cycle', 'lake', 'dishwasher, dish washer, dishwashing machine', 'screen, silver screen, projection screen', 'blanket, cover', 'sculpture', 'hood, exhaust hood', 'sconce', 'vase', 'traffic light, traffic signal, stoplight', 'tray', 'ashcan, trash can, garbage can, wastebin, ash bin, ash-bin, ashbin, dustbin, trash barrel, trash bin', 'fan', 'pier, wharf, wharfage, dock', 'crt screen', 'plate', 'monitor, monitoring device', 'bulletin board, notice board', 'shower', 'radiator', 'glass, drinking glass', 'clock', 'flag'
-
-
-class COCOSegmentation(SegmentationDataset):
-    """COCO Semantic Segmentation Dataset for VOC Pre-training.
-
-    Parameters
-    ----------
-    root : string
-        Path to ADE20K folder. Default is './datasets/coco'
-    split: string
-        'train', 'val' or 'test'
-    transform : callable, optional
-        A function that transforms the image
-    Examples
-    --------
-    >>> from torchvision import transforms
-    >>> import torch.utils.data as data
-    >>> # Transforms for Normalization
-    >>> input_transform = transforms.Compose([
-    >>>     transforms.ToTensor(),
-    >>>     transforms.Normalize((.485, .456, .406), (.229, .224, .225)),
-    >>> ])
-    >>> # Create Dataset
-    >>> trainset = COCOSegmentation(split='train', transform=input_transform)
-    >>> # Create Training Loader
-    >>> train_data = data.DataLoader(
-    >>>     trainset, 4, shuffle=True,
-    >>>     num_workers=4)
-    """
-    CAT_LIST = [0, 5, 2, 16, 9, 44, 6, 3, 17, 62, 21, 67, 18, 19, 4, 1, 64, 20, 63, 7, 72]
-    NUM_CLASS = 21
-
-    def __init__(self, root='datasets/coco', split='train', mode=None, transform=None, **kwargs):
-        super(COCOSegmentation, self).__init__(root, split, mode, transform, **kwargs)
-        from pycocotools.coco import COCO
-        from pycocotools import mask
-        if split == 'train':
-            print('train set')
-            ann_file = os.path.join(root, 'annotations/instances_train2017.json')
-            ids_file = os.path.join(root, 'annotations/train_ids.pkl')
-            self.root = os.path.join(root, 'train2017')
-        else:
-            print('val set')
-            ann_file = os.path.join(root, 'annotations/instances_val2017.json')
-            ids_file = os.path.join(root, 'annotations/val_ids.pkl')
-            self.root = os.path.join(root, 'val2017')
-        self.coco = COCO(ann_file)
-        self.coco_mask = mask
-        if os.path.exists(ids_file):
-            with open(ids_file, 'rb') as f:
-                self.ids = pickle.load(f)
-        else:
-            ids = list(self.coco.imgs.keys())
-            self.ids = self._preprocess(ids, ids_file)
-        self.transform = transform
-
-    def __getitem__(self, index):
-        coco = self.coco
-        img_id = self.ids[index]
-        img_metadata = coco.loadImgs(img_id)[0]
-        path = img_metadata['file_name']
-        img = Image.open(os.path.join(self.root, path)).convert('RGB')
-        cocotarget = coco.loadAnns(coco.getAnnIds(imgIds=img_id))
-        mask = Image.fromarray(self._gen_seg_mask(cocotarget, img_metadata['height'], img_metadata['width']))
-        if self.mode == 'train':
-            img, mask = self._sync_transform(img, mask)
-        elif self.mode == 'val':
-            img, mask = self._val_sync_transform(img, mask)
-        else:
-            assert self.mode == 'testval'
-            img, mask = self._img_transform(img), self._mask_transform(mask)
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, mask, os.path.basename(path)
-
-    def __len__(self):
-        return len(self.ids)
-
-    def _mask_transform(self, mask):
-        return torch.LongTensor(np.array(mask).astype('int32'))
-
-    def _gen_seg_mask(self, target, h, w):
-        mask = np.zeros((h, w), dtype=np.uint8)
-        coco_mask = self.coco_mask
-        for instance in target:
-            rle = coco_mask.frPyObjects(instance['segmentation'], h, w)
-            m = coco_mask.decode(rle)
-            cat = instance['category_id']
-            if cat in self.CAT_LIST:
-                c = self.CAT_LIST.index(cat)
-            else:
-                continue
-            if len(m.shape) < 3:
-                mask[:, :] += (mask == 0) * (m * c)
-            else:
-                mask[:, :] += (mask == 0) * ((np.sum(m, axis=2) > 0) * c).astype(np.uint8)
-        return mask
-
-    def _preprocess(self, ids, ids_file):
-        print('Preprocessing mask, this will take a while.' + "But don't worry, it only run once for each split.")
-        tbar = trange(len(ids))
-        new_ids = []
-        for i in tbar:
-            img_id = ids[i]
-            cocotarget = self.coco.loadAnns(self.coco.getAnnIds(imgIds=img_id))
-            img_metadata = self.coco.loadImgs(img_id)[0]
-            mask = self._gen_seg_mask(cocotarget, img_metadata['height'], img_metadata['width'])
-            if (mask > 0).sum() > 1000:
-                new_ids.append(img_id)
-            tbar.set_description('Doing: {}/{}, got {} qualified images'.format(i, len(ids), len(new_ids)))
-        print('Found number of qualified images: ', len(new_ids))
-        with open(ids_file, 'wb') as f:
-            pickle.dump(new_ids, f)
-        return new_ids
-
-    @property
-    def classes(self):
-        """Category names."""
-        return 'background', 'airplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep', 'sofa', 'train', 'tv'
-
-
-def _get_city_pairs(folder, split='train'):
-
-    def get_path_pairs(img_folder, mask_folder):
-        img_paths = []
-        mask_paths = []
-        for root, _, files in os.walk(img_folder):
-            for filename in files:
-                if filename.startswith('._'):
-                    continue
-                if filename.endswith('.png'):
-                    imgpath = os.path.join(root, filename)
-                    foldername = os.path.basename(os.path.dirname(imgpath))
-                    maskname = filename.replace('leftImg8bit', 'gtFine_labelIds')
-                    maskpath = os.path.join(mask_folder, foldername, maskname)
-                    if os.path.isfile(imgpath) and os.path.isfile(maskpath):
-                        img_paths.append(imgpath)
-                        mask_paths.append(maskpath)
-                    else:
-                        logging.info('cannot find the mask or image:', imgpath, maskpath)
-        logging.info('Found {} images in the folder {}'.format(len(img_paths), img_folder))
-        return img_paths, mask_paths
-    if split in ('train', 'val'):
-        img_folder = os.path.join(folder, 'leftImg8bit/' + split)
-        mask_folder = os.path.join(folder, 'gtFine/' + split)
-        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
-        return img_paths, mask_paths
-    else:
-        assert split == 'trainval'
-        logging.info('trainval set')
-        train_img_folder = os.path.join(folder, 'leftImg8bit/train')
-        train_mask_folder = os.path.join(folder, 'gtFine/train')
-        val_img_folder = os.path.join(folder, 'leftImg8bit/val')
-        val_mask_folder = os.path.join(folder, 'gtFine/val')
-        train_img_paths, train_mask_paths = get_path_pairs(train_img_folder, train_mask_folder)
-        val_img_paths, val_mask_paths = get_path_pairs(val_img_folder, val_mask_folder)
-        img_paths = train_img_paths + val_img_paths
-        mask_paths = train_mask_paths + val_mask_paths
-    return img_paths, mask_paths
-
-
-class CitySegmentation(SegmentationDataset):
-    """Cityscapes Semantic Segmentation Dataset.
-
-    Parameters
-    ----------
-    root : string
-        Path to Cityscapes folder. Default is './datasets/cityscapes'
-    split: string
-        'train', 'val' or 'test'
-    transform : callable, optional
-        A function that transforms the image
-    Examples
-    --------
-    >>> from torchvision import transforms
-    >>> import torch.utils.data as data
-    >>> # Transforms for Normalization
-    >>> input_transform = transforms.Compose([
-    >>>     transforms.ToTensor(),
-    >>>     transforms.Normalize((.485, .456, .406), (.229, .224, .225)),
-    >>> ])
-    >>> # Create Dataset
-    >>> trainset = CitySegmentation(split='train', transform=input_transform)
-    >>> # Create Training Loader
-    >>> train_data = data.DataLoader(
-    >>>     trainset, 4, shuffle=True,
-    >>>     num_workers=4)
-    """
-    BASE_DIR = 'cityscapes'
-    NUM_CLASS = 19
-
-    def __init__(self, root='datasets/cityscapes', split='train', mode=None, transform=None, **kwargs):
-        super(CitySegmentation, self).__init__(root, split, mode, transform, **kwargs)
-        assert os.path.exists(self.root), 'Please put dataset in {SEG_ROOT}/datasets/cityscapes'
-        self.images, self.mask_paths = _get_city_pairs(self.root, self.split)
-        assert len(self.images) == len(self.mask_paths)
-        if len(self.images) == 0:
-            raise RuntimeError('Found 0 images in subfolders of:' + root + '\n')
-        self.valid_classes = [7, 8, 11, 12, 13, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32, 33]
-        self._key = np.array([-1, -1, -1, -1, -1, -1, -1, -1, 0, 1, -1, -1, 2, 3, 4, -1, -1, -1, 5, -1, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, -1, -1, 16, 17, 18])
-        self._mapping = np.array(range(-1, len(self._key) - 1)).astype('int32')
-
-    def _class_to_index(self, mask):
-        values = np.unique(mask)
-        for value in values:
-            assert value in self._mapping
-        index = np.digitize(mask.ravel(), self._mapping, right=True)
-        return self._key[index].reshape(mask.shape)
-
-    def __getitem__(self, index):
-        img = Image.open(self.images[index]).convert('RGB')
-        if self.mode == 'test':
-            if self.transform is not None:
-                img = self.transform(img)
-            return img, os.path.basename(self.images[index])
-        mask = Image.open(self.mask_paths[index])
-        if self.mode == 'train':
-            img, mask = self._sync_transform(img, mask)
-        elif self.mode == 'val':
-            img, mask = self._val_sync_transform(img, mask)
-        else:
-            assert self.mode == 'testval'
-            img, mask = self._img_transform(img), self._mask_transform(mask)
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, mask, os.path.basename(self.images[index])
-
-    def _mask_transform(self, mask):
-        target = self._class_to_index(np.array(mask).astype('int32'))
-        return torch.LongTensor(np.array(target).astype('int32'))
-
-    def __len__(self):
-        return len(self.images)
-
-    @property
-    def pred_offset(self):
-        return 0
-
-    @property
-    def classes(self):
-        """Category names."""
-        return 'road', 'sidewalk', 'building', 'wall', 'fence', 'pole', 'traffic light', 'traffic sign', 'vegetation', 'terrain', 'sky', 'person', 'rider', 'car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle'
-
-
-def _get_sbu_pairs(folder, split='train'):
-
-    def get_path_pairs(img_folder, mask_folder):
-        img_paths = []
-        mask_paths = []
-        for root, _, files in os.walk(img_folder):
-            print(root)
-            for filename in files:
-                if filename.endswith('.jpg'):
-                    imgpath = os.path.join(root, filename)
-                    maskname = filename.replace('.jpg', '.png')
-                    maskpath = os.path.join(mask_folder, maskname)
-                    if os.path.isfile(imgpath) and os.path.isfile(maskpath):
-                        img_paths.append(imgpath)
-                        mask_paths.append(maskpath)
-                    else:
-                        print('cannot find the mask or image:', imgpath, maskpath)
-        print('Found {} images in the folder {}'.format(len(img_paths), img_folder))
-        return img_paths, mask_paths
-    if split == 'train':
-        img_folder = os.path.join(folder, 'SBUTrain4KRecoveredSmall/ShadowImages')
-        mask_folder = os.path.join(folder, 'SBUTrain4KRecoveredSmall/ShadowMasks')
-        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
-    else:
-        assert split in ('val', 'test')
-        img_folder = os.path.join(folder, 'SBU-Test/ShadowImages')
-        mask_folder = os.path.join(folder, 'SBU-Test/ShadowMasks')
-        img_paths, mask_paths = get_path_pairs(img_folder, mask_folder)
-    return img_paths, mask_paths
-
-
-class SBUSegmentation(SegmentationDataset):
-    """SBU Shadow Segmentation Dataset
-    """
-    NUM_CLASS = 2
-
-    def __init__(self, root='datasets/sbu', split='train', mode=None, transform=None, **kwargs):
-        super(SBUSegmentation, self).__init__(root, split, mode, transform, **kwargs)
-        assert os.path.exists(self.root)
-        self.images, self.masks = _get_sbu_pairs(self.root, self.split)
-        assert len(self.images) == len(self.masks)
-        if len(self.images) == 0:
-            raise RuntimeError('Found 0 images in subfolders of:' + root + '\n')
-
-    def __getitem__(self, index):
-        img = Image.open(self.images[index]).convert('RGB')
-        if self.mode == 'test':
-            if self.transform is not None:
-                img = self.transform(img)
-            return img, os.path.basename(self.images[index])
-        mask = Image.open(self.masks[index])
-        if self.mode == 'train':
-            img, mask = self._sync_transform(img, mask)
-        elif self.mode == 'val':
-            img, mask = self._val_sync_transform(img, mask)
-        else:
-            assert self.mode == 'testval'
-            img, mask = self._img_transform(img), self._mask_transform(mask)
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, mask, os.path.basename(self.images[index])
-
-    def _mask_transform(self, mask):
-        target = np.array(mask).astype('int32')
-        target[target > 0] = 1
-        return torch.from_numpy(target).long()
-
-    def __len__(self):
-        return len(self.images)
-
-    @property
-    def pred_offset(self):
-        return 0
-
-
-class VOCAugSegmentation(SegmentationDataset):
-    """Pascal VOC Augmented Semantic Segmentation Dataset.
-
-    Parameters
-    ----------
-    root : string
-        Path to VOCdevkit folder. Default is './datasets/voc'
-    split: string
-        'train', 'val' or 'test'
-    transform : callable, optional
-        A function that transforms the image
-    Examples
-    --------
-    >>> from torchvision import transforms
-    >>> import torch.utils.data as data
-    >>> # Transforms for Normalization
-    >>> input_transform = transforms.Compose([
-    >>>     transforms.ToTensor(),
-    >>>     transforms.Normalize([.485, .456, .406], [.229, .224, .225]),
-    >>> ])
-    >>> # Create Dataset
-    >>> trainset = VOCAugSegmentation(split='train', transform=input_transform)
-    >>> # Create Training Loader
-    >>> train_data = data.DataLoader(
-    >>>     trainset, 4, shuffle=True,
-    >>>     num_workers=4)
-    """
-    BASE_DIR = 'VOCaug/dataset/'
-    NUM_CLASS = 21
-
-    def __init__(self, root='datasets/voc', split='train', mode=None, transform=None, **kwargs):
-        super(VOCAugSegmentation, self).__init__(root, split, mode, transform, **kwargs)
-        _voc_root = os.path.join(root, self.BASE_DIR)
-        _mask_dir = os.path.join(_voc_root, 'cls')
-        _image_dir = os.path.join(_voc_root, 'img')
-        if split == 'train':
-            _split_f = os.path.join(_voc_root, 'trainval.txt')
-        elif split == 'val':
-            _split_f = os.path.join(_voc_root, 'val.txt')
-        else:
-            raise RuntimeError('Unknown dataset split: {}'.format(split))
-        self.images = []
-        self.masks = []
-        with open(os.path.join(_split_f), 'r') as lines:
-            for line in lines:
-                _image = os.path.join(_image_dir, line.rstrip('\n') + '.jpg')
-                assert os.path.isfile(_image)
-                self.images.append(_image)
-                _mask = os.path.join(_mask_dir, line.rstrip('\n') + '.mat')
-                assert os.path.isfile(_mask)
-                self.masks.append(_mask)
-        assert len(self.images) == len(self.masks)
-        print('Found {} images in the folder {}'.format(len(self.images), _voc_root))
-
-    def __getitem__(self, index):
-        img = Image.open(self.images[index]).convert('RGB')
-        target = self._load_mat(self.masks[index])
-        if self.mode == 'train':
-            img, target = self._sync_transform(img, target)
-        elif self.mode == 'val':
-            img, target = self._val_sync_transform(img, target)
-        elif self.mode == 'testval':
-            logging.warn('Use mode of testval, you should set batch size=1')
-            img, target = self._img_transform(img), self._mask_transform(target)
-        else:
-            raise RuntimeError('unknown mode for dataloader: {}'.format(self.mode))
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, target, os.path.basename(self.images[index])
-
-    def _mask_transform(self, mask):
-        return torch.LongTensor(np.array(mask).astype('int32'))
-
-    def _load_mat(self, filename):
-        mat = sio.loadmat(filename, mat_dtype=True, squeeze_me=True, struct_as_record=False)
-        mask = mat['GTcls'].Segmentation
-        return Image.fromarray(mask)
-
-    def __len__(self):
-        return len(self.images)
-
-    @property
-    def classes(self):
-        """Category names."""
-        return 'background', 'airplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep', 'sofa', 'train', 'tv'
-
-
-class VOCSegmentation(SegmentationDataset):
-    """Pascal VOC Semantic Segmentation Dataset.
-
-    Parameters
-    ----------
-    root : string
-        Path to VOCdevkit folder. Default is './datasets/VOCdevkit'
-    split: string
-        'train', 'val' or 'test'
-    transform : callable, optional
-        A function that transforms the image
-    Examples
-    --------
-    >>> from torchvision import transforms
-    >>> import torch.utils.data as data
-    >>> # Transforms for Normalization
-    >>> input_transform = transforms.Compose([
-    >>>     transforms.ToTensor(),
-    >>>     transforms.Normalize([.485, .456, .406], [.229, .224, .225]),
-    >>> ])
-    >>> # Create Dataset
-    >>> trainset = VOCSegmentation(split='train', transform=input_transform)
-    >>> # Create Training Loader
-    >>> train_data = data.DataLoader(
-    >>>     trainset, 4, shuffle=True,
-    >>>     num_workers=4)
-    """
-    BASE_DIR = 'VOC2012'
-    NUM_CLASS = 21
-
-    def __init__(self, root='datasets/voc', split='train', mode=None, transform=None, **kwargs):
-        super(VOCSegmentation, self).__init__(root, split, mode, transform, **kwargs)
-        _voc_root = os.path.join(root, self.BASE_DIR)
-        _mask_dir = os.path.join(_voc_root, 'SegmentationClass')
-        _image_dir = os.path.join(_voc_root, 'JPEGImages')
-        _splits_dir = os.path.join(_voc_root, 'ImageSets/Segmentation')
-        if split == 'train':
-            _split_f = os.path.join(_splits_dir, 'train.txt')
-        elif split == 'val':
-            _split_f = os.path.join(_splits_dir, 'val.txt')
-        elif split == 'test':
-            _split_f = os.path.join(_splits_dir, 'test.txt')
-        else:
-            raise RuntimeError('Unknown dataset split.')
-        self.images = []
-        self.masks = []
-        with open(os.path.join(_split_f), 'r') as lines:
-            for line in lines:
-                _image = os.path.join(_image_dir, line.rstrip('\n') + '.jpg')
-                assert os.path.isfile(_image)
-                self.images.append(_image)
-                if split != 'test':
-                    _mask = os.path.join(_mask_dir, line.rstrip('\n') + '.png')
-                    assert os.path.isfile(_mask)
-                    self.masks.append(_mask)
-        if split != 'test':
-            assert len(self.images) == len(self.masks)
-        print('Found {} images in the folder {}'.format(len(self.images), _voc_root))
-
-    def __getitem__(self, index):
-        img = Image.open(self.images[index]).convert('RGB')
-        if self.mode == 'test':
-            img = self._img_transform(img)
-            if self.transform is not None:
-                img = self.transform(img)
-            return img, os.path.basename(self.images[index])
-        mask = Image.open(self.masks[index])
-        if self.mode == 'train':
-            img, mask = self._sync_transform(img, mask)
-        elif self.mode == 'val':
-            img, mask = self._val_sync_transform(img, mask)
-        else:
-            assert self.mode == 'testval'
-            img, mask = self._img_transform(img), self._mask_transform(mask)
-        if self.transform is not None:
-            img = self.transform(img)
-        return img, mask, os.path.basename(self.images[index])
-
-    def __len__(self):
-        return len(self.images)
-
-    def _mask_transform(self, mask):
-        target = np.array(mask).astype('int32')
-        target[target == 255] = -1
-        return torch.from_numpy(target).long()
-
-    @property
-    def classes(self):
-        """Category names."""
-        return 'background', 'airplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'diningtable', 'dog', 'horse', 'motorcycle', 'person', 'potted-plant', 'sheep', 'sofa', 'train', 'tv'
-
-
-datasets = {'ade20k': ADE20KSegmentation, 'pascal_voc': VOCSegmentation, 'pascal_aug': VOCAugSegmentation, 'coco': COCOSegmentation, 'cityscape': CitySegmentation, 'sbu': SBUSegmentation}
-
-
-def groupNorm(num_channels, eps=1e-05, momentum=0.1, affine=True):
-    return nn.GroupNorm(min(32, num_channels), num_channels, eps=eps, affine=affine)
-
-
-def get_norm(norm):
-    """
-    Args:
-        norm (str or callable):
-
-    Returns:
-        nn.Module or None: the normalization layer
-    """
-    support_norm_type = ['BN', 'SyncBN', 'FrozenBN', 'GN', 'nnSyncBN']
-    assert norm in support_norm_type, 'Unknown norm type {}, support norm types are {}'.format(norm, support_norm_type)
-    if isinstance(norm, str):
-        if len(norm) == 0:
-            return None
-        norm = {'BN': nn.BatchNorm2d, 'SyncBN': NaiveSyncBatchNorm, 'FrozenBN': FrozenBatchNorm2d, 'GN': groupNorm, 'nnSyncBN': nn.SyncBatchNorm}[norm]
-    return norm
-
-
-class Registry(object):
-    """
-    The registry that provides name -> object mapping, to support third-party users' custom modules.
-
-    To create a registry (inside segmentron):
-
-    .. code-block:: python
-
-        BACKBONE_REGISTRY = Registry('BACKBONE')
-
-    To register an object:
-
-    .. code-block:: python
-
-        @BACKBONE_REGISTRY.register()
-        class MyBackbone():
-            ...
-
-    Or:
-
-    .. code-block:: python
-
-        BACKBONE_REGISTRY.register(MyBackbone)
-    """
-
-    def __init__(self, name):
-        """
-        Args:
-            name (str): the name of this registry
-        """
-        self._name = name
-        self._obj_map = {}
-
-    def _do_register(self, name, obj):
-        assert name not in self._obj_map, "An object named '{}' was already registered in '{}' registry!".format(name, self._name)
-        self._obj_map[name] = obj
-
-    def register(self, obj=None, name=None):
-        """
-        Register the given object under the the name `obj.__name__`.
-        Can be used as either a decorator or not. See docstring of this class for usage.
-        """
-        if obj is None:
-
-            def deco(func_or_class, name=name):
-                if name is None:
-                    name = func_or_class.__name__
-                self._do_register(name, func_or_class)
-                return func_or_class
-            return deco
-        if name is None:
-            name = obj.__name__
-        self._do_register(name, obj)
-
-    def get(self, name):
-        ret = self._obj_map.get(name)
-        if ret is None:
-            raise KeyError("No object named '{}' found in '{}' registry!".format(name, self._name))
-        return ret
-
-    def get_list(self):
-        return list(self._obj_map.keys())
-
-
-BACKBONE_REGISTRY = Registry('BACKBONE')
-
-
-def check_sha1(filename, sha1_hash):
-    """Check whether the sha1 hash of the file content matches the expected hash.
-    Parameters
-    ----------
-    filename : str
-        Path to the file.
-    sha1_hash : str
-        Expected sha1 hash in hexadecimal digits.
-    Returns
-    -------
-    bool
-        Whether the file content matches the expected hash.
-    """
-    sha1 = hashlib.sha1()
-    with open(filename, 'rb') as f:
-        while True:
-            data = f.read(1048576)
-            if not data:
-                break
-            sha1.update(data)
-    sha1_file = sha1.hexdigest()
-    l = min(len(sha1_file), len(sha1_hash))
-    return sha1.hexdigest()[0:l] == sha1_hash[0:l]
-
-
-def download(url, path=None, overwrite=False, sha1_hash=None):
-    """Download an given URL
-    Parameters
-    ----------
-    url : str
-        URL to download
-    path : str, optional
-        Destination path to store downloaded file. By default stores to the
-        current directory with same name as in url.
-    overwrite : bool, optional
-        Whether to overwrite destination file if already exists.
-    sha1_hash : str, optional
-        Expected sha1 hash in hexadecimal digits. Will ignore existing file when hash is specified
-        but doesn't match.
-    Returns
-    -------
-    str
-        The file path of the downloaded file.
-    """
-    if path is None:
-        fname = url.split('/')[-1]
-    else:
-        path = os.path.expanduser(path)
-        if os.path.isdir(path):
-            fname = os.path.join(path, url.split('/')[-1])
-        else:
-            fname = path
-    if overwrite or not os.path.exists(fname) or sha1_hash and not check_sha1(fname, sha1_hash):
-        dirname = os.path.dirname(os.path.abspath(os.path.expanduser(fname)))
-        if not os.path.exists(dirname):
-            os.makedirs(dirname)
-        print('Downloading %s from %s...' % (fname, url))
-        r = requests.get(url, stream=True)
-        if r.status_code != 200:
-            raise RuntimeError('Failed downloading url %s' % url)
-        total_length = r.headers.get('content-length')
-        with open(fname, 'wb') as f:
-            if total_length is None:
-                for chunk in r.iter_content(chunk_size=1024):
-                    if chunk:
-                        f.write(chunk)
-            else:
-                total_length = int(total_length)
-                for chunk in tqdm(r.iter_content(chunk_size=1024), total=int(total_length / 1024.0 + 0.5), unit='KB', unit_scale=False, dynamic_ncols=True):
-                    f.write(chunk)
-        if sha1_hash and not check_sha1(fname, sha1_hash):
-            raise UserWarning('File {} is downloaded but the content hash does not match. The repo may be outdated or download may be incomplete. If the "repo_url" is overridden, consider switching to the default repo.'.format(fname))
-    return fname
-
-
-model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth', 'resnet50c': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet50-25c4b509.pth', 'resnet101c': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet101-2a57e44d.pth', 'resnet152c': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/resnet152-0d43d698.pth', 'xception65': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/tf-xception65-270e81cf.pth', 'hrnet_w18_small_v1': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/hrnet-w18-small-v1-08f8ae64.pth', 'mobilenet_v2': 'https://github.com/LikeLy-Journey/SegmenTron/releases/download/v0.1.0/mobilenetV2-15498621.pth'}
-
-
-_global_config['PHASE'] = 4
-
-
-_global_config['TRAIN'] = 4
-
-
-def load_backbone_pretrained(model, backbone):
-    if cfg.PHASE == 'train' and cfg.TRAIN.BACKBONE_PRETRAINED and not cfg.TRAIN.PRETRAINED_MODEL_PATH:
-        if os.path.isfile(cfg.TRAIN.BACKBONE_PRETRAINED_PATH):
-            logging.info('Load backbone pretrained model from {}'.format(cfg.TRAIN.BACKBONE_PRETRAINED_PATH))
-            msg = model.load_state_dict(torch.load(cfg.TRAIN.BACKBONE_PRETRAINED_PATH), strict=False)
-            logging.info(msg)
-        elif backbone not in model_urls:
-            logging.info('{} has no pretrained model'.format(backbone))
-            return
-        else:
-            logging.info('load backbone pretrained model from url..')
-            try:
-                msg = model.load_state_dict(model_zoo.load_url(model_urls[backbone]), strict=False)
-            except Exception as e:
-                logging.warning(e)
-                logging.info('Use torch download failed, try custom method!')
-                msg = model.load_state_dict(torch.load(download(model_urls[backbone], path=os.path.join(torch.hub._get_torch_home(), 'checkpoints'))), strict=False)
-            logging.info(msg)
-
-
-def get_segmentation_backbone(backbone, norm_layer=torch.nn.BatchNorm2d):
-    """
-    Built the backbone model, defined by `cfg.MODEL.BACKBONE`.
-    """
-    model = BACKBONE_REGISTRY.get(backbone)(norm_layer)
-    load_backbone_pretrained(model, backbone)
-    return model
-
-
-_global_config['DATASET'] = 4
-
-
-_global_config['TEST'] = 4
-
-
-_global_config['SOLVER'] = 4
-
-
-class SegBaseModel(nn.Module):
-    """Base Model for Semantic Segmentation
-    """
-
-    def __init__(self, need_backbone=True):
-        super(SegBaseModel, self).__init__()
-        self.nclass = datasets[cfg.DATASET.NAME].NUM_CLASS
-        self.aux = cfg.SOLVER.AUX
-        self.norm_layer = get_norm(cfg.MODEL.BN_TYPE)
-        self.backbone = None
-        self.encoder = None
-        if need_backbone:
-            self.get_backbone()
-
-    def get_backbone(self):
-        self.backbone = cfg.MODEL.BACKBONE.lower()
-        self.encoder = get_segmentation_backbone(self.backbone, self.norm_layer)
-
-    def base_forward(self, x):
-        """forwarding backbone network"""
-        c1, c2, c3, c4 = self.encoder(x)
-        return c1, c2, c3, c4
-
-    def demo(self, x):
-        pred = self.forward(x)
-        if self.aux:
-            pred = pred[0]
-        return pred
-
-    def evaluate(self, image):
-        """evaluating network with inputs and targets"""
-        scales = cfg.TEST.SCALES
-        flip = cfg.TEST.FLIP
-        crop_size = _to_tuple(cfg.TEST.CROP_SIZE) if cfg.TEST.CROP_SIZE else None
-        batch, _, h, w = image.shape
-        base_size = max(h, w)
-        scores = None
-        for scale in scales:
-            long_size = int(math.ceil(base_size * scale))
-            if h > w:
-                height = long_size
-                width = int(1.0 * w * long_size / h + 0.5)
-            else:
-                width = long_size
-                height = int(1.0 * h * long_size / w + 0.5)
-            cur_img = _resize_image(image, height, width)
-            if crop_size is not None:
-                assert crop_size[0] >= h and crop_size[1] >= w
-                crop_size_scaled = int(math.ceil(crop_size[0] * scale)), int(math.ceil(crop_size[1] * scale))
-                cur_img = _pad_image(cur_img, crop_size_scaled)
-            outputs = self.forward(cur_img)[0][(...), :height, :width]
-            if flip:
-                outputs += _flip_image(self.forward(_flip_image(cur_img))[0])[(...), :height, :width]
-            score = _resize_image(outputs, h, w)
-            if scores is None:
-                scores = score
-            else:
-                scores += score
-        return scores
-
-
-class _UNetHead(nn.Module):
-
-    def __init__(self, nclass, norm_layer=nn.BatchNorm2d):
-        super(_UNetHead, self).__init__()
-        bilinear = True
-        self.up1 = Up(1024, 256, bilinear)
-        self.up2 = Up(512, 128, bilinear)
-        self.up3 = Up(256, 64, bilinear)
-        self.up4 = Up(128, 64, bilinear)
-        self.outc = OutConv(64, nclass)
-
-    def forward(self, x1, x2, x3, x4, x5):
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
-        logits = self.outc(x)
-        return logits
-
-
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
 
@@ -3719,6 +3962,16 @@ class Down(nn.Module):
         return self.maxpool_conv(x)
 
 
+class OutConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super(OutConv, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
 class Up(nn.Module):
     """Upscaling then double conv"""
 
@@ -3739,317 +3992,50 @@ class Up(nn.Module):
         return self.conv(x)
 
 
-class OutConv(nn.Module):
+class _UNetHead(nn.Module):
 
-    def __init__(self, in_channels, out_channels):
-        super(OutConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+    def __init__(self, nclass, norm_layer=nn.BatchNorm2d):
+        super(_UNetHead, self).__init__()
+        bilinear = True
+        self.up1 = Up(1024, 256, bilinear)
+        self.up2 = Up(512, 128, bilinear)
+        self.up3 = Up(256, 64, bilinear)
+        self.up4 = Up(128, 64, bilinear)
+        self.outc = OutConv(64, nclass)
 
-    def forward(self, x):
-        return self.conv(x)
-
-
-class SeparableConv2d(nn.Module):
-
-    def __init__(self, inplanes, planes, kernel_size=3, stride=1, dilation=1, relu_first=True, bias=False, norm_layer=nn.BatchNorm2d):
-        super().__init__()
-        depthwise = nn.Conv2d(inplanes, inplanes, kernel_size, stride=stride, padding=dilation, dilation=dilation, groups=inplanes, bias=bias)
-        bn_depth = norm_layer(inplanes)
-        pointwise = nn.Conv2d(inplanes, planes, 1, bias=bias)
-        bn_point = norm_layer(planes)
-        if relu_first:
-            self.block = nn.Sequential(OrderedDict([('relu', nn.ReLU()), ('depthwise', depthwise), ('bn_depth', bn_depth), ('pointwise', pointwise), ('bn_point', bn_point)]))
-        else:
-            self.block = nn.Sequential(OrderedDict([('depthwise', depthwise), ('bn_depth', bn_depth), ('relu1', nn.ReLU(inplace=True)), ('pointwise', pointwise), ('bn_point', bn_point), ('relu2', nn.ReLU(inplace=True))]))
-
-    def forward(self, x):
-        return self.block(x)
+    def forward(self, x1, x2, x3, x4, x5):
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
+        logits = self.outc(x)
+        return logits
 
 
-class _ConvBNReLU(nn.Module):
+class UNet(SegBaseModel):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu6=False, norm_layer=nn.BatchNorm2d):
-        super(_ConvBNReLU, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias=False)
-        self.bn = norm_layer(out_channels)
-        self.relu = nn.ReLU6(True) if relu6 else nn.ReLU(True)
+    def __init__(self):
+        super(UNet, self).__init__(need_backbone=False)
+        self.inc = DoubleConv(3, 64)
+        self.down1 = Down(64, 128)
+        self.down2 = Down(128, 256)
+        self.down3 = Down(256, 512)
+        self.down4 = Down(512, 512)
+        self.head = _UNetHead(self.nclass)
+        self.__setattr__('decoder', ['head', 'auxlayer'] if self.aux else ['head'])
 
     def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        return x
-
-
-class _ConvBNPReLU(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, norm_layer=nn.BatchNorm2d):
-        super(_ConvBNPReLU, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias=False)
-        self.bn = norm_layer(out_channels)
-        self.prelu = nn.PReLU(out_channels)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.prelu(x)
-        return x
-
-
-class _ConvBN(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, norm_layer=nn.BatchNorm2d, **kwargs):
-        super(_ConvBN, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias=False)
-        self.bn = norm_layer(out_channels)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        return x
-
-
-class _BNPReLU(nn.Module):
-
-    def __init__(self, out_channels, norm_layer=nn.BatchNorm2d):
-        super(_BNPReLU, self).__init__()
-        self.bn = norm_layer(out_channels)
-        self.prelu = nn.PReLU(out_channels)
-
-    def forward(self, x):
-        x = self.bn(x)
-        x = self.prelu(x)
-        return x
-
-
-class _DepthwiseConv(nn.Module):
-    """conv_dw in MobileNet"""
-
-    def __init__(self, in_channels, out_channels, stride, norm_layer=nn.BatchNorm2d, **kwargs):
-        super(_DepthwiseConv, self).__init__()
-        self.conv = nn.Sequential(_ConvBNReLU(in_channels, in_channels, 3, stride, 1, groups=in_channels, norm_layer=norm_layer), _ConvBNReLU(in_channels, out_channels, 1, norm_layer=norm_layer))
-
-    def forward(self, x):
-        return self.conv(x)
-
-
-class InvertedResidual(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride, expand_ratio, dilation=1, norm_layer=nn.BatchNorm2d):
-        super(InvertedResidual, self).__init__()
-        assert stride in [1, 2]
-        self.use_res_connect = stride == 1 and in_channels == out_channels
-        layers = list()
-        inter_channels = int(round(in_channels * expand_ratio))
-        if expand_ratio != 1:
-            layers.append(_ConvBNReLU(in_channels, inter_channels, 1, relu6=True, norm_layer=norm_layer))
-        layers.extend([_ConvBNReLU(inter_channels, inter_channels, 3, stride, dilation, dilation, groups=inter_channels, relu6=True, norm_layer=norm_layer), nn.Conv2d(inter_channels, out_channels, 1, bias=False), norm_layer(out_channels)])
-        self.conv = nn.Sequential(*layers)
-
-    def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
-
-
-class FrozenBatchNorm2d(nn.Module):
-    """
-    BatchNorm2d where the batch statistics and the affine parameters are fixed.
-
-    It contains non-trainable buffers called
-    "weight" and "bias", "running_mean", "running_var",
-    initialized to perform identity transformation.
-
-    The pre-trained backbone models from Caffe2 only contain "weight" and "bias",
-    which are computed from the original four parameters of BN.
-    The affine transform `x * weight + bias` will perform the equivalent
-    computation of `(x - running_mean) / sqrt(running_var) * weight + bias`.
-    When loading a backbone model from Caffe2, "running_mean" and "running_var"
-    will be left unchanged as identity transformation.
-
-    Other pre-trained backbone models may contain all 4 parameters.
-
-    The forward is implemented by `F.batch_norm(..., training=False)`.
-    """
-    _version = 3
-
-    def __init__(self, num_features, eps=1e-05):
-        super().__init__()
-        self.num_features = num_features
-        self.eps = eps
-        self.register_buffer('weight', torch.ones(num_features))
-        self.register_buffer('bias', torch.zeros(num_features))
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features) - eps)
-
-    def forward(self, x):
-        scale = self.weight * (self.running_var + self.eps).rsqrt()
-        bias = self.bias - self.running_mean * scale
-        scale = scale.reshape(1, -1, 1, 1)
-        bias = bias.reshape(1, -1, 1, 1)
-        return x * scale + bias
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        version = local_metadata.get('version', None)
-        if version is None or version < 2:
-            if prefix + 'running_mean' not in state_dict:
-                state_dict[prefix + 'running_mean'] = torch.zeros_like(self.running_mean)
-            if prefix + 'running_var' not in state_dict:
-                state_dict[prefix + 'running_var'] = torch.ones_like(self.running_var)
-        if version is not None and version < 3:
-            logging.info('FrozenBatchNorm {} is upgraded to version 3.'.format(prefix.rstrip('.')))
-            state_dict[prefix + 'running_var'] -= self.eps
-        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-
-    def __repr__(self):
-        return 'FrozenBatchNorm2d(num_features={}, eps={})'.format(self.num_features, self.eps)
-
-    @classmethod
-    def convert_frozen_batchnorm(cls, module):
-        """
-        Convert BatchNorm/SyncBatchNorm in module into FrozenBatchNorm.
-
-        Args:
-            module (torch.nn.Module):
-
-        Returns:
-            If module is BatchNorm/SyncBatchNorm, returns a new module.
-            Otherwise, in-place convert module and return it.
-
-        Similar to convert_sync_batchnorm in
-        https://github.com/pytorch/pytorch/blob/master/torch/nn/modules/batchnorm.py
-        """
-        bn_module = nn.modules.batchnorm
-        bn_module = bn_module.BatchNorm2d, bn_module.SyncBatchNorm
-        res = module
-        if isinstance(module, bn_module):
-            res = cls(module.num_features)
-            if module.affine:
-                res.weight.data = module.weight.data.clone().detach()
-                res.bias.data = module.bias.data.clone().detach()
-            res.running_mean.data = module.running_mean.data
-            res.running_var.data = module.running_var.data + module.eps
-        else:
-            for name, child in module.named_children():
-                new_child = cls.convert_frozen_batchnorm(child)
-                if new_child is not child:
-                    res.add_module(name, new_child)
-        return res
-
-
-class AllReduce(Function):
-
-    @staticmethod
-    def forward(ctx, input):
-        input_list = [torch.zeros_like(input) for k in range(dist.get_world_size())]
-        dist.all_gather(input_list, input, async_op=False)
-        inputs = torch.stack(input_list, dim=0)
-        return torch.sum(inputs, dim=0)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        dist.all_reduce(grad_output, async_op=False)
-        return grad_output
-
-
-def get_world_size():
-    if not dist.is_available():
-        return 1
-    if not dist.is_initialized():
-        return 1
-    return dist.get_world_size()
-
-
-class NaiveSyncBatchNorm(nn.BatchNorm2d):
-    """
-    `torch.nn.SyncBatchNorm` has known unknown bugs.
-    It produces significantly worse AP (and sometimes goes NaN)
-    when the batch size on each worker is quite different
-    (e.g., when scale augmentation is used, or when it is applied to mask head).
-
-    Use this implementation before `nn.SyncBatchNorm` is fixed.
-    It is slower than `nn.SyncBatchNorm`.
-    """
-
-    def forward(self, input):
-        if get_world_size() == 1 or not self.training:
-            return super().forward(input)
-        assert input.shape[0] > 0, 'SyncBatchNorm does not support empty inputs'
-        C = input.shape[1]
-        mean = torch.mean(input, dim=[0, 2, 3])
-        meansqr = torch.mean(input * input, dim=[0, 2, 3])
-        vec = torch.cat([mean, meansqr], dim=0)
-        vec = AllReduce.apply(vec) * (1.0 / dist.get_world_size())
-        mean, meansqr = torch.split(vec, C)
-        var = meansqr - mean * mean
-        self.running_mean += self.momentum * (mean.detach() - self.running_mean)
-        self.running_var += self.momentum * (var.detach() - self.running_var)
-        invstd = torch.rsqrt(var + self.eps)
-        scale = self.weight * invstd
-        bias = self.bias - mean * scale
-        scale = scale.reshape(1, -1, 1, 1)
-        bias = bias.reshape(1, -1, 1, 1)
-        return input * scale + bias
-
-
-class _CAMap(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, weight, g):
-        out = _C.ca_map_forward(weight, g)
-        ctx.save_for_backward(weight, g)
-        return out
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, dout):
-        weight, g = ctx.saved_tensors
-        dw, dg = _C.ca_map_backward(dout, weight, g)
-        return dw, dg
-
-
-ca_map = _CAMap.apply
-
-
-class _CAWeight(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, t, f):
-        weight = _C.ca_forward(t, f)
-        ctx.save_for_backward(t, f)
-        return weight
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, dw):
-        t, f = ctx.saved_tensors
-        dt, df = _C.ca_backward(dw, t, f)
-        return dt, df
-
-
-ca_weight = _CAWeight.apply
-
-
-class CrissCrossAttention(nn.Module):
-    """Criss-Cross Attention Module"""
-
-    def __init__(self, in_channels):
-        super(CrissCrossAttention, self).__init__()
-        self.query_conv = nn.Conv2d(in_channels, in_channels // 8, 1)
-        self.key_conv = nn.Conv2d(in_channels, in_channels // 8, 1)
-        self.value_conv = nn.Conv2d(in_channels, in_channels, 1)
-        self.gamma = nn.Parameter(torch.zeros(1))
-
-    def forward(self, x):
-        proj_query = self.query_conv(x)
-        proj_key = self.key_conv(x)
-        proj_value = self.value_conv(x)
-        energy = ca_weight(proj_query, proj_key)
-        attention = F.softmax(energy, 1)
-        out = ca_map(attention, proj_value)
-        out = self.gamma * out + x
-        return out
+        size = x.size()[2:]
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        outputs = list()
+        x = self.head(x1, x2, x3, x4, x5)
+        x = F.interpolate(x, size, mode='bilinear', align_corners=True)
+        outputs.append(x)
+        return tuple(outputs)
 
 
 class _FCNHead(nn.Module):
@@ -4061,167 +4047,6 @@ class _FCNHead(nn.Module):
 
     def forward(self, x):
         return self.block(x)
-
-
-class _ASPP(nn.Module):
-
-    def __init__(self, in_channels=2048, out_channels=256):
-        super().__init__()
-        output_stride = cfg.MODEL.OUTPUT_STRIDE
-        if output_stride == 16:
-            dilations = [6, 12, 18]
-        elif output_stride == 8:
-            dilations = [12, 24, 36]
-        elif output_stride == 32:
-            dilations = [6, 12, 18]
-        else:
-            raise NotImplementedError
-        self.aspp0 = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_channels, out_channels, 1, bias=False)), ('bn', nn.BatchNorm2d(out_channels)), ('relu', nn.ReLU(inplace=True))]))
-        self.aspp1 = SeparableConv2d(in_channels, out_channels, dilation=dilations[0], relu_first=False)
-        self.aspp2 = SeparableConv2d(in_channels, out_channels, dilation=dilations[1], relu_first=False)
-        self.aspp3 = SeparableConv2d(in_channels, out_channels, dilation=dilations[2], relu_first=False)
-        self.image_pooling = nn.Sequential(OrderedDict([('gap', nn.AdaptiveAvgPool2d((1, 1))), ('conv', nn.Conv2d(in_channels, out_channels, 1, bias=False)), ('bn', nn.BatchNorm2d(out_channels)), ('relu', nn.ReLU(inplace=True))]))
-        self.conv = nn.Conv2d(out_channels * 5, out_channels, 1, bias=False)
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.dropout = nn.Dropout2d(p=0.1)
-
-    def forward(self, x):
-        pool = self.image_pooling(x)
-        pool = F.interpolate(pool, size=x.shape[2:], mode='bilinear', align_corners=True)
-        x0 = self.aspp0(x)
-        x1 = self.aspp1(x)
-        x2 = self.aspp2(x)
-        x3 = self.aspp3(x)
-        x = torch.cat((pool, x0, x1, x2, x3), dim=1)
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        return x
-
-
-class PyramidPooling(nn.Module):
-
-    def __init__(self, in_channels, sizes=(1, 2, 3, 6), norm_layer=nn.BatchNorm2d, **kwargs):
-        super(PyramidPooling, self).__init__()
-        out_channels = int(in_channels / 4)
-        self.avgpools = nn.ModuleList()
-        self.convs = nn.ModuleList()
-        for size in sizes:
-            self.avgpools.append(nn.AdaptiveAvgPool2d(size))
-            self.convs.append(_ConvBNReLU(in_channels, out_channels, 1, norm_layer=norm_layer, **kwargs))
-
-    def forward(self, x):
-        size = x.size()[2:]
-        feats = [x]
-        for avgpool, conv in zip(self.avgpools, self.convs):
-            feats.append(F.interpolate(conv(avgpool(x)), size, mode='bilinear', align_corners=True))
-        return torch.cat(feats, dim=1)
-
-
-class PAM_Module(nn.Module):
-    """ Position attention module"""
-
-    def __init__(self, in_dim):
-        super(PAM_Module, self).__init__()
-        self.chanel_in = in_dim
-        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
-        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
-        self.gamma = nn.Parameter(torch.zeros(1))
-        self.softmax = nn.Softmax(dim=-1)
-
-    def forward(self, x):
-        """
-            inputs :
-                x : input feature maps( B X C X H X W)
-            returns :
-                out : attention value + input feature
-                attention: B X (HxW) X (HxW)
-        """
-        m_batchsize, C, height, width = x.size()
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
-        proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
-        energy = torch.bmm(proj_query, proj_key)
-        attention = self.softmax(energy)
-        proj_value = self.value_conv(x).view(m_batchsize, -1, width * height)
-        out = torch.bmm(proj_value, attention.permute(0, 2, 1))
-        out = out.view(m_batchsize, C, height, width)
-        out = self.gamma * out + x
-        return out
-
-
-class CAM_Module(nn.Module):
-    """ Channel attention module"""
-
-    def __init__(self, in_dim):
-        super(CAM_Module, self).__init__()
-        self.chanel_in = in_dim
-        self.gamma = nn.Parameter(torch.zeros(1))
-        self.softmax = nn.Softmax(dim=-1)
-
-    def forward(self, x):
-        """
-            inputs :
-                x : input feature maps( B X C X H X W)
-            returns :
-                out : attention value + input feature
-                attention: B X C X C
-        """
-        m_batchsize, C, height, width = x.size()
-        proj_query = x.view(m_batchsize, C, -1)
-        proj_key = x.view(m_batchsize, C, -1).permute(0, 2, 1)
-        energy = torch.bmm(proj_query, proj_key)
-        energy_new = torch.max(energy, -1, keepdim=True)[0].expand_as(energy) - energy
-        attention = self.softmax(energy_new)
-        proj_value = x.view(m_batchsize, C, -1)
-        out = torch.bmm(attention, proj_value)
-        out = out.view(m_batchsize, C, height, width)
-        out = self.gamma * out + x
-        return out
-
-
-class EESP(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride=1, k=4, r_lim=7, down_method='esp', norm_layer=nn.BatchNorm2d):
-        super(EESP, self).__init__()
-        self.stride = stride
-        n = int(out_channels / k)
-        n1 = out_channels - (k - 1) * n
-        assert down_method in ['avg', 'esp'], 'One of these is suppported (avg or esp)'
-        assert n == n1, 'n(={}) and n1(={}) should be equal for Depth-wise Convolution '.format(n, n1)
-        self.proj_1x1 = _ConvBNPReLU(in_channels, n, 1, stride=1, groups=k, norm_layer=norm_layer)
-        map_receptive_ksize = {(3): 1, (5): 2, (7): 3, (9): 4, (11): 5, (13): 6, (15): 7, (17): 8}
-        self.k_sizes = list()
-        for i in range(k):
-            ksize = int(3 + 2 * i)
-            ksize = ksize if ksize <= r_lim else 3
-            self.k_sizes.append(ksize)
-        self.k_sizes.sort()
-        self.spp_dw = nn.ModuleList()
-        for i in range(k):
-            dilation = map_receptive_ksize[self.k_sizes[i]]
-            self.spp_dw.append(nn.Conv2d(n, n, 3, stride, dilation, dilation=dilation, groups=n, bias=False))
-        self.conv_1x1_exp = _ConvBN(out_channels, out_channels, 1, 1, groups=k, norm_layer=norm_layer)
-        self.br_after_cat = _BNPReLU(out_channels, norm_layer)
-        self.module_act = nn.PReLU(out_channels)
-        self.downAvg = True if down_method == 'avg' else False
-
-    def forward(self, x):
-        output1 = self.proj_1x1(x)
-        output = [self.spp_dw[0](output1)]
-        for k in range(1, len(self.spp_dw)):
-            out_k = self.spp_dw[k](output1)
-            out_k = out_k + output[k - 1]
-            output.append(out_k)
-        expanded = self.conv_1x1_exp(self.br_after_cat(torch.cat(output, 1)))
-        del output
-        if self.stride == 2 and self.downAvg:
-            return expanded
-        if expanded.size() == x.size():
-            expanded = expanded + x
-        return self.module_act(expanded)
 
 
 class SyncBatchNorm(_BatchNorm):
@@ -4258,7 +4083,7 @@ class SyncBatchNorm(_BatchNorm):
         self.activation = activation
         self.inplace = False if activation == 'none' else inplace
         self.slope = slope
-        self.devices = list(range(torch.device_count()))
+        self.devices = list(range(torch.cuda.device_count()))
         self.sync = sync if len(self.devices) > 1 else False
         self.worker_ids = self.devices[1:]
         self.master_queue = Queue(len(self.worker_ids))
@@ -4281,6 +4106,30 @@ class SyncBatchNorm(_BatchNorm):
             return 'sync={}'.format(self.sync)
         else:
             return 'sync={}, act={}, slope={}, inplace={}'.format(self.sync, self.activation, self.slope, self.inplace)
+
+
+class BatchNorm1d(SyncBatchNorm):
+    """BatchNorm1d is deprecated in favor of :class:`core.nn.sync_bn.SyncBatchNorm`."""
+
+    def __init__(self, *args, **kwargs):
+        warnings.warn('core.nn.sync_bn.{} is now deprecated in favor of core.nn.sync_bn.{}.'.format('BatchNorm1d', SyncBatchNorm.__name__), DeprecationWarning)
+        super(BatchNorm1d, self).__init__(*args, **kwargs)
+
+
+class BatchNorm2d(SyncBatchNorm):
+    """BatchNorm1d is deprecated in favor of :class:`core.nn.sync_bn.SyncBatchNorm`."""
+
+    def __init__(self, *args, **kwargs):
+        warnings.warn('core.nn.sync_bn.{} is now deprecated in favor of core.nn.sync_bn.{}.'.format('BatchNorm2d', SyncBatchNorm.__name__), DeprecationWarning)
+        super(BatchNorm2d, self).__init__(*args, **kwargs)
+
+
+class BatchNorm3d(SyncBatchNorm):
+    """BatchNorm1d is deprecated in favor of :class:`core.nn.sync_bn.SyncBatchNorm`."""
+
+    def __init__(self, *args, **kwargs):
+        warnings.warn('core.nn.sync_bn.{} is now deprecated in favor of core.nn.sync_bn.{}.'.format('BatchNorm3d', SyncBatchNorm.__name__), DeprecationWarning)
+        super(BatchNorm3d, self).__init__(*args, **kwargs)
 
 
 class MixSoftmaxCrossEntropyLoss(nn.CrossEntropyLoss):
@@ -4422,6 +4271,31 @@ class EncNetLoss(nn.CrossEntropyLoss):
             vect = hist > 0
             tvect[i] = vect
         return tvect
+
+
+class MixSoftmaxCrossEntropyOHEMLoss(OhemCrossEntropy2d):
+
+    def __init__(self, aux=False, aux_weight=0.4, weight=None, ignore_index=-1, **kwargs):
+        super(MixSoftmaxCrossEntropyOHEMLoss, self).__init__(ignore_index=ignore_index)
+        self.aux = aux
+        self.aux_weight = aux_weight
+        self.bceloss = nn.BCELoss(weight)
+
+    def _aux_forward(self, *inputs, **kwargs):
+        *preds, target = tuple(inputs)
+        loss = super(MixSoftmaxCrossEntropyOHEMLoss, self).forward(preds[0], target)
+        for i in range(1, len(preds)):
+            aux_loss = super(MixSoftmaxCrossEntropyOHEMLoss, self).forward(preds[i], target)
+            loss += self.aux_weight * aux_loss
+        return loss
+
+    def forward(self, *inputs):
+        preds, target = tuple(inputs)
+        inputs = tuple(list(preds) + [target])
+        if self.aux:
+            return dict(loss=self._aux_forward(*inputs))
+        else:
+            return dict(loss=super(MixSoftmaxCrossEntropyOHEMLoss, self).forward(*inputs))
 
 
 def flatten_probas(probas, labels, ignore=None):
@@ -4813,7 +4687,7 @@ def criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices=
         if device is None:
             device = get_a_var(input).get_device()
         try:
-            with torch.cuda.device(device):
+            with torch.device(device):
                 output = module(*(list(input) + target), **kwargs)
             with lock:
                 results[i] = output

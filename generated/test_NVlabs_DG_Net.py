@@ -22,17 +22,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch.utils.data as data
 
 
 from torch import nn
@@ -56,13 +60,16 @@ import torch.nn as nn
 from torch.nn import init
 
 
+import scipy.io
+
+
+import numpy as np
+
+
 import torch.optim as optim
 
 
 from torch.optim import lr_scheduler
-
-
-import numpy as np
 
 
 import torchvision
@@ -75,9 +82,6 @@ from torchvision import transforms
 
 
 import time
-
-
-import scipy.io
 
 
 import torch.backends.cudnn as cudnn
@@ -102,6 +106,284 @@ import torchvision.utils as vutils
 
 
 import torch.nn.init as init
+
+
+class AdaptiveInstanceNorm2d(nn.Module):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1):
+        super(AdaptiveInstanceNorm2d, self).__init__()
+        self.num_features = num_features
+        self.eps = eps
+        self.momentum = momentum
+        self.weight = None
+        self.bias = None
+        self.register_buffer('running_mean', torch.zeros(num_features))
+        self.register_buffer('running_var', torch.ones(num_features))
+
+    def forward(self, x):
+        assert self.weight is not None and self.bias is not None, 'Please assign weight and bias before calling AdaIN!'
+        b, c = x.size(0), x.size(1)
+        running_mean = self.running_mean.repeat(b).type_as(x)
+        running_var = self.running_var.repeat(b).type_as(x)
+        x_reshaped = x.contiguous().view(1, b * c, *x.size()[2:])
+        out = F.batch_norm(x_reshaped, running_mean, running_var, self.weight, self.bias, True, self.momentum, self.eps)
+        return out.view(b, c, *x.size()[2:])
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + str(self.num_features) + ')'
+
+
+class LayerNorm(nn.Module):
+
+    def __init__(self, num_features, eps=1e-05, affine=True, fp16=False):
+        super(LayerNorm, self).__init__()
+        self.num_features = num_features
+        self.affine = affine
+        self.eps = eps
+        self.fp16 = fp16
+        if self.affine:
+            self.gamma = nn.Parameter(torch.Tensor(num_features).uniform_())
+            self.beta = nn.Parameter(torch.zeros(num_features))
+
+    def forward(self, x):
+        shape = [-1] + [1] * (x.dim() - 1)
+        if x.type() == 'torch.cuda.HalfTensor':
+            mean = x.view(-1).float().mean().view(*shape)
+            std = x.view(-1).float().std().view(*shape)
+            mean = mean.half()
+            std = std.half()
+        else:
+            mean = x.view(x.size(0), -1).mean(1).view(*shape)
+            std = x.view(x.size(0), -1).std(1).view(*shape)
+        x = (x - mean) / (std + self.eps)
+        if self.affine:
+            shape = [1, -1] + [1] * (x.dim() - 2)
+            x = x * self.gamma.view(*shape) + self.beta.view(*shape)
+        return x
+
+
+class Conv2dBlock(nn.Module):
+
+    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=0, norm='none', activation='relu', pad_type='zero', dilation=1, fp16=False):
+        super(Conv2dBlock, self).__init__()
+        self.use_bias = True
+        if pad_type == 'reflect':
+            self.pad = nn.ReflectionPad2d(padding)
+        elif pad_type == 'replicate':
+            self.pad = nn.ReplicationPad2d(padding)
+        elif pad_type == 'zero':
+            self.pad = nn.ZeroPad2d(padding)
+        else:
+            assert 0, 'Unsupported padding type: {}'.format(pad_type)
+        norm_dim = output_dim
+        if norm == 'bn':
+            self.norm = nn.BatchNorm2d(norm_dim)
+        elif norm == 'in':
+            self.norm = nn.InstanceNorm2d(norm_dim)
+        elif norm == 'ln':
+            self.norm = LayerNorm(norm_dim, fp16=fp16)
+        elif norm == 'adain':
+            self.norm = AdaptiveInstanceNorm2d(norm_dim)
+        elif norm == 'none' or norm == 'sn':
+            self.norm = None
+        else:
+            assert 0, 'Unsupported normalization: {}'.format(norm)
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        elif activation == 'lrelu':
+            self.activation = nn.LeakyReLU(0.2, inplace=True)
+        elif activation == 'prelu':
+            self.activation = nn.PReLU()
+        elif activation == 'selu':
+            self.activation = nn.SELU(inplace=True)
+        elif activation == 'tanh':
+            self.activation = nn.Tanh()
+        elif activation == 'none':
+            self.activation = None
+        else:
+            assert 0, 'Unsupported activation: {}'.format(activation)
+        if norm == 'sn':
+            self.conv = SpectralNorm(nn.Conv2d(input_dim, output_dim, kernel_size, stride, dilation=dilation, bias=self.use_bias))
+        else:
+            self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride, dilation=dilation, bias=self.use_bias)
+
+    def forward(self, x):
+        x = self.conv(self.pad(x))
+        if self.norm:
+            x = self.norm(x)
+        if self.activation:
+            x = self.activation(x)
+        return x
+
+
+class NonlocalBlock(nn.Module):
+
+    def __init__(self, in_dim, norm='in'):
+        super(NonlocalBlock, self).__init__()
+        self.chanel_in = in_dim
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+        self.gamma = nn.Parameter(torch.zeros(1))
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x):
+        """
+            inputs :
+                x : input feature maps( B X C X W X H)
+            returns :
+                out : self attention value + input feature 
+                attention: B X N X N (N is Width*Height)
+        """
+        m_batchsize, C, width, height = x.size()
+        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
+        proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
+        energy = torch.bmm(proj_query, proj_key)
+        attention = self.softmax(energy)
+        proj_value = self.value_conv(x).view(m_batchsize, -1, width * height)
+        out = torch.bmm(proj_value, attention.permute(0, 2, 1))
+        out = out.view(m_batchsize, C, width, height)
+        out = self.gamma * out + x
+        return out
+
+
+class Parallel2dBlock(nn.Module):
+
+    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=0, norm='none', activation='relu', pad_type='zero'):
+        super(Parallel2dBlock, self).__init__()
+        self.use_bias = True
+        if pad_type == 'reflect':
+            self.pad = nn.ReflectionPad2d(padding)
+        elif pad_type == 'replicate':
+            self.pad = nn.ReplicationPad2d(padding)
+        elif pad_type == 'zero':
+            self.pad = nn.ZeroPad2d(padding)
+        else:
+            assert 0, 'Unsupported padding type: {}'.format(pad_type)
+        norm_dim = output_dim
+        if norm == 'bn':
+            self.norm = nn.BatchNorm2d(norm_dim)
+        elif norm == 'in':
+            self.norm = nn.InstanceNorm2d(norm_dim)
+        elif norm == 'ln':
+            self.norm = LayerNorm(norm_dim)
+        elif norm == 'adain':
+            self.norm = AdaptiveInstanceNorm2d(norm_dim)
+        elif norm == 'none':
+            self.norm = None
+        else:
+            assert 0, 'Unsupported normalization: {}'.format(norm)
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        elif activation == 'lrelu':
+            self.activation = nn.LeakyReLU(0.2, inplace=True)
+        elif activation == 'prelu':
+            self.activation = nn.PReLU()
+        elif activation == 'selu':
+            self.activation = nn.SELU(inplace=True)
+        elif activation == 'tanh':
+            self.activation = nn.Tanh()
+        elif activation == 'none':
+            self.activation = None
+        else:
+            assert 0, 'Unsupported activation: {}'.format(activation)
+        self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride, bias=self.use_bias)
+        self.instance_norm = nn.InstanceNorm2d(norm_dim)
+
+    def forward(self, x):
+        x = self.conv(self.pad(x)) + self.norm(x)
+        x = self.instance_norm(x)
+        if self.activation:
+            x = self.activation(x)
+        return x
+
+
+class Series2dBlock(nn.Module):
+
+    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=0, norm='none', activation='relu', pad_type='zero'):
+        super(Series2dBlock, self).__init__()
+        self.use_bias = True
+        if pad_type == 'reflect':
+            self.pad = nn.ReflectionPad2d(padding)
+        elif pad_type == 'replicate':
+            self.pad = nn.ReplicationPad2d(padding)
+        elif pad_type == 'zero':
+            self.pad = nn.ZeroPad2d(padding)
+        else:
+            assert 0, 'Unsupported padding type: {}'.format(pad_type)
+        norm_dim = output_dim
+        if norm == 'bn':
+            self.norm = nn.BatchNorm2d(norm_dim)
+        elif norm == 'in':
+            self.norm = nn.InstanceNorm2d(norm_dim)
+        elif norm == 'ln':
+            self.norm = LayerNorm(norm_dim)
+        elif norm == 'adain':
+            self.norm = AdaptiveInstanceNorm2d(norm_dim)
+        elif norm == 'none':
+            self.norm = None
+        else:
+            assert 0, 'Unsupported normalization: {}'.format(norm)
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        elif activation == 'lrelu':
+            self.activation = nn.LeakyReLU(0.2, inplace=True)
+        elif activation == 'prelu':
+            self.activation = nn.PReLU()
+        elif activation == 'selu':
+            self.activation = nn.SELU(inplace=True)
+        elif activation == 'tanh':
+            self.activation = nn.Tanh()
+        elif activation == 'none':
+            self.activation = None
+        else:
+            assert 0, 'Unsupported activation: {}'.format(activation)
+        self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride, bias=self.use_bias)
+        self.instance_norm = nn.InstanceNorm2d(norm_dim)
+
+    def forward(self, x):
+        x = self.conv(self.pad(x))
+        x = self.norm(x) + x
+        x = self.instance_norm(x)
+        if self.activation:
+            x = self.activation(x)
+        return x
+
+
+class ResBlock(nn.Module):
+
+    def __init__(self, dim, norm, activation='relu', pad_type='zero', res_type='basic'):
+        super(ResBlock, self).__init__()
+        model = []
+        if res_type == 'basic' or res_type == 'nonlocal':
+            model += [Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
+            model += [Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation='none', pad_type=pad_type)]
+        elif res_type == 'slim':
+            dim_half = dim // 2
+            model += [Conv2dBlock(dim, dim_half, 1, 1, 0, norm='in', activation=activation, pad_type=pad_type)]
+            model += [Conv2dBlock(dim_half, dim_half, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
+            model += [Conv2dBlock(dim_half, dim_half, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
+            model += [Conv2dBlock(dim_half, dim, 1, 1, 0, norm='in', activation='none', pad_type=pad_type)]
+        elif res_type == 'series':
+            model += [Series2dBlock(dim, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
+            model += [Series2dBlock(dim, dim, 3, 1, 1, norm=norm, activation='none', pad_type=pad_type)]
+        elif res_type == 'parallel':
+            model += [Parallel2dBlock(dim, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
+            model += [Parallel2dBlock(dim, dim, 3, 1, 1, norm=norm, activation='none', pad_type=pad_type)]
+        else:
+            """unkown block type"""
+        self.res_type = res_type
+        self.model = nn.Sequential(*model)
+        if res_type == 'nonlocal':
+            self.nonloc = NonlocalBlock(dim)
+
+    def forward(self, x):
+        if self.res_type == 'nonlocal':
+            x = self.nonloc(x)
+        residual = x
+        out = self.model(x)
+        out += residual
+        return out
 
 
 def weights_init(init_type='gaussian'):
@@ -251,6 +533,156 @@ class MsImageDis(nn.Module):
         return reg
 
 
+class ASPP(nn.Module):
+
+    def __init__(self, dim, norm='in', activation='relu', pad_type='zero'):
+        super(ASPP, self).__init__()
+        dim_part = dim // 2
+        self.conv1 = Conv2dBlock(dim, dim_part, 1, 1, 0, norm=norm, activation='none', pad_type=pad_type)
+        self.conv6 = []
+        self.conv6 += [Conv2dBlock(dim, dim_part, 1, 1, 0, norm=norm, activation=activation, pad_type=pad_type)]
+        self.conv6 += [Conv2dBlock(dim_part, dim_part, 3, 1, 3, norm=norm, activation='none', pad_type=pad_type, dilation=3)]
+        self.conv6 = nn.Sequential(*self.conv6)
+        self.conv12 = []
+        self.conv12 += [Conv2dBlock(dim, dim_part, 1, 1, 0, norm=norm, activation=activation, pad_type=pad_type)]
+        self.conv12 += [Conv2dBlock(dim_part, dim_part, 3, 1, 6, norm=norm, activation='none', pad_type=pad_type, dilation=6)]
+        self.conv12 = nn.Sequential(*self.conv12)
+        self.conv18 = []
+        self.conv18 += [Conv2dBlock(dim, dim_part, 1, 1, 0, norm=norm, activation=activation, pad_type=pad_type)]
+        self.conv18 += [Conv2dBlock(dim_part, dim_part, 3, 1, 9, norm=norm, activation='none', pad_type=pad_type, dilation=9)]
+        self.conv18 = nn.Sequential(*self.conv18)
+        self.fuse = Conv2dBlock(4 * dim_part, 2 * dim, 1, 1, 0, norm=norm, activation='none', pad_type=pad_type)
+
+    def forward(self, x):
+        conv1 = self.conv1(x)
+        conv6 = self.conv6(x)
+        conv12 = self.conv12(x)
+        conv18 = self.conv18(x)
+        out = torch.cat((conv1, conv6, conv12, conv18), dim=1)
+        out = self.fuse(out)
+        return out
+
+
+class ResBlocks(nn.Module):
+
+    def __init__(self, num_blocks, dim, norm='in', activation='relu', pad_type='zero', res_type='basic'):
+        super(ResBlocks, self).__init__()
+        self.model = []
+        self.res_type = res_type
+        for i in range(num_blocks):
+            self.model += [ResBlock(dim, norm=norm, activation=activation, pad_type=pad_type, res_type=res_type)]
+        self.model = nn.Sequential(*self.model)
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class ContentEncoder(nn.Module):
+
+    def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type, dropout, tanh=False, res_type='basic'):
+        super(ContentEncoder, self).__init__()
+        self.model = []
+        self.model += [Conv2dBlock(input_dim, dim, 3, 2, 1, norm=norm, activation=activ, pad_type=pad_type)]
+        self.model += [Conv2dBlock(dim, 2 * dim, 3, 1, 1, norm=norm, activation=activ, pad_type=pad_type)]
+        dim *= 2
+        for i in range(n_downsample - 1):
+            self.model += [Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation=activ, pad_type=pad_type)]
+            self.model += [Conv2dBlock(dim, 2 * dim, 3, 2, 1, norm=norm, activation=activ, pad_type=pad_type)]
+            dim *= 2
+        self.model += [ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type, res_type=res_type)]
+        self.model += [ASPP(dim, norm=norm, activation=activ, pad_type=pad_type)]
+        dim *= 2
+        if tanh:
+            self.model += [nn.Tanh()]
+        self.model = nn.Sequential(*self.model)
+        self.output_dim = dim
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, n_upsample, n_res, dim, output_dim, dropout=0, res_norm='adain', activ='relu', pad_type='zero', res_type='basic', non_local=False, fp16=False):
+        super(Decoder, self).__init__()
+        self.input_dim = dim
+        self.model = []
+        self.model += [nn.Dropout(p=dropout)]
+        self.model += [ResBlocks(n_res, dim, res_norm, activ, pad_type=pad_type, res_type=res_type)]
+        if non_local > 0:
+            self.model += [NonlocalBlock(dim)]
+            None
+        for i in range(n_upsample):
+            self.model += [nn.Upsample(scale_factor=2), Conv2dBlock(dim, dim // 2, 5, 1, 2, norm='ln', activation=activ, pad_type=pad_type, fp16=fp16)]
+            dim //= 2
+        self.model += [Conv2dBlock(dim, dim, 3, 1, 1, norm='none', activation=activ, pad_type=pad_type)]
+        self.model += [Conv2dBlock(dim, dim, 3, 1, 1, norm='none', activation=activ, pad_type=pad_type)]
+        self.model += [Conv2dBlock(dim, output_dim, 1, 1, 0, norm='none', activation='none', pad_type=pad_type)]
+        self.model = nn.Sequential(*self.model)
+
+    def forward(self, x):
+        output = self.model(x)
+        return output
+
+
+class LinearBlock(nn.Module):
+
+    def __init__(self, input_dim, output_dim, norm='none', activation='relu'):
+        super(LinearBlock, self).__init__()
+        use_bias = True
+        self.fc = nn.Linear(input_dim, output_dim, bias=use_bias)
+        norm_dim = output_dim
+        if norm == 'bn':
+            self.norm = nn.BatchNorm1d(norm_dim)
+        elif norm == 'in':
+            self.norm = nn.InstanceNorm1d(norm_dim)
+        elif norm == 'ln':
+            self.norm = LayerNorm(norm_dim)
+        elif norm == 'none':
+            self.norm = None
+        else:
+            assert 0, 'Unsupported normalization: {}'.format(norm)
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        elif activation == 'lrelu':
+            self.activation = nn.LeakyReLU(0.2, inplace=True)
+        elif activation == 'prelu':
+            self.activation = nn.PReLU()
+        elif activation == 'selu':
+            self.activation = nn.SELU(inplace=True)
+        elif activation == 'tanh':
+            self.activation = nn.Tanh()
+        elif activation == 'none':
+            self.activation = None
+        else:
+            assert 0, 'Unsupported activation: {}'.format(activation)
+
+    def forward(self, x):
+        out = self.fc(x)
+        if self.norm:
+            out = out.unsqueeze(1)
+            out = self.norm(out)
+            out = out.view(out.size(0), out.size(2))
+        if self.activation:
+            out = self.activation(out)
+        return out
+
+
+class MLP(nn.Module):
+
+    def __init__(self, input_dim, output_dim, dim, n_blk, norm='in', activ='relu'):
+        super(MLP, self).__init__()
+        self.model = []
+        self.model += [LinearBlock(input_dim, dim, norm=norm, activation=activ)]
+        for i in range(n_blk - 2):
+            self.model += [LinearBlock(dim, dim, norm=norm, activation=activ)]
+        self.model += [LinearBlock(dim, output_dim, norm='none', activation='none')]
+        self.model = nn.Sequential(*self.model)
+
+    def forward(self, x):
+        return self.model(x.view(x.size(0), -1))
+
+
 class AdaINGen(nn.Module):
 
     def __init__(self, input_dim, params, fp16):
@@ -376,30 +808,6 @@ class StyleEncoder(nn.Module):
         return self.model(x)
 
 
-class ContentEncoder(nn.Module):
-
-    def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type, dropout, tanh=False, res_type='basic'):
-        super(ContentEncoder, self).__init__()
-        self.model = []
-        self.model += [Conv2dBlock(input_dim, dim, 3, 2, 1, norm=norm, activation=activ, pad_type=pad_type)]
-        self.model += [Conv2dBlock(dim, 2 * dim, 3, 1, 1, norm=norm, activation=activ, pad_type=pad_type)]
-        dim *= 2
-        for i in range(n_downsample - 1):
-            self.model += [Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation=activ, pad_type=pad_type)]
-            self.model += [Conv2dBlock(dim, 2 * dim, 3, 2, 1, norm=norm, activation=activ, pad_type=pad_type)]
-            dim *= 2
-        self.model += [ResBlocks(n_res, dim, norm=norm, activation=activ, pad_type=pad_type, res_type=res_type)]
-        self.model += [ASPP(dim, norm=norm, activation=activ, pad_type=pad_type)]
-        dim *= 2
-        if tanh:
-            self.model += [nn.Tanh()]
-        self.model = nn.Sequential(*self.model)
-        self.output_dim = dim
-
-    def forward(self, x):
-        return self.model(x)
-
-
 class ContentEncoder_ImageNet(nn.Module):
 
     def __init__(self, n_downsample, n_res, input_dim, dim, norm, activ, pad_type):
@@ -420,59 +828,6 @@ class ContentEncoder_ImageNet(nn.Module):
         return x
 
 
-class Decoder(nn.Module):
-
-    def __init__(self, n_upsample, n_res, dim, output_dim, dropout=0, res_norm='adain', activ='relu', pad_type='zero', res_type='basic', non_local=False, fp16=False):
-        super(Decoder, self).__init__()
-        self.input_dim = dim
-        self.model = []
-        self.model += [nn.Dropout(p=dropout)]
-        self.model += [ResBlocks(n_res, dim, res_norm, activ, pad_type=pad_type, res_type=res_type)]
-        if non_local > 0:
-            self.model += [NonlocalBlock(dim)]
-            None
-        for i in range(n_upsample):
-            self.model += [nn.Upsample(scale_factor=2), Conv2dBlock(dim, dim // 2, 5, 1, 2, norm='ln', activation=activ, pad_type=pad_type, fp16=fp16)]
-            dim //= 2
-        self.model += [Conv2dBlock(dim, dim, 3, 1, 1, norm='none', activation=activ, pad_type=pad_type)]
-        self.model += [Conv2dBlock(dim, dim, 3, 1, 1, norm='none', activation=activ, pad_type=pad_type)]
-        self.model += [Conv2dBlock(dim, output_dim, 1, 1, 0, norm='none', activation='none', pad_type=pad_type)]
-        self.model = nn.Sequential(*self.model)
-
-    def forward(self, x):
-        output = self.model(x)
-        return output
-
-
-class ResBlocks(nn.Module):
-
-    def __init__(self, num_blocks, dim, norm='in', activation='relu', pad_type='zero', res_type='basic'):
-        super(ResBlocks, self).__init__()
-        self.model = []
-        self.res_type = res_type
-        for i in range(num_blocks):
-            self.model += [ResBlock(dim, norm=norm, activation=activation, pad_type=pad_type, res_type=res_type)]
-        self.model = nn.Sequential(*self.model)
-
-    def forward(self, x):
-        return self.model(x)
-
-
-class MLP(nn.Module):
-
-    def __init__(self, input_dim, output_dim, dim, n_blk, norm='in', activ='relu'):
-        super(MLP, self).__init__()
-        self.model = []
-        self.model += [LinearBlock(input_dim, dim, norm=norm, activation=activ)]
-        for i in range(n_blk - 2):
-            self.model += [LinearBlock(dim, dim, norm=norm, activation=activ)]
-        self.model += [LinearBlock(dim, output_dim, norm='none', activation='none')]
-        self.model = nn.Sequential(*self.model)
-
-    def forward(self, x):
-        return self.model(x.view(x.size(0), -1))
-
-
 class Deconv(nn.Module):
 
     def __init__(self, input_dim, output_dim):
@@ -486,303 +841,6 @@ class Deconv(nn.Module):
 
     def forward(self, x):
         return self.model(x)
-
-
-class ResBlock(nn.Module):
-
-    def __init__(self, dim, norm, activation='relu', pad_type='zero', res_type='basic'):
-        super(ResBlock, self).__init__()
-        model = []
-        if res_type == 'basic' or res_type == 'nonlocal':
-            model += [Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
-            model += [Conv2dBlock(dim, dim, 3, 1, 1, norm=norm, activation='none', pad_type=pad_type)]
-        elif res_type == 'slim':
-            dim_half = dim // 2
-            model += [Conv2dBlock(dim, dim_half, 1, 1, 0, norm='in', activation=activation, pad_type=pad_type)]
-            model += [Conv2dBlock(dim_half, dim_half, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
-            model += [Conv2dBlock(dim_half, dim_half, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
-            model += [Conv2dBlock(dim_half, dim, 1, 1, 0, norm='in', activation='none', pad_type=pad_type)]
-        elif res_type == 'series':
-            model += [Series2dBlock(dim, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
-            model += [Series2dBlock(dim, dim, 3, 1, 1, norm=norm, activation='none', pad_type=pad_type)]
-        elif res_type == 'parallel':
-            model += [Parallel2dBlock(dim, dim, 3, 1, 1, norm=norm, activation=activation, pad_type=pad_type)]
-            model += [Parallel2dBlock(dim, dim, 3, 1, 1, norm=norm, activation='none', pad_type=pad_type)]
-        else:
-            """unkown block type"""
-        self.res_type = res_type
-        self.model = nn.Sequential(*model)
-        if res_type == 'nonlocal':
-            self.nonloc = NonlocalBlock(dim)
-
-    def forward(self, x):
-        if self.res_type == 'nonlocal':
-            x = self.nonloc(x)
-        residual = x
-        out = self.model(x)
-        out += residual
-        return out
-
-
-class NonlocalBlock(nn.Module):
-
-    def __init__(self, in_dim, norm='in'):
-        super(NonlocalBlock, self).__init__()
-        self.chanel_in = in_dim
-        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
-        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim // 8, kernel_size=1)
-        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
-        self.gamma = nn.Parameter(torch.zeros(1))
-        self.softmax = nn.Softmax(dim=-1)
-
-    def forward(self, x):
-        """
-            inputs :
-                x : input feature maps( B X C X W X H)
-            returns :
-                out : self attention value + input feature 
-                attention: B X N X N (N is Width*Height)
-        """
-        m_batchsize, C, width, height = x.size()
-        proj_query = self.query_conv(x).view(m_batchsize, -1, width * height).permute(0, 2, 1)
-        proj_key = self.key_conv(x).view(m_batchsize, -1, width * height)
-        energy = torch.bmm(proj_query, proj_key)
-        attention = self.softmax(energy)
-        proj_value = self.value_conv(x).view(m_batchsize, -1, width * height)
-        out = torch.bmm(proj_value, attention.permute(0, 2, 1))
-        out = out.view(m_batchsize, C, width, height)
-        out = self.gamma * out + x
-        return out
-
-
-class ASPP(nn.Module):
-
-    def __init__(self, dim, norm='in', activation='relu', pad_type='zero'):
-        super(ASPP, self).__init__()
-        dim_part = dim // 2
-        self.conv1 = Conv2dBlock(dim, dim_part, 1, 1, 0, norm=norm, activation='none', pad_type=pad_type)
-        self.conv6 = []
-        self.conv6 += [Conv2dBlock(dim, dim_part, 1, 1, 0, norm=norm, activation=activation, pad_type=pad_type)]
-        self.conv6 += [Conv2dBlock(dim_part, dim_part, 3, 1, 3, norm=norm, activation='none', pad_type=pad_type, dilation=3)]
-        self.conv6 = nn.Sequential(*self.conv6)
-        self.conv12 = []
-        self.conv12 += [Conv2dBlock(dim, dim_part, 1, 1, 0, norm=norm, activation=activation, pad_type=pad_type)]
-        self.conv12 += [Conv2dBlock(dim_part, dim_part, 3, 1, 6, norm=norm, activation='none', pad_type=pad_type, dilation=6)]
-        self.conv12 = nn.Sequential(*self.conv12)
-        self.conv18 = []
-        self.conv18 += [Conv2dBlock(dim, dim_part, 1, 1, 0, norm=norm, activation=activation, pad_type=pad_type)]
-        self.conv18 += [Conv2dBlock(dim_part, dim_part, 3, 1, 9, norm=norm, activation='none', pad_type=pad_type, dilation=9)]
-        self.conv18 = nn.Sequential(*self.conv18)
-        self.fuse = Conv2dBlock(4 * dim_part, 2 * dim, 1, 1, 0, norm=norm, activation='none', pad_type=pad_type)
-
-    def forward(self, x):
-        conv1 = self.conv1(x)
-        conv6 = self.conv6(x)
-        conv12 = self.conv12(x)
-        conv18 = self.conv18(x)
-        out = torch.cat((conv1, conv6, conv12, conv18), dim=1)
-        out = self.fuse(out)
-        return out
-
-
-class Conv2dBlock(nn.Module):
-
-    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=0, norm='none', activation='relu', pad_type='zero', dilation=1, fp16=False):
-        super(Conv2dBlock, self).__init__()
-        self.use_bias = True
-        if pad_type == 'reflect':
-            self.pad = nn.ReflectionPad2d(padding)
-        elif pad_type == 'replicate':
-            self.pad = nn.ReplicationPad2d(padding)
-        elif pad_type == 'zero':
-            self.pad = nn.ZeroPad2d(padding)
-        else:
-            assert 0, 'Unsupported padding type: {}'.format(pad_type)
-        norm_dim = output_dim
-        if norm == 'bn':
-            self.norm = nn.BatchNorm2d(norm_dim)
-        elif norm == 'in':
-            self.norm = nn.InstanceNorm2d(norm_dim)
-        elif norm == 'ln':
-            self.norm = LayerNorm(norm_dim, fp16=fp16)
-        elif norm == 'adain':
-            self.norm = AdaptiveInstanceNorm2d(norm_dim)
-        elif norm == 'none' or norm == 'sn':
-            self.norm = None
-        else:
-            assert 0, 'Unsupported normalization: {}'.format(norm)
-        if activation == 'relu':
-            self.activation = nn.ReLU(inplace=True)
-        elif activation == 'lrelu':
-            self.activation = nn.LeakyReLU(0.2, inplace=True)
-        elif activation == 'prelu':
-            self.activation = nn.PReLU()
-        elif activation == 'selu':
-            self.activation = nn.SELU(inplace=True)
-        elif activation == 'tanh':
-            self.activation = nn.Tanh()
-        elif activation == 'none':
-            self.activation = None
-        else:
-            assert 0, 'Unsupported activation: {}'.format(activation)
-        if norm == 'sn':
-            self.conv = SpectralNorm(nn.Conv2d(input_dim, output_dim, kernel_size, stride, dilation=dilation, bias=self.use_bias))
-        else:
-            self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride, dilation=dilation, bias=self.use_bias)
-
-    def forward(self, x):
-        x = self.conv(self.pad(x))
-        if self.norm:
-            x = self.norm(x)
-        if self.activation:
-            x = self.activation(x)
-        return x
-
-
-class Series2dBlock(nn.Module):
-
-    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=0, norm='none', activation='relu', pad_type='zero'):
-        super(Series2dBlock, self).__init__()
-        self.use_bias = True
-        if pad_type == 'reflect':
-            self.pad = nn.ReflectionPad2d(padding)
-        elif pad_type == 'replicate':
-            self.pad = nn.ReplicationPad2d(padding)
-        elif pad_type == 'zero':
-            self.pad = nn.ZeroPad2d(padding)
-        else:
-            assert 0, 'Unsupported padding type: {}'.format(pad_type)
-        norm_dim = output_dim
-        if norm == 'bn':
-            self.norm = nn.BatchNorm2d(norm_dim)
-        elif norm == 'in':
-            self.norm = nn.InstanceNorm2d(norm_dim)
-        elif norm == 'ln':
-            self.norm = LayerNorm(norm_dim)
-        elif norm == 'adain':
-            self.norm = AdaptiveInstanceNorm2d(norm_dim)
-        elif norm == 'none':
-            self.norm = None
-        else:
-            assert 0, 'Unsupported normalization: {}'.format(norm)
-        if activation == 'relu':
-            self.activation = nn.ReLU(inplace=True)
-        elif activation == 'lrelu':
-            self.activation = nn.LeakyReLU(0.2, inplace=True)
-        elif activation == 'prelu':
-            self.activation = nn.PReLU()
-        elif activation == 'selu':
-            self.activation = nn.SELU(inplace=True)
-        elif activation == 'tanh':
-            self.activation = nn.Tanh()
-        elif activation == 'none':
-            self.activation = None
-        else:
-            assert 0, 'Unsupported activation: {}'.format(activation)
-        self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride, bias=self.use_bias)
-        self.instance_norm = nn.InstanceNorm2d(norm_dim)
-
-    def forward(self, x):
-        x = self.conv(self.pad(x))
-        x = self.norm(x) + x
-        x = self.instance_norm(x)
-        if self.activation:
-            x = self.activation(x)
-        return x
-
-
-class Parallel2dBlock(nn.Module):
-
-    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=0, norm='none', activation='relu', pad_type='zero'):
-        super(Parallel2dBlock, self).__init__()
-        self.use_bias = True
-        if pad_type == 'reflect':
-            self.pad = nn.ReflectionPad2d(padding)
-        elif pad_type == 'replicate':
-            self.pad = nn.ReplicationPad2d(padding)
-        elif pad_type == 'zero':
-            self.pad = nn.ZeroPad2d(padding)
-        else:
-            assert 0, 'Unsupported padding type: {}'.format(pad_type)
-        norm_dim = output_dim
-        if norm == 'bn':
-            self.norm = nn.BatchNorm2d(norm_dim)
-        elif norm == 'in':
-            self.norm = nn.InstanceNorm2d(norm_dim)
-        elif norm == 'ln':
-            self.norm = LayerNorm(norm_dim)
-        elif norm == 'adain':
-            self.norm = AdaptiveInstanceNorm2d(norm_dim)
-        elif norm == 'none':
-            self.norm = None
-        else:
-            assert 0, 'Unsupported normalization: {}'.format(norm)
-        if activation == 'relu':
-            self.activation = nn.ReLU(inplace=True)
-        elif activation == 'lrelu':
-            self.activation = nn.LeakyReLU(0.2, inplace=True)
-        elif activation == 'prelu':
-            self.activation = nn.PReLU()
-        elif activation == 'selu':
-            self.activation = nn.SELU(inplace=True)
-        elif activation == 'tanh':
-            self.activation = nn.Tanh()
-        elif activation == 'none':
-            self.activation = None
-        else:
-            assert 0, 'Unsupported activation: {}'.format(activation)
-        self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride, bias=self.use_bias)
-        self.instance_norm = nn.InstanceNorm2d(norm_dim)
-
-    def forward(self, x):
-        x = self.conv(self.pad(x)) + self.norm(x)
-        x = self.instance_norm(x)
-        if self.activation:
-            x = self.activation(x)
-        return x
-
-
-class LinearBlock(nn.Module):
-
-    def __init__(self, input_dim, output_dim, norm='none', activation='relu'):
-        super(LinearBlock, self).__init__()
-        use_bias = True
-        self.fc = nn.Linear(input_dim, output_dim, bias=use_bias)
-        norm_dim = output_dim
-        if norm == 'bn':
-            self.norm = nn.BatchNorm1d(norm_dim)
-        elif norm == 'in':
-            self.norm = nn.InstanceNorm1d(norm_dim)
-        elif norm == 'ln':
-            self.norm = LayerNorm(norm_dim)
-        elif norm == 'none':
-            self.norm = None
-        else:
-            assert 0, 'Unsupported normalization: {}'.format(norm)
-        if activation == 'relu':
-            self.activation = nn.ReLU(inplace=True)
-        elif activation == 'lrelu':
-            self.activation = nn.LeakyReLU(0.2, inplace=True)
-        elif activation == 'prelu':
-            self.activation = nn.PReLU()
-        elif activation == 'selu':
-            self.activation = nn.SELU(inplace=True)
-        elif activation == 'tanh':
-            self.activation = nn.Tanh()
-        elif activation == 'none':
-            self.activation = None
-        else:
-            assert 0, 'Unsupported activation: {}'.format(activation)
-
-    def forward(self, x):
-        out = self.fc(x)
-        if self.norm:
-            out = out.unsqueeze(1)
-            out = self.norm(out)
-            out = out.view(out.size(0), out.size(2))
-        if self.activation:
-            out = self.activation(out)
-        return out
 
 
 class Vgg16(nn.Module):
@@ -822,60 +880,6 @@ class Vgg16(nn.Module):
         h = F.relu(self.conv5_3(h), inplace=True)
         relu5_3 = h
         return relu5_3
-
-
-class AdaptiveInstanceNorm2d(nn.Module):
-
-    def __init__(self, num_features, eps=1e-05, momentum=0.1):
-        super(AdaptiveInstanceNorm2d, self).__init__()
-        self.num_features = num_features
-        self.eps = eps
-        self.momentum = momentum
-        self.weight = None
-        self.bias = None
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-
-    def forward(self, x):
-        assert self.weight is not None and self.bias is not None, 'Please assign weight and bias before calling AdaIN!'
-        b, c = x.size(0), x.size(1)
-        running_mean = self.running_mean.repeat(b).type_as(x)
-        running_var = self.running_var.repeat(b).type_as(x)
-        x_reshaped = x.contiguous().view(1, b * c, *x.size()[2:])
-        out = F.batch_norm(x_reshaped, running_mean, running_var, self.weight, self.bias, True, self.momentum, self.eps)
-        return out.view(b, c, *x.size()[2:])
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + str(self.num_features) + ')'
-
-
-class LayerNorm(nn.Module):
-
-    def __init__(self, num_features, eps=1e-05, affine=True, fp16=False):
-        super(LayerNorm, self).__init__()
-        self.num_features = num_features
-        self.affine = affine
-        self.eps = eps
-        self.fp16 = fp16
-        if self.affine:
-            self.gamma = nn.Parameter(torch.Tensor(num_features).uniform_())
-            self.beta = nn.Parameter(torch.zeros(num_features))
-
-    def forward(self, x):
-        shape = [-1] + [1] * (x.dim() - 1)
-        if x.type() == 'torch.cuda.HalfTensor':
-            mean = x.view(-1).float().mean().view(*shape)
-            std = x.view(-1).float().std().view(*shape)
-            mean = mean.half()
-            std = std.half()
-        else:
-            mean = x.view(x.size(0), -1).mean(1).view(*shape)
-            std = x.view(x.size(0), -1).std(1).view(*shape)
-        x = (x - mean) / (std + self.eps)
-        if self.affine:
-            shape = [1, -1] + [1] * (x.dim() - 2)
-            x = x * self.gamma.view(*shape) + self.beta.view(*shape)
-        return x
 
 
 def weights_init_classifier(m):
@@ -1216,7 +1220,7 @@ def load_vgg16(model_dir):
 
 def fliplr(img):
     """flip horizontal"""
-    inv_idx = torch.arange(img.size(3) - 1, -1, -1).long().cuda()
+    inv_idx = torch.arange(img.size(3) - 1, -1, -1).long()
     img_flip = img.index_select(3, inv_idx)
     return img_flip
 
@@ -1257,15 +1261,15 @@ def predict_label(teacher_models, inputs, num_class, alabel, slabel, teacher_sty
                 outputs_t += outputs_t1 + outputs_t2
             count += 2
         _, dlabel = torch.max(outputs_t.data, 1)
-        outputs_t = torch.zeros(inputs.size(0), num_class).cuda()
+        outputs_t = torch.zeros(inputs.size(0), num_class)
         for i in range(inputs.size(0)):
             outputs_t[i, dlabel[i]] = 1
     elif teacher_style == 2:
-        outputs_t = torch.zeros(inputs.size(0), num_class).cuda()
+        outputs_t = torch.zeros(inputs.size(0), num_class)
         for i in range(inputs.size(0)):
             outputs_t[i, alabel[i]] = 1
     elif teacher_style == 3:
-        outputs_t = torch.ones(inputs.size(0), num_class).cuda()
+        outputs_t = torch.ones(inputs.size(0), num_class)
     elif teacher_style == 4:
         count = 0
         sm = nn.Softmax(dim=1)
@@ -1281,13 +1285,13 @@ def predict_label(teacher_models, inputs, num_class, alabel, slabel, teacher_sty
                 outputs_t += outputs_t1 + outputs_t2
             count += 2
         mask = torch.zeros(outputs_t.shape)
-        mask = mask.cuda()
+        mask = mask
         for i in range(inputs.size(0)):
             mask[i, alabel[i]] = 1
             mask[i, slabel[i]] = 1
         outputs_t = outputs_t * mask
     else:
-        print('not valid style. teacher-style is in [0-3].')
+        None
     s = torch.sum(outputs_t, dim=1, keepdim=True)
     s = s.expand_as(outputs_t)
     outputs_t = outputs_t / s
@@ -1302,13 +1306,13 @@ def scale2(x):
 
 
 def recover(inp):
+    """Imshow for Tensor."""
     inp = inp.numpy().transpose((1, 2, 0))
     mean = np.array([0.485, 0.456, 0.406])
     std = np.array([0.229, 0.224, 0.225])
     inp = std * inp + mean
     inp = inp * 255.0
     inp = np.clip(inp, 0, 255)
-    inp = inp.astype(np.uint8)
     return inp
 
 
@@ -1324,7 +1328,7 @@ def to_edge(x):
         xx = torch.from_numpy(xx.astype(np.float32))
         out[(i), :, :] = xx
     out = out.unsqueeze(1)
-    return out.cuda()
+    return out
 
 
 def to_gray(half=False):

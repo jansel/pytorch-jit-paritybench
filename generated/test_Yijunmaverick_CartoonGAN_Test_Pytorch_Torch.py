@@ -9,15 +9,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -29,6 +30,45 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+import numpy as np
+
+
+import torchvision.transforms as transforms
+
+
+from torch.autograd import Variable
+
+
+import torchvision.utils as vutils
+
+
+class InstanceNormalization(nn.Module):
+
+    def __init__(self, dim, eps=1e-09):
+        super(InstanceNormalization, self).__init__()
+        self.scale = nn.Parameter(torch.FloatTensor(dim))
+        self.shift = nn.Parameter(torch.FloatTensor(dim))
+        self.eps = eps
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        self.scale.data.uniform_()
+        self.shift.data.zero_()
+
+    def __call__(self, x):
+        n = x.size(2) * x.size(3)
+        t = x.view(x.size(0), x.size(1), n)
+        mean = torch.mean(t, 2).unsqueeze(2).unsqueeze(3).expand_as(x)
+        var = torch.var(t, 2).unsqueeze(2).unsqueeze(3).expand_as(x) * ((n - 1) / float(n))
+        scale_broadcast = self.scale.unsqueeze(1).unsqueeze(1).unsqueeze(0)
+        scale_broadcast = scale_broadcast.expand_as(x)
+        shift_broadcast = self.shift.unsqueeze(1).unsqueeze(1).unsqueeze(0)
+        shift_broadcast = shift_broadcast.expand_as(x)
+        out = (x - mean) / torch.sqrt(var + self.eps)
+        out = out * scale_broadcast + shift_broadcast
+        return out
 
 
 class Transformer(nn.Module):
@@ -125,33 +165,6 @@ class Transformer(nn.Module):
         y = F.relu(self.in13_1(self.deconv02_2(self.deconv02_1(y))))
         y = F.tanh(self.deconv03_1(self.refpad12_1(y)))
         return y
-
-
-class InstanceNormalization(nn.Module):
-
-    def __init__(self, dim, eps=1e-09):
-        super(InstanceNormalization, self).__init__()
-        self.scale = nn.Parameter(torch.FloatTensor(dim))
-        self.shift = nn.Parameter(torch.FloatTensor(dim))
-        self.eps = eps
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        self.scale.data.uniform_()
-        self.shift.data.zero_()
-
-    def __call__(self, x):
-        n = x.size(2) * x.size(3)
-        t = x.view(x.size(0), x.size(1), n)
-        mean = torch.mean(t, 2).unsqueeze(2).unsqueeze(3).expand_as(x)
-        var = torch.var(t, 2).unsqueeze(2).unsqueeze(3).expand_as(x) * ((n - 1) / float(n))
-        scale_broadcast = self.scale.unsqueeze(1).unsqueeze(1).unsqueeze(0)
-        scale_broadcast = scale_broadcast.expand_as(x)
-        shift_broadcast = self.shift.unsqueeze(1).unsqueeze(1).unsqueeze(0)
-        shift_broadcast = shift_broadcast.expand_as(x)
-        out = (x - mean) / torch.sqrt(var + self.eps)
-        out = out * scale_broadcast + shift_broadcast
-        return out
 
 
 import torch

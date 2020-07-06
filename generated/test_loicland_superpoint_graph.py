@@ -40,20 +40,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import random
+
+
+import numpy as np
+
+
+import functools
+
+
 import torch
+
+
+from collections import defaultdict
 
 
 import torch.nn as nn
@@ -65,7 +78,7 @@ from torch.autograd import Variable
 from torch.autograd import Function
 
 
-import numpy as np
+from collections import namedtuple
 
 
 from torch.autograd import gradcheck
@@ -77,16 +90,10 @@ import torch.nn.init as init
 import time
 
 
-import random
-
-
 import math
 
 
 import logging
-
-
-from collections import defaultdict
 
 
 import torch.optim as optim
@@ -98,7 +105,10 @@ from torch.optim.lr_scheduler import MultiStepLR
 import torch.nn.functional as nnf
 
 
-import functools
+from sklearn.linear_model import RANSACRegressor
+
+
+from sklearn import preprocessing
 
 
 class GraphConvFunction(Function):
@@ -366,136 +376,16 @@ class GraphPoolModule(nn.Module):
         return GraphPoolFunction(idxn, degs, degs_gpu, self._aggr, self._edge_mem_limit)(input)
 
 
-def create_fnet(widths, orthoinit, llbias, bnidx=-1):
-    """ Creates feature-generating network, a multi-layer perceptron.
-    Parameters:
-    widths: list of widths of layers (including input and output widths)
-    orthoinit: whether to use orthogonal weight initialization
-    llbias: whether to use bias in the last layer
-    bnidx: index of batch normalization (-1 if not used)
-    """
-    fnet_modules = []
-    for k in range(len(widths) - 2):
-        fnet_modules.append(nn.Linear(widths[k], widths[k + 1]))
-        if orthoinit:
-            init.orthogonal_(fnet_modules[-1].weight, gain=init.calculate_gain('relu'))
-        if bnidx == k:
-            fnet_modules.append(nn.BatchNorm1d(widths[k + 1]))
-        fnet_modules.append(nn.ReLU(True))
-    fnet_modules.append(nn.Linear(widths[-2], widths[-1], bias=llbias))
-    if orthoinit:
-        init.orthogonal_(fnet_modules[-1].weight)
-    if bnidx == len(widths) - 1:
-        fnet_modules.append(nn.BatchNorm1d(fnet_modules[-1].weight.size(0)))
-    return nn.Sequential(*fnet_modules)
+class GraphAvgPoolModule(GraphPoolModule):
+
+    def __init__(self, gp_info=None, edge_mem_limit=1e+20):
+        super(GraphAvgPoolModule, self).__init__(GraphPoolFunction.AGGR_MEAN, gp_info, edge_mem_limit)
 
 
-class GraphNetwork(nn.Module):
-    """ It is constructed in a flexible way based on `config` string, which contains sequence of comma-delimited layer definiton tokens layer_arg1_arg2_... See README.md for examples.
-    """
+class GraphMaxPoolModule(GraphPoolModule):
 
-    def __init__(self, config, nfeat, fnet_widths, fnet_orthoinit=True, fnet_llbias=True, fnet_bnidx=-1, edge_mem_limit=1e+20, use_pyg=True, cuda=True):
-        super(GraphNetwork, self).__init__()
-        self.gconvs = []
-        for d, conf in enumerate(config.split(',')):
-            conf = conf.strip().split('_')
-            if conf[0] == 'f':
-                self.add_module(str(d), nn.Linear(nfeat, int(conf[1])))
-                nfeat = int(conf[1])
-            elif conf[0] == 'b':
-                self.add_module(str(d), nn.BatchNorm1d(nfeat, eps=1e-05, affine=len(conf) == 1))
-            elif conf[0] == 'r':
-                self.add_module(str(d), nn.ReLU(True))
-            elif conf[0] == 'd':
-                self.add_module(str(d), nn.Dropout(p=float(conf[1]), inplace=False))
-            elif conf[0] == 'crf':
-                nrepeats = int(conf[1])
-                fnet = create_fnet(fnet_widths + [nfeat * nfeat], fnet_orthoinit, fnet_llbias, fnet_bnidx)
-                gconv = ecc.GraphConvModule(nfeat, nfeat, fnet, edge_mem_limit=edge_mem_limit)
-                crf = ECC_CRFModule(gconv, nrepeats)
-                self.add_module(str(d), crf)
-                self.gconvs.append(gconv)
-            elif conf[0] == 'gru' or conf[0] == 'lstm':
-                nrepeats = int(conf[1])
-                vv = bool(int(conf[2])) if len(conf) > 2 else True
-                layernorm = bool(int(conf[3])) if len(conf) > 3 else True
-                ingate = bool(int(conf[4])) if len(conf) > 4 else True
-                cat_all = bool(int(conf[5])) if len(conf) > 5 else True
-                fnet = create_fnet(fnet_widths + [nfeat ** 2 if not vv else nfeat], fnet_orthoinit, fnet_llbias, fnet_bnidx)
-                if conf[0] == 'gru':
-                    cell = GRUCellEx(nfeat, nfeat, bias=True, layernorm=layernorm, ingate=ingate)
-                else:
-                    cell = LSTMCellEx(nfeat, nfeat, bias=True, layernorm=layernorm, ingate=ingate)
-                gconv = RNNGraphConvModule(cell, fnet, nfeat, vv=vv, nrepeats=nrepeats, cat_all=cat_all, edge_mem_limit=edge_mem_limit, use_pyg=use_pyg, cuda=cuda)
-                self.add_module(str(d), gconv)
-                self.gconvs.append(gconv)
-                if cat_all:
-                    nfeat *= nrepeats + 1
-            elif len(conf[0]) > 0:
-                raise NotImplementedError('Unknown module: ' + conf[0])
-
-    def set_info(self, gc_infos, cuda):
-        """ Provides convolution modules with graph structure information for the current batch.
-        """
-        gc_infos = gc_infos if isinstance(gc_infos, (list, tuple)) else [gc_infos]
-        for i, gc in enumerate(self.gconvs):
-            if cuda:
-                gc_infos[i]
-            gc.set_info(gc_infos[i])
-
-    def forward(self, input):
-        for module in self._modules.values():
-            input = module(input)
-        return input
-
-
-class RNNGraphConvModule(nn.Module):
-    """
-    Computes recurrent graph convolution using filter weights obtained from a Filter generating network (`filter_net`).
-    Its result is passed to RNN `cell` and the process is repeated over `nrepeats` iterations.
-    Weight sharing over iterations is done both in RNN cell and in Filter generating network.
-    """
-
-    def __init__(self, cell, filter_net, nfeat, vv=True, gc_info=None, nrepeats=1, cat_all=False, edge_mem_limit=1e+20, use_pyg=True, cuda=True):
-        super(RNNGraphConvModule, self).__init__()
-        self._cell = cell
-        self._isLSTM = 'LSTM' in type(cell).__name__
-        self._fnet = filter_net
-        self._nrepeats = nrepeats
-        self._cat_all = cat_all
-        self._edge_mem_limit = edge_mem_limit
-        self.set_info(gc_info)
-        self.use_pyg = use_pyg
-        if use_pyg:
-            self.nn = NNConv(nfeat, nfeat, vv=vv)
-            if cuda:
-                self.nn = self.nn
-
-    def set_info(self, gc_info):
-        self._gci = gc_info
-
-    def forward(self, hx):
-        idxn, idxe, degs, degs_gpu, edgefeats = self._gci.get_buffers()
-        edge_indexes = self._gci.get_pyg_buffers()
-        weights = self._fnet(edgefeats)
-        nc = hx.size(1)
-        assert hx.dim() == 2 and weights.dim() == 2 and weights.size(1) in [nc, nc * nc]
-        if weights.size(1) != nc:
-            weights = weights.view(-1, nc, nc)
-        hxs = [hx]
-        if self._isLSTM:
-            cx = Variable(hx.data.new(hx.size()).fill_(0))
-        for r in range(self._nrepeats):
-            if self.use_pyg:
-                input = self.nn(hx, edge_indexes, weights)
-            else:
-                input = ecc.GraphConvFunction.apply(hx, weights, nc, nc, idxn, idxe, degs, degs_gpu, self._edge_mem_limit)
-            if self._isLSTM:
-                hx, cx = self._cell(input, (hx, cx))
-            else:
-                hx = self._cell(input, hx)
-            hxs.append(hx)
-        return torch.cat(hxs, 1) if self._cat_all else hx
+    def __init__(self, gp_info=None, edge_mem_limit=1e+20):
+        super(GraphMaxPoolModule, self).__init__(GraphPoolFunction.AGGR_MAX, gp_info, edge_mem_limit)
 
 
 class ECC_CRFModule(nn.Module):
@@ -624,6 +514,138 @@ class LSTMCellEx(nn.LSTMCell):
         if self._layernorm:
             s += ' layernorm'
         return s + ')'
+
+
+class RNNGraphConvModule(nn.Module):
+    """
+    Computes recurrent graph convolution using filter weights obtained from a Filter generating network (`filter_net`).
+    Its result is passed to RNN `cell` and the process is repeated over `nrepeats` iterations.
+    Weight sharing over iterations is done both in RNN cell and in Filter generating network.
+    """
+
+    def __init__(self, cell, filter_net, nfeat, vv=True, gc_info=None, nrepeats=1, cat_all=False, edge_mem_limit=1e+20, use_pyg=True, cuda=True):
+        super(RNNGraphConvModule, self).__init__()
+        self._cell = cell
+        self._isLSTM = 'LSTM' in type(cell).__name__
+        self._fnet = filter_net
+        self._nrepeats = nrepeats
+        self._cat_all = cat_all
+        self._edge_mem_limit = edge_mem_limit
+        self.set_info(gc_info)
+        self.use_pyg = use_pyg
+        if use_pyg:
+            self.nn = NNConv(nfeat, nfeat, vv=vv)
+            if cuda:
+                self.nn = self.nn
+
+    def set_info(self, gc_info):
+        self._gci = gc_info
+
+    def forward(self, hx):
+        idxn, idxe, degs, degs_gpu, edgefeats = self._gci.get_buffers()
+        edge_indexes = self._gci.get_pyg_buffers()
+        weights = self._fnet(edgefeats)
+        nc = hx.size(1)
+        assert hx.dim() == 2 and weights.dim() == 2 and weights.size(1) in [nc, nc * nc]
+        if weights.size(1) != nc:
+            weights = weights.view(-1, nc, nc)
+        hxs = [hx]
+        if self._isLSTM:
+            cx = Variable(hx.data.new(hx.size()).fill_(0))
+        for r in range(self._nrepeats):
+            if self.use_pyg:
+                input = self.nn(hx, edge_indexes, weights)
+            else:
+                input = ecc.GraphConvFunction.apply(hx, weights, nc, nc, idxn, idxe, degs, degs_gpu, self._edge_mem_limit)
+            if self._isLSTM:
+                hx, cx = self._cell(input, (hx, cx))
+            else:
+                hx = self._cell(input, hx)
+            hxs.append(hx)
+        return torch.cat(hxs, 1) if self._cat_all else hx
+
+
+def create_fnet(widths, orthoinit, llbias, bnidx=-1):
+    """ Creates feature-generating network, a multi-layer perceptron.
+    Parameters:
+    widths: list of widths of layers (including input and output widths)
+    orthoinit: whether to use orthogonal weight initialization
+    llbias: whether to use bias in the last layer
+    bnidx: index of batch normalization (-1 if not used)
+    """
+    fnet_modules = []
+    for k in range(len(widths) - 2):
+        fnet_modules.append(nn.Linear(widths[k], widths[k + 1]))
+        if orthoinit:
+            init.orthogonal_(fnet_modules[-1].weight, gain=init.calculate_gain('relu'))
+        if bnidx == k:
+            fnet_modules.append(nn.BatchNorm1d(widths[k + 1]))
+        fnet_modules.append(nn.ReLU(True))
+    fnet_modules.append(nn.Linear(widths[-2], widths[-1], bias=llbias))
+    if orthoinit:
+        init.orthogonal_(fnet_modules[-1].weight)
+    if bnidx == len(widths) - 1:
+        fnet_modules.append(nn.BatchNorm1d(fnet_modules[-1].weight.size(0)))
+    return nn.Sequential(*fnet_modules)
+
+
+class GraphNetwork(nn.Module):
+    """ It is constructed in a flexible way based on `config` string, which contains sequence of comma-delimited layer definiton tokens layer_arg1_arg2_... See README.md for examples.
+    """
+
+    def __init__(self, config, nfeat, fnet_widths, fnet_orthoinit=True, fnet_llbias=True, fnet_bnidx=-1, edge_mem_limit=1e+20, use_pyg=True, cuda=True):
+        super(GraphNetwork, self).__init__()
+        self.gconvs = []
+        for d, conf in enumerate(config.split(',')):
+            conf = conf.strip().split('_')
+            if conf[0] == 'f':
+                self.add_module(str(d), nn.Linear(nfeat, int(conf[1])))
+                nfeat = int(conf[1])
+            elif conf[0] == 'b':
+                self.add_module(str(d), nn.BatchNorm1d(nfeat, eps=1e-05, affine=len(conf) == 1))
+            elif conf[0] == 'r':
+                self.add_module(str(d), nn.ReLU(True))
+            elif conf[0] == 'd':
+                self.add_module(str(d), nn.Dropout(p=float(conf[1]), inplace=False))
+            elif conf[0] == 'crf':
+                nrepeats = int(conf[1])
+                fnet = create_fnet(fnet_widths + [nfeat * nfeat], fnet_orthoinit, fnet_llbias, fnet_bnidx)
+                gconv = ecc.GraphConvModule(nfeat, nfeat, fnet, edge_mem_limit=edge_mem_limit)
+                crf = ECC_CRFModule(gconv, nrepeats)
+                self.add_module(str(d), crf)
+                self.gconvs.append(gconv)
+            elif conf[0] == 'gru' or conf[0] == 'lstm':
+                nrepeats = int(conf[1])
+                vv = bool(int(conf[2])) if len(conf) > 2 else True
+                layernorm = bool(int(conf[3])) if len(conf) > 3 else True
+                ingate = bool(int(conf[4])) if len(conf) > 4 else True
+                cat_all = bool(int(conf[5])) if len(conf) > 5 else True
+                fnet = create_fnet(fnet_widths + [nfeat ** 2 if not vv else nfeat], fnet_orthoinit, fnet_llbias, fnet_bnidx)
+                if conf[0] == 'gru':
+                    cell = GRUCellEx(nfeat, nfeat, bias=True, layernorm=layernorm, ingate=ingate)
+                else:
+                    cell = LSTMCellEx(nfeat, nfeat, bias=True, layernorm=layernorm, ingate=ingate)
+                gconv = RNNGraphConvModule(cell, fnet, nfeat, vv=vv, nrepeats=nrepeats, cat_all=cat_all, edge_mem_limit=edge_mem_limit, use_pyg=use_pyg, cuda=cuda)
+                self.add_module(str(d), gconv)
+                self.gconvs.append(gconv)
+                if cat_all:
+                    nfeat *= nrepeats + 1
+            elif len(conf[0]) > 0:
+                raise NotImplementedError('Unknown module: ' + conf[0])
+
+    def set_info(self, gc_infos, cuda):
+        """ Provides convolution modules with graph structure information for the current batch.
+        """
+        gc_infos = gc_infos if isinstance(gc_infos, (list, tuple)) else [gc_infos]
+        for i, gc in enumerate(self.gconvs):
+            if cuda:
+                gc_infos[i]
+            gc.set_info(gc_infos[i])
+
+    def forward(self, input):
+        for module in self._modules.values():
+            input = module(input)
+        return input
 
 
 class STNkD(nn.Module):

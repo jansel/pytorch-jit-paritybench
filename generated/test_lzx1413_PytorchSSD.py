@@ -50,29 +50,54 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
 
 
 import torch
 
 
-import torch.nn as nn
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
+import math
+
+
+import random
+
+
+import torch.backends.cudnn as cudnn
+
+
+from torch.autograd import Variable
 
 
 from torch.autograd import Function
 
 
-from torch.autograd import Variable
+from itertools import product as product
+
+
+from math import sqrt as sqrt
+
+
+import torch.nn as nn
 
 
 import torch.nn.init as init
@@ -81,22 +106,7 @@ import torch.nn.init as init
 import torch.nn.functional as F
 
 
-import math
-
-
 import torch.optim as optim
-
-
-import torch.backends.cudnn as cudnn
-
-
-import torchvision.transforms as transforms
-
-
-import numpy as np
-
-
-import torch.utils.data as data
 
 
 import time
@@ -500,14 +510,12 @@ class RefineMultiBoxLoss(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True, up_size=0):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
         self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
-        self.up_size = up_size
-        self.up_sample = nn.Upsample(size=(up_size, up_size), mode='bilinear') if up_size != 0 else None
 
     def forward(self, x):
         x = self.conv(x)
@@ -515,9 +523,42 @@ class BasicConv(nn.Module):
             x = self.bn(x)
         if self.relu is not None:
             x = self.relu(x)
-        if self.up_size > 0:
-            x = self.up_sample(x)
         return x
+
+
+class BasicRFB_a(nn.Module):
+
+    def __init__(self, in_planes, out_planes, stride=1, scale=0.1):
+        super(BasicRFB_a, self).__init__()
+        self.scale = scale
+        self.out_channels = out_planes
+        inter_planes = in_planes // 4
+        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
+        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
+        """
+        self.branch3 = nn.Sequential(
+                BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
+                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1),
+                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
+                )
+        """
+        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
+        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
+        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
+        self.relu = nn.ReLU(inplace=False)
+
+    def forward(self, x):
+        x0 = self.branch0(x)
+        x1 = self.branch1(x)
+        x2 = self.branch2(x)
+        x3 = self.branch3(x)
+        out = torch.cat((x0, x1, x2, x3), 1)
+        out = self.ConvLinear(out)
+        short = self.shortcut(x)
+        out = out * self.scale + short
+        out = self.relu(out)
+        return out
 
 
 class FRFBSSD(nn.Module):
@@ -616,184 +657,6 @@ class FRFBSSD(nn.Module):
             None
         else:
             None
-
-
-class BasicConv(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True, up_size=0):
-        super(BasicConv, self).__init__()
-        self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-        self.up_size = up_size
-        self.up_sample = nn.Upsample(size=(up_size, up_size), mode='bilinear') if up_size != 0 else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        if self.up_size > 0:
-            x = self.up_sample(x)
-        return x
-
-
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
-
-
-def conv_dw(inp, oup, stride):
-    return nn.Sequential(Conv2dDepthwise(inp, kernel_size=3, stride=stride, padding=1, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
-
-
-def MobileNet():
-    layers = []
-    layers += [conv_bn(3, 32, 2)]
-    layers += [conv_dw(32, 64, 1)]
-    layers += [conv_dw(64, 128, 2)]
-    layers += [conv_dw(128, 128, 1)]
-    layers += [conv_dw(128, 256, 2)]
-    layers += [conv_dw(256, 256, 1)]
-    layers += [conv_dw(256, 512, 2)]
-    layers += [conv_dw(512, 512, 1)]
-    layers += [conv_dw(512, 512, 1)]
-    layers += [conv_dw(512, 512, 1)]
-    layers += [conv_dw(512, 512, 1)]
-    layers += [conv_dw(512, 512, 1)]
-    layers += [conv_dw(512, 1024, 2)]
-    layers += [conv_dw(1024, 1024, 1)]
-    return layers
-
-
-def mobilenet_1():
-    """
-    Construct MobileNet.
-    """
-    model = MobileNet(widen_factor=1.0, num_classes=1000)
-    return model
-
-
-class FSSD(nn.Module):
-    """Single Shot Multibox Architecture
-    The network is composed of a base VGG network followed by the
-    added multibox conv layers.  Each multibox layer branches into
-        1) conv2d for class conf scores
-        2) conv2d for localization predictions
-        3) associated priorbox layer to produce default bounding
-           boxes specific to the layer's feature map size.
-    See: https://arxiv.org/pdf/1512.02325.pdf for more details.
-
-    Args:
-        phase: (string) Can be "test" or "train"
-        base: VGG16 layers for input, size of either 300 or 500
-        extras: extra layers that feed to multibox loc and conf layers
-        head: "multibox head" consists of loc and conf conv layers
-    """
-
-    def __init__(self, size, head, ft_module, pyramid_ext, num_classes):
-        super(FSSD, self).__init__()
-        self.num_classes = num_classes
-        self.size = size
-        self.base = mobilenet_1()
-        self.ft_module = nn.ModuleList(ft_module)
-        self.pyramid_ext = nn.ModuleList(pyramid_ext)
-        self.loc = nn.ModuleList(head[0])
-        self.conf = nn.ModuleList(head[1])
-        self.fea_bn = nn.BatchNorm2d(256 * len(self.ft_module), affine=True)
-        self.softmax = nn.Softmax()
-
-    def forward(self, x, test=False):
-        """Applies network layers and ops on input image(s) x.
-
-        Args:
-            x: input image or batch of images. Shape: [batch,3*batch,300,300].
-
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        source_features = list()
-        transformed_features = list()
-        loc = list()
-        conf = list()
-        base_out = self.base(x)
-        source_features.append(base_out[0])
-        source_features.append(base_out[1])
-        source_features.append(base_out[2])
-        assert len(self.ft_module) == len(source_features)
-        for k, v in enumerate(self.ft_module):
-            transformed_features.append(v(source_features[k]))
-        concat_fea = torch.cat(transformed_features, 1)
-        x = self.fea_bn(concat_fea)
-        fea_bn = x
-        pyramid_fea = list()
-        for k, v in enumerate(self.pyramid_ext):
-            x = v(x)
-            pyramid_fea.append(x)
-        for x, l, c in zip(pyramid_fea, self.loc, self.conf):
-            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
-            conf.append(c(x).permute(0, 2, 3, 1).contiguous())
-        loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
-        conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
-        if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
-            features = ()
-        else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
-            features = fea_bn
-        return output
-
-    def load_weights(self, base_file):
-        other, ext = os.path.splitext(base_file)
-        if ext == '.pkl' or '.pth':
-            None
-            state_dict = torch.load(base_file, map_location=lambda storage, loc: storage)
-            from collections import OrderedDict
-            new_state_dict = OrderedDict()
-            for k, v in state_dict.items():
-                head = k[:7]
-                if head == 'module.':
-                    name = k[7:]
-                else:
-                    name = k
-                new_state_dict[name] = v
-            self.base.load_state_dict(new_state_dict)
-            None
-        else:
-            None
-
-
-class BasicConv(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True, up_size=0):
-        super(BasicConv, self).__init__()
-        self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-        self.up_size = up_size
-        self.up_sample = nn.Upsample(size=(up_size, up_size), mode='bilinear') if up_size != 0 else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        if self.up_size > 0:
-            x = self.up_sample(x)
-        return x
 
 
 class FSSD(nn.Module):
@@ -905,12 +768,17 @@ class Flatten(nn.Module):
         return x.view(x.data.size(0), -1)
 
 
-class CombConvLayer(nn.Sequential):
+class ConvLayer(nn.Sequential):
 
-    def __init__(self, in_channels, out_channels, kernel=1, stride=1, dropout=0.1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel=3, stride=1, padding=0, bias=False):
         super().__init__()
-        self.add_module('layer1', ConvLayer(in_channels, out_channels, kernel))
-        self.add_module('layer2', DWConvLayer(out_channels, out_channels, stride=stride))
+        self.out_channels = out_channels
+        out_ch = out_channels
+        groups = 1
+        pad = kernel // 2 if padding == 0 else padding
+        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=kernel, stride=stride, padding=pad, groups=groups, bias=bias))
+        self.add_module('norm', nn.BatchNorm2d(out_ch))
+        self.add_module('relu', nn.ReLU(True))
 
     def forward(self, x):
         return super().forward(x)
@@ -930,345 +798,12 @@ class DWConvLayer(nn.Sequential):
         return super().forward(x)
 
 
-class ConvLayer(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, kernel=3, stride=1, padding=0, bias=False):
-        super().__init__()
-        self.out_channels = out_channels
-        out_ch = out_channels
-        groups = 1
-        pad = kernel // 2 if padding == 0 else padding
-        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=kernel, stride=stride, padding=pad, groups=groups, bias=bias))
-        self.add_module('norm', nn.BatchNorm2d(out_ch))
-        self.add_module('relu', nn.ReLU(True))
-
-    def forward(self, x):
-        return super().forward(x)
-
-
-class HarDBlock(nn.Module):
-
-    def get_link(self, layer, base_ch, growth_rate, grmul):
-        if layer == 0:
-            return base_ch, 0, []
-        out_channels = growth_rate
-        link = []
-        for i in range(10):
-            dv = 2 ** i
-            if layer % dv == 0:
-                k = layer - dv
-                link.append(k)
-                if i > 0:
-                    out_channels *= grmul
-        out_channels = int(int(out_channels + 1) / 2) * 2
-        in_channels = 0
-        for i in link:
-            ch, _, _ = self.get_link(i, base_ch, growth_rate, grmul)
-            in_channels += ch
-        return out_channels, in_channels, link
-
-    def get_out_ch(self):
-        return self.out_channels
-
-    def __init__(self, in_channels, growth_rate, grmul, n_layers, keepBase=False, residual_out=False, dwconv=False):
-        super().__init__()
-        self.keepBase = keepBase
-        self.links = []
-        layers_ = []
-        self.out_channels = 0
-        for i in range(n_layers):
-            outch, inch, link = self.get_link(i + 1, in_channels, growth_rate, grmul)
-            self.links.append(link)
-            use_relu = residual_out
-            if dwconv:
-                layers_.append(CombConvLayer(inch, outch))
-            else:
-                layers_.append(ConvLayer(inch, outch))
-            if i % 2 == 0 or i == n_layers - 1:
-                self.out_channels += outch
-        self.layers = nn.ModuleList(layers_)
-
-    def forward(self, x):
-        layers_ = [x]
-        for layer in range(len(self.layers)):
-            link = self.links[layer]
-            tin = []
-            for i in link:
-                tin.append(layers_[i])
-            x = torch.cat(tin, 1)
-            out = self.layers[layer](x)
-            layers_.append(out)
-        t = len(layers_)
-        out_ = []
-        for i in range(t):
-            if i == 0 and self.keepBase or i == t - 1 or i % 2 == 1:
-                out_.append(layers_[i])
-        out = torch.cat(out_, 1)
-        return out
-
-
-class HarDNetBase(nn.Module):
-
-    def __init__(self, depth_wise=False):
-        super().__init__()
-        first_ch = [32, 64]
-        second_kernel = 3
-        ch_list = [128, 256, 320, 640]
-        grmul = 1.7
-        gr = [14, 16, 20, 40]
-        n_layers = [8, 16, 16, 16]
-        if depth_wise:
-            second_kernel = 1
-            first_ch = [24, 48]
-        blks = len(n_layers)
-        self.base = nn.ModuleList([])
-        self.base.append(ConvLayer(in_channels=3, out_channels=first_ch[0], kernel=3, stride=2, bias=False))
-        self.base.append(ConvLayer(first_ch[0], first_ch[1], kernel=second_kernel))
-        self.base.append(nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
-        ch = first_ch[1]
-        for i in range(blks):
-            blk = HarDBlock(ch, gr[i], grmul, n_layers[i], dwconv=depth_wise)
-            ch = blk.get_out_ch()
-            self.base.append(blk)
-            self.base.append(ConvLayer(ch, ch_list[i], kernel=1))
-            ch = ch_list[i]
-            if i == 0:
-                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
-            elif i != blks - 1 and i != 1:
-                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2))
-        ch = ch_list[blks - 1]
-        self.base.append(nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1, padding=1), nn.Conv2d(ch, ch, kernel_size=3, padding=4, dilation=4, bias=False), nn.BatchNorm2d(ch), nn.ReLU(True), ConvLayer(ch, ch, kernel=1)))
-
-
-class BasicConv(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
-        super(BasicConv, self).__init__()
-        self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        return x
-
-
-class BasicRFB(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1, visual=1):
-        super(BasicRFB, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // 8
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=visual + 1, dilation=visual + 1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=stride, padding=1), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=2 * visual + 1, dilation=2 * visual + 1, relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x0 = self.branch0(x)
-        x1 = self.branch1(x)
-        out = torch.cat((x0, x1), 1)
-        out = self.ConvLinear(out)
-        short = self.shortcut(x)
-        out = out * self.scale + short
-        out = self.relu(out)
-        return out
-
-
-class BasicRFB_a(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1):
-        super(BasicRFB_a, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        """
-        self.branch3 = nn.Sequential(
-                BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
-                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1),
-                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
-                )
-        """
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x0 = self.branch0(x)
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        x3 = self.branch3(x)
-        out = torch.cat((x0, x1, x2, x3), 1)
-        out = self.ConvLinear(out)
-        short = self.shortcut(x)
-        out = out * self.scale + short
-        out = self.relu(out)
-        return out
-
-
-class RFBNet(nn.Module):
-    """RFB Net for object detection
-    The network is based on the SSD architecture.
-    Each multibox layer branches into
-        1) conv2d for class conf scores
-        2) conv2d for localization predictions
-        3) associated priorbox layer to produce default bounding
-           boxes specific to the layer's feature map size.
-    See: https://arxiv.org/pdf/1711.07767.pdf for more details on RFB Net.
-
-    Args:
-        phase: (string) Can be "test" or "train"
-        base: VGG16 layers for input, size of either 300 or 512
-        extras: extra layers that feed to multibox loc and conf layers
-        head: "multibox head" consists of loc and conf conv layers
-    """
-
-    def __init__(self, size, extras, head, num_classes):
-        super(RFBNet, self).__init__()
-        self.num_classes = num_classes
-        self.size = size
-        self.base = HarDNetBase().base
-        if size == 300:
-            self.indicator = 3
-        elif size == 512:
-            self.indicator = 5
-        else:
-            None
-            return
-        self.Norm = BasicRFB_a(320, 512, stride=1, scale=1.0)
-        self.extras = nn.ModuleList(extras)
-        self.loc = nn.ModuleList(head[0])
-        self.conf = nn.ModuleList(head[1])
-        self.softmax = nn.Softmax()
-
-    def forward(self, x, test=False):
-        """Applies network layers and ops on input image(s) x.
-
-        Args:
-            x: input image or batch of images. Shape: [batch,3*batch,300,300].
-
-        Return:
-            Depending on phase:
-            test:
-                list of concat outputs from:
-                    1: softmax layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        sources = list()
-        loc = list()
-        conf = list()
-        for k in range(10):
-            x = self.base[k](x)
-        s = self.Norm(x)
-        sources.append(s)
-        for k in range(10, len(self.base)):
-            x = self.base[k](x)
-        for k, v in enumerate(self.extras):
-            x = v(x)
-            if k < self.indicator or k % 2 == 0:
-                sources.append(x)
-        for x, l, c in zip(sources, self.loc, self.conf):
-            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
-            conf.append(c(x).permute(0, 2, 3, 1).contiguous())
-        loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
-        conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
-        if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
-        else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
-        return output
-
-    def load_weights(self, base_file):
-        other, ext = os.path.splitext(base_file)
-        if ext == '.pkl' or '.pth':
-            None
-            self.load_state_dict(torch.load(base_file))
-            None
-        else:
-            None
-
-    def reload_weights(self):
-        pretrained_path = 'weights/hardnet68_base_bridge.pth'
-        self.base = HarDNetBase().base
-        None
-        if pretrained_path is not None:
-            weights = torch.load(pretrained_path)
-            self.base.load_state_dict(weights)
-            None
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class Flatten(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        return x.view(x.data.size(0), -1)
-
-
 class CombConvLayer(nn.Sequential):
 
     def __init__(self, in_channels, out_channels, kernel=1, stride=1, dropout=0.1, bias=False):
         super().__init__()
         self.add_module('layer1', ConvLayer(in_channels, out_channels, kernel))
         self.add_module('layer2', DWConvLayer(out_channels, out_channels, stride=stride))
-
-    def forward(self, x):
-        return super().forward(x)
-
-
-class DWConvLayer(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, stride=1, bias=False):
-        super().__init__()
-        out_ch = out_channels
-        groups = in_channels
-        kernel = 3
-        self.add_module('dwconv', nn.Conv2d(groups, groups, kernel_size=3, stride=stride, padding=1, groups=groups, bias=bias))
-        self.add_module('norm', nn.BatchNorm2d(groups))
-
-    def forward(self, x):
-        return super().forward(x)
-
-
-class ConvLayer(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, kernel=3, stride=1, padding=0, bias=False):
-        super().__init__()
-        self.out_channels = out_channels
-        out_ch = out_channels
-        groups = 1
-        pad = kernel // 2 if padding == 0 else padding
-        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=kernel, stride=stride, padding=pad, groups=groups, bias=bias))
-        self.add_module('norm', nn.BatchNorm2d(out_ch))
-        self.add_module('relu', nn.ReLU(True))
 
     def forward(self, x):
         return super().forward(x)
@@ -1366,24 +901,6 @@ class HarDNetBase(nn.Module):
                 self.base.append(nn.MaxPool2d(kernel_size=2, stride=2))
 
 
-class BasicConv(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
-        super(BasicConv, self).__init__()
-        self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        return x
-
-
 class BasicRFB(nn.Module):
 
     def __init__(self, in_planes, out_planes, stride=1, scale=0.1, visual=1):
@@ -1408,41 +925,6 @@ class BasicRFB(nn.Module):
         return out
 
 
-class BasicRFB_a(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1):
-        super(BasicRFB_a, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        """
-        self.branch3 = nn.Sequential(
-                BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
-                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1),
-                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
-                )
-        """
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x0 = self.branch0(x)
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        x3 = self.branch3(x)
-        out = torch.cat((x0, x1, x2, x3), 1)
-        out = self.ConvLinear(out)
-        short = self.shortcut(x)
-        out = out * self.scale + short
-        out = self.relu(out)
-        return out
-
-
 class RFBNet(nn.Module):
     """RFB Net for object detection
     The network is based on the SSD architecture.
@@ -1460,11 +942,10 @@ class RFBNet(nn.Module):
         head: "multibox head" consists of loc and conf conv layers
     """
 
-    def __init__(self, size, extras, head, num_classes):
+    def __init__(self, size, base, extras, head, num_classes):
         super(RFBNet, self).__init__()
         self.num_classes = num_classes
         self.size = size
-        self.base = HarDNetBase().base
         if size == 300:
             self.indicator = 3
         elif size == 512:
@@ -1472,7 +953,8 @@ class RFBNet(nn.Module):
         else:
             None
             return
-        self.Norm = BasicRFB_a(320, 512, stride=1, scale=1.0)
+        self.base = nn.ModuleList(base)
+        self.Norm = BasicRFB_a(512, 512, stride=1, scale=1.0)
         self.extras = nn.ModuleList(extras)
         self.loc = nn.ModuleList(head[0])
         self.conf = nn.ModuleList(head[1])
@@ -1501,11 +983,11 @@ class RFBNet(nn.Module):
         sources = list()
         loc = list()
         conf = list()
-        for k in range(10):
+        for k in range(23):
             x = self.base[k](x)
         s = self.Norm(x)
         sources.append(s)
-        for k in range(10, len(self.base)):
+        for k in range(23, len(self.base)):
             x = self.base[k](x)
         for k, v in enumerate(self.extras):
             x = v(x)
@@ -1530,61 +1012,6 @@ class RFBNet(nn.Module):
             None
         else:
             None
-
-    def reload_weights(self):
-        pretrained_path = 'weights/hardnet85_base.pth'
-        self.base = HarDNetBase().base
-        None
-        if pretrained_path is not None:
-            weights = torch.load(pretrained_path)
-            self.base.load_state_dict(weights)
-            None
-
-
-class BasicConv(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
-        super(BasicConv, self).__init__()
-        self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        return x
-
-
-class BasicRFB(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1, map_reduce=8):
-        super(BasicRFB, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // map_reduce
-        self.branch0 = nn.Sequential(BasicConv(in_planes, 2 * inter_planes, kernel_size=1, stride=stride), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=stride, padding=1), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=(1, 7), stride=1, padding=(0, 3)), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=(7, 1), stride=stride, padding=(3, 0)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=7, dilation=7, relu=False))
-        self.ConvLinear = BasicConv(8 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x0 = self.branch0(x)
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        x3 = self.branch3(x)
-        out = torch.cat((x0, x1, x2, x3), 1)
-        out = self.ConvLinear(out)
-        short = self.shortcut(x)
-        out = out * self.scale + short
-        out = self.relu(out)
-        return out
 
 
 class BasicRFB_c(nn.Module):
@@ -1613,137 +1040,6 @@ class BasicRFB_c(nn.Module):
         return out
 
 
-class BasicRFB_a(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1):
-        super(BasicRFB_a, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // 8
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.branch4 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.branch5 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=7, dilation=7, relu=False))
-        self.branch6 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=7, dilation=7, relu=False))
-        self.ConvLinear = BasicConv(7 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x0 = self.branch0(x)
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        x3 = self.branch3(x)
-        x4 = self.branch4(x)
-        x5 = self.branch5(x)
-        x6 = self.branch6(x)
-        out = torch.cat((x0, x1, x2, x3, x4, x5, x6), 1)
-        out = self.ConvLinear(out)
-        short = self.shortcut(x)
-        out = out * self.scale + short
-        out = self.relu(out)
-        return out
-
-
-class RFBNet(nn.Module):
-
-    def __init__(self, size, base, extras, head, num_classes):
-        super(RFBNet, self).__init__()
-        self.num_classes = num_classes
-        self.size = size
-        if size == 300:
-            self.indicator = 3
-        elif size == 512:
-            self.indicator = 5
-        else:
-            None
-            return
-        self.base = nn.ModuleList(base)
-        self.reduce = BasicConv(512, 256, kernel_size=1, stride=1)
-        self.up_reduce = BasicConv(1024, 256, kernel_size=1, stride=1)
-        self.Norm = BasicRFB_a(512, 512, stride=1, scale=1.0)
-        self.extras = nn.ModuleList(extras)
-        self.loc = nn.ModuleList(head[0])
-        self.conf = nn.ModuleList(head[1])
-        self.softmax = nn.Softmax()
-
-    def forward(self, x, test=False):
-        """Applies network layers and ops on input image(s) x.
-
-        Args:
-            x: input image or batch of images. Shape: [batch,3*batch,300,300].
-
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        sources = list()
-        loc = list()
-        conf = list()
-        for k in range(23):
-            x = self.base[k](x)
-        s1 = self.reduce(x)
-        for k in range(23, len(self.base)):
-            x = self.base[k](x)
-        s2 = self.up_reduce(x)
-        s2 = F.upsample(s2, scale_factor=2, mode='bilinear')
-        s = torch.cat((s1, s2), 1)
-        ss = self.Norm(s)
-        sources.append(ss)
-        for k, v in enumerate(self.extras):
-            x = v(x)
-            if k < self.indicator or k % 2 == 0:
-                sources.append(x)
-        for x, l, c in zip(sources, self.loc, self.conf):
-            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
-            conf.append(c(x).permute(0, 2, 3, 1).contiguous())
-        loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
-        conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
-        if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
-        else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
-        return output
-
-    def load_weights(self, base_file):
-        other, ext = os.path.splitext(base_file)
-        if ext == '.pkl' or '.pth':
-            None
-            self.load_state_dict(torch.load(base_file))
-            None
-        else:
-            None
-
-
-class BasicConv(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
-        super(BasicConv, self).__init__()
-        self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        return x
-
-
 class BasicSepConv(nn.Module):
 
     def __init__(self, in_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
@@ -1760,301 +1056,6 @@ class BasicSepConv(nn.Module):
         if self.relu is not None:
             x = self.relu(x)
         return x
-
-
-class BasicRFB(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1):
-        super(BasicRFB, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // 8
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicSepConv(inter_planes // 2 * 3, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=3, stride=stride, padding=1), BasicSepConv(inter_planes // 2 * 3, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.ConvLinear = BasicConv(3 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        if in_planes == out_planes:
-            self.identity = True
-        else:
-            self.identity = False
-            self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        out = torch.cat((x1, x2), 1)
-        out = self.ConvLinear(out)
-        if self.identity:
-            out = out * self.scale + x
-        else:
-            short = self.shortcut(x)
-            out = out * self.scale + short
-        out = self.relu(out)
-        return out
-
-
-class BasicRFB_a(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1):
-        super(BasicRFB_a, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=1, dilation=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x0 = self.branch0(x)
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        x3 = self.branch3(x)
-        out = torch.cat((x0, x1, x2, x3), 1)
-        out = self.ConvLinear(out)
-        out = out * self.scale + x
-        out = self.relu(out)
-        return out
-
-
-class RFBNet(nn.Module):
-
-    def __init__(self, size, base, extras, head, num_classes):
-        super(RFBNet, self).__init__()
-        self.num_classes = num_classes
-        self.size = size
-        if size == 300:
-            self.indicator = 1
-        else:
-            None
-            return
-        self.base = nn.ModuleList(base)
-        self.Norm = BasicRFB_a(512, 512, stride=1, scale=1.0)
-        self.extras = nn.ModuleList(extras)
-        self.loc = nn.ModuleList(head[0])
-        self.conf = nn.ModuleList(head[1])
-        self.softmax = nn.Softmax()
-
-    def forward(self, x, test=False):
-        """Applies network layers and ops on input image(s) x.
-
-        Args:
-            x: input image or batch of images. Shape: [batch,3*batch,300,300].
-
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        sources = list()
-        loc = list()
-        conf = list()
-        for k in range(12):
-            x = self.base[k](x)
-        s = self.Norm(x)
-        sources.append(s)
-        for k in range(12, len(self.base)):
-            x = self.base[k](x)
-        sources.append(x)
-        for k, v in enumerate(self.extras):
-            x = v(x)
-            if k < self.indicator or k % 2 == 0:
-                sources.append(x)
-        for x, l, c in zip(sources, self.loc, self.conf):
-            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
-            conf.append(c(x).permute(0, 2, 3, 1).contiguous())
-        loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
-        conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
-        if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
-        else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
-        return output
-
-    def load_weights(self, base_file):
-        other, ext = os.path.splitext(base_file)
-        if ext == '.pkl' or '.pth':
-            None
-            self.load_state_dict(torch.load(base_file))
-            None
-        else:
-            None
-
-
-class BasicConv(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
-        super(BasicConv, self).__init__()
-        self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        return x
-
-
-class BasicRFB(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1, visual=1):
-        super(BasicRFB, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // 8
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, 2 * inter_planes, kernel_size=(3, 3), stride=stride, padding=(1, 1)), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=visual + 1, dilation=visual + 1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, 2 * inter_planes, kernel_size=3, stride=stride, padding=1), BasicConv(2 * inter_planes, 2 * inter_planes, kernel_size=3, stride=1, padding=2 * visual + 1, dilation=2 * visual + 1, relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x0 = self.branch0(x)
-        x1 = self.branch1(x)
-        out = torch.cat((x0, x1), 1)
-        out = self.ConvLinear(out)
-        short = self.shortcut(x)
-        out = out * self.scale + short
-        out = self.relu(out)
-        return out
-
-
-class BasicRFB_a(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1):
-        super(BasicRFB_a, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        """
-        self.branch3 = nn.Sequential(
-                BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
-                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1),
-                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
-                )
-        """
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x0 = self.branch0(x)
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        x3 = self.branch3(x)
-        out = torch.cat((x0, x1, x2, x3), 1)
-        out = self.ConvLinear(out)
-        short = self.shortcut(x)
-        out = out * self.scale + short
-        out = self.relu(out)
-        return out
-
-
-class RFBNet(nn.Module):
-    """RFB Net for object detection
-    The network is based on the SSD architecture.
-    Each multibox layer branches into
-        1) conv2d for class conf scores
-        2) conv2d for localization predictions
-        3) associated priorbox layer to produce default bounding
-           boxes specific to the layer's feature map size.
-    See: https://arxiv.org/pdf/1711.07767.pdf for more details on RFB Net.
-
-    Args:
-        phase: (string) Can be "test" or "train"
-        base: VGG16 layers for input, size of either 300 or 512
-        extras: extra layers that feed to multibox loc and conf layers
-        head: "multibox head" consists of loc and conf conv layers
-    """
-
-    def __init__(self, size, base, extras, head, num_classes):
-        super(RFBNet, self).__init__()
-        self.num_classes = num_classes
-        self.size = size
-        if size == 300:
-            self.indicator = 3
-        elif size == 512:
-            self.indicator = 5
-        else:
-            None
-            return
-        self.base = nn.ModuleList(base)
-        self.Norm = BasicRFB_a(512, 512, stride=1, scale=1.0)
-        self.extras = nn.ModuleList(extras)
-        self.loc = nn.ModuleList(head[0])
-        self.conf = nn.ModuleList(head[1])
-        self.softmax = nn.Softmax()
-
-    def forward(self, x, test=False):
-        """Applies network layers and ops on input image(s) x.
-
-        Args:
-            x: input image or batch of images. Shape: [batch,3*batch,300,300].
-
-        Return:
-            Depending on phase:
-            test:
-                list of concat outputs from:
-                    1: softmax layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        sources = list()
-        loc = list()
-        conf = list()
-        for k in range(23):
-            x = self.base[k](x)
-        s = self.Norm(x)
-        sources.append(s)
-        for k in range(23, len(self.base)):
-            x = self.base[k](x)
-        for k, v in enumerate(self.extras):
-            x = v(x)
-            if k < self.indicator or k % 2 == 0:
-                sources.append(x)
-        for x, l, c in zip(sources, self.loc, self.conf):
-            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
-            conf.append(c(x).permute(0, 2, 3, 1).contiguous())
-        loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
-        conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
-        if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
-        else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
-        return output
-
-    def load_weights(self, base_file):
-        other, ext = os.path.splitext(base_file)
-        if ext == '.pkl' or '.pth':
-            None
-            self.load_state_dict(torch.load(base_file))
-            None
-        else:
-            None
 
 
 def vgg(cfg, i, batch_norm=False):
@@ -2200,478 +1201,6 @@ class RefineSSD(nn.Module):
             None
 
 
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class Flatten(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        return x.view(x.data.size(0), -1)
-
-
-class CombConvLayer(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, kernel=1, stride=1, dropout=0.1, bias=False):
-        super().__init__()
-        self.add_module('layer1', ConvLayer(in_channels, out_channels, kernel))
-        self.add_module('layer2', DWConvLayer(out_channels, out_channels, stride=stride))
-
-    def forward(self, x):
-        return super().forward(x)
-
-
-class DWConvLayer(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, stride=1, bias=False):
-        super().__init__()
-        out_ch = out_channels
-        groups = in_channels
-        kernel = 3
-        self.add_module('dwconv', nn.Conv2d(groups, groups, kernel_size=3, stride=stride, padding=1, groups=groups, bias=bias))
-        self.add_module('norm', nn.BatchNorm2d(groups))
-
-    def forward(self, x):
-        return super().forward(x)
-
-
-class ConvLayer(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, kernel=3, stride=1, padding=0, bias=False):
-        super().__init__()
-        self.out_channels = out_channels
-        out_ch = out_channels
-        groups = 1
-        pad = kernel // 2 if padding == 0 else padding
-        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=kernel, stride=stride, padding=pad, groups=groups, bias=bias))
-        self.add_module('norm', nn.BatchNorm2d(out_ch))
-        self.add_module('relu', nn.ReLU(True))
-
-    def forward(self, x):
-        return super().forward(x)
-
-
-class HarDBlock(nn.Module):
-
-    def get_link(self, layer, base_ch, growth_rate, grmul):
-        if layer == 0:
-            return base_ch, 0, []
-        out_channels = growth_rate
-        link = []
-        for i in range(10):
-            dv = 2 ** i
-            if layer % dv == 0:
-                k = layer - dv
-                link.append(k)
-                if i > 0:
-                    out_channels *= grmul
-        out_channels = int(int(out_channels + 1) / 2) * 2
-        in_channels = 0
-        for i in link:
-            ch, _, _ = self.get_link(i, base_ch, growth_rate, grmul)
-            in_channels += ch
-        return out_channels, in_channels, link
-
-    def get_out_ch(self):
-        return self.out_channels
-
-    def __init__(self, in_channels, growth_rate, grmul, n_layers, keepBase=False, residual_out=False, dwconv=False):
-        super().__init__()
-        self.keepBase = keepBase
-        self.links = []
-        layers_ = []
-        self.out_channels = 0
-        for i in range(n_layers):
-            outch, inch, link = self.get_link(i + 1, in_channels, growth_rate, grmul)
-            self.links.append(link)
-            use_relu = residual_out
-            if dwconv:
-                layers_.append(CombConvLayer(inch, outch))
-            else:
-                layers_.append(ConvLayer(inch, outch))
-            if i % 2 == 0 or i == n_layers - 1:
-                self.out_channels += outch
-        self.layers = nn.ModuleList(layers_)
-
-    def forward(self, x):
-        layers_ = [x]
-        for layer in range(len(self.layers)):
-            link = self.links[layer]
-            tin = []
-            for i in link:
-                tin.append(layers_[i])
-            x = torch.cat(tin, 1)
-            out = self.layers[layer](x)
-            layers_.append(out)
-        t = len(layers_)
-        out_ = []
-        for i in range(t):
-            if i == 0 and self.keepBase or i == t - 1 or i % 2 == 1:
-                out_.append(layers_[i])
-        out = torch.cat(out_, 1)
-        return out
-
-
-class HarDNetBase(nn.Module):
-
-    def __init__(self, depth_wise=False):
-        super().__init__()
-        first_ch = [32, 64]
-        second_kernel = 3
-        ch_list = [128, 256, 320, 640]
-        grmul = 1.7
-        gr = [14, 16, 20, 40]
-        n_layers = [8, 16, 16, 16]
-        if depth_wise:
-            second_kernel = 1
-            first_ch = [24, 48]
-        blks = len(n_layers)
-        self.base = nn.ModuleList([])
-        self.base.append(ConvLayer(in_channels=3, out_channels=first_ch[0], kernel=3, stride=2, bias=False))
-        self.base.append(ConvLayer(first_ch[0], first_ch[1], kernel=second_kernel))
-        self.base.append(nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
-        ch = first_ch[1]
-        for i in range(blks):
-            blk = HarDBlock(ch, gr[i], grmul, n_layers[i], dwconv=depth_wise)
-            ch = blk.get_out_ch()
-            self.base.append(blk)
-            self.base.append(ConvLayer(ch, ch_list[i], kernel=1))
-            ch = ch_list[i]
-            if i == 0:
-                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
-            elif i != blks - 1 and i != 1:
-                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2))
-        ch = ch_list[blks - 1]
-        self.base.append(nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1, padding=1), nn.Conv2d(ch, ch, kernel_size=3, padding=4, dilation=4, bias=False), nn.BatchNorm2d(ch), nn.ReLU(True), ConvLayer(ch, ch, kernel=1)))
-
-
-class SSD(nn.Module):
-    """Single Shot Multibox Architecture
-    The network is composed of a base VGG network followed by the
-    added multibox conv layers.  Each multibox layer branches into
-        1) conv2d for class conf scores
-        2) conv2d for localization predictions
-        3) associated priorbox layer to produce default bounding
-           boxes specific to the layer's feature map size.
-    See: https://arxiv.org/pdf/1512.02325.pdf for more details.
-
-    Args:
-        phase: (string) Can be "test" or "train"
-        base: Harmonic DenseNet 70bn for input, 
-        extras: extra layers that feed to multibox loc and conf layers
-        head: "multibox head" consists of loc and conf conv layers
-    """
-
-    def __init__(self, extras, head, num_classes, size):
-        super(SSD, self).__init__()
-        self.num_classes = num_classes
-        self.size = size
-        self.base = HarDNetBase().base
-        self.dropout = nn.Dropout2d(p=0.1, inplace=False)
-        self.extras = nn.ModuleList(extras)
-        self.L2Norm = L2Norm(320, 20)
-        self.loc = nn.ModuleList(head[0])
-        self.conf = nn.ModuleList(head[1])
-        self.softmax = nn.Softmax()
-
-    def forward(self, x, test=False):
-        """Applies network layers and ops on input image(s) x.
-
-        Args:
-            x: input image or batch of images. Shape: [batch,3*batch,300,300].
-
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        sources = list()
-        loc = list()
-        conf = list()
-        for k in range(10):
-            x = self.base[k](x)
-        s = self.L2Norm(x)
-        sources.append(s)
-        for k in range(10, len(self.base)):
-            x = self.base[k](x)
-        sources.append(x)
-        for k, v in enumerate(self.extras):
-            x = F.relu(v(x), inplace=True)
-            if k % 2 == 1:
-                sources.append(x)
-        for x, l, c in zip(sources, self.loc, self.conf):
-            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
-            conf.append(c(x).permute(0, 2, 3, 1).contiguous())
-        loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
-        conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
-        if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
-        else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
-        return output
-
-    def load_weights(self, base_file):
-        other, ext = os.path.splitext(base_file)
-        if ext == '.pkl' or '.pth':
-            None
-            self.load_state_dict(torch.load(base_file, map_location=lambda storage, loc: storage))
-            None
-        else:
-            None
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class Flatten(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        return x.view(x.data.size(0), -1)
-
-
-class CombConvLayer(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, kernel=1, stride=1, dropout=0.1, bias=False):
-        super().__init__()
-        self.add_module('layer1', ConvLayer(in_channels, out_channels, kernel))
-        self.add_module('layer2', DWConvLayer(out_channels, out_channels, stride=stride))
-
-    def forward(self, x):
-        return super().forward(x)
-
-
-class DWConvLayer(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, stride=1, bias=False):
-        super().__init__()
-        out_ch = out_channels
-        groups = in_channels
-        kernel = 3
-        self.add_module('dwconv', nn.Conv2d(groups, groups, kernel_size=3, stride=stride, padding=1, groups=groups, bias=bias))
-        self.add_module('norm', nn.BatchNorm2d(groups))
-
-    def forward(self, x):
-        return super().forward(x)
-
-
-class ConvLayer(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, kernel=3, stride=1, padding=0, bias=False):
-        super().__init__()
-        self.out_channels = out_channels
-        out_ch = out_channels
-        groups = 1
-        pad = kernel // 2 if padding == 0 else padding
-        self.add_module('conv', nn.Conv2d(in_channels, out_ch, kernel_size=kernel, stride=stride, padding=pad, groups=groups, bias=bias))
-        self.add_module('norm', nn.BatchNorm2d(out_ch))
-        self.add_module('relu', nn.ReLU(True))
-
-    def forward(self, x):
-        return super().forward(x)
-
-
-class HarDBlock(nn.Module):
-
-    def get_link(self, layer, base_ch, growth_rate, grmul):
-        if layer == 0:
-            return base_ch, 0, []
-        out_channels = growth_rate
-        link = []
-        for i in range(10):
-            dv = 2 ** i
-            if layer % dv == 0:
-                k = layer - dv
-                link.append(k)
-                if i > 0:
-                    out_channels *= grmul
-        out_channels = int(int(out_channels + 1) / 2) * 2
-        in_channels = 0
-        for i in link:
-            ch, _, _ = self.get_link(i, base_ch, growth_rate, grmul)
-            in_channels += ch
-        return out_channels, in_channels, link
-
-    def get_out_ch(self):
-        return self.out_channels
-
-    def __init__(self, in_channels, growth_rate, grmul, n_layers, keepBase=False, residual_out=False, dwconv=False):
-        super().__init__()
-        self.keepBase = keepBase
-        self.links = []
-        layers_ = []
-        self.out_channels = 0
-        for i in range(n_layers):
-            outch, inch, link = self.get_link(i + 1, in_channels, growth_rate, grmul)
-            self.links.append(link)
-            use_relu = residual_out
-            if dwconv:
-                layers_.append(CombConvLayer(inch, outch))
-            else:
-                layers_.append(ConvLayer(inch, outch))
-            if i % 2 == 0 or i == n_layers - 1:
-                self.out_channels += outch
-        self.layers = nn.ModuleList(layers_)
-
-    def forward(self, x):
-        layers_ = [x]
-        for layer in range(len(self.layers)):
-            link = self.links[layer]
-            tin = []
-            for i in link:
-                tin.append(layers_[i])
-            x = torch.cat(tin, 1)
-            out = self.layers[layer](x)
-            layers_.append(out)
-        t = len(layers_)
-        out_ = []
-        for i in range(t):
-            if i == 0 and self.keepBase or i == t - 1 or i % 2 == 1:
-                out_.append(layers_[i])
-        out = torch.cat(out_, 1)
-        return out
-
-
-class HarDNetBase(nn.Module):
-
-    def __init__(self, depth_wise=False):
-        super().__init__()
-        first_ch = [48, 96]
-        second_kernel = 3
-        ch_list = [192, 256, 320, 480, 720]
-        grmul = 1.7
-        gr = [24, 24, 28, 36, 48]
-        n_layers = [8, 16, 16, 16, 16]
-        if depth_wise:
-            second_kernel = 1
-            first_ch = [24, 48]
-        blks = len(n_layers)
-        self.base = nn.ModuleList([])
-        self.base.append(ConvLayer(in_channels=3, out_channels=first_ch[0], kernel=3, stride=2, bias=False))
-        self.base.append(ConvLayer(first_ch[0], first_ch[1], kernel=second_kernel))
-        self.base.append(nn.MaxPool2d(kernel_size=3, stride=2, padding=1))
-        ch = first_ch[1]
-        for i in range(blks):
-            blk = HarDBlock(ch, gr[i], grmul, n_layers[i], dwconv=depth_wise)
-            ch = blk.get_out_ch()
-            self.base.append(blk)
-            self.base.append(ConvLayer(ch, ch_list[i], kernel=1))
-            ch = ch_list[i]
-            if i == 0:
-                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True))
-            elif i != blks - 1 and i != 1 and i != 3:
-                self.base.append(nn.MaxPool2d(kernel_size=2, stride=2))
-
-
-class SSD(nn.Module):
-    """Single Shot Multibox Architecture
-    The network is composed of a base VGG network followed by the
-    added multibox conv layers.  Each multibox layer branches into
-        1) conv2d for class conf scores
-        2) conv2d for localization predictions
-        3) associated priorbox layer to produce default bounding
-           boxes specific to the layer's feature map size.
-    See: https://arxiv.org/pdf/1512.02325.pdf for more details.
-
-    Args:
-        phase: (string) Can be "test" or "train"
-        base: Harmonic DenseNet 70bn for input, 
-        extras: extra layers that feed to multibox loc and conf layers
-        head: "multibox head" consists of loc and conf conv layers
-    """
-
-    def __init__(self, extras, head, num_classes, size):
-        super(SSD, self).__init__()
-        self.num_classes = num_classes
-        self.size = size
-        self.base = HarDNetBase().base
-        self.bridge = nn.Sequential(nn.MaxPool2d(kernel_size=3, stride=1, padding=1), ConvLayer(720, 960), ConvLayer(960, 720, kernel=1))
-        self.dropout = nn.Dropout2d(p=0.1, inplace=False)
-        self.extras = nn.ModuleList(extras)
-        self.L2Norm = L2Norm(320, 20)
-        self.loc = nn.ModuleList(head[0])
-        self.conf = nn.ModuleList(head[1])
-        self.softmax = nn.Softmax()
-
-    def forward(self, x, test=False):
-        """Applies network layers and ops on input image(s) x.
-
-        Args:
-            x: input image or batch of images. Shape: [batch,3*batch,300,300].
-
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        sources = list()
-        loc = list()
-        conf = list()
-        for k in range(10):
-            x = self.base[k](x)
-        s = self.L2Norm(x)
-        sources.append(s)
-        for k in range(10, len(self.base)):
-            x = self.base[k](x)
-        x = self.bridge(x)
-        sources.append(x)
-        for k, v in enumerate(self.extras):
-            x = F.relu(v(x), inplace=True)
-            if k % 2 == 1:
-                sources.append(x)
-        for x, l, c in zip(sources, self.loc, self.conf):
-            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
-            conf.append(c(x).permute(0, 2, 3, 1).contiguous())
-        loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
-        conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
-        if test:
-            output = loc.view(loc.size(0), -1, 4), self.softmax(conf.view(-1, self.num_classes))
-        else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
-        return output
-
-    def load_weights(self, base_file):
-        other, ext = os.path.splitext(base_file)
-        if ext == '.pkl' or '.pth':
-            None
-            self.load_state_dict(torch.load(base_file, map_location=lambda storage, loc: storage))
-            None
-        else:
-            None
-
-
 class SSD(nn.Module):
     """Single Shot Multibox Architecture
     The network is composed of a base VGG network followed by the
@@ -2752,59 +1281,6 @@ class SSD(nn.Module):
             None
         else:
             None
-
-
-class BasicConv(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
-        super(BasicConv, self).__init__()
-        self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        return x
-
-
-class BasicRFB_a(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1):
-        super(BasicRFB_a, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        """
-        self.branch3 = nn.Sequential(
-                BasicConv(in_planes, inter_planes, kernel_size=1, stride=1),
-                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=1),
-                BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False)
-                )
-        """
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicConv(inter_planes, inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x0 = self.branch0(x)
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        x3 = self.branch3(x)
-        out = torch.cat((x0, x1, x2, x3), 1)
-        out = self.ConvLinear(out)
-        short = self.shortcut(x)
-        out = out * self.scale + short
-        out = self.relu(out)
-        return out
 
 
 class DepthWiseBlock(nn.Module):

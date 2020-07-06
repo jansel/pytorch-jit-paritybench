@@ -8,7 +8,9 @@ jit = _module
 lltm = _module
 setup = _module
 cuda = _module
+jit = _module
 lltm = _module
+setup = _module
 grad_check = _module
 python = _module
 lltm = _module
@@ -18,20 +20,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import math
+
+
+import time
+
+
+import torch
+
+
+import numpy as np
+
+
+from torch.utils.cpp_extension import load
 
 
 from torch import nn
@@ -40,7 +55,16 @@ from torch import nn
 from torch.autograd import Function
 
 
-import torch
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from torch.autograd import gradcheck
 
 
 import torch.nn.functional as F
@@ -102,72 +126,6 @@ class LLTMFunction(Function):
             state_size = grad_h.shape[1]
             d_old_h, d_input = d_X[:, :state_size], d_X[:, state_size:]
         return d_input, d_weights, d_bias, d_old_h, d_old_cell
-
-
-class LLTM(nn.Module):
-
-    def __init__(self, input_features, state_size):
-        super(LLTM, self).__init__()
-        self.input_features = input_features
-        self.state_size = state_size
-        self.weights = nn.Parameter(torch.Tensor(3 * state_size, input_features + state_size))
-        self.bias = nn.Parameter(torch.Tensor(1, 3 * state_size))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.state_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, +stdv)
-
-    def forward(self, input, state):
-        return LLTMFunction.apply(input, self.weights, self.bias, *state)
-
-
-class LLTM(nn.Module):
-
-    def __init__(self, input_features, state_size):
-        super(LLTM, self).__init__()
-        self.input_features = input_features
-        self.state_size = state_size
-        self.weights = nn.Parameter(torch.Tensor(3 * state_size, input_features + state_size))
-        self.bias = nn.Parameter(torch.Tensor(1, 3 * state_size))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.state_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, +stdv)
-
-    def forward(self, input, state):
-        return LLTMFunction.apply(input, self.weights, self.bias, *state)
-
-
-class LLTM(torch.nn.Module):
-
-    def __init__(self, input_features, state_size):
-        super(LLTM, self).__init__()
-        self.input_features = input_features
-        self.state_size = state_size
-        self.weights = torch.nn.Parameter(torch.Tensor(3 * state_size, input_features + state_size))
-        self.bias = torch.nn.Parameter(torch.Tensor(1, 3 * state_size))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.state_size)
-        for weight in self.parameters():
-            weight.data.uniform_(-stdv, +stdv)
-
-    def forward(self, input, state):
-        old_h, old_cell = state
-        X = torch.cat([old_h, input], dim=1)
-        gate_weights = F.linear(X, self.weights, self.bias)
-        gates = gate_weights.chunk(3, dim=1)
-        input_gate = torch.sigmoid(gates[0])
-        output_gate = torch.sigmoid(gates[1])
-        candidate_cell = F.elu(gates[2])
-        new_cell = old_cell + candidate_cell * input_gate
-        new_h = torch.tanh(new_cell) * output_gate
-        return new_h, new_cell
 
 
 class LLTM(nn.Module):

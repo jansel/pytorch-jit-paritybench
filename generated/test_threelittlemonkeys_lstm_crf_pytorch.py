@@ -17,15 +17,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -40,6 +41,15 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+import re
+
+
+from time import time
+
+
+from collections import defaultdict
 
 
 CUDA = torch.cuda.is_available()
@@ -57,7 +67,7 @@ EMBED_SIZE = sum(EMBED.values())
 PAD_IDX = 0
 
 
-zeros = lambda *x: torch.zeros(*x).cuda() if CUDA else torch.zeros
+zeros = lambda *x: torch.zeros(*x) if CUDA else torch.zeros
 
 
 class embed(nn.Module):
@@ -248,82 +258,10 @@ UNIT = 'word'
 HRE = UNIT == 'sent'
 
 
-class rnn_crf(nn.Module):
-
-    def __init__(self, cti_size, wti_size, num_tags):
-        super().__init__()
-        self.rnn = rnn(cti_size, wti_size, num_tags)
-        self.crf = crf(num_tags)
-        self = self if CUDA else self
-
-    def forward(self, xc, xw, y0):
-        self.zero_grad()
-        self.rnn.batch_size = y0.size(0)
-        self.crf.batch_size = y0.size(0)
-        mask = y0[:, 1:].gt(PAD_IDX).float()
-        h = self.rnn(xc, xw, mask)
-        Z = self.crf.forward(h, mask)
-        score = self.crf.score(h, y0, mask)
-        return torch.mean(Z - score)
-
-    def decode(self, xc, xw, lens):
-        self.rnn.batch_size = len(lens)
-        self.crf.batch_size = len(lens)
-        if HRE:
-            mask = Tensor([([1] * x + [PAD_IDX] * (lens[0] - x)) for x in lens])
-        else:
-            mask = xw.gt(PAD_IDX).float()
-        h = self.rnn(xc, xw, mask)
-        return self.crf.decode(h, mask)
-
-
-HIDDEN_SIZE = 1000
-
-
-NUM_DIRS = 2
-
-
-NUM_LAYERS = 2
-
-
-RNN_TYPE = 'LSTM'
-
-
-class rnn(nn.Module):
-
-    def __init__(self, cti_size, wti_size, num_tags):
-        super().__init__()
-        self.batch_size = 0
-        self.embed = embed(cti_size, wti_size, HRE)
-        self.rnn = getattr(nn, RNN_TYPE)(input_size=EMBED_SIZE, hidden_size=HIDDEN_SIZE // NUM_DIRS, num_layers=NUM_LAYERS, bias=True, batch_first=True, dropout=DROPOUT, bidirectional=NUM_DIRS == 2)
-        self.out = nn.Linear(HIDDEN_SIZE, num_tags)
-
-    def init_state(self, b):
-        n = NUM_LAYERS * NUM_DIRS
-        h = HIDDEN_SIZE // NUM_DIRS
-        hs = zeros(n, b, h)
-        if RNN_TYPE == 'LSTM':
-            cs = zeros(n, b, h)
-            return hs, cs
-        return hs
-
-    def forward(self, xc, xw, mask):
-        hs = self.init_state(self.batch_size)
-        x = self.embed(xc, xw)
-        if HRE:
-            x = x.view(self.batch_size, -1, EMBED_SIZE)
-        x = nn.utils.rnn.pack_padded_sequence(x, mask.sum(1).int(), batch_first=True)
-        h, _ = self.rnn(x, hs)
-        h, _ = nn.utils.rnn.pad_packed_sequence(h, batch_first=True)
-        h = self.out(h)
-        h *= mask.unsqueeze(2)
-        return h
-
-
 EOS_IDX = 2
 
 
-LongTensor = torch.cuda.LongTensor if CUDA else torch.LongTensor
+LongTensor = torch.LongTensor if CUDA else torch.LongTensor
 
 
 SOS_IDX = 1
@@ -334,7 +272,7 @@ def log_sum_exp(x):
     return m + torch.log(torch.sum(torch.exp(x - m.unsqueeze(-1)), -1))
 
 
-randn = lambda *x: torch.randn(*x).cuda() if CUDA else torch.randn
+randn = lambda *x: torch.randn(*x) if CUDA else torch.randn
 
 
 class crf(nn.Module):
@@ -401,6 +339,78 @@ class crf(nn.Module):
             best_path[b].pop()
             best_path[b].reverse()
         return best_path
+
+
+HIDDEN_SIZE = 1000
+
+
+NUM_DIRS = 2
+
+
+NUM_LAYERS = 2
+
+
+RNN_TYPE = 'LSTM'
+
+
+class rnn(nn.Module):
+
+    def __init__(self, cti_size, wti_size, num_tags):
+        super().__init__()
+        self.batch_size = 0
+        self.embed = embed(cti_size, wti_size, HRE)
+        self.rnn = getattr(nn, RNN_TYPE)(input_size=EMBED_SIZE, hidden_size=HIDDEN_SIZE // NUM_DIRS, num_layers=NUM_LAYERS, bias=True, batch_first=True, dropout=DROPOUT, bidirectional=NUM_DIRS == 2)
+        self.out = nn.Linear(HIDDEN_SIZE, num_tags)
+
+    def init_state(self, b):
+        n = NUM_LAYERS * NUM_DIRS
+        h = HIDDEN_SIZE // NUM_DIRS
+        hs = zeros(n, b, h)
+        if RNN_TYPE == 'LSTM':
+            cs = zeros(n, b, h)
+            return hs, cs
+        return hs
+
+    def forward(self, xc, xw, mask):
+        hs = self.init_state(self.batch_size)
+        x = self.embed(xc, xw)
+        if HRE:
+            x = x.view(self.batch_size, -1, EMBED_SIZE)
+        x = nn.utils.rnn.pack_padded_sequence(x, mask.sum(1).int(), batch_first=True)
+        h, _ = self.rnn(x, hs)
+        h, _ = nn.utils.rnn.pad_packed_sequence(h, batch_first=True)
+        h = self.out(h)
+        h *= mask.unsqueeze(2)
+        return h
+
+
+class rnn_crf(nn.Module):
+
+    def __init__(self, cti_size, wti_size, num_tags):
+        super().__init__()
+        self.rnn = rnn(cti_size, wti_size, num_tags)
+        self.crf = crf(num_tags)
+        self = self if CUDA else self
+
+    def forward(self, xc, xw, y0):
+        self.zero_grad()
+        self.rnn.batch_size = y0.size(0)
+        self.crf.batch_size = y0.size(0)
+        mask = y0[:, 1:].gt(PAD_IDX).float()
+        h = self.rnn(xc, xw, mask)
+        Z = self.crf.forward(h, mask)
+        score = self.crf.score(h, y0, mask)
+        return torch.mean(Z - score)
+
+    def decode(self, xc, xw, lens):
+        self.rnn.batch_size = len(lens)
+        self.crf.batch_size = len(lens)
+        if HRE:
+            mask = Tensor([([1] * x + [PAD_IDX] * (lens[0] - x)) for x in lens])
+        else:
+            mask = xw.gt(PAD_IDX).float()
+        h = self.rnn(xc, xw, mask)
+        return self.crf.decode(h, mask)
 
 
 import torch

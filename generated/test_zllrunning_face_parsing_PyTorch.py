@@ -25,15 +25,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -68,6 +69,9 @@ import math
 import torchvision.transforms as transforms
 
 
+from torch.utils.data import Dataset
+
+
 import torchvision
 
 
@@ -75,6 +79,18 @@ import torch.nn.functional as functional
 
 
 from collections import OrderedDict
+
+
+import torch.autograd as autograd
+
+
+import torch.cuda.comm as comm
+
+
+from torch.autograd.function import once_differentiable
+
+
+from torch.utils.cpp_extension import load
 
 
 import torch.utils.model_zoo as modelzoo
@@ -194,6 +210,91 @@ class AttentionRefinementModule(nn.Module):
                 nn.init.kaiming_normal_(ly.weight, a=1)
                 if not ly.bias is None:
                     nn.init.constant_(ly.bias, 0)
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+
+
+class BasicBlock(nn.Module):
+
+    def __init__(self, in_chan, out_chan, stride=1):
+        super(BasicBlock, self).__init__()
+        self.conv1 = conv3x3(in_chan, out_chan, stride)
+        self.bn1 = nn.BatchNorm2d(out_chan)
+        self.conv2 = conv3x3(out_chan, out_chan)
+        self.bn2 = nn.BatchNorm2d(out_chan)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = None
+        if in_chan != out_chan or stride != 1:
+            self.downsample = nn.Sequential(nn.Conv2d(in_chan, out_chan, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(out_chan))
+
+    def forward(self, x):
+        residual = self.conv1(x)
+        residual = F.relu(self.bn1(residual))
+        residual = self.conv2(residual)
+        residual = self.bn2(residual)
+        shortcut = x
+        if self.downsample is not None:
+            shortcut = self.downsample(x)
+        out = shortcut + residual
+        out = self.relu(out)
+        return out
+
+
+def create_layer_basic(in_chan, out_chan, bnum, stride=1):
+    layers = [BasicBlock(in_chan, out_chan, stride=stride)]
+    for i in range(bnum - 1):
+        layers.append(BasicBlock(out_chan, out_chan, stride=1))
+    return nn.Sequential(*layers)
+
+
+resnet18_url = 'https://download.pytorch.org/models/resnet18-5c106cde.pth'
+
+
+class Resnet18(nn.Module):
+
+    def __init__(self):
+        super(Resnet18, self).__init__()
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = create_layer_basic(64, 64, bnum=2, stride=1)
+        self.layer2 = create_layer_basic(64, 128, bnum=2, stride=2)
+        self.layer3 = create_layer_basic(128, 256, bnum=2, stride=2)
+        self.layer4 = create_layer_basic(256, 512, bnum=2, stride=2)
+        self.init_weight()
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = F.relu(self.bn1(x))
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        feat8 = self.layer2(x)
+        feat16 = self.layer3(feat8)
+        feat32 = self.layer4(feat16)
+        return feat8, feat16, feat32
+
+    def init_weight(self):
+        state_dict = modelzoo.load_url(resnet18_url)
+        self_state_dict = self.state_dict()
+        for k, v in state_dict.items():
+            if 'fc' in k:
+                continue
+            self_state_dict.update({k: v})
+        self.load_state_dict(self_state_dict)
+
+    def get_params(self):
+        wd_params, nowd_params = [], []
+        for name, module in self.named_modules():
+            if isinstance(module, (nn.Linear, nn.Conv2d)):
+                wd_params.append(module.weight)
+                if not module.bias is None:
+                    nowd_params.append(module.bias)
+            elif isinstance(module, nn.BatchNorm2d):
+                nowd_params += list(module.parameters())
+        return wd_params, nowd_params
 
 
 class ContextPath(nn.Module):
@@ -445,6 +546,146 @@ class ABN(nn.Module):
         return rep.format(name=self.__class__.__name__, **self.__dict__)
 
 
+ACT_NONE = 'none'
+
+
+def _act_backward(ctx, x, dx):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _backend.leaky_relu_backward(x, dx, ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _backend.elu_backward(x, dx)
+    elif ctx.activation == ACT_NONE:
+        pass
+
+
+def _act_forward(ctx, x):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _backend.leaky_relu_forward(x, ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _backend.elu_forward(x)
+    elif ctx.activation == ACT_NONE:
+        pass
+
+
+def _count_samples(x):
+    count = 1
+    for i, s in enumerate(x.size()):
+        if i != 1:
+            count *= s
+    return count
+
+
+class InPlaceABN(autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, weight, bias, running_mean, running_var, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01):
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        ctx.affine = weight is not None and bias is not None
+        count = _count_samples(x)
+        x = x.contiguous()
+        weight = weight.contiguous() if ctx.affine else x.new_empty(0)
+        bias = bias.contiguous() if ctx.affine else x.new_empty(0)
+        if ctx.training:
+            mean, var = _backend.mean_var(x)
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * count / (count - 1))
+            ctx.mark_dirty(x, running_mean, running_var)
+        else:
+            mean, var = running_mean.contiguous(), running_var.contiguous()
+            ctx.mark_dirty(x)
+        _backend.forward(x, mean, var, weight, bias, ctx.affine, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, var, weight, bias)
+        return x
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, var, weight, bias = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.training:
+            edz, eydz = _backend.edz_eydz(z, dz, weight, bias, ctx.affine, ctx.eps)
+        else:
+            edz = dz.new_zeros(dz.size(1))
+            eydz = dz.new_zeros(dz.size(1))
+        dx = _backend.backward(z, dz, var, weight, bias, edz, eydz, ctx.affine, ctx.eps)
+        dweight = eydz * weight.sign() if ctx.affine else None
+        dbias = edz if ctx.affine else None
+        return dx, dweight, dbias, None, None, None, None, None, None, None
+
+
+class InPlaceABNSync(autograd.Function):
+
+    @classmethod
+    def forward(cls, ctx, x, weight, bias, running_mean, running_var, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01, equal_batches=True):
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        ctx.affine = weight is not None and bias is not None
+        ctx.world_size = dist.get_world_size() if dist.is_initialized() else 1
+        batch_size = x.new_tensor([x.shape[0]], dtype=torch.long)
+        x = x.contiguous()
+        weight = weight.contiguous() if ctx.affine else x.new_empty(0)
+        bias = bias.contiguous() if ctx.affine else x.new_empty(0)
+        if ctx.training:
+            mean, var = _backend.mean_var(x)
+            if ctx.world_size > 1:
+                if equal_batches:
+                    batch_size *= ctx.world_size
+                else:
+                    dist.all_reduce(batch_size, dist.ReduceOp.SUM)
+                ctx.factor = x.shape[0] / float(batch_size.item())
+                mean_all = mean.clone() * ctx.factor
+                dist.all_reduce(mean_all, dist.ReduceOp.SUM)
+                var_all = (var + (mean - mean_all) ** 2) * ctx.factor
+                dist.all_reduce(var_all, dist.ReduceOp.SUM)
+                mean = mean_all
+                var = var_all
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            count = batch_size.item() * x.view(x.shape[0], x.shape[1], -1).shape[-1]
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * (float(count) / (count - 1)))
+            ctx.mark_dirty(x, running_mean, running_var)
+        else:
+            mean, var = running_mean.contiguous(), running_var.contiguous()
+            ctx.mark_dirty(x)
+        _backend.forward(x, mean, var, weight, bias, ctx.affine, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, var, weight, bias)
+        return x
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, var, weight, bias = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.training:
+            edz, eydz = _backend.edz_eydz(z, dz, weight, bias, ctx.affine, ctx.eps)
+            edz_local = edz.clone()
+            eydz_local = eydz.clone()
+            if ctx.world_size > 1:
+                edz *= ctx.factor
+                dist.all_reduce(edz, dist.ReduceOp.SUM)
+                eydz *= ctx.factor
+                dist.all_reduce(eydz, dist.ReduceOp.SUM)
+        else:
+            edz_local = edz = dz.new_zeros(dz.size(1))
+            eydz_local = eydz = dz.new_zeros(dz.size(1))
+        dx = _backend.backward(z, dz, var, weight, bias, edz, eydz, ctx.affine, ctx.eps)
+        dweight = eydz_local * weight.sign() if ctx.affine else None
+        dbias = edz_local if ctx.affine else None
+        return dx, dweight, dbias, None, None, None, None, None, None, None
+
+
 class DeeplabV3(nn.Module):
 
     def __init__(self, in_channels, out_channels, hidden_channels=256, dilations=(12, 24, 36), norm_act=ABN, pooling_size=None):
@@ -602,91 +843,6 @@ class IdentityResidualBlock(nn.Module):
         out = self.convs(bn1)
         out.add_(shortcut)
         return out
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
-
-
-class BasicBlock(nn.Module):
-
-    def __init__(self, in_chan, out_chan, stride=1):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(in_chan, out_chan, stride)
-        self.bn1 = nn.BatchNorm2d(out_chan)
-        self.conv2 = conv3x3(out_chan, out_chan)
-        self.bn2 = nn.BatchNorm2d(out_chan)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = None
-        if in_chan != out_chan or stride != 1:
-            self.downsample = nn.Sequential(nn.Conv2d(in_chan, out_chan, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(out_chan))
-
-    def forward(self, x):
-        residual = self.conv1(x)
-        residual = F.relu(self.bn1(residual))
-        residual = self.conv2(residual)
-        residual = self.bn2(residual)
-        shortcut = x
-        if self.downsample is not None:
-            shortcut = self.downsample(x)
-        out = shortcut + residual
-        out = self.relu(out)
-        return out
-
-
-def create_layer_basic(in_chan, out_chan, bnum, stride=1):
-    layers = [BasicBlock(in_chan, out_chan, stride=stride)]
-    for i in range(bnum - 1):
-        layers.append(BasicBlock(out_chan, out_chan, stride=1))
-    return nn.Sequential(*layers)
-
-
-resnet18_url = 'https://download.pytorch.org/models/resnet18-5c106cde.pth'
-
-
-class Resnet18(nn.Module):
-
-    def __init__(self):
-        super(Resnet18, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = create_layer_basic(64, 64, bnum=2, stride=1)
-        self.layer2 = create_layer_basic(64, 128, bnum=2, stride=2)
-        self.layer3 = create_layer_basic(128, 256, bnum=2, stride=2)
-        self.layer4 = create_layer_basic(256, 512, bnum=2, stride=2)
-        self.init_weight()
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = F.relu(self.bn1(x))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        feat8 = self.layer2(x)
-        feat16 = self.layer3(feat8)
-        feat32 = self.layer4(feat16)
-        return feat8, feat16, feat32
-
-    def init_weight(self):
-        state_dict = modelzoo.load_url(resnet18_url)
-        self_state_dict = self.state_dict()
-        for k, v in state_dict.items():
-            if 'fc' in k:
-                continue
-            self_state_dict.update({k: v})
-        self.load_state_dict(self_state_dict)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, (nn.Linear, nn.Conv2d)):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, nn.BatchNorm2d):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
 
 
 import torch

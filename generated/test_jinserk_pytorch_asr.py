@@ -23,39 +23,57 @@ train = _module
 capsule2 = _module
 model = _module
 network = _module
+train = _module
 convnet = _module
 model = _module
 network = _module
+predict = _module
+train = _module
 deepspeech_ce = _module
 network = _module
+predict = _module
 train = _module
 deepspeech_ctc = _module
 network = _module
+train = _module
 deepspeech_var = _module
 network = _module
+train = _module
 densenet = _module
 model = _module
 network = _module
+predict = _module
+train = _module
 densenet_ctc = _module
 network = _module
+predict = _module
 train = _module
 distributed = _module
 las = _module
 loss = _module
 network = _module
+train = _module
 predictor = _module
 resnet_ce = _module
 network = _module
+predict = _module
 train = _module
 resnet_ctc = _module
 network = _module
+predict = _module
+train = _module
 resnet_split = _module
 network = _module
+predict = _module
+train = _module
 resnet_split_ce = _module
 network = _module
+predict = _module
 train = _module
 model = _module
 network = _module
+predict = _module
+train = _module
 trainer = _module
 utils = _module
 adamw = _module
@@ -76,20 +94,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import random
+
+
+import numpy as np
+
+
 import torch
+
+
+from torch.autograd import Function
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CppExtension
 
 
 import torch.nn as nn
@@ -113,7 +147,10 @@ from collections import OrderedDict
 from torch.nn.parameter import Parameter
 
 
-import numpy as np
+from torch.utils.data.dataset import ConcatDataset
+
+
+from torch.utils.data.distributed import DistributedSampler
 
 
 from torch._utils import _flatten_dense_tensors
@@ -131,7 +168,7 @@ from torch.nn.modules import Module
 from torch.nn.modules.loss import _Loss
 
 
-from torch.utils.data.dataset import ConcatDataset
+import torchvision.utils as vutils
 
 
 from torchvision.models.densenet import _DenseLayer
@@ -140,7 +177,7 @@ from torchvision.models.densenet import _DenseLayer
 from torchvision.models.densenet import _DenseBlock
 
 
-import random
+from torch.optim.optimizer import Optimizer
 
 
 from torch.utils.data import DataLoader
@@ -164,13 +201,19 @@ from torch.utils.data import Dataset
 from torch.utils.data import Subset
 
 
-logger = logging.getLogger('pytorch-asr')
+import logging
 
 
-def softmax(input, dim=1):
-    transposed_input = input.transpose(dim, len(input.size()) - 1)
-    softmaxed_output = F.softmax(transposed_input.contiguous().view(-1, transposed_input.size(-1)), dim=-1)
-    return softmaxed_output.view(*transposed_input.size()).transpose(dim, len(input.size()) - 1)
+import time
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+from functools import reduce
+
+
+from torchvision.datasets import MNIST
 
 
 class CapsuleLoss(nn.Module):
@@ -179,15 +222,48 @@ class CapsuleLoss(nn.Module):
         super(CapsuleLoss, self).__init__()
         self.reconstruction_loss = nn.MSELoss(size_average=False)
 
-    def forward(self, x, y, y_hat, x_hat):
-        left = F.relu(0.9 - y_hat, inplace=True) ** 2
-        right = F.relu(y_hat - 0.1, inplace=True) ** 2
-        margin_loss = y * left + 0.5 * (1.0 - y) * right
+    def forward(self, images, labels, classes, reconstructions):
+        left = F.relu(0.9 - classes, inplace=True) ** 2
+        right = F.relu(classes - 0.1, inplace=True) ** 2
+        margin_loss = labels * left + 0.5 * (1.0 - labels) * right
         margin_loss = margin_loss.sum()
-        assert torch.numel(x) == torch.numel(x_hat)
-        x = x.view(x_hat.size()[0], -1)
-        reconstruction_loss = self.reconstruction_loss(x_hat, x)
-        return (margin_loss + 0.0005 * reconstruction_loss) / x.size(0)
+        assert torch.numel(images) == torch.numel(reconstructions)
+        images = images.view(reconstructions.size()[0], -1)
+        reconstruction_loss = self.reconstruction_loss(reconstructions, images)
+        return (margin_loss + 0.0005 * reconstruction_loss) / images.size(0)
+
+
+def softmax(input, dim=1):
+    transposed_input = input.transpose(dim, len(input.size()) - 1)
+    softmaxed_output = F.softmax(transposed_input.contiguous().view(-1, transposed_input.size(-1)), dim=-1)
+    return softmaxed_output.view(*transposed_input.size()).transpose(dim, len(input.size()) - 1)
+
+
+class CapsuleNet(nn.Module):
+
+    def __init__(self):
+        super(CapsuleNet, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=2, out_channels=256, kernel_size=(21, 3), stride=(2, 1))
+        self.primary_capsules = CapsuleLayer(num_capsules=8, num_route_nodes=-1, in_channels=256, out_channels=16, kernel_size=(21, 3), stride=(4, 2))
+        self.digit_capsules = CapsuleLayer(num_capsules=p.NUM_LABELS, num_route_nodes=16 * 9 * 9, in_channels=8, out_channels=16)
+        self.decoder = nn.Sequential(nn.Linear(16 * p.NUM_LABELS, 1024), nn.ReLU(inplace=True), nn.Linear(1024, 4096), nn.ReLU(inplace=True), nn.Linear(4096, 5418), nn.Sigmoid())
+
+    def forward(self, x, y=None):
+        x = x.view(-1, 2, 129, 21)
+        x = self.conv1(x)
+        x = F.relu(x, inplace=True)
+        x = self.primary_capsules(x)
+        x = self.digit_capsules(x).squeeze().transpose(0, 1)
+        classes = (x ** 2).sum(dim=-1) ** 0.5
+        classes = F.softmax(classes, dim=-1)
+        if y is None:
+            _, max_length_indices = classes.max(dim=1)
+            y = Variable(torch.eye(p.NUM_LABELS)).index_select(dim=0, index=max_length_indices.data)
+        reconstructions = self.decoder((x * y[:, :, (None)]).view(x.size(0), -1))
+        return classes, reconstructions
+
+
+logger = logging.getLogger('pytorch-asr')
 
 
 class ConvCapsule(nn.Module):
@@ -335,31 +411,42 @@ class ClassCapsule(nn.Module):
         return output_a
 
 
-class CapsuleNet(nn.Module):
+class Swish(nn.Module):
 
-    def __init__(self):
-        super(CapsuleNet, self).__init__()
-        self.Conv1 = ConvCapsule(1, 0, 32, 0, 5, 2)
-        self.PrimaryCaps = ConvCapsule(32, 0, 32, 16, 1, 1)
-        self.ConvCaps1 = ConvCapsule(32, 16, 32, 16, 3, 2, routing=3)
-        self.ConvCaps2 = ConvCapsule(32, 16, 32, 16, 3, 1, routing=3)
-        self.ClassCaps = ClassCapsule(32, 16, 10, 16, routing=3)
+    def __init__(self, inplace=False):
+        super().__init__()
+        self.inplace = inplace
 
-    def forward(self, x, lamda):
-        x = F.relu(self.Conv1(x, lamda))
-        x = F.relu(self.PrimaryCaps(x, lamda))
-        x = F.sigmoid(self.ConvCaps1(x, lamda))
-        x = self.ConvCaps2(x, lamda)
-        x = self.ClassCaps(x, lamda)
-        return x
+    def forward(self, x):
+        if self.inplace:
+            x.mul_(torch.sigmoid(x))
+            return x
+        else:
+            return x * torch.sigmoid(x)
 
 
-_global_config['MODEL_SUFFIX'] = 4
+class View(nn.Module):
+
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, x, *args):
+        return x.view(*self.dim)
 
 
 def get_model_file_path(log_dir, prefix, desc):
     path = Path(log_dir).resolve()
     return path / f'{prefix}_{desc}.{params.MODEL_SUFFIX}'
+
+
+class MultiOut(nn.ModuleList):
+
+    def __init__(self, modules):
+        super().__init__(modules)
+
+    def forward(self, *args, **kwargs):
+        return (m.forward(*args, **kwargs) for m in self)
 
 
 class SequenceWise(nn.Module):
@@ -370,14 +457,14 @@ class SequenceWise(nn.Module):
         Allows handling of variable sequence lengths and minibatch sizes.
         :param module: Module to apply input to.
         """
-        super(SequenceWise, self).__init__()
+        super().__init__()
         self.module = module
 
-    def forward(self, x):
+    def forward(self, x, *args, **kwargs):
         t, n = x.size(0), x.size(1)
-        x = x.view(t * n, -1)
-        x = self.module(x)
-        x = x.view(t, n, -1)
+        x = x.contiguous().view(t * n, -1)
+        x = self.module(x, *args, **kwargs)
+        x = x.contiguous().view(t, n, -1)
         return x
 
     def __repr__(self):
@@ -389,17 +476,21 @@ class SequenceWise(nn.Module):
 
 class InferenceBatchSoftmax(nn.Module):
 
-    def forward(self, input_):
-        if not self.training:
-            return F.softmax(input_, dim=-1)
+    def __init__(self):
+        super().__init__()
+        self.logsoftmax = nn.LogSoftmax(dim=-1)
+
+    def forward(self, x):
+        if self.training:
+            return x
         else:
-            return input_
+            return self.logsoftmax(x)
 
 
 class TemporalRowConvolution(nn.Module):
 
     def __init__(self, input_size, kernel_size, stride=1, padding=0, feat_first=False, bias=False):
-        super(TemporalRowConvolution, self).__init__()
+        super().__init__()
         self.input_size = input_size
         self.kernel_size = _single(kernel_size)
         self.stride = _single(stride)
@@ -424,22 +515,24 @@ class TemporalRowConvolution(nn.Module):
 
 class BatchRNN(nn.Module):
 
-    def __init__(self, input_size, hidden_size, rnn_type=nn.LSTM, bidirectional=False, batch_norm=True):
-        super(BatchRNN, self).__init__()
+    def __init__(self, input_size, hidden_size, rnn_type=nn.LSTM, bidirectional=False, batch_first=True, batch_norm=True):
+        super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
+        self.batch_first = batch_first
         self.batch_norm = SequenceWise(nn.BatchNorm1d(input_size)) if batch_norm else None
-        self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size, bidirectional=bidirectional, bias=False)
-        self.num_directions = 2 if bidirectional else 1
+        self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size, bidirectional=bidirectional, batch_first=batch_first, bias=True)
 
     def flatten_parameters(self):
         self.rnn.flatten_parameters()
 
-    def forward(self, x):
+    def forward(self, x, seq_lens):
         if self.batch_norm is not None:
             x = self.batch_norm(x)
-        x, _ = self.rnn(x)
+        ps = nn.utils.rnn.pack_padded_sequence(x, seq_lens.tolist(), batch_first=self.batch_first)
+        ps, _ = self.rnn(ps)
+        x, _ = nn.utils.rnn.pad_packed_sequence(ps, batch_first=self.batch_first)
         if self.bidirectional:
             x = x.view(x.size(0), x.size(1), 2, -1).sum(2).view(x.size(0), x.size(1), -1)
         return x
@@ -448,9 +541,9 @@ class BatchRNN(nn.Module):
 class Lookahead(nn.Module):
 
     def __init__(self, n_features, context):
-        super(Lookahead, self).__init__()
+        super().__init__()
         self.n_features = n_features
-        self.weight = Parameter(torch.Tensor(n_features, context + 1))
+        self.weight = nn.Parameter(torch.Tensor(n_features, context + 1))
         assert context > 0
         self.context = context
         self.register_parameter('bias', None)
@@ -472,57 +565,6 @@ class Lookahead(nn.Module):
 
     def __repr__(self):
         return self.__class__.__name__ + '(' + 'n_features=' + str(self.n_features) + ', context=' + str(self.context) + ')'
-
-
-class SequenceWise(nn.Module):
-
-    def __init__(self, module):
-        """
-        Collapses input of dim T*N*H to (T*N)*H, and applies to a module.
-        Allows handling of variable sequence lengths and minibatch sizes.
-        :param module: Module to apply input to.
-        """
-        super().__init__()
-        self.module = module
-
-    def forward(self, x):
-        t, n = x.size(0), x.size(1)
-        x = x.view(t * n, -1)
-        x = self.module(x)
-        x = x.view(t, n, -1)
-        return x
-
-    def __repr__(self):
-        tmpstr = self.__class__.__name__ + ' (\n'
-        tmpstr += self.module.__repr__()
-        tmpstr += ')'
-        return tmpstr
-
-
-class TemporalRowConvolution(nn.Module):
-
-    def __init__(self, input_size, kernel_size, stride=1, padding=0, feat_first=False, bias=False):
-        super().__init__()
-        self.input_size = input_size
-        self.kernel_size = _single(kernel_size)
-        self.stride = _single(stride)
-        self.padding = _single(padding)
-        self.weight = nn.Parameter(torch.Tensor(input_size, 1, *kernal_size))
-        if bias:
-            self.bias = nn.Parameter(torch.Tensor(input_size))
-        else:
-            self.register_parameter('bias', None)
-        self.feat_first = feat_first
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.kernel_size * self.input_size)
-        self.weight.data.uniform_(-stdv, stdv)
-        if self.bias is not None:
-            self.bias.data.uniform_(-stdv, stdv)
-
-    def forward(self, input_):
-        return nn._functions.thnn.auto.TemporalRowConvolution.apply(input_, kernel_size, stride, padding)
 
 
 class LSTMCell(nn.LSTMCell):
@@ -601,182 +643,14 @@ class LSTM(nn.Module):
         return y, (hy, cy)
 
 
-class BatchRNN(nn.Module):
-
-    def __init__(self, input_size, hidden_size, rnn_type=nn.LSTM, bidirectional=False, batch_first=True, batch_norm=True):
-        super().__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.bidirectional = bidirectional
-        self.batch_first = batch_first
-        self.batch_norm = SequenceWise(nn.BatchNorm1d(input_size)) if batch_norm else None
-        self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size, bidirectional=bidirectional, batch_first=batch_first, bias=True)
-
-    def flatten_parameters(self):
-        self.rnn.flatten_parameters()
-
-    def forward(self, x, seq_lens):
-        if self.batch_norm is not None:
-            x = self.batch_norm(x)
-        ps = nn.utils.rnn.pack_padded_sequence(x, seq_lens.tolist(), batch_first=self.batch_first)
-        ps, _ = self.rnn(ps)
-        x, _ = nn.utils.rnn.pad_packed_sequence(ps, batch_first=self.batch_first)
-        if self.bidirectional:
-            x = x.view(x.size(0), x.size(1), 2, -1).sum(2).view(x.size(0), x.size(1), -1)
-        return x
-
-
-class Lookahead(nn.Module):
-
-    def __init__(self, n_features, context):
-        super().__init__()
-        self.n_features = n_features
-        self.weight = nn.Parameter(torch.Tensor(n_features, context + 1))
-        assert context > 0
-        self.context = context
-        self.register_parameter('bias', None)
-        self.init_parameters()
-
-    def init_parameters(self):
-        stdv = 1.0 / math.sqrt(self.weight.size(1))
-        self.weight.data.uniform_(-stdv, stdv)
-
-    def forward(self, input):
-        seq_len = input.size(0)
-        padding = torch.zeros(self.context, *input.size()[1:]).type_as(input.data)
-        x = torch.cat((input, Variable(padding)), 0)
-        x = [x[i:i + self.context + 1] for i in range(seq_len)]
-        x = torch.stack(x)
-        x = x.permute(0, 2, 3, 1)
-        x = torch.mul(x, self.weight).sum(dim=3)
-        return x
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + 'n_features=' + str(self.n_features) + ', context=' + str(self.context) + ')'
-
-
-class SequenceWise(nn.Module):
-
-    def __init__(self, module):
-        """
-        Collapses input of dim T*N*H to (T*N)*H, and applies to a module.
-        Allows handling of variable sequence lengths and minibatch sizes.
-        :param module: Module to apply input to.
-        """
-        super().__init__()
-        self.module = module
-
-    def forward(self, x):
-        t, n = x.size(0), x.size(1)
-        x = x.contiguous().view(t * n, -1)
-        x = self.module(x)
-        x = x.contiguous().view(t, n, -1)
-        return x
-
-    def __repr__(self):
-        tmpstr = self.__class__.__name__ + ' (\n'
-        tmpstr += self.module.__repr__()
-        tmpstr += ')'
-        return tmpstr
-
-
-def onehot2int(onehot, dim=-1, keepdim=False):
-    _, idx = onehot.topk(k=1, dim=dim)
-    if idx.dim() == 0:
-        return int(idx)
-    else:
-        return idx if keepdim else idx.squeeze(dim=dim)
-
-
-class View(nn.Module):
-
-    def __init__(self, dim):
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x, *args):
-        return x.view(*self.dim)
-
-
-class Swish(nn.Module):
-
-    def forward(self, x):
-        return x * F.sigmoid(x)
-
-
-class _DenseLayer(nn.Sequential):
-
-    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate):
-        super().__init__()
-        self.add_module('norm_1', nn.BatchNorm2d(num_input_features)),
-        self.add_module('swish_1', Swish()),
-        self.add_module('conv_1', nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)),
-        self.add_module('norm_2', nn.BatchNorm2d(bn_size * growth_rate)),
-        self.add_module('swish_2', Swish()),
-        self.add_module('conv_2', nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
-        self.drop_rate = drop_rate
-
-    def forward(self, x):
-        new_features = super().forward(x)
-        if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
-        return torch.cat([x, new_features], 1)
-
-
-class _DenseBlock(nn.Sequential):
-
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
-        super().__init__()
-        for i in range(num_layers):
-            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
-            self.add_module(f'denselayer{i + 1}', layer)
-
-
 class _Transition(nn.Sequential):
 
     def __init__(self, num_input_features, num_output_features):
-        super().__init__()
+        super(_Transition, self).__init__()
         self.add_module('norm', nn.BatchNorm2d(num_input_features))
         self.add_module('swish', Swish())
         self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
         self.add_module('pool', nn.AvgPool2d(kernel_size=3, stride=2, padding=1))
-
-
-class _DenseLayer(nn.Sequential):
-
-    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate):
-        super().__init__()
-        self.add_module('norm1', nn.BatchNorm2d(num_input_features))
-        self.add_module('relu1', Swish(inplace=True))
-        self.add_module('conv1', nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False))
-        self.add_module('norm2', nn.BatchNorm2d(bn_size * growth_rate))
-        self.add_module('relu2', Swish(inplace=True))
-        self.add_module('conv2', nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False))
-        if drop_rate > 0:
-            self.add_module('do', nn.Dropout(p=drop_rate, inplace=True))
-
-    def forward(self, x):
-        new_features = super().forward(x)
-        return torch.cat([x, new_features], 1)
-
-
-class _DenseBlock(nn.Sequential):
-
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
-        super().__init__()
-        for i in range(num_layers):
-            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
-            self.add_module(f'denselayer{i + 1}', layer)
-
-
-class _Transition(nn.Sequential):
-
-    def __init__(self, num_input_features, num_output_features):
-        super().__init__()
-        self.add_module('norm_tr', nn.BatchNorm2d(num_input_features))
-        self.add_module('swish_tr', Swish(inplace=True))
-        self.add_module('conv_tr', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
-        self.add_module('pool_tr', nn.AvgPool2d(kernel_size=3, stride=(2, 1), padding=1))
 
 
 class DenseNet(nn.Module):
@@ -823,6 +697,42 @@ class DenseNet(nn.Module):
         x = self.fc(x.view(x.size(0), x.size(1), -1))
         x = self.softmax(x)
         return x
+
+
+def onehot2int(onehot, dim=-1, keepdim=False):
+    _, idx = onehot.topk(k=1, dim=dim)
+    if idx.dim() == 0:
+        return int(idx)
+    else:
+        return idx if keepdim else idx.squeeze(dim=dim)
+
+
+class _DenseLayer(nn.Sequential):
+
+    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate):
+        super(_DenseLayer, self).__init__()
+        self.add_module('norm.1', nn.BatchNorm2d(num_input_features)),
+        self.add_module('swish.1', Swish()),
+        self.add_module('conv.1', nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)),
+        self.add_module('norm.2', nn.BatchNorm2d(bn_size * growth_rate)),
+        self.add_module('swish.2', Swish()),
+        self.add_module('conv.2', nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
+        self.drop_rate = drop_rate
+
+    def forward(self, x):
+        new_features = super().forward(x)
+        if self.drop_rate > 0:
+            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
+        return torch.cat([x, new_features], 1)
+
+
+class _DenseBlock(nn.Sequential):
+
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
+        super().__init__()
+        for i in range(num_layers):
+            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
+            self.add_module(f'denselayer{i + 1}', layer)
 
 
 class DistributedDataParallel(Module):
@@ -919,31 +829,6 @@ class EditDistanceLoss(_Loss):
                     comps = torch.LongTensor([matrix[x, y], matrix[x - 2, y - 2] + cost])
                     matrix[x, y] = torch.min(comps)
         return matrix[-1, -1]
-
-
-class SequenceWise(nn.Module):
-
-    def __init__(self, module):
-        """
-        Collapses input of dim T*N*H to (T*N)*H, and applies to a module.
-        Allows handling of variable sequence lengths and minibatch sizes.
-        :param module: Module to apply input to.
-        """
-        super().__init__()
-        self.module = module
-
-    def forward(self, x, *args, **kwargs):
-        t, n = x.size(0), x.size(1)
-        x = x.contiguous().view(t * n, -1)
-        x = self.module(x, *args, **kwargs)
-        x = x.contiguous().view(t, n, -1)
-        return x
-
-    def __repr__(self):
-        tmpstr = self.__class__.__name__ + ' (\n'
-        tmpstr += self.module.__repr__()
-        tmpstr += ')'
-        return tmpstr
 
 
 class Listener(nn.Module):
@@ -1248,352 +1133,10 @@ class Bottleneck(nn.Module):
         return out
 
 
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes=1000):
-        self.inplanes = 32
-        super(ResNet, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(2, self.inplanes, kernel_size=(41, 11), stride=(2, 1), padding=(0, 5)), nn.BatchNorm2d(self.inplanes), Swish(inplace=True), nn.Conv2d(self.inplanes, self.inplanes, kernel_size=(21, 11), stride=(2, 1), padding=(0, 5)), nn.BatchNorm2d(self.inplanes), Swish(inplace=True))
-        freq_size = 129
-        freq_size = (freq_size - 41) // 2 + 1
-        freq_size = (freq_size - 21) // 2 + 1
-        self.layer1 = self._make_layer(block, self.inplanes, layers[0])
-        self.layer2 = self._make_layer(block, self.inplanes, layers[1], stride=(2, 1))
-        self.layer3 = self._make_layer(block, self.inplanes, layers[2], stride=(2, 1))
-        self.layer4 = self._make_layer(block, self.inplanes, layers[3], stride=(2, 1))
-        freq_size = (freq_size - 3 + 2) // 2 + 1
-        freq_size = (freq_size - 3 + 2) // 2 + 1
-        freq_size = (freq_size - 3 + 2) // 2 + 1
-        self.fc1 = nn.Linear(self.inplanes * freq_size, 1024)
-        self.do1 = nn.Dropout(p=0.5, inplace=True)
-        self.fc2 = nn.Linear(1024, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x, softmax=False):
-        x = self.conv(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = x.transpose(2, 3).transpose(1, 2)
-        x = self.fc1(x.view(x.size(0), x.size(1), -1))
-        x = self.do1(x)
-        x = self.fc2(x)
-        if softmax:
-            return nn.Softmax(dim=2)(x)
-        else:
-            return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu1 = Swish(inplace=True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.relu2 = Swish(inplace=True)
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu1(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu2(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 2
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu1 = Swish(inplace=True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.relu2 = Swish(inplace=True)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.downsample = downsample
-        self.relu3 = Swish(inplace=True)
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu1(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu2(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu3(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes=1000):
-        self.inplanes = 32
-        super(ResNet, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(2, self.inplanes, kernel_size=(41, 11), stride=(2, 2), padding=(0, 5)), nn.BatchNorm2d(self.inplanes), Swish(inplace=True), nn.Conv2d(self.inplanes, self.inplanes, kernel_size=(21, 11), stride=(2, 1), padding=(0, 5)), nn.BatchNorm2d(self.inplanes), Swish(inplace=True))
-        freq_size = 129
-        freq_size = (freq_size - 41) // 2 + 1
-        freq_size = (freq_size - 21) // 2 + 1
-        self.layer1 = self._make_layer(block, self.inplanes, layers[0])
-        self.layer2 = self._make_layer(block, self.inplanes, layers[1], stride=(2, 1))
-        self.layer3 = self._make_layer(block, self.inplanes, layers[2], stride=(2, 1))
-        self.layer4 = self._make_layer(block, self.inplanes, layers[3], stride=(2, 1))
-        freq_size = (freq_size - 3 + 2) // 2 + 1
-        freq_size = (freq_size - 3 + 2) // 2 + 1
-        freq_size = (freq_size - 3 + 2) // 2 + 1
-        self.fc1 = nn.Linear(self.inplanes * freq_size, 1024)
-        self.do1 = nn.Dropout(p=0.5, inplace=True)
-        self.fc2 = nn.Linear(1024, num_classes)
-        self.softmax = InferenceBatchSoftmax()
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = x.transpose(2, 3).transpose(1, 2)
-        x = self.fc1(x.view(x.size(0), x.size(1), -1))
-        x = self.do1(x)
-        x = self.fc2(x)
-        x = self.softmax(x)
-        return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu1 = Swish(inplace=True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.relu2 = Swish(inplace=True)
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu1(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu2(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 2
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu1 = Swish(inplace=True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.relu2 = Swish(inplace=True)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.downsample = downsample
-        self.relu3 = Swish(inplace=True)
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu1(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu2(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu3(out)
-        return out
-
-
 HEIGHT = 129
 
 
 WIDTH = 31
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, input_folding=3, num_classes=1000):
-        self.inplanes = 32
-        super(ResNet, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_folding * 2, self.inplanes, kernel_size=(41, 11), stride=(2, 2), padding=(20, 5)), nn.BatchNorm2d(self.inplanes), Swish(inplace=True), nn.Conv2d(self.inplanes, self.inplanes, kernel_size=(21, 11), stride=(2, 2), padding=(10, 5)), nn.BatchNorm2d(self.inplanes), Swish(inplace=True))
-        img_size = np.array([HEIGHT, WIDTH])
-        img_size = (img_size - np.array([41, 11]) + 2 * np.array([20, 5])) // np.array([2, 2]) + 1
-        img_size = (img_size - np.array([21, 11]) + 2 * np.array([10, 5])) // np.array([2, 2]) + 1
-        self.layer1 = self._make_layer(block, self.inplanes, layers[0])
-        self.layer2 = self._make_layer(block, self.inplanes, layers[1], stride=(2, 2))
-        self.layer3 = self._make_layer(block, self.inplanes, layers[2], stride=(2, 2))
-        self.layer4 = self._make_layer(block, self.inplanes, layers[3], stride=(2, 2))
-        img_size = (img_size - 3 + 2) // 2 + 1
-        img_size = (img_size - 3 + 2) // 2 + 1
-        img_size = (img_size - 3 + 2) // 2 + 1
-        self.fc1 = nn.Linear(self.inplanes * np.prod(img_size), 1024)
-        self.do1 = nn.Dropout(p=0.5, inplace=True)
-        self.fc2 = nn.Linear(1024, num_classes)
-        self.softmax = InferenceBatchSoftmax()
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.fc1(x.view(x.size(0), -1))
-        x = self.do1(x)
-        x = self.fc2(x)
-        x = self.softmax(x)
-        return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu1 = Swish(inplace=True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.relu2 = Swish(inplace=True)
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu1(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu2(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 2
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu1 = Swish(inplace=True)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.relu2 = Swish(inplace=True)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.downsample = downsample
-        self.relu3 = Swish(inplace=True)
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu1(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu2(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu3(out)
-        return out
 
 
 class ResNet(nn.Module):
@@ -1647,120 +1190,6 @@ class ResNet(nn.Module):
         return x
 
 
-class View(nn.Module):
-
-    def __init__(self, dim):
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x, *args):
-        return x.view(*self.dim)
-
-
-class MultiOut(nn.ModuleList):
-
-    def __init__(self, modules):
-        super().__init__(modules)
-
-    def forward(self, *args, **kwargs):
-        return (m.forward(*args, **kwargs) for m in self)
-
-
-class Swish(nn.Module):
-
-    def forward(self, x):
-        return x * nn.functional.sigmoid(x)
-
-
-class _DenseLayer(nn.Sequential):
-
-    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate):
-        super(_DenseLayer, self).__init__()
-        self.add_module('norm.1', nn.BatchNorm2d(num_input_features)),
-        self.add_module('swish.1', Swish()),
-        self.add_module('conv.1', nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)),
-        self.add_module('norm.2', nn.BatchNorm2d(bn_size * growth_rate)),
-        self.add_module('swish.2', Swish()),
-        self.add_module('conv.2', nn.Conv2d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
-        self.drop_rate = drop_rate
-
-    def forward(self, x):
-        new_features = super().forward(x)
-        if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
-        return torch.cat([x, new_features], 1)
-
-
-class _DenseBlock(nn.Sequential):
-
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
-        super().__init__()
-        for i in range(num_layers):
-            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
-            self.add_module(f'denselayer{i + 1}', layer)
-
-
-class _Transition(nn.Sequential):
-
-    def __init__(self, num_input_features, num_output_features):
-        super(_Transition, self).__init__()
-        self.add_module('norm', nn.BatchNorm2d(num_input_features))
-        self.add_module('swish', Swish())
-        self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
-        self.add_module('pool', nn.AvgPool2d(kernel_size=3, stride=2, padding=1))
-
-
-class CapsuleNet(nn.Module):
-
-    def __init__(self):
-        super(CapsuleNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=2, out_channels=256, kernel_size=(21, 3), stride=(2, 1))
-        self.primary_capsules = CapsuleLayer(num_capsules=8, num_route_nodes=-1, in_channels=256, out_channels=16, kernel_size=(21, 3), stride=(4, 2))
-        self.digit_capsules = CapsuleLayer(num_capsules=p.NUM_LABELS, num_route_nodes=16 * 9 * 9, in_channels=8, out_channels=16)
-        self.decoder = nn.Sequential(nn.Linear(16 * p.NUM_LABELS, 1024), nn.ReLU(inplace=True), nn.Linear(1024, 4096), nn.ReLU(inplace=True), nn.Linear(4096, 5418), nn.Sigmoid())
-
-    def forward(self, x, y=None):
-        x = x.view(-1, 2, 129, 21)
-        x = self.conv1(x)
-        x = F.relu(x, inplace=True)
-        x = self.primary_capsules(x)
-        x = self.digit_capsules(x).squeeze().transpose(0, 1)
-        classes = (x ** 2).sum(dim=-1) ** 0.5
-        classes = F.softmax(classes, dim=-1)
-        if y is None:
-            _, max_length_indices = classes.max(dim=1)
-            y = Variable(torch.eye(p.NUM_LABELS)).index_select(dim=0, index=max_length_indices.data)
-        reconstructions = self.decoder((x * y[:, :, (None)]).view(x.size(0), -1))
-        return classes, reconstructions
-
-
-class CapsuleLoss(nn.Module):
-
-    def __init__(self):
-        super(CapsuleLoss, self).__init__()
-        self.reconstruction_loss = nn.MSELoss(size_average=False)
-
-    def forward(self, images, labels, classes, reconstructions):
-        left = F.relu(0.9 - classes, inplace=True) ** 2
-        right = F.relu(classes - 0.1, inplace=True) ** 2
-        margin_loss = labels * left + 0.5 * (1.0 - labels) * right
-        margin_loss = margin_loss.sum()
-        assert torch.numel(images) == torch.numel(reconstructions)
-        images = images.view(reconstructions.size()[0], -1)
-        reconstruction_loss = self.reconstruction_loss(reconstructions, images)
-        return (margin_loss + 0.0005 * reconstruction_loss) / images.size(0)
-
-
-class View(nn.Module):
-
-    def __init__(self, dim):
-        super().__init__()
-        self.dim = dim
-
-    def forward(self, x, *args):
-        return x.view(*self.dim)
-
-
 class Flatten(nn.Module):
 
     def __init__(self):
@@ -1769,42 +1198,6 @@ class Flatten(nn.Module):
     def forward(self, x):
         shape = x.size()
         return x.view(x.size(0), -1)
-
-
-class MultiOut(nn.ModuleList):
-
-    def __init__(self, modules):
-        super().__init__(modules)
-
-    def forward(self, *args, **kwargs):
-        return (m.forward(*args, **kwargs) for m in self)
-
-
-class Swish(nn.Module):
-
-    def __init__(self, inplace=False):
-        super().__init__()
-        self.inplace = inplace
-
-    def forward(self, x):
-        if self.inplace:
-            x.mul_(torch.sigmoid(x))
-            return x
-        else:
-            return x * torch.sigmoid(x)
-
-
-class InferenceBatchSoftmax(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.logsoftmax = nn.LogSoftmax(dim=-1)
-
-    def forward(self, x):
-        if self.training:
-            return x
-        else:
-            return self.logsoftmax(x)
 
 
 import torch

@@ -27,15 +27,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -61,16 +62,28 @@ import torchvision.datasets as datasets
 import numpy as np
 
 
-import torch.nn as nn
+import random
 
 
 import math
 
 
+import torch.utils.data as data
+
+
+import torch.nn as nn
+
+
 import torch.utils.model_zoo as model_zoo
 
 
+from random import randint
+
+
 import scipy.misc
+
+
+import scipy.io
 
 
 class globalNet(nn.Module):
@@ -136,35 +149,19 @@ class globalNet(nn.Module):
         return global_fms, global_outs
 
 
-class CPN(nn.Module):
-
-    def __init__(self, resnet, output_shape, num_class, pretrained=True):
-        super(CPN, self).__init__()
-        channel_settings = [2048, 1024, 512, 256]
-        self.resnet = resnet
-        self.global_net = globalNet(channel_settings, output_shape, num_class)
-        self.refine_net = refineNet(channel_settings[-1], output_shape, num_class)
-
-    def forward(self, x):
-        res_out = self.resnet(x)
-        global_fms, global_outs = self.global_net(res_out)
-        refine_out = self.refine_net(global_fms)
-        return global_outs, refine_out
-
-
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 2, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 2)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
-        self.downsample = nn.Sequential(nn.Conv2d(inplanes, planes * 2, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * 2))
+        self.downsample = downsample
         self.stride = stride
 
     def forward(self, x):
@@ -218,6 +215,22 @@ class refineNet(nn.Module):
         return out
 
 
+class CPN(nn.Module):
+
+    def __init__(self, resnet, output_shape, num_class, pretrained=True):
+        super(CPN, self).__init__()
+        channel_settings = [2048, 1024, 512, 256]
+        self.resnet = resnet
+        self.global_net = globalNet(channel_settings, output_shape, num_class)
+        self.refine_net = refineNet(channel_settings[-1], output_shape, num_class)
+
+    def forward(self, x):
+        res_out = self.resnet(x)
+        global_fms, global_outs = self.global_net(res_out)
+        refine_out = self.refine_net(global_fms)
+        return global_outs, refine_out
+
+
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -243,38 +256,6 @@ class BasicBlock(nn.Module):
         out = self.relu(out)
         out = self.conv2(out)
         out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
         if self.downsample is not None:
             residual = self.downsample(x)
         out += residual

@@ -28,6 +28,7 @@ points_alignment = _module
 points_normals = _module
 sample_points_from_meshes = _module
 subdivide_meshes = _module
+utils = _module
 vert_align = _module
 renderer = _module
 blending = _module
@@ -42,15 +43,18 @@ renderer = _module
 shader = _module
 shading = _module
 texturing = _module
+utils = _module
 points = _module
 compositor = _module
 rasterize_points = _module
 rasterizer = _module
 renderer = _module
+utils = _module
 structures = _module
 meshes = _module
 pointclouds = _module
 textures = _module
+utils = _module
 transforms = _module
 rotation_conversions = _module
 so3 = _module
@@ -131,17 +135,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
 
 
 import warnings
@@ -159,16 +167,19 @@ from typing import Optional
 import numpy as np
 
 
-import torch
-
-
 import torch.nn.functional as F
+
+
+from collections import namedtuple
+
+
+from typing import Tuple
 
 
 from typing import Union
 
 
-import torch.nn as nn
+from itertools import islice
 
 
 from torch.autograd import Function
@@ -177,22 +188,67 @@ from torch.autograd import Function
 from torch.autograd.function import once_differentiable
 
 
+import torch.nn as nn
+
+
 from typing import NamedTuple
 
 
-import math
+from typing import TYPE_CHECKING
 
 
 from typing import Sequence
 
 
-from typing import Tuple
+import math
+
+
+import copy
+
+
+import inspect
+
+
+from typing import Any
 
 
 from torch.nn.functional import interpolate
 
 
-from collections import namedtuple
+import functools
+
+
+from itertools import tee
+
+
+from math import cos
+
+
+from math import pi
+
+
+from math import sin
+
+
+from typing import Iterator
+
+
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from itertools import product
+
+
+from typing import Callable
+
+
+import itertools
 
 
 class GatherScatter(Function):
@@ -328,7 +384,7 @@ class GraphConv(nn.Module):
             return verts.new_zeros((0, self.output_dim)) * verts.sum()
         verts_w0 = self.w0(verts)
         verts_w1 = self.w1(verts)
-        if torch.is_available() and verts.is_cuda and edges.is_cuda:
+        if torch.cuda.is_available() and verts.is_cuda and edges.is_cuda:
             neighbor_sums = gather_scatter(verts_w1, edges, self.directed)
         else:
             neighbor_sums = gather_scatter_python(verts_w1, edges, self.directed)
@@ -428,82 +484,47 @@ def padded_to_list(x: torch.Tensor, split_size: Union[list, tuple, None]=None):
     return x_list
 
 
-class _PaddedToPacked(Function):
+def padded_to_packed(x: torch.Tensor, split_size: Union[list, tuple, None]=None, pad_value: Union[float, int, None]=None):
     """
-    Torch autograd Function wrapper for padded_to_packed C++/CUDA implementations.
-    """
+    Transforms a padded tensor of shape (N, M, K) into a packed tensor
+    of shape:
+     - (sum(Mi), K) where (Mi, K) are the dimensions of
+        each of the tensors in the batch and Mi is specified by split_size(i)
+     - (N*M, K) if split_size is None
 
-    @staticmethod
-    def forward(ctx, inputs, first_idxs, num_inputs):
-        """
-        Args:
-            ctx: Context object used to calculate gradients.
-            inputs: FloatTensor of shape (N, max_size, D), representing
-            the padded tensor, e.g. areas for faces in a batch of meshes.
-            first_idxs: LongTensor of shape (N,) where N is the number of
-                elements in the batch and `first_idxs[i] = f`
-                means that the inputs for batch element i begin at `inputs_packed[f]`.
-            num_inputs: Number of packed entries (= F)
-
-        Returns:
-            inputs_packed: FloatTensor of shape (F, D) where
-                `inputs_packed[first_idx[i]:] = inputs[i, :]`.
-        """
-        if not inputs.dim() == 3:
-            raise ValueError('input can only be 3-dimensional.')
-        if not first_idxs.dim() == 1:
-            raise ValueError('first_idxs can only be 1-dimensional.')
-        if not inputs.dtype == torch.float32:
-            raise ValueError('input has to be of type torch.float32.')
-        if not first_idxs.dtype == torch.int64:
-            raise ValueError('first_idxs has to be of type torch.int64.')
-        if not isinstance(num_inputs, int):
-            raise ValueError('max_size has to be int.')
-        ctx.save_for_backward(first_idxs)
-        ctx.max_size = inputs.shape[1]
-        inputs, first_idxs = inputs.contiguous(), first_idxs.contiguous()
-        inputs_packed = _C.padded_to_packed(inputs, first_idxs, num_inputs)
-        return inputs_packed
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, grad_output):
-        grad_output = grad_output.contiguous()
-        first_idxs = ctx.saved_tensors[0]
-        max_size = ctx.max_size
-        grad_input = _C.packed_to_padded(grad_output, first_idxs, max_size)
-        return grad_input, None, None
-
-
-def padded_to_packed(inputs, first_idxs, num_inputs):
-    """
-    Torch wrapper that handles allowed input shapes. See description below.
+    Support only for 3-dimensional input tensor and 1-dimensional split size.
 
     Args:
-        inputs: FloatTensor of shape (N, max_size) or (N, max_size, D),
-            representing the padded tensor, e.g. areas for faces in a batch of
-            meshes.
-        first_idxs: LongTensor of shape (N,) where N is the number of
-            elements in the batch and `first_idxs[i] = f`
-            means that the inputs for batch element i begin at `inputs_packed[f]`.
-        num_inputs: Number of packed entries (= F)
+      x: tensor
+      split_size: list, tuple or int defining the number of items for each tensor
+        in the output list.
+      pad_value: optional value to use to filter the padded values in the input
+        tensor.
+
+    Only one of split_size or pad_value should be provided, or both can be None.
 
     Returns:
-        inputs_packed: FloatTensor of shape (F,) or (F, D) where
-            `inputs_packed[first_idx[i]:] = inputs[i, :]`.
-
-    To handle the allowed input shapes, we convert the inputs tensor of shape
-    (N, max_size)  to (N, max_size, 1). We reshape the output back to (F,) from
-    (F, 1).
+      x_packed: a packed tensor.
     """
-    flat = False
-    if inputs.dim() == 2:
-        flat = True
-        inputs = inputs.unsqueeze(2)
-    inputs_packed = _PaddedToPacked.apply(inputs, first_idxs, num_inputs)
-    if flat:
-        inputs_packed = inputs_packed.squeeze(1)
-    return inputs_packed
+    if x.ndim != 3:
+        raise ValueError('Supports only 3-dimensional input tensors')
+    N, M, D = x.shape
+    if split_size is not None and pad_value is not None:
+        raise ValueError('Only one of split_size or pad_value should be provided.')
+    x_packed = x.reshape(-1, D)
+    if pad_value is None and split_size is None:
+        return x_packed
+    if pad_value is not None:
+        mask = x_packed.ne(pad_value).any(-1)
+        x_packed = x_packed[mask]
+        return x_packed
+    N = len(split_size)
+    if x.shape[0] != N:
+        raise ValueError('Split size must be of same length as inputs first dimension')
+    if not all(isinstance(i, int) for i in split_size):
+        raise ValueError('Support only 1-dimensional unbinded tensor.                 Split size for more dimensions provided')
+    padded_to_packed_idx = torch.cat([(torch.arange(v, dtype=torch.int64, device=x.device) + i * M) for i, v in enumerate(split_size)], dim=0)
+    return x_packed[padded_to_packed_idx]
 
 
 class Textures(object):
@@ -560,7 +581,7 @@ class Textures(object):
         for k in dir(self):
             v = getattr(self, k)
             if torch.is_tensor(v) and v.device != device:
-                setattr(self, k, v.to(device))
+                setattr(self, k, v)
         return self
 
     def __getitem__(self, index):
@@ -878,7 +899,7 @@ class Meshes(object):
         self._laplacian_packed = None
         if isinstance(verts, list) and isinstance(faces, list):
             self._verts_list = verts
-            self._faces_list = [(f[f.gt(-1).all(1)].to(torch.int64) if len(f) > 0 else f) for f in faces]
+            self._faces_list = [(f[f.gt(-1).all(1)] if len(f) > 0 else f) for f in faces]
             self._N = len(self._verts_list)
             self.device = torch.device('cpu')
             self.valid = torch.zeros((self._N,), dtype=torch.bool, device=self.device)
@@ -895,7 +916,7 @@ class Meshes(object):
             if verts.size(2) != 3 and faces.size(2) != 3:
                 raise ValueError('Verts and Faces tensors have incorrect dimensions.')
             self._verts_padded = verts
-            self._faces_padded = faces.to(torch.int64)
+            self._faces_padded = faces
             self._N = self._verts_padded.shape[0]
             self._V = self._verts_padded.shape[1]
             self.device = self._verts_padded.device
@@ -1266,7 +1287,6 @@ class Meshes(object):
             refresh: Set to True to force recomputation of face areas.
                      Default: False.
         """
-        from ..ops.mesh_face_areas_normals import mesh_face_areas_normals
         if not (refresh or any(v is None for v in [self._faces_areas_packed, self._faces_normals_packed])):
             return
         faces_packed = self.faces_packed()
@@ -1474,21 +1494,21 @@ class Meshes(object):
         if self.device != device:
             other.device = device
             if other._N > 0:
-                other._verts_list = [v.to(device) for v in other._verts_list]
-                other._faces_list = [f.to(device) for f in other._faces_list]
+                other._verts_list = [v for v in other._verts_list]
+                other._faces_list = [f for f in other._faces_list]
             for k in self._INTERNAL_TENSORS:
                 v = getattr(self, k)
                 if torch.is_tensor(v):
-                    setattr(other, k, v.to(device))
+                    setattr(other, k, v)
             if self.textures is not None:
-                other.textures = self.textures.to(device)
+                other.textures = self.textures
         return other
 
     def cpu(self):
-        return self.to(torch.device('cpu'))
+        return self
 
     def cuda(self):
-        return self.to(torch.device('cuda'))
+        return self
 
     def get_mesh_verts_faces(self, index: int):
         """
@@ -2367,6 +2387,65 @@ class BlendParams(NamedTuple):
 BROADCAST_TYPES = float, int, list, tuple, torch.Tensor, np.ndarray
 
 
+class TensorAccessor(object):
+    """
+    A helper class to be used with the __getitem__ method. This can be used for
+    getting/setting the values for an attribute of a class at one particular
+    index.  This is useful when the attributes of a class are batched tensors
+    and one element in the batch needs to be modified.
+    """
+
+    def __init__(self, class_object, index: Union[int, slice]):
+        """
+        Args:
+            class_object: this should be an instance of a class which has
+                attributes which are tensors representing a batch of
+                values.
+            index: int/slice, an index indicating the position in the batch.
+                In __setattr__ and __getattr__ only the value of class
+                attributes at this index will be accessed.
+        """
+        self.__dict__['class_object'] = class_object
+        self.__dict__['index'] = index
+
+    def __setattr__(self, name: str, value: Any):
+        """
+        Update the attribute given by `name` to the value given by `value`
+        at the index specified by `self.index`.
+
+        Args:
+            name: str, name of the attribute.
+            value: value to set the attribute to.
+        """
+        v = getattr(self.class_object, name)
+        if not torch.is_tensor(v):
+            msg = 'Can only set values on attributes which are tensors; got %r'
+            raise AttributeError(msg % type(v))
+        if not torch.is_tensor(value):
+            value = torch.tensor(value, device=v.device, dtype=v.dtype, requires_grad=v.requires_grad)
+        if v.dim() > 1 and value.dim() > 1 and value.shape[1:] != v.shape[1:]:
+            msg = 'Expected value to have shape %r; got %r'
+            raise ValueError(msg % (v.shape, value.shape))
+        if v.dim() == 0 and isinstance(self.index, slice) and len(value) != len(self.index):
+            msg = 'Expected value to have len %r; got %r'
+            raise ValueError(msg % (len(self.index), len(value)))
+        self.class_object.__dict__[name][self.index] = value
+
+    def __getattr__(self, name: str):
+        """
+        Return the value of the attribute given by "name" on self.class_object
+        at the index specified in self.index.
+
+        Args:
+            name: string of the attribute name
+        """
+        if hasattr(self.class_object, name):
+            return self.class_object.__dict__[name][self.index]
+        else:
+            msg = 'Attribue %s not found on %r'
+            return AttributeError(msg % (name, self.class_object.__name__))
+
+
 def format_tensor(input, dtype=torch.float32, device: str='cpu') ->torch.Tensor:
     """
     Helper function for converting a scalar value to a tensor.
@@ -2384,7 +2463,7 @@ def format_tensor(input, dtype=torch.float32, device: str='cpu') ->torch.Tensor:
     if input.dim() == 0:
         input = input.view(1)
     if input.device != device:
-        input = input.to(device=device)
+        input = input
     return input
 
 
@@ -2492,7 +2571,7 @@ class TensorProperties(object):
             if k == 'device':
                 setattr(self, k, device)
             if torch.is_tensor(v) and v.device != device:
-                setattr(self, k, v.to(device))
+                setattr(self, k, v)
         return self
 
     def clone(self, other):
@@ -3051,7 +3130,7 @@ def interpolate_texture_map(fragments, meshes) ->torch.Tensor:
     pixel_uvs = pixel_uvs * 2.0 - 1.0
     texture_maps = torch.flip(texture_maps, [2])
     if texture_maps.device != pixel_uvs.device:
-        texture_maps = texture_maps.to(pixel_uvs.device)
+        texture_maps = texture_maps
     texels = F.grid_sample(texture_maps, pixel_uvs, align_corners=False)
     texels = texels.reshape(N, K, C, H_out, W_out).permute(0, 3, 4, 1, 2)
     return texels
@@ -3914,16 +3993,16 @@ class Transform3d:
         other = self.clone()
         if self.device != device:
             other.device = device
-            other._matrix = self._matrix.to(device=device, dtype=dtype)
+            other._matrix = self._matrix
             for t in other._transforms:
-                t.to(device, copy=copy, dtype=dtype)
+                t
         return other
 
     def cpu(self):
-        return self.to(torch.device('cpu'))
+        return self
 
     def cuda(self):
-        return self.to(torch.device('cuda'))
+        return self
 
 
 def _check_valid_rotation_matrix(R, tol: float=1e-07):
@@ -3971,7 +4050,7 @@ class Rotate(Transform3d):
         if R.shape[-2:] != (3, 3):
             msg = 'R must have shape (3, 3) or (N, 3, 3); got %s'
             raise ValueError(msg % repr(R.shape))
-        R = R.to(dtype=dtype).to(device=device)
+        R = R.to(dtype=dtype)
         _check_valid_rotation_matrix(R, tol=orthogonal_tol)
         N = R.shape[0]
         mat = torch.eye(4, dtype=dtype, device=device)

@@ -6,8 +6,12 @@ setup = _module
 varflow = _module
 benchmark = _module
 main = _module
+main = _module
 net_params = _module
 rover_and_last_frame = _module
+main = _module
+main = _module
+main = _module
 config = _module
 gifmaker = _module
 msssim = _module
@@ -32,15 +36,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -66,16 +71,13 @@ import time
 from torch import nn
 
 
+from scipy.interpolate import NearestNDInterpolator
+
+
 import logging
 
 
 import torch.nn.functional as F
-
-
-_global_config['HKO'] = 4
-
-
-_global_config['GLOBAL'] = 4
 
 
 def make_layers(block):
@@ -195,7 +197,7 @@ class Weighted_mse_mae(nn.Module):
         if self._lambda is not None:
             S, B = mse.size()
             w = torch.arange(1.0, 1.0 + S * self._lambda, self._lambda)
-            if torch.is_available():
+            if torch.cuda.is_available():
                 w = w
             mse = (w * mse.permute(1, 0)).permute(1, 0)
             mae = (w * mae.permute(1, 0)).permute(1, 0)
@@ -222,7 +224,7 @@ class WeightedCrossEntropyLoss(nn.Module):
         if self._lambda is not None:
             B, S, H, W = error.size()
             w = torch.arange(1.0, 1.0 + S * self._lambda, self._lambda)
-            if torch.is_available():
+            if torch.cuda.is_available():
                 w = w
             error = (w * error.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
         error = error.permute(1, 0, 2, 3).unsqueeze(2)
@@ -282,6 +284,21 @@ class BaseConvRNN(nn.Module):
         self._state_width = (self._width + 2 * self._i2h_pad[1] - i2h_dilate_ksize_w) // self._i2h_stride[1] + 1
         self._curr_states = None
         self._counter = 0
+
+
+def wrap(input, flow):
+    B, C, H, W = input.size()
+    xx = torch.arange(0, W).view(1, -1).repeat(H, 1)
+    yy = torch.arange(0, H).view(-1, 1).repeat(1, W)
+    xx = xx.view(1, 1, H, W).repeat(B, 1, 1, 1)
+    yy = yy.view(1, 1, H, W).repeat(B, 1, 1, 1)
+    grid = torch.cat((xx, yy), 1).float()
+    vgrid = grid + flow
+    vgrid[:, (0), :, :] = 2.0 * vgrid[:, (0), :, :].clone() / max(W - 1, 1) - 1.0
+    vgrid[:, (1), :, :] = 2.0 * vgrid[:, (1), :, :].clone() / max(H - 1, 1) - 1.0
+    vgrid = vgrid.permute(0, 2, 3, 1)
+    output = torch.nn.functional.grid_sample(input, vgrid)
+    return output
 
 
 import torch

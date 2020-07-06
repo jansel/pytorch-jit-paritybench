@@ -51,6 +51,8 @@ cfg_test_lgcn_fashion = _module
 cfg_test_lgcn_ms1m = _module
 cfg_train_lgcn_fashion = _module
 cfg_train_lgcn_ms1m = _module
+build_dataloader = _module
+main = _module
 lgcn = _module
 online_evaluation = _module
 test_lgcn = _module
@@ -95,6 +97,7 @@ gcn_e_dataset = _module
 gcn_v_dataset = _module
 deduce = _module
 extract = _module
+main = _module
 gcn_e = _module
 gcn_v = _module
 utils = _module
@@ -107,15 +110,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -138,47 +142,68 @@ from torch.utils.data.dataloader import default_collate
 import math
 
 
+from torch.utils.data.sampler import Sampler
+
+
+from torch.utils.data.distributed import DistributedSampler as _DistributedSampler
+
+
 import torch.nn as nn
 
 
 from torch.nn.parameter import Parameter
 
 
+from collections import OrderedDict
+
+
 from torch.nn import init
+
+
+import scipy.sparse as sp
+
+
+import torch.distributed as dist
+
+
+import torch.multiprocessing as mp
+
+
+import time
+
+
+import random
 
 
 class GraphConv(nn.Module):
 
-    def __init__(self, in_features, out_features, bias=False):
+    def __init__(self, in_dim, out_dim, agg, dropout=0):
         super(GraphConv, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.weight = Parameter(torch.FloatTensor(in_features, out_features))
-        if bias:
-            self.bias = Parameter(torch.FloatTensor(out_features))
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.weight = nn.Parameter(torch.FloatTensor(in_dim * 2, out_dim))
+        self.bias = nn.Parameter(torch.FloatTensor(out_dim))
+        init.xavier_uniform_(self.weight)
+        init.constant_(self.bias, 0)
+        self.agg = agg()
+        self.dropout = dropout
+
+    def forward(self, features, A):
+        feat_dim = features.shape[-1]
+        assert feat_dim == self.in_dim
+        agg_feats = self.agg(features, A)
+        cat_feats = torch.cat([features, agg_feats], dim=-1)
+        if features.dim() == 2:
+            op = 'nd,df->nf'
+        elif features.dim() == 3:
+            op = 'bnd,df->bnf'
         else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        stdv = 1.0 / math.sqrt(self.weight.size(1))
-        self.weight.data.uniform_(-stdv, stdv)
-        if self.bias is not None:
-            self.bias.data.uniform_(-stdv, stdv)
-
-    def forward(self, x, adj, D=None):
-        if x.dim() == 3:
-            xw = torch.matmul(x, self.weight)
-            output = torch.bmm(adj, xw)
-        elif x.dim() == 2:
-            xw = torch.mm(x, self.weight)
-            output = torch.spmm(adj, xw)
-        if D is not None:
-            output = output * 1.0 / D
-        return output
-
-    def __repr__(self):
-        return '{} ({} -> {})'.format(self.__class__.__name__, self.in_features, self.out_features)
+            raise RuntimeError('the dimension of features should be 2 or 3')
+        out = torch.einsum(op, (cat_feats, self.weight))
+        out = F.relu(out + self.bias)
+        if self.dropout > 0:
+            out = F.dropout(out, self.dropout, training=self.training)
+        return out
 
 
 class BasicBlock(nn.Module):
@@ -252,36 +277,77 @@ class GNN(nn.Module):
             return x
 
 
+class GCN(GNN):
+
+    def __init__(self, planes, feature_dim, featureless, num_classes=1, dropout=0.0, reduce_method='max', stage='det', **kwargs):
+        super().__init__(planes, feature_dim, featureless, num_classes, dropout, reduce_method, stage, **kwargs)
+        self.layers = self._make_layer(BasicBlock, planes, dropout)
+        self.classifier = nn.Linear(self.inplanes, self.num_classes)
+
+    def _make_layer(self, block, planes, dropout=0.0):
+        layers = nn.ModuleList([])
+        for i, plane in enumerate(planes):
+            layers.append(block(self.inplanes, plane, dropout))
+            self.inplanes = plane
+        return layers
+
+    def extract(self, x, adj):
+        bs = x.size(0)
+        adj.detach_()
+        D = adj.sum(dim=2, keepdim=True)
+        D.detach_()
+        assert (D > 0).all(), 'D should larger than 0, otherwise gradient will be NaN.'
+        for layer in self.layers:
+            x = layer(x, adj, D)
+        x = self.pool(x)
+        x = x.view(-1, self.inplanes)
+        x = self.classifier(x)
+        if self.reduce_method == 'no_pool':
+            if self.num_classes > 1:
+                x = x.view(bs, -1, self.num_classes)
+                x = torch.transpose(x, 1, 2).contiguous()
+                x = F.log_softmax(x, dim=1)
+            else:
+                x = x.view(bs, -1)
+        return x
+
+
+class SGC(GNN):
+
+    def __init__(self, planes, feature_dim, featureless, num_classes=1, dropout=0.0, reduce_method='max', stage='det', **kwargs):
+        super().__init__(planes, feature_dim, featureless, num_classes, dropout, reduce_method, stage, **kwargs)
+        assert stage == 'det'
+        self.degree = len(planes)
+        self.classifier = nn.Linear(self.inplanes, num_classes)
+
+    def extract(self, x, adj):
+        adj.detach_()
+        D = adj.sum(dim=2, keepdim=True)
+        D.detach_()
+        assert (D > 0).all(), 'D should larger than 0, otherwise gradient will be NaN.'
+        for _ in range(self.degree):
+            if x.dim() == 3:
+                x = torch.bmm(adj, x) / D
+            elif x.dim() == 2:
+                x = torch.spmm(adj, x) / D
+        x = self.pool(x)
+        x = self.classifier(x)
+        return x
+
+
 class MeanAggregator(nn.Module):
 
     def __init__(self):
         super(MeanAggregator, self).__init__()
 
     def forward(self, features, A):
-        x = torch.bmm(A, features)
+        if features.dim() == 2:
+            x = torch.spmm(A, features)
+        elif features.dim() == 3:
+            x = torch.bmm(A, features)
+        else:
+            raise RuntimeError('the dimension of features should be 2 or 3')
         return x
-
-
-class GraphConv(nn.Module):
-
-    def __init__(self, in_dim, out_dim, agg):
-        super(GraphConv, self).__init__()
-        self.in_dim = in_dim
-        self.out_dim = out_dim
-        self.weight = nn.Parameter(torch.FloatTensor(in_dim * 2, out_dim))
-        self.bias = nn.Parameter(torch.FloatTensor(out_dim))
-        init.xavier_uniform_(self.weight)
-        init.constant_(self.bias, 0)
-        self.agg = agg()
-
-    def forward(self, features, A):
-        b, n, d = features.shape
-        assert d == self.in_dim
-        agg_feats = self.agg(features, A)
-        cat_feats = torch.cat([features, agg_feats], dim=2)
-        out = torch.einsum('bnd,df->bnf', (cat_feats, self.weight))
-        out = F.relu(out + self.bias)
-        return out
 
 
 class lgcn(nn.Module):
@@ -379,52 +445,6 @@ class GCN_V(nn.Module):
             loss = self.loss(pred, label)
             return pred, loss
         return pred
-
-
-class MeanAggregator(nn.Module):
-
-    def __init__(self):
-        super(MeanAggregator, self).__init__()
-
-    def forward(self, features, A):
-        if features.dim() == 2:
-            x = torch.spmm(A, features)
-        elif features.dim() == 3:
-            x = torch.bmm(A, features)
-        else:
-            raise RuntimeError('the dimension of features should be 2 or 3')
-        return x
-
-
-class GraphConv(nn.Module):
-
-    def __init__(self, in_dim, out_dim, agg, dropout=0):
-        super(GraphConv, self).__init__()
-        self.in_dim = in_dim
-        self.out_dim = out_dim
-        self.weight = nn.Parameter(torch.FloatTensor(in_dim * 2, out_dim))
-        self.bias = nn.Parameter(torch.FloatTensor(out_dim))
-        init.xavier_uniform_(self.weight)
-        init.constant_(self.bias, 0)
-        self.agg = agg()
-        self.dropout = dropout
-
-    def forward(self, features, A):
-        feat_dim = features.shape[-1]
-        assert feat_dim == self.in_dim
-        agg_feats = self.agg(features, A)
-        cat_feats = torch.cat([features, agg_feats], dim=-1)
-        if features.dim() == 2:
-            op = 'nd,df->nf'
-        elif features.dim() == 3:
-            op = 'bnd,df->bnf'
-        else:
-            raise RuntimeError('the dimension of features should be 2 or 3')
-        out = torch.einsum(op, (cat_feats, self.weight))
-        out = F.relu(out + self.bias)
-        if self.dropout > 0:
-            out = F.dropout(out, self.dropout, training=self.training)
-        return out
 
 
 import torch

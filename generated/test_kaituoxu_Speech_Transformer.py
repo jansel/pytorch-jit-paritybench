@@ -5,6 +5,8 @@ src = _module
 recognize = _module
 train = _module
 data = _module
+data = _module
+solver = _module
 solver = _module
 transformer = _module
 attention = _module
@@ -20,6 +22,7 @@ json2trn = _module
 mergejson = _module
 scp2json = _module
 text2token = _module
+utils = _module
 learn_pytorch = _module
 learn_visdom = _module
 test_data = _module
@@ -29,23 +32,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
 
 
 import numpy as np
 
 
-import torch
+import torch.utils.data as data
+
+
+import time
 
 
 import torch.nn as nn
@@ -55,6 +65,26 @@ import torch.nn.functional as F
 
 
 import math
+
+
+class ScaledDotProductAttention(nn.Module):
+    """ Scaled Dot-Product Attention """
+
+    def __init__(self, temperature, attn_dropout=0.1):
+        super().__init__()
+        self.temperature = temperature
+        self.dropout = nn.Dropout(attn_dropout)
+        self.softmax = nn.Softmax(dim=2)
+
+    def forward(self, q, k, v, mask=None):
+        attn = torch.bmm(q, k.transpose(1, 2))
+        attn = attn / self.temperature
+        if mask is not None:
+            attn = attn.masked_fill(mask, -np.inf)
+        attn = self.softmax(attn)
+        attn = self.dropout(attn)
+        output = torch.bmm(attn, v)
+        return output, attn
 
 
 class MultiHeadAttention(nn.Module):
@@ -99,27 +129,73 @@ class MultiHeadAttention(nn.Module):
         return output, attn
 
 
-class ScaledDotProductAttention(nn.Module):
-    """ Scaled Dot-Product Attention """
+class PositionwiseFeedForward(nn.Module):
+    """Implements position-wise feedforward sublayer.
 
-    def __init__(self, temperature, attn_dropout=0.1):
-        super().__init__()
-        self.temperature = temperature
-        self.dropout = nn.Dropout(attn_dropout)
-        self.softmax = nn.Softmax(dim=2)
+    FFN(x) = max(0, xW1 + b1)W2 + b2
+    """
 
-    def forward(self, q, k, v, mask=None):
-        attn = torch.bmm(q, k.transpose(1, 2))
-        attn = attn / self.temperature
-        if mask is not None:
-            attn = attn.masked_fill(mask, -np.inf)
-        attn = self.softmax(attn)
-        attn = self.dropout(attn)
-        output = torch.bmm(attn, v)
-        return output, attn
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super(PositionwiseFeedForward, self).__init__()
+        self.w_1 = nn.Linear(d_model, d_ff)
+        self.w_2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.layer_norm = nn.LayerNorm(d_model)
+
+    def forward(self, x):
+        residual = x
+        output = self.w_2(F.relu(self.w_1(x)))
+        output = self.dropout(output)
+        output = self.layer_norm(output + residual)
+        return output
+
+
+class DecoderLayer(nn.Module):
+    """ Compose with three layers """
+
+    def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
+        super(DecoderLayer, self).__init__()
+        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.enc_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
+
+    def forward(self, dec_input, enc_output, non_pad_mask=None, slf_attn_mask=None, dec_enc_attn_mask=None):
+        dec_output, dec_slf_attn = self.slf_attn(dec_input, dec_input, dec_input, mask=slf_attn_mask)
+        dec_output *= non_pad_mask
+        dec_output, dec_enc_attn = self.enc_attn(dec_output, enc_output, enc_output, mask=dec_enc_attn_mask)
+        dec_output *= non_pad_mask
+        dec_output = self.pos_ffn(dec_output)
+        dec_output *= non_pad_mask
+        return dec_output, dec_slf_attn, dec_enc_attn
 
 
 IGNORE_ID = -1
+
+
+class PositionalEncoding(nn.Module):
+    """Implement the positional encoding (PE) function.
+
+    PE(pos, 2i)   = sin(pos/(10000^(2i/dmodel)))
+    PE(pos, 2i+1) = cos(pos/(10000^(2i/dmodel)))
+    """
+
+    def __init__(self, d_model, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        pe = torch.zeros(max_len, d_model, requires_grad=False)
+        position = torch.arange(0, max_len).unsqueeze(1).float()
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
+
+    def forward(self, input):
+        """
+        Args:
+            input: N x T x D
+        """
+        length = input.size(1)
+        return self.pe[:, :length]
 
 
 def get_attn_key_pad_mask(seq_k, seq_q, pad_idx):
@@ -307,23 +383,23 @@ class Decoder(nn.Module):
         return nbest_hyps
 
 
-class DecoderLayer(nn.Module):
-    """ Compose with three layers """
+class EncoderLayer(nn.Module):
+    """Compose with two sub-layers.
+        1. A multi-head self-attention mechanism
+        2. A simple, position-wise fully connected feed-forward network.
+    """
 
     def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
-        super(DecoderLayer, self).__init__()
+        super(EncoderLayer, self).__init__()
         self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
-        self.enc_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
         self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
 
-    def forward(self, dec_input, enc_output, non_pad_mask=None, slf_attn_mask=None, dec_enc_attn_mask=None):
-        dec_output, dec_slf_attn = self.slf_attn(dec_input, dec_input, dec_input, mask=slf_attn_mask)
-        dec_output *= non_pad_mask
-        dec_output, dec_enc_attn = self.enc_attn(dec_output, enc_output, enc_output, mask=dec_enc_attn_mask)
-        dec_output *= non_pad_mask
-        dec_output = self.pos_ffn(dec_output)
-        dec_output *= non_pad_mask
-        return dec_output, dec_slf_attn, dec_enc_attn
+    def forward(self, enc_input, non_pad_mask=None, slf_attn_mask=None):
+        enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input, enc_input, mask=slf_attn_mask)
+        enc_output *= non_pad_mask
+        enc_output = self.pos_ffn(enc_output)
+        enc_output *= non_pad_mask
+        return enc_output, enc_slf_attn
 
 
 class Encoder(nn.Module):
@@ -368,72 +444,6 @@ class Encoder(nn.Module):
         if return_attns:
             return enc_output, enc_slf_attn_list
         return enc_output,
-
-
-class EncoderLayer(nn.Module):
-    """Compose with two sub-layers.
-        1. A multi-head self-attention mechanism
-        2. A simple, position-wise fully connected feed-forward network.
-    """
-
-    def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
-        super(EncoderLayer, self).__init__()
-        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
-        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
-
-    def forward(self, enc_input, non_pad_mask=None, slf_attn_mask=None):
-        enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input, enc_input, mask=slf_attn_mask)
-        enc_output *= non_pad_mask
-        enc_output = self.pos_ffn(enc_output)
-        enc_output *= non_pad_mask
-        return enc_output, enc_slf_attn
-
-
-class PositionalEncoding(nn.Module):
-    """Implement the positional encoding (PE) function.
-
-    PE(pos, 2i)   = sin(pos/(10000^(2i/dmodel)))
-    PE(pos, 2i+1) = cos(pos/(10000^(2i/dmodel)))
-    """
-
-    def __init__(self, d_model, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        pe = torch.zeros(max_len, d_model, requires_grad=False)
-        position = torch.arange(0, max_len).unsqueeze(1).float()
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
-
-    def forward(self, input):
-        """
-        Args:
-            input: N x T x D
-        """
-        length = input.size(1)
-        return self.pe[:, :length]
-
-
-class PositionwiseFeedForward(nn.Module):
-    """Implements position-wise feedforward sublayer.
-
-    FFN(x) = max(0, xW1 + b1)W2 + b2
-    """
-
-    def __init__(self, d_model, d_ff, dropout=0.1):
-        super(PositionwiseFeedForward, self).__init__()
-        self.w_1 = nn.Linear(d_model, d_ff)
-        self.w_2 = nn.Linear(d_ff, d_model)
-        self.dropout = nn.Dropout(dropout)
-        self.layer_norm = nn.LayerNorm(d_model)
-
-    def forward(self, x):
-        residual = x
-        output = self.w_2(F.relu(self.w_1(x)))
-        output = self.dropout(output)
-        output = self.layer_norm(output + residual)
-        return output
 
 
 class PositionwiseFeedForwardUseConv(nn.Module):

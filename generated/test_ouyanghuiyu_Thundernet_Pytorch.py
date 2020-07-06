@@ -45,6 +45,7 @@ example = _module
 roi_layers = _module
 ps_roi_align = _module
 ps_roi_pool = _module
+setup = _module
 psroialign = _module
 pollers = _module
 psroialign = _module
@@ -53,10 +54,13 @@ augmentation = _module
 minibatch = _module
 roibatchLoader = _module
 roidb = _module
+utils = _module
+setup = _module
 onnx = _module
 onnx_infer = _module
 rcnn_head_to_onnx = _module
 rpn_to_onnx = _module
+utils = _module
 test_net = _module
 trainval_net = _module
 
@@ -64,15 +68,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -140,6 +145,27 @@ from torch.autograd import Function
 from torch.autograd.function import once_differentiable
 
 
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from torchvision import transforms
+
+
+import types
+
+
+from numpy import random
+
+
+import torch.utils.data as data
+
+
 from torchvision import transforms as trans
 
 
@@ -147,6 +173,101 @@ from torch.utils.data import RandomSampler
 
 
 from torch.utils.data.sampler import Sampler
+
+
+class CEM(nn.Module):
+    """Context Enhancement Module"""
+
+    def __init__(self, in_channels1, in_channels2, in_channels3, feat_stride, kernel_size=1, stride=1):
+        super(CEM, self).__init__()
+        self.feat_stride = feat_stride
+        downsample_size = CEM_FILTER
+        if feat_stride == 8:
+            self.conv3 = nn.Conv2d(in_channels1 // 2, downsample_size, kernel_size, bias=True)
+        self.conv4 = nn.Conv2d(in_channels1, downsample_size, kernel_size, bias=True)
+        self.conv5 = nn.Conv2d(in_channels2, downsample_size, kernel_size, bias=True)
+        self.convlast = nn.Conv2d(in_channels3, downsample_size, kernel_size, bias=True)
+        self._initialize_weights()
+
+    def forward(self, inputs):
+        if self.feat_stride == 8:
+            C3_lat = self.conv3(inputs[0])
+            C4_lat = self.conv4(inputs[1])
+            C4_lat = F.interpolate(C4_lat, size=[C3_lat.size(2), C3_lat.size(3)], mode='nearest')
+            C5_lat = self.conv5(inputs[2])
+            C5_lat = F.interpolate(C5_lat, size=[C3_lat.size(2), C3_lat.size(3)], mode='nearest')
+            C6_lat = self.convlast(inputs[3])
+            out = C3_lat + C4_lat + C5_lat + C6_lat
+        else:
+            C4_lat = self.conv4(inputs[0])
+            C5_lat = self.conv5(inputs[1])
+            C5_lat = F.interpolate(C5_lat, size=[C4_lat.size(2), C4_lat.size(3)], mode='nearest')
+            C6_lat = self.convlast(inputs[2])
+            out = C4_lat + C5_lat + C6_lat
+        return out
+
+    def _initialize_weights(self):
+        for name, m in self.named_modules():
+            if isinstance(m, nn.Conv2d):
+                if 'first' in name:
+                    nn.init.normal_(m.weight, 0, 0.01)
+                else:
+                    nn.init.normal_(m.weight, 0, 1.0 / m.weight.shape[1])
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0001)
+                nn.init.constant_(m.running_mean, 0)
+            elif isinstance(m, nn.BatchNorm1d):
+                nn.init.constant_(m.weight, 1)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0.0001)
+                nn.init.constant_(m.running_mean, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+
+class ShuffleV2Block(nn.Module):
+
+    def __init__(self, inp, oup, mid_channels, *, ksize, stride):
+        super(ShuffleV2Block, self).__init__()
+        self.stride = stride
+        assert stride in [1, 2]
+        self.mid_channels = mid_channels
+        self.ksize = ksize
+        pad = ksize // 2
+        self.pad = pad
+        self.inp = inp
+        outputs = oup - inp
+        branch_main = [nn.Conv2d(inp, mid_channels, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_channels), nn.ReLU(inplace=True), nn.Conv2d(mid_channels, mid_channels, ksize, stride, pad, groups=mid_channels, bias=False), nn.BatchNorm2d(mid_channels), nn.Conv2d(mid_channels, outputs, 1, 1, 0, bias=False), nn.BatchNorm2d(outputs), nn.ReLU(inplace=True)]
+        self.branch_main = nn.Sequential(*branch_main)
+        if stride == 2:
+            branch_proj = [nn.Conv2d(inp, inp, ksize, stride, pad, groups=inp, bias=False), nn.BatchNorm2d(inp), nn.Conv2d(inp, inp, 1, 1, 0, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True)]
+            self.branch_proj = nn.Sequential(*branch_proj)
+        else:
+            self.branch_proj = None
+
+    def forward(self, old_x):
+        if self.stride == 1:
+            x_proj, x = self.channel_shuffle(old_x)
+            return torch.cat((x_proj, self.branch_main(x)), 1)
+        elif self.stride == 2:
+            x_proj = old_x
+            x = old_x
+            return torch.cat((self.branch_proj(x_proj), self.branch_main(x)), 1)
+
+    def channel_shuffle(self, x):
+        g = 2
+        x = x.reshape(x.shape[0], g, x.shape[1] // g, x.shape[2], x.shape[3])
+        x = x.permute(0, 2, 1, 3, 4)
+        x = x.reshape(x.shape[0], -1, x.shape[3], x.shape[4])
+        x_proj = x[:, :x.shape[1] // 2, :, :]
+        x = x[:, x.shape[1] // 2:, :, :]
+        return x_proj, x
 
 
 def conv_bn(inp, oup, stride):
@@ -196,7 +317,7 @@ class SnetExtractor(nn.Module):
                     p.requires_grad = False
         if self.model_path is not None:
             None
-            if torch.is_available():
+            if torch.cuda.is_available():
                 state_dict = torch.load(self.model_path)['state_dict']
             else:
                 state_dict = torch.load(self.model_path, map_location=lambda storage, loc: storage)['state_dict']
@@ -254,219 +375,6 @@ class SnetExtractor(nn.Module):
         elif cfg.FEAT_STRIDE == 8:
             cem_out = self.cem([c3, c4, c5, Cglb_lat])
         return cem_out
-
-
-def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_weights, sigma=1.0, dim=[1], reduce='mean'):
-    sigma_2 = sigma ** 2
-    box_diff = bbox_pred - bbox_targets
-    in_box_diff = bbox_inside_weights * box_diff
-    abs_in_box_diff = torch.abs(in_box_diff)
-    smoothL1_sign = (abs_in_box_diff < 1.0 / sigma_2).detach().float()
-    in_loss_box = torch.pow(in_box_diff, 2) * (sigma_2 / 2.0) * smoothL1_sign + (abs_in_box_diff - 0.5 / sigma_2) * (1.0 - smoothL1_sign)
-    out_loss_box = bbox_outside_weights * in_loss_box
-    loss_box = out_loss_box
-    for i in sorted(dim, reverse=True):
-        loss_box = loss_box.sum(i)
-    if reduce == 'mean':
-        loss_box = loss_box.mean()
-    elif reduce == 'sum':
-        loss_box = loss_box.sum()
-    return loss_box
-
-
-def hard_negative_mining(loss, labels, neg_pos_ratio=3):
-    """
-    It used to suppress the presence of a large number of negative prediction.
-    It works on image level not batch level.
-    For any example/image, it keeps all the positive predictions and
-     cut the number of negative predictions to make sure the ratio
-     between the negative examples and positive examples is no more
-     the given ratio for an image.
-    Args:
-        loss (N, num_anchors): the loss for each example.
-        labels (N, num_anchors): the labels.
-        neg_pos_ratio:  the ratio between the negative examples and positive examples.
-    """
-    pos_mask = labels > 0
-    num_pos = pos_mask.long().sum(dim=0, keepdim=True)
-    num_neg = num_pos * neg_pos_ratio
-    loss[pos_mask] = -math.inf
-    _, indexes = loss.sort(descending=True)
-    _, orders = indexes.sort()
-    neg_mask = orders < num_neg
-    return pos_mask | neg_mask, num_pos.cpu().numpy()[0]
-
-
-_global_config['POOLING_MODE'] = 4
-
-
-_global_config['FEAT_STRIDE'] = 4
-
-
-_global_config['TRAIN'] = 4
-
-
-class _fasterRCNN(nn.Module):
-    """ faster RCNN """
-
-    def __init__(self, classes, class_agnostic, compact_mode=False):
-        super(_fasterRCNN, self).__init__()
-        self.classes = classes
-        self.n_classes = len(classes)
-        self.class_agnostic = class_agnostic
-        self.RCNN_loss_cls = 0
-        self.RCNN_loss_bbox = 0
-        self.rpn = RPN(in_channels=245, f_channels=256)
-        self.sam = SAM(256, 245)
-        self.RCNN_rpn = _RPN(self.dout_base_model)
-        self.RCNN_proposal_target = _ProposalTargetLayer(self.n_classes)
-        self.rpn_time = None
-        self.pre_roi_time = None
-        self.roi_pooling_time = None
-        self.subnet_time = None
-        self.psroiAlign = PSROIAlignhandle(1.0 / cfg.FEAT_STRIDE, 7, 2, 5)
-        self.psroiPool = PSROIPoolhandle(7, 7, 1.0 / cfg.FEAT_STRIDE, 7, 5)
-
-    def _roi_pool_layer(self, bottom, rois):
-        return self.psroiPool.forward(bottom, rois)
-
-    def _roi_align_layer(self, bottom, rois):
-        return self.psroiAlign.forward(bottom, rois)
-
-    def forward(self, im_data, im_info, gt_boxes, num_boxes):
-        batch_size = im_data.size(0)
-        im_info = im_info.data
-        gt_boxes = gt_boxes.data
-        num_boxes = num_boxes.data
-        start = time.time()
-        basefeat = self.RCNN_base(im_data)
-        rpn_feat = self.rpn(basefeat)
-        rois, rpn_loss_cls, rpn_loss_bbox = self.RCNN_rpn(rpn_feat, im_info, gt_boxes, num_boxes)
-        rpn_time = time.time()
-        self.rpn_time = rpn_time - start
-        if self.training:
-            roi_data = self.RCNN_proposal_target(rois, gt_boxes, num_boxes)
-            rois, rois_label, rois_target, rois_inside_ws, rois_outside_ws = roi_data
-            rois_label = Variable(rois_label.view(-1).long())
-            rois_target = Variable(rois_target.view(-1, rois_target.size(2)))
-            rois_inside_ws = Variable(rois_inside_ws.view(-1, rois_inside_ws.size(2)))
-            rois_outside_ws = Variable(rois_outside_ws.view(-1, rois_outside_ws.size(2)))
-        else:
-            rois_label = None
-            rois_target = None
-            rois_inside_ws = None
-            rois_outside_ws = None
-            rpn_loss_cls = 0
-            rpn_loss_bbox = 0
-        rois = Variable(rois)
-        pre_roi_time = time.time()
-        self.pre_roi_time = pre_roi_time - rpn_time
-        base_feat = self.sam([basefeat, rpn_feat])
-        if cfg.POOLING_MODE == 'align':
-            pooled_feat = self._roi_align_layer(base_feat, rois.view(-1, 5))
-        elif cfg.POOLING_MODE == 'pool':
-            pooled_feat = self._roi_pool_layer(base_feat, rois.view(-1, 5))
-        roi_pool_time = time.time()
-        self.roi_pooling_time = roi_pool_time - pre_roi_time
-        pooled_feat = self._head_to_tail(pooled_feat)
-        bbox_pred = self.RCNN_bbox_pred(pooled_feat)
-        if self.training and not self.class_agnostic:
-            bbox_pred_view = bbox_pred.view(bbox_pred.size(0), int(bbox_pred.size(1) / 4), 4)
-            bbox_pred_select = torch.gather(bbox_pred_view, 1, rois_label.view(rois_label.size(0), 1, 1).expand(rois_label.size(0), 1, 4))
-            bbox_pred = bbox_pred_select.squeeze(1)
-        cls_score = self.RCNN_cls_score(pooled_feat)
-        cls_prob = F.softmax(cls_score, 1)
-        RCNN_loss_cls = 0
-        RCNN_loss_bbox = 0
-        if self.training:
-            loss = -F.log_softmax(cls_score, dim=1)[:, (0)]
-            mask, num_pos = hard_negative_mining(loss, rois_label)
-            confidence = cls_score[(mask), :]
-            RCNN_loss_cls = F.cross_entropy(confidence, rois_label[mask], reduction='mean')
-            RCNN_loss_bbox = _smooth_l1_loss(bbox_pred, rois_target, rois_inside_ws, rois_outside_ws)
-            RCNN_loss_bbox = RCNN_loss_bbox * 2
-        cls_prob = cls_prob.view(batch_size, rois.size(1), -1)
-        bbox_pred = bbox_pred.view(batch_size, rois.size(1), -1)
-        subnet_time = time.time()
-        self.subnet_time = subnet_time - roi_pool_time
-        time_measure = [self.rpn_time, self.pre_roi_time, self.roi_pooling_time, self.subnet_time]
-        return time_measure, rois, cls_prob, bbox_pred, rpn_loss_cls, rpn_loss_bbox, RCNN_loss_cls, RCNN_loss_bbox, rois_label
-
-    def _init_weights(self):
-
-        def normal_init(m, mean, stddev, truncated=False):
-            """
-            weight initalizer: truncated normal and random normal.
-            """
-            if truncated:
-                m.weight.data.normal_().fmod_(2).mul_(stddev).add_(mean)
-            else:
-                m.weight.data.normal_(mean, stddev)
-                m.bias.data.zero_()
-        normal_init(self.RCNN_rpn.RPN_cls_score, 0, 0.01, cfg.TRAIN.TRUNCATED)
-        normal_init(self.RCNN_rpn.RPN_bbox_pred, 0, 0.01, cfg.TRAIN.TRUNCATED)
-        normal_init(self.RCNN_cls_score, 0, 0.01, cfg.TRAIN.TRUNCATED)
-        normal_init(self.RCNN_bbox_pred, 0, 0.001, cfg.TRAIN.TRUNCATED)
-
-    def create_architecture(self):
-        self._init_modules()
-        self._init_weights()
-
-
-class CEM(nn.Module):
-    """Context Enhancement Module"""
-
-    def __init__(self, in_channels1, in_channels2, in_channels3, feat_stride, kernel_size=1, stride=1):
-        super(CEM, self).__init__()
-        self.feat_stride = feat_stride
-        downsample_size = CEM_FILTER
-        if feat_stride == 8:
-            self.conv3 = nn.Conv2d(in_channels1 // 2, downsample_size, kernel_size, bias=True)
-        self.conv4 = nn.Conv2d(in_channels1, downsample_size, kernel_size, bias=True)
-        self.conv5 = nn.Conv2d(in_channels2, downsample_size, kernel_size, bias=True)
-        self.convlast = nn.Conv2d(in_channels3, downsample_size, kernel_size, bias=True)
-        self._initialize_weights()
-
-    def forward(self, inputs):
-        if self.feat_stride == 8:
-            C3_lat = self.conv3(inputs[0])
-            C4_lat = self.conv4(inputs[1])
-            C4_lat = F.interpolate(C4_lat, size=[C3_lat.size(2), C3_lat.size(3)], mode='nearest')
-            C5_lat = self.conv5(inputs[2])
-            C5_lat = F.interpolate(C5_lat, size=[C3_lat.size(2), C3_lat.size(3)], mode='nearest')
-            C6_lat = self.convlast(inputs[3])
-            out = C3_lat + C4_lat + C5_lat + C6_lat
-        else:
-            C4_lat = self.conv4(inputs[0])
-            C5_lat = self.conv5(inputs[1])
-            C5_lat = F.interpolate(C5_lat, size=[C4_lat.size(2), C4_lat.size(3)], mode='nearest')
-            C6_lat = self.convlast(inputs[2])
-            out = C4_lat + C5_lat + C6_lat
-        return out
-
-    def _initialize_weights(self):
-        for name, m in self.named_modules():
-            if isinstance(m, nn.Conv2d):
-                if 'first' in name:
-                    nn.init.normal_(m.weight, 0, 0.01)
-                else:
-                    nn.init.normal_(m.weight, 0, 1.0 / m.weight.shape[1])
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0.0001)
-                nn.init.constant_(m.running_mean, 0)
-            elif isinstance(m, nn.BatchNorm1d):
-                nn.init.constant_(m.weight, 1)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0.0001)
-                nn.init.constant_(m.running_mean, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
 
 
 anchor_number = 25
@@ -562,43 +470,51 @@ class SAM(torch.nn.Module):
                     nn.init.constant_(m.bias, 0)
 
 
-class ShuffleV2Block(nn.Module):
+class _RPN(nn.Module):
+    """ region proposal network """
 
-    def __init__(self, inp, oup, mid_channels, *, ksize, stride):
-        super(ShuffleV2Block, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        self.mid_channels = mid_channels
-        self.ksize = ksize
-        pad = ksize // 2
-        self.pad = pad
-        self.inp = inp
-        outputs = oup - inp
-        branch_main = [nn.Conv2d(inp, mid_channels, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_channels), nn.ReLU(inplace=True), nn.Conv2d(mid_channels, mid_channels, ksize, stride, pad, groups=mid_channels, bias=False), nn.BatchNorm2d(mid_channels), nn.Conv2d(mid_channels, outputs, 1, 1, 0, bias=False), nn.BatchNorm2d(outputs), nn.ReLU(inplace=True)]
-        self.branch_main = nn.Sequential(*branch_main)
-        if stride == 2:
-            branch_proj = [nn.Conv2d(inp, inp, ksize, stride, pad, groups=inp, bias=False), nn.BatchNorm2d(inp), nn.Conv2d(inp, inp, 1, 1, 0, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True)]
-            self.branch_proj = nn.Sequential(*branch_proj)
-        else:
-            self.branch_proj = None
+    def __init__(self, din):
+        super(_RPN, self).__init__()
+        self.din = din
+        self.nc_score_out = 25 * 2
+        self.RPN_cls_score = nn.Conv2d(self.din, self.nc_score_out, 1, 1, 0)
+        self.nc_bbox_out = 25 * 4
+        self.RPN_bbox_pred = nn.Conv2d(self.din, self.nc_bbox_out, 1, 1, 0)
+        self.softmax = nn.Softmax(1)
 
-    def forward(self, old_x):
-        if self.stride == 1:
-            x_proj, x = self.channel_shuffle(old_x)
-            return torch.cat((x_proj, self.branch_main(x)), 1)
-        elif self.stride == 2:
-            x_proj = old_x
-            x = old_x
-            return torch.cat((self.branch_proj(x_proj), self.branch_main(x)), 1)
+    @staticmethod
+    def reshape(x, d):
+        input_shape = x.size()
+        x = x.view(input_shape[0], int(d), int(float(input_shape[1] * input_shape[2]) / float(d)), input_shape[3])
+        return x
 
-    def channel_shuffle(self, x):
-        g = 2
-        x = x.reshape(x.shape[0], g, x.shape[1] // g, x.shape[2], x.shape[3])
-        x = x.permute(0, 2, 1, 3, 4)
-        x = x.reshape(x.shape[0], -1, x.shape[3], x.shape[4])
-        x_proj = x[:, :x.shape[1] // 2, :, :]
-        x = x[:, x.shape[1] // 2:, :, :]
-        return x_proj, x
+    def forward(self, base_feat):
+        rpn_cls_score = self.RPN_cls_score(base_feat)
+        rpn_cls_score_reshape = self.reshape(rpn_cls_score, 2)
+        rpn_cls_prob_reshape = self.softmax(rpn_cls_score_reshape)
+        rpn_cls_prob = self.reshape(rpn_cls_prob_reshape, self.nc_score_out)
+        rpn_bbox_pred = self.RPN_bbox_pred(base_feat)
+        return rpn_cls_prob, rpn_bbox_pred
+
+
+class _fasterRCNN(nn.Module):
+    """ faster RCNN """
+
+    def __init__(self):
+        super(_fasterRCNN, self).__init__()
+        self.RCNN_base = SnetExtractor(146)
+        self.RCNN_loss_cls = 0
+        self.RCNN_loss_bbox = 0
+        self.rpn = RPN(in_channels=245, f_channels=256)
+        self.sam = SAM(256, 245)
+        self.RCNN_rpn = _RPN(256)
+
+    def forward(self, im_data):
+        basefeat = self.RCNN_base(im_data)
+        rpn_feat = self.rpn(basefeat)
+        rpn_cls_prob, rpn_bbox_pred = self.RCNN_rpn(rpn_feat)
+        base_feat = self.sam([basefeat, rpn_feat])
+        return [rpn_cls_prob, rpn_bbox_pred, base_feat]
 
 
 def _neg_loss(pred, gt):
@@ -1067,139 +983,6 @@ class _AnchorTargetLayer(nn.Module):
         pass
 
 
-def _nms(heat, kernel=3):
-    pad = (kernel - 1) // 2
-    hmax = nn.functional.max_pool2d(heat, (kernel, kernel), stride=1, padding=pad)
-    keep = (hmax == heat).float()
-    return heat * keep
-
-
-def _topk(scores, K=40):
-    batch, cat, height, width = scores.size()
-    topk_scores, topk_inds = torch.topk(scores.view(batch, cat, -1), K)
-    topk_inds = topk_inds % (height * width)
-    topk_ys = (topk_inds / width).int().float()
-    topk_xs = (topk_inds % width).int().float()
-    topk_score, topk_ind = torch.topk(topk_scores.view(batch, -1), K)
-    topk_clses = (topk_ind / K).int()
-    topk_inds = _gather_feat(topk_inds.view(batch, -1, 1), topk_ind).view(batch, K)
-    topk_ys = _gather_feat(topk_ys.view(batch, -1, 1), topk_ind).view(batch, K)
-    topk_xs = _gather_feat(topk_xs.view(batch, -1, 1), topk_ind).view(batch, K)
-    return topk_score, topk_inds, topk_clses, topk_ys, topk_xs
-
-
-def ctdet_decode(heat, wh, reg=None, cat_spec_wh=False, K=100):
-    batch, cat, height, width = heat.size()
-    heat = _nms(heat)
-    scores, inds, clses, ys, xs = _topk(heat, K=K)
-    if reg is not None:
-        reg = _tranpose_and_gather_feat(reg, inds)
-        reg = reg.view(batch, K, 2)
-        xs = xs.view(batch, K, 1) + reg[:, :, 0:1]
-        ys = ys.view(batch, K, 1) + reg[:, :, 1:2]
-    else:
-        xs = xs.view(batch, K, 1) + 0.5
-        ys = ys.view(batch, K, 1) + 0.5
-    wh = _tranpose_and_gather_feat(wh, inds)
-    if cat_spec_wh:
-        wh = wh.view(batch, K, cat, 2)
-        clses_ind = clses.view(batch, K, 1, 1).expand(batch, K, 1, 2).long()
-        wh = wh.gather(2, clses_ind).view(batch, K, 2)
-    else:
-        wh = wh.view(batch, K, 2)
-    clses = clses.view(batch, K, 1).float()
-    scores = scores.view(batch, K, 1)
-    bboxes = torch.cat([xs - wh[(...), 0:1] / 2, ys - wh[(...), 1:2] / 2, xs + wh[(...), 0:1] / 2, ys + wh[(...), 1:2] / 2], dim=2)
-    detections = torch.cat([bboxes, scores, clses], dim=2)
-    return detections
-
-
-class _ProposalLayer(nn.Module):
-    """
-    Outputs object detection proposals by applying estimated bounding-box
-    transformations to a set of regular boxes (called "anchors").
-    """
-
-    def __init__(self, feat_stride):
-        super(_ProposalLayer, self).__init__()
-        self._feat_stride = feat_stride
-
-    def forward(self, input):
-        scores = input[0]
-        wh_deltas = input[1]
-        offset_deltas = input[2]
-        im_info = input[3]
-        cfg_key = input[4]
-        post_nms_topN = cfg[cfg_key].RPN_POST_NMS_TOP_N
-        detections = ctdet_decode(scores, wh_deltas, offset_deltas, K=post_nms_topN)
-        detections[:, :, :4] *= self._feat_stride
-        batch_size = scores.size(0)
-        output = scores.new(batch_size, post_nms_topN, 5).zero_()
-        for i in range(batch_size):
-            output[(i), :, (0)] = i
-            output[(i), :, 1:] = detections[(i), :, :4]
-        return output
-
-    def backward(self, top, propagate_down, bottom):
-        """This layer does not propagate gradients."""
-        pass
-
-    def reshape(self, bottom, top):
-        """Reshaping happens during the call to forward."""
-        pass
-
-    def _filter_boxes(self, boxes, min_size):
-        """Remove all boxes with any side smaller than min_size."""
-        ws = boxes[:, :, (2)] - boxes[:, :, (0)] + 1
-        hs = boxes[:, :, (3)] - boxes[:, :, (1)] + 1
-        keep = (ws >= min_size.view(-1, 1).expand_as(ws)) & (hs >= min_size.view(-1, 1).expand_as(hs))
-        return keep
-
-
-class _RPN(nn.Module):
-    """ region proposal network """
-
-    def __init__(self, din):
-        super(_RPN, self).__init__()
-        self.din = din
-        self.feat_stride = cfg.FEAT_STRIDE
-        self.RPN_hm_score = nn.Conv2d(self.din, 1, 1, 1, 0)
-        self.PRN_wh_score = nn.Conv2d(self.din, 2, 1, 1, 0)
-        self.PRN_offset_score = nn.Conv2d(self.din, 2, 1, 1, 0)
-        self.RPN_proposal = _ProposalLayer(self.feat_stride)
-        self.crit = FocalLoss()
-        self.crit_offset = RegL1Loss()
-        self.crit_wh = RegL1Loss()
-        self.rpn_loss_hm = 0
-        self.rpn_loss_wh = 0
-        self.rpn_loss_offset = 0
-
-    @staticmethod
-    def reshape(x, d):
-        input_shape = x.size()
-        x = x.view(input_shape[0], int(d), int(float(input_shape[1] * input_shape[2]) / float(d)), input_shape[3])
-        return x
-
-    def forward(self, base_feat, im_info, gt_boxes, num_boxes, hm, reg_mask, wh, offset, ind):
-        batch_size = base_feat.size(0)
-        rpn_hm_score = self.RPN_hm_score(base_feat)
-        rpn_cls_prob = F.sigmoid(rpn_hm_score)
-        rpn_wh_pred = self.PRN_wh_score(base_feat)
-        rpn_offset_pred = self.PRN_offset_score(base_feat)
-        cfg_key = 'TRAIN' if self.training else 'TEST'
-        self.rpn_loss_cls = 0
-        self.rpn_loss_box = 0
-        if self.training:
-            assert gt_boxes is not None
-            hm_loss = self.crit(rpn_cls_prob, hm)
-            offset_loss = self.crit_offset(rpn_offset_pred, reg_mask, ind, offset)
-            wh_loss = self.crit_wh(rpn_wh_pred, reg_mask, ind, wh)
-            self.rpn_loss_cls = hm_loss + offset_loss
-            self.rpn_loss_box = wh_loss
-        rois = self.RPN_proposal((rpn_cls_prob, rpn_wh_pred, rpn_offset_pred, im_info, cfg_key))
-        return rois, self.rpn_loss_cls, self.rpn_loss_box
-
-
 def bbox_transform_inv(boxes, deltas, batch_size):
     widths = boxes[:, :, (2)] - boxes[:, :, (0)] + 1.0
     heights = boxes[:, :, (3)] - boxes[:, :, (1)] + 1.0
@@ -1435,69 +1218,6 @@ class _ProposalTargetLayer(nn.Module):
         return labels_batch, rois_batch, bbox_targets, bbox_inside_weights
 
 
-_global_config['ANCHOR_RATIOS'] = 4
-
-
-_global_config['ANCHOR_SCALES'] = 4
-
-
-class _RPN(nn.Module):
-    """ region proposal network """
-
-    def __init__(self, din):
-        super(_RPN, self).__init__()
-        self.din = din
-        self.anchor_scales = cfg.ANCHOR_SCALES
-        self.anchor_ratios = cfg.ANCHOR_RATIOS
-        self.feat_stride = cfg.FEAT_STRIDE
-        self.nc_score_out = len(self.anchor_scales) * len(self.anchor_ratios) * 2
-        self.RPN_cls_score = nn.Conv2d(self.din, self.nc_score_out, 1, 1, 0)
-        self.nc_bbox_out = len(self.anchor_scales) * len(self.anchor_ratios) * 4
-        self.RPN_bbox_pred = nn.Conv2d(self.din, self.nc_bbox_out, 1, 1, 0)
-        self.RPN_proposal = _ProposalLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
-        self.RPN_anchor_target = _AnchorTargetLayer(self.feat_stride, self.anchor_scales, self.anchor_ratios)
-        self.rpn_loss_cls = 0
-        self.rpn_loss_box = 0
-
-    @staticmethod
-    def reshape(x, d):
-        input_shape = x.size()
-        x = x.view(input_shape[0], int(d), int(float(input_shape[1] * input_shape[2]) / float(d)), input_shape[3])
-        return x
-
-    def forward(self, base_feat, im_info, gt_boxes, num_boxes):
-        batch_size = base_feat.size(0)
-        rpn_cls_score = self.RPN_cls_score(base_feat)
-        rpn_cls_score_reshape = self.reshape(rpn_cls_score, 2)
-        rpn_cls_prob_reshape = F.softmax(rpn_cls_score_reshape, 1)
-        rpn_cls_prob = self.reshape(rpn_cls_prob_reshape, self.nc_score_out)
-        rpn_bbox_pred = self.RPN_bbox_pred(base_feat)
-        cfg_key = 'TRAIN' if self.training else 'TEST'
-        rois = self.RPN_proposal((rpn_cls_prob.data, rpn_bbox_pred.data, im_info, cfg_key))
-        self.rpn_loss_cls = 0
-        self.rpn_loss_box = 0
-        if self.training:
-            assert gt_boxes is not None
-            rpn_data = self.RPN_anchor_target((rpn_cls_score.data, gt_boxes, im_info, num_boxes))
-            rpn_cls_score = rpn_cls_score_reshape.permute(0, 2, 3, 1).contiguous().view(batch_size, -1, 2)
-            rpn_label = rpn_data[0].view(batch_size, -1)
-            rpn_keep = Variable(rpn_label.view(-1).ne(-1).nonzero().view(-1))
-            rpn_cls_score = torch.index_select(rpn_cls_score.view(-1, 2), 0, rpn_keep)
-            rpn_label = torch.index_select(rpn_label.view(-1), 0, rpn_keep.data)
-            rpn_label = Variable(rpn_label.long())
-            loss = -F.log_softmax(rpn_cls_score, dim=1)[:, (0)]
-            mask, num_pos = hard_negative_mining(loss, rpn_label)
-            confidence = rpn_cls_score[(mask), :]
-            self.rpn_loss_cls = F.cross_entropy(confidence.reshape(-1, 2), rpn_label[mask], reduction='mean')
-            fg_cnt = torch.sum(rpn_label.data.ne(0))
-            rpn_bbox_targets, rpn_bbox_inside_weights, rpn_bbox_outside_weights = rpn_data[1:]
-            rpn_bbox_inside_weights = Variable(rpn_bbox_inside_weights)
-            rpn_bbox_outside_weights = Variable(rpn_bbox_outside_weights)
-            rpn_bbox_targets = Variable(rpn_bbox_targets)
-            self.rpn_loss_box = _smooth_l1_loss(rpn_bbox_pred, rpn_bbox_targets, rpn_bbox_inside_weights, rpn_bbox_outside_weights, sigma=3, dim=[1, 2, 3])
-        return rois, self.rpn_loss_cls, self.rpn_loss_box
-
-
 class InvertedResidual(nn.Module):
 
     def __init__(self, inp, oup, stride, expand_ratio):
@@ -1656,21 +1376,6 @@ class _Block(nn.Module):
         return x
 
 
-class PSROIAlignExample(nn.Module):
-
-    def __init__(self, spatial_scale=1.0 / 16.0, roi_size=7, sample_ratio=2, pooled_dim=10):
-        super(PSROIAlignExample, self).__init__()
-        self.psroialign = PSROIAlign(spatial_scale=spatial_scale, roi_size=roi_size, sampling_ratio=sample_ratio, pooled_dim=pooled_dim)
-
-    def forward(self, feat, rois):
-        None
-        None
-        None
-        pooled_feat = self.psroialign(feat, rois)
-        None
-        return pooled_feat
-
-
 class _PSROIAlign(Function):
 
     @staticmethod
@@ -1681,8 +1386,8 @@ class _PSROIAlign(Function):
         ctx.pooled_dim = pooled_dim
         ctx.feature_size = bottom_data.size()
         num_rois = bottom_rois.size(0)
-        top_data = torch.zeros([num_rois, pooled_dim, roi_size, roi_size], dtype=torch.float32).to(bottom_data.device)
-        argmax_data = torch.zeros([num_rois, pooled_dim, roi_size, roi_size], dtype=torch.int32).to(bottom_data.device)
+        top_data = torch.zeros([num_rois, pooled_dim, roi_size, roi_size], dtype=torch.float32)
+        argmax_data = torch.zeros([num_rois, pooled_dim, roi_size, roi_size], dtype=torch.int32)
         if bottom_data.is_cuda:
             _C.ps_roi_align_forward(bottom_data, bottom_rois, top_data, argmax_data, spatial_scale, roi_size, sampling_ratio)
             ctx.save_for_backward(bottom_rois, argmax_data)
@@ -1700,7 +1405,7 @@ class _PSROIAlign(Function):
         [bottom_rois, argmax_data] = ctx.saved_tensors
         bottom_diff = None
         if ctx.needs_input_grad[0]:
-            bottom_diff = torch.zeros([batch_size, channels, height, width], dtype=torch.float32).to(top_diff.device)
+            bottom_diff = torch.zeros([batch_size, channels, height, width], dtype=torch.float32)
             _C.ps_roi_align_backward(top_diff, argmax_data, bottom_rois, bottom_diff, spatial_scale, roi_size, sampling_ratio)
         return bottom_diff, None, None, None, None, None
 
@@ -1730,6 +1435,21 @@ class PSROIAlign(nn.Module):
         return tmpstr
 
 
+class PSROIAlignExample(nn.Module):
+
+    def __init__(self, spatial_scale=1.0 / 16.0, roi_size=7, sample_ratio=2, pooled_dim=10):
+        super(PSROIAlignExample, self).__init__()
+        self.psroialign = PSROIAlign(spatial_scale=spatial_scale, roi_size=roi_size, sampling_ratio=sample_ratio, pooled_dim=pooled_dim)
+
+    def forward(self, feat, rois):
+        None
+        None
+        None
+        pooled_feat = self.psroialign(feat, rois)
+        None
+        return pooled_feat
+
+
 class _PSROIPool(Function):
 
     @staticmethod
@@ -1740,8 +1460,8 @@ class _PSROIPool(Function):
         ctx.group_size = int(group_size)
         ctx.output_dim = int(output_dim)
         num_rois = rois.size()[0]
-        output = torch.zeros(num_rois, ctx.output_dim, ctx.pooled_height, ctx.pooled_width).to(features.device)
-        mappingchannel = torch.IntTensor(num_rois, ctx.output_dim, ctx.pooled_height, ctx.pooled_width).zero_().to(features.device)
+        output = torch.zeros(num_rois, ctx.output_dim, ctx.pooled_height, ctx.pooled_width)
+        mappingchannel = torch.IntTensor(num_rois, ctx.output_dim, ctx.pooled_height, ctx.pooled_width).zero_()
         _C.ps_roi_pool_forward(ctx.pooled_height, ctx.pooled_width, ctx.spatial_scale, ctx.group_size, ctx.output_dim, features, rois, output, mappingchannel)
         ctx.save_for_backward(rois, mappingchannel)
         ctx.feature_size = features.size()
@@ -1755,7 +1475,7 @@ class _PSROIPool(Function):
         [rois, mappingchannel] = ctx.saved_tensors
         grad_input = None
         if ctx.needs_input_grad[0]:
-            grad_input = torch.zeros(batch_size, num_channels, data_height, data_width).to(grad_output.device)
+            grad_input = torch.zeros(batch_size, num_channels, data_height, data_width)
             _C.ps_roi_pool_backward(ctx.pooled_height, ctx.pooled_width, ctx.spatial_scale, ctx.output_dim, grad_output, rois, grad_input, mappingchannel)
         return grad_input, None, None, None, None, None, None
 
@@ -1785,6 +1505,17 @@ class PSROIPool(nn.Module):
         tmpstr += ', output_dim=' + str(self.output_dim)
         tmpstr += ')'
         return tmpstr
+
+
+class PSROIAlignhandle(nn.Module):
+
+    def __init__(self, spatial_scale=1.0 / 16.0, roi_size=7, sampling_ratio=2, pooled_dim=5):
+        super(PSROIAlignhandle, self).__init__()
+        self.psroialign = PSROIAlign(spatial_scale=spatial_scale, roi_size=roi_size, sampling_ratio=sampling_ratio, pooled_dim=pooled_dim)
+
+    def forward(self, feat, rois):
+        pooled_feat = self.psroialign(feat, rois)
+        return pooled_feat
 
 
 class PsRoIAlign(nn.Module):
@@ -1837,17 +1568,6 @@ class PsRoIAlign(nn.Module):
         return roi_align(x, rois)
 
 
-class PSROIAlignhandle(nn.Module):
-
-    def __init__(self, spatial_scale=1.0 / 16.0, roi_size=7, sampling_ratio=2, pooled_dim=5):
-        super(PSROIAlignhandle, self).__init__()
-        self.psroialign = PSROIAlign(spatial_scale=spatial_scale, roi_size=roi_size, sampling_ratio=sampling_ratio, pooled_dim=pooled_dim)
-
-    def forward(self, feat, rois):
-        pooled_feat = self.psroialign(feat, rois)
-        return pooled_feat
-
-
 class PSROIPoolhandle(nn.Module):
 
     def __init__(self, pooled_height=7, pooled_width=7, spatial_scale=1.0 / 16.0, group_size=7, output_dim=5):
@@ -1857,74 +1577,6 @@ class PSROIPoolhandle(nn.Module):
     def forward(self, feat, rois):
         pooled_feat = self.psroipool(feat, rois)
         return pooled_feat
-
-
-class _fasterRCNN(nn.Module):
-    """ faster RCNN """
-
-    def __init__(self, n_classes):
-        self.n_classes = n_classes
-        super(_fasterRCNN, self).__init__()
-        c_in = 1024
-        self.RCNN_top = nn.Sequential(nn.Linear(5 * 7 * 7, c_in), nn.ReLU(inplace=True))
-        self.RCNN_cls_score = nn.Linear(c_in, self.n_classes)
-        self.RCNN_bbox_pred = nn.Linear(c_in, 4 * self.n_classes)
-
-    def forward(self, pool5):
-        pool5_flat = pool5.view(pool5.size(0), -1)
-        None
-        fc7 = self.RCNN_top(pool5_flat)
-        RCNN_cls_score = self.RCNN_cls_score(fc7)
-        cls_prob = F.softmax(RCNN_cls_score, 1)
-        bbox_pred = self.RCNN_bbox_pred(fc7)
-        return [cls_prob, bbox_pred]
-
-
-class _RPN(nn.Module):
-    """ region proposal network """
-
-    def __init__(self, din):
-        super(_RPN, self).__init__()
-        self.din = din
-        self.nc_score_out = 25 * 2
-        self.RPN_cls_score = nn.Conv2d(self.din, self.nc_score_out, 1, 1, 0)
-        self.nc_bbox_out = 25 * 4
-        self.RPN_bbox_pred = nn.Conv2d(self.din, self.nc_bbox_out, 1, 1, 0)
-        self.softmax = nn.Softmax(1)
-
-    @staticmethod
-    def reshape(x, d):
-        input_shape = x.size()
-        x = x.view(input_shape[0], int(d), int(float(input_shape[1] * input_shape[2]) / float(d)), input_shape[3])
-        return x
-
-    def forward(self, base_feat):
-        rpn_cls_score = self.RPN_cls_score(base_feat)
-        rpn_cls_score_reshape = self.reshape(rpn_cls_score, 2)
-        rpn_cls_prob_reshape = self.softmax(rpn_cls_score_reshape)
-        rpn_cls_prob = self.reshape(rpn_cls_prob_reshape, self.nc_score_out)
-        rpn_bbox_pred = self.RPN_bbox_pred(base_feat)
-        return rpn_cls_prob, rpn_bbox_pred
-
-
-class _fasterRCNN(nn.Module):
-    """ faster RCNN """
-
-    def __init__(self):
-        super(_fasterRCNN, self).__init__()
-        self.RCNN_base = SnetExtractor(146)
-        self.RCNN_loss_cls = 0
-        self.RCNN_loss_bbox = 0
-        self.rpn = RPN(in_channels=245, f_channels=256)
-        self.sam = SAM(256, 245)
-        self.RCNN_rpn = _RPN(256)
-
-    def forward(self, im_data):
-        basefeat = self.RCNN_base(im_data)
-        rpn_feat = self.rpn(basefeat)
-        rpn_cls_prob, rpn_bbox_pred = self.RCNN_rpn(rpn_feat)
-        base_feat = self.sam([basefeat, rpn_feat])
-        return [rpn_cls_prob, rpn_bbox_pred, base_feat]
 
 
 import torch

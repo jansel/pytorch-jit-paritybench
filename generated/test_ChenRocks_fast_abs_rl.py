@@ -3,6 +3,7 @@ _module = sys.modules[__name__]
 del sys
 data = _module
 batcher = _module
+data = _module
 decode_baselines = _module
 decode_full_model = _module
 decoding = _module
@@ -34,23 +35,60 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-from torch.nn import functional as F
+import random
+
+
+from collections import defaultdict
 
 
 import torch
+
+
+import torch.multiprocessing as mp
+
+
+import re
+
+
+from torch.utils.data import Dataset
+
+
+from time import time
+
+
+from torch.utils.data import DataLoader
+
+
+from collections import Counter
+
+
+from itertools import product
+
+
+from functools import reduce
+
+
+from torch import multiprocessing as mp
+
+
+from itertools import starmap
+
+
+from torch.nn import functional as F
 
 
 from torch import nn
@@ -60,9 +98,6 @@ from torch.nn import init
 
 
 import math
-
-
-from time import time
 
 
 import numpy as np
@@ -80,10 +115,7 @@ from torch import optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
-from torch.utils.data import DataLoader
-
-
-from itertools import starmap
+from itertools import cycle
 
 
 INIT = 0.01
@@ -142,7 +174,7 @@ INI = 0.01
 def init_lstm_states(lstm, batch_size, device):
     n_layer = lstm.num_layers * (2 if lstm.bidirectional else 1)
     n_hidden = lstm.hidden_size
-    states = torch.zeros(n_layer, batch_size, n_hidden).to(device), torch.zeros(n_layer, batch_size, n_hidden).to(device)
+    states = torch.zeros(n_layer, batch_size, n_hidden), torch.zeros(n_layer, batch_size, n_hidden)
     return states
 
 
@@ -155,7 +187,7 @@ def reorder_lstm_states(lstm_states, order):
     assert len(lstm_states) == 2
     assert lstm_states[0].size() == lstm_states[1].size()
     assert len(order) == lstm_states[0].size()[1]
-    order = torch.LongTensor(order).to(lstm_states[0].device)
+    order = torch.LongTensor(order)
     sorted_states = lstm_states[0].index_select(index=order, dim=1), lstm_states[1].index_select(index=order, dim=1)
     return sorted_states
 
@@ -167,7 +199,7 @@ def reorder_sequence(sequence_emb, order, batch_first=False):
     """
     batch_dim = 0 if batch_first else 1
     assert len(order) == sequence_emb.size()[batch_dim]
-    order = torch.LongTensor(order).to(sequence_emb.device)
+    order = torch.LongTensor(order)
     sorted_ = sequence_emb.index_select(index=order, dim=batch_dim)
     return sorted_
 
@@ -298,13 +330,100 @@ class ExtractSumm(nn.Module):
         self._sent_enc.set_embedding(embedding)
 
 
+class StackedLSTMCells(nn.Module):
+    """ stack multiple LSTM Cells"""
+
+    def __init__(self, cells, dropout=0.0):
+        super().__init__()
+        self._cells = nn.ModuleList(cells)
+        self._dropout = dropout
+
+    def forward(self, input_, state):
+        """
+        Arguments:
+            input_: FloatTensor (batch, input_size)
+            states: tuple of the H, C LSTM states
+                FloatTensor (num_layers, batch, hidden_size)
+        Returns:
+            LSTM states
+            new_h: (num_layers, batch, hidden_size)
+            new_c: (num_layers, batch, hidden_size)
+        """
+        hs = []
+        cs = []
+        for i, cell in enumerate(self._cells):
+            s = state[0][(i), :, :], state[1][(i), :, :]
+            h, c = cell(input_, s)
+            hs.append(h)
+            cs.append(c)
+            input_ = F.dropout(h, p=self._dropout, training=self.training)
+        new_h = torch.stack(hs, dim=0)
+        new_c = torch.stack(cs, dim=0)
+        return new_h, new_c
+
+    @property
+    def hidden_size(self):
+        return self._cells[0].hidden_size
+
+    @property
+    def input_size(self):
+        return self._cells[0].input_size
+
+    @property
+    def num_layers(self):
+        return len(self._cells)
+
+    @property
+    def bidirectional(self):
+        return self._cells[0].bidirectional
+
+
+class MultiLayerLSTMCells(StackedLSTMCells):
+    """
+    This class is a one-step version of the cudnn LSTM
+    , or multi-layer version of LSTMCell
+    """
+
+    def __init__(self, input_size, hidden_size, num_layers, bias=True, dropout=0.0):
+        """ same as nn.LSTM but without (bidirectional)"""
+        cells = []
+        cells.append(nn.LSTMCell(input_size, hidden_size, bias))
+        for _ in range(num_layers - 1):
+            cells.append(nn.LSTMCell(hidden_size, hidden_size, bias))
+        super().__init__(cells, dropout)
+
+    @property
+    def bidirectional(self):
+        return False
+
+    def reset_parameters(self):
+        for cell in self._cells:
+            gate_size = self.hidden_size / 4
+            for weight in [cell.weight_ih, cell.weight_hh]:
+                for w in torch.chunk(weight, 4, dim=0):
+                    init.xavier_normal_(w)
+            for bias in [cell.bias_ih, cell.bias_hh]:
+                torch.chunk(bias, 4, dim=0)[1].data.fill_(1)
+
+    @staticmethod
+    def convert(lstm):
+        """ convert from a cudnn LSTM"""
+        lstm_cell = MultiLayerLSTMCells(lstm.input_size, lstm.hidden_size, lstm.num_layers, dropout=lstm.dropout)
+        for i, cell in enumerate(lstm_cell._cells):
+            cell.weight_ih.data.copy_(getattr(lstm, 'weight_ih_l{}'.format(i)))
+            cell.weight_hh.data.copy_(getattr(lstm, 'weight_hh_l{}'.format(i)))
+            cell.bias_ih.data.copy_(getattr(lstm, 'bias_ih_l{}'.format(i)))
+            cell.bias_hh.data.copy_(getattr(lstm, 'bias_hh_l{}'.format(i)))
+        return lstm_cell
+
+
 def len_mask(lens, device):
     """ users are resposible for shaping
     Return: tensor_type [B, T]
     """
     max_len = max(lens)
     batch_size = len(lens)
-    mask = torch.ByteTensor(batch_size, max_len).to(device)
+    mask = torch.ByteTensor(batch_size, max_len)
     mask.fill_(0)
     for i, l in enumerate(lens):
         mask[(i), :l].fill_(1)
@@ -509,52 +628,6 @@ class PtrExtractorRL(nn.Module):
         return output
 
 
-class PtrScorer(nn.Module):
-    """ to be used as critic (predicts a scalar baseline reward)"""
-
-    def __init__(self, ptr_net):
-        super().__init__()
-        assert isinstance(ptr_net, LSTMPointerNet)
-        self._init_h = nn.Parameter(ptr_net._init_h.clone())
-        self._init_c = nn.Parameter(ptr_net._init_c.clone())
-        self._init_i = nn.Parameter(ptr_net._init_i.clone())
-        self._lstm_cell = MultiLayerLSTMCells.convert(ptr_net._lstm)
-        self._attn_wm = nn.Parameter(ptr_net._attn_wm.clone())
-        self._attn_wq = nn.Parameter(ptr_net._attn_wq.clone())
-        self._attn_v = nn.Parameter(ptr_net._attn_v.clone())
-        self._hop_wm = nn.Parameter(ptr_net._hop_wm.clone())
-        self._hop_wq = nn.Parameter(ptr_net._hop_wq.clone())
-        self._hop_v = nn.Parameter(ptr_net._hop_v.clone())
-        self._n_hop = ptr_net._n_hop
-        self._score_linear = nn.Linear(self._lstm_cell.input_size, 1)
-
-    def forward(self, attn_mem, n_step):
-        """atten_mem: Tensor of size [num_sents, input_dim]"""
-        attn_feat = torch.mm(attn_mem, self._attn_wm)
-        hop_feat = torch.mm(attn_mem, self._hop_wm)
-        scores = []
-        lstm_in = self._init_i.unsqueeze(0)
-        lstm_states = self._init_h.unsqueeze(1), self._init_c.unsqueeze(1)
-        for _ in range(n_step):
-            h, c = self._lstm_cell(lstm_in, lstm_states)
-            query = h[:, (-1), :]
-            for _ in range(self._n_hop):
-                query = PtrScorer.attention(hop_feat, hop_feat, query, self._hop_v, self._hop_wq)
-            output = PtrScorer.attention(attn_mem, attn_feat, query, self._attn_v, self._attn_wq)
-            score = self._score_linear(output)
-            scores.append(score)
-            lstm_in = output
-        return scores
-
-    @staticmethod
-    def attention(attention, attention_feat, query, v, w):
-        """ attention context vector"""
-        sum_ = attention_feat + torch.mm(query, w)
-        score = F.softmax(torch.mm(F.tanh(sum_), v.unsqueeze(1)).t(), dim=-1)
-        output = torch.mm(score, attention)
-        return output
-
-
 class PtrExtractorRLStop(PtrExtractorRL):
 
     def __init__(self, *args, **kwargs):
@@ -605,6 +678,52 @@ class PtrExtractorRLStop(PtrExtractorRL):
             return outputs
 
 
+class PtrScorer(nn.Module):
+    """ to be used as critic (predicts a scalar baseline reward)"""
+
+    def __init__(self, ptr_net):
+        super().__init__()
+        assert isinstance(ptr_net, LSTMPointerNet)
+        self._init_h = nn.Parameter(ptr_net._init_h.clone())
+        self._init_c = nn.Parameter(ptr_net._init_c.clone())
+        self._init_i = nn.Parameter(ptr_net._init_i.clone())
+        self._lstm_cell = MultiLayerLSTMCells.convert(ptr_net._lstm)
+        self._attn_wm = nn.Parameter(ptr_net._attn_wm.clone())
+        self._attn_wq = nn.Parameter(ptr_net._attn_wq.clone())
+        self._attn_v = nn.Parameter(ptr_net._attn_v.clone())
+        self._hop_wm = nn.Parameter(ptr_net._hop_wm.clone())
+        self._hop_wq = nn.Parameter(ptr_net._hop_wq.clone())
+        self._hop_v = nn.Parameter(ptr_net._hop_v.clone())
+        self._n_hop = ptr_net._n_hop
+        self._score_linear = nn.Linear(self._lstm_cell.input_size, 1)
+
+    def forward(self, attn_mem, n_step):
+        """atten_mem: Tensor of size [num_sents, input_dim]"""
+        attn_feat = torch.mm(attn_mem, self._attn_wm)
+        hop_feat = torch.mm(attn_mem, self._hop_wm)
+        scores = []
+        lstm_in = self._init_i.unsqueeze(0)
+        lstm_states = self._init_h.unsqueeze(1), self._init_c.unsqueeze(1)
+        for _ in range(n_step):
+            h, c = self._lstm_cell(lstm_in, lstm_states)
+            query = h[:, (-1), :]
+            for _ in range(self._n_hop):
+                query = PtrScorer.attention(hop_feat, hop_feat, query, self._hop_v, self._hop_wq)
+            output = PtrScorer.attention(attn_mem, attn_feat, query, self._attn_v, self._attn_wq)
+            score = self._score_linear(output)
+            scores.append(score)
+            lstm_in = output
+        return scores
+
+    @staticmethod
+    def attention(attention, attention_feat, query, v, w):
+        """ attention context vector"""
+        sum_ = attention_feat + torch.mm(query, w)
+        score = F.softmax(torch.mm(F.tanh(sum_), v.unsqueeze(1)).t(), dim=-1)
+        output = torch.mm(score, attention)
+        return output
+
+
 class ActorCritic(nn.Module):
     """ shared encoder between actor/critic"""
 
@@ -633,54 +752,6 @@ class ActorCritic(nn.Module):
             return outputs, scores
         else:
             return outputs
-
-
-class StackedLSTMCells(nn.Module):
-    """ stack multiple LSTM Cells"""
-
-    def __init__(self, cells, dropout=0.0):
-        super().__init__()
-        self._cells = nn.ModuleList(cells)
-        self._dropout = dropout
-
-    def forward(self, input_, state):
-        """
-        Arguments:
-            input_: FloatTensor (batch, input_size)
-            states: tuple of the H, C LSTM states
-                FloatTensor (num_layers, batch, hidden_size)
-        Returns:
-            LSTM states
-            new_h: (num_layers, batch, hidden_size)
-            new_c: (num_layers, batch, hidden_size)
-        """
-        hs = []
-        cs = []
-        for i, cell in enumerate(self._cells):
-            s = state[0][(i), :, :], state[1][(i), :, :]
-            h, c = cell(input_, s)
-            hs.append(h)
-            cs.append(c)
-            input_ = F.dropout(h, p=self._dropout, training=self.training)
-        new_h = torch.stack(hs, dim=0)
-        new_c = torch.stack(cs, dim=0)
-        return new_h, new_c
-
-    @property
-    def hidden_size(self):
-        return self._cells[0].hidden_size
-
-    @property
-    def input_size(self):
-        return self._cells[0].input_size
-
-    @property
-    def num_layers(self):
-        return len(self._cells)
-
-    @property
-    def bidirectional(self):
-        return self._cells[0].bidirectional
 
 
 def attention_aggregate(value, score):
@@ -830,6 +901,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (LSTMPointerNet,
+     lambda: ([], {'input_dim': 4, 'n_hidden': 4, 'n_layer': 1, 'dropout': 0.5, 'n_hop': 4}),
+     lambda: ([torch.rand([2, 4, 4]), [4, 4], torch.rand([2, 4, 4])], {}),
+     False),
     (_CopyLinear,
      lambda: ([], {'context_dim': 4, 'state_dim': 4, 'input_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -839,4 +914,7 @@ TESTCASES = [
 class Test_ChenRocks_fast_abs_rl(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 

@@ -13,6 +13,7 @@ builder = _module
 collate_fn = _module
 collate_fn_base = _module
 collate_fn_impl = _module
+collate_fn = _module
 folder = _module
 folder_base = _module
 folder_impl = _module
@@ -28,6 +29,7 @@ evaluators_impl = _module
 overall = _module
 oxford_overall = _module
 reid_overall = _module
+helper = _module
 helper = _module
 extract = _module
 aggregator = _module
@@ -48,6 +50,7 @@ extractors_impl = _module
 reid_series = _module
 res_series = _module
 vgg_series = _module
+helper = _module
 splitter = _module
 splitter_base = _module
 splitter_impl = _module
@@ -67,6 +70,8 @@ feature_enhancer = _module
 feature_enhancer_base = _module
 feature_enhancer_impl = _module
 database_augmentation = _module
+identity = _module
+helper = _module
 metric = _module
 metric_base = _module
 metric_impl = _module
@@ -74,6 +79,7 @@ knn = _module
 re_ranker = _module
 re_ranker_base = _module
 re_ranker_impl = _module
+identity = _module
 k_reciprocal = _module
 qe_kr = _module
 query_expansion = _module
@@ -108,41 +114,75 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import torch.nn as nn
-
-
-from typing import List
-
-
-from functools import partial
 
 
 import torch
 
 
-import numpy as np
+from torchvision import models
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision.transforms import Compose
+
+
+from abc import abstractmethod
 
 
 from typing import Dict
 
 
+from typing import List
+
+
+from torch.utils.data.dataloader import default_collate
+
+
+import numpy as np
+
+
+from torchvision.transforms import Resize as TResize
+
+
+from torchvision.transforms import TenCrop as TTenCrop
+
+
+from torchvision.transforms import CenterCrop as TCenterCrop
+
+
+from torchvision.transforms import ToTensor as TToTensor
+
+
+from torchvision.transforms.functional import hflip
+
+
+from sklearn.metrics import average_precision_score
+
+
+import torch.nn as nn
+
+
+from functools import partial
+
+
+import time
+
+
 from torch.nn import init
-
-
-from torchvision import models
 
 
 from torch.autograd import Variable
@@ -219,6 +259,54 @@ class ClassBlock(nn.Module):
         else:
             x = self.classifier(x)
             return x
+
+
+def _register_generic(module_dict, module_name, module):
+    assert module_name not in module_dict
+    module_dict[module_name] = module
+
+
+class Registry(dict):
+    """
+    A helper class to register class.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(Registry, self).__init__(*args, **kwargs)
+
+    def register(self, module):
+        _register_generic(self, module.__name__, module)
+        return module
+
+
+BACKBONES = Registry()
+
+
+class ft_net(BackboneBase):
+
+    def __init__(self, class_num=751, droprate=0.5, stride=2):
+        super(ft_net, self).__init__()
+        model_ft = models.resnet50(pretrained=True)
+        if stride == 1:
+            self.model.layer4[0].downsample[0].stride = 1, 1
+            self.model.layer4[0].conv2.stride = 1, 1
+        model_ft.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.model = model_ft
+        self.classifier = ClassBlock(2048, class_num, droprate)
+
+    def forward(self, x):
+        x = self.model.conv1(x)
+        x = self.model.bn1(x)
+        x = self.model.relu(x)
+        x = self.model.maxpool(x)
+        x = self.model.layer1(x)
+        x = self.model.layer2(x)
+        x = self.model.layer3(x)
+        x = self.model.layer4(x)
+        x = self.model.avgpool(x)
+        x = x.view(x.size(0), x.size(1))
+        x = self.classifier(x)
+        return x
 
 
 class ft_net_dense(nn.Module):
@@ -407,6 +495,76 @@ class Bottleneck(nn.Module):
         return out
 
 
+class ResNet(BackboneBase):
+
+    def __init__(self, block=Bottleneck, layers=None, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, replace_stride_with_dilation=None, norm_layer=None, hps=None):
+        super(ResNet, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        self._norm_layer = norm_layer
+        self.inplanes = 64
+        self.dilation = 1
+        if replace_stride_with_dilation is None:
+            replace_stride_with_dilation = [False, False, False]
+        if len(replace_stride_with_dilation) != 3:
+            raise ValueError('replace_stride_with_dilation should be None or a 3-element tuple, got {}'.format(replace_stride_with_dilation))
+        self.groups = groups
+        self.base_width = width_per_group
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = norm_layer(self.inplanes)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, dilate=replace_stride_with_dilation[0])
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, dilate=replace_stride_with_dilation[1])
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2])
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+        if zero_init_residual:
+            for m in self.modules():
+                if isinstance(m, Bottleneck):
+                    nn.init.constant_(m.bn3.weight, 0)
+                elif isinstance(m, BasicBlock):
+                    nn.init.constant_(m.bn2.weight, 0)
+
+    def _make_layer(self, block, planes, blocks, stride=1, dilate=False):
+        norm_layer = self._norm_layer
+        downsample = None
+        previous_dilation = self.dilation
+        if dilate:
+            self.dilation *= stride
+            stride = 1
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(conv1x1(self.inplanes, planes * block.expansion, stride), norm_layer(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer))
+        self.inplanes = planes * block.expansion
+        for _ in range(1, blocks):
+            layers.append(block(self.inplanes, planes, groups=self.groups, base_width=self.base_width, dilation=self.dilation, norm_layer=norm_layer))
+        return nn.Sequential(*layers)
+
+    def _forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        return x
+    forward = _forward
+
+
 class VGG(nn.Module):
 
     def __init__(self, features, num_classes=1000, init_weights=True):
@@ -457,6 +615,10 @@ TESTCASES = [
      lambda: ([], {'class_num': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
+    (ft_net,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
     (ft_net_dense,
      lambda: ([], {'class_num': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -482,4 +644,7 @@ class Test_PyRetri_PyRetri(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
 

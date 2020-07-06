@@ -25,6 +25,7 @@ rectify = _module
 syncbn = _module
 lib = _module
 setup = _module
+setup = _module
 models = _module
 backbone = _module
 resnest = _module
@@ -83,6 +84,7 @@ prepare_imagenet = _module
 prepare_minc = _module
 prepare_pascal = _module
 prepare_pcontext = _module
+setup = _module
 lint = _module
 test_dataset = _module
 test_function = _module
@@ -94,15 +96,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -113,19 +116,52 @@ import warnings
 from torchvision.datasets import *
 
 
+import numpy as np
+
+
+import random
+
+
+import math
+
+
 import torch
 
 
-from torch.autograd import Function
+import torch.utils.data as data
+
+
+import torchvision.transforms as transform
 
 
 from torch.autograd import Variable
 
 
+from torch.autograd import Function
+
+
+from torch.autograd.function import Function
+
+
 import torch.nn.functional as F
 
 
-import math
+import torch.cuda.comm as comm
+
+
+from torch.autograd.function import once_differentiable
+
+
+from torch.utils.cpp_extension import load
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
 
 
 import torch.nn as nn
@@ -135,9 +171,6 @@ from collections import OrderedDict
 
 
 from functools import partial
-
-
-import numpy as np
 
 
 from torch.nn.functional import interpolate
@@ -188,9 +221,6 @@ from torch.nn.modules.batchnorm import _BatchNorm
 import functools
 
 
-import torch.cuda.comm as comm
-
-
 from torch.nn.parallel.parallel_apply import get_a_var
 
 
@@ -198,6 +228,9 @@ from torch.nn.parallel._functions import ReduceAddCoalesced
 
 
 from torch.nn.parallel._functions import Broadcast
+
+
+from torchvision.transforms import *
 
 
 import itertools
@@ -233,9 +266,6 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils import data
 
 
-import torchvision.transforms as transform
-
-
 from torch.nn.parallel.scatter_gather import gather
 
 
@@ -248,72 +278,418 @@ import torch.backends.cudnn as cudnn
 from torch.autograd import gradcheck
 
 
-class Bottleneck(nn.Module):
-    """ResNet Bottleneck
-    """
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, radix=1, cardinality=1, bottleneck_width=64, avd=False, avd_first=False, dilation=1, is_first=False, rectified_conv=False, rectify_avg=False, norm_layer=None, dropblock_prob=0.0, last_gamma=False):
-        super(Bottleneck, self).__init__()
-        group_width = int(planes * (bottleneck_width / 64.0)) * cardinality
-        self.conv1 = nn.Conv2d(inplanes, group_width, kernel_size=1, bias=False)
-        self.bn1 = norm_layer(group_width)
-        self.dropblock_prob = dropblock_prob
-        self.radix = radix
-        self.avd = avd and (stride > 1 or is_first)
-        self.avd_first = avd_first
-        if self.avd:
-            self.avd_layer = nn.AvgPool2d(3, stride, padding=1)
-            stride = 1
-        if dropblock_prob > 0.0:
-            self.dropblock1 = DropBlock2D(dropblock_prob, 3)
-            if radix == 1:
-                self.dropblock2 = DropBlock2D(dropblock_prob, 3)
-            self.dropblock3 = DropBlock2D(dropblock_prob, 3)
-        if radix > 1:
-            self.conv2 = SplAtConv2d(group_width, group_width, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, groups=cardinality, bias=False, radix=radix, rectify=rectified_conv, rectify_avg=rectify_avg, norm_layer=norm_layer, dropblock_prob=dropblock_prob)
-        elif rectified_conv:
-            self.conv2 = RFConv2d(group_width, group_width, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, groups=cardinality, bias=False, average_mode=rectify_avg)
-            self.bn2 = norm_layer(group_width)
+def _act_backward(ctx, x, dx):
+    if ctx.activation.lower() == 'leaky_relu':
+        if x.is_cuda:
+            lib.gpu.leaky_relu_backward(x, dx, ctx.slope)
         else:
-            self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, groups=cardinality, bias=False)
-            self.bn2 = norm_layer(group_width)
-        self.conv3 = nn.Conv2d(group_width, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = norm_layer(planes * 4)
-        if last_gamma:
-            from torch.nn.init import zeros_
-            zeros_(self.bn3.weight)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.dilation = dilation
-        self.stride = stride
+            raise NotImplemented
+    else:
+        assert activation == 'none'
+
+
+def _act_forward(ctx, x):
+    if ctx.activation.lower() == 'leaky_relu':
+        if x.is_cuda:
+            lib.gpu.leaky_relu_forward(x, ctx.slope)
+        else:
+            raise NotImplemented
+    else:
+        assert activation == 'none'
+
+
+class inp_syncbatchnorm_(Function):
+
+    @classmethod
+    def forward(cls, ctx, x, gamma, beta, running_mean, running_var, extra, sync=True, training=True, momentum=0.1, eps=1e-05, activation='none', slope=0.01):
+        cls._parse_extra(ctx, extra)
+        ctx.sync = sync
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        x = x.contiguous()
+        gamma = gamma.contiguous()
+        beta = beta.contiguous()
+        if ctx.training:
+            if x.is_cuda:
+                _ex, _exs = lib.gpu.expectation_forward(x)
+            else:
+                raise NotImplemented
+            if ctx.sync:
+                if ctx.is_master:
+                    _ex, _exs = [_ex.unsqueeze(0)], [_exs.unsqueeze(0)]
+                    for _ in range(ctx.master_queue.maxsize):
+                        _ex_w, _exs_w = ctx.master_queue.get()
+                        ctx.master_queue.task_done()
+                        _ex.append(_ex_w.unsqueeze(0))
+                        _exs.append(_exs_w.unsqueeze(0))
+                    _ex = comm.gather(_ex).mean(0)
+                    _exs = comm.gather(_exs).mean(0)
+                    tensors = comm.broadcast_coalesced((_ex, _exs), [_ex.get_device()] + ctx.worker_ids)
+                    for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                        queue.put(ts)
+                else:
+                    ctx.master_queue.put((_ex, _exs))
+                    _ex, _exs = ctx.worker_queue.get()
+                    ctx.worker_queue.task_done()
+            _var = _exs - _ex ** 2
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * _ex)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * _var)
+            ctx.mark_dirty(x, running_mean, running_var)
+        else:
+            _ex, _var = running_mean.contiguous(), running_var.contiguous()
+            _exs = _var + _ex ** 2
+            ctx.mark_dirty(x)
+        if x.is_cuda:
+            lib.gpu.batchnorm_inp_forward(x, _ex, _exs, gamma, beta, ctx.eps)
+        else:
+            raise NotImplemented
+        _act_forward(ctx, x)
+        ctx.save_for_backward(x, _ex, _exs, gamma, beta)
+        return x
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, _ex, _exs, gamma, beta = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if dz.is_cuda:
+            dx, _dex, _dexs, dgamma, dbeta = lib.gpu.batchnorm_inp_backward(dz, z, _ex, _exs, gamma, beta, ctx.eps)
+        else:
+            raise NotImplemented
+        if ctx.training:
+            if ctx.sync:
+                if ctx.is_master:
+                    _dex, _dexs = [_dex.unsqueeze(0)], [_dexs.unsqueeze(0)]
+                    for _ in range(ctx.master_queue.maxsize):
+                        _dex_w, _dexs_w = ctx.master_queue.get()
+                        ctx.master_queue.task_done()
+                        _dex.append(_dex_w.unsqueeze(0))
+                        _dexs.append(_dexs_w.unsqueeze(0))
+                    _dex = comm.gather(_dex).mean(0)
+                    _dexs = comm.gather(_dexs).mean(0)
+                    tensors = comm.broadcast_coalesced((_dex, _dexs), [_dex.get_device()] + ctx.worker_ids)
+                    for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                        queue.put(ts)
+                else:
+                    ctx.master_queue.put((_dex, _dexs))
+                    _dex, _dexs = ctx.worker_queue.get()
+                    ctx.worker_queue.task_done()
+            if z.is_cuda:
+                lib.gpu.expectation_inp_backward(dx, z, _dex, _dexs, _ex, _exs, gamma, beta, ctx.eps)
+            else:
+                raise NotImplemented
+        return dx, dgamma, dbeta, None, None, None, None, None, None, None, None, None
+
+    @staticmethod
+    def _parse_extra(ctx, extra):
+        ctx.is_master = extra['is_master']
+        if ctx.is_master:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queues = extra['worker_queues']
+            ctx.worker_ids = extra['worker_ids']
+        else:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queue = extra['worker_queue']
+
+
+inp_syncbatchnorm = inp_syncbatchnorm_.apply
+
+
+class syncbatchnorm_(Function):
+
+    @classmethod
+    def forward(cls, ctx, x, gamma, beta, running_mean, running_var, extra, sync=True, training=True, momentum=0.1, eps=1e-05, activation='none', slope=0.01):
+        cls._parse_extra(ctx, extra)
+        ctx.sync = sync
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        assert activation == 'none'
+        x = x.contiguous()
+        gamma = gamma.contiguous()
+        beta = beta.contiguous()
+        if ctx.training:
+            if x.is_cuda:
+                _ex, _exs = lib.gpu.expectation_forward(x)
+            else:
+                raise NotImplemented
+            if ctx.sync:
+                if ctx.is_master:
+                    _ex, _exs = [_ex.unsqueeze(0)], [_exs.unsqueeze(0)]
+                    for _ in range(ctx.master_queue.maxsize):
+                        _ex_w, _exs_w = ctx.master_queue.get()
+                        ctx.master_queue.task_done()
+                        _ex.append(_ex_w.unsqueeze(0))
+                        _exs.append(_exs_w.unsqueeze(0))
+                    _ex = comm.gather(_ex).mean(0)
+                    _exs = comm.gather(_exs).mean(0)
+                    tensors = comm.broadcast_coalesced((_ex, _exs), [_ex.get_device()] + ctx.worker_ids)
+                    for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                        queue.put(ts)
+                else:
+                    ctx.master_queue.put((_ex, _exs))
+                    _ex, _exs = ctx.worker_queue.get()
+                    ctx.worker_queue.task_done()
+            _var = _exs - _ex ** 2
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * _ex)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * _var)
+            ctx.mark_dirty(running_mean, running_var)
+        else:
+            _ex, _var = running_mean.contiguous(), running_var.contiguous()
+            _exs = _var + _ex ** 2
+        if x.is_cuda:
+            y = lib.gpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
+        else:
+            y = lib.cpu.batchnorm_forward(x, _ex, _exs, gamma, beta, ctx.eps)
+        ctx.save_for_backward(x, _ex, _exs, gamma, beta)
+        return y
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        x, _ex, _exs, gamma, beta = ctx.saved_tensors
+        dz = dz.contiguous()
+        if dz.is_cuda:
+            dx, _dex, _dexs, dgamma, dbeta = lib.gpu.batchnorm_backward(dz, x, _ex, _exs, gamma, beta, ctx.eps)
+        else:
+            raise NotImplemented
+        if ctx.training:
+            if ctx.sync:
+                if ctx.is_master:
+                    _dex, _dexs = [_dex.unsqueeze(0)], [_dexs.unsqueeze(0)]
+                    for _ in range(ctx.master_queue.maxsize):
+                        _dex_w, _dexs_w = ctx.master_queue.get()
+                        ctx.master_queue.task_done()
+                        _dex.append(_dex_w.unsqueeze(0))
+                        _dexs.append(_dexs_w.unsqueeze(0))
+                    _dex = comm.gather(_dex).mean(0)
+                    _dexs = comm.gather(_dexs).mean(0)
+                    tensors = comm.broadcast_coalesced((_dex, _dexs), [_dex.get_device()] + ctx.worker_ids)
+                    for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                        queue.put(ts)
+                else:
+                    ctx.master_queue.put((_dex, _dexs))
+                    _dex, _dexs = ctx.worker_queue.get()
+                    ctx.worker_queue.task_done()
+            if x.is_cuda:
+                dx_ = lib.gpu.expectation_backward(x, _dex, _dexs)
+            else:
+                raise NotImplemented
+            dx = dx + dx_
+        return dx, dgamma, dbeta, None, None, None, None, None, None, None, None, None
+
+    @staticmethod
+    def _parse_extra(ctx, extra):
+        ctx.is_master = extra['is_master']
+        if ctx.is_master:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queues = extra['worker_queues']
+            ctx.worker_ids = extra['worker_ids']
+        else:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queue = extra['worker_queue']
+
+
+syncbatchnorm = syncbatchnorm_.apply
+
+
+class SyncBatchNorm(_BatchNorm):
+    """Cross-GPU Synchronized Batch normalization (SyncBN)
+
+    Standard BN [1]_ implementation only normalize the data within each device (GPU).
+    SyncBN normalizes the input within the whole mini-batch.
+    We follow the sync-onece implmentation described in the paper [2]_ .
+    Please see the design idea in the `notes <./notes/syncbn.html>`_.
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    The mean and standard-deviation are calculated per-channel over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        sync: a boolean value that when set to ``True``, synchronize across
+            different gpus. Default: ``True``
+        activation : str
+            Name of the activation functions, one of: `leaky_relu` or `none`.
+        slope : float
+            Negative slope for the `leaky_relu` activation.
+
+    Shape:
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Examples:
+        >>> m = SyncBatchNorm(100)
+        >>> net = torch.nn.DataParallel(m)
+        >>> output = net(input)
+        >>> # for Inpace ABN
+        >>> ABN = partial(SyncBatchNorm, activation='leaky_relu', slope=0.01, sync=True, inplace=True)
+    """
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, sync=True, activation='none', slope=0.01, inplace=True):
+        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=True)
+        self.activation = activation
+        self.inplace = False if activation == 'none' else inplace
+        self.slope = slope
+        self.devices = list(range(torch.cuda.device_count()))
+        self.sync = sync if len(self.devices) > 1 else False
+        self.worker_ids = self.devices[1:]
+        self.master_queue = Queue(len(self.worker_ids))
+        self.worker_queues = [Queue(1) for _ in self.worker_ids]
+
+    def _check_input_dim(self, x):
+        pass
 
     def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        if self.dropblock_prob > 0.0:
-            out = self.dropblock1(out)
-        out = self.relu(out)
-        if self.avd and self.avd_first:
-            out = self.avd_layer(out)
+        if not self.training:
+            return super().forward(x)
+        input_shape = x.size()
+        x = x.view(input_shape[0], self.num_features, -1)
+        if x.get_device() == self.devices[0]:
+            extra = {'is_master': True, 'master_queue': self.master_queue, 'worker_queues': self.worker_queues, 'worker_ids': self.worker_ids}
+        else:
+            extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
+        if self.inplace:
+            return inp_syncbatchnorm(x, self.weight, self.bias, self.running_mean, self.running_var, extra, self.sync, self.training, self.momentum, self.eps, self.activation, self.slope).view(input_shape)
+        else:
+            return syncbatchnorm(x, self.weight, self.bias, self.running_mean, self.running_var, extra, self.sync, self.training, self.momentum, self.eps, self.activation, self.slope).view(input_shape)
+
+    def extra_repr(self):
+        if self.activation == 'none':
+            return 'sync={}'.format(self.sync)
+        else:
+            return 'sync={}, act={}, slope={}, inplace={}'.format(self.sync, self.activation, self.slope, self.inplace)
+
+
+ABN = partial(SyncBatchNorm, activation='leaky_relu', slope=0.01, sync=True, inplace=True)
+
+
+class Bottleneck(nn.Module):
+    """WideResNet BottleneckV1b
+    """
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, expansion=4, dropout=0.0, downsample=None, previous_dilation=1, **kwargs):
+        super(Bottleneck, self).__init__()
+        self.bn1 = ABN(inplanes)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn2 = ABN(planes)
+        self.conv2 = nn.Conv2d(planes, planes * expansion // 2, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, bias=False)
+        self.bn3 = ABN(planes * expansion // 2)
+        self.conv3 = nn.Conv2d(planes * expansion // 2, planes * expansion, kernel_size=1, bias=False)
+        self.downsample = downsample
+        self.drop = None
+        if dropout > 0.0:
+            self.drop = nn.Dropout(dropout)
+
+    def forward(self, x):
+        if self.downsample:
+            bn1 = self.bn1(x)
+            residual = self.downsample(bn1)
+        else:
+            residual = x.clone()
+            bn1 = self.bn1(x)
+        out = self.conv1(bn1)
+        out = self.bn2(out)
         out = self.conv2(out)
-        if self.radix == 1:
-            out = self.bn2(out)
-            if self.dropblock_prob > 0.0:
-                out = self.dropblock2(out)
-            out = self.relu(out)
-        if self.avd and not self.avd_first:
-            out = self.avd_layer(out)
-        out = self.conv3(out)
         out = self.bn3(out)
-        if self.dropblock_prob > 0.0:
-            out = self.dropblock3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
+        if self.drop:
+            out = self.drop(out)
+        out = self.conv3(out)
+        out = out + residual
         return out
+
+
+class GlobalAvgPool2d(nn.Module):
+
+    def __init__(self):
+        """Global average pooling over the input's spatial dimensions"""
+        super(GlobalAvgPool2d, self).__init__()
+
+    def forward(self, inputs):
+        return F.adaptive_avg_pool2d(inputs, 1).view(inputs.size(0), -1)
+
+
+class _rectify(Function):
+
+    @staticmethod
+    def forward(ctx, y, x, kernel_size, stride, padding, dilation, average):
+        ctx.save_for_backward(x)
+        kernel_size = [(k + 2 * (d - 1)) for k, d in zip(kernel_size, dilation)]
+        ctx.kernel_size = kernel_size
+        ctx.stride = stride
+        ctx.padding = padding
+        ctx.dilation = dilation
+        ctx.average = average
+        if x.is_cuda:
+            lib.gpu.conv_rectify(y, x, kernel_size, stride, padding, dilation, average)
+        else:
+            lib.cpu.conv_rectify(y, x, kernel_size, stride, padding, dilation, average)
+        ctx.mark_dirty(y)
+        return y
+
+    @staticmethod
+    def backward(ctx, grad_y):
+        x, = ctx.saved_variables
+        if x.is_cuda:
+            lib.gpu.conv_rectify(grad_y, x, ctx.kernel_size, ctx.stride, ctx.padding, ctx.dilation, ctx.average)
+        else:
+            lib.cpu.conv_rectify(grad_y, x, ctx.kernel_size, ctx.stride, ctx.padding, ctx.dilation, ctx.average)
+        ctx.mark_dirty(grad_y)
+        return grad_y, None, None, None, None, None, None
+
+
+rectify = _rectify.apply
+
+
+class RFConv2d(Conv2d):
+    """Rectified Convolution
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', average_mode=False):
+        kernel_size = _pair(kernel_size)
+        stride = _pair(stride)
+        padding = _pair(padding)
+        dilation = _pair(dilation)
+        self.rectify = average_mode or (padding[0] > 0 or padding[1] > 0)
+        self.average = average_mode
+        super(RFConv2d, self).__init__(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode)
+
+    def _conv_forward(self, input, weight):
+        if self.padding_mode != 'zeros':
+            return F.conv2d(F.pad(input, self._padding_repeated_twice, mode=self.padding_mode), weight, self.bias, self.stride, _pair(0), self.dilation, self.groups)
+        return F.conv2d(input, weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+
+    def forward(self, input):
+        output = self._conv_forward(input, self.weight)
+        if self.rectify:
+            output = rectify(output, input, self.kernel_size, self.stride, self.padding, self.dilation, self.average)
+        return output
+
+    def extra_repr(self):
+        return super().extra_repr() + ', rectify={}, average_mode={}'.format(self.rectify, self.average)
 
 
 class ResNet(nn.Module):
@@ -457,41 +833,6 @@ class BasicBlock(nn.Module):
         if self.drop:
             out = self.drops(out)
         out = self.conv2(out)
-        out = out + residual
-        return out
-
-
-class Bottleneck(nn.Module):
-    """WideResNet BottleneckV1b
-    """
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, expansion=4, dropout=0.0, downsample=None, previous_dilation=1, **kwargs):
-        super(Bottleneck, self).__init__()
-        self.bn1 = ABN(inplanes)
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn2 = ABN(planes)
-        self.conv2 = nn.Conv2d(planes, planes * expansion // 2, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, bias=False)
-        self.bn3 = ABN(planes * expansion // 2)
-        self.conv3 = nn.Conv2d(planes * expansion // 2, planes * expansion, kernel_size=1, bias=False)
-        self.downsample = downsample
-        self.drop = None
-        if dropout > 0.0:
-            self.drop = nn.Dropout(dropout)
-
-    def forward(self, x):
-        if self.downsample:
-            bn1 = self.bn1(x)
-            residual = self.downsample(bn1)
-        else:
-            residual = x.clone()
-            bn1 = self.bn1(x)
-        out = self.conv1(bn1)
-        out = self.bn2(out)
-        out = self.conv2(out)
-        out = self.bn3(out)
-        if self.drop:
-            out = self.drop(out)
-        out = self.conv3(out)
         out = out + residual
         return out
 
@@ -827,6 +1168,191 @@ class Xception71(nn.Module):
                 m.bias.data.zero_()
 
 
+class _aggregate(Function):
+
+    @staticmethod
+    def forward(ctx, A, X, C):
+        ctx.save_for_backward(A, X, C)
+        if A.is_cuda:
+            E = lib.gpu.aggregate_forward(A, X, C)
+        else:
+            E = lib.cpu.aggregate_forward(A, X, C)
+        return E
+
+    @staticmethod
+    def backward(ctx, gradE):
+        A, X, C = ctx.saved_variables
+        if A.is_cuda:
+            gradA, gradX, gradC = lib.gpu.aggregate_backward(gradE, A, X, C)
+        else:
+            gradA, gradX, gradC = lib.cpu.aggregate_backward(gradE, A, X, C)
+        return gradA, gradX, gradC
+
+
+def aggregate(A, X, C):
+    """ Aggregate operation, aggregate the residuals of inputs (:math:`X`) with repect
+    to the codewords (:math:`C`) with assignment weights (:math:`A`).
+
+    .. math::
+
+        e_{k} = \\sum_{i=1}^{N} a_{ik} (x_i - d_k)
+
+    Shape:
+        - Input: :math:`A\\in\\mathcal{R}^{B\\times N\\times K}`
+          :math:`X\\in\\mathcal{R}^{B\\times N\\times D}` :math:`C\\in\\mathcal{R}^{K\\times D}`
+          (where :math:`B` is batch, :math:`N` is total number of features,
+          :math:`K` is number is codewords, :math:`D` is feature dimensions.)
+        - Output: :math:`E\\in\\mathcal{R}^{B\\times K\\times D}`
+
+    Examples:
+        >>> B,N,K,D = 2,3,4,5
+        >>> A = Variable(torch.cuda.DoubleTensor(B,N,K).uniform_(-0.5,0.5), requires_grad=True)
+        >>> X = Variable(torch.cuda.DoubleTensor(B,N,D).uniform_(-0.5,0.5), requires_grad=True)
+        >>> C = Variable(torch.cuda.DoubleTensor(K,D).uniform_(-0.5,0.5), requires_grad=True)
+        >>> func = encoding.aggregate()
+        >>> E = func(A, X, C)
+    """
+    return _aggregate.apply(A, X, C)
+
+
+class _scaled_l2(Function):
+
+    @staticmethod
+    def forward(ctx, X, C, S):
+        if X.is_cuda:
+            SL = lib.gpu.scaled_l2_forward(X, C, S)
+        else:
+            SL = lib.cpu.scaled_l2_forward(X, C, S)
+        ctx.save_for_backward(X, C, S, SL)
+        return SL
+
+    @staticmethod
+    def backward(ctx, gradSL):
+        X, C, S, SL = ctx.saved_variables
+        if X.is_cuda:
+            gradX, gradC, gradS = lib.gpu.scaled_l2_backward(gradSL, X, C, S, SL)
+        else:
+            gradX, gradC, gradS = lib.cpu.scaled_l2_backward(gradSL, X, C, S, SL)
+        return gradX, gradC, gradS
+
+
+def scaled_l2(X, C, S):
+    """ scaled_l2 distance
+
+    .. math::
+        sl_{ik} = s_k \\|x_i-c_k\\|^2
+
+    Shape:
+        - Input: :math:`X\\in\\mathcal{R}^{B\\times N\\times D}`
+          :math:`C\\in\\mathcal{R}^{K\\times D}` :math:`S\\in \\mathcal{R}^K`
+          (where :math:`B` is batch, :math:`N` is total number of features,
+          :math:`K` is number is codewords, :math:`D` is feature dimensions.)
+        - Output: :math:`E\\in\\mathcal{R}^{B\\times N\\times K}`
+    """
+    return _scaled_l2.apply(X, C, S)
+
+
+class Encoding(Module):
+    """
+    Encoding Layer: a learnable residual encoder.
+
+    .. image:: _static/img/cvpr17.svg
+        :width: 30%
+        :align: center
+
+    Encoding Layer accpets 3D or 4D inputs.
+    It considers an input featuremaps with the shape of :math:`C\\times H\\times W`
+    as a set of C-dimentional input features :math:`X=\\{x_1, ...x_N\\}`, where N is total number
+    of features given by :math:`H\\times W`, which learns an inherent codebook
+    :math:`D=\\{d_1,...d_K\\}` and a set of smoothing factor of visual centers
+    :math:`S=\\{s_1,...s_K\\}`. Encoding Layer outputs the residuals with soft-assignment weights
+    :math:`e_k=\\sum_{i=1}^Ne_{ik}`, where
+
+    .. math::
+
+        e_{ik} = \\frac{exp(-s_k\\|r_{ik}\\|^2)}{\\sum_{j=1}^K exp(-s_j\\|r_{ij}\\|^2)} r_{ik}
+
+    and the residuals are given by :math:`r_{ik} = x_i - d_k`. The output encoders are
+    :math:`E=\\{e_1,...e_K\\}`.
+
+    Args:
+        D: dimention of the features or feature channels
+        K: number of codeswords
+
+    Shape:
+        - Input: :math:`X\\in\\mathcal{R}^{B\\times N\\times D}` or
+          :math:`\\mathcal{R}^{B\\times D\\times H\\times W}` (where :math:`B` is batch,
+          :math:`N` is total number of features or :math:`H\\times W`.)
+        - Output: :math:`E\\in\\mathcal{R}^{B\\times K\\times D}`
+
+    Attributes:
+        codewords (Tensor): the learnable codewords of shape (:math:`K\\times D`)
+        scale (Tensor): the learnable scale factor of visual centers
+
+    Reference:
+        Hang Zhang, Kristin Dana, Jianping Shi, Zhongyue Zhang, Xiaogang Wang, Ambrish Tyagi,
+        Amit Agrawal. “Context Encoding for Semantic Segmentation.
+        *The IEEE Conference on Computer Vision and Pattern Recognition (CVPR) 2018*
+
+        Hang Zhang, Jia Xue, and Kristin Dana. "Deep TEN: Texture Encoding Network."
+        *The IEEE Conference on Computer Vision and Pattern Recognition (CVPR) 2017*
+
+    Examples:
+        >>> import encoding
+        >>> import torch
+        >>> import torch.nn.functional as F
+        >>> from torch.autograd import Variable
+        >>> B,C,H,W,K = 2,3,4,5,6
+        >>> X = Variable(torch.cuda.DoubleTensor(B,C,H,W).uniform_(-0.5,0.5), requires_grad=True)
+        >>> layer = encoding.Encoding(C,K).double().cuda()
+        >>> E = layer(X)
+    """
+
+    def __init__(self, D, K):
+        super(Encoding, self).__init__()
+        self.D, self.K = D, K
+        self.codewords = Parameter(torch.Tensor(K, D), requires_grad=True)
+        self.scale = Parameter(torch.Tensor(K), requires_grad=True)
+        self.reset_params()
+
+    def reset_params(self):
+        std1 = 1.0 / (self.K * self.D) ** (1 / 2)
+        self.codewords.data.uniform_(-std1, std1)
+        self.scale.data.uniform_(-1, 0)
+
+    def forward(self, X):
+        assert X.size(1) == self.D
+        B, D = X.size(0), self.D
+        if X.dim() == 3:
+            X = X.transpose(1, 2).contiguous()
+        elif X.dim() == 4:
+            X = X.view(B, D, -1).transpose(1, 2).contiguous()
+        else:
+            raise RuntimeError('Encoding Layer unknown input dims!')
+        A = F.softmax(scaled_l2(X, self.codewords, self.scale), dim=2)
+        E = aggregate(A, X, self.codewords)
+        return E
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + 'N x ' + str(self.D) + '=>' + str(self.K) + 'x' + str(self.D) + ')'
+
+
+class View(nn.Module):
+    """Reshape the input into different size, an inplace operator, support
+    SelfParallel mode.
+    """
+
+    def __init__(self, *args):
+        super(View, self).__init__()
+        if len(args) == 1 and isinstance(args[0], torch.Size):
+            self.size = args[0]
+        else:
+            self.size = torch.Size(args)
+
+    def forward(self, input):
+        return input.view(self.size)
+
+
 _model_sha1 = {name: checksum for checksum, name in [('fb9de5b360976e3e8bd3679d3e93c5409a5eff3c', 'resnest50'), ('966fb78c22323b0c68097c5c1242bd16d3e07fd5', 'resnest101'), ('d7fd712f5a1fcee5b3ce176026fbb6d0d278454a', 'resnest200'), ('51ae5f19032e22af4ec08e695496547acdba5ce5', 'resnest269'), ('a75c83cfc89a56a4e8ba71b14f1ec67e923787b3', 'resnet50s'), ('03a0f310d6447880f1b22a83bd7d1aa7fc702c6e', 'resnet101s'), ('36670e8bc2428ecd5b7db1578538e2dd23872813', 'resnet152s'), ('da4785cfc837bf00ef95b52fb218feefe703011f', 'wideresnet38'), ('b41562160173ee2e979b795c551d3c7143b1e5b5', 'wideresnet50'), ('1225f149519c7a0113c43a056153c1bb15468ac0', 'deepten_resnet50_minc'), ('662e979de25a389f11c65e9f1df7e06c2c356381', 'fcn_resnet50s_ade'), ('4de91d5922d4d3264f678b663f874da72e82db00', 'encnet_resnet50s_pcontext'), ('9f27ea13d514d7010e59988341bcbd4140fcc33d', 'encnet_resnet101s_pcontext'), ('07ac287cd77e53ea583f37454e17d30ce1509a4a', 'encnet_resnet50s_ade'), ('3f54fa3b67bac7619cd9b3673f5c8227cf8f4718', 'encnet_resnet101s_ade'), ('4aba491aaf8e4866a9c9981b210e3e3266ac1f2a', 'fcn_resnest50_ade'), ('2225f09d0f40b9a168d9091652194bc35ec2a5a9', 'deeplab_resnest50_ade'), ('06ca799c8cc148fe0fafb5b6d052052935aa3cc8', 'deeplab_resnest101_ade'), ('7b9e7d3e6f0e2c763c7d77cad14d306c0a31fe05', 'deeplab_resnest200_ade'), ('0074dd10a6e6696f6f521653fb98224e75955496', 'deeplab_resnest269_ade'), ('77a2161deeb1564e8b9c41a4bb7a3f33998b00ad', 'fcn_resnest50_pcontext'), ('08dccbc4f4694baab631e037a374d76d8108c61f', 'deeplab_resnest50_pcontext'), ('faf5841853aae64bd965a7bdc2cdc6e7a2b5d898', 'deeplab_resnest101_pcontext'), ('fe76a26551dd5dcf2d474fd37cba99d43f6e984e', 'deeplab_resnest200_pcontext'), ('b661fd26c49656e01e9487cd9245babb12f37449', 'deeplab_resnest269_pcontext')]}
 
 
@@ -887,7 +1413,7 @@ def download(url, path=None, overwrite=False, sha1_hash=None):
         dirname = os.path.dirname(os.path.abspath(os.path.expanduser(fname)))
         if not os.path.exists(dirname):
             os.makedirs(dirname)
-        print('Downloading %s from %s...' % (fname, url))
+        None
         r = requests.get(url, stream=True)
         if r.status_code != 200:
             raise RuntimeError('Failed downloading url %s' % url)
@@ -994,6 +1520,170 @@ class GlobalPooling(nn.Module):
         _, _, h, w = x.size()
         pool = self.gap(x)
         return interpolate(pool, (h, w), **self._up_kwargs)
+
+
+class MixtureOfSoftMaxACF(nn.Module):
+    """"Mixture of SoftMax"""
+
+    def __init__(self, n_mix, d_k, attn_dropout=0.1):
+        super(MixtureOfSoftMaxACF, self).__init__()
+        self.temperature = np.power(d_k, 0.5)
+        self.n_mix = n_mix
+        self.att_drop = attn_dropout
+        self.dropout = nn.Dropout(attn_dropout)
+        self.softmax1 = nn.Softmax(dim=1)
+        self.softmax2 = nn.Softmax(dim=2)
+        self.d_k = d_k
+        if n_mix > 1:
+            self.weight = nn.Parameter(torch.Tensor(n_mix, d_k))
+            std = np.power(n_mix, -0.5)
+            self.weight.data.uniform_(-std, std)
+
+    def forward(self, qt, kt, vt):
+        B, d_k, N = qt.size()
+        m = self.n_mix
+        assert d_k == self.d_k
+        d = d_k // m
+        if m > 1:
+            bar_qt = torch.mean(qt, 2, True)
+            pi = self.softmax1(torch.matmul(self.weight, bar_qt)).view(B * m, 1, 1)
+        q = qt.view(B * m, d, N).transpose(1, 2)
+        N2 = kt.size(2)
+        kt = kt.view(B * m, d, N2)
+        v = vt.transpose(1, 2)
+        attn = torch.bmm(q, kt)
+        attn = attn / self.temperature
+        attn = self.softmax2(attn)
+        attn = self.dropout(attn)
+        if m > 1:
+            attn = (attn * pi).view(B, m, N, N2).sum(1)
+        output = torch.bmm(attn, v)
+        return output, attn
+
+
+class ACFModule(nn.Module):
+    """ Multi-Head Attention module """
+
+    def __init__(self, n_head, n_mix, d_model, d_k, d_v, norm_layer=SyncBatchNorm, kq_transform='conv', value_transform='conv', pooling=True, concat=False, dropout=0.1):
+        super(ACFModule, self).__init__()
+        self.n_head = n_head
+        self.n_mix = n_mix
+        self.d_k = d_k
+        self.d_v = d_v
+        self.pooling = pooling
+        self.concat = concat
+        if self.pooling:
+            self.pool = nn.AvgPool2d(3, 2, 1, count_include_pad=False)
+        if kq_transform == 'conv':
+            self.conv_qs = nn.Conv2d(d_model, n_head * d_k, 1)
+            nn.init.normal_(self.conv_qs.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_k)))
+        elif kq_transform == 'ffn':
+            self.conv_qs = nn.Sequential(nn.Conv2d(d_model, n_head * d_k, 3, padding=1, bias=False), norm_layer(n_head * d_k), nn.ReLU(True), nn.Conv2d(n_head * d_k, n_head * d_k, 1))
+            nn.init.normal_(self.conv_qs[-1].weight, mean=0, std=np.sqrt(1.0 / d_k))
+        elif kq_transform == 'dffn':
+            self.conv_qs = nn.Sequential(nn.Conv2d(d_model, n_head * d_k, 3, padding=4, dilation=4, bias=False), norm_layer(n_head * d_k), nn.ReLU(True), nn.Conv2d(n_head * d_k, n_head * d_k, 1))
+            nn.init.normal_(self.conv_qs[-1].weight, mean=0, std=np.sqrt(1.0 / d_k))
+        else:
+            raise NotImplemented
+        self.conv_ks = self.conv_qs
+        if value_transform == 'conv':
+            self.conv_vs = nn.Conv2d(d_model, n_head * d_v, 1)
+        else:
+            raise NotImplemented
+        nn.init.normal_(self.conv_vs.weight, mean=0, std=np.sqrt(2.0 / (d_model + d_v)))
+        self.attention = MixtureOfSoftMaxACF(n_mix=n_mix, d_k=d_k)
+        self.conv = nn.Conv2d(n_head * d_v, d_model, 1, bias=False)
+        self.norm_layer = norm_layer(d_model)
+
+    def forward(self, x):
+        residual = x
+        d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
+        b_, c_, h_, w_ = x.size()
+        if self.pooling:
+            qt = self.conv_ks(x).view(b_ * n_head, d_k, h_ * w_)
+            kt = self.conv_ks(self.pool(x)).view(b_ * n_head, d_k, h_ * w_ // 4)
+            vt = self.conv_vs(self.pool(x)).view(b_ * n_head, d_v, h_ * w_ // 4)
+        else:
+            kt = self.conv_ks(x).view(b_ * n_head, d_k, h_ * w_)
+            qt = kt
+            vt = self.conv_vs(x).view(b_ * n_head, d_v, h_ * w_)
+        output, attn = self.attention(qt, kt, vt)
+        output = output.transpose(1, 2).contiguous().view(b_, n_head * d_v, h_, w_)
+        output = self.conv(output)
+        if self.concat:
+            output = torch.cat((self.norm_layer(output), residual), 1)
+        else:
+            output = self.norm_layer(output) + residual
+        return output
+
+    def demo(self, x):
+        residual = x
+        d_k, d_v, n_head = self.d_k, self.d_v, self.n_head
+        b_, c_, h_, w_ = x.size()
+        if self.pooling:
+            qt = self.conv_ks(x).view(b_ * n_head, d_k, h_ * w_)
+            kt = self.conv_ks(self.pool(x)).view(b_ * n_head, d_k, h_ * w_ // 4)
+            vt = self.conv_vs(self.pool(x)).view(b_ * n_head, d_v, h_ * w_ // 4)
+        else:
+            kt = self.conv_ks(x).view(b_ * n_head, d_k, h_ * w_)
+            qt = kt
+            vt = self.conv_vs(x).view(b_ * n_head, d_v, h_ * w_)
+        _, attn = self.attention(qt, kt, vt)
+        attn.view(b_, n_head, h_ * w_, -1)
+        return attn
+
+    def extra_repr(self):
+        return 'n_head={}, n_mix={}, d_k={}, pooling={}'.format(self.n_head, self.n_mix, self.d_k, self.pooling)
+
+
+class ConcurrentModule(nn.ModuleList):
+    """Feed to a list of modules concurrently. 
+    The outputs of the layers are concatenated at channel dimension.
+
+    Args:
+        modules (iterable, optional): an iterable of modules to add
+    """
+
+    def __init__(self, modules=None):
+        super(ConcurrentModule, self).__init__(modules)
+
+    def forward(self, x):
+        outputs = []
+        for layer in self:
+            outputs.append(layer(x))
+        return torch.cat(outputs, 1)
+
+
+class Mean(nn.Module):
+
+    def __init__(self, dim, keep_dim=False):
+        super(Mean, self).__init__()
+        self.dim = dim
+        self.keep_dim = keep_dim
+
+    def forward(self, input):
+        return input.mean(self.dim, self.keep_dim)
+
+
+class EncModule(nn.Module):
+
+    def __init__(self, in_channels, nclass, ncodes=32, se_loss=True, norm_layer=None):
+        super(EncModule, self).__init__()
+        self.se_loss = se_loss
+        self.encoding = nn.Sequential(nn.Conv2d(in_channels, in_channels, 1, bias=False), norm_layer(in_channels), nn.ReLU(inplace=True), Encoding(D=in_channels, K=ncodes), norm_layer(ncodes), nn.ReLU(inplace=True), Mean(dim=1))
+        self.fc = nn.Sequential(nn.Linear(in_channels, in_channels), nn.Sigmoid())
+        if self.se_loss:
+            self.selayer = nn.Linear(in_channels, nclass)
+
+    def forward(self, x):
+        en = self.encoding(x)
+        b, c, _, _ = x.size()
+        gamma = self.fc(en)
+        y = gamma.view(b, c, 1, 1)
+        outputs = [F.relu_(x + x * y)]
+        if self.se_loss:
+            outputs.append(self.selayer(en))
+        return tuple(outputs)
 
 
 class ATTENHead(nn.Module):
@@ -1357,7 +2047,7 @@ class MultiEvalModule(DataParallel):
         stride_rate = 2.0 / 3.0
         crop_size = self.crop_size
         stride = int(crop_size * stride_rate)
-        with torch.device_of(image):
+        with torch.cuda.device_of(image):
             scores = image.new().resize_(batch, self.nclass, h, w).zero_()
         for scale in self.scales:
             long_size = int(math.ceil(self.base_size * scale))
@@ -1394,7 +2084,7 @@ class MultiEvalModule(DataParallel):
                 assert ph >= height and pw >= width
                 h_grids = int(math.ceil(1.0 * (ph - crop_size) / stride)) + 1
                 w_grids = int(math.ceil(1.0 * (pw - crop_size) / stride)) + 1
-                with torch.device_of(image):
+                with torch.cuda.device_of(image):
                     outputs = image.new().resize_(batch, self.nclass, ph, pw).zero_()
                     count_norm = image.new().resize_(batch, 1, ph, pw).zero_()
                 for idh in range(h_grids):
@@ -1416,18 +2106,9 @@ class MultiEvalModule(DataParallel):
         return scores
 
 
-class DeepLabV3Head(nn.Module):
-
-    def __init__(self, in_channels, out_channels, norm_layer, up_kwargs, atrous_rates=[12, 24, 36], **kwargs):
-        super(DeepLabV3Head, self).__init__()
-        inter_channels = in_channels // 8
-        self.aspp = ASPP_Module(in_channels, atrous_rates, norm_layer, up_kwargs, **kwargs)
-        self.block = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(True), nn.Dropout(0.1, False), nn.Conv2d(inter_channels, out_channels, 1))
-
-    def forward(self, x):
-        x = self.aspp(x)
-        x = self.block(x)
-        return x
+def ASPPConv(in_channels, out_channels, atrous_rate, norm_layer):
+    block = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=atrous_rate, dilation=atrous_rate, bias=False), norm_layer(out_channels), nn.ReLU(True))
+    return block
 
 
 class AsppPooling(nn.Module):
@@ -1441,11 +2122,6 @@ class AsppPooling(nn.Module):
         _, _, h, w = x.size()
         pool = self.gap(x)
         return interpolate(pool, (h, w), **self._up_kwargs)
-
-
-def ASPPConv(in_channels, out_channels, atrous_rate, norm_layer):
-    block = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=atrous_rate, dilation=atrous_rate, bias=False), norm_layer(out_channels), nn.ReLU(True))
-    return block
 
 
 class ASPP_Module(nn.Module):
@@ -1471,24 +2147,85 @@ class ASPP_Module(nn.Module):
         return self.project(y)
 
 
-class EncModule(nn.Module):
+class DeepLabV3Head(nn.Module):
 
-    def __init__(self, in_channels, nclass, ncodes=32, se_loss=True, norm_layer=None):
-        super(EncModule, self).__init__()
-        self.se_loss = se_loss
-        self.encoding = nn.Sequential(nn.Conv2d(in_channels, in_channels, 1, bias=False), norm_layer(in_channels), nn.ReLU(inplace=True), Encoding(D=in_channels, K=ncodes), norm_layer(ncodes), nn.ReLU(inplace=True), Mean(dim=1))
-        self.fc = nn.Sequential(nn.Linear(in_channels, in_channels), nn.Sigmoid())
-        if self.se_loss:
-            self.selayer = nn.Linear(in_channels, nclass)
+    def __init__(self, in_channels, out_channels, norm_layer, up_kwargs, atrous_rates=[12, 24, 36], **kwargs):
+        super(DeepLabV3Head, self).__init__()
+        inter_channels = in_channels // 8
+        self.aspp = ASPP_Module(in_channels, atrous_rates, norm_layer, up_kwargs, **kwargs)
+        self.block = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(True), nn.Dropout(0.1, False), nn.Conv2d(inter_channels, out_channels, 1))
 
     def forward(self, x):
-        en = self.encoding(x)
-        b, c, _, _ = x.size()
-        gamma = self.fc(en)
-        y = gamma.view(b, c, 1, 1)
-        outputs = [F.relu_(x + x * y)]
-        if self.se_loss:
-            outputs.append(self.selayer(en))
+        x = self.aspp(x)
+        x = self.block(x)
+        return x
+
+
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
+
+class FCNHead(nn.Module):
+
+    def __init__(self, in_channels, out_channels, norm_layer, up_kwargs={}, with_global=False):
+        super(FCNHead, self).__init__()
+        inter_channels = in_channels // 4
+        self._up_kwargs = up_kwargs
+        if with_global:
+            self.conv5 = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(), ConcurrentModule([Identity(), GlobalPooling(inter_channels, inter_channels, norm_layer, self._up_kwargs)]), nn.Dropout(0.1, False), nn.Conv2d(2 * inter_channels, out_channels, 1))
+        else:
+            self.conv5 = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(), nn.Dropout(0.1, False), nn.Conv2d(inter_channels, out_channels, 1))
+
+    def forward(self, x):
+        return self.conv5(x)
+
+
+class DeepLabV3(BaseNet):
+    """DeepLabV3
+
+    Parameters
+    ----------
+    nclass : int
+        Number of categories for the training dataset.
+    backbone : string
+        Pre-trained dilated backbone network type (default:'resnet50'; 'resnet50',
+        'resnet101' or 'resnet152').
+    norm_layer : object
+        Normalization layer used in backbone network (default: :class:`mxnet.gluon.nn.BatchNorm`;
+        for Synchronized Cross-GPU BachNormalization).
+    aux : bool
+        Auxiliary loss.
+
+
+    Reference:
+
+        Chen, Liang-Chieh, et al. "Rethinking atrous convolution for semantic image segmentation."
+        arXiv preprint arXiv:1706.05587 (2017).
+
+    """
+
+    def __init__(self, nclass, backbone, aux=True, se_loss=False, norm_layer=nn.BatchNorm2d, **kwargs):
+        super(DeepLabV3, self).__init__(nclass, backbone, aux, se_loss, norm_layer=norm_layer, **kwargs)
+        self.head = DeepLabV3Head(2048, nclass, norm_layer, self._up_kwargs)
+        if aux:
+            self.auxlayer = FCNHead(1024, nclass, norm_layer)
+
+    def forward(self, x):
+        _, _, h, w = x.size()
+        c1, c2, c3, c4 = self.base_forward(x)
+        outputs = []
+        x = self.head(c4)
+        x = interpolate(x, (h, w), **self._up_kwargs)
+        outputs.append(x)
+        if self.aux:
+            auxout = self.auxlayer(c3)
+            auxout = interpolate(auxout, (h, w), **self._up_kwargs)
+            outputs.append(auxout)
         return tuple(outputs)
 
 
@@ -1515,6 +2252,26 @@ class EncHead(nn.Module):
         outs = list(self.encmodule(feat))
         outs[0] = self.conv6(outs[0])
         return tuple(outs)
+
+
+class EncNet(BaseNet):
+
+    def __init__(self, nclass, backbone, aux=True, se_loss=True, lateral=False, norm_layer=SyncBatchNorm, **kwargs):
+        super(EncNet, self).__init__(nclass, backbone, aux, se_loss, norm_layer=norm_layer, **kwargs)
+        self.head = EncHead(2048, self.nclass, se_loss=se_loss, lateral=lateral, norm_layer=norm_layer, up_kwargs=self._up_kwargs)
+        if aux:
+            self.auxlayer = FCNHead(1024, nclass, norm_layer=norm_layer)
+
+    def forward(self, x):
+        imsize = x.size()[2:]
+        features = self.base_forward(x)
+        x = list(self.head(*features))
+        x[0] = F.interpolate(x[0], imsize, **self._up_kwargs)
+        if self.aux:
+            auxout = self.auxlayer(features[2])
+            auxout = F.interpolate(auxout, imsize, **self._up_kwargs)
+            x.append(auxout)
+        return tuple(x)
 
 
 class FCFPNHead(nn.Module):
@@ -1553,217 +2310,86 @@ class FCFPNHead(nn.Module):
         return self.conv5(fpn_features),
 
 
-class Identity(nn.Module):
+class FCFPN(BaseNet):
+    """Fully Convolutional Networks for Semantic Segmentation
 
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class GlobalPooling(nn.Module):
-
-    def __init__(self, in_channels, out_channels, norm_layer, up_kwargs):
-        super(GlobalPooling, self).__init__()
-        self._up_kwargs = up_kwargs
-        self.gap = nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Conv2d(in_channels, out_channels, 1, bias=False), norm_layer(out_channels), nn.ReLU(True))
-
-    def forward(self, x):
-        _, _, h, w = x.size()
-        pool = self.gap(x)
-        return interpolate(pool, (h, w), **self._up_kwargs)
+    Parameters
+    ----------
+    nclass : int
+        Number of categories for the training dataset.
+    backbone : string
+        Pre-trained dilated backbone network type (default:'resnet50'; 'resnet50',
+        'resnet101' or 'resnet152').
+    norm_layer : object
+        Normalization layer used in backbone network (default: :class:`mxnet.gluon.nn.BatchNorm`;
 
 
-class FCNHead(nn.Module):
+    Reference:
 
-    def __init__(self, in_channels, out_channels, norm_layer, up_kwargs={}, with_global=False):
-        super(FCNHead, self).__init__()
-        inter_channels = in_channels // 4
-        self._up_kwargs = up_kwargs
-        if with_global:
-            self.conv5 = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(), ConcurrentModule([Identity(), GlobalPooling(inter_channels, inter_channels, norm_layer, self._up_kwargs)]), nn.Dropout(0.1, False), nn.Conv2d(2 * inter_channels, out_channels, 1))
-        else:
-            self.conv5 = nn.Sequential(nn.Conv2d(in_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(), nn.Dropout(0.1, False), nn.Conv2d(inter_channels, out_channels, 1))
+        Long, Jonathan, Evan Shelhamer, and Trevor Darrell. "Fully convolutional networks
+        for semantic segmentation." *CVPR*, 2015
 
-    def forward(self, x):
-        return self.conv5(x)
-
-
-class PSPHead(nn.Module):
-
-    def __init__(self, in_channels, out_channels, norm_layer, up_kwargs):
-        super(PSPHead, self).__init__()
-        inter_channels = in_channels // 4
-        self.conv5 = nn.Sequential(PyramidPooling(in_channels, norm_layer, up_kwargs), nn.Conv2d(in_channels * 2, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(True), nn.Dropout(0.1, False), nn.Conv2d(inter_channels, out_channels, 1))
-
-    def forward(self, x):
-        return self.conv5(x)
-
-
-class MixtureOfSoftMaxACF(nn.Module):
-    """"Mixture of SoftMax"""
-
-    def __init__(self, n_mix, d_k, attn_dropout=0.1):
-        super(MixtureOfSoftMaxACF, self).__init__()
-        self.temperature = np.power(d_k, 0.5)
-        self.n_mix = n_mix
-        self.att_drop = attn_dropout
-        self.dropout = nn.Dropout(attn_dropout)
-        self.softmax1 = nn.Softmax(dim=1)
-        self.softmax2 = nn.Softmax(dim=2)
-        self.d_k = d_k
-        if n_mix > 1:
-            self.weight = nn.Parameter(torch.Tensor(n_mix, d_k))
-            std = np.power(n_mix, -0.5)
-            self.weight.data.uniform_(-std, std)
-
-    def forward(self, qt, kt, vt):
-        B, d_k, N = qt.size()
-        m = self.n_mix
-        assert d_k == self.d_k
-        d = d_k // m
-        if m > 1:
-            bar_qt = torch.mean(qt, 2, True)
-            pi = self.softmax1(torch.matmul(self.weight, bar_qt)).view(B * m, 1, 1)
-        q = qt.view(B * m, d, N).transpose(1, 2)
-        N2 = kt.size(2)
-        kt = kt.view(B * m, d, N2)
-        v = vt.transpose(1, 2)
-        attn = torch.bmm(q, kt)
-        attn = attn / self.temperature
-        attn = self.softmax2(attn)
-        attn = self.dropout(attn)
-        if m > 1:
-            attn = (attn * pi).view(B, m, N, N2).sum(1)
-        output = torch.bmm(attn, v)
-        return output, attn
-
-
-class ConvBnAct(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, radix=0, groups=1, bias=True, padding_mode='zeros', rectify=False, rectify_avg=False, act=True, norm_layer=nn.BatchNorm2d):
-        super().__init__()
-        if radix > 0:
-            conv_layer = SplAtConv2d
-            conv_kwargs = {'radix': radix, 'rectify': rectify, 'rectify_avg': rectify_avg, 'norm_layer': norm_layer}
-        else:
-            conv_layer = RFConv2d if rectify else nn.Conv2d
-            conv_kwargs = {'average_mode': rectify_avg} if rectify else {}
-        self.add_module('conv', conv_layer(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode, **conv_kwargs))
-        self.add_module('bn', nn.BatchNorm2d(out_channels))
-        if act:
-            self.add_module('relu', nn.ReLU())
-
-
-class GlobalAvgPool2d(nn.Module):
-
-    def __init__(self):
-        """Global average pooling over the input's spatial dimensions"""
-        super(GlobalAvgPool2d, self).__init__()
-
-    def forward(self, inputs):
-        return F.adaptive_avg_pool2d(inputs, 1).view(inputs.size(0), -1)
-
-
-class GramMatrix(nn.Module):
-    """ Gram Matrix for a 4D convolutional featuremaps as a mini-batch
-
-    .. math::
-        \\mathcal{G} = \\sum_{h=1}^{H_i}\\sum_{w=1}^{W_i} \\mathcal{F}_{h,w}\\mathcal{F}_{h,w}^T
+    Examples
+    --------
+    >>> model = FCFPN(nclass=21, backbone='resnet50')
+    >>> print(model)
     """
 
-    def forward(self, y):
-        b, ch, h, w = y.size()
-        features = y.view(b, ch, w * h)
-        features_t = features.transpose(1, 2)
-        gram = features.bmm(features_t) / (ch * h * w)
-        return gram
-
-
-class View(nn.Module):
-    """Reshape the input into different size, an inplace operator, support
-    SelfParallel mode.
-    """
-
-    def __init__(self, *args):
-        super(View, self).__init__()
-        if len(args) == 1 and isinstance(args[0], torch.Size):
-            self.size = args[0]
-        else:
-            self.size = torch.Size(args)
-
-    def forward(self, input):
-        return input.view(self.size)
-
-
-class Sum(nn.Module):
-
-    def __init__(self, dim, keep_dim=False):
-        super(Sum, self).__init__()
-        self.dim = dim
-        self.keep_dim = keep_dim
-
-    def forward(self, input):
-        return input.sum(self.dim, self.keep_dim)
-
-
-class Mean(nn.Module):
-
-    def __init__(self, dim, keep_dim=False):
-        super(Mean, self).__init__()
-        self.dim = dim
-        self.keep_dim = keep_dim
-
-    def forward(self, input):
-        return input.mean(self.dim, self.keep_dim)
-
-
-class Normalize(nn.Module):
-    """Performs :math:`L_p` normalization of inputs over specified dimension.
-
-    Does:
-
-    .. math::
-        v = \\frac{v}{\\max(\\lVert v \\rVert_p, \\epsilon)}
-
-    for each subtensor v over dimension dim of input. Each subtensor is
-    flattened into a vector, i.e. :math:`\\lVert v \\rVert_p` is not a matrix
-    norm.
-
-    With default arguments normalizes over the second dimension with Euclidean
-    norm.
-
-    Args:
-        p (float): the exponent value in the norm formulation. Default: 2
-        dim (int): the dimension to reduce. Default: 1
-    """
-
-    def __init__(self, p=2, dim=1):
-        super(Normalize, self).__init__()
-        self.p = p
-        self.dim = dim
+    def __init__(self, nclass, backbone, aux=True, se_loss=False, norm_layer=nn.BatchNorm2d, **kwargs):
+        super(FCFPN, self).__init__(nclass, backbone, aux, se_loss, dilated=False, norm_layer=norm_layer)
+        self.head = FCFPNHead(nclass, norm_layer, up_kwargs=self._up_kwargs)
+        assert not aux, 'FCFPN does not support aux loss'
 
     def forward(self, x):
-        return F.normalize(x, self.p, self.dim, eps=1e-08)
+        imsize = x.size()[2:]
+        features = self.base_forward(x)
+        x = list(self.head(*features))
+        x[0] = upsample(x[0], imsize, **self._up_kwargs)
+        return tuple(x)
 
 
-class ConcurrentModule(nn.ModuleList):
-    """Feed to a list of modules concurrently. 
-    The outputs of the layers are concatenated at channel dimension.
+class FCN(BaseNet):
+    """Fully Convolutional Networks for Semantic Segmentation
 
-    Args:
-        modules (iterable, optional): an iterable of modules to add
+    Parameters
+    ----------
+    nclass : int
+        Number of categories for the training dataset.
+    backbone : string
+        Pre-trained dilated backbone network type (default:'resnet50s'; 'resnet50s',
+        'resnet101s' or 'resnet152s').
+    norm_layer : object
+        Normalization layer used in backbone network (default: :class:`mxnet.gluon.nn.BatchNorm`;
+
+
+    Reference:
+
+        Long, Jonathan, Evan Shelhamer, and Trevor Darrell. "Fully convolutional networks
+        for semantic segmentation." *CVPR*, 2015
+
+    Examples
+    --------
+    >>> model = FCN(nclass=21, backbone='resnet50s')
+    >>> print(model)
     """
 
-    def __init__(self, modules=None):
-        super(ConcurrentModule, self).__init__(modules)
+    def __init__(self, nclass, backbone, aux=True, se_loss=False, with_global=False, norm_layer=SyncBatchNorm, *args, **kwargs):
+        super(FCN, self).__init__(nclass, backbone, aux, se_loss, *args, norm_layer=norm_layer, **kwargs)
+        self.head = FCNHead(2048, nclass, norm_layer, self._up_kwargs, with_global)
+        if aux:
+            self.auxlayer = FCNHead(1024, nclass, norm_layer)
 
     def forward(self, x):
-        outputs = []
-        for layer in self:
-            outputs.append(layer(x))
-        return torch.cat(outputs, 1)
+        imsize = x.size()[2:]
+        _, _, c3, c4 = self.base_forward(x)
+        x = self.head(c4)
+        x = interpolate(x, imsize, **self._up_kwargs)
+        outputs = [x]
+        if self.aux:
+            auxout = self.auxlayer(c3)
+            auxout = interpolate(auxout, imsize, **self._up_kwargs)
+            outputs.append(auxout)
+        return tuple(outputs)
 
 
 class PyramidPooling(nn.Module):
@@ -1792,6 +2418,85 @@ class PyramidPooling(nn.Module):
         feat3 = F.interpolate(self.conv3(self.pool3(x)), (h, w), **self._up_kwargs)
         feat4 = F.interpolate(self.conv4(self.pool4(x)), (h, w), **self._up_kwargs)
         return torch.cat((x, feat1, feat2, feat3, feat4), 1)
+
+
+class PSPHead(nn.Module):
+
+    def __init__(self, in_channels, out_channels, norm_layer, up_kwargs):
+        super(PSPHead, self).__init__()
+        inter_channels = in_channels // 4
+        self.conv5 = nn.Sequential(PyramidPooling(in_channels, norm_layer, up_kwargs), nn.Conv2d(in_channels * 2, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(True), nn.Dropout(0.1, False), nn.Conv2d(inter_channels, out_channels, 1))
+
+    def forward(self, x):
+        return self.conv5(x)
+
+
+class PSP(BaseNet):
+
+    def __init__(self, nclass, backbone, aux=True, se_loss=False, norm_layer=nn.BatchNorm2d, **kwargs):
+        super(PSP, self).__init__(nclass, backbone, aux, se_loss, norm_layer=norm_layer, **kwargs)
+        self.head = PSPHead(2048, nclass, norm_layer, self._up_kwargs)
+        if aux:
+            self.auxlayer = FCNHead(1024, nclass, norm_layer)
+
+    def forward(self, x):
+        _, _, h, w = x.size()
+        _, _, c3, c4 = self.base_forward(x)
+        outputs = []
+        x = self.head(c4)
+        x = interpolate(x, (h, w), **self._up_kwargs)
+        outputs.append(x)
+        if self.aux:
+            auxout = self.auxlayer(c3)
+            auxout = interpolate(auxout, (h, w), **self._up_kwargs)
+            outputs.append(auxout)
+        return tuple(outputs)
+
+
+class UperNetHead(FCFPNHead):
+
+    def __init__(self, out_channels, norm_layer=None, fpn_inchannels=[256, 512, 1024, 2048], fpn_dim=256, up_kwargs=None):
+        fpn_inchannels[-1] = fpn_inchannels[-1] * 2
+        super(UperNetHead, self).__init__(out_channels, norm_layer, fpn_inchannels, fpn_dim, up_kwargs)
+        self.extramodule = PyramidPooling(fpn_inchannels[-1] // 2, norm_layer, up_kwargs)
+
+
+class UperNet(BaseNet):
+    """Fully Convolutional Networks for Semantic Segmentation
+
+    Parameters
+    ----------
+    nclass : int
+        Number of categories for the training dataset.
+    backbone : string
+        Pre-trained dilated backbone network type (default:'resnet50s'; 'resnet50s',
+        'resnet101s' or 'resnet152s').
+    norm_layer : object
+        Normalization layer used in backbone network (default: :class:`mxnet.gluon.nn.BatchNorm`;
+
+
+    Reference:
+
+        Long, Jonathan, Evan Shelhamer, and Trevor Darrell. "Fully convolutional networks
+        for semantic segmentation." *CVPR*, 2015
+
+    Examples
+    --------
+    >>> model = UperNet(nclass=21, backbone='resnet50s')
+    >>> print(model)
+    """
+
+    def __init__(self, nclass, backbone, aux=True, se_loss=False, norm_layer=nn.BatchNorm2d, **kwargs):
+        super(UperNet, self).__init__(nclass, backbone, aux, se_loss, dilated=False, norm_layer=norm_layer)
+        self.head = UperNetHead(nclass, norm_layer, up_kwargs=self._up_kwargs)
+        assert not aux, 'UperNet does not support aux loss'
+
+    def forward(self, x):
+        imsize = x.size()[2:]
+        features = self.base_forward(x)
+        x = list(self.head(*features))
+        x[0] = upsample(x[0], imsize, **self._up_kwargs)
+        return tuple(x)
 
 
 class DropBlock2D(nn.Module):
@@ -1886,173 +2591,149 @@ class DropBlock2D(nn.Module):
         return 'drop_prob={}, step_size={}'.format(self.drop_prob, self.step_size)
 
 
-class _aggregate(Function):
+class rSoftMax(nn.Module):
 
-    @staticmethod
-    def forward(ctx, A, X, C):
-        ctx.save_for_backward(A, X, C)
-        if A.is_cuda:
-            E = lib.gpu.aggregate_forward(A, X, C)
+    def __init__(self, radix, cardinality):
+        super().__init__()
+        self.radix = radix
+        self.cardinality = cardinality
+
+    def forward(self, x):
+        batch = x.size(0)
+        if self.radix > 1:
+            x = x.view(batch, self.cardinality, self.radix, -1).transpose(1, 2)
+            x = F.softmax(x, dim=1)
+            x = x.reshape(batch, -1)
         else:
-            E = lib.cpu.aggregate_forward(A, X, C)
-        return E
+            x = torch.sigmoid(x)
+        return x
 
-    @staticmethod
-    def backward(ctx, gradE):
-        A, X, C = ctx.saved_variables
-        if A.is_cuda:
-            gradA, gradX, gradC = lib.gpu.aggregate_backward(gradE, A, X, C)
+
+class SplAtConv2d(Module):
+    """Split-Attention Conv2d
+    """
+
+    def __init__(self, in_channels, channels, kernel_size, stride=(1, 1), padding=(0, 0), dilation=(1, 1), groups=1, bias=True, radix=2, reduction_factor=4, rectify=False, rectify_avg=False, norm_layer=None, dropblock_prob=0.0, **kwargs):
+        super(SplAtConv2d, self).__init__()
+        padding = _pair(padding)
+        self.rectify = rectify and (padding[0] > 0 or padding[1] > 0)
+        self.rectify_avg = rectify_avg
+        inter_channels = max(in_channels * radix // reduction_factor, 32)
+        self.radix = radix
+        self.cardinality = groups
+        self.channels = channels
+        self.dropblock_prob = dropblock_prob
+        if self.rectify:
+            self.conv = RFConv2d(in_channels, channels * radix, kernel_size, stride, padding, dilation, groups=groups * radix, bias=bias, average_mode=rectify_avg, **kwargs)
         else:
-            gradA, gradX, gradC = lib.cpu.aggregate_backward(gradE, A, X, C)
-        return gradA, gradX, gradC
+            self.conv = Conv2d(in_channels, channels * radix, kernel_size, stride, padding, dilation, groups=groups * radix, bias=bias, **kwargs)
+        self.use_bn = norm_layer is not None
+        self.bn0 = norm_layer(channels * radix)
+        self.relu = ReLU(inplace=True)
+        self.fc1 = Conv2d(channels, inter_channels, 1, groups=self.cardinality)
+        self.bn1 = norm_layer(inter_channels)
+        self.fc2 = Conv2d(inter_channels, channels * radix, 1, groups=self.cardinality)
+        if dropblock_prob > 0.0:
+            self.dropblock = DropBlock2D(dropblock_prob, 3)
+        self.rsoftmax = rSoftMax(radix, groups)
+
+    def forward(self, x):
+        x = self.conv(x)
+        if self.use_bn:
+            x = self.bn0(x)
+        if self.dropblock_prob > 0.0:
+            x = self.dropblock(x)
+        x = self.relu(x)
+        batch, channel = x.shape[:2]
+        if self.radix > 1:
+            splited = torch.split(x, channel // self.radix, dim=1)
+            gap = sum(splited)
+        else:
+            gap = x
+        gap = F.adaptive_avg_pool2d(gap, 1)
+        gap = self.fc1(gap)
+        if self.use_bn:
+            gap = self.bn1(gap)
+        gap = self.relu(gap)
+        atten = self.fc2(gap)
+        atten = self.rsoftmax(atten).view(batch, -1, 1, 1)
+        if self.radix > 1:
+            atten = torch.split(atten, channel // self.radix, dim=1)
+            out = sum([(att * split) for att, split in zip(atten, splited)])
+        else:
+            out = atten * x
+        return out.contiguous()
 
 
-def aggregate(A, X, C):
-    """ Aggregate operation, aggregate the residuals of inputs (:math:`X`) with repect
-    to the codewords (:math:`C`) with assignment weights (:math:`A`).
+class ConvBnAct(nn.Sequential):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, radix=0, groups=1, bias=True, padding_mode='zeros', rectify=False, rectify_avg=False, act=True, norm_layer=nn.BatchNorm2d):
+        super().__init__()
+        if radix > 0:
+            conv_layer = SplAtConv2d
+            conv_kwargs = {'radix': radix, 'rectify': rectify, 'rectify_avg': rectify_avg, 'norm_layer': norm_layer}
+        else:
+            conv_layer = RFConv2d if rectify else nn.Conv2d
+            conv_kwargs = {'average_mode': rectify_avg} if rectify else {}
+        self.add_module('conv', conv_layer(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode, **conv_kwargs))
+        self.add_module('bn', nn.BatchNorm2d(out_channels))
+        if act:
+            self.add_module('relu', nn.ReLU())
+
+
+class GramMatrix(nn.Module):
+    """ Gram Matrix for a 4D convolutional featuremaps as a mini-batch
 
     .. math::
-
-        e_{k} = \\sum_{i=1}^{N} a_{ik} (x_i - d_k)
-
-    Shape:
-        - Input: :math:`A\\in\\mathcal{R}^{B\\times N\\times K}`
-          :math:`X\\in\\mathcal{R}^{B\\times N\\times D}` :math:`C\\in\\mathcal{R}^{K\\times D}`
-          (where :math:`B` is batch, :math:`N` is total number of features,
-          :math:`K` is number is codewords, :math:`D` is feature dimensions.)
-        - Output: :math:`E\\in\\mathcal{R}^{B\\times K\\times D}`
-
-    Examples:
-        >>> B,N,K,D = 2,3,4,5
-        >>> A = Variable(torch.cuda.DoubleTensor(B,N,K).uniform_(-0.5,0.5), requires_grad=True)
-        >>> X = Variable(torch.cuda.DoubleTensor(B,N,D).uniform_(-0.5,0.5), requires_grad=True)
-        >>> C = Variable(torch.cuda.DoubleTensor(K,D).uniform_(-0.5,0.5), requires_grad=True)
-        >>> func = encoding.aggregate()
-        >>> E = func(A, X, C)
+        \\mathcal{G} = \\sum_{h=1}^{H_i}\\sum_{w=1}^{W_i} \\mathcal{F}_{h,w}\\mathcal{F}_{h,w}^T
     """
-    return _aggregate.apply(A, X, C)
+
+    def forward(self, y):
+        b, ch, h, w = y.size()
+        features = y.view(b, ch, w * h)
+        features_t = features.transpose(1, 2)
+        gram = features.bmm(features_t) / (ch * h * w)
+        return gram
 
 
-class _scaled_l2(Function):
+class Sum(nn.Module):
 
-    @staticmethod
-    def forward(ctx, X, C, S):
-        if X.is_cuda:
-            SL = lib.gpu.scaled_l2_forward(X, C, S)
-        else:
-            SL = lib.cpu.scaled_l2_forward(X, C, S)
-        ctx.save_for_backward(X, C, S, SL)
-        return SL
+    def __init__(self, dim, keep_dim=False):
+        super(Sum, self).__init__()
+        self.dim = dim
+        self.keep_dim = keep_dim
 
-    @staticmethod
-    def backward(ctx, gradSL):
-        X, C, S, SL = ctx.saved_variables
-        if X.is_cuda:
-            gradX, gradC, gradS = lib.gpu.scaled_l2_backward(gradSL, X, C, S, SL)
-        else:
-            gradX, gradC, gradS = lib.cpu.scaled_l2_backward(gradSL, X, C, S, SL)
-        return gradX, gradC, gradS
+    def forward(self, input):
+        return input.sum(self.dim, self.keep_dim)
 
 
-def scaled_l2(X, C, S):
-    """ scaled_l2 distance
+class Normalize(nn.Module):
+    """Performs :math:`L_p` normalization of inputs over specified dimension.
+
+    Does:
 
     .. math::
-        sl_{ik} = s_k \\|x_i-c_k\\|^2
+        v = \\frac{v}{\\max(\\lVert v \\rVert_p, \\epsilon)}
 
-    Shape:
-        - Input: :math:`X\\in\\mathcal{R}^{B\\times N\\times D}`
-          :math:`C\\in\\mathcal{R}^{K\\times D}` :math:`S\\in \\mathcal{R}^K`
-          (where :math:`B` is batch, :math:`N` is total number of features,
-          :math:`K` is number is codewords, :math:`D` is feature dimensions.)
-        - Output: :math:`E\\in\\mathcal{R}^{B\\times N\\times K}`
-    """
-    return _scaled_l2.apply(X, C, S)
+    for each subtensor v over dimension dim of input. Each subtensor is
+    flattened into a vector, i.e. :math:`\\lVert v \\rVert_p` is not a matrix
+    norm.
 
-
-class Encoding(Module):
-    """
-    Encoding Layer: a learnable residual encoder.
-
-    .. image:: _static/img/cvpr17.svg
-        :width: 30%
-        :align: center
-
-    Encoding Layer accpets 3D or 4D inputs.
-    It considers an input featuremaps with the shape of :math:`C\\times H\\times W`
-    as a set of C-dimentional input features :math:`X=\\{x_1, ...x_N\\}`, where N is total number
-    of features given by :math:`H\\times W`, which learns an inherent codebook
-    :math:`D=\\{d_1,...d_K\\}` and a set of smoothing factor of visual centers
-    :math:`S=\\{s_1,...s_K\\}`. Encoding Layer outputs the residuals with soft-assignment weights
-    :math:`e_k=\\sum_{i=1}^Ne_{ik}`, where
-
-    .. math::
-
-        e_{ik} = \\frac{exp(-s_k\\|r_{ik}\\|^2)}{\\sum_{j=1}^K exp(-s_j\\|r_{ij}\\|^2)} r_{ik}
-
-    and the residuals are given by :math:`r_{ik} = x_i - d_k`. The output encoders are
-    :math:`E=\\{e_1,...e_K\\}`.
+    With default arguments normalizes over the second dimension with Euclidean
+    norm.
 
     Args:
-        D: dimention of the features or feature channels
-        K: number of codeswords
-
-    Shape:
-        - Input: :math:`X\\in\\mathcal{R}^{B\\times N\\times D}` or
-          :math:`\\mathcal{R}^{B\\times D\\times H\\times W}` (where :math:`B` is batch,
-          :math:`N` is total number of features or :math:`H\\times W`.)
-        - Output: :math:`E\\in\\mathcal{R}^{B\\times K\\times D}`
-
-    Attributes:
-        codewords (Tensor): the learnable codewords of shape (:math:`K\\times D`)
-        scale (Tensor): the learnable scale factor of visual centers
-
-    Reference:
-        Hang Zhang, Kristin Dana, Jianping Shi, Zhongyue Zhang, Xiaogang Wang, Ambrish Tyagi,
-        Amit Agrawal. “Context Encoding for Semantic Segmentation.
-        *The IEEE Conference on Computer Vision and Pattern Recognition (CVPR) 2018*
-
-        Hang Zhang, Jia Xue, and Kristin Dana. "Deep TEN: Texture Encoding Network."
-        *The IEEE Conference on Computer Vision and Pattern Recognition (CVPR) 2017*
-
-    Examples:
-        >>> import encoding
-        >>> import torch
-        >>> import torch.nn.functional as F
-        >>> from torch.autograd import Variable
-        >>> B,C,H,W,K = 2,3,4,5,6
-        >>> X = Variable(torch.cuda.DoubleTensor(B,C,H,W).uniform_(-0.5,0.5), requires_grad=True)
-        >>> layer = encoding.Encoding(C,K).double().cuda()
-        >>> E = layer(X)
+        p (float): the exponent value in the norm formulation. Default: 2
+        dim (int): the dimension to reduce. Default: 1
     """
 
-    def __init__(self, D, K):
-        super(Encoding, self).__init__()
-        self.D, self.K = D, K
-        self.codewords = Parameter(torch.Tensor(K, D), requires_grad=True)
-        self.scale = Parameter(torch.Tensor(K), requires_grad=True)
-        self.reset_params()
+    def __init__(self, p=2, dim=1):
+        super(Normalize, self).__init__()
+        self.p = p
+        self.dim = dim
 
-    def reset_params(self):
-        std1 = 1.0 / (self.K * self.D) ** (1 / 2)
-        self.codewords.data.uniform_(-std1, std1)
-        self.scale.data.uniform_(-1, 0)
-
-    def forward(self, X):
-        assert X.size(1) == self.D
-        B, D = X.size(0), self.D
-        if X.dim() == 3:
-            X = X.transpose(1, 2).contiguous()
-        elif X.dim() == 4:
-            X = X.view(B, D, -1).transpose(1, 2).contiguous()
-        else:
-            raise RuntimeError('Encoding Layer unknown input dims!')
-        A = F.softmax(scaled_l2(X, self.codewords, self.scale), dim=2)
-        E = aggregate(A, X, self.codewords)
-        return E
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + 'N x ' + str(self.D) + '=>' + str(self.K) + 'x' + str(self.D) + ')'
+    def forward(self, x):
+        return F.normalize(x, self.p, self.dim, eps=1e-08)
 
 
 class EncodingDrop(Module):
@@ -2369,140 +3050,6 @@ class SegmentationLosses(nn.CrossEntropyLoss):
         return tvect
 
 
-class _rectify(Function):
-
-    @staticmethod
-    def forward(ctx, y, x, kernel_size, stride, padding, dilation, average):
-        ctx.save_for_backward(x)
-        kernel_size = [(k + 2 * (d - 1)) for k, d in zip(kernel_size, dilation)]
-        ctx.kernel_size = kernel_size
-        ctx.stride = stride
-        ctx.padding = padding
-        ctx.dilation = dilation
-        ctx.average = average
-        if x.is_cuda:
-            lib.gpu.conv_rectify(y, x, kernel_size, stride, padding, dilation, average)
-        else:
-            lib.cpu.conv_rectify(y, x, kernel_size, stride, padding, dilation, average)
-        ctx.mark_dirty(y)
-        return y
-
-    @staticmethod
-    def backward(ctx, grad_y):
-        x, = ctx.saved_variables
-        if x.is_cuda:
-            lib.gpu.conv_rectify(grad_y, x, ctx.kernel_size, ctx.stride, ctx.padding, ctx.dilation, ctx.average)
-        else:
-            lib.cpu.conv_rectify(grad_y, x, ctx.kernel_size, ctx.stride, ctx.padding, ctx.dilation, ctx.average)
-        ctx.mark_dirty(grad_y)
-        return grad_y, None, None, None, None, None, None
-
-
-rectify = _rectify.apply
-
-
-class RFConv2d(Conv2d):
-    """Rectified Convolution
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', average_mode=False):
-        kernel_size = _pair(kernel_size)
-        stride = _pair(stride)
-        padding = _pair(padding)
-        dilation = _pair(dilation)
-        self.rectify = average_mode or (padding[0] > 0 or padding[1] > 0)
-        self.average = average_mode
-        super(RFConv2d, self).__init__(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode)
-
-    def _conv_forward(self, input, weight):
-        if self.padding_mode != 'zeros':
-            return F.conv2d(F.pad(input, self._padding_repeated_twice, mode=self.padding_mode), weight, self.bias, self.stride, _pair(0), self.dilation, self.groups)
-        return F.conv2d(input, weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
-
-    def forward(self, input):
-        output = self._conv_forward(input, self.weight)
-        if self.rectify:
-            output = rectify(output, input, self.kernel_size, self.stride, self.padding, self.dilation, self.average)
-        return output
-
-    def extra_repr(self):
-        return super().extra_repr() + ', rectify={}, average_mode={}'.format(self.rectify, self.average)
-
-
-class SplAtConv2d(Module):
-    """Split-Attention Conv2d
-    """
-
-    def __init__(self, in_channels, channels, kernel_size, stride=(1, 1), padding=(0, 0), dilation=(1, 1), groups=1, bias=True, radix=2, reduction_factor=4, rectify=False, rectify_avg=False, norm_layer=None, dropblock_prob=0.0, **kwargs):
-        super(SplAtConv2d, self).__init__()
-        padding = _pair(padding)
-        self.rectify = rectify and (padding[0] > 0 or padding[1] > 0)
-        self.rectify_avg = rectify_avg
-        inter_channels = max(in_channels * radix // reduction_factor, 32)
-        self.radix = radix
-        self.cardinality = groups
-        self.channels = channels
-        self.dropblock_prob = dropblock_prob
-        if self.rectify:
-            self.conv = RFConv2d(in_channels, channels * radix, kernel_size, stride, padding, dilation, groups=groups * radix, bias=bias, average_mode=rectify_avg, **kwargs)
-        else:
-            self.conv = Conv2d(in_channels, channels * radix, kernel_size, stride, padding, dilation, groups=groups * radix, bias=bias, **kwargs)
-        self.use_bn = norm_layer is not None
-        self.bn0 = norm_layer(channels * radix)
-        self.relu = ReLU(inplace=True)
-        self.fc1 = Conv2d(channels, inter_channels, 1, groups=self.cardinality)
-        self.bn1 = norm_layer(inter_channels)
-        self.fc2 = Conv2d(inter_channels, channels * radix, 1, groups=self.cardinality)
-        if dropblock_prob > 0.0:
-            self.dropblock = DropBlock2D(dropblock_prob, 3)
-        self.rsoftmax = rSoftMax(radix, groups)
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.use_bn:
-            x = self.bn0(x)
-        if self.dropblock_prob > 0.0:
-            x = self.dropblock(x)
-        x = self.relu(x)
-        batch, channel = x.shape[:2]
-        if self.radix > 1:
-            splited = torch.split(x, channel // self.radix, dim=1)
-            gap = sum(splited)
-        else:
-            gap = x
-        gap = F.adaptive_avg_pool2d(gap, 1)
-        gap = self.fc1(gap)
-        if self.use_bn:
-            gap = self.bn1(gap)
-        gap = self.relu(gap)
-        atten = self.fc2(gap)
-        atten = self.rsoftmax(atten).view(batch, -1, 1, 1)
-        if self.radix > 1:
-            atten = torch.split(atten, channel // self.radix, dim=1)
-            out = sum([(att * split) for att, split in zip(atten, splited)])
-        else:
-            out = atten * x
-        return out.contiguous()
-
-
-class rSoftMax(nn.Module):
-
-    def __init__(self, radix, cardinality):
-        super().__init__()
-        self.radix = radix
-        self.cardinality = cardinality
-
-    def forward(self, x):
-        batch = x.size(0)
-        if self.radix > 1:
-            x = x.view(batch, self.cardinality, self.radix, -1).transpose(1, 2)
-            x = F.softmax(x, dim=1)
-            x = x.reshape(batch, -1)
-        else:
-            x = torch.sigmoid(x)
-        return x
-
-
 class dist_syncbatchnorm_(Function):
 
     @staticmethod
@@ -2528,7 +3075,7 @@ class dist_syncbatchnorm_(Function):
             _ex, _exs = lib.gpu.expectation_forward(x)
         else:
             raise NotImplemented
-        count = torch.Tensor([1]).to(x.device)
+        count = torch.Tensor([1])
         count_all_reduce = torch.distributed.all_reduce(count, group=process_group, async_op=True)
         _ex_all_reduce = torch.distributed.all_reduce(_ex, group=process_group, async_op=True)
         _exs_all_reduce = torch.distributed.all_reduce(_exs, group=process_group, async_op=True)
@@ -2558,7 +3105,7 @@ class dist_syncbatchnorm_(Function):
             raise NotImplemented
         if ctx.training:
             process_group = ctx.process_group
-            count = torch.Tensor([1]).to(x.device)
+            count = torch.Tensor([1])
             count_all_reduce = torch.distributed.all_reduce(count, group=process_group, async_op=True)
             _dex_all_reduce = torch.distributed.all_reduce(_dex, group=process_group, async_op=True)
             _dexs_all_reduce = torch.distributed.all_reduce(_dexs, group=process_group, async_op=True)
@@ -2649,109 +3196,41 @@ class DistSyncBatchNorm(_BatchNorm):
         return y.view(input_shape)
 
 
-def _act_backward(ctx, x, dx):
-    if ctx.activation.lower() == 'leaky_relu':
-        if x.is_cuda:
-            lib.gpu.leaky_relu_backward(x, dx, ctx.slope)
-        else:
-            raise NotImplemented
-    else:
-        assert activation == 'none'
+class EncodingDeprecationWarning(DeprecationWarning):
+    pass
 
 
-def _act_forward(ctx, x):
-    if ctx.activation.lower() == 'leaky_relu':
-        if x.is_cuda:
-            lib.gpu.leaky_relu_forward(x, ctx.slope)
-        else:
-            raise NotImplemented
-    else:
-        assert activation == 'none'
-
-
-class SyncBatchNorm(_BatchNorm):
-    """Cross-GPU Synchronized Batch normalization (SyncBN)
-
-    Standard BN [1]_ implementation only normalize the data within each device (GPU).
-    SyncBN normalizes the input within the whole mini-batch.
-    We follow the sync-onece implmentation described in the paper [2]_ .
-    Please see the design idea in the `notes <./notes/syncbn.html>`_.
-
-    .. math::
-
-        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
-
-    The mean and standard-deviation are calculated per-channel over
-    the mini-batches and gamma and beta are learnable parameter vectors
-    of size C (where C is the input size).
-
-    During training, this layer keeps a running estimate of its computed mean
-    and variance. The running sum is kept with a default momentum of 0.1.
-
-    During evaluation, this running mean/variance is used for normalization.
-
-    Because the BatchNorm is done over the `C` dimension, computing statistics
-    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
-
-    Args:
-        num_features: num_features from an expected input of
-            size batch_size x num_features x height x width
-        eps: a value added to the denominator for numerical stability.
-            Default: 1e-5
-        momentum: the value used for the running_mean and running_var
-            computation. Default: 0.1
-        sync: a boolean value that when set to ``True``, synchronize across
-            different gpus. Default: ``True``
-        activation : str
-            Name of the activation functions, one of: `leaky_relu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-
-    Shape:
-        - Input: :math:`(N, C, H, W)`
-        - Output: :math:`(N, C, H, W)` (same shape as input)
-
-    Examples:
-        >>> m = SyncBatchNorm(100)
-        >>> net = torch.nn.DataParallel(m)
-        >>> output = net(input)
-        >>> # for Inpace ABN
-        >>> ABN = partial(SyncBatchNorm, activation='leaky_relu', slope=0.01, sync=True, inplace=True)
+class BatchNorm1d(SyncBatchNorm):
+    """
+    .. warning::
+        BatchNorm1d is deprecated in favor of :class:`encoding.nn.SyncBatchNorm`.
     """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, sync=True, activation='none', slope=0.01, inplace=True):
-        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=True)
-        self.activation = activation
-        self.inplace = False if activation == 'none' else inplace
-        self.slope = slope
-        self.devices = list(range(torch.device_count()))
-        self.sync = sync if len(self.devices) > 1 else False
-        self.worker_ids = self.devices[1:]
-        self.master_queue = Queue(len(self.worker_ids))
-        self.worker_queues = [Queue(1) for _ in self.worker_ids]
+    def __init__(self, *args, **kwargs):
+        warnings.warn('encoding.nn.{} is now deprecated in favor of encoding.nn.{}.'.format('BatchNorm1d', SyncBatchNorm.__name__), EncodingDeprecationWarning)
+        super(BatchNorm1d, self).__init__(*args, **kwargs)
 
-    def _check_input_dim(self, x):
-        pass
 
-    def forward(self, x):
-        if not self.training:
-            return super().forward(x)
-        input_shape = x.size()
-        x = x.view(input_shape[0], self.num_features, -1)
-        if x.get_device() == self.devices[0]:
-            extra = {'is_master': True, 'master_queue': self.master_queue, 'worker_queues': self.worker_queues, 'worker_ids': self.worker_ids}
-        else:
-            extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
-        if self.inplace:
-            return inp_syncbatchnorm(x, self.weight, self.bias, self.running_mean, self.running_var, extra, self.sync, self.training, self.momentum, self.eps, self.activation, self.slope).view(input_shape)
-        else:
-            return syncbatchnorm(x, self.weight, self.bias, self.running_mean, self.running_var, extra, self.sync, self.training, self.momentum, self.eps, self.activation, self.slope).view(input_shape)
+class BatchNorm2d(SyncBatchNorm):
+    """
+    .. warning::
+        BatchNorm2d is deprecated in favor of :class:`encoding.nn.SyncBatchNorm`.
+    """
 
-    def extra_repr(self):
-        if self.activation == 'none':
-            return 'sync={}'.format(self.sync)
-        else:
-            return 'sync={}, act={}, slope={}, inplace={}'.format(self.sync, self.activation, self.slope, self.inplace)
+    def __init__(self, *args, **kwargs):
+        warnings.warn('encoding.nn.{} is now deprecated in favor of encoding.nn.{}.'.format('BatchNorm2d', SyncBatchNorm.__name__), EncodingDeprecationWarning)
+        super(BatchNorm2d, self).__init__(*args, **kwargs)
+
+
+class BatchNorm3d(SyncBatchNorm):
+    """
+    .. warning::
+        BatchNorm3d is deprecated in favor of :class:`encoding.nn.SyncBatchNorm`.
+    """
+
+    def __init__(self, *args, **kwargs):
+        warnings.warn('encoding.nn.{} is now deprecated in favor of encoding.nn.{}.'.format('BatchNorm3d', SyncBatchNorm.__name__), EncodingDeprecationWarning)
+        super(BatchNorm3d, self).__init__(*args, **kwargs)
 
 
 class DataParallelModel(DataParallel):
@@ -2830,7 +3309,7 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices
         if device is None:
             device = get_a_var(input).get_device()
         try:
-            with torch.cuda.device(device):
+            with torch.device(device):
                 output = module(*(input + target), **kwargs)
             with lock:
                 results[i] = output
@@ -2929,10 +3408,6 @@ TESTCASES = [
      lambda: ([], {'C': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (LabelSmoothing,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
-     True),
     (Mean,
      lambda: ([], {'dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
@@ -3025,7 +3500,4 @@ class Test_zhanghang1989_PyTorch_Encoding(_paritybench_base):
 
     def test_017(self):
         self._check(*TESTCASES[17])
-
-    def test_018(self):
-        self._check(*TESTCASES[18])
 

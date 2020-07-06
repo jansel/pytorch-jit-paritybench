@@ -10,15 +10,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -62,7 +63,7 @@ from collections import defaultdict
 device = torch.device('cuda: 0' if torch.cuda.is_available() else 'cpu')
 
 
-class ArcFC(torch.nn.Module):
+class ArcFC(nn.Module):
     """
     Implement of large margin arc distance: :
         Args:
@@ -90,7 +91,7 @@ class ArcFC(torch.nn.Module):
         self.s = s
         self.m = m
         self.weight = Parameter(torch.FloatTensor(out_features, in_features))
-        torch.nn.init.xavier_uniform_(self.weight)
+        nn.init.xavier_uniform_(self.weight)
         self.easy_margin = easy_margin
         self.cos_m = math.cos(m)
         self.sin_m = math.sin(m)
@@ -302,56 +303,6 @@ class FocalLoss(nn.Module):
         return loss.mean()
 
 
-class ArcFC(nn.Module):
-    """
-    Implement of large margin arc distance: :
-        Args:
-            in_features: size of each input sample
-            out_features: size of each output_layer sample
-            s: norm of input feature
-            m: margin
-
-            cos(theta + m)
-        """
-
-    def __init__(self, in_features, out_features, s=30.0, m=0.5, easy_margin=False):
-        """
-        ArcMargin
-        :param in_features:
-        :param out_features:
-        :param s:
-        :param m:
-        :param easy_margin:
-        """
-        super(ArcFC, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        None
-        self.s = s
-        self.m = m
-        self.weight = Parameter(torch.FloatTensor(out_features, in_features))
-        nn.init.xavier_uniform_(self.weight)
-        self.easy_margin = easy_margin
-        self.cos_m = math.cos(m)
-        self.sin_m = math.sin(m)
-        self.th = math.cos(math.pi - m)
-        self.mm = math.sin(math.pi - m) * m
-
-    def forward(self, input, label):
-        cosine = F.linear(F.normalize(input, p=2), F.normalize(self.weight, p=2))
-        sine = torch.sqrt(1.0 - torch.pow(cosine, 2))
-        phi = cosine * self.cos_m - sine * self.sin_m
-        if self.easy_margin:
-            phi = torch.where(cosine > 0, phi, cosine)
-        else:
-            phi = torch.where(cosine > self.th, phi, cosine - self.mm)
-        one_hot = torch.zeros(cosine.size(), device=device)
-        one_hot.scatter_(1, label.view(-1, 1).long(), 1)
-        output = one_hot * phi + (1.0 - one_hot) * cosine
-        output *= self.s
-        return output
-
-
 class RepNet(torch.nn.Module):
 
     def __init__(self, out_ids, out_attribs):
@@ -509,4 +460,22 @@ class RepNet(torch.nn.Module):
         else:
             None
             return None
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (RepNet,
+     lambda: ([], {'out_ids': 4, 'out_attribs': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), 0], {}),
+     False),
+]
+
+class Test_CaptainEven_RepNet_MDNet_VehicleReID(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
 

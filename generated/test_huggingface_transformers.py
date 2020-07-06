@@ -52,6 +52,7 @@ utils_summarization = _module
 evaluate_cnn = _module
 finetune = _module
 test_summarization_examples = _module
+utils = _module
 test_examples = _module
 run_glue = _module
 run_pl_glue = _module
@@ -76,6 +77,7 @@ setup = _module
 transformers = _module
 activations = _module
 benchmark = _module
+benchmark = _module
 benchmark_args = _module
 benchmark_args_utils = _module
 benchmark_utils = _module
@@ -85,6 +87,7 @@ download = _module
 env = _module
 run = _module
 serving = _module
+train = _module
 transformers_cli = _module
 user = _module
 configuration_albert = _module
@@ -137,6 +140,7 @@ metrics = _module
 squad_metrics = _module
 processors = _module
 squad = _module
+utils = _module
 xnli = _module
 file_utils = _module
 hf_api = _module
@@ -297,6 +301,7 @@ test_tokenization_xlm_roberta = _module
 test_tokenization_xlnet = _module
 test_trainer = _module
 test_trainer_distributed = _module
+utils = _module
 download_glue_data = _module
 link_tester = _module
 
@@ -304,15 +309,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -350,6 +356,9 @@ from torch.utils.data import Subset
 import torch.nn as nn
 
 
+from sklearn.metrics import f1_score
+
+
 from collections import Counter
 
 
@@ -377,6 +386,18 @@ from torch.optim import AdamW
 from torch.utils.data import BatchSampler
 
 
+import copy
+
+
+from collections import defaultdict
+
+
+from torch.utils.data.sampler import BatchSampler
+
+
+from torch.utils.data.sampler import Sampler
+
+
 from torch import nn
 
 
@@ -386,22 +407,31 @@ from torch.nn import CrossEntropyLoss
 from torch.nn import MSELoss
 
 
+from torch import autograd
+
+
 from torch.nn import functional as F
 
 
 from torch.nn import init
 
 
-import copy
-
-
-from torch.nn.init import xavier_uniform_
+from enum import Enum
 
 
 from typing import List
 
 
 from typing import Optional
+
+
+from collections import namedtuple
+
+
+from torch.nn.init import xavier_uniform_
+
+
+from collections import deque
 
 
 from typing import Tuple
@@ -422,9 +452,6 @@ from torchtext import data as torchtext_data
 from torchtext import datasets
 
 
-import warnings
-
-
 from typing import Dict
 
 
@@ -432,6 +459,27 @@ from abc import ABC
 
 
 from abc import abstractmethod
+
+
+from typing import Callable
+
+
+from typing import Iterable
+
+
+from typing import NamedTuple
+
+
+from logging import getLogger
+
+
+import tensorflow as tf
+
+
+import warnings
+
+
+import numpy
 
 
 from typing import Any
@@ -443,10 +491,16 @@ from typing import NewType
 from torch.nn.utils.rnn import pad_sequence
 
 
+from torch.utils.data.dataset import Dataset
+
+
+from functools import partial
+
+
+from functools import wraps
+
+
 from torch import Tensor
-
-
-from collections import namedtuple
 
 
 from functools import reduce
@@ -455,13 +509,19 @@ from functools import reduce
 from torch.autograd.function import Function
 
 
+import re
+
+
+import functools
+
+
+from tensorflow.python.keras.saving import hdf5_format
+
+
+import itertools
+
+
 import inspect
-
-
-from typing import Callable
-
-
-from typing import Iterable
 
 
 from torch import device
@@ -470,22 +530,34 @@ from torch import device
 from torch import dtype
 
 
-import itertools
+from torch.optim import Optimizer
 
 
-import re
+from torch.optim.lr_scheduler import LambdaLR
+
+
+from itertools import chain
+
+
+from typing import TYPE_CHECKING
+
+
+from typing import Sequence
+
+
+from collections import OrderedDict
+
+
+from collections import UserDict
+
+
+from typing import MutableMapping
 
 
 from torch.utils.data.dataloader import DataLoader
 
 
-from torch.utils.data.dataset import Dataset
-
-
 from torch.utils.data.sampler import RandomSampler
-
-
-from torch.utils.data.sampler import Sampler
 
 
 from torch.utils.data.sampler import SequentialSampler
@@ -519,7 +591,7 @@ class BertEmbeddings(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=0)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id)
         self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
@@ -553,13 +625,12 @@ class BertSelfAttention(nn.Module):
         super().__init__()
         if config.hidden_size % config.num_attention_heads != 0 and not hasattr(config, 'embedding_size'):
             raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
-        self.output_attentions = config.output_attentions
         self.num_attention_heads = config.num_attention_heads
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
-        self.query = MaskedLinear(config.hidden_size, self.all_head_size, pruning_method=config.pruning_method, mask_init=config.mask_init, mask_scale=config.mask_scale)
-        self.key = MaskedLinear(config.hidden_size, self.all_head_size, pruning_method=config.pruning_method, mask_init=config.mask_init, mask_scale=config.mask_scale)
-        self.value = MaskedLinear(config.hidden_size, self.all_head_size, pruning_method=config.pruning_method, mask_init=config.mask_init, mask_scale=config.mask_scale)
+        self.query = nn.Linear(config.hidden_size, self.all_head_size)
+        self.key = nn.Linear(config.hidden_size, self.all_head_size)
+        self.value = nn.Linear(config.hidden_size, self.all_head_size)
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
 
     def transpose_for_scores(self, x):
@@ -567,15 +638,15 @@ class BertSelfAttention(nn.Module):
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
-    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, threshold=None):
-        mixed_query_layer = self.query(hidden_states, threshold=threshold)
+    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, output_attentions=False):
+        mixed_query_layer = self.query(hidden_states)
         if encoder_hidden_states is not None:
-            mixed_key_layer = self.key(encoder_hidden_states, threshold=threshold)
-            mixed_value_layer = self.value(encoder_hidden_states, threshold=threshold)
+            mixed_key_layer = self.key(encoder_hidden_states)
+            mixed_value_layer = self.value(encoder_hidden_states)
             attention_mask = encoder_attention_mask
         else:
-            mixed_key_layer = self.key(hidden_states, threshold=threshold)
-            mixed_value_layer = self.value(hidden_states, threshold=threshold)
+            mixed_key_layer = self.key(hidden_states)
+            mixed_value_layer = self.value(hidden_states)
         query_layer = self.transpose_for_scores(mixed_query_layer)
         key_layer = self.transpose_for_scores(mixed_key_layer)
         value_layer = self.transpose_for_scores(mixed_value_layer)
@@ -591,7 +662,7 @@ class BertSelfAttention(nn.Module):
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
         context_layer = context_layer.view(*new_context_layer_shape)
-        outputs = (context_layer, attention_probs) if self.output_attentions else (context_layer,)
+        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
         return outputs
 
 
@@ -599,15 +670,26 @@ class BertSelfOutput(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.dense = MaskedLinear(config.hidden_size, config.hidden_size, pruning_method=config.pruning_method, mask_init=config.mask_init, mask_scale=config.mask_scale)
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, hidden_states, input_tensor, threshold):
-        hidden_states = self.dense(hidden_states, threshold=threshold)
+    def forward(self, hidden_states, input_tensor):
+        hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
         hidden_states = self.LayerNorm(hidden_states + input_tensor)
         return hidden_states
+
+
+def find_pruneable_heads_and_indices(heads: List, n_heads: int, head_size: int, already_pruned_heads: set) ->Tuple[set, 'torch.LongTensor']:
+    mask = torch.ones(n_heads, head_size)
+    heads = set(heads) - already_pruned_heads
+    for head in heads:
+        head = head - sum(1 if h < head else 0 for h in already_pruned_heads)
+        mask[head] = 0
+    mask = mask.view(-1).contiguous().eq(1)
+    index: torch.LongTensor = torch.arange(len(mask))[mask].long()
+    return heads, index
 
 
 def prune_linear_layer(layer, index, dim=0):
@@ -615,7 +697,7 @@ def prune_linear_layer(layer, index, dim=0):
         Return the pruned layer as a new layer with requires_grad=True.
         Used to remove heads.
     """
-    index = index.to(layer.weight.device)
+    index = index
     W = layer.weight.index_select(dim, index).clone().detach()
     if layer.bias is not None:
         if dim == 1:
@@ -624,7 +706,7 @@ def prune_linear_layer(layer, index, dim=0):
             b = layer.bias[index].clone().detach()
     new_size = list(layer.weight.size())
     new_size[dim] = len(index)
-    new_layer = nn.Linear(new_size[1], new_size[0], bias=layer.bias is not None).to(layer.weight.device)
+    new_layer = nn.Linear(new_size[1], new_size[0], bias=layer.bias is not None)
     new_layer.weight.requires_grad = False
     new_layer.weight.copy_(W.contiguous())
     new_layer.weight.requires_grad = True
@@ -646,13 +728,7 @@ class BertAttention(nn.Module):
     def prune_heads(self, heads):
         if len(heads) == 0:
             return
-        mask = torch.ones(self.self.num_attention_heads, self.self.attention_head_size)
-        heads = set(heads) - self.pruned_heads
-        for head in heads:
-            head = head - sum(1 if h < head else 0 for h in self.pruned_heads)
-            mask[head] = 0
-        mask = mask.view(-1).contiguous().eq(1)
-        index = torch.arange(len(mask))[mask].long()
+        heads, index = find_pruneable_heads_and_indices(heads, self.self.num_attention_heads, self.self.attention_head_size, self.pruned_heads)
         self.self.query = prune_linear_layer(self.self.query, index)
         self.self.key = prune_linear_layer(self.self.key, index)
         self.self.value = prune_linear_layer(self.self.value, index)
@@ -661,22 +737,28 @@ class BertAttention(nn.Module):
         self.self.all_head_size = self.self.attention_head_size * self.self.num_attention_heads
         self.pruned_heads = self.pruned_heads.union(heads)
 
-    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, threshold=None):
-        self_outputs = self.self(hidden_states, attention_mask, head_mask, encoder_hidden_states, encoder_attention_mask, threshold=threshold)
-        attention_output = self.output(self_outputs[0], hidden_states, threshold=threshold)
+    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, output_attentions=False):
+        self_outputs = self.self(hidden_states, attention_mask, head_mask, encoder_hidden_states, encoder_attention_mask, output_attentions)
+        attention_output = self.output(self_outputs[0], hidden_states)
         outputs = (attention_output,) + self_outputs[1:]
         return outputs
 
 
 def gelu_new(x):
-    """ Implementation of the gelu activation function currently in Google Bert repo (identical to OpenAI GPT).
-        Also see https://arxiv.org/abs/1606.08415
+    """Gaussian Error Linear Unit.
+    This is a smoother version of the RELU.
+    Original paper: https://arxiv.org/abs/1606.08415
+    Args:
+        x: float Tensor to perform activation.
+    Returns:
+        `x` with the GELU activation applied.
     """
-    return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
+    cdf = 0.5 * (1.0 + tf.tanh(np.sqrt(2 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
+    return x * cdf
 
 
 def swish(x):
-    return x * torch.sigmoid(x)
+    return x * tf.sigmoid(x)
 
 
 ACT2FN = {'gelu': gelu_new, 'relu': torch.nn.functional.relu, 'swish': swish}
@@ -686,14 +768,14 @@ class BertIntermediate(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.dense = MaskedLinear(config.hidden_size, config.intermediate_size, pruning_method=config.pruning_method, mask_init=config.mask_init, mask_scale=config.mask_scale)
+        self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
         if isinstance(config.hidden_act, str):
             self.intermediate_act_fn = ACT2FN[config.hidden_act]
         else:
             self.intermediate_act_fn = config.hidden_act
 
-    def forward(self, hidden_states, threshold):
-        hidden_states = self.dense(hidden_states, threshold=threshold)
+    def forward(self, hidden_states):
+        hidden_states = self.dense(hidden_states)
         hidden_states = self.intermediate_act_fn(hidden_states)
         return hidden_states
 
@@ -702,12 +784,12 @@ class BertOutput(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.dense = MaskedLinear(config.intermediate_size, config.hidden_size, pruning_method=config.pruning_method, mask_init=config.mask_init, mask_scale=config.mask_scale)
+        self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, hidden_states, input_tensor, threshold):
-        hidden_states = self.dense(hidden_states, threshold=threshold)
+    def forward(self, hidden_states, input_tensor):
+        hidden_states = self.dense(hidden_states)
         hidden_states = self.dropout(hidden_states)
         hidden_states = self.LayerNorm(hidden_states + input_tensor)
         return hidden_states
@@ -724,16 +806,16 @@ class BertLayer(nn.Module):
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
 
-    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, threshold=None):
-        self_attention_outputs = self.attention(hidden_states, attention_mask, head_mask, threshold=threshold)
+    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, output_attentions=False):
+        self_attention_outputs = self.attention(hidden_states, attention_mask, head_mask, output_attentions=output_attentions)
         attention_output = self_attention_outputs[0]
         outputs = self_attention_outputs[1:]
         if self.is_decoder and encoder_hidden_states is not None:
-            cross_attention_outputs = self.crossattention(attention_output, attention_mask, head_mask, encoder_hidden_states, encoder_attention_mask)
+            cross_attention_outputs = self.crossattention(attention_output, attention_mask, head_mask, encoder_hidden_states, encoder_attention_mask, output_attentions)
             attention_output = cross_attention_outputs[0]
             outputs = outputs + cross_attention_outputs[1:]
-        intermediate_output = self.intermediate(attention_output, threshold=threshold)
-        layer_output = self.output(intermediate_output, attention_output, threshold=threshold)
+        intermediate_output = self.intermediate(attention_output)
+        layer_output = self.output(intermediate_output, attention_output)
         outputs = (layer_output,) + outputs
         return outputs
 
@@ -742,26 +824,25 @@ class BertEncoder(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.output_attentions = config.output_attentions
         self.output_hidden_states = config.output_hidden_states
         self.layer = nn.ModuleList([BertLayer(config) for _ in range(config.num_hidden_layers)])
 
-    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, threshold=None):
+    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, output_attentions=False):
         all_hidden_states = ()
         all_attentions = ()
         for i, layer_module in enumerate(self.layer):
             if self.output_hidden_states:
                 all_hidden_states = all_hidden_states + (hidden_states,)
-            layer_outputs = layer_module(hidden_states, attention_mask, head_mask[i], encoder_hidden_states, encoder_attention_mask, threshold=threshold)
+            layer_outputs = layer_module(hidden_states, attention_mask, head_mask[i], encoder_hidden_states, encoder_attention_mask, output_attentions)
             hidden_states = layer_outputs[0]
-            if self.output_attentions:
+            if output_attentions:
                 all_attentions = all_attentions + (layer_outputs[1],)
         if self.output_hidden_states:
             all_hidden_states = all_hidden_states + (hidden_states,)
         outputs = hidden_states,
         if self.output_hidden_states:
             outputs = outputs + (all_hidden_states,)
-        if self.output_attentions:
+        if output_attentions:
             outputs = outputs + (all_attentions,)
         return outputs
 
@@ -811,6 +892,89 @@ class MagnitudeBinarizer(object):
         flat_out[idx[j:]] = 0
         flat_out[idx[:j]] = 1
         return mask
+
+
+class ThresholdBinarizer(autograd.Function):
+    """
+    Thresholdd binarizer.
+    Computes a binary mask M from a real value matrix S such that `M_{i,j} = 1` if and only if `S_{i,j} > 	au`
+    where `	au` is a real value threshold.
+
+    Implementation is inspired from:
+        https://github.com/arunmallya/piggyback
+        Piggyback: Adapting a Single Network to Multiple Tasks by Learning to Mask Weights
+        Arun Mallya, Dillon Davis, Svetlana Lazebnik
+    """
+
+    @staticmethod
+    def forward(ctx, inputs: torch.tensor, threshold: float, sigmoid: bool):
+        """
+        Args:
+            inputs (`torch.FloatTensor`)
+                The input matrix from which the binarizer computes the binary mask.
+            threshold (`float`)
+                The threshold value (in R).
+            sigmoid (`bool`)
+                If set to ``True``, we apply the sigmoid function to the `inputs` matrix before comparing to `threshold`.
+                In this case, `threshold` should be a value between 0 and 1.
+        Returns:
+            mask (`torch.FloatTensor`)
+                Binary matrix of the same size as `inputs` acting as a mask (1 - the associated weight is
+                retained, 0 - the associated weight is pruned).
+        """
+        nb_elems = inputs.numel()
+        nb_min = int(0.005 * nb_elems) + 1
+        if sigmoid:
+            mask = (torch.sigmoid(inputs) > threshold).type(inputs.type())
+        else:
+            mask = (inputs > threshold).type(inputs.type())
+        if mask.sum() < nb_min:
+            k_threshold = inputs.flatten().kthvalue(max(nb_elems - nb_min, 1)).values
+            mask = (inputs > k_threshold).type(inputs.type())
+        return mask
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        return gradOutput, None, None
+
+
+class TopKBinarizer(autograd.Function):
+    """
+    Top-k Binarizer.
+    Computes a binary mask M from a real value matrix S such that `M_{i,j} = 1` if and only if `S_{i,j}`
+    is among the k% highest values of S.
+
+    Implementation is inspired from:
+        https://github.com/allenai/hidden-networks
+        What's hidden in a randomly weighted neural network?
+        Vivek Ramanujan*, Mitchell Wortsman*, Aniruddha Kembhavi, Ali Farhadi, Mohammad Rastegari
+    """
+
+    @staticmethod
+    def forward(ctx, inputs: torch.tensor, threshold: float):
+        """
+        Args:
+            inputs (`torch.FloatTensor`)
+                The input matrix from which the binarizer computes the binary mask.
+            threshold (`float`)
+                The percentage of weights to keep (the rest is pruned).
+                `threshold` is a float between 0 and 1.
+        Returns:
+            mask (`torch.FloatTensor`)
+                Binary matrix of the same size as `inputs` acting as a mask (1 - the associated weight is
+                retained, 0 - the associated weight is pruned).
+        """
+        mask = inputs.clone()
+        _, idx = inputs.flatten().sort(descending=True)
+        j = int(threshold * inputs.numel())
+        flat_out = mask.flatten()
+        flat_out[idx[j:]] = 0
+        flat_out[idx[:j]] = 1
+        return mask
+
+    @staticmethod
+    def backward(ctx, gradOutput):
+        return gradOutput, None
 
 
 class MaskedLinear(nn.Linear):
@@ -1504,7 +1668,7 @@ class BertConfig(PretrainedConfig):
 
 BERT_INPUTS_DOCSTRING = """
     Args:
-        input_ids (:obj:`torch.LongTensor` of shape :obj:`{0}`):
+        input_ids (:obj:`Numpy array` or :obj:`tf.Tensor` of shape :obj:`{0}`):
             Indices of input sequence tokens in the vocabulary.
 
             Indices can be obtained using :class:`transformers.BertTokenizer`.
@@ -1512,54 +1676,200 @@ BERT_INPUTS_DOCSTRING = """
             :func:`transformers.PreTrainedTokenizer.encode_plus` for details.
 
             `What are input IDs? <../glossary.html#input-ids>`__
-        attention_mask (:obj:`torch.FloatTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
+        attention_mask (:obj:`Numpy array` or :obj:`tf.Tensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
             Mask to avoid performing attention on padding token indices.
             Mask values selected in ``[0, 1]``:
             ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
 
             `What are attention masks? <../glossary.html#attention-mask>`__
-        token_type_ids (:obj:`torch.LongTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
+        token_type_ids (:obj:`Numpy array` or :obj:`tf.Tensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
             Segment token indices to indicate first and second portions of the inputs.
             Indices are selected in ``[0, 1]``: ``0`` corresponds to a `sentence A` token, ``1``
             corresponds to a `sentence B` token
 
-            `What are token type IDs? <../glossary.html#token-type-ids>`_
-        position_ids (:obj:`torch.LongTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
+            `What are token type IDs? <../glossary.html#token-type-ids>`__
+        position_ids (:obj:`Numpy array` or :obj:`tf.Tensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
             Indices of positions of each input sequence tokens in the position embeddings.
             Selected in the range ``[0, config.max_position_embeddings - 1]``.
 
-            `What are position IDs? <../glossary.html#position-ids>`_
-        head_mask (:obj:`torch.FloatTensor` of shape :obj:`(num_heads,)` or :obj:`(num_layers, num_heads)`, `optional`, defaults to :obj:`None`):
+            `What are position IDs? <../glossary.html#position-ids>`__
+        head_mask (:obj:`Numpy array` or :obj:`tf.Tensor` of shape :obj:`(num_heads,)` or :obj:`(num_layers, num_heads)`, `optional`, defaults to :obj:`None`):
             Mask to nullify selected heads of the self-attention modules.
             Mask values selected in ``[0, 1]``:
             :obj:`1` indicates the head is **not masked**, :obj:`0` indicates the head is **masked**.
-        inputs_embeds (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`, `optional`, defaults to :obj:`None`):
+        inputs_embeds (:obj:`Numpy array` or :obj:`tf.Tensor` of shape :obj:`(batch_size, sequence_length, embedding_dim)`, `optional`, defaults to :obj:`None`):
             Optionally, instead of passing :obj:`input_ids` you can choose to directly pass an embedded representation.
             This is useful if you want more control over how to convert `input_ids` indices into associated vectors
             than the model's internal embedding lookup matrix.
-        encoder_hidden_states  (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`, `optional`, defaults to :obj:`None`):
-            Sequence of hidden-states at the output of the last layer of the encoder. Used in the cross-attention
-            if the model is configured as a decoder.
-        encoder_attention_mask (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
-            Mask to avoid performing attention on the padding token indices of the encoder input. This mask
-            is used in the cross-attention if the model is configured as a decoder.
-            Mask values selected in ``[0, 1]``:
-            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
+        training (:obj:`boolean`, `optional`, defaults to :obj:`False`):
+            Whether to activate dropout modules (if set to :obj:`True`) during training or to de-activate them
+            (if set to :obj:`False`) for evaluation.
         output_attentions (:obj:`bool`, `optional`, defaults to `:obj:`None`):
             If set to ``True``, the attentions tensors of all attention layers are returned. See ``attentions`` under returned tensors for more detail.
 """
 
 
 BERT_START_DOCSTRING = """
-    This model is a PyTorch `torch.nn.Module <https://pytorch.org/docs/stable/nn.html#torch.nn.Module>`_ sub-class.
-    Use it as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to general
-    usage and behavior.
+    This model is a `tf.keras.Model <https://www.tensorflow.org/api_docs/python/tf/keras/Model>`__ sub-class.
+    Use it as a regular TF 2.0 Keras Model and
+    refer to the TF 2.0 documentation for all matter related to general usage and behavior.
+
+    .. note::
+
+        TF 2.0 models accepts two formats as inputs:
+
+            - having all inputs as keyword arguments (like PyTorch models), or
+            - having all inputs as a list, tuple or dict in the first positional arguments.
+
+        This second option is useful when using :obj:`tf.keras.Model.fit()` method which currently requires having
+        all the tensors in the first argument of the model call function: :obj:`model(inputs)`.
+
+        If you choose this second option, there are three possibilities you can use to gather all the input Tensors
+        in the first positional argument :
+
+        - a single Tensor with input_ids only and nothing else: :obj:`model(inputs_ids)`
+        - a list of varying length with one or several input Tensors IN THE ORDER given in the docstring:
+          :obj:`model([input_ids, attention_mask])` or :obj:`model([input_ids, attention_mask, token_type_ids])`
+        - a dictionary with one or several input Tensors associated to the input names given in the docstring:
+          :obj:`model({'input_ids': input_ids, 'token_type_ids': token_type_ids})`
 
     Parameters:
         config (:class:`~transformers.BertConfig`): Model configuration class with all the parameters of the model.
             Initializing with a config file does not load the weights associated with the model, only the configuration.
             Check out the :meth:`~transformers.PreTrainedModel.from_pretrained` method to load the model weights.
 """
+
+
+class BeamHypotheses(object):
+
+    def __init__(self, num_beams, max_length, length_penalty, early_stopping):
+        """
+        Initialize n-best list of hypotheses.
+        """
+        self.max_length = max_length - 1
+        self.length_penalty = length_penalty
+        self.early_stopping = early_stopping
+        self.num_beams = num_beams
+        self.beams = []
+        self.worst_score = 1000000000.0
+
+    def __len__(self):
+        """
+        Number of hypotheses in the list.
+        """
+        return len(self.beams)
+
+    def add(self, hyp, sum_logprobs):
+        """
+        Add a new hypothesis to the list.
+        """
+        score = sum_logprobs / len(hyp) ** self.length_penalty
+        if len(self) < self.num_beams or score > self.worst_score:
+            self.beams.append((score, hyp))
+            if len(self) > self.num_beams:
+                sorted_scores = sorted([(s, idx) for idx, (s, _) in enumerate(self.beams)])
+                del self.beams[sorted_scores[0][1]]
+                self.worst_score = sorted_scores[1][0]
+            else:
+                self.worst_score = min(score, self.worst_score)
+
+    def is_done(self, best_sum_logprobs, cur_len=None):
+        """
+        If there are enough hypotheses and that none of the hypotheses being generated
+        can become better than the worst one in the heap, then we are done with this sentence.
+        """
+        if len(self) < self.num_beams:
+            return False
+        elif self.early_stopping:
+            return True
+        else:
+            if cur_len is None:
+                cur_len = self.max_length
+            cur_score = best_sum_logprobs / cur_len ** self.length_penalty
+            ret = self.worst_score >= cur_score
+            return ret
+
+
+DUMMY_INPUTS = [[7, 6, 0, 0, 1], [1, 2, 3, 0, 0], [0, 0, 0, 4, 5]]
+
+
+TF2_WEIGHTS_NAME = 'tf_model.h5'
+
+
+TF_WEIGHTS_NAME = 'model.ckpt'
+
+
+WEIGHTS_NAME = 'pytorch_model.bin'
+
+
+def calc_banned_bad_words_ids(prev_input_ids: Iterable[int], bad_words_ids: Iterable[int]) ->Iterable[int]:
+    banned_tokens = []
+
+    def _tokens_match(prev_tokens, tokens):
+        if len(tokens) == 0:
+            return True
+        if len(tokens) > len(prev_input_ids):
+            return False
+        if prev_tokens[-len(tokens):] == tokens:
+            return True
+        else:
+            return False
+    for prev_input_ids_slice in prev_input_ids:
+        banned_tokens_slice = []
+        for banned_token_seq in bad_words_ids:
+            assert len(banned_token_seq) > 0, 'Banned words token sequences {} cannot have an empty list'.format(bad_words_ids)
+            if _tokens_match(prev_input_ids_slice.tolist(), banned_token_seq[:-1]) is False:
+                continue
+            banned_tokens_slice.append(banned_token_seq[-1])
+        banned_tokens.append(banned_tokens_slice)
+    return banned_tokens
+
+
+def calc_banned_ngram_tokens(prev_input_ids: Tensor, num_hypos: int, no_repeat_ngram_size: int, cur_len: int) ->None:
+    """Copied from fairseq for no_repeat_ngram in beam_search"""
+    if cur_len + 1 < no_repeat_ngram_size:
+        return [[] for _ in range(num_hypos)]
+    generated_ngrams = [{} for _ in range(num_hypos)]
+    for idx in range(num_hypos):
+        gen_tokens = prev_input_ids[idx].tolist()
+        generated_ngram = generated_ngrams[idx]
+        for ngram in zip(*[gen_tokens[i:] for i in range(no_repeat_ngram_size)]):
+            prev_ngram_tuple = tuple(ngram[:-1])
+            generated_ngram[prev_ngram_tuple] = generated_ngram.get(prev_ngram_tuple, []) + [ngram[-1]]
+
+    def _get_generated_ngrams(hypo_idx):
+        start_idx = cur_len + 1 - no_repeat_ngram_size
+        ngram_idx = tuple(prev_input_ids[(hypo_idx), start_idx:cur_len].tolist())
+        return generated_ngrams[hypo_idx].get(ngram_idx, [])
+    banned_tokens = [_get_generated_ngrams(hypo_idx) for hypo_idx in range(num_hypos)]
+    return banned_tokens
+
+
+def top_k_top_p_filtering(logits: Tensor, top_k: int=0, top_p: float=1.0, filter_value: float=-float('Inf'), min_tokens_to_keep: int=1) ->Tensor:
+    """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
+        Args:
+            logits: logits distribution shape (batch size, vocabulary size)
+            if top_k > 0: keep only top k tokens with highest probability (top-k filtering).
+            if top_p < 1.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
+                Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
+            Make sure we keep at least min_tokens_to_keep per batch example in the output
+        From: https://gist.github.com/thomwolf/1a5a29f6962089e871b94cbd09daf317
+    """
+    if top_k > 0:
+        top_k = min(max(top_k, min_tokens_to_keep), logits.size(-1))
+        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
+        logits[indices_to_remove] = filter_value
+    if top_p < 1.0:
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+        cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+        sorted_indices_to_remove = cumulative_probs > top_p
+        if min_tokens_to_keep > 1:
+            sorted_indices_to_remove[(...), :min_tokens_to_keep] = 0
+        sorted_indices_to_remove[(...), 1:] = sorted_indices_to_remove[(...), :-1].clone()
+        sorted_indices_to_remove[..., 0] = 0
+        indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+        logits[indices_to_remove] = filter_value
+    return logits
 
 
 def load_tf_weights_in_bert(model, config, tf_checkpoint_path):
@@ -1657,6 +1967,282 @@ class Bert(nn.Module):
         with torch.no_grad():
             encoder_outputs, _ = self.model(input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask, **kwargs)
         return encoder_outputs
+
+
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, dropout, dim, max_len=5000):
+        pe = torch.zeros(max_len, dim)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, dim, 2, dtype=torch.float) * -(math.log(10000.0) / dim))
+        pe[:, 0::2] = torch.sin(position.float() * div_term)
+        pe[:, 1::2] = torch.cos(position.float() * div_term)
+        pe = pe.unsqueeze(0)
+        super().__init__()
+        self.register_buffer('pe', pe)
+        self.dropout = nn.Dropout(p=dropout)
+        self.dim = dim
+
+    def forward(self, emb, step=None):
+        emb = emb * math.sqrt(self.dim)
+        if step:
+            emb = emb + self.pe[:, (step)][:, (None), :]
+        else:
+            emb = emb + self.pe[:, :emb.size(1)]
+        emb = self.dropout(emb)
+        return emb
+
+    def get_emb(self, emb):
+        return self.pe[:, :emb.size(1)]
+
+
+MAX_SIZE = 5000
+
+
+class MultiHeadedAttention(nn.Module):
+    """
+    Multi-Head Attention module from
+    "Attention is All You Need"
+    :cite:`DBLP:journals/corr/VaswaniSPUJGKP17`.
+
+    Similar to standard `dot` attention but uses
+    multiple attention distributions simulataneously
+    to select relevant items.
+
+    .. mermaid::
+
+       graph BT
+          A[key]
+          B[value]
+          C[query]
+          O[output]
+          subgraph Attn
+            D[Attn 1]
+            E[Attn 2]
+            F[Attn N]
+          end
+          A --> D
+          C --> D
+          A --> E
+          C --> E
+          A --> F
+          C --> F
+          D --> O
+          E --> O
+          F --> O
+          B --> O
+
+    Also includes several additional tricks.
+
+    Args:
+       head_count (int): number of parallel heads
+       model_dim (int): the dimension of keys/values/queries,
+           must be divisible by head_count
+       dropout (float): dropout parameter
+    """
+
+    def __init__(self, head_count, model_dim, dropout=0.1, use_final_linear=True):
+        assert model_dim % head_count == 0
+        self.dim_per_head = model_dim // head_count
+        self.model_dim = model_dim
+        super().__init__()
+        self.head_count = head_count
+        self.linear_keys = nn.Linear(model_dim, head_count * self.dim_per_head)
+        self.linear_values = nn.Linear(model_dim, head_count * self.dim_per_head)
+        self.linear_query = nn.Linear(model_dim, head_count * self.dim_per_head)
+        self.softmax = nn.Softmax(dim=-1)
+        self.dropout = nn.Dropout(dropout)
+        self.use_final_linear = use_final_linear
+        if self.use_final_linear:
+            self.final_linear = nn.Linear(model_dim, model_dim)
+
+    def forward(self, key, value, query, mask=None, layer_cache=None, type=None, predefined_graph_1=None):
+        """
+        Compute the context vector and the attention vectors.
+
+        Args:
+           key (`FloatTensor`): set of `key_len`
+                key vectors `[batch, key_len, dim]`
+           value (`FloatTensor`): set of `key_len`
+                value vectors `[batch, key_len, dim]`
+           query (`FloatTensor`): set of `query_len`
+                 query vectors  `[batch, query_len, dim]`
+           mask: binary mask indicating which keys have
+                 non-zero attention `[batch, query_len, key_len]`
+        Returns:
+           (`FloatTensor`, `FloatTensor`) :
+
+           * output context vectors `[batch, query_len, dim]`
+           * one of the attention vectors `[batch, query_len, key_len]`
+        """
+        batch_size = key.size(0)
+        dim_per_head = self.dim_per_head
+        head_count = self.head_count
+
+        def shape(x):
+            """  projection """
+            return x.view(batch_size, -1, head_count, dim_per_head).transpose(1, 2)
+
+        def unshape(x):
+            """  compute context """
+            return x.transpose(1, 2).contiguous().view(batch_size, -1, head_count * dim_per_head)
+        if layer_cache is not None:
+            if type == 'self':
+                query, key, value = self.linear_query(query), self.linear_keys(query), self.linear_values(query)
+                key = shape(key)
+                value = shape(value)
+                if layer_cache is not None:
+                    device = key.device
+                    if layer_cache['self_keys'] is not None:
+                        key = torch.cat((layer_cache['self_keys'], key), dim=2)
+                    if layer_cache['self_values'] is not None:
+                        value = torch.cat((layer_cache['self_values'], value), dim=2)
+                    layer_cache['self_keys'] = key
+                    layer_cache['self_values'] = value
+            elif type == 'context':
+                query = self.linear_query(query)
+                if layer_cache is not None:
+                    if layer_cache['memory_keys'] is None:
+                        key, value = self.linear_keys(key), self.linear_values(value)
+                        key = shape(key)
+                        value = shape(value)
+                    else:
+                        key, value = layer_cache['memory_keys'], layer_cache['memory_values']
+                    layer_cache['memory_keys'] = key
+                    layer_cache['memory_values'] = value
+                else:
+                    key, value = self.linear_keys(key), self.linear_values(value)
+                    key = shape(key)
+                    value = shape(value)
+        else:
+            key = self.linear_keys(key)
+            value = self.linear_values(value)
+            query = self.linear_query(query)
+            key = shape(key)
+            value = shape(value)
+        query = shape(query)
+        query = query / math.sqrt(dim_per_head)
+        scores = torch.matmul(query, key.transpose(2, 3))
+        if mask is not None:
+            mask = mask.unsqueeze(1).expand_as(scores)
+            scores = scores.masked_fill(mask, -1e+18)
+        attn = self.softmax(scores)
+        if predefined_graph_1 is not None:
+            attn_masked = attn[:, (-1)] * predefined_graph_1
+            attn_masked = attn_masked / (torch.sum(attn_masked, 2).unsqueeze(2) + 1e-09)
+            attn = torch.cat([attn[:, :-1], attn_masked.unsqueeze(1)], 1)
+        drop_attn = self.dropout(attn)
+        if self.use_final_linear:
+            context = unshape(torch.matmul(drop_attn, value))
+            output = self.final_linear(context)
+            return output
+        else:
+            context = torch.matmul(drop_attn, value)
+            return context
+
+
+def gelu(x):
+    """ Implementation of the gelu activation function.
+        XLNet is using OpenAI GPT's gelu
+        Also see https://arxiv.org/abs/1606.08415
+    """
+    cdf = 0.5 * (1.0 + tf.tanh(np.sqrt(2 / np.pi) * (x + 0.044715 * tf.pow(x, 3))))
+    return x * cdf
+
+
+class PositionwiseFeedForward(nn.Module):
+    """ A two-layer Feed-Forward-Network with residual layer norm.
+
+    Args:
+        d_model (int): the size of input for the first-layer of the FFN.
+        d_ff (int): the hidden layer size of the second-layer
+            of the FNN.
+        dropout (float): dropout probability in :math:`[0, 1)`.
+    """
+
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super().__init__()
+        self.w_1 = nn.Linear(d_model, d_ff)
+        self.w_2 = nn.Linear(d_ff, d_model)
+        self.layer_norm = nn.LayerNorm(d_model, eps=1e-06)
+        self.actv = gelu
+        self.dropout_1 = nn.Dropout(dropout)
+        self.dropout_2 = nn.Dropout(dropout)
+
+    def forward(self, x):
+        inter = self.dropout_1(self.actv(self.w_1(self.layer_norm(x))))
+        output = self.dropout_2(self.w_2(inter))
+        return output + x
+
+
+class TransformerDecoderLayer(nn.Module):
+    """
+    Args:
+      d_model (int): the dimension of keys/values/queries in
+                       MultiHeadedAttention, also the input size of
+                       the first-layer of the PositionwiseFeedForward.
+      heads (int): the number of heads for MultiHeadedAttention.
+      d_ff (int): the second-layer of the PositionwiseFeedForward.
+      dropout (float): dropout probability(0-1.0).
+      self_attn_type (string): type of self-attention scaled-dot, average
+    """
+
+    def __init__(self, d_model, heads, d_ff, dropout):
+        super().__init__()
+        self.self_attn = MultiHeadedAttention(heads, d_model, dropout=dropout)
+        self.context_attn = MultiHeadedAttention(heads, d_model, dropout=dropout)
+        self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
+        self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-06)
+        self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-06)
+        self.drop = nn.Dropout(dropout)
+        mask = self._get_attn_subsequent_mask(MAX_SIZE)
+        self.register_buffer('mask', mask)
+
+    def forward(self, inputs, memory_bank, src_pad_mask, tgt_pad_mask, previous_input=None, layer_cache=None, step=None):
+        """
+        Args:
+            inputs (`FloatTensor`): `[batch_size x 1 x model_dim]`
+            memory_bank (`FloatTensor`): `[batch_size x src_len x model_dim]`
+            src_pad_mask (`LongTensor`): `[batch_size x 1 x src_len]`
+            tgt_pad_mask (`LongTensor`): `[batch_size x 1 x 1]`
+
+        Returns:
+            (`FloatTensor`, `FloatTensor`, `FloatTensor`):
+
+            * output `[batch_size x 1 x model_dim]`
+            * attn `[batch_size x 1 x src_len]`
+            * all_input `[batch_size x current_step x model_dim]`
+
+        """
+        dec_mask = torch.gt(tgt_pad_mask + self.mask[:, :tgt_pad_mask.size(1), :tgt_pad_mask.size(1)], 0)
+        input_norm = self.layer_norm_1(inputs)
+        all_input = input_norm
+        if previous_input is not None:
+            all_input = torch.cat((previous_input, input_norm), dim=1)
+            dec_mask = None
+        query = self.self_attn(all_input, all_input, input_norm, mask=dec_mask, layer_cache=layer_cache, type='self')
+        query = self.drop(query) + inputs
+        query_norm = self.layer_norm_2(query)
+        mid = self.context_attn(memory_bank, memory_bank, query_norm, mask=src_pad_mask, layer_cache=layer_cache, type='context')
+        output = self.feed_forward(self.drop(mid) + query)
+        return output, all_input
+
+    def _get_attn_subsequent_mask(self, size):
+        """
+        Get an attention mask to avoid using the subsequent info.
+
+        Args:
+            size: int
+
+        Returns:
+            (`LongTensor`):
+
+            * subsequent_mask `[1 x size x size]`
+        """
+        attn_shape = 1, size, size
+        subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
+        subsequent_mask = torch.from_numpy(subsequent_mask)
+        return subsequent_mask
 
 
 class DecoderState(object):
@@ -1822,277 +2408,6 @@ class TransformerDecoder(nn.Module):
         return state
 
 
-class PositionalEncoding(nn.Module):
-
-    def __init__(self, dropout, dim, max_len=5000):
-        pe = torch.zeros(max_len, dim)
-        position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, dim, 2, dtype=torch.float) * -(math.log(10000.0) / dim))
-        pe[:, 0::2] = torch.sin(position.float() * div_term)
-        pe[:, 1::2] = torch.cos(position.float() * div_term)
-        pe = pe.unsqueeze(0)
-        super().__init__()
-        self.register_buffer('pe', pe)
-        self.dropout = nn.Dropout(p=dropout)
-        self.dim = dim
-
-    def forward(self, emb, step=None):
-        emb = emb * math.sqrt(self.dim)
-        if step:
-            emb = emb + self.pe[:, (step)][:, (None), :]
-        else:
-            emb = emb + self.pe[:, :emb.size(1)]
-        emb = self.dropout(emb)
-        return emb
-
-    def get_emb(self, emb):
-        return self.pe[:, :emb.size(1)]
-
-
-MAX_SIZE = 5000
-
-
-class TransformerDecoderLayer(nn.Module):
-    """
-    Args:
-      d_model (int): the dimension of keys/values/queries in
-                       MultiHeadedAttention, also the input size of
-                       the first-layer of the PositionwiseFeedForward.
-      heads (int): the number of heads for MultiHeadedAttention.
-      d_ff (int): the second-layer of the PositionwiseFeedForward.
-      dropout (float): dropout probability(0-1.0).
-      self_attn_type (string): type of self-attention scaled-dot, average
-    """
-
-    def __init__(self, d_model, heads, d_ff, dropout):
-        super().__init__()
-        self.self_attn = MultiHeadedAttention(heads, d_model, dropout=dropout)
-        self.context_attn = MultiHeadedAttention(heads, d_model, dropout=dropout)
-        self.feed_forward = PositionwiseFeedForward(d_model, d_ff, dropout)
-        self.layer_norm_1 = nn.LayerNorm(d_model, eps=1e-06)
-        self.layer_norm_2 = nn.LayerNorm(d_model, eps=1e-06)
-        self.drop = nn.Dropout(dropout)
-        mask = self._get_attn_subsequent_mask(MAX_SIZE)
-        self.register_buffer('mask', mask)
-
-    def forward(self, inputs, memory_bank, src_pad_mask, tgt_pad_mask, previous_input=None, layer_cache=None, step=None):
-        """
-        Args:
-            inputs (`FloatTensor`): `[batch_size x 1 x model_dim]`
-            memory_bank (`FloatTensor`): `[batch_size x src_len x model_dim]`
-            src_pad_mask (`LongTensor`): `[batch_size x 1 x src_len]`
-            tgt_pad_mask (`LongTensor`): `[batch_size x 1 x 1]`
-
-        Returns:
-            (`FloatTensor`, `FloatTensor`, `FloatTensor`):
-
-            * output `[batch_size x 1 x model_dim]`
-            * attn `[batch_size x 1 x src_len]`
-            * all_input `[batch_size x current_step x model_dim]`
-
-        """
-        dec_mask = torch.gt(tgt_pad_mask + self.mask[:, :tgt_pad_mask.size(1), :tgt_pad_mask.size(1)], 0)
-        input_norm = self.layer_norm_1(inputs)
-        all_input = input_norm
-        if previous_input is not None:
-            all_input = torch.cat((previous_input, input_norm), dim=1)
-            dec_mask = None
-        query = self.self_attn(all_input, all_input, input_norm, mask=dec_mask, layer_cache=layer_cache, type='self')
-        query = self.drop(query) + inputs
-        query_norm = self.layer_norm_2(query)
-        mid = self.context_attn(memory_bank, memory_bank, query_norm, mask=src_pad_mask, layer_cache=layer_cache, type='context')
-        output = self.feed_forward(self.drop(mid) + query)
-        return output, all_input
-
-    def _get_attn_subsequent_mask(self, size):
-        """
-        Get an attention mask to avoid using the subsequent info.
-
-        Args:
-            size: int
-
-        Returns:
-            (`LongTensor`):
-
-            * subsequent_mask `[1 x size x size]`
-        """
-        attn_shape = 1, size, size
-        subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
-        subsequent_mask = torch.from_numpy(subsequent_mask)
-        return subsequent_mask
-
-
-class MultiHeadedAttention(nn.Module):
-    """
-    Multi-Head Attention module from
-    "Attention is All You Need"
-    :cite:`DBLP:journals/corr/VaswaniSPUJGKP17`.
-
-    Similar to standard `dot` attention but uses
-    multiple attention distributions simulataneously
-    to select relevant items.
-
-    .. mermaid::
-
-       graph BT
-          A[key]
-          B[value]
-          C[query]
-          O[output]
-          subgraph Attn
-            D[Attn 1]
-            E[Attn 2]
-            F[Attn N]
-          end
-          A --> D
-          C --> D
-          A --> E
-          C --> E
-          A --> F
-          C --> F
-          D --> O
-          E --> O
-          F --> O
-          B --> O
-
-    Also includes several additional tricks.
-
-    Args:
-       head_count (int): number of parallel heads
-       model_dim (int): the dimension of keys/values/queries,
-           must be divisible by head_count
-       dropout (float): dropout parameter
-    """
-
-    def __init__(self, head_count, model_dim, dropout=0.1, use_final_linear=True):
-        assert model_dim % head_count == 0
-        self.dim_per_head = model_dim // head_count
-        self.model_dim = model_dim
-        super().__init__()
-        self.head_count = head_count
-        self.linear_keys = nn.Linear(model_dim, head_count * self.dim_per_head)
-        self.linear_values = nn.Linear(model_dim, head_count * self.dim_per_head)
-        self.linear_query = nn.Linear(model_dim, head_count * self.dim_per_head)
-        self.softmax = nn.Softmax(dim=-1)
-        self.dropout = nn.Dropout(dropout)
-        self.use_final_linear = use_final_linear
-        if self.use_final_linear:
-            self.final_linear = nn.Linear(model_dim, model_dim)
-
-    def forward(self, key, value, query, mask=None, layer_cache=None, type=None, predefined_graph_1=None):
-        """
-        Compute the context vector and the attention vectors.
-
-        Args:
-           key (`FloatTensor`): set of `key_len`
-                key vectors `[batch, key_len, dim]`
-           value (`FloatTensor`): set of `key_len`
-                value vectors `[batch, key_len, dim]`
-           query (`FloatTensor`): set of `query_len`
-                 query vectors  `[batch, query_len, dim]`
-           mask: binary mask indicating which keys have
-                 non-zero attention `[batch, query_len, key_len]`
-        Returns:
-           (`FloatTensor`, `FloatTensor`) :
-
-           * output context vectors `[batch, query_len, dim]`
-           * one of the attention vectors `[batch, query_len, key_len]`
-        """
-        batch_size = key.size(0)
-        dim_per_head = self.dim_per_head
-        head_count = self.head_count
-
-        def shape(x):
-            """  projection """
-            return x.view(batch_size, -1, head_count, dim_per_head).transpose(1, 2)
-
-        def unshape(x):
-            """  compute context """
-            return x.transpose(1, 2).contiguous().view(batch_size, -1, head_count * dim_per_head)
-        if layer_cache is not None:
-            if type == 'self':
-                query, key, value = self.linear_query(query), self.linear_keys(query), self.linear_values(query)
-                key = shape(key)
-                value = shape(value)
-                if layer_cache is not None:
-                    device = key.device
-                    if layer_cache['self_keys'] is not None:
-                        key = torch.cat((layer_cache['self_keys'], key), dim=2)
-                    if layer_cache['self_values'] is not None:
-                        value = torch.cat((layer_cache['self_values'], value), dim=2)
-                    layer_cache['self_keys'] = key
-                    layer_cache['self_values'] = value
-            elif type == 'context':
-                query = self.linear_query(query)
-                if layer_cache is not None:
-                    if layer_cache['memory_keys'] is None:
-                        key, value = self.linear_keys(key), self.linear_values(value)
-                        key = shape(key)
-                        value = shape(value)
-                    else:
-                        key, value = layer_cache['memory_keys'], layer_cache['memory_values']
-                    layer_cache['memory_keys'] = key
-                    layer_cache['memory_values'] = value
-                else:
-                    key, value = self.linear_keys(key), self.linear_values(value)
-                    key = shape(key)
-                    value = shape(value)
-        else:
-            key = self.linear_keys(key)
-            value = self.linear_values(value)
-            query = self.linear_query(query)
-            key = shape(key)
-            value = shape(value)
-        query = shape(query)
-        query = query / math.sqrt(dim_per_head)
-        scores = torch.matmul(query, key.transpose(2, 3))
-        if mask is not None:
-            mask = mask.unsqueeze(1).expand_as(scores)
-            scores = scores.masked_fill(mask, -1e+18)
-        attn = self.softmax(scores)
-        if predefined_graph_1 is not None:
-            attn_masked = attn[:, (-1)] * predefined_graph_1
-            attn_masked = attn_masked / (torch.sum(attn_masked, 2).unsqueeze(2) + 1e-09)
-            attn = torch.cat([attn[:, :-1], attn_masked.unsqueeze(1)], 1)
-        drop_attn = self.dropout(attn)
-        if self.use_final_linear:
-            context = unshape(torch.matmul(drop_attn, value))
-            output = self.final_linear(context)
-            return output
-        else:
-            context = torch.matmul(drop_attn, value)
-            return context
-
-
-def gelu(x):
-    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
-
-
-class PositionwiseFeedForward(nn.Module):
-    """ A two-layer Feed-Forward-Network with residual layer norm.
-
-    Args:
-        d_model (int): the size of input for the first-layer of the FFN.
-        d_ff (int): the hidden layer size of the second-layer
-            of the FNN.
-        dropout (float): dropout probability in :math:`[0, 1)`.
-    """
-
-    def __init__(self, d_model, d_ff, dropout=0.1):
-        super().__init__()
-        self.w_1 = nn.Linear(d_model, d_ff)
-        self.w_2 = nn.Linear(d_ff, d_model)
-        self.layer_norm = nn.LayerNorm(d_model, eps=1e-06)
-        self.actv = gelu
-        self.dropout_1 = nn.Dropout(dropout)
-        self.dropout_2 = nn.Dropout(dropout)
-
-    def forward(self, x):
-        inter = self.dropout_1(self.actv(self.w_1(self.layer_norm(x))))
-        output = self.dropout_2(self.w_2(inter))
-        return output + x
-
-
 class ClassificationHead(torch.nn.Module):
     """Classification Head for  transformer encoders"""
 
@@ -2108,6 +2423,161 @@ class ClassificationHead(torch.nn.Module):
 
 
 EPSILON = 1e-10
+
+
+class Conv1D(nn.Module):
+
+    def __init__(self, nf, nx):
+        """ Conv1D layer as defined by Radford et al. for OpenAI GPT (and also used in GPT-2)
+            Basically works like a Linear layer but the weights are transposed
+        """
+        super().__init__()
+        self.nf = nf
+        w = torch.empty(nx, nf)
+        nn.init.normal_(w, std=0.02)
+        self.weight = nn.Parameter(w)
+        self.bias = nn.Parameter(torch.zeros(nf))
+
+    def forward(self, x):
+        size_out = x.size()[:-1] + (self.nf,)
+        x = torch.addmm(self.bias, x.view(-1, x.size(-1)), self.weight)
+        x = x.view(*size_out)
+        return x
+
+
+def prune_conv1d_layer(layer, index, dim=1):
+    """ Prune a Conv1D layer (a model parameters) to keep only entries in index.
+        A Conv1D work as a Linear layer (see e.g. BERT) but the weights are transposed.
+        Return the pruned layer as a new layer with requires_grad=True.
+        Used to remove heads.
+    """
+    index = index
+    W = layer.weight.index_select(dim, index).clone().detach()
+    if dim == 0:
+        b = layer.bias.clone().detach()
+    else:
+        b = layer.bias[index].clone().detach()
+    new_size = list(layer.weight.size())
+    new_size[dim] = len(index)
+    new_layer = Conv1D(new_size[1], new_size[0])
+    new_layer.weight.requires_grad = False
+    new_layer.weight.copy_(W.contiguous())
+    new_layer.weight.requires_grad = True
+    new_layer.bias.requires_grad = False
+    new_layer.bias.copy_(b.contiguous())
+    new_layer.bias.requires_grad = True
+    return new_layer
+
+
+class Attention(nn.Module):
+
+    def __init__(self, nx, n_ctx, config, scale=False):
+        super().__init__()
+        n_state = nx
+        assert n_state % config.n_head == 0
+        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
+        self.n_head = config.n_head
+        self.split_size = n_state
+        self.scale = scale
+        self.c_attn = Conv1D(n_state * 3, nx)
+        self.c_proj = Conv1D(n_state, nx)
+        self.attn_dropout = nn.Dropout(config.attn_pdrop)
+        self.resid_dropout = nn.Dropout(config.resid_pdrop)
+        self.pruned_heads = set()
+
+    def prune_heads(self, heads):
+        if len(heads) == 0:
+            return
+        heads, index = find_pruneable_heads_and_indices(heads, self.n_head, self.split_size // self.n_head, self.pruned_heads)
+        index_attn = torch.cat([index, index + self.split_size, index + 2 * self.split_size])
+        self.c_attn = prune_conv1d_layer(self.c_attn, index_attn, dim=1)
+        self.c_proj = prune_conv1d_layer(self.c_proj, index, dim=0)
+        self.split_size = self.split_size // self.n_head * (self.n_head - len(heads))
+        self.n_head = self.n_head - len(heads)
+        self.pruned_heads = self.pruned_heads.union(heads)
+
+    def _attn(self, q, k, v, attention_mask=None, head_mask=None, output_attentions=False):
+        w = torch.matmul(q, k)
+        if self.scale:
+            w = w / math.sqrt(v.size(-1))
+        b = self.bias[:, :, :w.size(-2), :w.size(-1)]
+        w = w * b + -10000.0 * (1 - b)
+        if attention_mask is not None:
+            w = w + attention_mask
+        w = nn.Softmax(dim=-1)(w)
+        w = self.attn_dropout(w)
+        if head_mask is not None:
+            w = w * head_mask
+        outputs = [torch.matmul(w, v)]
+        if output_attentions:
+            outputs.append(w)
+        return outputs
+
+    def merge_heads(self, x):
+        x = x.permute(0, 2, 1, 3).contiguous()
+        new_x_shape = x.size()[:-2] + (x.size(-2) * x.size(-1),)
+        return x.view(*new_x_shape)
+
+    def split_heads(self, x, k=False):
+        new_x_shape = x.size()[:-1] + (self.n_head, x.size(-1) // self.n_head)
+        x = x.view(*new_x_shape)
+        if k:
+            return x.permute(0, 2, 3, 1)
+        else:
+            return x.permute(0, 2, 1, 3)
+
+    def forward(self, x, attention_mask=None, head_mask=None, output_attentions=False):
+        x = self.c_attn(x)
+        query, key, value = x.split(self.split_size, dim=2)
+        query = self.split_heads(query)
+        key = self.split_heads(key, k=True)
+        value = self.split_heads(value)
+        attn_outputs = self._attn(query, key, value, attention_mask, head_mask, output_attentions)
+        a = attn_outputs[0]
+        a = self.merge_heads(a)
+        a = self.c_proj(a)
+        a = self.resid_dropout(a)
+        outputs = [a] + attn_outputs[1:]
+        return outputs
+
+
+ACT_FNS = {'relu': nn.ReLU, 'swish': swish, 'gelu': gelu_new}
+
+
+class MLP(nn.Module):
+
+    def __init__(self, n_state, config):
+        super().__init__()
+        nx = config.n_embd
+        self.c_fc = Conv1D(n_state, nx)
+        self.c_proj = Conv1D(nx, n_state)
+        self.act = ACT_FNS[config.afn]
+        self.dropout = nn.Dropout(config.resid_pdrop)
+
+    def forward(self, x):
+        h = self.act(self.c_fc(x))
+        h2 = self.c_proj(h)
+        return self.dropout(h2)
+
+
+class Block(nn.Module):
+
+    def __init__(self, n_ctx, config, scale=False):
+        super().__init__()
+        nx = config.n_embd
+        self.attn = Attention(nx, n_ctx, config, scale)
+        self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
+        self.mlp = MLP(4 * nx, config)
+        self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
+
+    def forward(self, x, attention_mask=None, head_mask=None, output_attentions=False):
+        attn_outputs = self.attn(x, attention_mask=attention_mask, head_mask=head_mask, output_attentions=output_attentions)
+        a = attn_outputs[0]
+        n = self.ln_1(x + a)
+        m = self.mlp(n)
+        h = self.ln_2(n + m)
+        outputs = [h] + attn_outputs[1:]
+        return outputs
 
 
 class GPT2Config(PretrainedConfig):
@@ -2343,13 +2813,35 @@ GPT2_START_DOCSTRING = """
 """
 
 
-PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {'albert-base-v1': 512, 'albert-large-v1': 512, 'albert-xlarge-v1': 512, 'albert-xxlarge-v1': 512, 'albert-base-v2': 512, 'albert-large-v2': 512, 'albert-xlarge-v2': 512, 'albert-xxlarge-v2': 512}
+PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {'transfo-xl-wt103': None}
 
 
-PRETRAINED_VOCAB_FILES_MAP = {'vocab_file': {'albert-base-v1': 'https://s3.amazonaws.com/models.huggingface.co/bert/albert-base-v1-spiece.model', 'albert-large-v1': 'https://s3.amazonaws.com/models.huggingface.co/bert/albert-large-v1-spiece.model', 'albert-xlarge-v1': 'https://s3.amazonaws.com/models.huggingface.co/bert/albert-xlarge-v1-spiece.model', 'albert-xxlarge-v1': 'https://s3.amazonaws.com/models.huggingface.co/bert/albert-xxlarge-v1-spiece.model', 'albert-base-v2': 'https://s3.amazonaws.com/models.huggingface.co/bert/albert-base-v2-spiece.model', 'albert-large-v2': 'https://s3.amazonaws.com/models.huggingface.co/bert/albert-large-v2-spiece.model', 'albert-xlarge-v2': 'https://s3.amazonaws.com/models.huggingface.co/bert/albert-xlarge-v2-spiece.model', 'albert-xxlarge-v2': 'https://s3.amazonaws.com/models.huggingface.co/bert/albert-xxlarge-v2-spiece.model'}}
+PRETRAINED_VOCAB_FILES_MAP = {'pretrained_vocab_file': {'transfo-xl-wt103': 'https://s3.amazonaws.com/models.huggingface.co/bert/transfo-xl-wt103-vocab.bin'}}
 
 
 ADDED_TOKENS_FILE = 'added_tokens.json'
+
+
+class CharSpan(NamedTuple):
+    """ Character span in the original string
+
+        Args:
+            start: index of the first character in the original string
+            end: index of the character following the last character in the original string
+    """
+    start: int
+    end: int
+
+
+class TokenSpan(NamedTuple):
+    """ Token span in an encoded string (list of tokens)
+
+        Args:
+            start: index of the first token in the span
+            end: index of the token following the last token in the span
+    """
+    start: int
+    end: int
 
 
 def torch_required(func):
@@ -2593,6 +3085,12 @@ class SpecialTokensMixin:
 TOKENIZER_CONFIG_FILE = 'tokenizer_config.json'
 
 
+class TensorType(Enum):
+    PYTORCH = 'pt'
+    TENSORFLOW = 'tf'
+    NUMPY = 'np'
+
+
 TextInput = str
 
 
@@ -2608,7 +3106,36 @@ NO_PAD_TOKEN_FOR_BATCH_MSG = 'No padding token is set for this model, therefore 
 UNEVEN_SEQUENCES_FOR_BATCH_MSG = "The sequences building the batch are not of the same size, no tensor can be built. Set `pad_to_max_length=True` to pad the smaller sequencesup to the larger sequence's length."
 
 
-VOCAB_FILES_NAMES = {'vocab_file': 'spiece.model'}
+def convert_to_tensors(batch_outputs: MutableMapping, return_tensors: Union[str, TensorType], prepend_batch_axis: bool=False) ->MutableMapping:
+    if not isinstance(return_tensors, TensorType):
+        return_tensors = TensorType(return_tensors)
+    if return_tensors == TensorType.TENSORFLOW and is_tf_available():
+        as_tensor = tf.constant
+    elif return_tensors == TensorType.PYTORCH and is_torch_available():
+        as_tensor = torch.tensor
+    elif return_tensors == TensorType.NUMPY:
+        as_tensor = np.asarray
+    else:
+        raise ImportError('Unable to convert output to tensors format {}, PyTorch or TensorFlow is not available.'.format(return_tensors))
+    for key, value in batch_outputs.items():
+        try:
+            if prepend_batch_axis:
+                value = [value]
+            tensor = as_tensor(value)
+            if tensor.ndim > 2:
+                tensor = tensor.squeeze(0)
+            elif tensor.ndim < 2:
+                tensor = tensor[(None), :]
+            batch_outputs[key] = tensor
+        except ValueError:
+            if None in [item for sequence in value for item in sequence]:
+                raise ValueError(NO_PAD_TOKEN_FOR_BATCH_MSG)
+            else:
+                raise ValueError(UNEVEN_SEQUENCES_FOR_BATCH_MSG)
+    return batch_outputs
+
+
+VOCAB_FILES_NAMES = {'pretrained_vocab_file': 'vocab.bin', 'vocab_file': 'vocab.txt'}
 
 
 def get_pairs(word):
@@ -2662,15 +3189,17 @@ class Discriminator(torch.nn.Module):
         return probs
 
 
-def find_pruneable_heads_and_indices(heads: List, n_heads: int, head_size: int, already_pruned_heads: set) ->Tuple[set, 'torch.LongTensor']:
-    mask = torch.ones(n_heads, head_size)
-    heads = set(heads) - already_pruned_heads
-    for head in heads:
-        head = head - sum(1 if h < head else 0 for h in already_pruned_heads)
-        mask[head] = 0
-    mask = mask.view(-1).contiguous().eq(1)
-    index: torch.LongTensor = torch.arange(len(mask))[mask].long()
-    return heads, index
+class AlbertEmbeddings(BertEmbeddings):
+    """
+    Construct the embeddings from word, position and token_type embeddings.
+    """
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=config.pad_token_id)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.embedding_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.embedding_size)
+        self.LayerNorm = torch.nn.LayerNorm(config.embedding_size, eps=config.layer_norm_eps)
 
 
 class AlbertAttention(BertSelfAttention):
@@ -2714,8 +3243,8 @@ class AlbertAttention(BertSelfAttention):
             attention_probs = attention_probs * head_mask
         context_layer = torch.matmul(attention_probs, value_layer)
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        w = self.dense.weight.t().view(self.num_attention_heads, self.attention_head_size, self.hidden_size).to(context_layer.dtype)
-        b = self.dense.bias.to(context_layer.dtype)
+        w = self.dense.weight.t().view(self.num_attention_heads, self.attention_head_size, self.hidden_size)
+        b = self.dense.bias
         projected_context_layer = torch.einsum('bfnd,ndh->bfh', context_layer, w) + b
         projected_context_layer_dropout = self.dropout(projected_context_layer)
         layernormed_context_layer = self.LayerNorm(input_ids + projected_context_layer_dropout)
@@ -2831,6 +3360,117 @@ class AlbertSOPHead(nn.Module):
         return logits
 
 
+class MultiHeadAttention(nn.Module):
+    NEW_ID = itertools.count()
+
+    def __init__(self, n_heads, dim, config):
+        super().__init__()
+        self.layer_id = next(MultiHeadAttention.NEW_ID)
+        self.dim = dim
+        self.n_heads = n_heads
+        self.dropout = config.attention_dropout
+        assert self.dim % self.n_heads == 0
+        self.q_lin = nn.Linear(dim, dim)
+        self.k_lin = nn.Linear(dim, dim)
+        self.v_lin = nn.Linear(dim, dim)
+        self.out_lin = nn.Linear(dim, dim)
+        self.pruned_heads = set()
+
+    def prune_heads(self, heads):
+        attention_head_size = self.dim // self.n_heads
+        if len(heads) == 0:
+            return
+        heads, index = find_pruneable_heads_and_indices(heads, self.n_heads, attention_head_size, self.pruned_heads)
+        self.q_lin = prune_linear_layer(self.q_lin, index)
+        self.k_lin = prune_linear_layer(self.k_lin, index)
+        self.v_lin = prune_linear_layer(self.v_lin, index)
+        self.out_lin = prune_linear_layer(self.out_lin, index, dim=1)
+        self.n_heads = self.n_heads - len(heads)
+        self.dim = attention_head_size * self.n_heads
+        self.pruned_heads = self.pruned_heads.union(heads)
+
+    def forward(self, input, mask, kv=None, cache=None, head_mask=None, output_attentions=False):
+        """
+        Self-attention (if kv is None) or attention over source sentence (provided by kv).
+        """
+        bs, qlen, dim = input.size()
+        if kv is None:
+            klen = qlen if cache is None else cache['slen'] + qlen
+        else:
+            klen = kv.size(1)
+        n_heads = self.n_heads
+        dim_per_head = self.dim // n_heads
+        mask_reshape = (bs, 1, qlen, klen) if mask.dim() == 3 else (bs, 1, 1, klen)
+
+        def shape(x):
+            """  projection """
+            return x.view(bs, -1, self.n_heads, dim_per_head).transpose(1, 2)
+
+        def unshape(x):
+            """  compute context """
+            return x.transpose(1, 2).contiguous().view(bs, -1, self.n_heads * dim_per_head)
+        q = shape(self.q_lin(input))
+        if kv is None:
+            k = shape(self.k_lin(input))
+            v = shape(self.v_lin(input))
+        elif cache is None or self.layer_id not in cache:
+            k = v = kv
+            k = shape(self.k_lin(k))
+            v = shape(self.v_lin(v))
+        if cache is not None:
+            if self.layer_id in cache:
+                if kv is None:
+                    k_, v_ = cache[self.layer_id]
+                    k = torch.cat([k_, k], dim=2)
+                    v = torch.cat([v_, v], dim=2)
+                else:
+                    k, v = cache[self.layer_id]
+            cache[self.layer_id] = k, v
+        q = q / math.sqrt(dim_per_head)
+        scores = torch.matmul(q, k.transpose(2, 3))
+        mask = (mask == 0).view(mask_reshape).expand_as(scores)
+        scores.masked_fill_(mask, -float('inf'))
+        weights = F.softmax(scores.float(), dim=-1).type_as(scores)
+        weights = F.dropout(weights, p=self.dropout, training=self.training)
+        if head_mask is not None:
+            weights = weights * head_mask
+        context = torch.matmul(weights, v)
+        context = unshape(context)
+        outputs = self.out_lin(context),
+        if output_attentions:
+            outputs = outputs + (weights,)
+        return outputs
+
+
+def point_wise_feed_forward_network(d_model_size, dff):
+    return torch.nn.Sequential(torch.nn.Linear(d_model_size, dff), torch.nn.ReLU(), torch.nn.Linear(dff, d_model_size))
+
+
+class EncoderLayer(torch.nn.Module):
+
+    def __init__(self, d_model_size, num_heads, dff, rate=0.1):
+        super().__init__()
+        self.multi_head_attention = MultiHeadAttention(d_model_size, num_heads)
+        self.ffn = point_wise_feed_forward_network(d_model_size, dff)
+        self.layernorm1 = torch.nn.LayerNorm(d_model_size, eps=1e-06)
+        self.layernorm2 = torch.nn.LayerNorm(d_model_size, eps=1e-06)
+        self.dropout1 = torch.nn.Dropout(rate)
+        self.dropout2 = torch.nn.Dropout(rate)
+
+    def forward(self, x, mask, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False):
+        normed = self.layernorm1(x)
+        attn_outputs = self.multi_head_attention(normed, normed, normed, mask, layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask, use_cache=use_cache, output_attentions=output_attentions)
+        attn_output = attn_outputs[0]
+        attn_output = self.dropout1(attn_output)
+        out1 = x + attn_output
+        out2 = self.layernorm2(out1)
+        ffn_output = self.ffn(out2)
+        ffn_output = self.dropout2(ffn_output)
+        out2 = out1 + ffn_output
+        outputs = (out2,) + attn_outputs[1:]
+        return outputs
+
+
 class BartConfig(PretrainedConfig):
     """
         Configuration class for Bart. Parameters are renamed from the fairseq implementation
@@ -2891,59 +3531,79 @@ class BartConfig(PretrainedConfig):
 def LayerNorm(normalized_shape, eps=1e-05, elementwise_affine=True):
     if torch.cuda.is_available():
         try:
-            from apex.normalization import FusedLayerNorm
             return FusedLayerNorm(normalized_shape, eps, elementwise_affine)
         except ImportError:
             pass
     return torch.nn.LayerNorm(normalized_shape, eps, elementwise_affine)
 
 
-class EncoderLayer(nn.Module):
+def create_position_ids_from_input_ids(input_ids, padding_idx):
+    """ Replace non-padding symbols with their position numbers. Position numbers begin at
+    padding_idx+1. Padding symbols are ignored. This is modified from fairseq's
+    `utils.make_positions`.
 
-    def __init__(self, config: BartConfig):
-        super().__init__()
-        self.embed_dim = config.d_model
-        self.self_attn = SelfAttention(self.embed_dim, config.encoder_attention_heads, dropout=config.attention_dropout)
-        self.normalize_before = config.normalize_before
-        self.self_attn_layer_norm = LayerNorm(self.embed_dim)
-        self.dropout = config.dropout
-        self.activation_fn = ACT2FN[config.activation_function]
-        self.activation_dropout = config.activation_dropout
-        self.fc1 = nn.Linear(self.embed_dim, config.encoder_ffn_dim)
-        self.fc2 = nn.Linear(config.encoder_ffn_dim, self.embed_dim)
-        self.final_layer_norm = LayerNorm(self.embed_dim)
+    :param torch.Tensor x:
+    :return torch.Tensor:
+    """
+    mask = input_ids.ne(padding_idx).int()
+    incremental_indices = torch.cumsum(mask, dim=1).type_as(mask) * mask
+    return incremental_indices.long() + padding_idx
 
-    def forward(self, x, encoder_padding_mask, output_attentions=False):
+
+class LearnedPositionalEmbedding(nn.Embedding):
+    """
+    This module learns positional embeddings up to a fixed maximum size.
+    Padding ids are ignored by either offsetting based on padding_idx
+    or by setting padding_idx to None and ensuring that the appropriate
+    position ids are passed to the forward function.
+    """
+
+    def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int):
+        assert padding_idx is not None
+        num_embeddings += padding_idx + 1
+        super().__init__(num_embeddings, embedding_dim, padding_idx=padding_idx)
+
+    def forward(self, input, use_cache=False):
+        """Input is expected to be of size [bsz x seqlen]."""
+        if use_cache:
+            pos = int(self.padding_idx + input.size(1))
+            positions = input.data.new(1, 1).fill_(pos)
+        else:
+            positions = create_position_ids_from_input_ids(input, self.padding_idx)
+        return super().forward(positions)
+
+
+class SinusoidalPositionalEmbedding(nn.Embedding):
+    """This module produces sinusoidal positional embeddings of any length."""
+
+    def __init__(self, num_positions, embedding_dim, padding_idx=None):
+        super().__init__(num_positions, embedding_dim)
+        if embedding_dim % 2 != 0:
+            raise NotImplementedError(f'odd embedding_dim {embedding_dim} not supported')
+        self.weight = self._init_weight(self.weight)
+
+    @staticmethod
+    def _init_weight(out: nn.Parameter):
+        """Identical to the XLM create_sinusoidal_embeddings except features are not interleaved.
+            The cos features are in the 2nd half of the vector. [dim // 2:]
         """
-        Args:
-            x (Tensor): input to the layer of shape `(seq_len, batch, embed_dim)`
-            encoder_padding_mask (ByteTensor): binary ByteTensor of shape
-                `(batch, src_len)` where padding elements are indicated by ``1``.
-            for t_tgt, t_src is excluded (or masked out), =0 means it is
-            included in attention
+        n_pos, dim = out.shape
+        position_enc = np.array([[(pos / np.power(10000, 2 * (j // 2) / dim)) for j in range(dim)] for pos in range(n_pos)])
+        out[:, 0:dim // 2] = torch.FloatTensor(np.sin(position_enc[:, 0::2]))
+        out[:, dim // 2:] = torch.FloatTensor(np.cos(position_enc[:, 1::2]))
+        out.detach_()
+        out.requires_grad = False
+        return out
 
-        Returns:
-            encoded output of shape `(seq_len, batch, embed_dim)`
-        """
-        residual = x
-        if self.normalize_before:
-            x = self.self_attn_layer_norm(x)
-        x, attn_weights = self.self_attn(query=x, key=x, key_padding_mask=encoder_padding_mask, output_attentions=output_attentions)
-        x = F.dropout(x, p=self.dropout, training=self.training)
-        x = residual + x
-        if not self.normalize_before:
-            x = self.self_attn_layer_norm(x)
-        residual = x
-        if self.normalize_before:
-            x = self.final_layer_norm(x)
-        x = self.activation_fn(self.fc1(x))
-        x = F.dropout(x, p=self.activation_dropout, training=self.training)
-        x = self.fc2(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
-        x = residual + x
-        if not self.normalize_before:
-            x = self.final_layer_norm(x)
-        return x, attn_weights
+    @torch.no_grad()
+    def forward(self, input_ids, use_cache=False):
+        """Input is expected to be of size [bsz x seqlen]."""
+        bsz, seq_len = input_ids.shape[:2]
+        if use_cache:
+            positions = input_ids.data.new(1, 1).fill_(seq_len - 1)
+        else:
+            positions = torch.arange(seq_len, dtype=torch.long, device=self.weight.device)
+        return super().forward(positions)
 
 
 def invert_mask(attention_mask):
@@ -3020,6 +3680,126 @@ class BartEncoder(nn.Module):
         encoder_states = [hidden_state.transpose(0, 1) for hidden_state in encoder_states]
         x = x.transpose(0, 1)
         return x, encoder_states, all_attentions
+
+
+class SelfAttention(nn.Module):
+    """Multi-headed attention from 'Attention Is All You Need' paper"""
+
+    def __init__(self, embed_dim, num_heads, dropout=0.0, bias=True, encoder_decoder_attention=False):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.dropout = dropout
+        self.head_dim = embed_dim // num_heads
+        assert self.head_dim * num_heads == self.embed_dim, 'embed_dim must be divisible by num_heads'
+        self.scaling = self.head_dim ** -0.5
+        self.encoder_decoder_attention = encoder_decoder_attention
+        self.k_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.v_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.cache_key = 'encoder_decoder' if self.encoder_decoder_attention else 'self'
+
+    def _shape(self, tensor, dim_0, bsz):
+        return tensor.contiguous().view(dim_0, bsz * self.num_heads, self.head_dim).transpose(0, 1)
+
+    def forward(self, query, key: Optional[Tensor], key_padding_mask: Optional[Tensor]=None, layer_state: Optional[Dict[str, Optional[Tensor]]]=None, attn_mask: Optional[Tensor]=None, output_attentions=False) ->Tuple[Tensor, Optional[Tensor]]:
+        """Input shape: Time(SeqLen) x Batch x Channel"""
+        static_kv: bool = self.encoder_decoder_attention
+        tgt_len, bsz, embed_dim = query.size()
+        assert embed_dim == self.embed_dim
+        assert list(query.size()) == [tgt_len, bsz, embed_dim]
+        if layer_state is not None:
+            saved_state = layer_state.get(self.cache_key, {})
+            if 'prev_key' in saved_state:
+                if static_kv:
+                    key = None
+        else:
+            saved_state = None
+            layer_state = {}
+        q = self.q_proj(query) * self.scaling
+        if static_kv:
+            if key is None:
+                k = v = None
+            else:
+                k = self.k_proj(key)
+                v = self.v_proj(key)
+        else:
+            k = self.k_proj(query)
+            v = self.v_proj(query)
+        q = self._shape(q, tgt_len, bsz)
+        if k is not None:
+            k = self._shape(k, -1, bsz)
+        if v is not None:
+            v = self._shape(v, -1, bsz)
+        if saved_state is not None:
+            k, v, key_padding_mask = self._use_saved_state(k, v, saved_state, key_padding_mask, static_kv, bsz)
+        layer_state[self.cache_key] = {'prev_key': k.view(bsz, self.num_heads, -1, self.head_dim), 'prev_value': v.view(bsz, self.num_heads, -1, self.head_dim), 'prev_key_padding_mask': key_padding_mask if not static_kv else None}
+        assert k is not None
+        src_len = k.size(1)
+        attn_weights = torch.bmm(q, k.transpose(1, 2))
+        assert attn_weights.size() == (bsz * self.num_heads, tgt_len, src_len)
+        if attn_mask is not None:
+            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + attn_mask
+            attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
+        if key_padding_mask is not None and key_padding_mask.dim() == 0:
+            key_padding_mask = None
+        assert key_padding_mask is None or key_padding_mask.size()[:2] == (bsz, src_len)
+        if key_padding_mask is not None:
+            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
+            reshaped = key_padding_mask.unsqueeze(1).unsqueeze(2)
+            attn_weights = attn_weights.masked_fill(reshaped, float('-inf'))
+            attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
+        attn_weights = F.softmax(attn_weights, dim=-1)
+        attn_probs = F.dropout(attn_weights, p=self.dropout, training=self.training)
+        assert v is not None
+        attn_output = torch.bmm(attn_probs, v)
+        assert attn_output.size() == (bsz * self.num_heads, tgt_len, self.head_dim)
+        attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
+        attn_output = self.out_proj(attn_output)
+        if output_attentions:
+            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
+        else:
+            attn_weights = None
+        return attn_output, attn_weights
+
+    def _use_saved_state(self, k, v, saved_state, key_padding_mask, static_kv, bsz):
+        if 'prev_key' in saved_state:
+            _prev_key = saved_state['prev_key']
+            assert _prev_key is not None
+            prev_key = _prev_key.view(bsz * self.num_heads, -1, self.head_dim)
+            if static_kv:
+                k = prev_key
+            else:
+                assert k is not None
+                k = torch.cat([prev_key, k], dim=1)
+        if 'prev_value' in saved_state:
+            _prev_value = saved_state['prev_value']
+            assert _prev_value is not None
+            prev_value = _prev_value.view(bsz * self.num_heads, -1, self.head_dim)
+            if static_kv:
+                v = prev_value
+            else:
+                assert v is not None
+                v = torch.cat([prev_value, v], dim=1)
+        assert k is not None and v is not None
+        prev_key_padding_mask: Optional[Tensor] = saved_state.get('prev_key_padding_mask', None)
+        key_padding_mask = self._cat_prev_key_padding_mask(key_padding_mask, prev_key_padding_mask, bsz, k.size(1), static_kv)
+        return k, v, key_padding_mask
+
+    @staticmethod
+    def _cat_prev_key_padding_mask(key_padding_mask: Optional[Tensor], prev_key_padding_mask: Optional[Tensor], batch_size: int, src_len: int, static_kv: bool) ->Optional[Tensor]:
+        if prev_key_padding_mask is not None:
+            if static_kv:
+                new_key_padding_mask = prev_key_padding_mask
+            else:
+                new_key_padding_mask = torch.cat([prev_key_padding_mask, key_padding_mask], dim=1)
+        elif key_padding_mask is not None:
+            filler = torch.zeros(batch_size, src_len - key_padding_mask.size(1), dtype=key_padding_mask.dtype, device=key_padding_mask.device)
+            new_key_padding_mask = torch.cat([filler, key_padding_mask], dim=1)
+        else:
+            new_key_padding_mask = prev_key_padding_mask
+        return new_key_padding_mask
 
 
 class DecoderLayer(nn.Module):
@@ -3156,126 +3936,6 @@ class BartDecoder(nn.Module):
         return x, next_cache, all_hidden_states, list(all_self_attns)
 
 
-class SelfAttention(nn.Module):
-    """Multi-headed attention from 'Attention Is All You Need' paper"""
-
-    def __init__(self, embed_dim, num_heads, dropout=0.0, bias=True, encoder_decoder_attention=False):
-        super().__init__()
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.dropout = dropout
-        self.head_dim = embed_dim // num_heads
-        assert self.head_dim * num_heads == self.embed_dim, 'embed_dim must be divisible by num_heads'
-        self.scaling = self.head_dim ** -0.5
-        self.encoder_decoder_attention = encoder_decoder_attention
-        self.k_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.v_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
-        self.cache_key = 'encoder_decoder' if self.encoder_decoder_attention else 'self'
-
-    def _shape(self, tensor, dim_0, bsz):
-        return tensor.contiguous().view(dim_0, bsz * self.num_heads, self.head_dim).transpose(0, 1)
-
-    def forward(self, query, key: Optional[Tensor], key_padding_mask: Optional[Tensor]=None, layer_state: Optional[Dict[str, Optional[Tensor]]]=None, attn_mask: Optional[Tensor]=None, output_attentions=False) ->Tuple[Tensor, Optional[Tensor]]:
-        """Input shape: Time(SeqLen) x Batch x Channel"""
-        static_kv: bool = self.encoder_decoder_attention
-        tgt_len, bsz, embed_dim = query.size()
-        assert embed_dim == self.embed_dim
-        assert list(query.size()) == [tgt_len, bsz, embed_dim]
-        if layer_state is not None:
-            saved_state = layer_state.get(self.cache_key, {})
-            if 'prev_key' in saved_state:
-                if static_kv:
-                    key = None
-        else:
-            saved_state = None
-            layer_state = {}
-        q = self.q_proj(query) * self.scaling
-        if static_kv:
-            if key is None:
-                k = v = None
-            else:
-                k = self.k_proj(key)
-                v = self.v_proj(key)
-        else:
-            k = self.k_proj(query)
-            v = self.v_proj(query)
-        q = self._shape(q, tgt_len, bsz)
-        if k is not None:
-            k = self._shape(k, -1, bsz)
-        if v is not None:
-            v = self._shape(v, -1, bsz)
-        if saved_state is not None:
-            k, v, key_padding_mask = self._use_saved_state(k, v, saved_state, key_padding_mask, static_kv, bsz)
-        layer_state[self.cache_key] = {'prev_key': k.view(bsz, self.num_heads, -1, self.head_dim), 'prev_value': v.view(bsz, self.num_heads, -1, self.head_dim), 'prev_key_padding_mask': key_padding_mask if not static_kv else None}
-        assert k is not None
-        src_len = k.size(1)
-        attn_weights = torch.bmm(q, k.transpose(1, 2))
-        assert attn_weights.size() == (bsz * self.num_heads, tgt_len, src_len)
-        if attn_mask is not None:
-            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + attn_mask
-            attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
-        if key_padding_mask is not None and key_padding_mask.dim() == 0:
-            key_padding_mask = None
-        assert key_padding_mask is None or key_padding_mask.size()[:2] == (bsz, src_len)
-        if key_padding_mask is not None:
-            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
-            reshaped = key_padding_mask.unsqueeze(1).unsqueeze(2)
-            attn_weights = attn_weights.masked_fill(reshaped, float('-inf'))
-            attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
-        attn_weights = F.softmax(attn_weights, dim=-1)
-        attn_probs = F.dropout(attn_weights, p=self.dropout, training=self.training)
-        assert v is not None
-        attn_output = torch.bmm(attn_probs, v)
-        assert attn_output.size() == (bsz * self.num_heads, tgt_len, self.head_dim)
-        attn_output = attn_output.transpose(0, 1).contiguous().view(tgt_len, bsz, embed_dim)
-        attn_output = self.out_proj(attn_output)
-        if output_attentions:
-            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
-        else:
-            attn_weights = None
-        return attn_output, attn_weights
-
-    def _use_saved_state(self, k, v, saved_state, key_padding_mask, static_kv, bsz):
-        if 'prev_key' in saved_state:
-            _prev_key = saved_state['prev_key']
-            assert _prev_key is not None
-            prev_key = _prev_key.view(bsz * self.num_heads, -1, self.head_dim)
-            if static_kv:
-                k = prev_key
-            else:
-                assert k is not None
-                k = torch.cat([prev_key, k], dim=1)
-        if 'prev_value' in saved_state:
-            _prev_value = saved_state['prev_value']
-            assert _prev_value is not None
-            prev_value = _prev_value.view(bsz * self.num_heads, -1, self.head_dim)
-            if static_kv:
-                v = prev_value
-            else:
-                assert v is not None
-                v = torch.cat([prev_value, v], dim=1)
-        assert k is not None and v is not None
-        prev_key_padding_mask: Optional[Tensor] = saved_state.get('prev_key_padding_mask', None)
-        key_padding_mask = self._cat_prev_key_padding_mask(key_padding_mask, prev_key_padding_mask, bsz, k.size(1), static_kv)
-        return k, v, key_padding_mask
-
-    @staticmethod
-    def _cat_prev_key_padding_mask(key_padding_mask: Optional[Tensor], prev_key_padding_mask: Optional[Tensor], batch_size: int, src_len: int, static_kv: bool) ->Optional[Tensor]:
-        if prev_key_padding_mask is not None:
-            if static_kv:
-                new_key_padding_mask = prev_key_padding_mask
-            else:
-                new_key_padding_mask = torch.cat([prev_key_padding_mask, key_padding_mask], dim=1)
-        elif key_padding_mask is not None:
-            filler = torch.zeros(batch_size, src_len - key_padding_mask.size(1), dtype=key_padding_mask.dtype, device=key_padding_mask.device)
-            new_key_padding_mask = torch.cat([filler, key_padding_mask], dim=1)
-        else:
-            new_key_padding_mask = prev_key_padding_mask
-        return new_key_padding_mask
-
-
 class BartClassificationHead(nn.Module):
     """Head for sentence-level classification tasks."""
 
@@ -3292,295 +3952,6 @@ class BartClassificationHead(nn.Module):
         x = self.dropout(x)
         x = self.out_proj(x)
         return x
-
-
-def create_position_ids_from_input_ids(input_ids, padding_idx):
-    """ Replace non-padding symbols with their position numbers. Position numbers begin at
-    padding_idx+1. Padding symbols are ignored. This is modified from fairseq's
-    `utils.make_positions`.
-
-    :param torch.Tensor x:
-    :return torch.Tensor:
-    """
-    mask = input_ids.ne(padding_idx).int()
-    incremental_indices = torch.cumsum(mask, dim=1).type_as(mask) * mask
-    return incremental_indices.long() + padding_idx
-
-
-class LearnedPositionalEmbedding(nn.Embedding):
-    """
-    This module learns positional embeddings up to a fixed maximum size.
-    Padding ids are ignored by either offsetting based on padding_idx
-    or by setting padding_idx to None and ensuring that the appropriate
-    position ids are passed to the forward function.
-    """
-
-    def __init__(self, num_embeddings: int, embedding_dim: int, padding_idx: int):
-        assert padding_idx is not None
-        num_embeddings += padding_idx + 1
-        super().__init__(num_embeddings, embedding_dim, padding_idx=padding_idx)
-
-    def forward(self, input, use_cache=False):
-        """Input is expected to be of size [bsz x seqlen]."""
-        if use_cache:
-            pos = int(self.padding_idx + input.size(1))
-            positions = input.data.new(1, 1).fill_(pos)
-        else:
-            positions = create_position_ids_from_input_ids(input, self.padding_idx)
-        return super().forward(positions)
-
-
-class SinusoidalPositionalEmbedding(nn.Embedding):
-    """This module produces sinusoidal positional embeddings of any length."""
-
-    def __init__(self, num_positions, embedding_dim, padding_idx=None):
-        super().__init__(num_positions, embedding_dim)
-        if embedding_dim % 2 != 0:
-            raise NotImplementedError(f'odd embedding_dim {embedding_dim} not supported')
-        self.weight = self._init_weight(self.weight)
-
-    @staticmethod
-    def _init_weight(out: nn.Parameter):
-        """Identical to the XLM create_sinusoidal_embeddings except features are not interleaved.
-            The cos features are in the 2nd half of the vector. [dim // 2:]
-        """
-        n_pos, dim = out.shape
-        position_enc = np.array([[(pos / np.power(10000, 2 * (j // 2) / dim)) for j in range(dim)] for pos in range(n_pos)])
-        out[:, 0:dim // 2] = torch.FloatTensor(np.sin(position_enc[:, 0::2]))
-        out[:, dim // 2:] = torch.FloatTensor(np.cos(position_enc[:, 1::2]))
-        out.detach_()
-        out.requires_grad = False
-        return out
-
-    @torch.no_grad()
-    def forward(self, input_ids, use_cache=False):
-        """Input is expected to be of size [bsz x seqlen]."""
-        bsz, seq_len = input_ids.shape[:2]
-        if use_cache:
-            positions = input_ids.data.new(1, 1).fill_(seq_len - 1)
-        else:
-            positions = torch.arange(seq_len, dtype=torch.long, device=self.weight.device)
-        return super().forward(positions)
-
-
-class BertEmbeddings(nn.Module):
-    """Construct the embeddings from word, position and token_type embeddings.
-    """
-
-    def __init__(self, config):
-        super().__init__()
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id)
-        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
-        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-
-    def forward(self, input_ids=None, token_type_ids=None, position_ids=None, inputs_embeds=None):
-        if input_ids is not None:
-            input_shape = input_ids.size()
-        else:
-            input_shape = inputs_embeds.size()[:-1]
-        seq_length = input_shape[1]
-        device = input_ids.device if input_ids is not None else inputs_embeds.device
-        if position_ids is None:
-            position_ids = torch.arange(seq_length, dtype=torch.long, device=device)
-            position_ids = position_ids.unsqueeze(0).expand(input_shape)
-        if token_type_ids is None:
-            token_type_ids = torch.zeros(input_shape, dtype=torch.long, device=device)
-        if inputs_embeds is None:
-            inputs_embeds = self.word_embeddings(input_ids)
-        position_embeddings = self.position_embeddings(position_ids)
-        token_type_embeddings = self.token_type_embeddings(token_type_ids)
-        embeddings = inputs_embeds + position_embeddings + token_type_embeddings
-        embeddings = self.LayerNorm(embeddings)
-        embeddings = self.dropout(embeddings)
-        return embeddings
-
-
-class BertSelfAttention(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        if config.hidden_size % config.num_attention_heads != 0 and not hasattr(config, 'embedding_size'):
-            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
-        self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
-        self.all_head_size = self.num_attention_heads * self.attention_head_size
-        self.query = nn.Linear(config.hidden_size, self.all_head_size)
-        self.key = nn.Linear(config.hidden_size, self.all_head_size)
-        self.value = nn.Linear(config.hidden_size, self.all_head_size)
-        self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
-
-    def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
-        x = x.view(*new_x_shape)
-        return x.permute(0, 2, 1, 3)
-
-    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, output_attentions=False):
-        mixed_query_layer = self.query(hidden_states)
-        if encoder_hidden_states is not None:
-            mixed_key_layer = self.key(encoder_hidden_states)
-            mixed_value_layer = self.value(encoder_hidden_states)
-            attention_mask = encoder_attention_mask
-        else:
-            mixed_key_layer = self.key(hidden_states)
-            mixed_value_layer = self.value(hidden_states)
-        query_layer = self.transpose_for_scores(mixed_query_layer)
-        key_layer = self.transpose_for_scores(mixed_key_layer)
-        value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
-        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-        if attention_mask is not None:
-            attention_scores = attention_scores + attention_mask
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
-        attention_probs = self.dropout(attention_probs)
-        if head_mask is not None:
-            attention_probs = attention_probs * head_mask
-        context_layer = torch.matmul(attention_probs, value_layer)
-        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
-        context_layer = context_layer.view(*new_context_layer_shape)
-        outputs = (context_layer, attention_probs) if output_attentions else (context_layer,)
-        return outputs
-
-
-class BertSelfOutput(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-
-    def forward(self, hidden_states, input_tensor):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
-        return hidden_states
-
-
-class BertAttention(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.self = BertSelfAttention(config)
-        self.output = BertSelfOutput(config)
-        self.pruned_heads = set()
-
-    def prune_heads(self, heads):
-        if len(heads) == 0:
-            return
-        heads, index = find_pruneable_heads_and_indices(heads, self.self.num_attention_heads, self.self.attention_head_size, self.pruned_heads)
-        self.self.query = prune_linear_layer(self.self.query, index)
-        self.self.key = prune_linear_layer(self.self.key, index)
-        self.self.value = prune_linear_layer(self.self.value, index)
-        self.output.dense = prune_linear_layer(self.output.dense, index, dim=1)
-        self.self.num_attention_heads = self.self.num_attention_heads - len(heads)
-        self.self.all_head_size = self.self.attention_head_size * self.self.num_attention_heads
-        self.pruned_heads = self.pruned_heads.union(heads)
-
-    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, output_attentions=False):
-        self_outputs = self.self(hidden_states, attention_mask, head_mask, encoder_hidden_states, encoder_attention_mask, output_attentions)
-        attention_output = self.output(self_outputs[0], hidden_states)
-        outputs = (attention_output,) + self_outputs[1:]
-        return outputs
-
-
-class BertIntermediate(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.dense = nn.Linear(config.hidden_size, config.intermediate_size)
-        if isinstance(config.hidden_act, str):
-            self.intermediate_act_fn = ACT2FN[config.hidden_act]
-        else:
-            self.intermediate_act_fn = config.hidden_act
-
-    def forward(self, hidden_states):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.intermediate_act_fn(hidden_states)
-        return hidden_states
-
-
-class BertOutput(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
-
-    def forward(self, hidden_states, input_tensor):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
-        return hidden_states
-
-
-class BertLayer(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.attention = BertAttention(config)
-        self.is_decoder = config.is_decoder
-        if self.is_decoder:
-            self.crossattention = BertAttention(config)
-        self.intermediate = BertIntermediate(config)
-        self.output = BertOutput(config)
-
-    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, output_attentions=False):
-        self_attention_outputs = self.attention(hidden_states, attention_mask, head_mask, output_attentions=output_attentions)
-        attention_output = self_attention_outputs[0]
-        outputs = self_attention_outputs[1:]
-        if self.is_decoder and encoder_hidden_states is not None:
-            cross_attention_outputs = self.crossattention(attention_output, attention_mask, head_mask, encoder_hidden_states, encoder_attention_mask, output_attentions)
-            attention_output = cross_attention_outputs[0]
-            outputs = outputs + cross_attention_outputs[1:]
-        intermediate_output = self.intermediate(attention_output)
-        layer_output = self.output(intermediate_output, attention_output)
-        outputs = (layer_output,) + outputs
-        return outputs
-
-
-class BertEncoder(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.output_hidden_states = config.output_hidden_states
-        self.layer = nn.ModuleList([BertLayer(config) for _ in range(config.num_hidden_layers)])
-
-    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, output_attentions=False):
-        all_hidden_states = ()
-        all_attentions = ()
-        for i, layer_module in enumerate(self.layer):
-            if self.output_hidden_states:
-                all_hidden_states = all_hidden_states + (hidden_states,)
-            layer_outputs = layer_module(hidden_states, attention_mask, head_mask[i], encoder_hidden_states, encoder_attention_mask, output_attentions)
-            hidden_states = layer_outputs[0]
-            if output_attentions:
-                all_attentions = all_attentions + (layer_outputs[1],)
-        if self.output_hidden_states:
-            all_hidden_states = all_hidden_states + (hidden_states,)
-        outputs = hidden_states,
-        if self.output_hidden_states:
-            outputs = outputs + (all_hidden_states,)
-        if output_attentions:
-            outputs = outputs + (all_attentions,)
-        return outputs
-
-
-class BertPooler(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
-        self.activation = nn.Tanh()
-
-    def forward(self, hidden_states):
-        first_token_tensor = hidden_states[:, (0)]
-        pooled_output = self.dense(first_token_tensor)
-        pooled_output = self.activation(pooled_output)
-        return pooled_output
 
 
 class BertPredictionHeadTransform(nn.Module):
@@ -3649,108 +4020,6 @@ class BertPreTrainingHeads(nn.Module):
         prediction_scores = self.predictions(sequence_output)
         seq_relationship_score = self.seq_relationship(pooled_output)
         return prediction_scores, seq_relationship_score
-
-
-def scaled_dot_product_attention(q, k, v, mask, attention_mask=None, head_mask=None):
-    matmul_qk = torch.matmul(q, k.permute(0, 1, 3, 2))
-    dk = k.shape[-1]
-    scaled_attention_logits = matmul_qk / np.sqrt(dk)
-    if mask is not None:
-        nd, ns = scaled_attention_logits.size(-2), scaled_attention_logits.size(-1)
-        scaled_attention_logits += mask[ns - nd:ns, :ns] * -10000.0
-    if attention_mask is not None:
-        scaled_attention_logits = scaled_attention_logits + attention_mask
-    attention_weights = torch.softmax(scaled_attention_logits, dim=-1)
-    if head_mask is not None:
-        attention_weights = attention_weights * head_mask
-    output = torch.matmul(attention_weights, v)
-    return output, attention_weights
-
-
-class MultiHeadAttention(torch.nn.Module):
-
-    def __init__(self, d_model_size, num_heads):
-        super().__init__()
-        self.num_heads = num_heads
-        self.d_model_size = d_model_size
-        self.depth = int(d_model_size / self.num_heads)
-        self.Wq = torch.nn.Linear(d_model_size, d_model_size)
-        self.Wk = torch.nn.Linear(d_model_size, d_model_size)
-        self.Wv = torch.nn.Linear(d_model_size, d_model_size)
-        self.dense = torch.nn.Linear(d_model_size, d_model_size)
-        self.pruned_heads = set()
-
-    def prune_heads(self, heads):
-        attention_head_size = self.d_model_size // self.num_heads
-        if len(heads) == 0:
-            return
-        heads, index = find_pruneable_heads_and_indices(heads, self.num_heads, attention_head_size, self.pruned_heads)
-        self.Wq = prune_linear_layer(self.Wq, index)
-        self.Wk = prune_linear_layer(self.Wk, index)
-        self.Wv = prune_linear_layer(self.Wv, index)
-        self.dense = prune_linear_layer(self.dense, index, dim=1)
-        self.num_heads = self.num_heads - len(heads)
-        self.d_model_size = attention_head_size * self.num_heads
-        self.pruned_heads = self.pruned_heads.union(heads)
-
-    def split_into_heads(self, x, batch_size):
-        x = x.reshape(batch_size, -1, self.num_heads, self.depth)
-        return x.permute([0, 2, 1, 3])
-
-    def forward(self, v, k, q, mask, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False):
-        batch_size = q.shape[0]
-        q = self.Wq(q)
-        k = self.Wk(k)
-        v = self.Wv(v)
-        q = self.split_into_heads(q, batch_size)
-        k = self.split_into_heads(k, batch_size)
-        v = self.split_into_heads(v, batch_size)
-        if layer_past is not None:
-            past_key, past_value = layer_past[0], layer_past[1]
-            k = torch.cat((past_key, k), dim=-2)
-            v = torch.cat((past_value, v), dim=-2)
-        if use_cache is True:
-            present = torch.stack((k, v))
-        else:
-            present = None,
-        output = scaled_dot_product_attention(q, k, v, mask, attention_mask, head_mask)
-        scaled_attention = output[0].permute([0, 2, 1, 3])
-        attn = output[1]
-        original_size_attention = scaled_attention.reshape(batch_size, -1, self.d_model_size)
-        output = self.dense(original_size_attention)
-        outputs = output, present
-        if output_attentions:
-            outputs = outputs + (attn,)
-        return outputs
-
-
-def point_wise_feed_forward_network(d_model_size, dff):
-    return torch.nn.Sequential(torch.nn.Linear(d_model_size, dff), torch.nn.ReLU(), torch.nn.Linear(dff, d_model_size))
-
-
-class EncoderLayer(torch.nn.Module):
-
-    def __init__(self, d_model_size, num_heads, dff, rate=0.1):
-        super().__init__()
-        self.multi_head_attention = MultiHeadAttention(d_model_size, num_heads)
-        self.ffn = point_wise_feed_forward_network(d_model_size, dff)
-        self.layernorm1 = torch.nn.LayerNorm(d_model_size, eps=1e-06)
-        self.layernorm2 = torch.nn.LayerNorm(d_model_size, eps=1e-06)
-        self.dropout1 = torch.nn.Dropout(rate)
-        self.dropout2 = torch.nn.Dropout(rate)
-
-    def forward(self, x, mask, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False):
-        normed = self.layernorm1(x)
-        attn_outputs = self.multi_head_attention(normed, normed, normed, mask, layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask, use_cache=use_cache, output_attentions=output_attentions)
-        attn_output = attn_outputs[0]
-        attn_output = self.dropout1(attn_output)
-        out1 = x + attn_output
-        out2 = self.layernorm2(out1)
-        ffn_output = self.ffn(out2)
-        ffn_output = self.dropout2(ffn_output)
-        out2 = out1 + ffn_output
-        outputs = (out2,) + attn_outputs[1:]
-        return outputs
 
 
 def create_sinusoidal_embeddings(n_pos, dim, out):
@@ -3980,6 +4249,17 @@ class Transformer(nn.Module):
         return outputs
 
 
+class ElectraEmbeddings(BertEmbeddings):
+    """Construct the embeddings from word, position and token_type embeddings."""
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.embedding_size, padding_idx=config.pad_token_id)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.embedding_size)
+        self.token_type_embeddings = nn.Embedding(config.type_vocab_size, config.embedding_size)
+        self.LayerNorm = BertLayerNorm(config.embedding_size, eps=config.layer_norm_eps)
+
+
 def get_activation(activation_string):
     if activation_string in ACT2FN:
         return ACT2FN[activation_string]
@@ -4035,148 +4315,6 @@ class ElectraClassificationHead(nn.Module):
         x = self.dropout(x)
         x = self.out_proj(x)
         return x
-
-
-def prune_conv1d_layer(layer, index, dim=1):
-    """ Prune a Conv1D layer (a model parameters) to keep only entries in index.
-        A Conv1D work as a Linear layer (see e.g. BERT) but the weights are transposed.
-        Return the pruned layer as a new layer with requires_grad=True.
-        Used to remove heads.
-    """
-    index = index.to(layer.weight.device)
-    W = layer.weight.index_select(dim, index).clone().detach()
-    if dim == 0:
-        b = layer.bias.clone().detach()
-    else:
-        b = layer.bias[index].clone().detach()
-    new_size = list(layer.weight.size())
-    new_size[dim] = len(index)
-    new_layer = Conv1D(new_size[1], new_size[0]).to(layer.weight.device)
-    new_layer.weight.requires_grad = False
-    new_layer.weight.copy_(W.contiguous())
-    new_layer.weight.requires_grad = True
-    new_layer.bias.requires_grad = False
-    new_layer.bias.copy_(b.contiguous())
-    new_layer.bias.requires_grad = True
-    return new_layer
-
-
-class Attention(nn.Module):
-
-    def __init__(self, nx, n_ctx, config, scale=False):
-        super().__init__()
-        n_state = nx
-        assert n_state % config.n_head == 0
-        self.register_buffer('bias', torch.tril(torch.ones((n_ctx, n_ctx), dtype=torch.uint8)).view(1, 1, n_ctx, n_ctx))
-        self.register_buffer('masked_bias', torch.tensor(-10000.0))
-        self.n_head = config.n_head
-        self.split_size = n_state
-        self.scale = scale
-        self.c_attn = Conv1D(n_state * 3, nx)
-        self.c_proj = Conv1D(n_state, nx)
-        self.attn_dropout = nn.Dropout(config.attn_pdrop)
-        self.resid_dropout = nn.Dropout(config.resid_pdrop)
-        self.pruned_heads = set()
-
-    def prune_heads(self, heads):
-        if len(heads) == 0:
-            return
-        heads, index = find_pruneable_heads_and_indices(heads, self.n_head, self.split_size // self.n_head, self.pruned_heads)
-        index_attn = torch.cat([index, index + self.split_size, index + 2 * self.split_size])
-        self.c_attn = prune_conv1d_layer(self.c_attn, index_attn, dim=1)
-        self.c_proj = prune_conv1d_layer(self.c_proj, index, dim=0)
-        self.split_size = self.split_size // self.n_head * (self.n_head - len(heads))
-        self.n_head = self.n_head - len(heads)
-        self.pruned_heads = self.pruned_heads.union(heads)
-
-    def _attn(self, q, k, v, attention_mask=None, head_mask=None, output_attentions=False):
-        w = torch.matmul(q, k)
-        if self.scale:
-            w = w / float(v.size(-1)) ** 0.5
-        nd, ns = w.size(-2), w.size(-1)
-        mask = self.bias[:, :, ns - nd:ns, :ns]
-        w = torch.where(mask.bool(), w, self.masked_bias)
-        if attention_mask is not None:
-            w = w + attention_mask
-        w = nn.Softmax(dim=-1)(w)
-        w = self.attn_dropout(w)
-        if head_mask is not None:
-            w = w * head_mask
-        outputs = [torch.matmul(w, v)]
-        if output_attentions:
-            outputs.append(w)
-        return outputs
-
-    def merge_heads(self, x):
-        x = x.permute(0, 2, 1, 3).contiguous()
-        new_x_shape = x.size()[:-2] + (x.size(-2) * x.size(-1),)
-        return x.view(*new_x_shape)
-
-    def split_heads(self, x, k=False):
-        new_x_shape = x.size()[:-1] + (self.n_head, x.size(-1) // self.n_head)
-        x = x.view(*new_x_shape)
-        if k:
-            return x.permute(0, 2, 3, 1)
-        else:
-            return x.permute(0, 2, 1, 3)
-
-    def forward(self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False):
-        x = self.c_attn(x)
-        query, key, value = x.split(self.split_size, dim=2)
-        query = self.split_heads(query)
-        key = self.split_heads(key, k=True)
-        value = self.split_heads(value)
-        if layer_past is not None:
-            past_key, past_value = layer_past[0].transpose(-2, -1), layer_past[1]
-            key = torch.cat((past_key, key), dim=-1)
-            value = torch.cat((past_value, value), dim=-2)
-        if use_cache is True:
-            present = torch.stack((key.transpose(-2, -1), value))
-        else:
-            present = None,
-        attn_outputs = self._attn(query, key, value, attention_mask, head_mask, output_attentions)
-        a = attn_outputs[0]
-        a = self.merge_heads(a)
-        a = self.c_proj(a)
-        a = self.resid_dropout(a)
-        outputs = [a, present] + attn_outputs[1:]
-        return outputs
-
-
-class MLP(nn.Module):
-
-    def __init__(self, n_state, config):
-        super().__init__()
-        nx = config.n_embd
-        self.c_fc = Conv1D(n_state, nx)
-        self.c_proj = Conv1D(nx, n_state)
-        self.act = ACT2FN[config.activation_function]
-        self.dropout = nn.Dropout(config.resid_pdrop)
-
-    def forward(self, x):
-        h = self.act(self.c_fc(x))
-        h2 = self.c_proj(h)
-        return self.dropout(h2)
-
-
-class Block(nn.Module):
-
-    def __init__(self, n_ctx, config, scale=False):
-        super().__init__()
-        nx = config.n_embd
-        self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        self.attn = Attention(nx, n_ctx, config, scale)
-        self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        self.mlp = MLP(4 * nx, config)
-
-    def forward(self, x, layer_past=None, attention_mask=None, head_mask=None, use_cache=False, output_attentions=False):
-        output_attn = self.attn(self.ln_1(x), layer_past=layer_past, attention_mask=attention_mask, head_mask=head_mask, use_cache=use_cache, output_attentions=output_attentions)
-        a = output_attn[0]
-        x = x + a
-        m = self.mlp(self.ln_2(x))
-        x = x + m
-        outputs = [x] + output_attn[1:]
-        return outputs
 
 
 class LongformerSelfAttention(nn.Module):
@@ -4522,240 +4660,6 @@ MMBT_START_DOCSTRING = """    MMBT model was proposed in
 """
 
 
-class ModuleUtilsMixin:
-    """
-    A few utilities for torch.nn.Modules, to be used as a mixin.
-    """
-
-    def num_parameters(self, only_trainable: bool=False) ->int:
-        """
-        Get number of (optionally, trainable) parameters in the module.
-        """
-        params = filter(lambda x: x.requires_grad, self.parameters()) if only_trainable else self.parameters()
-        return sum(p.numel() for p in params)
-
-    @staticmethod
-    def _hook_rss_memory_pre_forward(module, *args, **kwargs):
-        try:
-            import psutil
-        except ImportError:
-            raise ImportError('You need to install psutil (pip install psutil) to use memory tracing.')
-        process = psutil.Process(os.getpid())
-        mem = process.memory_info()
-        module.mem_rss_pre_forward = mem.rss
-        return None
-
-    @staticmethod
-    def _hook_rss_memory_post_forward(module, *args, **kwargs):
-        try:
-            import psutil
-        except ImportError:
-            raise ImportError('You need to install psutil (pip install psutil) to use memory tracing.')
-        process = psutil.Process(os.getpid())
-        mem = process.memory_info()
-        module.mem_rss_post_forward = mem.rss
-        mem_rss_diff = module.mem_rss_post_forward - module.mem_rss_pre_forward
-        module.mem_rss_diff = mem_rss_diff + (module.mem_rss_diff if hasattr(module, 'mem_rss_diff') else 0)
-        return None
-
-    def add_memory_hooks(self):
-        """ Add a memory hook before and after each sub-module forward pass to record increase in memory consumption.
-            Increase in memory consumption is stored in a `mem_rss_diff` attribute for each module and can be reset to zero with `model.reset_memory_hooks_state()`
-        """
-        for module in self.modules():
-            module.register_forward_pre_hook(self._hook_rss_memory_pre_forward)
-            module.register_forward_hook(self._hook_rss_memory_post_forward)
-        self.reset_memory_hooks_state()
-
-    def reset_memory_hooks_state(self):
-        for module in self.modules():
-            module.mem_rss_diff = 0
-            module.mem_rss_post_forward = 0
-            module.mem_rss_pre_forward = 0
-
-    @property
-    def device(self) ->device:
-        """
-        Get torch.device from module, assuming that the whole module has one device.
-        """
-        try:
-            return next(self.parameters()).device
-        except StopIteration:
-
-            def find_tensor_attributes(module: nn.Module) ->List[Tuple[str, Tensor]]:
-                tuples = [(k, v) for k, v in module.__dict__.items() if torch.is_tensor(v)]
-                return tuples
-            gen = self._named_members(get_members_fn=find_tensor_attributes)
-            first_tuple = next(gen)
-            return first_tuple[1].device
-
-    @property
-    def dtype(self) ->dtype:
-        """
-        Get torch.dtype from module, assuming that the whole module has one dtype.
-        """
-        try:
-            return next(self.parameters()).dtype
-        except StopIteration:
-
-            def find_tensor_attributes(module: nn.Module) ->List[Tuple[str, Tensor]]:
-                tuples = [(k, v) for k, v in module.__dict__.items() if torch.is_tensor(v)]
-                return tuples
-            gen = self._named_members(get_members_fn=find_tensor_attributes)
-            first_tuple = next(gen)
-            return first_tuple[1].dtype
-
-    def invert_attention_mask(self, encoder_attention_mask: Tensor) ->Tensor:
-        """type: torch.Tensor -> torch.Tensor"""
-        if encoder_attention_mask.dim() == 3:
-            encoder_extended_attention_mask = encoder_attention_mask[:, (None), :, :]
-        if encoder_attention_mask.dim() == 2:
-            encoder_extended_attention_mask = encoder_attention_mask[:, (None), (None), :]
-        encoder_extended_attention_mask = encoder_extended_attention_mask.to(dtype=self.dtype)
-        if self.dtype == torch.float16:
-            encoder_extended_attention_mask = (1.0 - encoder_extended_attention_mask) * -10000.0
-        elif self.dtype == torch.float32:
-            encoder_extended_attention_mask = (1.0 - encoder_extended_attention_mask) * -1000000000.0
-        else:
-            raise ValueError('{} not recognized. `dtype` should be set to either `torch.float32` or `torch.float16`'.format(self.dtype))
-        return encoder_extended_attention_mask
-
-    def get_extended_attention_mask(self, attention_mask: Tensor, input_shape: Tuple, device: device) ->Tensor:
-        """Makes broadcastable attention mask and causal mask so that future and maked tokens are ignored.
-
-        Arguments:
-            attention_mask: torch.Tensor with 1 indicating tokens to ATTEND to
-            input_shape: tuple, shape of input_ids
-            device: torch.Device, usually self.device
-
-        Returns:
-            torch.Tensor with dtype of attention_mask.dtype
-        """
-        if attention_mask.dim() == 3:
-            extended_attention_mask = attention_mask[:, (None), :, :]
-        elif attention_mask.dim() == 2:
-            if self.config.is_decoder:
-                batch_size, seq_length = input_shape
-                seq_ids = torch.arange(seq_length, device=device)
-                causal_mask = seq_ids[(None), (None), :].repeat(batch_size, seq_length, 1) <= seq_ids[(None), :, (None)]
-                causal_mask = causal_mask.to(attention_mask.dtype)
-                extended_attention_mask = causal_mask[:, (None), :, :] * attention_mask[:, (None), (None), :]
-            else:
-                extended_attention_mask = attention_mask[:, (None), (None), :]
-        else:
-            raise ValueError('Wrong shape for input_ids (shape {}) or attention_mask (shape {})'.format(input_shape, attention_mask.shape))
-        extended_attention_mask = extended_attention_mask.to(dtype=self.dtype)
-        extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
-        return extended_attention_mask
-
-    def get_head_mask(self, head_mask: Tensor, num_hidden_layers: int, is_attention_chunked: bool=False) ->Tensor:
-        """
-        # Prepare head mask if needed
-        # 1.0 in head_mask indicate we keep the head
-        attention_probs has shape bsz x n_heads x N x N
-        Arguments:
-            head_mask: torch.Tensor or None: has shape [num_heads] or [num_hidden_layers x num_heads]
-            num_hidden_layers: int
-        Returns:
-             Tensor of shape shape [num_hidden_layers x batch x num_heads x seq_length x seq_length]
-             or list with [None] for each layer
-        """
-        if head_mask is not None:
-            head_mask = self._convert_head_mask_to_5d(head_mask, num_hidden_layers)
-            if is_attention_chunked is True:
-                head_mask = head_mask.unsqueeze(-1)
-        else:
-            head_mask = [None] * num_hidden_layers
-        return head_mask
-
-    def _convert_head_mask_to_5d(self, head_mask, num_hidden_layers):
-        """-> [num_hidden_layers x batch x num_heads x seq_length x seq_length]"""
-        if head_mask.dim() == 1:
-            head_mask = head_mask.unsqueeze(0).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
-            head_mask = head_mask.expand(num_hidden_layers, -1, -1, -1, -1)
-        elif head_mask.dim() == 2:
-            head_mask = head_mask.unsqueeze(1).unsqueeze(-1).unsqueeze(-1)
-        assert head_mask.dim() == 5, f'head_mask.dim != 5, instead {head_mask.dim()}'
-        head_mask = head_mask.to(dtype=self.dtype)
-        return head_mask
-
-
-@add_start_docstrings('The bare MMBT Model outputting raw hidden-states without any specific head on top.', MMBT_START_DOCSTRING, MMBT_INPUTS_DOCSTRING)
-class MMBTModel(nn.Module, ModuleUtilsMixin):
-    """
-        Outputs: `Tuple` comprising various elements depending on the configuration (config) and inputs:
-            **last_hidden_state**: ``torch.FloatTensor`` of shape ``(batch_size, sequence_length, hidden_size)``
-                Sequence of hidden-states at the output of the last layer of the model.
-            **pooler_output**: ``torch.FloatTensor`` of shape ``(batch_size, hidden_size)``
-                Last layer hidden-state of the first token of the sequence (classification token)
-                further processed by a Linear layer and a Tanh activation function. The Linear
-                layer weights are trained from the next sentence prediction (classification)
-                objective during Bert pretraining. This output is usually *not* a good summary
-                of the semantic content of the input, you're often better with averaging or pooling
-                the sequence of hidden-states for the whole input sequence.
-            **hidden_states**: (`optional`, returned when ``config.output_hidden_states=True``)
-                list of ``torch.FloatTensor`` (one for the output of each layer + the output of the embeddings)
-                of shape ``(batch_size, sequence_length, hidden_size)``:
-                Hidden-states of the model at the output of each layer plus the initial embedding outputs.
-            **attentions**: (`optional`, returned when ``output_attentions=True``)
-                list of ``torch.FloatTensor`` (one for each layer) of shape ``(batch_size, num_heads, sequence_length, sequence_length)``:
-                Attentions weights after the attention softmax, used to compute the weighted average in the self-attention heads.
-
-        Examples::
-
-            # For example purposes. Not runnable.
-            transformer = BertModel.from_pretrained('bert-base-uncased')
-            encoder = ImageEncoder(args)
-            mmbt = MMBTModel(config, transformer, encoder)
-        """
-
-    def __init__(self, config, transformer, encoder):
-        super().__init__()
-        self.config = config
-        self.transformer = transformer
-        self.modal_encoder = ModalEmbeddings(config, encoder, transformer.embeddings)
-
-    def forward(self, input_modal, input_ids=None, modal_start_tokens=None, modal_end_tokens=None, attention_mask=None, token_type_ids=None, modal_token_type_ids=None, position_ids=None, modal_position_ids=None, head_mask=None, inputs_embeds=None, encoder_hidden_states=None, encoder_attention_mask=None):
-        if input_ids is not None and inputs_embeds is not None:
-            raise ValueError('You cannot specify both input_ids and inputs_embeds at the same time')
-        elif input_ids is not None:
-            input_txt_shape = input_ids.size()
-        elif inputs_embeds is not None:
-            input_txt_shape = inputs_embeds.size()[:-1]
-        else:
-            raise ValueError('You have to specify either input_ids or inputs_embeds')
-        device = input_ids.device if input_ids is not None else inputs_embeds.device
-        modal_embeddings = self.modal_encoder(input_modal, start_token=modal_start_tokens, end_token=modal_end_tokens, position_ids=modal_position_ids, token_type_ids=modal_token_type_ids)
-        input_modal_shape = modal_embeddings.size()[:-1]
-        if token_type_ids is None:
-            token_type_ids = torch.ones(input_txt_shape, dtype=torch.long, device=device)
-        txt_embeddings = self.transformer.embeddings(input_ids=input_ids, position_ids=position_ids, token_type_ids=token_type_ids, inputs_embeds=inputs_embeds)
-        embedding_output = torch.cat([modal_embeddings, txt_embeddings], 1)
-        input_shape = embedding_output.size()[:-1]
-        if attention_mask is None:
-            attention_mask = torch.ones(input_shape, device=device)
-        else:
-            attention_mask = torch.cat([torch.ones(input_modal_shape, device=device, dtype=torch.long), attention_mask], dim=1)
-        if encoder_attention_mask is None:
-            encoder_attention_mask = torch.ones(input_shape, device=device)
-        else:
-            encoder_attention_mask = torch.cat([torch.ones(input_modal_shape, device=device), encoder_attention_mask], dim=1)
-        extended_attention_mask = self.get_extended_attention_mask(attention_mask, input_shape, self.device)
-        encoder_extended_attention_mask = self.invert_attention_mask(encoder_attention_mask)
-        head_mask = self.get_head_mask(head_mask, self.config.num_hidden_layers)
-        encoder_outputs = self.transformer.encoder(embedding_output, attention_mask=extended_attention_mask, head_mask=head_mask, encoder_hidden_states=encoder_hidden_states, encoder_attention_mask=encoder_extended_attention_mask)
-        sequence_output = encoder_outputs[0]
-        pooled_output = self.transformer.pooler(sequence_output)
-        outputs = (sequence_output, pooled_output) + encoder_outputs[1:]
-        return outputs
-
-    def get_input_embeddings(self):
-        return self.embeddings.word_embeddings
-
-    def set_input_embeddings(self, value):
-        self.embeddings.word_embeddings = value
-
-
 @add_start_docstrings("""MMBT Model with a sequence classification/regression head on top (a linear layer on top of
                       the pooled output)""", MMBT_START_DOCSTRING, MMBT_INPUTS_DOCSTRING)
 class MMBTForClassification(nn.Module):
@@ -4810,117 +4714,6 @@ class MMBTForClassification(nn.Module):
                 loss_fct = CrossEntropyLoss()
                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
             outputs = (loss,) + outputs
-        return outputs
-
-
-class Attention(nn.Module):
-
-    def __init__(self, nx, n_ctx, config, scale=False):
-        super().__init__()
-        n_state = nx
-        assert n_state % config.n_head == 0
-        self.register_buffer('bias', torch.tril(torch.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
-        self.n_head = config.n_head
-        self.split_size = n_state
-        self.scale = scale
-        self.c_attn = Conv1D(n_state * 3, nx)
-        self.c_proj = Conv1D(n_state, nx)
-        self.attn_dropout = nn.Dropout(config.attn_pdrop)
-        self.resid_dropout = nn.Dropout(config.resid_pdrop)
-        self.pruned_heads = set()
-
-    def prune_heads(self, heads):
-        if len(heads) == 0:
-            return
-        heads, index = find_pruneable_heads_and_indices(heads, self.n_head, self.split_size // self.n_head, self.pruned_heads)
-        index_attn = torch.cat([index, index + self.split_size, index + 2 * self.split_size])
-        self.c_attn = prune_conv1d_layer(self.c_attn, index_attn, dim=1)
-        self.c_proj = prune_conv1d_layer(self.c_proj, index, dim=0)
-        self.split_size = self.split_size // self.n_head * (self.n_head - len(heads))
-        self.n_head = self.n_head - len(heads)
-        self.pruned_heads = self.pruned_heads.union(heads)
-
-    def _attn(self, q, k, v, attention_mask=None, head_mask=None, output_attentions=False):
-        w = torch.matmul(q, k)
-        if self.scale:
-            w = w / math.sqrt(v.size(-1))
-        b = self.bias[:, :, :w.size(-2), :w.size(-1)]
-        w = w * b + -10000.0 * (1 - b)
-        if attention_mask is not None:
-            w = w + attention_mask
-        w = nn.Softmax(dim=-1)(w)
-        w = self.attn_dropout(w)
-        if head_mask is not None:
-            w = w * head_mask
-        outputs = [torch.matmul(w, v)]
-        if output_attentions:
-            outputs.append(w)
-        return outputs
-
-    def merge_heads(self, x):
-        x = x.permute(0, 2, 1, 3).contiguous()
-        new_x_shape = x.size()[:-2] + (x.size(-2) * x.size(-1),)
-        return x.view(*new_x_shape)
-
-    def split_heads(self, x, k=False):
-        new_x_shape = x.size()[:-1] + (self.n_head, x.size(-1) // self.n_head)
-        x = x.view(*new_x_shape)
-        if k:
-            return x.permute(0, 2, 3, 1)
-        else:
-            return x.permute(0, 2, 1, 3)
-
-    def forward(self, x, attention_mask=None, head_mask=None, output_attentions=False):
-        x = self.c_attn(x)
-        query, key, value = x.split(self.split_size, dim=2)
-        query = self.split_heads(query)
-        key = self.split_heads(key, k=True)
-        value = self.split_heads(value)
-        attn_outputs = self._attn(query, key, value, attention_mask, head_mask, output_attentions)
-        a = attn_outputs[0]
-        a = self.merge_heads(a)
-        a = self.c_proj(a)
-        a = self.resid_dropout(a)
-        outputs = [a] + attn_outputs[1:]
-        return outputs
-
-
-ACT_FNS = {'relu': nn.ReLU, 'swish': swish, 'gelu': gelu_new}
-
-
-class MLP(nn.Module):
-
-    def __init__(self, n_state, config):
-        super().__init__()
-        nx = config.n_embd
-        self.c_fc = Conv1D(n_state, nx)
-        self.c_proj = Conv1D(nx, n_state)
-        self.act = ACT_FNS[config.afn]
-        self.dropout = nn.Dropout(config.resid_pdrop)
-
-    def forward(self, x):
-        h = self.act(self.c_fc(x))
-        h2 = self.c_proj(h)
-        return self.dropout(h2)
-
-
-class Block(nn.Module):
-
-    def __init__(self, n_ctx, config, scale=False):
-        super().__init__()
-        nx = config.n_embd
-        self.attn = Attention(nx, n_ctx, config, scale)
-        self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        self.mlp = MLP(4 * nx, config)
-        self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-
-    def forward(self, x, attention_mask=None, head_mask=None, output_attentions=False):
-        attn_outputs = self.attn(x, attention_mask=attention_mask, head_mask=head_mask, output_attentions=output_attentions)
-        a = attn_outputs[0]
-        n = self.ln_1(x + a)
-        m = self.mlp(n)
-        h = self.ln_2(n + m)
-        outputs = [h] + attn_outputs[1:]
         return outputs
 
 
@@ -5592,8 +5385,8 @@ class ReformerLayer(nn.Module):
             to recalculate activations.
         """
         if next(self.parameters()).device.type == 'cuda':
-            device_idx = torch.current_device()
-            self.attention_seed = torch.default_generators[device_idx].seed()
+            device_idx = torch.cuda.current_device()
+            self.attention_seed = torch.cuda.default_generators[device_idx].seed()
             torch.manual_seed(self.attention_seed)
         else:
             self.attention_seed = int(torch.seed() % sys.maxsize)
@@ -5608,8 +5401,8 @@ class ReformerLayer(nn.Module):
             to recalculate activations.
         """
         if next(self.parameters()).device.type == 'cuda':
-            device_idx = torch.current_device()
-            self.feed_forward_seed = torch.default_generators[device_idx].seed()
+            device_idx = torch.cuda.current_device()
+            self.feed_forward_seed = torch.cuda.default_generators[device_idx].seed()
             torch.manual_seed(self.feed_forward_seed)
         else:
             self.feed_forward_seed = int(torch.seed() % sys.maxsize)
@@ -5738,6 +5531,38 @@ class ReformerOnlyLMHead(nn.Module):
     def forward_chunk(self, hidden_states):
         hidden_states = self.decoder(hidden_states)
         return hidden_states
+
+
+class RobertaEmbeddings(BertEmbeddings):
+    """
+    Same as BertEmbeddings with a tiny tweak for positional embeddings indexing.
+    """
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.padding_idx = config.pad_token_id
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=self.padding_idx)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size, padding_idx=self.padding_idx)
+
+    def forward(self, input_ids=None, token_type_ids=None, position_ids=None, inputs_embeds=None):
+        if position_ids is None:
+            if input_ids is not None:
+                position_ids = create_position_ids_from_input_ids(input_ids, self.padding_idx)
+            else:
+                position_ids = self.create_position_ids_from_inputs_embeds(inputs_embeds)
+        return super().forward(input_ids, token_type_ids=token_type_ids, position_ids=position_ids, inputs_embeds=inputs_embeds)
+
+    def create_position_ids_from_inputs_embeds(self, inputs_embeds):
+        """ We are provided embeddings directly. We cannot infer which are padded so just generate
+        sequential position ids.
+
+        :param torch.Tensor inputs_embeds:
+        :return torch.Tensor:
+        """
+        input_shape = inputs_embeds.size()[:-1]
+        sequence_length = input_shape[1]
+        position_ids = torch.arange(self.padding_idx + 1, sequence_length + self.padding_idx + 1, dtype=torch.long, device=inputs_embeds.device)
+        return position_ids.unsqueeze(0).expand(input_shape)
 
 
 class RobertaLMHead(nn.Module):
@@ -6482,965 +6307,6 @@ class ProjectedAdaptiveLogSoftmax(nn.Module):
             return out
 
 
-class BeamHypotheses(object):
-
-    def __init__(self, num_beams, max_length, length_penalty, early_stopping):
-        """
-        Initialize n-best list of hypotheses.
-        """
-        self.max_length = max_length - 1
-        self.length_penalty = length_penalty
-        self.early_stopping = early_stopping
-        self.num_beams = num_beams
-        self.beams = []
-        self.worst_score = 1000000000.0
-
-    def __len__(self):
-        """
-        Number of hypotheses in the list.
-        """
-        return len(self.beams)
-
-    def add(self, hyp, sum_logprobs):
-        """
-        Add a new hypothesis to the list.
-        """
-        score = sum_logprobs / len(hyp) ** self.length_penalty
-        if len(self) < self.num_beams or score > self.worst_score:
-            self.beams.append((score, hyp))
-            if len(self) > self.num_beams:
-                sorted_scores = sorted([(s, idx) for idx, (s, _) in enumerate(self.beams)])
-                del self.beams[sorted_scores[0][1]]
-                self.worst_score = sorted_scores[1][0]
-            else:
-                self.worst_score = min(score, self.worst_score)
-
-    def is_done(self, best_sum_logprobs, cur_len=None):
-        """
-        If there are enough hypotheses and that none of the hypotheses being generated
-        can become better than the worst one in the heap, then we are done with this sentence.
-        """
-        if len(self) < self.num_beams:
-            return False
-        elif self.early_stopping:
-            return True
-        else:
-            if cur_len is None:
-                cur_len = self.max_length
-            cur_score = best_sum_logprobs / cur_len ** self.length_penalty
-            ret = self.worst_score >= cur_score
-            return ret
-
-
-DUMMY_INPUTS = [[7, 6, 0, 0, 1], [1, 2, 3, 0, 0], [0, 0, 0, 4, 5]]
-
-
-TF2_WEIGHTS_NAME = 'tf_model.h5'
-
-
-TF_WEIGHTS_NAME = 'model.ckpt'
-
-
-WEIGHTS_NAME = 'pytorch_model.bin'
-
-
-def calc_banned_bad_words_ids(prev_input_ids: Iterable[int], bad_words_ids: Iterable[int]) ->Iterable[int]:
-    banned_tokens = []
-
-    def _tokens_match(prev_tokens, tokens):
-        if len(tokens) == 0:
-            return True
-        if len(tokens) > len(prev_input_ids):
-            return False
-        if prev_tokens[-len(tokens):] == tokens:
-            return True
-        else:
-            return False
-    for prev_input_ids_slice in prev_input_ids:
-        banned_tokens_slice = []
-        for banned_token_seq in bad_words_ids:
-            assert len(banned_token_seq) > 0, 'Banned words token sequences {} cannot have an empty list'.format(bad_words_ids)
-            if _tokens_match(prev_input_ids_slice.tolist(), banned_token_seq[:-1]) is False:
-                continue
-            banned_tokens_slice.append(banned_token_seq[-1])
-        banned_tokens.append(banned_tokens_slice)
-    return banned_tokens
-
-
-def calc_banned_ngram_tokens(prev_input_ids: Tensor, num_hypos: int, no_repeat_ngram_size: int, cur_len: int) ->None:
-    """Copied from fairseq for no_repeat_ngram in beam_search"""
-    if cur_len + 1 < no_repeat_ngram_size:
-        return [[] for _ in range(num_hypos)]
-    generated_ngrams = [{} for _ in range(num_hypos)]
-    for idx in range(num_hypos):
-        gen_tokens = prev_input_ids[idx].tolist()
-        generated_ngram = generated_ngrams[idx]
-        for ngram in zip(*[gen_tokens[i:] for i in range(no_repeat_ngram_size)]):
-            prev_ngram_tuple = tuple(ngram[:-1])
-            generated_ngram[prev_ngram_tuple] = generated_ngram.get(prev_ngram_tuple, []) + [ngram[-1]]
-
-    def _get_generated_ngrams(hypo_idx):
-        start_idx = cur_len + 1 - no_repeat_ngram_size
-        ngram_idx = tuple(prev_input_ids[(hypo_idx), start_idx:cur_len].tolist())
-        return generated_ngrams[hypo_idx].get(ngram_idx, [])
-    banned_tokens = [_get_generated_ngrams(hypo_idx) for hypo_idx in range(num_hypos)]
-    return banned_tokens
-
-
-def top_k_top_p_filtering(logits: Tensor, top_k: int=0, top_p: float=1.0, filter_value: float=-float('Inf'), min_tokens_to_keep: int=1) ->Tensor:
-    """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
-        Args:
-            logits: logits distribution shape (batch size, vocabulary size)
-            if top_k > 0: keep only top k tokens with highest probability (top-k filtering).
-            if top_p < 1.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
-                Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
-            Make sure we keep at least min_tokens_to_keep per batch example in the output
-        From: https://gist.github.com/thomwolf/1a5a29f6962089e871b94cbd09daf317
-    """
-    if top_k > 0:
-        top_k = min(max(top_k, min_tokens_to_keep), logits.size(-1))
-        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
-        logits[indices_to_remove] = filter_value
-    if top_p < 1.0:
-        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-        cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-        sorted_indices_to_remove = cumulative_probs > top_p
-        if min_tokens_to_keep > 1:
-            sorted_indices_to_remove[(...), :min_tokens_to_keep] = 0
-        sorted_indices_to_remove[(...), 1:] = sorted_indices_to_remove[(...), :-1].clone()
-        sorted_indices_to_remove[..., 0] = 0
-        indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-        logits[indices_to_remove] = filter_value
-    return logits
-
-
-class PreTrainedModel(nn.Module, ModuleUtilsMixin):
-    """ Base class for all models.
-
-        :class:`~transformers.PreTrainedModel` takes care of storing the configuration of the models and handles methods for loading/downloading/saving models
-        as well as a few methods common to all models to (i) resize the input embeddings and (ii) prune heads in the self-attention heads.
-
-        Class attributes (overridden by derived classes):
-            - ``config_class``: a class derived from :class:`~transformers.PretrainedConfig` to use as configuration class for this model architecture.
-            - ``load_tf_weights``: a python ``method`` for loading a TensorFlow checkpoint in a PyTorch model, taking as arguments:
-
-                - ``model``: an instance of the relevant subclass of :class:`~transformers.PreTrainedModel`,
-                - ``config``: an instance of the relevant subclass of :class:`~transformers.PretrainedConfig`,
-                - ``path``: a path (string) to the TensorFlow checkpoint.
-
-            - ``base_model_prefix``: a string indicating the attribute associated to the base model in derived classes of the same architecture adding modules on top of the base model.
-    """
-    config_class = None
-    base_model_prefix = ''
-
-    @property
-    def dummy_inputs(self):
-        """ Dummy inputs to do a forward pass in the network.
-
-        Returns:
-            torch.Tensor with dummy inputs
-        """
-        return {'input_ids': torch.tensor(DUMMY_INPUTS)}
-
-    def __init__(self, config, *inputs, **kwargs):
-        super().__init__()
-        if not isinstance(config, PretrainedConfig):
-            raise ValueError('Parameter config in `{}(config)` should be an instance of class `PretrainedConfig`. To create a model from a pretrained model use `model = {}.from_pretrained(PRETRAINED_MODEL_NAME)`'.format(self.__class__.__name__, self.__class__.__name__))
-        self.config = config
-
-    @property
-    def base_model(self):
-        return getattr(self, self.base_model_prefix, self)
-
-    def get_input_embeddings(self):
-        """
-        Returns the model's input embeddings.
-
-        Returns:
-            :obj:`nn.Module`:
-                A torch module mapping vocabulary to hidden states.
-        """
-        base_model = getattr(self, self.base_model_prefix, self)
-        if base_model is not self:
-            return base_model.get_input_embeddings()
-        else:
-            raise NotImplementedError
-
-    def set_input_embeddings(self, value: nn.Module):
-        """
-        Set model's input embeddings
-
-        Args:
-            value (:obj:`nn.Module`):
-                A module mapping vocabulary to hidden states.
-        """
-        base_model = getattr(self, self.base_model_prefix, self)
-        if base_model is not self:
-            base_model.set_input_embeddings(value)
-        else:
-            raise NotImplementedError
-
-    def get_output_embeddings(self):
-        """
-        Returns the model's output embeddings.
-
-        Returns:
-            :obj:`nn.Module`:
-                A torch module mapping hidden states to vocabulary.
-        """
-        return None
-
-    def tie_weights(self):
-        """
-        Tie the weights between the input embeddings and the output embeddings.
-        If the `torchscript` flag is set in the configuration, can't handle parameter sharing so we are cloning
-        the weights instead.
-        """
-        output_embeddings = self.get_output_embeddings()
-        if output_embeddings is not None:
-            self._tie_or_clone_weights(output_embeddings, self.get_input_embeddings())
-
-    def _tie_or_clone_weights(self, output_embeddings, input_embeddings):
-        """ Tie or clone module weights depending of whether we are using TorchScript or not
-        """
-        if self.config.torchscript:
-            output_embeddings.weight = nn.Parameter(input_embeddings.weight.clone())
-        else:
-            output_embeddings.weight = input_embeddings.weight
-        if getattr(output_embeddings, 'bias', None) is not None:
-            output_embeddings.bias.data = torch.nn.functional.pad(output_embeddings.bias.data, (0, output_embeddings.weight.shape[0] - output_embeddings.bias.shape[0]), 'constant', 0)
-        if hasattr(output_embeddings, 'out_features') and hasattr(input_embeddings, 'num_embeddings'):
-            output_embeddings.out_features = input_embeddings.num_embeddings
-
-    def resize_token_embeddings(self, new_num_tokens: Optional[int]=None):
-        """ Resize input token embeddings matrix of the model if new_num_tokens != config.vocab_size.
-        Take care of tying weights embeddings afterwards if the model class has a `tie_weights()` method.
-
-        Arguments:
-
-            new_num_tokens: (`optional`) int:
-                New number of tokens in the embedding matrix. Increasing the size will add newly initialized vectors at the end. Reducing the size will remove vectors from the end.
-                If not provided or None: does nothing and just returns a pointer to the input tokens ``torch.nn.Embeddings`` Module of the model.
-
-        Return: ``torch.nn.Embeddings``
-            Pointer to the input tokens Embeddings Module of the model
-        """
-        base_model = getattr(self, self.base_model_prefix, self)
-        model_embeds = base_model._resize_token_embeddings(new_num_tokens)
-        if new_num_tokens is None:
-            return model_embeds
-        self.config.vocab_size = new_num_tokens
-        base_model.vocab_size = new_num_tokens
-        self.tie_weights()
-        return model_embeds
-
-    def _resize_token_embeddings(self, new_num_tokens):
-        old_embeddings = self.get_input_embeddings()
-        new_embeddings = self._get_resized_embeddings(old_embeddings, new_num_tokens)
-        self.set_input_embeddings(new_embeddings)
-        return self.get_input_embeddings()
-
-    def _get_resized_embeddings(self, old_embeddings: torch.nn.Embedding, new_num_tokens: Optional[int]=None) ->torch.nn.Embedding:
-        """ Build a resized Embedding Module from a provided token Embedding Module.
-            Increasing the size will add newly initialized vectors at the end
-            Reducing the size will remove vectors from the end
-
-        Args:
-            old_embeddings: ``torch.nn.Embedding``
-                Old embeddings to be resized.
-            new_num_tokens: (`optional`) int
-                New number of tokens in the embedding matrix.
-                Increasing the size will add newly initialized vectors at the end
-                Reducing the size will remove vectors from the end
-                If not provided or None: return the provided token Embedding Module.
-        Return: ``torch.nn.Embedding``
-            Pointer to the resized Embedding Module or the old Embedding Module if new_num_tokens is None
-        """
-        if new_num_tokens is None:
-            return old_embeddings
-        old_num_tokens, old_embedding_dim = old_embeddings.weight.size()
-        if old_num_tokens == new_num_tokens:
-            return old_embeddings
-        new_embeddings = nn.Embedding(new_num_tokens, old_embedding_dim)
-        new_embeddings
-        self._init_weights(new_embeddings)
-        num_tokens_to_copy = min(old_num_tokens, new_num_tokens)
-        new_embeddings.weight.data[:num_tokens_to_copy, :] = old_embeddings.weight.data[:num_tokens_to_copy, :]
-        return new_embeddings
-
-    def init_weights(self):
-        """ Initialize and prunes weights if needed. """
-        self.apply(self._init_weights)
-        if self.config.pruned_heads:
-            self.prune_heads(self.config.pruned_heads)
-        self.tie_weights()
-
-    def prune_heads(self, heads_to_prune: Dict):
-        """ Prunes heads of the base model.
-
-            Arguments:
-
-                heads_to_prune: dict with keys being selected layer indices (`int`) and associated values being the list of heads to prune in said layer (list of `int`).
-                E.g. {1: [0, 2], 2: [2, 3]} will prune heads 0 and 2 on layer 1 and heads 2 and 3 on layer 2.
-        """
-        for layer, heads in heads_to_prune.items():
-            union_heads = set(self.config.pruned_heads.get(layer, [])) | set(heads)
-            self.config.pruned_heads[layer] = list(union_heads)
-        self.base_model._prune_heads(heads_to_prune)
-
-    def save_pretrained(self, save_directory):
-        """ Save a model and its configuration file to a directory, so that it
-            can be re-loaded using the `:func:`~transformers.PreTrainedModel.from_pretrained`` class method.
-
-            Arguments:
-                save_directory: directory to which to save.
-        """
-        assert os.path.isdir(save_directory), 'Saving path should be a directory where the model and configuration can be saved'
-        model_to_save = self.module if hasattr(self, 'module') else self
-        model_to_save.config.architectures = [model_to_save.__class__.__name__]
-        output_model_file = os.path.join(save_directory, WEIGHTS_NAME)
-        if getattr(self.config, 'xla_device', False):
-            if xm.is_master_ordinal():
-                model_to_save.config.save_pretrained(save_directory)
-            xm.save(model_to_save.state_dict(), output_model_file)
-        else:
-            model_to_save.config.save_pretrained(save_directory)
-            torch.save(model_to_save.state_dict(), output_model_file)
-        logger.info('Model weights saved in {}'.format(output_model_file))
-
-    @classmethod
-    def from_pretrained(cls, pretrained_model_name_or_path, *model_args, **kwargs):
-        """Instantiate a pretrained pytorch model from a pre-trained model configuration.
-
-        The model is set in evaluation mode by default using ``model.eval()`` (Dropout modules are deactivated)
-        To train the model, you should first set it back in training mode with ``model.train()``
-
-        The warning ``Weights from XXX not initialized from pretrained model`` means that the weights of XXX do not come pre-trained with the rest of the model.
-        It is up to you to train those weights with a downstream fine-tuning task.
-
-        The warning ``Weights from XXX not used in YYY`` means that the layer XXX is not used by YYY, therefore those weights are discarded.
-
-        Parameters:
-            pretrained_model_name_or_path: either:
-              - a string with the `shortcut name` of a pre-trained model to load from cache or download, e.g.: ``bert-base-uncased``.
-              - a string with the `identifier name` of a pre-trained model that was user-uploaded to our S3, e.g.: ``dbmdz/bert-base-german-cased``.
-              - a path to a `directory` containing model weights saved using :func:`~transformers.PreTrainedModel.save_pretrained`, e.g.: ``./my_model_directory/``.
-              - a path or url to a `tensorflow index checkpoint file` (e.g. `./tf_model/model.ckpt.index`). In this case, ``from_tf`` should be set to True and a configuration object should be provided as ``config`` argument. This loading path is slower than converting the TensorFlow checkpoint in a PyTorch model using the provided conversion scripts and loading the PyTorch model afterwards.
-              - None if you are both providing the configuration and state dictionary (resp. with keyword arguments ``config`` and ``state_dict``)
-
-            model_args: (`optional`) Sequence of positional arguments:
-                All remaning positional arguments will be passed to the underlying model's ``__init__`` method
-
-            config: (`optional`) one of:
-                - an instance of a class derived from :class:`~transformers.PretrainedConfig`, or
-                - a string valid as input to :func:`~transformers.PretrainedConfig.from_pretrained()`
-                Configuration for the model to use instead of an automatically loaded configuation. Configuration can be automatically loaded when:
-                    - the model is a model provided by the library (loaded with the ``shortcut-name`` string of a pretrained model), or
-                    - the model was saved using :func:`~transformers.PreTrainedModel.save_pretrained` and is reloaded by suppling the save directory.
-                    - the model is loaded by suppling a local directory as ``pretrained_model_name_or_path`` and a configuration JSON file named `config.json` is found in the directory.
-
-            state_dict: (`optional`) dict:
-                an optional state dictionnary for the model to use instead of a state dictionary loaded from saved weights file.
-                This option can be used if you want to create a model from a pretrained configuration but load your own weights.
-                In this case though, you should check if using :func:`~transformers.PreTrainedModel.save_pretrained` and :func:`~transformers.PreTrainedModel.from_pretrained` is not a simpler option.
-
-            cache_dir: (`optional`) string:
-                Path to a directory in which a downloaded pre-trained model
-                configuration should be cached if the standard cache should not be used.
-
-            force_download: (`optional`) boolean, default False:
-                Force to (re-)download the model weights and configuration files and override the cached versions if they exists.
-
-            resume_download: (`optional`) boolean, default False:
-                Do not delete incompletely recieved file. Attempt to resume the download if such a file exists.
-
-            proxies: (`optional`) dict, default None:
-                A dictionary of proxy servers to use by protocol or endpoint, e.g.: {'http': 'foo.bar:3128', 'http://hostname': 'foo.bar:4012'}.
-                The proxies are used on each request.
-
-            output_loading_info: (`optional`) boolean:
-                Set to ``True`` to also return a dictionnary containing missing keys, unexpected keys and error messages.
-
-            kwargs: (`optional`) Remaining dictionary of keyword arguments:
-                Can be used to update the configuration object (after it being loaded) and initiate the model. (e.g. ``output_attention=True``). Behave differently depending on whether a `config` is provided or automatically loaded:
-
-                - If a configuration is provided with ``config``, ``**kwargs`` will be directly passed to the underlying model's ``__init__`` method (we assume all relevant updates to the configuration have already been done)
-                - If a configuration is not provided, ``kwargs`` will be first passed to the configuration class initialization function (:func:`~transformers.PretrainedConfig.from_pretrained`). Each key of ``kwargs`` that corresponds to a configuration attribute will be used to override said attribute with the supplied ``kwargs`` value. Remaining keys that do not correspond to any configuration attribute will be passed to the underlying model's ``__init__`` function.
-
-        Examples::
-
-            # For example purposes. Not runnable.
-            model = BertModel.from_pretrained('bert-base-uncased')    # Download model and configuration from S3 and cache.
-            model = BertModel.from_pretrained('./test/saved_model/')  # E.g. model was saved using `save_pretrained('./test/saved_model/')`
-            model = BertModel.from_pretrained('bert-base-uncased', output_attention=True)  # Update configuration during loading
-            assert model.config.output_attention == True
-            # Loading from a TF checkpoint file instead of a PyTorch model (slower)
-            config = BertConfig.from_json_file('./tf_model/my_tf_model_config.json')
-            model = BertModel.from_pretrained('./tf_model/my_tf_checkpoint.ckpt.index', from_tf=True, config=config)
-
-        """
-        config = kwargs.pop('config', None)
-        state_dict = kwargs.pop('state_dict', None)
-        cache_dir = kwargs.pop('cache_dir', None)
-        from_tf = kwargs.pop('from_tf', False)
-        force_download = kwargs.pop('force_download', False)
-        resume_download = kwargs.pop('resume_download', False)
-        proxies = kwargs.pop('proxies', None)
-        output_loading_info = kwargs.pop('output_loading_info', False)
-        local_files_only = kwargs.pop('local_files_only', False)
-        use_cdn = kwargs.pop('use_cdn', True)
-        if not isinstance(config, PretrainedConfig):
-            config_path = config if config is not None else pretrained_model_name_or_path
-            config, model_kwargs = cls.config_class.from_pretrained(config_path, *model_args, cache_dir=cache_dir, return_unused_kwargs=True, force_download=force_download, resume_download=resume_download, proxies=proxies, local_files_only=local_files_only, **kwargs)
-        else:
-            model_kwargs = kwargs
-        if pretrained_model_name_or_path is not None:
-            if os.path.isdir(pretrained_model_name_or_path):
-                if from_tf and os.path.isfile(os.path.join(pretrained_model_name_or_path, TF_WEIGHTS_NAME + '.index')):
-                    archive_file = os.path.join(pretrained_model_name_or_path, TF_WEIGHTS_NAME + '.index')
-                elif from_tf and os.path.isfile(os.path.join(pretrained_model_name_or_path, TF2_WEIGHTS_NAME)):
-                    archive_file = os.path.join(pretrained_model_name_or_path, TF2_WEIGHTS_NAME)
-                elif os.path.isfile(os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)):
-                    archive_file = os.path.join(pretrained_model_name_or_path, WEIGHTS_NAME)
-                else:
-                    raise EnvironmentError('Error no file named {} found in directory {} or `from_tf` set to False'.format([WEIGHTS_NAME, TF2_WEIGHTS_NAME, TF_WEIGHTS_NAME + '.index'], pretrained_model_name_or_path))
-            elif os.path.isfile(pretrained_model_name_or_path) or is_remote_url(pretrained_model_name_or_path):
-                archive_file = pretrained_model_name_or_path
-            elif os.path.isfile(pretrained_model_name_or_path + '.index'):
-                assert from_tf, 'We found a TensorFlow checkpoint at {}, please set from_tf to True to load from this checkpoint'.format(pretrained_model_name_or_path + '.index')
-                archive_file = pretrained_model_name_or_path + '.index'
-            else:
-                archive_file = hf_bucket_url(pretrained_model_name_or_path, filename=TF2_WEIGHTS_NAME if from_tf else WEIGHTS_NAME, use_cdn=use_cdn)
-            try:
-                resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir, force_download=force_download, proxies=proxies, resume_download=resume_download, local_files_only=local_files_only)
-                if resolved_archive_file is None:
-                    raise EnvironmentError
-            except EnvironmentError:
-                msg = f"Can't load weights for '{pretrained_model_name_or_path}'. Make sure that:\n\n- '{pretrained_model_name_or_path}' is a correct model identifier listed on 'https://huggingface.co/models'\n\n- or '{pretrained_model_name_or_path}' is the correct path to a directory containing a file named one of {WEIGHTS_NAME}, {TF2_WEIGHTS_NAME}, {TF_WEIGHTS_NAME}.\n\n"
-                raise EnvironmentError(msg)
-            if resolved_archive_file == archive_file:
-                logger.info('loading weights file {}'.format(archive_file))
-            else:
-                logger.info('loading weights file {} from cache at {}'.format(archive_file, resolved_archive_file))
-        else:
-            resolved_archive_file = None
-        model = cls(config, *model_args, **model_kwargs)
-        if state_dict is None and not from_tf:
-            try:
-                state_dict = torch.load(resolved_archive_file, map_location='cpu')
-            except Exception:
-                raise OSError('Unable to load weights from pytorch checkpoint file. If you tried to load a PyTorch model from a TF 2.0 checkpoint, please set from_tf=True. ')
-        missing_keys = []
-        unexpected_keys = []
-        error_msgs = []
-        if from_tf:
-            if resolved_archive_file.endswith('.index'):
-                model = cls.load_tf_weights(model, config, resolved_archive_file[:-6])
-            else:
-                try:
-                    model = load_tf2_checkpoint_in_pytorch_model(model, resolved_archive_file, allow_missing_keys=True)
-                except ImportError:
-                    logger.error('Loading a TensorFlow model in PyTorch, requires both PyTorch and TensorFlow to be installed. Please see https://pytorch.org/ and https://www.tensorflow.org/install/ for installation instructions.')
-                    raise
-        else:
-            old_keys = []
-            new_keys = []
-            for key in state_dict.keys():
-                new_key = None
-                if 'gamma' in key:
-                    new_key = key.replace('gamma', 'weight')
-                if 'beta' in key:
-                    new_key = key.replace('beta', 'bias')
-                if new_key:
-                    old_keys.append(key)
-                    new_keys.append(new_key)
-            for old_key, new_key in zip(old_keys, new_keys):
-                state_dict[new_key] = state_dict.pop(old_key)
-            metadata = getattr(state_dict, '_metadata', None)
-            state_dict = state_dict.copy()
-            if metadata is not None:
-                state_dict._metadata = metadata
-
-            def load(module: nn.Module, prefix=''):
-                local_metadata = {} if metadata is None else metadata.get(prefix[:-1], {})
-                module._load_from_state_dict(state_dict, prefix, local_metadata, True, missing_keys, unexpected_keys, error_msgs)
-                for name, child in module._modules.items():
-                    if child is not None:
-                        load(child, prefix + name + '.')
-            start_prefix = ''
-            model_to_load = model
-            has_prefix_module = any(s.startswith(cls.base_model_prefix) for s in state_dict.keys())
-            if not hasattr(model, cls.base_model_prefix) and has_prefix_module:
-                start_prefix = cls.base_model_prefix + '.'
-            if hasattr(model, cls.base_model_prefix) and not has_prefix_module:
-                model_to_load = getattr(model, cls.base_model_prefix)
-            load(model_to_load, prefix=start_prefix)
-            if model.__class__.__name__ != model_to_load.__class__.__name__:
-                base_model_state_dict = model_to_load.state_dict().keys()
-                head_model_state_dict_without_base_prefix = [key.split(cls.base_model_prefix + '.')[-1] for key in model.state_dict().keys()]
-                missing_keys.extend(head_model_state_dict_without_base_prefix - base_model_state_dict)
-            if len(missing_keys) > 0:
-                logger.info('Weights of {} not initialized from pretrained model: {}'.format(model.__class__.__name__, missing_keys))
-            if len(unexpected_keys) > 0:
-                logger.info('Weights from pretrained model not used in {}: {}'.format(model.__class__.__name__, unexpected_keys))
-            if len(error_msgs) > 0:
-                raise RuntimeError('Error(s) in loading state_dict for {}:\n\t{}'.format(model.__class__.__name__, '\n\t'.join(error_msgs)))
-        model.tie_weights()
-        model.eval()
-        if output_loading_info:
-            loading_info = {'missing_keys': missing_keys, 'unexpected_keys': unexpected_keys, 'error_msgs': error_msgs}
-            return model, loading_info
-        if hasattr(config, 'xla_device') and config.xla_device:
-            model = xm.send_cpu_data_to_device(model, xm.xla_device())
-            model
-        return model
-
-    def prepare_inputs_for_generation(self, input_ids, **kwargs):
-        return {'input_ids': input_ids}
-
-    def prepare_logits_for_generation(self, logits, **kwargs):
-        return logits
-
-    def _use_cache(self, outputs, use_cache):
-        """During generation, decide whether to pass the `past` variable to the next forward pass."""
-        if len(outputs) <= 1 or use_cache is False:
-            return False
-        if hasattr(self.config, 'mem_len') and self.config.mem_len == 0:
-            return False
-        return True
-
-    def enforce_repetition_penalty_(self, lprobs, batch_size, num_beams, prev_output_tokens, repetition_penalty):
-        """repetition penalty (from CTRL paper https://arxiv.org/abs/1909.05858). """
-        for i in range(batch_size * num_beams):
-            for previous_token in set(prev_output_tokens[i].tolist()):
-                if lprobs[i, previous_token] < 0:
-                    lprobs[i, previous_token] *= repetition_penalty
-                else:
-                    lprobs[i, previous_token] /= repetition_penalty
-
-    @torch.no_grad()
-    def generate(self, input_ids: Optional[torch.LongTensor]=None, max_length: Optional[int]=None, min_length: Optional[int]=None, do_sample: Optional[bool]=None, early_stopping: Optional[bool]=None, num_beams: Optional[int]=None, temperature: Optional[float]=None, top_k: Optional[int]=None, top_p: Optional[float]=None, repetition_penalty: Optional[float]=None, bad_words_ids: Optional[Iterable[int]]=None, bos_token_id: Optional[int]=None, pad_token_id: Optional[int]=None, eos_token_id: Optional[int]=None, length_penalty: Optional[float]=None, no_repeat_ngram_size: Optional[int]=None, num_return_sequences: Optional[int]=None, attention_mask: Optional[torch.LongTensor]=None, decoder_start_token_id: Optional[int]=None, use_cache: Optional[bool]=None, **model_specific_kwargs) ->torch.LongTensor:
-        """ Generates sequences for models with a LM head. The method currently supports greedy decoding, beam-search decoding, sampling with temperature, sampling with top-k or nucleus sampling.
-
-        Adapted in part from `Facebook's XLM beam search code`_.
-
-        .. _`Facebook's XLM beam search code`:
-           https://github.com/facebookresearch/XLM/blob/9e6f6814d17be4fe5b15f2e6c43eb2b2d76daeb4/src/model/transformer.py#L529
-
-
-        Parameters:
-
-            input_ids: (`optional`) `torch.LongTensor` of shape `(batch_size, sequence_length)`
-                The sequence used as a prompt for the generation. If `None` the method initializes
-                it as an empty `torch.LongTensor` of shape `(1,)`.
-
-            max_length: (`optional`) int
-                The max length of the sequence to be generated.  Between `min_length` and infinity. Default to 20.
-
-            min_length: (`optional`) int
-                The min length of the sequence to be generated.  Between 0 and infinity. Default to 0.
-
-            do_sample: (`optional`) bool
-                If set to `False` greedy decoding is used. Otherwise sampling is used. Defaults to `False` as defined in `configuration_utils.PretrainedConfig`.
-
-            early_stopping: (`optional`) bool
-                if set to `True` beam search is stopped when at least `num_beams` sentences finished per batch. Defaults to `False` as defined in `configuration_utils.PretrainedConfig`.
-
-            num_beams: (`optional`) int
-                Number of beams for beam search. Must be between 1 and infinity. 1 means no beam search. Default to 1.
-
-            temperature: (`optional`) float
-                The value used to module the next token probabilities. Must be strictly positive. Default to 1.0.
-
-            top_k: (`optional`) int
-                The number of highest probability vocabulary tokens to keep for top-k-filtering. Between 1 and infinity. Default to 50.
-
-            top_p: (`optional`) float
-                The cumulative probability of parameter highest probability vocabulary tokens to keep for nucleus sampling. Must be between 0 and 1. Default to 1.
-
-            repetition_penalty: (`optional`) float
-                The parameter for repetition penalty. Between 1.0 and infinity. 1.0 means no penalty. Default to 1.0.
-
-            pad_token_id: (`optional`) int
-                Padding token. Default to specicic model pad_token_id or None if it does not exist.
-
-            bos_token_id: (`optional`) int
-                BOS token. Defaults to `bos_token_id` as defined in the models config.
-
-            eos_token_id: (`optional`) int
-                EOS token. Defaults to `eos_token_id` as defined in the models config.
-
-            length_penalty: (`optional`) float
-                Exponential penalty to the length. Default to 1.
-
-            no_repeat_ngram_size: (`optional`) int
-                If set to int > 0, all ngrams of size `no_repeat_ngram_size` can only occur once.
-            bad_words_ids: (`optional`) list of lists of int
-                `bad_words_ids` contains tokens that are not allowed to be generated. In order to get the tokens of the words that should not appear in the generated text, use `tokenizer.encode(bad_word, add_prefix_space=True)`.
-
-            num_return_sequences: (`optional`) int
-                The number of independently computed returned sequences for each element in the batch. Default to 1.
-
-            attention_mask (`optional`) obj: `torch.LongTensor` of same shape as `input_ids`
-                Mask to avoid performing attention on padding token indices.
-                Mask values selected in ``[0, 1]``:
-                ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
-                Defaults to `None`.
-
-                `What are attention masks? <../glossary.html#attention-mask>`__
-
-            decoder_start_token_id=None: (`optional`) int
-                If an encoder-decoder model starts decoding with a different token than BOS.
-                Defaults to `None` and is changed to `BOS` later.
-
-            use_cache: (`optional`) bool
-                If `use_cache` is True, past key values are used to speed up decoding if applicable to model. Defaults to `True`.
-
-            model_specific_kwargs: (`optional`) dict
-                Additional model specific kwargs will be forwarded to the `forward` function of the model.
-
-        Return:
-
-            output: `torch.LongTensor` of shape `(batch_size * num_return_sequences, sequence_length)`
-                sequence_length is either equal to max_length or shorter if all batches finished early due to the `eos_token_id`
-
-        Examples::
-
-            tokenizer = AutoTokenizer.from_pretrained('distilgpt2')   # Initialize tokenizer
-            model = AutoModelWithLMHead.from_pretrained('distilgpt2')    # Download model and configuration from S3 and cache.
-            outputs = model.generate(max_length=40)  # do greedy decoding
-            print('Generated: {}'.format(tokenizer.decode(outputs[0], skip_special_tokens=True)))
-
-            tokenizer = AutoTokenizer.from_pretrained('openai-gpt')   # Initialize tokenizer
-            model = AutoModelWithLMHead.from_pretrained('openai-gpt')    # Download model and configuration from S3 and cache.
-            input_context = 'The dog'
-            input_ids = tokenizer.encode(input_context, return_tensors='pt')  # encode input context
-            outputs = model.generate(input_ids=input_ids, num_beams=5, num_return_sequences=3, temperature=1.5)  # generate 3 independent sequences using beam search decoding (5 beams) with sampling from initial context 'The dog'
-            for i in range(3): #  3 output sequences were generated
-                print('Generated {}: {}'.format(i, tokenizer.decode(outputs[i], skip_special_tokens=True)))
-
-            tokenizer = AutoTokenizer.from_pretrained('distilgpt2')   # Initialize tokenizer
-            model = AutoModelWithLMHead.from_pretrained('distilgpt2')    # Download model and configuration from S3 and cache.
-            input_context = 'The dog'
-            input_ids = tokenizer.encode(input_context, return_tensors='pt')  # encode input context
-            outputs = model.generate(input_ids=input_ids, max_length=40, temperature=0.7, num_return_sequences=3)  # 3 generate sequences using by sampling
-            for i in range(3): #  3 output sequences were generated
-                print('Generated {}: {}'.format(i, tokenizer.decode(outputs[i], skip_special_tokens=True)))
-
-            tokenizer = AutoTokenizer.from_pretrained('ctrl')   # Initialize tokenizer
-            model = AutoModelWithLMHead.from_pretrained('ctrl')    # Download model and configuration from S3 and cache.
-            input_context = 'Legal My neighbor is'  # "Legal" is one of the control codes for ctrl
-            input_ids = tokenizer.encode(input_context, return_tensors='pt')  # encode input context
-            outputs = model.generate(input_ids=input_ids, max_length=50, temperature=0.7, repetition_penalty=1.2)  # generate sequences
-            print('Generated: {}'.format(tokenizer.decode(outputs[0], skip_special_tokens=True)))
-
-            tokenizer = AutoTokenizer.from_pretrained('gpt2')   # Initialize tokenizer
-            model = AutoModelWithLMHead.from_pretrained('gpt2')    # Download model and configuration from S3 and cache.
-            input_context = 'My cute dog'  # "Legal" is one of the control codes for ctrl
-            bad_words_ids = [tokenizer.encode(bad_word, add_prefix_space=True) for bad_word in ['idiot', 'stupid', 'shut up']]
-            input_ids = tokenizer.encode(input_context, return_tensors='pt')  # encode input context
-            outputs = model.generate(input_ids=input_ids, max_length=100, do_sample=True, bad_words_ids=bad_words_ids)  # generate sequences without allowing bad_words to be generated
-        """
-        if self.get_output_embeddings() is None:
-            raise AttributeError('You tried to generate sequences with a model that does not have a LM Head.Please use another model class (e.g. `OpenAIGPTLMHeadModel`, `XLNetLMHeadModel`, `GPT2LMHeadModel`, `CTRLLMHeadModel`, `T5WithLMHeadModel`, `TransfoXLLMHeadModel`, `XLMWithLMHeadModel`, `BartForConditionalGeneration` )')
-        max_length = max_length if max_length is not None else self.config.max_length
-        min_length = min_length if min_length is not None else self.config.min_length
-        do_sample = do_sample if do_sample is not None else self.config.do_sample
-        early_stopping = early_stopping if early_stopping is not None else self.config.early_stopping
-        use_cache = use_cache if use_cache is not None else self.config.use_cache
-        num_beams = num_beams if num_beams is not None else self.config.num_beams
-        temperature = temperature if temperature is not None else self.config.temperature
-        top_k = top_k if top_k is not None else self.config.top_k
-        top_p = top_p if top_p is not None else self.config.top_p
-        repetition_penalty = repetition_penalty if repetition_penalty is not None else self.config.repetition_penalty
-        bos_token_id = bos_token_id if bos_token_id is not None else self.config.bos_token_id
-        pad_token_id = pad_token_id if pad_token_id is not None else self.config.pad_token_id
-        eos_token_id = eos_token_id if eos_token_id is not None else self.config.eos_token_id
-        length_penalty = length_penalty if length_penalty is not None else self.config.length_penalty
-        no_repeat_ngram_size = no_repeat_ngram_size if no_repeat_ngram_size is not None else self.config.no_repeat_ngram_size
-        bad_words_ids = bad_words_ids if bad_words_ids is not None else self.config.bad_words_ids
-        num_return_sequences = num_return_sequences if num_return_sequences is not None else self.config.num_return_sequences
-        decoder_start_token_id = decoder_start_token_id if decoder_start_token_id is not None else self.config.decoder_start_token_id
-        if input_ids is not None:
-            batch_size = input_ids.shape[0]
-        else:
-            batch_size = 1
-        assert isinstance(max_length, int) and max_length > 0, '`max_length` should be a strictly positive integer.'
-        assert isinstance(min_length, int) and min_length >= 0, '`min_length` should be a positive integer.'
-        assert isinstance(do_sample, bool), '`do_sample` should be a boolean.'
-        assert isinstance(early_stopping, bool), '`early_stopping` should be a boolean.'
-        assert isinstance(use_cache, bool), '`use_cache` should be a boolean.'
-        assert isinstance(num_beams, int) and num_beams > 0, '`num_beams` should be a strictly positive integer.'
-        assert temperature > 0, '`temperature` should be strictly positive.'
-        assert isinstance(top_k, int) and top_k >= 0, '`top_k` should be a positive integer.'
-        assert 0 <= top_p <= 1, '`top_p` should be between 0 and 1.'
-        assert repetition_penalty >= 1.0, '`repetition_penalty` should be >= 1.'
-        assert input_ids is not None or isinstance(bos_token_id, int) and bos_token_id >= 0, 'If input_ids is not defined, `bos_token_id` should be a positive integer.'
-        assert pad_token_id is None or isinstance(pad_token_id, int) and pad_token_id >= 0, '`pad_token_id` should be a positive integer.'
-        assert eos_token_id is None or isinstance(eos_token_id, int) and eos_token_id >= 0, '`eos_token_id` should be a positive integer.'
-        assert length_penalty > 0, '`length_penalty` should be strictly positive.'
-        assert isinstance(no_repeat_ngram_size, int) and no_repeat_ngram_size >= 0, '`no_repeat_ngram_size` should be a positive integer.'
-        assert isinstance(num_return_sequences, int) and num_return_sequences > 0, '`num_return_sequences` should be a strictly positive integer.'
-        assert bad_words_ids is None or isinstance(bad_words_ids, list) and isinstance(bad_words_ids[0], list), '`bad_words_ids` is either `None` or a list of lists of tokens that should not be generated'
-        if input_ids is None:
-            assert isinstance(bos_token_id, int) and bos_token_id >= 0, 'you should either supply a context to complete as `input_ids` input or a `bos_token_id` (integer >= 0) as a first token to start the generation.'
-            input_ids = torch.full((batch_size, 1), bos_token_id, dtype=torch.long, device=next(self.parameters()).device)
-        else:
-            assert input_ids.dim() == 2, 'Input prompt should be of shape (batch_size, sequence length).'
-        if do_sample is False:
-            if num_beams == 1:
-                assert num_return_sequences == 1, 'Greedy decoding will always produce the same output for num_beams == 1 and num_return_sequences > 1. Please set num_return_sequences = 1'
-            else:
-                assert num_beams >= num_return_sequences, 'Greedy beam search decoding cannot return more sequences than it has beams. Please set num_beams >= num_return_sequences'
-        if attention_mask is None and pad_token_id is not None and pad_token_id in input_ids:
-            attention_mask = input_ids.ne(pad_token_id).long()
-        elif attention_mask is None:
-            attention_mask = input_ids.new_ones(input_ids.shape)
-        if pad_token_id is None and eos_token_id is not None:
-            logger.warning('Setting `pad_token_id` to {} (first `eos_token_id`) to generate sequence'.format(eos_token_id))
-            pad_token_id = eos_token_id
-        if hasattr(self.config, 'vocab_size'):
-            vocab_size = self.config.vocab_size
-        elif self.config.is_encoder_decoder and hasattr(self.config, 'decoder') and hasattr(self.config.decoder, 'vocab_size'):
-            vocab_size = self.config.decoder.vocab_size
-        if do_sample:
-            effective_batch_size = batch_size * num_return_sequences
-            effective_batch_mult = num_return_sequences
-        else:
-            effective_batch_size = batch_size
-            effective_batch_mult = 1
-        if self.config.is_encoder_decoder:
-            if decoder_start_token_id is None:
-                decoder_start_token_id = bos_token_id
-            assert decoder_start_token_id is not None, 'decoder_start_token_id or bos_token_id has to be defined for encoder-decoder generation'
-            assert hasattr(self, 'get_encoder'), "{} should have a 'get_encoder' function defined".format(self)
-            assert callable(self.get_encoder), '{} should be a method'.format(self.get_encoder)
-            encoder = self.get_encoder()
-            encoder_outputs: tuple = encoder(input_ids, attention_mask=attention_mask)
-        if num_return_sequences > 1 or num_beams > 1:
-            input_ids_len = input_ids.shape[-1]
-            input_ids = input_ids.unsqueeze(1).expand(batch_size, effective_batch_mult * num_beams, input_ids_len)
-            attention_mask = attention_mask.unsqueeze(1).expand(batch_size, effective_batch_mult * num_beams, input_ids_len)
-            input_ids = input_ids.contiguous().view(effective_batch_size * num_beams, input_ids_len)
-            attention_mask = attention_mask.contiguous().view(effective_batch_size * num_beams, input_ids_len)
-        if self.config.is_encoder_decoder:
-            input_ids = torch.full((effective_batch_size * num_beams, 1), decoder_start_token_id, dtype=torch.long, device=next(self.parameters()).device)
-            cur_len = 1
-            assert batch_size == encoder_outputs[0].shape[0], f'expected encoder_outputs[0] to have 1st dimension bs={batch_size}, got {encoder_outputs[0].shape[0]} '
-            expanded_batch_idxs = torch.arange(batch_size).view(-1, 1).repeat(1, num_beams * effective_batch_mult).view(-1)
-            encoder_outputs = encoder_outputs[0].index_select(0, expanded_batch_idxs), *encoder_outputs[1:]
-        else:
-            encoder_outputs = None
-            cur_len = input_ids.shape[-1]
-        if num_beams > 1:
-            output = self._generate_beam_search(input_ids, cur_len=cur_len, max_length=max_length, min_length=min_length, do_sample=do_sample, early_stopping=early_stopping, temperature=temperature, top_k=top_k, top_p=top_p, repetition_penalty=repetition_penalty, no_repeat_ngram_size=no_repeat_ngram_size, bad_words_ids=bad_words_ids, pad_token_id=pad_token_id, eos_token_id=eos_token_id, batch_size=effective_batch_size, num_return_sequences=num_return_sequences, length_penalty=length_penalty, num_beams=num_beams, vocab_size=vocab_size, encoder_outputs=encoder_outputs, attention_mask=attention_mask, use_cache=use_cache, model_specific_kwargs=model_specific_kwargs)
-        else:
-            output = self._generate_no_beam_search(input_ids, cur_len=cur_len, max_length=max_length, min_length=min_length, do_sample=do_sample, temperature=temperature, top_k=top_k, top_p=top_p, repetition_penalty=repetition_penalty, no_repeat_ngram_size=no_repeat_ngram_size, bad_words_ids=bad_words_ids, pad_token_id=pad_token_id, eos_token_id=eos_token_id, batch_size=effective_batch_size, encoder_outputs=encoder_outputs, attention_mask=attention_mask, use_cache=use_cache, model_specific_kwargs=model_specific_kwargs)
-        return output
-
-    def _generate_no_beam_search(self, input_ids, cur_len, max_length, min_length, do_sample, temperature, top_k, top_p, repetition_penalty, no_repeat_ngram_size, bad_words_ids, pad_token_id, eos_token_id, batch_size, encoder_outputs, attention_mask, use_cache, model_specific_kwargs):
-        """ Generate sequences for each example without beam search (num_beams == 1).
-            All returned sequence are generated independantly.
-        """
-        unfinished_sents = input_ids.new(batch_size).fill_(1)
-        sent_lengths = input_ids.new(batch_size).fill_(max_length)
-        past = encoder_outputs
-        while cur_len < max_length:
-            model_inputs = self.prepare_inputs_for_generation(input_ids, past=past, attention_mask=attention_mask, use_cache=use_cache, **model_specific_kwargs)
-            outputs = self(**model_inputs)
-            next_token_logits = outputs[0][:, (-1), :]
-            if self._use_cache(outputs, use_cache):
-                past = outputs[1]
-            if repetition_penalty != 1.0:
-                self.enforce_repetition_penalty_(next_token_logits, batch_size, 1, input_ids, repetition_penalty)
-            if no_repeat_ngram_size > 0:
-                banned_tokens = calc_banned_ngram_tokens(input_ids, batch_size, no_repeat_ngram_size, cur_len)
-                for batch_idx in range(batch_size):
-                    next_token_logits[batch_idx, banned_tokens[batch_idx]] = -float('inf')
-            if bad_words_ids is not None:
-                banned_tokens = calc_banned_bad_words_ids(input_ids, bad_words_ids)
-                for batch_idx in range(batch_size):
-                    next_token_logits[batch_idx, banned_tokens[batch_idx]] = -float('inf')
-            if eos_token_id is not None and cur_len < min_length:
-                next_token_logits[:, (eos_token_id)] = -float('inf')
-            if do_sample:
-                if temperature != 1.0:
-                    next_token_logits = next_token_logits / temperature
-                next_token_logits = top_k_top_p_filtering(next_token_logits, top_k=top_k, top_p=top_p)
-                probs = F.softmax(next_token_logits, dim=-1)
-                next_token = torch.multinomial(probs, num_samples=1).squeeze(1)
-            else:
-                next_token = torch.argmax(next_token_logits, dim=-1)
-            if eos_token_id is not None:
-                tokens_to_add = next_token * unfinished_sents + pad_token_id * (1 - unfinished_sents)
-            else:
-                tokens_to_add = next_token
-            input_ids = torch.cat([input_ids, tokens_to_add.unsqueeze(-1)], dim=-1)
-            cur_len = cur_len + 1
-            if eos_token_id is not None:
-                eos_in_sents = tokens_to_add == eos_token_id
-                is_sents_unfinished_and_token_to_add_is_eos = unfinished_sents.mul(eos_in_sents.long()).bool()
-                sent_lengths.masked_fill_(is_sents_unfinished_and_token_to_add_is_eos, cur_len)
-                unfinished_sents.mul_((~eos_in_sents).long())
-            if unfinished_sents.max() == 0:
-                break
-            if self.config.is_encoder_decoder is False:
-                attention_mask = torch.cat([attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1)
-        if sent_lengths.min().item() != sent_lengths.max().item():
-            assert pad_token_id is not None, '`Pad_token_id` has to be defined if batches have different lengths'
-            decoded = input_ids.new(batch_size, sent_lengths.max().item()).fill_(pad_token_id)
-        else:
-            decoded = input_ids
-        for hypo_idx, hypo in enumerate(input_ids):
-            decoded[(hypo_idx), :sent_lengths[hypo_idx]] = hypo[:sent_lengths[hypo_idx]]
-        return decoded
-
-    def _generate_beam_search(self, input_ids, cur_len, max_length, min_length, do_sample, early_stopping, temperature, top_k, top_p, repetition_penalty, no_repeat_ngram_size, bad_words_ids, pad_token_id, eos_token_id, batch_size, num_return_sequences, length_penalty, num_beams, vocab_size, encoder_outputs, attention_mask, use_cache, model_specific_kwargs):
-        """ Generate sequences for each example with beam search.
-        """
-        generated_hyps = [BeamHypotheses(num_beams, max_length, length_penalty, early_stopping=early_stopping) for _ in range(batch_size)]
-        beam_scores = torch.zeros((batch_size, num_beams), dtype=torch.float, device=input_ids.device)
-        if do_sample is False:
-            beam_scores[:, 1:] = -1000000000.0
-        beam_scores = beam_scores.view(-1)
-        past = encoder_outputs
-        done = [(False) for _ in range(batch_size)]
-        while cur_len < max_length:
-            model_inputs = self.prepare_inputs_for_generation(input_ids, past=past, attention_mask=attention_mask, use_cache=use_cache, **model_specific_kwargs)
-            outputs = self(**model_inputs)
-            next_token_logits = outputs[0][:, (-1), :]
-            if self._use_cache(outputs, use_cache):
-                past = outputs[1]
-            if repetition_penalty != 1.0:
-                self.enforce_repetition_penalty_(next_token_logits, batch_size, num_beams, input_ids, repetition_penalty)
-            if temperature != 1.0:
-                next_token_logits = next_token_logits / temperature
-            if self.config.is_encoder_decoder and do_sample is False:
-                next_token_logits = self.prepare_logits_for_generation(next_token_logits, cur_len=cur_len, max_length=max_length)
-            scores = F.log_softmax(next_token_logits, dim=-1)
-            if eos_token_id is not None and cur_len < min_length:
-                scores[:, (eos_token_id)] = -float('inf')
-            if no_repeat_ngram_size > 0:
-                num_batch_hypotheses = batch_size * num_beams
-                banned_batch_tokens = calc_banned_ngram_tokens(input_ids, num_batch_hypotheses, no_repeat_ngram_size, cur_len)
-                for i, banned_tokens in enumerate(banned_batch_tokens):
-                    scores[i, banned_tokens] = -float('inf')
-            if bad_words_ids is not None:
-                banned_tokens = calc_banned_bad_words_ids(input_ids, bad_words_ids)
-                for i, banned_tokens in enumerate(banned_tokens):
-                    scores[i, banned_tokens] = -float('inf')
-            assert scores.shape == (batch_size * num_beams, vocab_size), 'Shapes of scores: {} != {}'.format(scores.shape, (batch_size * num_beams, vocab_size))
-            if do_sample:
-                _scores = scores + beam_scores[:, (None)].expand_as(scores)
-                _scores = top_k_top_p_filtering(_scores, top_k=top_k, top_p=top_p, min_tokens_to_keep=2)
-                _scores = _scores.contiguous().view(batch_size, num_beams * vocab_size)
-                probs = F.softmax(_scores, dim=-1)
-                next_tokens = torch.multinomial(probs, num_samples=2 * num_beams)
-                next_scores = torch.gather(_scores, -1, next_tokens)
-                next_scores, next_scores_indices = torch.sort(next_scores, descending=True, dim=1)
-                next_tokens = torch.gather(next_tokens, -1, next_scores_indices)
-            else:
-                next_scores = scores + beam_scores[:, (None)].expand_as(scores)
-                next_scores = next_scores.view(batch_size, num_beams * vocab_size)
-                next_scores, next_tokens = torch.topk(next_scores, 2 * num_beams, dim=1, largest=True, sorted=True)
-            assert next_scores.size() == next_tokens.size() == (batch_size, 2 * num_beams)
-            next_batch_beam = []
-            for batch_idx in range(batch_size):
-                if done[batch_idx]:
-                    assert len(generated_hyps[batch_idx]) >= num_beams, 'Batch can only be done if at least {} beams have been generated'.format(num_beams)
-                    assert eos_token_id is not None and pad_token_id is not None, 'generated beams >= num_beams -> eos_token_id and pad_token have to be defined'
-                    next_batch_beam.extend([(0, pad_token_id, 0)] * num_beams)
-                    continue
-                next_sent_beam = []
-                for beam_token_rank, (beam_token_id, beam_token_score) in enumerate(zip(next_tokens[batch_idx], next_scores[batch_idx])):
-                    beam_id = beam_token_id // vocab_size
-                    token_id = beam_token_id % vocab_size
-                    effective_beam_id = batch_idx * num_beams + beam_id
-                    if eos_token_id is not None and token_id.item() == eos_token_id:
-                        is_beam_token_worse_than_top_num_beams = beam_token_rank >= num_beams
-                        if is_beam_token_worse_than_top_num_beams:
-                            continue
-                        generated_hyps[batch_idx].add(input_ids[effective_beam_id].clone(), beam_token_score.item())
-                    else:
-                        next_sent_beam.append((beam_token_score, token_id, effective_beam_id))
-                    if len(next_sent_beam) == num_beams:
-                        break
-                done[batch_idx] = done[batch_idx] or generated_hyps[batch_idx].is_done(next_scores[batch_idx].max().item(), cur_len=cur_len)
-                assert len(next_sent_beam) == num_beams, 'Beam should always be full'
-                next_batch_beam.extend(next_sent_beam)
-                assert len(next_batch_beam) == num_beams * (batch_idx + 1)
-            if all(done):
-                break
-            assert len(next_batch_beam) == batch_size * num_beams
-            beam_scores = beam_scores.new([x[0] for x in next_batch_beam])
-            beam_tokens = input_ids.new([x[1] for x in next_batch_beam])
-            beam_idx = input_ids.new([x[2] for x in next_batch_beam])
-            input_ids = input_ids[(beam_idx), :]
-            input_ids = torch.cat([input_ids, beam_tokens.unsqueeze(1)], dim=-1)
-            cur_len = cur_len + 1
-            if past is not None:
-                past = self._reorder_cache(past, beam_idx)
-            if self.config.is_encoder_decoder is False:
-                attention_mask = torch.cat([attention_mask, attention_mask.new_ones((attention_mask.shape[0], 1))], dim=-1)
-        for batch_idx in range(batch_size):
-            if done[batch_idx]:
-                continue
-            if eos_token_id is not None and all((token_id % vocab_size).item() != eos_token_id for token_id in next_tokens[batch_idx]):
-                assert torch.all(next_scores[(batch_idx), :num_beams] == beam_scores.view(batch_size, num_beams)[batch_idx]), 'If batch_idx is not done, final next scores: {} have to equal to accumulated beam_scores: {}'.format(next_scores[:, :num_beams][batch_idx], beam_scores.view(batch_size, num_beams)[batch_idx])
-            for beam_id in range(num_beams):
-                effective_beam_id = batch_idx * num_beams + beam_id
-                final_score = beam_scores[effective_beam_id].item()
-                final_tokens = input_ids[effective_beam_id]
-                generated_hyps[batch_idx].add(final_tokens, final_score)
-        output_batch_size = batch_size if do_sample else batch_size * num_return_sequences
-        output_num_return_sequences_per_batch = 1 if do_sample else num_return_sequences
-        sent_lengths = input_ids.new(output_batch_size)
-        best = []
-        for i, hypotheses in enumerate(generated_hyps):
-            sorted_hyps = sorted(hypotheses.beams, key=lambda x: x[0])
-            for j in range(output_num_return_sequences_per_batch):
-                effective_batch_idx = output_num_return_sequences_per_batch * i + j
-                best_hyp = sorted_hyps.pop()[1]
-                sent_lengths[effective_batch_idx] = len(best_hyp)
-                best.append(best_hyp)
-        if sent_lengths.min().item() != sent_lengths.max().item():
-            assert pad_token_id is not None, '`Pad_token_id` has to be defined'
-            sent_max_len = min(sent_lengths.max().item() + 1, max_length)
-            decoded = input_ids.new(output_batch_size, sent_max_len).fill_(pad_token_id)
-            for i, hypo in enumerate(best):
-                decoded[(i), :sent_lengths[i]] = hypo
-                if sent_lengths[i] < max_length:
-                    decoded[i, sent_lengths[i]] = eos_token_id
-        else:
-            assert (len(hypo) == max_length for hypo in best)
-            decoded = torch.stack(best).type(torch.long)
-        return decoded
-
-    @staticmethod
-    def _reorder_cache(past: Tuple, beam_idx: Tensor) ->Tuple[Tensor]:
-        return tuple(layer_past.index_select(1, beam_idx) for layer_past in past)
-
-
-class Conv1D(nn.Module):
-
-    def __init__(self, nf, nx):
-        """ Conv1D layer as defined by Radford et al. for OpenAI GPT (and also used in GPT-2)
-            Basically works like a Linear layer but the weights are transposed
-        """
-        super().__init__()
-        self.nf = nf
-        w = torch.empty(nx, nf)
-        nn.init.normal_(w, std=0.02)
-        self.weight = nn.Parameter(w)
-        self.bias = nn.Parameter(torch.zeros(nf))
-
-    def forward(self, x):
-        size_out = x.size()[:-1] + (self.nf,)
-        x = torch.addmm(self.bias, x.view(-1, x.size(-1)), self.weight)
-        x = x.view(*size_out)
-        return x
-
-
 class PoolerStartLogits(nn.Module):
     """ Compute SQuAD start_logits from sequence hidden states. """
 
@@ -7700,88 +6566,6 @@ class SequenceSummary(nn.Module):
         return output
 
 
-class MultiHeadAttention(nn.Module):
-    NEW_ID = itertools.count()
-
-    def __init__(self, n_heads, dim, config):
-        super().__init__()
-        self.layer_id = next(MultiHeadAttention.NEW_ID)
-        self.dim = dim
-        self.n_heads = n_heads
-        self.dropout = config.attention_dropout
-        assert self.dim % self.n_heads == 0
-        self.q_lin = nn.Linear(dim, dim)
-        self.k_lin = nn.Linear(dim, dim)
-        self.v_lin = nn.Linear(dim, dim)
-        self.out_lin = nn.Linear(dim, dim)
-        self.pruned_heads = set()
-
-    def prune_heads(self, heads):
-        attention_head_size = self.dim // self.n_heads
-        if len(heads) == 0:
-            return
-        heads, index = find_pruneable_heads_and_indices(heads, self.n_heads, attention_head_size, self.pruned_heads)
-        self.q_lin = prune_linear_layer(self.q_lin, index)
-        self.k_lin = prune_linear_layer(self.k_lin, index)
-        self.v_lin = prune_linear_layer(self.v_lin, index)
-        self.out_lin = prune_linear_layer(self.out_lin, index, dim=1)
-        self.n_heads = self.n_heads - len(heads)
-        self.dim = attention_head_size * self.n_heads
-        self.pruned_heads = self.pruned_heads.union(heads)
-
-    def forward(self, input, mask, kv=None, cache=None, head_mask=None, output_attentions=False):
-        """
-        Self-attention (if kv is None) or attention over source sentence (provided by kv).
-        """
-        bs, qlen, dim = input.size()
-        if kv is None:
-            klen = qlen if cache is None else cache['slen'] + qlen
-        else:
-            klen = kv.size(1)
-        n_heads = self.n_heads
-        dim_per_head = self.dim // n_heads
-        mask_reshape = (bs, 1, qlen, klen) if mask.dim() == 3 else (bs, 1, 1, klen)
-
-        def shape(x):
-            """  projection """
-            return x.view(bs, -1, self.n_heads, dim_per_head).transpose(1, 2)
-
-        def unshape(x):
-            """  compute context """
-            return x.transpose(1, 2).contiguous().view(bs, -1, self.n_heads * dim_per_head)
-        q = shape(self.q_lin(input))
-        if kv is None:
-            k = shape(self.k_lin(input))
-            v = shape(self.v_lin(input))
-        elif cache is None or self.layer_id not in cache:
-            k = v = kv
-            k = shape(self.k_lin(k))
-            v = shape(self.v_lin(v))
-        if cache is not None:
-            if self.layer_id in cache:
-                if kv is None:
-                    k_, v_ = cache[self.layer_id]
-                    k = torch.cat([k_, k], dim=2)
-                    v = torch.cat([v_, v], dim=2)
-                else:
-                    k, v = cache[self.layer_id]
-            cache[self.layer_id] = k, v
-        q = q / math.sqrt(dim_per_head)
-        scores = torch.matmul(q, k.transpose(2, 3))
-        mask = (mask == 0).view(mask_reshape).expand_as(scores)
-        scores.masked_fill_(mask, -float('inf'))
-        weights = F.softmax(scores.float(), dim=-1).type_as(scores)
-        weights = F.dropout(weights, p=self.dropout, training=self.training)
-        if head_mask is not None:
-            weights = weights * head_mask
-        context = torch.matmul(weights, v)
-        context = unshape(context)
-        outputs = self.out_lin(context),
-        if output_attentions:
-            outputs = outputs + (weights,)
-        return outputs
-
-
 class TransformerFFN(nn.Module):
 
     def __init__(self, in_dim, dim_hidden, out_dim, config):
@@ -7797,6 +6581,274 @@ class TransformerFFN(nn.Module):
         x = self.lin2(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
         return x
+
+
+class XLMConfig(PretrainedConfig):
+    """
+        This is the configuration class to store the configuration of a :class:`~transformers.XLMModel`.
+        It is used to instantiate an XLM model according to the specified arguments, defining the model
+        architecture. Instantiating a configuration with the defaults will yield a similar configuration to that of
+        the `xlm-mlm-en-2048 <https://huggingface.co/xlm-mlm-en-2048>`__ architecture.
+
+        Configuration objects inherit from  :class:`~transformers.PretrainedConfig` and can be used
+        to control the model outputs. Read the documentation from  :class:`~transformers.PretrainedConfig`
+        for more information.
+
+        Args:
+            vocab_size (:obj:`int`, optional, defaults to 30145):
+                Vocabulary size of the XLM model. Defines the different tokens that
+                can be represented by the `inputs_ids` passed to the forward method of :class:`~transformers.XLMModel`.
+            emb_dim (:obj:`int`, optional, defaults to 2048):
+                Dimensionality of the encoder layers and the pooler layer.
+            n_layer (:obj:`int`, optional, defaults to 12):
+                Number of hidden layers in the Transformer encoder.
+            n_head (:obj:`int`, optional, defaults to 16):
+                Number of attention heads for each attention layer in the Transformer encoder.
+            dropout (:obj:`float`, optional, defaults to 0.1):
+                The dropout probability for all fully connected
+                layers in the embeddings, encoder, and pooler.
+            attention_dropout (:obj:`float`, optional, defaults to 0.1):
+                The dropout probability for the attention mechanism
+            gelu_activation (:obj:`boolean`, optional, defaults to :obj:`True`):
+                The non-linear activation function (function or string) in the
+                encoder and pooler. If set to `True`, "gelu" will be used instead of "relu".
+            sinusoidal_embeddings (:obj:`boolean`, optional, defaults to :obj:`False`):
+                Whether to use sinusoidal positional embeddings instead of absolute positional embeddings.
+            causal (:obj:`boolean`, optional, defaults to :obj:`False`):
+                Set this to `True` for the model to behave in a causal manner.
+                Causal models use a triangular attention mask in order to only attend to the left-side context instead
+                if a bidirectional context.
+            asm (:obj:`boolean`, optional, defaults to :obj:`False`):
+                Whether to use an adaptive log softmax projection layer instead of a linear layer for the prediction
+                layer.
+            n_langs (:obj:`int`, optional, defaults to 1):
+                The number of languages the model handles. Set to 1 for monolingual models.
+            use_lang_emb (:obj:`boolean`, optional, defaults to :obj:`True`)
+                Whether to use language embeddings. Some models use additional language embeddings, see
+                `the multilingual models page <http://huggingface.co/transformers/multilingual.html#xlm-language-embeddings>`__
+                for information on how to use them.
+            max_position_embeddings (:obj:`int`, optional, defaults to 512):
+                The maximum sequence length that this model might
+                ever be used with. Typically set this to something large just in case
+                (e.g., 512 or 1024 or 2048).
+            embed_init_std (:obj:`float`, optional, defaults to 2048^-0.5):
+                The standard deviation of the truncated_normal_initializer for
+                initializing the embedding matrices.
+            init_std (:obj:`int`, optional, defaults to 50257):
+                The standard deviation of the truncated_normal_initializer for
+                initializing all weight matrices except the embedding matrices.
+            layer_norm_eps (:obj:`float`, optional, defaults to 1e-12):
+                The epsilon used by the layer normalization layers.
+            bos_index (:obj:`int`, optional, defaults to 0):
+                The index of the beginning of sentence token in the vocabulary.
+            eos_index (:obj:`int`, optional, defaults to 1):
+                The index of the end of sentence token in the vocabulary.
+            pad_index (:obj:`int`, optional, defaults to 2):
+                The index of the padding token in the vocabulary.
+            unk_index (:obj:`int`, optional, defaults to 3):
+                The index of the unknown token in the vocabulary.
+            mask_index (:obj:`int`, optional, defaults to 5):
+                The index of the masking token in the vocabulary.
+            is_encoder(:obj:`boolean`, optional, defaults to :obj:`True`):
+                Whether the initialized model should be a transformer encoder or decoder as seen in Vaswani et al.
+            summary_type (:obj:`string`, optional, defaults to "first"):
+                Argument used when doing sequence summary. Used in for the multiple choice head in
+                :class:`~transformers.XLMForSequenceClassification`.
+                Is one of the following options:
+
+                - 'last' => take the last token hidden state (like XLNet)
+                - 'first' => take the first token hidden state (like Bert)
+                - 'mean' => take the mean of all tokens hidden states
+                - 'cls_index' => supply a Tensor of classification token position (GPT/GPT-2)
+                - 'attn' => Not implemented now, use multi-head attention
+            summary_use_proj (:obj:`boolean`, optional, defaults to :obj:`True`):
+                Argument used when doing sequence summary. Used in for the multiple choice head in
+                :class:`~transformers.XLMForSequenceClassification`.
+                Add a projection after the vector extraction
+            summary_activation (:obj:`string` or :obj:`None`, optional, defaults to :obj:`None`):
+                Argument used when doing sequence summary. Used in for the multiple choice head in
+                :class:`~transformers.XLMForSequenceClassification`.
+                'tanh' => add a tanh activation to the output, Other => no activation.
+            summary_proj_to_labels (:obj:`boolean`, optional, defaults to :obj:`True`):
+                Argument used when doing sequence summary. Used in for the multiple choice head in
+                :class:`~transformers.XLMForSequenceClassification`.
+                If True, the projection outputs to config.num_labels classes (otherwise to hidden_size). Default: False.
+            summary_first_dropout (:obj:`float`, optional, defaults to 0.1):
+                Argument used when doing sequence summary. Used in for the multiple choice head in
+                :class:`~transformers.XLMForSequenceClassification`.
+                Add a dropout before the projection and activation
+            start_n_top (:obj:`int`, optional, defaults to 5):
+                Used in the SQuAD evaluation script for XLM and XLNet.
+            end_n_top (:obj:`int`, optional, defaults to 5):
+                Used in the SQuAD evaluation script for XLM and XLNet.
+            mask_token_id (:obj:`int`, optional, defaults to 0):
+                Model agnostic parameter to identify masked tokens when generating text in an MLM context.
+            lang_id (:obj:`int`, optional, defaults to 1):
+                The ID of the language used by the model. This parameter is used when generating
+                text in a given language.
+
+        Example::
+
+            from transformers import XLMConfig, XLMModel
+
+            # Initializing a XLM configuration
+            configuration = XLMConfig()
+
+            # Initializing a model from the configuration
+            model = XLMModel(configuration)
+
+            # Accessing the model configuration
+            configuration = model.config
+    """
+    model_type = 'xlm'
+
+    def __init__(self, vocab_size=30145, emb_dim=2048, n_layers=12, n_heads=16, dropout=0.1, attention_dropout=0.1, gelu_activation=True, sinusoidal_embeddings=False, causal=False, asm=False, n_langs=1, use_lang_emb=True, max_position_embeddings=512, embed_init_std=2048 ** -0.5, layer_norm_eps=1e-12, init_std=0.02, bos_index=0, eos_index=1, pad_index=2, unk_index=3, mask_index=5, is_encoder=True, summary_type='first', summary_use_proj=True, summary_activation=None, summary_proj_to_labels=True, summary_first_dropout=0.1, start_n_top=5, end_n_top=5, mask_token_id=0, lang_id=0, pad_token_id=2, bos_token_id=0, **kwargs):
+        """Constructs XLMConfig.
+        """
+        super().__init__(pad_token_id=pad_token_id, bos_token_id=bos_token_id, **kwargs)
+        self.vocab_size = vocab_size
+        self.emb_dim = emb_dim
+        self.n_layers = n_layers
+        self.n_heads = n_heads
+        self.dropout = dropout
+        self.attention_dropout = attention_dropout
+        self.gelu_activation = gelu_activation
+        self.sinusoidal_embeddings = sinusoidal_embeddings
+        self.causal = causal
+        self.asm = asm
+        self.n_langs = n_langs
+        self.use_lang_emb = use_lang_emb
+        self.layer_norm_eps = layer_norm_eps
+        self.bos_index = bos_index
+        self.eos_index = eos_index
+        self.pad_index = pad_index
+        self.unk_index = unk_index
+        self.mask_index = mask_index
+        self.is_encoder = is_encoder
+        self.max_position_embeddings = max_position_embeddings
+        self.embed_init_std = embed_init_std
+        self.init_std = init_std
+        self.summary_type = summary_type
+        self.summary_use_proj = summary_use_proj
+        self.summary_activation = summary_activation
+        self.summary_proj_to_labels = summary_proj_to_labels
+        self.summary_first_dropout = summary_first_dropout
+        self.start_n_top = start_n_top
+        self.end_n_top = end_n_top
+        self.mask_token_id = mask_token_id
+        self.lang_id = lang_id
+        if 'n_words' in kwargs:
+            self.n_words = kwargs['n_words']
+
+    @property
+    def n_words(self):
+        return self.vocab_size
+
+    @n_words.setter
+    def n_words(self, value):
+        self.vocab_size = value
+
+    @property
+    def hidden_size(self):
+        return self.emb_dim
+
+    @property
+    def num_attention_heads(self):
+        return self.n_heads
+
+    @property
+    def num_hidden_layers(self):
+        return self.n_layers
+
+
+XLM_INPUTS_DOCSTRING = """
+    Args:
+        input_ids (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`):
+            Indices of input sequence tokens in the vocabulary.
+
+            Indices can be obtained using :class:`transformers.BertTokenizer`.
+            See :func:`transformers.PreTrainedTokenizer.encode` and
+            :func:`transformers.PreTrainedTokenizer.encode_plus` for details.
+
+            `What are input IDs? <../glossary.html#input-ids>`__
+        attention_mask (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
+            Mask to avoid performing attention on padding token indices.
+            Mask values selected in ``[0, 1]``:
+            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
+
+            `What are attention masks? <../glossary.html#attention-mask>`__
+        langs (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
+            A parallel sequence of tokens to be used to indicate the language of each token in the input.
+            Indices are languages ids which can be obtained from the language names by using two conversion mappings
+            provided in the configuration of the model (only provided for multilingual models).
+            More precisely, the `language name -> language id` mapping is in `model.config.lang2id` (dict str -> int) and
+            the `language id -> language name` mapping is `model.config.id2lang` (dict int -> str).
+
+            See usage examples detailed in the `multilingual documentation <https://huggingface.co/transformers/multilingual.html>`__.
+        token_type_ids (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
+            Segment token indices to indicate first and second portions of the inputs.
+            Indices are selected in ``[0, 1]``: ``0`` corresponds to a `sentence A` token, ``1``
+            corresponds to a `sentence B` token
+
+            `What are token type IDs? <../glossary.html#token-type-ids>`_
+        position_ids (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`, defaults to :obj:`None`):
+            Indices of positions of each input sequence tokens in the position embeddings.
+            Selected in the range ``[0, config.max_position_embeddings - 1]``.
+
+            `What are position IDs? <../glossary.html#position-ids>`_
+        lengths (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`, defaults to :obj:`None`):
+            Length of each sentence that can be used to avoid performing attention on padding token indices.
+            You can also use `attention_mask` for the same result (see above), kept here for compatbility.
+            Indices selected in ``[0, ..., input_ids.size(-1)]``:
+        cache (:obj:`Dict[str, torch.FloatTensor]`, `optional`, defaults to :obj:`None`):
+            dictionary with ``torch.FloatTensor`` that contains pre-computed
+            hidden-states (key and values in the attention blocks) as computed by the model
+            (see `cache` output below). Can be used to speed up sequential decoding.
+            The dictionary object will be modified in-place during the forward pass to add newly computed hidden-states.
+        head_mask (:obj:`torch.FloatTensor` of shape :obj:`(num_heads,)` or :obj:`(num_layers, num_heads)`, `optional`, defaults to :obj:`None`):
+            Mask to nullify selected heads of the self-attention modules.
+            Mask values selected in ``[0, 1]``:
+            :obj:`1` indicates the head is **not masked**, :obj:`0` indicates the head is **masked**.
+        inputs_embeds (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`, `optional`, defaults to :obj:`None`):
+            Optionally, instead of passing :obj:`input_ids` you can choose to directly pass an embedded representation.
+            This is useful if you want more control over how to convert `input_ids` indices into associated vectors
+            than the model's internal embedding lookup matrix.
+        output_attentions (:obj:`bool`, `optional`, defaults to `:obj:`None`):
+            If set to ``True``, the attentions tensors of all attention layers are returned. See ``attentions`` under returned tensors for more detail.
+"""
+
+
+XLM_START_DOCSTRING = """
+
+    This model is a PyTorch `torch.nn.Module <https://pytorch.org/docs/stable/nn.html#torch.nn.Module>`_ sub-class.
+    Use it as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to general
+    usage and behavior.
+
+    Parameters:
+        config (:class:`~transformers.XLMConfig`): Model configuration class with all the parameters of the model.
+            Initializing with a config file does not load the weights associated with the model, only the configuration.
+            Check out the :meth:`~transformers.PreTrainedModel.from_pretrained` method to load the model weights.
+"""
+
+
+def get_masks(slen, lengths, causal, padding_mask=None):
+    """
+    Generate hidden states mask, and optionally an attention mask.
+    """
+    alen = torch.arange(slen, dtype=torch.long, device=lengths.device)
+    if padding_mask is not None:
+        mask = padding_mask
+    else:
+        assert lengths.max().item() <= slen
+        mask = alen < lengths[:, (None)]
+    bs = lengths.size(0)
+    if causal:
+        attn_mask = alen[(None), (None), :].repeat(bs, slen, 1) <= alen[(None), :, (None)]
+    else:
+        attn_mask = mask
+    assert mask.size() == (bs, slen)
+    assert causal is False or attn_mask.size() == (bs, slen, slen)
+    return mask, attn_mask
 
 
 class XLMPredLayer(nn.Module):
@@ -8005,6 +7057,323 @@ class XLNetLayer(nn.Module):
         return outputs
 
 
+class XLNetConfig(PretrainedConfig):
+    """
+        This is the configuration class to store the configuration of a :class:`~transformers.XLNetModel`.
+        It is used to instantiate an XLNet model according to the specified arguments, defining the model
+        architecture. Instantiating a configuration with the defaults will yield a similar configuration to that of
+        the `xlnet-large-cased <https://huggingface.co/xlnet-large-cased>`__ architecture.
+
+        Configuration objects inherit from  :class:`~transformers.PretrainedConfig` and can be used
+        to control the model outputs. Read the documentation from  :class:`~transformers.PretrainedConfig`
+        for more information.
+
+        Args:
+            vocab_size (:obj:`int`, optional, defaults to 32000):
+                Vocabulary size of the XLNet model. Defines the different tokens that
+                can be represented by the `inputs_ids` passed to the forward method of :class:`~transformers.XLNetModel`.
+            d_model (:obj:`int`, optional, defaults to 1024):
+                Dimensionality of the encoder layers and the pooler layer.
+            n_layer (:obj:`int`, optional, defaults to 24):
+                Number of hidden layers in the Transformer encoder.
+            n_head (:obj:`int`, optional, defaults to 16):
+                Number of attention heads for each attention layer in the Transformer encoder.
+            d_inner (:obj:`int`, optional, defaults to 4096):
+                Dimensionality of the "intermediate" (i.e., feed-forward) layer in the Transformer encoder.
+            ff_activation (:obj:`string`, optional, defaults to "gelu"):
+                The non-linear activation function (function or string) in the
+                encoder and pooler. If string, "gelu", "relu" and "swish" are supported.
+            untie_r (:obj:`boolean`, optional, defaults to :obj:`True`):
+                Untie relative position biases
+            attn_type (:obj:`string`, optional, defaults to "bi"):
+                The attention type used by the model. Set 'bi' for XLNet, 'uni' for Transformer-XL.
+            initializer_range (:obj:`float`, optional, defaults to 0.02):
+                The standard deviation of the truncated_normal_initializer for initializing all weight matrices.
+            layer_norm_eps (:obj:`float`, optional, defaults to 1e-12):
+                The epsilon used by the layer normalization layers.
+            dropout (:obj:`float`, optional, defaults to 0.1):
+                The dropout probability for all fully connected layers in the embeddings, encoder, and pooler.
+            mem_len (:obj:`int` or :obj:`None`, optional, defaults to :obj:`None`):
+                The number of tokens to cache. The key/value pairs that have already been pre-computed
+                in a previous forward pass won't be re-computed. See the
+                `quickstart <https://huggingface.co/transformers/quickstart.html#using-the-past>`__
+                for more information.
+            reuse_len (:obj:`int` or :obj:`None`, optional, defaults to :obj:`None`):
+                The number of tokens in the current batch to be cached and reused in the future.
+            bi_data (:obj:`boolean`, optional, defaults to :obj:`False`):
+                Whether to use bidirectional input pipeline. Usually set to `True` during
+                pretraining and `False` during finetuning.
+            clamp_len (:obj:`int`, optional, defaults to -1):
+                Clamp all relative distances larger than clamp_len.
+                Setting this attribute to -1 means no clamping.
+            same_length (:obj:`boolean`, optional, defaults to :obj:`False`):
+                Whether to use the same attention length for each token.
+            summary_type (:obj:`string`, optional, defaults to "last"):
+                Argument used when doing sequence summary. Used in for the multiple choice head in
+                :class:transformers.XLNetForSequenceClassification` and :class:`~transformers.XLNetForMultipleChoice`.
+                Is one of the following options:
+                    - 'last' => take the last token hidden state (like XLNet)
+                    - 'first' => take the first token hidden state (like Bert)
+                    - 'mean' => take the mean of all tokens hidden states
+                    - 'cls_index' => supply a Tensor of classification token position (GPT/GPT-2)
+                    - 'attn' => Not implemented now, use multi-head attention
+            summary_use_proj (:obj:`boolean`, optional, defaults to :obj:`True`):
+                Argument used when doing sequence summary. Used in for the multiple choice head in
+                :class:`~transformers.XLNetForSequenceClassification` and :class:`~transformers.XLNetForMultipleChoice`.
+                Add a projection after the vector extraction
+            summary_activation (:obj:`string` or :obj:`None`, optional, defaults to :obj:`None`):
+                Argument used when doing sequence summary. Used in for the multiple choice head in
+                :class:`~transformers.XLNetForSequenceClassification` and :class:`~transformers.XLNetForMultipleChoice`.
+                'tanh' => add a tanh activation to the output, Other => no activation.
+            summary_proj_to_labels (:obj:`boolean`, optional, defaults to :obj:`True`):
+                Argument used when doing sequence summary. Used in for the multiple choice head in
+                :class:`~transformers.XLNetForSequenceClassification` and :class:`~transformers.XLNetForMultipleChoice`.
+                If True, the projection outputs to config.num_labels classes (otherwise to hidden_size). Default: False.
+            summary_last_dropout (:obj:`float`, optional, defaults to 0.1):
+                Argument used when doing sequence summary. Used in for the multiple choice head in
+                :class:`~transformers.XLNetForSequenceClassification` and :class:`~transformers.XLNetForMultipleChoice`.
+                Add a dropout after the projection and activation
+            start_n_top (:obj:`int`, optional, defaults to 5):
+                Used in the SQuAD evaluation script for XLM and XLNet.
+            end_n_top (:obj:`int`, optional, defaults to 5):
+                Used in the SQuAD evaluation script for XLM and XLNet.
+
+        Example::
+
+            from transformers import XLNetConfig, XLNetModel
+
+            # Initializing a XLNet configuration
+            configuration = XLNetConfig()
+
+            # Initializing a model from the configuration
+            model = XLNetModel(configuration)
+
+            # Accessing the model configuration
+            configuration = model.config
+    """
+    model_type = 'xlnet'
+
+    def __init__(self, vocab_size=32000, d_model=1024, n_layer=24, n_head=16, d_inner=4096, ff_activation='gelu', untie_r=True, attn_type='bi', initializer_range=0.02, layer_norm_eps=1e-12, dropout=0.1, mem_len=None, reuse_len=None, bi_data=False, clamp_len=-1, same_length=False, summary_type='last', summary_use_proj=True, summary_activation='tanh', summary_last_dropout=0.1, start_n_top=5, end_n_top=5, pad_token_id=5, bos_token_id=1, eos_token_id=2, **kwargs):
+        """Constructs XLNetConfig.
+        """
+        super().__init__(pad_token_id=pad_token_id, bos_token_id=bos_token_id, eos_token_id=eos_token_id, **kwargs)
+        self.vocab_size = vocab_size
+        self.d_model = d_model
+        self.n_layer = n_layer
+        self.n_head = n_head
+        assert d_model % n_head == 0
+        if 'd_head' in kwargs:
+            assert kwargs['d_head'] == d_model // n_head, f"`d_head` ({kwargs['d_head']}) should be equal to `d_model // n_head` ({d_model // n_head})"
+        self.d_head = d_model // n_head
+        self.ff_activation = ff_activation
+        self.d_inner = d_inner
+        self.untie_r = untie_r
+        self.attn_type = attn_type
+        self.initializer_range = initializer_range
+        self.layer_norm_eps = layer_norm_eps
+        self.dropout = dropout
+        self.mem_len = mem_len
+        self.reuse_len = reuse_len
+        self.bi_data = bi_data
+        self.clamp_len = clamp_len
+        self.same_length = same_length
+        self.summary_type = summary_type
+        self.summary_use_proj = summary_use_proj
+        self.summary_activation = summary_activation
+        self.summary_last_dropout = summary_last_dropout
+        self.start_n_top = start_n_top
+        self.end_n_top = end_n_top
+        self.bos_token_id = bos_token_id
+        self.pad_token_id = pad_token_id
+        self.eos_token_id = eos_token_id
+
+    @property
+    def max_position_embeddings(self):
+        return -1
+
+    @property
+    def n_token(self):
+        return self.vocab_size
+
+    @n_token.setter
+    def n_token(self, value):
+        self.vocab_size = value
+
+    @property
+    def hidden_size(self):
+        return self.d_model
+
+    @property
+    def num_attention_heads(self):
+        return self.n_head
+
+    @property
+    def num_hidden_layers(self):
+        return self.n_layer
+
+
+XLNET_INPUTS_DOCSTRING = """
+    Args:
+        input_ids (:obj:`torch.LongTensor` of shape :obj:`{0}`):
+            Indices of input sequence tokens in the vocabulary.
+
+            Indices can be obtained using :class:`transformers.BertTokenizer`.
+            See :func:`transformers.PreTrainedTokenizer.encode` and
+            :func:`transformers.PreTrainedTokenizer.encode_plus` for details.
+
+            `What are input IDs? <../glossary.html#input-ids>`__
+        attention_mask (:obj:`torch.FloatTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
+            Mask to avoid performing attention on padding token indices.
+            Mask values selected in ``[0, 1]``:
+            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
+
+            `What are attention masks? <../glossary.html#attention-mask>`__
+        mems (:obj:`List[torch.FloatTensor]` of length :obj:`config.n_layers`):
+            Contains pre-computed hidden-states (key and values in the attention blocks) as computed by the model
+            (see `mems` output below). Can be used to speed up sequential decoding. The token ids which have their mems
+            given to this model should not be passed as input ids as they have already been computed.
+            `use_cache` has to be set to `True` to make use of `mems`.
+        perm_mask (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, sequence_length)`, `optional`, defaults to :obj:`None`):
+            Mask to indicate the attention pattern for each input token with values selected in ``[0, 1]``:
+            If ``perm_mask[k, i, j] = 0``, i attend to j in batch k;
+            if ``perm_mask[k, i, j] = 1``, i does not attend to j in batch k.
+            If None, each token attends to all the others (full bidirectional attention).
+            Only used during pretraining (to define factorization order) or for sequential decoding (generation).
+        target_mapping (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, num_predict, sequence_length)`, `optional`, defaults to :obj:`None`):
+            Mask to indicate the output tokens to use.
+            If ``target_mapping[k, i, j] = 1``, the i-th predict in batch k is on the j-th token.
+            Only used during pretraining for partial prediction or for sequential decoding (generation).
+        token_type_ids (:obj:`torch.LongTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
+            Segment token indices to indicate first and second portions of the inputs.
+            Indices are selected in ``[0, 1]``: ``0`` corresponds to a `sentence A` token, ``1``
+            corresponds to a `sentence B` token. The classifier token should be represented by a ``2``.
+
+            `What are token type IDs? <../glossary.html#token-type-ids>`_
+        input_mask (:obj:`torch.FloatTensor` of shape :obj:`{0}`, `optional`, defaults to :obj:`None`):
+            Mask to avoid performing attention on padding token indices.
+            Negative of `attention_mask`, i.e. with 0 for real tokens and 1 for padding.
+            Kept for compatibility with the original code base.
+            You can only uses one of `input_mask` and `attention_mask`
+            Mask values selected in ``[0, 1]``:
+            ``1`` for tokens that are MASKED, ``0`` for tokens that are NOT MASKED.
+        head_mask (:obj:`torch.FloatTensor` of shape :obj:`(num_heads,)` or :obj:`(num_layers, num_heads)`, `optional`, defaults to :obj:`None`):
+            Mask to nullify selected heads of the self-attention modules.
+            Mask values selected in ``[0, 1]``:
+            :obj:`1` indicates the head is **not masked**, :obj:`0` indicates the head is **masked**.
+        inputs_embeds (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length, hidden_size)`, `optional`, defaults to :obj:`None`):
+            Optionally, instead of passing :obj:`input_ids` you can choose to directly pass an embedded representation.
+            This is useful if you want more control over how to convert `input_ids` indices into associated vectors
+            than the model's internal embedding lookup matrix.
+        use_cache (:obj:`bool`):
+            If `use_cache` is True, `mems` are returned and can be used to speed up decoding (see `mems`). Defaults to `True`.
+        output_attentions (:obj:`bool`, `optional`, defaults to `:obj:`None`):
+            If set to ``True``, the attentions tensors of all attention layers are returned. See ``attentions`` under returned tensors for more detail.
+"""
+
+
+XLNET_START_DOCSTRING = """
+
+    This model is a PyTorch `torch.nn.Module <https://pytorch.org/docs/stable/nn.html#torch.nn.Module>`_ sub-class.
+    Use it as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to general
+    usage and behavior.
+
+    Parameters:
+        config (:class:`~transformers.XLNetConfig`): Model configuration class with all the parameters of the model.
+            Initializing with a config file does not load the weights associated with the model, only the configuration.
+            Check out the :meth:`~transformers.PreTrainedModel.from_pretrained` method to load the model weights.
+"""
+
+
+def build_tf_xlnet_to_pytorch_map(model, config, tf_weights=None):
+    """ A map of modules from TF to PyTorch.
+        I use a map to keep the PyTorch model as
+        identical to the original PyTorch model as possible.
+    """
+    tf_to_pt_map = {}
+    if hasattr(model, 'transformer'):
+        if hasattr(model, 'lm_loss'):
+            tf_to_pt_map['model/lm_loss/bias'] = model.lm_loss.bias
+        if hasattr(model, 'sequence_summary') and 'model/sequnece_summary/summary/kernel' in tf_weights:
+            tf_to_pt_map['model/sequnece_summary/summary/kernel'] = model.sequence_summary.summary.weight
+            tf_to_pt_map['model/sequnece_summary/summary/bias'] = model.sequence_summary.summary.bias
+        if hasattr(model, 'logits_proj') and config.finetuning_task is not None and 'model/regression_{}/logit/kernel'.format(config.finetuning_task) in tf_weights:
+            tf_to_pt_map['model/regression_{}/logit/kernel'.format(config.finetuning_task)] = model.logits_proj.weight
+            tf_to_pt_map['model/regression_{}/logit/bias'.format(config.finetuning_task)] = model.logits_proj.bias
+        model = model.transformer
+    tf_to_pt_map.update({'model/transformer/word_embedding/lookup_table': model.word_embedding.weight, 'model/transformer/mask_emb/mask_emb': model.mask_emb})
+    for i, b in enumerate(model.layer):
+        layer_str = 'model/transformer/layer_%d/' % i
+        tf_to_pt_map.update({(layer_str + 'rel_attn/LayerNorm/gamma'): b.rel_attn.layer_norm.weight, (layer_str + 'rel_attn/LayerNorm/beta'): b.rel_attn.layer_norm.bias, (layer_str + 'rel_attn/o/kernel'): b.rel_attn.o, (layer_str + 'rel_attn/q/kernel'): b.rel_attn.q, (layer_str + 'rel_attn/k/kernel'): b.rel_attn.k, (layer_str + 'rel_attn/r/kernel'): b.rel_attn.r, (layer_str + 'rel_attn/v/kernel'): b.rel_attn.v, (layer_str + 'ff/LayerNorm/gamma'): b.ff.layer_norm.weight, (layer_str + 'ff/LayerNorm/beta'): b.ff.layer_norm.bias, (layer_str + 'ff/layer_1/kernel'): b.ff.layer_1.weight, (layer_str + 'ff/layer_1/bias'): b.ff.layer_1.bias, (layer_str + 'ff/layer_2/kernel'): b.ff.layer_2.weight, (layer_str + 'ff/layer_2/bias'): b.ff.layer_2.bias})
+    if config.untie_r:
+        r_r_list = []
+        r_w_list = []
+        r_s_list = []
+        seg_embed_list = []
+        for b in model.layer:
+            r_r_list.append(b.rel_attn.r_r_bias)
+            r_w_list.append(b.rel_attn.r_w_bias)
+            r_s_list.append(b.rel_attn.r_s_bias)
+            seg_embed_list.append(b.rel_attn.seg_embed)
+    else:
+        r_r_list = [model.r_r_bias]
+        r_w_list = [model.r_w_bias]
+        r_s_list = [model.r_s_bias]
+        seg_embed_list = [model.seg_embed]
+    tf_to_pt_map.update({'model/transformer/r_r_bias': r_r_list, 'model/transformer/r_w_bias': r_w_list, 'model/transformer/r_s_bias': r_s_list, 'model/transformer/seg_embed': seg_embed_list})
+    return tf_to_pt_map
+
+
+def load_tf_weights_in_xlnet(model, config, tf_path):
+    """ Load tf checkpoints in a pytorch model
+    """
+    try:
+        import numpy as np
+        import tensorflow as tf
+    except ImportError:
+        logger.error('Loading a TensorFlow models in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.')
+        raise
+    init_vars = tf.train.list_variables(tf_path)
+    tf_weights = {}
+    for name, shape in init_vars:
+        logger.info('Loading TF weight {} with shape {}'.format(name, shape))
+        array = tf.train.load_variable(tf_path, name)
+        tf_weights[name] = array
+    tf_to_pt_map = build_tf_xlnet_to_pytorch_map(model, config, tf_weights)
+    for name, pointer in tf_to_pt_map.items():
+        logger.info('Importing {}'.format(name))
+        if name not in tf_weights:
+            logger.info('{} not in tf pre-trained weights, skipping'.format(name))
+            continue
+        array = tf_weights[name]
+        if 'kernel' in name and ('ff' in name or 'summary' in name or 'logit' in name):
+            logger.info('Transposing')
+            array = np.transpose(array)
+        if isinstance(pointer, list):
+            assert len(pointer) == array.shape[0]
+            for i, p_i in enumerate(pointer):
+                arr_i = array[i, ...]
+                try:
+                    assert p_i.shape == arr_i.shape
+                except AssertionError as e:
+                    e.args += p_i.shape, arr_i.shape
+                    raise
+                logger.info('Initialize PyTorch weight {} for layer {}'.format(name, i))
+                p_i.data = torch.from_numpy(arr_i)
+        else:
+            try:
+                assert pointer.shape == array.shape
+            except AssertionError as e:
+                e.args += pointer.shape, array.shape
+                raise
+            logger.info('Initialize PyTorch weight {}'.format(name))
+            pointer.data = torch.from_numpy(array)
+        tf_weights.pop(name, None)
+        tf_weights.pop(name + '/Adam', None)
+        tf_weights.pop(name + '/Adam_1', None)
+    logger.info('Weights not copied to PyTorch model: {}'.format(', '.join(tf_weights.keys())))
+    return model
+
+
 XxxAttention = nn.Module
 
 
@@ -8031,6 +7400,216 @@ class XxxLayer(nn.Module):
         return outputs
 
 
+class XxxConfig(PretrainedConfig):
+    """
+        :class:`~transformers.XxxConfig` is the configuration class to store the configuration of a
+        `XxxModel`.
+
+
+        Arguments:
+            vocab_size: Vocabulary size of `inputs_ids` in `XxxModel`.
+            hidden_size: Size of the encoder layers and the pooler layer.
+            num_hidden_layers: Number of hidden layers in the Transformer encoder.
+            num_attention_heads: Number of attention heads for each attention layer in
+                the Transformer encoder.
+            intermediate_size: The size of the "intermediate" (i.e., feed-forward)
+                layer in the Transformer encoder.
+            hidden_act: The non-linear activation function (function or string) in the
+                encoder and pooler. If string, "gelu", "relu", "swish" and "gelu_new" are supported.
+            hidden_dropout_prob: The dropout probabilitiy for all fully connected
+                layers in the embeddings, encoder, and pooler.
+            attention_probs_dropout_prob: The dropout ratio for the attention
+                probabilities.
+            max_position_embeddings: The maximum sequence length that this model might
+                ever be used with. Typically set this to something large just in case
+                (e.g., 512 or 1024 or 2048).
+            type_vocab_size: The vocabulary size of the `token_type_ids` passed into
+                `XxxModel`.
+            initializer_range: The sttdev of the truncated_normal_initializer for
+                initializing all weight matrices.
+            layer_norm_eps: The epsilon used by LayerNorm.
+    """
+    model_type = 'xxx'
+
+    def __init__(self, vocab_size=50257, n_positions=1024, n_ctx=1024, n_embd=768, n_layer=12, n_head=12, resid_pdrop=0.1, embd_pdrop=0.1, attn_pdrop=0.1, layer_norm_epsilon=1e-05, initializer_range=0.02, summary_type='cls_index', summary_use_proj=True, summary_activation=None, summary_proj_to_labels=True, summary_first_dropout=0.1, **kwargs):
+        super().__init__(**kwargs)
+        self.vocab_size = vocab_size
+        self.n_ctx = n_ctx
+        self.n_positions = n_positions
+        self.n_embd = n_embd
+        self.n_layer = n_layer
+        self.n_head = n_head
+        self.resid_pdrop = resid_pdrop
+        self.embd_pdrop = embd_pdrop
+        self.attn_pdrop = attn_pdrop
+        self.layer_norm_epsilon = layer_norm_epsilon
+        self.initializer_range = initializer_range
+        self.summary_type = summary_type
+        self.summary_use_proj = summary_use_proj
+        self.summary_activation = summary_activation
+        self.summary_first_dropout = summary_first_dropout
+        self.summary_proj_to_labels = summary_proj_to_labels
+
+    @property
+    def max_position_embeddings(self):
+        return self.n_positions
+
+    @property
+    def hidden_size(self):
+        return self.n_embd
+
+    @property
+    def num_attention_heads(self):
+        return self.n_head
+
+    @property
+    def num_hidden_layers(self):
+        return self.n_layer
+
+
+XxxLayerNorm = torch.nn.LayerNorm
+
+
+def load_tf_weights_in_xxx(model, config, tf_checkpoint_path):
+    """ Load tf checkpoints in a pytorch model.
+    """
+    try:
+        import re
+        import numpy as np
+        import tensorflow as tf
+    except ImportError:
+        logger.error('Loading a TensorFlow model in PyTorch, requires TensorFlow to be installed. Please see https://www.tensorflow.org/install/ for installation instructions.')
+        raise
+    tf_path = os.path.abspath(tf_checkpoint_path)
+    logger.info('Converting TensorFlow checkpoint from {}'.format(tf_path))
+    init_vars = tf.train.list_variables(tf_path)
+    names = []
+    arrays = []
+    for name, shape in init_vars:
+        logger.info('Loading TF weight {} with shape {}'.format(name, shape))
+        array = tf.train.load_variable(tf_path, name)
+        names.append(name)
+        arrays.append(array)
+    for name, array in zip(names, arrays):
+        name = name.split('/')
+        if any(n in ['adam_v', 'adam_m', 'AdamWeightDecayOptimizer', 'AdamWeightDecayOptimizer_1', 'global_step'] for n in name):
+            logger.info('Skipping {}'.format('/'.join(name)))
+            continue
+        pointer = model
+        for m_name in name:
+            if re.fullmatch('[A-Za-z]+_\\d+', m_name):
+                scope_names = re.split('_(\\d+)', m_name)
+            else:
+                scope_names = [m_name]
+            if scope_names[0] == 'kernel' or scope_names[0] == 'gamma':
+                pointer = getattr(pointer, 'weight')
+            elif scope_names[0] == 'output_bias' or scope_names[0] == 'beta':
+                pointer = getattr(pointer, 'bias')
+            elif scope_names[0] == 'output_weights':
+                pointer = getattr(pointer, 'weight')
+            elif scope_names[0] == 'squad':
+                pointer = getattr(pointer, 'classifier')
+            else:
+                try:
+                    pointer = getattr(pointer, scope_names[0])
+                except AttributeError:
+                    logger.info('Skipping {}'.format('/'.join(name)))
+                    continue
+            if len(scope_names) >= 2:
+                num = int(scope_names[1])
+                pointer = pointer[num]
+        if m_name[-11:] == '_embeddings':
+            pointer = getattr(pointer, 'weight')
+        elif m_name == 'kernel':
+            array = np.transpose(array)
+        try:
+            assert pointer.shape == array.shape
+        except AssertionError as e:
+            e.args += pointer.shape, array.shape
+            raise
+        logger.info('Initialize PyTorch weight {}'.format(name))
+        pointer.data = torch.from_numpy(array)
+    return model
+
+
+XXX_INPUTS_DOCSTRING = """
+    Inputs:
+        **input_ids**: ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
+            Indices of input sequence tokens in the vocabulary.
+            To match pre-training, XXX input sequence should be formatted with [CLS] and [SEP] tokens as follows:
+
+            (a) For sequence pairs:
+
+                ``tokens:         [CLS] is this jack ##son ##ville ? [SEP] no it is not . [SEP]``
+
+                ``token_type_ids:   0   0  0    0    0     0       0   0   1  1  1  1   1   1``
+
+            (b) For single sequences:
+
+                ``tokens:         [CLS] the dog is hairy . [SEP]``
+
+                ``token_type_ids:   0   0   0   0  0     0   0``
+
+            Xxx is a model with absolute position embeddings so it's usually advised to pad the inputs on
+            the right rather than the left.
+
+            Indices can be obtained using :class:`transformers.XxxTokenizer`.
+            See :func:`transformers.PreTrainedTokenizer.encode` and
+            :func:`transformers.PreTrainedTokenizer.convert_tokens_to_ids` for details.
+        **attention_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length)``:
+            Mask to avoid performing attention on padding token indices.
+            Mask values selected in ``[0, 1]``:
+            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
+        **token_type_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
+            Segment token indices to indicate first and second portions of the inputs.
+            Indices are selected in ``[0, 1]``: ``0`` corresponds to a `sentence A` token, ``1``
+            corresponds to a `sentence B` token
+            (see `XXX: Pre-training of Deep Bidirectional Transformers for Language Understanding`_ for more details).
+        **position_ids**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
+            Indices of positions of each input sequence tokens in the position embeddings.
+            Selected in the range ``[0, config.max_position_embeddings - 1]``.
+        **head_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(num_heads,)`` or ``(num_layers, num_heads)``:
+            Mask to nullify selected heads of the self-attention modules.
+            Mask values selected in ``[0, 1]``:
+            ``1`` indicates the head is **not masked**, ``0`` indicates the head is **masked**.
+        **inputs_embeds**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length, embedding_dim)``:
+            Optionally, instead of passing ``input_ids`` you can choose to directly pass an embedded representation.
+            This is useful if you want more control over how to convert `input_ids` indices into associated vectors
+            than the model's internal embedding lookup matrix.
+"""
+
+
+XXX_START_DOCSTRING = """    The XXX model was proposed in
+    `XXX: Pre-training of Deep Bidirectional Transformers for Language Understanding`_
+    by Jacob Devlin, Ming-Wei Chang, Kenton Lee and Kristina Toutanova. It's a bidirectional transformer
+    pre-trained using a combination of masked language modeling objective and next sentence prediction
+    on a large corpus comprising the Toronto Book Corpus and Wikipedia.
+
+    This model is a PyTorch `torch.nn.Module`_ sub-class. Use it as a regular PyTorch Module and
+    refer to the PyTorch documentation for all matter related to general usage and behavior.
+
+    .. _`XXX: Pre-training of Deep Bidirectional Transformers for Language Understanding`:
+        https://arxiv.org/abs/1810.04805
+
+    .. _`torch.nn.Module`:
+        https://pytorch.org/docs/stable/nn.html#module
+
+    Parameters:
+        config (:class:`~transformers.XxxConfig`): Model configuration class with all the parameters of the model.
+            Initializing with a config file does not load the weights associated with the model, only the configuration.
+            Check out the :meth:`~transformers.PreTrainedModel.from_pretrained` method to load the model weights.
+"""
+
+
+XxxEmbeddings = nn.Module
+
+
+XxxEncoder = nn.Module
+
+
+XxxPooler = nn.Module
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -8038,6 +7617,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (AlbertAttention,
+     lambda: ([], {'config': _mock_config(hidden_size=4, num_attention_heads=4, attention_probs_dropout_prob=0.5, layer_norm_eps=1)}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
     (AlbertSOPHead,
      lambda: ([], {'config': _mock_config(classifier_dropout_prob=0.5, hidden_size=4, num_labels=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -8084,14 +7667,6 @@ TESTCASES = [
      True),
     (Conv1D,
      lambda: ([], {'nf': 4, 'nx': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (ElectraClassificationHead,
-     lambda: ([], {'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (ElectraGeneratorPredictions,
-     lambda: ([], {'config': _mock_config(embedding_size=4, hidden_size=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (FFN,
@@ -8150,10 +7725,6 @@ TESTCASES = [
      lambda: ([], {'d_model': 4, 'd_inner': 4, 'dropout': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (PositionwiseFeedForward,
-     lambda: ([], {'d_model': 4, 'd_ff': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
     (ReformerFeedForwardOutput,
      lambda: ([], {'config': _mock_config(hidden_dropout_prob=0.5, feed_forward_size=4, hidden_size=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -8164,10 +7735,6 @@ TESTCASES = [
      True),
     (RobertaClassificationHead,
      lambda: ([], {'config': _mock_config(hidden_size=4, hidden_dropout_prob=0.5, num_labels=4)}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (RobertaLMHead,
-     lambda: ([], {'config': _mock_config(hidden_size=4, layer_norm_eps=1, vocab_size=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (SQuADHead,
@@ -8192,10 +7759,6 @@ TESTCASES = [
      True),
     (T5LayerNorm,
      lambda: ([], {'hidden_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (TransformerFFN,
-     lambda: ([], {'in_dim': 4, 'dim_hidden': 4, 'out_dim': 4, 'config': _mock_config(dropout=0.5, gelu_activation=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (XLNetFeedForward,
@@ -8315,16 +7878,4 @@ class Test_huggingface_transformers(_paritybench_base):
 
     def test_036(self):
         self._check(*TESTCASES[36])
-
-    def test_037(self):
-        self._check(*TESTCASES[37])
-
-    def test_038(self):
-        self._check(*TESTCASES[38])
-
-    def test_039(self):
-        self._check(*TESTCASES[39])
-
-    def test_040(self):
-        self._check(*TESTCASES[40])
 

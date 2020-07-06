@@ -13,23 +13,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import torch.nn as nn
+import torch.utils.data as data
+
+
+import numpy as np
 
 
 import torch
+
+
+import torch.nn as nn
 
 
 from torch.nn import functional as F
@@ -90,8 +97,8 @@ def prototypical_loss(input, target, n_support):
     - n_support: number of samples to keep in account when computing
       barycentres, for each one of the current classes
     """
-    target_cpu = target.to('cpu')
-    input_cpu = input.to('cpu')
+    target_cpu = target
+    input_cpu = input
 
     def supp_idxs(c):
         return target_cpu.eq(c).nonzero()[:n_support].squeeze(1)
@@ -101,7 +108,7 @@ def prototypical_loss(input, target, n_support):
     support_idxs = list(map(supp_idxs, classes))
     prototypes = torch.stack([input_cpu[idx_list].mean(0) for idx_list in support_idxs])
     query_idxs = torch.stack(list(map(lambda c: target_cpu.eq(c).nonzero()[n_support:], classes))).view(-1)
-    query_samples = input.to('cpu')[query_idxs]
+    query_samples = input[query_idxs]
     dists = euclidean_dist(query_samples, prototypes)
     log_p_y = F.log_softmax(-dists, dim=1).view(n_classes, n_query, -1)
     target_inds = torch.arange(0, n_classes)

@@ -124,6 +124,8 @@ optimization = _module
 tensordict = _module
 tensorlist = _module
 parameter = _module
+atom_gmm_sampl = _module
+atom_prob_ml = _module
 default = _module
 default_vot = _module
 multiscale_no_iounet = _module
@@ -131,6 +133,7 @@ dimp18_vot = _module
 dimp50_vot = _module
 dimp50_vot19 = _module
 eco = _module
+default = _module
 run_experiment = _module
 run_tracker = _module
 run_video = _module
@@ -157,23 +160,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+import inspect
 
 
 import torch.nn as nn
 
 
-import torch
+from collections import OrderedDict
+
+
+import torch.utils.data.dataloader
+
+
+import collections
+
+
+from torch._six import string_classes
+
+
+from torch._six import int_classes
+
+
+import torchvision.transforms as transforms
 
 
 import math
@@ -185,13 +210,19 @@ import random
 import torch.nn.functional as F
 
 
+import torch.utils.data
+
+
 import numpy as np
 
 
 import torchvision.transforms.functional as tvisf
 
 
-from collections import OrderedDict
+from scipy.io import loadmat
+
+
+from collections import defaultdict
 
 
 import torch.utils.model_zoo as model_zoo
@@ -212,13 +243,28 @@ from torch.nn import functional as F
 from torchvision.models.resnet import Bottleneck
 
 
+import torch.backends.cudnn
+
+
 import torch.optim as optim
 
 
-import torch.nn
-
-
 import time
+
+
+import torchvision
+
+
+import torch.autograd
+
+
+import copy
+
+
+import functools
+
+
+import torch.nn
 
 
 class MultiGPU(nn.DataParallel):
@@ -342,6 +388,103 @@ class Bottleneck(nn.Module):
         return out
 
 
+class ResNet(Backbone):
+    """ ResNet network module. Allows extracting specific feature blocks."""
+
+    def __init__(self, block, layers, output_layers, num_classes=1000, inplanes=64, dilation_factor=1, frozen_layers=()):
+        self.inplanes = inplanes
+        super(ResNet, self).__init__(frozen_layers=frozen_layers)
+        self.output_layers = output_layers
+        self.conv1 = nn.Conv2d(3, inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(inplanes)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        stride = [(1 + (dilation_factor < l)) for l in (8, 4, 2)]
+        self.layer1 = self._make_layer(block, inplanes, layers[0], dilation=max(dilation_factor // 8, 1))
+        self.layer2 = self._make_layer(block, inplanes * 2, layers[1], stride=stride[0], dilation=max(dilation_factor // 4, 1))
+        self.layer3 = self._make_layer(block, inplanes * 4, layers[2], stride=stride[1], dilation=max(dilation_factor // 2, 1))
+        self.layer4 = self._make_layer(block, inplanes * 8, layers[3], stride=stride[2], dilation=dilation_factor)
+        out_feature_strides = {'conv1': 4, 'layer1': 4, 'layer2': 4 * stride[0], 'layer3': 4 * stride[0] * stride[1], 'layer4': 4 * stride[0] * stride[1] * stride[2]}
+        if isinstance(self.layer1[0], BasicBlock):
+            out_feature_channels = {'conv1': inplanes, 'layer1': inplanes, 'layer2': inplanes * 2, 'layer3': inplanes * 4, 'layer4': inplanes * 8}
+        elif isinstance(self.layer1[0], Bottleneck):
+            base_num_channels = 4 * inplanes
+            out_feature_channels = {'conv1': inplanes, 'layer1': base_num_channels, 'layer2': base_num_channels * 2, 'layer3': base_num_channels * 4, 'layer4': base_num_channels * 8}
+        else:
+            raise Exception('block not supported')
+        self._out_feature_strides = out_feature_strides
+        self._out_feature_channels = out_feature_channels
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(inplanes * 8 * block.expansion, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def out_feature_strides(self, layer=None):
+        if layer is None:
+            return self._out_feature_strides
+        else:
+            return self._out_feature_strides[layer]
+
+    def out_feature_channels(self, layer=None):
+        if layer is None:
+            return self._out_feature_channels
+        else:
+            return self._out_feature_channels[layer]
+
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample, dilation=dilation))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+        return nn.Sequential(*layers)
+
+    def _add_output_and_check(self, name, x, outputs, output_layers):
+        if name in output_layers:
+            outputs[name] = x
+        return len(output_layers) == len(outputs)
+
+    def forward(self, x, output_layers=None):
+        """ Forward pass with input x. The output_layers specify the feature blocks which must be returned """
+        outputs = OrderedDict()
+        if output_layers is None:
+            output_layers = self.output_layers
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        if self._add_output_and_check('conv1', x, outputs, output_layers):
+            return outputs
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        if self._add_output_and_check('layer1', x, outputs, output_layers):
+            return outputs
+        x = self.layer2(x)
+        if self._add_output_and_check('layer2', x, outputs, output_layers):
+            return outputs
+        x = self.layer3(x)
+        if self._add_output_and_check('layer3', x, outputs, output_layers):
+            return outputs
+        x = self.layer4(x)
+        if self._add_output_and_check('layer4', x, outputs, output_layers):
+            return outputs
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        if self._add_output_and_check('fc', x, outputs, output_layers):
+            return outputs
+        if len(output_layers) == 1 and output_layers[0] == 'default':
+            return x
+        raise ValueError('output_layer is wrong.')
+
+
 class SpatialCrossMapLRN(nn.Module):
 
     def __init__(self, local_size=1, alpha=1.0, beta=0.75, k=1, ACROSS_CHANNELS=True):
@@ -366,6 +509,84 @@ class SpatialCrossMapLRN(nn.Module):
             div = div.mul(self.alpha).add(self.k).pow(self.beta)
         x = x.div(div)
         return x
+
+
+class ResNetVGGm1(Backbone):
+
+    def __init__(self, block, layers, output_layers, num_classes=1000, frozen_layers=()):
+        self.inplanes = 64
+        super(ResNetVGGm1, self).__init__(frozen_layers=frozen_layers)
+        self.output_layers = output_layers
+        self.vggmconv1 = nn.Conv2d(3, 96, (7, 7), (2, 2), padding=3)
+        self.vgglrn = SpatialCrossMapLRN(5, 0.0005, 0.75, 2)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+        return nn.Sequential(*layers)
+
+    def _add_output_and_check(self, name, x, outputs, output_layers):
+        if name in output_layers:
+            outputs[name] = x
+        return len(output_layers) == len(outputs)
+
+    def forward(self, x, output_layers=None):
+        outputs = OrderedDict()
+        if output_layers is None:
+            output_layers = self.output_layers
+        if 'vggconv1' in output_layers:
+            c1 = self.vgglrn(self.relu(self.vggmconv1(x)))
+            if self._add_output_and_check('vggconv1', c1, outputs, output_layers):
+                return outputs
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        if self._add_output_and_check('conv1', x, outputs, output_layers):
+            return outputs
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        if self._add_output_and_check('layer1', x, outputs, output_layers):
+            return outputs
+        x = self.layer2(x)
+        if self._add_output_and_check('layer2', x, outputs, output_layers):
+            return outputs
+        x = self.layer3(x)
+        if self._add_output_and_check('layer3', x, outputs, output_layers):
+            return outputs
+        x = self.layer4(x)
+        if self._add_output_and_check('layer4', x, outputs, output_layers):
+            return outputs
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        if self._add_output_and_check('fc', x, outputs, output_layers):
+            return outputs
+        if len(output_layers) == 1 and output_layers[0] == 'default':
+            return x
+        raise ValueError('output_layer is wrong.')
 
 
 class ATOMnet(nn.Module):
@@ -410,6 +631,23 @@ class ATOMnet(nn.Module):
 
     def extract_features(self, im, layers):
         return self.feature_extractor(im, layers)
+
+
+class LinearBlock(nn.Module):
+
+    def __init__(self, in_planes, out_planes, input_sz, bias=True, batch_norm=True, relu=True):
+        super().__init__()
+        self.linear = nn.Linear(in_planes * input_sz * input_sz, out_planes, bias=bias)
+        self.bn = nn.BatchNorm2d(out_planes) if batch_norm else None
+        self.relu = nn.ReLU(inplace=True) if relu else None
+
+    def forward(self, x):
+        x = self.linear(x.reshape(x.shape[0], -1))
+        if self.bn is not None:
+            x = self.bn(x.reshape(x.shape[0], x.shape[1], 1, 1))
+        if self.relu is not None:
+            x = self.relu(x)
+        return x.reshape(x.shape[0], -1)
 
 
 def conv(in_planes, out_planes, kernel_size=3, stride=1, padding=1, dilation=1):
@@ -577,23 +815,6 @@ class BentIdentParDeriv(nn.Module):
 
     def forward(self, x, a):
         return (1.0 - a) / 2.0 * (x / torch.sqrt(x * x + 4.0 * self.b * self.b)) + (1.0 + a) / 2.0
-
-
-class LinearBlock(nn.Module):
-
-    def __init__(self, in_planes, out_planes, input_sz, bias=True, batch_norm=True, relu=True):
-        super().__init__()
-        self.linear = nn.Linear(in_planes * input_sz * input_sz, out_planes, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes) if batch_norm else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.linear(x.reshape(x.shape[0], -1))
-        if self.bn is not None:
-            x = self.bn(x.reshape(x.shape[0], x.shape[1], 1, 1))
-        if self.relu is not None:
-            x = self.relu(x)
-        return x.reshape(x.shape[0], -1)
 
 
 class DistanceMap(nn.Module):

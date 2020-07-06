@@ -12,15 +12,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -50,6 +51,9 @@ import torch.optim as optim
 
 
 import math
+
+
+from sklearn import metrics
 
 
 class MySpMM(torch.autograd.Function):
@@ -137,7 +141,7 @@ class DGCNN(nn.Module):
         node_degs = [(torch.Tensor(graph_list[i].degs) + 1) for i in range(len(graph_list))]
         node_degs = torch.cat(node_degs).unsqueeze(1)
         n2n_sp, e2n_sp, subg_sp = GNNLIB.PrepareSparseMatrices(graph_list)
-        if torch.is_available() and isinstance(node_feat, torch.FloatTensor):
+        if torch.cuda.is_available() and isinstance(node_feat, torch.FloatTensor):
             n2n_sp = n2n_sp
             e2n_sp = e2n_sp
             subg_sp = subg_sp
@@ -145,7 +149,7 @@ class DGCNN(nn.Module):
         node_feat = Variable(node_feat)
         if edge_feat is not None:
             edge_feat = Variable(edge_feat)
-            if torch.is_available() and isinstance(node_feat, torch.FloatTensor):
+            if torch.cuda.is_available() and isinstance(node_feat, torch.FloatTensor):
                 edge_feat = edge_feat
         n2n_sp = Variable(n2n_sp)
         e2n_sp = Variable(e2n_sp)
@@ -175,7 +179,7 @@ class DGCNN(nn.Module):
         """ sortpooling layer """
         sort_channel = cur_message_layer[:, (-1)]
         batch_sortpooling_graphs = torch.zeros(len(graph_sizes), self.k, self.total_latent_dim)
-        if torch.is_available() and isinstance(node_feat.data, torch.FloatTensor):
+        if torch.cuda.is_available() and isinstance(node_feat.data, torch.FloatTensor):
             batch_sortpooling_graphs = batch_sortpooling_graphs
         batch_sortpooling_graphs = Variable(batch_sortpooling_graphs)
         accum_count = 0
@@ -187,7 +191,7 @@ class DGCNN(nn.Module):
             sortpooling_graph = cur_message_layer.index_select(0, topk_indices)
             if k < self.k:
                 to_pad = torch.zeros(self.k - k, self.total_latent_dim)
-                if torch.is_available() and isinstance(node_feat.data, torch.FloatTensor):
+                if torch.cuda.is_available() and isinstance(node_feat.data, torch.FloatTensor):
                     to_pad = to_pad
                 to_pad = Variable(to_pad)
                 sortpooling_graph = torch.cat((sortpooling_graph, to_pad), 0)
@@ -207,6 +211,57 @@ class DGCNN(nn.Module):
         else:
             reluact_fp = to_dense
         return self.conv1d_activation(reluact_fp)
+
+
+class MLPClassifier(nn.Module):
+
+    def __init__(self, input_size, hidden_size, num_class, with_dropout=False):
+        super(MLPClassifier, self).__init__()
+        self.h1_weights = nn.Linear(input_size, hidden_size)
+        self.h2_weights = nn.Linear(hidden_size, num_class)
+        self.with_dropout = with_dropout
+        weights_init(self)
+
+    def forward(self, x, y=None):
+        h1 = self.h1_weights(x)
+        h1 = F.relu(h1)
+        if self.with_dropout:
+            h1 = F.dropout(h1, training=self.training)
+        logits = self.h2_weights(h1)
+        logits = F.log_softmax(logits, dim=1)
+        if y is not None:
+            y = Variable(y)
+            loss = F.nll_loss(logits, y)
+            pred = logits.data.max(1, keepdim=True)[1]
+            acc = pred.eq(y.data.view_as(pred)).cpu().sum().item() / float(y.size()[0])
+            return logits, loss, acc
+        else:
+            return logits
+
+
+class MLPRegression(nn.Module):
+
+    def __init__(self, input_size, hidden_size, with_dropout=False):
+        super(MLPRegression, self).__init__()
+        self.h1_weights = nn.Linear(input_size, hidden_size)
+        self.h2_weights = nn.Linear(hidden_size, 1)
+        self.with_dropout = with_dropout
+        weights_init(self)
+
+    def forward(self, x, y=None):
+        h1 = self.h1_weights(x)
+        h1 = F.relu(h1)
+        if self.with_dropout:
+            h1 = F.dropout(h1, training=self.training)
+        pred = self.h2_weights(h1)[:, (0)]
+        if y is not None:
+            y = Variable(y)
+            mse = F.mse_loss(pred, y)
+            mae = F.l1_loss(pred, y)
+            mae = mae.cpu().detach()
+            return pred, mae, mse
+        else:
+            return pred
 
 
 cmd_opt = argparse.ArgumentParser(description='Argparser for graph_classification')
@@ -311,57 +366,6 @@ class Classifier(nn.Module):
             node_feat, edge_feat, labels = feature_label
         embed = self.gnn(batch_graph, node_feat, edge_feat)
         return embed, labels
-
-
-class MLPRegression(nn.Module):
-
-    def __init__(self, input_size, hidden_size, with_dropout=False):
-        super(MLPRegression, self).__init__()
-        self.h1_weights = nn.Linear(input_size, hidden_size)
-        self.h2_weights = nn.Linear(hidden_size, 1)
-        self.with_dropout = with_dropout
-        weights_init(self)
-
-    def forward(self, x, y=None):
-        h1 = self.h1_weights(x)
-        h1 = F.relu(h1)
-        if self.with_dropout:
-            h1 = F.dropout(h1, training=self.training)
-        pred = self.h2_weights(h1)[:, (0)]
-        if y is not None:
-            y = Variable(y)
-            mse = F.mse_loss(pred, y)
-            mae = F.l1_loss(pred, y)
-            mae = mae.cpu().detach()
-            return pred, mae, mse
-        else:
-            return pred
-
-
-class MLPClassifier(nn.Module):
-
-    def __init__(self, input_size, hidden_size, num_class, with_dropout=False):
-        super(MLPClassifier, self).__init__()
-        self.h1_weights = nn.Linear(input_size, hidden_size)
-        self.h2_weights = nn.Linear(hidden_size, num_class)
-        self.with_dropout = with_dropout
-        weights_init(self)
-
-    def forward(self, x, y=None):
-        h1 = self.h1_weights(x)
-        h1 = F.relu(h1)
-        if self.with_dropout:
-            h1 = F.dropout(h1, training=self.training)
-        logits = self.h2_weights(h1)
-        logits = F.log_softmax(logits, dim=1)
-        if y is not None:
-            y = Variable(y)
-            loss = F.nll_loss(logits, y)
-            pred = logits.data.max(1, keepdim=True)[1]
-            acc = pred.eq(y.data.view_as(pred)).cpu().sum().item() / float(y.size()[0])
-            return logits, loss, acc
-        else:
-            return logits
 
 
 import torch

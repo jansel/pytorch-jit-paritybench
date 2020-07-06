@@ -13,17 +13,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import math
@@ -186,79 +196,6 @@ class MoGaA(nn.Module):
                 m.bias.data.zero_()
 
 
-class Hswish(nn.Module):
-
-    def __init__(self, inplace=True):
-        super(Hswish, self).__init__()
-        self.inplace = inplace
-
-    def forward(self, x):
-        return x * F.relu6(x + 3.0, inplace=self.inplace) / 6.0
-
-
-class Hsigmoid(nn.Module):
-
-    def __init__(self, inplace=True):
-        super(Hsigmoid, self).__init__()
-        self.inplace = inplace
-
-    def forward(self, x):
-        return F.relu6(x + 3.0, inplace=self.inplace) / 6.0
-
-
-class SEModule(nn.Module):
-
-    def __init__(self, channel, act, reduction=4):
-        super(SEModule, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, 1, 0, bias=True), act)
-        self.fc = nn.Sequential(nn.Conv2d(channel // reduction, channel, 1, 1, 0, bias=True), Hsigmoid())
-
-    def forward(self, x):
-        y = self.avg_pool(x)
-        y = self.conv(y)
-        y = self.fc(y)
-        return torch.mul(x, y)
-
-
-class InvertedResidual(nn.Module):
-
-    def __init__(self, inp, oup, kernel_size, stride, expand_ratio, act, se):
-        super(InvertedResidual, self).__init__()
-        assert stride in [1, 2]
-        self.stride = stride
-        self.act = act
-        self.se = se
-        padding = kernel_size // 2
-        hidden_dim = round(inp * expand_ratio)
-        self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv1 = nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False)
-        self.bn1 = nn.BatchNorm2d(hidden_dim)
-        self.conv2 = nn.Conv2d(hidden_dim, hidden_dim, kernel_size, stride, padding, groups=hidden_dim, bias=False)
-        self.bn2 = nn.BatchNorm2d(hidden_dim)
-        if self.se:
-            self.mid_se = SEModule(hidden_dim, act)
-        self.conv3 = nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False)
-        self.bn3 = nn.BatchNorm2d(oup)
-
-    def forward(self, x):
-        inputs = x
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.act(x)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = self.act(x)
-        if self.se:
-            x = self.mid_se(x)
-        x = self.conv3(x)
-        x = self.bn3(x)
-        if self.use_res_connect:
-            return inputs + x
-        else:
-            return x
-
-
 class MoGaB(nn.Module):
 
     def __init__(self, n_class=1000, input_size=224):
@@ -312,79 +249,6 @@ class MoGaB(nn.Module):
                 init_range = 1.0 / math.sqrt(n)
                 m.weight.data.uniform_(-init_range, init_range)
                 m.bias.data.zero_()
-
-
-class Hswish(nn.Module):
-
-    def __init__(self, inplace=True):
-        super(Hswish, self).__init__()
-        self.inplace = inplace
-
-    def forward(self, x):
-        return x * F.relu6(x + 3.0, inplace=self.inplace) / 6.0
-
-
-class Hsigmoid(nn.Module):
-
-    def __init__(self, inplace=True):
-        super(Hsigmoid, self).__init__()
-        self.inplace = inplace
-
-    def forward(self, x):
-        return F.relu6(x + 3.0, inplace=self.inplace) / 6.0
-
-
-class SEModule(nn.Module):
-
-    def __init__(self, channel, act, reduction=4):
-        super(SEModule, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, 1, 0, bias=True), act)
-        self.fc = nn.Sequential(nn.Conv2d(channel // reduction, channel, 1, 1, 0, bias=True), Hsigmoid())
-
-    def forward(self, x):
-        y = self.avg_pool(x)
-        y = self.conv(y)
-        y = self.fc(y)
-        return torch.mul(x, y)
-
-
-class InvertedResidual(nn.Module):
-
-    def __init__(self, inp, oup, kernel_size, stride, expand_ratio, act, se):
-        super(InvertedResidual, self).__init__()
-        assert stride in [1, 2]
-        self.stride = stride
-        self.act = act
-        self.se = se
-        padding = kernel_size // 2
-        hidden_dim = round(inp * expand_ratio)
-        self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv1 = nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False)
-        self.bn1 = nn.BatchNorm2d(hidden_dim)
-        self.conv2 = nn.Conv2d(hidden_dim, hidden_dim, kernel_size, stride, padding, groups=hidden_dim, bias=False)
-        self.bn2 = nn.BatchNorm2d(hidden_dim)
-        if self.se:
-            self.mid_se = SEModule(hidden_dim, act)
-        self.conv3 = nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False)
-        self.bn3 = nn.BatchNorm2d(oup)
-
-    def forward(self, x):
-        inputs = x
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.act(x)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = self.act(x)
-        if self.se:
-            x = self.mid_se(x)
-        x = self.conv3(x)
-        x = self.bn3(x)
-        if self.use_res_connect:
-            return inputs + x
-        else:
-            return x
 
 
 class MoGaC(nn.Module):

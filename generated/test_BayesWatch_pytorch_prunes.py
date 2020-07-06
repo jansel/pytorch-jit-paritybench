@@ -12,17 +12,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import random
+
+
+import numpy as np
+
+
+import torchvision.transforms as transforms
+
+
+import torchvision
+
+
+import time
+
+
+from functools import reduce
 
 
 import torch
@@ -43,9 +62,6 @@ from torch.autograd import Variable
 import torchvision.datasets as dset
 
 
-import torchvision.transforms as transforms
-
-
 from torch.utils.data import DataLoader
 
 
@@ -53,6 +69,12 @@ import torchvision.models as models
 
 
 import math
+
+
+import torch.utils.model_zoo as model_zoo
+
+
+import torch.optim.lr_scheduler as lr_scheduler
 
 
 class Identity(nn.Module):
@@ -85,14 +107,19 @@ class ZeroMake(nn.Module):
 
 
 class MaskBlock(nn.Module):
+    expansion = 1
 
-    def __init__(self, nChannels, growthRate):
+    def __init__(self, in_channels, out_channels, stride=1, dropRate=0.0):
         super(MaskBlock, self).__init__()
-        interChannels = 4 * growthRate
-        self.bn1 = nn.BatchNorm2d(nChannels)
-        self.conv1 = nn.Conv2d(nChannels, interChannels, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(interChannels)
-        self.conv2 = nn.Conv2d(interChannels, growthRate, kernel_size=3, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(in_channels)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        self.droprate = dropRate
+        self.equalInOut = in_channels == out_channels
+        self.convShortcut = not self.equalInOut and nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False) or None
         self.activation = Identity()
         self.activation.register_backward_hook(self._fisher)
         self.register_buffer('mask', None)
@@ -100,32 +127,36 @@ class MaskBlock(nn.Module):
         self.output_shape = None
         self.flops = None
         self.params = None
-        self.in_channels = nChannels
-        self.out_channels = growthRate
-        self.stride = 1
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.stride = stride
+        self.got_shapes = False
         self.running_fisher = 0
 
     def forward(self, x):
-        out = self.conv1(F.relu(self.bn1(x)))
-        out = F.relu(self.bn2(out))
+        if not self.equalInOut:
+            x = self.relu1(self.bn1(x))
+        else:
+            out = self.relu1(self.bn1(x))
+        out = self.conv1(out if self.equalInOut else x)
+        out = self.relu2(self.bn2(out))
         if self.mask is not None:
             out = out * self.mask[(None), :, (None), (None)]
         else:
             self._create_mask(x, out)
         out = self.activation(out)
         self.act = out
+        if self.droprate > 0:
+            out = F.dropout(out, p=self.droprate, training=self.training)
         out = self.conv2(out)
-        out = torch.cat([x, out], 1)
-        return out
+        return torch.add(x if self.equalInOut else self.convShortcut(x), out)
 
     def _create_mask(self, x, out):
-        """This takes an activation to generate the exact mask required. It also records input and output shapes
-        for posterity."""
         self.mask = x.new_ones(out.shape[1])
         self.input_shape = x.size()
         self.output_shape = out.size()
 
-    def _fisher(self, _, __, grad_output):
+    def _fisher(self, notused1, notused2, grad_output):
         act = self.act.detach()
         grad = grad_output[0].detach()
         g_nk = (act * grad).sum(-1).sum(-1)
@@ -135,9 +166,6 @@ class MaskBlock(nn.Module):
     def reset_fisher(self):
         self.running_fisher = 0 * self.running_fisher
 
-    def update(self, previous_mask):
-        return None
-
     def cost(self):
         in_channels = self.in_channels
         out_channels = self.out_channels
@@ -146,11 +174,16 @@ class MaskBlock(nn.Module):
         conv2_size = self.conv2.weight.size()
         self.params = in_channels * middle_channels * conv1_size[2] * conv1_size[3] + middle_channels * out_channels * conv2_size[2] * conv2_size[3]
         self.params += 2 * in_channels + 2 * middle_channels
+        if not self.equalInOut:
+            self.params += in_channels * out_channels
+        else:
+            self.params += 0
 
     def compress_weights(self):
         middle_dim = int(self.mask.sum().item())
+        None
         if middle_dim is not 0:
-            conv1 = nn.Conv2d(self.in_channels, middle_dim, kernel_size=3, stride=1, bias=False)
+            conv1 = nn.Conv2d(self.in_channels, middle_dim, kernel_size=3, stride=self.stride, padding=1, bias=False)
             conv1.weight = nn.Parameter(self.conv1.weight[(self.mask == 1), :, :, :])
             bn2 = nn.BatchNorm2d(middle_dim)
             bn2.weight = nn.Parameter(self.bn2.weight[self.mask == 1])
@@ -273,35 +306,6 @@ class DenseNet(nn.Module):
         return out
 
 
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class Zero(nn.Module):
-
-    def __init__(self):
-        super(Zero, self).__init__()
-
-    def forward(self, x):
-        return x * 0
-
-
-class ZeroMake(nn.Module):
-
-    def __init__(self, channels, spatial):
-        super(ZeroMake, self).__init__()
-        self.spatial = spatial
-        self.channels = channels
-
-    def forward(self, x):
-        return torch.zeros([x.size()[0], self.channels, x.size()[2] // self.spatial, x.size()[3] // self.spatial], dtype=x.dtype, layout=x.layout, device=x.device)
-
-
 class BasicBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, stride, dropRate=0.0):
@@ -352,105 +356,6 @@ class BottleBlock(nn.Module):
             out = F.dropout(out, p=self.droprate, training=self.training)
         out = self.conv2(out)
         return torch.add(x if self.equalInOut else self.convShortcut(x), out)
-
-
-class MaskBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, in_channels, out_channels, stride=1, dropRate=0.0):
-        super(MaskBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_channels)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_channels)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-        self.droprate = dropRate
-        self.equalInOut = in_channels == out_channels
-        self.convShortcut = not self.equalInOut and nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, padding=0, bias=False) or None
-        self.activation = Identity()
-        self.activation.register_backward_hook(self._fisher)
-        self.register_buffer('mask', None)
-        self.input_shape = None
-        self.output_shape = None
-        self.flops = None
-        self.params = None
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.stride = stride
-        self.got_shapes = False
-        self.running_fisher = 0
-
-    def forward(self, x):
-        if not self.equalInOut:
-            x = self.relu1(self.bn1(x))
-        else:
-            out = self.relu1(self.bn1(x))
-        out = self.conv1(out if self.equalInOut else x)
-        out = self.relu2(self.bn2(out))
-        if self.mask is not None:
-            out = out * self.mask[(None), :, (None), (None)]
-        else:
-            self._create_mask(x, out)
-        out = self.activation(out)
-        self.act = out
-        if self.droprate > 0:
-            out = F.dropout(out, p=self.droprate, training=self.training)
-        out = self.conv2(out)
-        return torch.add(x if self.equalInOut else self.convShortcut(x), out)
-
-    def _create_mask(self, x, out):
-        self.mask = x.new_ones(out.shape[1])
-        self.input_shape = x.size()
-        self.output_shape = out.size()
-
-    def _fisher(self, notused1, notused2, grad_output):
-        act = self.act.detach()
-        grad = grad_output[0].detach()
-        g_nk = (act * grad).sum(-1).sum(-1)
-        del_k = g_nk.pow(2).mean(0).mul(0.5)
-        self.running_fisher += del_k
-
-    def reset_fisher(self):
-        self.running_fisher = 0 * self.running_fisher
-
-    def cost(self):
-        in_channels = self.in_channels
-        out_channels = self.out_channels
-        middle_channels = int(self.mask.sum().item())
-        conv1_size = self.conv1.weight.size()
-        conv2_size = self.conv2.weight.size()
-        self.params = in_channels * middle_channels * conv1_size[2] * conv1_size[3] + middle_channels * out_channels * conv2_size[2] * conv2_size[3]
-        self.params += 2 * in_channels + 2 * middle_channels
-        if not self.equalInOut:
-            self.params += in_channels * out_channels
-        else:
-            self.params += 0
-
-    def compress_weights(self):
-        middle_dim = int(self.mask.sum().item())
-        None
-        if middle_dim is not 0:
-            conv1 = nn.Conv2d(self.in_channels, middle_dim, kernel_size=3, stride=self.stride, padding=1, bias=False)
-            conv1.weight = nn.Parameter(self.conv1.weight[(self.mask == 1), :, :, :])
-            bn2 = nn.BatchNorm2d(middle_dim)
-            bn2.weight = nn.Parameter(self.bn2.weight[self.mask == 1])
-            bn2.bias = nn.Parameter(self.bn2.bias[self.mask == 1])
-            bn2.running_mean = self.bn2.running_mean[self.mask == 1]
-            bn2.running_var = self.bn2.running_var[self.mask == 1]
-            conv2 = nn.Conv2d(middle_dim, self.out_channels, kernel_size=3, stride=1, padding=1, bias=False)
-            conv2.weight = nn.Parameter(self.conv2.weight[:, (self.mask == 1), :, :])
-        if middle_dim is 0:
-            conv1 = Zero()
-            bn2 = Zero()
-            conv2 = ZeroMake(channels=self.out_channels, spatial=self.stride)
-        self.conv1 = conv1
-        self.conv2 = conv2
-        self.bn2 = bn2
-        if middle_dim is not 0:
-            self.mask = torch.ones(middle_dim)
-        else:
-            self.mask = torch.ones(1)
 
 
 class NetworkBlock(nn.Module):

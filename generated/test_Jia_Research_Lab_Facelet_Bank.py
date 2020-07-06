@@ -26,23 +26,48 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-from collections import OrderedDict
+import time
+
+
+import numpy
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
+import math
 
 
 import torch
+
+
+import scipy.misc
+
+
+import numpy as np
+
+
+import torchvision as tv
+
+
+from collections import OrderedDict
 
 
 import torch.nn as nn
@@ -58,9 +83,6 @@ import functools
 
 
 from torch.utils.data import DataLoader
-
-
-import numpy as np
 
 
 from torch.autograd import Variable
@@ -94,10 +116,10 @@ class BaseModel(object):
         message = '(epoch: %d, iters: %d) ' % (epoch, i)
         for k, v in errors.items():
             message += '%s: %.3f ' % (k, v)
-        print(message)
+        None
         if record_file is not None:
             with open(record_file + '/loss.txt', 'w') as f:
-                print(message, file=f)
+                None
 
     def save(self, label):
         pass
@@ -108,27 +130,27 @@ class BaseModel(object):
     def save_network(self, network, save_dir, label):
         save_filename = '%s.pth' % label
         save_path = os.path.join(save_dir, save_filename)
-        print('saving %s in %s' % (save_filename, save_path))
+        None
         torch.save(network.cpu().state_dict(), save_path)
-        network.cuda()
+        network
 
     def resume_network(self, network, network_label, epoch_label):
         save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
         save_path = os.path.join(self.opt.save_dir, save_filename)
-        print('loading %s from %s' % (save_filename, save_path))
+        None
         network.load_state_dict(torch.load(save_path))
 
     def load_network(self, network, pretrain_path, label):
         filename = '%s.pth' % label
         save_path = os.path.join(pretrain_path, filename)
-        print('loading %s from %s' % (filename, pretrain_path))
+        None
         network.load_state_dict(torch.load(save_path))
 
     def update_learning_rate(self):
         for scheduler in self.schedulers:
             scheduler.step()
         lr = self.optimizers[0].param_groups[0]['lr']
-        print('learning rate = %.7f' % lr)
+        None
 
 
 model_urls = {'older': 'https://www.dropbox.com/s/8irg2hguatwdm6v/older.pth?dl=1', 'younger': 'https://www.dropbox.com/s/drsx7slvmjdpwuq/younger.pth?dl=1', 'facehair': 'https://www.dropbox.com/s/xjd2xh53vw82ces/facehair.pth?dl=1', 'masculinization': 'https://www.dropbox.com/s/20q30jnn02qn7n0/masculinization.pth?dl=1', 'feminization': 'https://www.dropbox.com/s/5timkh7fuclwk9m/feminization.pth?dl=1', 'vgg19g': 'https://www.dropbox.com/s/4lbt58k10o84l5h/vgg19g-4aff041b.pth?dl=1', 'vgg_decoder_res': 'https://www.dropbox.com/s/t8vsobxz8avsmj0/decoder_res-9d1e0fe5.pth?dl=1'}
@@ -153,6 +175,34 @@ class VGG(nn.Module, BaseModel):
         features_2 = self.features_2(features_1)
         features_3 = self.features_3(features_2)
         return features_1, features_2, features_3
+
+
+class _PoolingBlock(nn.Sequential):
+
+    def __init__(self, n_convs, n_input_filters, n_output_filters, drop_rate):
+        super(_PoolingBlock, self).__init__()
+        for i in range(n_convs):
+            self.add_module('conv.%d' % (i + 1), nn.Conv2d(n_input_filters if i == 0 else n_output_filters, n_output_filters, kernel_size=3, padding=1))
+            self.add_module('norm.%d' % (i + 1), nn.BatchNorm2d(n_output_filters))
+            self.add_module('relu.%d' % (i + 1), nn.ReLU(inplace=True))
+            if drop_rate > 0:
+                self.add_module('drop.%d' % (i + 1), nn.Dropout(p=drop_rate))
+
+
+class _TransitionUp(nn.Sequential):
+
+    def __init__(self, n_input_filters, n_output_filters):
+        super(_TransitionUp, self).__init__()
+        self.add_module('unpool.conv', nn.ConvTranspose2d(n_input_filters, n_output_filters, kernel_size=4, stride=2, padding=1))
+        self.add_module('unpool.norm', nn.BatchNorm2d(n_output_filters))
+
+
+class _Upsample(nn.Sequential):
+
+    def __init__(self, n_input_filters, n_output_filters):
+        super(_Upsample, self).__init__()
+        self.add_module('interp.conv', nn.Conv2d(n_input_filters, n_output_filters, kernel_size=3, padding=1))
+        self.add_module('interp.norm', nn.BatchNorm2d(n_output_filters))
 
 
 class Vgg_recon(nn.Module):
@@ -191,34 +241,6 @@ class Vgg_recon(nn.Module):
         recon1 = self.recon1(upool1)
         recon0 = self.recon0(recon1)
         return recon0
-
-
-class _PoolingBlock(nn.Sequential):
-
-    def __init__(self, n_convs, n_input_filters, n_output_filters, drop_rate):
-        super(_PoolingBlock, self).__init__()
-        for i in range(n_convs):
-            self.add_module('conv.%d' % (i + 1), nn.Conv2d(n_input_filters if i == 0 else n_output_filters, n_output_filters, kernel_size=3, padding=1))
-            self.add_module('norm.%d' % (i + 1), nn.BatchNorm2d(n_output_filters))
-            self.add_module('relu.%d' % (i + 1), nn.ReLU(inplace=True))
-            if drop_rate > 0:
-                self.add_module('drop.%d' % (i + 1), nn.Dropout(p=drop_rate))
-
-
-class _TransitionUp(nn.Sequential):
-
-    def __init__(self, n_input_filters, n_output_filters):
-        super(_TransitionUp, self).__init__()
-        self.add_module('unpool.conv', nn.ConvTranspose2d(n_input_filters, n_output_filters, kernel_size=4, stride=2, padding=1))
-        self.add_module('unpool.norm', nn.BatchNorm2d(n_output_filters))
-
-
-class _Upsample(nn.Sequential):
-
-    def __init__(self, n_input_filters, n_output_filters):
-        super(_Upsample, self).__init__()
-        self.add_module('interp.conv', nn.Conv2d(n_input_filters, n_output_filters, kernel_size=3, padding=1))
-        self.add_module('interp.norm', nn.BatchNorm2d(n_output_filters))
 
 
 class vgg_decoder(base_network.BaseModel, nn.Module):

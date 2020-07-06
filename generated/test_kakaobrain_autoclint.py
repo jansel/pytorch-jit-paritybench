@@ -32,15 +32,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -72,16 +73,37 @@ from torchvision.models.resnet import Bottleneck
 import random
 
 
+import tensorflow as tf
+
+
 import torchvision as tv
 
 
 import numpy as np
 
 
+from torch.utils.data import Dataset
+
+
+from abc import ABC
+
+
+from collections import defaultdict
+
+
+from torch.utils.data import Sampler
+
+
 from torch import nn
 
 
 from functools import wraps
+
+
+from sklearn.preprocessing import LabelEncoder
+
+
+from sklearn.model_selection import StratifiedShuffleSplit
 
 
 class MoveToHook(nn.Module):
@@ -201,12 +223,8 @@ class Reshape(torch.nn.Module):
 
 class Flatten(torch.nn.Module):
 
-    def __init__(self):
-        super(Flatten, self).__init__()
-
     def forward(self, x):
-        batch = x.shape[0]
-        return x.view([batch, -1])
+        return x.view(x.size(0), -1)
 
 
 class SplitTime(torch.nn.Module):
@@ -262,12 +280,6 @@ class Mul(torch.nn.Module):
 
     def forward(self, x):
         return x * self.weight
-
-
-class Flatten(torch.nn.Module):
-
-    def forward(self, x):
-        return x.view(x.size(0), -1)
 
 
 def decorator_tuple_to_args(func):

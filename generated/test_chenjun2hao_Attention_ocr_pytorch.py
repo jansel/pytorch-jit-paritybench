@@ -15,20 +15,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+from torch.autograd import Variable
 
 
 import torch.nn as nn
@@ -37,22 +41,28 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from torch.autograd import Variable
-
-
 from torch.nn.parameter import Parameter
+
+
+import numpy as np
+
+
+import torchvision.transforms as transforms
+
+
+import random
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import sampler
 
 
 import collections
 
 
 import math
-
-
-import random
-
-
-import numpy as np
 
 
 import torch.backends.cudnn as cudnn
@@ -85,18 +95,18 @@ class BidirectionalLSTM(nn.Module):
 
 class AttentionCell(nn.Module):
 
-    def __init__(self, input_size, hidden_size):
+    def __init__(self, input_size, hidden_size, num_embeddings=128):
         super(AttentionCell, self).__init__()
         self.i2h = nn.Linear(input_size, hidden_size, bias=False)
         self.h2h = nn.Linear(hidden_size, hidden_size)
         self.score = nn.Linear(hidden_size, 1, bias=False)
-        self.rnn = nn.GRUCell(input_size, hidden_size)
+        self.rnn = nn.GRUCell(input_size + num_embeddings, hidden_size)
         self.hidden_size = hidden_size
         self.input_size = input_size
+        self.num_embeddings = num_embeddings
         self.processed_batches = 0
 
-    def forward(self, prev_hidden, feats):
-        self.processed_batches = self.processed_batches + 1
+    def forward(self, prev_hidden, feats, cur_embeddings):
         nT = feats.size(0)
         nB = feats.size(1)
         nC = feats.size(2)
@@ -105,11 +115,15 @@ class AttentionCell(nn.Module):
         feats_proj = self.i2h(feats.view(-1, nC))
         prev_hidden_proj = self.h2h(prev_hidden).view(1, nB, hidden_size).expand(nT, nB, hidden_size).contiguous().view(-1, hidden_size)
         emition = self.score(torch.tanh(feats_proj + prev_hidden_proj).view(-1, hidden_size)).view(nT, nB).transpose(0, 1)
-        alpha = F.softmax(emition, dim=1)
+        self.processed_batches = self.processed_batches + 1
+        if self.processed_batches % 10000 == 0:
+            None
+        alpha = F.softmax(emition)
         if self.processed_batches % 10000 == 0:
             None
             None
         context = (feats * alpha.transpose(0, 1).contiguous().view(nT, nB, 1).expand(nT, nB, nC)).sum(0).squeeze(0)
+        context = torch.cat([context, cur_embeddings], 1)
         cur_hidden = self.rnn(context, prev_hidden)
         return cur_hidden, alpha
 
@@ -178,57 +192,6 @@ class CRNN(nn.Module):
         rnn = self.rnn(conv)
         output = self.attention(rnn, length)
         return output
-
-
-class BidirectionalLSTM(nn.Module):
-
-    def __init__(self, nIn, nHidden, nOut):
-        super(BidirectionalLSTM, self).__init__()
-        self.rnn = nn.LSTM(nIn, nHidden, bidirectional=True)
-        self.embedding = nn.Linear(nHidden * 2, nOut)
-
-    def forward(self, input):
-        recurrent, _ = self.rnn(input)
-        T, b, h = recurrent.size()
-        t_rec = recurrent.view(T * b, h)
-        output = self.embedding(t_rec)
-        output = output.view(T, b, -1)
-        return output
-
-
-class AttentionCell(nn.Module):
-
-    def __init__(self, input_size, hidden_size, num_embeddings=128):
-        super(AttentionCell, self).__init__()
-        self.i2h = nn.Linear(input_size, hidden_size, bias=False)
-        self.h2h = nn.Linear(hidden_size, hidden_size)
-        self.score = nn.Linear(hidden_size, 1, bias=False)
-        self.rnn = nn.GRUCell(input_size + num_embeddings, hidden_size)
-        self.hidden_size = hidden_size
-        self.input_size = input_size
-        self.num_embeddings = num_embeddings
-        self.processed_batches = 0
-
-    def forward(self, prev_hidden, feats, cur_embeddings):
-        nT = feats.size(0)
-        nB = feats.size(1)
-        nC = feats.size(2)
-        hidden_size = self.hidden_size
-        input_size = self.input_size
-        feats_proj = self.i2h(feats.view(-1, nC))
-        prev_hidden_proj = self.h2h(prev_hidden).view(1, nB, hidden_size).expand(nT, nB, hidden_size).contiguous().view(-1, hidden_size)
-        emition = self.score(torch.tanh(feats_proj + prev_hidden_proj).view(-1, hidden_size)).view(nT, nB).transpose(0, 1)
-        self.processed_batches = self.processed_batches + 1
-        if self.processed_batches % 10000 == 0:
-            None
-        alpha = F.softmax(emition)
-        if self.processed_batches % 10000 == 0:
-            None
-            None
-        context = (feats * alpha.transpose(0, 1).contiguous().view(nT, nB, 1).expand(nT, nB, nC)).sum(0).squeeze(0)
-        context = torch.cat([context, cur_embeddings], 1)
-        cur_hidden = self.rnn(context, prev_hidden)
-        return cur_hidden, alpha
 
 
 class DecoderRNN(nn.Module):
@@ -312,22 +275,10 @@ class CNN(nn.Module):
         return encoder_outputs
 
 
-class decoder(nn.Module):
-    """
-        decoder from image features
-    """
+parser = argparse.ArgumentParser()
 
-    def __init__(self, nh=256, nclass=13, dropout_p=0.1, max_length=71):
-        super(decoder, self).__init__()
-        self.hidden_size = nh
-        self.decoder = Attentiondecoder(nh, nclass, dropout_p, max_length)
 
-    def forward(self, input, hidden, encoder_outputs):
-        return self.decoder(input, hidden, encoder_outputs)
-
-    def initHidden(self, batch_size):
-        result = Variable(torch.zeros(1, batch_size, self.hidden_size))
-        return result
+opt = parser.parse_args()
 
 
 class AttentiondecoderV2(nn.Module):
@@ -394,10 +345,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AttentiondecoderV2,
-     lambda: ([], {'hidden_size': 4, 'output_size': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {}),
-     True),
     (BidirectionalLSTM,
      lambda: ([], {'nIn': 4, 'nHidden': 4, 'nOut': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -407,7 +354,4 @@ TESTCASES = [
 class Test_chenjun2hao_Attention_ocr_pytorch(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

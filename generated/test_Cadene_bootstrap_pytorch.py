@@ -15,6 +15,7 @@ logger = _module
 lib = _module
 options = _module
 overwrite_print = _module
+utils = _module
 models = _module
 criterions = _module
 bce = _module
@@ -27,6 +28,7 @@ networks = _module
 data_parallel = _module
 new = _module
 optimizers = _module
+factory = _module
 grad_clipper = _module
 lr_scheduler = _module
 run = _module
@@ -36,6 +38,7 @@ generate = _module
 plotly = _module
 tensorboard = _module
 conf = _module
+setup = _module
 test_new = _module
 test_options = _module
 
@@ -43,29 +46,66 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import torch.nn as nn
+import torch.utils.data as data
+
+
+import itertools
+
+
+import numpy as np
+
+
+import collections
 
 
 import torch
 
 
+from torch.autograd import Variable
+
+
+import math
+
+
+import time
+
+
+import numpy
+
+
+import random
+
+
+import torch.nn as nn
+
+
 from torch.nn.parallel._functions import Gather
 
 
+import copy
+
+
 from torch.nn.utils.clip_grad import clip_grad_norm
+
+
+import torch.optim.lr_scheduler
+
+
+import torch.backends.cudnn as cudnn
 
 
 class BCEWithLogitsLoss(nn.Module):

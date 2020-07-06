@@ -31,6 +31,7 @@ utils = _module
 _sampler = _module
 distributed_utils = _module
 setup_utils = _module
+utils = _module
 visualization = _module
 test_basic = _module
 
@@ -38,15 +39,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -66,13 +68,19 @@ from typing import List
 from typing import Tuple
 
 
-from typing import Sequence
+from typing import Any
 
 
 from typing import Dict
 
 
-from typing import Any
+from torch.utils.data import Dataset
+
+
+import numpy as np
+
+
+from typing import Sequence
 
 
 from typing import Optional
@@ -90,13 +98,7 @@ import logging
 import random
 
 
-import numpy as np
-
-
 import torch.nn.functional as F
-
-
-from torch.utils.data import Dataset
 
 
 from scipy.spatial.distance import pdist
@@ -112,6 +114,9 @@ import warnings
 
 
 import inspect
+
+
+from functools import wraps
 
 
 import math
@@ -132,10 +137,52 @@ import copy
 from torch.nn.utils.weight_norm import weight_norm
 
 
+from torch.optim import Optimizer
+
+
+from torch.optim.lr_scheduler import LambdaLR
+
+
+from typing import Type
+
+
+from typing import Callable
+
+
 import torch.optim as optim
 
 
 from torch.utils.data import DataLoader
+
+
+from torch.utils.data.sampler import Sampler
+
+
+from torch.utils.data.sampler import BatchSampler
+
+
+from torch.utils.data.sampler import SubsetRandomSampler
+
+
+import torch.distributed as dist
+
+
+from torch.multiprocessing import _prctl_pr_set_pdeathsig
+
+
+from torch.utils.data import RandomSampler
+
+
+from torch.utils.data.distributed import DistributedSampler
+
+
+from time import strftime
+
+
+from time import gmtime
+
+
+from collections import defaultdict
 
 
 from abc import ABC
@@ -232,7 +279,7 @@ def prune_linear_layer(layer, index, dim=0):
         Return the pruned layer as a new layer with requires_grad=True.
         Used to remove heads.
     """
-    index = index.to(layer.weight.device)
+    index = index
     W = layer.weight.index_select(dim, index).clone().detach()
     if layer.bias is not None:
         if dim == 1:
@@ -241,7 +288,7 @@ def prune_linear_layer(layer, index, dim=0):
             b = layer.bias[index].clone().detach()
     new_size = list(layer.weight.size())
     new_size[dim] = len(index)
-    new_layer = nn.Linear(new_size[1], new_size[0], bias=layer.bias is not None).to(layer.weight.device)
+    new_layer = nn.Linear(new_size[1], new_size[0], bias=layer.bias is not None)
     new_layer.weight.requires_grad = False
     new_layer.weight.copy_(W.contiguous())
     new_layer.weight.requires_grad = True
@@ -504,6 +551,23 @@ def split_s3_path(url):
     if s3_path.startswith('/'):
         s3_path = s3_path[1:]
     return bucket_name, s3_path
+
+
+@s3_request
+def s3_etag(url):
+    """Check ETag on S3 object."""
+    s3_resource = boto3.resource('s3')
+    bucket_name, s3_path = split_s3_path(url)
+    s3_object = s3_resource.Object(bucket_name, s3_path)
+    return s3_object.e_tag
+
+
+@s3_request
+def s3_get(url, temp_file):
+    """Pull a file directly from S3."""
+    s3_resource = boto3.resource('s3')
+    bucket_name, s3_path = split_s3_path(url)
+    s3_resource.Bucket(bucket_name).download_fileobj(s3_path, temp_file)
 
 
 def url_to_filename(url, etag=None):

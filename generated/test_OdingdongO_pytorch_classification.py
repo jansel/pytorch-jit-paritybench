@@ -24,17 +24,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from sklearn.model_selection import train_test_split
 
 
 import torch
@@ -70,6 +74,24 @@ from torch.nn import CrossEntropyLoss
 import logging
 
 
+import torch.utils.data as data
+
+
+import numpy as np
+
+
+import random
+
+
+from numpy import random
+
+
+import math
+
+
+from sklearn.utils import shuffle
+
+
 import torch.nn as nn
 
 
@@ -82,13 +104,7 @@ from torch import nn
 import torch.nn.functional as F
 
 
-import math
-
-
 from torch.nn import init
-
-
-import numpy as np
 
 
 from torch.autograd import Variable
@@ -100,13 +116,16 @@ from math import ceil
 from torch.nn.functional import softmax
 
 
+import time
+
+
 class BasicConv2d(nn.Module):
 
     def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
         super(BasicConv2d, self).__init__()
         self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1, affine=True)
-        self.relu = nn.ReLU(inplace=False)
+        self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
         x = self.conv(x)
@@ -285,21 +304,6 @@ class InceptionResNetV2(nn.Module):
     def forward(self, input):
         x = self.features(input)
         x = self.logits(x)
-        return x
-
-
-class BasicConv2d(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
-        super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0.1, affine=True)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
         return x
 
 

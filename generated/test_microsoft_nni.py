@@ -43,9 +43,11 @@ macro = _module
 micro = _module
 ops = _module
 search = _module
+utils = _module
 train = _module
 train = _module
 search = _module
+datasets = _module
 main = _module
 model = _module
 ops = _module
@@ -59,6 +61,7 @@ supernet = _module
 tester = _module
 tuner = _module
 utils = _module
+dataloader = _module
 model = _module
 ops = _module
 retrain = _module
@@ -124,7 +127,6 @@ mockedTrial = _module
 nnicli = _module
 nni_client = _module
 nni = _module
-__main__ = _module
 _graph_utils = _module
 batch_tuner = _module
 bohb_advisor = _module
@@ -136,7 +138,6 @@ builtin_pruners = _module
 builtin_quantizers = _module
 compressor = _module
 default_layers = _module
-torch = _module
 compressor = _module
 pruning = _module
 agp = _module
@@ -151,6 +152,7 @@ quantization = _module
 quantizers = _module
 speedup = _module
 compress_modules = _module
+compressor = _module
 infer_shape = _module
 config_validation = _module
 curvefitting_assessor = _module
@@ -164,6 +166,7 @@ gbdt_selector = _module
 gradient_selector = _module
 fginitialize = _module
 fgtrain = _module
+gradient_selector = _module
 learnability = _module
 syssettings = _module
 gp_tuner = _module
@@ -193,6 +196,7 @@ callbacks = _module
 cdarts = _module
 mutator = _module
 trainer = _module
+utils = _module
 classic_nas = _module
 mutator = _module
 darts = _module
@@ -203,7 +207,9 @@ mutator = _module
 trainer = _module
 fixed = _module
 mutables = _module
+mutator = _module
 pdarts = _module
+mutator = _module
 proxylessnas = _module
 mutator = _module
 trainer = _module
@@ -215,6 +221,7 @@ evolution = _module
 mutator = _module
 trainer = _module
 trainer = _module
+utils = _module
 nas_utils = _module
 networkmorphism_tuner = _module
 bayesian = _module
@@ -312,15 +319,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -364,10 +372,13 @@ from torch.utils.data import DataLoader
 import time
 
 
-import random
-
-
 import numpy as np
+
+
+import torchvision.datasets as dset
+
+
+import random
 
 
 import torch.distributed as dist
@@ -380,6 +391,9 @@ from collections import namedtuple
 
 
 from collections import OrderedDict
+
+
+from torchvision.datasets import CIFAR10
 
 
 from torch.utils.tensorboard import SummaryWriter
@@ -397,6 +411,12 @@ import re
 from itertools import cycle
 
 
+from collections import Counter
+
+
+from torch.utils import data
+
+
 from torch import nn
 
 
@@ -412,13 +432,16 @@ import torch.backends.cudnn as cudnn
 import torch.nn.init as init
 
 
+import torch.utils.data as data
+
+
+from torchvision import models
+
+
 from torch.autograd import Variable
 
 
 from torch.nn import functional as F
-
-
-from torchvision import models
 
 
 from torchvision.models import resnet34
@@ -431,6 +454,9 @@ from torchvision.models import resnet50
 
 
 from torchvision.models import resnet152
+
+
+from sklearn.model_selection import StratifiedKFold
 
 
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -466,6 +492,42 @@ import types
 import copy
 
 
+import scipy.sparse
+
+
+from sklearn.datasets import load_svmlight_file
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data.dataloader import _utils
+
+
+from sklearn.feature_selection import SelectKBest
+
+
+from sklearn.feature_selection import f_classif
+
+
+from sklearn.feature_selection import mutual_info_classif
+
+
+from sklearn.feature_selection import f_regression
+
+
+from sklearn.feature_selection import mutual_info_regression
+
+
+from sklearn.base import BaseEstimator
+
+
+from sklearn.feature_selection.base import SelectorMixin
+
+
+from sklearn.utils.validation import check_is_fitted
+
+
 import scipy.special
 
 
@@ -485,6 +547,9 @@ from copy import copy
 
 
 from torch.nn import functional
+
+
+import tensorflow as tf
 
 
 import uuid
@@ -508,29 +573,6 @@ class VGG_Cifar10(nn.Module):
         x = x.view(-1, 512 * 4 * 4)
         x = self.classifier(x)
         return x
-
-
-class Mnist(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.conv1 = torch.nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = torch.nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = torch.nn.Linear(4 * 4 * 50, 500)
-        self.fc2 = torch.nn.Linear(500, 10)
-        self.relu1 = torch.nn.ReLU6()
-        self.relu2 = torch.nn.ReLU6()
-        self.relu3 = torch.nn.ReLU6()
-
-    def forward(self, x):
-        x = self.relu1(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = self.relu2(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 50)
-        x = self.relu3(self.fc1(x))
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
 
 
 class Mnist(torch.nn.Module):
@@ -590,55 +632,30 @@ class NaiveModel(torch.nn.Module):
         return x
 
 
-defaultcfg = {(11): [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512], (13): [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512], (16): [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512], (19): [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512]}
-
-
 class VGG(nn.Module):
 
-    def __init__(self, depth=16):
+    def __init__(self, vgg_name):
         super(VGG, self).__init__()
-        cfg = defaultcfg[depth]
-        self.cfg = cfg
-        self.feature = self.make_layers(cfg, True)
-        num_classes = 10
-        self.classifier = nn.Sequential(nn.Linear(cfg[-1], 512), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Linear(512, num_classes))
-        self._initialize_weights()
-
-    def make_layers(self, cfg, batch_norm=False):
-        layers = []
-        in_channels = 3
-        for v in cfg:
-            if v == 'M':
-                layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-            else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1, bias=False)
-                if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-                else:
-                    layers += [conv2d, nn.ReLU(inplace=True)]
-                in_channels = v
-        return nn.Sequential(*layers)
+        self.features = self._make_layers(cfg[vgg_name])
+        self.classifier = nn.Linear(512, 10)
 
     def forward(self, x):
-        x = self.feature(x)
-        x = nn.AvgPool2d(2)(x)
-        x = x.view(x.size(0), -1)
-        y = self.classifier(x)
-        return y
+        out = self.features(x)
+        out = out.view(out.size(0), -1)
+        out = self.classifier(out)
+        return out
 
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(0.5)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                m.weight.data.normal_(0, 0.01)
-                m.bias.data.zero_()
+    def _make_layers(self, cfg):
+        layers = []
+        in_channels = 3
+        for x in cfg:
+            if x == 'M':
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+            else:
+                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1), nn.BatchNorm2d(x), nn.ReLU(inplace=True)]
+                in_channels = x
+        layers += [nn.AvgPool2d(kernel_size=1, stride=1)]
+        return nn.Sequential(*layers)
 
 
 class DistillHeadCIFAR(nn.Module):
@@ -701,298 +718,6 @@ class AuxiliaryHeadImageNet(nn.Module):
         return x
 
 
-class Node(nn.Module):
-
-    def __init__(self, node_id, num_prev_nodes, channels, num_downsample_connect):
-        super().__init__()
-        self.ops = nn.ModuleList()
-        choice_keys = []
-        for i in range(num_prev_nodes):
-            stride = 2 if i < num_downsample_connect else 1
-            choice_keys.append('{}_p{}'.format(node_id, i))
-            self.ops.append(mutables.LayerChoice([ops.OPS[k](channels, stride, False) for k in ops.PRIMITIVES], key=choice_keys[-1]))
-        self.drop_path = ops.DropPath()
-        self.input_switch = mutables.InputChoice(choose_from=choice_keys, n_chosen=2, key='{}_switch'.format(node_id))
-
-    def forward(self, prev_nodes):
-        assert len(self.ops) == len(prev_nodes)
-        out = [op(node) for op, node in zip(self.ops, prev_nodes)]
-        out = [(self.drop_path(o) if o is not None else None) for o in out]
-        return self.input_switch(out)
-
-
-class Cell(nn.Module):
-
-    def __init__(self, n_nodes, channels_pp, channels_p, channels, reduction_p, reduction):
-        super().__init__()
-        self.reduction = reduction
-        self.n_nodes = n_nodes
-        if reduction_p:
-            self.preproc0 = ops.FactorizedReduce(channels_pp, channels, affine=False)
-        else:
-            self.preproc0 = ops.StdConv(channels_pp, channels, 1, 1, 0, affine=False)
-        self.preproc1 = ops.StdConv(channels_p, channels, 1, 1, 0, affine=False)
-        self.mutable_ops = nn.ModuleList()
-        for depth in range(2, self.n_nodes + 2):
-            self.mutable_ops.append(Node('{}_n{}'.format('reduce' if reduction else 'normal', depth), depth, channels, 2 if reduction else 0))
-
-    def forward(self, s0, s1):
-        tensors = [self.preproc0(s0), self.preproc1(s1)]
-        for node in self.mutable_ops:
-            cur_tensor = node(tensors)
-            tensors.append(cur_tensor)
-        output = torch.cat(tensors[2:], dim=1)
-        return output
-
-
-Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
-
-
-PRIMITIVES = ['max_pool_3x3', 'avg_pool_3x3', 'skip_connect', 'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
-
-
-def parse_results(results, n_nodes):
-    concat = range(2, 2 + n_nodes)
-    normal_gene = []
-    reduction_gene = []
-    for i in range(n_nodes):
-        normal_node = []
-        reduction_node = []
-        for j in range(2 + i):
-            normal_key = 'normal_n{}_p{}'.format(i + 2, j)
-            reduction_key = 'reduce_n{}_p{}'.format(i + 2, j)
-            normal_op = results[normal_key].cpu().numpy()
-            reduction_op = results[reduction_key].cpu().numpy()
-            if sum(normal_op == 1):
-                normal_index = np.argmax(normal_op)
-                normal_node.append((PRIMITIVES[normal_index], j))
-            if sum(reduction_op == 1):
-                reduction_index = np.argmax(reduction_op)
-                reduction_node.append((PRIMITIVES[reduction_index], j))
-        normal_gene.append(normal_node)
-        reduction_gene.append(reduction_node)
-    genotypes = Genotype(normal=normal_gene, normal_concat=concat, reduce=reduction_gene, reduce_concat=concat)
-    return genotypes
-
-
-class Model(nn.Module):
-
-    def __init__(self, dataset, n_layers, in_channels=3, channels=16, n_nodes=4, retrain=False, shared_modules=None):
-        super().__init__()
-        assert dataset in ['cifar10', 'imagenet']
-        self.dataset = dataset
-        self.input_size = 32 if dataset == 'cifar' else 224
-        self.in_channels = in_channels
-        self.channels = channels
-        self.n_nodes = n_nodes
-        self.aux_size = {(2 * n_layers // 3): self.input_size // 4}
-        if dataset == 'cifar10':
-            self.n_classes = 10
-            self.aux_head_class = AuxiliaryHeadCIFAR if retrain else DistillHeadCIFAR
-            if not retrain:
-                self.aux_size = {(n_layers // 3): 6, (2 * n_layers // 3): 6}
-        elif dataset == 'imagenet':
-            self.n_classes = 1000
-            self.aux_head_class = AuxiliaryHeadImageNet if retrain else DistillHeadImagenet
-            if not retrain:
-                self.aux_size = {(n_layers // 3): 6, (2 * n_layers // 3): 5}
-        self.n_layers = n_layers
-        self.aux_head = nn.ModuleDict()
-        self.ensemble_param = nn.Parameter(torch.rand(len(self.aux_size) + 1) / (len(self.aux_size) + 1)) if not retrain else None
-        stem_multiplier = 3 if dataset == 'cifar' else 1
-        c_cur = stem_multiplier * self.channels
-        self.shared_modules = {}
-        if shared_modules is not None:
-            self.stem = shared_modules['stem']
-        else:
-            self.stem = nn.Sequential(nn.Conv2d(in_channels, c_cur, 3, 1, 1, bias=False), nn.BatchNorm2d(c_cur))
-            self.shared_modules['stem'] = self.stem
-        channels_pp, channels_p, c_cur = c_cur, c_cur, channels
-        self.cells = nn.ModuleList()
-        reduction_p, reduction = False, False
-        aux_head_count = 0
-        for i in range(n_layers):
-            reduction_p, reduction = reduction, False
-            if i in [n_layers // 3, 2 * n_layers // 3]:
-                c_cur *= 2
-                reduction = True
-            cell = Cell(n_nodes, channels_pp, channels_p, c_cur, reduction_p, reduction)
-            self.cells.append(cell)
-            c_cur_out = c_cur * n_nodes
-            if i in self.aux_size:
-                if shared_modules is not None:
-                    self.aux_head[str(i)] = shared_modules['aux' + str(aux_head_count)]
-                else:
-                    self.aux_head[str(i)] = self.aux_head_class(c_cur_out, self.aux_size[i], self.n_classes)
-                    self.shared_modules['aux' + str(aux_head_count)] = self.aux_head[str(i)]
-                aux_head_count += 1
-            channels_pp, channels_p = channels_p, c_cur_out
-        self.gap = nn.AdaptiveAvgPool2d(1)
-        self.linear = nn.Linear(channels_p, self.n_classes)
-
-    def forward(self, x):
-        s0 = s1 = self.stem(x)
-        outputs = []
-        for i, cell in enumerate(self.cells):
-            s0, s1 = s1, cell(s0, s1)
-            if str(i) in self.aux_head:
-                outputs.append(self.aux_head[str(i)](s1))
-        out = self.gap(s1)
-        out = out.view(out.size(0), -1)
-        logits = self.linear(out)
-        outputs.append(logits)
-        if self.ensemble_param is None:
-            assert len(outputs) == 2
-            return outputs[1], outputs[0]
-        else:
-            em_output = torch.cat([(e * o) for e, o in zip(F.softmax(self.ensemble_param, dim=0), outputs)], 0)
-            return logits, em_output
-
-    def drop_path_prob(self, p):
-        for module in self.modules():
-            if isinstance(module, ops.DropPath):
-                module.p = p
-
-    def plot_genotype(self, results, logger):
-        genotypes = parse_results(results, self.n_nodes)
-        logger.info(genotypes)
-        return genotypes
-
-
-class DropPath(nn.Module):
-
-    def __init__(self, p=0.0):
-        """
-        Drop path with probability.
-
-        Parameters
-        ----------
-        p : float
-            Probability of an path to be zeroed.
-        """
-        super().__init__()
-        self.p = p
-
-    def forward(self, x):
-        if self.training and self.p > 0.0:
-            keep_prob = 1.0 - self.p
-            mask = torch.zeros((x.size(0), 1, 1, 1), device=x.device).bernoulli_(keep_prob)
-            return x / keep_prob * mask
-        return x
-
-
-class PoolWithoutBN(nn.Module):
-    """
-    AvgPool or MaxPool with BN. `pool_type` must be `max` or `avg`.
-    """
-
-    def __init__(self, pool_type, C, kernel_size, stride, padding, affine=True):
-        super().__init__()
-        if pool_type.lower() == 'max':
-            self.pool = nn.MaxPool2d(kernel_size, stride, padding)
-        elif pool_type.lower() == 'avg':
-            self.pool = nn.AvgPool2d(kernel_size, stride, padding, count_include_pad=False)
-        else:
-            raise NotImplementedError("Pool doesn't support pooling type other than max and avg.")
-
-    def forward(self, x):
-        out = self.pool(x)
-        return out
-
-
-class StdConv(nn.Module):
-    """
-    Standard conv: ReLU - Conv - BN
-    """
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super().__init__()
-        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_out, kernel_size, stride, padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class FacConv(nn.Module):
-    """
-    Factorized conv: ReLU - Conv(Kx1) - Conv(1xK) - BN
-    """
-
-    def __init__(self, C_in, C_out, kernel_length, stride, padding, affine=True):
-        super().__init__()
-        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_in, (kernel_length, 1), stride, padding, bias=False), nn.Conv2d(C_in, C_out, (1, kernel_length), stride, padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class DilConv(nn.Module):
-    """
-    (Dilated) depthwise separable conv.
-    ReLU - (Dilated) depthwise separable - Pointwise - BN.
-    If dilation == 2, 3x3 conv => 5x5 receptive field, 5x5 conv => 9x9 receptive field.
-    """
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
-        super().__init__()
-        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_in, kernel_size, stride, padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, 1, stride=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class SepConv(nn.Module):
-    """
-    Depthwise separable conv.
-    DilConv(dilation=1) * 2.
-    """
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super().__init__()
-        self.net = nn.Sequential(DilConv(C_in, C_in, kernel_size, stride, padding, dilation=1, affine=affine), DilConv(C_in, C_out, kernel_size, 1, padding, dilation=1, affine=affine))
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class FactorizedReduce(nn.Module):
-    """
-    Reduce feature map size by factorized pointwise (stride=2).
-    """
-
-    def __init__(self, C_in, C_out, affine=True):
-        super().__init__()
-        self.relu = nn.ReLU()
-        self.conv1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.conv2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.bn = nn.BatchNorm2d(C_out, affine=affine)
-
-    def forward(self, x):
-        x = self.relu(x)
-        out = torch.cat([self.conv1(x), self.conv2(x[:, :, 1:, 1:])], dim=1)
-        out = self.bn(out)
-        return out
-
-
-class CrossEntropyLabelSmooth(nn.Module):
-
-    def __init__(self, num_classes, epsilon):
-        super(CrossEntropyLabelSmooth, self).__init__()
-        self.num_classes = num_classes
-        self.epsilon = epsilon
-        self.logsoftmax = nn.LogSoftmax(dim=1)
-
-    def forward(self, inputs, targets):
-        log_probs = self.logsoftmax(inputs)
-        targets = torch.zeros_like(log_probs).scatter_(1, targets.unsqueeze(1), 1)
-        targets = (1 - self.epsilon) * targets + self.epsilon / self.num_classes
-        loss = (-targets * log_probs).mean(0).sum()
-        return loss
-
-
-_logger = logging.getLogger(__name__)
-
-
 def global_mutable_counting():
     """
     A program level counter starting from 1.
@@ -1002,19 +727,43 @@ def global_mutable_counting():
     return _counter
 
 
-class Mutable(Model):
+logger = logging.getLogger(__name__)
+
+
+class Mutable(nn.Module):
+    """
+    Mutable is designed to function as a normal layer, with all necessary operators' weights.
+    States and weights of architectures should be included in mutator, instead of the layer itself.
+
+    Mutable has a key, which marks the identity of the mutable. This key can be used by users to share
+    decisions among different mutables. In mutator's implementation, mutators should use the key to
+    distinguish different mutables. Mutables that share the same key should be "similar" to each other.
+
+    Currently the default scope for keys is global. By default, the keys uses a global counter from 1 to
+    produce unique ids.
+
+    Parameters
+    ----------
+    key : str
+        The key of mutable.
+
+    Notes
+    -----
+    The counter is program level, but mutables are model level. In case multiple models are defined, and
+    you want to have `counter` starting from 1 in the second model, it's recommended to assign keys manually
+    instead of using automatic keys.
+    """
 
     def __init__(self, key=None):
         super().__init__()
-        if key is None:
-            self._key = '{}_{}'.format(type(self).__name__, global_mutable_counting())
-        elif isinstance(key, str):
+        if key is not None:
+            if not isinstance(key, str):
+                key = str(key)
+                logger.warning('Warning: key "%s" is not string, converted to string.', key)
             self._key = key
         else:
-            self._key = str(key)
-            _logger.warning('Key "%s" is not string, converted to string.', key)
-        self.init_hook = None
-        self.forward_hook = None
+            self._key = self.__class__.__name__ + str(global_mutable_counting())
+        self.init_hook = self.forward_hook = None
 
     def __deepcopy__(self, memodict=None):
         raise NotImplementedError("Deep copy doesn't work for mutables.")
@@ -1025,19 +774,22 @@ class Mutable(Model):
 
     def set_mutator(self, mutator):
         if 'mutator' in self.__dict__:
-            raise RuntimeError('`set_mutator is called more than once. Did you parse the search space multiple times? Or did you apply multiple fixed architectures?')
+            raise RuntimeError('`set_mutator` is called more than once. Did you parse the search space multiple times? Or did you apply multiple fixed architectures?')
         self.__dict__['mutator'] = mutator
-
-    def call(self, *inputs):
-        raise NotImplementedError('Method `call` of Mutable must be overridden')
 
     @property
     def key(self):
+        """
+        Read-only property of key.
+        """
         return self._key
 
     @property
     def name(self):
-        return self._name if hasattr(self, '_name') else self._key
+        """
+        After the search space is parsed, it will be the module name of the mutable.
+        """
+        return self._name if hasattr(self, '_name') else '_key'
 
     @name.setter
     def name(self, name):
@@ -1046,9 +798,6 @@ class Mutable(Model):
     def _check_built(self):
         if not hasattr(self, 'mutator'):
             raise ValueError('Mutator not set for {}. You might have forgotten to initialize and apply your mutator. Or did you initialize a mutable on the fly in forward pass? Move to `__init__` so that trainer can locate all your mutables. See NNI docs for more details.'.format(self))
-
-    def __repr__(self):
-        return '{} ({})'.format(self.name, self.key)
 
 
 class InputChoice(Mutable):
@@ -1262,25 +1011,212 @@ class LayerChoice(Mutable):
         return out
 
 
+class MutableScope(Mutable):
+    """
+    Mutable scope marks a subgraph/submodule to help mutators make better decisions.
+
+    If not annotated with mutable scope, search space will be flattened as a list. However, some mutators might
+    need to leverage the concept of a "cell". So if a module is defined as a mutable scope, everything in it will
+    look like "sub-search-space" in the scope. Scopes can be nested.
+
+    There are two ways mutators can use mutable scope. One is to traverse the search space as a tree during initialization
+    and reset. The other is to implement `enter_mutable_scope` and `exit_mutable_scope`. They are called before and after
+    the forward method of the class inheriting mutable scope.
+
+    Mutable scopes are also mutables that are listed in the mutator.mutables (search space), but they are not supposed
+    to appear in the dict of choices.
+
+    Parameters
+    ----------
+    key : str
+        Key of mutable scope.
+    """
+
+    def __init__(self, key):
+        super().__init__(key=key)
+
+    def __call__(self, *args, **kwargs):
+        try:
+            self._check_built()
+            self.mutator.enter_mutable_scope(self)
+            return super().__call__(*args, **kwargs)
+        finally:
+            self.mutator.exit_mutable_scope(self)
+
+
+class Cell(MutableScope):
+
+    def __init__(self, cell_name, prev_labels, channels):
+        super().__init__(cell_name)
+        self.input_choice = InputChoice(choose_from=prev_labels, n_chosen=1, return_mask=True, key=cell_name + '_input')
+        self.op_choice = LayerChoice([nn.Conv2d(channels, channels, 3, padding=1), nn.Conv2d(channels, channels, 5, padding=2), nn.MaxPool2d(3, stride=1, padding=1), nn.AvgPool2d(3, stride=1, padding=1), nn.Identity()], key=cell_name + '_op')
+
+    def forward(self, prev_layers):
+        chosen_input, chosen_mask = self.input_choice(prev_layers)
+        cell_out = self.op_choice(chosen_input)
+        return cell_out, chosen_mask
+
+
+class Node(MutableScope):
+
+    def __init__(self, node_name, prev_node_names, channels):
+        super().__init__(node_name)
+        self.cell_x = Cell(node_name + '_x', prev_node_names, channels)
+        self.cell_y = Cell(node_name + '_y', prev_node_names, channels)
+
+    def forward(self, prev_layers):
+        out_x, mask_x = self.cell_x(prev_layers)
+        out_y, mask_y = self.cell_y(prev_layers)
+        return out_x + out_y, mask_x | mask_y
+
+
+class Model(nn.Module):
+
+    def __init__(self, bias=True):
+        super(Model, self).__init__()
+        self.conv1 = nn.Conv2d(1, 8, kernel_size=3, padding=1, bias=bias)
+        self.bn1 = nn.BatchNorm2d(8)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(8, 2, bias=bias)
+        self.bias = bias
+
+    def forward(self, x):
+        return self.fc(self.pool(self.bn1(self.conv1(x))).view(x.size(0), -1))
+
+
+class DropPath(nn.Module):
+
+    def __init__(self, p=0.0):
+        """
+        Drop path with probability.
+
+        Parameters
+        ----------
+        p : float
+            Probability of an path to be zeroed.
+        """
+        super().__init__()
+        self.p = p
+
+    def forward(self, x):
+        if self.training and self.p > 0.0:
+            keep_prob = 1.0 - self.p
+            mask = torch.zeros((x.size(0), 1, 1, 1), device=x.device).bernoulli_(keep_prob)
+            return x / keep_prob * mask
+        return x
+
+
+class PoolWithoutBN(nn.Module):
+    """
+    AvgPool or MaxPool with BN. `pool_type` must be `max` or `avg`.
+    """
+
+    def __init__(self, pool_type, C, kernel_size, stride, padding, affine=True):
+        super().__init__()
+        if pool_type.lower() == 'max':
+            self.pool = nn.MaxPool2d(kernel_size, stride, padding)
+        elif pool_type.lower() == 'avg':
+            self.pool = nn.AvgPool2d(kernel_size, stride, padding, count_include_pad=False)
+        else:
+            raise NotImplementedError("Pool doesn't support pooling type other than max and avg.")
+
+    def forward(self, x):
+        out = self.pool(x)
+        return out
+
+
+class StdConv(nn.Module):
+
+    def __init__(self, C_in, C_out):
+        super(StdConv, self).__init__()
+        self.conv = nn.Sequential(nn.Conv2d(C_in, C_out, 1, stride=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=False), nn.ReLU())
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class FacConv(nn.Module):
+    """
+    Factorized conv: ReLU - Conv(Kx1) - Conv(1xK) - BN
+    """
+
+    def __init__(self, C_in, C_out, kernel_length, stride, padding, affine=True):
+        super().__init__()
+        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_in, (kernel_length, 1), stride, padding, bias=False), nn.Conv2d(C_in, C_out, (1, kernel_length), stride, padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class DilConv(nn.Module):
+    """
+    (Dilated) depthwise separable conv.
+    ReLU - (Dilated) depthwise separable - Pointwise - BN.
+    If dilation == 2, 3x3 conv => 5x5 receptive field, 5x5 conv => 9x9 receptive field.
+    """
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
+        super().__init__()
+        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_in, kernel_size, stride, padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, 1, stride=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class SepConv(nn.Module):
+    """Separable Convolution."""
+
+    def __init__(self, in_planes, out_planes, kernel_size, stride):
+        super(SepConv, self).__init__()
+        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=False, groups=in_planes)
+        self.bn1 = nn.BatchNorm2d(out_planes)
+
+    def forward(self, x):
+        return self.bn1(self.conv1(x))
+
+
+class FactorizedReduce(nn.Module):
+
+    def __init__(self, C_in, C_out, affine=False):
+        super().__init__()
+        self.conv1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.conv2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.bn = nn.BatchNorm2d(C_out, affine=affine)
+
+    def forward(self, x):
+        out = torch.cat([self.conv1(x), self.conv2(x[:, :, 1:, 1:])], dim=1)
+        out = self.bn(out)
+        return out
+
+
+class CrossEntropyLabelSmooth(nn.Module):
+
+    def __init__(self, num_classes, epsilon):
+        super(CrossEntropyLabelSmooth, self).__init__()
+        self.num_classes = num_classes
+        self.epsilon = epsilon
+        self.logsoftmax = nn.LogSoftmax(dim=1)
+
+    def forward(self, inputs, targets):
+        log_probs = self.logsoftmax(inputs)
+        targets = torch.zeros_like(log_probs).scatter_(1, targets.unsqueeze(1), 1)
+        targets = (1 - self.epsilon) * targets + self.epsilon / self.num_classes
+        loss = (-targets * log_probs).mean(0).sum()
+        return loss
+
+
 class Net(nn.Module):
 
     def __init__(self, hidden_size):
         super(Net, self).__init__()
-        self.conv1 = LayerChoice(OrderedDict([('conv5x5', nn.Conv2d(1, 20, 5, 1)), ('conv3x3', nn.Conv2d(1, 20, 3, 1))]), key='first_conv')
-        self.mid_conv = LayerChoice([nn.Conv2d(20, 20, 3, 1, padding=1), nn.Conv2d(20, 20, 5, 1, padding=2)], key='mid_conv')
+        self.conv1 = nn.Conv2d(1, 20, 5, 1)
         self.conv2 = nn.Conv2d(20, 50, 5, 1)
         self.fc1 = nn.Linear(4 * 4 * 50, hidden_size)
         self.fc2 = nn.Linear(hidden_size, 10)
-        self.input_switch = InputChoice(n_candidates=2, n_chosen=1, key='skip')
 
     def forward(self, x):
         x = F.relu(self.conv1(x))
         x = F.max_pool2d(x, 2, 2)
-        old_x = x
-        x = F.relu(self.mid_conv(x))
-        zero_x = torch.zeros_like(old_x)
-        skip_x = self.input_switch([zero_x, old_x])
-        x = torch.add(x, skip_x)
         x = F.relu(self.conv2(x))
         x = F.max_pool2d(x, 2, 2)
         x = x.view(-1, 4 * 4 * 50)
@@ -1290,64 +1226,23 @@ class Net(nn.Module):
 
 
 class AuxiliaryHead(nn.Module):
-    """ Auxiliary head in 2/3 place of network to let the gradient flow well """
 
-    def __init__(self, input_size, C, n_classes):
-        """ assuming input size 7x7 or 8x8 """
-        assert input_size in [7, 8]
+    def __init__(self, in_channels, num_classes):
         super().__init__()
-        self.net = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5, stride=input_size - 5, padding=0, count_include_pad=False), nn.Conv2d(C, 128, kernel_size=1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 768, kernel_size=2, bias=False), nn.BatchNorm2d(768), nn.ReLU(inplace=True))
-        self.linear = nn.Linear(768, n_classes)
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+        self.pooling = nn.Sequential(nn.ReLU(), nn.AvgPool2d(5, 3, 2))
+        self.proj = nn.Sequential(StdConv(in_channels, 128), StdConv(128, 768))
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(768, 10, bias=False)
 
     def forward(self, x):
-        out = self.net(x)
-        out = out.view(out.size(0), -1)
-        logits = self.linear(out)
-        return logits
-
-
-class Node(nn.Module):
-
-    def __init__(self, node_id, num_prev_nodes, channels, num_downsample_connect):
-        super().__init__()
-        self.ops = nn.ModuleList()
-        choice_keys = []
-        for i in range(num_prev_nodes):
-            stride = 2 if i < num_downsample_connect else 1
-            choice_keys.append('{}_p{}'.format(node_id, i))
-            self.ops.append(mutables.LayerChoice(OrderedDict([('maxpool', ops.PoolBN('max', channels, 3, stride, 1, affine=False)), ('avgpool', ops.PoolBN('avg', channels, 3, stride, 1, affine=False)), ('skipconnect', nn.Identity() if stride == 1 else ops.FactorizedReduce(channels, channels, affine=False)), ('sepconv3x3', ops.SepConv(channels, channels, 3, stride, 1, affine=False)), ('sepconv5x5', ops.SepConv(channels, channels, 5, stride, 2, affine=False)), ('dilconv3x3', ops.DilConv(channels, channels, 3, stride, 2, 2, affine=False)), ('dilconv5x5', ops.DilConv(channels, channels, 5, stride, 4, 2, affine=False))]), key=choice_keys[-1]))
-        self.drop_path = ops.DropPath()
-        self.input_switch = mutables.InputChoice(choose_from=choice_keys, n_chosen=2, key='{}_switch'.format(node_id))
-
-    def forward(self, prev_nodes):
-        assert len(self.ops) == len(prev_nodes)
-        out = [op(node) for op, node in zip(self.ops, prev_nodes)]
-        out = [(self.drop_path(o) if o is not None else None) for o in out]
-        return self.input_switch(out)
-
-
-class Cell(nn.Module):
-
-    def __init__(self, n_nodes, channels_pp, channels_p, channels, reduction_p, reduction):
-        super().__init__()
-        self.reduction = reduction
-        self.n_nodes = n_nodes
-        if reduction_p:
-            self.preproc0 = ops.FactorizedReduce(channels_pp, channels, affine=False)
-        else:
-            self.preproc0 = ops.StdConv(channels_pp, channels, 1, 1, 0, affine=False)
-        self.preproc1 = ops.StdConv(channels_p, channels, 1, 1, 0, affine=False)
-        self.mutable_ops = nn.ModuleList()
-        for depth in range(2, self.n_nodes + 2):
-            self.mutable_ops.append(Node('{}_n{}'.format('reduce' if reduction else 'normal', depth), depth, channels, 2 if reduction else 0))
-
-    def forward(self, s0, s1):
-        tensors = [self.preproc0(s0), self.preproc1(s1)]
-        for node in self.mutable_ops:
-            cur_tensor = node(tensors)
-            tensors.append(cur_tensor)
-        output = torch.cat(tensors[2:], dim=1)
-        return output
+        bs = x.size(0)
+        x = self.pooling(x)
+        x = self.proj(x)
+        x = self.avg_pool(x).view(bs, -1)
+        x = self.fc(x)
+        return x
 
 
 class CNN(nn.Module):
@@ -1398,28 +1293,6 @@ class CNN(nn.Module):
                 module.p = p
 
 
-class DropPath(nn.Module):
-
-    def __init__(self, p=0.0):
-        """
-        Drop path with probability.
-
-        Parameters
-        ----------
-        p : float
-            Probability of an path to be zeroed.
-        """
-        super().__init__()
-        self.p = p
-
-    def forward(self, x):
-        if self.training and self.p > 0.0:
-            keep_prob = 1.0 - self.p
-            mask = torch.zeros((x.size(0), 1, 1, 1), device=x.device).bernoulli_(keep_prob)
-            return x / keep_prob * mask
-        return x
-
-
 class PoolBN(nn.Module):
     """
     AvgPool or MaxPool with BN. `pool_type` must be `max` or `avg`.
@@ -1441,78 +1314,54 @@ class PoolBN(nn.Module):
         return out
 
 
-class StdConv(nn.Module):
-    """
-    Standard conv: ReLU - Conv - BN
-    """
+class Calibration(nn.Module):
 
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
+    def __init__(self, in_channels, out_channels):
         super().__init__()
-        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_out, kernel_size, stride, padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+        self.process = None
+        if in_channels != out_channels:
+            self.process = StdConv(in_channels, out_channels)
 
     def forward(self, x):
-        return self.net(x)
+        if self.process is None:
+            return x
+        return self.process(x)
 
 
-class FacConv(nn.Module):
-    """
-    Factorized conv: ReLU - Conv(Kx1) - Conv(1xK) - BN
-    """
+class ENASLayer(nn.Module):
 
-    def __init__(self, C_in, C_out, kernel_length, stride, padding, affine=True):
+    def __init__(self, num_nodes, in_channels_pp, in_channels_p, out_channels, reduction):
         super().__init__()
-        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_in, (kernel_length, 1), stride, padding, bias=False), nn.Conv2d(C_in, C_out, (1, kernel_length), stride, padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+        self.preproc0 = Calibration(in_channels_pp, out_channels)
+        self.preproc1 = Calibration(in_channels_p, out_channels)
+        self.num_nodes = num_nodes
+        name_prefix = 'reduce' if reduction else 'normal'
+        self.nodes = nn.ModuleList()
+        node_labels = [mutables.InputChoice.NO_KEY, mutables.InputChoice.NO_KEY]
+        for i in range(num_nodes):
+            node_labels.append('{}_node_{}'.format(name_prefix, i))
+            self.nodes.append(Node(node_labels[-1], node_labels[:-1], out_channels))
+        self.final_conv_w = nn.Parameter(torch.zeros(out_channels, self.num_nodes + 2, out_channels, 1, 1), requires_grad=True)
+        self.bn = nn.BatchNorm2d(out_channels, affine=False)
+        self.reset_parameters()
 
-    def forward(self, x):
-        return self.net(x)
+    def reset_parameters(self):
+        nn.init.kaiming_normal_(self.final_conv_w)
 
-
-class DilConv(nn.Module):
-    """
-    (Dilated) depthwise separable conv.
-    ReLU - (Dilated) depthwise separable - Pointwise - BN.
-    If dilation == 2, 3x3 conv => 5x5 receptive field, 5x5 conv => 9x9 receptive field.
-    """
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
-        super().__init__()
-        self.net = nn.Sequential(nn.ReLU(), nn.Conv2d(C_in, C_in, kernel_size, stride, padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, 1, stride=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class SepConv(nn.Module):
-    """
-    Depthwise separable conv.
-    DilConv(dilation=1) * 2.
-    """
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super().__init__()
-        self.net = nn.Sequential(DilConv(C_in, C_in, kernel_size, stride, padding, dilation=1, affine=affine), DilConv(C_in, C_out, kernel_size, 1, padding, dilation=1, affine=affine))
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class FactorizedReduce(nn.Module):
-    """
-    Reduce feature map size by factorized pointwise (stride=2).
-    """
-
-    def __init__(self, C_in, C_out, affine=True):
-        super().__init__()
-        self.relu = nn.ReLU()
-        self.conv1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.conv2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.bn = nn.BatchNorm2d(C_out, affine=affine)
-
-    def forward(self, x):
-        x = self.relu(x)
-        out = torch.cat([self.conv1(x), self.conv2(x[:, :, 1:, 1:])], dim=1)
-        out = self.bn(out)
-        return out
+    def forward(self, pprev, prev):
+        pprev_, prev_ = self.preproc0(pprev), self.preproc1(prev)
+        prev_nodes_out = [pprev_, prev_]
+        nodes_used_mask = torch.zeros(self.num_nodes + 2, dtype=torch.bool, device=prev.device)
+        for i in range(self.num_nodes):
+            node_out, mask = self.nodes[i](prev_nodes_out)
+            nodes_used_mask[:mask.size(0)] |= mask
+            prev_nodes_out.append(node_out)
+        unused_nodes = torch.cat([out for used, out in zip(nodes_used_mask, prev_nodes_out) if not used], 1)
+        unused_nodes = F.relu(unused_nodes)
+        conv_weight = self.final_conv_w[:, (~nodes_used_mask), :, :, :]
+        conv_weight = conv_weight.view(conv_weight.size(0), -1, 1, 1)
+        out = F.conv2d(unused_nodes, conv_weight)
+        return prev, self.bn(out)
 
 
 class GeneralNetwork(nn.Module):
@@ -1555,53 +1404,6 @@ class GeneralNetwork(nn.Module):
         return logits
 
 
-class AuxiliaryHead(nn.Module):
-
-    def __init__(self, in_channels, num_classes):
-        super().__init__()
-        self.in_channels = in_channels
-        self.num_classes = num_classes
-        self.pooling = nn.Sequential(nn.ReLU(), nn.AvgPool2d(5, 3, 2))
-        self.proj = nn.Sequential(StdConv(in_channels, 128), StdConv(128, 768))
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(768, 10, bias=False)
-
-    def forward(self, x):
-        bs = x.size(0)
-        x = self.pooling(x)
-        x = self.proj(x)
-        x = self.avg_pool(x).view(bs, -1)
-        x = self.fc(x)
-        return x
-
-
-class Cell(nn.Module):
-
-    def __init__(self, cell_name, prev_labels, channels):
-        super().__init__()
-        self.input_choice = mutables.InputChoice(choose_from=prev_labels, n_chosen=1, return_mask=True, key=cell_name + '_input')
-        self.op_choice = mutables.LayerChoice([SepConvBN(channels, channels, 3, 1), SepConvBN(channels, channels, 5, 2), Pool('avg', 3, 1, 1), Pool('max', 3, 1, 1), nn.Identity()], key=cell_name + '_op')
-
-    def forward(self, prev_layers):
-        chosen_input, chosen_mask = self.input_choice(prev_layers)
-        cell_out = self.op_choice(chosen_input)
-        return cell_out, chosen_mask
-
-
-class Calibration(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.process = None
-        if in_channels != out_channels:
-            self.process = StdConv(in_channels, out_channels)
-
-    def forward(self, x):
-        if self.process is None:
-            return x
-        return self.process(x)
-
-
 class ReductionLayer(nn.Module):
 
     def __init__(self, in_channels_pp, in_channels_p, out_channels):
@@ -1611,42 +1413,6 @@ class ReductionLayer(nn.Module):
 
     def forward(self, pprev, prev):
         return self.reduce0(pprev), self.reduce1(prev)
-
-
-class ENASLayer(nn.Module):
-
-    def __init__(self, num_nodes, in_channels_pp, in_channels_p, out_channels, reduction):
-        super().__init__()
-        self.preproc0 = Calibration(in_channels_pp, out_channels)
-        self.preproc1 = Calibration(in_channels_p, out_channels)
-        self.num_nodes = num_nodes
-        name_prefix = 'reduce' if reduction else 'normal'
-        self.nodes = nn.ModuleList()
-        node_labels = [mutables.InputChoice.NO_KEY, mutables.InputChoice.NO_KEY]
-        for i in range(num_nodes):
-            node_labels.append('{}_node_{}'.format(name_prefix, i))
-            self.nodes.append(Node(node_labels[-1], node_labels[:-1], out_channels))
-        self.final_conv_w = nn.Parameter(torch.zeros(out_channels, self.num_nodes + 2, out_channels, 1, 1), requires_grad=True)
-        self.bn = nn.BatchNorm2d(out_channels, affine=False)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        nn.init.kaiming_normal_(self.final_conv_w)
-
-    def forward(self, pprev, prev):
-        pprev_, prev_ = self.preproc0(pprev), self.preproc1(prev)
-        prev_nodes_out = [pprev_, prev_]
-        nodes_used_mask = torch.zeros(self.num_nodes + 2, dtype=torch.bool, device=prev.device)
-        for i in range(self.num_nodes):
-            node_out, mask = self.nodes[i](prev_nodes_out)
-            nodes_used_mask[:mask.size(0)] |= mask
-            prev_nodes_out.append(node_out)
-        unused_nodes = torch.cat([out for used, out in zip(nodes_used_mask, prev_nodes_out) if not used], 1)
-        unused_nodes = F.relu(unused_nodes)
-        conv_weight = self.final_conv_w[:, (~nodes_used_mask), :, :, :]
-        conv_weight = conv_weight.view(conv_weight.size(0), -1, 1, 1)
-        out = F.conv2d(unused_nodes, conv_weight)
-        return prev, self.bn(out)
 
 
 class MicroNetwork(nn.Module):
@@ -1699,14 +1465,19 @@ class MicroNetwork(nn.Module):
         return logits
 
 
-class StdConv(nn.Module):
+class Pool(nn.Module):
 
-    def __init__(self, C_in, C_out):
-        super(StdConv, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(C_in, C_out, 1, stride=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=False), nn.ReLU())
+    def __init__(self, pool_type, kernel_size, stride, padding):
+        super().__init__()
+        if pool_type.lower() == 'max':
+            self.pool = nn.MaxPool2d(kernel_size, stride, padding)
+        elif pool_type.lower() == 'avg':
+            self.pool = nn.AvgPool2d(kernel_size, stride, padding, count_include_pad=False)
+        else:
+            raise ValueError()
 
     def forward(self, x):
-        return self.conv(x)
+        return self.pool(x)
 
 
 class PoolBranch(nn.Module):
@@ -1755,35 +1526,6 @@ class ConvBranch(nn.Module):
         return out
 
 
-class FactorizedReduce(nn.Module):
-
-    def __init__(self, C_in, C_out, affine=False):
-        super().__init__()
-        self.conv1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.conv2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.bn = nn.BatchNorm2d(C_out, affine=affine)
-
-    def forward(self, x):
-        out = torch.cat([self.conv1(x), self.conv2(x[:, :, 1:, 1:])], dim=1)
-        out = self.bn(out)
-        return out
-
-
-class Pool(nn.Module):
-
-    def __init__(self, pool_type, kernel_size, stride, padding):
-        super().__init__()
-        if pool_type.lower() == 'max':
-            self.pool = nn.MaxPool2d(kernel_size, stride, padding)
-        elif pool_type.lower() == 'avg':
-            self.pool = nn.AvgPool2d(kernel_size, stride, padding, count_include_pad=False)
-        else:
-            raise ValueError()
-
-    def forward(self, x):
-        return self.pool(x)
-
-
 class SepConvBN(nn.Module):
 
     def __init__(self, C_in, C_out, kernel_size, padding):
@@ -1796,37 +1538,6 @@ class SepConvBN(nn.Module):
         x = self.relu(x)
         x = self.conv(x)
         x = self.bn(x)
-        return x
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = LayerChoice([nn.Conv2d(3, 6, 3, padding=1), nn.Conv2d(3, 6, 5, padding=2)])
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = LayerChoice([nn.Conv2d(6, 16, 3, padding=1), nn.Conv2d(6, 16, 5, padding=2)])
-        self.conv3 = nn.Conv2d(16, 16, 1)
-        self.skipconnect = InputChoice(n_candidates=1)
-        self.bn = nn.BatchNorm2d(16)
-        self.gap = nn.AdaptiveAvgPool2d(4)
-        self.fc1 = nn.Linear(16 * 4 * 4, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
-
-    def forward(self, x):
-        bs = x.size(0)
-        x = self.pool(F.relu(self.conv1(x)))
-        x0 = F.relu(self.conv2(x))
-        x1 = F.relu(self.conv3(x0))
-        x0 = self.skipconnect([x0])
-        if x0 is not None:
-            x1 += x0
-        x = self.pool(self.bn(x1))
-        x = self.gap(x).view(bs, -1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
         return x
 
 
@@ -2043,6 +1754,51 @@ class Base2DLayer(nn.Module):
         return False
 
 
+def get_same_padding(kernel_size):
+    if isinstance(kernel_size, tuple):
+        assert len(kernel_size) == 2, 'invalid kernel size: %s' % kernel_size
+        p1 = get_same_padding(kernel_size[0])
+        p2 = get_same_padding(kernel_size[1])
+        return p1, p2
+    assert isinstance(kernel_size, int), 'kernel size should be either `int` or `tuple`'
+    assert kernel_size % 2 > 0, 'kernel size should be odd number'
+    return kernel_size // 2
+
+
+class ConvLayer(Base2DLayer):
+
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, dilation=1, groups=1, bias=False, has_shuffle=False, use_bn=True, act_func='relu', dropout_rate=0, ops_order='weight_bn_act'):
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.dilation = dilation
+        self.groups = groups
+        self.bias = bias
+        self.has_shuffle = has_shuffle
+        super(ConvLayer, self).__init__(in_channels, out_channels, use_bn, act_func, dropout_rate, ops_order)
+
+    def weight_op(self):
+        padding = get_same_padding(self.kernel_size)
+        if isinstance(padding, int):
+            padding *= self.dilation
+        else:
+            padding[0] *= self.dilation
+            padding[1] *= self.dilation
+        weight_dict = OrderedDict()
+        weight_dict['conv'] = nn.Conv2d(self.in_channels, self.out_channels, kernel_size=self.kernel_size, stride=self.stride, padding=padding, dilation=self.dilation, groups=self.groups, bias=self.bias)
+        if self.has_shuffle and self.groups > 1:
+            weight_dict['shuffle'] = ShuffleLayer(self.groups)
+        return weight_dict
+
+
+class IdentityLayer(Base2DLayer):
+
+    def __init__(self, in_channels, out_channels, use_bn=False, act_func=None, dropout_rate=0, ops_order='weight_bn_act'):
+        super(IdentityLayer, self).__init__(in_channels, out_channels, use_bn, act_func, dropout_rate, ops_order)
+
+    def weight_op(self):
+        return None
+
+
 class LinearLayer(nn.Module):
 
     def __init__(self, in_features, out_features, bias=True, use_bn=False, act_func=None, dropout_rate=0, ops_order='weight_bn_act'):
@@ -2101,17 +1857,6 @@ class LinearLayer(nn.Module):
     @staticmethod
     def is_zero_layer():
         return False
-
-
-def get_same_padding(kernel_size):
-    if isinstance(kernel_size, tuple):
-        assert len(kernel_size) == 2, 'invalid kernel size: %s' % kernel_size
-        p1 = get_same_padding(kernel_size[0])
-        p2 = get_same_padding(kernel_size[1])
-        return p1, p2
-    assert isinstance(kernel_size, int), 'kernel size should be either `int` or `tuple`'
-    assert kernel_size % 2 > 0, 'kernel size should be odd number'
-    return kernel_size // 2
 
 
 class MBInvertedConvLayer(nn.Module):
@@ -2336,64 +2081,6 @@ class ShuffleNetV2OneShot(nn.Module):
                     nn.init.constant_(m.bias, 0)
 
 
-class CrossEntropyLabelSmooth(nn.Module):
-
-    def __init__(self, num_classes, epsilon):
-        super(CrossEntropyLabelSmooth, self).__init__()
-        self.num_classes = num_classes
-        self.epsilon = epsilon
-        self.logsoftmax = nn.LogSoftmax(dim=1)
-
-    def forward(self, inputs, targets):
-        log_probs = self.logsoftmax(inputs)
-        targets = torch.zeros_like(log_probs).scatter_(1, targets.unsqueeze(1), 1)
-        targets = (1 - self.epsilon) * targets + self.epsilon / self.num_classes
-        loss = (-targets * log_probs).mean(0).sum()
-        return loss
-
-
-class Model(nn.Module):
-
-    def __init__(self, embedding, hidden_units=256, num_layers=24, num_classes=5, choose_from_k=5, lstm_keep_prob=0.5, cnn_keep_prob=0.5, att_keep_prob=0.5, att_mask=True, embed_keep_prob=0.5, final_output_keep_prob=1.0, global_pool='avg'):
-        super(Model, self).__init__()
-        self.embedding = nn.Embedding.from_pretrained(embedding, freeze=False)
-        self.hidden_units = hidden_units
-        self.num_layers = num_layers
-        self.num_classes = num_classes
-        self.init_conv = ConvBN(1, self.embedding.embedding_dim, hidden_units, cnn_keep_prob, False, True)
-        self.layers = nn.ModuleList()
-        candidate_keys_pool = []
-        for layer_id in range(self.num_layers):
-            k = 'layer_{}'.format(layer_id)
-            self.layers.append(Layer(k, candidate_keys_pool, hidden_units, choose_from_k, cnn_keep_prob, lstm_keep_prob, att_keep_prob, att_mask))
-            candidate_keys_pool.append(k)
-        self.linear_combine = LinearCombine(self.num_layers)
-        self.linear_out = nn.Linear(self.hidden_units, self.num_classes)
-        self.embed_dropout = nn.Dropout(p=1 - embed_keep_prob)
-        self.output_dropout = nn.Dropout(p=1 - final_output_keep_prob)
-        assert global_pool in ['max', 'avg']
-        if global_pool == 'max':
-            self.global_pool = GlobalMaxPool()
-        elif global_pool == 'avg':
-            self.global_pool = GlobalAvgPool()
-
-    def forward(self, inputs):
-        sent_ids, mask = inputs
-        seq = self.embedding(sent_ids.long())
-        seq = self.embed_dropout(seq)
-        seq = torch.transpose(seq, 1, 2)
-        x = self.init_conv(seq, mask)
-        prev_layers = []
-        for layer in self.layers:
-            x = layer(x, prev_layers, mask)
-            prev_layers.append(x)
-        x = self.linear_combine(torch.stack(prev_layers))
-        x = self.global_pool(x, mask)
-        x = self.output_dropout(x)
-        x = self.linear_out(x)
-        return x
-
-
 class Mask(nn.Module):
 
     def forward(self, seq, mask):
@@ -2451,21 +2138,16 @@ class ConvBN(nn.Module):
 
 
 class AvgPool(nn.Module):
+    """
+    AvgPool Module.
+    """
 
-    def __init__(self, kernal_size, pre_mask, post_mask):
-        super(AvgPool, self).__init__()
-        self.avg_pool = nn.AvgPool1d(kernal_size, 1, padding=(kernal_size - 1) // 2)
-        self.pre_mask = pre_mask
-        self.post_mask = post_mask
-        self.mask_opt = Mask()
+    def __init__(self):
+        super().__init__()
 
-    def forward(self, seq, mask):
-        if self.pre_mask:
-            seq = self.mask_opt(seq, mask)
-        seq = self.avg_pool(seq)
-        if self.post_mask:
-            seq = self.mask_opt(seq, mask)
-        return seq
+    @abstractmethod
+    def forward(self, input_tensor):
+        pass
 
 
 class MaxPool(nn.Module):
@@ -2601,19 +2283,44 @@ class GlobalMaxPool(nn.Module):
         return x
 
 
-class Bottleneck(nn.Module):
+class ShuffleBlock(nn.Module):
 
-    def __init__(self, in_planes, growth_rate):
-        super(Bottleneck, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, 4 * growth_rate, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(4 * growth_rate)
-        self.conv2 = nn.Conv2d(4 * growth_rate, growth_rate, kernel_size=3, padding=1, bias=False)
+    def __init__(self, groups):
+        super(ShuffleBlock, self).__init__()
+        self.groups = groups
 
     def forward(self, x):
-        out = self.conv1(F.relu(self.bn1(x)))
-        out = self.conv2(F.relu(self.bn2(out)))
-        out = torch.cat([out, x], 1)
+        """Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]"""
+        N, C, H, W = x.size()
+        g = self.groups
+        return x.view(N, g, C / g, H, W).permute(0, 2, 1, 3, 4).contiguous().view(N, C, H, W)
+
+
+class Bottleneck(nn.Module):
+
+    def __init__(self, in_planes, out_planes, stride, groups):
+        super(Bottleneck, self).__init__()
+        self.stride = stride
+        mid_planes = out_planes / 4
+        g = 1 if in_planes == 24 else groups
+        self.conv1 = nn.Conv2d(in_planes, mid_planes, kernel_size=1, groups=g, bias=False)
+        self.bn1 = nn.BatchNorm2d(mid_planes)
+        self.shuffle1 = ShuffleBlock(groups=g)
+        self.conv2 = nn.Conv2d(mid_planes, mid_planes, kernel_size=3, stride=stride, padding=1, groups=mid_planes, bias=False)
+        self.bn2 = nn.BatchNorm2d(mid_planes)
+        self.conv3 = nn.Conv2d(mid_planes, out_planes, kernel_size=1, groups=groups, bias=False)
+        self.bn3 = nn.BatchNorm2d(out_planes)
+        self.shortcut = nn.Sequential()
+        if stride == 2:
+            self.shortcut = nn.Sequential(nn.AvgPool2d(3, stride=2, padding=1))
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.shuffle1(out)
+        out = F.relu(self.bn2(self.conv2(out)))
+        out = self.bn3(self.conv3(out))
+        res = self.shortcut(x)
+        out = F.relu(torch.cat([out, res], 1)) if self.stride == 2 else F.relu(out + res)
         return out
 
 
@@ -2673,33 +2380,6 @@ class DenseNet(nn.Module):
         out = F.avg_pool2d(F.relu(self.bn(out)), 4)
         out = out.view(out.size(0), -1)
         out = self.linear(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-
-    def __init__(self, last_planes, in_planes, out_planes, dense_depth, stride, first_layer):
-        super(Bottleneck, self).__init__()
-        self.out_planes = out_planes
-        self.dense_depth = dense_depth
-        self.conv1 = nn.Conv2d(last_planes, in_planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv2 = nn.Conv2d(in_planes, in_planes, kernel_size=3, stride=stride, padding=1, groups=32, bias=False)
-        self.bn2 = nn.BatchNorm2d(in_planes)
-        self.conv3 = nn.Conv2d(in_planes, out_planes + dense_depth, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_planes + dense_depth)
-        self.shortcut = nn.Sequential()
-        if first_layer:
-            self.shortcut = nn.Sequential(nn.Conv2d(last_planes, out_planes + dense_depth, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(out_planes + dense_depth))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
-        x = self.shortcut(x)
-        d = self.out_planes
-        out = torch.cat([x[:, :d, :, :] + out[:, :d, :, :], x[:, d:, :, :], out[:, d:, :, :]], 1)
-        out = F.relu(out)
         return out
 
 
@@ -2815,18 +2495,28 @@ class LeNet(nn.Module):
 
 
 class Block(nn.Module):
-    """Depthwise conv + Pointwise conv"""
+    """Grouped convolution block."""
+    expansion = 2
 
-    def __init__(self, in_planes, out_planes, stride=1):
+    def __init__(self, in_planes, cardinality=32, bottleneck_width=4, stride=1):
         super(Block, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, in_planes, kernel_size=3, stride=stride, padding=1, groups=in_planes, bias=False)
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv2 = nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_planes)
+        group_width = cardinality * bottleneck_width
+        self.conv1 = nn.Conv2d(in_planes, group_width, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(group_width)
+        self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
+        self.bn2 = nn.BatchNorm2d(group_width)
+        self.conv3 = nn.Conv2d(group_width, self.expansion * group_width, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(self.expansion * group_width)
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion * group_width:
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * group_width, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * group_width))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
         out = F.relu(self.bn2(self.conv2(out)))
+        out = self.bn3(self.conv3(out))
+        out += self.shortcut(x)
+        out = F.relu(out)
         return out
 
 
@@ -2855,31 +2545,6 @@ class MobileNet(nn.Module):
         out = F.avg_pool2d(out, 2)
         out = out.view(out.size(0), -1)
         out = self.linear(out)
-        return out
-
-
-class Block(nn.Module):
-    """expand + depthwise + pointwise"""
-
-    def __init__(self, in_planes, out_planes, expansion, stride):
-        super(Block, self).__init__()
-        self.stride = stride
-        planes = expansion * in_planes
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, groups=planes, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_planes)
-        self.shortcut = nn.Sequential()
-        if stride == 1 and in_planes != out_planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(out_planes))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
-        out = out + self.shortcut(x) if self.stride == 1 else out
         return out
 
 
@@ -2912,18 +2577,6 @@ class MobileNetV2(nn.Module):
         out = out.view(out.size(0), -1)
         out = self.linear(out)
         return out
-
-
-class SepConv(nn.Module):
-    """Separable Convolution."""
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride):
-        super(SepConv, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size, stride, padding=(kernel_size - 1) // 2, bias=False, groups=in_planes)
-        self.bn1 = nn.BatchNorm2d(out_planes)
-
-    def forward(self, x):
-        return self.bn1(self.conv1(x))
 
 
 class CellA(nn.Module):
@@ -3011,8 +2664,6 @@ class PNASNet(nn.Module):
 
 
 class PreActBlock(nn.Module):
-    """Pre-activation version of the BasicBlock."""
-    expansion = 1
 
     def __init__(self, in_planes, planes, stride=1):
         super(PreActBlock, self).__init__()
@@ -3020,14 +2671,20 @@ class PreActBlock(nn.Module):
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False))
+        if stride != 1 or in_planes != planes:
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False))
+        self.fc1 = nn.Conv2d(planes, planes // 16, kernel_size=1)
+        self.fc2 = nn.Conv2d(planes // 16, planes, kernel_size=1)
 
     def forward(self, x):
         out = F.relu(self.bn1(x))
         shortcut = self.shortcut(out) if hasattr(self, 'shortcut') else x
         out = self.conv1(out)
         out = self.conv2(F.relu(self.bn2(out)))
+        w = F.avg_pool2d(out, out.size(2))
+        w = F.relu(self.fc1(w))
+        w = F.sigmoid(self.fc2(w))
+        out = out * w
         out += shortcut
         return out
 
@@ -3090,7 +2747,6 @@ class PreActResNet(nn.Module):
 
 
 class BasicBlock(nn.Module):
-    expansion = 1
 
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
@@ -3099,36 +2755,18 @@ class BasicBlock(nn.Module):
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
+        if stride != 1 or in_planes != planes:
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes))
+        self.fc1 = nn.Conv2d(planes, planes // 16, kernel_size=1)
+        self.fc2 = nn.Conv2d(planes // 16, planes, kernel_size=1)
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(self.expansion * planes)
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
+        w = F.avg_pool2d(out, out.size(2))
+        w = F.relu(self.fc1(w))
+        w = F.sigmoid(self.fc2(w))
+        out = out * w
         out += self.shortcut(x)
         out = F.relu(out)
         return out
@@ -3167,32 +2805,6 @@ class ResNet(nn.Module):
         return out
 
 
-class Block(nn.Module):
-    """Grouped convolution block."""
-    expansion = 2
-
-    def __init__(self, in_planes, cardinality=32, bottleneck_width=4, stride=1):
-        super(Block, self).__init__()
-        group_width = cardinality * bottleneck_width
-        self.conv1 = nn.Conv2d(in_planes, group_width, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(group_width)
-        self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
-        self.bn2 = nn.BatchNorm2d(group_width)
-        self.conv3 = nn.Conv2d(group_width, self.expansion * group_width, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(self.expansion * group_width)
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion * group_width:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * group_width, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * group_width))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
-
-
 class ResNeXt(nn.Module):
 
     def __init__(self, num_blocks, cardinality, bottleneck_width, num_classes=10):
@@ -3224,58 +2836,6 @@ class ResNeXt(nn.Module):
         out = F.avg_pool2d(out, 8)
         out = out.view(out.size(0), -1)
         out = self.linear(out)
-        return out
-
-
-class BasicBlock(nn.Module):
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes))
-        self.fc1 = nn.Conv2d(planes, planes // 16, kernel_size=1)
-        self.fc2 = nn.Conv2d(planes // 16, planes, kernel_size=1)
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
-        w = F.avg_pool2d(out, out.size(2))
-        w = F.relu(self.fc1(w))
-        w = F.sigmoid(self.fc2(w))
-        out = out * w
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
-
-
-class PreActBlock(nn.Module):
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(PreActBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False))
-        self.fc1 = nn.Conv2d(planes, planes // 16, kernel_size=1)
-        self.fc2 = nn.Conv2d(planes // 16, planes, kernel_size=1)
-
-    def forward(self, x):
-        out = F.relu(self.bn1(x))
-        shortcut = self.shortcut(out) if hasattr(self, 'shortcut') else x
-        out = self.conv1(out)
-        out = self.conv2(F.relu(self.bn2(out)))
-        w = F.avg_pool2d(out, out.size(2))
-        w = F.relu(self.fc1(w))
-        w = F.sigmoid(self.fc2(w))
-        out = out * w
-        out += shortcut
         return out
 
 
@@ -3312,47 +2872,6 @@ class SENet(nn.Module):
         return out
 
 
-class ShuffleBlock(nn.Module):
-
-    def __init__(self, groups):
-        super(ShuffleBlock, self).__init__()
-        self.groups = groups
-
-    def forward(self, x):
-        """Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]"""
-        N, C, H, W = x.size()
-        g = self.groups
-        return x.view(N, g, C / g, H, W).permute(0, 2, 1, 3, 4).contiguous().view(N, C, H, W)
-
-
-class Bottleneck(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride, groups):
-        super(Bottleneck, self).__init__()
-        self.stride = stride
-        mid_planes = out_planes / 4
-        g = 1 if in_planes == 24 else groups
-        self.conv1 = nn.Conv2d(in_planes, mid_planes, kernel_size=1, groups=g, bias=False)
-        self.bn1 = nn.BatchNorm2d(mid_planes)
-        self.shuffle1 = ShuffleBlock(groups=g)
-        self.conv2 = nn.Conv2d(mid_planes, mid_planes, kernel_size=3, stride=stride, padding=1, groups=mid_planes, bias=False)
-        self.bn2 = nn.BatchNorm2d(mid_planes)
-        self.conv3 = nn.Conv2d(mid_planes, out_planes, kernel_size=1, groups=groups, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_planes)
-        self.shortcut = nn.Sequential()
-        if stride == 2:
-            self.shortcut = nn.Sequential(nn.AvgPool2d(3, stride=2, padding=1))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.shuffle1(out)
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
-        res = self.shortcut(x)
-        out = F.relu(torch.cat([out, res], 1)) if self.stride == 2 else F.relu(out + res)
-        return out
-
-
 class ShuffleNet(nn.Module):
 
     def __init__(self, cfg):
@@ -3386,32 +2905,6 @@ class ShuffleNet(nn.Module):
         out = out.view(out.size(0), -1)
         out = self.linear(out)
         return out
-
-
-class VGG(nn.Module):
-
-    def __init__(self, vgg_name):
-        super(VGG, self).__init__()
-        self.features = self._make_layers(cfg[vgg_name])
-        self.classifier = nn.Linear(512, 10)
-
-    def forward(self, x):
-        out = self.features(x)
-        out = out.view(out.size(0), -1)
-        out = self.classifier(out)
-        return out
-
-    def _make_layers(self, cfg):
-        layers = []
-        in_channels = 3
-        for x in cfg:
-            if x == 'M':
-                layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-            else:
-                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1), nn.BatchNorm2d(x), nn.ReLU(inplace=True)]
-                in_channels = x
-        layers += [nn.AvgPool2d(kernel_size=1, stride=1)]
-        return nn.Sequential(*layers)
 
 
 class FocalLoss2d(nn.Module):
@@ -3856,67 +3349,6 @@ class UNet8(nn.Module):
         return self.logit(f), img_logit
 
 
-class Net(nn.Module):
-    """ Network architecture. """
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4 * 4 * 50, 512)
-        self.fc2 = nn.Linear(512, 10)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
-
-
-class Net(nn.Module):
-
-    def __init__(self, hidden_size):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4 * 4 * 50, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, 10)
-
-    def forward(self, x):
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
-
-
 class PrunerModuleWrapper(torch.nn.Module):
 
     def __init__(self, module, module_name, module_type, config, pruner):
@@ -3969,6 +3401,9 @@ def _check_weight(module):
         return isinstance(module.weight.data, torch.Tensor)
     except AttributeError:
         return False
+
+
+_logger = logging.getLogger(__name__)
 
 
 class QuantizerModuleWrapper(torch.nn.Module):
@@ -4091,39 +3526,6 @@ def def_train_opt(p):
     Return the default optimizer.
     """
     return torch.optim.Adam(p, 0.1, amsgrad=False)
-
-
-class MutableScope(Mutable):
-    """
-    Mutable scope marks a subgraph/submodule to help mutators make better decisions.
-
-    If not annotated with mutable scope, search space will be flattened as a list. However, some mutators might
-    need to leverage the concept of a "cell". So if a module is defined as a mutable scope, everything in it will
-    look like "sub-search-space" in the scope. Scopes can be nested.
-
-    There are two ways mutators can use mutable scope. One is to traverse the search space as a tree during initialization
-    and reset. The other is to implement `enter_mutable_scope` and `exit_mutable_scope`. They are called before and after
-    the forward method of the class inheriting mutable scope.
-
-    Mutable scopes are also mutables that are listed in the mutator.mutables (search space), but they are not supposed
-    to appear in the dict of choices.
-
-    Parameters
-    ----------
-    key : str
-        Key of mutable scope.
-    """
-
-    def __init__(self, key):
-        super().__init__(key=key)
-
-    def __call__(self, *args, **kwargs):
-        try:
-            self._check_built()
-            self.mutator.enter_mutable_scope(self)
-            return super().__call__(*args, **kwargs)
-        finally:
-            self.mutator.exit_mutable_scope(self)
 
 
 class StructuredMutableTreeNode:
@@ -4365,77 +3767,271 @@ class StackedLSTMCell(nn.Module):
         return next_c, next_h
 
 
-logger = logging.getLogger(__name__)
+def to_list(arr):
+    if torch.is_tensor(arr):
+        return arr.cpu().numpy().tolist()
+    if isinstance(arr, np.ndarray):
+        return arr.tolist()
+    if isinstance(arr, (list, tuple)):
+        return list(arr)
+    return arr
 
 
-class Mutable(nn.Module):
-    """
-    Mutable is designed to function as a normal layer, with all necessary operators' weights.
-    States and weights of architectures should be included in mutator, instead of the layer itself.
+class Mutator(BaseMutator):
 
-    Mutable has a key, which marks the identity of the mutable. This key can be used by users to share
-    decisions among different mutables. In mutator's implementation, mutators should use the key to
-    distinguish different mutables. Mutables that share the same key should be "similar" to each other.
+    def __init__(self, model):
+        super().__init__(model)
+        self._cache = dict()
+        self._connect_all = False
 
-    Currently the default scope for keys is global. By default, the keys uses a global counter from 1 to
-    produce unique ids.
+    def sample_search(self):
+        """
+        Override to implement this method to iterate over mutables and make decisions.
 
-    Parameters
-    ----------
-    key : str
-        The key of mutable.
+        Returns
+        -------
+        dict
+            A mapping from key of mutables to decisions.
+        """
+        raise NotImplementedError
 
-    Notes
-    -----
-    The counter is program level, but mutables are model level. In case multiple models are defined, and
-    you want to have `counter` starting from 1 in the second model, it's recommended to assign keys manually
-    instead of using automatic keys.
-    """
+    def sample_final(self):
+        """
+        Override to implement this method to iterate over mutables and make decisions that is final
+        for export and retraining.
 
-    def __init__(self, key=None):
-        super().__init__()
-        if key is not None:
-            if not isinstance(key, str):
-                key = str(key)
-                logger.warning('Warning: key "%s" is not string, converted to string.', key)
-            self._key = key
+        Returns
+        -------
+        dict
+            A mapping from key of mutables to decisions.
+        """
+        raise NotImplementedError
+
+    def reset(self):
+        """
+        Reset the mutator by call the `sample_search` to resample (for search). Stores the result in a local
+        variable so that `on_forward_layer_choice` and `on_forward_input_choice` can use the decision directly.
+        """
+        self._cache = self.sample_search()
+
+    def export(self):
+        """
+        Resample (for final) and return results.
+
+        Returns
+        -------
+        dict
+            A mapping from key of mutables to decisions.
+        """
+        sampled = self.sample_final()
+        result = dict()
+        for mutable in self.mutables:
+            if not isinstance(mutable, (LayerChoice, InputChoice)):
+                continue
+            result[mutable.key] = self._convert_mutable_decision_to_human_readable(mutable, sampled.pop(mutable.key))
+        if sampled:
+            raise ValueError("Unexpected keys returned from 'sample_final()': %s", list(sampled.keys()))
+        return result
+
+    def status(self):
+        """
+        Return current selection status of mutator.
+
+        Returns
+        -------
+        dict
+            A mapping from key of mutables to decisions. All weights (boolean type and float type)
+            are converted into real number values. Numpy arrays and tensors are converted into list.
+        """
+        data = dict()
+        for k, v in self._cache.items():
+            if torch.is_tensor(v):
+                v = v.detach().cpu().numpy()
+            if isinstance(v, np.ndarray):
+                v = v.astype(np.float32).tolist()
+            data[k] = v
+        return data
+
+    def graph(self, inputs):
+        """
+        Return model supernet graph.
+
+        Parameters
+        ----------
+        inputs: tuple of tensor
+            Inputs that will be feeded into the network.
+
+        Returns
+        -------
+        dict
+            Containing ``node``, in Tensorboard GraphDef format.
+            Additional key ``mutable`` is a map from key to list of modules.
+        """
+        if not torch.__version__.startswith('1.4'):
+            logger.warning('Graph is only tested with PyTorch 1.4. Other versions might not work.')
+        try:
+            self._connect_all = True
+            graph_def, _ = build_graph(self.model, inputs, verbose=False)
+            result = json_format.MessageToDict(graph_def)
+        finally:
+            self._connect_all = False
+        result['mutable'] = defaultdict(list)
+        for mutable in self.mutables.traverse(deduplicate=False):
+            modules = mutable.name.split('.')
+            path = [{'type': self.model.__class__.__name__, 'name': ''}]
+            m = self.model
+            for module in modules:
+                m = getattr(m, module)
+                path.append({'type': m.__class__.__name__, 'name': module})
+            result['mutable'][mutable.key].append(path)
+        return result
+
+    def on_forward_layer_choice(self, mutable, *args, **kwargs):
+        """
+        On default, this method retrieves the decision obtained previously, and select certain operations.
+        Only operations with non-zero weight will be executed. The results will be added to a list.
+        Then it will reduce the list of all tensor outputs with the policy specified in `mutable.reduction`.
+
+        Parameters
+        ----------
+        mutable : LayerChoice
+            Layer choice module.
+        args : list of torch.Tensor
+            Inputs
+        kwargs : dict
+            Inputs
+
+        Returns
+        -------
+        tuple of torch.Tensor and torch.Tensor
+            Output and mask.
+        """
+        if self._connect_all:
+            return self._all_connect_tensor_reduction(mutable.reduction, [op(*args, **kwargs) for op in mutable]), torch.ones(len(mutable))
+
+        def _map_fn(op, args, kwargs):
+            return op(*args, **kwargs)
+        mask = self._get_decision(mutable)
+        assert len(mask) == len(mutable), 'Invalid mask, expected {} to be of length {}.'.format(mask, len(mutable))
+        out, mask = self._select_with_mask(_map_fn, [(choice, args, kwargs) for choice in mutable], mask)
+        return self._tensor_reduction(mutable.reduction, out), mask
+
+    def on_forward_input_choice(self, mutable, tensor_list):
+        """
+        On default, this method retrieves the decision obtained previously, and select certain tensors.
+        Then it will reduce the list of all tensor outputs with the policy specified in `mutable.reduction`.
+
+        Parameters
+        ----------
+        mutable : InputChoice
+            Input choice module.
+        tensor_list : list of torch.Tensor
+            Tensor list to apply the decision on.
+
+        Returns
+        -------
+        tuple of torch.Tensor and torch.Tensor
+            Output and mask.
+        """
+        if self._connect_all:
+            return self._all_connect_tensor_reduction(mutable.reduction, tensor_list), torch.ones(mutable.n_candidates)
+        mask = self._get_decision(mutable)
+        assert len(mask) == mutable.n_candidates, 'Invalid mask, expected {} to be of length {}.'.format(mask, mutable.n_candidates)
+        out, mask = self._select_with_mask(lambda x: x, [(t,) for t in tensor_list], mask)
+        return self._tensor_reduction(mutable.reduction, out), mask
+
+    def _select_with_mask(self, map_fn, candidates, mask):
+        """
+        Select masked tensors and return a list of tensors.
+
+        Parameters
+        ----------
+        map_fn : function
+            Convert candidates to target candidates. Can be simply identity.
+        candidates : list of torch.Tensor
+            Tensor list to apply the decision on.
+        mask : list-like object
+            Can be a list, an numpy array or a tensor (recommended). Needs to
+            have the same length as ``candidates``.
+
+        Returns
+        -------
+        tuple of list of torch.Tensor and torch.Tensor
+            Output and mask.
+        """
+        if isinstance(mask, list) and len(mask) >= 1 and isinstance(mask[0], bool) or isinstance(mask, np.ndarray) and mask.dtype == np.bool or 'BoolTensor' in mask.type():
+            out = [map_fn(*cand) for cand, m in zip(candidates, mask) if m]
+        elif isinstance(mask, list) and len(mask) >= 1 and isinstance(mask[0], (float, int)) or isinstance(mask, np.ndarray) and mask.dtype in (np.float32, np.float64, np.int32, np.int64) or 'FloatTensor' in mask.type():
+            out = [(map_fn(*cand) * m) for cand, m in zip(candidates, mask) if m]
         else:
-            self._key = self.__class__.__name__ + str(global_mutable_counting())
-        self.init_hook = self.forward_hook = None
+            raise ValueError("Unrecognized mask '%s'" % mask)
+        if not torch.is_tensor(mask):
+            mask = torch.tensor(mask)
+        return out, mask
 
-    def __deepcopy__(self, memodict=None):
-        raise NotImplementedError("Deep copy doesn't work for mutables.")
+    def _tensor_reduction(self, reduction_type, tensor_list):
+        if reduction_type == 'none':
+            return tensor_list
+        if not tensor_list:
+            return None
+        if len(tensor_list) == 1:
+            return tensor_list[0]
+        if reduction_type == 'sum':
+            return sum(tensor_list)
+        if reduction_type == 'mean':
+            return sum(tensor_list) / len(tensor_list)
+        if reduction_type == 'concat':
+            return torch.cat(tensor_list, dim=1)
+        raise ValueError('Unrecognized reduction policy: "{}"'.format(reduction_type))
 
-    def __call__(self, *args, **kwargs):
-        self._check_built()
-        return super().__call__(*args, **kwargs)
+    def _all_connect_tensor_reduction(self, reduction_type, tensor_list):
+        if reduction_type == 'none':
+            return tensor_list
+        if reduction_type == 'concat':
+            return torch.cat(tensor_list, dim=1)
+        return torch.stack(tensor_list).sum(0)
 
-    def set_mutator(self, mutator):
-        if 'mutator' in self.__dict__:
-            raise RuntimeError('`set_mutator` is called more than once. Did you parse the search space multiple times? Or did you apply multiple fixed architectures?')
-        self.__dict__['mutator'] = mutator
-
-    @property
-    def key(self):
+    def _get_decision(self, mutable):
         """
-        Read-only property of key.
-        """
-        return self._key
+        By default, this method checks whether `mutable.key` is already in the decision cache,
+        and returns the result without double-check.
 
-    @property
-    def name(self):
-        """
-        After the search space is parsed, it will be the module name of the mutable.
-        """
-        return self._name if hasattr(self, '_name') else '_key'
+        Parameters
+        ----------
+        mutable : Mutable
 
-    @name.setter
-    def name(self, name):
-        self._name = name
+        Returns
+        -------
+        object
+        """
+        if mutable.key not in self._cache:
+            raise ValueError('"{}" not found in decision cache.'.format(mutable.key))
+        result = self._cache[mutable.key]
+        logger.debug('Decision %s: %s', mutable.key, result)
+        return result
 
-    def _check_built(self):
-        if not hasattr(self, 'mutator'):
-            raise ValueError('Mutator not set for {}. You might have forgotten to initialize and apply your mutator. Or did you initialize a mutable on the fly in forward pass? Move to `__init__` so that trainer can locate all your mutables. See NNI docs for more details.'.format(self))
+    def _convert_mutable_decision_to_human_readable(self, mutable, sampled):
+        multihot_list = to_list(sampled)
+        converted = None
+        if all([(t == 0 or t == 1) for t in multihot_list]):
+            if isinstance(mutable, LayerChoice):
+                assert len(multihot_list) == len(mutable), "Results returned from 'sample_final()' (%s: %s) either too short or too long." % (mutable.key, multihot_list)
+                if len(set(mutable.names)) == len(mutable) and not all(d.isdigit() for d in mutable.names):
+                    converted = [name for i, name in enumerate(mutable.names) if multihot_list[i]]
+                else:
+                    converted = [i for i in range(len(multihot_list)) if multihot_list[i]]
+            if isinstance(mutable, InputChoice):
+                assert len(multihot_list) == mutable.n_candidates, "Results returned from 'sample_final()' (%s: %s) either too short or too long." % (mutable.key, multihot_list)
+                if len(set(mutable.choose_from)) == mutable.n_candidates:
+                    converted = [name for i, name in enumerate(mutable.choose_from) if multihot_list[i]]
+                else:
+                    converted = [i for i in range(len(multihot_list)) if multihot_list[i]]
+        if converted is not None:
+            if len(converted) == 1:
+                converted = converted[0]
+        else:
+            converted = multihot_list
+        return converted
 
 
 def detach_variable(inputs):
@@ -4718,176 +4314,327 @@ class MixedOp(nn.Module):
             self.ap_path_alpha.data[idx] -= offset
 
 
-class StubLayer:
+class ProxylessNasMutator(BaseMutator):
     """
-    StubLayer Module. Base Module.
-    """
-
-    def __init__(self, input_node=None, output_node=None):
-        self.input = input_node
-        self.output = output_node
-        self.weights = None
-
-    def build(self, shape):
-        """
-        build shape.
-        """
-
-    def set_weights(self, weights):
-        """
-        set weights.
-        """
-        self.weights = weights
-
-    def import_weights(self, torch_layer):
-        """
-        import weights.
-        """
-
-    def import_weights_keras(self, keras_layer):
-        """
-        import weights from keras layer.
-        """
-
-    def export_weights(self, torch_layer):
-        """
-        export weights.
-        """
-
-    def export_weights_keras(self, keras_layer):
-        """
-        export weights to keras layer.
-        """
-
-    def get_weights(self):
-        """
-        get weights.
-        """
-        return self.weights
-
-    def size(self):
-        """
-        size().
-        """
-        return 0
-
-    @property
-    def output_shape(self):
-        """
-        output shape.
-        """
-        return self.input.shape
-
-    def to_real_layer(self):
-        """
-        to real layer.
-        """
-
-    def __str__(self):
-        """
-        str() function to print.
-        """
-        return type(self).__name__[4:]
-
-
-class StubAggregateLayer(StubLayer):
-    """
-    StubAggregateLayer Module.
+    This mutator initializes and operates all the LayerChoices of the input model.
+    It is for the corresponding trainer to control the training process of LayerChoices,
+    coordinating with whole training process.
     """
 
-    def __init__(self, input_nodes=None, output_node=None):
-        if input_nodes is None:
-            input_nodes = []
-        super().__init__(input_nodes, output_node)
+    def __init__(self, model):
+        """
+        Init a MixedOp instance for each mutable i.e., LayerChoice.
+        And register the instantiated MixedOp in corresponding LayerChoice.
+        If does not register it in LayerChoice, DataParallel does not work then,
+        because architecture weights are not included in the DataParallel model.
+        When MixedOPs are registered, we use ```requires_grad``` to control
+        whether calculate gradients of architecture weights.
+
+        Parameters
+        ----------
+        model : pytorch model
+            The model that users want to tune, it includes search space defined with nni nas apis
+        """
+        super(ProxylessNasMutator, self).__init__(model)
+        self._unused_modules = None
+        self.mutable_list = []
+        for mutable in self.undedup_mutables:
+            self.mutable_list.append(mutable)
+            mutable.registered_module = MixedOp(mutable)
+
+    def on_forward_layer_choice(self, mutable, *args, **kwargs):
+        """
+        Callback of layer choice forward. This function defines the forward
+        logic of the input mutable. So mutable is only interface, its real
+        implementation is defined in mutator.
+
+        Parameters
+        ----------
+        mutable: LayerChoice
+            forward logic of this input mutable
+        args: list of torch.Tensor
+            inputs of this mutable
+        kwargs: dict
+            inputs of this mutable
+
+        Returns
+        -------
+        torch.Tensor
+            output of this mutable, i.e., LayerChoice
+        int
+            index of the chosen op
+        """
+        idx = mutable.registered_module.active_op_index
+        return mutable.registered_module(mutable, *args, **kwargs), idx
+
+    def reset_binary_gates(self):
+        """
+        For each LayerChoice, binarize binary weights
+        based on alpha to only activate one op.
+        It traverses all the mutables in the model to do this.
+        """
+        for mutable in self.undedup_mutables:
+            mutable.registered_module.binarize(mutable)
+
+    def set_chosen_op_active(self):
+        """
+        For each LayerChoice, set the op with highest alpha as the chosen op.
+        Usually used for validation.
+        """
+        for mutable in self.undedup_mutables:
+            mutable.registered_module.set_chosen_op_active()
+
+    def num_arch_params(self):
+        """
+        The number of mutables, i.e., LayerChoice
+
+        Returns
+        -------
+        int
+            the number of LayerChoice in user model
+        """
+        return len(self.mutable_list)
+
+    def set_arch_param_grad(self):
+        """
+        For each LayerChoice, calculate gradients for architecture weights, i.e., alpha
+        """
+        for mutable in self.undedup_mutables:
+            mutable.registered_module.set_arch_param_grad(mutable)
+
+    def get_architecture_parameters(self):
+        """
+        Get all the architecture parameters.
+
+        yield
+        -----
+        PyTorch Parameter
+            Return ap_path_alpha of the traversed mutable
+        """
+        for mutable in self.undedup_mutables:
+            yield mutable.registered_module.get_ap_path_alpha()
+
+    def change_forward_mode(self, mode):
+        """
+        Update forward mode of MixedOps, as training architecture weights and
+        model weights use different forward modes.
+        """
+        MixedOp.forward_mode = mode
+
+    def get_forward_mode(self):
+        """
+        Get forward mode of MixedOp
+
+        Returns
+        -------
+        string
+            the current forward mode of MixedOp
+        """
+        return MixedOp.forward_mode
+
+    def rescale_updated_arch_param(self):
+        """
+        Rescale architecture weights in 'two' mode.
+        """
+        for mutable in self.undedup_mutables:
+            mutable.registered_module.rescale_updated_arch_param()
+
+    def unused_modules_off(self):
+        """
+        Remove unused modules for each mutables.
+        The removed modules are kept in ```self._unused_modules``` for resume later.
+        """
+        self._unused_modules = []
+        for mutable in self.undedup_mutables:
+            mixed_op = mutable.registered_module
+            unused = {}
+            if self.get_forward_mode() in ['full', 'two', 'full_v2']:
+                involved_index = mixed_op.active_index + mixed_op.inactive_index
+            else:
+                involved_index = mixed_op.active_index
+            for i in range(mixed_op.n_choices):
+                if i not in involved_index:
+                    unused[i] = mutable[i]
+                    mutable[i] = None
+            self._unused_modules.append(unused)
+
+    def unused_modules_back(self):
+        """
+        Resume the removed modules back.
+        """
+        if self._unused_modules is None:
+            return
+        for m, unused in zip(self.mutable_list, self._unused_modules):
+            for i in unused:
+                m[i] = unused[i]
+        self._unused_modules = None
+
+    def arch_requires_grad(self):
+        """
+        Make architecture weights require gradient
+        """
+        for mutable in self.undedup_mutables:
+            mutable.registered_module.to_requires_grad()
+
+    def arch_disable_grad(self):
+        """
+        Disable gradient of architecture weights, i.e., does not
+        calcuate gradient for them.
+        """
+        for mutable in self.undedup_mutables:
+            mutable.registered_module.to_disable_grad()
+
+    def sample_final(self):
+        """
+        Generate the final chosen architecture.
+
+        Returns
+        -------
+        dict
+            the choice of each mutable, i.e., LayerChoice
+        """
+        result = dict()
+        for mutable in self.undedup_mutables:
+            assert isinstance(mutable, LayerChoice)
+            index, _ = mutable.registered_module.chosen_index
+            result[mutable.key] = F.one_hot(torch.tensor(index), num_classes=len(mutable)).view(-1).bool()
+        return result
 
 
-class StubAdd(StubAggregateLayer):
+class RandomMutator(Mutator):
     """
-    StubAdd Module.
+    Random mutator that samples a random candidate in the search space each time ``reset()``.
+    It uses random function in PyTorch, so users can set seed in PyTorch to ensure deterministic behavior.
     """
 
-    @property
-    def output_shape(self):
-        return self.input[0].shape
+    def sample_search(self):
+        """
+        Sample a random candidate.
+        """
+        result = dict()
+        for mutable in self.mutables:
+            if isinstance(mutable, LayerChoice):
+                gen_index = torch.randint(high=len(mutable), size=(1,))
+                result[mutable.key] = F.one_hot(gen_index, num_classes=len(mutable)).view(-1).bool()
+            elif isinstance(mutable, InputChoice):
+                if mutable.n_chosen is None:
+                    result[mutable.key] = torch.randint(high=2, size=(mutable.n_candidates,)).view(-1).bool()
+                else:
+                    perm = torch.randperm(mutable.n_candidates)
+                    mask = [(i in perm[:mutable.n_chosen]) for i in range(mutable.n_candidates)]
+                    result[mutable.key] = torch.tensor(mask, dtype=torch.bool)
+        return result
 
-    def to_real_layer(self):
-        return TorchAdd()
+    def sample_final(self):
+        """
+        Same as :meth:`sample_search`.
+        """
+        return self.sample_search()
 
 
-class StubConcatenate(StubAggregateLayer):
-    """StubConcatenate Module.
+class SPOSSupernetTrainingMutator(RandomMutator):
+    """
+    A random mutator with flops limit.
+
+    Parameters
+    ----------
+    model : nn.Module
+        PyTorch model.
+    flops_func : callable
+        Callable that takes a candidate from `sample_search` and returns its candidate. When `flops_func`
+        is None, functions related to flops will be deactivated.
+    flops_lb : number
+        Lower bound of flops.
+    flops_ub : number
+        Upper bound of flops.
+    flops_bin_num : number
+        Number of bins divided for the interval of flops to ensure the uniformity. Bigger number will be more
+        uniform, but the sampling will be slower.
+    flops_sample_timeout : int
+        Maximum number of attempts to sample before giving up and use a random candidate.
     """
 
-    @property
-    def output_shape(self):
-        ret = 0
-        for current_input in self.input:
-            ret += current_input.shape[-1]
-        ret = self.input[0].shape[:-1] + (ret,)
-        return ret
+    def __init__(self, model, flops_func=None, flops_lb=None, flops_ub=None, flops_bin_num=7, flops_sample_timeout=500):
+        super().__init__(model)
+        self._flops_func = flops_func
+        if self._flops_func is not None:
+            self._flops_bin_num = flops_bin_num
+            self._flops_bins = [(flops_lb + (flops_ub - flops_lb) / flops_bin_num * i) for i in range(flops_bin_num + 1)]
+            self._flops_sample_timeout = flops_sample_timeout
 
-    def to_real_layer(self):
-        return TorchConcatenate()
+    def sample_search(self):
+        """
+        Sample a candidate for training. When `flops_func` is not None, candidates will be sampled uniformly
+        relative to flops.
 
+        Returns
+        -------
+        dict
+        """
+        if self._flops_func is not None:
+            for times in range(self._flops_sample_timeout):
+                idx = np.random.randint(self._flops_bin_num)
+                cand = super().sample_search()
+                if self._flops_bins[idx] <= self._flops_func(cand) <= self._flops_bins[idx + 1]:
+                    _logger.debug('Sampled candidate flops %f in %d times.', cand, times)
+                    return cand
+            _logger.warning('Failed to sample a flops-valid candidate within %d tries.', self._flops_sample_timeout)
+        return super().sample_search()
 
-def set_stub_weight_to_torch(stub_layer, torch_layer):
-    stub_layer.export_weights(torch_layer)
-
-
-def set_torch_weight_to_stub(torch_layer, stub_layer):
-    stub_layer.import_weights(torch_layer)
+    def sample_final(self):
+        """
+        Implement only to suffice the interface of Mutator.
+        """
+        return self.sample_search()
 
 
 class TorchModel(torch.nn.Module):
-    """A neural network class using pytorch constructed from an instance of Graph."""
-
-    def __init__(self, graph):
-        super(TorchModel, self).__init__()
-        self.graph = graph
-        self.layers = []
-        for layer in graph.layer_list:
-            self.layers.append(layer.to_real_layer())
-        if graph.weighted:
-            for index, layer in enumerate(self.layers):
-                set_stub_weight_to_torch(self.graph.layer_list[index], layer)
-        for index, layer in enumerate(self.layers):
-            self.add_module(str(index), layer)
-
-    def forward(self, input_tensor):
-        topo_node_list = self.graph.topological_order
-        output_id = topo_node_list[-1]
-        input_id = topo_node_list[0]
-        node_list = deepcopy(self.graph.node_list)
-        node_list[input_id] = input_tensor
-        for v in topo_node_list:
-            for u, layer_id in self.graph.reverse_adj_list[v]:
-                layer = self.graph.layer_list[layer_id]
-                torch_layer = self.layers[layer_id]
-                if isinstance(layer, (StubAdd, StubConcatenate)):
-                    edge_input_tensor = list(map(lambda x: node_list[x], self.graph.layer_id_to_input_node_ids[layer_id]))
-                else:
-                    edge_input_tensor = node_list[u]
-                temp_tensor = torch_layer(edge_input_tensor)
-                node_list[v] = temp_tensor
-        return node_list[output_id]
-
-    def set_weight_to_graph(self):
-        self.graph.weighted = True
-        for index, layer in enumerate(self.layers):
-            set_torch_weight_to_stub(layer, self.graph.layer_list[index])
-
-
-class AvgPool(nn.Module):
-    """
-    AvgPool Module.
-    """
 
     def __init__(self):
         super().__init__()
+        self.conv1 = torch.nn.Conv2d(1, 5, 5, 1)
+        self.bn1 = torch.nn.BatchNorm2d(5)
+        self.conv2 = torch.nn.Conv2d(5, 10, 5, 1)
+        self.bn2 = torch.nn.BatchNorm2d(10)
+        self.fc1 = torch.nn.Linear(4 * 4 * 10, 100)
+        self.fc2 = torch.nn.Linear(100, 10)
 
-    @abstractmethod
+    def forward(self, x):
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.max_pool2d(x, 2, 2)
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.max_pool2d(x, 2, 2)
+        x = x.view(-1, 4 * 4 * 10)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return F.log_softmax(x, dim=1)
+
+
+class GlobalAvgPool1d(AvgPool):
+    """
+    GlobalAvgPool1d Module.
+    """
+
     def forward(self, input_tensor):
-        pass
+        return functional.avg_pool1d(input_tensor, input_tensor.size()[2:]).view(input_tensor.size()[:2])
+
+
+class GlobalAvgPool2d(AvgPool):
+    """
+    GlobalAvgPool2d Module.
+    """
+
+    def forward(self, input_tensor):
+        return functional.avg_pool2d(input_tensor, input_tensor.size()[2:]).view(input_tensor.size()[:2])
+
+
+class GlobalAvgPool3d(AvgPool):
+    """
+    GlobalAvgPool3d Module.
+    """
+
+    def forward(self, input_tensor):
+        return functional.avg_pool3d(input_tensor, input_tensor.size()[2:]).view(input_tensor.size()[:2])
 
 
 class TorchConcatenate(nn.Module):
@@ -5052,75 +4799,6 @@ class NestedSpace(nn.Module):
         return x
 
 
-class TorchModel(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.conv1 = torch.nn.Conv2d(1, 5, 5, 1)
-        self.bn1 = torch.nn.BatchNorm2d(5)
-        self.conv2 = torch.nn.Conv2d(5, 10, 5, 1)
-        self.bn2 = torch.nn.BatchNorm2d(10)
-        self.fc1 = torch.nn.Linear(4 * 4 * 10, 100)
-        self.fc2 = torch.nn.Linear(100, 10)
-
-    def forward(self, x):
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 10)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
-
-
-class BackboneModel1(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 1, 1, 1)
-
-    def forward(self, x):
-        return self.conv1(x)
-
-
-class BackboneModel2(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.bn1 = nn.BatchNorm2d(self.conv1.out_channels)
-        self.bn2 = nn.BatchNorm2d(self.conv2.out_channels)
-        self.fc1 = nn.Linear(4 * 4 * 50, 500)
-        self.fc2 = nn.Linear(500, 10)
-
-    def forward(self, x):
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(x.size(0), -1)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class BigModel(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.backbone1 = BackboneModel1()
-        self.backbone2 = BackboneModel2()
-        self.fc3 = nn.Linear(10, 2)
-
-    def forward(self, x):
-        x = self.backbone1(x)
-        x = self.backbone2(x)
-        x = self.fc3(x)
-        return x
-
-
 class BackboneModel1(nn.Module):
 
     def __init__(self):
@@ -5166,20 +4844,6 @@ class BigModel(torch.nn.Module):
         x = self.backbone2(x)
         x = self.fc3(x)
         return x
-
-
-class Model(nn.Module):
-
-    def __init__(self, bias=True):
-        super(Model, self).__init__()
-        self.conv1 = nn.Conv2d(1, 8, kernel_size=3, padding=1, bias=bias)
-        self.bn1 = nn.BatchNorm2d(8)
-        self.pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Linear(8, 2, bias=bias)
-        self.bias = bias
-
-    def forward(self, x):
-        return self.fc(self.pool(self.bn1(self.conv1(x))).view(x.size(0), -1))
 
 
 import torch
@@ -5245,6 +4909,10 @@ TESTCASES = [
      lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'separable': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ConvLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (ConvRelu,
      lambda: ([], {'in_': 4, 'out': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -5293,10 +4961,22 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
      False),
+    (GlobalAvgPool1d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (GoogLeNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 32, 32])], {}),
      True),
+    (IdentityLayer,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Inception,
      lambda: ([], {'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -5597,4 +5277,16 @@ class Test_microsoft_nni(_paritybench_base):
 
     def test_057(self):
         self._check(*TESTCASES[57])
+
+    def test_058(self):
+        self._check(*TESTCASES[58])
+
+    def test_059(self):
+        self._check(*TESTCASES[59])
+
+    def test_060(self):
+        self._check(*TESTCASES[60])
+
+    def test_061(self):
+        self._check(*TESTCASES[61])
 

@@ -6,34 +6,51 @@ model = _module
 train = _module
 utils = _module
 model = _module
+train = _module
+utils = _module
+model = _module
+train = _module
+utils = _module
+model = _module
+train = _module
+utils = _module
 model = _module
 model = _module
+train = _module
+train = _module
+utils = _module
 model = _module
-model = _module
-model = _module
+train = _module
+utils = _module
 attention = _module
 encoder = _module
 feed_forward = _module
 model = _module
 sublayer = _module
+train = _module
 train_utils = _module
+utils = _module
 model = _module
 model = _module
+train = _module
+train = _module
+utils = _module
 reformat_data = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -47,13 +64,37 @@ from torch import nn
 import numpy as np
 
 
+import torch.optim as optim
+
+
+from torchtext import data
+
+
+from sklearn.metrics import accuracy_score
+
+
 from torch.autograd import Variable
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils import data
+
+
+from torch.utils.data import DataLoader
 
 
 from torch.nn import functional as F
 
 
+from torchtext.vocab import Vectors
+
+
 from torch import Tensor
+
+
+from sklearn.model_selection import train_test_split
 
 
 import math
@@ -76,85 +117,15 @@ def evaluate_model(model, iterator):
     all_y = []
     for idx, batch in enumerate(iterator):
         if torch.cuda.is_available():
-            x = batch.text.cuda()
+            x = batch.text
         else:
             x = batch.text
         y_pred = model(x)
-        predicted = torch.max(y_pred.cpu().data, 1)[1]
+        predicted = torch.max(y_pred.cpu().data, 1)[1] + 1
         all_preds.extend(predicted.numpy())
         all_y.extend(batch.label.numpy())
     score = accuracy_score(all_y, np.array(all_preds).flatten())
     return score
-
-
-class CharCNN(nn.Module):
-
-    def __init__(self, config, vocab_size, embeddings):
-        super(CharCNN, self).__init__()
-        self.config = config
-        embed_size = vocab_size
-        self.embeddings = nn.Embedding(vocab_size, embed_size)
-        self.embeddings.weight = nn.Parameter(embeddings, requires_grad=False)
-        conv1 = nn.Sequential(nn.Conv1d(in_channels=embed_size, out_channels=self.config.num_channels, kernel_size=7), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
-        conv2 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=7), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
-        conv3 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU())
-        conv4 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU())
-        conv5 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU())
-        conv6 = nn.Sequential(nn.Conv1d(in_channels=self.config.num_channels, out_channels=self.config.num_channels, kernel_size=3), nn.ReLU(), nn.MaxPool1d(kernel_size=3))
-        conv_output_size = self.config.num_channels * ((self.config.seq_len - 96) // 27)
-        linear1 = nn.Sequential(nn.Linear(conv_output_size, self.config.linear_size), nn.ReLU(), nn.Dropout(self.config.dropout_keep))
-        linear2 = nn.Sequential(nn.Linear(self.config.linear_size, self.config.linear_size), nn.ReLU(), nn.Dropout(self.config.dropout_keep))
-        linear3 = nn.Sequential(nn.Linear(self.config.linear_size, self.config.output_size), nn.Softmax())
-        self.convolutional_layers = nn.Sequential(conv1, conv2, conv3, conv4, conv5, conv6)
-        self.linear_layers = nn.Sequential(linear1, linear2, linear3)
-
-    def forward(self, x):
-        embedded_sent = self.embeddings(x).permute(1, 2, 0)
-        conv_out = self.convolutional_layers(embedded_sent)
-        conv_out = conv_out.view(conv_out.shape[0], -1)
-        linear_output = self.linear_layers(conv_out)
-        return linear_output
-
-    def add_optimizer(self, optimizer):
-        self.optimizer = optimizer
-
-    def add_loss_op(self, loss_op):
-        self.loss_op = loss_op
-
-    def reduce_lr(self):
-        None
-        for g in self.optimizer.param_groups:
-            g['lr'] = g['lr'] / 2
-
-    def run_epoch(self, train_iterator, val_iterator, epoch):
-        train_losses = []
-        val_accuracies = []
-        losses = []
-        if epoch > 0 and epoch % 3 == 0:
-            self.reduce_lr()
-        for i, batch in enumerate(train_iterator):
-            self.optimizer.zero_grad()
-            if torch.is_available():
-                x = batch.text
-                y = batch.label.type(torch.LongTensor)
-            else:
-                x = batch.text
-                y = batch.label.type(torch.LongTensor)
-            y_pred = self.__call__(x)
-            loss = self.loss_op(y_pred, y)
-            loss.backward()
-            losses.append(loss.data.cpu().numpy())
-            self.optimizer.step()
-            if i % 100 == 0:
-                None
-                avg_train_loss = np.mean(losses)
-                train_losses.append(avg_train_loss)
-                None
-                losses = []
-                val_accuracy = evaluate_model(self, val_iterator)
-                None
-                self.train()
-        return train_losses, val_accuracies
 
 
 class CharCNN(nn.Module):
@@ -207,7 +178,7 @@ class CharCNN(nn.Module):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             _, n_true_label = batch
-            if torch.is_available():
+            if torch.cuda.is_available():
                 batch = [Variable(record) for record in batch]
             else:
                 batch = [Variable(record) for record in batch]
@@ -275,7 +246,7 @@ class RCNN(nn.Module):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             self.optimizer.zero_grad()
-            if torch.is_available():
+            if torch.cuda.is_available():
                 x = batch.text
                 y = (batch.label - 1).type(torch.LongTensor)
             else:
@@ -358,7 +329,7 @@ class Seq2SeqAttention(nn.Module):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             self.optimizer.zero_grad()
-            if torch.is_available():
+            if torch.cuda.is_available():
                 x = batch.text
                 y = (batch.label - 1).type(torch.LongTensor)
             else:
@@ -424,7 +395,7 @@ class TextCNN(nn.Module):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             self.optimizer.zero_grad()
-            if torch.is_available():
+            if torch.cuda.is_available():
                 x = batch.text
                 y = (batch.label - 1).type(torch.LongTensor)
             else:
@@ -579,7 +550,7 @@ class TextRNN(nn.Module):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             self.optimizer.zero_grad()
-            if torch.is_available():
+            if torch.cuda.is_available():
                 x = batch.text
                 y = (batch.label - 1).type(torch.LongTensor)
             else:
@@ -642,6 +613,21 @@ class MultiHeadedAttention(nn.Module):
         return self.linears[-1](x)
 
 
+class LayerNorm(nn.Module):
+    """Construct a layer normalization module."""
+
+    def __init__(self, features, eps=1e-06):
+        super(LayerNorm, self).__init__()
+        self.a_2 = nn.Parameter(torch.ones(features))
+        self.b_2 = nn.Parameter(torch.zeros(features))
+        self.eps = eps
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+
+
 class Encoder(nn.Module):
     """
     Transformer Encoder
@@ -658,6 +644,21 @@ class Encoder(nn.Module):
         for layer in self.layers:
             x = layer(x, mask)
         return self.norm(x)
+
+
+class SublayerOutput(nn.Module):
+    """
+    A residual connection followed by a layer norm.
+    """
+
+    def __init__(self, size, dropout):
+        super(SublayerOutput, self).__init__()
+        self.norm = LayerNorm(size)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, sublayer):
+        """Apply residual connection to any sublayer with the same size."""
+        return x + self.dropout(sublayer(self.norm(x)))
 
 
 class EncoderLayer(nn.Module):
@@ -693,6 +694,39 @@ class PositionwiseFeedForward(nn.Module):
     def forward(self, x):
         """Implements FFN equation."""
         return self.w_2(self.dropout(F.relu(self.w_1(x))))
+
+
+class Embeddings(nn.Module):
+    """
+    Usual Embedding layer with weights multiplied by sqrt(d_model)
+    """
+
+    def __init__(self, d_model, vocab):
+        super(Embeddings, self).__init__()
+        self.lut = nn.Embedding(vocab, d_model)
+        self.d_model = d_model
+
+    def forward(self, x):
+        return self.lut(x) * math.sqrt(self.d_model)
+
+
+class PositionalEncoding(nn.Module):
+    """Implement the PE function."""
+
+    def __init__(self, d_model, dropout, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(torch.as_tensor(position.numpy() * div_term.unsqueeze(0).numpy()))
+        pe[:, 1::2] = torch.cos(torch.as_tensor(position.numpy() * div_term.unsqueeze(0).numpy()))
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
+        return self.dropout(x)
 
 
 class Transformer(nn.Module):
@@ -736,129 +770,7 @@ class Transformer(nn.Module):
             self.reduce_lr()
         for i, batch in enumerate(train_iterator):
             self.optimizer.zero_grad()
-            if torch.is_available():
-                x = batch.text
-                y = (batch.label - 1).type(torch.LongTensor)
-            else:
-                x = batch.text
-                y = (batch.label - 1).type(torch.LongTensor)
-            y_pred = self.__call__(x)
-            loss = self.loss_op(y_pred, y)
-            loss.backward()
-            losses.append(loss.data.cpu().numpy())
-            self.optimizer.step()
-            if i % 100 == 0:
-                None
-                avg_train_loss = np.mean(losses)
-                train_losses.append(avg_train_loss)
-                None
-                losses = []
-                val_accuracy = evaluate_model(self, val_iterator)
-                None
-                self.train()
-        return train_losses, val_accuracies
-
-
-class LayerNorm(nn.Module):
-    """Construct a layer normalization module."""
-
-    def __init__(self, features, eps=1e-06):
-        super(LayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(features))
-        self.b_2 = nn.Parameter(torch.zeros(features))
-        self.eps = eps
-
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
-
-
-class SublayerOutput(nn.Module):
-    """
-    A residual connection followed by a layer norm.
-    """
-
-    def __init__(self, size, dropout):
-        super(SublayerOutput, self).__init__()
-        self.norm = LayerNorm(size)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, sublayer):
-        """Apply residual connection to any sublayer with the same size."""
-        return x + self.dropout(sublayer(self.norm(x)))
-
-
-class Embeddings(nn.Module):
-    """
-    Usual Embedding layer with weights multiplied by sqrt(d_model)
-    """
-
-    def __init__(self, d_model, vocab):
-        super(Embeddings, self).__init__()
-        self.lut = nn.Embedding(vocab, d_model)
-        self.d_model = d_model
-
-    def forward(self, x):
-        return self.lut(x) * math.sqrt(self.d_model)
-
-
-class PositionalEncoding(nn.Module):
-    """Implement the PE function."""
-
-    def __init__(self, d_model, dropout, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(torch.as_tensor(position.numpy() * div_term.unsqueeze(0).numpy()))
-        pe[:, 1::2] = torch.cos(torch.as_tensor(position.numpy() * div_term.unsqueeze(0).numpy()))
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
-
-    def forward(self, x):
-        x = x + Variable(self.pe[:, :x.size(1)], requires_grad=False)
-        return self.dropout(x)
-
-
-class fastText(nn.Module):
-
-    def __init__(self, config, vocab_size, word_embeddings):
-        super(fastText, self).__init__()
-        self.config = config
-        self.embeddings = nn.Embedding(vocab_size, self.config.embed_size)
-        self.embeddings.weight = nn.Parameter(word_embeddings, requires_grad=False)
-        self.fc1 = nn.Linear(self.config.embed_size, self.config.hidden_size)
-        self.fc2 = nn.Linear(self.config.hidden_size, self.config.output_size)
-        self.softmax = nn.Softmax()
-
-    def forward(self, x):
-        embedded_sent = self.embeddings(x).permute(1, 0, 2)
-        h = self.fc1(embedded_sent.mean(1))
-        z = self.fc2(h)
-        return self.softmax(z)
-
-    def add_optimizer(self, optimizer):
-        self.optimizer = optimizer
-
-    def add_loss_op(self, loss_op):
-        self.loss_op = loss_op
-
-    def reduce_lr(self):
-        None
-        for g in self.optimizer.param_groups:
-            g['lr'] = g['lr'] / 2
-
-    def run_epoch(self, train_iterator, val_iterator, epoch):
-        train_losses = []
-        val_accuracies = []
-        losses = []
-        if epoch == int(self.config.max_epochs / 3) or epoch == int(2 * self.config.max_epochs / 3):
-            self.reduce_lr()
-        for i, batch in enumerate(train_iterator):
-            self.optimizer.zero_grad()
-            if torch.is_available():
+            if torch.cuda.is_available():
                 x = batch.text
                 y = (batch.label - 1).type(torch.LongTensor)
             else:
@@ -964,10 +876,18 @@ TESTCASES = [
      lambda: ([], {'d_model': 4, 'd_ff': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (RCNN,
+     lambda: ([], {'config': _mock_config(embed_size=4, hidden_size=4, hidden_layers=1, dropout_keep=0.5, hidden_size_linear=4, output_size=4), 'vocab_size': 4, 'word_embeddings': torch.rand([4, 4])}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
     (SublayerOutput,
      lambda: ([], {'size': 4, 'dropout': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4]), _mock_layer()], {}),
      False),
+    (TextCNN,
+     lambda: ([], {'config': _mock_config(embed_size=4, num_channels=4, kernel_size=[4, 4, 4], max_sen_len=4, dropout_keep=0.5, output_size=4), 'vocab_size': 4, 'word_embeddings': torch.rand([4, 4])}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
     (fastText,
      lambda: ([], {'config': _mock_config(embed_size=4, hidden_size=4, output_size=4)}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -995,4 +915,10 @@ class Test_AnubhavGupta3377_Text_Classification_Models_Pytorch(_paritybench_base
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
 

@@ -25,23 +25,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from collections import defaultdict
 
 
 import numpy as np
 
 
 import torch
+
+
+from torch.utils.data import Dataset
 
 
 from torch import nn
@@ -68,10 +75,13 @@ from scipy.optimize import least_squares
 import torch.nn.functional as F
 
 
+import re
+
+
+import scipy.ndimage
+
+
 import time
-
-
-from collections import defaultdict
 
 
 from itertools import islice
@@ -491,102 +501,6 @@ class AlgebraicTriangulationNet(nn.Module):
         return keypoints_3d, keypoints_2d, heatmaps, alg_confidences
 
 
-class VolumetricTriangulationNet(nn.Module):
-
-    def __init__(self, config, device='cuda:0'):
-        super().__init__()
-        self.num_joints = config.model.backbone.num_joints
-        self.volume_aggregation_method = config.model.volume_aggregation_method
-        self.volume_softmax = config.model.volume_softmax
-        self.volume_multiplier = config.model.volume_multiplier
-        self.volume_size = config.model.volume_size
-        self.cuboid_side = config.model.cuboid_side
-        self.kind = config.model.kind
-        self.use_gt_pelvis = config.model.use_gt_pelvis
-        self.heatmap_softmax = config.model.heatmap_softmax
-        self.heatmap_multiplier = config.model.heatmap_multiplier
-        self.transfer_cmu_to_human36m = config.model.transfer_cmu_to_human36m if hasattr(config.model, 'transfer_cmu_to_human36m') else False
-        config.model.backbone.alg_confidences = False
-        config.model.backbone.vol_confidences = False
-        if self.volume_aggregation_method.startswith('conf'):
-            config.model.backbone.vol_confidences = True
-        self.backbone = pose_resnet.get_pose_net(config.model.backbone, device=device)
-        for p in self.backbone.final_layer.parameters():
-            p.requires_grad = False
-        self.process_features = nn.Sequential(nn.Conv2d(256, 32, 1))
-        self.volume_net = V2VModel(32, self.num_joints)
-
-    def forward(self, images, proj_matricies, batch):
-        device = images.device
-        batch_size, n_views = images.shape[:2]
-        images = images.view(-1, *images.shape[2:])
-        heatmaps, features, _, vol_confidences = self.backbone(images)
-        images = images.view(batch_size, n_views, *images.shape[1:])
-        heatmaps = heatmaps.view(batch_size, n_views, *heatmaps.shape[1:])
-        features = features.view(batch_size, n_views, *features.shape[1:])
-        if vol_confidences is not None:
-            vol_confidences = vol_confidences.view(batch_size, n_views, *vol_confidences.shape[1:])
-        image_shape, heatmap_shape = tuple(images.shape[3:]), tuple(heatmaps.shape[3:])
-        n_joints = heatmaps.shape[2]
-        if self.volume_aggregation_method == 'conf_norm':
-            vol_confidences = vol_confidences / vol_confidences.sum(dim=1, keepdim=True)
-        new_cameras = deepcopy(batch['cameras'])
-        for view_i in range(n_views):
-            for batch_i in range(batch_size):
-                new_cameras[view_i][batch_i].update_after_resize(image_shape, heatmap_shape)
-        proj_matricies = torch.stack([torch.stack([torch.from_numpy(camera.projection) for camera in camera_batch], dim=0) for camera_batch in new_cameras], dim=0).transpose(1, 0)
-        proj_matricies = proj_matricies.float()
-        cuboids = []
-        base_points = torch.zeros(batch_size, 3, device=device)
-        coord_volumes = torch.zeros(batch_size, self.volume_size, self.volume_size, self.volume_size, 3, device=device)
-        for batch_i in range(batch_size):
-            if self.use_gt_pelvis:
-                keypoints_3d = batch['keypoints_3d'][batch_i]
-            else:
-                keypoints_3d = batch['pred_keypoints_3d'][batch_i]
-            if self.kind == 'coco':
-                base_point = (keypoints_3d[(11), :3] + keypoints_3d[(12), :3]) / 2
-            elif self.kind == 'mpii':
-                base_point = keypoints_3d[(6), :3]
-            base_points[batch_i] = torch.from_numpy(base_point)
-            sides = np.array([self.cuboid_side, self.cuboid_side, self.cuboid_side])
-            position = base_point - sides / 2
-            cuboid = volumetric.Cuboid3D(position, sides)
-            cuboids.append(cuboid)
-            xxx, yyy, zzz = torch.meshgrid(torch.arange(self.volume_size, device=device), torch.arange(self.volume_size, device=device), torch.arange(self.volume_size, device=device))
-            grid = torch.stack([xxx, yyy, zzz], dim=-1).type(torch.float)
-            grid = grid.reshape((-1, 3))
-            grid_coord = torch.zeros_like(grid)
-            grid_coord[:, (0)] = position[0] + sides[0] / (self.volume_size - 1) * grid[:, (0)]
-            grid_coord[:, (1)] = position[1] + sides[1] / (self.volume_size - 1) * grid[:, (1)]
-            grid_coord[:, (2)] = position[2] + sides[2] / (self.volume_size - 1) * grid[:, (2)]
-            coord_volume = grid_coord.reshape(self.volume_size, self.volume_size, self.volume_size, 3)
-            if self.training:
-                theta = np.random.uniform(0.0, 2 * np.pi)
-            else:
-                theta = 0.0
-            if self.kind == 'coco':
-                axis = [0, 1, 0]
-            elif self.kind == 'mpii':
-                axis = [0, 0, 1]
-            center = torch.from_numpy(base_point).type(torch.float)
-            coord_volume = coord_volume - center
-            coord_volume = volumetric.rotate_coord_volume(coord_volume, theta, axis)
-            coord_volume = coord_volume + center
-            if self.transfer_cmu_to_human36m:
-                coord_volume = coord_volume.permute(0, 2, 1, 3)
-                inv_idx = torch.arange(coord_volume.shape[1] - 1, -1, -1).long()
-                coord_volume = coord_volume.index_select(1, inv_idx)
-            coord_volumes[batch_i] = coord_volume
-        features = features.view(-1, *features.shape[2:])
-        features = self.process_features(features)
-        features = features.view(batch_size, n_views, *features.shape[1:])
-        volumes = op.unproject_heatmaps(features, proj_matricies, coord_volumes, volume_aggregation_method=self.volume_aggregation_method, vol_confidences=vol_confidences)
-        volumes = self.volume_net(volumes)
-        vol_keypoints_3d, volumes = op.integrate_tensor_3d_with_coordinates(volumes * self.volume_multiplier, coord_volumes, softmax=self.volume_softmax)
-        return vol_keypoints_3d, features, volumes, vol_confidences, cuboids, coord_volumes, base_points
-
-
 class Basic3DBlock(nn.Module):
 
     def __init__(self, in_planes, out_planes, kernel_size):
@@ -595,6 +509,16 @@ class Basic3DBlock(nn.Module):
 
     def forward(self, x):
         return self.block(x)
+
+
+class Pool3DBlock(nn.Module):
+
+    def __init__(self, pool_size):
+        super(Pool3DBlock, self).__init__()
+        self.pool_size = pool_size
+
+    def forward(self, x):
+        return F.max_pool3d(x, kernel_size=self.pool_size, stride=self.pool_size)
 
 
 class Res3DBlock(nn.Module):
@@ -611,16 +535,6 @@ class Res3DBlock(nn.Module):
         res = self.res_branch(x)
         skip = self.skip_con(x)
         return F.relu(res + skip, True)
-
-
-class Pool3DBlock(nn.Module):
-
-    def __init__(self, pool_size):
-        super(Pool3DBlock, self).__init__()
-        self.pool_size = pool_size
-
-    def forward(self, x):
-        return F.max_pool3d(x, kernel_size=self.pool_size, stride=self.pool_size)
 
 
 class Upsample3DBlock(nn.Module):
@@ -726,6 +640,102 @@ class V2VModel(nn.Module):
             elif isinstance(m, nn.ConvTranspose3d):
                 nn.init.xavier_normal_(m.weight)
                 nn.init.constant_(m.bias, 0)
+
+
+class VolumetricTriangulationNet(nn.Module):
+
+    def __init__(self, config, device='cuda:0'):
+        super().__init__()
+        self.num_joints = config.model.backbone.num_joints
+        self.volume_aggregation_method = config.model.volume_aggregation_method
+        self.volume_softmax = config.model.volume_softmax
+        self.volume_multiplier = config.model.volume_multiplier
+        self.volume_size = config.model.volume_size
+        self.cuboid_side = config.model.cuboid_side
+        self.kind = config.model.kind
+        self.use_gt_pelvis = config.model.use_gt_pelvis
+        self.heatmap_softmax = config.model.heatmap_softmax
+        self.heatmap_multiplier = config.model.heatmap_multiplier
+        self.transfer_cmu_to_human36m = config.model.transfer_cmu_to_human36m if hasattr(config.model, 'transfer_cmu_to_human36m') else False
+        config.model.backbone.alg_confidences = False
+        config.model.backbone.vol_confidences = False
+        if self.volume_aggregation_method.startswith('conf'):
+            config.model.backbone.vol_confidences = True
+        self.backbone = pose_resnet.get_pose_net(config.model.backbone, device=device)
+        for p in self.backbone.final_layer.parameters():
+            p.requires_grad = False
+        self.process_features = nn.Sequential(nn.Conv2d(256, 32, 1))
+        self.volume_net = V2VModel(32, self.num_joints)
+
+    def forward(self, images, proj_matricies, batch):
+        device = images.device
+        batch_size, n_views = images.shape[:2]
+        images = images.view(-1, *images.shape[2:])
+        heatmaps, features, _, vol_confidences = self.backbone(images)
+        images = images.view(batch_size, n_views, *images.shape[1:])
+        heatmaps = heatmaps.view(batch_size, n_views, *heatmaps.shape[1:])
+        features = features.view(batch_size, n_views, *features.shape[1:])
+        if vol_confidences is not None:
+            vol_confidences = vol_confidences.view(batch_size, n_views, *vol_confidences.shape[1:])
+        image_shape, heatmap_shape = tuple(images.shape[3:]), tuple(heatmaps.shape[3:])
+        n_joints = heatmaps.shape[2]
+        if self.volume_aggregation_method == 'conf_norm':
+            vol_confidences = vol_confidences / vol_confidences.sum(dim=1, keepdim=True)
+        new_cameras = deepcopy(batch['cameras'])
+        for view_i in range(n_views):
+            for batch_i in range(batch_size):
+                new_cameras[view_i][batch_i].update_after_resize(image_shape, heatmap_shape)
+        proj_matricies = torch.stack([torch.stack([torch.from_numpy(camera.projection) for camera in camera_batch], dim=0) for camera_batch in new_cameras], dim=0).transpose(1, 0)
+        proj_matricies = proj_matricies.float()
+        cuboids = []
+        base_points = torch.zeros(batch_size, 3, device=device)
+        coord_volumes = torch.zeros(batch_size, self.volume_size, self.volume_size, self.volume_size, 3, device=device)
+        for batch_i in range(batch_size):
+            if self.use_gt_pelvis:
+                keypoints_3d = batch['keypoints_3d'][batch_i]
+            else:
+                keypoints_3d = batch['pred_keypoints_3d'][batch_i]
+            if self.kind == 'coco':
+                base_point = (keypoints_3d[(11), :3] + keypoints_3d[(12), :3]) / 2
+            elif self.kind == 'mpii':
+                base_point = keypoints_3d[(6), :3]
+            base_points[batch_i] = torch.from_numpy(base_point)
+            sides = np.array([self.cuboid_side, self.cuboid_side, self.cuboid_side])
+            position = base_point - sides / 2
+            cuboid = volumetric.Cuboid3D(position, sides)
+            cuboids.append(cuboid)
+            xxx, yyy, zzz = torch.meshgrid(torch.arange(self.volume_size, device=device), torch.arange(self.volume_size, device=device), torch.arange(self.volume_size, device=device))
+            grid = torch.stack([xxx, yyy, zzz], dim=-1).type(torch.float)
+            grid = grid.reshape((-1, 3))
+            grid_coord = torch.zeros_like(grid)
+            grid_coord[:, (0)] = position[0] + sides[0] / (self.volume_size - 1) * grid[:, (0)]
+            grid_coord[:, (1)] = position[1] + sides[1] / (self.volume_size - 1) * grid[:, (1)]
+            grid_coord[:, (2)] = position[2] + sides[2] / (self.volume_size - 1) * grid[:, (2)]
+            coord_volume = grid_coord.reshape(self.volume_size, self.volume_size, self.volume_size, 3)
+            if self.training:
+                theta = np.random.uniform(0.0, 2 * np.pi)
+            else:
+                theta = 0.0
+            if self.kind == 'coco':
+                axis = [0, 1, 0]
+            elif self.kind == 'mpii':
+                axis = [0, 0, 1]
+            center = torch.from_numpy(base_point).type(torch.float)
+            coord_volume = coord_volume - center
+            coord_volume = volumetric.rotate_coord_volume(coord_volume, theta, axis)
+            coord_volume = coord_volume + center
+            if self.transfer_cmu_to_human36m:
+                coord_volume = coord_volume.permute(0, 2, 1, 3)
+                inv_idx = torch.arange(coord_volume.shape[1] - 1, -1, -1).long()
+                coord_volume = coord_volume.index_select(1, inv_idx)
+            coord_volumes[batch_i] = coord_volume
+        features = features.view(-1, *features.shape[2:])
+        features = self.process_features(features)
+        features = features.view(batch_size, n_views, *features.shape[1:])
+        volumes = op.unproject_heatmaps(features, proj_matricies, coord_volumes, volume_aggregation_method=self.volume_aggregation_method, vol_confidences=vol_confidences)
+        volumes = self.volume_net(volumes)
+        vol_keypoints_3d, volumes = op.integrate_tensor_3d_with_coordinates(volumes * self.volume_multiplier, coord_volumes, softmax=self.volume_softmax)
+        return vol_keypoints_3d, features, volumes, vol_confidences, cuboids, coord_volumes, base_points
 
 
 import torch

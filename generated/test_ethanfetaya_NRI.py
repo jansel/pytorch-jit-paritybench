@@ -16,15 +16,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -539,7 +540,7 @@ def gumbel_softmax_sample(logits, tau=1, eps=1e-10):
     """
     gumbel_noise = sample_gumbel(logits.size(), eps=eps)
     if logits.is_cuda:
-        gumbel_noise = gumbel_noise.cuda()
+        gumbel_noise = gumbel_noise
     y = logits + Variable(gumbel_noise)
     return my_softmax(y / tau, axis=-1)
 
@@ -571,7 +572,7 @@ def gumbel_softmax(logits, tau=1, hard=False, eps=1e-10):
         _, k = y_soft.data.max(-1)
         y_hard = torch.zeros(*shape)
         if y_soft.is_cuda:
-            y_hard = y_hard.cuda()
+            y_hard = y_hard
         y_hard = y_hard.zero_().scatter_(-1, k.view(shape[:-1] + (1,)), 1.0)
         y = Variable(y_hard - y_soft.data) + y_soft
     else:

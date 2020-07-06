@@ -17,20 +17,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
+
+
+from torchvision import utils
+
+
 import torch
+
+
+import random
+
+
+import torchvision.transforms.functional as F
 
 
 import torch.nn as nn
@@ -40,9 +62,6 @@ import torch.nn.functional as F
 
 
 import torch.utils.data
-
-
-import numpy as np
 
 
 import torchvision.transforms as transforms
@@ -57,9 +76,6 @@ import torch.optim
 from torch.optim import lr_scheduler
 
 
-from torchvision import transforms
-
-
 import torch.nn.init as init
 
 
@@ -67,9 +83,6 @@ import torch.distributed as dist
 
 
 import warnings
-
-
-import random
 
 
 class MAE_loss(nn.Module):
@@ -323,6 +336,56 @@ def convbn(in_planes, out_planes, kernel_size, stride, pad, dilation):
     return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=dilation if dilation > 1 else pad, dilation=dilation, bias=False))
 
 
+class hourglass_1(nn.Module):
+
+    def __init__(self, channels_in):
+        super(hourglass_1, self).__init__()
+        self.conv1 = nn.Sequential(convbn(channels_in, channels_in, kernel_size=3, stride=2, pad=1, dilation=1), nn.ReLU(inplace=True))
+        self.conv2 = convbn(channels_in, channels_in, kernel_size=3, stride=1, pad=1, dilation=1)
+        self.conv3 = nn.Sequential(convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=2, pad=1, dilation=1), nn.ReLU(inplace=True))
+        self.conv4 = nn.Sequential(convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=1, pad=1, dilation=1))
+        self.conv5 = nn.Sequential(nn.ConvTranspose2d(channels_in * 4, channels_in * 2, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
+        self.conv6 = nn.Sequential(nn.ConvTranspose2d(channels_in * 2, channels_in, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in))
+
+    def forward(self, x, em1, em2):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = F.relu(x, inplace=True)
+        x = torch.cat((x, em1), 1)
+        x_prime = self.conv3(x)
+        x_prime = self.conv4(x_prime)
+        x_prime = F.relu(x_prime, inplace=True)
+        x_prime = torch.cat((x_prime, em2), 1)
+        out = self.conv5(x_prime)
+        out = self.conv6(out)
+        return out, x, x_prime
+
+
+class hourglass_2(nn.Module):
+
+    def __init__(self, channels_in):
+        super(hourglass_2, self).__init__()
+        self.conv1 = nn.Sequential(convbn(channels_in, channels_in * 2, kernel_size=3, stride=2, pad=1, dilation=1), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
+        self.conv2 = convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=1, pad=1, dilation=1)
+        self.conv3 = nn.Sequential(convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=2, pad=1, dilation=1), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
+        self.conv4 = nn.Sequential(convbn(channels_in * 2, channels_in * 4, kernel_size=3, stride=1, pad=1, dilation=1))
+        self.conv5 = nn.Sequential(nn.ConvTranspose2d(channels_in * 4, channels_in * 2, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
+        self.conv6 = nn.Sequential(nn.ConvTranspose2d(channels_in * 2, channels_in, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in))
+
+    def forward(self, x, em1, em2):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = x + em1
+        x = F.relu(x, inplace=True)
+        x_prime = self.conv3(x)
+        x_prime = self.conv4(x_prime)
+        x_prime = x_prime + em2
+        x_prime = F.relu(x_prime, inplace=True)
+        out = self.conv5(x_prime)
+        out = self.conv6(out)
+        return out
+
+
 class uncertainty_net(nn.Module):
 
     def __init__(self, in_channels, out_channels=1, thres=15):
@@ -373,56 +436,6 @@ class uncertainty_net(nn.Module):
         lidar_to_conf, conf = torch.chunk(self.softmax(torch.cat((lidar_to_conf, conf), 1)), 2, dim=1)
         out = conf * precise_depth + lidar_to_conf * lidar_to_depth
         return out, lidar_out, precise_depth, global_features
-
-
-class hourglass_1(nn.Module):
-
-    def __init__(self, channels_in):
-        super(hourglass_1, self).__init__()
-        self.conv1 = nn.Sequential(convbn(channels_in, channels_in, kernel_size=3, stride=2, pad=1, dilation=1), nn.ReLU(inplace=True))
-        self.conv2 = convbn(channels_in, channels_in, kernel_size=3, stride=1, pad=1, dilation=1)
-        self.conv3 = nn.Sequential(convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=2, pad=1, dilation=1), nn.ReLU(inplace=True))
-        self.conv4 = nn.Sequential(convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=1, pad=1, dilation=1))
-        self.conv5 = nn.Sequential(nn.ConvTranspose2d(channels_in * 4, channels_in * 2, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
-        self.conv6 = nn.Sequential(nn.ConvTranspose2d(channels_in * 2, channels_in, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in))
-
-    def forward(self, x, em1, em2):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = F.relu(x, inplace=True)
-        x = torch.cat((x, em1), 1)
-        x_prime = self.conv3(x)
-        x_prime = self.conv4(x_prime)
-        x_prime = F.relu(x_prime, inplace=True)
-        x_prime = torch.cat((x_prime, em2), 1)
-        out = self.conv5(x_prime)
-        out = self.conv6(out)
-        return out, x, x_prime
-
-
-class hourglass_2(nn.Module):
-
-    def __init__(self, channels_in):
-        super(hourglass_2, self).__init__()
-        self.conv1 = nn.Sequential(convbn(channels_in, channels_in * 2, kernel_size=3, stride=2, pad=1, dilation=1), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
-        self.conv2 = convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=1, pad=1, dilation=1)
-        self.conv3 = nn.Sequential(convbn(channels_in * 2, channels_in * 2, kernel_size=3, stride=2, pad=1, dilation=1), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
-        self.conv4 = nn.Sequential(convbn(channels_in * 2, channels_in * 4, kernel_size=3, stride=1, pad=1, dilation=1))
-        self.conv5 = nn.Sequential(nn.ConvTranspose2d(channels_in * 4, channels_in * 2, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in * 2), nn.ReLU(inplace=True))
-        self.conv6 = nn.Sequential(nn.ConvTranspose2d(channels_in * 2, channels_in, kernel_size=3, padding=1, output_padding=1, stride=2, bias=False), nn.BatchNorm2d(channels_in))
-
-    def forward(self, x, em1, em2):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = x + em1
-        x = F.relu(x, inplace=True)
-        x_prime = self.conv3(x)
-        x_prime = self.conv4(x_prime)
-        x_prime = x_prime + em2
-        x_prime = F.relu(x_prime, inplace=True)
-        out = self.conv5(x_prime)
-        out = self.conv6(out)
-        return out
 
 
 import torch

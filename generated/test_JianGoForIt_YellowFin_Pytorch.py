@@ -25,15 +25,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -56,10 +57,13 @@ import math
 import copy
 
 
+import time
+
+
 import torch.nn.functional as F
 
 
-import time
+from scipy import sparse
 
 
 import torch.optim as optim
@@ -153,79 +157,6 @@ def batch_matmul_bias(seq, weight, bias, nonlinearity=''):
         else:
             s = torch.cat((s, _s_bias), 0)
     return s.squeeze()
-
-
-class AttentionWordRNN(nn.Module):
-
-    def __init__(self, batch_size, num_tokens, embed_size, word_gru_hidden, bidirectional=True, init_range=0.1, use_lstm=False):
-        super(AttentionWordRNN, self).__init__()
-        self.batch_size = batch_size
-        self.num_tokens = num_tokens
-        self.embed_size = embed_size
-        self.word_gru_hidden = word_gru_hidden
-        self.bidirectional = bidirectional
-        self.use_lstm = use_lstm
-        self.lookup = nn.Embedding(num_tokens, embed_size)
-        if bidirectional == True:
-            if use_lstm:
-                None
-                self.word_gru = nn.LSTM(embed_size, word_gru_hidden, bidirectional=True)
-            else:
-                self.word_gru = nn.GRU(embed_size, word_gru_hidden, bidirectional=True)
-            self.weight_W_word = nn.Parameter(torch.Tensor(2 * word_gru_hidden, 2 * word_gru_hidden))
-            self.bias_word = nn.Parameter(torch.Tensor(2 * word_gru_hidden, 1))
-            self.weight_proj_word = nn.Parameter(torch.Tensor(2 * word_gru_hidden, 1))
-        else:
-            if use_lstm:
-                self.word_gru = nn.LSTM(embed_size, word_gru_hidden, bidirectional=False)
-            else:
-                self.word_gru = nn.GRU(embed_size, word_gru_hidden, bidirectional=False)
-            self.weight_W_word = nn.Parameter(torch.Tensor(word_gru_hidden, word_gru_hidden))
-            self.bias_word = nn.Parameter(torch.Tensor(word_gru_hidden, 1))
-            self.weight_proj_word = nn.Parameter(torch.Tensor(word_gru_hidden, 1))
-        self.softmax_word = nn.Softmax()
-        self.weight_W_word.data.uniform_(-init_range, init_range)
-        self.weight_proj_word.data.uniform_(-init_range, init_range)
-
-    def forward(self, embed, state_word):
-        embedded = self.lookup(embed)
-        output_word, state_word = self.word_gru(embedded, state_word)
-        word_squish = batch_matmul_bias(output_word, self.weight_W_word, self.bias_word, nonlinearity='tanh')
-        word_attn = batch_matmul(word_squish, self.weight_proj_word)
-        word_attn_norm = self.softmax_word(word_attn.transpose(1, 0))
-        word_attn_vectors = attention_mul(output_word, word_attn_norm.transpose(1, 0))
-        return word_attn_vectors, state_word, word_attn_norm
-
-    def init_hidden(self):
-        if self.bidirectional == True:
-            if self.use_lstm == True:
-                return [Variable(torch.zeros(2, self.batch_size, self.word_gru_hidden)), Variable(torch.zeros(2, self.batch_size, self.word_gru_hidden))]
-            else:
-                return Variable(torch.zeros(2, self.batch_size, self.word_gru_hidden))
-        elif self.use_lstm == True:
-            return [Variable(torch.zeros(1, self.batch_size, self.word_gru_hidden)), Variable(torch.zeros(1, self.batch_size, self.word_gru_hidden))]
-        else:
-            return Variable(torch.zeros(1, self.batch_size, self.word_gru_hidden))
-
-
-class MixtureSoftmax(nn.Module):
-
-    def __init__(self, batch_size, word_gru_hidden, feature_dim, n_classes, bidirectional=True):
-        super(MixtureSoftmax, self).__init__()
-        word_gru_hidden = 0
-        self.batch_size = batch_size
-        self.n_classes = n_classes
-        self.word_gru_hidden = word_gru_hidden
-        self.feature_dim = feature_dim
-        if bidirectional == True:
-            self.linear = nn.Linear(2 * 2 * word_gru_hidden + feature_dim, n_classes)
-        else:
-            self.linear = nn.Linear(2 * word_gru_hidden + feature_dim, n_classes)
-
-    def forward(self, word_attention_vectors, features):
-        mixture_input = features
-        final_map = self.linear(mixture_input)
-        return final_map
 
 
 class AttentionWordRNN(nn.Module):
@@ -415,6 +346,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (AttentionWordRNN,
+     lambda: ([], {'batch_size': 4, 'num_tokens': 4, 'embed_size': 4, 'word_gru_hidden': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.rand([2, 4, 4])], {}),
+     False),
     (Block,
      lambda: ([], {'in_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -438,4 +373,7 @@ class Test_JianGoForIt_YellowFin_Pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

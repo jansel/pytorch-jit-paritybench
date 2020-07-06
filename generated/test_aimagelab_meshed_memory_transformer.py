@@ -17,44 +17,87 @@ rouge = _module
 tokenizer = _module
 models = _module
 beam_search = _module
+beam_search = _module
 captioning_model = _module
 containers = _module
 transformer = _module
 attention = _module
 decoders = _module
 encoders = _module
+transformer = _module
 utils = _module
 test = _module
 train = _module
+utils = _module
 typing = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-from torch import nn
+from torch.utils.data import DataLoader as TorchDataLoader
 
 
 import numpy as np
+
+
+import itertools
+
+
+import collections
 
 
 import torch
 
 
+from collections import Counter
+
+
+from collections import OrderedDict
+
+
+from torch.utils.data.dataloader import default_collate
+
+
+from itertools import chain
+
+
+import warnings
+
+
+from collections import defaultdict
+
+
+from functools import partial
+
+
+import logging
+
+
+from torch import distributions
+
+
+from torch import nn
+
+
 from torch.nn import functional as F
+
+
+import copy
 
 
 import random
@@ -72,7 +115,16 @@ from torch.nn import NLLLoss
 from torch.utils.tensorboard import SummaryWriter
 
 
-import itertools
+from typing import Union
+
+
+from typing import Sequence
+
+
+from typing import Tuple
+
+
+TensorOrNone = Union[torch.Tensor, None]
 
 
 class ModuleList(nn.ModuleList, Module):
@@ -250,6 +302,32 @@ class MultiHeadAttention(Module):
         return out
 
 
+class PositionWiseFeedForward(nn.Module):
+    """
+    Position-wise feed forward layer
+    """
+
+    def __init__(self, d_model=512, d_ff=2048, dropout=0.1, identity_map_reordering=False):
+        super(PositionWiseFeedForward, self).__init__()
+        self.identity_map_reordering = identity_map_reordering
+        self.fc1 = nn.Linear(d_model, d_ff)
+        self.fc2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(p=dropout)
+        self.dropout_2 = nn.Dropout(p=dropout)
+        self.layer_norm = nn.LayerNorm(d_model)
+
+    def forward(self, input):
+        if self.identity_map_reordering:
+            out = self.layer_norm(input)
+            out = self.fc2(self.dropout_2(F.relu(self.fc1(out))))
+            out = input + self.dropout(torch.relu(out))
+        else:
+            out = self.fc2(self.dropout_2(F.relu(self.fc1(input))))
+            out = self.dropout(out)
+            out = self.layer_norm(input + out)
+        return out
+
+
 class MeshedDecoderLayer(Module):
 
     def __init__(self, d_model=512, d_k=64, d_v=64, h=8, d_ff=2048, dropout=0.1, self_att_module=None, enc_att_module=None, self_att_module_kwargs=None, enc_att_module_kwargs=None):
@@ -376,30 +454,19 @@ class MultiLevelEncoder(nn.Module):
         return outs, attention_mask
 
 
-class PositionWiseFeedForward(nn.Module):
-    """
-    Position-wise feed forward layer
-    """
+class MemoryAugmentedEncoder(MultiLevelEncoder):
 
-    def __init__(self, d_model=512, d_ff=2048, dropout=0.1, identity_map_reordering=False):
-        super(PositionWiseFeedForward, self).__init__()
-        self.identity_map_reordering = identity_map_reordering
-        self.fc1 = nn.Linear(d_model, d_ff)
-        self.fc2 = nn.Linear(d_ff, d_model)
-        self.dropout = nn.Dropout(p=dropout)
-        self.dropout_2 = nn.Dropout(p=dropout)
-        self.layer_norm = nn.LayerNorm(d_model)
+    def __init__(self, N, padding_idx, d_in=2048, **kwargs):
+        super(MemoryAugmentedEncoder, self).__init__(N, padding_idx, **kwargs)
+        self.fc = nn.Linear(d_in, self.d_model)
+        self.dropout = nn.Dropout(p=self.dropout)
+        self.layer_norm = nn.LayerNorm(self.d_model)
 
-    def forward(self, input):
-        if self.identity_map_reordering:
-            out = self.layer_norm(input)
-            out = self.fc2(self.dropout_2(F.relu(self.fc1(out))))
-            out = input + self.dropout(torch.relu(out))
-        else:
-            out = self.fc2(self.dropout_2(F.relu(self.fc1(input))))
-            out = self.dropout(out)
-            out = self.layer_norm(input + out)
-        return out
+    def forward(self, input, attention_weights=None):
+        out = F.relu(self.fc(input))
+        out = self.dropout(out)
+        out = self.layer_norm(out)
+        return super(MemoryAugmentedEncoder, self).forward(out, attention_weights=attention_weights)
 
 
 import torch

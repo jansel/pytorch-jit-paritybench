@@ -20,29 +20,57 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import torch.utils.data as data
+
+
+import scipy.io
+
+
 import numpy as np
+
+
+import torch
+
+
+from torchvision.datasets.folder import default_loader
+
+
+from torchvision.datasets.utils import download_url
+
+
+from torch.utils.data import Dataset
+
+
+import torchvision.transforms as transforms
+
+
+from torchvision.transforms import functional as vF
+
+
+from torchvision.datasets.utils import list_dir
+
+
+from torchvision.datasets.utils import list_files
 
 
 import torchvision.utils as vutils
 
 
 import torch.nn.functional as F
-
-
-import torch
 
 
 import warnings
@@ -408,6 +436,30 @@ class GCRNNCellBase(torch.nn.Module):
             raise RuntimeError('input has inconsistent input_size: got {}, expected {}'.format(input.size(1), self.latent_size))
 
 
+class GCRNNCell(GCRNNCellBase):
+
+    def __init__(self, latent_size, ch=3, bias=True, num_hidden=3, base=4, sn=False):
+        super(GCRNNCell, self).__init__(latent_size, ch, bias, num_hidden=num_hidden, sn=sn)
+        self.base = base
+
+    def forward(self, z, hx=None, is_up=True):
+        self.check_forward_input(z)
+        if hx is None:
+            hx = torch.ones(z.size(0), 3, self.base, self.base, requires_grad=False)
+            if z.is_cuda:
+                hx = hx
+        z = z.repeat(1, 1, hx.size(2), hx.size(3))
+        z_cat = self.layer_zh(z)
+        h_cat = self.layer_hh[0](hx)
+        h_out = torch.cat((h_cat, z_cat), 1)
+        for block in self.layer_hh[1:-1]:
+            h_out = block(h_out)
+        if is_up:
+            h_out = F.interpolate(h_out, scale_factor=2)
+        h_out = self.layer_hh[-1](h_out)
+        return h_out
+
+
 class DCRNNCellBase(torch.nn.Module):
 
     def __init__(self, nf, ch, bias, num_hidden=3, sn=False):
@@ -442,6 +494,25 @@ class DCRNNCellBase(torch.nn.Module):
             raise RuntimeError('input has inconsistent input_size: got {}, expected {}'.format(input.size(1), self.latent_size))
 
 
+class DCRNNCell(DCRNNCellBase):
+
+    def __init__(self, nf=64, ch=3, bias=True, num_hidden=3, sn=False):
+        super(DCRNNCell, self).__init__(nf, ch, bias, num_hidden=num_hidden, sn=sn)
+
+    def forward(self, x, hx=None, is_down=True):
+        if hx is None:
+            hx = torch.ones(x.size(0), self.nf, x.size(2), x.size(3), requires_grad=False)
+            if x.is_cuda:
+                hx = hx
+        h_out = torch.cat((x, hx), 1)
+        for block in self.layer_xhh[:-1]:
+            h_out = block(h_out)
+        if is_down:
+            h_out = F.interpolate(h_out, scale_factor=0.5)
+        h_out = self.layer_xhh[-1](h_out)
+        return h_out
+
+
 class EMA(torch.nn.Module):
 
     def __init__(self, mu=0.999):
@@ -474,6 +545,10 @@ TESTCASES = [
      lambda: ([], {'num_features': 4, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
      True),
+    (DCRNNCell,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     False),
     (Discriminator,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -517,4 +592,7 @@ class Test_FriedRonaldo_SinGAN(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

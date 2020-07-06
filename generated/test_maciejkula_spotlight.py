@@ -28,6 +28,7 @@ layers = _module
 losses = _module
 sampling = _module
 sequence = _module
+implicit = _module
 representations = _module
 torch_utils = _module
 test_api = _module
@@ -45,20 +46,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import torch.nn as nn
+import time
 
 
 import numpy as np
@@ -67,10 +69,53 @@ import numpy as np
 import torch
 
 
+import torch.optim as optim
+
+
+import torch.nn as nn
+
+
+from sklearn.utils import murmurhash3_32
+
+
 import torch.nn.functional as F
 
 
 from torch.backends import cudnn
+
+
+class ScaledEmbedding(nn.Embedding):
+    """
+    Embedding layer that initialises its values
+    to using a normal variable scaled by the inverse
+    of the embedding dimension.
+    """
+
+    def reset_parameters(self):
+        """
+        Initialize parameters.
+        """
+        self.weight.data.normal_(0, 1.0 / self.embedding_dim)
+        if self.padding_idx is not None:
+            self.weight.data[self.padding_idx].fill_(0)
+
+
+class ZeroEmbedding(nn.Embedding):
+    """
+    Embedding layer that initialises its values
+    to using a normal variable scaled by the inverse
+    of the embedding dimension.
+
+    Used for biases.
+    """
+
+    def reset_parameters(self):
+        """
+        Initialize parameters.
+        """
+        self.weight.data.zero_()
+        if self.padding_idx is not None:
+            self.weight.data[self.padding_idx].fill_(0)
 
 
 class BilinearNet(nn.Module):
@@ -141,40 +186,6 @@ class BilinearNet(nn.Module):
         item_bias = self.item_biases(item_ids).squeeze()
         dot = (user_embedding * item_embedding).sum(1)
         return dot + user_bias + item_bias
-
-
-class ScaledEmbedding(nn.Embedding):
-    """
-    Embedding layer that initialises its values
-    to using a normal variable scaled by the inverse
-    of the embedding dimension.
-    """
-
-    def reset_parameters(self):
-        """
-        Initialize parameters.
-        """
-        self.weight.data.normal_(0, 1.0 / self.embedding_dim)
-        if self.padding_idx is not None:
-            self.weight.data[self.padding_idx].fill_(0)
-
-
-class ZeroEmbedding(nn.Embedding):
-    """
-    Embedding layer that initialises its values
-    to using a normal variable scaled by the inverse
-    of the embedding dimension.
-
-    Used for biases.
-    """
-
-    def reset_parameters(self):
-        """
-        Initialize parameters.
-        """
-        self.weight.data.zero_()
-        if self.padding_idx is not None:
-            self.weight.data[self.padding_idx].fill_(0)
 
 
 class ScaledEmbeddingBag(nn.EmbeddingBag):
@@ -757,6 +768,10 @@ TESTCASES = [
      lambda: ([], {'num_users': 4, 'num_items': 4}),
      lambda: ([torch.zeros([4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
      True),
+    (BloomEmbedding,
+     lambda: ([], {'num_embeddings': 64, 'embedding_dim': 64}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
     (ScaledEmbedding,
      lambda: ([], {'num_embeddings': 4, 'embedding_dim': 4}),
      lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
@@ -776,4 +791,7 @@ class Test_maciejkula_spotlight(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

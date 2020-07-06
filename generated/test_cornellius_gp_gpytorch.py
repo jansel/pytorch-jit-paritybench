@@ -39,6 +39,7 @@ rbf_kernel = _module
 kernel = _module
 lcm_kernel = _module
 linear_kernel = _module
+matern_kernel = _module
 multi_device_kernel = _module
 multitask_kernel = _module
 newton_girard_additive_kernel = _module
@@ -46,6 +47,7 @@ periodic_kernel = _module
 polynomial_kernel = _module
 polynomial_kernel_grad = _module
 product_structure_kernel = _module
+rbf_kernel = _module
 rbf_kernel_grad = _module
 rff_kernel = _module
 rq_kernel = _module
@@ -132,6 +134,7 @@ base_mean_test_case = _module
 base_test_case = _module
 lazy_tensor_test_case = _module
 model_test_case = _module
+utils = _module
 variational_test_case = _module
 broadcasting = _module
 cholesky = _module
@@ -219,6 +222,7 @@ test_cylindrical_kernel = _module
 test_grid_interpolation_kernel = _module
 test_grid_kernel = _module
 test_linear_kernel = _module
+test_matern_kernel = _module
 test_newton_girard_additive_kernel = _module
 test_periodic_kernel = _module
 test_polynomial_kernel = _module
@@ -291,15 +295,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -319,6 +324,18 @@ import torch.nn.functional as F
 from collections import OrderedDict
 
 
+import numpy as np
+
+
+from functools import reduce
+
+
+from copy import deepcopy
+
+
+from torch.optim import Optimizer
+
+
 import math
 
 
@@ -331,22 +348,55 @@ from torch.nn import Module
 from torch.nn.functional import softplus
 
 
+import numbers
+
+
+from torch.distributions.kl import register_kl
+
+
+from torch.distributions import Distribution as TDistribution
+
+
+from torch.distributions import MultivariateNormal as TMultivariateNormal
+
+
+from torch.distributions.utils import _standard_normal
+
+
+from torch.distributions.utils import lazy_property
+
+
+from torch.autograd import Function
+
+
+import warnings
+
+
+from torch.distributions import Normal
+
+
 from math import pi
 
 
 from typing import Optional
 
 
+from typing import List
+
+
+from typing import Tuple
+
+
+from typing import Union
+
+
+from torch import Tensor
+
+
 import copy
 
 
-import warnings
-
-
 from abc import abstractmethod
-
-
-from copy import deepcopy
 
 
 from torch.nn import ModuleList
@@ -358,22 +408,25 @@ from torch.nn.parallel import DataParallel
 import logging
 
 
+import itertools
+
+
 from abc import ABC
 
 
 from typing import Any
 
 
-from torch import Tensor
-
-
 from torch.nn import Parameter
 
 
+import functools
+
+
+import string
+
+
 from abc import abstractproperty
-
-
-import itertools
 
 
 from torch import nn
@@ -386,9 +439,6 @@ from numbers import Number
 
 
 from torch.distributions import HalfCauchy
-
-
-from torch.distributions import Normal
 
 
 from torch.distributions import constraints
@@ -412,13 +462,28 @@ from torch.distributions import MultivariateNormal
 from torch.distributions import Uniform
 
 
-import numpy as np
-
-
 import random
 
 
+from itertools import combinations
+
+
+from itertools import product
+
+
+from typing import Generator
+
+
 from torch import optim
+
+
+from math import exp
+
+
+from torch.utils.data import TensorDataset
+
+
+from torch.utils.data import DataLoader
 
 
 import time
@@ -629,6 +694,60 @@ class Interval(Module):
         yield self.upper_bound
 
 
+class GreaterThan(Interval):
+
+    def __init__(self, lower_bound, transform=softplus, inv_transform=inv_softplus, initial_value=None):
+        super().__init__(lower_bound=lower_bound, upper_bound=math.inf, transform=transform, inv_transform=inv_transform, initial_value=initial_value)
+
+    def __repr__(self):
+        if self.lower_bound.numel() == 1:
+            return self._get_name() + f'({self.lower_bound:.3E})'
+        else:
+            return super().__repr__()
+
+    def transform(self, tensor):
+        transformed_tensor = self._transform(tensor) + self.lower_bound if self.enforced else tensor
+        return transformed_tensor
+
+    def inverse_transform(self, transformed_tensor):
+        tensor = self._inv_transform(transformed_tensor - self.lower_bound) if self.enforced else transformed_tensor
+        return tensor
+
+
+class Positive(GreaterThan):
+
+    def __init__(self, transform=softplus, inv_transform=inv_softplus, initial_value=None):
+        super().__init__(lower_bound=0.0, transform=transform, inv_transform=inv_transform, initial_value=initial_value)
+
+    def __repr__(self):
+        return self._get_name() + '()'
+
+    def transform(self, tensor):
+        transformed_tensor = self._transform(tensor) if self.enforced else tensor
+        return transformed_tensor
+
+    def inverse_transform(self, transformed_tensor):
+        tensor = self._inv_transform(transformed_tensor) if self.enforced else transformed_tensor
+        return tensor
+
+
+class LessThan(Interval):
+
+    def __init__(self, upper_bound, transform=softplus, inv_transform=inv_softplus):
+        super().__init__(lower_bound=-math.inf, upper_bound=upper_bound, transform=transform, inv_transform=inv_transform)
+
+    def transform(self, tensor):
+        transformed_tensor = -self._transform(-tensor) + self.upper_bound if self.enforced else tensor
+        return transformed_tensor
+
+    def inverse_transform(self, transformed_tensor):
+        tensor = -self._inv_transform(-(transformed_tensor - self.upper_bound)) if self.enforced else transformed_tensor
+        return tensor
+
+    def __repr__(self):
+        return self._get_name() + f'({self.upper_bound:.3E})'
+
+
 def default_postprocess_script(x):
     return x
 
@@ -665,7 +784,7 @@ class Distance(torch.nn.Module):
 
 
 def _solve(lazy_tsr, rhs):
-    if settings.fast_computations.solves.off() or lazy_tsr.size(-1) <= settings.max_cholesky_size.value():
+    if settings.fast_computations.solves.off() or settings.fast_computations.log_prob.off() or lazy_tsr.size(-1) <= settings.max_cholesky_size.value():
         return lazy_tsr._cholesky()._cholesky_solve(rhs)
     else:
         with torch.no_grad():
@@ -964,7 +1083,7 @@ def lanczos_tridiag_to_diag(t_mat):
     mask = evals.ge(0)
     evecs = evecs * mask.type_as(evecs).unsqueeze(-2)
     evals = evals.masked_fill_(~mask, 1)
-    return evals.to(orig_device), evecs.to(orig_device)
+    return evals, evecs
 
 
 class InvQuadLogDet(Function):
@@ -1235,7 +1354,6 @@ class RootDecomposition(Function):
         :return: :attr:`R`, such that :math:`R R^T \\approx A`, and :attr:`R_inv`, such that
             :math:`R_{inv} R_{inv}^T \\approx A^{-1}` (will only be populated if self.inverse = True)
         """
-        from ..lazy import lazify
         ctx.representation_tree = representation_tree
         ctx.device = device
         ctx.dtype = dtype
@@ -1807,7 +1925,6 @@ class LazyTensor(ABC):
         col_interp_indices = torch.arange(0, self.size(-1), dtype=torch.long, device=self.device).view(-1, 1)
         col_interp_indices = col_interp_indices.expand(*self.batch_shape, -1, 1)
         col_interp_values = torch.tensor(1.0, dtype=self.dtype, device=self.device).expand_as(col_interp_indices)
-        from . import InterpolatedLazyTensor
         res = InterpolatedLazyTensor(self, row_interp_indices, row_interp_values, col_interp_indices, col_interp_values)
         return res._getitem(row_index, col_index, *batch_indices)
 
@@ -1866,7 +1983,6 @@ class LazyTensor(ABC):
         col_interp_indices = torch.arange(0, self.size(-1), dtype=torch.long, device=self.device)
         col_interp_indices = col_interp_indices[col_index].unsqueeze_(-1).unsqueeze_(-1)
         col_interp_values = torch.tensor(1.0, dtype=self.dtype, device=self.device).expand_as(col_interp_indices)
-        from . import InterpolatedLazyTensor
         res = InterpolatedLazyTensor(base_lazy_tensor, row_interp_indices, row_interp_values, col_interp_indices, col_interp_values).evaluate().squeeze(-2).squeeze(-1)
         return res
 
@@ -1936,8 +2052,6 @@ class LazyTensor(ABC):
         Returns:
             (LazyTensor) Cholesky factor
         """
-        from .non_lazy_tensor import NonLazyTensor
-        from .keops_lazy_tensor import KeOpsLazyTensor
         evaluated_kern_mat = self.evaluate_kernel()
         if any(isinstance(sub_mat, KeOpsLazyTensor) for sub_mat in evaluated_kern_mat._args):
             raise RuntimeError('Cannot run Cholesky with KeOps: it will either be really slow or not work.')
@@ -2003,7 +2117,6 @@ class LazyTensor(ABC):
         Returns:
             :obj:`gpytorch.lazy.LazyTensor`
         """
-        from .constant_mul_lazy_tensor import ConstantMulLazyTensor
         return ConstantMulLazyTensor(self, other)
 
     def _mul_matrix(self, other):
@@ -2017,8 +2130,6 @@ class LazyTensor(ABC):
         Returns:
             :obj:`gpytorch.lazy.LazyTensor`
         """
-        from .non_lazy_tensor import NonLazyTensor
-        from .mul_lazy_tensor import MulLazyTensor
         self = self.evaluate_kernel()
         other = other.evaluate_kernel()
         if isinstance(self, NonLazyTensor) or isinstance(other, NonLazyTensor):
@@ -2052,8 +2163,6 @@ class LazyTensor(ABC):
         Returns:
             :obj:`gpytorch.lazy.LazyTensor`
         """
-        from .mul_lazy_tensor import MulLazyTensor
-        from .root_lazy_tensor import RootLazyTensor
         if self.size(dim) == 1:
             return self.squeeze(dim)
         roots = self.root_decomposition().root.evaluate()
@@ -2118,7 +2227,6 @@ class LazyTensor(ABC):
         Returns:
             (Tensor or LazyTensor): The root of the inverse root decomposition
         """
-        from .root_lazy_tensor import RootLazyTensor
         func = RootDecomposition()
         roots, inv_roots = func.apply(self.representation_tree(), self._root_decomposition_size(), self.dtype, self.device, self.batch_shape, self.matrix_shape, True, True, initial_vectors, *self.representation())
         if initial_vectors is not None and initial_vectors.size(-1) > 1:
@@ -2141,7 +2249,6 @@ class LazyTensor(ABC):
         Returns:
             :obj:`gpytorch.lazy.LazyTensor`
         """
-        from .sum_batch_lazy_tensor import SumBatchLazyTensor
         return SumBatchLazyTensor(self, block_dim=dim)
 
     def _t_matmul(self, rhs):
@@ -2164,8 +2271,6 @@ class LazyTensor(ABC):
         Args:
             - diag (Scalar Tensor)
         """
-        from .diag_lazy_tensor import DiagLazyTensor
-        from .added_diag_lazy_tensor import AddedDiagLazyTensor
         if not self.is_square:
             raise RuntimeError('add_diag only defined for square matrices')
         try:
@@ -2255,12 +2360,12 @@ class LazyTensor(ABC):
         new_kwargs = {}
         for arg in self._args:
             if hasattr(arg, 'cuda'):
-                new_args.append(arg.cuda(device_id))
+                new_args.append(arg)
             else:
                 new_args.append(arg)
         for name, val in self._kwargs.items():
             if hasattr(val, 'cuda'):
-                new_kwargs[name] = val.cuda(device_id)
+                new_kwargs[name] = val
             else:
                 new_kwargs[name] = val
         return self.__class__(*new_args, **new_kwargs)
@@ -2436,7 +2541,6 @@ class LazyTensor(ABC):
             - scalar - log determinant
         """
         if settings.fast_computations.log_prob.off() or self.size(-1) <= settings.max_cholesky_size.value():
-            from .chol_lazy_tensor import CholLazyTensor
             cholesky = CholLazyTensor(self.cholesky())
             return cholesky.inv_quad_logdet(inv_quad_rhs=inv_quad_rhs, logdet=logdet, reduce_inv_quad=reduce_inv_quad)
         if not self.is_square:
@@ -2491,7 +2595,6 @@ class LazyTensor(ABC):
         """
         _matmul_broadcast_shape(self.shape, other.shape)
         if isinstance(other, LazyTensor):
-            from .matmul_lazy_tensor import MatmulLazyTensor
             return MatmulLazyTensor(self, other)
         func = Matmul()
         return func.apply(self.representation_tree(), other, *self.representation())
@@ -2517,8 +2620,6 @@ class LazyTensor(ABC):
             :obj:`gpytorch.lazy.ConstantMulLazyTensor`. If other was
             another matrix, this will likely be a :obj:`gpytorch.lazy.MulLazyTensor`.
         """
-        from .zero_lazy_tensor import ZeroLazyTensor
-        from .non_lazy_tensor import lazify
         if isinstance(other, ZeroLazyTensor):
             return other
         if not (torch.is_tensor(other) or isinstance(other, LazyTensor)):
@@ -2623,7 +2724,6 @@ class LazyTensor(ABC):
                      [1.0000, 4.0000, 1.0000],
                      [0.5000, 1.0000, 4.0000]]])
         """
-        from .batch_repeat_lazy_tensor import BatchRepeatLazyTensor
         if len(sizes) < 3 or tuple(sizes[-2:]) != (1, 1):
             raise RuntimeError('Invalid repeat arguments {}. Currently, repeat only works to create repeated batches of a 2D LazyTensor.'.format(tuple(sizes)))
         return BatchRepeatLazyTensor(self, batch_repeat=torch.Size(sizes[:-2]))
@@ -2680,8 +2780,6 @@ class LazyTensor(ABC):
         This can be used for sampling from a Gaussian distribution, or for obtaining a
         low-rank version of a matrix
         """
-        from .chol_lazy_tensor import CholLazyTensor
-        from .root_lazy_tensor import RootLazyTensor
         if not self.is_square:
             raise RuntimeError('root_decomposition only operates on (batches of) square (symmetric) LazyTensors. Got a {} of size {}.'.format(self.__class__.__name__, self.size()))
         if self.size(-1) <= settings.max_cholesky_size.value() or settings.fast_computations.covar_root_decomposition.off():
@@ -2700,8 +2798,6 @@ class LazyTensor(ABC):
         This can be used for sampling from a Gaussian distribution, or for obtaining a
         low-rank version of a matrix
         """
-        from .root_lazy_tensor import RootLazyTensor
-        from .non_lazy_tensor import lazify
         if self.shape[-2:].numel() == 1:
             return RootLazyTensor(1 / self.evaluate().sqrt())
         if self.size(-1) <= settings.max_cholesky_size.value() or settings.fast_computations.covar_root_decomposition.off():
@@ -2813,12 +2909,12 @@ class LazyTensor(ABC):
         new_kwargs = {}
         for arg in self._args:
             if hasattr(arg, 'to'):
-                new_args.append(arg.to(device_id))
+                new_args.append(arg)
             else:
                 new_args.append(arg)
         for name, val in self._kwargs.items():
             if hasattr(val, 'to'):
-                new_kwargs[name] = val.to(device_id)
+                new_kwargs[name] = val
             else:
                 new_kwargs[name] = val
         return self.__class__(*new_args, **new_kwargs)
@@ -2900,11 +2996,6 @@ class LazyTensor(ABC):
             :obj:`gpytorch.lazy.SumLazyTensor`:
                 A sum lazy tensor representing the sum of this lazy tensor and other.
         """
-        from .sum_lazy_tensor import SumLazyTensor
-        from .zero_lazy_tensor import ZeroLazyTensor
-        from .diag_lazy_tensor import DiagLazyTensor
-        from .added_diag_lazy_tensor import AddedDiagLazyTensor
-        from .non_lazy_tensor import lazify
         from torch import Tensor
         if isinstance(other, ZeroLazyTensor):
             return self
@@ -2930,7 +3021,6 @@ class LazyTensor(ABC):
             :obj:`gpytorch.lazy.MulLazyTensor`:
                 Result of division.
         """
-        from .zero_lazy_tensor import ZeroLazyTensor
         if isinstance(other, ZeroLazyTensor):
             raise RuntimeError('Attempted to divide by a ZeroLazyTensor (divison by zero)')
         return self.mul(1.0 / other)
@@ -3437,7 +3527,6 @@ class ZeroLazyTensor(LazyTensor):
         return self.__class__(*sizes, dtype=self._dtype, device=self._device)
 
     def add_diag(self, diag):
-        from .diag_lazy_tensor import DiagLazyTensor
         if self.size(-1) != self.size(-2):
             raise RuntimeError('add_diag only defined for square matrices')
         if self.ndimension() == 3:
@@ -3660,7 +3749,7 @@ class DefaultPredictionStrategy(object):
         Rdiag = torch.diagonal(R, dim1=-2, dim2=-1)
         zeroish = Rdiag.abs() < 1e-06
         if torch.any(zeroish):
-            jitter_diag = 1e-06 * torch.sign(Rdiag) * zeroish.to(Rdiag)
+            jitter_diag = 1e-06 * torch.sign(Rdiag) * zeroish
             R = R + torch.diag_embed(jitter_diag)
         new_covar_cache = torch.triangular_solve(Q.transpose(-2, -1), R)[0].transpose(-2, -1)
         if full_inputs[0].dim() <= full_targets.dim():
@@ -3819,8 +3908,6 @@ class SumLazyTensor(LazyTensor):
         return sum(lazy_tensor.evaluate() for lazy_tensor in self.lazy_tensors)
 
     def __add__(self, other):
-        from .diag_lazy_tensor import DiagLazyTensor
-        from .added_diag_lazy_tensor import AddedDiagLazyTensor
         if isinstance(other, ZeroLazyTensor):
             return self
         elif isinstance(other, DiagLazyTensor):
@@ -3876,43 +3963,6 @@ class SumPredictionStrategy(DefaultPredictionStrategy):
             return super(SumPredictionStrategy, self)._exact_predictive_covar_inv_quad_form_root(precomputed_cache, test_train_covar)
         else:
             return sum(sub_strat._exact_predictive_covar_inv_quad_form_root(cache_comp, test_train_covar_comp) for sub_strat, cache_comp, test_train_covar_comp in zip(self._sub_strategies, precomputed_cache, test_train_covar.evaluate_kernel().lazy_tensors))
-
-
-class GreaterThan(Interval):
-
-    def __init__(self, lower_bound, transform=softplus, inv_transform=inv_softplus, initial_value=None):
-        super().__init__(lower_bound=lower_bound, upper_bound=math.inf, transform=transform, inv_transform=inv_transform, initial_value=initial_value)
-
-    def __repr__(self):
-        if self.lower_bound.numel() == 1:
-            return self._get_name() + f'({self.lower_bound:.3E})'
-        else:
-            return super().__repr__()
-
-    def transform(self, tensor):
-        transformed_tensor = self._transform(tensor) + self.lower_bound if self.enforced else tensor
-        return transformed_tensor
-
-    def inverse_transform(self, transformed_tensor):
-        tensor = self._inv_transform(transformed_tensor - self.lower_bound) if self.enforced else transformed_tensor
-        return tensor
-
-
-class Positive(GreaterThan):
-
-    def __init__(self, transform=softplus, inv_transform=inv_softplus, initial_value=None):
-        super().__init__(lower_bound=0.0, transform=transform, inv_transform=inv_transform, initial_value=initial_value)
-
-    def __repr__(self):
-        return self._get_name() + '()'
-
-    def transform(self, tensor):
-        transformed_tensor = self._transform(tensor) if self.enforced else tensor
-        return transformed_tensor
-
-    def inverse_transform(self, transformed_tensor):
-        tensor = self._inv_transform(transformed_tensor) if self.enforced else transformed_tensor
-        return tensor
 
 
 class Kernel(Module):
@@ -4220,6 +4270,558 @@ class Kernel(Module):
         return new_kernel
 
 
+def left_interp(interp_indices, interp_values, rhs):
+    """
+    """
+    is_vector = rhs.ndimension() == 1
+    if is_vector:
+        res = rhs.index_select(0, interp_indices.view(-1)).view(*interp_values.size())
+        res = res.mul(interp_values)
+        res = res.sum(-1)
+        return res
+    else:
+        num_rows, num_interp = interp_indices.shape[-2:]
+        num_data, num_columns = rhs.shape[-2:]
+        interp_shape = torch.Size((*interp_indices.shape[:-1], num_data))
+        output_shape = _matmul_broadcast_shape(interp_shape, rhs.shape)
+        batch_shape = output_shape[:-2]
+        interp_indices_expanded = interp_indices.unsqueeze(-1).expand(*batch_shape, num_rows, num_interp, num_columns)
+        interp_values_expanded = interp_values.unsqueeze(-1).expand(*batch_shape, num_rows, num_interp, num_columns)
+        rhs_expanded = rhs.unsqueeze(-2).expand(*batch_shape, num_data, num_interp, num_columns)
+        res = rhs_expanded.gather(-3, interp_indices_expanded).mul(interp_values_expanded)
+        return res.sum(-2)
+
+
+def left_t_interp(interp_indices, interp_values, rhs, output_dim):
+    """
+    """
+    is_vector = rhs.ndimension() == 1
+    if is_vector:
+        rhs = rhs.unsqueeze(-1)
+    values = rhs.unsqueeze(-2) * interp_values.unsqueeze(-1)
+    num_data, num_interp = interp_values.shape[-2:]
+    num_cols = rhs.size(-1)
+    interp_shape = torch.Size((*interp_indices.shape[:-2], output_dim, num_data))
+    output_shape = _matmul_broadcast_shape(interp_shape, rhs.shape)
+    batch_shape = output_shape[:-2]
+    batch_size = batch_shape.numel()
+    interp_indices = interp_indices.expand(*batch_shape, *interp_indices.shape[-2:]).contiguous()
+    batch_indices = torch.arange(0, batch_size, dtype=torch.long, device=values.device).unsqueeze_(1)
+    batch_indices = batch_indices.repeat(1, num_data * num_interp)
+    column_indices = torch.arange(0, num_data * num_interp, dtype=torch.long, device=values.device).unsqueeze_(1)
+    column_indices = column_indices.repeat(batch_size, 1)
+    summing_matrix_indices = torch.stack([batch_indices.view(-1), interp_indices.view(-1), column_indices.view(-1)], 0)
+    summing_matrix_values = torch.ones(batch_size * num_data * num_interp, dtype=interp_values.dtype, device=interp_values.device)
+    size = torch.Size((batch_size, output_dim, num_data * num_interp))
+    type_name = summing_matrix_values.type().split('.')[-1]
+    if interp_values.is_cuda:
+        cls = getattr(torch.sparse, type_name)
+    else:
+        cls = getattr(torch.sparse, type_name)
+    summing_matrix = cls(summing_matrix_indices, summing_matrix_values, size)
+    values = values.reshape(batch_size, num_data * num_interp, num_cols)
+    res = dsmm(summing_matrix, values)
+    res = res.view(*batch_shape, *res.shape[-2:])
+    if is_vector:
+        res = res.squeeze(-1)
+    return res
+
+
+class PsdSumLazyTensor(SumLazyTensor):
+    """
+    A SumLazyTensor, but where every component of the sum is positive semi-definite
+    """
+
+    def zero_mean_mvn_samples(self, num_samples):
+        return sum(lazy_tensor.zero_mean_mvn_samples(num_samples) for lazy_tensor in self.lazy_tensors)
+
+
+class IndexKernel(Kernel):
+    """
+    A kernel for discrete indices. Kernel is defined by a lookup table.
+
+    .. math::
+
+        \\begin{equation}
+            k(i, j) = \\left(BB^\\top + \\text{diag}(\\mathbf v) \\right)_{i, j}
+        \\end{equation}
+
+    where :math:`B` is a low-rank matrix, and :math:`\\mathbf v` is a  non-negative vector.
+    These parameters are learned.
+
+    Args:
+        :attr:`num_tasks` (int):
+            Total number of indices.
+        :attr:`batch_shape` (torch.Size, optional):
+            Set if the MultitaskKernel is operating on batches of data (and you want different
+            parameters for each batch)
+        :attr:`rank` (int):
+            Rank of :math:`B` matrix.
+        :attr:`prior` (:obj:`gpytorch.priors.Prior`):
+            Prior for :math:`B` matrix.
+        :attr:`var_constraint` (Constraint, optional):
+            Constraint for added diagonal component. Default: `Positive`.
+
+    Attributes:
+        covar_factor:
+            The :math:`B` matrix.
+        raw_var:
+            The element-wise log of the :math:`\\mathbf v` vector.
+    """
+
+    def __init__(self, num_tasks, rank=1, prior=None, var_constraint=None, **kwargs):
+        if rank > num_tasks:
+            raise RuntimeError('Cannot create a task covariance matrix larger than the number of tasks')
+        super().__init__(**kwargs)
+        if var_constraint is None:
+            var_constraint = Positive()
+        self.register_parameter(name='covar_factor', parameter=torch.nn.Parameter(torch.randn(*self.batch_shape, num_tasks, rank)))
+        self.register_parameter(name='raw_var', parameter=torch.nn.Parameter(torch.randn(*self.batch_shape, num_tasks)))
+        if prior is not None:
+            self.register_prior('IndexKernelPrior', prior, self._eval_covar_matrix)
+        self.register_constraint('raw_var', var_constraint)
+
+    @property
+    def var(self):
+        return self.raw_var_constraint.transform(self.raw_var)
+
+    @var.setter
+    def var(self, value):
+        self._set_var(value)
+
+    def _set_var(self, value):
+        self.initialize(raw_var=self.raw_var_constraint.inverse_transform(value))
+
+    def _eval_covar_matrix(self):
+        cf = self.covar_factor
+        return cf @ cf.transpose(-1, -2) + torch.diag_embed(self.var)
+
+    @property
+    def covar_matrix(self):
+        var = self.var
+        res = PsdSumLazyTensor(RootLazyTensor(self.covar_factor), DiagLazyTensor(var))
+        return res
+
+    def forward(self, i1, i2, **params):
+        covar_matrix = self._eval_covar_matrix()
+        batch_shape = _mul_broadcast_shape(i1.shape[:-2], self.batch_shape)
+        index_shape = batch_shape + i1.shape[-2:]
+        res = InterpolatedLazyTensor(base_lazy_tensor=covar_matrix, left_interp_indices=i1.expand(index_shape), right_interp_indices=i2.expand(index_shape))
+        return res
+
+
+def _prod(iterable):
+    return reduce(operator.mul, iterable, 1)
+
+
+class KroneckerProductLazyTensor(LazyTensor):
+
+    def __init__(self, *lazy_tensors):
+        try:
+            lazy_tensors = tuple(lazify(lazy_tensor) for lazy_tensor in lazy_tensors)
+        except TypeError:
+            raise RuntimeError('KroneckerProductLazyTensor is intended to wrap lazy tensors.')
+        for prev_lazy_tensor, curr_lazy_tensor in zip(lazy_tensors[:-1], lazy_tensors[1:]):
+            if prev_lazy_tensor.batch_shape != curr_lazy_tensor.batch_shape:
+                raise RuntimeError('KroneckerProductLazyTensor expects lazy tensors with the same batch shapes. Got {}.'.format([lv.batch_shape for lv in lazy_tensors]))
+        super(KroneckerProductLazyTensor, self).__init__(*lazy_tensors)
+        self.lazy_tensors = lazy_tensors
+
+    def _get_indices(self, row_index, col_index, *batch_indices):
+        row_factor = self.size(-2)
+        col_factor = self.size(-1)
+        res = None
+        for lazy_tensor in self.lazy_tensors:
+            sub_row_size = lazy_tensor.size(-2)
+            sub_col_size = lazy_tensor.size(-1)
+            row_factor //= sub_row_size
+            col_factor //= sub_col_size
+            sub_res = lazy_tensor._get_indices((row_index // row_factor).fmod(sub_row_size), (col_index // col_factor).fmod(sub_col_size), *batch_indices)
+            res = sub_res if res is None else sub_res * res
+        return res
+
+    def _matmul(self, rhs):
+        is_vec = rhs.ndimension() == 1
+        if is_vec:
+            rhs = rhs.unsqueeze(-1)
+        res = _matmul(self.lazy_tensors, self.shape, rhs.contiguous())
+        if is_vec:
+            res = res.squeeze(-1)
+        return res
+
+    def _t_matmul(self, rhs):
+        is_vec = rhs.ndimension() == 1
+        if is_vec:
+            rhs = rhs.unsqueeze(-1)
+        res = _t_matmul(self.lazy_tensors, self.shape, rhs.contiguous())
+        if is_vec:
+            res = res.squeeze(-1)
+        return res
+
+    def _expand_batch(self, batch_shape):
+        return self.__class__(*[lazy_tensor._expand_batch(batch_shape) for lazy_tensor in self.lazy_tensors])
+
+    @cached(name='size')
+    def _size(self):
+        left_size = _prod(lazy_tensor.size(-2) for lazy_tensor in self.lazy_tensors)
+        right_size = _prod(lazy_tensor.size(-1) for lazy_tensor in self.lazy_tensors)
+        return torch.Size((*self.lazy_tensors[0].batch_shape, left_size, right_size))
+
+    def _transpose_nonbatch(self):
+        return self.__class__(*(lazy_tensor._transpose_nonbatch() for lazy_tensor in self.lazy_tensors), **self._kwargs)
+
+
+class MultitaskKernel(Kernel):
+    """
+    Kernel supporting Kronecker style multitask Gaussian processes (where every data point is evaluated at every
+    task) using :class:`gpytorch.kernels.IndexKernel` as a basic multitask kernel.
+
+    Given a base covariance module to be used for the data, :math:`K_{XX}`, this kernel computes a task kernel of
+    specified size :math:`K_{TT}` and returns :math:`K = K_{TT} \\otimes K_{XX}`. as an
+    :obj:`gpytorch.lazy.KroneckerProductLazyTensor`.
+
+    :param ~gpytorch.kernels.Kernel data_covar_module: Kernel to use as the data kernel.
+    :param int num_tasks: Number of tasks
+    :param int rank: (default 1) Rank of index kernel to use for task covariance matrix.
+    :param ~gpytorch.priors.Prior task_covar_prior: (default None) Prior to use for task kernel.
+        See :class:`gpytorch.kernels.IndexKernel` for details.
+    :param dict kwargs: Additional arguments to pass to the kernel.
+    """
+
+    def __init__(self, data_covar_module, num_tasks, rank=1, task_covar_prior=None, **kwargs):
+        """
+        """
+        super(MultitaskKernel, self).__init__(**kwargs)
+        self.task_covar_module = IndexKernel(num_tasks=num_tasks, batch_shape=self.batch_shape, rank=rank, prior=task_covar_prior)
+        self.data_covar_module = data_covar_module
+        self.num_tasks = num_tasks
+
+    def forward(self, x1, x2, diag=False, last_dim_is_batch=False, **params):
+        if last_dim_is_batch:
+            raise RuntimeError('MultitaskKernel does not accept the last_dim_is_batch argument.')
+        covar_i = self.task_covar_module.covar_matrix
+        if len(x1.shape[:-2]):
+            covar_i = covar_i.repeat(*x1.shape[:-2], 1, 1)
+        covar_x = lazify(self.data_covar_module.forward(x1, x2, **params))
+        res = KroneckerProductLazyTensor(covar_x, covar_i)
+        return res.diag() if diag else res
+
+    def num_outputs_per_input(self, x1, x2):
+        """
+        Given `n` data points `x1` and `m` datapoints `x2`, this multitask
+        kernel returns an `(n*num_tasks) x (m*num_tasks)` covariance matrix.
+        """
+        return self.num_tasks
+
+
+class LCMKernel(Kernel):
+    """
+    This kernel supports the LCM kernel. It allows the user to specify a list of
+    base kernels to use, and individual `MultitaskKernel` objects are fit to each
+    of them. The final kernel is the linear sum of the Kronecker product of all
+    these base kernels with their respective `MultitaskKernel` objects.
+
+    The returned object is of type :obj:`gpytorch.lazy.KroneckerProductLazyTensor`.
+    """
+
+    def __init__(self, base_kernels, num_tasks, rank=1, task_covar_prior=None):
+        """
+        Args:
+            base_kernels (:type: list of `Kernel` objects): A list of base kernels.
+            num_tasks (int): The number of output tasks to fit.
+            rank (int): Rank of index kernel to use for task covariance matrix for each
+                        of the base kernels.
+            task_covar_prior (:obj:`gpytorch.priors.Prior`): Prior to use for each
+                task kernel. See :class:`gpytorch.kernels.IndexKernel` for details.
+        """
+        if len(base_kernels) < 1:
+            raise ValueError('At least one base kernel must be provided.')
+        for k in base_kernels:
+            if not isinstance(k, Kernel):
+                raise ValueError('base_kernels must only contain Kernel objects')
+        super(LCMKernel, self).__init__()
+        self.covar_module_list = ModuleList([MultitaskKernel(base_kernel, num_tasks=num_tasks, rank=rank, task_covar_prior=task_covar_prior) for base_kernel in base_kernels])
+
+    def forward(self, x1, x2, **params):
+        res = self.covar_module_list[0].forward(x1, x2, **params)
+        for m in self.covar_module_list[1:]:
+            res += m.forward(x1, x2, **params)
+        return res
+
+    def num_outputs_per_input(self, x1, x2):
+        """
+        Given `n` data points `x1` and `m` datapoints `x2`, this multitask kernel
+        returns an `(n*num_tasks) x (m*num_tasks)` covariance matrix.
+        """
+        return self.covar_module_list[0].num_outputs_per_input(x1, x2)
+
+    def __getitem__(self, index):
+        new_kernel = deepcopy(self)
+        new_kernel.covar_module_list = ModuleList([base_kernel.__getitem__(index) for base_kernel in self.covar_module_list])
+        return new_kernel
+
+
+class LinearKernel(Kernel):
+    """
+    Computes a covariance matrix based on the Linear kernel
+    between inputs :math:`\\mathbf{x_1}` and :math:`\\mathbf{x_2}`:
+
+    .. math::
+        \\begin{equation*}
+            k_\\text{Linear}(\\mathbf{x_1}, \\mathbf{x_2}) = v\\mathbf{x_1}^\\top
+            \\mathbf{x_2}.
+        \\end{equation*}
+
+    where
+
+    * :math:`v` is a :attr:`variance` parameter.
+
+
+    .. note::
+
+        To implement this efficiently, we use a :obj:`gpytorch.lazy.RootLazyTensor` during training and a
+        :class:`gpytorch.lazy.MatmulLazyTensor` during test. These lazy tensors represent matrices of the form
+        :math:`K = XX^{\\top}` and :math:`K = XZ^{\\top}`. This makes inference
+        efficient because a matrix-vector product :math:`Kv` can be computed as
+        :math:`Kv=X(X^{\\top}v)`, where the base multiply :math:`Xv` takes only
+        :math:`O(nd)` time and space.
+
+    Args:
+        :attr:`variance_prior` (:class:`gpytorch.priors.Prior`):
+            Prior over the variance parameter (default `None`).
+        :attr:`variance_constraint` (Constraint, optional):
+            Constraint to place on variance parameter. Default: `Positive`.
+        :attr:`active_dims` (list):
+            List of data dimensions to operate on.
+            `len(active_dims)` should equal `num_dimensions`.
+    """
+
+    def __init__(self, num_dimensions=None, offset_prior=None, variance_prior=None, variance_constraint=None, **kwargs):
+        super(LinearKernel, self).__init__(**kwargs)
+        if variance_constraint is None:
+            variance_constraint = Positive()
+        if num_dimensions is not None:
+            warnings.warn('The `num_dimensions` argument is deprecated and no longer used.', DeprecationWarning)
+            self.register_parameter(name='offset', parameter=torch.nn.Parameter(torch.zeros(1, 1, num_dimensions)))
+        if offset_prior is not None:
+            warnings.warn('The `offset_prior` argument is deprecated and no longer used.', DeprecationWarning)
+        self.register_parameter(name='raw_variance', parameter=torch.nn.Parameter(torch.zeros(*self.batch_shape, 1, 1)))
+        if variance_prior is not None:
+            self.register_prior('variance_prior', variance_prior, lambda : self.variance, lambda v: self._set_variance(v))
+        self.register_constraint('raw_variance', variance_constraint)
+
+    @property
+    def variance(self):
+        return self.raw_variance_constraint.transform(self.raw_variance)
+
+    @variance.setter
+    def variance(self, value):
+        self._set_variance(value)
+
+    def _set_variance(self, value):
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value)
+        self.initialize(raw_variance=self.raw_variance_constraint.inverse_transform(value))
+
+    def forward(self, x1, x2, diag=False, last_dim_is_batch=False, **params):
+        x1_ = x1 * self.variance.sqrt()
+        if last_dim_is_batch:
+            x1_ = x1_.transpose(-1, -2).unsqueeze(-1)
+        if x1.size() == x2.size() and torch.equal(x1, x2):
+            prod = RootLazyTensor(x1_)
+        else:
+            x2_ = x2 * self.variance.sqrt()
+            if last_dim_is_batch:
+                x2_ = x2_.transpose(-1, -2).unsqueeze(-1)
+            prod = MatmulLazyTensor(x1_, x2_.transpose(-2, -1))
+        if diag:
+            return prod.diag()
+        else:
+            return prod
+
+
+class MaternCovariance(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x1, x2, lengthscale, nu, dist_func):
+        if any(ctx.needs_input_grad[:2]):
+            raise RuntimeError('MaternCovariance cannot compute gradients with respect to x1 and x2')
+        if lengthscale.size(-1) > 1:
+            raise ValueError('MaternCovariance cannot handle multiple lengthscales')
+        needs_grad = any(ctx.needs_input_grad)
+        mean = x1.reshape(-1, x1.size(-1)).mean(0)[(None,) * (x1.dim() - 1)]
+        x1_ = (x1 - mean).div(lengthscale)
+        x2_ = (x2 - mean).div(lengthscale)
+        scaled_unitless_dist = dist_func(x1_, x2_).mul_(math.sqrt(2 * nu))
+        if nu == 0.5:
+            scaled_unitless_dist_ = scaled_unitless_dist.clone() if needs_grad else scaled_unitless_dist
+            exp_component = scaled_unitless_dist_.neg_().exp_()
+            covar_mat = exp_component
+            if needs_grad:
+                d_output_d_input = scaled_unitless_dist.div_(lengthscale).mul_(exp_component)
+        elif nu == 1.5:
+            if needs_grad:
+                scaled_unitless_dist_ = scaled_unitless_dist.clone()
+            linear_term = scaled_unitless_dist.clone().add_(1)
+            exp_component = scaled_unitless_dist.neg_().exp_()
+            covar_mat = linear_term.mul_(exp_component)
+            if needs_grad:
+                d_output_d_input = scaled_unitless_dist_.pow_(2).div_(lengthscale).mul_(exp_component)
+        elif nu == 2.5:
+            linear_term = scaled_unitless_dist.clone().add_(1)
+            quadratic_term = scaled_unitless_dist.clone().pow_(2).div_(3)
+            exp_component = scaled_unitless_dist.neg_().exp_()
+            if needs_grad:
+                covar_mat = (linear_term + quadratic_term).mul_(exp_component)
+                d_output_d_input = linear_term.mul_(quadratic_term).mul_(exp_component).div_(lengthscale)
+            else:
+                covar_mat = exp_component.mul_(linear_term.add_(quadratic_term))
+        if needs_grad:
+            ctx.save_for_backward(d_output_d_input)
+        return covar_mat
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        d_output_d_input = ctx.saved_tensors[0]
+        lengthscale_grad = grad_output * d_output_d_input
+        return None, None, lengthscale_grad, None, None
+
+
+class _feature_flag(object):
+    _state = False
+
+    @classmethod
+    def on(cls):
+        return cls._state
+
+    @classmethod
+    def off(cls):
+        return not cls._state
+
+    @classmethod
+    def _set_state(cls, state):
+        cls._state = state
+
+    def __init__(self, state=True):
+        self.prev = self.__class__.on()
+        self.state = state
+
+    def __enter__(self):
+        self.__class__._set_state(self.state)
+
+    def __exit__(self, *args):
+        self.__class__._set_state(self.prev)
+        return False
+
+
+class trace_mode(_feature_flag):
+    """
+    If set to True, we will generally try to avoid calling our built in PyTorch functions, because these cannot
+    be run through torch.jit.trace.
+
+    Note that this will sometimes involve explicitly evaluating lazy tensors and various other slowdowns and
+    inefficiencies. As a result, you really shouldn't use this feature context unless you are calling torch.jit.trace
+    on a GPyTorch model.
+
+    Our hope is that this flag will not be necessary long term, once https://github.com/pytorch/pytorch/issues/22329
+    is fixed.
+    """
+    _state = False
+
+
+class MaternKernel(Kernel):
+    """
+    Computes a covariance matrix based on the Matern kernel
+    between inputs :math:`\\mathbf{x_1}` and :math:`\\mathbf{x_2}`:
+
+    .. math::
+
+       \\begin{equation*}
+          k_{\\text{Matern}}(\\mathbf{x_1}, \\mathbf{x_2}) = \\frac{2^{1 - \\nu}}{\\Gamma(\\nu)}
+          \\left( \\sqrt{2 \\nu} d \\right) K_\\nu \\left( \\sqrt{2 \\nu} d \\right)
+       \\end{equation*}
+
+    where
+
+    * :math:`d = (\\mathbf{x_1} - \\mathbf{x_2})^\\top \\Theta^{-1} (\\mathbf{x_1} - \\mathbf{x_2})`
+      is the distance between
+      :math:`x_1` and :math:`x_2` scaled by the :attr:`lengthscale` parameter :math:`\\Theta`.
+    * :math:`\\nu` is a smoothness parameter (takes values 1/2, 3/2, or 5/2). Smaller values are less smooth.
+    * :math:`K_\\nu` is a modified Bessel function.
+
+    There are a few options for the lengthscale parameter :math:`\\Theta`:
+    See :class:`gpytorch.kernels.Kernel` for descriptions of the lengthscale options.
+
+    .. note::
+
+        This kernel does not have an `outputscale` parameter. To add a scaling parameter,
+        decorate this kernel with a :class:`gpytorch.kernels.ScaleKernel`.
+
+    Args:
+        :attr:`nu` (float):
+            The smoothness parameter: either 1/2, 3/2, or 5/2.
+        :attr:`ard_num_dims` (int, optional):
+            Set this if you want a separate lengthscale for each
+            input dimension. It should be `d` if :attr:`x1` is a `n x d` matrix. Default: `None`
+        :attr:`batch_shape` (torch.Size, optional):
+            Set this if you want a separate lengthscale for each
+             batch of input data. It should be `b` if :attr:`x1` is a `b x n x d` tensor. Default: `torch.Size([])`
+        :attr:`active_dims` (tuple of ints, optional):
+            Set this if you want to
+            compute the covariance of only a few input dimensions. The ints
+            corresponds to the indices of the dimensions. Default: `None`.
+        :attr:`lengthscale_prior` (Prior, optional):
+            Set this if you want to apply a prior to the lengthscale parameter.  Default: `None`
+        :attr:`lengthscale_constraint` (Constraint, optional):
+            Set this if you want to apply a constraint to the lengthscale parameter. Default: `Positive`.
+        :attr:`eps` (float):
+            The minimum value that the lengthscale can take (prevents divide by zero errors). Default: `1e-6`.
+
+    Attributes:
+        :attr:`lengthscale` (Tensor):
+            The lengthscale parameter. Size/shape of parameter depends on the
+            :attr:`ard_num_dims` and :attr:`batch_shape` arguments.
+
+    Example:
+        >>> x = torch.randn(10, 5)
+        >>> # Non-batch: Simple option
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.MaternKernel(nu=0.5))
+        >>> # Non-batch: ARD (different lengthscale for each input dimension)
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.MaternKernel(nu=0.5, ard_num_dims=5))
+        >>> covar = covar_module(x)  # Output: LazyVariable of size (10 x 10)
+        >>>
+        >>> batch_x = torch.randn(2, 10, 5)
+        >>> # Batch: Simple option
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.MaternKernel(nu=0.5))
+        >>> # Batch: different lengthscale for each batch
+        >>> covar_module = gpytorch.kernels.MaternKernel(nu=0.5, batch_shape=torch.Size([2])
+        >>> covar = covar_module(x)  # Output: LazyVariable of size (2 x 10 x 10)
+    """
+    has_lengthscale = True
+
+    def __init__(self, nu=2.5, **kwargs):
+        if nu not in {0.5, 1.5, 2.5}:
+            raise RuntimeError('nu expected to be 0.5, 1.5, or 2.5')
+        super(MaternKernel, self).__init__(**kwargs)
+        self.nu = nu
+
+    def forward(self, x1, x2, diag=False, **params):
+        if x1.requires_grad or x2.requires_grad or self.ard_num_dims is not None and self.ard_num_dims > 1 or diag or params.get('last_dim_is_batch', False) or trace_mode.on():
+            mean = x1.reshape(-1, x1.size(-1)).mean(0)[(None,) * (x1.dim() - 1)]
+            x1_ = (x1 - mean).div(self.lengthscale)
+            x2_ = (x2 - mean).div(self.lengthscale)
+            distance = self.covar_dist(x1_, x2_, diag=diag, **params)
+            exp_component = torch.exp(-math.sqrt(self.nu * 2) * distance)
+            if self.nu == 0.5:
+                constant_component = 1
+            elif self.nu == 1.5:
+                constant_component = (math.sqrt(3) * distance).add(1)
+            elif self.nu == 2.5:
+                constant_component = (math.sqrt(5) * distance).add(1).add(5.0 / 3.0 * distance ** 2)
+            return constant_component * exp_component
+        return MaternCovariance().apply(x1, x2, self.lengthscale, self.nu, lambda x1, x2: self.covar_dist(x1, x2, **params))
+
+
 class CatLazyTensor(LazyTensor):
     """
     A `LazyTensor` that represents the concatenation of other lazy tensors.
@@ -4322,9 +4924,9 @@ class CatLazyTensor(LazyTensor):
             sub_index[self.cat_dim] = sub_index[self.cat_dim] - self.cat_dim_cum_sizes[lazy_tensor_idx]
         res_list = [lazy_tensor._get_indices(sub_index[-2], sub_index[-1], *sub_index[:-2]) for lazy_tensor, sub_index in zip(lazy_tensors, sub_indices)]
         if len(res_list) == 1:
-            return res_list[0].view(target_shape).to(self.device)
+            return res_list[0].view(target_shape)
         else:
-            return torch.cat(res_list).view(target_shape).to(self.device)
+            return torch.cat(res_list).view(target_shape)
 
     def _getitem(self, row_index, col_index, *batch_indices):
         indices = [*batch_indices, row_index, col_index]
@@ -4358,7 +4960,7 @@ class CatLazyTensor(LazyTensor):
             indices[self.cat_dim] = cat_dim_indices
             res_list = [self.lazy_tensors[target_tensor]._getitem(indices[-2], indices[-1], *indices[:-2])]
         if len(res_list) == 1:
-            return res_list[0].to(self.output_device)
+            return res_list[0]
         else:
             res = self.__class__(*res_list, dim=self.cat_dim, output_device=self.output_device)
             return res
@@ -4368,12 +4970,12 @@ class CatLazyTensor(LazyTensor):
         rhs_ = []
         for d in self.devices:
             if d != rhs.device:
-                rhs_.append(rhs.to(d))
+                rhs_.append(rhs)
             else:
                 rhs_.append(rhs)
         if self.cat_dim == -2:
             res_list = [t._matmul(rhs) for t, rhs in zip(self.lazy_tensors, rhs_)]
-            res_list = [x.to(output_device) for x in res_list]
+            res_list = [x for x in res_list]
             res = torch.cat(res_list, dim=-2)
         elif self.cat_dim == -1:
             curr_idx = 0
@@ -4383,7 +4985,7 @@ class CatLazyTensor(LazyTensor):
                 index[-2] = slice(curr_idx, curr_idx + size, None)
                 res_list.append(t._matmul(rhs[index]))
                 curr_idx += size
-            res_list = [x.to(output_device) for x in res_list]
+            res_list = [x for x in res_list]
             res = 0.0
             for x in res_list:
                 res = res + x
@@ -4396,7 +4998,7 @@ class CatLazyTensor(LazyTensor):
                 sub_rhs = rhs.narrow(self.cat_dim, curr_idx, size)
                 res_list.append(t._matmul(sub_rhs))
                 curr_idx += size
-            res_list = [x.to(output_device) for x in res_list]
+            res_list = [x for x in res_list]
             res = torch.cat(res_list, dim=self.cat_dim)
         return res
 
@@ -4438,7 +5040,7 @@ class CatLazyTensor(LazyTensor):
                 n_rows, n_cols = t.shape[-2:]
                 rows = torch.arange(0, n_rows, dtype=torch.long, device=t.device)
                 cols = torch.arange(curr_col, curr_col + n_rows, dtype=torch.long, device=t.device)
-                res.append(t[..., rows, cols].to(self.device))
+                res.append(t[..., rows, cols])
                 curr_col += n_rows
             res = torch.cat(res, dim=-1)
         elif self.cat_dim == -1:
@@ -4449,15 +5051,15 @@ class CatLazyTensor(LazyTensor):
                 rows = torch.arange(curr_row, curr_row + n_cols, dtype=torch.long, device=t.device)
                 cols = torch.arange(0, n_cols, dtype=torch.long, device=t.device)
                 curr_row += n_cols
-                res.append(t[..., rows, cols].to(self.device))
+                res.append(t[..., rows, cols])
             res = torch.cat(res, dim=-1)
         else:
-            res = torch.cat([t.diag().to(self.device) for t in self.lazy_tensors], dim=self.cat_dim + 1)
+            res = torch.cat([t.diag() for t in self.lazy_tensors], dim=self.cat_dim + 1)
         return res
 
     def inv_quad_logdet(self, inv_quad_rhs=None, logdet=False, reduce_inv_quad=True):
         res = super().inv_quad_logdet(inv_quad_rhs, logdet, reduce_inv_quad)
-        return tuple(r.to(self.device) for r in res)
+        return tuple(r for r in res)
 
     @property
     def device(self):
@@ -4491,12 +5093,12 @@ class CatLazyTensor(LazyTensor):
         new_kwargs = {}
         for arg in self._args:
             if hasattr(arg, 'to'):
-                new_args.append(arg.to(device_id))
+                new_args.append(arg)
             else:
                 new_args.append(arg)
         for name, val in self._kwargs.items():
             if hasattr(val, 'to'):
-                new_kwargs[name] = val.to(device_id)
+                new_kwargs[name] = val
             else:
                 new_kwargs[name] = val
         new_kwargs['output_device'] = device_id
@@ -4559,8 +5161,1376 @@ class MultiDeviceKernel(DataParallel, Kernel):
         return self.base_kernel.num_outputs_per_input(x1, x2)
 
 
+class NewtonGirardAdditiveKernel(Kernel):
+
+    def __init__(self, base_kernel, num_dims, max_degree=None, active_dims=None, **kwargs):
+        """Create an Additive Kernel a la https://arxiv.org/abs/1112.4394 using Newton-Girard Formulae
+
+        :param base_kernel: a base 1-dimensional kernel. NOTE: put ard_num_dims=d in the base kernel...
+        :param max_degree: the maximum numbers of kernel degrees to compute
+        :param active_dims:
+        :param kwargs:
+        """
+        super(NewtonGirardAdditiveKernel, self).__init__(active_dims=active_dims, **kwargs)
+        self.base_kernel = base_kernel
+        self.num_dims = num_dims
+        if max_degree is None:
+            self.max_degree = self.num_dims
+        elif max_degree > self.num_dims:
+            self.max_degree = self.num_dims
+        else:
+            self.max_degree = max_degree
+        self.register_parameter(name='raw_outputscale', parameter=torch.nn.Parameter(torch.zeros(*self.batch_shape, self.max_degree)))
+        outputscale_constraint = Positive()
+        self.register_constraint('raw_outputscale', outputscale_constraint)
+        self.outputscale_constraint = outputscale_constraint
+        self.outputscale = [(1 / self.max_degree) for _ in range(self.max_degree)]
+
+    @property
+    def outputscale(self):
+        return self.raw_outputscale_constraint.transform(self.raw_outputscale)
+
+    @outputscale.setter
+    def outputscale(self, value):
+        self._set_outputscale(value)
+
+    def _set_outputscale(self, value):
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value)
+        self.initialize(raw_outputscale=self.outputscale_constraint.inverse_transform(value))
+
+    def forward(self, x1, x2, diag=False, last_dim_is_batch=False, **params):
+        """Forward proceeds by Newton-Girard formulae"""
+        if last_dim_is_batch:
+            raise RuntimeError('NewtonGirardAdditiveKernel does not accept the last_dim_is_batch argument.')
+        kern_values = delazify(self.base_kernel(x1, x2, diag=diag, last_dim_is_batch=True, **params))
+        kernel_dim = -3 if not diag else -2
+        shape = [(1) for _ in range(len(kern_values.shape) + 1)]
+        shape[kernel_dim - 1] = -1
+        kvals = torch.arange(1, self.max_degree + 1, device=kern_values.device).reshape(*shape)
+        shape = [d_ for d_ in kern_values.shape]
+        shape[kernel_dim] = self.max_degree + 1
+        e_n = torch.empty(*shape, device=kern_values.device)
+        if kernel_dim == -3:
+            e_n[(...), (0), :, :] = 1.0
+        else:
+            e_n[(...), (0), :] = 1.0
+        s_k = kern_values.unsqueeze(kernel_dim - 1).pow(kvals).sum(dim=kernel_dim)
+        m1 = torch.tensor([-1], dtype=torch.float, device=kern_values.device)
+        shape = [(1) for _ in range(len(kern_values.shape))]
+        shape[kernel_dim] = -1
+        for deg in range(1, self.max_degree + 1):
+            ks = torch.arange(1, deg + 1, device=kern_values.device, dtype=torch.float).reshape(*shape)
+            kslong = torch.arange(1, deg + 1, device=kern_values.device, dtype=torch.long)
+            sum_ = (m1.pow(ks - 1) * e_n.index_select(kernel_dim, deg - kslong) * s_k.index_select(kernel_dim, kslong - 1)).sum(dim=kernel_dim) / deg
+            if kernel_dim == -3:
+                e_n[(...), (deg), :, :] = sum_
+            else:
+                e_n[(...), (deg), :] = sum_
+        if kernel_dim == -3:
+            return (self.outputscale.unsqueeze(-1).unsqueeze(-1) * e_n.narrow(kernel_dim, 1, self.max_degree)).sum(dim=kernel_dim)
+        else:
+            return (self.outputscale.unsqueeze(-1) * e_n.narrow(kernel_dim, 1, self.max_degree)).sum(dim=kernel_dim)
+
+
+class PeriodicKernel(Kernel):
+    """ Computes a covariance matrix based on the periodic kernel
+    between inputs :math:`\\mathbf{x_1}` and :math:`\\mathbf{x_2}`:
+
+    .. math::
+
+       \\begin{equation*}
+          k_{\\text{Periodic}}(\\mathbf{x_1}, \\mathbf{x_2}) = \\exp \\left(
+            \\frac{2 \\sin^2 \\left( \\pi \\Vert \\mathbf{x_1} - \\mathbf{x_2} \\Vert_1 / p \\right) }
+            { \\ell^2 } \\right)
+       \\end{equation*}
+
+    where
+
+    * :math:`p` is the periord length parameter.
+    * :math:`\\ell` is a lengthscale parameter.
+
+    .. note::
+
+        This kernel does not have an `outputscale` parameter. To add a scaling parameter,
+        decorate this kernel with a :class:`gpytorch.kernels.ScaleKernel`.
+
+    .. note::
+
+        This kernel does not have an ARD lengthscale option.
+
+    Args:
+        :attr:`batch_shape` (torch.Size, optional):
+            Set this if you want a separate lengthscale for each
+             batch of input data. It should be `b` if :attr:`x1` is a `b x n x d` tensor. Default: `torch.Size([])`.
+        :attr:`active_dims` (tuple of ints, optional):
+            Set this if you want to compute the covariance of only a few input dimensions. The ints
+            corresponds to the indices of the dimensions. Default: `None`.
+        :attr:`period_length_prior` (Prior, optional):
+            Set this if you want to apply a prior to the period length parameter.  Default: `None`.
+        :attr:`lengthscale_prior` (Prior, optional):
+            Set this if you want to apply a prior to the lengthscale parameter.  Default: `None`.
+        :attr:`lengthscale_constraint` (Constraint, optional):
+            Set this if you want to apply a constraint to the value of the lengthscale. Default: `Positive`.
+        :attr:`period_length_constraint` (Constraint, optional):
+            Set this if you want to apply a constraint to the value of the period length. Default: `Positive`.
+        :attr:`eps` (float):
+            The minimum value that the lengthscale/period length can take
+            (prevents divide by zero errors). Default: `1e-6`.
+
+    Attributes:
+        :attr:`lengthscale` (Tensor):
+            The lengthscale parameter. Size = `*batch_shape x 1 x 1`.
+        :attr:`period_length` (Tensor):
+            The period length parameter. Size = `*batch_shape x 1 x 1`.
+
+    Example:
+        >>> x = torch.randn(10, 5)
+        >>> # Non-batch: Simple option
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.PeriodicKernel())
+        >>>
+        >>> batch_x = torch.randn(2, 10, 5)
+        >>> # Batch: Simple option
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.PeriodicKernel())
+        >>> # Batch: different lengthscale for each batch
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.PeriodicKernel(batch_size=2))
+        >>> covar = covar_module(x)  # Output: LazyVariable of size (2 x 10 x 10)
+    """
+    has_lengthscale = True
+
+    def __init__(self, period_length_prior=None, period_length_constraint=None, **kwargs):
+        super(PeriodicKernel, self).__init__(**kwargs)
+        if period_length_constraint is None:
+            period_length_constraint = Positive()
+        self.register_parameter(name='raw_period_length', parameter=torch.nn.Parameter(torch.zeros(*self.batch_shape, 1, 1)))
+        if period_length_prior is not None:
+            self.register_prior('period_length_prior', period_length_prior, lambda : self.period_length, lambda v: self._set_period_length(v))
+        self.register_constraint('raw_period_length', period_length_constraint)
+
+    @property
+    def period_length(self):
+        return self.raw_period_length_constraint.transform(self.raw_period_length)
+
+    @period_length.setter
+    def period_length(self, value):
+        self._set_period_length(value)
+
+    def _set_period_length(self, value):
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value)
+        self.initialize(raw_period_length=self.raw_period_length_constraint.inverse_transform(value))
+
+    def forward(self, x1, x2, diag=False, **params):
+        x1_ = x1.div(self.period_length)
+        x2_ = x2.div(self.period_length)
+        diff = self.covar_dist(x1_, x2_, diag=diag, **params)
+        res = torch.sin(diff.mul(math.pi)).pow(2).mul(-2 / self.lengthscale).exp_()
+        if diag:
+            res = res.squeeze(0)
+        return res
+
+
+class Prior(Distribution, Module, ABC):
+    """
+    Base class for Priors in GPyTorch.
+    In GPyTorch, a parameter can be assigned a prior by passing it as the `prior` argument to
+    :func:`~gpytorch.module.register_parameter`. GPyTorch performs internal bookkeeping of priors,
+    and for each parameter with a registered prior includes the log probability of the parameter under its
+    respective prior in computing the Marginal Log-Likelihood.
+    """
+
+    def transform(self, x):
+        return self._transform(x) if self._transform is not None else x
+
+    def log_prob(self, x):
+        """Returns the log-probability of the parameter value under the prior."""
+        return super(Prior, self).log_prob(self.transform(x))
+
+
+class PolynomialKernel(Kernel):
+    """
+    Computes a covariance matrix based on the Polynomial kernel
+    between inputs :math:`\\mathbf{x_1}` and :math:`\\mathbf{x_2}`:
+
+    .. math::
+        \\begin{equation*}
+            k_\\text{Poly}(\\mathbf{x_1}, \\mathbf{x_2}) = (\\mathbf{x_1}^\\top
+            \\mathbf{x_2} + c)^{d}.
+        \\end{equation*}
+
+    where
+
+    * :math:`c` is an :attr:`offset` parameter.
+
+    Args:
+        :attr:`offset_prior` (:class:`gpytorch.priors.Prior`):
+            Prior over the offset parameter (default `None`).
+        :attr:`offset_constraint` (Constraint, optional):
+            Constraint to place on offset parameter. Default: `Positive`.
+        :attr:`active_dims` (list):
+            List of data dimensions to operate on.
+            `len(active_dims)` should equal `num_dimensions`.
+    """
+
+    def __init__(self, power: int, offset_prior: Optional[Prior]=None, offset_constraint: Optional[Interval]=None, **kwargs):
+        super().__init__(**kwargs)
+        if offset_constraint is None:
+            offset_constraint = Positive()
+        self.register_parameter(name='raw_offset', parameter=torch.nn.Parameter(torch.zeros(*self.batch_shape, 1)))
+        if torch.is_tensor(power):
+            if power.numel() > 1:
+                raise RuntimeError('Cant create a Polynomial kernel with more than one power')
+            else:
+                power = power.item()
+        self.power = power
+        if offset_prior is not None:
+            self.register_prior('offset_prior', offset_prior, lambda : self.offset, lambda v: self._set_offset(v))
+        self.register_constraint('raw_offset', offset_constraint)
+
+    @property
+    def offset(self) ->torch.Tensor:
+        return self.raw_offset_constraint.transform(self.raw_offset)
+
+    @offset.setter
+    def offset(self, value: torch.Tensor) ->None:
+        self._set_offset(value)
+
+    def _set_offset(self, value: torch.Tensor) ->None:
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value)
+        self.initialize(raw_offset=self.raw_offset_constraint.inverse_transform(value))
+
+    def forward(self, x1: torch.Tensor, x2: torch.Tensor, diag: Optional[bool]=False, last_dim_is_batch: Optional[bool]=False, **params) ->torch.Tensor:
+        offset = self.offset.view(*self.batch_shape, 1, 1)
+        if last_dim_is_batch:
+            x1 = x1.transpose(-1, -2).unsqueeze(-1)
+            x2 = x2.transpose(-1, -2).unsqueeze(-1)
+        if diag:
+            return ((x1 * x2).sum(dim=-1) + self.offset).pow(self.power)
+        if x1.dim() == 2 and x2.dim() == 2:
+            return torch.addmm(offset, x1, x2.transpose(-2, -1)).pow(self.power)
+        else:
+            return (torch.matmul(x1, x2.transpose(-2, -1)) + offset).pow(self.power)
+
+
+class PolynomialKernelGrad(PolynomialKernel):
+
+    def forward(self, x1: torch.Tensor, x2: torch.Tensor, diag: Optional[bool]=False, last_dim_is_batch: Optional[bool]=False, **params) ->torch.Tensor:
+        offset = self.offset.view(*self.batch_shape, 1, 1)
+        batch_shape = x1.shape[:-2]
+        n1, d = x1.shape[-2:]
+        n2 = x2.shape[-2]
+        if diag:
+            base_diag = (x1 * x2).sum(dim=-1) + self.offset
+            K11_diag = base_diag.pow(self.power)
+            all_outers_diag = (x1 * x2).transpose(-2, -1).reshape(*batch_shape, -1)
+            K22_base_diag = self.power * (self.power - 1) * base_diag.pow(self.power - 2)
+            K12_base_diag = self.power * base_diag.pow(self.power - 1)
+            K22_diag = all_outers_diag * K22_base_diag.repeat(d) + K12_base_diag.repeat(d)
+            return torch.cat([K11_diag, K22_diag], dim=-1)
+        else:
+            base_inner_prod = torch.matmul(x1, x2.transpose(-2, -1)) + offset
+            K11 = base_inner_prod.pow(self.power)
+            K12_base = self.power * base_inner_prod.pow(self.power - 1)
+            K12 = torch.zeros(*batch_shape, n1, n2 * d, dtype=x1.dtype, device=x1.device)
+            ones_ = torch.ones(*batch_shape, d, 1, n2, dtype=x1.dtype, device=x1.device)
+            K12_outer_prods = torch.matmul(x1.transpose(-2, -1).unsqueeze(-1), ones_)
+            K12 = (K12_base.unsqueeze(-3) * K12_outer_prods).transpose(-3, -2).reshape(*batch_shape, n1, d * n2)
+            ones_ = torch.ones(*batch_shape, d, n1, 1, dtype=x1.dtype, device=x1.device)
+            K21_outer_prods = torch.matmul(ones_, x2.transpose(-2, -1).unsqueeze(-2))
+            K21 = (K12_base.unsqueeze(-3) * K21_outer_prods).view(*batch_shape, d * n1, n2)
+            K22_base = self.power * (self.power - 1) * base_inner_prod.pow(self.power - 2)
+            K22 = torch.zeros(*batch_shape, n1 * d, n2 * d, dtype=x1.dtype, device=x1.device)
+            all_outers = x1.unsqueeze(-2).unsqueeze(-2).transpose(-2, -1).matmul(x2.unsqueeze(-3).unsqueeze(-2))
+            all_outers = all_outers.transpose(-4, -2).transpose(-3, -1)
+            K22 = K22_base.unsqueeze(-3).unsqueeze(-3) * all_outers
+            for i in range(d):
+                K22[(...), (i), (i), :, :] = K22[(...), (i), (i), :, :] + K12_base
+            K22 = K22.transpose(-4, -3).transpose(-3, -2).reshape(*batch_shape, n1 * d, n2 * d)
+            K = torch.cat([torch.cat([K11, K12], dim=-1), torch.cat([K21, K22], dim=-1)], dim=-2)
+            pi1 = torch.arange(n1 * (d + 1)).view(d + 1, n1).t().reshape(n1 * (d + 1))
+            pi2 = torch.arange(n2 * (d + 1)).view(d + 1, n2).t().reshape(n2 * (d + 1))
+            K = K[(...), (pi1), :][(...), :, (pi2)]
+            return K
+
+    def num_outputs_per_input(self, x1, x2):
+        return x1.size(-1) + 1
+
+
+class RBFCovariance(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x1, x2, lengthscale, sq_dist_func):
+        if any(ctx.needs_input_grad[:2]):
+            raise RuntimeError('RBFCovariance cannot compute gradients with respect to x1 and x2')
+        if lengthscale.size(-1) > 1:
+            raise ValueError('RBFCovariance cannot handle multiple lengthscales')
+        needs_grad = any(ctx.needs_input_grad)
+        x1_ = x1.div(lengthscale)
+        x2_ = x2.div(lengthscale)
+        unitless_sq_dist = sq_dist_func(x1_, x2_)
+        unitless_sq_dist_ = unitless_sq_dist.clone() if needs_grad else unitless_sq_dist
+        covar_mat = unitless_sq_dist_.div_(-2.0).exp_()
+        if needs_grad:
+            d_output_d_input = unitless_sq_dist.mul_(covar_mat).div_(lengthscale)
+            ctx.save_for_backward(d_output_d_input)
+        return covar_mat
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        d_output_d_input = ctx.saved_tensors[0]
+        lengthscale_grad = grad_output * d_output_d_input
+        return None, None, lengthscale_grad, None
+
+
+def postprocess_rbf(dist_mat):
+    return dist_mat.div_(-2).exp_()
+
+
+class RBFKernel(Kernel):
+    """
+    Computes a covariance matrix based on the RBF (squared exponential) kernel
+    between inputs :math:`\\mathbf{x_1}` and :math:`\\mathbf{x_2}`:
+
+    .. math::
+
+       \\begin{equation*}
+          k_{\\text{RBF}}(\\mathbf{x_1}, \\mathbf{x_2}) = \\exp \\left( -\\frac{1}{2}
+          (\\mathbf{x_1} - \\mathbf{x_2})^\\top \\Theta^{-2} (\\mathbf{x_1} - \\mathbf{x_2}) \\right)
+       \\end{equation*}
+
+    where :math:`\\Theta` is a :attr:`lengthscale` parameter.
+    See :class:`gpytorch.kernels.Kernel` for descriptions of the lengthscale options.
+
+    .. note::
+
+        This kernel does not have an `outputscale` parameter. To add a scaling parameter,
+        decorate this kernel with a :class:`gpytorch.kernels.ScaleKernel`.
+
+    Args:
+        :attr:`ard_num_dims` (int, optional):
+            Set this if you want a separate lengthscale for each
+            input dimension. It should be `d` if :attr:`x1` is a `n x d` matrix. Default: `None`
+        :attr:`batch_shape` (torch.Size, optional):
+            Set this if you want a separate lengthscale for each
+            batch of input data. It should be `b` if :attr:`x1` is a `b x n x d` tensor. Default: `torch.Size([])`.
+        :attr:`active_dims` (tuple of ints, optional):
+            Set this if you want to compute the covariance of only a few input dimensions. The ints
+            corresponds to the indices of the dimensions. Default: `None`.
+        :attr:`lengthscale_prior` (Prior, optional):
+            Set this if you want to apply a prior to the lengthscale parameter.  Default: `None`.
+        :attr:`lengthscale_constraint` (Constraint, optional):
+            Set this if you want to apply a constraint to the lengthscale parameter. Default: `Positive`.
+        :attr:`eps` (float):
+            The minimum value that the lengthscale can take (prevents divide by zero errors). Default: `1e-6`.
+
+    Attributes:
+        :attr:`lengthscale` (Tensor):
+            The lengthscale parameter. Size/shape of parameter depends on the
+            :attr:`ard_num_dims` and :attr:`batch_shape` arguments.
+
+    Example:
+        >>> x = torch.randn(10, 5)
+        >>> # Non-batch: Simple option
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel())
+        >>> # Non-batch: ARD (different lengthscale for each input dimension)
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(ard_num_dims=5))
+        >>> covar = covar_module(x)  # Output: LazyTensor of size (10 x 10)
+        >>>
+        >>> batch_x = torch.randn(2, 10, 5)
+        >>> # Batch: Simple option
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel())
+        >>> # Batch: different lengthscale for each batch
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernel(batch_shape=torch.Size([2])))
+        >>> covar = covar_module(x)  # Output: LazyTensor of size (2 x 10 x 10)
+    """
+    has_lengthscale = True
+
+    def forward(self, x1, x2, diag=False, **params):
+        if x1.requires_grad or x2.requires_grad or self.ard_num_dims is not None and self.ard_num_dims > 1 or diag or params.get('last_dim_is_batch', False) or trace_mode.on():
+            x1_ = x1.div(self.lengthscale)
+            x2_ = x2.div(self.lengthscale)
+            return self.covar_dist(x1_, x2_, square_dist=True, diag=diag, dist_postprocess_func=postprocess_rbf, postprocess=True, **params)
+        return RBFCovariance().apply(x1, x2, self.lengthscale, lambda x1, x2: self.covar_dist(x1, x2, square_dist=True, diag=False, dist_postprocess_func=postprocess_rbf, postprocess=False, **params))
+
+
+class RBFKernelGrad(RBFKernel):
+    """
+    Computes a covariance matrix of the RBF kernel that models the covariance
+    between the values and partial derivatives for inputs :math:`\\mathbf{x_1}`
+    and :math:`\\mathbf{x_2}`.
+
+    See :class:`gpytorch.kernels.Kernel` for descriptions of the lengthscale options.
+
+    .. note::
+
+        This kernel does not have an `outputscale` parameter. To add a scaling parameter,
+        decorate this kernel with a :class:`gpytorch.kernels.ScaleKernel`.
+
+    Args:
+        :attr:`batch_shape` (torch.Size, optional):
+            Set this if you want a separate lengthscale for each
+             batch of input data. It should be `b` if :attr:`x1` is a `b x n x d` tensor. Default: `torch.Size([])`.
+        :attr:`active_dims` (tuple of ints, optional):
+            Set this if you want to compute the covariance of only a few input dimensions. The ints
+            corresponds to the indices of the dimensions. Default: `None`.
+        :attr:`lengthscale_prior` (Prior, optional):
+            Set this if you want to apply a prior to the lengthscale parameter.  Default: `None`.
+        :attr:`lengthscale_constraint` (Constraint, optional):
+            Set this if you want to apply a constraint to the lengthscale parameter. Default: `Positive`.
+        :attr:`eps` (float):
+            The minimum value that the lengthscale can take (prevents divide by zero errors). Default: `1e-6`.
+
+    Attributes:
+        :attr:`lengthscale` (Tensor):
+            The lengthscale parameter. Size/shape of parameter depends on the
+            :attr:`ard_num_dims` and :attr:`batch_shape` arguments.
+
+    Example:
+        >>> x = torch.randn(10, 5)
+        >>> # Non-batch: Simple option
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernelGrad())
+        >>> covar = covar_module(x)  # Output: LazyTensor of size (60 x 60), where 60 = n * (d + 1)
+        >>>
+        >>> batch_x = torch.randn(2, 10, 5)
+        >>> # Batch: Simple option
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernelGrad())
+        >>> # Batch: different lengthscale for each batch
+        >>> covar_module = gpytorch.kernels.ScaleKernel(gpytorch.kernels.RBFKernelGrad(batch_shape=torch.Size([2])))
+        >>> covar = covar_module(x)  # Output: LazyTensor of size (2 x 60 x 60)
+    """
+
+    def forward(self, x1, x2, diag=False, **params):
+        batch_shape = x1.shape[:-2]
+        n_batch_dims = len(batch_shape)
+        n1, d = x1.shape[-2:]
+        n2 = x2.shape[-2]
+        K = torch.zeros(*batch_shape, n1 * (d + 1), n2 * (d + 1), device=x1.device, dtype=x1.dtype)
+        if not diag:
+            x1_ = x1.div(self.lengthscale)
+            x2_ = x2.div(self.lengthscale)
+            outer = x1_.view(*batch_shape, n1, 1, d) - x2_.view(*batch_shape, 1, n2, d)
+            outer = outer / self.lengthscale.unsqueeze(-2)
+            outer = torch.transpose(outer, -1, -2).contiguous()
+            diff = self.covar_dist(x1_, x2_, square_dist=True, dist_postprocess_func=postprocess_rbf, **params)
+            K_11 = diff
+            K[(...), :n1, :n2] = K_11
+            outer1 = outer.view(*batch_shape, n1, n2 * d)
+            K[(...), :n1, n2:] = outer1 * K_11.repeat([*([1] * (n_batch_dims + 1)), d])
+            outer2 = outer.transpose(-1, -3).reshape(*batch_shape, n2, n1 * d)
+            outer2 = outer2.transpose(-1, -2)
+            K[(...), n1:, :n2] = -outer2 * K_11.repeat([*([1] * n_batch_dims), d, 1])
+            outer3 = outer1.repeat([*([1] * n_batch_dims), d, 1]) * outer2.repeat([*([1] * (n_batch_dims + 1)), d])
+            kp = KroneckerProductLazyTensor(torch.eye(d, d, device=x1.device, dtype=x1.dtype).repeat(*batch_shape, 1, 1) / self.lengthscale.pow(2), torch.ones(n1, n2, device=x1.device, dtype=x1.dtype).repeat(*batch_shape, 1, 1))
+            chain_rule = kp.evaluate() - outer3
+            K[(...), n1:, n2:] = chain_rule * K_11.repeat([*([1] * n_batch_dims), d, d])
+            if n1 == n2 and torch.eq(x1, x2).all():
+                K = 0.5 * (K.transpose(-1, -2) + K)
+            pi1 = torch.arange(n1 * (d + 1)).view(d + 1, n1).t().reshape(n1 * (d + 1))
+            pi2 = torch.arange(n2 * (d + 1)).view(d + 1, n2).t().reshape(n2 * (d + 1))
+            K = K[(...), (pi1), :][(...), :, (pi2)]
+            return K
+        else:
+            if not (n1 == n2 and torch.eq(x1, x2).all()):
+                raise RuntimeError('diag=True only works when x1 == x2')
+            kernel_diag = super(RBFKernelGrad, self).forward(x1, x2, diag=True)
+            grad_diag = torch.ones(*batch_shape, n2, d, device=x1.device, dtype=x1.dtype) / self.lengthscale.pow_(2)
+            grad_diag = grad_diag.transpose(-1, -2).reshape(*batch_shape, n2 * d)
+            k_diag = torch.cat((kernel_diag, grad_diag), dim=-1)
+            pi = torch.arange(n2 * (d + 1)).view(d + 1, n2).t().reshape(n2 * (d + 1))
+            return k_diag[..., pi]
+
+    def num_outputs_per_input(self, x1, x2):
+        return x1.size(-1) + 1
+
+
+class ConstantMulLazyTensor(LazyTensor):
+    """
+    A LazyTensor that multiplies a base LazyTensor by a scalar constant:
+
+    ```
+    constant_mul_lazy_tensor = constant * base_lazy_tensor
+    ```
+
+    .. note::
+
+        To element-wise multiply two lazy tensors, see :class:`gpytorch.lazy.MulLazyTensor`
+
+    Args:
+        base_lazy_tensor (LazyTensor) or (b x n x m)): The base_lazy tensor
+        constant (Tensor): The constant
+
+    If `base_lazy_tensor` represents a matrix (non-batch), then `constant` must be a
+    0D tensor, or a 1D tensor with one element.
+
+    If `base_lazy_tensor` represents a batch of matrices (b x m x n), then `constant` can be
+    either:
+    - A 0D tensor - the same constant is applied to all matrices in the batch
+    - A 1D tensor with one element - the same constant is applied to all matrices
+    - A 1D tensor with `b` elements - a different constant is applied to each matrix
+
+    Example::
+
+        >>> base_base_lazy_tensor = gpytorch.lazy.ToeplitzLazyTensor([1, 2, 3])
+        >>> constant = torch.tensor(1.2)
+        >>> new_base_lazy_tensor = gpytorch.lazy.ConstantMulLazyTensor(base_base_lazy_tensor, constant)
+        >>> new_base_lazy_tensor.evaluate()
+        >>> # Returns:
+        >>> # [[ 1.2, 2.4, 3.6 ]
+        >>> #  [ 2.4, 1.2, 2.4 ]
+        >>> #  [ 3.6, 2.4, 1.2 ]]
+        >>>
+        >>> base_base_lazy_tensor = gpytorch.lazy.ToeplitzLazyTensor([[1, 2, 3], [2, 3, 4]])
+        >>> constant = torch.tensor([1.2, 0.5])
+        >>> new_base_lazy_tensor = gpytorch.lazy.ConstantMulLazyTensor(base_base_lazy_tensor, constant)
+        >>> new_base_lazy_tensor.evaluate()
+        >>> # Returns:
+        >>> # [[[ 1.2, 2.4, 3.6 ]
+        >>> #   [ 2.4, 1.2, 2.4 ]
+        >>> #   [ 3.6, 2.4, 1.2 ]]
+        >>> #  [[ 1, 1.5, 2 ]
+        >>> #   [ 1.5, 1, 1.5 ]
+        >>> #   [ 2, 1.5, 1 ]]]
+    """
+
+    def __init__(self, base_lazy_tensor, constant):
+        if not torch.is_tensor(constant):
+            constant = torch.tensor(constant, device=base_lazy_tensor.device, dtype=base_lazy_tensor.dtype)
+        super(ConstantMulLazyTensor, self).__init__(base_lazy_tensor, constant)
+        self.base_lazy_tensor = base_lazy_tensor
+        self._constant = constant
+
+    def _approx_diag(self):
+        res = self.base_lazy_tensor._approx_diag()
+        return res * self._constant.unsqueeze(-1)
+
+    def _expand_batch(self, batch_shape):
+        return self.__class__(self.base_lazy_tensor._expand_batch(batch_shape), self._constant.expand(*batch_shape))
+
+    def _get_indices(self, row_index, col_index, *batch_indices):
+        base_lazy_tensor = self.base_lazy_tensor._get_indices(row_index, col_index, *batch_indices)
+        constant = self._constant.expand(self.batch_shape)[batch_indices]
+        return base_lazy_tensor * constant
+
+    def _getitem(self, row_index, col_index, *batch_indices):
+        base_lazy_tensor = self.base_lazy_tensor._getitem(row_index, col_index, *batch_indices)
+        constant = self._constant.expand(self.batch_shape)[batch_indices]
+        constant = constant.view(*constant.shape, 1, 1)
+        return base_lazy_tensor * constant
+
+    def _matmul(self, rhs):
+        res = self.base_lazy_tensor._matmul(rhs)
+        res = res * self.expanded_constant
+        return res
+
+    def _permute_batch(self, *dims):
+        return self.__class__(self.base_lazy_tensor._permute_batch(*dims), self._constant.expand(self.batch_shape).permute(*dims))
+
+    def _quad_form_derivative(self, left_vecs, right_vecs):
+        constant_deriv = left_vecs * self.base_lazy_tensor._matmul(right_vecs)
+        constant_deriv = constant_deriv.sum(-2).sum(-1)
+        while constant_deriv.dim() > self._constant.dim():
+            constant_deriv = constant_deriv.sum(0)
+        for i in range(self._constant.dim()):
+            if self._constant.size(i) == 1:
+                constant_deriv = constant_deriv.sum(i, keepdim=True)
+        left_vecs = left_vecs * self.expanded_constant
+        res = self.base_lazy_tensor._quad_form_derivative(left_vecs, right_vecs)
+        return tuple(res) + (constant_deriv,)
+
+    def _size(self):
+        return self.base_lazy_tensor.size()
+
+    def _t_matmul(self, rhs):
+        res = self.base_lazy_tensor._t_matmul(rhs)
+        res = res * self.expanded_constant
+        return res
+
+    def _transpose_nonbatch(self):
+        return ConstantMulLazyTensor(self.base_lazy_tensor._transpose_nonbatch(), self._constant)
+
+    @property
+    def expanded_constant(self):
+        try:
+            constant = self._constant.view(*self._constant.shape, 1, 1)
+        except RuntimeError:
+            raise RuntimeError('ConstantMulLazyTensor of size {} received an invalid constant of size {}.'.format(self.base_lazy_tensor.shape, self._constant.shape))
+        return constant
+
+    def diag(self):
+        res = self.base_lazy_tensor.diag()
+        return res * self._constant.unsqueeze(-1)
+
+    @cached
+    def evaluate(self):
+        res = self.base_lazy_tensor.evaluate()
+        return res * self.expanded_constant
+
+
+class RFFPredictionStrategy(DefaultPredictionStrategy):
+
+    def __init__(self, train_inputs, train_prior_dist, train_labels, likelihood):
+        super().__init__(train_inputs, train_prior_dist, train_labels, likelihood)
+        self.train_prior_dist = self.train_prior_dist.__class__(self.train_prior_dist.mean, self.train_prior_dist.lazy_covariance_matrix.evaluate_kernel())
+
+    def get_fantasy_strategy(self, inputs, targets, full_inputs, full_targets, full_output, **kwargs):
+        raise NotImplementedError('Fantasy observation updates not yet supported for models using RFFs')
+
+    @property
+    @cached(name='covar_cache')
+    def covar_cache(self):
+        lt = self.train_prior_dist.lazy_covariance_matrix
+        if isinstance(lt, ConstantMulLazyTensor):
+            constant = lt.expanded_constant
+            lt = lt.base_lazy_tensor
+        else:
+            constant = torch.tensor(1.0, dtype=lt.dtype, device=lt.device)
+        train_factor = lt.root.evaluate()
+        train_train_covar = self.lik_train_train_covar
+        inner_term = torch.eye(train_factor.size(-1), dtype=train_factor.dtype, device=train_factor.device) - train_factor.transpose(-1, -2) @ train_train_covar.inv_matmul(train_factor) * constant
+        return psd_safe_cholesky(inner_term)
+
+    def exact_prediction(self, joint_mean, joint_covar):
+        test_mean = joint_mean[(...), self.num_train:]
+        test_test_covar = joint_covar[(...), self.num_train:, self.num_train:].evaluate_kernel()
+        test_train_covar = joint_covar[(...), self.num_train:, :self.num_train].evaluate_kernel()
+        return self.exact_predictive_mean(test_mean, test_train_covar), self.exact_predictive_covar(test_test_covar, test_train_covar)
+
+    def exact_predictive_covar(self, test_test_covar, test_train_covar):
+        if isinstance(test_test_covar, ConstantMulLazyTensor):
+            constant = test_test_covar.expanded_constant
+            test_test_covar = test_test_covar.base_lazy_tensor
+        else:
+            constant = torch.tensor(1.0, dtype=test_test_covar.dtype, device=test_test_covar.device)
+        covar_cache = self.covar_cache
+        factor = test_test_covar.root.evaluate() * constant.sqrt()
+        res = RootLazyTensor(factor @ covar_cache)
+        return res
+
+
+class RFFKernel(Kernel):
+    """
+    Computes a covariance matrix based on Random Fourier Features with the RBFKernel.
+
+    Random Fourier features was originally proposed in
+    'Random Features for Large-Scale Kernel Machines' by Rahimi and Recht (2008).
+    Instead of the shifted cosine features from Rahimi and Recht (2008), we use
+    the sine and cosine features which is a lower-variance estimator --- see
+    'On the Error of Random Fourier Features' by Sutherland and Schneider (2015).
+
+    By Bochner's theorem, any continuous kernel :math:`k` is positive definite
+    if and only if it is the Fourier transform of a non-negative measure :math:`p(\\omega)`, i.e.
+
+    .. math::
+        \\begin{equation}
+            k(x, x') = k(x - x') = \\int p(\\omega) e^{i(\\omega^\\top (x - x'))} d\\omega.
+        \\end{equation}
+
+    where :math:`p(\\omega)` is a normalized probability measure if :math:`k(0)=1`.
+
+    For the RBF kernel,
+
+    .. math::
+        \\begin{equation}
+        k(\\Delta) = \\exp{(-\\frac{\\Delta^2}{2\\sigma^2})}$ and $p(\\omega) = \\exp{(-\\frac{\\sigma^2\\omega^2}{2})}
+        \\end{equation}
+
+    where :math:`\\Delta = x - x'`.
+
+    Given datapoint :math:`x\\in \\mathbb{R}^d`, we can construct its random Fourier features
+    :math:`z(x) \\in \\mathbb{R}^{2D}` by
+
+    .. math::
+        \\begin{equation}
+        z(x) = \\sqrt{\\frac{1}{D}}
+        \\begin{bmatrix}
+            \\cos(\\omega_1^\\top x)\\\\
+            \\sin(\\omega_1^\\top x)\\\\
+            \\cdots \\\\
+            \\cos(\\omega_D^\\top x)\\\\
+            \\sin(\\omega_D^\\top x)
+        \\end{bmatrix}, \\omega_1, \\ldots, \\omega_D \\sim p(\\omega)
+        \\end{equation}
+
+    such that we have an unbiased Monte Carlo estimator
+
+    .. math::
+        \\begin{equation}
+            k(x, x') = k(x - x') \\approx z(x)^\\top z(x') = \\frac{1}{D}\\sum_{i=1}^D \\cos(\\omega_i^\\top (x - x')).
+        \\end{equation}
+
+    .. note::
+        When this kernel is used in batch mode, the random frequencies are drawn
+        independently across the batch dimension as well by default.
+
+    :param num_samples: Number of random frequencies to draw. This is :math:`D` in the above
+        papers. This will produce :math:`D` sine features and :math:`D` cosine
+        features for a total of :math:`2D` random Fourier features.
+    :type num_samples: int
+    :param num_dims: (Default `None`.) Dimensionality of the data space.
+        This is :math:`d` in the above papers. Note that if you want an
+        independent lengthscale for each dimension, set `ard_num_dims` equal to
+        `num_dims`. If unspecified, it will be inferred the first time `forward`
+        is called.
+    :type num_dims: int, optional
+
+    :var torch.Tensor randn_weights: The random frequencies that are drawn once and then fixed.
+
+    Example:
+
+        >>> # This will infer `num_dims` automatically
+        >>> kernel= gpytorch.kernels.RFFKernel(num_samples=5)
+        >>> x = torch.randn(10, 3)
+        >>> kxx = kernel(x, x).evaluate()
+        >>> print(kxx.randn_weights.size())
+        torch.Size([3, 5])
+
+    """
+    has_lengthscale = True
+
+    def __init__(self, num_samples: int, num_dims: Optional[int]=None, **kwargs):
+        super().__init__(**kwargs)
+        self.num_samples = num_samples
+        if num_dims is not None:
+            self._init_weights(num_dims, num_samples)
+
+    def _init_weights(self, num_dims: Optional[int]=None, num_samples: Optional[int]=None, randn_weights: Optional[Tensor]=None):
+        if num_dims is not None and num_samples is not None:
+            d = num_dims
+            D = num_samples
+        if randn_weights is None:
+            randn_shape = torch.Size([*self._batch_shape, d, D])
+            randn_weights = torch.randn(randn_shape, dtype=self.raw_lengthscale.dtype, device=self.raw_lengthscale.device)
+        self.register_buffer('randn_weights', randn_weights)
+
+    def forward(self, x1: Tensor, x2: Tensor, diag: bool=False, last_dim_is_batch: bool=False, **kwargs) ->Tensor:
+        if last_dim_is_batch:
+            x1 = x1.transpose(-1, -2).unsqueeze(-1)
+            x2 = x2.transpose(-1, -2).unsqueeze(-1)
+        num_dims = x1.size(-1)
+        if not hasattr(self, 'randn_weights'):
+            self._init_weights(num_dims, self.num_samples)
+        x1_eq_x2 = torch.equal(x1, x2)
+        z1 = self._featurize(x1, normalize=False)
+        if not x1_eq_x2:
+            z2 = self._featurize(x2, normalize=False)
+        else:
+            z2 = z1
+        D = float(self.num_samples)
+        if diag:
+            return (z1 * z2).sum(-1) / D
+        if x1_eq_x2:
+            return RootLazyTensor(z1 / math.sqrt(D))
+        else:
+            return MatmulLazyTensor(z1 / D, z2.transpose(-1, -2))
+
+    def _featurize(self, x: Tensor, normalize: bool=False) ->Tensor:
+        x = x.matmul(self.randn_weights / self.lengthscale.transpose(-1, -2))
+        z = torch.cat([torch.cos(x), torch.sin(x)], dim=-1)
+        if normalize:
+            D = self.num_samples
+            z = z / math.sqrt(D)
+        return z
+
+    def prediction_strategy(self, train_inputs, train_prior_dist, train_labels, likelihood):
+        return RFFPredictionStrategy(train_inputs, train_prior_dist, train_labels, likelihood)
+
+
+class RQKernel(Kernel):
+    """
+    Computes a covariance matrix based on the rational quadratic kernel
+    between inputs :math:`\\mathbf{x_1}` and :math:`\\mathbf{x_2}`:
+
+    .. math::
+
+       \\begin{equation*}
+          k_{\\text{RQ}}(\\mathbf{x_1}, \\mathbf{x_2}) =  \\left(1 + \\frac{1}{2\\alpha}
+          (\\mathbf{x_1} - \\mathbf{x_2})^\\top \\Theta^{-2} (\\mathbf{x_1} - \\mathbf{x_2}) \\right)^{-\\alpha}
+       \\end{equation*}
+
+    where :math:`\\Theta` is a :attr:`lengthscale` parameter, and :math:`\\alpha` is the
+    rational quadratic relative weighting parameter.
+    See :class:`gpytorch.kernels.Kernel` for descriptions of the lengthscale options.
+
+    .. note::
+
+        This kernel does not have an `outputscale` parameter. To add a scaling parameter,
+        decorate this kernel with a :class:`gpytorch.kernels.ScaleKernel`.
+
+    Args:
+        :attr:`ard_num_dims` (int, optional):
+            Set this if you want a separate lengthscale for each
+            input dimension. It should be `d` if :attr:`x1` is a `n x d` matrix. Default: `None`
+        :attr:`batch_shape` (torch.Size, optional):
+            Set this if you want a separate lengthscale for each
+            batch of input data. It should be `b` if :attr:`x1` is a `b x n x d` tensor. Default: `torch.Size([])`.
+        :attr:`active_dims` (tuple of ints, optional):
+            Set this if you want to compute the covariance of only a few input dimensions. The ints
+            corresponds to the indices of the dimensions. Default: `None`.
+        :attr:`lengthscale_prior` (Prior, optional):
+            Set this if you want to apply a prior to the lengthscale parameter.  Default: `None`.
+        :attr:`lengthscale_constraint` (Constraint, optional):
+            Set this if you want to apply a constraint to the lengthscale parameter. Default: `Positive`.
+        :attr:`alpha_constraint` (Constraint, optional):
+            Set this if you want to apply a constraint to the alpha parameter. Default: `Positive`.
+        :attr:`eps` (float):
+            The minimum value that the lengthscale can take (prevents divide by zero errors). Default: `1e-6`.
+
+    Attributes:
+        :attr:`lengthscale` (Tensor):
+            The lengthscale parameter. Size/shape of parameter depends on the
+            :attr:`ard_num_dims` and :attr:`batch_shape` arguments.
+        :attr:`alpha` (Tensor):
+            The rational quadratic relative weighting parameter. Size/shape of parameter depends
+            on the :attr:`batch_shape` argument
+    """
+    has_lengthscale = True
+
+    def __init__(self, alpha_constraint=None, **kwargs):
+        super(RQKernel, self).__init__(**kwargs)
+        self.register_parameter(name='raw_alpha', parameter=torch.nn.Parameter(torch.zeros(*self.batch_shape, 1)))
+        if alpha_constraint is None:
+            alpha_constraint = Positive()
+        self.register_constraint('raw_alpha', alpha_constraint)
+
+    def forward(self, x1, x2, diag=False, **params):
+
+        def postprocess_rq(dist):
+            alpha = self.alpha
+            for _ in range(1, len(dist.shape) - len(self.batch_shape)):
+                alpha = alpha.unsqueeze(-1)
+            return (1 + dist.div(2 * alpha)).pow(-alpha)
+        x1_ = x1.div(self.lengthscale)
+        x2_ = x2.div(self.lengthscale)
+        return self.covar_dist(x1_, x2_, square_dist=True, diag=diag, dist_postprocess_func=postprocess_rq, postprocess=True, **params)
+
+    @property
+    def alpha(self):
+        return self.raw_alpha_constraint.transform(self.raw_alpha)
+
+    @alpha.setter
+    def alpha(self, value):
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value)
+        self.initialize(raw_alpha=self.raw_alpha_constraint.inverse_transform(value))
+
+
+class ScaleKernel(Kernel):
+    """
+    Decorates an existing kernel object with an output scale, i.e.
+
+    .. math::
+
+       \\begin{equation*}
+          K_{\\text{scaled}} = \\theta_\\text{scale} K_{\\text{orig}}
+       \\end{equation*}
+
+    where :math:`\\theta_\\text{scale}` is the `outputscale` parameter.
+
+    In batch-mode (i.e. when :math:`x_1` and :math:`x_2` are batches of input matrices), each
+    batch of data can have its own `outputscale` parameter by setting the `batch_shape`
+    keyword argument to the appropriate number of batches.
+
+    .. note::
+        The :attr:`outputscale` parameter is parameterized on a log scale to constrain it to be positive.
+        You can set a prior on this parameter using the :attr:`outputscale_prior` argument.
+
+    Args:
+        :attr:`base_kernel` (Kernel):
+            The base kernel to be scaled.
+        :attr:`batch_shape` (int, optional):
+            Set this if you want a separate outputscale for each batch of input data. It should be `b`
+            if :attr:`x1` is a `b x n x d` tensor. Default: `torch.Size([])`
+        :attr:`outputscale_prior` (Prior, optional): Set this if you want to apply a prior to the outputscale
+            parameter.  Default: `None`
+        :attr:`outputscale_constraint` (Constraint, optional): Set this if you want to apply a constraint to the
+            outputscale parameter. Default: `Positive`.
+
+    Attributes:
+        :attr:`base_kernel` (Kernel):
+            The kernel module to be scaled.
+        :attr:`outputscale` (Tensor):
+            The outputscale parameter. Size/shape of parameter depends on the :attr:`batch_shape` arguments.
+
+    Example:
+        >>> x = torch.randn(10, 5)
+        >>> base_covar_module = gpytorch.kernels.RBFKernel()
+        >>> scaled_covar_module = gpytorch.kernels.ScaleKernel(base_covar_module)
+        >>> covar = scaled_covar_module(x)  # Output: LazyTensor of size (10 x 10)
+    """
+
+    @property
+    def is_stationary(self) ->bool:
+        """
+        Kernel is stationary if base kernel is stationary.
+        """
+        return self.base_kernel.is_stationary
+
+    def __init__(self, base_kernel, outputscale_prior=None, outputscale_constraint=None, **kwargs):
+        if base_kernel.active_dims is not None:
+            kwargs['active_dims'] = base_kernel.active_dims
+        super(ScaleKernel, self).__init__(**kwargs)
+        if outputscale_constraint is None:
+            outputscale_constraint = Positive()
+        self.base_kernel = base_kernel
+        outputscale = torch.zeros(*self.batch_shape) if len(self.batch_shape) else torch.tensor(0.0)
+        self.register_parameter(name='raw_outputscale', parameter=torch.nn.Parameter(outputscale))
+        if outputscale_prior is not None:
+            self.register_prior('outputscale_prior', outputscale_prior, lambda : self.outputscale, lambda v: self._set_outputscale(v))
+        self.register_constraint('raw_outputscale', outputscale_constraint)
+
+    @property
+    def outputscale(self):
+        return self.raw_outputscale_constraint.transform(self.raw_outputscale)
+
+    @outputscale.setter
+    def outputscale(self, value):
+        self._set_outputscale(value)
+
+    def _set_outputscale(self, value):
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value)
+        self.initialize(raw_outputscale=self.raw_outputscale_constraint.inverse_transform(value))
+
+    def forward(self, x1, x2, last_dim_is_batch=False, diag=False, **params):
+        orig_output = self.base_kernel.forward(x1, x2, diag=diag, last_dim_is_batch=last_dim_is_batch, **params)
+        outputscales = self.outputscale
+        if last_dim_is_batch:
+            outputscales = outputscales.unsqueeze(-1)
+        if diag:
+            outputscales = outputscales.unsqueeze(-1)
+            return delazify(orig_output) * outputscales
+        else:
+            outputscales = outputscales.view(*outputscales.shape, 1, 1)
+            return orig_output.mul(outputscales)
+
+    def num_outputs_per_input(self, x1, x2):
+        return self.base_kernel.num_outputs_per_input(x1, x2)
+
+
+logger = logging.getLogger()
+
+
+class SpectralMixtureKernel(Kernel):
+    """
+    Computes a covariance matrix based on the Spectral Mixture Kernel
+    between inputs :math:`\\mathbf{x_1}` and :math:`\\mathbf{x_2}`:
+    It was proposed in `Gaussian Process Kernels for Pattern Discovery and Extrapolation`_.
+
+    .. note::
+
+        Unlike other kernels,
+        * :attr:`ard_num_dims` **must equal** the number of dimensions of the data
+        * :attr:`batch_shape` **must equal** the batch size of the data (torch.Size([1]) if the data is not batched)
+        * :attr:`batch_shape` **cannot** contain more than one batch dimension.
+        * This kernel should not be combined with a :class:`gpytorch.kernels.ScaleKernel`.
+
+    Args:
+        :attr:`num_mixtures` (int, optional):
+            The number of components in the mixture.
+        :attr:`ard_num_dims` (int, optional):
+            Set this to match the dimensionality of the input.
+            It should be `d` if :attr:`x1` is a `n x d` matrix. Default: `1`
+        :attr:`batch_shape` (torch.Size, optional):
+            Set this if the data is
+             batch of input data. It should be `b` if :attr:`x1` is a `b x n x d` tensor. Default: `torch.Size([1])`
+        :attr:`active_dims` (tuple of ints, optional):
+            Set this if you want to compute the covariance of only a few input dimensions. The ints
+            corresponds to the indices of the dimensions. Default: `None`.
+        :attr:`eps` (float):
+            The minimum value that the lengthscale can take (prevents divide by zero errors). Default: `1e-6`.
+
+    Attributes:
+        :attr:`mixture_lengthscale` (Tensor):
+            The lengthscale parameter. Given `k` mixture components, and `b x n x d` data, this will be of
+            size `b x k x 1 x d`.
+        :attr:`mixture_means` (Tensor):
+            The mixture mean parameters (`b x k x 1 x d`).
+        :attr:`mixture_weights` (Tensor):
+            The mixture weight parameters (`b x k`).
+
+    Example:
+        >>> # Non-batch
+        >>> x = torch.randn(10, 5)
+        >>> covar_module = gpytorch.kernels.SpectralMixtureKernel(num_mixtures=4, ard_num_dims=5)
+        >>> covar = covar_module(x)  # Output: LazyVariable of size (10 x 10)
+        >>>
+        >>> # Batch
+        >>> batch_x = torch.randn(2, 10, 5)
+        >>> covar_module = gpytorch.kernels.SpectralMixtureKernel(num_mixtures=4, batch_size=2, ard_num_dims=5)
+        >>> covar = covar_module(x)  # Output: LazyVariable of size (10 x 10)
+
+
+    .. _Gaussian Process Kernels for Pattern Discovery and Extrapolation:
+        https://arxiv.org/pdf/1302.4245.pdf
+    """
+    is_stationary = True
+
+    def __init__(self, num_mixtures=None, ard_num_dims=1, batch_shape=torch.Size([]), mixture_scales_prior=None, mixture_scales_constraint=None, mixture_means_prior=None, mixture_means_constraint=None, mixture_weights_prior=None, mixture_weights_constraint=None, **kwargs):
+        if num_mixtures is None:
+            raise RuntimeError('num_mixtures is a required argument')
+        if mixture_means_prior is not None or mixture_scales_prior is not None or mixture_weights_prior is not None:
+            logger.warning('Priors not implemented for SpectralMixtureKernel')
+        super(SpectralMixtureKernel, self).__init__(ard_num_dims=ard_num_dims, batch_shape=batch_shape, **kwargs)
+        self.num_mixtures = num_mixtures
+        if mixture_scales_constraint is None:
+            mixture_scales_constraint = Positive()
+        if mixture_means_constraint is None:
+            mixture_means_constraint = Positive()
+        if mixture_weights_constraint is None:
+            mixture_weights_constraint = Positive()
+        self.register_parameter(name='raw_mixture_weights', parameter=torch.nn.Parameter(torch.zeros(*self.batch_shape, self.num_mixtures)))
+        ms_shape = torch.Size([*self.batch_shape, self.num_mixtures, 1, self.ard_num_dims])
+        self.register_parameter(name='raw_mixture_means', parameter=torch.nn.Parameter(torch.zeros(ms_shape)))
+        self.register_parameter(name='raw_mixture_scales', parameter=torch.nn.Parameter(torch.zeros(ms_shape)))
+        self.register_constraint('raw_mixture_scales', mixture_scales_constraint)
+        self.register_constraint('raw_mixture_means', mixture_means_constraint)
+        self.register_constraint('raw_mixture_weights', mixture_weights_constraint)
+
+    @property
+    def mixture_scales(self):
+        return self.raw_mixture_scales_constraint.transform(self.raw_mixture_scales)
+
+    @mixture_scales.setter
+    def mixture_scales(self, value):
+        self._set_mixture_scales(value)
+
+    def _set_mixture_scales(self, value):
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value)
+        self.initialize(raw_mixture_scales=self.raw_mixture_scales_constraint.inverse_transform(value))
+
+    @property
+    def mixture_means(self):
+        return self.raw_mixture_means_constraint.transform(self.raw_mixture_means)
+
+    @mixture_means.setter
+    def mixture_means(self, value):
+        self._set_mixture_means(value)
+
+    def _set_mixture_means(self, value):
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value)
+        self.initialize(raw_mixture_means=self.raw_mixture_means_constraint.inverse_transform(value))
+
+    @property
+    def mixture_weights(self):
+        return self.raw_mixture_weights_constraint.transform(self.raw_mixture_weights)
+
+    @mixture_weights.setter
+    def mixture_weights(self, value):
+        self._set_mixture_weights(value)
+
+    def _set_mixture_weights(self, value):
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value)
+        self.initialize(raw_mixture_weights=self.raw_mixture_weights_constraint.inverse_transform(value))
+
+    def initialize_from_data_empspect(self, train_x, train_y):
+        """
+        Initialize mixture components based on the empirical spectrum of the data.
+
+        This will often be better than the standard initialize_from_data method.
+        """
+        import numpy as np
+        from scipy.fftpack import fft
+        from scipy.integrate import cumtrapz
+        N = train_x.size(-2)
+        emp_spect = np.abs(fft(train_y.cpu().detach().numpy())) ** 2 / N
+        M = math.floor(N / 2)
+        freq1 = np.arange(M + 1)
+        freq2 = np.arange(-M + 1, 0)
+        freq = np.hstack((freq1, freq2)) / N
+        freq = freq[:M + 1]
+        emp_spect = emp_spect[:M + 1]
+        total_area = np.trapz(emp_spect, freq)
+        spec_cdf = np.hstack((np.zeros(1), cumtrapz(emp_spect, freq)))
+        spec_cdf = spec_cdf / total_area
+        a = np.random.rand(1000, self.ard_num_dims)
+        p, q = np.histogram(a, spec_cdf)
+        bins = np.digitize(a, q)
+        slopes = (spec_cdf[bins] - spec_cdf[bins - 1]) / (freq[bins] - freq[bins - 1])
+        intercepts = spec_cdf[bins - 1] - slopes * freq[bins - 1]
+        inv_spec = (a - intercepts) / slopes
+        from sklearn.mixture import GaussianMixture
+        GMM = GaussianMixture(n_components=self.num_mixtures, covariance_type='diag').fit(inv_spec)
+        means = GMM.means_
+        varz = GMM.covariances_
+        weights = GMM.weights_
+        self.mixture_means = means
+        self.mixture_scales = varz
+        self.mixture_weights = weights
+
+    def initialize_from_data(self, train_x, train_y, **kwargs):
+        if not torch.is_tensor(train_x) or not torch.is_tensor(train_y):
+            raise RuntimeError('train_x and train_y should be tensors')
+        if train_x.ndimension() == 1:
+            train_x = train_x.unsqueeze(-1)
+        if train_x.ndimension() == 2:
+            train_x = train_x.unsqueeze(0)
+        train_x_sort = train_x.sort(1)[0]
+        max_dist = train_x_sort[:, (-1), :] - train_x_sort[:, (0), :]
+        min_dist_sort = (train_x_sort[:, 1:, :] - train_x_sort[:, :-1, :]).squeeze(0)
+        min_dist = torch.zeros(1, self.ard_num_dims, dtype=train_x.dtype, device=train_x.device)
+        for ind in range(self.ard_num_dims):
+            min_dist[:, (ind)] = min_dist_sort[min_dist_sort[:, (ind)].nonzero()[0], ind]
+        self.raw_mixture_scales.data.normal_().mul_(max_dist).abs_().pow_(-1)
+        self.raw_mixture_scales.data = self.raw_mixture_scales_constraint.inverse_transform(self.raw_mixture_scales.data)
+        self.raw_mixture_means.data.uniform_().mul_(0.5).div_(min_dist)
+        self.raw_mixture_means.data = self.raw_mixture_means_constraint.inverse_transform(self.raw_mixture_means.data)
+        self.raw_mixture_weights.data.fill_(train_y.std() / self.num_mixtures)
+        self.raw_mixture_weights.data = self.raw_mixture_weights_constraint.inverse_transform(self.raw_mixture_weights.data)
+
+    def _create_input_grid(self, x1, x2, diag=False, last_dim_is_batch=False, **params):
+        """
+        This is a helper method for creating a grid of the kernel's inputs.
+        Use this helper rather than maually creating a meshgrid.
+
+        The grid dimensions depend on the kernel's evaluation mode.
+
+        Args:
+            :attr:`x1` (Tensor `n x d` or `b x n x d`)
+            :attr:`x2` (Tensor `m x d` or `b x m x d`) - for diag mode, these must be the same inputs
+
+        Returns:
+            (:class:`Tensor`, :class:`Tensor) corresponding to the gridded `x1` and `x2`.
+            The shape depends on the kernel's mode
+
+            * `full_covar`: (`b x n x 1 x d` and `b x 1 x m x d`)
+            * `full_covar` with `last_dim_is_batch=True`: (`b x k x n x 1 x 1` and `b x k x 1 x m x 1`)
+            * `diag`: (`b x n x d` and `b x n x d`)
+            * `diag` with `last_dim_is_batch=True`: (`b x k x n x 1` and `b x k x n x 1`)
+        """
+        x1_, x2_ = x1, x2
+        if last_dim_is_batch:
+            x1_ = x1_.transpose(-1, -2).unsqueeze(-1)
+            if torch.equal(x1, x2):
+                x2_ = x1_
+            else:
+                x2_ = x2_.transpose(-1, -2).unsqueeze(-1)
+        if diag:
+            return x1_, x2_
+        else:
+            return x1_.unsqueeze(-2), x2_.unsqueeze(-3)
+
+    def forward(self, x1, x2, last_dim_is_batch=False, **params):
+        batch_shape = x1.shape[:-2]
+        n, num_dims = x1.shape[-2:]
+        if not num_dims == self.ard_num_dims:
+            raise RuntimeError('The SpectralMixtureKernel expected the input to have {} dimensionality (based on the ard_num_dims argument). Got {}.'.format(self.ard_num_dims, num_dims))
+        if not batch_shape == self.batch_shape:
+            raise RuntimeError('The SpectralMixtureKernel expected the input to have a batch_size of {} (based on the batch_size argument). Got {}.'.format(self.batch_shape, batch_shape))
+        x1_ = x1.unsqueeze(len(batch_shape))
+        x2_ = x2.unsqueeze(len(batch_shape))
+        x1_exp = x1_ * self.mixture_scales
+        x2_exp = x2_ * self.mixture_scales
+        x1_cos = x1_ * self.mixture_means
+        x2_cos = x2_ * self.mixture_means
+        x1_exp_, x2_exp_ = self._create_input_grid(x1_exp, x2_exp, last_dim_is_batch=last_dim_is_batch, **params)
+        x1_cos_, x2_cos_ = self._create_input_grid(x1_cos, x2_cos, last_dim_is_batch=last_dim_is_batch, **params)
+        exp_term = (x1_exp_ - x2_exp_).pow_(2).mul_(-2 * math.pi ** 2)
+        cos_term = (x1_cos_ - x2_cos_).mul_(2 * math.pi)
+        res = exp_term.exp_() * cos_term.cos_()
+        if last_dim_is_batch:
+            res = res.squeeze(-1)
+        else:
+            res = res.prod(-1)
+        mixture_weights = self.mixture_weights
+        if last_dim_is_batch:
+            mixture_weights = mixture_weights.unsqueeze(-1)
+        while mixture_weights.dim() < res.dim():
+            mixture_weights = mixture_weights.unsqueeze(-1)
+        res = (res * mixture_weights).sum(len(batch_shape))
+        return res
+
+
+class _Likelihood(Module, ABC):
+
+    def __init__(self, max_plate_nesting=1):
+        super().__init__()
+        self.max_plate_nesting = max_plate_nesting
+
+    def _draw_likelihood_samples(self, function_dist, *args, sample_shape=None, **kwargs):
+        if sample_shape is None:
+            sample_shape = torch.Size([settings.num_likelihood_samples.value()] + [1] * (self.max_plate_nesting - len(function_dist.batch_shape) - 1))
+        else:
+            sample_shape = sample_shape[:-len(function_dist.batch_shape) - 1]
+        if self.training:
+            num_event_dims = len(function_dist.event_shape)
+            function_dist = base_distributions.Normal(function_dist.mean, function_dist.variance.sqrt())
+            function_dist = base_distributions.Independent(function_dist, num_event_dims - 1)
+        function_samples = function_dist.rsample(sample_shape)
+        return self.forward(function_samples, *args, **kwargs)
+
+    def expected_log_prob(self, observations, function_dist, *args, **kwargs):
+        likelihood_samples = self._draw_likelihood_samples(function_dist, *args, **kwargs)
+        res = likelihood_samples.log_prob(observations).mean(dim=0)
+        return res
+
+    @abstractmethod
+    def forward(self, function_samples, *args, **kwargs):
+        raise NotImplementedError
+
+    def get_fantasy_likelihood(self, **kwargs):
+        return deepcopy(self)
+
+    def log_marginal(self, observations, function_dist, *args, **kwargs):
+        likelihood_samples = self._draw_likelihood_samples(function_dist, *args, **kwargs)
+        log_probs = likelihood_samples.log_prob(observations)
+        res = log_probs.sub(math.log(log_probs.size(0))).logsumexp(dim=0)
+        return res
+
+    def marginal(self, function_dist, *args, **kwargs):
+        res = self._draw_likelihood_samples(function_dist, *args, **kwargs)
+        return res
+
+    def __call__(self, input, *args, **kwargs):
+        if torch.is_tensor(input):
+            return super().__call__(input, *args, **kwargs)
+        elif isinstance(input, MultivariateNormal):
+            return self.marginal(input, *args, **kwargs)
+        else:
+            raise RuntimeError('Likelihoods expects a MultivariateNormal input to make marginal predictions, or a torch.Tensor for conditional predictions. Got a {}'.format(input.__class__.__name__))
+
+
 class Noise(Module):
     pass
+
+
+class GP(Module):
+    pass
+
+
+class MarginalLogLikelihood(Module):
+    """
+    These are modules to compute (or approximate/bound) the marginal log likelihood
+    (MLL) of the GP model when applied to data.  I.e., given a GP :math:`f \\sim
+    \\mathcal{GP}(\\mu, K)`, and data :math:`\\mathbf X, \\mathbf y`, these modules
+    compute/approximate
+
+    .. math::
+
+       \\begin{equation*}
+          \\mathcal{L} = p_f(\\mathbf y \\! \\mid \\! \\mathbf X)
+          = \\int p \\left( \\mathbf y \\! \\mid \\! f(\\mathbf X) \\right) \\: p(f(\\mathbf X) \\! \\mid \\! \\mathbf X) \\: d f
+       \\end{equation*}
+
+    This is computed exactly when the GP inference is computed exactly (e.g. regression w/ a Gaussian likelihood).
+    It is approximated/bounded for GP models that use approximate inference.
+
+    These models are typically used as the "loss" functions for GP models (though note that the output of
+    these functions must be negated for optimization).
+    """
+
+    def __init__(self, likelihood, model):
+        super(MarginalLogLikelihood, self).__init__()
+        if not isinstance(model, GP):
+            raise RuntimeError('All MarginalLogLikelihood objects must be given a GP object as a model. If you are using a more complicated model involving a GP, pass the underlying GP object as the model, not a full PyTorch module.')
+        self.likelihood = likelihood
+        self.model = model
+
+    def forward(self, output, target, **kwargs):
+        """
+        Computes the MLL given :math:`p(\\mathbf f)` and `\\mathbf y`
+
+        :param ~gpytorch.distributions.MultivariateNormal output: the outputs of the latent function
+            (the :obj:`~gpytorch.models.GP`)
+        :param torch.Tensor target: :math:`\\mathbf y` The target values
+        :param dict kwargs: Additional arguments to pass to the likelihood's :attr:`forward` function.
+        """
+        raise NotImplementedError
+
+    def pyro_factor(self, output, target):
+        """
+        As forward, but register the MLL with pyro using the pyro.factor primitive.
+        """
+        raise NotImplementedError
+
+
+class ExactMarginalLogLikelihood(MarginalLogLikelihood):
+    """
+    The exact marginal log likelihood (MLL) for an exact Gaussian process with a
+    Gaussian likelihood.
+
+    .. note::
+        This module will not work with anything other than a :obj:`~gpytorch.likelihoods.GaussianLikelihood`
+        and a :obj:`~gpytorch.models.ExactGP`. It also cannot be used in conjunction with
+        stochastic optimization.
+
+    :param ~gpytorch.likelihoods.GaussianLikelihood likelihood: The Gaussian likelihood for the model
+    :param ~gpytorch.models.ExactGP model: The exact GP model
+
+    Example:
+        >>> # model is a gpytorch.models.ExactGP
+        >>> # likelihood is a gpytorch.likelihoods.Likelihood
+        >>> mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, model)
+        >>>
+        >>> output = model(train_x)
+        >>> loss = -mll(output, train_y)
+        >>> loss.backward()
+    """
+
+    def __init__(self, likelihood, model):
+        if not isinstance(likelihood, _GaussianLikelihoodBase):
+            raise RuntimeError('Likelihood must be Gaussian for exact inference')
+        super(ExactMarginalLogLikelihood, self).__init__(likelihood, model)
+
+    def forward(self, function_dist, target, *params):
+        """
+        Computes the MLL given :math:`p(\\mathbf f)` and :math:`\\mathbf y`.
+
+        :param ~gpytorch.distributions.MultivariateNormal function_dist: :math:`p(\\mathbf f)`
+            the outputs of the latent function (the :obj:`gpytorch.models.ExactGP`)
+        :param torch.Tensor target: :math:`\\mathbf y` The target values
+        :rtype: torch.Tensor
+        :return: Exact MLL. Output shape corresponds to batch shape of the model/input data.
+        """
+        if not isinstance(function_dist, MultivariateNormal):
+            raise RuntimeError('ExactMarginalLogLikelihood can only operate on Gaussian random variables')
+        output = self.likelihood(function_dist, *params)
+        res = output.log_prob(target)
+        for added_loss_term in self.model.added_loss_terms():
+            res = res.add(added_loss_term.loss(*params))
+        for _, prior, closure, _ in self.named_priors():
+            res.add_(prior.log_prob(closure()).sum())
+        num_data = target.size(-1)
+        return res.div_(num_data)
+
+    def pyro_factor(self, output, target, *params):
+        mll = self(output, target, *params)
+        pyro.factor('gp_mll', mll)
+        return mll
+
+
+class SumMarginalLogLikelihood(MarginalLogLikelihood):
+    """Sum of marginal log likelihoods, to be used with Multi-Output models.
+
+    Args:
+        likelihood: A MultiOutputLikelihood
+        model: A MultiOutputModel
+        mll_cls: The Marginal Log Likelihood class (default: ExactMarginalLogLikelihood)
+
+    In case the model outputs are independent, this provives the MLL of the multi-output model.
+
+    """
+
+    def __init__(self, likelihood, model, mll_cls=ExactMarginalLogLikelihood):
+        super().__init__(model.likelihood, model)
+        self.mlls = ModuleList([mll_cls(mdl.likelihood, mdl) for mdl in model.models])
+
+    def forward(self, outputs, targets, *params):
+        """
+        Args:
+            outputs: (Iterable[MultivariateNormal]) - the outputs of the latent function
+            targets: (Iterable[Tensor]) - the target values
+            params: (Iterable[Iterable[Tensor]]) - the arguments to be passed through
+                (e.g. parameters in case of heteroskedastic likelihoods)
+        """
+        if len(params) == 0:
+            sum_mll = sum(mll(output, target) for mll, output, target in zip(self.mlls, outputs, targets))
+        else:
+            sum_mll = sum(mll(output, target, *iparams) for mll, output, target, iparams in zip(self.mlls, outputs, targets, params))
+        return sum_mll.div_(len(self.mlls))
 
 
 class DeprecationError(Exception):
@@ -4619,27 +6589,6 @@ def _pyro_load_from_samples(module, samples_dict, memo=None, prefix=''):
     for mname, module_ in module.named_children():
         submodule_prefix = prefix + ('.' if prefix else '') + mname
         _pyro_load_from_samples(module_, samples_dict, memo=memo, prefix=submodule_prefix)
-
-
-def _pyro_sample_from_prior(module, memo=None, prefix=''):
-    try:
-        import pyro
-    except ImportError:
-        raise RuntimeError('Cannot call pyro_sample_from_prior without pyro installed!')
-    if memo is None:
-        memo = set()
-    if hasattr(module, '_priors'):
-        for prior_name, (prior, closure, setting_closure) in module._priors.items():
-            if prior is not None and prior not in memo:
-                if setting_closure is None:
-                    raise RuntimeError(f'Cannot use Pyro for sampling without a setting_closure for each prior, but the following prior had none: {prior_name}, {prior}.')
-                memo.add(prior)
-                prior = prior.expand(closure().shape)
-                value = pyro.sample(prefix + ('.' if prefix else '') + prior_name, prior)
-                setting_closure(value)
-    for mname, module_ in module.named_children():
-        submodule_prefix = prefix + ('.' if prefix else '') + mname
-        _pyro_sample_from_prior(module=module_, memo=memo, prefix=submodule_prefix)
 
 
 def _set_strict(module, value, memo=None):
@@ -4977,21 +6926,321 @@ class Module(nn.Module):
                 raise e
 
 
-class Prior(Distribution, Module, ABC):
+def _bufferize_attributes(module, attributes):
+    attr_clones = {attr: getattr(module, attr).clone() for attr in attributes}
+    for attr, value in attr_clones.items():
+        delattr(module, attr)
+        module.register_buffer(attr, value)
+
+
+class NormalPrior(Prior, Normal):
     """
-    Base class for Priors in GPyTorch.
-    In GPyTorch, a parameter can be assigned a prior by passing it as the `prior` argument to
-    :func:`~gpytorch.module.register_parameter`. GPyTorch performs internal bookkeeping of priors,
-    and for each parameter with a registered prior includes the log probability of the parameter under its
-    respective prior in computing the Marginal Log-Likelihood.
+    Normal (Gaussian) Prior
+
+    pdf(x) = (2 * pi * sigma^2)^-0.5 * exp(-(x - mu)^2 / (2 * sigma^2))
+
+    where mu is the mean and sigma^2 is the variance.
     """
 
-    def transform(self, x):
-        return self._transform(x) if self._transform is not None else x
+    def __init__(self, loc, scale, validate_args=False, transform=None):
+        TModule.__init__(self)
+        Normal.__init__(self, loc=loc, scale=scale, validate_args=validate_args)
+        _bufferize_attributes(self, ('loc', 'scale'))
+        self._transform = transform
+
+    def expand(self, batch_shape):
+        batch_shape = torch.Size(batch_shape)
+        return NormalPrior(self.loc.expand(batch_shape), self.scale.expand(batch_shape))
+
+
+class SmoothedBoxPrior(Prior):
+    """A smoothed approximation of a uniform prior.
+
+    Has full support on the reals and is differentiable everywhere.
+
+    .. math::
+
+        \\begin{equation*}
+            B = {x: a_i <= x_i <= b_i}
+            d(x, B) = min_{x' in B} |x - x'|
+            pdf(x) ~ exp(- d(x, B)**2 / sqrt(2 * sigma^2))
+        \\end{equation*}
+
+    """
+    arg_constraints = {'sigma': constraints.positive, 'a': constraints.real, 'b': constraints.real}
+    support = constraints.real
+    _validate_args = True
+
+    def __init__(self, a, b, sigma=0.01, validate_args=False, transform=None):
+        TModule.__init__(self)
+        _a = torch.tensor(float(a)) if isinstance(a, Number) else a
+        _a = _a.view(-1) if _a.dim() < 1 else _a
+        _a, _b, _sigma = broadcast_all(_a, b, sigma)
+        if not torch.all(constraints.less_than(_b).check(_a)):
+            raise ValueError('must have that a < b (element-wise)')
+        batch_shape, event_shape = _a.shape[:-1], _a.shape[-1:]
+        self.a, self.b, self.sigma = _a, _b, _sigma
+        super(SmoothedBoxPrior, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+        del self.a, self.b, self.sigma
+        self.register_buffer('a', _a)
+        self.register_buffer('b', _b)
+        self.register_buffer('sigma', _sigma)
+        self.tails = NormalPrior(torch.zeros_like(_a), _sigma, validate_args=validate_args)
+        self._transform = transform
+
+    @property
+    def _c(self):
+        return (self.a + self.b) / 2
+
+    @property
+    def _r(self):
+        return (self.b - self.a) / 2
+
+    @property
+    def _M(self):
+        return torch.log(1 + (self.b - self.a) / (math.sqrt(2 * math.pi) * self.sigma))
 
     def log_prob(self, x):
-        """Returns the log-probability of the parameter value under the prior."""
-        return super(Prior, self).log_prob(self.transform(x))
+        return self._log_prob(self.transform(x))
+
+    def _log_prob(self, x):
+        X = ((x - self._c).abs_() - self._r).clamp(min=0)
+        return (self.tails.log_prob(X) - self._M).sum(-1)
+
+
+class LogNormalPrior(Prior, LogNormal):
+    """
+    Log Normal prior.
+    """
+
+    def __init__(self, loc, scale, validate_args=None, transform=None):
+        TModule.__init__(self)
+        LogNormal.__init__(self, loc=loc, scale=scale, validate_args=validate_args)
+        self._transform = transform
+
+    def expand(self, batch_shape):
+        batch_shape = torch.Size(batch_shape)
+        return LogNormalPrior(self.loc.expand(batch_shape), self.scale.expand(batch_shape))
+
+
+class UniformPrior(Prior, Uniform):
+    """
+    Uniform prior.
+    """
+
+    def __init__(self, a, b, validate_args=None, transform=None):
+        TModule.__init__(self)
+        Uniform.__init__(self, a, b, validate_args=validate_args)
+        self._transform = transform
+
+    def expand(self, batch_shape):
+        batch_shape = torch.Size(batch_shape)
+        return UniformPrior(self.low.expand(batch_shape), self.high.expand(batch_shape))
+
+
+class GammaPrior(Prior, Gamma):
+    """Gamma Prior parameterized by concentration and rate
+
+    pdf(x) = beta^alpha / Gamma(alpha) * x^(alpha - 1) * exp(-beta * x)
+
+    were alpha > 0 and beta > 0 are the concentration and rate parameters, respectively.
+    """
+
+    def __init__(self, concentration, rate, validate_args=False, transform=None):
+        TModule.__init__(self)
+        Gamma.__init__(self, concentration=concentration, rate=rate, validate_args=validate_args)
+        _bufferize_attributes(self, ('concentration', 'rate'))
+        self._transform = transform
+
+    def expand(self, batch_shape):
+        batch_shape = torch.Size(batch_shape)
+        return GammaPrior(self.concentration.expand(batch_shape), self.rate.expand(batch_shape))
+
+    def __call__(self, *args, **kwargs):
+        return super(Gamma, self).__call__(*args, **kwargs)
+
+
+MVN_LAZY_PROPERTIES = 'covariance_matrix', 'scale_tril', 'precision_matrix'
+
+
+def _del_attributes(module, attributes, raise_on_error=False):
+    for attr in attributes:
+        try:
+            delattr(module, attr)
+        except AttributeError as e:
+            if raise_on_error:
+                raise e
+    return module
+
+
+class MultivariateNormalPrior(Prior, MultivariateNormal):
+    """Multivariate Normal prior
+
+    pdf(x) = det(2 * pi * Sigma)^-0.5 * exp(-0.5 * (x - mu)' Sigma^-1 (x - mu))
+
+    where mu is the mean and Sigma > 0 is the covariance matrix.
+    """
+
+    def __init__(self, loc, covariance_matrix=None, precision_matrix=None, scale_tril=None, validate_args=False, transform=None):
+        TModule.__init__(self)
+        MultivariateNormal.__init__(self, loc=loc, covariance_matrix=covariance_matrix, precision_matrix=precision_matrix, scale_tril=scale_tril, validate_args=validate_args)
+        _bufferize_attributes(self, ('loc', '_unbroadcasted_scale_tril'))
+        self._transform = transform
+
+    def cuda(self, device=None):
+        """Applies module-level cuda() call and resets all lazy properties"""
+        module = self._apply(lambda t: t)
+        _del_attributes(module, MVN_LAZY_PROPERTIES)
+        return module
+
+    def cpu(self):
+        """Applies module-level cpu() call and resets all lazy properties"""
+        module = self._apply(lambda t: t.cpu())
+        _del_attributes(module, MVN_LAZY_PROPERTIES)
+        return module
+
+    def expand(self, batch_shape):
+        batch_shape = torch.Size(batch_shape)
+        cov_shape = batch_shape + self.event_shape
+        new_loc = self.loc.expand(batch_shape)
+        new_scale_tril = self.scale_tril.expand(cov_shape)
+        return MultivariateNormalPrior(loc=new_loc, scale_tril=new_scale_tril)
+
+
+class WishartPrior(Prior):
+    """Wishart prior over n x n positive definite matrices
+
+    pdf(Sigma) ~ |Sigma|^(nu - n - 1)/2 * exp(-0.5 * Trace(K^-1 Sigma))
+
+    where nu > n - 1 are the degrees of freedom and K > 0 is the p x p scale matrix
+
+    Reference: A. Shah, A. G. Wilson, and Z. Ghahramani. Student-t Processes as
+        Alternatives to Gaussian Processes. ArXiv e-prints, Feb. 2014.
+    """
+    arg_constraints = {'K_inv': constraints.positive_definite, 'nu': constraints.positive}
+    support = constraints.positive_definite
+    _validate_args = True
+
+    def __init__(self, nu, K, validate_args=False):
+        TModule.__init__(self)
+        if K.dim() < 2:
+            raise ValueError('K must be at least 2-dimensional')
+        n = K.shape[-1]
+        if K.shape[-2] != K.shape[-1]:
+            raise ValueError('K must be square')
+        if isinstance(nu, Number):
+            nu = torch.tensor(float(nu))
+        if torch.any(nu <= n):
+            raise ValueError('Must have nu > n - 1')
+        self.n = torch.tensor(n, dtype=torch.long, device=nu.device)
+        batch_shape = nu.shape
+        event_shape = torch.Size([n, n])
+        logdetK = torch.logdet(K)
+        C = -(nu / 2) * (logdetK + n * math.log(2)) - torch.mvlgamma(nu / 2, n)
+        K_inv = torch.inverse(K)
+        self.nu = nu
+        self.K_inv = K_inv
+        self.C = C
+        super(WishartPrior, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+        del self.nu, self.K_inv, self.C
+        self.register_buffer('nu', nu)
+        self.register_buffer('K_inv', K_inv)
+        self.register_buffer('C', C)
+
+    def log_prob(self, X):
+        logdetp = torch.logdet(X)
+        Kinvp = torch.matmul(self.K_inv, X)
+        trKinvp = torch.diagonal(Kinvp, dim1=-2, dim2=-1).sum(-1)
+        return self.C + 0.5 * (self.nu - self.n - 1) * logdetp - trKinvp
+
+
+class InverseWishartPrior(Prior):
+    """Inverse Wishart prior over n x n positive definite matrices
+
+    pdf(Sigma) ~ |Sigma|^-(nu + 2 * n)/2 * exp(-0.5 * Trace(K Sigma^-1))
+
+    where nu > 0 are the degrees of freedom and K > 0 is the p x p scale matrix
+
+    Reference: A. Shah, A. G. Wilson, and Z. Ghahramani. Student-t Processes as
+        Alternatives to Gaussian Processes. ArXiv e-prints, Feb. 2014.
+    """
+    arg_constraints = {'K': constraints.positive_definite, 'nu': constraints.positive}
+    support = constraints.positive_definite
+    _validate_args = True
+
+    def __init__(self, nu, K, validate_args=False):
+        TModule.__init__(self)
+        if K.dim() < 2:
+            raise ValueError('K must be at least 2-dimensional')
+        n = K.shape[-1]
+        if isinstance(nu, Number):
+            nu = torch.tensor(float(nu))
+        if torch.any(nu <= 0):
+            raise ValueError('Must have nu > 0')
+        self.n = torch.tensor(n, dtype=torch.long, device=nu.device)
+        batch_shape = nu.shape
+        event_shape = torch.Size([n, n])
+        c = (nu + n - 1) / 2
+        logdetK = torch.logdet(K)
+        C = c * (logdetK - n * math.log(2)) - torch.mvlgamma(c, n)
+        self.nu = nu
+        self.K = K
+        self.C = C
+        super(InverseWishartPrior, self).__init__(batch_shape, event_shape, validate_args=validate_args)
+        del self.nu, self.K, self.C
+        self.register_buffer('nu', nu)
+        self.register_buffer('K', K)
+        self.register_buffer('C', C)
+
+    def log_prob(self, X):
+        logdetp = torch.logdet(X)
+        pinvK = torch.solve(self.K, X)[0]
+        trpinvK = torch.diagonal(pinvK, dim1=-2, dim2=-1).sum(-1)
+        return self.C - 0.5 * ((self.nu + 2 * self.n) * logdetp + trpinvK)
+
+
+class _VariationalDistribution(Module, ABC):
+    """
+    Abstract base class for all Variational Distributions.
+    """
+
+    def __init__(self, num_inducing_points, batch_shape=torch.Size([]), mean_init_std=0.001):
+        super().__init__()
+        self.num_inducing_points = num_inducing_points
+        self.batch_shape = batch_shape
+        self.mean_init_std = mean_init_std
+
+    def forward(self):
+        """
+        Constructs and returns the variational distribution
+
+        :rtype: :obj:`~gpytorch.distributions.MultivariateNormal`
+        :return: The distribution :math:q(\\mathbf u)"
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def initialize_variational_distribution(self, prior_dist):
+        """
+        Method for initializing the variational distribution, based on the prior distribution.
+
+        :param ~gpytorch.distribution.Distribution prior_dist: The prior distribution :math:`p(\\mathbf u)`.
+        """
+        raise NotImplementedError
+
+    def __call__(self):
+        try:
+            return self.forward()
+        except NotImplementedError:
+            warnings.warn('_VariationalDistribution.variational_distribution is deprecated. Please implement a `forward` method instead.', DeprecationWarning)
+            return self.variational_distribution
+
+    def __getattr__(self, attr):
+        if attr == 'variational_distribution':
+            warnings.warn('_VariationalDistribution.variational_distribution is deprecated. To get q(u), call the _VariationalDistribution object instead.', DeprecationWarning)
+            return self.forward()
+        else:
+            return super().__getattr__(attr)
 
 
 class _VariationalStrategy(Module, ABC):
@@ -5093,6 +7342,934 @@ class _VariationalStrategy(Module, ABC):
             raise RuntimeError(f'Invalid variational distribuition ({type(variational_dist_u)}). Expected a multivariate normal or a delta distribution.')
 
 
+class CholLazyTensor(RootLazyTensor):
+
+    def __init__(self, chol):
+        if settings.debug.on():
+            delazy_chol = delazify(chol) if not isinstance(chol, BatchRepeatLazyTensor) else delazify(chol.base_lazy_tensor)
+            mask = torch.ones(delazy_chol.shape[-2:], dtype=delazy_chol.dtype, device=delazy_chol.device).triu_(1)
+            if torch.max(delazy_chol.mul(mask)).item() > 0.001 and torch.equal(delazy_chol, delazy_chol):
+                raise RuntimeError('CholLazyVariable should take a lower-triangular matrix in the constructor.')
+        super(CholLazyTensor, self).__init__(chol)
+
+    @property
+    def _chol(self):
+        if not hasattr(self, '_chol_memo'):
+            self._chol_memo = self.root.evaluate()
+        return self._chol_memo
+
+    @property
+    def _chol_diag(self):
+        if not hasattr(self, '_chol_diag_memo'):
+            self._chol_diag_memo = self._chol.diagonal(dim1=-2, dim2=-1).clone()
+        return self._chol_diag_memo
+
+    def _cholesky(self):
+        return self.root
+
+    def _solve(self, rhs, preconditioner, num_tridiag=0):
+        if num_tridiag:
+            return super()._solve(rhs, preconditioner, num_tridiag=num_tridiag)
+        else:
+            return self.root._cholesky_solve(rhs)
+
+    def inv_matmul(self, right_tensor, left_tensor=None):
+        with settings.fast_computations(solves=False):
+            return super().inv_matmul(right_tensor, left_tensor=left_tensor)
+
+    def inv_quad_logdet(self, inv_quad_rhs=None, logdet=False, reduce_inv_quad=True):
+        if not self.is_square:
+            raise RuntimeError('inv_quad_logdet only operates on (batches of) square (positive semi-definite) LazyTensors. Got a {} of size {}.'.format(self.__class__.__name__, self.size()))
+        if inv_quad_rhs is not None:
+            if self.dim() == 2 and inv_quad_rhs.dim() == 1:
+                if self.shape[-1] != inv_quad_rhs.numel():
+                    raise RuntimeError('LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'.format(self.shape, inv_quad_rhs.shape))
+            elif self.dim() != inv_quad_rhs.dim():
+                raise RuntimeError('LazyTensor (size={}) and right-hand-side Tensor (size={}) should have the same number of dimensions.'.format(self.shape, inv_quad_rhs.shape))
+            elif self.shape[-1] != inv_quad_rhs.shape[-2]:
+                raise RuntimeError('LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'.format(self.shape, inv_quad_rhs.shape))
+        inv_quad_term = None
+        logdet_term = None
+        if inv_quad_rhs is not None:
+            inv_quad_term = self.inv_quad(inv_quad_rhs, reduce_inv_quad=reduce_inv_quad)
+        if logdet:
+            logdet_term = self._chol_diag.pow(2).log().sum(-1)
+        return inv_quad_term, logdet_term
+
+
+class CholeskyVariationalDistribution(_VariationalDistribution):
+    """
+    A :obj:`~gpytorch.variational._VariationalDistribution` that is defined to be a multivariate normal distribution
+    with a full covariance matrix.
+
+    The most common way this distribution is defined is to parameterize it in terms of a mean vector and a covariance
+    matrix. In order to ensure that the covariance matrix remains positive definite, we only consider the lower
+    triangle.
+
+    :param int num_inducing_points: Size of the variational distribution. This implies that the variational mean
+        should be this size, and the variational covariance matrix should have this many rows and columns.
+    :param torch.Size batch_shape: (Optional.) Specifies an optional batch size
+        for the variational parameters. This is useful for example when doing additive variational inference.
+    :param float mean_init_std: (default=1e-3) Standard deviation of gaussian noise to add to the mean initialization.
+    """
+
+    def __init__(self, num_inducing_points, batch_shape=torch.Size([]), mean_init_std=0.001, **kwargs):
+        super().__init__(num_inducing_points=num_inducing_points, batch_shape=batch_shape, mean_init_std=mean_init_std)
+        mean_init = torch.zeros(num_inducing_points)
+        covar_init = torch.eye(num_inducing_points, num_inducing_points)
+        mean_init = mean_init.repeat(*batch_shape, 1)
+        covar_init = covar_init.repeat(*batch_shape, 1, 1)
+        self.register_parameter(name='variational_mean', parameter=torch.nn.Parameter(mean_init))
+        self.register_parameter(name='chol_variational_covar', parameter=torch.nn.Parameter(covar_init))
+
+    def forward(self):
+        chol_variational_covar = self.chol_variational_covar
+        dtype = chol_variational_covar.dtype
+        device = chol_variational_covar.device
+        lower_mask = torch.ones(self.chol_variational_covar.shape[-2:], dtype=dtype, device=device).tril(0)
+        chol_variational_covar = chol_variational_covar.mul(lower_mask)
+        variational_covar = CholLazyTensor(chol_variational_covar)
+        return MultivariateNormal(self.variational_mean, variational_covar)
+
+    def initialize_variational_distribution(self, prior_dist):
+        self.variational_mean.data.copy_(prior_dist.mean)
+        self.variational_mean.data.add_(torch.randn_like(prior_dist.mean), alpha=self.mean_init_std)
+        self.chol_variational_covar.data.copy_(prior_dist.lazy_covariance_matrix.cholesky().evaluate())
+
+
+class DeltaVariationalDistribution(_VariationalDistribution):
+    """
+    This :obj:`~gpytorch.variational._VariationalDistribution` object replaces a variational distribution
+    with a single particle. It is equivalent to doing MAP inference.
+
+    :param int num_inducing_points: Size of the variational distribution. This implies that the variational mean
+        should be this size.
+    :param torch.Size batch_shape: (Optional.) Specifies an optional batch size
+        for the variational parameters. This is useful for example when doing additive variational inference.
+    :param float mean_init_std: (default=1e-3) Standard deviation of gaussian noise to add to the mean initialization.
+    """
+
+    def __init__(self, num_inducing_points, batch_shape=torch.Size([]), mean_init_std=0.001, **kwargs):
+        super().__init__(num_inducing_points=num_inducing_points, batch_shape=batch_shape, mean_init_std=mean_init_std)
+        mean_init = torch.zeros(num_inducing_points)
+        mean_init = mean_init.repeat(*batch_shape, 1)
+        self.register_parameter(name='variational_mean', parameter=torch.nn.Parameter(mean_init))
+
+    def forward(self):
+        return Delta(self.variational_mean)
+
+    def initialize_variational_distribution(self, prior_dist):
+        self.variational_mean.data.copy_(prior_dist.mean)
+        self.variational_mean.data.add_(torch.randn_like(prior_dist.mean), alpha=self.mean_init_std)
+
+
+def convert_legacy_grid(grid: torch.Tensor) ->List[torch.Tensor]:
+    return [grid[:, (i)] for i in range(grid.size(-1))]
+
+
+class Interpolation(object):
+
+    def _cubic_interpolation_kernel(self, scaled_grid_dist):
+        """
+        Computes the interpolation kernel u() for points X given the scaled
+        grid distances:
+                                    (X-x_{t})/s
+        where s is the distance between neighboring grid points. Note that,
+        in this context, the word "kernel" is not used to mean a covariance
+        function as in the rest of the package. For more details, see the
+        original paper Keys et al., 1989, equation (4).
+
+        scaled_grid_dist should be an n-by-g matrix of distances, where the
+        (ij)th element is the distance between the ith data point in X and the
+        jth element in the grid.
+
+        Note that, although this method ultimately expects a scaled distance matrix,
+        it is only intended to be used on single dimensional data.
+        """
+        U = scaled_grid_dist.abs()
+        res = torch.zeros(U.size(), dtype=U.dtype, device=U.device)
+        U_lt_1 = 1 - U.floor().clamp(0, 1)
+        res = res + ((1.5 * U - 2.5).mul(U).mul(U) + 1) * U_lt_1
+        U_ge_1_le_2 = 1 - U_lt_1
+        res = res + (((-0.5 * U + 2.5).mul(U) - 4).mul(U) + 2) * U_ge_1_le_2
+        return res
+
+    def interpolate(self, x_grid: List[torch.Tensor], x_target: torch.Tensor, interp_points=range(-2, 2), eps=1e-10):
+        if torch.is_tensor(x_grid):
+            x_grid = convert_legacy_grid(x_grid)
+        num_target_points = x_target.size(0)
+        num_dim = x_target.size(-1)
+        assert num_dim == len(x_grid)
+        grid_sizes = [len(x_grid[i]) for i in range(num_dim)]
+        x_target_max = x_target.max(0)[0]
+        x_target_min = x_target.min(0)[0]
+        grid_mins = torch.stack([x_grid[i].min() for i in range(num_dim)], dim=0)
+        grid_maxs = torch.stack([x_grid[i].max() for i in range(num_dim)], dim=0)
+        lt_min_mask = (x_target_min - grid_mins).lt(-1e-07)
+        gt_max_mask = (x_target_max - grid_maxs).gt(1e-07)
+        if lt_min_mask.sum().item():
+            first_out_of_range = lt_min_mask.nonzero().squeeze(1)[0].item()
+            raise RuntimeError('Received data that was out of bounds for the specified grid. Grid bounds were ({0:.3f}, {0:.3f}), but min = {0:.3f}, max = {0:.3f}'.format(grid_mins[first_out_of_range].item(), grid_maxs[first_out_of_range].item(), x_target_min[first_out_of_range].item(), x_target_max[first_out_of_range].item()))
+        if gt_max_mask.sum().item():
+            first_out_of_range = gt_max_mask.nonzero().squeeze(1)[0].item()
+            raise RuntimeError('Received data that was out of bounds for the specified grid. Grid bounds were ({0:.3f}, {0:.3f}), but min = {0:.3f}, max = {0:.3f}'.format(grid_mins[first_out_of_range].item(), grid_maxs[first_out_of_range].item(), x_target_min[first_out_of_range].item(), x_target_max[first_out_of_range].item()))
+        interp_points = torch.tensor(interp_points, dtype=x_grid[0].dtype, device=x_grid[0].device)
+        interp_points_flip = interp_points.flip(0)
+        num_coefficients = len(interp_points)
+        interp_values = torch.ones(num_target_points, num_coefficients ** num_dim, dtype=x_grid[0].dtype, device=x_grid[0].device)
+        interp_indices = torch.zeros(num_target_points, num_coefficients ** num_dim, dtype=torch.long, device=x_grid[0].device)
+        for i in range(num_dim):
+            num_grid_points = x_grid[i].size(0)
+            grid_delta = (x_grid[i][1] - x_grid[i][0]).clamp_min_(eps)
+            lower_grid_pt_idxs = torch.floor((x_target[:, (i)] - x_grid[i][0]) / grid_delta)
+            lower_pt_rel_dists = (x_target[:, (i)] - x_grid[i][0]) / grid_delta - lower_grid_pt_idxs
+            lower_grid_pt_idxs = lower_grid_pt_idxs - interp_points.max()
+            lower_grid_pt_idxs.detach_()
+            if len(lower_grid_pt_idxs.shape) == 0:
+                lower_grid_pt_idxs = lower_grid_pt_idxs.unsqueeze(0)
+            scaled_dist = lower_pt_rel_dists.unsqueeze(-1) + interp_points_flip.unsqueeze(-2)
+            dim_interp_values = self._cubic_interpolation_kernel(scaled_dist)
+            left_boundary_pts = (lower_grid_pt_idxs < 0).nonzero()
+            num_left = len(left_boundary_pts)
+            if num_left > 0:
+                left_boundary_pts.squeeze_(1)
+                x_grid_first = x_grid[i][:num_coefficients].unsqueeze(1).t().expand(num_left, num_coefficients)
+                grid_targets = x_target.select(1, i)[left_boundary_pts].unsqueeze(1).expand(num_left, num_coefficients)
+                dists = torch.abs(x_grid_first - grid_targets)
+                closest_from_first = torch.min(dists, 1)[1]
+                for j in range(num_left):
+                    dim_interp_values[(left_boundary_pts[j]), :] = 0
+                    dim_interp_values[left_boundary_pts[j], closest_from_first[j]] = 1
+                    lower_grid_pt_idxs[left_boundary_pts[j]] = 0
+            right_boundary_pts = (lower_grid_pt_idxs > num_grid_points - num_coefficients).nonzero()
+            num_right = len(right_boundary_pts)
+            if num_right > 0:
+                right_boundary_pts.squeeze_(1)
+                x_grid_last = x_grid[i][-num_coefficients:].unsqueeze(1).t().expand(num_right, num_coefficients)
+                grid_targets = x_target.select(1, i)[right_boundary_pts].unsqueeze(1)
+                grid_targets = grid_targets.expand(num_right, num_coefficients)
+                dists = torch.abs(x_grid_last - grid_targets)
+                closest_from_last = torch.min(dists, 1)[1]
+                for j in range(num_right):
+                    dim_interp_values[(right_boundary_pts[j]), :] = 0
+                    dim_interp_values[right_boundary_pts[j], closest_from_last[j]] = 1
+                    lower_grid_pt_idxs[right_boundary_pts[j]] = num_grid_points - num_coefficients
+            offset = (interp_points - interp_points.min()).long().unsqueeze(-2)
+            dim_interp_indices = lower_grid_pt_idxs.long().unsqueeze(-1) + offset
+            n_inner_repeat = num_coefficients ** i
+            n_outer_repeat = num_coefficients ** (num_dim - i - 1)
+            index_coeff = reduce(mul, grid_sizes[i + 1:], 1)
+            dim_interp_indices = dim_interp_indices.unsqueeze(-1).repeat(1, n_inner_repeat, n_outer_repeat)
+            dim_interp_values = dim_interp_values.unsqueeze(-1).repeat(1, n_inner_repeat, n_outer_repeat)
+            interp_indices = interp_indices.add(dim_interp_indices.view(num_target_points, -1).mul(index_coeff))
+            interp_values = interp_values.mul(dim_interp_values.view(num_target_points, -1))
+        return interp_indices, interp_values
+
+
+class GridInterpolationVariationalStrategy(_VariationalStrategy):
+    """
+    This strategy constrains the inducing points to a grid and applies a deterministic
+    relationship between :math:`\\mathbf f` and :math:`\\mathbf u`.
+    It was introduced by `Wilson et al. (2016)`_.
+
+    Here, the inducing points are not learned. Instead, the strategy
+    automatically creates inducing points based on a set of grid sizes and grid
+    bounds.
+
+    .. _Wilson et al. (2016):
+        https://arxiv.org/abs/1611.00336
+
+    :param ~gpytorch.models.ApproximateGP model: Model this strategy is applied to.
+        Typically passed in when the VariationalStrategy is created in the
+        __init__ method of the user defined model.
+    :param int grid_size: Size of the grid
+    :param list grid_bounds: Bounds of each dimension of the grid (should be a list of (float, float) tuples)
+    :param ~gpytorch.variational.VariationalDistribution variational_distribution: A
+        VariationalDistribution object that represents the form of the variational distribution :math:`q(\\mathbf u)`
+    """
+
+    def __init__(self, model, grid_size, grid_bounds, variational_distribution):
+        grid = torch.zeros(grid_size, len(grid_bounds))
+        for i in range(len(grid_bounds)):
+            grid_diff = float(grid_bounds[i][1] - grid_bounds[i][0]) / (grid_size - 2)
+            grid[:, (i)] = torch.linspace(grid_bounds[i][0] - grid_diff, grid_bounds[i][1] + grid_diff, grid_size)
+        inducing_points = torch.zeros(int(pow(grid_size, len(grid_bounds))), len(grid_bounds))
+        prev_points = None
+        for i in range(len(grid_bounds)):
+            for j in range(grid_size):
+                inducing_points[j * grid_size ** i:(j + 1) * grid_size ** i, (i)].fill_(grid[j, i])
+                if prev_points is not None:
+                    inducing_points[j * grid_size ** i:(j + 1) * grid_size ** i, :i].copy_(prev_points)
+            prev_points = inducing_points[:grid_size ** (i + 1), :i + 1]
+        super(GridInterpolationVariationalStrategy, self).__init__(model, inducing_points, variational_distribution, learn_inducing_locations=False)
+        object.__setattr__(self, 'model', model)
+        self.register_buffer('grid', grid)
+
+    def _compute_grid(self, inputs):
+        n_data, n_dimensions = inputs.size(-2), inputs.size(-1)
+        batch_shape = inputs.shape[:-2]
+        inputs = inputs.reshape(-1, n_dimensions)
+        interp_indices, interp_values = Interpolation().interpolate(self.grid, inputs)
+        interp_indices = interp_indices.view(*batch_shape, n_data, -1)
+        interp_values = interp_values.view(*batch_shape, n_data, -1)
+        if interp_indices.dim() - 2 != len(self._variational_distribution.batch_shape):
+            batch_shape = _mul_broadcast_shape(interp_indices.shape[:-2], self._variational_distribution.batch_shape)
+            interp_indices = interp_indices.expand(*batch_shape, *interp_indices.shape[-2:])
+            interp_values = interp_values.expand(*batch_shape, *interp_values.shape[-2:])
+        return interp_indices, interp_values
+
+    @property
+    @cached(name='prior_distribution_memo')
+    def prior_distribution(self):
+        out = self.model.forward(self.inducing_points)
+        res = MultivariateNormal(out.mean, out.lazy_covariance_matrix.add_jitter())
+        return res
+
+    def forward(self, x, inducing_points, inducing_values, variational_inducing_covar=None):
+        if variational_inducing_covar is None:
+            raise RuntimeError(f'GridInterpolationVariationalStrategy is only compatible with Gaussian variational distributions. Got ({self.variational_distribution.__class__.__name__}.')
+        variational_distribution = self.variational_distribution
+        interp_indices, interp_values = self._compute_grid(x)
+        predictive_mean = left_interp(interp_indices, interp_values, inducing_values.unsqueeze(-1))
+        predictive_mean = predictive_mean.squeeze(-1)
+        predictive_covar = InterpolatedLazyTensor(variational_distribution.lazy_covariance_matrix, interp_indices, interp_values, interp_indices, interp_values)
+        output = MultivariateNormal(predictive_mean, predictive_covar)
+        return output
+
+
+class MeanFieldVariationalDistribution(_VariationalDistribution):
+    """
+    A :obj:`~gpytorch.variational._VariationalDistribution` that is defined to be a multivariate normal distribution
+    with a diagonal covariance matrix. This will not be as flexible/expressive as a
+    :obj:`~gpytorch.variational.CholeskyVariationalDistribution`.
+
+    :param int num_inducing_points: Size of the variational distribution. This implies that the variational mean
+        should be this size, and the variational covariance matrix should have this many rows and columns.
+    :param torch.Size batch_shape: (Optional.) Specifies an optional batch size
+        for the variational parameters. This is useful for example when doing additive variational inference.
+    :param float mean_init_std: (default=1e-3) Standard deviation of gaussian noise to add to the mean initialization.
+    """
+
+    def __init__(self, num_inducing_points, batch_shape=torch.Size([]), mean_init_std=0.001, **kwargs):
+        super().__init__(num_inducing_points=num_inducing_points, batch_shape=batch_shape, mean_init_std=mean_init_std)
+        mean_init = torch.zeros(num_inducing_points)
+        covar_init = torch.ones(num_inducing_points)
+        mean_init = mean_init.repeat(*batch_shape, 1)
+        covar_init = covar_init.repeat(*batch_shape, 1)
+        self.register_parameter(name='variational_mean', parameter=torch.nn.Parameter(mean_init))
+        self.register_parameter(name='_variational_stddev', parameter=torch.nn.Parameter(covar_init))
+
+    @property
+    def variational_stddev(self):
+        mask = torch.ones_like(self._variational_stddev)
+        return self._variational_stddev.mul(mask).abs().clamp_min(1e-08)
+
+    def forward(self):
+        mask = torch.ones_like(self._variational_stddev)
+        variational_covar = DiagLazyTensor(self._variational_stddev.mul(mask).pow(2))
+        return MultivariateNormal(self.variational_mean, variational_covar)
+
+    def initialize_variational_distribution(self, prior_dist):
+        self.variational_mean.data.copy_(prior_dist.mean)
+        self.variational_mean.data.add_(torch.randn_like(prior_dist.mean), alpha=self.mean_init_std)
+        self._variational_stddev.data.copy_(prior_dist.stddev)
+
+
+class OrthogonallyDecoupledVariationalStrategy(_VariationalStrategy):
+    """
+    Implements orthogonally decoupled VGPs as defined in `Salimbeni et al. (2018)`_.
+    This variational strategy uses a different set of inducing points for the mean and covariance functions.
+    The idea is to use more inducing points for the (computationally efficient) mean and fewer inducing points for the
+    (computationally expensive) covaraince.
+
+    This variational strategy defines the inducing points/:obj:`~gpytorch.variational._VariationalDistribution`
+    for the mean function.
+    It then wraps a different :obj:`~gpytorch.variational._VariationalStrategy` which
+    defines the covariance inducing points.
+
+    Example:
+        >>> mean_inducing_points = torch.randn(1000, train_x.size(-1), dtype=train_x.dtype, device=train_x.device)
+        >>> covar_inducing_points = torch.randn(100, train_x.size(-1), dtype=train_x.dtype, device=train_x.device)
+        >>>
+        >>> covar_variational_strategy = gpytorch.variational.VariationalStrategy(
+        >>>     model, covar_inducing_points,
+        >>>     gpytorch.variational.CholeskyVariationalDistribution(covar_inducing_points.size(-2)),
+        >>>     learn_inducing_locations=True
+        >>> )
+        >>>
+        >>> variational_strategy = gpytorch.variational.OrthogonallyDecoupledVariationalStrategy(
+        >>>     covar_variational_strategy, mean_inducing_points,
+        >>>     gpytorch.variational.DeltaVariationalDistribution(mean_inducing_points.size(-2)),
+        >>> )
+
+    .. _Salimbeni et al. (2018):
+        https://arxiv.org/abs/1809.08820
+    """
+
+    def __init__(self, model, inducing_points, variational_distribution):
+        if not isinstance(variational_distribution, DeltaVariationalDistribution):
+            raise NotImplementedError('OrthogonallyDecoupledVariationalStrategy currently works with DeltaVariationalDistribution')
+        super().__init__(model, inducing_points, variational_distribution, learn_inducing_locations=True)
+        self.base_variational_strategy = model
+
+    @property
+    @cached(name='prior_distribution_memo')
+    def prior_distribution(self):
+        out = self.model(self.inducing_points)
+        res = MultivariateNormal(out.mean, out.lazy_covariance_matrix.add_jitter())
+        return res
+
+    def forward(self, x, inducing_points, inducing_values, variational_inducing_covar=None):
+        if variational_inducing_covar is not None:
+            raise NotImplementedError('OrthogonallyDecoupledVariationalStrategy currently works with DeltaVariationalDistribution')
+        num_data = x.size(-2)
+        full_output = self.model(torch.cat([x, inducing_points], dim=-2))
+        full_mean = full_output.mean
+        full_covar = full_output.lazy_covariance_matrix
+        if self.training:
+            induc_mean = full_mean[(...), num_data:]
+            induc_induc_covar = full_covar[(...), num_data:, num_data:]
+            self._memoize_cache['prior_distribution_memo'] = MultivariateNormal(induc_mean, induc_induc_covar)
+        test_mean = full_mean[(...), :num_data]
+        data_induc_covar = full_covar[(...), :num_data, num_data:]
+        predictive_mean = (data_induc_covar @ inducing_values.unsqueeze(-1)).squeeze(-1).add(test_mean)
+        predictive_covar = full_covar[(...), :num_data, :num_data]
+        return MultivariateNormal(predictive_mean, predictive_covar)
+
+    def kl_divergence(self):
+        mean = self.variational_distribution.mean
+        induc_induc_covar = self.prior_distribution.lazy_covariance_matrix
+        kl = self.model.kl_divergence() + ((induc_induc_covar @ mean.unsqueeze(-1)).squeeze(-1) * mean).sum(-1).mul(0.5)
+        return kl
+
+
+class ExtraComputationWarning(UserWarning):
+    """
+    Warning thrown when a GP model does extra computation that it is not designed to do.
+    This is mostly designed for :obj:`~gpytorch.variational.UnwhitenedVariationalStrategy`, which
+    should cache most of its solves up front.
+    """
+    pass
+
+
+class CachedCGLazyTensor(LazyTensor):
+    """
+    A LazyTensor wrapper that eagerly computes many CG calls in batch.
+    This maximizes CG parallelism for fast inference.
+    Used primarily for variational inference with GPs.
+
+    Args:
+        :attr:`base_lazy_tensor` (:class:`gpytorch.lazy.LazyTensor`):
+            the LazyTensor to wrap
+        :attr:`eager_rhss` (list of :class:`gpytorch.lazy.LazyTensor`):
+            list of right-hand sides with eagerly-computed solves
+        :attr:`solves` (list of :class:`gpytorch.lazy.LazyTensor`):
+            list of solves associated with :attr:`eager_rhss`
+        :attr:`probe_vectors` (:class:`gpytorch.lazy.LazyTensor`, optional):
+            normalized probe vectors (for computing logdet with SLQ)
+        :attr:`probe_vector_norms` (:class:`gpytorch.lazy.LazyTensor`, optional):
+            norms associated with :attr:`probe_vectors` that will return :attr:`probe_vectors`
+            to having identity covariance (for computing logdet with SLQ)
+        :attr:`probe_vector_solves` (:class:`gpytorch.lazy.LazyTensor`, optional):
+            solves associated with :attr:`probe_vectors` (for computing logdet with SLQ)
+        :attr:`probe_vector_tmats` (:class:`gpytorch.lazy.LazyTensor`, optional):
+            Lanczos tridiagonal matrices associated with :attr:`probe_vectors`
+            (for computing logdet with SLQ)
+    """
+
+    @classmethod
+    def precompute_terms(cls, base_lazy_tensor, eager_rhs, logdet_terms=True, include_tmats=True):
+        """
+        Computes the solves, probe vectors, probe_vector norms, probe vector solves, and probe vector
+        tridiagonal matrices to construct a CachedCGLazyTensor
+
+        Set logdet_terms to False if you are not going to compute the logdet of the LazyTensor
+        """
+        with torch.no_grad():
+            if logdet_terms:
+                num_random_probes = settings.num_trace_samples.value()
+                probe_vectors = torch.empty(base_lazy_tensor.matrix_shape[-1], num_random_probes, dtype=base_lazy_tensor.dtype, device=base_lazy_tensor.device)
+                probe_vectors.bernoulli_().mul_(2).add_(-1)
+                probe_vectors = probe_vectors.expand(*base_lazy_tensor.batch_shape, base_lazy_tensor.matrix_shape[-1], num_random_probes)
+                probe_vector_norms = torch.norm(probe_vectors, 2, dim=-2, keepdim=True)
+                probe_vectors = probe_vectors.div(probe_vector_norms)
+                if include_tmats:
+                    all_solves, probe_vector_tmats = base_lazy_tensor._solve(torch.cat([probe_vectors, eager_rhs], -1), preconditioner=base_lazy_tensor._preconditioner()[0], num_tridiag=probe_vectors.size(-1))
+                else:
+                    all_solves = base_lazy_tensor._solve(torch.cat([probe_vectors, eager_rhs], -1), preconditioner=base_lazy_tensor._preconditioner()[0])
+                    probe_vector_tmats = torch.tensor([])
+                probe_vector_solves = all_solves[(...), :probe_vectors.size(-1)].detach()
+                solves = all_solves[(...), probe_vectors.size(-1):]
+                return solves.detach(), probe_vectors.detach(), probe_vector_norms.detach(), probe_vector_solves.detach(), probe_vector_tmats.detach()
+            else:
+                if settings.fast_computations.log_prob.on():
+                    solves = base_lazy_tensor._solve(eager_rhs, preconditioner=base_lazy_tensor._preconditioner()[0])
+                else:
+                    solves = base_lazy_tensor._cholesky()._cholesky_solve(eager_rhs)
+                dtype = solves.dtype
+                device = solves.device
+                return solves.detach(), torch.tensor([], dtype=dtype, device=device), torch.tensor([], dtype=dtype, device=device), torch.tensor([], dtype=dtype, device=device), torch.tensor([], dtype=dtype, device=device)
+
+    def __init__(self, base_lazy_tensor, eager_rhss=[], solves=[], probe_vectors=torch.tensor([]), probe_vector_norms=torch.tensor([]), probe_vector_solves=torch.tensor([]), probe_vector_tmats=torch.tensor([])):
+        super(CachedCGLazyTensor, self).__init__(base_lazy_tensor, eager_rhss=eager_rhss, solves=solves, probe_vectors=probe_vectors, probe_vector_norms=probe_vector_norms, probe_vector_solves=probe_vector_solves, probe_vector_tmats=probe_vector_tmats)
+        self.base_lazy_tensor = base_lazy_tensor
+        self.eager_rhss = [eager_rhs.detach() for eager_rhs in eager_rhss]
+        self.solves = [solve.detach() for solve in solves]
+        self.probe_vectors = probe_vectors.detach()
+        self.probe_vector_norms = probe_vector_norms.detach()
+        self.probe_vector_solves = probe_vector_solves.detach()
+        self.probe_vector_tmats = probe_vector_tmats.detach()
+
+    @property
+    def requires_grad(self):
+        return self.base_lazy_tensor.requires_grad
+
+    @requires_grad.setter
+    def requires_grad(self, val):
+        self.base_lazy_tensor.requires_grad = val
+
+    def _cholesky(self):
+        res = self.__class__(self.base_lazy_tensor._cholesky(), eager_rhss=self.eager_rhss, solves=self.solves, probe_vectors=self.probe_vectors, probe_vector_norms=self.probe_vector_norms, probe_vector_solves=self.probe_vector_solves, probe_vector_tmats=self.probe_vector_tmats)
+        return res
+
+    def _cholesky_solve(self, rhs):
+        for eager_rhs, solve in zip(self.eager_rhss, self.solves):
+            if torch.equal(rhs, eager_rhs):
+                return solve
+        if settings.debug.on():
+            warnings.warn('CachedCGLazyTensor had to run CG on a tensor of size {}. For best performance, this LazyTensor should pre-register all vectors to run CG against.'.format(rhs.shape), ExtraComputationWarning)
+        return super(CachedCGLazyTensor, self)._cholesky_solve(rhs)
+
+    def _expand_batch(self, batch_shape):
+        return self.base_lazy_tensor._expand_batch(batch_shape)
+
+    def _get_indices(self, row_index, col_index, *batch_indices):
+        return self.base_lazy_tensor._get_indices(row_index, col_index, *batch_indices)
+
+    def _getitem(self, row_index, col_index, *batch_indices):
+        return self.base_lazy_tensor._getitem(row_index, col_index, *batch_indices)
+
+    def _matmul(self, tensor):
+        return self.base_lazy_tensor._matmul(tensor)
+
+    def _probe_vectors_and_norms(self):
+        return self.probe_vectors, self.probe_vector_norms
+
+    def _quad_form_derivative(self, left_vecs, right_vecs):
+        return self.base_lazy_tensor._quad_form_derivative(left_vecs, right_vecs)
+
+    def _solve(self, rhs, preconditioner, num_tridiag=0):
+        if num_tridiag:
+            probe_vectors = rhs[(...), :num_tridiag].detach()
+            if torch.equal(probe_vectors, self.probe_vectors):
+                probe_vector_solves = self.probe_vector_solves
+                tmats = self.probe_vector_tmats
+            else:
+                if settings.debug.on():
+                    warnings.warn('CachedCGLazyTensor did not recognize the supplied probe vectors for tridiagonalization.', ExtraComputationWarning)
+                return super(CachedCGLazyTensor, self)._solve(rhs, preconditioner, num_tridiag=num_tridiag)
+        truncated_rhs = rhs[(...), num_tridiag or 0:]
+        for eager_rhs, solve in zip(self.eager_rhss, self.solves):
+            if torch.equal(truncated_rhs, eager_rhs):
+                if num_tridiag:
+                    return torch.cat([probe_vector_solves, solve], -1), tmats
+                else:
+                    return solve
+        if settings.debug.on():
+            warnings.warn('CachedCGLazyTensor had to run CG on a tensor of size {}. For best performance, this LazyTensor should pre-register all vectors to run CG against.'.format(rhs.shape), ExtraComputationWarning)
+        return super(CachedCGLazyTensor, self)._solve(rhs, preconditioner, num_tridiag=num_tridiag)
+
+    def _size(self):
+        return self.base_lazy_tensor._size()
+
+    def _t_matmul(self, tensor):
+        return self.base_lazy_tensor._t_matmul(tensor)
+
+    def _transpose_nonbatch(self):
+        return self.base_lazy_tensor._transpose_nonbatch()
+
+    def detach_(self):
+        self.base_lazy_tensor.detach_()
+        return self
+
+    def inv_matmul(self, right_tensor, left_tensor=None):
+        if not isinstance(self.base_lazy_tensor, CholLazyTensor):
+            return super().inv_matmul(right_tensor, left_tensor=left_tensor)
+        with settings.fast_computations(solves=False):
+            return super().inv_matmul(right_tensor, left_tensor=left_tensor)
+
+    def inv_quad_logdet(self, inv_quad_rhs=None, logdet=False, reduce_inv_quad=True):
+        if not isinstance(self.base_lazy_tensor, CholLazyTensor):
+            return super().inv_quad_logdet(inv_quad_rhs=inv_quad_rhs, logdet=logdet, reduce_inv_quad=reduce_inv_quad)
+        if not self.is_square:
+            raise RuntimeError('inv_quad_logdet only operates on (batches of) square (positive semi-definite) LazyTensors. Got a {} of size {}.'.format(self.__class__.__name__, self.size()))
+        if inv_quad_rhs is not None:
+            if self.dim() == 2 and inv_quad_rhs.dim() == 1:
+                if self.shape[-1] != inv_quad_rhs.numel():
+                    raise RuntimeError('LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'.format(self.shape, inv_quad_rhs.shape))
+            elif self.dim() != inv_quad_rhs.dim():
+                raise RuntimeError('LazyTensor (size={}) and right-hand-side Tensor (size={}) should have the same number of dimensions.'.format(self.shape, inv_quad_rhs.shape))
+            elif self.shape[-1] != inv_quad_rhs.shape[-2]:
+                raise RuntimeError('LazyTensor (size={}) cannot be multiplied with right-hand-side Tensor (size={}).'.format(self.shape, inv_quad_rhs.shape))
+        inv_quad_term = None
+        logdet_term = None
+        if inv_quad_rhs is not None:
+            inv_quad_term = self.inv_quad(inv_quad_rhs, reduce_inv_quad=reduce_inv_quad)
+        if logdet:
+            logdet_term = self.base_lazy_tensor._chol_diag.pow(2).log().sum(-1)
+        return inv_quad_term, logdet_term
+
+
+class UnwhitenedVariationalStrategy(_VariationalStrategy):
+    """
+    Similar to :obj:`~gpytorch.variational.VariationalStrategy`, but does not perform the
+    whitening operation. In almost all cases :obj:`~gpytorch.variational.VariationalStrategy`
+    is preferable, with a few exceptions:
+
+    - When the inducing points are exactly equal to the training points (i.e. :math:`\\mathbf Z = \\mathbf X`).
+      Unwhitened models are faster in this case.
+
+    - When the number of inducing points is very large (e.g. >2000). Unwhitened models can use CG for faster
+      computation.
+
+    :param ~gpytorch.models.ApproximateGP model: Model this strategy is applied to.
+        Typically passed in when the VariationalStrategy is created in the
+        __init__ method of the user defined model.
+    :param torch.Tensor inducing_points: Tensor containing a set of inducing
+        points to use for variational inference.
+    :param ~gpytorch.variational.VariationalDistribution variational_distribution: A
+        VariationalDistribution object that represents the form of the variational distribution :math:`q(\\mathbf u)`
+    :param bool learn_inducing_points: (optional, default True): Whether or not
+        the inducing point locations :math:`\\mathbf Z` should be learned (i.e. are they
+        parameters of the model).
+    """
+
+    @cached(name='cholesky_factor')
+    def _cholesky_factor(self, induc_induc_covar):
+        L = psd_safe_cholesky(delazify(induc_induc_covar), jitter=settings.cholesky_jitter.value())
+        return L
+
+    @property
+    @cached(name='prior_distribution_memo')
+    def prior_distribution(self):
+        out = self.model.forward(self.inducing_points)
+        res = MultivariateNormal(out.mean, out.lazy_covariance_matrix.add_jitter())
+        return res
+
+    def forward(self, x, inducing_points, inducing_values, variational_inducing_covar=None):
+        if torch.equal(x, inducing_points):
+            if variational_inducing_covar is None:
+                raise RuntimeError
+            else:
+                return MultivariateNormal(inducing_values, variational_inducing_covar)
+        num_induc = inducing_points.size(-2)
+        full_inputs = torch.cat([inducing_points, x], dim=-2)
+        full_output = self.model.forward(full_inputs)
+        full_mean, full_covar = full_output.mean, full_output.lazy_covariance_matrix
+        test_mean = full_mean[(...), num_induc:]
+        induc_mean = full_mean[(...), :num_induc]
+        mean_diff = (inducing_values - induc_mean).unsqueeze(-1)
+        induc_induc_covar = full_covar[(...), :num_induc, :num_induc].add_jitter()
+        induc_data_covar = full_covar[(...), :num_induc, num_induc:].evaluate()
+        data_data_covar = full_covar[(...), num_induc:, num_induc:]
+        cholesky = False
+        if settings.fast_computations.log_prob.off() or num_induc <= settings.max_cholesky_size.value():
+            induc_induc_covar = CholLazyTensor(self._cholesky_factor(induc_induc_covar))
+            cholesky = True
+        if not self.training and settings.skip_posterior_variances.on():
+            if not hasattr(self, '_mean_cache'):
+                with settings.max_preconditioner_size(0):
+                    self._mean_cache = induc_induc_covar.inv_matmul(mean_diff).detach()
+            predictive_mean = torch.add(test_mean, induc_data_covar.transpose(-2, -1).matmul(self._mean_cache).squeeze(-1))
+            predictive_covar = ZeroLazyTensor(test_mean.size(-1), test_mean.size(-1))
+            return MultivariateNormal(predictive_mean, predictive_covar)
+        shapes = [mean_diff.shape[:-1], induc_data_covar.shape[:-1], induc_induc_covar.shape[:-1]]
+        if variational_inducing_covar is not None:
+            root_variational_covar = variational_inducing_covar.root_decomposition().root.evaluate()
+            shapes.append(root_variational_covar.shape[:-1])
+        shape = _mul_broadcast_shape(*shapes)
+        mean_diff = mean_diff.expand(*shape, mean_diff.size(-1))
+        induc_data_covar = induc_data_covar.expand(*shape, induc_data_covar.size(-1))
+        induc_induc_covar = induc_induc_covar.expand(*shape, induc_induc_covar.size(-1))
+        if variational_inducing_covar is not None:
+            root_variational_covar = root_variational_covar.expand(*shape, root_variational_covar.size(-1))
+        with settings.max_preconditioner_size(0):
+            if variational_inducing_covar is None:
+                left_tensors = mean_diff
+            else:
+                left_tensors = torch.cat([mean_diff, root_variational_covar], -1)
+            with torch.no_grad():
+                eager_rhs = torch.cat([left_tensors, induc_data_covar], -1)
+                solve, probe_vecs, probe_vec_norms, probe_vec_solves, tmats = CachedCGLazyTensor.precompute_terms(induc_induc_covar, eager_rhs.detach(), logdet_terms=not cholesky, include_tmats=not settings.skip_logdet_forward.on() and not cholesky)
+                eager_rhss = [eager_rhs.detach(), eager_rhs[(...), left_tensors.size(-1):].detach(), eager_rhs[(...), :left_tensors.size(-1)].detach()]
+                solves = [solve.detach(), solve[(...), left_tensors.size(-1):].detach(), solve[(...), :left_tensors.size(-1)].detach()]
+                if settings.skip_logdet_forward.on():
+                    eager_rhss.append(torch.cat([probe_vecs, left_tensors], -1))
+                    solves.append(torch.cat([probe_vec_solves, solve[(...), :left_tensors.size(-1)]], -1))
+            induc_induc_covar = CachedCGLazyTensor(induc_induc_covar, eager_rhss=eager_rhss, solves=solves, probe_vectors=probe_vecs, probe_vector_norms=probe_vec_norms, probe_vector_solves=probe_vec_solves, probe_vector_tmats=tmats)
+        if self.training:
+            self._memoize_cache['prior_distribution_memo'] = MultivariateNormal(induc_mean, induc_induc_covar)
+        inv_products = induc_induc_covar.inv_matmul(induc_data_covar, left_tensors.transpose(-1, -2))
+        predictive_mean = torch.add(test_mean, inv_products[(...), (0), :])
+        if self.training:
+            interp_data_data_var, _ = induc_induc_covar.inv_quad_logdet(induc_data_covar, logdet=False, reduce_inv_quad=False)
+            data_covariance = DiagLazyTensor((data_data_covar.diag() - interp_data_data_var).clamp(0, math.inf))
+        else:
+            neg_induc_data_data_covar = torch.matmul(induc_data_covar.transpose(-1, -2).mul(-1), induc_induc_covar.inv_matmul(induc_data_covar))
+            data_covariance = data_data_covar + neg_induc_data_data_covar
+        predictive_covar = PsdSumLazyTensor(RootLazyTensor(inv_products[(...), 1:, :].transpose(-1, -2)), data_covariance)
+        return MultivariateNormal(predictive_mean, predictive_covar)
+
+
+class OldVersionWarning(UserWarning):
+    """
+    Warning thrown when loading a saved model from an outdated version of GPyTorch.
+    """
+    pass
+
+
+def _ensure_updated_strategy_flag_set(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+    device = state_dict[list(state_dict.keys())[0]].device
+    if prefix + 'updated_strategy' not in state_dict:
+        state_dict[prefix + 'updated_strategy'] = torch.tensor(False, device=device)
+        warnings.warn('You have loaded a variational GP model (using `VariationalStrategy`) from a previous version of GPyTorch. We have updated the parameters of your model to work with the new version of `VariationalStrategy` that uses whitened parameters.\nYour model will work as expected, but we recommend that you re-save your model.', OldVersionWarning)
+
+
+class VariationalStrategy(_VariationalStrategy):
+    """
+    The standard variational strategy, as defined by `Hensman et al. (2015)`_.
+    This strategy takes a set of :math:`m \\ll n` inducing points :math:`\\mathbf Z`
+    and applies an approximate distribution :math:`q( \\mathbf u)` over their function values.
+    (Here, we use the common notation :math:`\\mathbf u = f(\\mathbf Z)`.
+    The approximate function distribution for any abitrary input :math:`\\mathbf X` is given by:
+
+    .. math::
+
+        q( f(\\mathbf X) ) = \\int p( f(\\mathbf X) \\mid \\mathbf u) q(\\mathbf u) \\: d\\mathbf u
+
+    This variational strategy uses "whitening" to accelerate the optimization of the variational
+    parameters. See `Matthews (2017)`_ for more info.
+
+    :param ~gpytorch.models.ApproximateGP model: Model this strategy is applied to.
+        Typically passed in when the VariationalStrategy is created in the
+        __init__ method of the user defined model.
+    :param torch.Tensor inducing_points: Tensor containing a set of inducing
+        points to use for variational inference.
+    :param ~gpytorch.variational.VariationalDistribution variational_distribution: A
+        VariationalDistribution object that represents the form of the variational distribution :math:`q(\\mathbf u)`
+    :param bool learn_inducing_points: (optional, default True): Whether or not
+        the inducing point locations :math:`\\mathbf Z` should be learned (i.e. are they
+        parameters of the model).
+
+    .. _Hensman et al. (2015):
+        http://proceedings.mlr.press/v38/hensman15.pdf
+    .. _Matthews (2017):
+        https://www.repository.cam.ac.uk/handle/1810/278022
+    """
+
+    def __init__(self, model, inducing_points, variational_distribution, learn_inducing_locations=True):
+        super().__init__(model, inducing_points, variational_distribution, learn_inducing_locations)
+        self.register_buffer('updated_strategy', torch.tensor(True))
+        self._register_load_state_dict_pre_hook(_ensure_updated_strategy_flag_set)
+
+    @cached(name='cholesky_factor')
+    def _cholesky_factor(self, induc_induc_covar):
+        L = psd_safe_cholesky(delazify(induc_induc_covar).double(), jitter=settings.cholesky_jitter.value())
+        return L
+
+    @property
+    @cached(name='prior_distribution_memo')
+    def prior_distribution(self):
+        zeros = torch.zeros_like(self.variational_distribution.mean)
+        ones = torch.ones_like(zeros)
+        res = MultivariateNormal(zeros, DiagLazyTensor(ones))
+        return res
+
+    def forward(self, x, inducing_points, inducing_values, variational_inducing_covar=None):
+        full_inputs = torch.cat([inducing_points, x], dim=-2)
+        full_output = self.model.forward(full_inputs)
+        full_covar = full_output.lazy_covariance_matrix
+        num_induc = inducing_points.size(-2)
+        test_mean = full_output.mean[(...), num_induc:]
+        induc_induc_covar = full_covar[(...), :num_induc, :num_induc].add_jitter()
+        induc_data_covar = full_covar[(...), :num_induc, num_induc:].evaluate()
+        data_data_covar = full_covar[(...), num_induc:, num_induc:]
+        L = self._cholesky_factor(induc_induc_covar)
+        if L.shape != induc_induc_covar.shape:
+            del self._memoize_cache['cholesky_factor']
+            L = self._cholesky_factor(induc_induc_covar)
+        interp_term = torch.triangular_solve(induc_data_covar.double(), L, upper=False)[0]
+        predictive_mean = torch.matmul(interp_term.transpose(-1, -2), (inducing_values - self.prior_distribution.mean).unsqueeze(-1)).squeeze(-1) + test_mean
+        middle_term = self.prior_distribution.lazy_covariance_matrix.mul(-1)
+        if variational_inducing_covar is not None:
+            middle_term = SumLazyTensor(variational_inducing_covar, middle_term)
+        if trace_mode.on():
+            predictive_covar = data_data_covar.add_jitter(0.0001).evaluate() + interp_term.transpose(-1, -2) @ middle_term.evaluate() @ interp_term
+        else:
+            predictive_covar = SumLazyTensor(data_data_covar.add_jitter(0.0001), MatmulLazyTensor(interp_term.transpose(-1, -2), middle_term @ interp_term))
+        return MultivariateNormal(predictive_mean, predictive_covar)
+
+    def __call__(self, x, prior=False):
+        if not self.updated_strategy.item() and not prior:
+            with torch.no_grad():
+                prior_function_dist = self(self.inducing_points, prior=True)
+                prior_mean = prior_function_dist.loc
+                L = self._cholesky_factor(prior_function_dist.lazy_covariance_matrix.add_jitter())
+                orig_mean_init_std = self._variational_distribution.mean_init_std
+                self._variational_distribution.mean_init_std = 0.0
+                variational_dist = self.variational_distribution
+                whitened_mean = torch.triangular_solve((variational_dist.loc - prior_mean).unsqueeze(-1).double(), L, upper=False)[0].squeeze(-1)
+                whitened_covar = RootLazyTensor(torch.triangular_solve(variational_dist.lazy_covariance_matrix.root_decomposition().root.evaluate().double(), L, upper=False)[0])
+                whitened_variational_distribution = variational_dist.__class__(whitened_mean, whitened_covar)
+                self._variational_distribution.initialize_variational_distribution(whitened_variational_distribution)
+                self._variational_distribution.mean_init_std = orig_mean_init_std
+                if hasattr(self, '_memoize_cache'):
+                    delattr(self, '_memoize_cache')
+                    self._memoize_cache = dict()
+                self.updated_strategy.fill_(True)
+        return super().__call__(x, prior=prior)
+
+
+class WhitenedVariationalStrategy(UnwhitenedVariationalStrategy):
+
+    def __init__(self, model, inducing_points, variational_distribution, learn_inducing_locations=True):
+        warnings.warn('WhitenedVariationalStrategy is deprecated. Please use VariationalStrategy instead.', DeprecationWarning)
+        super().__init__(model, inducing_points, variational_distribution, learn_inducing_locations)
+
+    @cached(name='logdet_memo')
+    def prior_covar_logdet(self):
+        return -self.prior_distribution.lazy_covariance_matrix.logdet()
+
+    @cached(name='covar_trace_memo')
+    def covar_trace(self):
+        variational_covar = self.variational_distribution.covariance_matrix
+        prior_covar = self.prior_distribution.covariance_matrix
+        batch_shape = prior_covar.shape[:-2]
+        return (variational_covar * prior_covar).view(*batch_shape, -1).sum(-1)
+
+    @cached(name='mean_diff_inv_quad_memo')
+    def mean_diff_inv_quad(self):
+        prior_mean = self.prior_distribution.mean
+        prior_covar = self.prior_distribution.lazy_covariance_matrix
+        variational_mean = self.variational_distribution.mean
+        return prior_covar.inv_quad(variational_mean - prior_mean)
+
+    def kl_divergence(self):
+        variational_dist_u = self.variational_distribution
+        prior_dist = self.prior_distribution
+        kl_divergence = 0.5 * sum([self.prior_covar_logdet(), -variational_dist_u.lazy_covariance_matrix.logdet(), self.covar_trace(), self.mean_diff_inv_quad(), -prior_dist.event_shape.numel()])
+        return kl_divergence
+
+    def initialize_variational_dist(self):
+        prior_dist = self.prior_distribution
+        inv_prior_dist = torch.distributions.MultivariateNormal(prior_dist.mean, prior_dist.lazy_covariance_matrix.add_jitter().evaluate().double().inverse().type_as(prior_dist.covariance_matrix))
+        self.variational_distribution.initialize_variational_distribution(inv_prior_dist)
+
+    def forward(self, x):
+        """
+        The :func:`~gpytorch.variational.VariationalStrategy.forward` method determines how to marginalize out the
+        inducing point function values. Specifically, forward defines how to transform a variational distribution
+        over the inducing point values, :math:`q(u)`, in to a variational distribution over the function values at
+        specified locations x, :math:`q(f|x)`, by integrating :math:`\\int p(f|x, u)q(u)du`
+
+        :param torch.Tensor x: Locations x to get the variational posterior of the function values at.
+        :rtype: ~gpytorch.distributions.MultivariateNormal
+        :return: The distribution :math:`q(f|x)`
+        """
+        variational_dist = self.variational_distribution
+        inducing_points = self.inducing_points
+        if inducing_points.dim() < x.dim():
+            inducing_points = inducing_points.expand(*x.shape[:-2], *inducing_points.shape[-2:])
+        if len(variational_dist.batch_shape) < x.dim() - 2:
+            variational_dist = variational_dist.expand(x.shape[:-2])
+        if torch.equal(x, inducing_points):
+            prior_covar = self.prior_distribution.lazy_covariance_matrix
+            if isinstance(variational_dist.lazy_covariance_matrix, RootLazyTensor):
+                predictive_covar = RootLazyTensor(prior_covar @ variational_dist.lazy_covariance_matrix.root.evaluate())
+            else:
+                predictive_covar = MatmulLazyTensor(prior_covar @ variational_dist.covariance_matrix, prior_covar)
+            if self.training:
+                self._mean_diff_inv_quad_memo, self._logdet_memo = prior_covar.inv_quad_logdet(variational_dist.mean - self.prior_distribution.mean, logdet=True)
+            return MultivariateNormal(variational_dist.mean, predictive_covar)
+        else:
+            num_induc = inducing_points.size(-2)
+            full_inputs = torch.cat([inducing_points, x], dim=-2)
+            full_output = self.model.forward(full_inputs)
+            full_mean, full_covar = full_output.mean, full_output.lazy_covariance_matrix
+            test_mean = full_mean[(...), num_induc:]
+            induc_mean = full_mean[(...), :num_induc]
+            mean_diff = (variational_dist.mean - induc_mean).unsqueeze(-1)
+            induc_induc_covar = full_covar[(...), :num_induc, :num_induc].add_jitter()
+            induc_data_covar = full_covar[(...), :num_induc, num_induc:].evaluate()
+            data_data_covar = full_covar[(...), num_induc:, num_induc:]
+            cholesky = False
+            if settings.fast_computations.log_prob.off() or num_induc <= settings.max_cholesky_size.value():
+                induc_induc_covar = CholLazyTensor(induc_induc_covar.cholesky())
+                cholesky = True
+            with settings.max_preconditioner_size(0):
+                with torch.no_grad():
+                    eager_rhs = torch.cat([induc_data_covar, mean_diff], -1)
+                    solve, probe_vecs, probe_vec_norms, probe_vec_solves, tmats = CachedCGLazyTensor.precompute_terms(induc_induc_covar, eager_rhs.detach(), logdet_terms=not cholesky, include_tmats=not settings.skip_logdet_forward.on() and not cholesky)
+                    eager_rhss = [eager_rhs.detach()]
+                    solves = [solve.detach()]
+                    if settings.skip_logdet_forward.on() and self.training:
+                        eager_rhss.append(torch.cat([probe_vecs, eager_rhs], -1))
+                        solves.append(torch.cat([probe_vec_solves, solve[(...), :eager_rhs.size(-1)]], -1))
+                    elif not self.training:
+                        eager_rhss.append(eager_rhs[(...), :-1])
+                        solves.append(solve[(...), :-1])
+                induc_induc_covar = CachedCGLazyTensor(induc_induc_covar, eager_rhss=eager_rhss, solves=solves, probe_vectors=probe_vecs, probe_vector_norms=probe_vec_norms, probe_vector_solves=probe_vec_solves, probe_vector_tmats=tmats)
+            if self.training:
+                interp_data_data_var_plus_mean_diff_inv_quad, logdet = induc_induc_covar.inv_quad_logdet(torch.cat([induc_data_covar, mean_diff], -1), logdet=True, reduce_inv_quad=False)
+                interp_data_data_var = interp_data_data_var_plus_mean_diff_inv_quad[(...), :-1]
+                mean_diff_inv_quad = interp_data_data_var_plus_mean_diff_inv_quad[..., -1]
+            predictive_mean = torch.add(test_mean, induc_induc_covar.inv_matmul(mean_diff, left_tensor=induc_data_covar.transpose(-1, -2)).squeeze(-1))
+            is_root_lt = isinstance(variational_dist.lazy_covariance_matrix, RootLazyTensor)
+            is_repeated_root_lt = isinstance(variational_dist.lazy_covariance_matrix, BatchRepeatLazyTensor) and isinstance(variational_dist.lazy_covariance_matrix.base_lazy_tensor, RootLazyTensor)
+            if is_root_lt:
+                predictive_covar = RootLazyTensor(induc_data_covar.transpose(-1, -2) @ variational_dist.lazy_covariance_matrix.root.evaluate())
+            elif is_repeated_root_lt:
+                predictive_covar = RootLazyTensor(induc_data_covar.transpose(-1, -2) @ variational_dist.lazy_covariance_matrix.root_decomposition().root.evaluate())
+            else:
+                predictive_covar = MatmulLazyTensor(induc_data_covar.transpose(-1, -2), predictive_covar @ induc_data_covar)
+            if self.training:
+                data_covariance = DiagLazyTensor((data_data_covar.diag() - interp_data_data_var).clamp(0, math.inf))
+            else:
+                neg_induc_data_data_covar = torch.matmul(induc_data_covar.transpose(-1, -2).mul(-1), induc_induc_covar.inv_matmul(induc_data_covar))
+                data_covariance = data_data_covar + neg_induc_data_data_covar
+            predictive_covar = PsdSumLazyTensor(predictive_covar, data_covariance)
+            if self.training:
+                self._memoize_cache['prior_distribution_memo'] = MultivariateNormal(induc_mean, induc_induc_covar)
+                self._memoize_cache['logdet_memo'] = -logdet
+                self._memoize_cache['mean_diff_inv_quad_memo'] = mean_diff_inv_quad
+            return MultivariateNormal(predictive_mean, predictive_covar)
+
+    def __call__(self, x, prior=False):
+        if prior:
+            return self.model.forward(x)
+        if self.training:
+            if hasattr(self, '_memoize_cache'):
+                delattr(self, '_memoize_cache')
+                self._memoize_cache = dict()
+        if not self.variational_params_initialized.item():
+            prior_dist = self.prior_distribution
+            self._variational_distribution.initialize_variational_distribution(prior_dist)
+            self.variational_params_initialized.fill_(1)
+        return Module.__call__(self, x)
+
+
+data_dim = 1
+
+
+class SmallFeatureExtractor(nn.Sequential):
+
+    def __init__(self):
+        super(SmallFeatureExtractor, self).__init__()
+        self.add_module('linear1', nn.Linear(data_dim, 10))
+        self.add_module('relu3', nn.ReLU())
+        self.add_module('linear4', nn.Linear(10, 1))
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -5104,6 +8281,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 32, 32])], {}),
      False),
+    (SmallFeatureExtractor,
+     lambda: ([], {}),
+     lambda: ([torch.rand([1, 1])], {}),
+     True),
     (_DenseBlock,
      lambda: ([], {'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -5130,4 +8311,7 @@ class Test_cornellius_gp_gpytorch(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

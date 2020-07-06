@@ -23,15 +23,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -54,13 +55,22 @@ from torch.autograd import Variable
 import numpy as np
 
 
+import torch.utils.data as data
+
+
+from numpy.random import randint
+
+
+import torchvision
+
+
+import torchvision.datasets as datasets
+
+
 import re
 
 
 import functools
-
-
-import torchvision
 
 
 import torch.nn.parallel
@@ -91,6 +101,15 @@ from torch.nn.init import constant
 
 
 import math
+
+
+from sklearn.metrics import confusion_matrix
+
+
+import random
+
+
+import numbers
 
 
 class RelationModule(torch.nn.Module):
@@ -199,6 +218,44 @@ class RelationModuleMultiScaleWithClassifier(torch.nn.Module):
     def return_relationset(self, num_frames, num_frames_relation):
         import itertools
         return list(itertools.combinations([i for i in range(num_frames)], num_frames_relation))
+
+
+class SegmentConsensus(torch.autograd.Function):
+
+    def __init__(self, consensus_type, dim=1):
+        self.consensus_type = consensus_type
+        self.dim = dim
+        self.shape = None
+
+    def forward(self, input_tensor):
+        self.shape = input_tensor.size()
+        if self.consensus_type == 'avg':
+            output = input_tensor.mean(dim=self.dim, keepdim=True)
+        elif self.consensus_type == 'identity':
+            output = input_tensor
+        else:
+            output = None
+        return output
+
+    def backward(self, grad_output):
+        if self.consensus_type == 'avg':
+            grad_in = grad_output.expand(self.shape) / float(self.shape[self.dim])
+        elif self.consensus_type == 'identity':
+            grad_in = grad_output
+        else:
+            grad_in = None
+        return grad_in
+
+
+class ConsensusModule(torch.nn.Module):
+
+    def __init__(self, consensus_type, dim=1):
+        super(ConsensusModule, self).__init__()
+        self.consensus_type = consensus_type if consensus_type != 'rnn' else 'identity'
+        self.dim = dim
+
+    def forward(self, input):
+        return SegmentConsensus(self.consensus_type, self.dim)(input)
 
 
 class GroupMultiScaleCrop(object):
@@ -529,44 +586,6 @@ class Identity(torch.nn.Module):
 
     def forward(self, input):
         return input
-
-
-class SegmentConsensus(torch.autograd.Function):
-
-    def __init__(self, consensus_type, dim=1):
-        self.consensus_type = consensus_type
-        self.dim = dim
-        self.shape = None
-
-    def forward(self, input_tensor):
-        self.shape = input_tensor.size()
-        if self.consensus_type == 'avg':
-            output = input_tensor.mean(dim=self.dim, keepdim=True)
-        elif self.consensus_type == 'identity':
-            output = input_tensor
-        else:
-            output = None
-        return output
-
-    def backward(self, grad_output):
-        if self.consensus_type == 'avg':
-            grad_in = grad_output.expand(self.shape) / float(self.shape[self.dim])
-        elif self.consensus_type == 'identity':
-            grad_in = grad_output
-        else:
-            grad_in = None
-        return grad_in
-
-
-class ConsensusModule(torch.nn.Module):
-
-    def __init__(self, consensus_type, dim=1):
-        super(ConsensusModule, self).__init__()
-        self.consensus_type = consensus_type if consensus_type != 'rnn' else 'identity'
-        self.dim = dim
-
-    def forward(self, input):
-        return SegmentConsensus(self.consensus_type, self.dim)(input)
 
 
 import torch

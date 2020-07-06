@@ -36,15 +36,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -67,6 +68,9 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 
+from itertools import product
+
+
 import time
 
 
@@ -85,6 +89,12 @@ from torch.nn.utils.clip_grad import clip_grad_norm_ as clip_grad
 from torch.optim.lr_scheduler import StepLR
 
 
+from sklearn.model_selection import StratifiedKFold
+
+
+from sklearn.preprocessing import StandardScaler
+
+
 import math
 
 
@@ -94,10 +104,28 @@ import random
 from torch.nn.utils.rnn import pad_sequence
 
 
+import sklearn
+
+
+from sklearn.model_selection import cross_validate
+
+
+from sklearn.model_selection import train_test_split
+
+
 from copy import deepcopy
 
 
 from typing import Tuple
+
+
+import copy
+
+
+import warnings
+
+
+from sklearn.metrics import confusion_matrix
 
 
 class CustomRNN(nn.Module):
@@ -317,6 +345,122 @@ class WaveGeometry(torch.nn.Module):
         self.register_buffer('_b', torch.sqrt(b_x ** 2 + b_y ** 2))
 
 
+class WaveGeometryHoley(WaveGeometry):
+
+    def __init__(self, domain_shape: Tuple, h: float, c0: float, c1: float, abs_N: int=20, abs_sig: float=11, abs_p: float=4.0, eta: float=0.5, beta: float=100.0, x=None, y=None, r=None):
+        super().__init__(domain_shape, h, c0, c1, abs_N, abs_sig, abs_p)
+        self.x = torch.nn.Parameter(to_tensor(x))
+        self.y = torch.nn.Parameter(to_tensor(y))
+        self.r = torch.nn.Parameter(to_tensor(r))
+        self.register_buffer('eta', to_tensor(eta))
+        self.register_buffer('beta', to_tensor(beta))
+
+    def state_reconstruction_args(self):
+        my_args = {'eta': self.eta.item(), 'beta': self.beta.item(), 'x': deepcopy(self.x.detach()), 'y': deepcopy(self.y.detach()), 'r': deepcopy(self.r.detach())}
+        return {**super().state_reconstruction_args(), **my_args}
+
+    def _rho(self):
+        eta = self.eta.item()
+        beta = self.beta.item()
+        xv = torch.arange(0, self.domain_shape[0], dtype=torch.get_default_dtype())
+        yv = torch.arange(0, self.domain_shape[1], dtype=torch.get_default_dtype())
+        x, y = torch.meshgrid(xv, yv)
+        rho = torch.zeros(self.domain_shape)
+        for i, (ri, xi, yi) in enumerate(zip(self.r, self.x, self.y)):
+            r = torch.sqrt((x - xi).pow(2) + (y - yi).pow(2))
+            rho = rho + torch.exp(-r / ri)
+        return (np.tanh(beta * eta) + torch.tanh(beta * (rho - eta))) / (np.tanh(beta * eta) + np.tanh(beta * (1 - eta)))
+
+    @property
+    def rho(self):
+        return self._rho()
+
+    @property
+    def c(self):
+        return self.c0.item() + (self.c1.item() - self.c0.item()) * self._rho()
+
+
+class WaveGeometryFreeForm(WaveGeometry):
+
+    def __init__(self, domain_shape: Tuple, h: float, c0: float, c1: float, abs_N: int=20, abs_sig: float=11, abs_p: float=4.0, eta: float=0.5, beta: float=100.0, design_region=None, rho='half', blur_radius: int=1, blur_N: int=1):
+        super().__init__(domain_shape, h, c0, c1, abs_N, abs_sig, abs_p)
+        self.register_buffer('eta', to_tensor(eta))
+        self.register_buffer('beta', to_tensor(beta))
+        self._init_design_region(design_region, domain_shape)
+        self._init_rho(rho, domain_shape)
+        rr, cc = circle(blur_radius, blur_radius, blur_radius + 1)
+        blur_kernel = torch.zeros((2 * blur_radius + 1, 2 * blur_radius + 1), dtype=torch.get_default_dtype())
+        blur_kernel[rr, cc] = 1
+        blur_kernel = blur_kernel / blur_kernel.sum()
+        self.register_buffer('blur_kernel', blur_kernel.unsqueeze(0).unsqueeze(0))
+        self.register_buffer('blur_N', to_tensor(blur_N, dtype=torch.int))
+        self.register_buffer('blur_radius', to_tensor(blur_N, dtype=torch.int))
+        self.constrain_to_design_region()
+
+    def state_reconstruction_args(self):
+        my_args = {'eta': self.eta.item(), 'beta': self.beta.item(), 'design_region': deepcopy(self.design_region), 'rho': deepcopy(self.rho.detach()), 'blur_radius': self.blur_radius.item(), 'blur_N': self.blur_N.item()}
+        return {**super().state_reconstruction_args(), **my_args}
+
+    def __repr__(self):
+        return super().__repr__() + ', ' + str(self.design_region.sum().item()) + ' DOFs'
+
+    def _init_design_region(self, design_region, domain_shape):
+        if design_region is not None:
+            assert design_region.shape == domain_shape, 'The design region shape must match domain shape; design_region.shape = {} domain_shape = {}'.format(design_region.shape, domain_shape)
+            if type(design_region) is np.ndarray:
+                design_region = torch.from_numpy(design_region, dtype=torch.unit8)
+        else:
+            design_region = torch.ones(domain_shape, dtype=torch.uint8)
+        self.register_buffer('design_region', design_region)
+
+    def _init_rho(self, rho, domain_shape):
+        if isinstance(rho, torch.Tensor) | isinstance(rho, np.ndarray):
+            assert rho.shape == domain_shape
+            self.rho = torch.nn.Parameter(to_tensor(rho))
+        elif isinstance(rho, str):
+            if rho == 'rand':
+                self.rho = torch.nn.Parameter(torch.round(torch.rand(domain_shape)))
+            elif rho == 'half':
+                self.rho = torch.nn.Parameter(torch.ones(domain_shape) * 0.5)
+            elif rho == 'blank':
+                self.rho = torch.nn.Parameter(torch.zeros(domain_shape))
+            else:
+                raise ValueError('The domain initialization defined by `rho = %s` is invalid' % init)
+        else:
+            raise ValueError('The domain initialization is invalid')
+
+    def constrain_to_design_region(self):
+        """Clip the wave speed to its background value outside of the design region."""
+        with torch.no_grad():
+            self.rho[self.design_region == 0] = 0.0
+            self.rho[self.b > 0] = 0.0
+
+    def _apply_blur(self, rho):
+        """Applies the blur parameterization operator"""
+        blur_N = self.blur_N.item()
+        blur_radius = self.blur_radius.item()
+        for i in range(blur_N):
+            rho = conv2d(rho.unsqueeze(0).unsqueeze(0), self.blur_kernel, padding=self.blur_kernel.shape[-1] // 2).squeeze()
+        return rho
+
+    def _apply_projection(self, rho):
+        """Applies the projection parameterization operator"""
+        eta = self.eta.item()
+        beta = self.beta.item()
+        return (np.tanh(beta * eta) + torch.tanh(beta * (rho - eta))) / (np.tanh(beta * eta) + np.tanh(beta * (1 - eta)))
+
+    def _rho_model(self):
+        """Runs the complete parameterization model to return rho"""
+        rho = self.rho
+        rho = self._apply_blur(rho)
+        rho = self._apply_projection(rho)
+        return rho
+
+    @property
+    def c(self):
+        return self.c0.item() + (self.c1.item() - self.c0.item()) * self._rho_model()
+
+
 class WaveProbe(torch.nn.Module):
 
     def __init__(self, x, y):
@@ -330,6 +474,15 @@ class WaveProbe(torch.nn.Module):
     def plot(self, ax, color='k'):
         marker, = ax.plot(self.x.numpy(), self.y.numpy(), 'o', markeredgecolor=color, markerfacecolor='none', markeredgewidth=1.0, markersize=4)
         return marker
+
+
+class WaveIntensityProbe(WaveProbe):
+
+    def __init__(self, x, y):
+        super().__init__(x, y)
+
+    def forward(self, x):
+        return super().forward(x).pow(2)
 
 
 class WaveRNN(torch.nn.Module):
@@ -396,6 +549,21 @@ class WaveSource(torch.nn.Module):
         return marker
 
 
+class WaveLineSource(WaveSource):
+
+    def __init__(self, r0, c0, r1, c1):
+        x, y = skimage.draw.line(r0, c0, r1, c1)
+        self.r0 = r0
+        self.c0 = c0
+        self.r1 = r1
+        self.c1 = c1
+        super().__init__(x, y)
+
+    def plot(self, ax, color='r'):
+        line, = ax.plot([self.r0, self.r1], [self.c0, self.c1], '-', color=color, lw=2)
+        return line
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -403,6 +571,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (WaveIntensityProbe,
+     lambda: ([], {'x': 4, 'y': 4}),
+     lambda: ([torch.rand([4, 5, 5, 4])], {}),
+     False),
     (WaveProbe,
      lambda: ([], {'x': 4, 'y': 4}),
      lambda: ([torch.rand([4, 5, 5, 4])], {}),
@@ -419,4 +591,7 @@ class Test_fancompute_wavetorch(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

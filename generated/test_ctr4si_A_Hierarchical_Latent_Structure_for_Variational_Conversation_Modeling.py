@@ -33,15 +33,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -56,6 +57,15 @@ import torch.nn as nn
 
 
 import random
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+import numpy as np
 
 
 import torch
@@ -85,9 +95,6 @@ from torch.nn.utils.rnn import PackedSequence
 import copy
 
 
-import numpy as np
-
-
 from itertools import cycle
 
 
@@ -98,6 +105,12 @@ import re
 
 
 from collections import Counter
+
+
+from torch.autograd import Variable
+
+
+from torch import Tensor
 
 
 PAD_ID, UNK_ID, SOS_ID, EOS_ID = [0, 1, 2, 3]
@@ -168,6 +181,42 @@ class Beam(object):
         prediction = [step.index_select(0, top_k_idx).view(self.batch_size, self.beam_size) for step in reversed(prediction)]
         prediction = torch.stack(prediction, 2)
         return prediction, final_score, length
+
+
+class StackedLSTMCell(nn.Module):
+
+    def __init__(self, num_layers, input_size, rnn_size, dropout):
+        super(StackedLSTMCell, self).__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.num_layers = num_layers
+        self.layers = nn.ModuleList()
+        for i in range(num_layers):
+            self.layers.append(nn.LSTMCell(input_size, rnn_size))
+            input_size = rnn_size
+
+    def forward(self, x, h_c):
+        """
+        Args:
+            x: [batch_size, input_size]
+            h_c: [2, num_layers, batch_size, hidden_size]
+        Return:
+            last_h_c: [2, batch_size, hidden_size] (h from last layer)
+            h_c_list: [2, num_layers, batch_size, hidden_size] (h and c from all layers)
+        """
+        h_0, c_0 = h_c
+        h_list, c_list = [], []
+        for i, layer in enumerate(self.layers):
+            h_i, c_i = layer(x, (h_0[i], c_0[i]))
+            x = h_i
+            if i + 1 != self.num_layers:
+                x = self.dropout(x)
+            h_list += [h_i]
+            c_list += [c_i]
+        last_h_c = h_list[-1], c_list[-1]
+        h_list = torch.stack(h_list)
+        c_list = torch.stack(c_list)
+        h_c_list = h_list, c_list
+        return last_h_c, h_c_list
 
 
 class BaseRNNDecoder(nn.Module):
@@ -276,6 +325,114 @@ class BaseRNNDecoder(nn.Module):
         return prediction, final_score, length
 
 
+class StackedGRUCell(nn.Module):
+
+    def __init__(self, num_layers, input_size, rnn_size, dropout):
+        super(StackedGRUCell, self).__init__()
+        self.dropout = nn.Dropout(dropout)
+        self.num_layers = num_layers
+        self.layers = nn.ModuleList()
+        for i in range(num_layers):
+            self.layers.append(nn.GRUCell(input_size, rnn_size))
+            input_size = rnn_size
+
+    def forward(self, x, h):
+        """
+        Args:
+            x: [batch_size, input_size]
+            h: [num_layers, batch_size, hidden_size]
+        Return:
+            last_h: [batch_size, hidden_size] (h from last layer)
+            h_list: [num_layers, batch_size, hidden_size] (h from all layers)
+        """
+        h_list = []
+        for i, layer in enumerate(self.layers):
+            h_i = layer(x, h[i])
+            x = h_i
+            if i + 1 is not self.num_layers:
+                x = self.dropout(x)
+            h_list.append(h_i)
+        last_h = h_list[-1]
+        h_list = torch.stack(h_list)
+        return last_h, h_list
+
+
+class DecoderRNN(BaseRNNDecoder):
+
+    def __init__(self, vocab_size, embedding_size, hidden_size, rnncell=StackedGRUCell, num_layers=1, dropout=0.0, word_drop=0.0, max_unroll=30, sample=True, temperature=1.0, beam_size=1):
+        super(DecoderRNN, self).__init__()
+        self.vocab_size = vocab_size
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.temperature = temperature
+        self.word_drop = word_drop
+        self.max_unroll = max_unroll
+        self.sample = sample
+        self.beam_size = beam_size
+        self.embedding = nn.Embedding(vocab_size, embedding_size)
+        self.rnncell = rnncell(num_layers, embedding_size, hidden_size, dropout)
+        self.out = nn.Linear(hidden_size, vocab_size)
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward_step(self, x, h, encoder_outputs=None, input_valid_length=None):
+        """
+        Single RNN Step
+        1. Input Embedding (vocab_size => hidden_size)
+        2. RNN Step (hidden_size => hidden_size)
+        3. Output Projection (hidden_size => vocab size)
+
+        Args:
+            x: [batch_size]
+            h: [num_layers, batch_size, hidden_size] (h and c from all layers)
+
+        Return:
+            out: [batch_size,vocab_size] (Unnormalized word distribution)
+            h: [num_layers, batch_size, hidden_size] (h and c from all layers)
+        """
+        x = self.embed(x)
+        last_h, h = self.rnncell(x, h)
+        if self.use_lstm:
+            last_h = last_h[0]
+        out = self.out(last_h)
+        return out, h
+
+    def forward(self, inputs, init_h=None, encoder_outputs=None, input_valid_length=None, decode=False):
+        """
+        Train (decode=False)
+            Args:
+                inputs (Variable, LongTensor): [batch_size, seq_len]
+                init_h: (Variable, FloatTensor): [num_layers, batch_size, hidden_size]
+            Return:
+                out   : [batch_size, seq_len, vocab_size]
+        Test (decode=True)
+            Args:
+                inputs: None
+                init_h: (Variable, FloatTensor): [num_layers, batch_size, hidden_size]
+            Return:
+                out   : [batch_size, seq_len]
+        """
+        batch_size = self.batch_size(inputs, init_h)
+        x = self.init_token(batch_size, SOS_ID)
+        h = self.init_h(batch_size, hidden=init_h)
+        if not decode:
+            out_list = []
+            seq_len = inputs.size(1)
+            for i in range(seq_len):
+                out, h = self.forward_step(x, h)
+                out_list.append(out)
+                x = inputs[:, (i)]
+            return torch.stack(out_list, dim=1)
+        else:
+            x_list = []
+            for i in range(self.max_unroll):
+                out, h = self.forward_step(x, h)
+                x = self.decode(out)
+                x_list.append(x)
+            return torch.stack(x_list, dim=1)
+
+
 class BaseRNNEncoder(nn.Module):
 
     def __init__(self):
@@ -318,6 +475,112 @@ class BaseRNNEncoder(nn.Module):
         raise NotImplementedError
 
 
+class EncoderRNN(BaseRNNEncoder):
+
+    def __init__(self, vocab_size, embedding_size, hidden_size, rnn=nn.GRU, num_layers=1, bidirectional=False, dropout=0.0, bias=True, batch_first=True):
+        """Sentence-level Encoder"""
+        super(EncoderRNN, self).__init__()
+        self.vocab_size = vocab_size
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.batch_first = batch_first
+        self.bidirectional = bidirectional
+        if bidirectional:
+            self.num_directions = 2
+        else:
+            self.num_directions = 1
+        self.embedding = nn.Embedding(vocab_size, embedding_size, padding_idx=PAD_ID)
+        self.rnn = rnn(input_size=embedding_size, hidden_size=hidden_size, num_layers=num_layers, bias=bias, batch_first=batch_first, dropout=dropout, bidirectional=bidirectional)
+
+    def forward(self, inputs, input_length, hidden=None):
+        """
+        Args:
+            inputs (Variable, LongTensor): [num_setences, max_seq_len]
+            input_length (Variable, LongTensor): [num_sentences]
+        Return:
+            outputs (Variable): [max_source_length, batch_size, hidden_size]
+                - list of all hidden states
+            hidden ((tuple of) Variable): [num_layers*num_directions, batch_size, hidden_size]
+                - last hidden state
+                - (h, c) or h
+        """
+        batch_size, seq_len = inputs.size()
+        input_length_sorted, indices = input_length.sort(descending=True)
+        input_length_sorted = input_length_sorted.data.tolist()
+        inputs_sorted = inputs.index_select(0, indices)
+        embedded = self.embedding(inputs_sorted)
+        rnn_input = pack_padded_sequence(embedded, input_length_sorted, batch_first=self.batch_first)
+        hidden = self.init_h(batch_size, hidden=hidden)
+        self.rnn.flatten_parameters()
+        outputs, hidden = self.rnn(rnn_input, hidden)
+        outputs, outputs_lengths = pad_packed_sequence(outputs, batch_first=self.batch_first)
+        _, inverse_indices = indices.sort()
+        outputs = outputs.index_select(0, inverse_indices)
+        if self.use_lstm:
+            hidden = hidden[0].index_select(1, inverse_indices), hidden[1].index_select(1, inverse_indices)
+        else:
+            hidden = hidden.index_select(1, inverse_indices)
+        return outputs, hidden
+
+
+class ContextRNN(BaseRNNEncoder):
+
+    def __init__(self, input_size, context_size, rnn=nn.GRU, num_layers=1, dropout=0.0, bidirectional=False, bias=True, batch_first=True):
+        """Context-level Encoder"""
+        super(ContextRNN, self).__init__()
+        self.input_size = input_size
+        self.context_size = context_size
+        self.hidden_size = self.context_size
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.bidirectional = bidirectional
+        self.batch_first = batch_first
+        if bidirectional:
+            self.num_directions = 2
+        else:
+            self.num_directions = 1
+        self.rnn = rnn(input_size=input_size, hidden_size=context_size, num_layers=num_layers, bias=bias, batch_first=batch_first, dropout=dropout, bidirectional=bidirectional)
+
+    def forward(self, encoder_hidden, conversation_length, hidden=None):
+        """
+        Args:
+            encoder_hidden (Variable, FloatTensor): [batch_size, max_len, num_layers * direction * hidden_size]
+            conversation_length (Variable, LongTensor): [batch_size]
+        Return:
+            outputs (Variable): [batch_size, max_seq_len, hidden_size]
+                - list of all hidden states
+            hidden ((tuple of) Variable): [num_layers*num_directions, batch_size, hidden_size]
+                - last hidden state
+                - (h, c) or h
+        """
+        batch_size, seq_len, _ = encoder_hidden.size()
+        conv_length_sorted, indices = conversation_length.sort(descending=True)
+        conv_length_sorted = conv_length_sorted.data.tolist()
+        encoder_hidden_sorted = encoder_hidden.index_select(0, indices)
+        rnn_input = pack_padded_sequence(encoder_hidden_sorted, conv_length_sorted, batch_first=True)
+        hidden = self.init_h(batch_size, hidden=hidden)
+        self.rnn.flatten_parameters()
+        outputs, hidden = self.rnn(rnn_input, hidden)
+        outputs, outputs_length = pad_packed_sequence(outputs, batch_first=True)
+        _, inverse_indices = indices.sort()
+        outputs = outputs.index_select(0, inverse_indices)
+        if self.use_lstm:
+            hidden = hidden[0].index_select(1, inverse_indices), hidden[1].index_select(1, inverse_indices)
+        else:
+            hidden = hidden.index_select(1, inverse_indices)
+        return outputs, hidden
+
+    def step(self, encoder_hidden, hidden):
+        batch_size = encoder_hidden.size(0)
+        encoder_hidden = torch.unsqueeze(encoder_hidden, 1)
+        if hidden is None:
+            hidden = self.init_h(batch_size, hidden=None)
+        outputs, hidden = self.rnn(encoder_hidden, hidden)
+        return outputs, hidden
+
+
 class FeedForward(nn.Module):
 
     def __init__(self, input_size, output_size, num_layers=1, hidden_size=None, activation='Tanh', bias=True):
@@ -339,83 +602,15 @@ class FeedForward(nn.Module):
         return x
 
 
-class StackedLSTMCell(nn.Module):
-
-    def __init__(self, num_layers, input_size, rnn_size, dropout):
-        super(StackedLSTMCell, self).__init__()
-        self.dropout = nn.Dropout(dropout)
-        self.num_layers = num_layers
-        self.layers = nn.ModuleList()
-        for i in range(num_layers):
-            self.layers.append(nn.LSTMCell(input_size, rnn_size))
-            input_size = rnn_size
-
-    def forward(self, x, h_c):
-        """
-        Args:
-            x: [batch_size, input_size]
-            h_c: [2, num_layers, batch_size, hidden_size]
-        Return:
-            last_h_c: [2, batch_size, hidden_size] (h from last layer)
-            h_c_list: [2, num_layers, batch_size, hidden_size] (h and c from all layers)
-        """
-        h_0, c_0 = h_c
-        h_list, c_list = [], []
-        for i, layer in enumerate(self.layers):
-            h_i, c_i = layer(x, (h_0[i], c_0[i]))
-            x = h_i
-            if i + 1 != self.num_layers:
-                x = self.dropout(x)
-            h_list += [h_i]
-            c_list += [c_i]
-        last_h_c = h_list[-1], c_list[-1]
-        h_list = torch.stack(h_list)
-        c_list = torch.stack(c_list)
-        h_c_list = h_list, c_list
-        return last_h_c, h_c_list
-
-
-class StackedGRUCell(nn.Module):
-
-    def __init__(self, num_layers, input_size, rnn_size, dropout):
-        super(StackedGRUCell, self).__init__()
-        self.dropout = nn.Dropout(dropout)
-        self.num_layers = num_layers
-        self.layers = nn.ModuleList()
-        for i in range(num_layers):
-            self.layers.append(nn.GRUCell(input_size, rnn_size))
-            input_size = rnn_size
-
-    def forward(self, x, h):
-        """
-        Args:
-            x: [batch_size, input_size]
-            h: [num_layers, batch_size, hidden_size]
-        Return:
-            last_h: [batch_size, hidden_size] (h from last layer)
-            h_list: [num_layers, batch_size, hidden_size] (h from all layers)
-        """
-        h_list = []
-        for i, layer in enumerate(self.layers):
-            h_i = layer(x, h[i])
-            x = h_i
-            if i + 1 is not self.num_layers:
-                x = self.dropout(x)
-            h_list.append(h_i)
-        last_h = h_list[-1]
-        h_list = torch.stack(h_list)
-        return last_h, h_list
-
-
 def pad(tensor, length):
     if isinstance(tensor, Variable):
         var = tensor
         if length > var.size(0):
-            return torch.cat([var, torch.zeros(length - var.size(0), *var.size()[1:]).cuda()])
+            return torch.cat([var, torch.zeros(length - var.size(0), *var.size()[1:])])
         else:
             return var
     elif length > tensor.size(0):
-        return torch.cat([tensor, torch.zeros(length - tensor.size(0), *tensor.size()[1:]).cuda()])
+        return torch.cat([tensor, torch.zeros(length - tensor.size(0), *tensor.size()[1:])])
     else:
         return tensor
 

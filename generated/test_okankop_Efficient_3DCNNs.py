@@ -28,6 +28,7 @@ thop = _module
 count_hooks = _module
 utils = _module
 train = _module
+utils = _module
 eval_kinetics = _module
 eval_ucf101 = _module
 jester_json = _module
@@ -46,15 +47,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -62,10 +64,37 @@ __version__ = '1.0.0'
 import torch.nn as nn
 
 
+import torch
+
+
+import torch.utils.data as data
+
+
 import math
 
 
-import torch
+import functools
+
+
+import copy
+
+
+from numpy.random import randint
+
+
+import numpy as np
+
+
+import random
+
+
+from torch import nn
+
+
+from torch import optim
+
+
+from torch.optim import lr_scheduler
 
 
 import torch.nn.init as init
@@ -86,10 +115,19 @@ from collections import OrderedDict
 from torch.nn import init
 
 
+import numbers
+
+
+import collections
+
+
+import scipy.ndimage
+
+
 import time
 
 
-import numpy as np
+from sklearn.metrics import confusion_matrix
 
 
 from torch.nn import functional as F
@@ -173,23 +211,41 @@ class MobileNet(nn.Module):
         return x
 
 
+def channel_shuffle(x, groups):
+    """Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]"""
+    batchsize, num_channels, depth, height, width = x.data.size()
+    channels_per_group = num_channels // groups
+    x = x.view(batchsize, groups, channels_per_group, depth, height, width)
+    x = x.permute(0, 2, 1, 3, 4, 5).contiguous()
+    x = x.view(batchsize, num_channels, depth, height, width)
+    return x
+
+
 class InvertedResidual(nn.Module):
 
-    def __init__(self, inp, oup, stride, expand_ratio):
+    def __init__(self, inp, oup, stride):
         super(InvertedResidual, self).__init__()
         self.stride = stride
-        hidden_dim = round(inp * expand_ratio)
-        self.use_res_connect = self.stride == (1, 1, 1) and inp == oup
-        if expand_ratio == 1:
-            self.conv = nn.Sequential(nn.Conv3d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm3d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv3d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm3d(oup))
+        assert stride in [1, 2]
+        oup_inc = oup // 2
+        if self.stride == 1:
+            self.banch2 = nn.Sequential(nn.Conv3d(oup_inc, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True), nn.Conv3d(oup_inc, oup_inc, 3, stride, 1, groups=oup_inc, bias=False), nn.BatchNorm3d(oup_inc), nn.Conv3d(oup_inc, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True))
         else:
-            self.conv = nn.Sequential(nn.Conv3d(inp, hidden_dim, 1, 1, 0, bias=False), nn.BatchNorm3d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv3d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm3d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv3d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm3d(oup))
+            self.banch1 = nn.Sequential(nn.Conv3d(inp, inp, 3, stride, 1, groups=inp, bias=False), nn.BatchNorm3d(inp), nn.Conv3d(inp, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True))
+            self.banch2 = nn.Sequential(nn.Conv3d(inp, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True), nn.Conv3d(oup_inc, oup_inc, 3, stride, 1, groups=oup_inc, bias=False), nn.BatchNorm3d(oup_inc), nn.Conv3d(oup_inc, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True))
+
+    @staticmethod
+    def _concat(x, out):
+        return torch.cat((x, out), 1)
 
     def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
+        if self.stride == 1:
+            x1 = x[:, :x.shape[1] // 2, :, :, :]
+            x2 = x[:, x.shape[1] // 2:, :, :, :]
+            out = self._concat(x1, self.banch2(x2))
+        elif self.stride == 2:
+            out = self._concat(self.banch1(x), self.banch2(x))
+        return channel_shuffle(out, 2)
 
 
 def conv_1x1x1_bn(inp, oup):
@@ -274,42 +330,42 @@ class BasicBlock(nn.Module):
 
 
 class Bottleneck(nn.Module):
-    expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, in_planes, out_planes, stride, groups):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm3d(planes)
-        self.conv2 = nn.Conv3d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm3d(planes)
-        self.conv3 = nn.Conv3d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm3d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
         self.stride = stride
+        self.groups = groups
+        mid_planes = out_planes // 4
+        if self.stride == 2:
+            out_planes = out_planes - in_planes
+        g = 1 if in_planes == 24 else groups
+        self.conv1 = nn.Conv3d(in_planes, mid_planes, kernel_size=1, groups=g, bias=False)
+        self.bn1 = nn.BatchNorm3d(mid_planes)
+        self.conv2 = nn.Conv3d(mid_planes, mid_planes, kernel_size=3, stride=stride, padding=1, groups=mid_planes, bias=False)
+        self.bn2 = nn.BatchNorm3d(mid_planes)
+        self.conv3 = nn.Conv3d(mid_planes, out_planes, kernel_size=1, groups=groups, bias=False)
+        self.bn3 = nn.BatchNorm3d(out_planes)
+        self.relu = nn.ReLU(inplace=True)
+        if stride == 2:
+            self.shortcut = nn.AvgPool3d(kernel_size=(2, 3, 3), stride=2, padding=(0, 1, 1))
 
     def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = channel_shuffle(out, self.groups)
+        out = self.bn2(self.conv2(out))
+        out = self.bn3(self.conv3(out))
+        if self.stride == 2:
+            out = self.relu(torch.cat([out, self.shortcut(x)], 1))
+        else:
+            out = self.relu(out + x)
         return out
 
 
 def downsample_basic_block(x, planes, stride):
     out = F.avg_pool3d(x, kernel_size=1, stride=stride)
     zero_pads = torch.Tensor(out.size(0), planes - out.size(1), out.size(2), out.size(3), out.size(4)).zero_()
-    if isinstance(out.data, torch.cuda.FloatTensor):
-        zero_pads = zero_pads.cuda()
+    if isinstance(out.data, torch.FloatTensor):
+        zero_pads = zero_pads
     out = Variable(torch.cat([out.data, zero_pads], dim=1))
     return out
 
@@ -453,48 +509,6 @@ class ResNeXt(nn.Module):
         return x
 
 
-def channel_shuffle(x, groups):
-    """Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]"""
-    batchsize, num_channels, depth, height, width = x.data.size()
-    channels_per_group = num_channels // groups
-    x = x.view(batchsize, groups, channels_per_group, depth, height, width)
-    x = x.permute(0, 2, 1, 3, 4, 5).contiguous()
-    x = x.view(batchsize, num_channels, depth, height, width)
-    return x
-
-
-class Bottleneck(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride, groups):
-        super(Bottleneck, self).__init__()
-        self.stride = stride
-        self.groups = groups
-        mid_planes = out_planes // 4
-        if self.stride == 2:
-            out_planes = out_planes - in_planes
-        g = 1 if in_planes == 24 else groups
-        self.conv1 = nn.Conv3d(in_planes, mid_planes, kernel_size=1, groups=g, bias=False)
-        self.bn1 = nn.BatchNorm3d(mid_planes)
-        self.conv2 = nn.Conv3d(mid_planes, mid_planes, kernel_size=3, stride=stride, padding=1, groups=mid_planes, bias=False)
-        self.bn2 = nn.BatchNorm3d(mid_planes)
-        self.conv3 = nn.Conv3d(mid_planes, out_planes, kernel_size=1, groups=groups, bias=False)
-        self.bn3 = nn.BatchNorm3d(out_planes)
-        self.relu = nn.ReLU(inplace=True)
-        if stride == 2:
-            self.shortcut = nn.AvgPool3d(kernel_size=(2, 3, 3), stride=2, padding=(0, 1, 1))
-
-    def forward(self, x):
-        out = self.relu(self.bn1(self.conv1(x)))
-        out = channel_shuffle(out, self.groups)
-        out = self.bn2(self.conv2(out))
-        out = self.bn3(self.conv3(out))
-        if self.stride == 2:
-            out = self.relu(torch.cat([out, self.shortcut(x)], 1))
-        else:
-            out = self.relu(out + x)
-        return out
-
-
 class ShuffleNet(nn.Module):
 
     def __init__(self, groups, width_mult=1, num_classes=400):
@@ -542,33 +556,6 @@ class ShuffleNet(nn.Module):
         out = out.view(out.size(0), -1)
         out = self.classifier(out)
         return out
-
-
-class InvertedResidual(nn.Module):
-
-    def __init__(self, inp, oup, stride):
-        super(InvertedResidual, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        oup_inc = oup // 2
-        if self.stride == 1:
-            self.banch2 = nn.Sequential(nn.Conv3d(oup_inc, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True), nn.Conv3d(oup_inc, oup_inc, 3, stride, 1, groups=oup_inc, bias=False), nn.BatchNorm3d(oup_inc), nn.Conv3d(oup_inc, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True))
-        else:
-            self.banch1 = nn.Sequential(nn.Conv3d(inp, inp, 3, stride, 1, groups=inp, bias=False), nn.BatchNorm3d(inp), nn.Conv3d(inp, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True))
-            self.banch2 = nn.Sequential(nn.Conv3d(inp, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True), nn.Conv3d(oup_inc, oup_inc, 3, stride, 1, groups=oup_inc, bias=False), nn.BatchNorm3d(oup_inc), nn.Conv3d(oup_inc, oup_inc, 1, 1, 0, bias=False), nn.BatchNorm3d(oup_inc), nn.ReLU(inplace=True))
-
-    @staticmethod
-    def _concat(x, out):
-        return torch.cat((x, out), 1)
-
-    def forward(self, x):
-        if self.stride == 1:
-            x1 = x[:, :x.shape[1] // 2, :, :, :]
-            x2 = x[:, x.shape[1] // 2:, :, :, :]
-            out = self._concat(x1, self.banch2(x2))
-        elif self.stride == 2:
-            out = self._concat(self.banch1(x), self.banch2(x))
-        return channel_shuffle(out, 2)
 
 
 class ShuffleNetV2(nn.Module):
@@ -700,10 +687,6 @@ TESTCASES = [
      lambda: ([], {'groups': 1}),
      lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
      False),
-    (ShuffleNetV2,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
-     False),
     (SqueezeNet,
      lambda: ([], {'sample_size': 4, 'sample_duration': 4}),
      lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
@@ -728,7 +711,4 @@ class Test_okankop_Efficient_3DCNNs(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

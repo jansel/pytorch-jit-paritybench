@@ -14,17 +14,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils.data.dataset import Dataset
+
+
+from torchvision.transforms import Compose
+
+
+from torchvision.transforms import RandomCrop
+
+
+from torchvision.transforms import ToTensor
+
+
+from torchvision.transforms import ToPILImage
+
+
+from torchvision.transforms import CenterCrop
+
+
+from torchvision.transforms import Resize
 
 
 import torch
@@ -48,24 +70,28 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
-class GeneratorLoss(nn.Module):
+from math import log10
 
-    def __init__(self):
-        super(GeneratorLoss, self).__init__()
-        vgg = vgg16(pretrained=True)
-        loss_network = nn.Sequential(*list(vgg.features)[:31]).eval()
-        for param in loss_network.parameters():
-            param.requires_grad = False
-        self.loss_network = loss_network
-        self.mse_loss = nn.MSELoss()
-        self.tv_loss = TVLoss()
 
-    def forward(self, out_labels, out_images, target_images):
-        adversarial_loss = torch.mean(1 - out_labels)
-        perception_loss = self.mse_loss(self.loss_network(out_images), self.loss_network(target_images))
-        image_loss = self.mse_loss(out_images, target_images)
-        tv_loss = self.tv_loss(out_images)
-        return image_loss + 0.001 * adversarial_loss + 0.006 * perception_loss + 2e-08 * tv_loss
+import numpy as np
+
+
+import torchvision.utils as utils
+
+
+from torch.utils.data import DataLoader
+
+
+import time
+
+
+import torchvision.transforms as transforms
+
+
+import torch.optim as optim
+
+
+import torch.utils.data
 
 
 class TVLoss(nn.Module):
@@ -87,6 +113,60 @@ class TVLoss(nn.Module):
     @staticmethod
     def tensor_size(t):
         return t.size()[1] * t.size()[2] * t.size()[3]
+
+
+class GeneratorLoss(nn.Module):
+
+    def __init__(self):
+        super(GeneratorLoss, self).__init__()
+        vgg = vgg16(pretrained=True)
+        loss_network = nn.Sequential(*list(vgg.features)[:31]).eval()
+        for param in loss_network.parameters():
+            param.requires_grad = False
+        self.loss_network = loss_network
+        self.mse_loss = nn.MSELoss()
+        self.tv_loss = TVLoss()
+
+    def forward(self, out_labels, out_images, target_images):
+        adversarial_loss = torch.mean(1 - out_labels)
+        perception_loss = self.mse_loss(self.loss_network(out_images), self.loss_network(target_images))
+        image_loss = self.mse_loss(out_images, target_images)
+        tv_loss = self.tv_loss(out_images)
+        return image_loss + 0.001 * adversarial_loss + 0.006 * perception_loss + 2e-08 * tv_loss
+
+
+class ResidualBlock(nn.Module):
+
+    def __init__(self, channels):
+        super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(channels)
+        self.prelu = nn.PReLU()
+        self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(channels)
+
+    def forward(self, x):
+        residual = self.conv1(x)
+        residual = self.bn1(residual)
+        residual = self.prelu(residual)
+        residual = self.conv2(residual)
+        residual = self.bn2(residual)
+        return x + residual
+
+
+class UpsampleBLock(nn.Module):
+
+    def __init__(self, in_channels, up_scale):
+        super(UpsampleBLock, self).__init__()
+        self.conv = nn.Conv2d(in_channels, in_channels * up_scale ** 2, kernel_size=3, padding=1)
+        self.pixel_shuffle = nn.PixelShuffle(up_scale)
+        self.prelu = nn.PReLU()
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.pixel_shuffle(x)
+        x = self.prelu(x)
+        return x
 
 
 class Generator(nn.Module):
@@ -126,40 +206,6 @@ class Discriminator(nn.Module):
     def forward(self, x):
         batch_size = x.size(0)
         return torch.sigmoid(self.net(x).view(batch_size))
-
-
-class ResidualBlock(nn.Module):
-
-    def __init__(self, channels):
-        super(ResidualBlock, self).__init__()
-        self.conv1 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(channels)
-        self.prelu = nn.PReLU()
-        self.conv2 = nn.Conv2d(channels, channels, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(channels)
-
-    def forward(self, x):
-        residual = self.conv1(x)
-        residual = self.bn1(residual)
-        residual = self.prelu(residual)
-        residual = self.conv2(residual)
-        residual = self.bn2(residual)
-        return x + residual
-
-
-class UpsampleBLock(nn.Module):
-
-    def __init__(self, in_channels, up_scale):
-        super(UpsampleBLock, self).__init__()
-        self.conv = nn.Conv2d(in_channels, in_channels * up_scale ** 2, kernel_size=3, padding=1)
-        self.pixel_shuffle = nn.PixelShuffle(up_scale)
-        self.prelu = nn.PReLU()
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.pixel_shuffle(x)
-        x = self.prelu(x)
-        return x
 
 
 def _ssim(img1, img2, window, window_size, channel, size_average=True):

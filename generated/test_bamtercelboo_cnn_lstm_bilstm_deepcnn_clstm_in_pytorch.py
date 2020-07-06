@@ -38,17 +38,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import re
+
+
+from torchtext import data
+
+
+import random
 
 
 import torch
@@ -66,13 +76,13 @@ from collections import OrderedDict
 import numpy as np
 
 
+import torchtext.data as data
+
+
 import torch.nn.functional as F
 
 
 from torch.autograd import Variable
-
-
-import random
 
 
 import torch.autograd as autograd
@@ -95,39 +105,77 @@ class CNN_Text(nn.Module):
         Ci = 1
         Co = args.kernel_num
         Ks = args.kernel_sizes
-        self.embed = nn.Embedding(V, D)
-        pretrained_weight = np.array(args.pretrained_weight)
-        self.embed.weight.data.copy_(torch.from_numpy(pretrained_weight))
-        self.convs1 = [nn.Conv2d(Ci, Co, (K, D)) for K in Ks]
-        """
-        self.conv13 = nn.Conv2d(Ci, Co, (3, D))
-        self.conv14 = nn.Conv2d(Ci, Co, (4, D))
-        self.conv15 = nn.Conv2d(Ci, Co, (5, D))
-        """
+        if args.max_norm is not None:
+            None
+            self.embed = nn.Embedding(V, D, max_norm=5, scale_grad_by_freq=True, padding_idx=args.paddingId)
+        else:
+            None
+            self.embed = nn.Embedding(V, D, scale_grad_by_freq=True, padding_idx=args.paddingId)
+        if args.word_Embedding:
+            self.embed.weight.data.copy_(args.pretrained_weight)
+            self.embed.weight.requires_grad = True
+        None
+        if args.wide_conv is True:
+            None
+            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co, kernel_size=(K, D), stride=(1, 1), padding=(K // 2, 0), dilation=1, bias=False) for K in Ks]
+        else:
+            None
+            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co, kernel_size=(K, D), bias=True) for K in Ks]
+        None
+        if args.init_weight:
+            None
+            for conv in self.convs1:
+                init.xavier_normal(conv.weight.data, gain=np.sqrt(args.init_weight_value))
+                fan_in, fan_out = CNN_Text.calculate_fan_in_and_fan_out(conv.weight.data)
+                None
+                std = np.sqrt(args.init_weight_value) * np.sqrt(2.0 / (fan_in + fan_out))
+        if self.args.cuda is True:
+            for conv in self.convs1:
+                conv = conv
         self.dropout = nn.Dropout(args.dropout)
-        self.fc1 = nn.Linear(len(Ks) * Co, C)
+        self.dropout_embed = nn.Dropout(args.dropout_embed)
+        in_fea = len(Ks) * Co
+        self.fc = nn.Linear(in_features=in_fea, out_features=C, bias=True)
+        if args.batch_normalizations is True:
+            None
+            self.convs1_bn = nn.BatchNorm2d(num_features=Co, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
+            self.fc1_bn = nn.BatchNorm1d(num_features=in_fea // 2, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
+            self.fc2_bn = nn.BatchNorm1d(num_features=C, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
 
-    def conv_and_pool(self, x, conv):
-        x = F.relu(conv(x)).squeeze(3)
-        x = F.max_pool1d(x, x.size(2)).squeeze(2)
-        return x
+    def calculate_fan_in_and_fan_out(tensor):
+        dimensions = tensor.ndimension()
+        if dimensions < 2:
+            raise ValueError('Fan in and fan out can not be computed for tensor with less than 2 dimensions')
+        if dimensions == 2:
+            fan_in = tensor.size(1)
+            fan_out = tensor.size(0)
+        else:
+            num_input_fmaps = tensor.size(1)
+            num_output_fmaps = tensor.size(0)
+            receptive_field_size = 1
+            if tensor.dim() > 2:
+                receptive_field_size = tensor[0][0].numel()
+            fan_in = num_input_fmaps * receptive_field_size
+            fan_out = num_output_fmaps * receptive_field_size
+        return fan_in, fan_out
 
     def forward(self, x):
         x = self.embed(x)
-        if self.args.static:
-            x = Variable(x.data)
+        x = self.dropout_embed(x)
         x = x.unsqueeze(1)
-        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
-        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        if self.args.batch_normalizations is True:
+            x = [self.convs1_bn(F.tanh(conv(x))).squeeze(3) for conv in self.convs1]
+            x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        else:
+            x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
+            x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
         x = torch.cat(x, 1)
-        """
-        x1 = self.conv_and_pool(x,self.conv13) #(N,Co)
-        x2 = self.conv_and_pool(x,self.conv14) #(N,Co)
-        x3 = self.conv_and_pool(x,self.conv15) #(N,Co)
-        x = torch.cat((x1, x2, x3), 1) # (N,len(Ks)*Co)
-        """
         x = self.dropout(x)
-        logit = self.fc1(x)
+        if self.args.batch_normalizations is True:
+            x = self.fc1_bn(self.fc1(x))
+            logit = self.fc2_bn(self.fc2(F.tanh(x)))
+        else:
+            logit = self.fc(x)
         return logit
 
 
@@ -191,51 +239,6 @@ class BiLSTM(nn.Module):
         y = self.hidden2label1(bilstm_out)
         y = self.hidden2label2(y)
         logit = y
-        return logit
-
-
-class BiLSTM_1(nn.Module):
-
-    def __init__(self, args):
-        super(BiLSTM_1, self).__init__()
-        self.args = args
-        self.hidden_dim = args.lstm_hidden_dim
-        self.num_layers = args.lstm_num_layers
-        V = args.embed_num
-        D = args.embed_dim
-        C = args.class_num
-        self.dropout = nn.Dropout(args.dropout)
-        self.dropout_embed = nn.Dropout(args.dropout_embed)
-        if args.max_norm is not None:
-            None
-            self.embed = nn.Embedding(V, D, max_norm=args.max_norm, scale_grad_by_freq=True, padding_idx=args.paddingId)
-            if args.word_Embedding:
-                self.embed.weight.data.copy_(args.pretrained_weight)
-        else:
-            None
-            self.embed = nn.Embedding(V, D, scale_grad_by_freq=True, padding_idx=args.paddingId)
-            if args.word_Embedding:
-                self.embed.weight.data.copy_(args.pretrained_weight)
-        self.bilstm = nn.LSTM(D, self.hidden_dim, num_layers=self.num_layers, bias=True, bidirectional=True, dropout=self.args.dropout)
-        None
-        if args.init_weight:
-            None
-            init.xavier_normal(self.bilstm.all_weights[0][0], gain=np.sqrt(args.init_weight_value))
-            init.xavier_normal(self.bilstm.all_weights[0][1], gain=np.sqrt(args.init_weight_value))
-            init.xavier_normal(self.bilstm.all_weights[1][0], gain=np.sqrt(args.init_weight_value))
-            init.xavier_normal(self.bilstm.all_weights[1][1], gain=np.sqrt(args.init_weight_value))
-        self.hidden2label = nn.Linear(self.hidden_dim * 2, C)
-
-    def forward(self, x):
-        x = self.embed(x)
-        x = self.dropout_embed(x)
-        bilstm_out, _ = self.bilstm(x)
-        bilstm_out = torch.transpose(bilstm_out, 0, 1)
-        bilstm_out = torch.transpose(bilstm_out, 1, 2)
-        bilstm_out = F.tanh(bilstm_out)
-        bilstm_out = F.max_pool1d(bilstm_out, bilstm_out.size(2)).squeeze(2)
-        bilstm_out = F.tanh(bilstm_out)
-        logit = self.hidden2label(bilstm_out)
         return logit
 
 
@@ -402,91 +405,6 @@ class CLSTM(nn.Module):
         cnn_lstm_out = self.hidden2label1(F.tanh(lstm_out))
         cnn_lstm_out = self.hidden2label2(F.tanh(cnn_lstm_out))
         logit = cnn_lstm_out
-        return logit
-
-
-class CNN_Text(nn.Module):
-
-    def __init__(self, args):
-        super(CNN_Text, self).__init__()
-        self.args = args
-        V = args.embed_num
-        D = args.embed_dim
-        C = args.class_num
-        Ci = 1
-        Co = args.kernel_num
-        Ks = args.kernel_sizes
-        if args.max_norm is not None:
-            None
-            self.embed = nn.Embedding(V, D, max_norm=5, scale_grad_by_freq=True, padding_idx=args.paddingId)
-        else:
-            None
-            self.embed = nn.Embedding(V, D, scale_grad_by_freq=True, padding_idx=args.paddingId)
-        if args.word_Embedding:
-            self.embed.weight.data.copy_(args.pretrained_weight)
-            self.embed.weight.requires_grad = True
-        None
-        if args.wide_conv is True:
-            None
-            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co, kernel_size=(K, D), stride=(1, 1), padding=(K // 2, 0), dilation=1, bias=False) for K in Ks]
-        else:
-            None
-            self.convs1 = [nn.Conv2d(in_channels=Ci, out_channels=Co, kernel_size=(K, D), bias=True) for K in Ks]
-        None
-        if args.init_weight:
-            None
-            for conv in self.convs1:
-                init.xavier_normal(conv.weight.data, gain=np.sqrt(args.init_weight_value))
-                fan_in, fan_out = CNN_Text.calculate_fan_in_and_fan_out(conv.weight.data)
-                None
-                std = np.sqrt(args.init_weight_value) * np.sqrt(2.0 / (fan_in + fan_out))
-        if self.args.cuda is True:
-            for conv in self.convs1:
-                conv = conv
-        self.dropout = nn.Dropout(args.dropout)
-        self.dropout_embed = nn.Dropout(args.dropout_embed)
-        in_fea = len(Ks) * Co
-        self.fc = nn.Linear(in_features=in_fea, out_features=C, bias=True)
-        if args.batch_normalizations is True:
-            None
-            self.convs1_bn = nn.BatchNorm2d(num_features=Co, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
-            self.fc1_bn = nn.BatchNorm1d(num_features=in_fea // 2, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
-            self.fc2_bn = nn.BatchNorm1d(num_features=C, momentum=args.bath_norm_momentum, affine=args.batch_norm_affine)
-
-    def calculate_fan_in_and_fan_out(tensor):
-        dimensions = tensor.ndimension()
-        if dimensions < 2:
-            raise ValueError('Fan in and fan out can not be computed for tensor with less than 2 dimensions')
-        if dimensions == 2:
-            fan_in = tensor.size(1)
-            fan_out = tensor.size(0)
-        else:
-            num_input_fmaps = tensor.size(1)
-            num_output_fmaps = tensor.size(0)
-            receptive_field_size = 1
-            if tensor.dim() > 2:
-                receptive_field_size = tensor[0][0].numel()
-            fan_in = num_input_fmaps * receptive_field_size
-            fan_out = num_output_fmaps * receptive_field_size
-        return fan_in, fan_out
-
-    def forward(self, x):
-        x = self.embed(x)
-        x = self.dropout_embed(x)
-        x = x.unsqueeze(1)
-        if self.args.batch_normalizations is True:
-            x = [self.convs1_bn(F.tanh(conv(x))).squeeze(3) for conv in self.convs1]
-            x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
-        else:
-            x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
-            x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
-        x = torch.cat(x, 1)
-        x = self.dropout(x)
-        if self.args.batch_normalizations is True:
-            x = self.fc1_bn(self.fc1(x))
-            logit = self.fc2_bn(self.fc2(F.tanh(x)))
-        else:
-            logit = self.fc(x)
         return logit
 
 

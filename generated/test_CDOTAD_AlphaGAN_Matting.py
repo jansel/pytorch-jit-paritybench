@@ -27,23 +27,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch.utils.data
+
+
+import torch.utils.data as data
 
 
 import torchvision.transforms as transforms
 
 
 import numpy as np
+
+
+import random
+
+
+import math
 
 
 import torch as t
@@ -82,324 +95,10 @@ import torch.nn.init as init
 from torch.nn.parallel.data_parallel import DataParallel
 
 
-class _AsppBlock(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, kernel_size, dilation_rate, BatchNorm):
-        super(_AsppBlock, self).__init__()
-        if dilation_rate == 1:
-            self.atrous_conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, bias=False)
-        else:
-            self.atrous_conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, dilation=dilation_rate, padding=dilation_rate, bias=False)
-        self.bn = BatchNorm(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self._init_weight()
-
-    def forward(self, _input):
-        x = self.atrous_conv(_input)
-        x = self.bn(x)
-        return self.relu(x)
-
-    def _init_weight(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight)
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+from itertools import chain
 
 
-class ASPP(nn.Module):
-
-    def __init__(self, in_channels, out_channels, BatchNorm):
-        super(ASPP, self).__init__()
-        self.aspp_1 = _AsppBlock(in_channels, 256, kernel_size=1, dilation_rate=1, BatchNorm=BatchNorm)
-        self.aspp_6 = _AsppBlock(in_channels, 256, kernel_size=3, dilation_rate=6, BatchNorm=BatchNorm)
-        self.aspp_12 = _AsppBlock(in_channels, 256, kernel_size=3, dilation_rate=12, BatchNorm=BatchNorm)
-        self.aspp_18 = _AsppBlock(in_channels, 256, kernel_size=3, dilation_rate=18, BatchNorm=BatchNorm)
-        self.image_pooling = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, bias=False), BatchNorm(out_channels), nn.ReLU(True))
-        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=5 * out_channels, out_channels=out_channels, kernel_size=1, bias=False), BatchNorm(out_channels), nn.ReLU(True))
-        self._init_weight()
-
-    def forward(self, x):
-        aspp1 = self.aspp_1(x)
-        aspp6 = self.aspp_6(x)
-        aspp12 = self.aspp_12(x)
-        aspp18 = self.aspp_18(x)
-        im_p = self.image_pooling(x)
-        im_p = F.interpolate(im_p, size=aspp18.size()[2:], mode='bilinear', align_corners=True)
-        aspp = [aspp1, aspp6, aspp12, aspp18, im_p]
-        aspp = t.cat(aspp, dim=1)
-        return self.conv1(aspp)
-
-    def _init_weight(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight)
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-
-def BatchNormGroup(num_features):
-    return nn.GroupNorm(num_channels=num_features, num_groups=32)
-
-
-class NetG(nn.Module):
-
-    def __init__(self, sync_bn=True):
-        super(NetG, self).__init__()
-        if sync_bn:
-            BatchNorm = SynchronizedBatchNorm2d
-        else:
-            BatchNorm = BatchNormGroup
-        self.encoder = Encoder(BatchNorm)
-        self.decoder = Decoder(BatchNorm)
-
-    def forward(self, x):
-        x = self.encoder(x)
-        return self.decoder(x)
-
-
-class AlphaLoss(nn.Module):
-
-    def __init__(self, eps=1e-06):
-        super(AlphaLoss, self).__init__()
-        self.eps = eps
-
-    def forward(self, predict, truth, unknown_region_size):
-        diff = predict - truth
-        losses = t.sqrt(diff.pow(2) + self.eps * self.eps)
-        loss = losses.sum() / (unknown_region_size + 1.0)
-        return loss
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, BatchNorm, stride=1, dilation=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = BatchNorm(planes)
-        if dilation != 1:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=dilation, dilation=dilation, bias=False)
-        else:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = BatchNorm(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = BatchNorm(planes * 4)
-        self.relu = nn.ReLU()
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, BatchNorm, num_classes=1000):
-        self.inplanes = 64
-        super(ResNet, self).__init__()
-        self.conv_1 = nn.Conv2d(4, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = BatchNorm(64)
-        self.relu = nn.ReLU()
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, return_indices=True)
-        self.layer1 = self._make_layer(block, 64, layers[0], BatchNorm)
-        self.layer2 = self._make_layer(block, 128, layers[1], BatchNorm, stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], BatchNorm, stride=2, dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], BatchNorm, stride=2, dilation=4)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, BatchNorm, stride=1, dilation=1):
-        downsample = None
-        downsample_stride = stride if dilation == 1 else 1
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=downsample_stride, bias=False), BatchNorm(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, BatchNorm, stride, dilation, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, BatchNorm))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        skip_connection1 = x
-        x = self.conv_1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        skip_connection2 = x
-        x, max_index = self.maxpool(x)
-        x = self.layer1(x)
-        skip_connection3 = x
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        return x, skip_connection1, skip_connection2, skip_connection3, max_index
-
-
-class BilinearUpSample(nn.Module):
-
-    def __init__(self, in_planes, out_planes):
-        super(BilinearUpSample, self).__init__()
-        """
-        self.conv = nn.Sequential(
-            conv3x3(in_planes=in_planes, out_planes=out_planes),
-            nn.BatchNorm2d(out_planes),
-            nn.ReLU(inplace=True)
-        )
-        """
-
-    def forward(self, x):
-        in_size = x.size()
-        n, c, h, w = in_size
-        x = F.interpolate(x, size=(h * 2, w * 2), mode='bilinear', align_corners=True)
-        return x
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, BatchNorm):
-        super(Decoder, self).__init__()
-        self.bilinear_1 = BilinearUpSample(in_planes=256, out_planes=256)
-        self.skip_3 = nn.Sequential(nn.Conv2d(in_channels=256, out_channels=64, kernel_size=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True))
-        self.deconv1_x = nn.Sequential(nn.Conv2d(in_channels=256 + 64, out_channels=256, kernel_size=3, padding=1, bias=False), BatchNorm(256), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, padding=1, bias=False), BatchNorm(128), nn.ReLU(inplace=True), nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, padding=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True))
-        self.unpooling = nn.MaxUnpool2d(kernel_size=2, stride=2)
-        self.skip_2 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=32, kernel_size=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True))
-        self.deconv2_x = nn.Sequential(nn.Conv2d(in_channels=64 + 32, out_channels=64, kernel_size=3, padding=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True), nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True), nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, padding=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True))
-        self.deconv3_x = nn.Sequential(nn.Conv2d(in_channels=32 + 3, out_channels=32, kernel_size=3, padding=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True), nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, padding=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True))
-        self.deconv4_x = nn.Sequential(nn.Conv2d(in_channels=32, out_channels=1, kernel_size=3, padding=1, bias=False), nn.Sigmoid())
-        self._initialize_weights()
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.ConvTranspose2d):
-                nn.init.kaiming_normal_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def forward(self, x):
-        x, skip_connection1, skip_connection2, skip_connection3, max_index = x
-        x = self.bilinear_1(x)
-        skip_connection3 = self.skip_3(skip_connection3)
-        x = t.cat([x, skip_connection3], dim=1)
-        x = self.deconv1_x(x)
-        x = self.unpooling(x, max_index)
-        skip_connection2 = self.skip_2(skip_connection2)
-        x = t.cat([x, skip_connection2], dim=1)
-        x = self.deconv2_x(x)
-        skip_connection1 = skip_connection1[:, 0:3, :, :]
-        x = t.cat([x, skip_connection1], dim=1)
-        x = self.deconv3_x(x)
-        x = self.deconv4_x(x)
-        return x
-
-
-def resnet50(BatchNorm):
-    model = ResNet(Bottleneck, [3, 4, 6, 3], BatchNorm)
-    return model
-
-
-class Encoder(nn.Module):
-
-    def __init__(self, BatchNorm):
-        super(Encoder, self).__init__()
-        self.resnet50 = resnet50(BatchNorm)
-        self.aspp = ASPP(2048, 256, BatchNorm)
-
-    def _initialize_weights(self):
-        pretrained_resnet50 = tv.models.resnet50(pretrained=True)
-        pretrained_dict = pretrained_resnet50.state_dict()
-        atrous_resnet_dict = self.resnet50.state_dict()
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in atrous_resnet_dict}
-        atrous_resnet_dict.update(pretrained_dict)
-        self.resnet50.load_state_dict(atrous_resnet_dict)
-
-    def forward(self, x):
-        x, skip_connection1, skip_connection2, skip_connection3, max_index = self.resnet50(x)
-        x = self.aspp(x)
-        return x, skip_connection1, skip_connection2, skip_connection3, max_index
-
-
-class NLayerDiscriminator(nn.Module):
-
-    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
-        super(NLayerDiscriminator, self).__init__()
-        if type(norm_layer) == functools.partial:
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
-        kw = 4
-        padw = 1
-        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2)]
-        nf_mult = 1
-        nf_mult_prev = 1
-        for n in range(1, n_layers):
-            nf_mult_prev = nf_mult
-            nf_mult = min(2 ** n, 8)
-            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2)]
-        nf_mult_prev = nf_mult
-        nf_mult = min(2 ** n_layers, 8)
-        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2)]
-        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
-        if use_sigmoid:
-            sequence += [nn.Sigmoid()]
-        self.model = nn.Sequential(*sequence)
-        self._initialize_weights()
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-    def forward(self, input):
-        return self.model(input)
+import time
 
 
 class FutureResult(object):
@@ -605,6 +304,513 @@ class _SynchronizedBatchNorm(_BatchNorm):
         return mean, bias_var.clamp(self.eps) ** -0.5
 
 
+class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 4d input that is seen as a mini-batch
+    of 3d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm2d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm2d, self)._check_input_dim(input)
+
+
+class _AsppBlock(nn.Sequential):
+
+    def __init__(self, in_channels, out_channels, kernel_size, dilation_rate, BatchNorm):
+        super(_AsppBlock, self).__init__()
+        if dilation_rate == 1:
+            self.atrous_conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, bias=False)
+        else:
+            self.atrous_conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, dilation=dilation_rate, padding=dilation_rate, bias=False)
+        self.bn = BatchNorm(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self._init_weight()
+
+    def forward(self, _input):
+        x = self.atrous_conv(_input)
+        x = self.bn(x)
+        return self.relu(x)
+
+    def _init_weight(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, SynchronizedBatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+
+class ASPP(nn.Module):
+
+    def __init__(self, in_channels, out_channels, BatchNorm):
+        super(ASPP, self).__init__()
+        self.aspp_1 = _AsppBlock(in_channels, 256, kernel_size=1, dilation_rate=1, BatchNorm=BatchNorm)
+        self.aspp_6 = _AsppBlock(in_channels, 256, kernel_size=3, dilation_rate=6, BatchNorm=BatchNorm)
+        self.aspp_12 = _AsppBlock(in_channels, 256, kernel_size=3, dilation_rate=12, BatchNorm=BatchNorm)
+        self.aspp_18 = _AsppBlock(in_channels, 256, kernel_size=3, dilation_rate=18, BatchNorm=BatchNorm)
+        self.image_pooling = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, bias=False), BatchNorm(out_channels), nn.ReLU(True))
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=5 * out_channels, out_channels=out_channels, kernel_size=1, bias=False), BatchNorm(out_channels), nn.ReLU(True))
+        self._init_weight()
+
+    def forward(self, x):
+        aspp1 = self.aspp_1(x)
+        aspp6 = self.aspp_6(x)
+        aspp12 = self.aspp_12(x)
+        aspp18 = self.aspp_18(x)
+        im_p = self.image_pooling(x)
+        im_p = F.interpolate(im_p, size=aspp18.size()[2:], mode='bilinear', align_corners=True)
+        aspp = [aspp1, aspp6, aspp12, aspp18, im_p]
+        aspp = t.cat(aspp, dim=1)
+        return self.conv1(aspp)
+
+    def _init_weight(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, SynchronizedBatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+
+def BatchNormGroup(num_features):
+    return nn.GroupNorm(num_channels=num_features, num_groups=32)
+
+
+class BilinearUpSample(nn.Module):
+
+    def __init__(self, in_planes, out_planes):
+        super(BilinearUpSample, self).__init__()
+        """
+        self.conv = nn.Sequential(
+            conv3x3(in_planes=in_planes, out_planes=out_planes),
+            nn.BatchNorm2d(out_planes),
+            nn.ReLU(inplace=True)
+        )
+        """
+
+    def forward(self, x):
+        in_size = x.size()
+        n, c, h, w = in_size
+        x = F.interpolate(x, size=(h * 2, w * 2), mode='bilinear', align_corners=True)
+        return x
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, BatchNorm):
+        super(Decoder, self).__init__()
+        self.bilinear_1 = BilinearUpSample(in_planes=256, out_planes=256)
+        self.skip_3 = nn.Sequential(nn.Conv2d(in_channels=256, out_channels=64, kernel_size=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True))
+        self.deconv1_x = nn.Sequential(nn.Conv2d(in_channels=256 + 64, out_channels=256, kernel_size=3, padding=1, bias=False), BatchNorm(256), nn.ReLU(inplace=True), nn.Conv2d(in_channels=256, out_channels=128, kernel_size=3, padding=1, bias=False), BatchNorm(128), nn.ReLU(inplace=True), nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, padding=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True))
+        self.unpooling = nn.MaxUnpool2d(kernel_size=2, stride=2)
+        self.skip_2 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=32, kernel_size=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True))
+        self.deconv2_x = nn.Sequential(nn.Conv2d(in_channels=64 + 32, out_channels=64, kernel_size=3, padding=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True), nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=3, stride=2, padding=1, output_padding=1, bias=False), BatchNorm(64), nn.ReLU(inplace=True), nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, padding=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True))
+        self.deconv3_x = nn.Sequential(nn.Conv2d(in_channels=32 + 3, out_channels=32, kernel_size=3, padding=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True), nn.Conv2d(in_channels=32, out_channels=32, kernel_size=3, padding=1, bias=False), BatchNorm(32), nn.ReLU(inplace=True))
+        self.deconv4_x = nn.Sequential(nn.Conv2d(in_channels=32, out_channels=1, kernel_size=3, padding=1, bias=False), nn.Sigmoid())
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.ConvTranspose2d):
+                nn.init.kaiming_normal_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, SynchronizedBatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def forward(self, x):
+        x, skip_connection1, skip_connection2, skip_connection3, max_index = x
+        x = self.bilinear_1(x)
+        skip_connection3 = self.skip_3(skip_connection3)
+        x = t.cat([x, skip_connection3], dim=1)
+        x = self.deconv1_x(x)
+        x = self.unpooling(x, max_index)
+        skip_connection2 = self.skip_2(skip_connection2)
+        x = t.cat([x, skip_connection2], dim=1)
+        x = self.deconv2_x(x)
+        skip_connection1 = skip_connection1[:, 0:3, :, :]
+        x = t.cat([x, skip_connection1], dim=1)
+        x = self.deconv3_x(x)
+        x = self.deconv4_x(x)
+        return x
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, BatchNorm, stride=1, dilation=1, downsample=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = BatchNorm(planes)
+        if dilation != 1:
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=dilation, dilation=dilation, bias=False)
+        else:
+            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = BatchNorm(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = BatchNorm(planes * 4)
+        self.relu = nn.ReLU()
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, block, layers, BatchNorm, num_classes=1000):
+        self.inplanes = 64
+        super(ResNet, self).__init__()
+        self.conv_1 = nn.Conv2d(4, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = BatchNorm(64)
+        self.relu = nn.ReLU()
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, return_indices=True)
+        self.layer1 = self._make_layer(block, 64, layers[0], BatchNorm)
+        self.layer2 = self._make_layer(block, 128, layers[1], BatchNorm, stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], BatchNorm, stride=2, dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], BatchNorm, stride=2, dilation=4)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, SynchronizedBatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+    def _make_layer(self, block, planes, blocks, BatchNorm, stride=1, dilation=1):
+        downsample = None
+        downsample_stride = stride if dilation == 1 else 1
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=downsample_stride, bias=False), BatchNorm(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, BatchNorm, stride, dilation, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, BatchNorm))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        skip_connection1 = x
+        x = self.conv_1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        skip_connection2 = x
+        x, max_index = self.maxpool(x)
+        x = self.layer1(x)
+        skip_connection3 = x
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        return x, skip_connection1, skip_connection2, skip_connection3, max_index
+
+
+def resnet50(BatchNorm):
+    model = ResNet(Bottleneck, [3, 4, 6, 3], BatchNorm)
+    return model
+
+
+class Encoder(nn.Module):
+
+    def __init__(self, BatchNorm):
+        super(Encoder, self).__init__()
+        self.resnet50 = resnet50(BatchNorm)
+        self.aspp = ASPP(2048, 256, BatchNorm)
+
+    def _initialize_weights(self):
+        pretrained_resnet50 = tv.models.resnet50(pretrained=True)
+        pretrained_dict = pretrained_resnet50.state_dict()
+        atrous_resnet_dict = self.resnet50.state_dict()
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in atrous_resnet_dict}
+        atrous_resnet_dict.update(pretrained_dict)
+        self.resnet50.load_state_dict(atrous_resnet_dict)
+
+    def forward(self, x):
+        x, skip_connection1, skip_connection2, skip_connection3, max_index = self.resnet50(x)
+        x = self.aspp(x)
+        return x, skip_connection1, skip_connection2, skip_connection3, max_index
+
+
+class NetG(nn.Module):
+
+    def __init__(self, sync_bn=True):
+        super(NetG, self).__init__()
+        if sync_bn:
+            BatchNorm = SynchronizedBatchNorm2d
+        else:
+            BatchNorm = BatchNormGroup
+        self.encoder = Encoder(BatchNorm)
+        self.decoder = Decoder(BatchNorm)
+
+    def forward(self, x):
+        x = self.encoder(x)
+        return self.decoder(x)
+
+
+class AlphaLoss(nn.Module):
+
+    def __init__(self, eps=1e-06):
+        super(AlphaLoss, self).__init__()
+        self.eps = eps
+
+    def forward(self, predict, truth, unknown_region_size):
+        diff = predict - truth
+        losses = t.sqrt(diff.pow(2) + self.eps * self.eps)
+        loss = losses.sum() / (unknown_region_size + 1.0)
+        return loss
+
+
+class NLayerDiscriminator(nn.Module):
+
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, use_sigmoid=False):
+        super(NLayerDiscriminator, self).__init__()
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+        kw = 4
+        padw = 1
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2)]
+        nf_mult = 1
+        nf_mult_prev = 1
+        for n in range(1, n_layers):
+            nf_mult_prev = nf_mult
+            nf_mult = min(2 ** n, 8)
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2)]
+        nf_mult_prev = nf_mult
+        nf_mult = min(2 ** n_layers, 8)
+        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
+        if use_sigmoid:
+            sequence += [nn.Sigmoid()]
+        self.model = nn.Sequential(*sequence)
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, SynchronizedBatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, input):
+        return self.model(input)
+
+
+class SynchronizedBatchNorm1d(_SynchronizedBatchNorm):
+    """Applies Synchronized Batch Normalization over a 2d or 3d input that is seen as a
+    mini-batch.
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm1d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, L)` slices, it's common terminology to call this Temporal BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of size
+            `batch_size x num_features [x width]`
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm1d, self)._check_input_dim(input)
+
+
+class SynchronizedBatchNorm3d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 5d input that is seen as a mini-batch
+    of 4d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm3d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, D, H, W)` slices, it's common terminology to call this Volumetric BatchNorm
+    or Spatio-temporal BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x depth x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C, D, H, W)`
+        - Output: :math:`(N, C, D, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45, 10))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm3d, self)._check_input_dim(input)
+
+
 class BatchNorm2dReimpl(nn.Module):
     """
     A re-implementation of batch normalization, used for testing the numerical
@@ -721,6 +927,18 @@ TESTCASES = [
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
      False),
+    (Encoder,
+     lambda: ([], {'BatchNorm': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (NLayerDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
+    (_AsppBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'dilation_rate': 1, 'BatchNorm': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
 ]
 
 class Test_CDOTAD_AlphaGAN_Matting(_paritybench_base):
@@ -735,4 +953,13 @@ class Test_CDOTAD_AlphaGAN_Matting(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

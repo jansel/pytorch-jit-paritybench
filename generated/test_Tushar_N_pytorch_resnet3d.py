@@ -19,15 +19,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -35,10 +36,10 @@ __version__ = '1.0.0'
 import torch
 
 
-import torch.nn as nn
-
-
 import numpy as np
+
+
+import torch.nn as nn
 
 
 import collections
@@ -50,10 +51,28 @@ import torch.nn.functional as F
 import math
 
 
+import re
+
+
+import torchvision
+
+
+import random
+
+
+import numbers
+
+
+import torchvision.transforms.functional as F
+
+
 import torch.optim as optim
 
 
 import torch.backends.cudnn as cudnn
+
+
+import torchvision.transforms as transforms
 
 
 class FrozenBN(nn.Module):
@@ -78,6 +97,40 @@ class FrozenBN(nn.Module):
 
     def __repr__(self):
         return 'FrozenBN(%d)' % self.num_channels
+
+
+class NonLocalBlock(nn.Module):
+
+    def __init__(self, dim_in, dim_out, dim_inner):
+        super(NonLocalBlock, self).__init__()
+        self.dim_in = dim_in
+        self.dim_inner = dim_inner
+        self.dim_out = dim_out
+        self.theta = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.maxpool = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2), padding=(0, 0, 0))
+        self.phi = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.g = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.out = nn.Conv3d(dim_inner, dim_out, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        self.bn = nn.BatchNorm3d(dim_out)
+
+    def forward(self, x):
+        residual = x
+        batch_size = x.shape[0]
+        mp = self.maxpool(x)
+        theta = self.theta(x)
+        phi = self.phi(mp)
+        g = self.g(mp)
+        theta_shape_5d = theta.shape
+        theta, phi, g = theta.view(batch_size, self.dim_inner, -1), phi.view(batch_size, self.dim_inner, -1), g.view(batch_size, self.dim_inner, -1)
+        theta_phi = torch.bmm(theta.transpose(1, 2), phi)
+        theta_phi_sc = theta_phi * self.dim_inner ** -0.5
+        p = F.softmax(theta_phi_sc, dim=-1)
+        t = torch.bmm(g, p.transpose(1, 2))
+        t = t.view(theta_shape_5d)
+        out = self.out(t)
+        out = self.bn(out)
+        out = out + residual
+        return out
 
 
 class Bottleneck(nn.Module):
@@ -113,40 +166,6 @@ class Bottleneck(nn.Module):
         out = self.relu(out)
         if self.nl is not None:
             out = self.nl(out)
-        return out
-
-
-class NonLocalBlock(nn.Module):
-
-    def __init__(self, dim_in, dim_out, dim_inner):
-        super(NonLocalBlock, self).__init__()
-        self.dim_in = dim_in
-        self.dim_inner = dim_inner
-        self.dim_out = dim_out
-        self.theta = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
-        self.maxpool = nn.MaxPool3d(kernel_size=(1, 2, 2), stride=(1, 2, 2), padding=(0, 0, 0))
-        self.phi = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
-        self.g = nn.Conv3d(dim_in, dim_inner, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
-        self.out = nn.Conv3d(dim_inner, dim_out, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
-        self.bn = nn.BatchNorm3d(dim_out)
-
-    def forward(self, x):
-        residual = x
-        batch_size = x.shape[0]
-        mp = self.maxpool(x)
-        theta = self.theta(x)
-        phi = self.phi(mp)
-        g = self.g(mp)
-        theta_shape_5d = theta.shape
-        theta, phi, g = theta.view(batch_size, self.dim_inner, -1), phi.view(batch_size, self.dim_inner, -1), g.view(batch_size, self.dim_inner, -1)
-        theta_phi = torch.bmm(theta.transpose(1, 2), phi)
-        theta_phi_sc = theta_phi * self.dim_inner ** -0.5
-        p = F.softmax(theta_phi_sc, dim=-1)
-        t = torch.bmm(g, p.transpose(1, 2))
-        t = t.view(theta_shape_5d)
-        out = self.out(t)
-        out = self.bn(out)
-        out = out + residual
         return out
 
 

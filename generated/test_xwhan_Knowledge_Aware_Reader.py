@@ -14,15 +14,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -49,6 +50,12 @@ import numpy as np
 
 
 import random
+
+
+from collections import defaultdict
+
+
+from collections import Counter
 
 
 def attention(query, key, value, mask=None, dropout=None):
@@ -204,6 +211,137 @@ class SimpleEncoder(nn.Module):
         x = self.position(x)
         x = self.encoder(x, mask)
         return x
+
+
+class AttnEncoder(nn.Module):
+    """docstring for ClassName"""
+
+    def __init__(self, d_hid):
+        super(AttnEncoder, self).__init__()
+        self.attn_linear = nn.Linear(d_hid, 1, bias=False)
+
+    def forward(self, x, x_mask):
+        """
+        x: (B, len, d_hid)
+        x_mask: (B, len)
+        return: (B, d_hid)
+        """
+        x_attn = self.attn_linear(x)
+        x_attn = x_attn - (1 - x_mask.unsqueeze(2)) * 100000000.0
+        x_attn = F.softmax(x_attn, dim=1)
+        return (x * x_attn).sum(1)
+
+
+class ConditionGate(nn.Module):
+    """docstring for ConditionGate"""
+
+    def __init__(self, h_dim):
+        super(ConditionGate, self).__init__()
+        self.gate = nn.Linear(2 * h_dim, h_dim, bias=False)
+
+    def forward(self, q, x, y, gate_mask):
+        q_x_sim = x * q
+        q_y_sim = y * q
+        gate_val = self.gate(torch.cat([q_x_sim, q_y_sim], dim=-1)).sigmoid()
+        gate_val = gate_val * gate_mask
+        return gate_val * x + (1 - gate_val) * y
+
+
+class Packed(nn.Module):
+
+    def __init__(self, rnn):
+        super().__init__()
+        self.rnn = rnn
+
+    @property
+    def batch_first(self):
+        return self.rnn.batch_first
+
+    def forward(self, inputs, lengths, hidden=None, max_length=None):
+        lens, indices = torch.sort(lengths, 0, True)
+        inputs = inputs[indices] if self.batch_first else inputs[:, (indices)]
+        outputs, (h, c) = self.rnn(nn.utils.rnn.pack_padded_sequence(inputs, lens.tolist(), batch_first=self.batch_first), hidden)
+        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=self.batch_first, total_length=max_length)
+        _, _indices = torch.sort(indices, 0)
+        outputs = outputs[_indices] if self.batch_first else outputs[:, (_indices)]
+        h, c = h[:, (_indices), :], c[:, (_indices), :]
+        return outputs, (h, c)
+
+
+class Fusion(nn.Module):
+    """docstring for Fusion"""
+
+    def __init__(self, d_hid):
+        super(Fusion, self).__init__()
+        self.r = nn.Linear(d_hid * 4, d_hid, bias=False)
+        self.g = nn.Linear(d_hid * 4, d_hid, bias=False)
+
+    def forward(self, x, y):
+        r_ = self.r(torch.cat([x, y, x - y, x * y], dim=-1)).tanh()
+        g_ = torch.sigmoid(self.g(torch.cat([x, y, x - y, x * y], dim=-1)))
+        return g_ * r_ + (1 - g_) * x
+
+
+class QueryReform(nn.Module):
+    """docstring for QueryReform"""
+
+    def __init__(self, h_dim):
+        super(QueryReform, self).__init__()
+        self.fusion = Fusion(h_dim)
+        self.q_ent_attn = nn.Linear(h_dim, h_dim)
+
+    def forward(self, q_node, ent_emb, seed_info, ent_mask):
+        """
+        q: (B,q_len,h_dim)
+        q_mask: (B,q_len)
+        q_ent_span: (B,q_len)
+        ent_emb: (B,C,h_dim)
+        seed_info: (B, C)
+        ent_mask: (B, C)
+        """
+        q_ent_attn = (self.q_ent_attn(q_node).unsqueeze(1) * ent_emb).sum(2, keepdim=True)
+        q_ent_attn = F.softmax(q_ent_attn - (1 - ent_mask.unsqueeze(2)) * 100000000.0, dim=1)
+        seed_retrieve = torch.bmm(seed_info.unsqueeze(1), ent_emb).squeeze(1)
+        return self.fusion(q_node, seed_retrieve)
+
+
+class SeqAttnMatch(nn.Module):
+    """Given sequences X and Y, match sequence Y to each element in X.
+    * o_i = sum(alpha_j * y_j) for i in X
+    * alpha_j = softmax(y_j * x_i)
+    """
+
+    def __init__(self, input_size, identity=False):
+        super(SeqAttnMatch, self).__init__()
+        if not identity:
+            self.linear = nn.Linear(input_size, input_size)
+        else:
+            self.linear = None
+
+    def forward(self, x, y, y_mask):
+        """
+        Args:
+            x: batch * len1 * hdim
+            y: batch * len2 * hdim
+            y_mask: batch * len2 (1 for padding, 0 for true)
+        Output:
+            matched_seq: batch * len1 * hdim
+        """
+        if self.linear:
+            x_proj = self.linear(x.view(-1, x.size(2))).view(x.size())
+            x_proj = F.relu(x_proj)
+            y_proj = self.linear(y.view(-1, y.size(2))).view(y.size())
+            y_proj = F.relu(y_proj)
+        else:
+            x_proj = x
+            y_proj = y
+        scores = x_proj.bmm(y_proj.transpose(2, 1))
+        y_mask = y_mask.unsqueeze(1).expand(scores.size())
+        scores.data.masked_fill_(y_mask.data, -float('inf'))
+        alpha_flat = F.softmax(scores.view(-1, y.size(1)), dim=-1)
+        alpha = alpha_flat.view(-1, x.size(1), y.size(1))
+        matched_seq = alpha.bmm(y)
+        return matched_seq
 
 
 def l_relu(x, n_slope=0.01):
@@ -385,75 +523,6 @@ class KAReader(nn.Module):
         return loss, pred, pred_dist
 
 
-class Packed(nn.Module):
-
-    def __init__(self, rnn):
-        super().__init__()
-        self.rnn = rnn
-
-    @property
-    def batch_first(self):
-        return self.rnn.batch_first
-
-    def forward(self, inputs, lengths, hidden=None, max_length=None):
-        lens, indices = torch.sort(lengths, 0, True)
-        inputs = inputs[indices] if self.batch_first else inputs[:, (indices)]
-        outputs, (h, c) = self.rnn(nn.utils.rnn.pack_padded_sequence(inputs, lens.tolist(), batch_first=self.batch_first), hidden)
-        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=self.batch_first, total_length=max_length)
-        _, _indices = torch.sort(indices, 0)
-        outputs = outputs[_indices] if self.batch_first else outputs[:, (_indices)]
-        h, c = h[:, (_indices), :], c[:, (_indices), :]
-        return outputs, (h, c)
-
-
-class ConditionGate(nn.Module):
-    """docstring for ConditionGate"""
-
-    def __init__(self, h_dim):
-        super(ConditionGate, self).__init__()
-        self.gate = nn.Linear(2 * h_dim, h_dim, bias=False)
-
-    def forward(self, q, x, y, gate_mask):
-        q_x_sim = x * q
-        q_y_sim = y * q
-        gate_val = self.gate(torch.cat([q_x_sim, q_y_sim], dim=-1)).sigmoid()
-        gate_val = gate_val * gate_mask
-        return gate_val * x + (1 - gate_val) * y
-
-
-class Fusion(nn.Module):
-    """docstring for Fusion"""
-
-    def __init__(self, d_hid):
-        super(Fusion, self).__init__()
-        self.r = nn.Linear(d_hid * 4, d_hid, bias=False)
-        self.g = nn.Linear(d_hid * 4, d_hid, bias=False)
-
-    def forward(self, x, y):
-        r_ = self.r(torch.cat([x, y, x - y, x * y], dim=-1)).tanh()
-        g_ = torch.sigmoid(self.g(torch.cat([x, y, x - y, x * y], dim=-1)))
-        return g_ * r_ + (1 - g_) * x
-
-
-class AttnEncoder(nn.Module):
-    """docstring for ClassName"""
-
-    def __init__(self, d_hid):
-        super(AttnEncoder, self).__init__()
-        self.attn_linear = nn.Linear(d_hid, 1, bias=False)
-
-    def forward(self, x, x_mask):
-        """
-        x: (B, len, d_hid)
-        x_mask: (B, len)
-        return: (B, d_hid)
-        """
-        x_attn = self.attn_linear(x)
-        x_attn = x_attn - (1 - x_mask.unsqueeze(2)) * 100000000.0
-        x_attn = F.softmax(x_attn, dim=1)
-        return (x * x_attn).sum(1)
-
-
 class BilinearSeqAttn(nn.Module):
     """A bilinear attention layer over a sequence X w.r.t y:
     * o_i = softmax(x_i'Wy) for x_i in X.
@@ -488,68 +557,6 @@ class BilinearSeqAttn(nn.Module):
         else:
             alpha = xWy.exp()
         return alpha
-
-
-class SeqAttnMatch(nn.Module):
-    """Given sequences X and Y, match sequence Y to each element in X.
-    * o_i = sum(alpha_j * y_j) for i in X
-    * alpha_j = softmax(y_j * x_i)
-    """
-
-    def __init__(self, input_size, identity=False):
-        super(SeqAttnMatch, self).__init__()
-        if not identity:
-            self.linear = nn.Linear(input_size, input_size)
-        else:
-            self.linear = None
-
-    def forward(self, x, y, y_mask):
-        """
-        Args:
-            x: batch * len1 * hdim
-            y: batch * len2 * hdim
-            y_mask: batch * len2 (1 for padding, 0 for true)
-        Output:
-            matched_seq: batch * len1 * hdim
-        """
-        if self.linear:
-            x_proj = self.linear(x.view(-1, x.size(2))).view(x.size())
-            x_proj = F.relu(x_proj)
-            y_proj = self.linear(y.view(-1, y.size(2))).view(y.size())
-            y_proj = F.relu(y_proj)
-        else:
-            x_proj = x
-            y_proj = y
-        scores = x_proj.bmm(y_proj.transpose(2, 1))
-        y_mask = y_mask.unsqueeze(1).expand(scores.size())
-        scores.data.masked_fill_(y_mask.data, -float('inf'))
-        alpha_flat = F.softmax(scores.view(-1, y.size(1)), dim=-1)
-        alpha = alpha_flat.view(-1, x.size(1), y.size(1))
-        matched_seq = alpha.bmm(y)
-        return matched_seq
-
-
-class QueryReform(nn.Module):
-    """docstring for QueryReform"""
-
-    def __init__(self, h_dim):
-        super(QueryReform, self).__init__()
-        self.fusion = Fusion(h_dim)
-        self.q_ent_attn = nn.Linear(h_dim, h_dim)
-
-    def forward(self, q_node, ent_emb, seed_info, ent_mask):
-        """
-        q: (B,q_len,h_dim)
-        q_mask: (B,q_len)
-        q_ent_span: (B,q_len)
-        ent_emb: (B,C,h_dim)
-        seed_info: (B, C)
-        ent_mask: (B, C)
-        """
-        q_ent_attn = (self.q_ent_attn(q_node).unsqueeze(1) * ent_emb).sum(2, keepdim=True)
-        q_ent_attn = F.softmax(q_ent_attn - (1 - ent_mask.unsqueeze(2)) * 100000000.0, dim=1)
-        seed_retrieve = torch.bmm(seed_info.unsqueeze(1), ent_emb).squeeze(1)
-        return self.fusion(q_node, seed_retrieve)
 
 
 import torch

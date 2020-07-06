@@ -34,6 +34,7 @@ test = _module
 test_images = _module
 train_sagan = _module
 config = _module
+evaluation = _module
 logger = _module
 util = _module
 
@@ -41,20 +42,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
 
 
 import numpy as np
@@ -70,9 +81,6 @@ from torch.nn.functional import adaptive_avg_pool2d
 
 
 from torch.nn import functional as F
-
-
-from torchvision import transforms
 
 
 import torch.nn as nn
@@ -100,6 +108,9 @@ from scipy.stats import entropy
 
 
 from math import exp
+
+
+import sklearn.manifold.t_sne
 
 
 import torchvision.transforms as transforms
@@ -199,72 +210,17 @@ class InceptionV3(nn.Module):
         return outp
 
 
-class Inception3(nn.Module):
+class BasicConv2d(nn.Module):
 
-    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False):
-        super(Inception3, self).__init__()
-        self.aux_logits = aux_logits
-        self.transform_input = transform_input
-        self.Conv2d_1a_3x3 = BasicConv2d(3, 32, kernel_size=3, stride=2)
-        self.Conv2d_2a_3x3 = BasicConv2d(32, 32, kernel_size=3)
-        self.Conv2d_2b_3x3 = BasicConv2d(32, 64, kernel_size=3, padding=1)
-        self.Conv2d_3b_1x1 = BasicConv2d(64, 80, kernel_size=1)
-        self.Conv2d_4a_3x3 = BasicConv2d(80, 192, kernel_size=3)
-        self.Mixed_5b = InceptionA(192, pool_features=32)
-        self.Mixed_5c = InceptionA(256, pool_features=64)
-        self.Mixed_5d = InceptionA(288, pool_features=64)
-        self.Mixed_6a = InceptionB(288)
-        self.Mixed_6b = InceptionC(768, channels_7x7=128)
-        self.Mixed_6c = InceptionC(768, channels_7x7=160)
-        self.Mixed_6d = InceptionC(768, channels_7x7=160)
-        self.Mixed_6e = InceptionC(768, channels_7x7=192)
-        if aux_logits:
-            self.AuxLogits = InceptionAux(768, num_classes)
-        self.Mixed_7a = InceptionD(768)
-        self.Mixed_7b = InceptionE(1280)
-        self.Mixed_7c = InceptionE(2048)
-        self.fc = nn.Linear(2048, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                import scipy.stats as stats
-                stddev = m.stddev if hasattr(m, 'stddev') else 0.1
-                X = stats.truncnorm(-2, 2, scale=stddev)
-                values = torch.Tensor(X.rvs(m.weight.numel()))
-                values = values.view(m.weight.size())
-                m.weight.data.copy_(values)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
+    def __init__(self, in_channels, out_channels, **kwargs):
+        super(BasicConv2d, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, bias=False, **kwargs)
+        self.bn = nn.BatchNorm2d(out_channels, eps=0.001)
 
     def forward(self, x):
-        if self.transform_input:
-            x = x.clone()
-            x[:, (0)] = x[:, (0)] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
-            x[:, (1)] = x[:, (1)] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
-            x[:, (2)] = x[:, (2)] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
-        x = self.Conv2d_1a_3x3(x)
-        x = self.Conv2d_2a_3x3(x)
-        x = self.Conv2d_2b_3x3(x)
-        x = F.max_pool2d(x, kernel_size=3, stride=2)
-        x = self.Conv2d_3b_1x1(x)
-        x = self.Conv2d_4a_3x3(x)
-        x = F.max_pool2d(x, kernel_size=3, stride=2)
-        x = self.Mixed_5b(x)
-        x = self.Mixed_5c(x)
-        x = self.Mixed_5d(x)
-        x = self.Mixed_6a(x)
-        x = self.Mixed_6b(x)
-        x = self.Mixed_6c(x)
-        x = self.Mixed_6d(x)
-        x = self.Mixed_6e(x)
-        if self.training and self.aux_logits:
-            aux = self.AuxLogits(x)
-        x = self.Mixed_7a(x)
-        x = self.Mixed_7b(x)
-        x = self.Mixed_7c(x)
-        x = F.avg_pool2d(x, kernel_size=8)
-        pool3 = x
-        return pool3
+        x = self.conv(x)
+        x = self.bn(x)
+        return F.relu(x, inplace=True)
 
 
 class InceptionA(nn.Module):
@@ -290,6 +246,25 @@ class InceptionA(nn.Module):
         branch_pool = self.branch_pool(branch_pool)
         outputs = [branch1x1, branch5x5, branch3x3dbl, branch_pool]
         return torch.cat(outputs, 1)
+
+
+class InceptionAux(nn.Module):
+
+    def __init__(self, in_channels, num_classes):
+        super(InceptionAux, self).__init__()
+        self.conv0 = BasicConv2d(in_channels, 128, kernel_size=1)
+        self.conv1 = BasicConv2d(128, 768, kernel_size=5)
+        self.conv1.stddev = 0.01
+        self.fc = nn.Linear(768, num_classes)
+        self.fc.stddev = 0.001
+
+    def forward(self, x):
+        x = F.avg_pool2d(x, kernel_size=5, stride=3)
+        x = self.conv0(x)
+        x = self.conv1(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
 
 
 class InceptionB(nn.Module):
@@ -395,36 +370,72 @@ class InceptionE(nn.Module):
         return torch.cat(outputs, 1)
 
 
-class InceptionAux(nn.Module):
+class Inception3(nn.Module):
 
-    def __init__(self, in_channels, num_classes):
-        super(InceptionAux, self).__init__()
-        self.conv0 = BasicConv2d(in_channels, 128, kernel_size=1)
-        self.conv1 = BasicConv2d(128, 768, kernel_size=5)
-        self.conv1.stddev = 0.01
-        self.fc = nn.Linear(768, num_classes)
-        self.fc.stddev = 0.001
+    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False):
+        super(Inception3, self).__init__()
+        self.aux_logits = aux_logits
+        self.transform_input = transform_input
+        self.Conv2d_1a_3x3 = BasicConv2d(3, 32, kernel_size=3, stride=2)
+        self.Conv2d_2a_3x3 = BasicConv2d(32, 32, kernel_size=3)
+        self.Conv2d_2b_3x3 = BasicConv2d(32, 64, kernel_size=3, padding=1)
+        self.Conv2d_3b_1x1 = BasicConv2d(64, 80, kernel_size=1)
+        self.Conv2d_4a_3x3 = BasicConv2d(80, 192, kernel_size=3)
+        self.Mixed_5b = InceptionA(192, pool_features=32)
+        self.Mixed_5c = InceptionA(256, pool_features=64)
+        self.Mixed_5d = InceptionA(288, pool_features=64)
+        self.Mixed_6a = InceptionB(288)
+        self.Mixed_6b = InceptionC(768, channels_7x7=128)
+        self.Mixed_6c = InceptionC(768, channels_7x7=160)
+        self.Mixed_6d = InceptionC(768, channels_7x7=160)
+        self.Mixed_6e = InceptionC(768, channels_7x7=192)
+        if aux_logits:
+            self.AuxLogits = InceptionAux(768, num_classes)
+        self.Mixed_7a = InceptionD(768)
+        self.Mixed_7b = InceptionE(1280)
+        self.Mixed_7c = InceptionE(2048)
+        self.fc = nn.Linear(2048, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                import scipy.stats as stats
+                stddev = m.stddev if hasattr(m, 'stddev') else 0.1
+                X = stats.truncnorm(-2, 2, scale=stddev)
+                values = torch.Tensor(X.rvs(m.weight.numel()))
+                values = values.view(m.weight.size())
+                m.weight.data.copy_(values)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        x = F.avg_pool2d(x, kernel_size=5, stride=3)
-        x = self.conv0(x)
-        x = self.conv1(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-
-class BasicConv2d(nn.Module):
-
-    def __init__(self, in_channels, out_channels, **kwargs):
-        super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, bias=False, **kwargs)
-        self.bn = nn.BatchNorm2d(out_channels, eps=0.001)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        return F.relu(x, inplace=True)
+        if self.transform_input:
+            x = x.clone()
+            x[:, (0)] = x[:, (0)] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
+            x[:, (1)] = x[:, (1)] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
+            x[:, (2)] = x[:, (2)] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
+        x = self.Conv2d_1a_3x3(x)
+        x = self.Conv2d_2a_3x3(x)
+        x = self.Conv2d_2b_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Conv2d_3b_1x1(x)
+        x = self.Conv2d_4a_3x3(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2)
+        x = self.Mixed_5b(x)
+        x = self.Mixed_5c(x)
+        x = self.Mixed_5d(x)
+        x = self.Mixed_6a(x)
+        x = self.Mixed_6b(x)
+        x = self.Mixed_6c(x)
+        x = self.Mixed_6d(x)
+        x = self.Mixed_6e(x)
+        if self.training and self.aux_logits:
+            aux = self.AuxLogits(x)
+        x = self.Mixed_7a(x)
+        x = self.Mixed_7b(x)
+        x = self.Mixed_7c(x)
+        x = F.avg_pool2d(x, kernel_size=8)
+        pool3 = x
+        return pool3
 
 
 def _ssim(img1, img2, window, window_size, channel, size_average=True):
@@ -705,7 +716,7 @@ def CX_loss(T_features, I_features, deformation=False, dis=False):
         deforma_sigma = 0.001
         sT = T_features_tf.shape[1:2 + 1]
         R = CSFlow.calcR_static(sT, deformation_sigma=deforma_sigma)
-        cs *= torch.Tensor(R).unsqueeze(dim=0).cuda()
+        cs *= torch.Tensor(R).unsqueeze(dim=0)
     if dis:
         CS = []
         k_max_NC = torch.max(torch.max(cs, dim=1)[1], dim=1)[1]
@@ -1047,6 +1058,59 @@ class Self_Attn(nn.Module):
             return out
 
 
+def l2normalize(v, eps=1e-12):
+    return v / (v.norm() + eps)
+
+
+class SpectralNorm(nn.Module):
+
+    def __init__(self, module, name='weight', power_iterations=1):
+        super(SpectralNorm, self).__init__()
+        self.module = module
+        self.name = name
+        self.power_iterations = power_iterations
+        if not self._made_params():
+            self._make_params()
+
+    def _update_u_v(self):
+        u = getattr(self.module, self.name + '_u')
+        v = getattr(self.module, self.name + '_v')
+        w = getattr(self.module, self.name + '_bar')
+        height = w.data.shape[0]
+        for _ in range(self.power_iterations):
+            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
+            u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
+        sigma = u.dot(w.view(height, -1).mv(v))
+        setattr(self.module, self.name, w / sigma.expand_as(w))
+
+    def _made_params(self):
+        try:
+            u = getattr(self.module, self.name + '_u')
+            v = getattr(self.module, self.name + '_v')
+            w = getattr(self.module, self.name + '_bar')
+            return True
+        except AttributeError:
+            return False
+
+    def _make_params(self):
+        w = getattr(self.module, self.name)
+        height = w.data.shape[0]
+        width = w.view(height, -1).data.shape[1]
+        u = Parameter(w.data.new(height).normal_(0, 1), requires_grad=False)
+        v = Parameter(w.data.new(width).normal_(0, 1), requires_grad=False)
+        u.data = l2normalize(u.data)
+        v.data = l2normalize(v.data)
+        w_bar = Parameter(w.data)
+        del self.module._parameters[self.name]
+        self.module.register_parameter(self.name + '_u', u)
+        self.module.register_parameter(self.name + '_v', v)
+        self.module.register_parameter(self.name + '_bar', w_bar)
+
+    def forward(self, *args):
+        self._update_u_v()
+        return self.module.forward(*args)
+
+
 class SAGenerator(nn.Module):
     """Generator."""
 
@@ -1196,59 +1260,6 @@ class SADiscriminator(nn.Module):
         return out.squeeze(), p1, p2
 
 
-def l2normalize(v, eps=1e-12):
-    return v / (v.norm() + eps)
-
-
-class SpectralNorm(nn.Module):
-
-    def __init__(self, module, name='weight', power_iterations=1):
-        super(SpectralNorm, self).__init__()
-        self.module = module
-        self.name = name
-        self.power_iterations = power_iterations
-        if not self._made_params():
-            self._make_params()
-
-    def _update_u_v(self):
-        u = getattr(self.module, self.name + '_u')
-        v = getattr(self.module, self.name + '_v')
-        w = getattr(self.module, self.name + '_bar')
-        height = w.data.shape[0]
-        for _ in range(self.power_iterations):
-            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
-            u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
-        sigma = u.dot(w.view(height, -1).mv(v))
-        setattr(self.module, self.name, w / sigma.expand_as(w))
-
-    def _made_params(self):
-        try:
-            u = getattr(self.module, self.name + '_u')
-            v = getattr(self.module, self.name + '_v')
-            w = getattr(self.module, self.name + '_bar')
-            return True
-        except AttributeError:
-            return False
-
-    def _make_params(self):
-        w = getattr(self.module, self.name)
-        height = w.data.shape[0]
-        width = w.view(height, -1).data.shape[1]
-        u = Parameter(w.data.new(height).normal_(0, 1), requires_grad=False)
-        v = Parameter(w.data.new(width).normal_(0, 1), requires_grad=False)
-        u.data = l2normalize(u.data)
-        v.data = l2normalize(v.data)
-        w_bar = Parameter(w.data)
-        del self.module._parameters[self.name]
-        self.module.register_parameter(self.name + '_u', u)
-        self.module.register_parameter(self.name + '_v', v)
-        self.module.register_parameter(self.name + '_bar', w_bar)
-
-    def forward(self, *args):
-        self._update_u_v()
-        return self.module.forward(*args)
-
-
 class VGG(nn.Module):
 
     def __init__(self, features, num_classes=1000, init_weights=True):
@@ -1298,6 +1309,10 @@ TESTCASES = [
      lambda: ([], {'scale_factor': 1.0, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (Inception3,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 512, 512])], {}),
+     True),
     (InceptionA,
      lambda: ([], {'in_channels': 4, 'pool_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1322,6 +1337,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (InceptionV3,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
+     False),
     (InpaintSADirciminator,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 5, 128, 128])], {}),
@@ -1442,4 +1461,10 @@ class Test_avalonstrel_GatedConvolution_pytorch(_paritybench_base):
 
     def test_021(self):
         self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
 

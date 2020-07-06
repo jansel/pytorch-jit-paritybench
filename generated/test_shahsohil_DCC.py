@@ -23,26 +23,48 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import random
+
+
+import math
+
+
+import numpy as np
+
+
+import scipy.io as sio
+
+
+from torchvision.transforms import ToTensor
 
 
 import torch
 
 
+import torch.optim as optim
+
+
+from torch.autograd import Variable
+
+
+import torch.backends.cudnn as cudnn
+
+
 import torch.nn as nn
-
-
-import numpy as np
 
 
 import torch.nn.functional as F
@@ -51,19 +73,16 @@ import torch.nn.functional as F
 import torch.nn.init as init
 
 
-import random
+import torch.utils.data as data
 
 
-import torch.optim as optim
+from torch.utils.data.sampler import SequentialSampler
+
+
+from torch.utils.data.sampler import RandomSampler
 
 
 import torch.optim.lr_scheduler as lr_scheduler
-
-
-from torch.autograd import Variable
-
-
-import torch.backends.cudnn as cudnn
 
 
 class DCCWeightedELoss(nn.Module):
@@ -380,6 +399,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SDAE,
+     lambda: ([], {'dim': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4]), 0], {}),
+     False),
     (extractSDAE,
      lambda: ([], {'dim': [4, 4]}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -402,4 +425,7 @@ class Test_shahsohil_DCC(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

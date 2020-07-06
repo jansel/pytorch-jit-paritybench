@@ -28,6 +28,7 @@ Transformer = _module
 utils = _module
 TransformerText = _module
 SST2_utils = _module
+utils = _module
 Conv = _module
 Embedding = _module
 Highway = _module
@@ -41,15 +42,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -58,6 +60,12 @@ import torch
 
 
 import torch.nn as nn
+
+
+import torchvision
+
+
+import torchvision.transforms as transforms
 
 
 import torch.nn.functional as F
@@ -72,18 +80,6 @@ import copy
 from copy import deepcopy
 
 
-import random
-
-
-import time
-
-
-import numpy as np
-
-
-import torch.optim as optim
-
-
 from torchtext import data
 
 
@@ -91,6 +87,21 @@ from torchtext import datasets
 
 
 from torchtext import vocab
+
+
+import time
+
+
+from sklearn import metrics
+
+
+import random
+
+
+import numpy as np
+
+
+import torch.optim as optim
 
 
 class LogisticRegressionBinary(nn.Module):
@@ -175,6 +186,79 @@ class CNN(nn.Module):
         return num_features
 
 
+class Highway(nn.Module):
+    """
+    Input shape=(batch_size,dim,dim)
+    Output shape=(batch_size,dim,dim)
+    """
+
+    def __init__(self, layer_num, dim=600):
+        super(Highway, self).__init__()
+        self.layer_num = layer_num
+        self.linear = nn.ModuleList([nn.Linear(dim, dim) for _ in range(self.layer_num)])
+        self.gate = nn.ModuleList([nn.Linear(dim, dim) for _ in range(self.layer_num)])
+
+    def forward(self, x):
+        for i in range(self.layer_num):
+            gate = torch.sigmoid(self.gate[i](x))
+            nonlinear = F.relu(self.linear[i](x))
+            x = gate * nonlinear + (1 - gate) * x
+        return x
+
+
+class Embedding(nn.Module):
+    """
+    word and char embedding
+
+    Input shape: word_emb=(batch_size,sentence_length,emb_size) char_emb=(batch_size,sentence_length,word_length,emb_size)
+    Output shape: y= (batch_size,sentence_length,word_emb_size+char_emb_size)
+    """
+
+    def __init__(self, highway_layers, word_dim, char_dim):
+        super(Embedding, self).__init__()
+        self.highway = Highway(highway_layers, word_dim + char_dim)
+
+    def forward(self, word_emb, char_emb):
+        char_emb, _ = torch.max(char_emb, 2)
+        emb = torch.cat([word_emb, char_emb], dim=2)
+        emb = self.highway(emb)
+        return emb
+
+
+class LSTM(nn.Module):
+
+    def __init__(self, input_size, hidden_size, num_layers, bidirectional, dropout):
+        """
+        Args: 
+            input_size: x 的特征维度
+            hidden_size: 隐层的特征维度
+            num_layers: LSTM 层数
+        """
+        super(LSTM, self).__init__()
+        self.rnn = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, bidirectional=bidirectional, dropout=dropout)
+        self.init_params()
+
+    def init_params(self):
+        for i in range(self.rnn.num_layers):
+            nn.init.orthogonal_(getattr(self.rnn, f'weight_hh_l{i}'))
+            nn.init.kaiming_normal_(getattr(self.rnn, f'weight_ih_l{i}'))
+            nn.init.constant_(getattr(self.rnn, f'bias_hh_l{i}'), val=0)
+            nn.init.constant_(getattr(self.rnn, f'bias_ih_l{i}'), val=0)
+            getattr(self.rnn, f'bias_hh_l{i}').chunk(4)[1].fill_(1)
+            if self.rnn.bidirectional:
+                nn.init.orthogonal_(getattr(self.rnn, f'weight_hh_l{i}_reverse'))
+                nn.init.kaiming_normal_(getattr(self.rnn, f'weight_ih_l{i}_reverse'))
+                nn.init.constant_(getattr(self.rnn, f'bias_hh_l{i}_reverse'), val=0)
+                nn.init.constant_(getattr(self.rnn, f'bias_ih_l{i}_reverse'), val=0)
+                getattr(self.rnn, f'bias_hh_l{i}_reverse').chunk(4)[1].fill_(1)
+
+    def forward(self, x, lengths):
+        packed_x = nn.utils.rnn.pack_padded_sequence(x, lengths)
+        packed_output, (hidden, cell) = self.rnn(packed_x)
+        output, output_lengths = nn.utils.rnn.pad_packed_sequence(packed_output)
+        return hidden, output
+
+
 class LSTMATTHighway(nn.Module):
 
     def __init__(self, word_dim, char_dim, output_dim, hidden_size, num_layers, bidirectional, dropout, word_emb, char_emb, highway_layers):
@@ -230,6 +314,38 @@ class LSTMATT(nn.Module):
         scored_x = outputs * attention_weights
         feat = torch.sum(scored_x, dim=1)
         return self.fc(feat)
+
+
+class Conv1d(nn.Module):
+
+    def __init__(self, in_channels, out_channels, filter_sizes):
+        super(Conv1d, self).__init__()
+        self.convs = nn.ModuleList([nn.Conv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=fs) for fs in filter_sizes])
+        self.init_params()
+
+    def init_params(self):
+        for m in self.convs:
+            nn.init.xavier_uniform_(m.weight.data)
+            nn.init.constant_(m.bias.data, 0.1)
+
+    def forward(self, x):
+        return [F.relu(conv(x)) for conv in self.convs]
+
+
+class Linear(nn.Module):
+
+    def __init__(self, in_features, out_features):
+        super(Linear, self).__init__()
+        self.linear = nn.Linear(in_features=in_features, out_features=out_features)
+        self.init_params()
+
+    def init_params(self):
+        nn.init.kaiming_normal_(self.linear.weight)
+        nn.init.constant_(self.linear.bias, 0)
+
+    def forward(self, x):
+        x = self.linear(x)
+        return x
 
 
 class TextCNN(nn.Module):
@@ -364,6 +480,23 @@ class TextRNNHighway(nn.Module):
         return self.fc(hidden)
 
 
+class LayerNorm(nn.Module):
+    """
+    Layer Normalization 的实现
+    """
+
+    def __init__(self, features, eps=1e-06):
+        super(LayerNorm, self).__init__()
+        self.a_2 = nn.Parameter(torch.ones(features))
+        self.b_2 = nn.Parameter(torch.zeros(features))
+        self.eps = eps
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+
+
 def clones(module, N):
     """
     clone N 个完全相同的 module
@@ -382,6 +515,22 @@ class Decoder(nn.Module):
         for layer in self.layers:
             x = layer(x, memory, src_mask, tgt_mask)
         return self.norm(x)
+
+
+class SublayerConnection(nn.Module):
+    """
+    residual connection + layer norma lization
+    """
+
+    def __init__(self, size, dropout):
+        super(SublayerConnection, self).__init__()
+        self.norm = LayerNorm(size)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, sublayer):
+        """
+        """
+        return x + self.dropout(sublayer(self.norm(x)))
 
 
 class DecoderLayer(nn.Module):
@@ -453,21 +602,34 @@ class EncoderLayer(nn.Module):
         return self.sublayer[1](x, self.feed_forward)
 
 
-class LayerNorm(nn.Module):
+class ScaledDotProduction(nn.Module):
     """
-    Layer Normalization 的实现
+    Scaled Dot-Product Attention
     """
 
-    def __init__(self, features, eps=1e-06):
-        super(LayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(features))
-        self.b_2 = nn.Parameter(torch.zeros(features))
-        self.eps = eps
+    def __init__(self, dropout=0.1):
+        super(ScaledDotProduction, self).__init__()
+        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+    def forward(self, Q, K, V, mask=None):
+        """ Q_len == K_len == V_len
+        Args:
+            Q: [batch_size, Q_len, dim]
+            K: [batch_size, K_len, dim]
+            V: [batch_size, V_len, dim]
+            mask: 是否 mask， 只有 decoder 才需要
+        Returns:
+            output: [batch_size, Q_len, dim], attention value
+            attn: [batch_size, Q_len, K_len]， scores 
+        """
+        d_k = Q.size(-1)
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k)
+        if mask is not None:
+            scores = scores.masked_fill(mask == 0, -1000000000.0)
+        attn = F.softmax(scores, dim=-1)
+        attn = self.dropout(attn)
+        output = torch.matmul(attn, V)
+        return output, attn
 
 
 class MultiHeadAttention(nn.Module):
@@ -534,52 +696,6 @@ class PositionwiseFeedForward(nn.Module):
         return self.w_2(self.dropout(F.relu(self.w_1(x))))
 
 
-class ScaledDotProduction(nn.Module):
-    """
-    Scaled Dot-Product Attention
-    """
-
-    def __init__(self, dropout=0.1):
-        super(ScaledDotProduction, self).__init__()
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, Q, K, V, mask=None):
-        """ Q_len == K_len == V_len
-        Args:
-            Q: [batch_size, Q_len, dim]
-            K: [batch_size, K_len, dim]
-            V: [batch_size, V_len, dim]
-            mask: 是否 mask， 只有 decoder 才需要
-        Returns:
-            output: [batch_size, Q_len, dim], attention value
-            attn: [batch_size, Q_len, K_len]， scores 
-        """
-        d_k = Q.size(-1)
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(d_k)
-        if mask is not None:
-            scores = scores.masked_fill(mask == 0, -1000000000.0)
-        attn = F.softmax(scores, dim=-1)
-        attn = self.dropout(attn)
-        output = torch.matmul(attn, V)
-        return output, attn
-
-
-class SublayerConnection(nn.Module):
-    """
-    residual connection + layer norma lization
-    """
-
-    def __init__(self, size, dropout):
-        super(SublayerConnection, self).__init__()
-        self.norm = LayerNorm(size)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, sublayer):
-        """
-        """
-        return x + self.dropout(sublayer(self.norm(x)))
-
-
 class TransformerText(nn.Module):
     """ 用 Transformer 来作为特征抽取的基本单元 """
 
@@ -609,111 +725,6 @@ class TransformerText(nn.Module):
         return self.fc(features)
 
 
-class Conv1d(nn.Module):
-
-    def __init__(self, in_channels, out_channels, filter_sizes):
-        super(Conv1d, self).__init__()
-        self.convs = nn.ModuleList([nn.Conv1d(in_channels=in_channels, out_channels=out_channels, kernel_size=fs) for fs in filter_sizes])
-        self.init_params()
-
-    def init_params(self):
-        for m in self.convs:
-            nn.init.xavier_uniform_(m.weight.data)
-            nn.init.constant_(m.bias.data, 0.1)
-
-    def forward(self, x):
-        return [F.relu(conv(x)) for conv in self.convs]
-
-
-class Embedding(nn.Module):
-    """
-    word and char embedding
-
-    Input shape: word_emb=(batch_size,sentence_length,emb_size) char_emb=(batch_size,sentence_length,word_length,emb_size)
-    Output shape: y= (batch_size,sentence_length,word_emb_size+char_emb_size)
-    """
-
-    def __init__(self, highway_layers, word_dim, char_dim):
-        super(Embedding, self).__init__()
-        self.highway = Highway(highway_layers, word_dim + char_dim)
-
-    def forward(self, word_emb, char_emb):
-        char_emb, _ = torch.max(char_emb, 2)
-        emb = torch.cat([word_emb, char_emb], dim=2)
-        emb = self.highway(emb)
-        return emb
-
-
-class Highway(nn.Module):
-    """
-    Input shape=(batch_size,dim,dim)
-    Output shape=(batch_size,dim,dim)
-    """
-
-    def __init__(self, layer_num, dim=600):
-        super(Highway, self).__init__()
-        self.layer_num = layer_num
-        self.linear = nn.ModuleList([nn.Linear(dim, dim) for _ in range(self.layer_num)])
-        self.gate = nn.ModuleList([nn.Linear(dim, dim) for _ in range(self.layer_num)])
-
-    def forward(self, x):
-        for i in range(self.layer_num):
-            gate = torch.sigmoid(self.gate[i](x))
-            nonlinear = F.relu(self.linear[i](x))
-            x = gate * nonlinear + (1 - gate) * x
-        return x
-
-
-class LSTM(nn.Module):
-
-    def __init__(self, input_size, hidden_size, num_layers, bidirectional, dropout):
-        """
-        Args: 
-            input_size: x 的特征维度
-            hidden_size: 隐层的特征维度
-            num_layers: LSTM 层数
-        """
-        super(LSTM, self).__init__()
-        self.rnn = nn.LSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers, bidirectional=bidirectional, dropout=dropout)
-        self.init_params()
-
-    def init_params(self):
-        for i in range(self.rnn.num_layers):
-            nn.init.orthogonal_(getattr(self.rnn, f'weight_hh_l{i}'))
-            nn.init.kaiming_normal_(getattr(self.rnn, f'weight_ih_l{i}'))
-            nn.init.constant_(getattr(self.rnn, f'bias_hh_l{i}'), val=0)
-            nn.init.constant_(getattr(self.rnn, f'bias_ih_l{i}'), val=0)
-            getattr(self.rnn, f'bias_hh_l{i}').chunk(4)[1].fill_(1)
-            if self.rnn.bidirectional:
-                nn.init.orthogonal_(getattr(self.rnn, f'weight_hh_l{i}_reverse'))
-                nn.init.kaiming_normal_(getattr(self.rnn, f'weight_ih_l{i}_reverse'))
-                nn.init.constant_(getattr(self.rnn, f'bias_hh_l{i}_reverse'), val=0)
-                nn.init.constant_(getattr(self.rnn, f'bias_ih_l{i}_reverse'), val=0)
-                getattr(self.rnn, f'bias_hh_l{i}_reverse').chunk(4)[1].fill_(1)
-
-    def forward(self, x, lengths):
-        packed_x = nn.utils.rnn.pack_padded_sequence(x, lengths)
-        packed_output, (hidden, cell) = self.rnn(packed_x)
-        output, output_lengths = nn.utils.rnn.pad_packed_sequence(packed_output)
-        return hidden, output
-
-
-class Linear(nn.Module):
-
-    def __init__(self, in_features, out_features):
-        super(Linear, self).__init__()
-        self.linear = nn.Linear(in_features=in_features, out_features=out_features)
-        self.init_params()
-
-    def init_params(self):
-        nn.init.kaiming_normal_(self.linear.weight)
-        nn.init.constant_(self.linear.bias, 0)
-
-    def forward(self, x):
-        x = self.linear(x)
-        return x
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -721,6 +732,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conv1d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'filter_sizes': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     True),
     (Embedding,
      lambda: ([], {'highway_layers': 1, 'word_dim': 4, 'char_dim': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -807,4 +822,7 @@ class Test_songyingxin_TextClassification(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
 

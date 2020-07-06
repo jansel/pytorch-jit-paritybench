@@ -14,6 +14,7 @@ _ext = _module
 bn = _module
 build = _module
 dense = _module
+functions = _module
 misc = _module
 residual = _module
 network = _module
@@ -34,34 +35,51 @@ metric = _module
 operator = _module
 parallel = _module
 resnet_block = _module
+utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+import collections
+
+
+import numpy as np
+
+
+import random
+
+
+import torchvision
+
+
+from torch.utils import data
+
+
+import torchvision.transforms as transforms
 
 
 import scipy
 
 
 from scipy import ndimage
-
-
-import torch
-
-
-import numpy as np
 
 
 import numpy.ma as ma
@@ -74,9 +92,6 @@ import torchvision.models as models
 
 
 import torch.nn.functional as F
-
-
-from torch.utils import data
 
 
 from collections import OrderedDict
@@ -94,13 +109,22 @@ import torch.nn as nn
 import torch.nn.functional as functional
 
 
+import torch.autograd as autograd
+
+
+import torch.cuda.comm as comm
+
+
+from torch.autograd.function import once_differentiable
+
+
+from torch.utils.cpp_extension import load
+
+
 from collections import Iterable
 
 
 from itertools import repeat
-
-
-import torch.autograd as autograd
 
 
 from torch.nn import functional as F
@@ -127,16 +151,10 @@ import scipy.misc
 import torch.backends.cudnn as cudnn
 
 
-import random
-
-
 import logging
 
 
 from torch.autograd import Function
-
-
-import torch.cuda.comm as comm
 
 
 from torch.nn.parallel.data_parallel import DataParallel
@@ -149,83 +167,6 @@ from torch.nn.parallel._functions import ReduceAddCoalesced
 
 
 from torch.nn.parallel._functions import Broadcast
-
-
-ACT_ELU = 'elu'
-
-
-ACT_LEAKY_RELU = 'leaky_relu'
-
-
-ACT_RELU = 'relu'
-
-
-class ABN(nn.Module):
-    """Activated Batch Normalization
-
-    This gathers a `BatchNorm2d` and an activation function in a single module
-    """
-
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates an Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(ABN, self).__init__()
-        self.num_features = num_features
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        self.activation = activation
-        self.slope = slope
-        if self.affine:
-            self.weight = nn.Parameter(torch.ones(num_features))
-            self.bias = nn.Parameter(torch.zeros(num_features))
-        else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        nn.init.constant_(self.running_mean, 0)
-        nn.init.constant_(self.running_var, 1)
-        if self.affine:
-            nn.init.constant_(self.weight, 1)
-            nn.init.constant_(self.bias, 0)
-
-    def forward(self, x):
-        x = functional.batch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
-        if self.activation == ACT_RELU:
-            return functional.relu(x, inplace=True)
-        elif self.activation == ACT_LEAKY_RELU:
-            return functional.leaky_relu(x, negative_slope=self.slope, inplace=True)
-        elif self.activation == ACT_ELU:
-            return functional.elu(x, inplace=True)
-        else:
-            return x
-
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ', slope={slope})'
-        else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
 
 
 class ABN(nn.Sequential):
@@ -249,212 +190,216 @@ class ABN(nn.Sequential):
         super(ABN, self).__init__(OrderedDict([('bn', nn.BatchNorm2d(num_features, **kwargs)), ('act', activation)]))
 
 
-class InPlaceABN(ABN):
-    """InPlace Activated Batch Normalization"""
-
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates an InPlace Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(InPlaceABN, self).__init__(num_features, eps, momentum, affine, activation, slope)
-
-    def forward(self, x):
-        return inplace_abn(x, self.weight, self.bias, self.running_mean, self.running_var, self.training, self.momentum, self.eps, self.activation, self.slope)
+ACT_LEAKY_RELU = 'leaky_relu'
 
 
-inplace_abn = InPlaceABN.apply
+ACT_ELU = 'elu'
 
 
-class InPlaceABN(nn.Module):
-    """InPlace Activated Batch Normalization"""
+ACT_NONE = 'none'
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates an InPlace Activated Batch Normalization module
 
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(InPlaceABN, self).__init__()
-        self.num_features = num_features
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        self.activation = activation
-        self.slope = slope
-        if self.affine:
-            self.weight = nn.Parameter(torch.Tensor(num_features))
-            self.bias = nn.Parameter(torch.Tensor(num_features))
+def _check(fn, *args, **kwargs):
+    success = fn(*args, **kwargs)
+    if not success:
+        raise RuntimeError('CUDA Error encountered in {}'.format(fn))
+
+
+def _act_backward(ctx, x, dx):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _check(_ext.leaky_relu_backward_cuda, x, dx, ctx.slope)
+        _check(_ext.leaky_relu_cuda, x, 1.0 / ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _check(_ext.elu_backward_cuda, x, dx)
+        _check(_ext.elu_inv_cuda, x)
+    elif ctx.activation == ACT_NONE:
+        pass
+
+
+def _act_forward(ctx, x):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _check(_ext.leaky_relu_cuda, x, ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _check(_ext.elu_cuda, x)
+    elif ctx.activation == ACT_NONE:
+        pass
+
+
+def _check_contiguous(*args):
+    if not all([(mod is None or mod.is_contiguous()) for mod in args]):
+        raise ValueError('Non-contiguous input')
+
+
+def _count_samples(x):
+    count = 1
+    for i, s in enumerate(x.size()):
+        if i != 1:
+            count *= s
+    return count
+
+
+class InPlaceABN(autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, weight, bias, running_mean, running_var, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01):
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        n = _count_samples(x)
+        if ctx.training:
+            mean = x.new().resize_as_(running_mean)
+            var = x.new().resize_as_(running_var)
+            _check_contiguous(x, mean, var)
+            _check(_ext.bn_mean_var_cuda, x, mean, var)
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * n / (n - 1))
         else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
+            mean, var = running_mean, running_var
+        _check_contiguous(x, mean, var, weight, bias)
+        _check(_ext.bn_forward_cuda, x, mean, var, weight if weight is not None else x.new(), bias if bias is not None else x.new(), x, x, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, weight, bias, running_mean, running_var)
+        ctx.mark_dirty(x)
+        return x
 
-    def reset_parameters(self):
-        self.running_mean.zero_()
-        self.running_var.fill_(1)
-        if self.affine:
-            self.weight.data.fill_(1)
-            self.bias.data.zero_()
-
-    def forward(self, x):
-        return inplace_abn(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), self.training, self.momentum, self.eps, self.activation, self.slope)
-
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ' slope={slope})'
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, weight, bias, running_mean, running_var = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.needs_input_grad[0]:
+            dx = dz.new().resize_as_(dz)
         else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
-
-
-class InPlaceABNSync(ABN):
-    """InPlace Activated Batch Normalization with cross-GPU synchronization
-
-    This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DataParallel`.
-    """
-
-    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates a synchronized, InPlace Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        devices : list of int or None
-            IDs of the GPUs that will run the replicas of this module.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(InPlaceABNSync, self).__init__(num_features, eps, momentum, affine, activation, slope)
-        self.devices = devices if devices else list(range(torch.cuda.device_count()))
-        self.worker_ids = self.devices[1:]
-        self.master_queue = Queue(len(self.worker_ids))
-        self.worker_queues = [Queue(1) for _ in self.worker_ids]
-
-    def forward(self, x):
-        if x.get_device() == self.devices[0]:
-            extra = {'is_master': True, 'master_queue': self.master_queue, 'worker_queues': self.worker_queues, 'worker_ids': self.worker_ids}
+            dx = None
+        if ctx.needs_input_grad[1]:
+            dweight = dz.new().resize_as_(running_mean).zero_()
         else:
-            extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
-        return inplace_abn_sync(x, self.weight, self.bias, self.running_mean, self.running_var, extra, self.training, self.momentum, self.eps, self.activation, self.slope)
-
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ', slope={slope})'
+            dweight = None
+        if ctx.needs_input_grad[2]:
+            dbias = dz.new().resize_as_(running_mean).zero_()
         else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
-
-
-inplace_abn_sync = InPlaceABNSync.apply
-
-
-class InPlaceABNSync(nn.Module):
-    """InPlace Activated Batch Normalization with cross-GPU synchronization
-
-    This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DataParallel`.
-    """
-
-    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates a synchronized, InPlace Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        devices : list of int or None
-            IDs of the GPUs that will run the replicas of this module.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(InPlaceABNSync, self).__init__()
-        self.num_features = num_features
-        self.devices = devices if devices else list(range(torch.device_count()))
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        self.activation = activation
-        self.slope = slope
-        if self.affine:
-            self.weight = nn.Parameter(torch.Tensor(num_features))
-            self.bias = nn.Parameter(torch.Tensor(num_features))
+            dbias = None
+        if ctx.training:
+            edz = dz.new().resize_as_(running_mean)
+            eydz = dz.new().resize_as_(running_mean)
+            _check_contiguous(z, dz, weight, bias, edz, eydz)
+            _check(_ext.bn_edz_eydz_cuda, z, dz, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, ctx.eps)
         else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
-        self.worker_ids = self.devices[1:]
-        self.master_queue = Queue(len(self.worker_ids))
-        self.worker_queues = [Queue(1) for _ in self.worker_ids]
+            edz = dz.new().resize_as_(running_mean).zero_()
+            eydz = dz.new().resize_as_(running_mean).zero_()
+        _check_contiguous(dz, z, ctx.var, weight, bias, edz, eydz, dx, dweight, dbias)
+        _check(_ext.bn_backard_cuda, dz, z, ctx.var, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, dx if dx is not None else dz.new(), dweight if dweight is not None else dz.new(), dbias if dbias is not None else dz.new(), ctx.eps)
+        del ctx.var
+        return dx, dweight, dbias, None, None, None, None, None, None, None
 
-    def reset_parameters(self):
-        self.running_mean.zero_()
-        self.running_var.fill_(1)
-        if self.affine:
-            self.weight.data.fill_(1)
-            self.bias.data.zero_()
 
-    def forward(self, x):
-        if x.get_device() == self.devices[0]:
-            extra = {'is_master': True, 'master_queue': self.master_queue, 'worker_queues': self.worker_queues, 'worker_ids': self.worker_ids}
+class InPlaceABNSync(autograd.Function):
+
+    @classmethod
+    def forward(cls, ctx, x, weight, bias, running_mean, running_var, extra, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01):
+        cls._parse_extra(ctx, extra)
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        n = _count_samples(x) * (ctx.master_queue.maxsize + 1)
+        if ctx.training:
+            mean = x.new().resize_(1, running_mean.size(0))
+            var = x.new().resize_(1, running_var.size(0))
+            _check_contiguous(x, mean, var)
+            _check(_ext.bn_mean_var_cuda, x, mean, var)
+            if ctx.is_master:
+                means, vars = [mean], [var]
+                for _ in range(ctx.master_queue.maxsize):
+                    mean_w, var_w = ctx.master_queue.get()
+                    ctx.master_queue.task_done()
+                    means.append(mean_w)
+                    vars.append(var_w)
+                means = comm.gather(means)
+                vars = comm.gather(vars)
+                mean = means.mean(0)
+                var = (vars + (mean - means) ** 2).mean(0)
+                tensors = comm.broadcast_coalesced((mean, var), [mean.get_device()] + ctx.worker_ids)
+                for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                    queue.put(ts)
+            else:
+                ctx.master_queue.put((mean, var))
+                mean, var = ctx.worker_queue.get()
+                ctx.worker_queue.task_done()
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * n / (n - 1))
         else:
-            extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
-        return inplace_abn_sync(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), extra, self.training, self.momentum, self.eps, self.activation, self.slope)
+            mean, var = running_mean, running_var
+        _check_contiguous(x, mean, var, weight, bias)
+        _check(_ext.bn_forward_cuda, x, mean, var, weight if weight is not None else x.new(), bias if bias is not None else x.new(), x, x, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, weight, bias, running_mean, running_var)
+        ctx.mark_dirty(x)
+        return x
 
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ' slope={slope})'
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, weight, bias, running_mean, running_var = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.needs_input_grad[0]:
+            dx = dz.new().resize_as_(dz)
         else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
+            dx = None
+        if ctx.needs_input_grad[1]:
+            dweight = dz.new().resize_as_(running_mean).zero_()
+        else:
+            dweight = None
+        if ctx.needs_input_grad[2]:
+            dbias = dz.new().resize_as_(running_mean).zero_()
+        else:
+            dbias = None
+        if ctx.training:
+            edz = dz.new().resize_as_(running_mean)
+            eydz = dz.new().resize_as_(running_mean)
+            _check_contiguous(z, dz, weight, bias, edz, eydz)
+            _check(_ext.bn_edz_eydz_cuda, z, dz, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, ctx.eps)
+            if ctx.is_master:
+                edzs, eydzs = [edz], [eydz]
+                for _ in range(len(ctx.worker_queues)):
+                    edz_w, eydz_w = ctx.master_queue.get()
+                    ctx.master_queue.task_done()
+                    edzs.append(edz_w)
+                    eydzs.append(eydz_w)
+                edz = comm.reduce_add(edzs) / (ctx.master_queue.maxsize + 1)
+                eydz = comm.reduce_add(eydzs) / (ctx.master_queue.maxsize + 1)
+                tensors = comm.broadcast_coalesced((edz, eydz), [edz.get_device()] + ctx.worker_ids)
+                for ts, queue in zip(tensors[1:], ctx.worker_queues):
+                    queue.put(ts)
+            else:
+                ctx.master_queue.put((edz, eydz))
+                edz, eydz = ctx.worker_queue.get()
+                ctx.worker_queue.task_done()
+        else:
+            edz = dz.new().resize_as_(running_mean).zero_()
+            eydz = dz.new().resize_as_(running_mean).zero_()
+        _check_contiguous(dz, z, ctx.var, weight, bias, edz, eydz, dx, dweight, dbias)
+        _check(_ext.bn_backard_cuda, dz, z, ctx.var, weight if weight is not None else dz.new(), bias if bias is not None else dz.new(), edz, eydz, dx if dx is not None else dz.new(), dweight if dweight is not None else dz.new(), dbias if dbias is not None else dz.new(), ctx.eps)
+        del ctx.var
+        return dx, dweight, dbias, None, None, None, None, None, None, None, None
+
+    @staticmethod
+    def _parse_extra(ctx, extra):
+        ctx.is_master = extra['is_master']
+        if ctx.is_master:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queues = extra['worker_queues']
+            ctx.worker_ids = extra['worker_ids']
+        else:
+            ctx.master_queue = extra['master_queue']
+            ctx.worker_queue = extra['worker_queue']
 
 
 class InPlaceABNWrapper(nn.Module):
@@ -575,386 +520,6 @@ class IdentityResidualBlock(nn.Module):
         return out
 
 
-affine_par = True
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes):
-        self.inplanes = 128
-        super(ResNet, self).__init__()
-        self.conv1 = conv3x3(3, 64, stride=2)
-        self.bn1 = BatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=False)
-        self.conv2 = conv3x3(64, 64)
-        self.bn2 = BatchNorm2d(64)
-        self.relu2 = nn.ReLU(inplace=False)
-        self.conv3 = conv3x3(64, 128)
-        self.bn3 = BatchNorm2d(128)
-        self.relu3 = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
-        self.context = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), ASP_OC_Module(512, 256))
-        self.cls = nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
-        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.1), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
-        layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x_dsn = self.dsn(x)
-        x = self.layer4(x)
-        x = self.context(x)
-        x = self.cls(x)
-        return [x_dsn, x]
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes):
-        self.inplanes = 128
-        super(ResNet, self).__init__()
-        self.conv1 = conv3x3(3, 64, stride=2)
-        self.bn1 = BatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=False)
-        self.conv2 = conv3x3(64, 64)
-        self.bn2 = BatchNorm2d(64)
-        self.relu2 = nn.ReLU(inplace=False)
-        self.conv3 = conv3x3(64, 128)
-        self.bn3 = BatchNorm2d(128)
-        self.relu3 = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
-        self.context = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), BaseOC_Module(in_channels=512, out_channels=512, key_channels=256, value_channels=256, dropout=0.05, sizes=[1]))
-        self.cls = nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
-        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.05), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
-        layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x_dsn = self.dsn(x)
-        x = self.layer4(x)
-        x = self.context(x)
-        x = self.cls(x)
-        return [x_dsn, x]
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes):
-        self.inplanes = 128
-        super(ResNet, self).__init__()
-        self.conv1 = conv3x3(3, 64, stride=2)
-        self.bn1 = BatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=False)
-        self.conv2 = conv3x3(64, 64)
-        self.bn2 = BatchNorm2d(64)
-        self.relu2 = nn.ReLU(inplace=False)
-        self.conv3 = conv3x3(64, 128)
-        self.bn3 = BatchNorm2d(128)
-        self.relu3 = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
-        self.layer5 = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.05))
-        self.layer6 = nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
-        layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.layer5(x)
-        x = self.layer6(x)
-        return x
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes):
-        self.inplanes = 128
-        super(ResNet, self).__init__()
-        self.conv1 = conv3x3(3, 64, stride=2)
-        self.bn1 = BatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=False)
-        self.conv2 = conv3x3(64, 64)
-        self.bn2 = BatchNorm2d(64)
-        self.relu2 = nn.ReLU(inplace=False)
-        self.conv3 = conv3x3(64, 128)
-        self.bn3 = BatchNorm2d(128)
-        self.relu3 = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
-        self.layer5 = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3, stride=1, padding=1), BatchNorm2d(512))
-        self.context = Pyramid_OC_Module(in_channels=512, out_channels=512, dropout=0.05, sizes=[1, 2, 3, 6])
-        self.cls = nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
-        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1), BatchNorm2d(512), nn.Dropout2d(0.05), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
-        layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x_dsn = self.dsn(x)
-        x = self.layer4(x)
-        x = self.layer5(x)
-        x = self.context(x)
-        x = self.cls(x)
-        return [x_dsn, x]
-
-
-class ASP_OC_Module(nn.Module):
-
-    def __init__(self, features, out_features=256, dilations=(12, 24, 36)):
-        super(ASP_OC_Module, self).__init__()
-        self.context = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=1, dilation=1, bias=True), InPlaceABNSync(out_features), BaseOC_Context_Module(in_channels=out_features, out_channels=out_features, key_channels=out_features // 2, value_channels=out_features, dropout=0, sizes=[2]))
-        self.conv2 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(out_features))
-        self.conv3 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=dilations[0], dilation=dilations[0], bias=False), InPlaceABNSync(out_features))
-        self.conv4 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=dilations[1], dilation=dilations[1], bias=False), InPlaceABNSync(out_features))
-        self.conv5 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=dilations[2], dilation=dilations[2], bias=False), InPlaceABNSync(out_features))
-        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(out_features * 5, out_features * 2, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(out_features * 2), nn.Dropout2d(0.1))
-
-    def _cat_each(self, feat1, feat2, feat3, feat4, feat5):
-        assert len(feat1) == len(feat2)
-        z = []
-        for i in range(len(feat1)):
-            z.append(torch.cat((feat1[i], feat2[i], feat3[i], feat4[i], feat5[i]), 1))
-        return z
-
-    def forward(self, x):
-        if isinstance(x, Variable):
-            _, _, h, w = x.size()
-        elif isinstance(x, tuple) or isinstance(x, list):
-            _, _, h, w = x[0].size()
-        else:
-            raise RuntimeError('unknown input type')
-        feat1 = self.context(x)
-        feat2 = self.conv2(x)
-        feat3 = self.conv3(x)
-        feat4 = self.conv4(x)
-        feat5 = self.conv5(x)
-        if isinstance(x, Variable):
-            out = torch.cat((feat1, feat2, feat3, feat4, feat5), 1)
-        elif isinstance(x, tuple) or isinstance(x, list):
-            out = self._cat_each(feat1, feat2, feat3, feat4, feat5)
-        else:
-            raise RuntimeError('unknown input type')
-        output = self.conv_bn_dropout(out)
-        return output
-
-
-torch_ver = torch.__version__[:3]
-
-
-class _SelfAttentionBlock(nn.Module):
-    """
-    The basic implementation for self-attention block/non-local block
-    Input:
-        N X C X H X W
-    Parameters:
-        in_channels       : the dimension of the input feature map
-        key_channels      : the dimension after the key/query transform
-        value_channels    : the dimension after the value transform
-        scale             : choose the scale to downsample the input feature maps (save memory cost)
-    Return:
-        N X C X H X W
-        position-aware context features.(w/o concate or add with the input)
-    """
-
-    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1):
-        super(_SelfAttentionBlock, self).__init__()
-        self.scale = scale
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.key_channels = key_channels
-        self.value_channels = value_channels
-        if out_channels == None:
-            self.out_channels = in_channels
-        self.pool = nn.MaxPool2d(kernel_size=(scale, scale))
-        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels, out_channels=self.key_channels, kernel_size=1, stride=1, padding=0), InPlaceABNSync(self.key_channels))
-        self.f_query = self.f_key
-        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels=self.value_channels, kernel_size=1, stride=1, padding=0)
-        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=self.out_channels, kernel_size=1, stride=1, padding=0)
-        nn.init.constant(self.W.weight, 0)
-        nn.init.constant(self.W.bias, 0)
-
-    def forward(self, x):
-        batch_size, h, w = x.size(0), x.size(2), x.size(3)
-        if self.scale > 1:
-            x = self.pool(x)
-        value = self.f_value(x).view(batch_size, self.value_channels, -1)
-        value = value.permute(0, 2, 1)
-        query = self.f_query(x).view(batch_size, self.key_channels, -1)
-        query = query.permute(0, 2, 1)
-        key = self.f_key(x).view(batch_size, self.key_channels, -1)
-        sim_map = torch.matmul(query, key)
-        sim_map = self.key_channels ** -0.5 * sim_map
-        sim_map = F.softmax(sim_map, dim=-1)
-        context = torch.matmul(sim_map, value)
-        context = context.permute(0, 2, 1).contiguous()
-        context = context.view(batch_size, self.value_channels, *x.size()[2:])
-        context = self.W(context)
-        if self.scale > 1:
-            if torch_ver == '0.4':
-                context = F.upsample(input=context, size=(h, w), mode='bilinear', align_corners=True)
-            elif torch_ver == '0.3':
-                context = F.upsample(input=context, size=(h, w), mode='bilinear')
-        return context
-
-
-class SelfAttentionBlock2D(_SelfAttentionBlock):
-
-    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1):
-        super(SelfAttentionBlock2D, self).__init__(in_channels, key_channels, value_channels, out_channels, scale)
-
-
-class BaseOC_Module(nn.Module):
-    """
-    Implementation of the BaseOC module
-    Parameters:
-        in_features / out_features: the channels of the input / output feature maps.
-        dropout: we choose 0.05 as the default value.
-        size: you can apply multiple sizes. Here we only use one size.
-    Return:
-        features fused with Object context information.
-    """
-
-    def __init__(self, in_channels, out_channels, key_channels, value_channels, dropout, sizes=[1]):
-        super(BaseOC_Module, self).__init__()
-        self.stages = []
-        self.stages = nn.ModuleList([self._make_stage(in_channels, out_channels, key_channels, value_channels, size) for size in sizes])
-        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(2 * in_channels, out_channels, kernel_size=1, padding=0), InPlaceABNSync(out_channels), nn.Dropout2d(dropout))
-
-    def _make_stage(self, in_channels, output_channels, key_channels, value_channels, size):
-        return SelfAttentionBlock2D(in_channels, key_channels, value_channels, output_channels, size)
-
-    def forward(self, feats):
-        priors = [stage(feats) for stage in self.stages]
-        context = priors[0]
-        for i in range(1, len(priors)):
-            context += priors[i]
-        output = self.conv_bn_dropout(torch.cat([context, feats], 1))
-        return output
-
-
-class BaseOC_Context_Module(nn.Module):
-    """
-    Output only the context features.
-    Parameters:
-        in_features / out_features: the channels of the input / output feature maps.
-        dropout: specify the dropout ratio
-        fusion: We provide two different fusion method, "concat" or "add"
-        size: we find that directly learn the attention weights on even 1/8 feature maps is hard.
-    Return:
-        features after "concat" or "add"
-    """
-
-    def __init__(self, in_channels, out_channels, key_channels, value_channels, dropout, sizes=[1]):
-        super(BaseOC_Context_Module, self).__init__()
-        self.stages = []
-        self.stages = nn.ModuleList([self._make_stage(in_channels, out_channels, key_channels, value_channels, size) for size in sizes])
-        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0), InPlaceABNSync(out_channels))
-
-    def _make_stage(self, in_channels, output_channels, key_channels, value_channels, size):
-        return SelfAttentionBlock2D(in_channels, key_channels, value_channels, output_channels, size)
-
-    def forward(self, feats):
-        priors = [stage(feats) for stage in self.stages]
-        context = priors[0]
-        for i in range(1, len(priors)):
-            context += priors[i]
-        output = self.conv_bn_dropout(context)
-        return output
-
-
 class _PyramidSelfAttentionBlock(nn.Module):
     """
     The basic implementation for self-attention block/non-local block
@@ -1071,6 +636,232 @@ class Pyramid_OC_Module(nn.Module):
         return output
 
 
+affine_par = True
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, block, layers, num_classes):
+        self.inplanes = 128
+        super(ResNet, self).__init__()
+        self.conv1 = conv3x3(3, 64, stride=2)
+        self.bn1 = BatchNorm2d(64)
+        self.relu1 = nn.ReLU(inplace=False)
+        self.conv2 = conv3x3(64, 64)
+        self.bn2 = BatchNorm2d(64)
+        self.relu2 = nn.ReLU(inplace=False)
+        self.conv3 = conv3x3(64, 128)
+        self.bn3 = BatchNorm2d(128)
+        self.relu3 = nn.ReLU(inplace=False)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.relu = nn.ReLU(inplace=False)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
+        self.layer5 = nn.Sequential(nn.Conv2d(2048, 512, kernel_size=3, stride=1, padding=1), BatchNorm2d(512))
+        self.context = Pyramid_OC_Module(in_channels=512, out_channels=512, dropout=0.05, sizes=[1, 2, 3, 6])
+        self.cls = nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True)
+        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1), BatchNorm2d(512), nn.Dropout2d(0.05), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
+
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
+        layers = []
+        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
+        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.relu1(self.bn1(self.conv1(x)))
+        x = self.relu2(self.bn2(self.conv2(x)))
+        x = self.relu3(self.bn3(self.conv3(x)))
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x_dsn = self.dsn(x)
+        x = self.layer4(x)
+        x = self.layer5(x)
+        x = self.context(x)
+        x = self.cls(x)
+        return [x_dsn, x]
+
+
+torch_ver = torch.__version__[:3]
+
+
+class _SelfAttentionBlock(nn.Module):
+    """
+    The basic implementation for self-attention block/non-local block
+    Input:
+        N X C X H X W
+    Parameters:
+        in_channels       : the dimension of the input feature map
+        key_channels      : the dimension after the key/query transform
+        value_channels    : the dimension after the value transform
+        scale             : choose the scale to downsample the input feature maps (save memory cost)
+    Return:
+        N X C X H X W
+        position-aware context features.(w/o concate or add with the input)
+    """
+
+    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1):
+        super(_SelfAttentionBlock, self).__init__()
+        self.scale = scale
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.key_channels = key_channels
+        self.value_channels = value_channels
+        if out_channels == None:
+            self.out_channels = in_channels
+        self.pool = nn.MaxPool2d(kernel_size=(scale, scale))
+        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels, out_channels=self.key_channels, kernel_size=1, stride=1, padding=0), InPlaceABNSync(self.key_channels))
+        self.f_query = self.f_key
+        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels=self.value_channels, kernel_size=1, stride=1, padding=0)
+        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=self.out_channels, kernel_size=1, stride=1, padding=0)
+        nn.init.constant(self.W.weight, 0)
+        nn.init.constant(self.W.bias, 0)
+
+    def forward(self, x):
+        batch_size, h, w = x.size(0), x.size(2), x.size(3)
+        if self.scale > 1:
+            x = self.pool(x)
+        value = self.f_value(x).view(batch_size, self.value_channels, -1)
+        value = value.permute(0, 2, 1)
+        query = self.f_query(x).view(batch_size, self.key_channels, -1)
+        query = query.permute(0, 2, 1)
+        key = self.f_key(x).view(batch_size, self.key_channels, -1)
+        sim_map = torch.matmul(query, key)
+        sim_map = self.key_channels ** -0.5 * sim_map
+        sim_map = F.softmax(sim_map, dim=-1)
+        context = torch.matmul(sim_map, value)
+        context = context.permute(0, 2, 1).contiguous()
+        context = context.view(batch_size, self.value_channels, *x.size()[2:])
+        context = self.W(context)
+        if self.scale > 1:
+            if torch_ver == '0.4':
+                context = F.upsample(input=context, size=(h, w), mode='bilinear', align_corners=True)
+            elif torch_ver == '0.3':
+                context = F.upsample(input=context, size=(h, w), mode='bilinear')
+        return context
+
+
+class SelfAttentionBlock2D(_SelfAttentionBlock):
+
+    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1):
+        super(SelfAttentionBlock2D, self).__init__(in_channels, key_channels, value_channels, out_channels, scale)
+
+
+class BaseOC_Context_Module(nn.Module):
+    """
+    Output only the context features.
+    Parameters:
+        in_features / out_features: the channels of the input / output feature maps.
+        dropout: specify the dropout ratio
+        fusion: We provide two different fusion method, "concat" or "add"
+        size: we find that directly learn the attention weights on even 1/8 feature maps is hard.
+    Return:
+        features after "concat" or "add"
+    """
+
+    def __init__(self, in_channels, out_channels, key_channels, value_channels, dropout, sizes=[1]):
+        super(BaseOC_Context_Module, self).__init__()
+        self.stages = []
+        self.stages = nn.ModuleList([self._make_stage(in_channels, out_channels, key_channels, value_channels, size) for size in sizes])
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0), InPlaceABNSync(out_channels))
+
+    def _make_stage(self, in_channels, output_channels, key_channels, value_channels, size):
+        return SelfAttentionBlock2D(in_channels, key_channels, value_channels, output_channels, size)
+
+    def forward(self, feats):
+        priors = [stage(feats) for stage in self.stages]
+        context = priors[0]
+        for i in range(1, len(priors)):
+            context += priors[i]
+        output = self.conv_bn_dropout(context)
+        return output
+
+
+class ASP_OC_Module(nn.Module):
+
+    def __init__(self, features, out_features=256, dilations=(12, 24, 36)):
+        super(ASP_OC_Module, self).__init__()
+        self.context = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=1, dilation=1, bias=True), InPlaceABNSync(out_features), BaseOC_Context_Module(in_channels=out_features, out_channels=out_features, key_channels=out_features // 2, value_channels=out_features, dropout=0, sizes=[2]))
+        self.conv2 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(out_features))
+        self.conv3 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=dilations[0], dilation=dilations[0], bias=False), InPlaceABNSync(out_features))
+        self.conv4 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=dilations[1], dilation=dilations[1], bias=False), InPlaceABNSync(out_features))
+        self.conv5 = nn.Sequential(nn.Conv2d(features, out_features, kernel_size=3, padding=dilations[2], dilation=dilations[2], bias=False), InPlaceABNSync(out_features))
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(out_features * 5, out_features * 2, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(out_features * 2), nn.Dropout2d(0.1))
+
+    def _cat_each(self, feat1, feat2, feat3, feat4, feat5):
+        assert len(feat1) == len(feat2)
+        z = []
+        for i in range(len(feat1)):
+            z.append(torch.cat((feat1[i], feat2[i], feat3[i], feat4[i], feat5[i]), 1))
+        return z
+
+    def forward(self, x):
+        if isinstance(x, Variable):
+            _, _, h, w = x.size()
+        elif isinstance(x, tuple) or isinstance(x, list):
+            _, _, h, w = x[0].size()
+        else:
+            raise RuntimeError('unknown input type')
+        feat1 = self.context(x)
+        feat2 = self.conv2(x)
+        feat3 = self.conv3(x)
+        feat4 = self.conv4(x)
+        feat5 = self.conv5(x)
+        if isinstance(x, Variable):
+            out = torch.cat((feat1, feat2, feat3, feat4, feat5), 1)
+        elif isinstance(x, tuple) or isinstance(x, list):
+            out = self._cat_each(feat1, feat2, feat3, feat4, feat5)
+        else:
+            raise RuntimeError('unknown input type')
+        output = self.conv_bn_dropout(out)
+        return output
+
+
+class BaseOC_Module(nn.Module):
+    """
+    Implementation of the BaseOC module
+    Parameters:
+        in_features / out_features: the channels of the input / output feature maps.
+        dropout: we choose 0.05 as the default value.
+        size: you can apply multiple sizes. Here we only use one size.
+    Return:
+        features fused with Object context information.
+    """
+
+    def __init__(self, in_channels, out_channels, key_channels, value_channels, dropout, sizes=[1]):
+        super(BaseOC_Module, self).__init__()
+        self.stages = []
+        self.stages = nn.ModuleList([self._make_stage(in_channels, out_channels, key_channels, value_channels, size) for size in sizes])
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(2 * in_channels, out_channels, kernel_size=1, padding=0), InPlaceABNSync(out_channels), nn.Dropout2d(dropout))
+
+    def _make_stage(self, in_channels, output_channels, key_channels, value_channels, size):
+        return SelfAttentionBlock2D(in_channels, key_channels, value_channels, output_channels, size)
+
+    def forward(self, feats):
+        priors = [stage(feats) for stage in self.stages]
+        context = priors[0]
+        for i in range(1, len(priors)):
+            context += priors[i]
+        output = self.conv_bn_dropout(torch.cat([context, feats], 1))
+        return output
+
+
 class CriterionCrossEntropy(nn.Module):
 
     def __init__(self, ignore_index=255):
@@ -1119,6 +910,65 @@ class CriterionDSN(nn.Module):
             scale_pred = F.upsample(input=preds[1], size=(h, w), mode='bilinear')
         loss2 = self.criterion(scale_pred, target)
         return self.dsn_weight * loss1 + loss2
+
+
+class OhemCrossEntropy2d(nn.Module):
+
+    def __init__(self, ignore_label=255, thresh=0.6, min_kept=0, use_weight=True):
+        super(OhemCrossEntropy2d, self).__init__()
+        self.ignore_label = ignore_label
+        self.thresh = float(thresh)
+        self.min_kept = int(min_kept)
+        if use_weight:
+            None
+            weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
+            self.criterion = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_label)
+        else:
+            None
+            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_label)
+
+    def forward(self, predict, target, weight=None):
+        """
+            Args:
+                predict:(n, c, h, w)
+                target:(n, h, w)
+                weight (Tensor, optional): a manual rescaling weight given to each class.
+                                           If given, has to be a Tensor of size "nclasses"
+        """
+        assert not target.requires_grad
+        assert predict.dim() == 4
+        assert target.dim() == 3
+        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict.size(0), target.size(0))
+        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict.size(2), target.size(1))
+        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict.size(3), target.size(3))
+        n, c, h, w = predict.size()
+        input_label = target.data.cpu().numpy().ravel().astype(np.int32)
+        x = np.rollaxis(predict.data.cpu().numpy(), 1).reshape((c, -1))
+        input_prob = np.exp(x - x.max(axis=0).reshape((1, -1)))
+        input_prob /= input_prob.sum(axis=0).reshape((1, -1))
+        valid_flag = input_label != self.ignore_label
+        valid_inds = np.where(valid_flag)[0]
+        label = input_label[valid_flag]
+        num_valid = valid_flag.sum()
+        if self.min_kept >= num_valid:
+            None
+        elif num_valid > 0:
+            prob = input_prob[:, (valid_flag)]
+            pred = prob[label, np.arange(len(label), dtype=np.int32)]
+            threshold = self.thresh
+            if self.min_kept > 0:
+                index = pred.argsort()
+                threshold_index = index[min(len(index), self.min_kept) - 1]
+                if pred[threshold_index] > self.thresh:
+                    threshold = pred[threshold_index]
+            kept_flag = pred <= threshold
+            valid_inds = valid_inds[kept_flag]
+        label = input_label[valid_inds].copy()
+        input_label.fill(self.ignore_label)
+        input_label[valid_inds] = label
+        valid_flag_new = input_label != self.ignore_label
+        target = Variable(torch.from_numpy(input_label.reshape(target.size())).long())
+        return self.criterion(predict, target)
 
 
 class CriterionOhemDSN(nn.Module):
@@ -1227,65 +1077,6 @@ class CrossEntropy2d(nn.Module):
         predict = predict[target_mask.view(n, h, w, 1).repeat(1, 1, 1, c)].view(-1, c)
         loss = criterion(predict, target)
         return loss
-
-
-class OhemCrossEntropy2d(nn.Module):
-
-    def __init__(self, ignore_label=255, thresh=0.6, min_kept=0, use_weight=True):
-        super(OhemCrossEntropy2d, self).__init__()
-        self.ignore_label = ignore_label
-        self.thresh = float(thresh)
-        self.min_kept = int(min_kept)
-        if use_weight:
-            None
-            weight = torch.FloatTensor([0.8373, 0.918, 0.866, 1.0345, 1.0166, 0.9969, 0.9754, 1.0489, 0.8786, 1.0023, 0.9539, 0.9843, 1.1116, 0.9037, 1.0865, 1.0955, 1.0865, 1.1529, 1.0507])
-            self.criterion = torch.nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_label)
-        else:
-            None
-            self.criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_label)
-
-    def forward(self, predict, target, weight=None):
-        """
-            Args:
-                predict:(n, c, h, w)
-                target:(n, h, w)
-                weight (Tensor, optional): a manual rescaling weight given to each class.
-                                           If given, has to be a Tensor of size "nclasses"
-        """
-        assert not target.requires_grad
-        assert predict.dim() == 4
-        assert target.dim() == 3
-        assert predict.size(0) == target.size(0), '{0} vs {1} '.format(predict.size(0), target.size(0))
-        assert predict.size(2) == target.size(1), '{0} vs {1} '.format(predict.size(2), target.size(1))
-        assert predict.size(3) == target.size(2), '{0} vs {1} '.format(predict.size(3), target.size(3))
-        n, c, h, w = predict.size()
-        input_label = target.data.cpu().numpy().ravel().astype(np.int32)
-        x = np.rollaxis(predict.data.cpu().numpy(), 1).reshape((c, -1))
-        input_prob = np.exp(x - x.max(axis=0).reshape((1, -1)))
-        input_prob /= input_prob.sum(axis=0).reshape((1, -1))
-        valid_flag = input_label != self.ignore_label
-        valid_inds = np.where(valid_flag)[0]
-        label = input_label[valid_flag]
-        num_valid = valid_flag.sum()
-        if self.min_kept >= num_valid:
-            None
-        elif num_valid > 0:
-            prob = input_prob[:, (valid_flag)]
-            pred = prob[label, np.arange(len(label), dtype=np.int32)]
-            threshold = self.thresh
-            if self.min_kept > 0:
-                index = pred.argsort()
-                threshold_index = index[min(len(index), self.min_kept) - 1]
-                if pred[threshold_index] > self.thresh:
-                    threshold = pred[threshold_index]
-            kept_flag = pred <= threshold
-            valid_inds = valid_inds[kept_flag]
-        label = input_label[valid_inds].copy()
-        input_label.fill(self.ignore_label)
-        input_label[valid_inds] = label
-        valid_flag_new = input_label != self.ignore_label
-        target = Variable(torch.from_numpy(input_label.reshape(target.size())).long())
-        return self.criterion(predict, target)
 
 
 class Separable_transpose_convolution(nn.Module):
@@ -1421,7 +1212,7 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices
         if device is None:
             device = get_a_var(input).get_device()
         try:
-            with torch.cuda.device(device):
+            with torch.device(device):
                 output = module(input, target, **kwargs)
             with lock:
                 results[i] = output

@@ -15,23 +15,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import time
+import numpy as np
 
 
 import torch as T
+
+
+import time
 
 
 import torch.nn as nn
@@ -52,16 +56,10 @@ from torch.distributions import Categorical
 from numpy import random
 
 
-_global_config['trunc_norm_init_std'] = 4
-
-
 def init_linear_wt(linear):
     linear.weight.data.normal_(std=config.trunc_norm_init_std)
     if linear.bias is not None:
         linear.bias.data.normal_(std=config.trunc_norm_init_std)
-
-
-_global_config['rand_unif_init_mag'] = 4
 
 
 def init_lstm_wt(lstm):
@@ -75,12 +73,6 @@ def init_lstm_wt(lstm):
             start, end = n // 4, n // 2
             bias.data.fill_(0.0)
             bias.data[start:end].fill_(1.0)
-
-
-_global_config['hidden_dim'] = 4
-
-
-_global_config['emb_dim'] = 4
 
 
 class Encoder(nn.Module):
@@ -109,11 +101,8 @@ class Encoder(nn.Module):
 
 def get_cuda(tensor):
     if T.cuda.is_available():
-        tensor = tensor.cuda()
+        tensor = tensor
     return tensor
-
-
-_global_config['intra_encoder'] = 4
 
 
 class encoder_attention(nn.Module):
@@ -156,9 +145,6 @@ class encoder_attention(nn.Module):
         return ct_e, at, sum_temporal_srcs
 
 
-_global_config['intra_decoder'] = 4
-
-
 class decoder_attention(nn.Module):
 
     def __init__(self):
@@ -189,9 +175,6 @@ class decoder_attention(nn.Module):
             ct_d = T.bmm(at, prev_s).squeeze(1)
             prev_s = T.cat([prev_s, s_t.unsqueeze(1)], dim=1)
         return ct_d, prev_s
-
-
-_global_config['vocab_size'] = 4
 
 
 class Decoder(nn.Module):
@@ -245,36 +228,4 @@ class Model(nn.Module):
         self.encoder = get_cuda(self.encoder)
         self.decoder = get_cuda(self.decoder)
         self.embeds = get_cuda(self.embeds)
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (Encoder,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
-     False),
-    (decoder_attention,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
-    (encoder_attention,
-     lambda: ([], {}),
-     lambda: ([torch.rand([8, 8]), torch.rand([8, 8, 8]), torch.rand([8, 8]), torch.rand([8, 8])], {}),
-     False),
-]
-
-class Test_rohithreddy024_Text_Summarizer_Pytorch(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

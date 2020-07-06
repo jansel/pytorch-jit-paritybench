@@ -26,15 +26,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -75,73 +76,134 @@ import torchvision.transforms as transforms
 import time
 
 
+from collections import Counter
+
+
 import math
 
 
 from collections import namedtuple
 
 
+class FactorizedReduce(nn.Module):
+
+    def __init__(self, C_in, C_out, affine=True):
+        super(FactorizedReduce, self).__init__()
+        assert C_out % 2 == 0
+        self.relu = nn.ReLU(inplace=False)
+        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.bn = nn.BatchNorm2d(C_out, affine=affine)
+
+    def forward(self, x):
+        x = self.relu(x)
+        out = torch.cat([self.conv_1(x), self.conv_2(x[:, :, 1:, 1:])], dim=1)
+        out = self.bn(out)
+        return out
+
+
+class DilConv(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
+        super(DilConv, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
+
+class SepConv(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
+        super(SepConv, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+class Zero(nn.Module):
+
+    def __init__(self, stride):
+        super(Zero, self).__init__()
+        self.stride = stride
+
+    def forward(self, x):
+        if self.stride == 1:
+            return x.mul(0.0)
+        return x[:, :, ::self.stride, ::self.stride].mul(0.0)
+
+
 OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda C, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False), 'max_pool_3x3': lambda C, stride, affine: nn.MaxPool2d(3, stride=stride, padding=1), 'skip_connect': lambda C, stride, affine: Identity() if stride == 1 else FactorizedReduce(C, C, affine=affine), 'sep_conv_3x3': lambda C, stride, affine: SepConv(C, C, 3, stride, 1, affine=affine), 'sep_conv_5x5': lambda C, stride, affine: SepConv(C, C, 5, stride, 2, affine=affine), 'sep_conv_7x7': lambda C, stride, affine: SepConv(C, C, 7, stride, 3, affine=affine), 'dil_conv_3x3': lambda C, stride, affine: DilConv(C, C, 3, stride, 2, 2, affine=affine), 'dil_conv_5x5': lambda C, stride, affine: DilConv(C, C, 5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda C, stride, affine: nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C, C, (1, 7), stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(C, C, (7, 1), stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(C, affine=affine))}
 
 
-def drop_path(x, drop_prob):
-    if drop_prob > 0.0:
-        keep_prob = 1.0 - drop_prob
-        mask = Variable(torch.cuda.FloatTensor(x.size(0), 1, 1, 1).bernoulli_(keep_prob))
-        x.div_(keep_prob)
-        x.mul_(mask)
-    return x
+PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect', 'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
+
+
+class MixedOp(nn.Module):
+
+    def __init__(self, C, stride):
+        super(MixedOp, self).__init__()
+        self._ops = nn.ModuleList()
+        for primitive in PRIMITIVES:
+            op = OPS[primitive](C, stride, False)
+            if 'pool' in primitive:
+                op = nn.Sequential(op, nn.BatchNorm2d(C, affine=False))
+            self._ops.append(op)
+
+    def forward(self, x, weights):
+        return sum(w * op(x) for w, op in zip(weights, self._ops))
+
+
+class ReLUConvBN(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
+        super(ReLUConvBN, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
 
 
 class Cell(nn.Module):
 
-    def __init__(self, genotype, C_prev_prev, C_prev, C, reduction, reduction_prev):
+    def __init__(self, steps, multiplier, C_prev_prev, C_prev, C, reduction, reduction_prev):
         super(Cell, self).__init__()
-        None
+        self.reduction = reduction
         if reduction_prev:
-            self.preprocess0 = FactorizedReduce(C_prev_prev, C)
+            self.preprocess0 = FactorizedReduce(C_prev_prev, C, affine=False)
         else:
-            self.preprocess0 = ReLUConvBN(C_prev_prev, C, 1, 1, 0)
-        self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0)
-        if reduction:
-            op_names, indices = zip(*genotype.reduce)
-            concat = genotype.reduce_concat
-        else:
-            op_names, indices = zip(*genotype.normal)
-            concat = genotype.normal_concat
-        self._compile(C, op_names, indices, concat, reduction)
-
-    def _compile(self, C, op_names, indices, concat, reduction):
-        assert len(op_names) == len(indices)
-        self._steps = len(op_names) // 2
-        self._concat = concat
-        self.multiplier = len(concat)
+            self.preprocess0 = ReLUConvBN(C_prev_prev, C, 1, 1, 0, affine=False)
+        self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0, affine=False)
+        self._steps = steps
+        self._multiplier = multiplier
         self._ops = nn.ModuleList()
-        for name, index in zip(op_names, indices):
-            stride = 2 if reduction and index < 2 else 1
-            op = OPS[name](C, stride, True)
-            self._ops += [op]
-        self._indices = indices
+        self._bns = nn.ModuleList()
+        for i in range(self._steps):
+            for j in range(2 + i):
+                stride = 2 if reduction and j < 2 else 1
+                op = MixedOp(C, stride)
+                self._ops.append(op)
 
-    def forward(self, s0, s1, drop_prob):
+    def forward(self, s0, s1, weights):
         s0 = self.preprocess0(s0)
         s1 = self.preprocess1(s1)
         states = [s0, s1]
+        offset = 0
         for i in range(self._steps):
-            h1 = states[self._indices[2 * i]]
-            h2 = states[self._indices[2 * i + 1]]
-            op1 = self._ops[2 * i]
-            op2 = self._ops[2 * i + 1]
-            h1 = op1(h1)
-            h2 = op2(h2)
-            if self.training and drop_prob > 0.0:
-                if not isinstance(op1, Identity):
-                    h1 = drop_path(h1, drop_prob)
-                if not isinstance(op2, Identity):
-                    h2 = drop_path(h2, drop_prob)
-            s = h1 + h2
-            states += [s]
-        return torch.cat([states[i] for i in self._concat], dim=1)
+            s = sum(self._ops[offset + j](h, weights[offset + j]) for j, h in enumerate(states))
+            offset += len(states)
+            states.append(s)
+        return torch.cat(states[-self._multiplier:], dim=1)
 
 
 class AuxiliaryHeadCIFAR(nn.Module):
@@ -256,56 +318,6 @@ class NetworkImageNet(nn.Module):
         return logits, logits_aux
 
 
-PRIMITIVES = ['none', 'max_pool_3x3', 'avg_pool_3x3', 'skip_connect', 'sep_conv_3x3', 'sep_conv_5x5', 'dil_conv_3x3', 'dil_conv_5x5']
-
-
-class MixedOp(nn.Module):
-
-    def __init__(self, C, stride):
-        super(MixedOp, self).__init__()
-        self._ops = nn.ModuleList()
-        for primitive in PRIMITIVES:
-            op = OPS[primitive](C, stride, False)
-            if 'pool' in primitive:
-                op = nn.Sequential(op, nn.BatchNorm2d(C, affine=False))
-            self._ops.append(op)
-
-    def forward(self, x, weights):
-        return sum(w * op(x) for w, op in zip(weights, self._ops))
-
-
-class Cell(nn.Module):
-
-    def __init__(self, steps, multiplier, C_prev_prev, C_prev, C, reduction, reduction_prev):
-        super(Cell, self).__init__()
-        self.reduction = reduction
-        if reduction_prev:
-            self.preprocess0 = FactorizedReduce(C_prev_prev, C, affine=False)
-        else:
-            self.preprocess0 = ReLUConvBN(C_prev_prev, C, 1, 1, 0, affine=False)
-        self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0, affine=False)
-        self._steps = steps
-        self._multiplier = multiplier
-        self._ops = nn.ModuleList()
-        self._bns = nn.ModuleList()
-        for i in range(self._steps):
-            for j in range(2 + i):
-                stride = 2 if reduction and j < 2 else 1
-                op = MixedOp(C, stride)
-                self._ops.append(op)
-
-    def forward(self, s0, s1, weights):
-        s0 = self.preprocess0(s0)
-        s1 = self.preprocess1(s1)
-        states = [s0, s1]
-        offset = 0
-        for i in range(self._steps):
-            s = sum(self._ops[offset + j](h, weights[offset + j]) for j, h in enumerate(states))
-            offset += len(states)
-            states.append(s)
-        return torch.cat(states[-self._multiplier:], dim=1)
-
-
 Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
 
 
@@ -397,74 +409,6 @@ class Network(nn.Module):
         return genotype
 
 
-class ReLUConvBN(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super(ReLUConvBN, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class DilConv(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
-        super(DilConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class SepConv(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super(SepConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class Zero(nn.Module):
-
-    def __init__(self, stride):
-        super(Zero, self).__init__()
-        self.stride = stride
-
-    def forward(self, x):
-        if self.stride == 1:
-            return x.mul(0.0)
-        return x[:, :, ::self.stride, ::self.stride].mul(0.0)
-
-
-class FactorizedReduce(nn.Module):
-
-    def __init__(self, C_in, C_out, affine=True):
-        super(FactorizedReduce, self).__init__()
-        assert C_out % 2 == 0
-        self.relu = nn.ReLU(inplace=False)
-        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.bn = nn.BatchNorm2d(C_out, affine=affine)
-
-    def forward(self, x):
-        x = self.relu(x)
-        out = torch.cat([self.conv_1(x), self.conv_2(x[:, :, 1:, 1:])], dim=1)
-        out = self.bn(out)
-        return out
-
-
 class CrossEntropyLabelSmooth(nn.Module):
 
     def __init__(self, num_classes, epsilon):
@@ -491,7 +435,7 @@ def mask2d(B, D, keep_prob, cuda=True):
     m = torch.floor(torch.rand(B, D) + keep_prob) / keep_prob
     m = Variable(m, requires_grad=False)
     if cuda:
-        m = m.cuda()
+        m = m
     return m
 
 
@@ -563,6 +507,20 @@ class DARTSCell(nn.Module):
             states += [s]
         output = torch.mean(torch.stack([states[i] for i in self.genotype.concat], -1), -1)
         return output
+
+
+class LockedDropout(nn.Module):
+
+    def __init__(self):
+        super(LockedDropout, self).__init__()
+
+    def forward(self, x, dropout=0.5):
+        if not self.training or not dropout:
+            return x
+        m = x.data.new(1, x.size(1), x.size(2)).bernoulli_(1 - dropout)
+        mask = Variable(m.div_(1 - dropout), requires_grad=False)
+        mask = mask.expand_as(x)
+        return mask * x
 
 
 def embedded_dropout(embed, words, dropout=0.1, scale=None):
@@ -642,18 +600,92 @@ class RNNModel(nn.Module):
         return [Variable(weight.new(1, bsz, self.nhid).zero_())]
 
 
-class LockedDropout(nn.Module):
+CONCAT = 8
 
-    def __init__(self):
-        super(LockedDropout, self).__init__()
 
-    def forward(self, x, dropout=0.5):
-        if not self.training or not dropout:
-            return x
-        m = x.data.new(1, x.size(1), x.size(2)).bernoulli_(1 - dropout)
-        mask = Variable(m.div_(1 - dropout), requires_grad=False)
-        mask = mask.expand_as(x)
-        return mask * x
+class DARTSCellSearch(DARTSCell):
+
+    def __init__(self, ninp, nhid, dropouth, dropoutx):
+        super(DARTSCellSearch, self).__init__(ninp, nhid, dropouth, dropoutx, genotype=None)
+        self.bn = nn.BatchNorm1d(nhid, affine=False)
+
+    def cell(self, x, h_prev, x_mask, h_mask):
+        s0 = self._compute_init_state(x, h_prev, x_mask, h_mask)
+        s0 = self.bn(s0)
+        probs = F.softmax(self.weights, dim=-1)
+        offset = 0
+        states = s0.unsqueeze(0)
+        for i in range(STEPS):
+            if self.training:
+                masked_states = states * h_mask.unsqueeze(0)
+            else:
+                masked_states = states
+            ch = masked_states.view(-1, self.nhid).mm(self._Ws[i]).view(i + 1, -1, 2 * self.nhid)
+            c, h = torch.split(ch, self.nhid, dim=-1)
+            c = c.sigmoid()
+            s = torch.zeros_like(s0)
+            for k, name in enumerate(PRIMITIVES):
+                if name == 'none':
+                    continue
+                fn = self._get_activation(name)
+                unweighted = states + c * (fn(h) - states)
+                s += torch.sum(probs[offset:offset + i + 1, (k)].unsqueeze(-1).unsqueeze(-1) * unweighted, dim=0)
+            s = self.bn(s)
+            states = torch.cat([states, s.unsqueeze(0)], 0)
+            offset += i + 1
+        output = torch.mean(states[-CONCAT:], dim=0)
+        return output
+
+
+class RNNModelSearch(RNNModel):
+
+    def __init__(self, *args):
+        super(RNNModelSearch, self).__init__(*args, cell_cls=DARTSCellSearch, genotype=None)
+        self._args = args
+        self._initialize_arch_parameters()
+
+    def new(self):
+        model_new = RNNModelSearch(*self._args)
+        for x, y in zip(model_new.arch_parameters(), self.arch_parameters()):
+            x.data.copy_(y.data)
+        return model_new
+
+    def _initialize_arch_parameters(self):
+        k = sum(i for i in range(1, STEPS + 1))
+        weights_data = torch.randn(k, len(PRIMITIVES)).mul_(0.001)
+        self.weights = Variable(weights_data, requires_grad=True)
+        self._arch_parameters = [self.weights]
+        for rnn in self.rnns:
+            rnn.weights = self.weights
+
+    def arch_parameters(self):
+        return self._arch_parameters
+
+    def _loss(self, hidden, input, target):
+        log_prob, hidden_next = self(input, hidden, return_h=False)
+        loss = nn.functional.nll_loss(log_prob.view(-1, log_prob.size(2)), target)
+        return loss, hidden_next
+
+    def genotype(self):
+
+        def _parse(probs):
+            gene = []
+            start = 0
+            for i in range(STEPS):
+                end = start + i + 1
+                W = probs[start:end].copy()
+                j = sorted(range(i + 1), key=lambda x: -max(W[x][k] for k in range(len(W[x])) if k != PRIMITIVES.index('none')))[0]
+                k_best = None
+                for k in range(len(W[j])):
+                    if k != PRIMITIVES.index('none'):
+                        if k_best is None or W[j][k] > W[j][k_best]:
+                            k_best = k
+                gene.append((PRIMITIVES[k_best], j))
+                start = end
+            return gene
+        gene = _parse(F.softmax(self.weights, dim=-1).data.cpu().numpy())
+        genotype = Genotype(recurrent=gene, concat=range(STEPS + 1)[-CONCAT:])
+        return genotype
 
 
 import torch

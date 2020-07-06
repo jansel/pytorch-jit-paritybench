@@ -40,15 +40,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -128,6 +129,53 @@ from time import time
 import scipy.io as sio
 
 
+def CircularGaussKernel(kernlen=None, circ_zeros=False, sigma=None, norm=True):
+    assert kernlen is not None or sigma is not None
+    if kernlen is None:
+        kernlen = int(2.0 * 3.0 * sigma + 1.0)
+        if kernlen % 2 == 0:
+            kernlen = kernlen + 1
+        halfSize = kernlen / 2
+    halfSize = kernlen / 2
+    r2 = float(halfSize * halfSize)
+    if sigma is None:
+        sigma2 = 0.9 * r2
+        sigma = np.sqrt(sigma2)
+    else:
+        sigma2 = 2.0 * sigma * sigma
+    x = np.linspace(-halfSize, halfSize, kernlen)
+    xv, yv = np.meshgrid(x, x, sparse=False, indexing='xy')
+    distsq = xv ** 2 + yv ** 2
+    kernel = np.exp(-(distsq / sigma2))
+    if circ_zeros:
+        kernel *= (distsq <= r2).astype(np.float32)
+    if norm:
+        kernel /= np.sum(kernel)
+    return kernel
+
+
+class GaussianBlur(nn.Module):
+
+    def __init__(self, sigma=1.6):
+        super(GaussianBlur, self).__init__()
+        weight = self.calculate_weights(sigma)
+        self.register_buffer('buf', weight)
+        return
+
+    def calculate_weights(self, sigma):
+        kernel = CircularGaussKernel(sigma=sigma, circ_zeros=False)
+        h, w = kernel.shape
+        halfSize = float(h) / 2.0
+        self.pad = int(np.floor(halfSize))
+        return torch.from_numpy(kernel.astype(np.float32)).view(1, 1, h, w)
+
+    def forward(self, x):
+        w = Variable(self.buf)
+        if x.is_cuda:
+            w = w
+        return F.conv2d(F.pad(x, (self.pad, self.pad, self.pad, self.pad), 'replicate'), w, padding=0)
+
+
 class ScalePyramid(nn.Module):
 
     def __init__(self, nLevels=3, init_sigma=1.6, border=5):
@@ -193,31 +241,6 @@ class HessianResp(nn.Module):
         gyy = self.gyy(F.pad(x, (0, 0, 1, 1), 'replicate'))
         gxy = self.gy(F.pad(self.gx(F.pad(x, (1, 1, 0, 0), 'replicate')), (0, 0, 1, 1), 'replicate'))
         return torch.abs(gxx * gyy - gxy * gxy) * scale ** 4
-
-
-def CircularGaussKernel(kernlen=None, circ_zeros=False, sigma=None, norm=True):
-    assert kernlen is not None or sigma is not None
-    if kernlen is None:
-        kernlen = int(2.0 * 3.0 * sigma + 1.0)
-        if kernlen % 2 == 0:
-            kernlen = kernlen + 1
-        halfSize = kernlen / 2
-    halfSize = kernlen / 2
-    r2 = float(halfSize * halfSize)
-    if sigma is None:
-        sigma2 = 0.9 * r2
-        sigma = np.sqrt(sigma2)
-    else:
-        sigma2 = 2.0 * sigma * sigma
-    x = np.linspace(-halfSize, halfSize, kernlen)
-    xv, yv = np.meshgrid(x, x, sparse=False, indexing='xy')
-    distsq = xv ** 2 + yv ** 2
-    kernel = np.exp(-(distsq / sigma2))
-    if circ_zeros:
-        kernel *= (distsq <= r2).astype(np.float32)
-    if norm:
-        kernel /= np.sum(kernel)
-    return kernel
 
 
 def abc2A(a, b, c, normalize=False):
@@ -366,7 +389,7 @@ class NMS3d(nn.Module):
 
     def __init__(self, kernel_size=3, threshold=0):
         super(NMS3d, self).__init__()
-        self.MP = nn.MaxPool3d(kernel_size, stride=1, return_indices=False, padding=(0, kernel_size // 2, kernel_size // 2))
+        self.MP = nn.MaxPool3d(kernel_size, stride=1, return_indices=False, padding=(0, kernel_size / 2, kernel_size / 2))
         self.eps = 1e-05
         self.th = threshold
         return
@@ -407,7 +430,7 @@ def generate_3dgrid(d, h, w, centered=True):
 def sc_y_x2LAFs(sc_y_x):
     base_LAF = torch.eye(2).float().unsqueeze(0).expand(sc_y_x.size(0), 2, 2)
     if sc_y_x.is_cuda:
-        base_LAF = base_LAF.cuda()
+        base_LAF = base_LAF
     base_A = Variable(base_LAF, requires_grad=False)
     A = sc_y_x[:, :1].unsqueeze(1).expand_as(base_A) * base_A
     LAFs = torch.cat([A, torch.cat([sc_y_x[:, 2:].unsqueeze(-1), sc_y_x[:, 1:2].unsqueeze(-1)], dim=1)], dim=2)
@@ -427,10 +450,15 @@ def zero_response_at_border(x, b):
 
 class NMS3dAndComposeA(nn.Module):
 
-    def __init__(self, w=0, h=0, kernel_size=3, threshold=0, scales=None, border=3, mrSize=1.0):
+    def __init__(self, kernel_size=3, threshold=0, scales=None, border=3, mrSize=1.0):
         super(NMS3dAndComposeA, self).__init__()
         self.eps = 1e-07
         self.ks = 3
+        if type(scales) is not list:
+            self.grid = generate_3dgrid(3, self.ks, self.ks)
+        else:
+            self.grid = generate_3dgrid(scales, self.ks, self.ks)
+        self.grid = Variable(self.grid.t().contiguous().view(3, 3, 3, 3), requires_grad=False)
         self.th = threshold
         self.cube_idxs = []
         self.border = border
@@ -438,14 +466,9 @@ class NMS3dAndComposeA(nn.Module):
         self.beta = 1.0
         self.grid_ones = Variable(torch.ones(3, 3, 3, 3), requires_grad=False)
         self.NMS3d = NMS3d(kernel_size, threshold)
-        if w > 0 and h > 0:
-            self.spatial_grid = generate_2dgrid(h, w, False).view(1, h, w, 2).permute(3, 1, 2, 0)
-            self.spatial_grid = Variable(self.spatial_grid)
-        else:
-            self.spatial_grid = None
         return
 
-    def forward(self, low, cur, high, num_features=0, octaveMap=None, scales=None):
+    def forward(self, low, cur, high, octaveMap=None, num_features=0):
         assert low.size() == cur.size() == high.size()
         self.is_cuda = low.is_cuda
         resp3d = torch.cat([low, cur, high], dim=1)
@@ -454,31 +477,25 @@ class NMS3dAndComposeA(nn.Module):
             nmsed_resp = zero_response_at_border(self.NMS3d(resp3d.unsqueeze(1)).squeeze(1)[:, 1:2, :, :], mrSize_border) * (1.0 - octaveMap.float())
         else:
             nmsed_resp = zero_response_at_border(self.NMS3d(resp3d.unsqueeze(1)).squeeze(1)[:, 1:2, :, :], mrSize_border)
-        num_of_nonzero_responces = (nmsed_resp > 0).float().sum().item()
-        if num_of_nonzero_responces <= 1:
+        num_of_nonzero_responces = (nmsed_resp > 0).sum().data[0]
+        if num_of_nonzero_responces == 0:
             return None, None, None
         if octaveMap is not None:
             octaveMap = (octaveMap.float() + nmsed_resp.float()).byte()
         nmsed_resp = nmsed_resp.view(-1)
         if num_features > 0 and num_features < num_of_nonzero_responces:
-            nmsed_resp, idxs = torch.topk(nmsed_resp, k=num_features, dim=0)
+            nmsed_resp, idxs = torch.topk(nmsed_resp, k=num_features)
         else:
             idxs = nmsed_resp.data.nonzero().squeeze()
             nmsed_resp = nmsed_resp[idxs]
-        if type(scales) is not list:
-            self.grid = generate_3dgrid(3, self.ks, self.ks)
-        else:
-            self.grid = generate_3dgrid(scales, self.ks, self.ks)
-        self.grid = Variable(self.grid.t().contiguous().view(3, 3, 3, 3), requires_grad=False)
-        if self.spatial_grid is None:
-            self.spatial_grid = generate_2dgrid(low.size(2), low.size(3), False).view(1, low.size(2), low.size(3), 2).permute(3, 1, 2, 0)
-            self.spatial_grid = Variable(self.spatial_grid)
+        spatial_grid = Variable(generate_2dgrid(low.size(2), low.size(3), False)).view(1, low.size(2), low.size(3), 2)
+        spatial_grid = spatial_grid.permute(3, 1, 2, 0)
         if self.is_cuda:
-            self.spatial_grid = self.spatial_grid
-            self.grid_ones = self.grid_ones
+            spatial_grid = spatial_grid
             self.grid = self.grid
+            self.grid_ones = self.grid_ones
         sc_y_x = F.conv2d(resp3d, self.grid, padding=1) / (F.conv2d(resp3d, self.grid_ones, padding=1) + 1e-08)
-        sc_y_x[(0), 1:, :, :] = sc_y_x[(0), 1:, :, :] + self.spatial_grid[:, :, :, (0)]
+        sc_y_x[(0), 1:, :, :] = sc_y_x[(0), 1:, :, :] + spatial_grid[:, :, :, (0)]
         sc_y_x = sc_y_x.view(3, -1).t()
         sc_y_x = sc_y_x[(idxs), :]
         min_size = float(min(cur.size(2), cur.size(3)))
@@ -564,11 +581,11 @@ class L2Norm(nn.Module):
 
     def __init__(self):
         super(L2Norm, self).__init__()
-        self.eps = 1e-08
+        self.eps = 1e-10
 
     def forward(self, x):
-        norm = torch.sqrt(torch.sum(x * x, dim=1) + self.eps)
-        x = x / norm.unsqueeze(-1).expand_as(x)
+        norm = torch.sqrt(torch.abs(torch.sum(x * x, dim=1)) + self.eps)
+        x = x / norm.unsqueeze(1).expand_as(x)
         return x
 
 
@@ -598,13 +615,13 @@ class HardTFeatNet(nn.Module):
         flat = x.view(x.size(0), -1)
         mp = torch.mean(flat, dim=1)
         sp = torch.std(flat, dim=1) + 1e-07
-        return (x - mp.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand_as(x)) / sp.unsqueeze(-1).unsqueeze(-1).unsqueeze(1).expand_as(x)
+        return (x - mp.detach().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand_as(x)) / sp.detach().unsqueeze(-1).unsqueeze(-1).unsqueeze(1).expand_as(x)
 
     def forward(self, input):
         x_features = self.features(self.input_norm(input))
         x = x_features.view(x_features.size(0), -1)
         x = self.classifier(x_features)
-        return L2Norm()(x.view(x.size(0), -1))
+        return x.view(x.size(0), -1)
 
 
 class HardNet(nn.Module):
@@ -638,14 +655,14 @@ def angles2A(angles):
 def LAFs_to_H_frames(aff_pts):
     H3_x = torch.Tensor([0, 0, 1]).unsqueeze(0).unsqueeze(0).repeat(aff_pts.size(0), 1, 1)
     if aff_pts.is_cuda:
-        H3_x = H3_x.cuda()
+        H3_x = H3_x
     return torch.cat([aff_pts, H3_x], dim=1)
 
 
 def checkTouchBoundary(LAFs):
     pts = torch.FloatTensor([[-1, -1, 1, 1], [-1, 1, -1, 1], [1, 1, 1, 1]]).unsqueeze(0)
     if LAFs.is_cuda:
-        pts = pts.cuda()
+        pts = pts
     out_pts = torch.bmm(LAFs_to_H_frames(LAFs), pts.expand(LAFs.size(0), 3, 4))[:, :2, :]
     good_points = 1 - (((out_pts > 1.0) + (out_pts < 0.0)).sum(dim=1).sum(dim=1) > 0)
     return good_points
@@ -660,7 +677,7 @@ def denormalizeLAFs(LAFs, w, h):
     coef[0, 0, 2] = w
     coef[0, 1, 2] = h
     if LAFs.is_cuda:
-        coef = coef.cuda()
+        coef = coef
     return Variable(coef.expand(num_lafs, 2, 3)) * LAFs
 
 
@@ -671,7 +688,7 @@ def generate_patch_grid_from_normalized_LAFs(LAFs, w, h, PS):
     coef[0, 0, 2] = w
     coef[0, 1, 2] = h
     if LAFs.is_cuda:
-        coef = coef.cuda()
+        coef = coef
     grid = torch.nn.functional.affine_grid(LAFs * Variable(coef.expand(num_lafs, 2, 3)), torch.Size((num_lafs, 1, PS, PS)))
     grid[:, :, :, (0)] = 2.0 * grid[:, :, :, (0)] / float(w) - 1.0
     grid[:, :, :, (1)] = 2.0 * grid[:, :, :, (1)] / float(h) - 1.0
@@ -689,7 +706,7 @@ def extract_patches(img, LAFs, PS=32):
 def extract_patches_from_pyramid_with_inv_index(scale_pyramid, pyr_inv_idxs, LAFs, PS=19):
     patches = torch.zeros(LAFs.size(0), scale_pyramid[0][0].size(1), PS, PS)
     if LAFs.is_cuda:
-        patches = patches.cuda()
+        patches = patches
     patches = Variable(patches)
     if pyr_inv_idxs is not None:
         for i in range(len(scale_pyramid)):
@@ -735,9 +752,9 @@ def get_pyramid_and_level_index_for_LAFs(dLAFs, sigmas, pix_dists, PS):
     closest_imgs = cdist(np.array(sigmas_full_list).reshape(-1, 1), needed_sigmas.data.cpu().numpy().reshape(-1, 1)).argmin(axis=0)
     closest_imgs = torch.from_numpy(closest_imgs)
     if dLAFs.is_cuda:
-        closest_imgs = closest_imgs.cuda()
-        oct_idxs_full = oct_idxs_full.cuda()
-        level_idxs_full = level_idxs_full.cuda()
+        closest_imgs = closest_imgs
+        oct_idxs_full = oct_idxs_full
+        level_idxs_full = level_idxs_full
     return Variable(oct_idxs_full[closest_imgs]), Variable(level_idxs_full[closest_imgs])
 
 
@@ -750,7 +767,7 @@ def normalizeLAFs(LAFs, w, h):
     coef[0, 0, 2] = 1.0 / w
     coef[0, 1, 2] = 1.0 / h
     if LAFs.is_cuda:
-        coef = coef.cuda()
+        coef = coef
     return Variable(coef.expand(num_lafs, 2, 3)) * LAFs
 
 
@@ -903,7 +920,7 @@ def batched_forward(model, data, batch_size, **kwargs):
                 out_size = torch.Size([n_patches] + list(first_batch_out.size()[1:]))
                 out = torch.zeros(out_size)
                 if data.is_cuda:
-                    out = out.cuda()
+                    out = out
                 out = Variable(out)
                 out[st:end] = first_batch_out
             else:
@@ -1087,52 +1104,6 @@ class ScaleSpaceAffinePatchExtractor(nn.Module):
         return denormalizeLAFs(LAFs, x.size(3), x.size(2)), responses
 
 
-class L2Norm(nn.Module):
-
-    def __init__(self):
-        super(L2Norm, self).__init__()
-        self.eps = 1e-10
-
-    def forward(self, x):
-        norm = torch.sqrt(torch.sum(x * x, dim=1) + self.eps)
-        x = x / norm.unsqueeze(-1).expand_as(x)
-        return x
-
-
-class L1Norm(nn.Module):
-
-    def __init__(self):
-        super(L1Norm, self).__init__()
-        self.eps = 1e-10
-
-    def forward(self, x):
-        norm = torch.sum(torch.abs(x), dim=1) + self.eps
-        x = x / norm.expand_as(x)
-        return x
-
-
-class GaussianBlur(nn.Module):
-
-    def __init__(self, sigma=1.6):
-        super(GaussianBlur, self).__init__()
-        weight = self.calculate_weights(sigma)
-        self.register_buffer('buf', weight)
-        return
-
-    def calculate_weights(self, sigma):
-        kernel = CircularGaussKernel(sigma=sigma, circ_zeros=False)
-        h, w = kernel.shape
-        halfSize = float(h) / 2.0
-        self.pad = int(np.floor(halfSize))
-        return torch.from_numpy(kernel.astype(np.float32)).view(1, 1, h, w)
-
-    def forward(self, x):
-        w = Variable(self.buf)
-        if x.is_cuda:
-            w = w
-        return F.conv2d(F.pad(x, (self.pad, self.pad, self.pad, self.pad), 'replicate'), w, padding=0)
-
-
 class LocalNorm2d(nn.Module):
 
     def __init__(self, kernel_size=33):
@@ -1304,8 +1275,8 @@ class AffNetFast(nn.Module):
 
     def input_norm(self, x):
         flat = x.view(x.size(0), -1)
-        mp = torch.mean(flat, dim=1).detach()
-        sp = torch.std(flat, dim=1).detach() + 1e-07
+        mp = torch.mean(flat, dim=1)
+        sp = torch.std(flat, dim=1) + 1e-07
         return (x - mp.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand_as(x)) / sp.unsqueeze(-1).unsqueeze(-1).unsqueeze(1).expand_as(x)
 
     def weights_init(self, m):
@@ -1692,64 +1663,6 @@ class AffNetFastBias(nn.Module):
         return rectifyAffineTransformationUpIsUp(torch.cat([a1, a2], dim=1).contiguous())
 
 
-class L2Norm(nn.Module):
-
-    def __init__(self):
-        super(L2Norm, self).__init__()
-        self.eps = 1e-10
-
-    def forward(self, x):
-        norm = torch.sqrt(torch.sum(x * x, dim=1) + self.eps)
-        x = x / norm.unsqueeze(-1).expand_as(x)
-        return x
-
-
-class L1Norm(nn.Module):
-
-    def __init__(self):
-        super(L1Norm, self).__init__()
-        self.eps = 1e-10
-
-    def forward(self, x):
-        norm = torch.sum(torch.abs(x), dim=1) + self.eps
-        x = x / norm.expand_as(x)
-        return x
-
-
-class GaussianBlur(nn.Module):
-
-    def __init__(self, sigma=1.6):
-        super(GaussianBlur, self).__init__()
-        weight = self.calculate_weights(sigma)
-        self.register_buffer('buf', weight)
-        return
-
-    def calculate_weights(self, sigma):
-        kernel = CircularGaussKernel(sigma=sigma, circ_zeros=False)
-        h, w = kernel.shape
-        halfSize = float(h) / 2.0
-        self.pad = int(np.floor(halfSize))
-        return torch.from_numpy(kernel.astype(np.float32)).view(1, 1, h, w)
-
-    def forward(self, x):
-        w = Variable(self.buf)
-        if x.is_cuda:
-            w = w
-        return F.conv2d(F.pad(x, (self.pad, self.pad, self.pad, self.pad), 'replicate'), w, padding=0)
-
-
-class L2Norm(nn.Module):
-
-    def __init__(self):
-        super(L2Norm, self).__init__()
-        self.eps = 1e-10
-
-    def forward(self, x):
-        norm = torch.sqrt(torch.abs(torch.sum(x * x, dim=1)) + self.eps)
-        x = x / norm.unsqueeze(1).expand_as(x)
-        return x
-
-
 def getPoolingKernel(kernel_size=25):
     step = 1.0 / float(np.floor(kernel_size / 2.0))
     x_coef = np.arange(step / 2.0, 1.0, step)
@@ -1833,30 +1746,6 @@ class SIFTNet(nn.Module):
         return ang_bins
 
 
-class L2Norm(nn.Module):
-
-    def __init__(self):
-        super(L2Norm, self).__init__()
-        self.eps = 1e-08
-
-    def forward(self, x):
-        norm = torch.sqrt(torch.sum(x * x, dim=1) + self.eps)
-        x = x / norm.unsqueeze(-1).expand_as(x)
-        return x
-
-
-class L1Norm(nn.Module):
-
-    def __init__(self):
-        super(L1Norm, self).__init__()
-        self.eps = 1e-10
-
-    def forward(self, x):
-        norm = torch.sum(torch.abs(x), dim=1) + self.eps
-        x = x / norm.expand_as(x)
-        return x
-
-
 class HardNetNarELU(nn.Module):
     """TFeat model definition
     """
@@ -1878,419 +1767,6 @@ class HardNetNarELU(nn.Module):
         x_features = self.features(input)
         x = nn.AdaptiveAvgPool2d(1)(x_features).view(x_features.size(0), -1)
         return x
-
-
-class HardNet(nn.Module):
-    """HardNet model definition
-    """
-
-    def __init__(self):
-        super(HardNet, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(1, 32, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(32, affine=False), nn.ReLU(), nn.Conv2d(32, 32, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(32, affine=False), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1, bias=False), nn.BatchNorm2d(64, affine=False), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(64, affine=False), nn.ReLU(), nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1, bias=False), nn.BatchNorm2d(128, affine=False), nn.ReLU(), nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(128, affine=False), nn.ReLU(), nn.Dropout(0.1), nn.Conv2d(128, 128, kernel_size=8, bias=False), nn.BatchNorm2d(128, affine=False))
-
-    def input_norm(self, x):
-        flat = x.view(x.size(0), -1)
-        mp = torch.mean(flat, dim=1)
-        sp = torch.std(flat, dim=1) + 1e-07
-        return (x - mp.detach().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand_as(x)) / sp.detach().unsqueeze(-1).unsqueeze(-1).unsqueeze(1).expand_as(x)
-
-    def forward(self, input):
-        x_features = self.features(self.input_norm(input))
-        x = x_features.view(x_features.size(0), -1)
-        return L2Norm()(x)
-
-
-class NMS2d(nn.Module):
-
-    def __init__(self, kernel_size=3, threshold=0):
-        super(NMS2d, self).__init__()
-        self.MP = nn.MaxPool2d(kernel_size, stride=1, return_indices=False, padding=kernel_size / 2)
-        self.eps = 1e-05
-        self.th = threshold
-        return
-
-    def forward(self, x):
-        if self.th > self.eps:
-            return x * (x > self.th).float() * (x + self.eps - self.MP(x) > 0).float()
-        else:
-            return (x - self.MP(x) + self.eps > 0).float() * x
-
-
-class NMS3d(nn.Module):
-
-    def __init__(self, kernel_size=3, threshold=0):
-        super(NMS3d, self).__init__()
-        self.MP = nn.MaxPool3d(kernel_size, stride=1, return_indices=False, padding=(0, kernel_size / 2, kernel_size / 2))
-        self.eps = 1e-05
-        self.th = threshold
-        return
-
-    def forward(self, x):
-        if self.th > self.eps:
-            return x * (x > self.th).float() * (x + self.eps - self.MP(x) > 0).float()
-        else:
-            return (x - self.MP(x) + self.eps > 0).float() * x
-
-
-class NMS3dAndComposeA(nn.Module):
-
-    def __init__(self, kernel_size=3, threshold=0, scales=None, border=3, mrSize=1.0):
-        super(NMS3dAndComposeA, self).__init__()
-        self.eps = 1e-07
-        self.ks = 3
-        if type(scales) is not list:
-            self.grid = generate_3dgrid(3, self.ks, self.ks)
-        else:
-            self.grid = generate_3dgrid(scales, self.ks, self.ks)
-        self.grid = Variable(self.grid.t().contiguous().view(3, 3, 3, 3), requires_grad=False)
-        self.th = threshold
-        self.cube_idxs = []
-        self.border = border
-        self.mrSize = mrSize
-        self.beta = 1.0
-        self.grid_ones = Variable(torch.ones(3, 3, 3, 3), requires_grad=False)
-        self.NMS3d = NMS3d(kernel_size, threshold)
-        return
-
-    def forward(self, low, cur, high, octaveMap=None, num_features=0):
-        assert low.size() == cur.size() == high.size()
-        self.is_cuda = low.is_cuda
-        resp3d = torch.cat([low, cur, high], dim=1)
-        mrSize_border = int(self.mrSize)
-        if octaveMap is not None:
-            nmsed_resp = zero_response_at_border(self.NMS3d(resp3d.unsqueeze(1)).squeeze(1)[:, 1:2, :, :], mrSize_border) * (1.0 - octaveMap.float())
-        else:
-            nmsed_resp = zero_response_at_border(self.NMS3d(resp3d.unsqueeze(1)).squeeze(1)[:, 1:2, :, :], mrSize_border)
-        num_of_nonzero_responces = (nmsed_resp > 0).sum().data[0]
-        if num_of_nonzero_responces == 0:
-            return None, None, None
-        if octaveMap is not None:
-            octaveMap = (octaveMap.float() + nmsed_resp.float()).byte()
-        nmsed_resp = nmsed_resp.view(-1)
-        if num_features > 0 and num_features < num_of_nonzero_responces:
-            nmsed_resp, idxs = torch.topk(nmsed_resp, k=num_features)
-        else:
-            idxs = nmsed_resp.data.nonzero().squeeze()
-            nmsed_resp = nmsed_resp[idxs]
-        spatial_grid = Variable(generate_2dgrid(low.size(2), low.size(3), False)).view(1, low.size(2), low.size(3), 2)
-        spatial_grid = spatial_grid.permute(3, 1, 2, 0)
-        if self.is_cuda:
-            spatial_grid = spatial_grid
-            self.grid = self.grid
-            self.grid_ones = self.grid_ones
-        sc_y_x = F.conv2d(resp3d, self.grid, padding=1) / (F.conv2d(resp3d, self.grid_ones, padding=1) + 1e-08)
-        sc_y_x[(0), 1:, :, :] = sc_y_x[(0), 1:, :, :] + spatial_grid[:, :, :, (0)]
-        sc_y_x = sc_y_x.view(3, -1).t()
-        sc_y_x = sc_y_x[(idxs), :]
-        min_size = float(min(cur.size(2), cur.size(3)))
-        sc_y_x[:, (0)] = sc_y_x[:, (0)] / min_size
-        sc_y_x[:, (1)] = sc_y_x[:, (1)] / float(cur.size(2))
-        sc_y_x[:, (2)] = sc_y_x[:, (2)] / float(cur.size(3))
-        return nmsed_resp, sc_y_x2LAFs(sc_y_x), octaveMap
-
-
-class L2Norm(nn.Module):
-
-    def __init__(self):
-        super(L2Norm, self).__init__()
-        self.eps = 1e-10
-
-    def forward(self, x):
-        norm = torch.sqrt(torch.sum(x * x, dim=1) + self.eps)
-        x = x / norm.unsqueeze(-1).expand_as(x)
-        return x
-
-
-class L1Norm(nn.Module):
-
-    def __init__(self):
-        super(L1Norm, self).__init__()
-        self.eps = 1e-10
-
-    def forward(self, x):
-        norm = torch.sum(torch.abs(x), dim=1) + self.eps
-        x = x / norm.expand_as(x)
-        return x
-
-
-class GaussianBlur(nn.Module):
-
-    def __init__(self, sigma=1.6):
-        super(GaussianBlur, self).__init__()
-        weight = self.calculate_weights(sigma)
-        self.register_buffer('buf', weight)
-        return
-
-    def calculate_weights(self, sigma):
-        kernel = CircularGaussKernel(sigma=sigma, circ_zeros=False)
-        h, w = kernel.shape
-        halfSize = float(h) / 2.0
-        self.pad = int(np.floor(halfSize))
-        return torch.from_numpy(kernel.astype(np.float32)).view(1, 1, h, w)
-
-    def forward(self, x):
-        w = Variable(self.buf)
-        if x.is_cuda:
-            w = w
-        return F.conv2d(F.pad(x, (self.pad, self.pad, self.pad, self.pad), 'replicate'), w, padding=0)
-
-
-class OriNetFast(nn.Module):
-
-    def __init__(self, PS=16):
-        super(OriNetFast, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(1, 16, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(16, affine=False), nn.ReLU(), nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(16, affine=False), nn.ReLU(), nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1, bias=False), nn.BatchNorm2d(32, affine=False), nn.ReLU(), nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(32, affine=False), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1, bias=False), nn.BatchNorm2d(64, affine=False), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(64, affine=False), nn.ReLU(), nn.Dropout(0.25), nn.Conv2d(64, 2, kernel_size=int(PS / 4), stride=1, padding=1, bias=True), nn.Tanh(), nn.AdaptiveAvgPool2d(1))
-        self.PS = PS
-        self.features.apply(self.weights_init)
-        self.halfPS = int(PS / 4)
-        return
-
-    def input_norm(self, x):
-        flat = x.view(x.size(0), -1)
-        mp = torch.mean(flat, dim=1)
-        sp = torch.std(flat, dim=1) + 1e-07
-        return (x - mp.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand_as(x)) / sp.unsqueeze(-1).unsqueeze(-1).unsqueeze(1).expand_as(x)
-
-    def weights_init(self, m):
-        if isinstance(m, nn.Conv2d):
-            nn.init.orthogonal(m.weight.data, gain=0.9)
-            try:
-                nn.init.constant(m.bias.data, 0.01)
-            except:
-                pass
-        return
-
-    def forward(self, input, return_rot_matrix=True):
-        xy = self.features(self.input_norm(input)).view(-1, 2)
-        angle = torch.atan2(xy[:, (0)] + 1e-08, xy[:, (1)] + 1e-08)
-        if return_rot_matrix:
-            return get_rotation_matrix(angle)
-        return angle
-
-
-class GHH(nn.Module):
-
-    def __init__(self, n_in, n_out, s=4, m=4):
-        super(GHH, self).__init__()
-        self.n_out = n_out
-        self.s = s
-        self.m = m
-        self.conv = nn.Linear(n_in, n_out * s * m)
-        d = torch.arange(0, s)
-        self.deltas = -1.0 * (d % 2 != 0).float() + 1.0 * (d % 2 == 0).float()
-        self.deltas = Variable(self.deltas)
-        return
-
-    def forward(self, x):
-        x_feats = self.conv(x.view(x.size(0), -1)).view(x.size(0), self.n_out, self.s, self.m)
-        max_feats = x_feats.max(dim=3)[0]
-        if x.is_cuda:
-            self.deltas = self.deltas
-        else:
-            self.deltas = self.deltas.cpu()
-        out = (max_feats * self.deltas.view(1, 1, -1).expand_as(max_feats)).sum(dim=2)
-        return out
-
-
-class YiNet(nn.Module):
-
-    def __init__(self, PS=28):
-        super(YiNet, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(1, 10, kernel_size=5, padding=0, bias=True), nn.ReLU(), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), nn.Conv2d(10, 20, kernel_size=5, stride=1, padding=0, bias=True), nn.ReLU(), nn.MaxPool2d(kernel_size=4, stride=2, padding=2), nn.Conv2d(20, 50, kernel_size=3, stride=1, padding=0, bias=True), nn.ReLU(), nn.AdaptiveMaxPool2d(1), GHH(50, 100), GHH(100, 2))
-        self.input_mean = 0.427117081207483
-        self.input_std = 0.21888339179665006
-        self.PS = PS
-        return
-
-    def import_weights(self, dir_name):
-        self.features[0].weight.data = torch.from_numpy(np.load(os.path.join(dir_name, 'layer0_W.npy'))).float()
-        self.features[0].bias.data = torch.from_numpy(np.load(os.path.join(dir_name, 'layer0_b.npy'))).float().view(-1)
-        self.features[3].weight.data = torch.from_numpy(np.load(os.path.join(dir_name, 'layer1_W.npy'))).float()
-        self.features[3].bias.data = torch.from_numpy(np.load(os.path.join(dir_name, 'layer1_b.npy'))).float().view(-1)
-        self.features[6].weight.data = torch.from_numpy(np.load(os.path.join(dir_name, 'layer2_W.npy'))).float()
-        self.features[6].bias.data = torch.from_numpy(np.load(os.path.join(dir_name, 'layer2_b.npy'))).float().view(-1)
-        self.features[9].conv.weight.data = torch.from_numpy(np.load(os.path.join(dir_name, 'layer3_W.npy'))).float().view(50, 1600).contiguous().t().contiguous()
-        self.features[9].conv.bias.data = torch.from_numpy(np.load(os.path.join(dir_name, 'layer3_b.npy'))).float().view(1600)
-        self.features[10].conv.weight.data = torch.from_numpy(np.load(os.path.join(dir_name, 'layer4_W.npy'))).float().view(100, 32).contiguous().t().contiguous()
-        self.features[10].conv.bias.data = torch.from_numpy(np.load(os.path.join(dir_name, 'layer4_b.npy'))).float().view(32)
-        self.input_mean = float(np.load(os.path.join(dir_name, 'input_mean.npy')))
-        self.input_std = float(np.load(os.path.join(dir_name, 'input_std.npy')))
-        return
-
-    def input_norm1(self, x):
-        return (x - self.input_mean) / self.input_std
-
-    def input_norm(self, x):
-        flat = x.view(x.size(0), -1)
-        mp = torch.mean(flat, dim=1)
-        sp = torch.std(flat, dim=1) + 1e-07
-        return (x - mp.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand_as(x)) / sp.unsqueeze(-1).unsqueeze(-1).unsqueeze(1).expand_as(x)
-
-    def forward(self, input, return_rot_matrix=False):
-        xy = self.features(self.input_norm(input))
-        angle = torch.atan2(xy[:, (0)] + 1e-08, xy[:, (1)] + 1e-08)
-        if return_rot_matrix:
-            return get_rotation_matrix(-angle)
-        return angle
-
-
-class AffNetFast(nn.Module):
-
-    def __init__(self, PS=32):
-        super(AffNetFast, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(1, 16, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(16, affine=False), nn.ReLU(), nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(16, affine=False), nn.ReLU(), nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1, bias=False), nn.BatchNorm2d(32, affine=False), nn.ReLU(), nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(32, affine=False), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1, bias=False), nn.BatchNorm2d(64, affine=False), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=False), nn.BatchNorm2d(64, affine=False), nn.ReLU(), nn.Dropout(0.25), nn.Conv2d(64, 3, kernel_size=8, stride=1, padding=0, bias=True), nn.Tanh(), nn.AdaptiveAvgPool2d(1))
-        self.PS = PS
-        self.features.apply(self.weights_init)
-        self.halfPS = int(PS / 2)
-        return
-
-    def input_norm(self, x):
-        flat = x.view(x.size(0), -1)
-        mp = torch.mean(flat, dim=1)
-        sp = torch.std(flat, dim=1) + 1e-07
-        return (x - mp.unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand_as(x)) / sp.unsqueeze(-1).unsqueeze(-1).unsqueeze(1).expand_as(x)
-
-    def weights_init(self, m):
-        if isinstance(m, nn.Conv2d):
-            nn.init.orthogonal(m.weight.data, gain=0.8)
-            try:
-                nn.init.constant(m.bias.data, 0.01)
-            except:
-                pass
-        return
-
-    def forward(self, input, return_A_matrix=False):
-        xy = self.features(self.input_norm(input)).view(-1, 3)
-        a1 = torch.cat([1.0 + xy[:, (0)].contiguous().view(-1, 1, 1), 0 * xy[:, (0)].contiguous().view(-1, 1, 1)], dim=2).contiguous()
-        a2 = torch.cat([xy[:, (1)].contiguous().view(-1, 1, 1), 1.0 + xy[:, (2)].contiguous().view(-1, 1, 1)], dim=2).contiguous()
-        return rectifyAffineTransformationUpIsUp(torch.cat([a1, a2], dim=1).contiguous())
-
-
-class L2Norm(nn.Module):
-
-    def __init__(self):
-        super(L2Norm, self).__init__()
-        self.eps = 1e-10
-
-    def forward(self, x):
-        norm = torch.sqrt(torch.sum(x * x, dim=1) + self.eps)
-        x = x / norm.unsqueeze(-1).expand_as(x)
-        return x
-
-
-class L1Norm(nn.Module):
-
-    def __init__(self):
-        super(L1Norm, self).__init__()
-        self.eps = 1e-10
-
-    def forward(self, x):
-        norm = torch.sum(torch.abs(x), dim=1) + self.eps
-        x = x / norm.expand_as(x)
-        return x
-
-
-class L2Norm(nn.Module):
-
-    def __init__(self):
-        super(L2Norm, self).__init__()
-        self.eps = 1e-10
-
-    def forward(self, x):
-        norm = torch.sqrt(torch.abs(torch.sum(x * x, dim=1)) + self.eps)
-        x = x / norm.unsqueeze(1).expand_as(x)
-        return x
-
-
-class SIFTNet(nn.Module):
-
-    def CircularGaussKernel(self, kernlen=21):
-        halfSize = kernlen / 2
-        r2 = float(halfSize * halfSize)
-        sigma2 = 0.9 * r2
-        disq = 0
-        kernel = np.zeros((kernlen, kernlen))
-        for y in range(kernlen):
-            for x in range(kernlen):
-                disq = (y - halfSize) * (y - halfSize) + (x - halfSize) * (x - halfSize)
-                if disq < r2:
-                    kernel[y, x] = math.exp(-disq / sigma2)
-                else:
-                    kernel[y, x] = 0.0
-        return kernel
-
-    def __init__(self, patch_size=65, num_ang_bins=8, num_spatial_bins=4, clipval=0.2):
-        super(SIFTNet, self).__init__()
-        gk = torch.from_numpy(self.CircularGaussKernel(kernlen=patch_size).astype(np.float32))
-        self.bin_weight_kernel_size, self.bin_weight_stride = get_bin_weight_kernel_size_and_stride(patch_size, num_spatial_bins)
-        self.gk = Variable(gk)
-        self.num_ang_bins = num_ang_bins
-        self.num_spatial_bins = num_spatial_bins
-        self.clipval = clipval
-        self.gx = nn.Sequential(nn.Conv2d(1, 1, kernel_size=(1, 3), bias=False))
-        for l in self.gx:
-            if isinstance(l, nn.Conv2d):
-                l.weight.data = torch.from_numpy(np.array([[[[-1, 0, 1]]]], dtype=np.float32))
-        self.gy = nn.Sequential(nn.Conv2d(1, 1, kernel_size=(3, 1), bias=False))
-        for l in self.gy:
-            if isinstance(l, nn.Conv2d):
-                l.weight.data = torch.from_numpy(np.array([[[[-1], [0], [1]]]], dtype=np.float32))
-        self.pk = nn.Sequential(nn.Conv2d(1, 1, kernel_size=(self.bin_weight_kernel_size, self.bin_weight_kernel_size), stride=(self.bin_weight_stride, self.bin_weight_stride), bias=False))
-        for l in self.pk:
-            if isinstance(l, nn.Conv2d):
-                nw = getPoolingKernel(kernel_size=self.bin_weight_kernel_size)
-                new_weights = np.array(nw.reshape((1, 1, self.bin_weight_kernel_size, self.bin_weight_kernel_size)))
-                l.weight.data = torch.from_numpy(new_weights.astype(np.float32))
-
-    def forward(self, x):
-        gx = self.gx(F.pad(x, (1, 1, 0, 0), 'replicate'))
-        gy = self.gy(F.pad(x, (0, 0, 1, 1), 'replicate'))
-        mag = torch.sqrt(gx ** 2 + gy ** 2 + 1e-10)
-        ori = torch.atan2(gy, gx + 1e-08)
-        if x.is_cuda:
-            self.gk = self.gk
-        else:
-            self.gk = self.gk.cpu()
-        mag = mag * self.gk.expand_as(mag)
-        o_big = (ori + 2.0 * math.pi) / (2.0 * math.pi) * float(self.num_ang_bins)
-        bo0_big = torch.floor(o_big)
-        wo1_big = o_big - bo0_big
-        bo0_big = bo0_big % self.num_ang_bins
-        bo1_big = (bo0_big + 1) % self.num_ang_bins
-        wo0_big = (1.0 - wo1_big) * mag
-        wo1_big = wo1_big * mag
-        ang_bins = []
-        for i in range(0, self.num_ang_bins):
-            ang_bins.append(self.pk((bo0_big == i).float() * wo0_big + (bo1_big == i).float() * wo1_big))
-        ang_bins = torch.cat(ang_bins, 1)
-        ang_bins = ang_bins.view(ang_bins.size(0), -1)
-        ang_bins = L2Norm()(ang_bins)
-        ang_bins = torch.clamp(ang_bins, 0.0, float(self.clipval))
-        ang_bins = L2Norm()(ang_bins)
-        return ang_bins
-
-
-class HardTFeatNet(nn.Module):
-    """TFeat model definition
-    """
-
-    def __init__(self, sm):
-        super(HardTFeatNet, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(1, 32, kernel_size=7), nn.Tanh(), nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(32, 64, kernel_size=6), nn.Tanh())
-        self.classifier = nn.Sequential(nn.Dropout(0.1), nn.Conv2d(64, 128, kernel_size=8), nn.Tanh())
-        self.SIFT = sm
-
-    def input_norm(self, x):
-        flat = x.view(x.size(0), -1)
-        mp = torch.mean(flat, dim=1)
-        sp = torch.std(flat, dim=1) + 1e-07
-        return (x - mp.detach().unsqueeze(-1).unsqueeze(-1).unsqueeze(-1).expand_as(x)) / sp.detach().unsqueeze(-1).unsqueeze(-1).unsqueeze(1).expand_as(x)
-
-    def forward(self, input):
-        x_features = self.features(self.input_norm(input))
-        x = x_features.view(x_features.size(0), -1)
-        x = self.classifier(x_features)
-        return x.view(x.size(0), -1)
 
 
 import torch

@@ -31,6 +31,7 @@ assign_result = _module
 base_assigner = _module
 max_iou_assigner = _module
 bbox_target = _module
+geometry = _module
 samplers = _module
 base_sampler = _module
 pseudo_sampler = _module
@@ -59,6 +60,7 @@ build_loader = _module
 sampler = _module
 rawframes_dataset = _module
 ssn_dataset = _module
+utils = _module
 video_dataset = _module
 losses = _module
 flow_losses = _module
@@ -124,15 +126,22 @@ nms_wrapper = _module
 setup = _module
 resample2d_package = _module
 resample2d = _module
+setup = _module
 roi_align = _module
 functions = _module
+roi_align = _module
 gradcheck = _module
 modules = _module
 roi_align = _module
+setup = _module
 roi_pool = _module
 roi_pool = _module
+gradcheck = _module
+roi_pool = _module
+setup = _module
 trajectory_conv_package = _module
 gradcheck = _module
+setup = _module
 traj_conv = _module
 misc = _module
 ipcsn_kinetics400_se_rgb_r152_seg1_32x2 = _module
@@ -163,26 +172,69 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import math
+import logging
+
+
+import random
+
+
+import numpy as np
 
 
 import torch
 
 
-import numpy as np
+import torch.distributed as dist
+
+
+import torch.multiprocessing as mp
+
+
+from collections import OrderedDict
+
+
+from abc import ABCMeta
+
+
+from abc import abstractmethod
+
+
+import time
+
+
+from torch.utils.data import Dataset
+
+
+from torch._utils import _flatten_dense_tensors
+
+
+from torch._utils import _unflatten_dense_tensors
+
+
+from torch._utils import _take_tensors
+
+
+from functools import partial
+
+
+from torch.utils.data import DataLoader
+
+
+import math
 
 
 from torch.distributed import get_world_size
@@ -197,19 +249,19 @@ from torch.utils.data.sampler import Sampler
 from torch.utils.data import DistributedSampler as _DistributedSampler
 
 
+import copy
+
+
+from collections import Sequence
+
+
 import torch.nn as nn
 
 
 import torch.nn.functional as F
 
 
-import logging
-
-
-from abc import ABCMeta
-
-
-from abc import abstractmethod
+from torch import nn
 
 
 import torch.utils.checkpoint as cp
@@ -222,6 +274,12 @@ import string
 
 
 import itertools
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
 
 
 from torch.nn.modules.module import Module
@@ -237,6 +295,9 @@ from torch.autograd import gradcheck
 
 
 from torch.nn.modules.utils import _triple
+
+
+from functools import reduce
 
 
 dataset_aliases = {'ava': ['ava', 'ava2.1', 'ava2.2']}
@@ -356,6 +417,487 @@ class BaseDetector(nn.Module):
             mmcv.imshow_det_bboxes(img_show, bboxes, labels, class_names=class_names, score_thr=score_thr)
 
 
+def bbox2roi(bbox_list):
+    """Convert a list of bboxes to roi format
+
+    Args:
+        bbox_list (list[Tensor]): a list of bboxes
+        corresponding to a batch of images
+
+    Returns:
+        Tensor: shape (n, 5), [batch_ind, x1, y1, x2, y2]
+    """
+    rois_list = []
+    for img_id, bboxes in enumerate(bbox_list):
+        if bboxes.size(0) > 0:
+            img_inds = bboxes.new_full((bboxes.size(0), 1), img_id)
+            rois = torch.cat([img_inds, bboxes[:, :4]], dim=-1)
+        else:
+            rois = bboxes.new_zeros((0, 5))
+        rois_list.append(rois)
+    rois = torch.cat(rois_list, 0)
+    return rois
+
+
+def bbox_flip(bboxes, img_shape):
+    """Flip bboxes horizontally.
+
+    Args:
+        bboxes(Tensor or ndarray): Shape (..., 4*k)
+        img_shape(tuple): Image shape.
+
+    Returns:
+        Same type as `bboxes`: Flipped bboxes.
+    """
+    if isinstance(bboxes, torch.Tensor):
+        assert bboxes.shape[-1] % 4 == 0
+        flipped = bboxes.clone()
+        flipped[:, 0::4] = img_shape[1] - bboxes[:, 2::4] - 1
+        flipped[:, 2::4] = img_shape[1] - bboxes[:, 0::4] - 1
+        return flipped
+    elif isinstance(bboxes, np.ndarray):
+        return mmcv.bbox_flip(bboxes, img_shape)
+
+
+def bbox_mapping(bboxes, img_shape, scale_factor, flip):
+    """Map bboxes from the original image scale to testing scale"""
+    new_bboxes = bboxes * scale_factor
+    if flip:
+        new_bboxes = bbox_flip(new_bboxes, img_shape)
+    return new_bboxes
+
+
+def bbox_mapping_back(bboxes, img_shape, scale_factor, flip):
+    """Map bboxes from testing scale to original image scale"""
+    new_bboxes = bbox_flip(bboxes, img_shape) if flip else bboxes
+    new_bboxes = new_bboxes / scale_factor
+    return new_bboxes
+
+
+def merge_aug_bboxes(aug_bboxes, aug_scores, img_metas, rcnn_test_cfg):
+    """Merge augmented detection bboxes and scores.
+
+    Args:
+        aug_bboxes (list[Tensor]): shape (n, 4*#class)
+        aug_scores (list[Tensor] or None): shape (n, #class)
+        img_shapes (list[Tensor]): shape (3, ).
+        rcnn_test_cfg (dict): rcnn test config.
+
+    Returns:
+        tuple: (bboxes, scores)
+    """
+    recovered_bboxes = []
+    for bboxes, img_info in zip(aug_bboxes, img_metas):
+        img_shape = img_info[0]['img_shape']
+        scale_factor = img_info[0]['scale_factor']
+        flip = img_info[0]['flip']
+        bboxes = bbox_mapping_back(bboxes, img_shape, scale_factor, flip)
+        recovered_bboxes.append(bboxes)
+    bboxes = torch.stack(recovered_bboxes).mean(dim=0)
+    if aug_scores is None:
+        return bboxes
+    else:
+        scores = torch.stack(aug_scores).mean(dim=0)
+        return bboxes, scores
+
+
+def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1):
+    """NMS for multi-class bboxes.
+
+    Args:
+        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
+        multi_scores (Tensor): shape (n, #class)
+        score_thr (float): bbox threshold, bboxes with scores lower than it
+            will not be considered.
+        nms_thr (float): NMS IoU threshold
+        max_num (int): if there are more than max_num bboxes after NMS,
+            only top max_num will be kept.
+
+    Returns:
+        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). labels
+            are 0-based.
+    """
+    num_classes = multi_scores.shape[1]
+    bboxes, labels = [], []
+    nms_cfg_ = nms_cfg.copy()
+    nms_type = nms_cfg_.pop('type', 'nms')
+    nms_op = getattr(nms_wrapper, nms_type)
+    for i in range(1, num_classes):
+        cls_inds = multi_scores[:, (i)] > score_thr
+        if not cls_inds.any():
+            continue
+        if multi_bboxes.shape[1] == 4:
+            _bboxes = multi_bboxes[(cls_inds), :]
+        else:
+            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
+        _scores = multi_scores[cls_inds, i]
+        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
+        cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
+        cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1, dtype=torch.long)
+        bboxes.append(cls_dets)
+        labels.append(cls_labels)
+    if bboxes:
+        bboxes = torch.cat(bboxes)
+        labels = torch.cat(labels)
+        if bboxes.shape[0] > max_num:
+            _, inds = bboxes[:, (-1)].sort(descending=True)
+            inds = inds[:max_num]
+            bboxes = bboxes[inds]
+            labels = labels[inds]
+    else:
+        bboxes = multi_bboxes.new_zeros((0, 5))
+        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
+    return bboxes, labels
+
+
+class BBoxTestMixin(object):
+
+    def simple_test_bboxes(self, x, img_meta, proposals, rcnn_test_cfg, rescale=False):
+        """Test only det bboxes without augmentation."""
+        rois = bbox2roi(proposals)
+        roi_feats = self.bbox_roi_extractor(x[:len(self.bbox_roi_extractor.featmap_strides)], rois)
+        if self.with_shared_head:
+            roi_feats = self.shared_head(roi_feats)
+        cls_score, bbox_pred = self.bbox_head(roi_feats)
+        img_shape = img_meta[0]['img_shape']
+        scale_factor = img_meta[0]['scale_factor']
+        det_bboxes, det_labels = self.bbox_head.get_det_bboxes(rois, cls_score, bbox_pred, img_shape, scale_factor, rescale=rescale, cfg=rcnn_test_cfg, crop_quadruple=img_meta[0]['crop_quadruple'])
+        return det_bboxes, det_labels
+
+    def aug_test_bboxes(self, feats, img_metas, proposal_list, rcnn_test_cfg):
+        aug_bboxes = []
+        aug_scores = []
+        for x, img_meta in zip(feats, img_metas):
+            img_shape = img_meta[0]['img_shape']
+            scale_factor = img_meta[0]['scale_factor']
+            flip = img_meta[0]['flip']
+            proposals = bbox_mapping(proposal_list[0][:, :4], img_shape, scale_factor, flip)
+            rois = bbox2roi([proposals])
+            roi_feats = self.bbox_roi_extractor(x[:len(self.bbox_roi_extractor.featmap_strides)], rois)
+            if self.with_shared_head:
+                roi_feats = self.shared_head(roi_feats)
+            cls_score, bbox_pred = self.bbox_head(roi_feats)
+            bboxes, scores = self.bbox_head.get_det_bboxes(rois, cls_score, bbox_pred, img_shape, scale_factor, rescale=False, cfg=None)
+            aug_bboxes.append(bboxes)
+            aug_scores.append(scores)
+        merged_bboxes, merged_scores = merge_aug_bboxes(aug_bboxes, aug_scores, img_metas, rcnn_test_cfg)
+        det_bboxes, det_labels = multiclass_nms(merged_bboxes, merged_scores, rcnn_test_cfg.score_thr, rcnn_test_cfg.nms, rcnn_test_cfg.max_per_img)
+        return det_bboxes, det_labels
+
+
+class Registry(object):
+
+    def __init__(self, name):
+        self._name = name
+        self._module_dict = dict()
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def module_dict(self):
+        return self._module_dict
+
+    def _register_module(self, module_class):
+        """Register a module
+
+        Args:
+            module (:obj:`nn.Module`): Module to be registered.
+        """
+        if not issubclass(module_class, nn.Module):
+            raise TypeError('module must be a child of nn.Module, but got {}'.format(module_class))
+        module_name = module_class.__name__
+        if module_name in self._module_dict:
+            raise KeyError('{} is already registered in {}'.format(module_name, self.name))
+        self._module_dict[module_name] = module_class
+
+    def register_module(self, cls):
+        self._register_module(cls)
+        return cls
+
+
+DETECTORS = Registry('detector')
+
+
+def nms(dets, iou_thr, device_id=None):
+    """Dispatch to either CPU or GPU NMS implementations.
+
+    The input can be either a torch tensor or numpy array. GPU NMS will be used
+    if the input is a gpu tensor or device_id is specified, otherwise CPU NMS
+    will be used. The returned type will always be the same as inputs.
+
+    Arguments:
+        dets (torch.Tensor or np.ndarray): bboxes with scores.
+        iou_thr (float): IoU threshold for NMS.
+        device_id (int, optional): when `dets` is a numpy array, if `device_id`
+            is None, then cpu nms is used, otherwise gpu_nms will be used.
+
+    Returns:
+        tuple: kept bboxes and indice, which is always the same data type as
+            the input.
+    """
+    if isinstance(dets, torch.Tensor):
+        is_numpy = False
+        dets_th = dets
+    elif isinstance(dets, np.ndarray):
+        is_numpy = True
+        device = 'cpu' if device_id is None else 'cuda:{}'.format(device_id)
+        dets_th = torch.from_numpy(dets)
+    else:
+        raise TypeError('dets must be either a Tensor or numpy array, but got {}'.format(type(dets)))
+    if dets_th.shape[0] == 0:
+        inds = dets_th.new_zeros(0, dtype=torch.long)
+    elif dets_th.is_cuda:
+        inds = nms_cuda.nms(dets_th, iou_thr)
+    else:
+        inds = nms_cpu.nms(dets_th, iou_thr)
+    if is_numpy:
+        inds = inds.cpu().numpy()
+    return dets[(inds), :], inds
+
+
+def merge_aug_proposals(aug_proposals, img_metas, rpn_test_cfg):
+    """Merge augmented proposals (multiscale, flip, etc.)
+
+    Args:
+        aug_proposals (list[Tensor]): proposals from different testing
+            schemes, shape (n, 5). Note that they are not rescaled to the
+            original image size.
+        img_metas (list[dict]): image info including "shape_scale" and "flip".
+        rpn_test_cfg (dict): rpn test config.
+
+    Returns:
+        Tensor: shape (n, 4), proposals corresponding to original image scale.
+    """
+    recovered_proposals = []
+    for proposals, img_info in zip(aug_proposals, img_metas):
+        img_shape = img_info['img_shape']
+        scale_factor = img_info['scale_factor']
+        flip = img_info['flip']
+        _proposals = proposals.clone()
+        _proposals[:, :4] = bbox_mapping_back(_proposals[:, :4], img_shape, scale_factor, flip)
+        recovered_proposals.append(_proposals)
+    aug_proposals = torch.cat(recovered_proposals, dim=0)
+    merged_proposals, _ = nms(aug_proposals, rpn_test_cfg.nms_thr)
+    scores = merged_proposals[:, (4)]
+    _, order = scores.sort(0, descending=True)
+    num = min(rpn_test_cfg.max_num, merged_proposals.shape[0])
+    order = order[:num]
+    merged_proposals = merged_proposals[(order), :]
+    return merged_proposals
+
+
+class RPNTestMixin(object):
+
+    def simple_test_rpn(self, x, img_meta, rpn_test_cfg):
+        x_slice = (xx[:, :, (xx.size(2) // 2), :, :] for xx in x)
+        rpn_outs = self.rpn_head(x_slice)
+        proposal_inputs = rpn_outs + (img_meta, rpn_test_cfg)
+        proposal_list = self.rpn_head.get_bboxes(*proposal_inputs)
+        return proposal_list
+
+    def aug_test_rpn(self, feats, img_metas, rpn_test_cfg):
+        imgs_per_gpu = len(img_metas[0])
+        aug_proposals = [[] for _ in range(imgs_per_gpu)]
+        for x, img_meta in zip(feats, img_metas):
+            proposal_list = self.simple_test_rpn(x, img_meta, rpn_test_cfg)
+            for i, proposals in enumerate(proposal_list):
+                aug_proposals[i].append(proposals)
+        merged_proposals = [merge_aug_proposals(proposals, img_meta, rpn_test_cfg) for proposals, img_meta in zip(aug_proposals, img_metas)]
+        return merged_proposals
+
+
+def bbox2result(bboxes, labels, num_classes, thr=0.01):
+    """Convert detection results to a list of numpy arrays.
+    Args:
+        bboxes (Tensor): shape (n, 5)
+        labels (Tensor): shape (n, ) or shape (n, #num_classes)
+        num_classes (int): class number, including background class
+    Returns:
+        list(ndarray): bbox results of each class
+    """
+    if bboxes.shape[0] == 0:
+        return [np.zeros((0, 5), dtype=np.float32) for i in range(num_classes - 1)]
+    else:
+        bboxes = bboxes.cpu().numpy()
+        labels = labels.cpu().numpy()
+        if labels.ndim == 1:
+            return [bboxes[(labels == i), :] for i in range(num_classes - 1)]
+        else:
+            scores = labels
+            thr = (thr,) * num_classes if isinstance(thr, float) else thr
+            assert scores.shape[1] == num_classes
+            assert len(thr) == num_classes
+            result = []
+            for i in range(num_classes - 1):
+                where = scores[:, (i + 1)] > thr[i + 1]
+                result.append(np.concatenate((bboxes[(where), :4], scores[(where), i + 1:i + 2]), axis=1))
+            return result
+
+
+def build_assigner(cfg, **kwargs):
+    if isinstance(cfg, assigners.BaseAssigner):
+        return cfg
+    elif isinstance(cfg, dict):
+        return mmcv.runner.obj_from_dict(cfg, assigners, default_args=kwargs)
+    else:
+        raise TypeError('Invalid type {} for building a sampler'.format(type(cfg)))
+
+
+def build_sampler(cfg, **kwargs):
+    if isinstance(cfg, samplers.BaseSampler):
+        return cfg
+    elif isinstance(cfg, dict):
+        return mmcv.runner.obj_from_dict(cfg, samplers, default_args=kwargs)
+    else:
+        raise TypeError('Invalid type {} for building a sampler'.format(type(cfg)))
+
+
+class TwoStageDetector(BaseDetector, RPNTestMixin, BBoxTestMixin):
+
+    def __init__(self, backbone, neck=None, shared_head=None, rpn_head=None, bbox_roi_extractor=None, dropout_ratio=0, bbox_head=None, train_cfg=None, test_cfg=None, pretrained=None):
+        super(TwoStageDetector, self).__init__()
+        self.backbone = builder.build_backbone(backbone)
+        if neck is not None:
+            self.neck = builder.build_neck(neck)
+        if shared_head is not None:
+            self.shared_head = builder.build_head(shared_head)
+        if rpn_head is not None:
+            self.rpn_head = builder.build_head(rpn_head)
+        if bbox_head is not None:
+            self.bbox_roi_extractor = builder.build_roi_extractor(bbox_roi_extractor)
+            self.bbox_head = builder.build_head(bbox_head)
+        if dropout_ratio > 0:
+            self.dropout = nn.Dropout(p=dropout_ratio)
+        else:
+            self.dropout = None
+        self.train_cfg = train_cfg
+        self.test_cfg = test_cfg
+        self.init_weights()
+
+    @property
+    def with_rpn(self):
+        return hasattr(self, 'rpn_head') and self.rpn_head is not None
+
+    def init_weights(self):
+        super(TwoStageDetector, self).init_weights()
+        self.backbone.init_weights()
+        if self.with_neck:
+            if isinstance(self.neck, nn.Sequential):
+                for m in self.neck:
+                    m.init_weights()
+        if self.with_shared_head:
+            self.shared_head.init_weights()
+        if self.with_rpn:
+            self.rpn_head.init_weights()
+        if self.with_bbox:
+            self.bbox_roi_extractor.init_weights()
+            self.bbox_head.init_weights()
+
+    def extract_feat(self, image_group):
+        x = self.backbone(image_group)
+        if self.with_neck:
+            x = self.neck()
+        elif not isinstance(x, (list, tuple)):
+            x = x,
+        return x
+
+    def forward_train(self, num_modalities, img_meta, gt_bboxes, gt_labels, gt_bboxes_ignore=None, proposals=None, **kwargs):
+        assert num_modalities == 1
+        img_group = kwargs['img_group_0']
+        x = self.extract_feat(img_group)
+        losses = dict()
+        if self.with_rpn:
+            x_slice = (xx[:, :, (xx.size(2) // 2), :, :] for xx in x)
+            rpn_outs = self.rpn_head(x_slice)
+            rpn_loss_inputs = rpn_outs + (gt_bboxes, img_meta, self.train_cfg.rpn)
+            rpn_losses = self.rpn_head.loss(*rpn_loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
+            losses.update(rpn_losses)
+            proposal_inputs = rpn_outs + (img_meta, self.test_cfg.rpn)
+            proposal_list = self.rpn_head.get_bboxes(*proposal_inputs)
+        else:
+            proposal_list = proposals
+        if not self.train_cfg.train_detector:
+            proposal_list = []
+            for proposal in proposals:
+                select_inds = proposal[:, (4)] >= min(self.train_cfg.person_det_score_thr, max(proposal[:, (4)]))
+                proposal_list.append(proposal[select_inds])
+        if self.with_bbox:
+            bbox_assigner = build_assigner(self.train_cfg.rcnn.assigner)
+            bbox_sampler = build_sampler(self.train_cfg.rcnn.sampler, context=self)
+            num_imgs = img_group.size(0)
+            if gt_bboxes_ignore is None:
+                gt_bboxes_ignore = [None for _ in range(num_imgs)]
+            sampling_results = []
+            for i in range(num_imgs):
+                assign_result = bbox_assigner.assign(proposal_list[i], gt_bboxes[i], gt_bboxes_ignore[i], gt_labels[i])
+                sampling_result = bbox_sampler.sample(assign_result, proposal_list[i], gt_bboxes[i], gt_labels[i], feats=[lvl_feat[i][None] for lvl_feat in x])
+                sampling_results.append(sampling_result)
+        if self.with_bbox:
+            rois = bbox2roi([res.bboxes for res in sampling_results])
+            bbox_feats = self.bbox_roi_extractor(x[:self.bbox_roi_extractor.num_inputs], rois)
+            if self.with_shared_head:
+                bbox_feats = self.shared_head(bbox_feats)
+            if self.dropout is not None:
+                bbox_feats = self.dropout(bbox_feats)
+            cls_score, bbox_pred = self.bbox_head(bbox_feats)
+            bbox_targets = self.bbox_head.get_target(sampling_results, gt_bboxes, gt_labels, self.train_cfg.rcnn)
+            loss_bbox = self.bbox_head.loss(cls_score, bbox_pred, *bbox_targets)
+            if not self.train_cfg.train_detector:
+                loss_bbox.pop('loss_person_cls')
+            losses.update(loss_bbox)
+        return losses
+
+    def simple_test(self, num_modalities, img_meta, proposals=None, rescale=False, **kwargs):
+        """Test without augmentation."""
+        assert self.with_bbox, 'Bbox head must be implemented.'
+        assert num_modalities == 1
+        img_group = kwargs['img_group_0'][0]
+        x = self.extract_feat(img_group)
+        if proposals is None:
+            proposal_list = self.simple_test_rpn(x, img_meta, self.test_cfg.rpn)
+        else:
+            proposal_list = []
+            for proposal in proposals:
+                proposal = proposal[0, ...]
+                if not self.test_cfg.train_detector:
+                    select_inds = proposal[:, (4)] >= min(self.test_cfg.person_det_score_thr, max(proposal[:, (4)]))
+                    proposal = proposal[select_inds]
+                proposal_list.append(proposal)
+        img_meta = img_meta[0]
+        det_bboxes, det_labels = self.simple_test_bboxes(x, img_meta, proposal_list, self.test_cfg.rcnn, rescale=rescale)
+        bbox_results = bbox2result(det_bboxes, det_labels, self.bbox_head.num_classes, thr=self.test_cfg.rcnn.action_thr)
+        return bbox_results
+
+    def aug_test(self, num_modalities, img_metas, proposals=None, rescale=False, **kwargs):
+        """Test with augmentations.
+
+        If rescale is False, then returned bboxes will fit the scale
+        of imgs[0]
+        """
+        assert num_modalities == 1
+        img_groups = kwargs['img_group_0']
+        if proposals is None:
+            proposal_list = self.aug_test_rpn(self.extract_feats(img_groups), img_metas, self.test_cfg.rpn)
+        else:
+            proposal_list = []
+            for proposal in proposals:
+                proposal = proposal[0, ...]
+                if not self.test_cfg.train_detector:
+                    select_inds = proposal[:, (4)] >= min(self.test_cfg.person_det_score_thr, max(proposal[:, (4)]))
+                    proposal = proposal[select_inds]
+                proposal_list.append(proposal)
+        det_bboxes, det_labels = self.aug_test_bboxes(self.extract_feats(img_groups), img_metas, proposal_list, self.test_cfg.rcnn)
+        if rescale:
+            _det_bboxes = det_bboxes
+        else:
+            _det_bboxes = det_bboxes.clone()
+            _det_bboxes[:, :4] *= img_metas[0][0]['scale_factor']
+        bbox_results = bbox2result(_det_bboxes, det_labels, self.bbox_head.num_classes, thr=self.test_cfg.rcnn.action_thr)
+        return bbox_results
+
+
 class BaseLocalizer(nn.Module):
     """Base class for localizers"""
     __metaclass__ = ABCMeta
@@ -462,7 +1004,7 @@ class AnchorGenerator(object):
             return yy, xx
 
     def grid_anchors(self, featmap_size, stride=16, device='cuda'):
-        base_anchors = self.base_anchors.to(device)
+        base_anchors = self.base_anchors
         feat_h, feat_w = featmap_size
         shift_x = torch.arange(0, feat_w, device=device) * stride
         shift_y = torch.arange(0, feat_h, device=device) * stride
@@ -485,38 +1027,6 @@ class AnchorGenerator(object):
         valid = valid_xx & valid_yy
         valid = valid[:, (None)].expand(valid.size(0), self.num_base_anchors).contiguous().view(-1)
         return valid
-
-
-class Registry(object):
-
-    def __init__(self, name):
-        self._name = name
-        self._module_dict = dict()
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def module_dict(self):
-        return self._module_dict
-
-    def _register_module(self, module_class):
-        """Register a module
-
-        Args:
-            module (:obj:`nn.Module`): Module to be registered.
-        """
-        if not issubclass(module_class, nn.Module):
-            raise TypeError('module must be a child of nn.Module, but got {}'.format(module_class))
-        module_name = module_class.__name__
-        if module_name in self._module_dict:
-            raise KeyError('{} is already registered in {}'.format(module_name, self.name))
-        self._module_dict[module_name] = module_class
-
-    def register_module(self, cls):
-        self._register_module(cls)
-        return cls
 
 
 HEADS = Registry('head')
@@ -621,24 +1131,6 @@ def anchor_inside_flags(flat_anchors, valid_flags, img_shape, allowed_border=0):
     else:
         inside_flags = valid_flags
     return inside_flags
-
-
-def build_assigner(cfg, **kwargs):
-    if isinstance(cfg, assigners.BaseAssigner):
-        return cfg
-    elif isinstance(cfg, dict):
-        return mmcv.runner.obj_from_dict(cfg, assigners, default_args=kwargs)
-    else:
-        raise TypeError('Invalid type {} for building a sampler'.format(type(cfg)))
-
-
-def build_sampler(cfg, **kwargs):
-    if isinstance(cfg, samplers.BaseSampler):
-        return cfg
-    elif isinstance(cfg, dict):
-        return mmcv.runner.obj_from_dict(cfg, samplers, default_args=kwargs)
-    else:
-        raise TypeError('Invalid type {} for building a sampler'.format(type(cfg)))
 
 
 def assign_and_sample(bboxes, gt_bboxes, gt_bboxes_ignore, gt_labels, cfg):
@@ -818,55 +1310,6 @@ def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1], max_shape=No
     return bboxes
 
 
-def multiclass_nms(multi_bboxes, multi_scores, score_thr, nms_cfg, max_num=-1):
-    """NMS for multi-class bboxes.
-
-    Args:
-        multi_bboxes (Tensor): shape (n, #class*4) or (n, 4)
-        multi_scores (Tensor): shape (n, #class)
-        score_thr (float): bbox threshold, bboxes with scores lower than it
-            will not be considered.
-        nms_thr (float): NMS IoU threshold
-        max_num (int): if there are more than max_num bboxes after NMS,
-            only top max_num will be kept.
-
-    Returns:
-        tuple: (bboxes, labels), tensors of shape (k, 5) and (k, 1). labels
-            are 0-based.
-    """
-    num_classes = multi_scores.shape[1]
-    bboxes, labels = [], []
-    nms_cfg_ = nms_cfg.copy()
-    nms_type = nms_cfg_.pop('type', 'nms')
-    nms_op = getattr(nms_wrapper, nms_type)
-    for i in range(1, num_classes):
-        cls_inds = multi_scores[:, (i)] > score_thr
-        if not cls_inds.any():
-            continue
-        if multi_bboxes.shape[1] == 4:
-            _bboxes = multi_bboxes[(cls_inds), :]
-        else:
-            _bboxes = multi_bboxes[(cls_inds), i * 4:(i + 1) * 4]
-        _scores = multi_scores[cls_inds, i]
-        cls_dets = torch.cat([_bboxes, _scores[:, (None)]], dim=1)
-        cls_dets, _ = nms_op(cls_dets, **nms_cfg_)
-        cls_labels = multi_bboxes.new_full((cls_dets.shape[0],), i - 1, dtype=torch.long)
-        bboxes.append(cls_dets)
-        labels.append(cls_labels)
-    if bboxes:
-        bboxes = torch.cat(bboxes)
-        labels = torch.cat(labels)
-        if bboxes.shape[0] > max_num:
-            _, inds = bboxes[:, (-1)].sort(descending=True)
-            inds = inds[:max_num]
-            bboxes = bboxes[inds]
-            labels = labels[inds]
-    else:
-        bboxes = multi_bboxes.new_zeros((0, 5))
-        labels = multi_bboxes.new_zeros((0,), dtype=torch.long)
-    return bboxes, labels
-
-
 def _expand_binary_labels(labels, label_weights, label_channels):
     bin_labels = labels.new_full((labels.size(0), label_channels), 0)
     inds = torch.nonzero(labels >= 1).squeeze()
@@ -915,7 +1358,6 @@ def weighted_smoothl1(pred, target, weight, beta=1.0, avg_factor=None):
     return torch.sum(loss * weight)[None] / avg_factor
 
 
-@HEADS.register_module
 class AnchorHead(nn.Module):
     """Anchor-based head (RPN, etc.).
 
@@ -1072,10 +1514,78 @@ class AnchorHead(nn.Module):
         return det_bboxes, det_labels
 
 
+class RPNHead(AnchorHead):
+
+    def __init__(self, in_channels, **kwargs):
+        super(RPNHead, self).__init__(2, in_channels, **kwargs)
+
+    def _init_layers(self):
+        self.rpn_conv = nn.Conv2d(self.in_channels, self.feat_channels, 3, padding=1)
+        self.rpn_cls = nn.Conv2d(self.feat_channels, self.num_anchors * self.cls_out_channels, 1)
+        self.rpn_reg = nn.Conv2d(self.feat_channels, self.num_anchors * 4, 1)
+
+    def init_weights(self):
+        normal_init(self.rpn_conv, std=0.01)
+        normal_init(self.rpn_cls, std=0.01)
+        normal_init(self.rpn_reg, std=0.01)
+
+    def forward_single(self, x):
+        x = self.rpn_conv(x)
+        x = F.relu(x, inplace=True)
+        rpn_cls_score = self.rpn_cls(x)
+        rpn_bbox_pred = self.rpn_reg(x)
+        return rpn_cls_score, rpn_bbox_pred
+
+    def loss(self, cls_scores, bbox_preds, gt_bboxes, img_metas, cfg, gt_bboxes_ignore=None):
+        losses = super(RPNHead, self).loss(cls_scores, bbox_preds, gt_bboxes, None, img_metas, cfg, gt_bboxes_ignore=gt_bboxes_ignore)
+        return dict(loss_rpn_cls=losses['loss_cls'], loss_rpn_reg=losses['loss_reg'])
+
+    def get_bboxes_single(self, cls_scores, bbox_preds, mlvl_anchors, img_shape, scale_factor, cfg, rescale=False):
+        mlvl_proposals = []
+        for idx in range(len(cls_scores)):
+            rpn_cls_score = cls_scores[idx]
+            rpn_bbox_pred = bbox_preds[idx]
+            assert rpn_cls_score.size()[-2:] == rpn_bbox_pred.size()[-2:]
+            anchors = mlvl_anchors[idx]
+            rpn_cls_score = rpn_cls_score.permute(1, 2, 0)
+            if self.use_sigmoid_cls:
+                rpn_cls_score = rpn_cls_score.reshape(-1)
+                scores = rpn_cls_score.sigmoid()
+            else:
+                rpn_cls_score = rpn_cls_score.reshape(-1, 2)
+                scores = rpn_cls_score.softmax(dim=1)[:, (1)]
+            rpn_bbox_pred = rpn_bbox_pred.permute(1, 2, 0).reshape(-1, 4)
+            if cfg.nms_pre > 0 and scores.shape[0] > cfg.nms_pre:
+                _, topk_inds = scores.topk(cfg.nms_pre)
+                rpn_bbox_pred = rpn_bbox_pred[(topk_inds), :]
+                anchors = anchors[(topk_inds), :]
+                scores = scores[topk_inds]
+            proposals = delta2bbox(anchors, rpn_bbox_pred, self.target_means, self.target_stds, img_shape)
+            if cfg.min_bbox_size > 0:
+                w = proposals[:, (2)] - proposals[:, (0)] + 1
+                h = proposals[:, (3)] - proposals[:, (1)] + 1
+                valid_inds = torch.nonzero((w >= cfg.min_bbox_size) & (h >= cfg.min_bbox_size)).squeeze()
+                proposals = proposals[(valid_inds), :]
+                scores = scores[valid_inds]
+            proposals = torch.cat([proposals, scores.unsqueeze(-1)], dim=-1)
+            proposals, _ = nms(proposals, cfg.nms_thr)
+            proposals = proposals[:cfg.nms_post, :]
+            mlvl_proposals.append(proposals)
+        proposals = torch.cat(mlvl_proposals, 0)
+        if cfg.nms_across_levels:
+            proposals, _ = nms(proposals, cfg.nms_thr)
+            proposals = proposals[:cfg.max_num, :]
+        else:
+            scores = proposals[:, (4)]
+            num = min(cfg.max_num, proposals.shape[0])
+            _, topk_inds = scores.topk(num)
+            proposals = proposals[(topk_inds), :]
+        return proposals
+
+
 BACKBONES = Registry('backbone')
 
 
-@BACKBONES.register_module
 class BNInception(nn.Module):
 
     def __init__(self, pretrained=None, bn_eval=True, bn_frozen=False, partial_bn=False):
@@ -1569,7 +2079,6 @@ class BNInception(nn.Module):
                     m.bias.requires_grad = False
 
 
-@BACKBONES.register_module
 class InceptionV1_I3D(nn.Module):
 
     def __init__(self, pretrained=None, bn_eval=True, bn_frozen=False, partial_bn=False, modality='RGB'):
@@ -1993,44 +2502,176 @@ class InceptionV1_I3D(nn.Module):
                     m.bias.requires_grad = False
 
 
-def conv3x3(in_planes, out_planes, stride=1, dilation=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, bias=False)
+def conv1x3x3(in_planes, out_planes, spatial_stride=1, temporal_stride=1, dilation=1):
+    """1x3x3 convolution with padding"""
+    return nn.Conv3d(in_planes, out_planes, kernel_size=(1, 3, 3), stride=(temporal_stride, spatial_stride, spatial_stride), padding=(0, dilation, dilation), dilation=dilation, bias=False)
+
+
+def conv3x1x1(in_planes, out_planes, spatial_stride=1, temporal_stride=1, dilation=1, bias=False):
+    """3x1x1 convolution with padding"""
+    return nn.Conv3d(in_planes, out_planes, kernel_size=(3, 1, 1), stride=(temporal_stride, spatial_stride, spatial_stride), padding=(dilation, 0, 0), dilation=dilation, bias=bias)
+
+
+class TrajConvFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input, offset, weight, bias, stride=1, padding=0, dilation=1, deformable_groups=1, im2col_step=64):
+        if input is not None and input.dim() != 5:
+            raise ValueError('Expected 5D tensor as input, got {}D tensor instead.'.format(input.dim()))
+        ctx.stride = _triple(stride)
+        ctx.padding = _triple(padding)
+        ctx.dilation = _triple(dilation)
+        ctx.deformable_groups = deformable_groups
+        ctx.im2col_step = im2col_step
+        ctx.save_for_backward(input, offset, weight, bias)
+        output = input.new(*TrajConvFunction._output_size(input, weight, ctx.padding, ctx.dilation, ctx.stride))
+        ctx.bufs_ = [input.new(), input.new()]
+        if not input.is_cuda:
+            raise NotImplementedError
+        else:
+            if isinstance(input, torch.autograd.Variable):
+                if not (isinstance(input.data, torch.FloatTensor) or isinstance(input.data, torch.DoubleTensor)):
+                    raise NotImplementedError
+            elif not (isinstance(input, torch.FloatTensor) or isinstance(input, torch.DoubleTensor)):
+                raise NotImplementedError
+            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
+            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            traj_conv_cuda.deform_3d_conv_forward_cuda(input, weight, bias, offset, output, ctx.bufs_[0], ctx.bufs_[1], weight.size(2), weight.size(3), weight.size(4), ctx.stride[0], ctx.stride[1], ctx.stride[2], ctx.padding[0], ctx.padding[1], ctx.padding[2], ctx.dilation[0], ctx.dilation[1], ctx.dilation[2], ctx.deformable_groups, cur_im2col_step)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input, offset, weight, bias = ctx.saved_tensors
+        grad_input = grad_offset = grad_weight = grad_bias = None
+        if not grad_output.is_cuda:
+            raise NotImplementedError
+        else:
+            if isinstance(grad_output, torch.autograd.Variable):
+                if not (isinstance(grad_output.data, torch.FloatTensor) or isinstance(grad_output.data, torch.DoubleTensor)):
+                    raise NotImplementedError
+            elif not (isinstance(grad_output, torch.FloatTensor) or isinstance(grad_output, torch.DoubleTensor)):
+                raise NotImplementedError
+            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
+            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
+                grad_input = torch.zeros_like(input)
+                grad_offset = torch.zeros_like(offset)
+                traj_conv_cuda.deform_3d_conv_backward_input_cuda(input, offset, grad_output, grad_input, grad_offset, weight, bias, ctx.bufs_[0], weight.size(2), weight.size(3), weight.size(4), ctx.stride[0], ctx.stride[1], ctx.stride[2], ctx.padding[0], ctx.padding[1], ctx.padding[2], ctx.dilation[0], ctx.dilation[1], ctx.dilation[2], ctx.deformable_groups, cur_im2col_step)
+            if ctx.needs_input_grad[2]:
+                grad_weight = torch.zeros_like(weight)
+                grad_bias = torch.zeros_like(bias)
+                traj_conv_cuda.deform_3d_conv_backward_parameters_cuda(input, offset, grad_output, grad_weight, grad_bias, ctx.bufs_[0], ctx.bufs_[1], weight.size(2), weight.size(3), weight.size(4), ctx.stride[0], ctx.stride[1], ctx.stride[2], ctx.padding[0], ctx.padding[1], ctx.padding[2], ctx.dilation[0], ctx.dilation[1], ctx.dilation[2], ctx.deformable_groups, 1, cur_im2col_step)
+        return grad_input, grad_offset, grad_weight, grad_bias, None, None, None, None, None
+
+    @staticmethod
+    def _output_size(input, weight, padding, dilation, stride):
+        channels = weight.size(0)
+        output_size = input.size(0), channels
+        for d in range(input.dim() - 2):
+            in_size = input.size(d + 2)
+            pad = padding[d]
+            kernel = dilation[d] * (weight.size(d + 2) - 1) + 1
+            stride_ = stride[d]
+            output_size += (in_size + 2 * pad - kernel) // stride_ + 1,
+        if not all(map(lambda s: s > 0, output_size)):
+            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
+        return output_size
+
+
+class TrajConv(Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, num_deformable_groups=1, im2col_step=64, bias=True):
+        super(TrajConv, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = _triple(kernel_size)
+        self.stride = _triple(stride)
+        self.padding = _triple(padding)
+        self.dilation = _triple(dilation)
+        self.num_deformable_groups = num_deformable_groups
+        self.im2col_step = im2col_step
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
+        if bias:
+            self.bias = nn.Parameter(torch.Tensor(out_channels))
+        else:
+            self.bias = nn.Parameter(torch.zeros(0))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        n = self.in_channels
+        for k in self.kernel_size:
+            n *= k
+        stdv = 1.0 / math.sqrt(n)
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.bias.nelement() != 0:
+            self.bias.data.fill_(0.0)
+
+    def forward(self, input, offset):
+        return TrajConvFunction.apply(input, offset, self.weight, self.bias, self.stride, self.padding, self.dilation, self.num_deformable_groups, self.im2col_step)
+
+
+def trajconv3x1x1(in_planes, out_planes, spatial_stride=1, temporal_stride=1, dilation=1, bias=False):
+    """3x1x1 convolution with padding"""
+    return TrajConv(in_planes, out_planes, kernel_size=(3, 1, 1), stride=(temporal_stride, spatial_stride, spatial_stride), padding=(dilation, 0, 0), dilation=dilation, bias=bias)
 
 
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, style='pytorch', with_cp=False):
+    def __init__(self, inplanes, planes, spatial_stride=1, temporal_stride=1, dilation=1, downsample=None, style='pytorch', if_inflate=True, with_cp=False, with_trajectory=False):
         super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride, dilation)
-        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv1 = conv1x3x3(inplanes, planes, spatial_stride, 1, dilation)
+        self.bn1 = nn.BatchNorm3d(planes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv2 = conv1x3x3(planes, planes)
+        self.bn2 = nn.BatchNorm3d(planes)
+        self.if_inflate = if_inflate
+        if self.if_inflate:
+            self.conv1_t = conv3x1x1(planes, planes, 1, temporal_stride, dilation, bias=True)
+            self.bn1_t = nn.BatchNorm3d(planes)
+            if with_trajectory:
+                self.conv2_t = trajconv3x1x1(planes, planes, bias=True)
+            else:
+                self.conv2_t = conv3x1x1(planes, planes, bias=True)
+            self.bn2_t = nn.BatchNorm3d(planes)
         self.downsample = downsample
-        self.stride = stride
+        self.spatial_stride = spatial_stride
+        self.temporal_stride = temporal_stride
         self.dilation = dilation
         assert not with_cp
+        self.with_trajectory = with_trajectory
 
-    def forward(self, x):
+    def forward(self, input):
+        x, traj_src = input
         identity = x
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
+        if self.if_inflate:
+            out = self.conv1_t(out)
+            out = self.bn1_t(out)
+            out = self.relu(out)
         out = self.conv2(out)
         out = self.bn2(out)
+        if self.if_inflate:
+            out = self.relu(out)
+            if self.with_trajectory:
+                assert traj_src[0] is not None
+                out = self.conv2_t(out, traj_src[0])
+            else:
+                out = self.conv2_t(out)
+            out = self.bn2_t(out)
         if self.downsample is not None:
             identity = self.downsample(x)
         out += identity
         out = self.relu(out)
-        return out
+        return out, traj_src[1:]
 
 
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, style='pytorch', with_cp=False):
+    def __init__(self, inplanes, planes, spatial_stride=1, temporal_stride=1, dilation=1, downsample=None, style='pytorch', if_inflate=True, with_cp=False, with_trajectory=False):
         """Bottleneck block for ResNet.
         If style is "pytorch", the stride-two layer is the 3x3 conv layer,
         if it is "caffe", the stride-two layer is the first 1x1 conv layer.
@@ -2041,25 +2682,36 @@ class Bottleneck(nn.Module):
         self.planes = planes
         if style == 'pytorch':
             self.conv1_stride = 1
-            self.conv2_stride = stride
+            self.conv2_stride = spatial_stride
+            self.conv1_stride_t = 1
+            self.conv2_stride_t = temporal_stride
         else:
-            self.conv1_stride = stride
+            self.conv1_stride = spatial_stride
             self.conv2_stride = 1
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=self.conv1_stride, bias=False)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=self.conv2_stride, padding=dilation, dilation=dilation, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
+            self.conv1_stride_t = temporal_stride
+            self.conv2_stride_t = 1
+        self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=1, stride=(self.conv1_stride_t, self.conv1_stride, self.conv1_stride), bias=False)
+        self.conv2 = nn.Conv3d(planes, planes, kernel_size=(1, 3, 3), stride=(1, self.conv2_stride, self.conv2_stride), padding=(0, dilation, dilation), dilation=(1, dilation, dilation), bias=False)
+        self.if_inflate = if_inflate
+        if self.if_inflate:
+            self.conv2_t = nn.Conv3d(planes, planes, kernel_size=(3, 1, 1), stride=(self.conv2_stride_t, 1, 1), padding=(1, 0, 0), dilation=1, bias=True)
+            self.bn2_t = nn.BatchNorm3d(planes)
+        self.bn1 = nn.BatchNorm3d(planes)
+        self.bn2 = nn.BatchNorm3d(planes)
+        self.conv3 = nn.Conv3d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm3d(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
-        self.stride = stride
+        self.spatial_tride = spatial_stride
+        self.temporal_tride = temporal_stride
         self.dilation = dilation
         self.with_cp = with_cp
+        self.with_trajectory = with_trajectory
 
     def forward(self, x):
 
-        def _inner_forward(x):
+        def _inner_forward(xx):
+            x, traj_src = xx
             identity = x
             out = self.conv1(x)
             out = self.bn1(out)
@@ -2067,18 +2719,25 @@ class Bottleneck(nn.Module):
             out = self.conv2(out)
             out = self.bn2(out)
             out = self.relu(out)
+            if self.if_inflate:
+                if self.with_trajectory:
+                    assert traj_src is not None
+                    out = self.conv2_t(out, traj_src[0])
+                else:
+                    out = self.conv2_t(out)
+                out = self.bn2_t(out)
             out = self.conv3(out)
             out = self.bn3(out)
             if self.downsample is not None:
                 identity = self.downsample(x)
             out += identity
-            return out
+            return out, traj_src[1:]
         if self.with_cp and x.requires_grad:
-            out = cp.checkpoint(_inner_forward, x)
+            out, traj_remains = cp.checkpoint(_inner_forward, x)
         else:
-            out = _inner_forward(x)
+            out, traj_remains = _inner_forward(x)
         out = self.relu(out)
-        return out
+        return out, traj_remains
 
 
 def make_res_layer(block, inplanes, planes, blocks, spatial_stride=1, temporal_stride=1, dilation=1, style='pytorch', inflate_freq=1, with_cp=False, traj_src_indices=-1):
@@ -2096,7 +2755,6 @@ def make_res_layer(block, inplanes, planes, blocks, spatial_stride=1, temporal_s
     return nn.Sequential(*layers)
 
 
-@BACKBONES.register_module
 class ResNet(nn.Module):
     """ResNet backbone.
 
@@ -2219,136 +2877,96 @@ class ResNet(nn.Module):
                     param.requires_grad = False
 
 
-def conv1x3x3(in_planes, out_planes, spatial_stride=1, temporal_stride=1, dilation=1):
-    """1x3x3 convolution with padding"""
-    return nn.Conv3d(in_planes, out_planes, kernel_size=(1, 3, 3), stride=(temporal_stride, spatial_stride, spatial_stride), padding=(0, dilation, dilation), dilation=dilation, bias=False)
+SPATIAL_TEMPORAL_MODULES = Registry('spatial_temporal_module')
 
 
-def conv3x3x3(in_planes, out_planes, spatial_stride=1, temporal_stride=1, dilation=1):
-    """3x3x3 convolution with padding"""
-    return nn.Conv3d(in_planes, out_planes, kernel_size=3, stride=(temporal_stride, spatial_stride, spatial_stride), padding=dilation, dilation=dilation, bias=False)
+class NonLocalModule(nn.Module):
 
+    def __init__(self, in_channels=1024, nonlocal_type='gaussian', dim=3, embed=True, embed_dim=None, sub_sample=True, use_bn=True):
+        super(NonLocalModule, self).__init__()
+        assert nonlocal_type in ['gaussian', 'dot', 'concat']
+        assert dim == 2 or dim == 3
+        self.nonlocal_type = nonlocal_type
+        self.embed = embed
+        self.embed_dim = embed_dim if embed_dim is not None else in_channels // 2
+        self.sub_sample = sub_sample
+        self.use_bn = use_bn
+        if self.embed:
+            if dim == 2:
+                self.theta = nn.Conv2d(in_channels, self.embed_dim, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0))
+                self.phi = nn.Conv2d(in_channels, self.embed_dim, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0))
+                self.g = nn.Conv2d(in_channels, self.embed_dim, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0))
+            elif dim == 3:
+                self.theta = nn.Conv3d(in_channels, self.embed_dim, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+                self.phi = nn.Conv3d(in_channels, self.embed_dim, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+                self.g = nn.Conv3d(in_channels, self.embed_dim, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        if self.nonlocal_type == 'gaussian':
+            self.softmax = nn.Softmax(dim=2)
+        elif self.nonlocal_type == 'concat':
+            if dim == 2:
+                self.concat_proj = nn.Sequential(nn.Conv2d(self.embed_dim * 2, 1, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0)), nn.ReLU())
+            elif dim == 3:
+                self.concat_proj = nn.Sequential(nn.Conv3d(self.embed_dim * 2, 1, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0)), nn.ReLU())
+        if sub_sample:
+            if dim == 2:
+                self.max_pool = nn.MaxPool2d(kernel_size=(2, 2))
+            elif dim == 3:
+                self.max_pool = nn.MaxPool3d(kernel_size=(1, 2, 2))
+            self.g = nn.Sequential(self.max_pool, self.g)
+            self.phi = nn.Sequential(self.max_pool, self.phi)
+        if dim == 2:
+            self.W = nn.Conv2d(self.embed_dim, in_channels, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0))
+        elif dim == 3:
+            self.W = nn.Conv3d(self.embed_dim, in_channels, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
+        if use_bn:
+            if dim == 2:
+                self.bn = nn.BatchNorm2d(in_channels, eps=1e-05, momentum=0.9, affine=True)
+            elif dim == 3:
+                self.bn = nn.BatchNorm3d(in_channels, eps=1e-05, momentum=0.9, affine=True)
+            self.W = nn.Sequential(self.W, self.bn)
 
-class BasicBlock(nn.Module):
-    expansion = 1
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv3d):
+                kaiming_init(m)
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm3d):
+                constant_init(m, 0)
 
-    def __init__(self, inplanes, planes, spatial_stride=1, temporal_stride=1, dilation=1, downsample=None, style='pytorch', if_inflate=True, inflate_style=None, with_cp=False):
-        super(BasicBlock, self).__init__()
-        if if_inflate:
-            self.conv1 = conv3x3x3(inplanes, planes, spatial_stride, temporal_stride, dilation)
+    def forward(self, input):
+        if self.embed:
+            theta = self.theta(input)
+            phi = self.phi(input)
+            g = self.g(input)
         else:
-            self.conv1 = conv1x3x3(inplanes, planes, spatial_stride, temporal_stride, dilation)
-        self.bn1 = nn.BatchNorm3d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        if if_inflate:
-            self.conv2 = conv3x3x3(planes, planes)
+            theta = input
+            phi = input
+            g = input
+        if self.nonlocal_type in ['gaussian', 'dot']:
+            theta = theta.reshape(theta.shape[:2] + (-1,))
+            phi = phi.reshape(theta.shape[:2] + (-1,))
+            g = g.reshape(theta.shape[:2] + (-1,))
+            theta_phi = torch.matmul(theta.transpose(1, 2), phi)
+            if self.nonlocal_type == 'gaussian':
+                p = self.softmax(theta_phi)
+            elif self.nonlocal_type == 'dot':
+                N = theta_phi.size(-1)
+                p = theta_phi / N
+        elif self.non_local_type == 'concat':
+            theta = theta.reshape(theta.shape[:2] + (-1, 1))
+            phi = phi.reshape(theta.shape[:2] + (1, -1))
+            theta_x = theta.repeat(1, 1, 1, phi.size(3))
+            phi_x = phi.repeat(1, 1, theta.size(2), 1)
+            theta_phi = torch.cat([theta_x, phi_x], dim=1)
+            theta_phi = self.concat_proj(theta_phi)
+            theta_phi = theta_phi.squeeze()
+            N = theta_phi.size(-1)
+            p = theta_phi / N
         else:
-            self.conv2 = conv1x3x3(planes, planes)
-        self.bn2 = nn.BatchNorm3d(planes)
-        self.downsample = downsample
-        self.spatial_stride = spatial_stride
-        self.temporal_stride = temporal_stride
-        self.dilation = dilation
-        assert not with_cp
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu(out)
-        return out
-
-
-def build_nonlocal_block(cfg):
-    """ Build nonlocal block
-
-    Args:
-    """
-    assert isinstance(cfg, dict)
-    cfg_ = cfg.copy()
-    return NonLocalModule(**cfg_)
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, spatial_stride=1, temporal_stride=1, dilation=1, downsample=None, style='pytorch', if_inflate=True, inflate_style='3x1x1', if_nonlocal=True, nonlocal_cfg=None, with_cp=False):
-        """Bottleneck block for ResNet.
-        If style is "pytorch", the stride-two layer is the 3x3 conv layer,
-        if it is "caffe", the stride-two layer is the first 1x1 conv layer.
-        """
-        super(Bottleneck, self).__init__()
-        assert style in ['pytorch', 'caffe']
-        assert inflate_style in ['3x1x1', '3x3x3']
-        self.inplanes = inplanes
-        self.planes = planes
-        if style == 'pytorch':
-            self.conv1_stride = 1
-            self.conv2_stride = spatial_stride
-            self.conv1_stride_t = 1
-            self.conv2_stride_t = temporal_stride
-        else:
-            self.conv1_stride = spatial_stride
-            self.conv2_stride = 1
-            self.conv1_stride_t = temporal_stride
-            self.conv2_stride_t = 1
-        if if_inflate:
-            if inflate_style == '3x1x1':
-                self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=(3, 1, 1), stride=(self.conv1_stride_t, self.conv1_stride, self.conv1_stride), padding=(1, 0, 0), bias=False)
-                self.conv2 = nn.Conv3d(planes, planes, kernel_size=(1, 3, 3), stride=(self.conv2_stride_t, self.conv2_stride, self.conv2_stride), padding=(0, dilation, dilation), dilation=(1, dilation, dilation), bias=False)
-            else:
-                self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=1, stride=(self.conv1_stride_t, self.conv1_stride, self.conv1_stride), bias=False)
-                self.conv2 = nn.Conv3d(planes, planes, kernel_size=3, stride=(self.conv2_stride_t, self.conv2_stride, self.conv2_stride), padding=(1, dilation, dilation), dilation=(1, dilation, dilation), bias=False)
-        else:
-            self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=1, stride=(1, self.conv1_stride, self.conv1_stride), bias=False)
-            self.conv2 = nn.Conv3d(planes, planes, kernel_size=(1, 3, 3), stride=(1, self.conv2_stride, self.conv2_stride), padding=(0, dilation, dilation), dilation=(1, dilation, dilation), bias=False)
-        self.bn1 = nn.BatchNorm3d(planes)
-        self.bn2 = nn.BatchNorm3d(planes)
-        self.conv3 = nn.Conv3d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm3d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.spatial_tride = spatial_stride
-        self.temporal_tride = temporal_stride
-        self.dilation = dilation
-        self.with_cp = with_cp
-        if if_nonlocal and nonlocal_cfg is not None:
-            nonlocal_cfg_ = nonlocal_cfg.copy()
-            nonlocal_cfg_['in_channels'] = planes * self.expansion
-            self.nonlocal_block = build_nonlocal_block(nonlocal_cfg_)
-        else:
-            self.nonlocal_block = None
-
-    def forward(self, x):
-
-        def _inner_forward(x):
-            identity = x
-            out = self.conv1(x)
-            out = self.bn1(out)
-            out = self.relu(out)
-            out = self.conv2(out)
-            out = self.bn2(out)
-            out = self.relu(out)
-            out = self.conv3(out)
-            out = self.bn3(out)
-            if self.downsample is not None:
-                identity = self.downsample(x)
-            out += identity
-            return out
-        if self.with_cp and x.requires_grad:
-            out = cp.checkpoint(_inner_forward, x)
-        else:
-            out = _inner_forward(x)
-        out = self.relu(out)
-        if self.nonlocal_block is not None:
-            out = self.nonlocal_block(out)
-        return out
+            NotImplementedError
+        y = torch.matmul(g, p.transpose(1, 2))
+        y = y.reshape(y.shape[:2] + input.shape[2:])
+        z = self.W(y) + input
+        return z
 
 
 def rgetattr(obj, attr, *args):
@@ -2368,7 +2986,6 @@ def rhasattr(obj, attr, *args):
     return functools.reduce(_hasattr, [obj] + attr.split('.')) is not None
 
 
-@BACKBONES.register_module
 class ResNet_I3D(nn.Module):
     """ResNet_I3D backbone.
 
@@ -2574,7 +3191,6 @@ class pathway(nn.Module):
         self.feat_dim = self.block.expansion * 64 * 2 ** (len(self.stage_blocks) - 1)
 
 
-@BACKBONES.register_module
 class ResNet_I3D_SlowFast(nn.Module):
     """ResNet_I3D backbone.
 
@@ -2792,9 +3408,13 @@ class ResNet_I3D_SlowFast(nn.Module):
                     param.requires_grad = False
 
 
-def add_bn(num_filters):
-    bn = nn.BatchNorm3d(num_filters, eps=0.001)
-    return bn
+BLOCK_CONFIG = {(10): (1, 1, 1, 1), (16): (2, 2, 2, 1), (18): (2, 2, 2, 2), (26): (2, 2, 2, 2), (34): (3, 4, 6, 3), (50): (3, 4, 6, 3), (101): (3, 4, 23, 3), (152): (3, 8, 36, 3)}
+
+
+DEEP_FILTER_CONFIG = [[256, 64], [512, 128], [1024, 256], [2048, 512]]
+
+
+SHALLOW_FILTER_CONFIG = [[64, 64], [128, 128], [256, 256], [512, 512]]
 
 
 def conv3d_wbias(in_planes, out_planes, kernel, stride, pad, groups=1):
@@ -2811,159 +3431,31 @@ def conv3d_wobias(in_planes, out_planes, kernel, stride, pad, groups=1):
     return nn.Conv3d(in_planes, out_planes, kernel_size=kernel, stride=stride, padding=pad, groups=groups, bias=False)
 
 
-def add_conv3d(in_filters, out_filters, kernel, stride, pad, block_type='3d', group=1, with_bn=True):
-    if with_bn:
-        conv3d = conv3d_wobias
-    else:
-        conv3d = conv3d_wbias
-    if block_type == '2.5d':
-        i = 3 * in_filters * out_filters * kernel[1] * kernel[2]
-        i /= in_filters * kernel[1] * kernel[2] + 3 * out_filters
-        middle_filters = int(i)
-        conv_s = conv3d(in_filters, middle_filters, kernel=[1, kernel[1], kernel[2]], stride=[1, stride[1], stride[2]], pad=[0, pad[1], pad[2]])
-        bn_s = nn.BatchNorm3d(middle_filters, eps=0.001)
-        conv_t = conv3d(middle_filters, out_filters, kernel=[kernel[0], 1, 1], stride=[stride[0], 1, 1], pad=[pad[0], 0, 0])
-        if with_bn:
-            return module_list([conv_s, bn_s, nn.ReLU(), conv_t], ['conv_s', 'bn_s', 'relu_s', 'conv_t'])
-        else:
-            return module_list([conv_s, nn.ReLU(), conv_t], ['conv_s', 'relu_s', 'conv_t'])
-    if block_type == '0.3d':
-        conv_T = conv3d(in_filters, out_filters, kernel=[1, 1, 1], stride=[1, 1, 1], pad=[0, 0, 0])
-        bn_T = nn.BatchNorm3d(out_filters, eps=0.001)
-        conv_C = conv3d(out_filters, out_filters, kernel=kernel, stride=stride, pad=pad)
-        if with_bn:
-            return module_list([conv_T, bn_T, nn.ReLU(), conv_C], ['conv_T', 'bn_T', 'relu_T', 'conv_C'])
-        else:
-            return module_list([conv_T, nn.ReLU(), conv_C], ['conv_T', 'relu_T', 'conv_C'])
-    if block_type == '3d':
-        conv = conv3d(in_filters, out_filters, kernel=kernel, stride=stride, pad=pad)
-        return conv
-    if block_type == '3d-sep':
-        assert in_filters == out_filters
-        conv = conv3d(in_filters, out_filters, kernel=kernel, stride=stride, pad=pad, groups=in_filters)
-        return conv
-    print('Unknown Block Type !!!')
+class module_list(nn.Module):
 
-
-class BasicBlock(nn.Module):
-
-    def __init__(self, input_filters, num_filters, base_filters, down_sampling=False, down_sampling_temporal=None, block_type='3d', is_real_3d=True, group=1, with_bn=True):
-        super(BasicBlock, self).__init__()
-        self.num_filters = num_filters
-        self.base_filters = base_filters
-        self.input_filters = input_filters
-        self.with_bn = with_bn
-        if self.with_bn:
-            conv3d = conv3d_wobias
-        else:
-            conv3d = conv3d_wbias
-        if block_type == '2.5d':
-            assert is_real_3d
-        if down_sampling_temporal is None:
-            down_sampling_temporal = down_sampling
-        if down_sampling:
-            if is_real_3d and down_sampling_temporal:
-                self.down_sampling_stride = [2, 2, 2]
+    def __init__(self, modules, names=None):
+        super(module_list, self).__init__()
+        self.num = len(modules)
+        self.modules = modules
+        if names is None:
+            alphabet = string.ascii_lowercase
+            alphabet = list(alphabet)
+            if self.num < 26:
+                self.names = alphabet[:self.num]
             else:
-                self.down_sampling_stride = [1, 2, 2]
+                alphabet2 = itertools.product(alphabet, alphabet)
+                alphabet2 = list(map(lambda x: x[0] + x[1], alphabet2))
+                self.names = alphabet2[:self.num]
         else:
-            self.down_sampling_stride = [1, 1, 1]
-        self.down_sampling = down_sampling
-        self.relu = nn.ReLU()
-        self.conv1 = add_conv3d(input_filters, num_filters, kernel=[3, 3, 3] if is_real_3d else [1, 3, 3], stride=self.down_sampling_stride, pad=[1, 1, 1] if is_real_3d else [0, 1, 1], block_type=block_type, with_bn=self.with_bn)
-        if self.with_bn:
-            self.bn1 = add_bn(num_filters)
-        self.conv2 = add_conv3d(num_filters, num_filters, kernel=[3, 3, 3] if is_real_3d else [1, 3, 3], stride=[1, 1, 1], pad=[1, 1, 1] if is_real_3d else [0, 1, 1], block_type=block_type, with_bn=self.with_bn)
-        if self.with_bn:
-            self.bn2 = add_bn(num_filters)
-        if num_filters != input_filters or down_sampling:
-            self.conv3 = conv3d(input_filters, num_filters, kernel=[1, 1, 1], stride=self.down_sampling_stride, pad=[0, 0, 0])
-            if self.with_bn:
-                self.bn3 = nn.BatchNorm3d(num_filters, eps=0.001)
+            assert len(names) == self.num
+            self.names = names
+        for m, n in zip(self.modules, self.names):
+            setattr(self, n, m)
 
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        if self.with_bn:
-            out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        if self.with_bn:
-            out = self.bn2(out)
-        if self.down_sampling or self.num_filters != self.input_filters:
-            identity = self.conv3(identity)
-            if self.with_bn:
-                identity = self.bn3(identity)
-        out += identity
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-
-    def __init__(self, input_filters, num_filters, base_filters, down_sampling=False, down_sampling_temporal=None, block_type='3d', is_real_3d=True, group=1, with_bn=True):
-        super(Bottleneck, self).__init__()
-        self.num_filters = num_filters
-        self.base_filters = base_filters
-        self.input_filters = input_filters
-        self.with_bn = with_bn
-        if self.with_bn:
-            conv3d = conv3d_wobias
-        else:
-            conv3d = conv3d_wbias
-        if block_type == '2.5d':
-            assert is_real_3d
-        if down_sampling_temporal is None:
-            down_sampling_temporal = down_sampling
-        if down_sampling:
-            if is_real_3d and down_sampling_temporal:
-                self.down_sampling_stride = [2, 2, 2]
-            else:
-                self.down_sampling_stride = [1, 2, 2]
-        else:
-            self.down_sampling_stride = [1, 1, 1]
-        self.down_sampling = down_sampling
-        self.relu = nn.ReLU()
-        self.conv0 = add_conv3d(input_filters, base_filters, kernel=[1, 1, 1], stride=[1, 1, 1], pad=[0, 0, 0], with_bn=self.with_bn)
-        if self.with_bn:
-            self.bn0 = add_bn(base_filters)
-        self.conv1 = add_conv3d(base_filters, base_filters, kernel=[3, 3, 3] if is_real_3d else [1, 3, 3], stride=self.down_sampling_stride, pad=[1, 1, 1] if is_real_3d else [0, 1, 1], block_type=block_type, with_bn=self.with_bn)
-        if self.with_bn:
-            self.bn1 = add_bn(base_filters)
-        self.conv2 = add_conv3d(base_filters, num_filters, kernel=[1, 1, 1], pad=[0, 0, 0], stride=[1, 1, 1], with_bn=self.with_bn)
-        if self.with_bn:
-            self.bn2 = add_bn(num_filters)
-        if num_filters != input_filters or down_sampling:
-            self.conv3 = conv3d(input_filters, num_filters, kernel=[1, 1, 1], stride=self.down_sampling_stride, pad=[0, 0, 0])
-            if self.with_bn:
-                self.bn3 = nn.BatchNorm3d(num_filters, eps=0.001)
-
-    def forward(self, x):
-        identity = x
-        if self.with_bn:
-            out = self.relu(self.bn0(self.conv0(x)))
-            out = self.relu(self.bn1(self.conv1(out)))
-            out = self.bn2(self.conv2(out))
-        else:
-            out = self.relu(self.conv0(x))
-            out = self.relu(self.conv1(out))
-            out = self.conv2(out)
-        if self.down_sampling or self.num_filters != self.input_filters:
-            identity = self.conv3(identity)
-            if self.with_bn:
-                identity = self.bn3(identity)
-        out += identity
-        out = self.relu(out)
-        return out
-
-
-BLOCK_CONFIG = {(10): (1, 1, 1, 1), (16): (2, 2, 2, 1), (18): (2, 2, 2, 2), (26): (2, 2, 2, 2), (34): (3, 4, 6, 3), (50): (3, 4, 6, 3), (101): (3, 4, 23, 3), (152): (3, 8, 36, 3)}
-
-
-DEEP_FILTER_CONFIG = [[256, 64], [512, 128], [1024, 256], [2048, 512]]
-
-
-SHALLOW_FILTER_CONFIG = [[64, 64], [128, 128], [256, 256], [512, 512]]
+    def forward(self, inp):
+        for n in self.names:
+            inp = getattr(self, n)(inp)
+        return inp
 
 
 def make_plain_res_layer(block, num_blocks, in_filters, num_filters, base_filters, block_type='3d', down_sampling=False, down_sampling_temporal=None, is_real_3d=True, with_bn=True):
@@ -2974,7 +3466,6 @@ def make_plain_res_layer(block, num_blocks, in_filters, num_filters, base_filter
     return module_list(layers)
 
 
-@BACKBONES.register_module
 class ResNet_R3D(nn.Module):
 
     def __init__(self, pretrained=None, num_input_channels=3, depth=34, block_type='2.5d', channel_multiplier=1.0, bottleneck_multiplier=1.0, conv1_kernel_t=3, conv1_stride_t=1, use_pool1=False, bn_eval=True, bn_frozen=True, with_bn=True):
@@ -3075,142 +3566,6 @@ class ResNet_R3D(nn.Module):
                             params.requires_grad = False
 
 
-def conv3x1x1(in_planes, out_planes, spatial_stride=1, temporal_stride=1, dilation=1, bias=False):
-    """3x1x1 convolution with padding"""
-    return nn.Conv3d(in_planes, out_planes, kernel_size=(3, 1, 1), stride=(temporal_stride, spatial_stride, spatial_stride), padding=(dilation, 0, 0), dilation=dilation, bias=bias)
-
-
-def trajconv3x1x1(in_planes, out_planes, spatial_stride=1, temporal_stride=1, dilation=1, bias=False):
-    """3x1x1 convolution with padding"""
-    return TrajConv(in_planes, out_planes, kernel_size=(3, 1, 1), stride=(temporal_stride, spatial_stride, spatial_stride), padding=(dilation, 0, 0), dilation=dilation, bias=bias)
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, spatial_stride=1, temporal_stride=1, dilation=1, downsample=None, style='pytorch', if_inflate=True, with_cp=False, with_trajectory=False):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv1x3x3(inplanes, planes, spatial_stride, 1, dilation)
-        self.bn1 = nn.BatchNorm3d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv1x3x3(planes, planes)
-        self.bn2 = nn.BatchNorm3d(planes)
-        self.if_inflate = if_inflate
-        if self.if_inflate:
-            self.conv1_t = conv3x1x1(planes, planes, 1, temporal_stride, dilation, bias=True)
-            self.bn1_t = nn.BatchNorm3d(planes)
-            if with_trajectory:
-                self.conv2_t = trajconv3x1x1(planes, planes, bias=True)
-            else:
-                self.conv2_t = conv3x1x1(planes, planes, bias=True)
-            self.bn2_t = nn.BatchNorm3d(planes)
-        self.downsample = downsample
-        self.spatial_stride = spatial_stride
-        self.temporal_stride = temporal_stride
-        self.dilation = dilation
-        assert not with_cp
-        self.with_trajectory = with_trajectory
-
-    def forward(self, input):
-        x, traj_src = input
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        if self.if_inflate:
-            out = self.conv1_t(out)
-            out = self.bn1_t(out)
-            out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.if_inflate:
-            out = self.relu(out)
-            if self.with_trajectory:
-                assert traj_src[0] is not None
-                out = self.conv2_t(out, traj_src[0])
-            else:
-                out = self.conv2_t(out)
-            out = self.bn2_t(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu(out)
-        return out, traj_src[1:]
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, spatial_stride=1, temporal_stride=1, dilation=1, downsample=None, style='pytorch', if_inflate=True, with_cp=False, with_trajectory=False):
-        """Bottleneck block for ResNet.
-        If style is "pytorch", the stride-two layer is the 3x3 conv layer,
-        if it is "caffe", the stride-two layer is the first 1x1 conv layer.
-        """
-        super(Bottleneck, self).__init__()
-        assert style in ['pytorch', 'caffe']
-        self.inplanes = inplanes
-        self.planes = planes
-        if style == 'pytorch':
-            self.conv1_stride = 1
-            self.conv2_stride = spatial_stride
-            self.conv1_stride_t = 1
-            self.conv2_stride_t = temporal_stride
-        else:
-            self.conv1_stride = spatial_stride
-            self.conv2_stride = 1
-            self.conv1_stride_t = temporal_stride
-            self.conv2_stride_t = 1
-        self.conv1 = nn.Conv3d(inplanes, planes, kernel_size=1, stride=(self.conv1_stride_t, self.conv1_stride, self.conv1_stride), bias=False)
-        self.conv2 = nn.Conv3d(planes, planes, kernel_size=(1, 3, 3), stride=(1, self.conv2_stride, self.conv2_stride), padding=(0, dilation, dilation), dilation=(1, dilation, dilation), bias=False)
-        self.if_inflate = if_inflate
-        if self.if_inflate:
-            self.conv2_t = nn.Conv3d(planes, planes, kernel_size=(3, 1, 1), stride=(self.conv2_stride_t, 1, 1), padding=(1, 0, 0), dilation=1, bias=True)
-            self.bn2_t = nn.BatchNorm3d(planes)
-        self.bn1 = nn.BatchNorm3d(planes)
-        self.bn2 = nn.BatchNorm3d(planes)
-        self.conv3 = nn.Conv3d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm3d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.spatial_tride = spatial_stride
-        self.temporal_tride = temporal_stride
-        self.dilation = dilation
-        self.with_cp = with_cp
-        self.with_trajectory = with_trajectory
-
-    def forward(self, x):
-
-        def _inner_forward(xx):
-            x, traj_src = xx
-            identity = x
-            out = self.conv1(x)
-            out = self.bn1(out)
-            out = self.relu(out)
-            out = self.conv2(out)
-            out = self.bn2(out)
-            out = self.relu(out)
-            if self.if_inflate:
-                if self.with_trajectory:
-                    assert traj_src is not None
-                    out = self.conv2_t(out, traj_src[0])
-                else:
-                    out = self.conv2_t(out)
-                out = self.bn2_t(out)
-            out = self.conv3(out)
-            out = self.bn3(out)
-            if self.downsample is not None:
-                identity = self.downsample(x)
-            out += identity
-            return out, traj_src[1:]
-        if self.with_cp and x.requires_grad:
-            out, traj_remains = cp.checkpoint(_inner_forward, x)
-        else:
-            out, traj_remains = _inner_forward(x)
-        out = self.relu(out)
-        return out, traj_remains
-
-
-@BACKBONES.register_module
 class ResNet_S3D(nn.Module):
     """ResNet_S3D backbone.
 
@@ -3570,7 +3925,6 @@ def weighted_multilabel_binary_cross_entropy(pred, label, weight, avg_factor=Non
     return F.binary_cross_entropy_with_logits(pred, label.float(), weight.float(), reduction='sum')[None] / avg_factor
 
 
-@HEADS.register_module
 class BBoxHead(nn.Module):
     """Simplest RoI head, with only two fc layers for classification and
     regression respectively"""
@@ -3759,7 +4113,6 @@ class BBoxHead(nn.Module):
         return new_rois
 
 
-@HEADS.register_module
 class ClsHead(nn.Module):
     """Simplest classification head"""
 
@@ -3846,7 +4199,7 @@ class OHEMHingeLoss(torch.autograd.Function):
         losses = losses.view(-1, group_size).contiguous()
         sorted_losses, indices = torch.sort(losses, dim=1, descending=True)
         keep_num = int(group_size * ohem_ratio)
-        loss = torch.zeros(1).cuda()
+        loss = torch.zeros(1)
         for i in range(losses.size(0)):
             loss += sorted_losses[(i), :keep_num].sum()
         ctx.loss_ind = indices[:, :keep_num]
@@ -3866,7 +4219,7 @@ class OHEMHingeLoss(torch.autograd.Function):
             for idx in ctx.loss_ind[group]:
                 loc = idx + group * ctx.group_size
                 grad_in[loc, labels[loc] - 1] = slopes[loc] * grad_output.data[0]
-        return torch.autograd.Variable(grad_in.cuda()), None, None, None, None
+        return torch.autograd.Variable(grad_in), None, None, None, None
 
 
 def completeness_loss(pred, labels, sample_split, sample_group_size, ohem_ratio=0.17):
@@ -3884,7 +4237,6 @@ def completeness_loss(pred, labels, sample_split, sample_group_size, ohem_ratio=
     return pos_ls / float(pos_cnt + neg_cnt) + neg_ls / float(pos_cnt + neg_cnt)
 
 
-@HEADS.register_module
 class SSNHead(nn.Module):
     """SSN's classification head"""
 
@@ -3968,6 +4320,42 @@ class SSNHead(nn.Module):
 FLOWNETS = Registry('flownet')
 
 
+class Resample2dFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input1, input2, kernel_size=1):
+        assert input1.is_contiguous()
+        assert input2.is_contiguous()
+        ctx.save_for_backward(input1, input2)
+        ctx.kernel_size = kernel_size
+        _, d, _, _ = input1.size()
+        b, _, h, w = input2.size()
+        output = input1.new(b, d, h, w).zero_()
+        resample2d_cuda.forward(input1, input2, output, kernel_size)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        grad_output = grad_output.contiguous()
+        assert grad_output.is_contiguous()
+        input1, input2 = ctx.saved_tensors
+        grad_input1 = Variable(input1.new(input1.size()).zero_())
+        grad_input2 = Variable(input1.new(input2.size()).zero_())
+        resample2d_cuda.backward(input1, input2, grad_output.data, grad_input1.data, grad_input2.data, ctx.kernel_size)
+        return grad_input1, grad_input2, None
+
+
+class Resample2d(Module):
+
+    def __init__(self, kernel_size=1):
+        super(Resample2d, self).__init__()
+        self.kernel_size = kernel_size
+
+    def forward(self, input1, input2):
+        input1_c = input1.contiguous()
+        return Resample2dFunction.apply(input1_c, input2, self.kernel_size)
+
+
 def SSIM_loss(img1, img2, kernel_size=8, stride=8, c1=1e-05, c2=1e-05):
     num = img1.size(0)
     channels = img1.size(1)
@@ -4032,7 +4420,6 @@ def make_smoothness_mask(batch, height, width, tensor_type):
     return mask
 
 
-@FLOWNETS.register_module
 class MotionNet(nn.Module):
 
     def __init__(self, num_frames=1, rgb_disorder=False, scale=0.0039216, out_loss_indices=(0, 1, 2, 3, 4), out_prediction_indices=(0, 1, 2, 3, 4), out_prediction_rescale=True, frozen=False, use_photometric_loss=True, use_ssim_loss=True, use_smoothness_loss=True, photometric_loss_weights=(1, 1, 1, 1, 1), ssim_loss_weights=(0.16, 0.08, 0.04, 0.02, 0.01), smoothness_loss_weights=(1, 1, 1, 1, 1), pretrained=None):
@@ -4374,10 +4761,109 @@ class MotionNet(nn.Module):
                         param.requires_grad = False
 
 
+norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', None), 'GN': ('gn', nn.GroupNorm)}
+
+
+def build_norm_layer(cfg, num_features, postfix=''):
+    """ Build normalization layer
+    Args:
+        cfg (dict): cfg should contain:
+            type (str): identify norm layer type.
+            layer args: args needed to instantiate a norm layer.
+            frozen (bool): [optional] whether stop gradient updates
+                of norm layer, it is helpful to set frozen mode
+                in backbone's norms.
+        num_features (int): number of channels from input
+        postfix (int, str): appended into norm abbreation to
+            create named layer.
+    Returns:
+        name (str): abbreation + postfix
+        layer (nn.Module): created norm layer
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in norm_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        abbr, norm_layer = norm_cfg[layer_type]
+        if norm_layer is None:
+            raise NotImplementedError
+    assert isinstance(postfix, (int, str))
+    name = abbr + str(postfix)
+    frozen = cfg_.pop('frozen', False)
+    cfg_.setdefault('eps', 1e-05)
+    if layer_type != 'GN':
+        layer = norm_layer(num_features, **cfg_)
+    else:
+        assert 'num_groups' in cfg_
+        layer = norm_layer(num_channels=num_features, **cfg_)
+    if frozen:
+        for param in layer.parameters():
+            param.requires_grad = False
+    return name, layer
+
+
+class ConvModule(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, normalize=None, activation='relu', inplace=True, activate_last=True):
+        super(ConvModule, self).__init__()
+        self.with_norm = normalize is not None
+        self.with_activatation = activation is not None
+        self.with_bias = bias
+        self.activation = activation
+        self.activate_last = activate_last
+        if self.with_norm and self.with_bias:
+            warnings.warn('ConvModule has norm and bias at the same time')
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias=bias)
+        self.in_channels = self.conv.in_channels
+        self.out_channels = self.conv.out_channels
+        self.kernel_size = self.conv.kernel_size
+        self.stride = self.conv.stride
+        self.padding = self.conv.padding
+        self.dilation = self.conv.dilation
+        self.transposed = self.conv.transposed
+        self.output_padding = self.conv.output_padding
+        self.groups = self.conv.groups
+        if self.with_norm:
+            norm_channels = out_channels if self.activate_last else in_channels
+            self.norm_name, norm = build_norm_layer(normalize, norm_channels)
+            self.add_module(self.norm_name, norm)
+        if self.with_activatation:
+            assert activation in ['relu'], 'Only ReLU supported.'
+            if self.activation == 'relu':
+                self.activate = nn.ReLU(inplace=inplace)
+        self.init_weights()
+
+    @property
+    def norm(self):
+        return getattr(self, self.norm_name)
+
+    def init_weights(self):
+        nonlinearity = 'relu' if self.activation is None else self.activation
+        kaiming_init(self.conv, nonlinearity=nonlinearity)
+        if self.with_norm:
+            constant_init(self.norm, 1, bias=0)
+
+    def forward(self, x, activate=True, norm=True):
+        if self.activate_last:
+            x = self.conv(x)
+            if norm and self.with_norm:
+                x = self.norm(x)
+            if activate and self.with_activatation:
+                x = self.activate(x)
+        else:
+            if norm and self.with_norm:
+                x = self.norm(x)
+            if activate and self.with_activatation:
+                x = self.activate(x)
+            x = self.conv(x)
+        return x
+
+
 NECKS = Registry('neck')
 
 
-@NECKS.register_module
 class FPN(nn.Module):
 
     def __init__(self, in_channels, out_channels, num_outs, start_level=0, end_level=-1, add_extra_convs=False, extra_convs_on_inputs=True, normalize=None, activation=None):
@@ -4447,7 +4933,6 @@ class FPN(nn.Module):
 ROI_EXTRACTORS = Registry('roi_extractor')
 
 
-@ROI_EXTRACTORS.register_module
 class SingleRoIExtractor(nn.Module):
     """Extract RoI features from a single level feature map.
 
@@ -4520,7 +5005,6 @@ class SingleRoIExtractor(nn.Module):
         return roi_feats
 
 
-@ROI_EXTRACTORS.register_module
 class SingleRoIStraight3DExtractor(nn.Module):
     """Extract RoI features from a single level feature map.
 
@@ -4636,7 +5120,6 @@ class _SimpleConsensus(torch.autograd.Function):
         return grad_in
 
 
-@SEGMENTAL_CONSENSUSES.register_module
 class SimpleConsensus(nn.Module):
 
     def __init__(self, consensus_type, dim=1):
@@ -4661,7 +5144,6 @@ def parse_stage_config(stage_cfg):
         raise ValueError('Incorrect STPP config {}'.format(stage_cfg))
 
 
-@SEGMENTAL_CONSENSUSES.register_module
 class StructuredTemporalPyramidPooling(nn.Module):
 
     def __init__(self, standalong_classifier=False, stpp_cfg=(1, (1, 2), 1), num_seg=(2, 5, 2)):
@@ -4710,7 +5192,6 @@ class StructuredTemporalPyramidPooling(nn.Module):
             return course_feat, stpp_feat
 
 
-@SEGMENTAL_CONSENSUSES.register_module
 class STPPReorganized(nn.Module):
 
     def __init__(self, feat_dim, act_score_len, comp_score_len, reg_score_len, standalong_classifier=False, with_regression=True, stpp_cfg=(1, (1, 2), 1)):
@@ -4782,7 +5263,6 @@ class STPPReorganized(nn.Module):
         return out_act_scores, out_comp_scores, out_reg_scores
 
 
-@HEADS.register_module
 class ResI3DLayer(nn.Module):
 
     def __init__(self, depth, pretrained=None, pretrained2d=True, stage=3, spatial_stride=2, temporal_stride=1, dilation=1, style='pytorch', inflate_freq=1, inflate_style='3x1x1', bn_eval=True, bn_frozen=True, all_frozen=False, with_cp=False):
@@ -4861,7 +5341,6 @@ class ResI3DLayer(nn.Module):
                 param.requires_grad = False
 
 
-@HEADS.register_module
 class ResLayer(nn.Module):
 
     def __init__(self, depth, pretrained=None, stage=3, stride=2, dilation=1, style='pytorch', bn_eval=True, bn_frozen=True, all_frozen=False, with_cp=False):
@@ -4919,100 +5398,6 @@ class ResLayer(nn.Module):
                 param.requires_grad = False
 
 
-SPATIAL_TEMPORAL_MODULES = Registry('spatial_temporal_module')
-
-
-@SPATIAL_TEMPORAL_MODULES.register_module
-class NonLocalModule(nn.Module):
-
-    def __init__(self, in_channels=1024, nonlocal_type='gaussian', dim=3, embed=True, embed_dim=None, sub_sample=True, use_bn=True):
-        super(NonLocalModule, self).__init__()
-        assert nonlocal_type in ['gaussian', 'dot', 'concat']
-        assert dim == 2 or dim == 3
-        self.nonlocal_type = nonlocal_type
-        self.embed = embed
-        self.embed_dim = embed_dim if embed_dim is not None else in_channels // 2
-        self.sub_sample = sub_sample
-        self.use_bn = use_bn
-        if self.embed:
-            if dim == 2:
-                self.theta = nn.Conv2d(in_channels, self.embed_dim, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0))
-                self.phi = nn.Conv2d(in_channels, self.embed_dim, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0))
-                self.g = nn.Conv2d(in_channels, self.embed_dim, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0))
-            elif dim == 3:
-                self.theta = nn.Conv3d(in_channels, self.embed_dim, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
-                self.phi = nn.Conv3d(in_channels, self.embed_dim, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
-                self.g = nn.Conv3d(in_channels, self.embed_dim, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
-        if self.nonlocal_type == 'gaussian':
-            self.softmax = nn.Softmax(dim=2)
-        elif self.nonlocal_type == 'concat':
-            if dim == 2:
-                self.concat_proj = nn.Sequential(nn.Conv2d(self.embed_dim * 2, 1, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0)), nn.ReLU())
-            elif dim == 3:
-                self.concat_proj = nn.Sequential(nn.Conv3d(self.embed_dim * 2, 1, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0)), nn.ReLU())
-        if sub_sample:
-            if dim == 2:
-                self.max_pool = nn.MaxPool2d(kernel_size=(2, 2))
-            elif dim == 3:
-                self.max_pool = nn.MaxPool3d(kernel_size=(1, 2, 2))
-            self.g = nn.Sequential(self.max_pool, self.g)
-            self.phi = nn.Sequential(self.max_pool, self.phi)
-        if dim == 2:
-            self.W = nn.Conv2d(self.embed_dim, in_channels, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0))
-        elif dim == 3:
-            self.W = nn.Conv3d(self.embed_dim, in_channels, kernel_size=(1, 1, 1), stride=(1, 1, 1), padding=(0, 0, 0))
-        if use_bn:
-            if dim == 2:
-                self.bn = nn.BatchNorm2d(in_channels, eps=1e-05, momentum=0.9, affine=True)
-            elif dim == 3:
-                self.bn = nn.BatchNorm3d(in_channels, eps=1e-05, momentum=0.9, affine=True)
-            self.W = nn.Sequential(self.W, self.bn)
-
-    def init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv3d):
-                kaiming_init(m)
-            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm3d):
-                constant_init(m, 0)
-
-    def forward(self, input):
-        if self.embed:
-            theta = self.theta(input)
-            phi = self.phi(input)
-            g = self.g(input)
-        else:
-            theta = input
-            phi = input
-            g = input
-        if self.nonlocal_type in ['gaussian', 'dot']:
-            theta = theta.reshape(theta.shape[:2] + (-1,))
-            phi = phi.reshape(theta.shape[:2] + (-1,))
-            g = g.reshape(theta.shape[:2] + (-1,))
-            theta_phi = torch.matmul(theta.transpose(1, 2), phi)
-            if self.nonlocal_type == 'gaussian':
-                p = self.softmax(theta_phi)
-            elif self.nonlocal_type == 'dot':
-                N = theta_phi.size(-1)
-                p = theta_phi / N
-        elif self.non_local_type == 'concat':
-            theta = theta.reshape(theta.shape[:2] + (-1, 1))
-            phi = phi.reshape(theta.shape[:2] + (1, -1))
-            theta_x = theta.repeat(1, 1, 1, phi.size(3))
-            phi_x = phi.repeat(1, 1, theta.size(2), 1)
-            theta_phi = torch.cat([theta_x, phi_x], dim=1)
-            theta_phi = self.concat_proj(theta_phi)
-            theta_phi = theta_phi.squeeze()
-            N = theta_phi.size(-1)
-            p = theta_phi / N
-        else:
-            NotImplementedError
-        y = torch.matmul(g, p.transpose(1, 2))
-        y = y.reshape(y.shape[:2] + input.shape[2:])
-        z = self.W(y) + input
-        return z
-
-
-@SPATIAL_TEMPORAL_MODULES.register_module
 class SimpleSpatialModule(nn.Module):
 
     def __init__(self, spatial_type='avg', spatial_size=7):
@@ -5030,7 +5415,6 @@ class SimpleSpatialModule(nn.Module):
         return self.op(input)
 
 
-@SPATIAL_TEMPORAL_MODULES.register_module
 class SimpleSpatialTemporalModule(nn.Module):
 
     def __init__(self, spatial_type='avg', spatial_size=7, temporal_size=1):
@@ -5062,7 +5446,6 @@ class SimpleSpatialTemporalModule(nn.Module):
         return self.pool_func(input)
 
 
-@SPATIAL_TEMPORAL_MODULES.register_module
 class SlowFastSpatialTemporalModule(nn.Module):
 
     def __init__(self, adaptive_pool=True, spatial_type='avg', spatial_size=1, temporal_size=1):
@@ -5087,169 +5470,6 @@ class SlowFastSpatialTemporalModule(nn.Module):
         x_slow = self.op(x_slow)
         x_fast = self.op(x_fast)
         return torch.cat((x_slow, x_fast), dim=1)
-
-
-norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', None), 'GN': ('gn', nn.GroupNorm)}
-
-
-def build_norm_layer(cfg, num_features, postfix=''):
-    """ Build normalization layer
-    Args:
-        cfg (dict): cfg should contain:
-            type (str): identify norm layer type.
-            layer args: args needed to instantiate a norm layer.
-            frozen (bool): [optional] whether stop gradient updates
-                of norm layer, it is helpful to set frozen mode
-                in backbone's norms.
-        num_features (int): number of channels from input
-        postfix (int, str): appended into norm abbreation to
-            create named layer.
-    Returns:
-        name (str): abbreation + postfix
-        layer (nn.Module): created norm layer
-    """
-    assert isinstance(cfg, dict) and 'type' in cfg
-    cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in norm_cfg:
-        raise KeyError('Unrecognized norm type {}'.format(layer_type))
-    else:
-        abbr, norm_layer = norm_cfg[layer_type]
-        if norm_layer is None:
-            raise NotImplementedError
-    assert isinstance(postfix, (int, str))
-    name = abbr + str(postfix)
-    frozen = cfg_.pop('frozen', False)
-    cfg_.setdefault('eps', 1e-05)
-    if layer_type != 'GN':
-        layer = norm_layer(num_features, **cfg_)
-    else:
-        assert 'num_groups' in cfg_
-        layer = norm_layer(num_channels=num_features, **cfg_)
-    if frozen:
-        for param in layer.parameters():
-            param.requires_grad = False
-    return name, layer
-
-
-class ConvModule(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, normalize=None, activation='relu', inplace=True, activate_last=True):
-        super(ConvModule, self).__init__()
-        self.with_norm = normalize is not None
-        self.with_activatation = activation is not None
-        self.with_bias = bias
-        self.activation = activation
-        self.activate_last = activate_last
-        if self.with_norm and self.with_bias:
-            warnings.warn('ConvModule has norm and bias at the same time')
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias=bias)
-        self.in_channels = self.conv.in_channels
-        self.out_channels = self.conv.out_channels
-        self.kernel_size = self.conv.kernel_size
-        self.stride = self.conv.stride
-        self.padding = self.conv.padding
-        self.dilation = self.conv.dilation
-        self.transposed = self.conv.transposed
-        self.output_padding = self.conv.output_padding
-        self.groups = self.conv.groups
-        if self.with_norm:
-            norm_channels = out_channels if self.activate_last else in_channels
-            self.norm_name, norm = build_norm_layer(normalize, norm_channels)
-            self.add_module(self.norm_name, norm)
-        if self.with_activatation:
-            assert activation in ['relu'], 'Only ReLU supported.'
-            if self.activation == 'relu':
-                self.activate = nn.ReLU(inplace=inplace)
-        self.init_weights()
-
-    @property
-    def norm(self):
-        return getattr(self, self.norm_name)
-
-    def init_weights(self):
-        nonlinearity = 'relu' if self.activation is None else self.activation
-        kaiming_init(self.conv, nonlinearity=nonlinearity)
-        if self.with_norm:
-            constant_init(self.norm, 1, bias=0)
-
-    def forward(self, x, activate=True, norm=True):
-        if self.activate_last:
-            x = self.conv(x)
-            if norm and self.with_norm:
-                x = self.norm(x)
-            if activate and self.with_activatation:
-                x = self.activate(x)
-        else:
-            if norm and self.with_norm:
-                x = self.norm(x)
-            if activate and self.with_activatation:
-                x = self.activate(x)
-            x = self.conv(x)
-        return x
-
-
-class module_list(nn.Module):
-
-    def __init__(self, modules, names=None):
-        super(module_list, self).__init__()
-        self.num = len(modules)
-        self.modules = modules
-        if names is None:
-            alphabet = string.ascii_lowercase
-            alphabet = list(alphabet)
-            if self.num < 26:
-                self.names = alphabet[:self.num]
-            else:
-                alphabet2 = itertools.product(alphabet, alphabet)
-                alphabet2 = list(map(lambda x: x[0] + x[1], alphabet2))
-                self.names = alphabet2[:self.num]
-        else:
-            assert len(names) == self.num
-            self.names = names
-        for m, n in zip(self.modules, self.names):
-            setattr(self, n, m)
-
-    def forward(self, inp):
-        for n in self.names:
-            inp = getattr(self, n)(inp)
-        return inp
-
-
-class Resample2dFunction(Function):
-
-    @staticmethod
-    def forward(ctx, input1, input2, kernel_size=1):
-        assert input1.is_contiguous()
-        assert input2.is_contiguous()
-        ctx.save_for_backward(input1, input2)
-        ctx.kernel_size = kernel_size
-        _, d, _, _ = input1.size()
-        b, _, h, w = input2.size()
-        output = input1.new(b, d, h, w).zero_()
-        resample2d_cuda.forward(input1, input2, output, kernel_size)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        grad_output = grad_output.contiguous()
-        assert grad_output.is_contiguous()
-        input1, input2 = ctx.saved_tensors
-        grad_input1 = Variable(input1.new(input1.size()).zero_())
-        grad_input2 = Variable(input1.new(input2.size()).zero_())
-        resample2d_cuda.backward(input1, input2, grad_output.data, grad_input1.data, grad_input2.data, ctx.kernel_size)
-        return grad_input1, grad_input2, None
-
-
-class Resample2d(Module):
-
-    def __init__(self, kernel_size=1):
-        super(Resample2d, self).__init__()
-        self.kernel_size = kernel_size
-
-    def forward(self, input1, input2):
-        input1_c = input1.contiguous()
-        return Resample2dFunction.apply(input1_c, input2, self.kernel_size)
 
 
 class RoIAlignFunction(Function):
@@ -5364,104 +5584,6 @@ class RoIPool(Module):
         return roi_pool(features, rois, self.out_size, self.spatial_scale)
 
 
-class TrajConvFunction(Function):
-
-    @staticmethod
-    def forward(ctx, input, offset, weight, bias, stride=1, padding=0, dilation=1, deformable_groups=1, im2col_step=64):
-        if input is not None and input.dim() != 5:
-            raise ValueError('Expected 5D tensor as input, got {}D tensor instead.'.format(input.dim()))
-        ctx.stride = _triple(stride)
-        ctx.padding = _triple(padding)
-        ctx.dilation = _triple(dilation)
-        ctx.deformable_groups = deformable_groups
-        ctx.im2col_step = im2col_step
-        ctx.save_for_backward(input, offset, weight, bias)
-        output = input.new(*TrajConvFunction._output_size(input, weight, ctx.padding, ctx.dilation, ctx.stride))
-        ctx.bufs_ = [input.new(), input.new()]
-        if not input.is_cuda:
-            raise NotImplementedError
-        else:
-            if isinstance(input, torch.autograd.Variable):
-                if not (isinstance(input.data, torch.cuda.FloatTensor) or isinstance(input.data, torch.cuda.DoubleTensor)):
-                    raise NotImplementedError
-            elif not (isinstance(input, torch.cuda.FloatTensor) or isinstance(input, torch.cuda.DoubleTensor)):
-                raise NotImplementedError
-            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
-            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
-            traj_conv_cuda.deform_3d_conv_forward_cuda(input, weight, bias, offset, output, ctx.bufs_[0], ctx.bufs_[1], weight.size(2), weight.size(3), weight.size(4), ctx.stride[0], ctx.stride[1], ctx.stride[2], ctx.padding[0], ctx.padding[1], ctx.padding[2], ctx.dilation[0], ctx.dilation[1], ctx.dilation[2], ctx.deformable_groups, cur_im2col_step)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input, offset, weight, bias = ctx.saved_tensors
-        grad_input = grad_offset = grad_weight = grad_bias = None
-        if not grad_output.is_cuda:
-            raise NotImplementedError
-        else:
-            if isinstance(grad_output, torch.autograd.Variable):
-                if not (isinstance(grad_output.data, torch.cuda.FloatTensor) or isinstance(grad_output.data, torch.cuda.DoubleTensor)):
-                    raise NotImplementedError
-            elif not (isinstance(grad_output, torch.cuda.FloatTensor) or isinstance(grad_output, torch.cuda.DoubleTensor)):
-                raise NotImplementedError
-            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
-            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
-            if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
-                grad_input = torch.zeros_like(input)
-                grad_offset = torch.zeros_like(offset)
-                traj_conv_cuda.deform_3d_conv_backward_input_cuda(input, offset, grad_output, grad_input, grad_offset, weight, bias, ctx.bufs_[0], weight.size(2), weight.size(3), weight.size(4), ctx.stride[0], ctx.stride[1], ctx.stride[2], ctx.padding[0], ctx.padding[1], ctx.padding[2], ctx.dilation[0], ctx.dilation[1], ctx.dilation[2], ctx.deformable_groups, cur_im2col_step)
-            if ctx.needs_input_grad[2]:
-                grad_weight = torch.zeros_like(weight)
-                grad_bias = torch.zeros_like(bias)
-                traj_conv_cuda.deform_3d_conv_backward_parameters_cuda(input, offset, grad_output, grad_weight, grad_bias, ctx.bufs_[0], ctx.bufs_[1], weight.size(2), weight.size(3), weight.size(4), ctx.stride[0], ctx.stride[1], ctx.stride[2], ctx.padding[0], ctx.padding[1], ctx.padding[2], ctx.dilation[0], ctx.dilation[1], ctx.dilation[2], ctx.deformable_groups, 1, cur_im2col_step)
-        return grad_input, grad_offset, grad_weight, grad_bias, None, None, None, None, None
-
-    @staticmethod
-    def _output_size(input, weight, padding, dilation, stride):
-        channels = weight.size(0)
-        output_size = input.size(0), channels
-        for d in range(input.dim() - 2):
-            in_size = input.size(d + 2)
-            pad = padding[d]
-            kernel = dilation[d] * (weight.size(d + 2) - 1) + 1
-            stride_ = stride[d]
-            output_size += (in_size + 2 * pad - kernel) // stride_ + 1,
-        if not all(map(lambda s: s > 0, output_size)):
-            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
-        return output_size
-
-
-class TrajConv(Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, num_deformable_groups=1, im2col_step=64, bias=True):
-        super(TrajConv, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = _triple(kernel_size)
-        self.stride = _triple(stride)
-        self.padding = _triple(padding)
-        self.dilation = _triple(dilation)
-        self.num_deformable_groups = num_deformable_groups
-        self.im2col_step = im2col_step
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
-        if bias:
-            self.bias = nn.Parameter(torch.Tensor(out_channels))
-        else:
-            self.bias = nn.Parameter(torch.zeros(0))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        n = self.in_channels
-        for k in self.kernel_size:
-            n *= k
-        stdv = 1.0 / math.sqrt(n)
-        self.weight.data.uniform_(-stdv, stdv)
-        if self.bias.nelement() != 0:
-            self.bias.data.fill_(0.0)
-
-    def forward(self, input, offset):
-        return TrajConvFunction.apply(input, offset, self.weight, self.bias, self.stride, self.padding, self.dilation, self.num_deformable_groups, self.im2col_step)
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -5481,10 +5603,14 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
-    (InceptionV1_I3D,
+    (BaseDetector,
      lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64, 64])], {}),
-     True),
+     lambda: ([torch.rand([4]), torch.rand([4, 4])], {}),
+     False),
+    (RPNHead,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     False),
     (STPPReorganized,
      lambda: ([], {'feat_dim': 4, 'act_score_len': 4, 'comp_score_len': 4, 'reg_score_len': 4}),
      lambda: ([torch.rand([0, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
@@ -5513,4 +5639,7 @@ class Test_open_mmlab_mmaction(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

@@ -26,15 +26,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -75,7 +76,22 @@ from torchvision.models.resnet import Bottleneck
 from torchvision.models.resnet import model_urls
 
 
+import numpy as np
+
+
+import copy
+
+
+import random
+
+
+from torch.utils.data.dataset import Dataset
+
+
 from torch.nn import functional as F
+
+
+import torch.backends.cudnn as cudnn
 
 
 class ResNetBackbone(nn.Module):
@@ -131,9 +147,6 @@ class ResNetBackbone(nn.Module):
         None
 
 
-_global_config['depth_dim'] = 1
-
-
 class HeadNet(nn.Module):
 
     def __init__(self, joint_num):
@@ -170,9 +183,6 @@ class HeadNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
 
-_global_config['output_shape'] = 4
-
-
 def soft_argmax(heatmaps, joint_num):
     heatmaps = heatmaps.reshape((-1, joint_num, cfg.depth_dim * cfg.output_shape[0] * cfg.output_shape[1]))
     heatmaps = F.softmax(heatmaps, 2)
@@ -180,9 +190,9 @@ def soft_argmax(heatmaps, joint_num):
     accu_x = heatmaps.sum(dim=(2, 3))
     accu_y = heatmaps.sum(dim=(2, 4))
     accu_z = heatmaps.sum(dim=(3, 4))
-    accu_x = accu_x * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[1] + 1).type(torch.cuda.FloatTensor), devices=[accu_x.device.index])[0]
-    accu_y = accu_y * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[0] + 1).type(torch.cuda.FloatTensor), devices=[accu_y.device.index])[0]
-    accu_z = accu_z * torch.cuda.comm.broadcast(torch.arange(1, cfg.depth_dim + 1).type(torch.cuda.FloatTensor), devices=[accu_z.device.index])[0]
+    accu_x = accu_x * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[1] + 1).type(torch.FloatTensor), devices=[accu_x.device.index])[0]
+    accu_y = accu_y * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[0] + 1).type(torch.FloatTensor), devices=[accu_y.device.index])[0]
+    accu_z = accu_z * torch.cuda.comm.broadcast(torch.arange(1, cfg.depth_dim + 1).type(torch.FloatTensor), devices=[accu_z.device.index])[0]
     accu_x = accu_x.sum(dim=2, keepdim=True) - 1
     accu_y = accu_y.sum(dim=2, keepdim=True) - 1
     accu_z = accu_z.sum(dim=2, keepdim=True) - 1
@@ -211,22 +221,4 @@ class ResPoseNet(nn.Module):
             loss_coord = torch.abs(coord - target_coord) * target_vis
             loss_coord = (loss_coord[:, :, (0)] + loss_coord[:, :, (1)] + loss_coord[:, :, (2)] * target_have_depth) / 3.0
             return loss_coord
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (HeadNet,
-     lambda: ([], {'joint_num': 4}),
-     lambda: ([torch.rand([4, 2048, 4, 4])], {}),
-     True),
-]
-
-class Test_mks0601_3DMPPE_POSENET_RELEASE(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

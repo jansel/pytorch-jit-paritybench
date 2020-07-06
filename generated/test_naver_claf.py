@@ -20,6 +20,7 @@ regression = _module
 seq_cls = _module
 squad = _module
 tok_cls = _module
+seq_cls = _module
 wikisql = _module
 dto = _module
 batch = _module
@@ -37,6 +38,7 @@ rte = _module
 sst = _module
 stsb = _module
 wnli = _module
+utils = _module
 decorator = _module
 arguments = _module
 register = _module
@@ -52,6 +54,7 @@ mode = _module
 optimization = _module
 exponential_moving_avarage = _module
 learning_rate_scheduler = _module
+optimizer = _module
 tensorboard = _module
 trainer = _module
 utils = _module
@@ -92,13 +95,17 @@ roberta = _module
 bert = _module
 roberta = _module
 semantic_parsing = _module
+mixin = _module
 sqlnet = _module
+utils = _module
 sequence_classification = _module
 bert = _module
+mixin = _module
 roberta = _module
 structured_self_attention = _module
 token_classification = _module
 bert = _module
+mixin = _module
 modules = _module
 activation = _module
 attention = _module
@@ -183,15 +190,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -199,13 +207,34 @@ __version__ = '1.0.0'
 import torch
 
 
-import logging
+import copy
 
 
-import time
+import numpy as np
 
 
 import random
+
+
+from torch.autograd import Variable
+
+
+from torch.utils.data.dataset import Dataset
+
+
+from collections import defaultdict
+
+
+from torch.utils.data import DataLoader
+
+
+import logging
+
+
+import math
+
+
+import time
 
 
 from torch.nn.utils import clip_grad_norm_
@@ -224,12 +253,6 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
-
-
-import numpy as np
-
-
-import math
 
 
 import itertools
@@ -384,23 +407,954 @@ class ModelBase(nn.Module):
         self._vocabs = vocabs
 
 
-class SelfAttention(nn.Module):
+class ModelWithTokenEmbedder(ModelBase):
+
+    def __init__(self, token_embedder):
+        super(ModelWithTokenEmbedder, self).__init__()
+        self.token_embedder = token_embedder
+        if token_embedder is not None:
+            self._vocabs = token_embedder.vocabs
+
+
+class ModelWithoutTokenEmbedder(ModelBase):
+
+    def __init__(self, token_makers):
+        super(ModelWithoutTokenEmbedder, self).__init__()
+        self.token_makers = token_makers
+        self._vocabs = {token_name: token_maker.vocab for token_name, token_maker in token_makers.items()}
+
+
+def mse(outputs, labels):
+    if type(outputs) == list:
+        outputs = np.array(outputs)
+    if type(labels) == list:
+        labels = np.array(labels)
+    if outputs.ndim != 1:
+        outputs = outputs.reshape(-1)
+    if labels.ndim != 1:
+        labels = labels.reshape(-1)
+    return np.square(labels.astype(np.float32) - outputs).sum()
+
+
+def pearson_and_spearman(preds, labels):
+    pearson_corr = pearsonr(preds, labels)[0]
+    spearman_corr = spearmanr(preds, labels)[0]
+    if pearson_corr == '':
+        pearson_corr = 0
+    if spearman_corr == '':
+        spearman_corr = 0
+    return {'pearson': pearson_corr, 'spearmanr': spearman_corr, 'pearson_spearman_corr': (pearson_corr + spearman_corr) / 2}
+
+
+class Regression:
+    """ Regression Mixin Class """
+
+    def make_predictions(self, output_dict):
+        """
+        Make predictions with model's output_dict
+
+        * Args:
+            output_dict: model's output dictionary consisting of
+                - sequence_embed: embedding vector of the sequence
+                - class_logits: representing unnormalized log probabilities of the class
+
+                - class_idx: target class idx
+                - data_idx: data idx
+                - loss: a scalar loss to be optimized
+
+        * Returns:
+            predictions: prediction dictionary consisting of
+                - key: 'id' (sequence id)
+                - value: dictionary consisting of
+                    - score
+        """
+        data_indices = output_dict['data_idx']
+        pred_logits = output_dict['logits']
+        predictions = {self._dataset.get_id(data_idx.item()): {'score': pred_score.item()} for data_idx, pred_score in zip(list(data_indices.data), list(pred_logits.data))}
+        return predictions
+
+    def predict(self, output_dict, arguments, helper):
+        """
+        Inference by raw_feature
+
+        * Args:
+            output_dict: model's output dictionary consisting of
+                - sequence_embed: embedding vector of the sequence
+                - logits: model's score
+            arguments: arguments dictionary consisting of user_input
+            helper: dictionary to get the classification result, consisting of
+                 -
+
+        * Returns: output dict (dict) consisting of
+            - score: model's score
+        """
+        score = output_dict['logits']
+        return {'score': score}
+
+    def make_metrics(self, predictions):
+        """
+        Make metrics with prediction dictionary
+
+        * Args:
+            predictions: prediction dictionary consisting of
+                - key: 'id' (sequence id)
+                - value: dictionary consisting of
+                    - class_idx
+
+        * Returns:
+            metrics: metric dictionary consisting of
+                - 'mse': Mean Squard Error
+                - 'pearson': Pearson correlation coefficient
+                - 'spearmanr': Spearman correlation coefficient
+                - 'pearson_spearman_corr': (pearson_corr + spearman_corr) / 2,
+        """
+        pred_scores = []
+        target_scores = []
+        preds = {}
+        for data_id, pred in predictions.items():
+            target = self._dataset.get_ground_truth(data_id)
+            preds[data_id] = pred['score']
+            pred_scores.append(pred['score'])
+            target_scores.append(target['score'])
+        self.write_predictions(preds)
+        metrics = {'mse': mse(pred_scores, target_scores) / len(target_scores)}
+        pearson_spearman_metrics = pearson_and_spearman(pred_scores, target_scores)
+        metrics.update(pearson_spearman_metrics)
+        return metrics
+
+    def write_predictions(self, predictions):
+        try:
+            super(Regression, self).write_predictions(predictions)
+        except AttributeError:
+            model_base = ModelBase()
+            model_base._log_dir = self._log_dir
+            model_base._train_counter = self._train_counter
+            model_base.training = self.training
+            model_base.write_predictions(predictions)
+
+    def print_examples(self, index, inputs, predictions):
+        """
+        Print evaluation examples
+
+        * Args:
+            index: data index
+            inputs: mini-batch inputs
+            predictions: prediction dictionary consisting of
+                - key: 'id' (sequence id)
+                - value: dictionary consisting of
+                    - class_idx
+
+        * Returns:
+            print(Sequence, Target Class, Predicted Class)
+        """
+        data_idx = inputs['labels']['data_idx'][index].item()
+        data_id = self._dataset.get_id(data_idx)
+        helper = self._dataset.helper
+        sequence = helper['examples'][data_id]['sequence']
+        target_score = helper['examples'][data_id]['score']
+        pred_score = predictions[data_id]['score']
+        None
+        None
+        None
+        None
+        None
+        None
+        None
+
+
+class arguments_required:
     """
-        Same bi-attention mechanism, only now between the passage and itself.
+        Decorator Class
+        check required arguments for predict function
+        (eg. @arguments_required(["db_path", "table_id"]))
     """
 
-    def __init__(self, rnn_dim, linear_dim, dropout=0.2, weight_init=True):
-        super(SelfAttention, self).__init__()
-        self.self_attention = attention.DocQAAttention(rnn_dim, linear_dim, self_attn=True, weight_init=weight_init)
-        self.self_attn_Linear = nn.Linear(rnn_dim * 6, linear_dim)
-        self.dropout = nn.Dropout(p=dropout)
-        self.activation_fn = F.relu
-        if weight_init:
-            initializer.weight(self.self_attn_Linear)
+    def __init__(self, required_fields):
+        self.required_fields = required_fields
 
-    def forward(self, context, context_mask):
-        context_self_attnded = self.self_attention(context, context_mask, context, context_mask)
-        return self.activation_fn(self.self_attn_Linear(context_self_attnded))
+    def __call__(self, fn):
+
+        def wrapper(*args, **kwargs):
+            arguments = args[2]
+            for item in self.required_fields:
+                if arguments.get(item, None) is None:
+                    raise ValueError(f'--{item} is required argument.')
+            return fn(*args, **kwargs)
+        return wrapper
+
+
+class ReadingComprehension:
+    """
+    Reading Comprehension Mixin Class
+
+    * Args:
+        token_embedder: 'RCTokenEmbedder', Used to embed the 'context' and 'question'.
+
+    """
+
+    def get_best_span(self, span_start_logits, span_end_logits, answer_maxlen=None):
+        """
+        Take argmax of constrained score_s * score_e.
+
+        * Args:
+            span_start_logits: independent start logits
+            span_end_logits: independent end logits
+
+        * Kwargs:
+            answer_maxlen: max span length to consider (default is None -> All)
+        """
+        B = span_start_logits.size(0)
+        best_word_span = span_start_logits.new_zeros((B, 2), dtype=torch.long)
+        score_starts = F.softmax(span_start_logits, dim=-1)
+        score_ends = F.softmax(span_end_logits, dim=-1)
+        max_len = answer_maxlen or score_starts.size(1)
+        for i in range(score_starts.size(0)):
+            scores = torch.ger(score_starts[i], score_ends[i])
+            scores.triu_().tril_(max_len - 1)
+            scores = scores.detach().cpu().numpy()
+            scores_flat = scores.flatten()
+            idx_sort = [np.argmax(scores_flat)]
+            s_idx, e_idx = np.unravel_index(idx_sort, scores.shape)
+            best_word_span[i, 0] = int(s_idx[0])
+            best_word_span[i, 1] = int(e_idx[0])
+        return best_word_span
+
+    def _make_span_metrics(self, predictions):
+        """ span accuracy metrics """
+        start_accuracy, end_accuracy, span_accuracy = 0, 0, 0
+        for index, preds in predictions.items():
+            _, _, (answer_start, answer_end) = self._dataset.get_ground_truths(index)
+            start_acc = 1 if preds['pred_span_start'] == answer_start else 0
+            end_acc = 1 if preds['pred_span_end'] == answer_end else 0
+            span_acc = 1 if start_acc == 1 and end_acc == 1 else 0
+            start_accuracy += start_acc
+            end_accuracy += end_acc
+            span_accuracy += span_acc
+        start_accuracy = 100.0 * start_accuracy / len(self._dataset)
+        end_accuracy = 100.0 * end_accuracy / len(self._dataset)
+        span_accuracy = 100.0 * span_accuracy / len(self._dataset)
+        return {'start_acc': start_accuracy, 'end_acc': end_accuracy, 'span_acc': span_accuracy}
+
+    def make_predictions(self, output_dict):
+        """
+        Make predictions with model's output_dict
+
+        * Args:
+            output_dict: model's output dictionary consisting of
+                - data_idx: question id
+                - best_span: calculate the span_start_logits and span_end_logits to what is the best span
+                - start_logits: span start logits
+                - end_logits: span end logits
+
+        * Returns:
+            predictions: prediction dictionary consisting of
+                - key: 'id' (question id)
+                - value: consisting of dictionary
+                    predict_text, pred_span_start, pred_span_end, span_start_prob, span_end_prob
+        """
+        data_indices = output_dict['data_idx']
+        best_word_span = output_dict['best_span']
+        return OrderedDict([(index.item(), {'predict_text': self._dataset.get_text_with_index(index.item(), best_span[0], best_span[1]), 'pred_span_start': best_span[0], 'pred_span_end': best_span[1], 'start_logits': start_logits, 'end_logits': end_logits}) for index, best_span, start_logits, end_logits in zip(list(data_indices.data), list(best_word_span.data), list(output_dict['start_logits'].data), list(output_dict['end_logits'].data))])
+
+    @arguments_required(['context', 'question'])
+    def predict(self, output_dict, arguments, helper):
+        """
+        Inference by raw_feature
+
+        * Args:
+            output_dict: model's output dictionary consisting of
+                - data_idx: question id
+                - best_span: calculate the span_start_logits and span_end_logits to what is the best span
+            arguments: arguments dictionary consisting of user_input
+            helper: dictionary for helping get answer
+
+        * Returns:
+            span: predict best_span
+        """
+        span_start, span_end = list(output_dict['best_span'][0].data)
+        word_start = span_start.item()
+        word_end = span_end.item()
+        text_span = helper['text_span']
+        char_start = text_span[word_start][0]
+        char_end = text_span[word_end][1]
+        context_text = arguments['context']
+        answer_text = context_text[char_start:char_end]
+        start_logit = output_dict['start_logits'][0]
+        end_logit = output_dict['end_logits'][0]
+        score = start_logit[span_start] + end_logit[span_end]
+        score = score.item()
+        return {'text': answer_text, 'score': score}
+
+    def print_examples(self, index, inputs, predictions):
+        """
+        Print evaluation examples
+
+        * Args:
+            index: data index
+            inputs: mini-batch inputs
+            predictions: prediction dictionary consisting of
+                - key: 'id' (question id)
+                - value: consisting of dictionary
+                    predict_text, pred_span_start, pred_span_end, span_start_prob, span_end_prob
+
+        * Returns:
+            print(Context, Question, Answers and Predict)
+        """
+        data_index = inputs['labels']['data_idx'][index].item()
+        qid = self._dataset.get_qid(data_index)
+        if '#' in qid:
+            qid = qid.split('#')[0]
+        helper = self._dataset.helper
+        context = helper['examples'][qid]['context']
+        question = helper['examples'][qid]['question']
+        answers = helper['examples'][qid]['answers']
+        predict_text = predictions[data_index]['predict_text']
+        None
+        None
+        None
+        None
+        None
+        None
+
+    def write_predictions(self, predictions, file_path=None, is_dict=True):
+        pass
+
+
+class SQuADv1(ReadingComprehension):
+    """
+    Reading Comprehension Mixin Class
+        with SQuAD v1.1 evaluation
+
+    * Args:
+        token_embedder: 'QATokenEmbedder', Used to embed the 'context' and 'question'.
+
+    """
+
+    def make_metrics(self, predictions):
+        """
+        Make metrics with prediction dictionary
+
+        * Args:
+            predictions: prediction dictionary consisting of
+                - key: 'id' (question id)
+                - value: (predict_text, pred_span_start, pred_span_end)
+
+        * Returns:
+            metrics: metric dictionary consisting of
+                - 'em': exact_match (SQuAD v1.1 official evaluation)
+                - 'f1': f1 (SQuAD v1.1 official evaluation)
+                - 'start_acc': span_start accuracy
+                - 'end_acc': span_end accuracy
+                - 'span_acc': span accuracy (start and end)
+        """
+        preds = {}
+        for index, prediction in predictions.items():
+            _, _, (answer_start, answer_end) = self._dataset.get_ground_truths(index)
+            qid = self._dataset.get_qid(index)
+            preds[qid] = prediction['predict_text']
+        self.write_predictions(preds)
+        squad_offical_metrics = self._make_metrics_with_official(preds)
+        metrics = self._make_span_metrics(predictions)
+        metrics.update(squad_offical_metrics)
+        return metrics
+
+    def _make_metrics_with_official(self, preds):
+        """ SQuAD v1.1 official evaluation """
+        dataset = self._dataset.raw_dataset
+        if self.lang_code.startswith('ko'):
+            scores = korquad_v1_official.evaluate(dataset, preds)
+        else:
+            scores = squad_v1_official.evaluate(dataset, preds)
+        return scores
+
+
+class SQuADv1ForBert(SQuADv1):
+    """
+    Reading Comprehension Mixin Class
+        with SQuAD v1.1 evaluation
+
+    * Args:
+        token_embedder: 'QATokenEmbedder', Used to embed the 'context' and 'question'.
+
+    """
+
+    def make_metrics(self, predictions):
+        """ BERT predictions need to get nbest result """
+        best_predictions = {}
+        for index, prediction in predictions.items():
+            qid = self._dataset.get_qid(index)
+            predict_text = prediction['predict_text']
+            start_logit = prediction['start_logits'][prediction['pred_span_start']]
+            end_logit = prediction['end_logits'][prediction['pred_span_end']]
+            predict_score = start_logit.item() + end_logit.item()
+            if qid not in best_predictions:
+                best_predictions[qid] = []
+            best_predictions[qid].append((predict_text, predict_score))
+        for qid, predictions in best_predictions.items():
+            sorted_predictions = sorted(predictions, key=lambda x: x[1], reverse=True)
+            best_predictions[qid] = sorted_predictions[0][0]
+        self.write_predictions(best_predictions)
+        return self._make_metrics_with_official(best_predictions)
+
+    def predict(self, output_dict, arguments, helper):
+        """
+        Inference by raw_feature
+
+        * Args:
+            output_dict: model's output dictionary consisting of
+                - data_idx: question id
+                - best_span: calculate the span_start_logits and span_end_logits to what is the best span
+            arguments: arguments dictionary consisting of user_input
+            helper: dictionary for helping get answer
+
+        * Returns:
+            span: predict best_span
+        """
+        context_text = arguments['context']
+        bert_tokens = helper['bert_token']
+        predictions = [(best_span, start_logits, end_logits) for best_span, start_logits, end_logits in zip(list(output_dict['best_span'].data), list(output_dict['start_logits'].data), list(output_dict['end_logits'].data))]
+        best_predictions = []
+        for index, prediction in enumerate(predictions):
+            bert_token = bert_tokens[index]
+            best_span, start_logits, end_logits = prediction
+            pred_start, pred_end = best_span
+            predict_text = ''
+            if pred_start < len(bert_token) and pred_end < len(bert_token) and bert_token[pred_start].text_span is not None and bert_token[pred_end].text_span is not None:
+                char_start = bert_token[pred_start].text_span[0]
+                char_end = bert_token[pred_end].text_span[1]
+                predict_text = context_text[char_start:char_end]
+            start_logit = start_logits[pred_start]
+            end_logit = end_logits[pred_end]
+            predict_score = start_logit.item() + end_logit.item()
+            best_predictions.append((predict_text, predict_score))
+        sorted_predictions = sorted(best_predictions, key=lambda x: x[1], reverse=True)
+        return {'text': sorted_predictions[0][0], 'score': sorted_predictions[0][1]}
+
+
+def f1(pycm_obj):
+    return {key: (pycm_obj.F1[key] if pycm_obj.F1[key] != 'None' else 0.0) for key in pycm_obj.F1}
+
+
+def matthews_corr(preds, labels):
+    return {'matthews_corr': matthews_corrcoef(labels, preds)}
+
+
+def simple_accuracy(preds, labels):
+    preds = np.array(preds)
+    labels = np.array(labels)
+    return (preds == labels).mean()
+
+
+class SequenceClassification:
+    """ Sequence Classification Mixin Class """
+
+    def make_predictions(self, output_dict):
+        """
+        Make predictions with model's output_dict
+
+        * Args:
+            output_dict: model's output dictionary consisting of
+                - sequence_embed: embedding vector of the sequence
+                - logits: representing unnormalized log probabilities of the class
+
+                - class_idx: target class idx
+                - data_idx: data idx
+                - loss: a scalar loss to be optimized
+
+        * Returns:
+            predictions: prediction dictionary consisting of
+                - key: 'id' (sequence id)
+                - value: dictionary consisting of
+                    - class_idx
+        """
+        data_indices = output_dict['data_idx']
+        pred_logits = output_dict['logits']
+        pred_class_idxs = torch.argmax(pred_logits, dim=-1)
+        predictions = {self._dataset.get_id(data_idx.item()): {'class_idx': pred_class_idx.item()} for data_idx, pred_class_idx in zip(list(data_indices.data), list(pred_class_idxs.data))}
+        return predictions
+
+    def predict(self, output_dict, arguments, helper):
+        """
+        Inference by raw_feature
+
+        * Args:
+            output_dict: model's output dictionary consisting of
+                - sequence_embed: embedding vector of the sequence
+                - logits: representing unnormalized log probabilities of the class.
+            arguments: arguments dictionary consisting of user_input
+            helper: dictionary to get the classification result, consisting of
+                - class_idx2text: dictionary converting class_idx to class_text
+
+        * Returns: output dict (dict) consisting of
+            - logits: representing unnormalized log probabilities of the class
+            - class_idx: predicted class idx
+            - class_text: predicted class text
+        """
+        logits = output_dict['logits']
+        class_idx = logits.argmax(dim=-1)
+        return {'logits': logits, 'class_idx': class_idx, 'class_text': helper['class_idx2text'][class_idx.item()]}
+
+    def make_metrics(self, predictions):
+        """
+        Make metrics with prediction dictionary
+
+        * Args:
+            predictions: prediction dictionary consisting of
+                - key: 'id' (sequence id)
+                - value: dictionary consisting of
+                    - class_idx
+
+        * Returns:
+            metrics: metric dictionary consisting of
+                - 'macro_f1': class prediction macro(unweighted mean) f1
+                - 'macro_precision': class prediction macro(unweighted mean) precision
+                - 'macro_recall': class prediction macro(unweighted mean) recall
+                - 'accuracy': class prediction accuracy
+        """
+        pred_idx = []
+        pred_classes = []
+        target_idx = []
+        target_classes = []
+        target_count = len(self._dataset.class_idx2text)
+        for data_id, pred in predictions.items():
+            target = self._dataset.get_ground_truth(data_id)
+            pred_idx.append(pred['class_idx'])
+            pred_classes.append(self._dataset.class_idx2text[pred['class_idx']])
+            target_idx.append(target['class_idx'])
+            target_classes.append(target['class_text'])
+        metrics = {'accuracy': simple_accuracy(pred_idx, target_idx)}
+        if target_count == 2:
+            f1_metric = f1(pred_idx, target_idx)
+            metrics.update(f1_metric)
+        matthews_corr_metric = matthews_corr(pred_idx, target_idx)
+        metrics.update(matthews_corr_metric)
+        return metrics
+
+    def write_predictions(self, predictions, file_path=None, is_dict=True, pycm_obj=None):
+        """
+        Override write_predictions() in ModelBase to log confusion matrix
+        """
+        try:
+            super(SequenceClassification, self).write_predictions(predictions, file_path=file_path, is_dict=is_dict)
+        except AttributeError:
+            model_base = ModelBase()
+            model_base._log_dir = self._log_dir
+            model_base._train_counter = self._train_counter
+            model_base.training = self.training
+            model_base.write_predictions(predictions, file_path=file_path, is_dict=is_dict)
+        data_type = 'train' if self.training else 'valid'
+        if pycm_obj is not None:
+            stats_file_path = f'predictions-{data_type}-{self._train_counter.get_display()}-stats'
+            pycm_obj.save_csv(str(Path(self._log_dir) / 'predictions' / stats_file_path))
+            confusion_matrix_file_path = f'predictions-{data_type}-{self._train_counter.get_display()}-confusion_matrix'
+            cls_utils.write_confusion_matrix_to_csv(str(Path(self._log_dir) / 'predictions' / confusion_matrix_file_path), pycm_obj)
+
+    def print_examples(self, index, inputs, predictions):
+        """
+        Print evaluation examples
+
+        * Args:
+            index: data index
+            inputs: mini-batch inputs
+            predictions: prediction dictionary consisting of
+                - key: 'id' (sequence id)
+                - value: dictionary consisting of
+                    - class_idx
+
+        * Returns:
+            print(Sequence, Target Class, Predicted Class)
+        """
+        data_idx = inputs['labels']['data_idx'][index].item()
+        data_id = self._dataset.get_id(data_idx)
+        helper = self._dataset.helper
+        sequence = helper['examples'][data_id]['sequence']
+        target_class_text = helper['examples'][data_id]['class_text']
+        pred_class_idx = predictions[data_id]['class_idx']
+        pred_class_text = self._dataset.get_class_text_with_idx(pred_class_idx)
+        None
+        None
+        None
+        None
+        None
+        None
+        None
+
+
+class TaskCategory:
+    """ TaskCategory Flag class """
+    SEQUENCE_CLASSIFICATION = 'sequence_classification'
+    REGRESSION = 'regression'
+    READING_COMPREHENSION = 'reading_comprehension'
+    TOKEN_CLASSIFICATION = 'token_classification'
+
+
+logger = logging.getLogger(__name__)
+
+
+def macro_f1(pycm_obj):
+    return sum(f1(pycm_obj).values()) / len(pycm_obj.classes)
+
+
+def precision(pycm_obj):
+    return {key: (pycm_obj.PPV[key] if pycm_obj.PPV[key] != 'None' else 0.0) for key in pycm_obj.PPV}
+
+
+def macro_precision(pycm_obj):
+    return sum(precision(pycm_obj).values()) / len(pycm_obj.classes)
+
+
+def recall(pycm_obj):
+    return {key: (pycm_obj.TPR[key] if pycm_obj.TPR[key] != 'None' else 0.0) for key in pycm_obj.TPR}
+
+
+def macro_recall(pycm_obj):
+    return sum(recall(pycm_obj).values()) / len(pycm_obj.classes)
+
+
+class TokenClassification:
+    """ Token Classification Mixin Class """
+
+    def make_predictions(self, output_dict):
+        """
+        Make predictions with model's output_dict
+
+        * Args:
+            output_dict: model's output dictionary consisting of
+                - sequence_embed: embedding vector of the sequence
+                - tag_logits: representing unnormalized log probabilities of the tag
+
+                - tag_idxs: target tag idxs
+                - data_idx: data idx
+                - loss: a scalar loss to be optimized
+
+        * Returns:
+            predictions: prediction dictionary consisting of
+                - key: 'id' (sequence id)
+                - value: dictionary consisting of
+                    - tag_idxs
+        """
+        data_indices = output_dict['data_idx']
+        pred_tag_logits = output_dict['tag_logits']
+        pred_tag_idxs = [torch.argmax(pred_tag_logit, dim=-1).tolist() for pred_tag_logit in pred_tag_logits]
+        predictions = {self._dataset.get_id(data_idx.item()): {'tag_idxs': pred_tag_idx} for data_idx, pred_tag_idx in zip(list(data_indices.data), pred_tag_idxs)}
+        return predictions
+
+    @arguments_required(['sequence'])
+    def predict(self, output_dict, arguments, helper):
+        """
+        Inference by raw_feature
+
+        * Args:
+            output_dict: model's output dictionary consisting of
+                - sequence_embed: embedding vector of the sequence
+                - tag_logits: representing unnormalized log probabilities of the tags.
+            arguments: arguments dictionary consisting of user_input
+            helper: dictionary to get the classification result, consisting of
+                - tag_idx2text: dictionary converting tag_idx to tag_text
+
+        * Returns: output dict (dict) consisting of
+            - tag_logits: representing unnormalized log probabilities of the tags
+            - tag_idxs: predicted tag idxs
+            - tag_texts: predicted tag texts
+            - tag_slots: predicted tag slots
+        """
+        sequence = arguments['sequence']
+        tag_logits = output_dict['tag_logits'][0]
+        tag_idxs = [tag_logit.argmax(dim=-1) for tag_logit in tag_logits]
+        tag_texts = [helper['tag_idx2text'][tag_idx.item()] for tag_idx in tag_idxs]
+        return {'tag_logits': tag_logits, 'tag_idxs': tag_idxs, 'tag_texts': tag_texts, 'tag_dict': cls_utils.get_tag_dict(sequence, tag_texts)}
+
+    def make_metrics(self, predictions):
+        """
+        Make metrics with prediction dictionary
+
+        * Args:
+            predictions: prediction dictionary consisting of
+                - key: 'id' (sequence id)
+                - value: dictionary consisting of
+                    - tag_idxs
+
+        * Returns:
+            metrics: metric dictionary consisting of
+                - 'accuracy': sequence level accuracy
+                - 'tag_accuracy': tag level accuracy
+                - 'macro_f1': tag prediction macro(unweighted mean) f1
+                - 'macro_precision': tag prediction macro(unweighted mean) precision
+                - 'macro_recall': tag prediction macro(unweighted mean) recall
+        """
+        pred_tag_idxs_list = []
+        target_tag_idxs_list = []
+        accurate_sequence = []
+        for data_idx, pred in predictions.items():
+            target = self._dataset.get_ground_truth(data_idx)
+            pred_tag_idxs_list.append(pred['tag_idxs'])
+            target_tag_idxs_list.append(target['tag_idxs'])
+            accurate_sequence.append(1 if (np.asarray(target['tag_idxs']) == np.asarray(pred['tag_idxs'])).all() else 0)
+        pred_tags = [[self._dataset.tag_idx2text[tag_idx] for tag_idx in tag_idxs] for tag_idxs in pred_tag_idxs_list]
+        target_tags = [[self._dataset.tag_idx2text[tag_idx] for tag_idx in tag_idxs] for tag_idxs in target_tag_idxs_list]
+        flat_pred_tags = list(common_utils.flatten(pred_tags))
+        flat_target_tags = list(common_utils.flatten(target_tags))
+        try:
+            pycm_obj = pycm.ConfusionMatrix(actual_vector=flat_target_tags, predict_vector=flat_pred_tags)
+        except pycmVectorError as e:
+            if str(e) == 'Number of the classes is lower than 2':
+                logger.warning('Number of tags in the batch is 1. Sanity check is highly recommended.')
+                return {'accuracy': 1.0, 'tag_accuracy': 1.0, 'macro_f1': 1.0, 'macro_precision': 1.0, 'macro_recall': 1.0, 'conlleval_accuracy': 1.0, 'conlleval_f1': 1.0}
+            raise
+        self.write_predictions({'target': flat_target_tags, 'predict': flat_pred_tags}, pycm_obj=pycm_obj)
+        sequence_accuracy = sum(accurate_sequence) / len(accurate_sequence)
+        metrics = {'accuracy': sequence_accuracy, 'tag_accuracy': pycm_obj.Overall_ACC, 'macro_f1': macro_f1(pycm_obj), 'macro_precision': macro_precision(pycm_obj), 'macro_recall': macro_recall(pycm_obj), 'conlleval_accuracy': conlleval_accuracy(target_tags, pred_tags), 'conlleval_f1': conlleval_f1(target_tags, pred_tags)}
+        return metrics
+
+    def write_predictions(self, predictions, file_path=None, is_dict=True, pycm_obj=None):
+        """
+        Override write_predictions() in ModelBase to log confusion matrix
+        """
+        super(TokenClassification, self).write_predictions(predictions, file_path=file_path, is_dict=is_dict)
+        data_type = 'train' if self.training else 'valid'
+        if pycm_obj is not None:
+            stats_file_path = f'predictions-{data_type}-{self._train_counter.get_display()}-stats'
+            pycm_obj.save_csv(str(Path(self._log_dir) / 'predictions' / stats_file_path))
+            confusion_matrix_file_path = f'predictions-{data_type}-{self._train_counter.get_display()}-confusion_matrix'
+            cls_utils.write_confusion_matrix_to_csv(str(Path(self._log_dir) / 'predictions' / confusion_matrix_file_path), pycm_obj)
+
+    def print_examples(self, index, inputs, predictions):
+        """
+        Print evaluation examples
+
+        * Args:
+            index: data index
+            inputs: mini-batch inputs
+            predictions: prediction dictionary consisting of
+                - key: 'id' (sequence id)
+                - value: dictionary consisting of
+                    - class_idx
+
+        * Returns:
+            print(Sequence, Target Tags, Target Slots, Predicted Tags, Predicted Slots)
+        """
+        data_idx = inputs['labels']['data_idx'][index].item()
+        data_id = self._dataset.get_id(data_idx)
+        helper = self._dataset.helper
+        sequence = helper['examples'][data_id]['sequence']
+        target_tag_texts = helper['examples'][data_id]['tag_texts']
+        pred_tag_idxs = predictions[data_id]['tag_idxs']
+        pred_tag_texts = self._dataset.get_tag_texts_with_idxs(pred_tag_idxs)
+        None
+        None
+        None
+        None
+        None
+        None
+        None
+        None
+        None
+
+
+class MultiTask:
+    """ MultiTask Mixin Class """
+
+    def make_predictions(self, output_dict):
+        task_index = output_dict['task_index'].item()
+        mixin_obj = self._make_task_mixin_obj(task_index)
+        predictions = mixin_obj.make_predictions(output_dict)
+        for k, v in predictions.items():
+            predictions[k]['task_index'] = task_index
+        return predictions
+
+    def predict(self, output_dict, arguments, helper):
+        task_index = output_dict['task_index'].item()
+        mixin_obj = self._make_task_mixin_obj(task_index)
+        return mixin_obj.predict(output_dict, arguments, helper)
+
+    def make_metrics(self, predictions):
+        task_predictions = self._split_predictions_by_task_index(predictions)
+        assert [len(task_preds) for task_preds in task_predictions] == [len(dataset) for dataset in self._dataset.task_datasets]
+        all_metrics = {'average': 0}
+        for task_index, predictions in enumerate(task_predictions):
+            mixin_obj = self._make_task_mixin_obj(task_index)
+            mixin_obj.write_predictions(predictions)
+            task_metrics = mixin_obj.make_metrics(predictions)
+            for k, v in task_metrics.items():
+                task_name = self.tasks[task_index]['name'].replace('_bert', '')
+                all_metrics[f'{task_name}/{k}'] = v
+                task_metric_key = self.tasks[task_index]['metric_key']
+                if k == task_metric_key:
+                    if v > 1:
+                        v /= 100
+                    all_metrics['average'] += v
+        all_metrics['average'] /= len(task_predictions)
+        return all_metrics
+
+    def _split_predictions_by_task_index(self, predictions):
+        """ split predictions by task_index -> each task make_metrics then add task_index as prefix """
+        task_predictions = [{} for _ in range(len(self.tasks))]
+        for k, v in predictions.items():
+            task_index = v['task_index']
+            task_predictions[task_index][k] = v
+        return task_predictions
+
+    def _make_task_mixin_obj(self, task_index):
+        mixin_obj = None
+        task_category = self.tasks[task_index]['category']
+        if task_category == TaskCategory.SEQUENCE_CLASSIFICATION:
+            mixin_obj = SequenceClassification()
+        elif task_category == TaskCategory.READING_COMPREHENSION:
+            mixin_obj = SQuADv1ForBert()
+        elif task_category == TaskCategory.REGRESSION:
+            mixin_obj = Regression()
+        elif task_category == TaskCategory.TOKEN_CLASSIFICATION:
+            mixin_obj = TokenClassification()
+        else:
+            raise ValueError('task category error.')
+        self._set_model_properties(mixin_obj, task_index=task_index)
+        return mixin_obj
+
+    def _set_model_properties(self, mixin_obj, task_index=None):
+        mixin_obj._config = self.config
+        mixin_obj._log_dir = self.log_dir
+        if task_index is None:
+            mixin_obj._dataset = self.curr_dataset
+        else:
+            mixin_obj._dataset = self._dataset.task_datasets[task_index]
+        mixin_obj._train_counter = self.train_counter
+        mixin_obj.training = self.training
+        mixin_obj._vocabs = self.vocabs
+        task = self.tasks[task_index]
+        for k, v in task['model_params'].items():
+            setattr(mixin_obj, k, v)
+
+
+class Singleton(type):
+    """
+    Design Pattern Base
+
+    Singleton Meta Class
+    the singleton pattern is a software design pattern that restricts the
+    instantiation of a class to one object.
+    """
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+
+class Registry(metaclass=Singleton):
+    """
+    Registry class (Singleton)
+    """
+
+    def __init__(self):
+        self._name_to_subclass = {'component': {}, 'reader': {}, 'machine': {}, 'model': {}, 'token': {}}
+
+    def add(self, name, obj):
+        component_type, component_name = self._split_component_type_and_name(name)
+        if component_name in self._name_to_subclass[component_type]:
+            logger.info(f'{component_name} is already included in Registry. It override with {obj}.')
+        self._name_to_subclass[component_type][component_name] = obj
+
+    def get(self, name):
+        component_type, component_name = self._split_component_type_and_name(name)
+        if component_type not in self._name_to_subclass:
+            raise ValueError(f'There is no {component_type} in _name_to_subclass.')
+        if component_name not in self._name_to_subclass[component_type]:
+            raise ValueError(f'There is no {component_name} object in {component_type}.')
+        return self._name_to_subclass[component_type][component_name]
+
+    def _split_component_type_and_name(self, name):
+        if ':' in name:
+            names = name.split(':')
+            return names[0], names[1]
+        else:
+            raise ValueError('do not recognize component_type.')
+
+
+class register:
+    """
+        Decorator Class
+        register subclass with decorator.
+        (eg. @register("model:bidaf"), @register("reader:squad") )
+    """
+
+    def __init__(self, name):
+        self.name = name
+
+    def __call__(self, obj):
+        registry = Registry()
+        registry.add(self.name, obj)
+        return obj
+
+
+class SQuADv2(ReadingComprehension):
+    """
+    Reading Comprehension Mixin Class
+        with SQuAD v2.0 evaluation
+
+    * Args:
+        token_embedder: 'RCTokenEmbedder', Used to embed the 'context' and 'question'.
+
+    """
+
+    def make_metrics(self, predictions):
+        """
+        Make metrics with prediction dictionary
+
+        * Args:
+            predictions: prediction dictionary consisting of
+                - key: 'id' (question id)
+                - value: consisting of dictionary
+                    predict_text, pred_span_start, pred_span_end, span_start_prob, span_end_prob
+
+        * Returns:
+            metrics: metric dictionary consisting of
+                - 'start_acc': span_start accuracy
+                - 'end_acc': span_end accuracy
+                - 'span_acc': span accuracy (start and end)
+                - 'em': exact_match (SQuAD v2.0 official evaluation)
+                - 'f1': f1 (SQuAD v2.0 official evaluation)
+                - 'HasAns_exact': has answer exact_match
+                - 'HasAns_f1': has answer f1
+                - 'NoAns_exact': no answer exact_match
+                - 'NoAns_f1': no answer f1
+                - 'best_exact': best exact_match score with best_exact_thresh
+                - 'best_exact_thresh': best exact_match answerable threshold
+                - 'best_f1': best f1 score with best_f1_thresh
+                - 'best_f1_thresh': best f1 answerable threshold
+        """
+        preds, na_probs = {}, {}
+        for index, prediction in predictions.items():
+            _, _, (answer_start, answer_end) = self._dataset.get_ground_truths(index)
+            predict_text = prediction['predict_text']
+            if predict_text == '<noanswer>':
+                predict_text = ''
+            qid = self._dataset.get_qid(index)
+            preds[qid] = predict_text
+            span_start_probs = F.softmax(prediction['start_logits'], dim=-1)
+            span_end_probs = F.softmax(prediction['end_logits'], dim=-1)
+            start_no_prob = span_start_probs[-1].item()
+            end_no_prob = span_end_probs[-1].item()
+            no_answer_prob = start_no_prob * end_no_prob
+            na_probs[qid] = no_answer_prob
+        self.write_predictions(preds)
+        model_type = 'train' if self.training else 'valid'
+        self.write_predictions(na_probs, file_path=f'na_probs-{model_type}-{self._train_counter.get_display()}.json')
+        squad_offical_metrics = self._make_metrics_with_official(preds, na_probs)
+        metrics = self._make_span_metrics(predictions)
+        metrics.update(squad_offical_metrics)
+        return metrics
+
+    def _make_metrics_with_official(self, preds, na_probs, na_prob_thresh=1.0):
+        """ SQuAD 2.0 official evaluation """
+        dataset = self._dataset.raw_dataset
+        squad_scores = squad_v2_official.evaluate(dataset, na_probs, preds)
+        squad_scores['em'] = squad_scores['exact']
+        remove_keys = ['total', 'exact', 'HasAns_total', 'NoAns_total']
+        for key in remove_keys:
+            if key in squad_scores:
+                del squad_scores[key]
+        return squad_scores
 
 
 class SelfAttention(nn.Module):
@@ -512,89 +1466,6 @@ class AggPredictor(nn.Module):
         return logits
 
 
-class SelPredictor(nn.Module):
-
-    def __init__(self, embed_dim, model_dim, rnn_num_layer, dropout, column_attention=None):
-        super(SelPredictor, self).__init__()
-        self.column_attention = column_attention
-        self.question_rnn = nn.LSTM(input_size=embed_dim, hidden_size=model_dim // 2, num_layers=rnn_num_layer, batch_first=True, dropout=dropout, bidirectional=True)
-        if column_attention:
-            self.linear_attn = nn.Linear(model_dim, model_dim)
-        else:
-            self.seq_attn = attention.LinearSeqAttn(model_dim)
-        self.column_rnn = nn.LSTM(input_size=embed_dim, hidden_size=model_dim // 2, num_layers=rnn_num_layer, batch_first=True, dropout=dropout, bidirectional=True)
-        self.linear_question = nn.Linear(model_dim, model_dim)
-        self.linear_column = nn.Linear(model_dim, model_dim)
-        self.mlp = nn.Sequential(nn.Tanh(), nn.Linear(model_dim, 1))
-
-    def forward(self, question_embed, question_mask, column_embed, column_name_mask, column_mask):
-        B, C_L, N_L, embed_D = list(column_embed.size())
-        encoded_column = utils.encode_column(column_embed, column_name_mask, self.column_rnn)
-        encoded_question, _ = self.question_rnn(question_embed)
-        if self.column_attention:
-            attn_matrix = torch.bmm(encoded_column, self.linear_attn(encoded_question).transpose(1, 2))
-            attn_matrix = f.add_masked_value(attn_matrix, question_mask.unsqueeze(1), value=-10000000.0)
-            attn_matrix = F.softmax(attn_matrix, dim=-1)
-            attn_question = (encoded_question.unsqueeze(1) * attn_matrix.unsqueeze(3)).sum(2)
-        else:
-            attn_matrix = self.seq_attn(encoded_question, question_mask)
-            attn_question = f.weighted_sum(attn_matrix, encoded_question)
-            attn_question = attn_question.unsqueeze(1)
-        logits = self.mlp(self.linear_question(attn_question) + self.linear_column(encoded_column)).squeeze()
-        logits = f.add_masked_value(logits, column_mask, value=-10000000.0)
-        return logits
-
-
-class CondsPredictor(nn.Module):
-
-    def __init__(self, embed_dim, model_dim, rnn_num_layer, dropout, conds_op_count, column_maxlen, token_maxlen, column_attention=None):
-        super(CondsPredictor, self).__init__()
-        self.num_predictor = CondsNumPredictor(embed_dim, model_dim, rnn_num_layer, dropout, column_maxlen)
-        self.column_predictor = CondsColPredictor(embed_dim, model_dim, rnn_num_layer, dropout, column_attention=column_attention)
-        self.op_predictor = CondsOpPredictor(embed_dim, model_dim, rnn_num_layer, dropout, conds_op_count, column_maxlen, column_attention=column_attention)
-        self.value_pointer = CondsValuePointer(embed_dim, model_dim, rnn_num_layer, dropout, column_maxlen, token_maxlen)
-
-    def forward(self, question_embed, question_mask, column_embed, column_name_mask, column_mask, col_idx, conds_val_pos):
-        num_logits = self.num_predictor(question_embed, question_mask, column_embed, column_name_mask, column_mask)
-        column_logits = self.column_predictor(question_embed, question_mask, column_embed, column_name_mask, column_mask)
-        if col_idx is None:
-            col_idx = []
-            preds_num = torch.argmax(num_logits, dim=-1)
-            for i in range(column_logits.size(0)):
-                _, pred_conds_column_idx = torch.topk(column_logits[i], preds_num[i])
-                col_idx.append(pred_conds_column_idx.tolist())
-        op_logits = self.op_predictor(question_embed, question_mask, column_embed, column_name_mask, col_idx)
-        value_logits = self.value_pointer(question_embed, question_mask, column_embed, column_name_mask, col_idx, conds_val_pos)
-        return num_logits, column_logits, op_logits, value_logits
-
-
-class CondsNumPredictor(nn.Module):
-
-    def __init__(self, embed_dim, model_dim, rnn_num_layer, dropout, column_maxlen):
-        super(CondsNumPredictor, self).__init__()
-        self.model_dim = model_dim
-        self.column_maxlen = column_maxlen
-        self.column_rnn = nn.LSTM(input_size=embed_dim, hidden_size=model_dim // 2, num_layers=rnn_num_layer, batch_first=True, dropout=dropout, bidirectional=True)
-        self.column_seq_attn = attention.LinearSeqAttn(model_dim)
-        self.column_to_hidden_state = nn.Linear(model_dim, 2 * model_dim)
-        self.column_to_cell_state = nn.Linear(model_dim, 2 * model_dim)
-        self.question_rnn = nn.LSTM(input_size=embed_dim, hidden_size=model_dim // 2, num_layers=rnn_num_layer, batch_first=True, dropout=dropout, bidirectional=True)
-        self.question_seq_attn = attention.LinearSeqAttn(model_dim)
-        self.mlp = nn.Sequential(nn.Linear(model_dim, model_dim), nn.Tanh(), nn.Linear(model_dim, column_maxlen + 1))
-
-    def forward(self, question_embed, question_mask, column_embed, column_name_mask, column_mask):
-        B, C_L, N_L, embed_D = list(column_embed.size())
-        encoded_column = utils.encode_column(column_embed, column_name_mask, self.column_rnn)
-        attn_column = self.column_seq_attn(encoded_column, column_mask)
-        out_column = f.weighted_sum(attn_column, encoded_column)
-        question_rnn_hidden_state = self.column_to_hidden_state(out_column).view(B, self.column_maxlen, self.model_dim // 2).transpose(0, 1).contiguous()
-        question_rnn_cell_state = self.column_to_cell_state(out_column).view(B, self.column_maxlen, self.model_dim // 2).transpose(0, 1).contiguous()
-        encoded_question, _ = self.question_rnn(question_embed, (question_rnn_hidden_state, question_rnn_cell_state))
-        attn_question = self.question_seq_attn(encoded_question, question_mask)
-        out_question = f.weighted_sum(attn_question, encoded_question)
-        return self.mlp(out_question)
-
-
 class CondsColPredictor(nn.Module):
 
     def __init__(self, embed_dim, model_dim, rnn_num_layer, dropout, column_attention=None):
@@ -626,6 +1497,33 @@ class CondsColPredictor(nn.Module):
         logits = self.mlp(self.linear_question(attn_question) + self.linear_column(encoded_column)).squeeze()
         logits = f.add_masked_value(logits, column_mask, value=-10000000.0)
         return logits
+
+
+class CondsNumPredictor(nn.Module):
+
+    def __init__(self, embed_dim, model_dim, rnn_num_layer, dropout, column_maxlen):
+        super(CondsNumPredictor, self).__init__()
+        self.model_dim = model_dim
+        self.column_maxlen = column_maxlen
+        self.column_rnn = nn.LSTM(input_size=embed_dim, hidden_size=model_dim // 2, num_layers=rnn_num_layer, batch_first=True, dropout=dropout, bidirectional=True)
+        self.column_seq_attn = attention.LinearSeqAttn(model_dim)
+        self.column_to_hidden_state = nn.Linear(model_dim, 2 * model_dim)
+        self.column_to_cell_state = nn.Linear(model_dim, 2 * model_dim)
+        self.question_rnn = nn.LSTM(input_size=embed_dim, hidden_size=model_dim // 2, num_layers=rnn_num_layer, batch_first=True, dropout=dropout, bidirectional=True)
+        self.question_seq_attn = attention.LinearSeqAttn(model_dim)
+        self.mlp = nn.Sequential(nn.Linear(model_dim, model_dim), nn.Tanh(), nn.Linear(model_dim, column_maxlen + 1))
+
+    def forward(self, question_embed, question_mask, column_embed, column_name_mask, column_mask):
+        B, C_L, N_L, embed_D = list(column_embed.size())
+        encoded_column = utils.encode_column(column_embed, column_name_mask, self.column_rnn)
+        attn_column = self.column_seq_attn(encoded_column, column_mask)
+        out_column = f.weighted_sum(attn_column, encoded_column)
+        question_rnn_hidden_state = self.column_to_hidden_state(out_column).view(B, self.column_maxlen, self.model_dim // 2).transpose(0, 1).contiguous()
+        question_rnn_cell_state = self.column_to_cell_state(out_column).view(B, self.column_maxlen, self.model_dim // 2).transpose(0, 1).contiguous()
+        encoded_question, _ = self.question_rnn(question_embed, (question_rnn_hidden_state, question_rnn_cell_state))
+        attn_question = self.question_seq_attn(encoded_question, question_mask)
+        out_question = f.weighted_sum(attn_question, encoded_question)
+        return self.mlp(out_question)
 
 
 class CondsOpPredictor(nn.Module):
@@ -689,7 +1587,7 @@ class CondsValuePointer(nn.Module):
             MAX_DECODER_STEP = 50
             decoder_input = torch.zeros(4 * B, 1, self.token_maxlen)
             decoder_input[:, (0), (0)] = 2
-            if torch.is_available():
+            if torch.cuda.is_available():
                 decoder_input = decoder_input
             decoder_hidden = None
             logits = []
@@ -699,7 +1597,7 @@ class CondsValuePointer(nn.Module):
                 logits.append(step_logit)
                 _, decoder_idxs = step_logit.view(B * self.column_maxlen, -1).max(1)
                 decoder_input = torch.zeros(B * self.column_maxlen, self.token_maxlen).scatter_(1, decoder_idxs.cpu().unsqueeze(1), 1)
-                if torch.is_available():
+                if torch.cuda.is_available():
                     decoder_input = decoder_input
             logits = torch.stack(logits, 2)
         else:
@@ -711,7 +1609,7 @@ class CondsValuePointer(nn.Module):
         B, Q_L, embed_D = list(question_embed.size())
         zero_padding = torch.zeros(B, 1, embed_D)
         mask_with_start_end = torch.zeros(B, Q_L + 2)
-        if torch.is_available():
+        if torch.cuda.is_available():
             zero_padding = zero_padding
             mask_with_start_end = mask_with_start_end
         question_embed_with_start_end = torch.cat([zero_padding, question_embed, zero_padding], dim=1)
@@ -730,6 +1628,525 @@ class CondsValuePointer(nn.Module):
         logits = self.mlp(self.linear_column(encoded_used_column) + self.linear_conds(decoder_output) + self.linear_question(encoded_question)).squeeze()
         logits = f.add_masked_value(logits, question_mask.unsqueeze(1).unsqueeze(1), value=-10000000.0)
         return logits, decoder_hidden
+
+
+class CondsPredictor(nn.Module):
+
+    def __init__(self, embed_dim, model_dim, rnn_num_layer, dropout, conds_op_count, column_maxlen, token_maxlen, column_attention=None):
+        super(CondsPredictor, self).__init__()
+        self.num_predictor = CondsNumPredictor(embed_dim, model_dim, rnn_num_layer, dropout, column_maxlen)
+        self.column_predictor = CondsColPredictor(embed_dim, model_dim, rnn_num_layer, dropout, column_attention=column_attention)
+        self.op_predictor = CondsOpPredictor(embed_dim, model_dim, rnn_num_layer, dropout, conds_op_count, column_maxlen, column_attention=column_attention)
+        self.value_pointer = CondsValuePointer(embed_dim, model_dim, rnn_num_layer, dropout, column_maxlen, token_maxlen)
+
+    def forward(self, question_embed, question_mask, column_embed, column_name_mask, column_mask, col_idx, conds_val_pos):
+        num_logits = self.num_predictor(question_embed, question_mask, column_embed, column_name_mask, column_mask)
+        column_logits = self.column_predictor(question_embed, question_mask, column_embed, column_name_mask, column_mask)
+        if col_idx is None:
+            col_idx = []
+            preds_num = torch.argmax(num_logits, dim=-1)
+            for i in range(column_logits.size(0)):
+                _, pred_conds_column_idx = torch.topk(column_logits[i], preds_num[i])
+                col_idx.append(pred_conds_column_idx.tolist())
+        op_logits = self.op_predictor(question_embed, question_mask, column_embed, column_name_mask, col_idx)
+        value_logits = self.value_pointer(question_embed, question_mask, column_embed, column_name_mask, col_idx, conds_val_pos)
+        return num_logits, column_logits, op_logits, value_logits
+
+
+class SelPredictor(nn.Module):
+
+    def __init__(self, embed_dim, model_dim, rnn_num_layer, dropout, column_attention=None):
+        super(SelPredictor, self).__init__()
+        self.column_attention = column_attention
+        self.question_rnn = nn.LSTM(input_size=embed_dim, hidden_size=model_dim // 2, num_layers=rnn_num_layer, batch_first=True, dropout=dropout, bidirectional=True)
+        if column_attention:
+            self.linear_attn = nn.Linear(model_dim, model_dim)
+        else:
+            self.seq_attn = attention.LinearSeqAttn(model_dim)
+        self.column_rnn = nn.LSTM(input_size=embed_dim, hidden_size=model_dim // 2, num_layers=rnn_num_layer, batch_first=True, dropout=dropout, bidirectional=True)
+        self.linear_question = nn.Linear(model_dim, model_dim)
+        self.linear_column = nn.Linear(model_dim, model_dim)
+        self.mlp = nn.Sequential(nn.Tanh(), nn.Linear(model_dim, 1))
+
+    def forward(self, question_embed, question_mask, column_embed, column_name_mask, column_mask):
+        B, C_L, N_L, embed_D = list(column_embed.size())
+        encoded_column = utils.encode_column(column_embed, column_name_mask, self.column_rnn)
+        encoded_question, _ = self.question_rnn(question_embed)
+        if self.column_attention:
+            attn_matrix = torch.bmm(encoded_column, self.linear_attn(encoded_question).transpose(1, 2))
+            attn_matrix = f.add_masked_value(attn_matrix, question_mask.unsqueeze(1), value=-10000000.0)
+            attn_matrix = F.softmax(attn_matrix, dim=-1)
+            attn_question = (encoded_question.unsqueeze(1) * attn_matrix.unsqueeze(3)).sum(2)
+        else:
+            attn_matrix = self.seq_attn(encoded_question, question_mask)
+            attn_question = f.weighted_sum(attn_matrix, encoded_question)
+            attn_question = attn_question.unsqueeze(1)
+        logits = self.mlp(self.linear_question(attn_question) + self.linear_column(encoded_column)).squeeze()
+        logits = f.add_masked_value(logits, column_mask, value=-10000000.0)
+        return logits
+
+
+def detokenize(tokens):
+    ret = ''
+    for g, a in zip(tokens['gloss'], tokens['after']):
+        ret += g + a
+    return ret.strip()
+
+
+re_whitespace = re.compile('\\s+', flags=re.UNICODE)
+
+
+class Query:
+    agg_ops = ['', 'MAX', 'MIN', 'COUNT', 'SUM', 'AVG']
+    cond_ops = ['=', '>', '<', 'OP']
+    syms = ['SELECT', 'WHERE', 'AND', 'COL', 'TABLE', 'CAPTION', 'PAGE', 'SECTION', 'OP', 'COND', 'QUESTION', 'AGG', 'AGGOPS', 'CONDOPS']
+
+    def __init__(self, sel_index, agg_index, conditions=tuple(), ordered=False):
+        self.sel_index = sel_index
+        self.agg_index = agg_index
+        self.conditions = list(conditions)
+        self.ordered = ordered
+
+    def __eq__(self, other):
+        if isinstance(other, self.__class__):
+            indices = self.sel_index == other.sel_index and self.agg_index == other.agg_index
+            if other.ordered:
+                conds = [(col, op, str(cond).lower()) for col, op, cond in self.conditions] == [(col, op, str(cond).lower()) for col, op, cond in other.conditions]
+            else:
+                conds = set([(col, op, str(cond).lower()) for col, op, cond in self.conditions]) == set([(col, op, str(cond).lower()) for col, op, cond in other.conditions])
+            return indices and conds
+        return NotImplemented
+
+    def __ne__(self, other):
+        if isinstance(other, self.__class__):
+            return not self.__eq__(other)
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(tuple(sorted(self.__dict__.items())))
+
+    def __repr__(self):
+        rep = 'SELECT {agg} {sel} FROM table'.format(agg=self.agg_ops[self.agg_index], sel='col{}'.format(self.sel_index))
+        if self.conditions:
+            rep += ' WHERE ' + ' AND '.join(['{} {} {}'.format('col{}'.format(i), self.cond_ops[o], v) for i, o, v in self.conditions])
+        return rep
+
+    def to_dict(self):
+        return {'sel': self.sel_index, 'agg': self.agg_index, 'conds': self.conditions}
+
+    def lower(self):
+        conds = []
+        for col, op, cond in self.conditions:
+            conds.append([col, op, cond.lower()])
+        return self.__class__(self.sel_index, self.agg_index, conds)
+
+    @classmethod
+    def from_dict(cls, d, ordered=False):
+        return cls(sel_index=d['sel'], agg_index=d['agg'], conditions=d['conds'], ordered=ordered)
+
+    @classmethod
+    def from_tokenized_dict(cls, d):
+        conds = []
+        for col, op, val in d['conds']:
+            conds.append([col, op, detokenize(val)])
+        return cls(d['sel'], d['agg'], conds)
+
+    @classmethod
+    def from_generated_dict(cls, d):
+        conds = []
+        for col, op, val in d['conds']:
+            end = len(val['words'])
+            conds.append([col, op, detokenize(val)])
+        return cls(d['sel'], d['agg'], conds)
+
+    @classmethod
+    def from_sequence(cls, sequence, table, lowercase=True):
+        sequence = deepcopy(sequence)
+        if 'symend' in sequence['words']:
+            end = sequence['words'].index('symend')
+            for k, v in sequence.items():
+                sequence[k] = v[:end]
+        terms = [{'gloss': g, 'word': w, 'after': a} for g, w, a in zip(sequence['gloss'], sequence['words'], sequence['after'])]
+        headers = [detokenize(h) for h in table['header']]
+        if lowercase:
+            headers = [h.lower() for h in headers]
+            for i, t in enumerate(terms):
+                for k, v in t.items():
+                    t[k] = v.lower()
+        headers_no_whitespcae = [re.sub(re_whitespace, '', h) for h in headers]
+        if 'symselect' != terms.pop(0)['word']:
+            raise Exception('Missing symselect operator')
+        if 'symagg' != terms.pop(0)['word']:
+            raise Exception('Missing symagg operator')
+        agg_op = terms.pop(0)['word']
+        if agg_op == 'symcol':
+            agg_op = ''
+        elif 'symcol' != terms.pop(0)['word']:
+            raise Exception('Missing aggregation column')
+        try:
+            agg_op = cls.agg_ops.index(agg_op.upper())
+        except Exception as e:
+            raise Exception('Invalid agg op {}'.format(agg_op))
+
+        def find_column(name):
+            return headers_no_whitespcae.index(re.sub(re_whitespace, '', name))
+
+        def flatten(tokens):
+            ret = {'words': [], 'after': [], 'gloss': []}
+            for t in tokens:
+                ret['words'].append(t['word'])
+                ret['after'].append(t['after'])
+                ret['gloss'].append(t['gloss'])
+            return ret
+        where_index = [i for i, t in enumerate(terms) if t['word'] == 'symwhere']
+        where_index = where_index[0] if where_index else len(terms)
+        flat = flatten(terms[:where_index])
+        try:
+            agg_col = find_column(detokenize(flat))
+        except Exception as e:
+            raise Exception('Cannot find aggregation column {}'.format(flat['words']))
+        where_terms = terms[where_index + 1:]
+        conditions = []
+        while where_terms:
+            t = where_terms.pop(0)
+            flat = flatten(where_terms)
+            if t['word'] != 'symcol':
+                raise Exception('Missing conditional column {}'.format(flat['words']))
+            try:
+                op_index = flat['words'].index('symop')
+                col_tokens = flatten(where_terms[:op_index])
+            except Exception as e:
+                raise Exception('Missing conditional operator {}'.format(flat['words']))
+            cond_op = where_terms[op_index + 1]['word']
+            try:
+                cond_op = cls.cond_ops.index(cond_op.upper())
+            except Exception as e:
+                raise Exception('Invalid cond op {}'.format(cond_op))
+            try:
+                cond_col = find_column(detokenize(col_tokens))
+            except Exception as e:
+                raise Exception('Cannot find conditional column {}'.format(col_tokens['words']))
+            try:
+                val_index = flat['words'].index('symcond')
+            except Exception as e:
+                raise Exception('Cannot find conditional value {}'.format(flat['words']))
+            where_terms = where_terms[val_index + 1:]
+            flat = flatten(where_terms)
+            val_end_index = flat['words'].index('symand') if 'symand' in flat['words'] else len(where_terms)
+            cond_val = detokenize(flatten(where_terms[:val_end_index]))
+            conditions.append([cond_col, cond_op, cond_val])
+            where_terms = where_terms[val_end_index + 1:]
+        q = cls(agg_col, agg_op, conditions)
+        return q
+
+    @classmethod
+    def from_partial_sequence(cls, agg_col, agg_op, sequence, table, lowercase=True):
+        sequence = deepcopy(sequence)
+        if 'symend' in sequence['words']:
+            end = sequence['words'].index('symend')
+            for k, v in sequence.items():
+                sequence[k] = v[:end]
+        terms = [{'gloss': g, 'word': w, 'after': a} for g, w, a in zip(sequence['gloss'], sequence['words'], sequence['after'])]
+        headers = [detokenize(h) for h in table['header']]
+        if lowercase:
+            headers = [h.lower() for h in headers]
+            for i, t in enumerate(terms):
+                for k, v in t.items():
+                    t[k] = v.lower()
+        headers_no_whitespcae = [re.sub(re_whitespace, '', h) for h in headers]
+
+        def find_column(name):
+            return headers_no_whitespcae.index(re.sub(re_whitespace, '', name))
+
+        def flatten(tokens):
+            ret = {'words': [], 'after': [], 'gloss': []}
+            for t in tokens:
+                ret['words'].append(t['word'])
+                ret['after'].append(t['after'])
+                ret['gloss'].append(t['gloss'])
+            return ret
+        where_index = [i for i, t in enumerate(terms) if t['word'] == 'symwhere']
+        where_index = where_index[0] if where_index else len(terms)
+        where_terms = terms[where_index + 1:]
+        conditions = []
+        while where_terms:
+            t = where_terms.pop(0)
+            flat = flatten(where_terms)
+            if t['word'] != 'symcol':
+                raise Exception('Missing conditional column {}'.format(flat['words']))
+            try:
+                op_index = flat['words'].index('symop')
+                col_tokens = flatten(where_terms[:op_index])
+            except Exception as e:
+                raise Exception('Missing conditional operator {}'.format(flat['words']))
+            cond_op = where_terms[op_index + 1]['word']
+            try:
+                cond_op = cls.cond_ops.index(cond_op.upper())
+            except Exception as e:
+                raise Exception('Invalid cond op {}'.format(cond_op))
+            try:
+                cond_col = find_column(detokenize(col_tokens))
+            except Exception as e:
+                raise Exception('Cannot find conditional column {}'.format(col_tokens['words']))
+            try:
+                val_index = flat['words'].index('symcond')
+            except Exception as e:
+                raise Exception('Cannot find conditional value {}'.format(flat['words']))
+            where_terms = where_terms[val_index + 1:]
+            flat = flatten(where_terms)
+            val_end_index = flat['words'].index('symand') if 'symand' in flat['words'] else len(where_terms)
+            cond_val = detokenize(flatten(where_terms[:val_end_index]))
+            conditions.append([cond_col, cond_op, cond_val])
+            where_terms = where_terms[val_end_index + 1:]
+        q = cls(agg_col, agg_op, conditions)
+        return q
+
+
+num_re = re.compile('[-+]?\\d*\\.\\d+|\\d+')
+
+
+schema_re = re.compile('\\((.+)\\)')
+
+
+class DBEngine:
+
+    def __init__(self, fdb):
+        self.db = records.Database('sqlite:///{}'.format(fdb))
+        self.conn = self.db.get_connection()
+
+    def execute_query(self, table_id, query, *args, **kwargs):
+        return self.execute(table_id, query.sel_index, query.agg_index, query.conditions, *args, **kwargs)
+
+    def execute(self, table_id, select_index, aggregation_index, conditions, lower=True):
+        if not table_id.startswith('table'):
+            table_id = 'table_{}'.format(table_id.replace('-', '_'))
+        table_info = self.conn.query('SELECT sql from sqlite_master WHERE tbl_name = :name', name=table_id).all()[0].sql
+        schema_str = schema_re.findall(table_info)[0]
+        schema = {}
+        for tup in schema_str.split(', '):
+            c, t = tup.split()
+            schema[c] = t
+        select = 'col{}'.format(select_index)
+        agg = Query.agg_ops[aggregation_index]
+        if agg:
+            select = '{}({})'.format(agg, select)
+        where_clause = []
+        where_map = {}
+        for col_index, op, val in conditions:
+            if lower and isinstance(val, str):
+                val = val.lower()
+            if schema['col{}'.format(col_index)] == 'real' and not isinstance(val, (int, float)):
+                try:
+                    val = float(parse_decimal(val))
+                except NumberFormatError as e:
+                    val = float(num_re.findall(val)[0])
+            where_clause.append('col{} {} :col{}'.format(col_index, Query.cond_ops[op], col_index))
+            where_map['col{}'.format(col_index)] = val
+        where_str = ''
+        if where_clause:
+            where_str = 'WHERE ' + ' AND '.join(where_clause)
+        query = 'SELECT {} AS result FROM {} {}'.format(select, table_id, where_str)
+        out = self.conn.query(query, **where_map)
+        return [o.result for o in out]
+
+
+class WikiSQL:
+    """
+    WikiSQL Mixin Class
+        with official evaluation
+
+    * Args:
+        token_embedder: 'TokenEmbedder'
+    """
+    AGG_OPS = ['None', 'MAX', 'MIN', 'COUNT', 'SUM', 'AVG']
+    COND_OPS = ['EQL', 'GT', 'LT']
+
+    def make_metrics(self, predictions):
+        """ aggregator, select_column, conditions accuracy """
+        agg_accuracy, sel_accuracy, conds_accuracy = 0, 0, 0
+        for index, pred in predictions.items():
+            target = self._dataset.get_ground_truth(index)
+            agg_acc = 1 if pred['query']['agg'] == target['agg_idx'] else 0
+            sel_acc = 1 if pred['query']['sel'] == target['sel_idx'] else 0
+            pred_conds = pred['query']['conds']
+            string_set_pred_conds = set(['#'.join(map(str, cond)).lower() for cond in pred_conds])
+            target_conds = [[target['conds_col'][i], target['conds_op'][i], target['conds_val_str'][i]] for i in range(target['conds_num'])]
+            string_set_target_conds = set(['#'.join(map(str, cond)).lower() for cond in target_conds])
+            conds_acc = 1 if string_set_pred_conds == string_set_target_conds else 0
+            agg_accuracy += agg_acc
+            sel_accuracy += sel_acc
+            conds_accuracy += conds_acc
+        total_count = len(self._dataset)
+        agg_accuracy = 100.0 * agg_accuracy / total_count
+        sel_accuracy = 100.0 * sel_accuracy / total_count
+        conds_accuracy = 100.0 * conds_accuracy / total_count
+        metrics = {'agg_accuracy': agg_accuracy, 'sel_accuracy': sel_accuracy, 'conds_accuracy': conds_accuracy}
+        self.write_predictions(predictions)
+        wikisql_official_metrics = self._make_metrics_with_official(predictions)
+        metrics.update(wikisql_official_metrics)
+        return metrics
+
+    def _make_metrics_with_official(self, preds):
+        """
+        WikiSQL official evaluation
+
+        lf_accuracy: Logical-form accuracy
+          - Directly compare the synthesized SQL query with the ground truth to
+            check whether they match each other.
+        ex_accuracy: Execution accuracy
+          - Execute both the synthesized query and the ground truth query and
+            compare whether the results match to each other.
+        """
+        labels = self._dataset.labels
+        db_path = self._dataset.helper['db_path']
+        return wikisql_official.evaluate(labels, preds, db_path)
+
+    def make_predictions(self, output_dict):
+        predictions = {}
+        sql_quries = self.generate_queries(output_dict)
+        for i in range(len(sql_quries)):
+            query = sql_quries[i]
+            prediction = {}
+            prediction.update(query)
+            data_id = self._dataset.get_id(output_dict['data_id'][i])
+            predictions[data_id] = prediction
+        return predictions
+
+    def generate_queries(self, output_dict):
+        preds_agg = torch.argmax(output_dict['agg_logits'], dim=-1)
+        preds_sel = torch.argmax(output_dict['sel_logits'], dim=-1)
+        conds_logits = output_dict['conds_logits']
+        conds_num_logits, conds_column_logits, conds_op_logits, conds_value_logits = conds_logits
+        preds_conds_num = torch.argmax(conds_num_logits, dim=-1)
+        preds_conds_op = torch.argmax(conds_op_logits, dim=-1)
+        sql_quries = []
+        B = output_dict['agg_logits'].size(0)
+        for i in range(B):
+            if 'table_id' in output_dict:
+                table_id = output_dict['table_id']
+            else:
+                table_id = self._dataset.get_table_id(output_dict['data_id'][i])
+            query = {'table_id': table_id, 'query': {'agg': preds_agg[i].item(), 'sel': preds_sel[i].item()}}
+            pred_conds_num = preds_conds_num[i].item()
+            conds_pred = []
+            if pred_conds_num == 0:
+                pass
+            else:
+                _, pred_conds_column_idx = torch.topk(conds_column_logits[i], pred_conds_num)
+                if preds_conds_op.dim() == 1:
+                    pred_conds_op = preds_conds_op
+                    conds_value_logits = conds_value_logits.squeeze(3)
+                    conds_value_logits = conds_value_logits.squeeze(0)
+                else:
+                    pred_conds_op = preds_conds_op[i]
+                if 'tokenized_question' in output_dict:
+                    tokenized_question = output_dict['tokenized_question']
+                else:
+                    tokenized_question = self._dataset.get_tokenized_question(output_dict['data_id'][i])
+                conds_pred = [[pred_conds_column_idx[j].item(), pred_conds_op[j].item(), self.decode_pointer(tokenized_question, conds_value_logits[i][j])] for j in range(pred_conds_num)]
+            query['query']['conds'] = conds_pred
+            sql_quries.append(query)
+        return sql_quries
+
+    def decode_pointer(self, tokenized_question, cond_value_logits):
+        question_text = ' '.join(tokenized_question)
+        tokenized_question = ['<BEG>'] + tokenized_question + ['<END>']
+        conds_value = []
+        for value_logit in cond_value_logits:
+            pred_value_pos = torch.argmax(value_logit[:len(tokenized_question)]).item()
+            pred_value_token = tokenized_question[pred_value_pos]
+            if pred_value_token == '<END>':
+                break
+            conds_value.append(pred_value_token)
+        conds_value = self.merge_tokens(conds_value, question_text)
+        return conds_value
+
+    def merge_tokens(self, tok_list, raw_tok_str):
+        lower_tok_str = raw_tok_str.lower()
+        alphabet = set('abcdefghijklmnopqrstuvwxyz0123456789$(')
+        special = {'-LRB-': '(', '-RRB-': ')', '-LSB-': '[', '-RSB-': ']', '``': '"', "''": '"', '--': '–'}
+        ret = ''
+        double_quote_appear = 0
+        for raw_tok in tok_list:
+            if not raw_tok:
+                continue
+            tok = special.get(raw_tok, raw_tok)
+            lower_tok = tok.lower()
+            if tok == '"':
+                double_quote_appear = 1 - double_quote_appear
+            if len(ret) == 0:
+                pass
+            elif len(ret) > 0 and ret + ' ' + lower_tok in lower_tok_str:
+                ret = ret + ' '
+            elif len(ret) > 0 and ret + lower_tok in lower_tok_str:
+                pass
+            elif lower_tok == '"':
+                if double_quote_appear:
+                    ret = ret + ' '
+            elif lower_tok[0] not in alphabet:
+                pass
+            elif ret[-1] not in ['(', '/', '–', '#', '$', '&'] and (ret[-1] != '"' or not double_quote_appear):
+                ret = ret + ' '
+            ret = ret + tok
+        return ret.strip()
+
+    @arguments_required(['db_path', 'table_id'])
+    def predict(self, output_dict, arguments, helper):
+        """
+        Inference by raw_feature
+
+        * Args:
+            output_dict: model's output dictionary consisting of
+            arguments: arguments dictionary consisting of user_input
+            helper: dictionary for helping get answer
+
+        * Returns:
+            query: Generated SQL Query
+            execute_result: Execute result by generated query
+        """
+        output_dict['table_id'] = arguments['table_id']
+        output_dict['tokenized_question'] = helper['tokenized_question']
+        prediction = self.generate_queries(output_dict)[0]
+        pred_query = Query.from_dict(prediction['query'], ordered=True)
+        dbengine = DBEngine(arguments['db_path'])
+        try:
+            pred_execute_result = dbengine.execute_query(prediction['table_id'], pred_query, lower=True)
+        except IndexError as e:
+            pred_execute_result = str(e)
+        return {'query': str(pred_query), 'execute_result': pred_execute_result}
+
+    def print_examples(self, index, inputs, predictions):
+        """
+        Print evaluation examples
+
+        * Args:
+            index: data index
+            inputs: mini-batch inputs
+            predictions: prediction dictionary consisting of
+                - key: 'id' (question id)
+                - value: consisting of dictionary
+                    table_id, query (agg, sel, conds)
+
+        * Returns:
+            print(Context, Question, Answers and Predict)
+        """
+        data_index = inputs['labels']['data_idx'][index].item()
+        data_id = self._dataset.get_id(data_index)
+        helper = self._dataset.helper
+        question = helper['examples'][data_id]['question']
+        label = self._dataset.get_ground_truth(data_id)
+        dbengine = DBEngine(helper['db_path'])
+        prediction = predictions[data_id]
+        pred_query = Query.from_dict(prediction['query'], ordered=True)
+        pred_execute_result = dbengine.execute_query(prediction['table_id'], pred_query, lower=True)
+        None
+        None
+        None
+        None
+        None
+        None
+        None
+        None
 
 
 class BiAttention(nn.Module):
@@ -1035,33 +2452,6 @@ class BilinearSeqAttn(nn.Module):
         return alpha
 
 
-class DepSepConv(nn.Module):
-    """
-    Depthwise Separable Convolutions
-        in Xception: Deep Learning with Depthwise Separable Convolutions (https://arxiv.org/abs/1610.02357)
-
-    depthwise -> pointwise (1x1 conv)
-
-    * Args:
-        input_size: the number of input tensor's dimension
-        num_filters: the number of convolution filter
-        kernel_size: the number of convolution kernel size
-    """
-
-    def __init__(self, input_size=None, num_filters=None, kernel_size=None):
-        super(DepSepConv, self).__init__()
-        self.depthwise = nn.Conv1d(in_channels=input_size, out_channels=input_size, kernel_size=kernel_size, groups=input_size, padding=kernel_size // 2)
-        nn.init.kaiming_normal_(self.depthwise.weight)
-        self.pointwise = PointwiseConv(input_size=input_size, num_filters=num_filters)
-        self.activation_fn = F.relu
-
-    def forward(self, x):
-        x = self.depthwise(x.transpose(1, 2))
-        x = self.pointwise(x.transpose(1, 2))
-        x = self.activation_fn(x)
-        return x
-
-
 class PointwiseConv(nn.Module):
     """
     Pointwise Convolution (1x1 Conv)
@@ -1087,6 +2477,33 @@ class PointwiseConv(nn.Module):
         size_out = x.size()[:-1] + (self.num_filters,)
         x = torch.addmm(self.bias, x.contiguous().view(-1, x.size(-1)), self.weight)
         x = x.view(*size_out)
+        return x
+
+
+class DepSepConv(nn.Module):
+    """
+    Depthwise Separable Convolutions
+        in Xception: Deep Learning with Depthwise Separable Convolutions (https://arxiv.org/abs/1610.02357)
+
+    depthwise -> pointwise (1x1 conv)
+
+    * Args:
+        input_size: the number of input tensor's dimension
+        num_filters: the number of convolution filter
+        kernel_size: the number of convolution kernel size
+    """
+
+    def __init__(self, input_size=None, num_filters=None, kernel_size=None):
+        super(DepSepConv, self).__init__()
+        self.depthwise = nn.Conv1d(in_channels=input_size, out_channels=input_size, kernel_size=kernel_size, groups=input_size, padding=kernel_size // 2)
+        nn.init.kaiming_normal_(self.depthwise.weight)
+        self.pointwise = PointwiseConv(input_size=input_size, num_filters=num_filters)
+        self.activation_fn = F.relu
+
+    def forward(self, x):
+        x = self.depthwise(x.transpose(1, 2))
+        x = self.pointwise(x.transpose(1, 2))
+        x = self.activation_fn(x)
         return x
 
 
@@ -1708,9 +3125,6 @@ class ScalarMix(torch.nn.Module):
             return self.gamma * sum(pieces)
 
 
-logger = logging.getLogger(__name__)
-
-
 class MTLSTM(nn.Module):
 
     def __init__(self, word_embedding, pretrained_path=None, requires_grad=False, residual_embeddings=False):
@@ -1726,7 +3140,7 @@ class MTLSTM(nn.Module):
         self.rnn = nn.LSTM(300, 300, num_layers=2, bidirectional=True, batch_first=True)
         data_handler = DataHandler(cache_path=CachePath.PRETRAINED_VECTOR)
         cove_weight_path = data_handler.read(pretrained_path, return_path=True)
-        if torch.is_available():
+        if torch.cuda.is_available():
             checkpoint = torch.load(cove_weight_path)
         else:
             checkpoint = torch.load(cove_weight_path, map_location='cpu')
@@ -1752,171 +3166,6 @@ class MTLSTM(nn.Module):
         if self.residual_embeddings:
             outputs = torch.cat([embedded_inputs, encoded_inputs], 2)
         return outputs
-
-
-def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Remove begin/end of sentence embeddings from the batch of sentences.
-    Given a batch of sentences with size ``(batch_size, timesteps, dim)``
-    this returns a tensor of shape ``(batch_size, timesteps - 2, dim)`` after removing
-    the beginning and end sentence markers.  The sentences are assumed to be padded on the right,
-    with the beginning of each sentence assumed to occur at index 0 (i.e., ``mask[:, 0]`` is assumed
-    to be 1).
-    Returns both the new tensor and updated mask.
-    This function is the inverse of ``add_sentence_boundary_token_ids``.
-    Parameters
-    ----------
-    tensor : ``torch.Tensor``
-        A tensor of shape ``(batch_size, timesteps, dim)``
-    mask : ``torch.Tensor``
-         A tensor of shape ``(batch_size, timesteps)``
-    Returns
-    -------
-    tensor_without_boundary_tokens : ``torch.Tensor``
-        The tensor after removing the boundary tokens of shape ``(batch_size, timesteps - 2, dim)``
-    new_mask : ``torch.Tensor``
-        The new mask for the tensor of shape ``(batch_size, timesteps - 2)``.
-    """
-    sequence_lengths = mask.sum(dim=1).detach().cpu().numpy()
-    tensor_shape = list(tensor.data.shape)
-    new_shape = list(tensor_shape)
-    new_shape[1] = tensor_shape[1] - 2
-    tensor_without_boundary_tokens = tensor.new_zeros(*new_shape)
-    new_mask = tensor.new_zeros((new_shape[0], new_shape[1]), dtype=torch.long)
-    for i, j in enumerate(sequence_lengths):
-        if j > 2:
-            tensor_without_boundary_tokens[(i), :j - 2, :] = tensor[(i), 1:j - 1, :]
-            new_mask[(i), :j - 2] = 1
-    return tensor_without_boundary_tokens, new_mask
-
-
-class Elmo(torch.nn.Module):
-    """
-    Compute ELMo representations using a pre-trained bidirectional language model.
-    See "Deep contextualized word representations", Peters et al. for details.
-    This module takes character id input and computes ``num_output_representations`` different layers
-    of ELMo representations.  Typically ``num_output_representations`` is 1 or 2.  For example, in
-    the case of the SRL model in the above paper, ``num_output_representations=1`` where ELMo was included at
-    the input token representation layer.  In the case of the SQuAD model, ``num_output_representations=2``
-    as ELMo was also included at the GRU output layer.
-    In the implementation below, we learn separate scalar weights for each output layer,
-    but only run the biLM once on each input sequence for efficiency.
-    Parameters
-    ----------
-    options_file : ``str``, required.
-        ELMo JSON options file
-    weight_file : ``str``, required.
-        ELMo hdf5 weight file
-    num_output_representations: ``int``, required.
-        The number of ELMo representation layers to output.
-    requires_grad: ``bool``, optional
-        If True, compute gradient of ELMo parameters for fine tuning.
-    do_layer_norm : ``bool``, optional, (default=False).
-        Should we apply layer normalization (passed to ``ScalarMix``)?
-    dropout : ``float``, optional, (default = 0.5).
-        The dropout to be applied to the ELMo representations.
-    vocab_to_cache : ``List[str]``, optional, (default = 0.5).
-        A list of words to pre-compute and cache character convolutions
-        for. If you use this option, Elmo expects that you pass word
-        indices of shape (batch_size, timesteps) to forward, instead
-        of character indices. If you use this option and pass a word which
-        wasn't pre-cached, this will break.
-    module : ``torch.nn.Module``, optional, (default = None).
-        If provided, then use this module instead of the pre-trained ELMo biLM.
-        If using this option, then pass ``None`` for both ``options_file``
-        and ``weight_file``.  The module must provide a public attribute
-        ``num_layers`` with the number of internal layers and its ``forward``
-        method must return a ``dict`` with ``activations`` and ``mask`` keys
-        (see `_ElmoBilm`` for an example).  Note that ``requires_grad`` is also
-        ignored with this option.
-    """
-
-    def __init__(self, options_file: str, weight_file: str, num_output_representations: int, requires_grad: bool=False, do_layer_norm: bool=False, dropout: float=0.5, vocab_to_cache: List[str]=None, module: torch.nn.Module=None) ->None:
-        super(Elmo, self).__init__()
-        logging.info('Initializing ELMo')
-        if module is not None:
-            if options_file is not None or weight_file is not None:
-                raise ValueError("Don't provide options_file or weight_file with module")
-            self._elmo_lstm = module
-        else:
-            self._elmo_lstm = _ElmoBiLm(options_file, weight_file, requires_grad=requires_grad, vocab_to_cache=vocab_to_cache)
-        self._has_cached_vocab = vocab_to_cache is not None
-        self._dropout = Dropout(p=dropout)
-        self._scalar_mixes: Any = []
-        for k in range(num_output_representations):
-            scalar_mix = ScalarMix(self._elmo_lstm.num_layers, do_layer_norm=do_layer_norm)
-            self.add_module('scalar_mix_{}'.format(k), scalar_mix)
-            self._scalar_mixes.append(scalar_mix)
-
-    def get_output_dim(self):
-        return self._elmo_lstm.get_output_dim()
-
-    def forward(self, inputs: torch.Tensor, word_inputs: torch.Tensor=None) ->Dict[str, Union[torch.Tensor, List[torch.Tensor]]]:
-        """
-        Parameters
-        ----------
-        inputs: ``torch.Tensor``, required.
-        Shape ``(batch_size, timesteps, 50)`` of character ids representing the current batch.
-        word_inputs : ``torch.Tensor``, required.
-            If you passed a cached vocab, you can in addition pass a tensor of shape
-            ``(batch_size, timesteps)``, which represent word ids which have been pre-cached.
-        Returns
-        -------
-        Dict with keys:
-        ``'elmo_representations'``: ``List[torch.Tensor]``
-            A ``num_output_representations`` list of ELMo representations for the input sequence.
-            Each representation is shape ``(batch_size, timesteps, embedding_dim)``
-        ``'mask'``:  ``torch.Tensor``
-            Shape ``(batch_size, timesteps)`` long tensor with sequence mask.
-        """
-        original_shape = inputs.size()
-        if len(original_shape) > 3:
-            timesteps, num_characters = original_shape[-2:]
-            reshaped_inputs = inputs.view(-1, timesteps, num_characters)
-        else:
-            reshaped_inputs = inputs
-        if word_inputs is not None:
-            original_word_size = word_inputs.size()
-            if self._has_cached_vocab and len(original_word_size) > 2:
-                reshaped_word_inputs = word_inputs.view(-1, original_word_size[-1])
-                logger.warning('Word inputs were passed to ELMo but it does not have a cached vocab.')
-                reshaped_word_inputs = None
-            else:
-                reshaped_word_inputs = word_inputs
-        else:
-            reshaped_word_inputs = word_inputs
-        bilm_output = self._elmo_lstm(reshaped_inputs, reshaped_word_inputs)
-        layer_activations = bilm_output['activations']
-        mask_with_bos_eos = bilm_output['mask']
-        representations = []
-        for i in range(len(self._scalar_mixes)):
-            scalar_mix = getattr(self, 'scalar_mix_{}'.format(i))
-            representation_with_bos_eos = scalar_mix(layer_activations, mask_with_bos_eos)
-            representation_without_bos_eos, mask_without_bos_eos = remove_sentence_boundaries(representation_with_bos_eos, mask_with_bos_eos)
-            representations.append(self._dropout(representation_without_bos_eos))
-        if word_inputs is not None and len(original_word_size) > 2:
-            mask = mask_without_bos_eos.view(original_word_size)
-            elmo_representations = [representation.view(original_word_size + (-1,)) for representation in representations]
-        elif len(original_shape) > 3:
-            mask = mask_without_bos_eos.view(original_shape[:-1])
-            elmo_representations = [representation.view(original_shape[:-1] + (-1,)) for representation in representations]
-        else:
-            mask = mask_without_bos_eos
-            elmo_representations = representations
-        return {'elmo_representations': elmo_representations, 'mask': mask}
-
-    @classmethod
-    def from_params(cls, params) ->'Elmo':
-        params.add_file_to_archive('options_file')
-        params.add_file_to_archive('weight_file')
-        options_file = params.pop('options_file')
-        weight_file = params.pop('weight_file')
-        requires_grad = params.pop('requires_grad', False)
-        num_output_representations = params.pop('num_output_representations')
-        do_layer_norm = params.pop_bool('do_layer_norm', False)
-        dropout = params.pop_float('dropout', 0.5)
-        params.assert_empty(cls.__name__)
-        return cls(options_file=options_file, weight_file=weight_file, num_output_representations=num_output_representations, requires_grad=requires_grad, do_layer_norm=do_layer_norm, dropout=dropout)
 
 
 class ElmoLstm(_EncoderBase):
@@ -2102,6 +3351,14 @@ class ElmoLstm(_EncoderBase):
                     lstm.state_projection.weight.requires_grad = requires_grad
 
 
+def _make_bos_eos(character: int, padding_character: int, beginning_of_word_character: int, end_of_word_character: int, max_word_length: int):
+    char_ids = [padding_character] * max_word_length
+    char_ids[0] = beginning_of_word_character
+    char_ids[1] = character
+    char_ids[2] = end_of_word_character
+    return char_ids
+
+
 def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.Tensor, sentence_begin_token: Any, sentence_end_token: Any) ->Tuple[torch.Tensor, torch.Tensor]:
     """
     Add begin/end of sentence tokens to the batch of sentences.
@@ -2234,12 +3491,169 @@ class _ElmoBiLm(torch.nn.Module):
         return {'activations': output_tensors, 'mask': mask}
 
 
-def _make_bos_eos(character: int, padding_character: int, beginning_of_word_character: int, end_of_word_character: int, max_word_length: int):
-    char_ids = [padding_character] * max_word_length
-    char_ids[0] = beginning_of_word_character
-    char_ids[1] = character
-    char_ids[2] = end_of_word_character
-    return char_ids
+def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Remove begin/end of sentence embeddings from the batch of sentences.
+    Given a batch of sentences with size ``(batch_size, timesteps, dim)``
+    this returns a tensor of shape ``(batch_size, timesteps - 2, dim)`` after removing
+    the beginning and end sentence markers.  The sentences are assumed to be padded on the right,
+    with the beginning of each sentence assumed to occur at index 0 (i.e., ``mask[:, 0]`` is assumed
+    to be 1).
+    Returns both the new tensor and updated mask.
+    This function is the inverse of ``add_sentence_boundary_token_ids``.
+    Parameters
+    ----------
+    tensor : ``torch.Tensor``
+        A tensor of shape ``(batch_size, timesteps, dim)``
+    mask : ``torch.Tensor``
+         A tensor of shape ``(batch_size, timesteps)``
+    Returns
+    -------
+    tensor_without_boundary_tokens : ``torch.Tensor``
+        The tensor after removing the boundary tokens of shape ``(batch_size, timesteps - 2, dim)``
+    new_mask : ``torch.Tensor``
+        The new mask for the tensor of shape ``(batch_size, timesteps - 2)``.
+    """
+    sequence_lengths = mask.sum(dim=1).detach().cpu().numpy()
+    tensor_shape = list(tensor.data.shape)
+    new_shape = list(tensor_shape)
+    new_shape[1] = tensor_shape[1] - 2
+    tensor_without_boundary_tokens = tensor.new_zeros(*new_shape)
+    new_mask = tensor.new_zeros((new_shape[0], new_shape[1]), dtype=torch.long)
+    for i, j in enumerate(sequence_lengths):
+        if j > 2:
+            tensor_without_boundary_tokens[(i), :j - 2, :] = tensor[(i), 1:j - 1, :]
+            new_mask[(i), :j - 2] = 1
+    return tensor_without_boundary_tokens, new_mask
+
+
+class Elmo(torch.nn.Module):
+    """
+    Compute ELMo representations using a pre-trained bidirectional language model.
+    See "Deep contextualized word representations", Peters et al. for details.
+    This module takes character id input and computes ``num_output_representations`` different layers
+    of ELMo representations.  Typically ``num_output_representations`` is 1 or 2.  For example, in
+    the case of the SRL model in the above paper, ``num_output_representations=1`` where ELMo was included at
+    the input token representation layer.  In the case of the SQuAD model, ``num_output_representations=2``
+    as ELMo was also included at the GRU output layer.
+    In the implementation below, we learn separate scalar weights for each output layer,
+    but only run the biLM once on each input sequence for efficiency.
+    Parameters
+    ----------
+    options_file : ``str``, required.
+        ELMo JSON options file
+    weight_file : ``str``, required.
+        ELMo hdf5 weight file
+    num_output_representations: ``int``, required.
+        The number of ELMo representation layers to output.
+    requires_grad: ``bool``, optional
+        If True, compute gradient of ELMo parameters for fine tuning.
+    do_layer_norm : ``bool``, optional, (default=False).
+        Should we apply layer normalization (passed to ``ScalarMix``)?
+    dropout : ``float``, optional, (default = 0.5).
+        The dropout to be applied to the ELMo representations.
+    vocab_to_cache : ``List[str]``, optional, (default = 0.5).
+        A list of words to pre-compute and cache character convolutions
+        for. If you use this option, Elmo expects that you pass word
+        indices of shape (batch_size, timesteps) to forward, instead
+        of character indices. If you use this option and pass a word which
+        wasn't pre-cached, this will break.
+    module : ``torch.nn.Module``, optional, (default = None).
+        If provided, then use this module instead of the pre-trained ELMo biLM.
+        If using this option, then pass ``None`` for both ``options_file``
+        and ``weight_file``.  The module must provide a public attribute
+        ``num_layers`` with the number of internal layers and its ``forward``
+        method must return a ``dict`` with ``activations`` and ``mask`` keys
+        (see `_ElmoBilm`` for an example).  Note that ``requires_grad`` is also
+        ignored with this option.
+    """
+
+    def __init__(self, options_file: str, weight_file: str, num_output_representations: int, requires_grad: bool=False, do_layer_norm: bool=False, dropout: float=0.5, vocab_to_cache: List[str]=None, module: torch.nn.Module=None) ->None:
+        super(Elmo, self).__init__()
+        logging.info('Initializing ELMo')
+        if module is not None:
+            if options_file is not None or weight_file is not None:
+                raise ValueError("Don't provide options_file or weight_file with module")
+            self._elmo_lstm = module
+        else:
+            self._elmo_lstm = _ElmoBiLm(options_file, weight_file, requires_grad=requires_grad, vocab_to_cache=vocab_to_cache)
+        self._has_cached_vocab = vocab_to_cache is not None
+        self._dropout = Dropout(p=dropout)
+        self._scalar_mixes: Any = []
+        for k in range(num_output_representations):
+            scalar_mix = ScalarMix(self._elmo_lstm.num_layers, do_layer_norm=do_layer_norm)
+            self.add_module('scalar_mix_{}'.format(k), scalar_mix)
+            self._scalar_mixes.append(scalar_mix)
+
+    def get_output_dim(self):
+        return self._elmo_lstm.get_output_dim()
+
+    def forward(self, inputs: torch.Tensor, word_inputs: torch.Tensor=None) ->Dict[str, Union[torch.Tensor, List[torch.Tensor]]]:
+        """
+        Parameters
+        ----------
+        inputs: ``torch.Tensor``, required.
+        Shape ``(batch_size, timesteps, 50)`` of character ids representing the current batch.
+        word_inputs : ``torch.Tensor``, required.
+            If you passed a cached vocab, you can in addition pass a tensor of shape
+            ``(batch_size, timesteps)``, which represent word ids which have been pre-cached.
+        Returns
+        -------
+        Dict with keys:
+        ``'elmo_representations'``: ``List[torch.Tensor]``
+            A ``num_output_representations`` list of ELMo representations for the input sequence.
+            Each representation is shape ``(batch_size, timesteps, embedding_dim)``
+        ``'mask'``:  ``torch.Tensor``
+            Shape ``(batch_size, timesteps)`` long tensor with sequence mask.
+        """
+        original_shape = inputs.size()
+        if len(original_shape) > 3:
+            timesteps, num_characters = original_shape[-2:]
+            reshaped_inputs = inputs.view(-1, timesteps, num_characters)
+        else:
+            reshaped_inputs = inputs
+        if word_inputs is not None:
+            original_word_size = word_inputs.size()
+            if self._has_cached_vocab and len(original_word_size) > 2:
+                reshaped_word_inputs = word_inputs.view(-1, original_word_size[-1])
+                logger.warning('Word inputs were passed to ELMo but it does not have a cached vocab.')
+                reshaped_word_inputs = None
+            else:
+                reshaped_word_inputs = word_inputs
+        else:
+            reshaped_word_inputs = word_inputs
+        bilm_output = self._elmo_lstm(reshaped_inputs, reshaped_word_inputs)
+        layer_activations = bilm_output['activations']
+        mask_with_bos_eos = bilm_output['mask']
+        representations = []
+        for i in range(len(self._scalar_mixes)):
+            scalar_mix = getattr(self, 'scalar_mix_{}'.format(i))
+            representation_with_bos_eos = scalar_mix(layer_activations, mask_with_bos_eos)
+            representation_without_bos_eos, mask_without_bos_eos = remove_sentence_boundaries(representation_with_bos_eos, mask_with_bos_eos)
+            representations.append(self._dropout(representation_without_bos_eos))
+        if word_inputs is not None and len(original_word_size) > 2:
+            mask = mask_without_bos_eos.view(original_word_size)
+            elmo_representations = [representation.view(original_word_size + (-1,)) for representation in representations]
+        elif len(original_shape) > 3:
+            mask = mask_without_bos_eos.view(original_shape[:-1])
+            elmo_representations = [representation.view(original_shape[:-1] + (-1,)) for representation in representations]
+        else:
+            mask = mask_without_bos_eos
+            elmo_representations = representations
+        return {'elmo_representations': elmo_representations, 'mask': mask}
+
+    @classmethod
+    def from_params(cls, params) ->'Elmo':
+        params.add_file_to_archive('options_file')
+        params.add_file_to_archive('weight_file')
+        options_file = params.pop('options_file')
+        weight_file = params.pop('weight_file')
+        requires_grad = params.pop('requires_grad', False)
+        num_output_representations = params.pop('num_output_representations')
+        do_layer_norm = params.pop_bool('do_layer_norm', False)
+        dropout = params.pop_float('dropout', 0.5)
+        params.assert_empty(cls.__name__)
+        return cls(options_file=options_file, weight_file=weight_file, num_output_representations=num_output_representations, requires_grad=requires_grad, do_layer_norm=do_layer_norm, dropout=dropout)
 
 
 class TokenEmbedding(torch.nn.Module):
@@ -2266,6 +3680,27 @@ class TokenEmbedding(torch.nn.Module):
 
     def get_vocab_size(self):
         return len(self.vocab)
+
+
+DEFAULT_OPTIONS_FILE = 'elmo_2x4096_512_2048cnn_2xhighway_options.json'
+
+
+DEFAULT_WEIGHT_FILE = 'elmo_2x4096_512_2048cnn_2xhighway_weights.hdf5'
+
+
+class VocabDict(defaultdict):
+    """
+    Vocab DefaultDict Class
+
+    * Kwargs:
+        oov_value: out-of-vocaburary token value (eg. <unk>)
+    """
+
+    def __init__(self, oov_value):
+        self.oov_value = oov_value
+
+    def __missing__(self, key):
+        return self.oov_value
 
 
 class Vocab:
@@ -2496,6 +3931,10 @@ TESTCASES = [
      lambda: ([], {'normalized_shape': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (LstmCellWithProjection,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'cell_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), [4, 4, 4, 4]], {}),
+     False),
     (NoAnswer,
      lambda: ([], {'embed_dim': 4, 'bias_hidden_dim': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
@@ -2555,4 +3994,7 @@ class Test_naver_claf(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
 

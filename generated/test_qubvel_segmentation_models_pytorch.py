@@ -58,15 +58,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -84,6 +85,12 @@ from torch.nn import functional as F
 
 
 from typing import Optional
+
+
+import functools
+
+
+import torch.utils.model_zoo as model_zoo
 
 
 from typing import List
@@ -122,7 +129,26 @@ from torchvision.models.vgg import make_layers
 from typing import Union
 
 
-import functools
+import numpy as np
+
+
+class Activation(nn.Module):
+
+    def __init__(self, activation):
+        super().__init__()
+        if activation == None or activation == 'identity':
+            self.activation = nn.Identity()
+        elif activation == 'sigmoid':
+            self.activation = torch.sigmoid
+        elif activation == 'softmax2d':
+            self.activation = functools.partial(torch.softmax, dim=1)
+        elif callable(activation):
+            self.activation = activation
+        else:
+            raise ValueError
+
+    def forward(self, x):
+        return self.activation(x)
 
 
 class SegmentationHead(nn.Sequential):
@@ -132,6 +158,12 @@ class SegmentationHead(nn.Sequential):
         upsampling = nn.UpsamplingBilinear2d(scale_factor=upsampling) if upsampling > 1 else nn.Identity()
         activation = Activation(activation)
         super().__init__(conv2d, upsampling, activation)
+
+
+class Flatten(nn.Module):
+
+    def forward(self, x):
+        return x.view(x.shape[0], -1)
 
 
 class ClassificationHead(nn.Sequential):
@@ -220,33 +252,6 @@ class ArgMax(nn.Module):
         return torch.argmax(x, dim=dim)
 
 
-class Activation(nn.Module):
-
-    def __init__(self, name, **params):
-        super().__init__()
-        if name is None or name == 'identity':
-            self.activation = nn.Identity(**params)
-        elif name == 'sigmoid':
-            self.activation = nn.Sigmoid()
-        elif name == 'softmax2d':
-            self.activation = nn.Softmax(dim=1, **params)
-        elif name == 'softmax':
-            self.activation = nn.Softmax(**params)
-        elif name == 'logsoftmax':
-            self.activation = nn.LogSoftmax(**params)
-        elif name == 'argmax':
-            self.activation = ArgMax(**params)
-        elif name == 'argmax2d':
-            self.activation = ArgMax(dim=1, **params)
-        elif callable(name):
-            self.activation = name(**params)
-        else:
-            raise ValueError('Activation should be callable/sigmoid/softmax/logsoftmax/None; got {}'.format(name))
-
-    def forward(self, x):
-        return self.activation(x)
-
-
 class Attention(nn.Module):
 
     def __init__(self, name, **params):
@@ -262,10 +267,59 @@ class Attention(nn.Module):
         return self.attention(x)
 
 
-class Flatten(nn.Module):
+class ASPPConv(nn.Sequential):
+
+    def __init__(self, in_channels, out_channels, dilation):
+        super().__init__(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+
+
+class ASPPPooling(nn.Sequential):
+
+    def __init__(self, in_channels, out_channels):
+        super().__init__(nn.AdaptiveAvgPool2d(1), nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
 
     def forward(self, x):
-        return x.view(x.shape[0], -1)
+        size = x.shape[-2:]
+        for mod in self:
+            x = mod(x)
+        return F.interpolate(x, size=size, mode='bilinear', align_corners=False)
+
+
+class SeparableConv2d(nn.Sequential):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=True):
+        dephtwise_conv = nn.Conv2d(in_channels, in_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=in_channels, bias=False)
+        pointwise_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=bias)
+        super().__init__(dephtwise_conv, pointwise_conv)
+
+
+class ASPPSeparableConv(nn.Sequential):
+
+    def __init__(self, in_channels, out_channels, dilation):
+        super().__init__(SeparableConv2d(in_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+
+
+class ASPP(nn.Module):
+
+    def __init__(self, in_channels, out_channels, atrous_rates, separable=False):
+        super(ASPP, self).__init__()
+        modules = []
+        modules.append(nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU()))
+        rate1, rate2, rate3 = tuple(atrous_rates)
+        ASPPConvModule = ASPPConv if not separable else ASPPSeparableConv
+        modules.append(ASPPConvModule(in_channels, out_channels, rate1))
+        modules.append(ASPPConvModule(in_channels, out_channels, rate2))
+        modules.append(ASPPConvModule(in_channels, out_channels, rate3))
+        modules.append(ASPPPooling(in_channels, out_channels))
+        self.convs = nn.ModuleList(modules)
+        self.project = nn.Sequential(nn.Conv2d(5 * out_channels, out_channels, kernel_size=1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(), nn.Dropout(0.5))
+
+    def forward(self, x):
+        res = []
+        for conv in self.convs:
+            res.append(conv(x))
+        res = torch.cat(res, dim=1)
+        return self.project(res)
 
 
 class DeepLabV3Decoder(nn.Sequential):
@@ -303,59 +357,109 @@ class DeepLabV3PlusDecoder(nn.Module):
         return fused_features
 
 
-class ASPPConv(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, dilation):
-        super().__init__(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
+encoders = {}
 
 
-class ASPPSeparableConv(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, dilation):
-        super().__init__(SeparableConv2d(in_channels, out_channels, kernel_size=3, padding=dilation, dilation=dilation, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
-
-
-class ASPPPooling(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels):
-        super().__init__(nn.AdaptiveAvgPool2d(1), nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
-
-    def forward(self, x):
-        size = x.shape[-2:]
-        for mod in self:
-            x = mod(x)
-        return F.interpolate(x, size=size, mode='bilinear', align_corners=False)
+def get_encoder(name, in_channels=3, depth=5, weights=None):
+    Encoder = encoders[name]['encoder']
+    params = encoders[name]['params']
+    params.update(depth=depth)
+    encoder = Encoder(**params)
+    if weights is not None:
+        settings = encoders[name]['pretrained_settings'][weights]
+        encoder.load_state_dict(model_zoo.load_url(settings['url']))
+    encoder.set_in_channels(in_channels)
+    return encoder
 
 
-class ASPP(nn.Module):
+class DeepLabV3(SegmentationModel):
+    """DeepLabV3_ implemetation from "Rethinking Atrous Convolution for Semantic Image Segmentation"
+    Args:
+        encoder_name: name of classification model (without last dense layers) used as feature
+                extractor to build segmentation model.
+        encoder_depth: number of stages used in decoder, larger depth - more features are generated.
+            e.g. for depth=3 encoder will generate list of features with following spatial shapes
+            [(H,W), (H/2, W/2), (H/4, W/4), (H/8, W/8)], so in general the deepest feature will have
+            spatial resolution (H/(2^depth), W/(2^depth)]
+        encoder_weights: one of ``None`` (random initialization), ``imagenet`` (pre-training on ImageNet).
+        decoder_channels: a number of convolution filters in ASPP module (default 256).
+        in_channels: number of input channels for model, default is 3.
+        classes: a number of classes for output (output shape - ``(batch, classes, h, w)``).
+        activation (str, callable): activation function used in ``.predict(x)`` method for inference.
+            One of [``sigmoid``, ``softmax2d``, callable, None]
+        upsampling: optional, final upsampling factor
+            (default is 8 to preserve input -> output spatial shape identity)
+        aux_params: if specified model will have additional classification auxiliary output
+            build on top of encoder, supported params:
+                - classes (int): number of classes
+                - pooling (str): one of 'max', 'avg'. Default is 'avg'.
+                - dropout (float): dropout factor in [0, 1)
+                - activation (str): activation function to apply "sigmoid"/"softmax" (could be None to return logits)
+    Returns:
+        ``torch.nn.Module``: **DeepLabV3**
+    .. _DeeplabV3:
+        https://arxiv.org/abs/1706.05587
+    """
 
-    def __init__(self, in_channels, out_channels, atrous_rates, separable=False):
-        super(ASPP, self).__init__()
-        modules = []
-        modules.append(nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU()))
-        rate1, rate2, rate3 = tuple(atrous_rates)
-        ASPPConvModule = ASPPConv if not separable else ASPPSeparableConv
-        modules.append(ASPPConvModule(in_channels, out_channels, rate1))
-        modules.append(ASPPConvModule(in_channels, out_channels, rate2))
-        modules.append(ASPPConvModule(in_channels, out_channels, rate3))
-        modules.append(ASPPPooling(in_channels, out_channels))
-        self.convs = nn.ModuleList(modules)
-        self.project = nn.Sequential(nn.Conv2d(5 * out_channels, out_channels, kernel_size=1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(), nn.Dropout(0.5))
-
-    def forward(self, x):
-        res = []
-        for conv in self.convs:
-            res.append(conv(x))
-        res = torch.cat(res, dim=1)
-        return self.project(res)
+    def __init__(self, encoder_name: str='resnet34', encoder_depth: int=5, encoder_weights: Optional[str]='imagenet', decoder_channels: int=256, in_channels: int=3, classes: int=1, activation: Optional[str]=None, upsampling: int=8, aux_params: Optional[dict]=None):
+        super().__init__()
+        self.encoder = get_encoder(encoder_name, in_channels=in_channels, depth=encoder_depth, weights=encoder_weights)
+        self.encoder.make_dilated(stage_list=[4, 5], dilation_list=[2, 4])
+        self.decoder = DeepLabV3Decoder(in_channels=self.encoder.out_channels[-1], out_channels=decoder_channels)
+        self.segmentation_head = SegmentationHead(in_channels=self.decoder.out_channels, out_channels=classes, activation=activation, kernel_size=1, upsampling=upsampling)
+        if aux_params is not None:
+            self.classification_head = ClassificationHead(in_channels=self.encoder.out_channels[-1], **aux_params)
+        else:
+            self.classification_head = None
 
 
-class SeparableConv2d(nn.Sequential):
+class DeepLabV3Plus(SegmentationModel):
+    """DeepLabV3Plus_ implemetation from "Encoder-Decoder with Atrous Separable
+Convolution for Semantic Image Segmentation"
+    Args:
+        encoder_name: name of classification model (without last dense layers) used as feature
+                extractor to build segmentation model.
+        encoder_depth: number of stages used in decoder, larger depth - more features are generated.
+            e.g. for depth=3 encoder will generate list of features with following spatial shapes
+            [(H,W), (H/2, W/2), (H/4, W/4), (H/8, W/8)], so in general the deepest feature will have
+            spatial resolution (H/(2^depth), W/(2^depth)]
+        encoder_weights: one of ``None`` (random initialization), ``imagenet`` (pre-training on ImageNet).
+        encoder_output_stride: downsampling factor for deepest encoder features (see original paper for explanation)
+        decoder_atrous_rates: dilation rates for ASPP module (should be a tuple of 3 integer values)
+        decoder_channels: a number of convolution filters in ASPP module (default 256).
+        in_channels: number of input channels for model, default is 3.
+        classes: a number of classes for output (output shape - ``(batch, classes, h, w)``).
+        activation (str, callable): activation function used in ``.predict(x)`` method for inference.
+            One of [``sigmoid``, ``softmax2d``, callable, None]
+        upsampling: optional, final upsampling factor
+            (default is 8 to preserve input -> output spatial shape identity)
+        aux_params: if specified model will have additional classification auxiliary output
+            build on top of encoder, supported params:
+                - classes (int): number of classes
+                - pooling (str): one of 'max', 'avg'. Default is 'avg'.
+                - dropout (float): dropout factor in [0, 1)
+                - activation (str): activation function to apply "sigmoid"/"softmax" (could be None to return logits)
+    Returns:
+        ``torch.nn.Module``: **DeepLabV3Plus**
+    .. _DeeplabV3Plus:
+        https://arxiv.org/abs/1802.02611v3
+    """
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=True):
-        dephtwise_conv = nn.Conv2d(in_channels, in_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=in_channels, bias=False)
-        pointwise_conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=bias)
-        super().__init__(dephtwise_conv, pointwise_conv)
+    def __init__(self, encoder_name: str='resnet34', encoder_depth: int=5, encoder_weights: Optional[str]='imagenet', encoder_output_stride: int=16, decoder_channels: int=256, decoder_atrous_rates: tuple=(12, 24, 36), in_channels: int=3, classes: int=1, activation: Optional[str]=None, upsampling: int=4, aux_params: Optional[dict]=None):
+        super().__init__()
+        self.encoder = get_encoder(encoder_name, in_channels=in_channels, depth=encoder_depth, weights=encoder_weights)
+        if encoder_output_stride == 8:
+            self.encoder.make_dilated(stage_list=[4, 5], dilation_list=[2, 4])
+        elif encoder_output_stride == 16:
+            self.encoder.make_dilated(stage_list=[5], dilation_list=[2])
+        else:
+            raise ValueError('Encoder output stride should be 8 or 16, got {}'.format(encoder_output_stride))
+        self.decoder = DeepLabV3PlusDecoder(encoder_channels=self.encoder.out_channels, out_channels=decoder_channels, atrous_rates=decoder_atrous_rates, output_stride=encoder_output_stride)
+        self.segmentation_head = SegmentationHead(in_channels=self.decoder.out_channels, out_channels=classes, activation=activation, kernel_size=1, upsampling=upsampling)
+        if aux_params is not None:
+            self.classification_head = ClassificationHead(in_channels=self.encoder.out_channels[-1], **aux_params)
+        else:
+            self.classification_head = None
 
 
 class TransitionWithSkip(nn.Module):
@@ -459,6 +563,55 @@ class FPNDecoder(nn.Module):
         return x
 
 
+class FPN(SegmentationModel):
+    """FPN_ is a fully convolution neural network for image semantic segmentation
+    Args:
+        encoder_name: name of classification model (without last dense layers) used as feature
+                extractor to build segmentation model.
+        encoder_depth: number of stages used in decoder, larger depth - more features are generated.
+            e.g. for depth=3 encoder will generate list of features with following spatial shapes
+            [(H,W), (H/2, W/2), (H/4, W/4), (H/8, W/8)], so in general the deepest feature will have
+            spatial resolution (H/(2^depth), W/(2^depth)]
+        encoder_weights: one of ``None`` (random initialization), ``imagenet`` (pre-training on ImageNet).
+        decoder_pyramid_channels: a number of convolution filters in Feature Pyramid of FPN_.
+        decoder_segmentation_channels: a number of convolution filters in segmentation head of FPN_.
+        decoder_merge_policy: determines how to merge outputs inside FPN.
+            One of [``add``, ``cat``]
+        decoder_dropout: spatial dropout rate in range (0, 1).
+        in_channels: number of input channels for model, default is 3.
+        classes: a number of classes for output (output shape - ``(batch, classes, h, w)``).
+        activation (str, callable): activation function used in ``.predict(x)`` method for inference.
+            One of [``sigmoid``, ``softmax2d``, callable, None]
+        upsampling: optional, final upsampling factor
+            (default is 4 to preserve input -> output spatial shape identity)
+        aux_params: if specified model will have additional classification auxiliary output
+            build on top of encoder, supported params:
+                - classes (int): number of classes
+                - pooling (str): one of 'max', 'avg'. Default is 'avg'.
+                - dropout (float): dropout factor in [0, 1)
+                - activation (str): activation function to apply "sigmoid"/"softmax" (could be None to return logits)
+
+    Returns:
+        ``torch.nn.Module``: **FPN**
+
+    .. _FPN:
+        http://presentations.cocodataset.org/COCO17-Stuff-FAIR.pdf
+
+    """
+
+    def __init__(self, encoder_name: str='resnet34', encoder_depth: int=5, encoder_weights: Optional[str]='imagenet', decoder_pyramid_channels: int=256, decoder_segmentation_channels: int=128, decoder_merge_policy: str='add', decoder_dropout: float=0.2, in_channels: int=3, classes: int=1, activation: Optional[str]=None, upsampling: int=4, aux_params: Optional[dict]=None):
+        super().__init__()
+        self.encoder = get_encoder(encoder_name, in_channels=in_channels, depth=encoder_depth, weights=encoder_weights)
+        self.decoder = FPNDecoder(encoder_channels=self.encoder.out_channels, encoder_depth=encoder_depth, pyramid_channels=decoder_pyramid_channels, segmentation_channels=decoder_segmentation_channels, dropout=decoder_dropout, merge_policy=decoder_merge_policy)
+        self.segmentation_head = SegmentationHead(in_channels=self.decoder.out_channels, out_channels=classes, activation=activation, kernel_size=1, upsampling=upsampling)
+        if aux_params is not None:
+            self.classification_head = ClassificationHead(in_channels=self.encoder.out_channels[-1], **aux_params)
+        else:
+            self.classification_head = None
+        self.name = 'fpn-{}'.format(encoder_name)
+        self.initialize()
+
+
 class TransposeX2(nn.Sequential):
 
     def __init__(self, in_channels, out_channels, use_batchnorm=True):
@@ -471,14 +624,21 @@ class TransposeX2(nn.Sequential):
 
 class DecoderBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, use_batchnorm=True):
+    def __init__(self, in_channels, skip_channels, out_channels, use_batchnorm=True, attention_type=None):
         super().__init__()
-        self.block = nn.Sequential(modules.Conv2dReLU(in_channels, in_channels // 4, kernel_size=1, use_batchnorm=use_batchnorm), TransposeX2(in_channels // 4, in_channels // 4, use_batchnorm=use_batchnorm), modules.Conv2dReLU(in_channels // 4, out_channels, kernel_size=1, use_batchnorm=use_batchnorm))
+        self.conv1 = md.Conv2dReLU(in_channels + skip_channels, out_channels, kernel_size=3, padding=1, use_batchnorm=use_batchnorm)
+        self.attention1 = md.Attention(attention_type, in_channels=in_channels + skip_channels)
+        self.conv2 = md.Conv2dReLU(out_channels, out_channels, kernel_size=3, padding=1, use_batchnorm=use_batchnorm)
+        self.attention2 = md.Attention(attention_type, in_channels=out_channels)
 
     def forward(self, x, skip=None):
-        x = self.block(x)
+        x = F.interpolate(x, scale_factor=2, mode='nearest')
         if skip is not None:
-            x = x + skip
+            x = torch.cat([x, skip], dim=1)
+            x = self.attention1(x)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.attention2(x)
         return x
 
 
@@ -500,6 +660,54 @@ class LinknetDecoder(nn.Module):
             skip = skips[i] if i < len(skips) else None
             x = decoder_block(x, skip)
         return x
+
+
+class Linknet(SegmentationModel):
+    """Linknet_ is a fully convolution neural network for fast image semantic segmentation
+
+    Note:
+        This implementation by default has 4 skip connections (original - 3).
+
+    Args:
+        encoder_name: name of classification model (without last dense layers) used as feature
+            extractor to build segmentation model.
+        encoder_depth (int): number of stages used in decoder, larger depth - more features are generated.
+            e.g. for depth=3 encoder will generate list of features with following spatial shapes
+            [(H,W), (H/2, W/2), (H/4, W/4), (H/8, W/8)], so in general the deepest feature will have
+            spatial resolution (H/(2^depth), W/(2^depth)]
+        encoder_weights: one of ``None`` (random initialization), ``imagenet`` (pre-training on ImageNet).
+        decoder_use_batchnorm: if ``True``, ``BatchNormalisation`` layer between ``Conv2D`` and ``Activation`` layers
+            is used. If 'inplace' InplaceABN will be used, allows to decrease memory consumption.
+            One of [True, False, 'inplace']
+        in_channels: number of input channels for model, default is 3.
+        classes: a number of classes for output (output shape - ``(batch, classes, h, w)``).
+        activation: activation function used in ``.predict(x)`` method for inference.
+            One of [``sigmoid``, ``softmax``, callable, None]
+        aux_params: if specified model will have additional classification auxiliary output
+            build on top of encoder, supported params:
+                - classes (int): number of classes
+                - pooling (str): one of 'max', 'avg'. Default is 'avg'.
+                - dropout (float): dropout factor in [0, 1)
+                - activation (str): activation function to apply "sigmoid"/"softmax" (could be None to return logits)
+
+    Returns:
+        ``torch.nn.Module``: **Linknet**
+
+    .. _Linknet:
+        https://arxiv.org/pdf/1707.03718.pdf
+    """
+
+    def __init__(self, encoder_name: str='resnet34', encoder_depth: int=5, encoder_weights: Optional[str]='imagenet', decoder_use_batchnorm: bool=True, in_channels: int=3, classes: int=1, activation: Optional[Union[str, callable]]=None, aux_params: Optional[dict]=None):
+        super().__init__()
+        self.encoder = get_encoder(encoder_name, in_channels=in_channels, depth=encoder_depth, weights=encoder_weights)
+        self.decoder = LinknetDecoder(encoder_channels=self.encoder.out_channels, n_blocks=encoder_depth, prefinal_channels=32, use_batchnorm=decoder_use_batchnorm)
+        self.segmentation_head = SegmentationHead(in_channels=32, out_channels=classes, activation=activation, kernel_size=1)
+        if aux_params is not None:
+            self.classification_head = ClassificationHead(in_channels=self.encoder.out_channels[-1], **aux_params)
+        else:
+            self.classification_head = None
+        self.name = 'link-{}'.format(encoder_name)
+        self.initialize()
 
 
 class ConvBnRelu(nn.Module):
@@ -601,6 +809,56 @@ class PANDecoder(nn.Module):
         return x2
 
 
+class PAN(SegmentationModel):
+    """ Implementation of _PAN (Pyramid Attention Network).
+    Currently works with shape of input tensor >= [B x C x 128 x 128] for pytorch <= 1.1.0
+    and with shape of input tensor >= [B x C x 256 x 256] for pytorch == 1.3.1
+
+
+    Args:
+        encoder_name: name of classification model (without last dense layers) used as feature
+            extractor to build segmentation model.
+        encoder_weights: one of ``None`` (random initialization), ``imagenet`` (pre-training on ImageNet).
+        encoder_dilation: Flag to use dilation in encoder last layer.
+            Doesn't work with [``*ception*``, ``vgg*``, ``densenet*``] backbones, default is True.
+        decoder_channels: Number of ``Conv2D`` layer filters in decoder blocks
+        in_channels: number of input channels for model, default is 3.
+        classes: a number of classes for output (output shape - ``(batch, classes, h, w)``).
+        activation: activation function to apply after final convolution;
+            One of [``sigmoid``, ``softmax``, ``logsoftmax``, ``identity``, callable, None]
+        upsampling: optional, final upsampling factor
+            (default is 4 to preserve input -> output spatial shape identity)
+
+        aux_params: if specified model will have additional classification auxiliary output
+            build on top of encoder, supported params:
+                - classes (int): number of classes
+                - pooling (str): one of 'max', 'avg'. Default is 'avg'.
+                - dropout (float): dropout factor in [0, 1)
+                - activation (str): activation function to apply "sigmoid"/"softmax" (could be None to return logits)
+
+    Returns:
+        ``torch.nn.Module``: **PAN**
+
+    .. _PAN:
+        https://arxiv.org/abs/1805.10180
+
+    """
+
+    def __init__(self, encoder_name: str='resnet34', encoder_weights: str='imagenet', encoder_dilation: bool=True, decoder_channels: int=32, in_channels: int=3, classes: int=1, activation: Optional[Union[str, callable]]=None, upsampling: int=4, aux_params: Optional[dict]=None):
+        super().__init__()
+        self.encoder = get_encoder(encoder_name, in_channels=in_channels, depth=5, weights=encoder_weights)
+        if encoder_dilation:
+            self.encoder.make_dilated(stage_list=[5], dilation_list=[2])
+        self.decoder = PANDecoder(encoder_channels=self.encoder.out_channels, decoder_channels=decoder_channels)
+        self.segmentation_head = SegmentationHead(in_channels=decoder_channels, out_channels=classes, activation=activation, kernel_size=3, upsampling=upsampling)
+        if aux_params is not None:
+            self.classification_head = ClassificationHead(in_channels=self.encoder.out_channels[-1], **aux_params)
+        else:
+            self.classification_head = None
+        self.name = 'pan-{}'.format(encoder_name)
+        self.initialize()
+
+
 class PSPBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, pool_size, use_bathcnorm=True):
@@ -644,24 +902,53 @@ class PSPDecoder(nn.Module):
         return x
 
 
-class DecoderBlock(nn.Module):
+class PSPNet(SegmentationModel):
+    """PSPNet_ is a fully convolution neural network for image semantic segmentation
 
-    def __init__(self, in_channels, skip_channels, out_channels, use_batchnorm=True, attention_type=None):
+    Args:
+        encoder_name: name of classification model used as feature
+                extractor to build segmentation model.
+        encoder_depth: number of stages used in decoder, larger depth - more features are generated.
+            e.g. for depth=3 encoder will generate list of features with following spatial shapes
+            [(H,W), (H/2, W/2), (H/4, W/4), (H/8, W/8)], so in general the deepest feature will have
+            spatial resolution (H/(2^depth), W/(2^depth)]
+        encoder_weights: one of ``None`` (random initialization), ``imagenet`` (pre-training on ImageNet).
+        psp_out_channels: number of filters in PSP block.
+        psp_use_batchnorm: if ``True``, ``BatchNormalisation`` layer between ``Conv2D`` and ``Activation`` layers
+            is used. If 'inplace' InplaceABN will be used, allows to decrease memory consumption.
+            One of [True, False, 'inplace']
+        psp_dropout: spatial dropout rate between 0 and 1.
+        in_channels: number of input channels for model, default is 3.
+        classes: a number of classes for output (output shape - ``(batch, classes, h, w)``).
+        activation: activation function used in ``.predict(x)`` method for inference.
+            One of [``sigmoid``, ``softmax``, callable, None]
+        upsampling: optional, final upsampling factor
+            (default is 8 for depth=3 to preserve input -> output spatial shape identity)
+        aux_params: if specified model will have additional classification auxiliary output
+            build on top of encoder, supported params:
+                - classes (int): number of classes
+                - pooling (str): one of 'max', 'avg'. Default is 'avg'.
+                - dropout (float): dropout factor in [0, 1)
+                - activation (str): activation function to apply "sigmoid"/"softmax" (could be None to return logits)
+
+    Returns:
+        ``torch.nn.Module``: **PSPNet**
+
+    .. _PSPNet:
+        https://arxiv.org/pdf/1612.01105.pdf
+    """
+
+    def __init__(self, encoder_name: str='resnet34', encoder_weights: Optional[str]='imagenet', encoder_depth: int=3, psp_out_channels: int=512, psp_use_batchnorm: bool=True, psp_dropout: float=0.2, in_channels: int=3, classes: int=1, activation: Optional[Union[str, callable]]=None, upsampling: int=8, aux_params: Optional[dict]=None):
         super().__init__()
-        self.conv1 = md.Conv2dReLU(in_channels + skip_channels, out_channels, kernel_size=3, padding=1, use_batchnorm=use_batchnorm)
-        self.attention1 = md.Attention(attention_type, in_channels=in_channels + skip_channels)
-        self.conv2 = md.Conv2dReLU(out_channels, out_channels, kernel_size=3, padding=1, use_batchnorm=use_batchnorm)
-        self.attention2 = md.Attention(attention_type, in_channels=out_channels)
-
-    def forward(self, x, skip=None):
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
-        if skip is not None:
-            x = torch.cat([x, skip], dim=1)
-            x = self.attention1(x)
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.attention2(x)
-        return x
+        self.encoder = get_encoder(encoder_name, in_channels=in_channels, depth=encoder_depth, weights=encoder_weights)
+        self.decoder = PSPDecoder(encoder_channels=self.encoder.out_channels, use_batchnorm=psp_use_batchnorm, out_channels=psp_out_channels, dropout=psp_dropout)
+        self.segmentation_head = SegmentationHead(in_channels=psp_out_channels, out_channels=classes, kernel_size=3, activation=activation, upsampling=upsampling)
+        if aux_params:
+            self.classification_head = ClassificationHead(in_channels=self.encoder.out_channels[-1], **aux_params)
+        else:
+            self.classification_head = None
+        self.name = 'psp-{}'.format(encoder_name)
+        self.initialize()
 
 
 class CenterBlock(nn.Sequential):
@@ -704,23 +991,53 @@ class UnetDecoder(nn.Module):
         return x
 
 
-class Activation(nn.Module):
+class Unet(SegmentationModel):
+    """Unet_ is a fully convolution neural network for image semantic segmentation
 
-    def __init__(self, activation):
+    Args:
+        encoder_name: name of classification model (without last dense layers) used as feature
+            extractor to build segmentation model.
+        encoder_depth (int): number of stages used in decoder, larger depth - more features are generated.
+            e.g. for depth=3 encoder will generate list of features with following spatial shapes
+            [(H,W), (H/2, W/2), (H/4, W/4), (H/8, W/8)], so in general the deepest feature tensor will have
+            spatial resolution (H/(2^depth), W/(2^depth)]
+        encoder_weights: one of ``None`` (random initialization), ``imagenet`` (pre-training on ImageNet).
+        decoder_channels: list of numbers of ``Conv2D`` layer filters in decoder blocks
+        decoder_use_batchnorm: if ``True``, ``BatchNormalisation`` layer between ``Conv2D`` and ``Activation`` layers
+            is used. If 'inplace' InplaceABN will be used, allows to decrease memory consumption.
+            One of [True, False, 'inplace']
+        decoder_attention_type: attention module used in decoder of the model
+            One of [``None``, ``scse``]
+        in_channels: number of input channels for model, default is 3.
+        classes: a number of classes for output (output shape - ``(batch, classes, h, w)``).
+        activation: activation function to apply after final convolution;
+            One of [``sigmoid``, ``softmax``, ``logsoftmax``, ``identity``, callable, None]
+        aux_params: if specified model will have additional classification auxiliary output
+            build on top of encoder, supported params:
+                - classes (int): number of classes
+                - pooling (str): one of 'max', 'avg'. Default is 'avg'.
+                - dropout (float): dropout factor in [0, 1)
+                - activation (str): activation function to apply "sigmoid"/"softmax" (could be None to return logits)
+
+    Returns:
+        ``torch.nn.Module``: **Unet**
+
+    .. _Unet:
+        https://arxiv.org/pdf/1505.04597
+
+    """
+
+    def __init__(self, encoder_name: str='resnet34', encoder_depth: int=5, encoder_weights: str='imagenet', decoder_use_batchnorm: bool=True, decoder_channels: List[int]=(256, 128, 64, 32, 16), decoder_attention_type: Optional[str]=None, in_channels: int=3, classes: int=1, activation: Optional[Union[str, callable]]=None, aux_params: Optional[dict]=None):
         super().__init__()
-        if activation == None or activation == 'identity':
-            self.activation = nn.Identity()
-        elif activation == 'sigmoid':
-            self.activation = torch.sigmoid
-        elif activation == 'softmax2d':
-            self.activation = functools.partial(torch.softmax, dim=1)
-        elif callable(activation):
-            self.activation = activation
+        self.encoder = get_encoder(encoder_name, in_channels=in_channels, depth=encoder_depth, weights=encoder_weights)
+        self.decoder = UnetDecoder(encoder_channels=self.encoder.out_channels, decoder_channels=decoder_channels, n_blocks=encoder_depth, use_batchnorm=decoder_use_batchnorm, center=True if encoder_name.startswith('vgg') else False, attention_type=decoder_attention_type)
+        self.segmentation_head = SegmentationHead(in_channels=decoder_channels[-1], out_channels=classes, activation=activation, kernel_size=3)
+        if aux_params is not None:
+            self.classification_head = ClassificationHead(in_channels=self.encoder.out_channels[-1], **aux_params)
         else:
-            raise ValueError
-
-    def forward(self, x):
-        return self.activation(x)
+            self.classification_head = None
+        self.name = 'u-{}'.format(encoder_name)
+        self.initialize()
 
 
 class BaseObject(nn.Module):
@@ -737,6 +1054,82 @@ class BaseObject(nn.Module):
             return re.sub('([a-z0-9])([A-Z])', '\\1_\\2', s1).lower()
         else:
             return self._name
+
+
+class Metric(BaseObject):
+    pass
+
+
+class Loss(BaseObject):
+
+    def __add__(self, other):
+        if isinstance(other, Loss):
+            return SumOfLosses(self, other)
+        else:
+            raise ValueError('Loss should be inherited from `Loss` class')
+
+    def __radd__(self, other):
+        return self.__add__(other)
+
+    def __mul__(self, value):
+        if isinstance(value, (int, float)):
+            return MultipliedLoss(self, value)
+        else:
+            raise ValueError('Loss should be inherited from `BaseLoss` class')
+
+    def __rmul__(self, other):
+        return self.__mul__(other)
+
+
+class JaccardLoss(base.Loss):
+
+    def __init__(self, eps=1.0, activation=None, ignore_channels=None, **kwargs):
+        super().__init__(**kwargs)
+        self.eps = eps
+        self.activation = Activation(activation)
+        self.ignore_channels = ignore_channels
+
+    def forward(self, y_pr, y_gt):
+        y_pr = self.activation(y_pr)
+        return 1 - F.jaccard(y_pr, y_gt, eps=self.eps, threshold=None, ignore_channels=self.ignore_channels)
+
+
+class DiceLoss(base.Loss):
+
+    def __init__(self, eps=1.0, beta=1.0, activation=None, ignore_channels=None, **kwargs):
+        super().__init__(**kwargs)
+        self.eps = eps
+        self.beta = beta
+        self.activation = Activation(activation)
+        self.ignore_channels = ignore_channels
+
+    def forward(self, y_pr, y_gt):
+        y_pr = self.activation(y_pr)
+        return 1 - F.f_score(y_pr, y_gt, beta=self.beta, eps=self.eps, threshold=None, ignore_channels=self.ignore_channels)
+
+
+class L1Loss(nn.L1Loss, base.Loss):
+    pass
+
+
+class MSELoss(nn.MSELoss, base.Loss):
+    pass
+
+
+class CrossEntropyLoss(nn.CrossEntropyLoss, base.Loss):
+    pass
+
+
+class NLLLoss(nn.NLLLoss, base.Loss):
+    pass
+
+
+class BCELoss(nn.BCELoss, base.Loss):
+    pass
+
+
+class BCEWithLogitsLoss(nn.BCEWithLogitsLoss, base.Loss):
+    pass
 
 
 import torch
@@ -762,6 +1155,14 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'dilation': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (BCELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BCEWithLogitsLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (ClassificationHead,
      lambda: ([], {'in_channels': 4, 'classes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -786,6 +1187,14 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
+    (L1Loss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (MSELoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (PSPBlock,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'pool_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -860,4 +1269,16 @@ class Test_qubvel_segmentation_models_pytorch(_paritybench_base):
 
     def test_015(self):
         self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
 

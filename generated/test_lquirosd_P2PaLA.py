@@ -27,15 +27,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -61,6 +62,24 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 
 
+from torch.utils.data import Dataset
+
+
+import math
+
+
+from torchvision import transforms as tv_transforms
+
+
+from scipy.ndimage.interpolation import map_coordinates
+
+
+from scipy.ndimage.interpolation import affine_transform
+
+
+from scipy.ndimage.filters import gaussian_filter
+
+
 import torch.nn as nn
 
 
@@ -70,31 +89,10 @@ import torch.nn.functional as F
 from torch.nn import init
 
 
-class buildUnet(nn.Module):
-    """
-    doc goes here :)
-    """
+import re
 
-    def __init__(self, input_nc, output_nc, ngf=64, net_type='R', out_mode=None):
-        super(buildUnet, self).__init__()
-        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=None, block_type='center', i_id='center')
-        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model, i_id='a_1', useDO=True)
-        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model, i_id='a_2', useDO=True)
-        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model, i_id='a_3')
-        model = uSkipBlock(ngf * 4, ngf * 8, ngf * 4, inner_slave=model, i_id='a_5')
-        model = uSkipBlock(ngf * 2, ngf * 4, ngf * 2, inner_slave=model, i_id='a_6')
-        model = uSkipBlock(ngf, ngf * 2, ngf, inner_slave=model, i_id='a_7')
-        model = uSkipBlock(input_nc, ngf, output_nc, inner_slave=model, block_type=net_type, out_mode=out_mode, i_id='out')
-        self.model = model
-        self.num_params = 0
-        for param in self.model.parameters():
-            self.num_params += param.numel()
 
-    def forward(self, input_x):
-        """
-        ;)
-        """
-        return self.model(input_x)
+from collections import OrderedDict
 
 
 def size_splits(tensor, split_sizes, dim=0):
@@ -170,6 +168,33 @@ class uSkipBlock(nn.Module):
                 pass
         else:
             return torch.cat([input_x, self.model(input_x)], 1)
+
+
+class buildUnet(nn.Module):
+    """
+    doc goes here :)
+    """
+
+    def __init__(self, input_nc, output_nc, ngf=64, net_type='R', out_mode=None):
+        super(buildUnet, self).__init__()
+        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=None, block_type='center', i_id='center')
+        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model, i_id='a_1', useDO=True)
+        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model, i_id='a_2', useDO=True)
+        model = uSkipBlock(ngf * 8, ngf * 8, ngf * 8, inner_slave=model, i_id='a_3')
+        model = uSkipBlock(ngf * 4, ngf * 8, ngf * 4, inner_slave=model, i_id='a_5')
+        model = uSkipBlock(ngf * 2, ngf * 4, ngf * 2, inner_slave=model, i_id='a_6')
+        model = uSkipBlock(ngf, ngf * 2, ngf, inner_slave=model, i_id='a_7')
+        model = uSkipBlock(input_nc, ngf, output_nc, inner_slave=model, block_type=net_type, out_mode=out_mode, i_id='out')
+        self.model = model
+        self.num_params = 0
+        for param in self.model.parameters():
+            self.num_params += param.numel()
+
+    def forward(self, input_x):
+        """
+        ;)
+        """
+        return self.model(input_x)
 
 
 class buildDNet(nn.Module):

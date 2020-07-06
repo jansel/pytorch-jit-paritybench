@@ -15,6 +15,7 @@ utils = _module
 vgenome = _module
 vgenome_interim = _module
 vgenome_processed = _module
+vqa = _module
 vqa2_interim = _module
 vqa_interim = _module
 vqa_processed = _module
@@ -24,6 +25,7 @@ dataloader = _module
 engine = _module
 logger = _module
 sampler = _module
+utils = _module
 models = _module
 att = _module
 convnets = _module
@@ -36,15 +38,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -79,10 +82,28 @@ import torch.backends.cudnn as cudnn
 import torchvision.datasets as datasets
 
 
-import torch.nn.functional as F
+import numpy as np
+
+
+import torch.utils.data as data
 
 
 import copy
+
+
+import torch.multiprocessing as multiprocessing
+
+
+import collections
+
+
+import math
+
+
+import itertools
+
+
+import torch.nn.functional as F
 
 
 import torchvision.models as pytorch_models
@@ -191,6 +212,45 @@ class AbstractAtt(nn.Module):
         return x
 
 
+class MLBAtt(AbstractAtt):
+
+    def __init__(self, opt={}, vocab_words=[], vocab_answers=[]):
+        opt['attention']['dim_v'] = opt['attention']['dim_h']
+        opt['attention']['dim_q'] = opt['attention']['dim_h']
+        opt['attention']['dim_mm'] = opt['attention']['dim_h']
+        super(MLBAtt, self).__init__(opt, vocab_words, vocab_answers)
+        self.list_linear_v_fusion = nn.ModuleList([nn.Linear(self.opt['dim_v'], self.opt['fusion']['dim_h']) for i in range(self.opt['attention']['nb_glimpses'])])
+        self.linear_q_fusion = nn.Linear(self.opt['dim_q'], self.opt['fusion']['dim_h'] * self.opt['attention']['nb_glimpses'])
+        self.linear_classif = nn.Linear(self.opt['fusion']['dim_h'] * self.opt['attention']['nb_glimpses'], self.num_classes)
+
+    def _fusion_att(self, x_v, x_q):
+        x_att = torch.mul(x_v, x_q)
+        return x_att
+
+    def _fusion_classif(self, x_v, x_q):
+        x_mm = torch.mul(x_v, x_q)
+        return x_mm
+
+
+class MutanAtt(AbstractAtt):
+
+    def __init__(self, opt={}, vocab_words=[], vocab_answers=[]):
+        opt['attention']['dim_v'] = opt['attention']['dim_hv']
+        opt['attention']['dim_q'] = opt['attention']['dim_hq']
+        super(MutanAtt, self).__init__(opt, vocab_words, vocab_answers)
+        self.fusion_att = fusion.MutanFusion2d(self.opt['attention'], visual_embedding=False, question_embedding=False)
+        self.list_linear_v_fusion = nn.ModuleList([nn.Linear(self.opt['dim_v'], int(self.opt['fusion']['dim_hv'] / opt['attention']['nb_glimpses'])) for i in range(self.opt['attention']['nb_glimpses'])])
+        self.linear_q_fusion = nn.Linear(self.opt['dim_q'], self.opt['fusion']['dim_hq'])
+        self.linear_classif = nn.Linear(self.opt['fusion']['dim_mm'], self.num_classes)
+        self.fusion_classif = fusion.MutanFusion(self.opt['fusion'], visual_embedding=False, question_embedding=False)
+
+    def _fusion_att(self, x_v, x_q):
+        return self.fusion_att(x_v, x_q)
+
+    def _fusion_classif(self, x_v, x_q):
+        return self.fusion_classif(x_v, x_q)
+
+
 class AbstractFusion(nn.Module):
 
     def __init__(self, opt={}):
@@ -199,6 +259,114 @@ class AbstractFusion(nn.Module):
 
     def forward(self, input_v, input_q):
         raise NotImplementedError
+
+
+class MLBFusion(AbstractFusion):
+
+    def __init__(self, opt):
+        super(MLBFusion, self).__init__(opt)
+        if 'dim_v' in self.opt:
+            self.linear_v = nn.Linear(self.opt['dim_v'], self.opt['dim_h'])
+        else:
+            None
+        if 'dim_q' in self.opt:
+            self.linear_q = nn.Linear(self.opt['dim_q'], self.opt['dim_h'])
+        else:
+            None
+
+    def forward(self, input_v, input_q):
+        if 'dim_v' in self.opt:
+            x_v = F.dropout(input_v, p=self.opt['dropout_v'], training=self.training)
+            x_v = self.linear_v(x_v)
+            if 'activation_v' in self.opt:
+                x_v = getattr(F, self.opt['activation_v'])(x_v)
+        else:
+            x_v = input_v
+        if 'dim_q' in self.opt:
+            x_q = F.dropout(input_q, p=self.opt['dropout_q'], training=self.training)
+            x_q = self.linear_q(x_q)
+            if 'activation_q' in self.opt:
+                x_q = getattr(F, self.opt['activation_q'])(x_q)
+        else:
+            x_q = input_q
+        x_mm = torch.mul(x_q, x_v)
+        return x_mm
+
+
+class MutanFusion(AbstractFusion):
+
+    def __init__(self, opt, visual_embedding=True, question_embedding=True):
+        super(MutanFusion, self).__init__(opt)
+        self.visual_embedding = visual_embedding
+        self.question_embedding = question_embedding
+        if self.visual_embedding:
+            self.linear_v = nn.Linear(self.opt['dim_v'], self.opt['dim_hv'])
+        else:
+            None
+        if self.question_embedding:
+            self.linear_q = nn.Linear(self.opt['dim_q'], self.opt['dim_hq'])
+        else:
+            None
+        self.list_linear_hv = nn.ModuleList([nn.Linear(self.opt['dim_hv'], self.opt['dim_mm']) for i in range(self.opt['R'])])
+        self.list_linear_hq = nn.ModuleList([nn.Linear(self.opt['dim_hq'], self.opt['dim_mm']) for i in range(self.opt['R'])])
+
+    def forward(self, input_v, input_q):
+        if input_v.dim() != input_q.dim() and input_v.dim() != 2:
+            raise ValueError
+        batch_size = input_v.size(0)
+        if self.visual_embedding:
+            x_v = F.dropout(input_v, p=self.opt['dropout_v'], training=self.training)
+            x_v = self.linear_v(x_v)
+            if 'activation_v' in self.opt:
+                x_v = getattr(F, self.opt['activation_v'])(x_v)
+        else:
+            x_v = input_v
+        if self.question_embedding:
+            x_q = F.dropout(input_q, p=self.opt['dropout_q'], training=self.training)
+            x_q = self.linear_q(x_q)
+            if 'activation_q' in self.opt:
+                x_q = getattr(F, self.opt['activation_q'])(x_q)
+        else:
+            x_q = input_q
+        x_mm = []
+        for i in range(self.opt['R']):
+            x_hv = F.dropout(x_v, p=self.opt['dropout_hv'], training=self.training)
+            x_hv = self.list_linear_hv[i](x_hv)
+            if 'activation_hv' in self.opt:
+                x_hv = getattr(F, self.opt['activation_hv'])(x_hv)
+            x_hq = F.dropout(x_q, p=self.opt['dropout_hq'], training=self.training)
+            x_hq = self.list_linear_hq[i](x_hq)
+            if 'activation_hq' in self.opt:
+                x_hq = getattr(F, self.opt['activation_hq'])(x_hq)
+            x_mm.append(torch.mul(x_hq, x_hv))
+        x_mm = torch.stack(x_mm, dim=1)
+        x_mm = x_mm.sum(1).view(batch_size, self.opt['dim_mm'])
+        if 'activation_mm' in self.opt:
+            x_mm = getattr(F, self.opt['activation_mm'])(x_mm)
+        return x_mm
+
+
+class MutanFusion2d(MutanFusion):
+
+    def __init__(self, opt, visual_embedding=True, question_embedding=True):
+        super(MutanFusion2d, self).__init__(opt, visual_embedding, question_embedding)
+
+    def forward(self, input_v, input_q):
+        if input_v.dim() != input_q.dim() and input_v.dim() != 3:
+            raise ValueError
+        batch_size = input_v.size(0)
+        weight_height = input_v.size(1)
+        dim_hv = input_v.size(2)
+        dim_hq = input_q.size(2)
+        if not input_v.is_contiguous():
+            input_v = input_v.contiguous()
+        if not input_q.is_contiguous():
+            input_q = input_q.contiguous()
+        x_v = input_v.view(batch_size * weight_height, self.opt['dim_hv'])
+        x_q = input_q.view(batch_size * weight_height, self.opt['dim_hq'])
+        x_mm = super().forward(x_v, x_q)
+        x_mm = x_mm.view(batch_size, weight_height, self.opt['dim_mm'])
+        return x_mm
 
 
 class AbstractNoAtt(nn.Module):
@@ -226,6 +394,29 @@ class AbstractNoAtt(nn.Module):
         x_q = self.seq2vec(input_q)
         x = self._fusion(input_v, x_q)
         x = self._classif(x)
+        return x
+
+
+class MLBNoAtt(AbstractNoAtt):
+
+    def __init__(self, opt={}, vocab_words=[], vocab_answers=[]):
+        super(MLBNoAtt, self).__init__(opt, vocab_words, vocab_answers)
+        self.fusion = fusion.MLBFusion(self.opt['fusion'])
+
+    def _fusion(self, input_v, input_q):
+        x = self.fusion(input_v, input_q)
+        return x
+
+
+class MutanNoAtt(AbstractNoAtt):
+
+    def __init__(self, opt={}, vocab_words=[], vocab_answers=[]):
+        opt['fusion']['dim_h'] = opt['fusion']['dim_mm']
+        super(MutanNoAtt, self).__init__(opt, vocab_words, vocab_answers)
+        self.fusion = fusion.MutanFusion(self.opt['fusion'])
+
+    def _fusion(self, input_v, input_q):
+        x = self.fusion(input_v, input_q)
         return x
 
 
@@ -302,6 +493,18 @@ TESTCASES = [
      lambda: ([], {'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4, 'num_layers': 1}),
      lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
      False),
+    (MLBFusion,
+     lambda: ([], {'opt': _mock_config()}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MutanFusion,
+     lambda: ([], {'opt': _mock_config(dim_v=4, dim_hv=4, dim_q=4, dim_hq=4, R=4, dim_mm=4, dropout_v=0.5, dropout_q=0.5, dropout_hv=0.5, dropout_hq=0.5)}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (MutanFusion2d,
+     lambda: ([], {'opt': _mock_config(dim_v=4, dim_hv=4, dim_q=4, dim_hq=4, R=4, dim_mm=4, dropout_v=0.5, dropout_q=0.5, dropout_hv=0.5, dropout_hq=0.5)}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
     (TwoLSTM,
      lambda: ([], {'vocab': [4, 4], 'emb_size': 4, 'hidden_size': 4}),
      lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
@@ -314,4 +517,13 @@ class Test_Cadene_vqa_pytorch(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

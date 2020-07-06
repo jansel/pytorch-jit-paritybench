@@ -5,6 +5,7 @@ python = _module
 main = _module
 pareto = _module
 datasets = _module
+datasets = _module
 places365 = _module
 experiment = _module
 base = _module
@@ -44,17 +45,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torchvision import transforms
+
+
+from torchvision import datasets
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision.datasets import ImageFolder
+
+
+from abc import ABC
+
+
+from abc import abstractmethod
+
+
+import random
+
+
+import string
 
 
 import numpy as np
@@ -63,7 +89,22 @@ import numpy as np
 import torch
 
 
+from torch.utils.tensorboard import SummaryWriter
+
+
+import time
+
+
+import torchvision.models
+
+
 from torch import nn
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.backends import cudnn
 
 
 import torch.nn as nn
@@ -76,15 +117,6 @@ import torch.nn.init as init
 
 
 import math
-
-
-import torchvision.models
-
-
-from abc import ABC
-
-
-from abc import abstractmethod
 
 
 from collections import OrderedDict
@@ -230,7 +262,7 @@ def weights_path(model, path=None):
         for root, dirs, files in os.walk(p, followlinks=True):
             if model in files:
                 wpath = pathlib.Path(root) / model
-                print(f'Found {model} under {wpath}')
+                None
                 return wpath
     else:
         raise LookupError(f'Could not find {model} in {paths}')
@@ -290,7 +322,7 @@ def _ensure_tensor(x):
 
 def _same_device(x_mask, x):
     if x.device != x_mask.device:
-        return x_mask.to(x.device)
+        return x_mask
     return x_mask
 
 
@@ -329,6 +361,84 @@ class MaskedModule(nn.Module):
             assert _same_shape(bias_mask, self.bias), f'Bias Mask must match dimensions'
             self.bias_mask = _same_device(bias_mask, self.bias)
             self.bias.data.mul_(bias_mask)
+
+
+class LinearMasked(MaskedModule):
+
+    def __init__(self, linear_layer, weight_mask, bias_mask=None):
+        """Masked version of a linear layer for pruning evaluation
+
+        Constructed from an existing layer, a weight mask (and optionally
+        a bias mask). By construction ensures backpropagation does not change
+        masked parameters so they stay at zero.
+
+        Arguments:
+            linear_layer {torch.nn.Linear} -- Layer to mask. Not modified.
+            weight_mask {numpy.ndarray} -- Mask with zero entries for weight vector
+
+        Keyword Arguments:
+            bias_mask {numpy.ndarray} -- Mask with zero entries for bias vector (default: {None})
+        """
+        super(LinearMasked, self).__init__(linear_layer, weight_mask, bias_mask)
+        assert isinstance(linear_layer, nn.Linear), 'Layer must be a linear layer'
+        for attr in ['in_features', 'out_features']:
+            setattr(self, attr, getattr(linear_layer, attr))
+
+    def forward(self, input):
+        weight, bias = self.forward_pre()
+        return F.linear(input, weight, bias)
+
+    def __repr__(self):
+        s = f'{self.__class__.__name__}('
+        s += f'in_features={self.in_features}, '
+        s += f'out_features={self.out_features}, '
+        s += f'bias={self.bias is not None})'
+        return s
+
+
+class Conv2dMasked(MaskedModule):
+
+    def __init__(self, conv_layer, weight_mask, bias_mask=None):
+        """Masked version  of 2D convolutional layer for pruning evaluation
+
+        Constructed from an existing layer, a weight mask (and optionally
+        a bias mask). By construction ensures backpropagation does not change
+        masked parameters so they stay at zero.
+
+        [description]
+
+        Arguments:
+            linear_layer {torch.nn.Conv2d} -- Layer to mask. Not modified.
+            weight_mask {numpy.ndarray} -- Mask with zero entries for weight vector
+
+        Keyword Arguments:
+            bias_mask {numpy.ndarray} -- Mask with zero entries for bias vector (default: {None})
+        """
+        super(Conv2dMasked, self).__init__(conv_layer, weight_mask, bias_mask)
+        assert isinstance(conv_layer, nn.Conv2d), 'Layer must be a Conv2d layer'
+        for attr in ['in_channels', 'out_channels', 'kernel_size', 'dilation', 'stride', 'padding', 'padding_mode', 'groups']:
+            setattr(self, attr, getattr(conv_layer, attr))
+
+    def forward(self, input):
+        weight, bias = self.forward_pre()
+        if self.padding_mode == 'circular':
+            expanded_padding = (self.padding[1] + 1) // 2, self.padding[1] // 2, (self.padding[0] + 1) // 2, self.padding[0] // 2
+            return F.conv2d(F.pad(input, expanded_padding, mode='circular'), weight, bias, self.stride, _pair(0), self.dilation, self.groups)
+        return F.conv2d(input, weight, bias, self.stride, self.padding, self.dilation, self.groups)
+
+    def __repr__(self):
+        s = f'{self.__class__.__name__}('
+        s += '{in_channels}, {out_channels}, kernel_size={kernel_size}, stride={stride}'
+        if self.padding != (0,) * len(self.padding):
+            s += ', padding={padding}'
+        if self.dilation != (1,) * len(self.dilation):
+            s += ', dilation={dilation}'
+        if self.groups != 1:
+            s += ', groups={groups}'
+        if self.bias is None:
+            s += ', bias=False'
+        s += ')'
+        return s.format(**self.__dict__)
 
 
 import torch

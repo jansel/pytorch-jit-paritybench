@@ -15,35 +15,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import time
-
-
 import torch
+
+
+import random
+
+
+import numpy as np
+
+
+import time
 
 
 import torch.nn as nn
 
 
 from torch.autograd import Variable
-
-
-import numpy as np
-
-
-import random
 
 
 import torch.nn.functional as F
@@ -104,13 +105,13 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA=True):
     x_offset = torch.FloatTensor(a).view(-1, 1)
     y_offset = torch.FloatTensor(b).view(-1, 1)
     if CUDA:
-        x_offset = x_offset.cuda()
-        y_offset = y_offset.cuda()
+        x_offset = x_offset
+        y_offset = y_offset
     x_y_offset = torch.cat((x_offset, y_offset), 1).repeat(1, num_anchors).view(-1, 2).unsqueeze(0)
     prediction[:, :, :2] += x_y_offset
     anchors = torch.FloatTensor(anchors)
     if CUDA:
-        anchors = anchors.cuda()
+        anchors = anchors
     anchors = anchors.repeat(grid_size * grid_size, 1).unsqueeze(0)
     prediction[:, :, 2:4] = torch.exp(prediction[:, :, 2:4]) * anchors
     prediction[:, :, 5:5 + num_classes] = torch.sigmoid(prediction[:, :, 5:5 + num_classes])
@@ -249,7 +250,7 @@ def create_modules(blocks):
             detection = DetectionLayer(anchors)
             module.add_module('Detection_{}'.format(index), detection)
         else:
-            print('Something I dunno')
+            None
             assert False
         module_list.append(module)
         prev_filters = filters
@@ -421,21 +422,6 @@ class Darknet(nn.Module):
                 else:
                     cpu(conv.bias.data).numpy().tofile(fp)
                 cpu(conv.weight.data).numpy().tofile(fp)
-
-
-class test_net(nn.Module):
-
-    def __init__(self, num_layers, input_size):
-        super(test_net, self).__init__()
-        self.num_layers = num_layers
-        self.linear_1 = nn.Linear(input_size, 5)
-        self.middle = nn.ModuleList([nn.Linear(5, 5) for x in range(num_layers)])
-        self.output = nn.Linear(5, 2)
-
-    def forward(self, x):
-        x = x.view(-1)
-        fwd = nn.Sequential(self.linear_1, *self.middle, self.output)
-        return fwd(x)
 
 
 import torch

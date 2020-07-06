@@ -21,17 +21,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision import transforms
+
+
+import numpy as np
 
 
 import torch.utils.data
@@ -41,9 +54,6 @@ from torch.nn import functional as F
 
 
 import math
-
-
-import torch
 
 
 from torch.nn.parameter import Parameter
@@ -70,16 +80,10 @@ from torch import nn
 from torch import optim
 
 
-import numpy as np
-
-
 from torch.autograd import Variable
 
 
 import torch.backends.cudnn as cudnn
-
-
-from torchvision import transforms
 
 
 from torch.utils.data import DataLoader
@@ -171,12 +175,38 @@ class Conv2d(_ConvNd):
         return conv2d_same_padding(input, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
+class Conv2dPaddingSame(_ConvNd):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+        kernel_size = _pair(kernel_size)
+        stride = _pair(stride)
+        padding = _pair(padding)
+        dilation = _pair(dilation)
+        super(Conv2dPaddingSame, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, False, _pair(0), groups, bias)
+
+    def forward(self, input):
+        return conv2d_same_padding(input, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+
+
 class _ConvLayer(nn.Sequential):
 
     def __init__(self, input_features, output_features):
         super(_ConvLayer, self).__init__()
         self.add_module('conv2', Conv2d(input_features, output_features, kernel_size=5, stride=2))
         self.add_module('leakyrelu', nn.LeakyReLU(0.1, inplace=True))
+
+
+class _PixelShuffler(nn.Module):
+
+    def forward(self, input):
+        batch_size, c, h, w = input.size()
+        rh, rw = 2, 2
+        oh, ow = h * rh, w * rw
+        oc = c // (rh * rw)
+        out = input.view(batch_size, rh, rw, oc, h, w)
+        out = out.permute(0, 3, 4, 1, 5, 2).contiguous()
+        out = out.view(batch_size, oc, oh, ow)
+        return out
 
 
 class _UpScale(nn.Sequential):
@@ -200,19 +230,6 @@ class Reshape(nn.Module):
     def forward(self, input):
         output = input.view(-1, 1024, 4, 4)
         return output
-
-
-class _PixelShuffler(nn.Module):
-
-    def forward(self, input):
-        batch_size, c, h, w = input.size()
-        rh, rw = 2, 2
-        oh, ow = h * rh, w * rw
-        oc = c // (rh * rw)
-        out = input.view(batch_size, rh, rw, oc, h, w)
-        out = out.permute(0, 3, 4, 1, 5, 2).contiguous()
-        out = out.view(batch_size, oc, oh, ow)
-        return out
 
 
 class SwapNet(nn.Module):
@@ -241,6 +258,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (Conv2d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv2dPaddingSame,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
@@ -291,4 +312,7 @@ class Test_jinfagang_faceswap_pytorch(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

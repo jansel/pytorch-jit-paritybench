@@ -25,15 +25,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -77,6 +78,9 @@ import torchvision.utils as vutils
 from torch.autograd import Variable
 
 
+import torch.utils.data as data
+
+
 import math
 
 
@@ -84,73 +88,6 @@ from torch.nn.parameter import Parameter
 
 
 from torch.nn import Module
-
-
-class _netE(nn.Module):
-    """Container module with an encoder, a recurrent module, and a decoder."""
-
-    def __init__(self, rnn_type, ninp, nhid, nlayers, dropout):
-        super(_netE, self).__init__()
-        self.d = dropout
-        self.rnn_type = rnn_type
-        self.nhid = nhid
-        self.nlayers = nlayers
-        self.nhid = nhid
-        self.ninp = ninp
-        self.ques_rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
-        self.fc1 = nn.Linear(self.nhid, self.ninp)
-
-    def forward(self, emb, hidden):
-        ques_feat, hidden = self.ques_rnn(emb, hidden)
-        concat_feat = F.dropout(ques_feat[-1], self.d, training=self.training)
-        encoder_feat = F.tanh(self.fc1(concat_feat))
-        return encoder_feat, hidden
-
-    def init_hidden(self, bsz):
-        weight = next(self.parameters()).data
-        if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
-        else:
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
-
-
-class _netE(nn.Module):
-    """Container module with an encoder, a recurrent module, and a decoder."""
-
-    def __init__(self, rnn_type, ninp, nhid, nlayers, dropout):
-        super(_netE, self).__init__()
-        self.d = dropout
-        self.rnn_type = rnn_type
-        self.nhid = nhid
-        self.nlayers = nlayers
-        self.nhid = nhid
-        self.ninp = ninp
-        self.img_embed = nn.Linear(512, 512)
-        self.ques_rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
-        self.Wq_2 = nn.Linear(self.nhid, self.nhid)
-        self.Wi_2 = nn.Linear(self.nhid, self.nhid)
-        self.Wa_2 = nn.Linear(self.nhid, 1)
-        self.fc1 = nn.Linear(self.nhid * 2, self.ninp)
-
-    def forward(self, ques_emb, img_raw, ques_hidden, rnd):
-        img_emb = F.tanh(self.img_embed(img_raw))
-        ques_feat, ques_hidden = self.ques_rnn(ques_emb, ques_hidden)
-        ques_feat = ques_feat[-1]
-        ques_emb_2 = self.Wq_2(ques_feat).view(-1, 1, self.nhid)
-        img_emb_2 = self.Wi_2(img_emb).view(-1, 49, self.nhid)
-        atten_emb_2 = F.tanh(img_emb_2 + ques_emb_2.expand_as(img_emb_2))
-        img_atten_weight = F.softmax(self.Wa_2(F.dropout(atten_emb_2, self.d, training=self.training).view(-1, self.nhid)).view(-1, 49))
-        img_attn_feat = torch.bmm(img_atten_weight.view(-1, 1, 49), img_emb.view(-1, 49, self.nhid))
-        concat_feat = F.dropout(torch.cat((img_attn_feat.view(-1, self.nhid), ques_feat), 1), self.d, training=self.training)
-        encoder_feat = F.tanh(self.fc1(concat_feat))
-        return encoder_feat, ques_hidden
-
-    def init_hidden(self, bsz):
-        weight = next(self.parameters()).data
-        if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
-        else:
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
 
 
 class _netE(nn.Module):
@@ -204,6 +141,39 @@ class _netE(nn.Module):
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
         else:
             return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+
+
+class share_Linear(Module):
+    """Applies a linear transformation to the incoming data: :math:`y = Ax + b`
+    Args:
+        in_features: size of each input sample
+        out_features: size of each output sample
+        bias: If set to False, the layer will not learn an additive bias. Default: True
+    Shape:
+        - Input: :math:`(N, in\\_features)`
+        - Output: :math:`(N, out\\_features)`
+    Attributes:
+        weight: the learnable weights of the module of shape (out_features x in_features)
+        bias:   the learnable bias of the module of shape (out_features)
+    Examples::
+        >>> m = nn.Linear(20, 30)
+        >>> input = autograd.Variable(torch.randn(128, 20))
+        >>> output = m(input)
+        >>> print(output.size())
+    """
+
+    def __init__(self, weight):
+        super(share_Linear, self).__init__()
+        self.in_features = weight.size(0)
+        self.out_features = weight.size(1)
+        self.weight = weight.t()
+        self.register_parameter('bias', None)
+
+    def forward(self, input):
+        return F.linear(input, self.weight, self.bias)
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
 class _netW(nn.Module):
@@ -555,39 +525,6 @@ class _netG(nn.Module):
         return torch.cat([_.unsqueeze(1) for _ in seq], 1), torch.cat([_.unsqueeze(1) for _ in seqLogprobs], 1)
 
 
-class share_Linear(Module):
-    """Applies a linear transformation to the incoming data: :math:`y = Ax + b`
-    Args:
-        in_features: size of each input sample
-        out_features: size of each output sample
-        bias: If set to False, the layer will not learn an additive bias. Default: True
-    Shape:
-        - Input: :math:`(N, in\\_features)`
-        - Output: :math:`(N, out\\_features)`
-    Attributes:
-        weight: the learnable weights of the module of shape (out_features x in_features)
-        bias:   the learnable bias of the module of shape (out_features)
-    Examples::
-        >>> m = nn.Linear(20, 30)
-        >>> input = autograd.Variable(torch.randn(128, 20))
-        >>> output = m(input)
-        >>> print(output.size())
-    """
-
-    def __init__(self, weight):
-        super(share_Linear, self).__init__()
-        self.in_features = weight.size(0)
-        self.out_features = weight.size(1)
-        self.weight = weight.t()
-        self.register_parameter('bias', None)
-
-    def forward(self, input):
-        return F.linear(input, self.weight, self.bias)
-
-    def __repr__(self):
-        return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -599,6 +536,10 @@ TESTCASES = [
      lambda: ([], {'nhid': 4}),
      lambda: ([torch.rand([400, 100, 4]), torch.rand([40000, 100, 4])], {}),
      True),
+    (LMCriterion,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
     (_netW,
      lambda: ([], {'ntoken': 4, 'ninp': 4, 'dropout': 0.5}),
      lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
@@ -639,4 +580,7 @@ class Test_jiasenlu_visDial_pytorch(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

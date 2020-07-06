@@ -61,6 +61,7 @@ colors = _module
 monit = _module
 tracker = _module
 data = _module
+pytorch = _module
 delayed_keyboard_interrupt = _module
 errors = _module
 pytorch = _module
@@ -68,35 +69,37 @@ setup = _module
 test = _module
 configs_dict = _module
 configs_new_api = _module
+inspect = _module
 tracker_perf = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from typing import Tuple
 
 
 from typing import Optional
 
 
-from typing import Set
-
-
-from typing import Dict
-
-
 from typing import List
+
+
+from typing import overload
 
 
 from typing import Union
@@ -105,10 +108,25 @@ from typing import Union
 from typing import TYPE_CHECKING
 
 
-from typing import overload
-
-
 import numpy as np
+
+
+from typing import Set
+
+
+from typing import Dict
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
+import torch
 
 
 import torch.nn
@@ -144,7 +162,7 @@ from uuid import uuid1
 from collections import deque
 
 
-import torch
+from torch.utils.data import TensorDataset
 
 
 class Module(torch.nn.Module):

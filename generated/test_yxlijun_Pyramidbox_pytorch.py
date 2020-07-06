@@ -27,20 +27,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import torch.utils.data as data
+
+
+import numpy as np
+
+
+import random
 
 
 import torch.nn as nn
@@ -55,22 +65,19 @@ from torch.autograd import Variable
 import time
 
 
-import numpy as np
-
-
-import torch.nn.init as init
-
-
 from torch.autograd import Function
+
+
+from itertools import product as product
 
 
 import math
 
 
+import torch.nn.init as init
+
+
 import torch.nn.functional as F
-
-
-import torch.utils.data as data
 
 
 import torchvision.transforms as transforms
@@ -80,6 +87,12 @@ import scipy.io as sio
 
 
 import torch.optim as optim
+
+
+from torchvision import transforms
+
+
+import types
 
 
 class L2Norm(nn.Module):
@@ -133,22 +146,10 @@ def encode(matched, priors, variances):
 
 
 def intersect(box_a, box_b):
-    """ We resize both tensors to [A,B,2] without new malloc:
-    [A,2] -> [A,1,2] -> [A,B,2]
-    [B,2] -> [1,B,2] -> [A,B,2]
-    Then we compute the area of intersect between box_a and box_b.
-    Args:
-      box_a: (tensor) bounding boxes, Shape: [A,4].
-      box_b: (tensor) bounding boxes, Shape: [B,4].
-    Return:
-      (tensor) intersection area, Shape: [A,B].
-    """
-    A = box_a.size(0)
-    B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
-    inter = torch.clamp(max_xy - min_xy, min=0)
-    return inter[:, :, (0)] * inter[:, :, (1)]
+    max_xy = np.minimum(box_a[:, 2:], box_b[2:])
+    min_xy = np.maximum(box_a[:, :2], box_b[:2])
+    inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
+    return inter[:, (0)] * inter[:, (1)]
 
 
 def jaccard(box_a, box_b):

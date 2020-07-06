@@ -34,15 +34,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -145,20 +146,38 @@ class CifarCaffeNet(nn.Module):
 
 
 class Bottleneck(nn.Module):
+    expansion = 4
 
-    def __init__(self, nChannels, growthRate):
+    def __init__(self, inplanes, planes_after_prune, planes_expand, planes_before_prune, index, bn_value, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        interChannels = 4 * growthRate
-        self.bn1 = nn.BatchNorm2d(nChannels)
-        self.conv1 = nn.Conv2d(nChannels, interChannels, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(interChannels)
-        self.conv2 = nn.Conv2d(interChannels, growthRate, kernel_size=3, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(inplanes, planes_after_prune, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes_after_prune)
+        self.conv2 = nn.Conv2d(planes_after_prune, planes_after_prune, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes_after_prune)
+        self.conv3 = nn.Conv2d(planes_after_prune, planes_expand, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes_expand)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+        self.index = Variable(index)
+        self.bn_value = bn_value
 
     def forward(self, x):
-        out = self.conv1(F.relu(self.bn1(x)))
-        out = self.conv2(F.relu(self.bn2(out)))
-        out = torch.cat((x, out), 1)
-        return out
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        residual += self.bn_value
+        residual.index_add_(1, self.index, out)
+        residual = self.relu(residual)
+        return residual
 
 
 class SingleLayer(nn.Module):
@@ -249,15 +268,17 @@ def conv3x3(in_planes, out_planes, stride=1):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, inplanes, planes_after_prune, planes_expand, planes_before_prune, index, bn_value, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv1 = conv3x3(inplanes, planes_after_prune, stride)
+        self.bn1 = nn.BatchNorm2d(planes_after_prune)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv2 = conv3x3(planes_after_prune, planes_after_prune)
+        self.bn2 = nn.BatchNorm2d(planes_after_prune)
         self.downsample = downsample
         self.stride = stride
+        self.index = Variable(index)
+        self.bn_value = bn_value
 
     def forward(self, x):
         residual = x
@@ -268,41 +289,10 @@ class BasicBlock(nn.Module):
         out = self.bn2(out)
         if self.downsample is not None:
             residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
+        residual += self.bn_value
+        residual.index_add_(1, self.index, out)
+        residual = self.relu(residual)
+        return residual
 
 
 class ResNet(nn.Module):
@@ -352,71 +342,6 @@ class ResNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes_after_prune, planes_expand, planes_before_prune, index, bn_value, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes_after_prune, stride)
-        self.bn1 = nn.BatchNorm2d(planes_after_prune)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes_after_prune, planes_after_prune)
-        self.bn2 = nn.BatchNorm2d(planes_after_prune)
-        self.downsample = downsample
-        self.stride = stride
-        self.index = Variable(index)
-        self.bn_value = bn_value
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        residual += self.bn_value
-        residual.index_add_(1, self.index, out)
-        residual = self.relu(residual)
-        return residual
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes_after_prune, planes_expand, planes_before_prune, index, bn_value, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes_after_prune, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes_after_prune)
-        self.conv2 = nn.Conv2d(planes_after_prune, planes_after_prune, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes_after_prune)
-        self.conv3 = nn.Conv2d(planes_after_prune, planes_expand, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes_expand)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-        self.index = Variable(index)
-        self.bn_value = bn_value
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        residual += self.bn_value
-        residual.index_add_(1, self.index, out)
-        residual = self.relu(residual)
-        return residual
 
 
 class ResNet_small(nn.Module):
@@ -486,32 +411,42 @@ class ResNet_small(nn.Module):
 
 class ResNetBasicblock(nn.Module):
     expansion = 1
+    """
+  RexNet basicblock (https://github.com/facebook/fb.resnet.torch/blob/master/models/resnet.lua)
+  """
 
-    def __init__(self, inplanes, planes, stride, downsample, Type):
+    def __init__(self, inplanes, planes, index, stride=1, downsample=None):
         super(ResNetBasicblock, self).__init__()
-        self.Type = Type
-        self.bn_a = nn.BatchNorm2d(inplanes)
         self.conv_a = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn_b = nn.BatchNorm2d(planes)
+        self.bn_a = nn.BatchNorm2d(planes)
         self.conv_b = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.relu = nn.ReLU(inplace=True)
+        self.bn_b = nn.BatchNorm2d(planes)
         self.downsample = downsample
+        self.inplanes = inplanes
+        self.index = index
 
     def forward(self, x):
         residual = x
-        basicblock = self.bn_a(x)
-        basicblock = self.relu(basicblock)
-        if self.Type == 'both_preact':
-            residual = basicblock
-        elif self.Type != 'normal':
-            assert False, 'Unknow type : {}'.format(self.Type)
-        basicblock = self.conv_a(basicblock)
-        basicblock = self.bn_b(basicblock)
-        basicblock = self.relu(basicblock)
+        basicblock = self.conv_a(x)
+        basicblock = self.bn_a(basicblock)
+        basicblock = F.relu(basicblock, inplace=True)
         basicblock = self.conv_b(basicblock)
+        basicblock = self.bn_b(basicblock)
         if self.downsample is not None:
-            residual = self.downsample(residual)
-        return residual + basicblock
+            residual = self.downsample(x)
+        out = torch.rand(self.inplanes, basicblock.size()[1], basicblock.size()[2])
+        return F.relu(out, inplace=True)
+
+
+class DownsampleA(nn.Module):
+
+    def __init__(self, nIn, nOut, stride):
+        super(DownsampleA, self).__init__()
+        self.avg = nn.AvgPool2d(kernel_size=1, stride=stride)
+
+    def forward(self, x):
+        x = self.avg(x)
+        return torch.cat((x, x.mul(0)), 1)
 
 
 class CifarPreResNet(nn.Module):
@@ -573,17 +508,6 @@ class CifarPreResNet(nn.Module):
         return self.classifier(x)
 
 
-class DownsampleA(nn.Module):
-
-    def __init__(self, nIn, nOut, stride):
-        super(DownsampleA, self).__init__()
-        self.avg = nn.AvgPool2d(kernel_size=1, stride=stride)
-
-    def forward(self, x):
-        x = self.avg(x)
-        return torch.cat((x, x.mul(0)), 1)
-
-
 class DownsampleC(nn.Module):
 
     def __init__(self, nIn, nOut, stride):
@@ -608,432 +532,6 @@ class DownsampleD(nn.Module):
         x = self.conv(x)
         x = self.bn(x)
         return x
-
-
-class ResNetBasicblock(nn.Module):
-    expansion = 1
-    """
-  RexNet basicblock (https://github.com/facebook/fb.resnet.torch/blob/master/models/resnet.lua)
-  """
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(ResNetBasicblock, self).__init__()
-        self.conv_a = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn_a = nn.BatchNorm2d(planes)
-        self.conv_b = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn_b = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-
-    def forward(self, x):
-        residual = x
-        basicblock = self.conv_a(x)
-        basicblock = self.bn_a(basicblock)
-        basicblock = F.relu(basicblock, inplace=True)
-        basicblock = self.conv_b(basicblock)
-        basicblock = self.bn_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        return F.relu(residual + basicblock, inplace=True)
-
-
-class CifarResNet(nn.Module):
-    """
-  ResNet optimized for the Cifar dataset, as specified in
-  https://arxiv.org/abs/1512.03385.pdf
-  """
-
-    def __init__(self, block, depth, num_classes):
-        """ Constructor
-    Args:
-      depth: number of layers.
-      num_classes: number of classes
-      base_width: base width
-    """
-        super(CifarResNet, self).__init__()
-        assert (depth - 2) % 6 == 0, 'depth should be one of 20, 32, 44, 56, 110'
-        layer_blocks = (depth - 2) // 6
-        None
-        self.num_classes = num_classes
-        self.conv_1_3x3 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn_1 = nn.BatchNorm2d(16)
-        self.inplanes = 16
-        self.stage_1 = self._make_layer(block, 16, layer_blocks, 1)
-        self.stage_2 = self._make_layer(block, 32, layer_blocks, 2)
-        self.stage_3 = self._make_layer(block, 64, layer_blocks, 2)
-        self.avgpool = nn.AvgPool2d(8)
-        self.classifier = nn.Linear(64 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                init.kaiming_normal(m.weight)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = DownsampleA(self.inplanes, planes * block.expansion, stride)
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv_1_3x3(x)
-        x = F.relu(self.bn_1(x), inplace=True)
-        x = self.stage_1(x)
-        x = self.stage_2(x)
-        x = self.stage_3(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        return self.classifier(x)
-
-
-class ResNetBasicblock(nn.Module):
-    expansion = 1
-    """
-  RexNet basicblock (https://github.com/facebook/fb.resnet.torch/blob/master/models/resnet.lua)
-  """
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(ResNetBasicblock, self).__init__()
-        self.conv_a = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn_a = nn.BatchNorm2d(planes)
-        self.conv_b = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn_b = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-
-    def forward(self, x):
-        residual = x
-        basicblock = self.conv_a(x)
-        basicblock = self.bn_a(basicblock)
-        basicblock = F.relu(basicblock, inplace=True)
-        basicblock = self.conv_b(basicblock)
-        basicblock = self.bn_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        return F.relu(residual + basicblock, inplace=True)
-
-
-class CifarResNet(nn.Module):
-    """
-  ResNet optimized for the Cifar dataset, as specified in
-  https://arxiv.org/abs/1512.03385.pdf
-  """
-
-    def __init__(self, block, depth, num_classes):
-        """ Constructor
-    Args:
-      depth: number of layers.
-      num_classes: number of classes
-      base_width: base width
-    """
-        super(CifarResNet, self).__init__()
-        assert (depth - 2) % 6 == 0, 'depth should be one of 20, 32, 44, 56, 110'
-        layer_blocks = (depth - 2) // 6
-        None
-        self.num_classes = num_classes
-        self.conv_1_3x3 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn_1 = nn.BatchNorm2d(16)
-        self.inplanes = 16
-        self.stage_1 = self._make_layer(block, 16, layer_blocks, 1)
-        self.stage_2 = self._make_layer(block, 32, layer_blocks, 2)
-        self.stage_3 = self._make_layer(block, 64, layer_blocks, 2)
-        self.avgpool = nn.AvgPool2d(8)
-        self.classifier = nn.Linear(64 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                init.kaiming_normal(m.weight)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = DownsampleA(self.inplanes, planes * block.expansion, stride)
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv_1_3x3(x)
-        x = F.relu(self.bn_1(x), inplace=True)
-        x = self.stage_1(x)
-        x = self.stage_2(x)
-        x = self.stage_3(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        return self.classifier(x)
-
-
-class ResNetBasicblock(nn.Module):
-    expansion = 1
-    """
-  RexNet basicblock (https://github.com/facebook/fb.resnet.torch/blob/master/models/resnet.lua)
-  """
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(ResNetBasicblock, self).__init__()
-        self.conv_a = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn_a = nn.BatchNorm2d(planes)
-        self.conv_b = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn_b = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-
-    def forward(self, x):
-        if isinstance(x, list):
-            x, is_list, features = x[0], True, x[1:]
-        else:
-            is_list, features = False, None
-        residual = x
-        conv_a = self.conv_a(x)
-        bn_a = self.bn_a(conv_a)
-        relu_a = F.relu(bn_a, inplace=True)
-        conv_b = self.conv_b(relu_a)
-        bn_b = self.bn_b(conv_b)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        output = F.relu(residual + bn_b, inplace=True)
-        if is_list:
-            return [output] + features + [bn_a, bn_b]
-        else:
-            return output
-
-
-class CifarResNet(nn.Module):
-    """
-  ResNet optimized for the Cifar dataset, as specified in
-  https://arxiv.org/abs/1512.03385.pdf
-  """
-
-    def __init__(self, block, depth, num_classes):
-        """ Constructor
-    Args:
-      depth: number of layers.
-      num_classes: number of classes
-      base_width: base width
-    """
-        super(CifarResNet, self).__init__()
-        assert (depth - 2) % 6 == 0, 'depth should be one of 20, 32, 44, 56, 110'
-        layer_blocks = (depth - 2) // 6
-        None
-        self.num_classes = num_classes
-        self.conv_1_3x3 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn_1 = nn.BatchNorm2d(16)
-        self.inplanes = 16
-        self.stage_1 = self._make_layer(block, 16, layer_blocks, 1)
-        self.stage_2 = self._make_layer(block, 32, layer_blocks, 2)
-        self.stage_3 = self._make_layer(block, 64, layer_blocks, 2)
-        self.avgpool = nn.AvgPool2d(8)
-        self.classifier = nn.Linear(64 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                init.kaiming_normal(m.weight)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = DownsampleA(self.inplanes, planes * block.expansion, stride)
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        if isinstance(x, list):
-            assert len(x) == 1, 'The length of inputs must be one vs {}'.format(len(x))
-            x, is_list = x[0], True
-        else:
-            x, is_list = x, False
-        x = self.conv_1_3x3(x)
-        x = F.relu(self.bn_1(x), inplace=True)
-        if is_list:
-            x = [x]
-        x = self.stage_1(x)
-        x = self.stage_2(x)
-        x = self.stage_3(x)
-        if is_list:
-            x, features = x[0], x[1:]
-        else:
-            features = None
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        cls = self.classifier(x)
-        if is_list:
-            return cls, features
-        else:
-            return cls
-
-
-class DownsampleA(nn.Module):
-
-    def __init__(self, nIn, nOut, stride):
-        super(DownsampleA, self).__init__()
-        self.avg = nn.AvgPool2d(kernel_size=1, stride=stride)
-
-    def forward(self, x):
-        x = self.avg(x)
-        return torch.cat((x, x.mul(0)), 1)
-
-
-class ResNetBasicblock(nn.Module):
-    expansion = 1
-    """
-  RexNet basicblock (https://github.com/facebook/fb.resnet.torch/blob/master/models/resnet.lua)
-  """
-
-    def __init__(self, inplanes, planes, supply, index, stride=1, downsample=None):
-        super(ResNetBasicblock, self).__init__()
-        self.conv_a = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn_a = nn.BatchNorm2d(planes)
-        self.conv_b = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn_b = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.inplanes = inplanes
-        self.index = index
-        self.supply = supply
-        self.size = 0
-        self.out = torch.autograd.Variable(torch.rand(128, self.supply, 16 * 32 // self.supply, 16 * 32 // self.supply))
-        self.i = 0
-        self.time = []
-        self.sum = []
-
-    def forward(self, x):
-        residual = x
-        basicblock = self.conv_a(x)
-        basicblock = self.bn_a(basicblock)
-        basicblock = F.relu(basicblock, inplace=True)
-        basicblock = self.conv_b(basicblock)
-        basicblock = self.bn_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = self.out
-        return F.relu(out, inplace=True)
-
-
-class CifarResNet(nn.Module):
-    """
-  ResNet optimized for the Cifar dataset, as specified in
-  https://arxiv.org/abs/1512.03385.pdf
-  """
-
-    def __init__(self, block, depth, num_classes, index, rate=[16, 16, 32, 64, 16, 32, 64]):
-        """ Constructor
-    Args:
-      depth: number of layers.
-      num_classes: number of classes
-      base_width: base width
-    """
-        super(CifarResNet, self).__init__()
-        assert (depth - 2) % 6 == 0, 'depth should be one of 20, 32, 44, 56, 110'
-        layer_blocks = (depth - 2) // 6
-        self.stage_num = (depth - 2) // 3
-        None
-        self.num_classes = num_classes
-        self.rate = rate
-        None
-        self.conv_1_3x3 = nn.Conv2d(3, rate[0], kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn_1 = nn.BatchNorm2d(rate[0])
-        self.inplanes = rate[0]
-        self.stage_1 = self._make_layer(block, rate[4], rate[1], rate[4], index, layer_blocks, 1)
-        self.stage_2 = self._make_layer(block, rate[5], rate[2], rate[5], index, layer_blocks, 2)
-        self.stage_3 = self._make_layer(block, rate[6], rate[3], rate[6], index, layer_blocks, 2)
-        self.avgpool = nn.AvgPool2d(8)
-        self.classifier = nn.Linear(64 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                init.kaiming_normal(m.weight)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, inplanes, planes, supply, index, blocks, stride=1):
-        downsample = None
-        if stride != 1:
-            downsample = DownsampleA(self.inplanes, planes * block.expansion, stride)
-        layers = []
-        layers.append(block(self.inplanes, planes, supply, index, stride, downsample))
-        self.inplanes = inplanes
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, supply, index))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv_1_3x3(x)
-        x = F.relu(self.bn_1(x), inplace=True)
-        x = self.stage_1(x)
-        x = self.stage_2(x)
-        x = self.stage_3(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        return self.classifier(x)
-
-
-class DownsampleA(nn.Module):
-
-    def __init__(self, nIn, nOut, stride):
-        super(DownsampleA, self).__init__()
-        self.avg = nn.AvgPool2d(kernel_size=1, stride=stride)
-
-    def forward(self, x):
-        x = self.avg(x)
-        return torch.cat((x, x.mul(0)), 1)
-
-
-class ResNetBasicblock(nn.Module):
-    expansion = 1
-    """
-  RexNet basicblock (https://github.com/facebook/fb.resnet.torch/blob/master/models/resnet.lua)
-  """
-
-    def __init__(self, inplanes, planes, index, stride=1, downsample=None):
-        super(ResNetBasicblock, self).__init__()
-        self.conv_a = nn.Conv2d(inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn_a = nn.BatchNorm2d(planes)
-        self.conv_b = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn_b = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.inplanes = inplanes
-        self.index = index
-
-    def forward(self, x):
-        residual = x
-        basicblock = self.conv_a(x)
-        basicblock = self.bn_a(basicblock)
-        basicblock = F.relu(basicblock, inplace=True)
-        basicblock = self.conv_b(basicblock)
-        basicblock = self.bn_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = torch.rand(self.inplanes, basicblock.size()[1], basicblock.size()[2])
-        return F.relu(out, inplace=True)
 
 
 class CifarResNet(nn.Module):
@@ -1222,59 +720,6 @@ class VGG(nn.Module):
 
 
 defaultcfg = {(11): [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512], (13): [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512], (16): [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512], (19): [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512]}
-
-
-class vgg(nn.Module):
-
-    def __init__(self, dataset='cifar10', depth=19, init_weights=True, cfg=None):
-        super(vgg, self).__init__()
-        if cfg is None:
-            cfg = defaultcfg[depth]
-        self.cfg = cfg
-        self.feature = self.make_layers(cfg, True)
-        if dataset == 'cifar10':
-            num_classes = 10
-        elif dataset == 'cifar100':
-            num_classes = 100
-        self.classifier = nn.Sequential(nn.Linear(cfg[-1], 512), nn.BatchNorm1d(512), nn.ReLU(inplace=True), nn.Linear(512, num_classes))
-        if init_weights:
-            self._initialize_weights()
-
-    def make_layers(self, cfg, batch_norm=False):
-        layers = []
-        in_channels = 3
-        for v in cfg:
-            if v == 'M':
-                layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-            else:
-                conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1, bias=False)
-                if batch_norm:
-                    layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-                else:
-                    layers += [conv2d, nn.ReLU(inplace=True)]
-                in_channels = v
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.feature(x)
-        x = nn.AvgPool2d(2)(x)
-        x = x.view(x.size(0), -1)
-        y = self.classifier(x)
-        return y
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(0.5)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                m.weight.data.normal_(0, 0.01)
-                m.bias.data.zero_()
 
 
 class vgg(nn.Module):

@@ -13,23 +13,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-from functools import partial
+import numpy as np
 
 
 import torch
+
+
+from torch.autograd import Variable
+
+
+from functools import partial
 
 
 from torch import nn
@@ -38,13 +45,10 @@ from torch import nn
 from torch.nn import functional as F
 
 
-from torch.autograd import Variable
-
-
-import numpy as np
-
-
 from scipy import sparse
+
+
+from sklearn import metrics
 
 
 from scipy.sparse import csr_matrix
@@ -240,6 +244,18 @@ class PoolAggregator(nn.Module, AggregatorMixin):
         if self.activation:
             out = self.activation(out)
         return out
+
+
+class MaxPoolAggregator(PoolAggregator):
+
+    def __init__(self, input_dim, output_dim, activation, hidden_dim=512, combine_fn=lambda x: torch.cat(x, dim=1)):
+        super(MaxPoolAggregator, self).__init__(**{'input_dim': input_dim, 'output_dim': output_dim, 'pool_fn': lambda x: x.max(dim=1)[0], 'activation': activation, 'hidden_dim': hidden_dim, 'combine_fn': combine_fn})
+
+
+class MeanPoolAggregator(PoolAggregator):
+
+    def __init__(self, input_dim, output_dim, activation, hidden_dim=512, combine_fn=lambda x: torch.cat(x, dim=1)):
+        super(MeanPoolAggregator, self).__init__(**{'input_dim': input_dim, 'output_dim': output_dim, 'pool_fn': lambda x: x.mean(dim=1), 'activation': activation, 'hidden_dim': hidden_dim, 'combine_fn': combine_fn})
 
 
 class LSTMAggregator(nn.Module, AggregatorMixin):

@@ -30,15 +30,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -59,6 +60,15 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+from sklearn.metrics import roc_auc_score
+
+
+from sklearn import preprocessing
+
+
+import torch.utils.data as data
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -176,66 +186,12 @@ class DeepFM(nn.Module):
 
 class FFM_layer(nn.Module):
 
-    def __init__(self, field_map_dict, fea_num, reg_l1=0.01, reg_l2=0.01, class_num=1, latent_factor_dim=10):
-        super(FFM_layer, self).__init__()
-        self.reg_l1 = reg_l1
-        self.reg_l2 = reg_l2
-        self.fea_num = fea_num
-        self.field_map_dict = field_map_dict
-        field_num = len(field_map_dict)
-        self.linear = nn.Linear(fea_num, class_num)
-        self.v = nn.Parameter(torch.randn(fea_num, field_num, latent_factor_dim, class_num))
-
-    def forward(self, x):
-        linear_part = self.linear(x)
-        interaction_part = 0.0
-        for i in range(self.fea_num):
-            for j in range(i + 1, self.fea_num):
-                v_ifj = self.v[(i), (self.field_map_dict[j]), :, :]
-                v_jfi = self.v[(j), (self.field_map_dict[i]), :, :]
-                xij = torch.unsqueeze(x[:, (i)] * x[:, (j)], dim=1)
-                v_ijji = torch.unsqueeze(torch.sum(v_ifj * v_jfi, dim=0), dim=0)
-                interaction_part += torch.mm(xij, v_ijji)
-        output = linear_part + interaction_part
-        output = torch.log_softmax(output, dim=1)
-        return output
-
-
-class FFM_layer(nn.Module):
-
     def __init__(self, num_feat, num_field, reg_l1=0.0001, reg_l2=0.0001, embedding_size=10):
         super(FFM_layer, self).__init__()
         self.reg_l1 = reg_l1
         self.reg_l2 = reg_l2
         self.embedding_size = embedding_size
         pass
-
-
-class FM_layer(nn.Module):
-
-    def __init__(self, reg_l1=0.01, reg_l2=0.01, class_num=1, feature_num=10, latent_factor_dim=5):
-        super().__init__()
-        self.reg_l1 = reg_l1
-        self.reg_l2 = reg_l2
-        self.fea_num = feature_num
-        self.k = latent_factor_dim
-        self.class_num = class_num
-        self.linear = nn.Linear(self.fea_num, class_num)
-        self.v = nn.Parameter(torch.randn(self.fea_num, self.k, class_num))
-
-    def forward(self, x):
-        linear_part = self.linear(x)
-        interaction_part1 = torch.matmul(self.v.permute(2, 1, 0), x.T).permute(2, 1, 0)
-        interaction_part1 = torch.pow(interaction_part1, 2)
-        interaction_part1 = 0.5 * torch.sum(interaction_part1, dim=1)
-        interaction_part1 = torch.squeeze(interaction_part1, dim=1)
-        x_square, v_square = torch.pow(x, 2), torch.pow(self.v, 2)
-        interaction_part2 = torch.matmul(v_square.permute(2, 1, 0), x_square.T).permute(2, 1, 0)
-        interaction_part2 = -0.5 * torch.sum(interaction_part2, dim=1)
-        interaction_part2 = torch.squeeze(interaction_part2, dim=1)
-        output = linear_part + interaction_part1 + interaction_part2
-        output = F.log_softmax(output, dim=1)
-        return output
 
 
 class FM_layer(nn.Module):
@@ -407,7 +363,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (FM_layer,
      lambda: ([], {'num_feat': 4, 'num_field': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4])], {}),
      True),
 ]
 

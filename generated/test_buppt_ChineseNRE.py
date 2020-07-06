@@ -9,15 +9,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -97,4 +98,22 @@ class BiLSTM_ATT(nn.Module):
         res = torch.add(torch.bmm(relation, att_out), self.relation_bias)
         res = F.softmax(res, 1)
         return res.view(self.batch, -1)
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (BiLSTM_ATT,
+     lambda: ([], {'config': _mock_config(BATCH=4, EMBEDDING_SIZE=4, EMBEDDING_DIM=4, HIDDEN_DIM=4, TAG_SIZE=4, POS_SIZE=4, POS_DIM=4, pretrained=False), 'embedding_pre': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+]
+
+class Test_buppt_ChineseNRE(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
 

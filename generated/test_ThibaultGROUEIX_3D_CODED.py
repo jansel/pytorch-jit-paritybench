@@ -29,20 +29,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import torch.utils.data as data
+
+
 import torch
+
+
+import numpy as np
+
+
+import time
 
 
 import torch.nn as nn
@@ -57,16 +67,16 @@ import torch.utils.data
 from torch.autograd import Variable
 
 
-import numpy as np
-
-
 import torch.nn.functional as F
+
+
+import random
 
 
 import torch.optim as optim
 
 
-import time
+from sklearn.neighbors import NearestNeighbors
 
 
 from scipy import sparse
@@ -160,7 +170,7 @@ class GetTemplate(object):
         elif start_from == 'TRAININGDATA':
             self.init_trainingdata(dataset_train)
         else:
-            print('select valid template type')
+            None
 
     def init_template(self):
         if not os.path.exists('./data/template/template.ply'):
@@ -174,23 +184,23 @@ class GetTemplate(object):
         self.mesh_HR = mesh_HR
         point_set_HR = mesh_HR.vertices
         point_set_HR, _, _ = pointcloud_processor.center_bounding_box(point_set_HR)
-        self.vertex = torch.from_numpy(point_set).cuda().float()
-        self.vertex_HR = torch.from_numpy(point_set_HR).cuda().float()
+        self.vertex = torch.from_numpy(point_set).float()
+        self.vertex_HR = torch.from_numpy(point_set_HR).float()
         self.num_vertex = self.vertex.size(0)
         self.num_vertex_HR = self.vertex_HR.size(0)
         self.prop = pointcloud_processor.get_vertex_normalised_area(mesh)
         assert np.abs(np.sum(self.prop) - 1) < 0.001, 'Propabilities do not sum to 1!)'
-        self.prop = torch.from_numpy(self.prop).cuda().unsqueeze(0).float()
-        print(f'Using template to initialize template')
+        self.prop = torch.from_numpy(self.prop).unsqueeze(0).float()
+        None
 
     def init_soup(self):
         mesh = trimesh.load('./data/template/template.ply', process=False)
         self.mesh = mesh
-        self.vertex = torch.FloatTensor(6890, 3).normal_().cuda()
+        self.vertex = torch.FloatTensor(6890, 3).normal_()
         self.vertex_HR = self.vertex.clone()
         self.num_vertex = self.vertex.size(0)
         self.num_vertex_HR = self.vertex_HR.size(0)
-        print(f'Using Random soup to initialize template')
+        None
 
     def init_trainingdata(self, dataset_train=None):
         mesh = trimesh.load('./data/template/template.ply', process=False)
@@ -201,7 +211,7 @@ class GetTemplate(object):
         self.vertex_HR = self.vertex.clone()
         self.num_vertex = self.vertex.size(0)
         self.num_vertex_HR = self.vertex_HR.size(0)
-        print(f'Using training data number {index} to initialize template')
+        None
 
 
 class AE_AtlasNet_Humans(nn.Module):
@@ -273,13 +283,13 @@ class AE_AtlasNet_Humans(nn.Module):
             y = x.unsqueeze(2).expand(x.size(0), x.size(1), rand_grid.size(2)).contiguous()
             y = torch.cat((rand_grid, y), 1).contiguous()
             outs.append(self.decoder[0](y))
-            torch.synchronize()
+            torch.cuda.synchronize()
         i = div - 1
         rand_grid = self.template[0].template_learned_HR[batch * i:].view(x.size(0), -1, self.dim_template).transpose(1, 2).contiguous()
         y = x.unsqueeze(2).expand(x.size(0), x.size(1), rand_grid.size(2)).contiguous()
         y = torch.cat((rand_grid, y), 1).contiguous()
         outs.append(self.decoder[0](y))
-        torch.synchronize()
+        torch.cuda.synchronize()
         return torch.cat(outs, 2).contiguous().transpose(2, 1).contiguous()
 
     def get_points_translation_template(self):

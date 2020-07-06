@@ -38,15 +38,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -103,6 +104,15 @@ from torch.autograd import Variable as var
 
 
 from torch.autograd import Variable
+
+
+from sklearn.model_selection import train_test_split
+
+
+from torchvision.datasets import ImageFolder
+
+
+import warnings
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -225,71 +235,6 @@ class ResNet(nn.Module):
         return x
 
 
-class EncoderLayer(nn.Module):
-    """ Compose with two layers """
-
-    def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
-        super(EncoderLayer, self).__init__()
-        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
-        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
-
-    def forward(self, enc_input, non_pad_mask, slf_attn_mask=None):
-        enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input, enc_input, mask=slf_attn_mask)
-        if non_pad_mask is not None:
-            enc_output *= non_pad_mask
-        enc_output = self.pos_ffn(enc_output)
-        if non_pad_mask is not None:
-            enc_output *= non_pad_mask
-        return enc_output, enc_slf_attn
-
-
-class DecoderLayer(nn.Module):
-    """ Compose with three layers """
-
-    def __init__(self, d_model, d_inner, n_head, d_k, d_v, temporal_dim, spatial_dim, dropout=0.1, gpu_id=-1):
-        super(DecoderLayer, self).__init__()
-        self.gpu_id = gpu_id
-        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
-        self.temporal_cache_attn = MultiHeadAttention(n_head, temporal_dim, d_k, d_v, dropout=dropout)
-        self.temporal_proj = nn.Linear(d_model, temporal_dim)
-        self.spatial_proj = nn.Linear(temporal_dim, spatial_dim)
-        self.spatial_cache_attn = MultiHeadAttention(n_head, spatial_dim, d_k, d_v, dropout=dropout)
-        self.spat_dec_proj = nn.Linear(spatial_dim, d_model)
-        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
-
-    def forward(self, dec_input, temporal_cache, spatial_cache, temporal_spatial_link, non_pad_mask, slf_attn_mask=None, dec_enc_attn_mask=None):
-        dec_output, dec_slf_attn = self.slf_attn(dec_input, dec_input, dec_input, mask=slf_attn_mask)
-        if non_pad_mask is not None:
-            dec_output *= non_pad_mask
-        dec_temp = self.temporal_proj(dec_output)
-        dec_temp, dec_temp_attn = self.temporal_cache_attn(dec_temp, temporal_cache, temporal_cache, mask=dec_enc_attn_mask)
-        if non_pad_mask is not None:
-            dec_temp *= non_pad_mask
-        dec_spat = self.spatial_proj(dec_temp)
-        dec_spat_attn = None
-        if spatial_cache is not None:
-            spatial_gate = []
-            idx_start = 0
-            for l in temporal_spatial_link:
-                t, s = l
-                if s > 1:
-                    temp_sel = dec_temp_attn[:, :, :, idx_start:idx_start + t]
-                    b, nh, dq, t = temp_sel.shape
-                    temp_sel = temp_sel.unsqueeze(4).expand(b, nh, dq, t, s).transpose(3, 4)
-                    temp_sel = temp_sel.reshape(b, nh, dq, t * s)
-                    spatial_gate.append(temp_sel)
-                idx_start = idx_start + t
-            spatial_gate = torch.cat(spatial_gate, dim=3)
-            dec_spat, dec_spat_attn = self.spatial_cache_attn(dec_spat, spatial_cache, spatial_cache, k_gate=spatial_gate)
-            if non_pad_mask is not None:
-                dec_spat *= non_pad_mask
-        dec_output = self.spat_dec_proj(dec_spat)
-        dec_output = self.pos_ffn(dec_output)
-        if non_pad_mask is not None:
-            dec_output *= non_pad_mask
-        return dec_output, [dec_slf_attn, dec_spat_attn, dec_temp_attn]
-
-
 class ScaledDotProductAttention(nn.Module):
     """ Scaled Dot-Product Attention """
 
@@ -375,6 +320,208 @@ class PositionwiseFeedForward(nn.Module):
         output = self.dropout(output)
         output = self.layer_norm(output + residual)
         return output
+
+
+class EncoderLayer(nn.Module):
+    """ Compose with two layers """
+
+    def __init__(self, d_model, d_inner, n_head, d_k, d_v, dropout=0.1):
+        super(EncoderLayer, self).__init__()
+        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
+
+    def forward(self, enc_input, non_pad_mask, slf_attn_mask=None):
+        enc_output, enc_slf_attn = self.slf_attn(enc_input, enc_input, enc_input, mask=slf_attn_mask)
+        if non_pad_mask is not None:
+            enc_output *= non_pad_mask
+        enc_output = self.pos_ffn(enc_output)
+        if non_pad_mask is not None:
+            enc_output *= non_pad_mask
+        return enc_output, enc_slf_attn
+
+
+class DecoderLayer(nn.Module):
+    """ Compose with three layers """
+
+    def __init__(self, d_model, d_inner, n_head, d_k, d_v, temporal_dim, spatial_dim, dropout=0.1, gpu_id=-1):
+        super(DecoderLayer, self).__init__()
+        self.gpu_id = gpu_id
+        self.slf_attn = MultiHeadAttention(n_head, d_model, d_k, d_v, dropout=dropout)
+        self.temporal_cache_attn = MultiHeadAttention(n_head, temporal_dim, d_k, d_v, dropout=dropout)
+        self.temporal_proj = nn.Linear(d_model, temporal_dim)
+        self.spatial_proj = nn.Linear(temporal_dim, spatial_dim)
+        self.spatial_cache_attn = MultiHeadAttention(n_head, spatial_dim, d_k, d_v, dropout=dropout)
+        self.spat_dec_proj = nn.Linear(spatial_dim, d_model)
+        self.pos_ffn = PositionwiseFeedForward(d_model, d_inner, dropout=dropout)
+
+    def forward(self, dec_input, temporal_cache, spatial_cache, temporal_spatial_link, non_pad_mask, slf_attn_mask=None, dec_enc_attn_mask=None):
+        dec_output, dec_slf_attn = self.slf_attn(dec_input, dec_input, dec_input, mask=slf_attn_mask)
+        if non_pad_mask is not None:
+            dec_output *= non_pad_mask
+        dec_temp = self.temporal_proj(dec_output)
+        dec_temp, dec_temp_attn = self.temporal_cache_attn(dec_temp, temporal_cache, temporal_cache, mask=dec_enc_attn_mask)
+        if non_pad_mask is not None:
+            dec_temp *= non_pad_mask
+        dec_spat = self.spatial_proj(dec_temp)
+        dec_spat_attn = None
+        if spatial_cache is not None:
+            spatial_gate = []
+            idx_start = 0
+            for l in temporal_spatial_link:
+                t, s = l
+                if s > 1:
+                    temp_sel = dec_temp_attn[:, :, :, idx_start:idx_start + t]
+                    b, nh, dq, t = temp_sel.shape
+                    temp_sel = temp_sel.unsqueeze(4).expand(b, nh, dq, t, s).transpose(3, 4)
+                    temp_sel = temp_sel.reshape(b, nh, dq, t * s)
+                    spatial_gate.append(temp_sel)
+                idx_start = idx_start + t
+            spatial_gate = torch.cat(spatial_gate, dim=3)
+            dec_spat, dec_spat_attn = self.spatial_cache_attn(dec_spat, spatial_cache, spatial_cache, k_gate=spatial_gate)
+            if non_pad_mask is not None:
+                dec_spat *= non_pad_mask
+        dec_output = self.spat_dec_proj(dec_spat)
+        dec_output = self.pos_ffn(dec_output)
+        if non_pad_mask is not None:
+            dec_output *= non_pad_mask
+        return dec_output, [dec_slf_attn, dec_spat_attn, dec_temp_attn]
+
+
+class ControlPeripheral(nn.Module):
+    """
+        A special peripheral used to help the CNP identify the data domain or specify the context of
+        the current operation.
+
+    """
+
+    def __init__(self, control_dim, control_states, gpu_id=-1):
+        """
+            Accepts as input control states as list of string. The control states are sorted before id's
+            are assigned
+        """
+        super(ControlPeripheral, self).__init__()
+        self.control_dim = control_dim
+        self.gpu_id = gpu_id
+        self.control_dict = {}
+        for i, c in enumerate(control_states):
+            self.control_dict[c] = i
+        self.control_embeddings = nn.Embedding(len(control_states) + 1, self.control_dim)
+
+    def forward(self, control_state, shape=()):
+        if self.gpu_id >= 0:
+            control_ids = torch.ones(shape, dtype=torch.long, device=self.gpu_id) * self.control_dict[control_state]
+        else:
+            control_ids = torch.ones(shape, dtype=torch.long) * self.control_dict[control_state]
+        return self.control_embeddings(control_ids)
+
+
+def get_attn_key_pad_mask(pad_mask, seq_q):
+    """ For masking out the padding part of key sequence. """
+    len_q = seq_q.size(1)
+    pad_mask = pad_mask.unsqueeze(1).expand(-1, len_q, -1)
+    return pad_mask
+
+
+def get_non_pad_mask(seq, pad_mask):
+    if pad_mask is None:
+        return None
+    else:
+        return pad_mask.ne(1).type(torch.float).unsqueeze(-1)
+
+
+def get_sinusoid_encoding_table(n_position, d_hid, padding_idx=None):
+    """ Sinusoid position encoding table """
+
+    def cal_angle(position, hid_idx):
+        return position / np.power(10000, 2 * (hid_idx // 2) / d_hid)
+
+    def get_posi_angle_vec(position):
+        return [cal_angle(position, hid_j) for hid_j in range(d_hid)]
+    sinusoid_table = np.array([get_posi_angle_vec(pos_i) for pos_i in range(n_position)])
+    sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2])
+    sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2])
+    if padding_idx is not None:
+        sinusoid_table[padding_idx] = 0.0
+    return torch.FloatTensor(sinusoid_table)
+
+
+def get_subsequent_mask(shape, gpu_id):
+    """ For masking out the subsequent info. """
+    sz_b, len_s = shape
+    if gpu_id >= 0:
+        subsequent_mask = torch.triu(torch.ones((len_s, len_s), device=gpu_id, dtype=torch.uint8), diagonal=1)
+    else:
+        subsequent_mask = torch.triu(torch.ones((len_s, len_s), dtype=torch.uint8), diagonal=1)
+    subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)
+    return subsequent_mask
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, len_max_seq, n_layers, n_head, d_k, d_v, d_model, d_inner, temporal_dim, spatial_dim, output_dim, dropout=0.1, gpu_id=-1):
+        super().__init__()
+        n_position = len_max_seq + 1
+        self.position_enc = nn.Embedding.from_pretrained(get_sinusoid_encoding_table(n_position, d_model, padding_idx=0), freeze=True)
+        self.layer_stack = nn.ModuleList([DecoderLayer(d_model, d_inner, n_head, d_k, d_v, temporal_dim, spatial_dim, dropout=dropout, gpu_id=gpu_id) for _ in range(n_layers)])
+        self.output_fc = nn.Linear(d_model, output_dim)
+        self.gpu_id = gpu_id
+
+    def forward(self, dec_inputs, spatial_cache, temporal_cache, temporal_spatial_link, pad_cache, pad_mask=None, return_attns=False, recurrent_steps=1):
+        b, t, _ = dec_inputs.shape
+        if self.gpu_id >= 0:
+            dec_pos = torch.arange(1, t + 1, device=self.gpu_id).repeat(b, 1)
+        else:
+            dec_pos = torch.arange(1, t + 1).repeat(b, 1)
+        dec_outputs = dec_inputs + self.position_enc(dec_pos)
+        slf_attn_mask_subseq = get_subsequent_mask((b, t), self.gpu_id)
+        if pad_mask is not None:
+            slf_attn_mask_keypad = get_attn_key_pad_mask(pad_mask, dec_inputs)
+            slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
+        else:
+            slf_attn_mask = slf_attn_mask_subseq
+        dec_enc_attn_mask = get_attn_key_pad_mask(pad_cache, dec_inputs)
+        non_pad_mask = get_non_pad_mask(dec_inputs, pad_mask)
+        for i in range(recurrent_steps):
+            for dec_layer in self.layer_stack:
+                dec_outputs, attns = dec_layer(dec_outputs, temporal_cache, spatial_cache, temporal_spatial_link, non_pad_mask, slf_attn_mask=slf_attn_mask, dec_enc_attn_mask=dec_enc_attn_mask)
+        dec_outputs = self.output_fc(dec_outputs)
+        if return_attns:
+            return dec_outputs, attns
+        return dec_outputs,
+
+
+class TemporalCacheEncoder(nn.Module):
+
+    def __init__(self, len_max_seq, n_layers, n_head, d_k, d_v, d_model, d_inner, dropout=0.1, gpu_id=-1):
+        super().__init__()
+        n_position = len_max_seq + 1
+        self.dropout_emb = nn.Dropout(dropout)
+        self.position_enc = nn.Embedding.from_pretrained(get_sinusoid_encoding_table(n_position, d_model, padding_idx=0), freeze=True)
+        self.layer_stack = nn.ModuleList([EncoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
+        self.gpu_id = gpu_id
+
+    def forward(self, src_seq, return_attns=False, recurrent_steps=1, pad_mask=None):
+        enc_slf_attn_list = []
+        b, t, _ = src_seq.shape
+        if self.gpu_id >= 0:
+            src_pos = torch.arange(1, t + 1, device=self.gpu_id).repeat(b, 1)
+        else:
+            src_pos = torch.arange(1, t + 1).repeat(b, 1)
+        enc_output = src_seq + self.position_enc(src_pos)
+        enc_output = self.dropout_emb(enc_output)
+        if pad_mask is not None:
+            slf_attn_mask = get_attn_key_pad_mask(pad_mask, src_seq)
+        else:
+            slf_attn_mask = None
+        non_pad_mask = get_non_pad_mask(src_seq, pad_mask)
+        for i in range(recurrent_steps):
+            for enc_layer in self.layer_stack:
+                enc_output, enc_slf_attn = enc_layer(enc_output, non_pad_mask, slf_attn_mask=slf_attn_mask)
+                if return_attns:
+                    enc_slf_attn_list += [enc_slf_attn]
+        if return_attns:
+            return enc_output, enc_slf_attn_list
+        return enc_output,
 
 
 class CNP(nn.Module):
@@ -524,141 +671,17 @@ class CNP(nn.Module):
         return conf
 
 
-class ControlPeripheral(nn.Module):
+class base_peripheral(nn.Module):
     """
-        A special peripheral used to help the CNP identify the data domain or specify the context of
-        the current operation.
+        The base standard non recursive perpheral
+        All base peripherals must implement the following functions:
+            __init__()
+            run_cycle()
 
     """
 
-    def __init__(self, control_dim, control_states, gpu_id=-1):
-        """
-            Accepts as input control states as list of string. The control states are sorted before id's
-            are assigned
-        """
-        super(ControlPeripheral, self).__init__()
-        self.control_dim = control_dim
-        self.gpu_id = gpu_id
-        self.control_dict = {}
-        for i, c in enumerate(control_states):
-            self.control_dict[c] = i
-        self.control_embeddings = nn.Embedding(len(control_states) + 1, self.control_dim)
-
-    def forward(self, control_state, shape=()):
-        if self.gpu_id >= 0:
-            control_ids = torch.ones(shape, dtype=torch.long, device=self.gpu_id) * self.control_dict[control_state]
-        else:
-            control_ids = torch.ones(shape, dtype=torch.long) * self.control_dict[control_state]
-        return self.control_embeddings(control_ids)
-
-
-def get_attn_key_pad_mask(pad_mask, seq_q):
-    """ For masking out the padding part of key sequence. """
-    len_q = seq_q.size(1)
-    pad_mask = pad_mask.unsqueeze(1).expand(-1, len_q, -1)
-    return pad_mask
-
-
-def get_non_pad_mask(seq, pad_mask):
-    if pad_mask is None:
-        return None
-    else:
-        return pad_mask.ne(1).type(torch.float).unsqueeze(-1)
-
-
-def get_sinusoid_encoding_table(n_position, d_hid, padding_idx=None):
-    """ Sinusoid position encoding table """
-
-    def cal_angle(position, hid_idx):
-        return position / np.power(10000, 2 * (hid_idx // 2) / d_hid)
-
-    def get_posi_angle_vec(position):
-        return [cal_angle(position, hid_j) for hid_j in range(d_hid)]
-    sinusoid_table = np.array([get_posi_angle_vec(pos_i) for pos_i in range(n_position)])
-    sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2])
-    sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2])
-    if padding_idx is not None:
-        sinusoid_table[padding_idx] = 0.0
-    return torch.FloatTensor(sinusoid_table)
-
-
-class TemporalCacheEncoder(nn.Module):
-
-    def __init__(self, len_max_seq, n_layers, n_head, d_k, d_v, d_model, d_inner, dropout=0.1, gpu_id=-1):
-        super().__init__()
-        n_position = len_max_seq + 1
-        self.dropout_emb = nn.Dropout(dropout)
-        self.position_enc = nn.Embedding.from_pretrained(get_sinusoid_encoding_table(n_position, d_model, padding_idx=0), freeze=True)
-        self.layer_stack = nn.ModuleList([EncoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout) for _ in range(n_layers)])
-        self.gpu_id = gpu_id
-
-    def forward(self, src_seq, return_attns=False, recurrent_steps=1, pad_mask=None):
-        enc_slf_attn_list = []
-        b, t, _ = src_seq.shape
-        if self.gpu_id >= 0:
-            src_pos = torch.arange(1, t + 1, device=self.gpu_id).repeat(b, 1)
-        else:
-            src_pos = torch.arange(1, t + 1).repeat(b, 1)
-        enc_output = src_seq + self.position_enc(src_pos)
-        enc_output = self.dropout_emb(enc_output)
-        if pad_mask is not None:
-            slf_attn_mask = get_attn_key_pad_mask(pad_mask, src_seq)
-        else:
-            slf_attn_mask = None
-        non_pad_mask = get_non_pad_mask(src_seq, pad_mask)
-        for i in range(recurrent_steps):
-            for enc_layer in self.layer_stack:
-                enc_output, enc_slf_attn = enc_layer(enc_output, non_pad_mask, slf_attn_mask=slf_attn_mask)
-                if return_attns:
-                    enc_slf_attn_list += [enc_slf_attn]
-        if return_attns:
-            return enc_output, enc_slf_attn_list
-        return enc_output,
-
-
-def get_subsequent_mask(shape, gpu_id):
-    """ For masking out the subsequent info. """
-    sz_b, len_s = shape
-    if gpu_id >= 0:
-        subsequent_mask = torch.triu(torch.ones((len_s, len_s), device=gpu_id, dtype=torch.uint8), diagonal=1)
-    else:
-        subsequent_mask = torch.triu(torch.ones((len_s, len_s), dtype=torch.uint8), diagonal=1)
-    subsequent_mask = subsequent_mask.unsqueeze(0).expand(sz_b, -1, -1)
-    return subsequent_mask
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, len_max_seq, n_layers, n_head, d_k, d_v, d_model, d_inner, temporal_dim, spatial_dim, output_dim, dropout=0.1, gpu_id=-1):
-        super().__init__()
-        n_position = len_max_seq + 1
-        self.position_enc = nn.Embedding.from_pretrained(get_sinusoid_encoding_table(n_position, d_model, padding_idx=0), freeze=True)
-        self.layer_stack = nn.ModuleList([DecoderLayer(d_model, d_inner, n_head, d_k, d_v, temporal_dim, spatial_dim, dropout=dropout, gpu_id=gpu_id) for _ in range(n_layers)])
-        self.output_fc = nn.Linear(d_model, output_dim)
-        self.gpu_id = gpu_id
-
-    def forward(self, dec_inputs, spatial_cache, temporal_cache, temporal_spatial_link, pad_cache, pad_mask=None, return_attns=False, recurrent_steps=1):
-        b, t, _ = dec_inputs.shape
-        if self.gpu_id >= 0:
-            dec_pos = torch.arange(1, t + 1, device=self.gpu_id).repeat(b, 1)
-        else:
-            dec_pos = torch.arange(1, t + 1).repeat(b, 1)
-        dec_outputs = dec_inputs + self.position_enc(dec_pos)
-        slf_attn_mask_subseq = get_subsequent_mask((b, t), self.gpu_id)
-        if pad_mask is not None:
-            slf_attn_mask_keypad = get_attn_key_pad_mask(pad_mask, dec_inputs)
-            slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
-        else:
-            slf_attn_mask = slf_attn_mask_subseq
-        dec_enc_attn_mask = get_attn_key_pad_mask(pad_cache, dec_inputs)
-        non_pad_mask = get_non_pad_mask(dec_inputs, pad_mask)
-        for i in range(recurrent_steps):
-            for dec_layer in self.layer_stack:
-                dec_outputs, attns = dec_layer(dec_outputs, temporal_cache, spatial_cache, temporal_spatial_link, non_pad_mask, slf_attn_mask=slf_attn_mask, dec_enc_attn_mask=dec_enc_attn_mask)
-        dec_outputs = self.output_fc(dec_outputs)
-        if return_attns:
-            return dec_outputs, attns
-        return dec_outputs,
+    def __init__(self):
+        super(base_peripheral, self).__init__()
 
 
 model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
@@ -674,6 +697,110 @@ def resnet152(pretrained=False, **kwargs):
     if pretrained:
         model.load_state_dict(model_zoo.load_url(model_urls['resnet152']))
     return model
+
+
+class ImageInputPeripheral(base_peripheral):
+
+    def __init__(self, output_dim, dropout=0, weights_preload=True, freeze_layers=True):
+        self.feature_dim = 2048
+        super(ImageInputPeripheral, self).__init__()
+        self.image_model = resnet152(pretrained=weights_preload)
+        if freeze_layers:
+            self.image_model = self.image_model.eval()
+            self.image_model.train = self.empty_fun
+            self.image_model.eval = self.empty_fun
+            for param in self.image_model.parameters():
+                param.requires_grad = False
+        self.enc_dropout = nn.Dropout(dropout)
+        self.output_fc = nn.Linear(self.feature_dim, output_dim)
+
+    def encode(self, image_tensor):
+        shape = image_tensor.shape
+        if len(shape) == 5:
+            t_dim = image_tensor.shape[1]
+            image_tensor = torch.reshape(image_tensor, (-1, 3, shape[3], shape[4]))
+        batch_size = image_tensor.shape[0]
+        image_enc = self.image_model(image_tensor)
+        enc_reshape = torch.reshape(image_enc, [batch_size, self.feature_dim, -1])
+        enc_transposed = torch.transpose(enc_reshape, 1, 2)
+        drp_enc = self.enc_dropout(enc_transposed)
+        output_enc = self.output_fc(drp_enc)
+        if len(shape) == 5:
+            output_enc = torch.reshape(output_enc, (-1, t_dim, output_enc.shape[1], output_enc.shape[2]))
+        else:
+            output_enc = output_enc.unsqueeze(1)
+        return output_enc
+
+    def empty_fun(self, mode):
+        pass
+
+
+class LanguagePeripheral(base_peripheral):
+
+    def __init__(self, output_dim, vocab_size=10000, embed_dim=50, lang='en', embedding_preload=True, gpu_id=-1, dropout=0):
+        super(LanguagePeripheral, self).__init__()
+        self.gpu_id = gpu_id
+        self.pad_char = vocab_size
+        self.bpe_encoder = BPEmb(lang=lang, vs=vocab_size, dim=embed_dim, add_pad_emb=True)
+        self.embed_layer = nn.Embedding(vocab_size + 1, embed_dim, padding_idx=self.pad_char)
+        if embedding_preload == True:
+            self.embed_layer.load_state_dict({'weight': torch.tensor(self.bpe_encoder.emb.vectors)})
+            None
+        self.enc_dropout = nn.Dropout(dropout)
+        self.output = nn.Linear(embed_dim, output_dim)
+
+    def forward(self, tokens):
+        pad_mask = tokens.eq(self.id_PAD)
+        embeddings = self.embed_layer(tokens)
+        embeddings = self.enc_dropout(embeddings)
+        output = self.output(embeddings)
+        return output.unsqueeze(2)
+
+    def embed_sentences(self, sentences):
+        tokens, pad_mask = self.tokenize_sentences(sentences)
+        return self.forward(tokens), pad_mask
+
+    def decode_tokens(self, tokens):
+        if isinstance(tokens, torch.Tensor):
+            tokens = tokens.cpu().numpy().astype(int).tolist()
+        elif isinstance(tokens, np.ndarray):
+            tokens = tokens.astype(int).tolist()
+        filtered_tokens = []
+        for t in tokens:
+            values = []
+            for i in t:
+                if i == self.id_EOS:
+                    break
+                elif i < self.id_PAD:
+                    values.append(i)
+            filtered_tokens.append(values)
+        return self.bpe_encoder.decode_ids(filtered_tokens)
+
+    def tokenize_sentences(self, sentences):
+        tokens = self.bpe_encoder.encode_ids_with_bos_eos(sentences)
+        max_len = 0
+        for t in tokens:
+            max_len = max(max_len, len(t))
+        for i in range(len(tokens)):
+            tok_len = len(tokens[i])
+            tokens[i].extend([self.pad_char] * (max_len - tok_len))
+        tokens = torch.tensor(np.array(tokens))
+        if self.gpu_id > -1:
+            tokens = tokens
+        pad_mask = tokens.eq(self.id_PAD)
+        return tokens, pad_mask
+
+    @property
+    def id_PAD(self):
+        return self.pad_char
+
+    @property
+    def id_GO(self):
+        return 1
+
+    @property
+    def id_EOS(self):
+        return 2
 
 
 class OmniNet(nn.Module):
@@ -748,19 +875,6 @@ class OmniNet(nn.Module):
         perph_conf = {'german_language_input_vocab': 25000, 'german_language_input_embed': 300, 'english_language_input_vocab': 25000, 'english_language_input_embed': 300, 'english_language_output_vocab': 25000, 'german_language_output_vocab': 25000, 'dropout': 0.1, 'vqa_output_vocab': 3500, 'hmdb_output_classes': 52, 'penn_output_classes': 48}
         domains = ['ENGLISH', 'GERMAN', 'IMAGE']
         return cnp_conf, perph_conf, domains
-
-
-class base_peripheral(nn.Module):
-    """
-        The base standard non recursive perpheral
-        All base peripherals must implement the following functions:
-            __init__()
-            run_cycle()
-
-    """
-
-    def __init__(self):
-        super(base_peripheral, self).__init__()
 
 
 import torch

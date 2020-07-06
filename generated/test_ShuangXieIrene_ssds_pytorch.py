@@ -44,6 +44,7 @@ eval_utils = _module
 fp16_utils = _module
 nms = _module
 _ext = _module
+nms = _module
 build = _module
 nms_gpu = _module
 nms_wrapper = _module
@@ -60,20 +61,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
+import numpy as np
+
+
+import uuid
 
 
 import torch.nn as nn
@@ -88,6 +102,12 @@ from torch.autograd import Function
 from torch.autograd import Variable
 
 
+from math import sqrt as sqrt
+
+
+from itertools import product as product
+
+
 import torch.nn.functional as F
 
 
@@ -100,9 +120,6 @@ from collections import namedtuple
 import functools
 
 
-import numpy as np
-
-
 import random
 
 
@@ -110,9 +127,6 @@ import torch.optim as optim
 
 
 from torch.optim import lr_scheduler
-
-
-import torch.utils.data as data
 
 
 import math
@@ -428,10 +442,9 @@ class MultiBoxLoss(nn.Module):
 
 class _conv_bn(nn.Module):
 
-    def __init__(self, inp, oup, stride):
+    def __init__(self, inp, oup, stride=1):
         super(_conv_bn, self).__init__()
         self.conv = nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.LeakyReLU(0.1, inplace=True))
-        self.depth = oup
 
     def forward(self, x):
         return self.conv(x)
@@ -439,14 +452,10 @@ class _conv_bn(nn.Module):
 
 class _conv_block(nn.Module):
 
-    def __init__(self, inp, oup, stride, expand_ratio=0.5):
+    def __init__(self, inp, oup, stride=1, expand_ratio=0.5):
         super(_conv_block, self).__init__()
-        if stride == 1 and inp == oup:
-            depth = int(oup * expand_ratio)
-            self.conv = nn.Sequential(nn.Conv2d(inp, depth, 1, 1, bias=False), nn.BatchNorm2d(depth), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(depth, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.LeakyReLU(0.1, inplace=True))
-        else:
-            self.conv = nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.LeakyReLU(0.1, inplace=True))
-        self.depth = oup
+        depth = int(oup * expand_ratio)
+        self.conv = nn.Sequential(nn.Conv2d(inp, depth, 1, 1, bias=False), nn.BatchNorm2d(depth), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(depth, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.LeakyReLU(0.1, inplace=True))
 
     def forward(self, x):
         return self.conv(x)
@@ -471,26 +480,8 @@ class _residual_block(nn.Module):
             return self.conv(x)
 
 
-class _conv_bn(nn.Module):
-
-    def __init__(self, inp, oup, stride):
-        super(_conv_bn, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
-        self.depth = oup
-
-    def forward(self, x):
-        return self.conv(x)
-
-
-class _conv_dw(nn.Module):
-
-    def __init__(self, inp, oup, stride):
-        super(_conv_dw, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(inp, inp, 3, stride, 1, groups=inp, bias=False), nn.BatchNorm2d(inp), nn.ReLU(inplace=True), nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU(inplace=True))
-        self.depth = oup
-
-    def forward(self, x):
-        return self.conv(x)
+def _conv_dw(inp, oup, stride=1, padding=0, expand_ratio=1):
+    return nn.Sequential(nn.Conv2d(inp, oup * expand_ratio, 1, 1, 0, bias=False), nn.BatchNorm2d(oup * expand_ratio), nn.ReLU6(inplace=True), nn.Conv2d(oup * expand_ratio, oup * expand_ratio, 3, stride, padding, groups=oup * expand_ratio, bias=False), nn.BatchNorm2d(oup * expand_ratio), nn.ReLU6(inplace=True), nn.Conv2d(oup * expand_ratio, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
 
 
 class _inverted_residual_bottleneck(nn.Module):
@@ -648,21 +639,19 @@ class FSSD(nn.Module):
 
 class BasicConv(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
         super(BasicConv, self).__init__()
         self.out_channels = out_planes
         self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
         self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
         self.relu = nn.ReLU(inplace=True) if relu else None
 
-    def forward(self, x, up_size=None):
+    def forward(self, x):
         x = self.conv(x)
         if self.bn is not None:
             x = self.bn(x)
         if self.relu is not None:
             x = self.relu(x)
-        if up_size is not None:
-            x = F.upsample(x, size=up_size, mode='bilinear')
         return x
 
 
@@ -744,26 +733,6 @@ class FSSDLite(nn.Module):
         else:
             output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
-
-
-class BasicConv(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=False, bias=True):
-        super(BasicConv, self).__init__()
-        self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x, up_size=None):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        if up_size is not None:
-            x = F.upsample(x, size=up_size, mode='bilinear')
-        return x
 
 
 class Retina(nn.Module):
@@ -908,24 +877,6 @@ class RFB(nn.Module):
         else:
             output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
-
-
-class BasicConv(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
-        super(BasicConv, self).__init__()
-        self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        return x
 
 
 class BasicSepConv(nn.Module):
@@ -1136,99 +1087,6 @@ class RFBLite(nn.Module):
         else:
             output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes)
         return output
-
-
-class BasicConv(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
-        super(BasicConv, self).__init__()
-        self.out_channels = out_planes
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        return x
-
-
-class BasicSepConv(nn.Module):
-
-    def __init__(self, in_planes, kernel_size, stride=1, padding=0, dilation=1, groups=1, relu=True, bn=True, bias=False):
-        super(BasicSepConv, self).__init__()
-        self.out_channels = in_planes
-        self.conv = nn.Conv2d(in_planes, in_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias)
-        self.bn = nn.BatchNorm2d(in_planes, eps=1e-05, momentum=0.01, affine=True) if bn else None
-        self.relu = nn.ReLU(inplace=True) if relu else None
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.bn is not None:
-            x = self.bn(x)
-        if self.relu is not None:
-            x = self.relu(x)
-        return x
-
-
-class BasicRFB_a_lite(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1):
-        super(BasicRFB_a_lite, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // 4
-        self.branch0 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=1, dilation=1, relu=False))
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(3, 1), stride=1, padding=(1, 0)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes, kernel_size=(1, 3), stride=stride, padding=(0, 1)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch3 = nn.Sequential(BasicConv(in_planes, inter_planes // 2, kernel_size=1, stride=1), BasicConv(inter_planes // 2, inter_planes // 4 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 4 * 3, inter_planes, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicSepConv(inter_planes, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.ConvLinear = BasicConv(4 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x0 = self.branch0(x)
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        x3 = self.branch3(x)
-        out = torch.cat((x0, x1, x2, x3), 1)
-        out = self.ConvLinear(out)
-        out = out * self.scale + x
-        out = self.relu(out)
-        return out
-
-
-class BasicRFB_lite(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride=1, scale=0.1):
-        super(BasicRFB_lite, self).__init__()
-        self.scale = scale
-        self.out_channels = out_planes
-        inter_planes = in_planes // 8
-        self.branch1 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=(1, 3), stride=1, padding=(0, 1)), BasicConv(inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=(3, 1), stride=stride, padding=(1, 0)), BasicSepConv(inter_planes // 2 * 3, kernel_size=3, stride=1, padding=3, dilation=3, relu=False))
-        self.branch2 = nn.Sequential(BasicConv(in_planes, inter_planes, kernel_size=1, stride=1), BasicConv(inter_planes, inter_planes // 2 * 3, kernel_size=3, stride=1, padding=1), BasicConv(inter_planes // 2 * 3, inter_planes // 2 * 3, kernel_size=3, stride=stride, padding=1), BasicSepConv(inter_planes // 2 * 3, kernel_size=3, stride=1, padding=5, dilation=5, relu=False))
-        self.ConvLinear = BasicConv(3 * inter_planes, out_planes, kernel_size=1, stride=1, relu=False)
-        if in_planes == out_planes:
-            self.identity = True
-        else:
-            self.identity = False
-            self.shortcut = BasicConv(in_planes, out_planes, kernel_size=1, stride=stride, relu=False)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        out = torch.cat((x1, x2), 1)
-        out = self.ConvLinear(out)
-        if self.identity:
-            out = out * self.scale + x
-        else:
-            short = self.shortcut(x)
-            out = out * self.scale + short
-        out = self.relu(out)
-        return out
 
 
 class SSD(nn.Module):
@@ -1453,27 +1311,6 @@ class YOLO(nn.Module):
         return output
 
 
-class _conv_bn(nn.Module):
-
-    def __init__(self, inp, oup, stride=1):
-        super(_conv_bn, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.LeakyReLU(0.1, inplace=True))
-
-    def forward(self, x):
-        return self.conv(x)
-
-
-class _conv_block(nn.Module):
-
-    def __init__(self, inp, oup, stride=1, expand_ratio=0.5):
-        super(_conv_block, self).__init__()
-        depth = int(oup * expand_ratio)
-        self.conv = nn.Sequential(nn.Conv2d(inp, depth, 1, 1, bias=False), nn.BatchNorm2d(depth), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(depth, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.LeakyReLU(0.1, inplace=True))
-
-    def forward(self, x):
-        return self.conv(x)
-
-
 class _router_v2(nn.Module):
 
     def __init__(self, inp, oup, stride=2):
@@ -1563,10 +1400,6 @@ TESTCASES = [
      lambda: ([], {'inp': 4, 'oup': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (_conv_dw,
-     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
     (_inverted_residual_bottleneck,
      lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'expand_ratio': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1631,7 +1464,4 @@ class Test_ShuangXieIrene_ssds_pytorch(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
 

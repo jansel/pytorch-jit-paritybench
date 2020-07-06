@@ -23,17 +23,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import math
+
+
+import time
+
+
+import abc
+
+
+from torch.utils.data import DataLoader
+
+
+import torch.optim
+
+
+import torchvision.transforms as transforms
 
 
 import functools
@@ -79,6 +98,15 @@ from torchvision.models.resnet import Bottleneck
 
 
 from torchvision.models.resnet import model_urls
+
+
+import copy
+
+
+import random
+
+
+from torch.utils.data.dataset import Dataset
 
 
 from torch.nn.parallel.scatter_gather import gather
@@ -191,7 +219,7 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices
         if device is None:
             device = get_a_var(input).get_device()
         try:
-            with torch.cuda.device(device):
+            with torch.device(device):
                 output = module(input, *target)
             with lock:
                 results[i] = output
@@ -249,12 +277,6 @@ def _assert_no_grad(tensor):
     assert not tensor.requires_grad, "nn criterions don't compute the gradient w.r.t. targets - please mark these tensors as not requiring gradients"
 
 
-_global_config['output_shape'] = 4
-
-
-_global_config['depth_dim'] = 1
-
-
 def soft_argmax(heatmaps, joint_num):
     assert isinstance(heatmaps, torch.Tensor)
     heatmaps = heatmaps.reshape((-1, joint_num, cfg.depth_dim * cfg.output_shape[0] * cfg.output_shape[1]))
@@ -263,9 +285,9 @@ def soft_argmax(heatmaps, joint_num):
     accu_x = heatmaps.sum(dim=(2, 3))
     accu_y = heatmaps.sum(dim=(2, 4))
     accu_z = heatmaps.sum(dim=(3, 4))
-    accu_x = accu_x * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[1] + 1).type(torch.cuda.FloatTensor), devices=[accu_x.device.index])[0]
-    accu_y = accu_y * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[0] + 1).type(torch.cuda.FloatTensor), devices=[accu_y.device.index])[0]
-    accu_z = accu_z * torch.cuda.comm.broadcast(torch.arange(1, cfg.depth_dim + 1).type(torch.cuda.FloatTensor), devices=[accu_z.device.index])[0]
+    accu_x = accu_x * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[1] + 1).type(torch.FloatTensor), devices=[accu_x.device.index])[0]
+    accu_y = accu_y * torch.cuda.comm.broadcast(torch.arange(1, cfg.output_shape[0] + 1).type(torch.FloatTensor), devices=[accu_y.device.index])[0]
+    accu_z = accu_z * torch.cuda.comm.broadcast(torch.arange(1, cfg.depth_dim + 1).type(torch.FloatTensor), devices=[accu_z.device.index])[0]
     accu_x = accu_x.sum(dim=2, keepdim=True) - 1
     accu_y = accu_y.sum(dim=2, keepdim=True) - 1
     accu_z = accu_z.sum(dim=2, keepdim=True) - 1
@@ -402,10 +424,6 @@ TESTCASES = [
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
      False),
-    (HeadNet,
-     lambda: ([], {'joint_num': 4}),
-     lambda: ([torch.rand([4, 2048, 4, 4])], {}),
-     True),
     (ResPoseNet,
      lambda: ([], {'backbone': _mock_layer(), 'head': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -418,7 +436,4 @@ class Test_mks0601_Integral_Human_Pose_Regression_for_3D_Human_Pose_Estimation(_
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
 

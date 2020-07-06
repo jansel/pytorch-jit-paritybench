@@ -71,15 +71,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -171,6 +172,12 @@ import torch.cuda
 from copy import deepcopy
 
 
+from itertools import chain
+
+
+from torch import optim
+
+
 import torch.nn as nn
 
 
@@ -189,6 +196,18 @@ import torch.autograd
 from typing import Iterable
 
 
+import typing
+
+
+import torch.cuda.comm
+
+
+from types import TracebackType
+
+
+from typing import Type
+
+
 from typing import ClassVar
 
 
@@ -196,9 +215,6 @@ from typing import FrozenSet
 
 
 from typing import Set
-
-
-from typing import Type
 
 
 class Classify(nn.Module):
@@ -233,10 +249,93 @@ class Stem(nn.Module):
         return x
 
 
+class FactorizedReduce(nn.Module):
+
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+        self.relu = nn.ReLU(inplace=False)
+        self.pad = nn.ZeroPad2d((0, 1, 0, 1))
+        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, bias=False)
+        self.conv2 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+
+    def forward(self, input: Tensor) ->Tensor:
+        x = input
+        x = self.relu(x)
+        x = torch.cat([self.conv1(x), self.conv2(self.pad(x[:, :, 1:, 1:]))], dim=1)
+        x = self.bn(x)
+        return x
+
+
 NORMAL_CONCAT = [0, 3, 4, 6]
 
 
+class Operation(nn.Module):
+    """Includes the operation name into the representation string for
+    debugging.
+    """
+
+    def __init__(self, name: str, module: nn.Module):
+        super().__init__()
+        self.name = name
+        self.module = module
+
+    def __repr__(self) ->str:
+        return f'{self.__class__.__name__}[{self.name}]'
+
+    def forward(self, *args: Any) ->Any:
+        return self.module(*args)
+
+
+def avg_pool_3x3(channels: int, stride: int) ->Operation:
+    module = nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False)
+    return Operation('avg_pool_3x3', module)
+
+
+def conv_1x1(channels: int, stride: int) ->Operation:
+    c = channels
+    module = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(c, c, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(c))
+    return Operation('conv_1x1', module)
+
+
+def conv_1x7_7x1(channels: int, stride: int) ->Operation:
+    c = channels
+    module = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(c, c // 4, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(c // 4), nn.ReLU(inplace=False), nn.Conv2d(c // 4, c // 4, kernel_size=(1, 7), stride=(1, stride), padding=(0, 3), bias=False), nn.BatchNorm2d(c // 4), nn.ReLU(inplace=False), nn.Conv2d(c // 4, c // 4, kernel_size=(7, 1), stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(c // 4), nn.ReLU(inplace=False), nn.Conv2d(c // 4, c, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(c))
+    return Operation('conv_1x7_7x1', module)
+
+
+def max_pool_3x3(channels: int, stride: int) ->Operation:
+    module = nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False)
+    return Operation('max_pool_3x3', module)
+
+
+def none(channels: int, stride: int) ->Operation:
+    module: nn.Module
+    if stride == 1:
+        module = nn.Identity()
+    else:
+        module = FactorizedReduce(channels, channels)
+    return Operation('none', module)
+
+
+NORMAL_OPERATIONS = [(1, conv_1x1), (1, max_pool_3x3), (1, none), (0, conv_1x7_7x1), (0, conv_1x1), (0, conv_1x7_7x1), (2, max_pool_3x3), (2, none), (1, avg_pool_3x3), (5, conv_1x1)]
+
+
 REDUCTION_CONCAT = [4, 5, 6]
+
+
+def conv_3x3(channels: int, stride: int) ->Operation:
+    c = channels
+    module = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(c, c // 4, kernel_size=1, bias=False), nn.BatchNorm2d(c // 4), nn.ReLU(inplace=False), nn.Conv2d(c // 4, c // 4, kernel_size=3, stride=stride, padding=1, bias=False), nn.BatchNorm2d(c // 4), nn.ReLU(inplace=False), nn.Conv2d(c // 4, c, kernel_size=1, bias=False), nn.BatchNorm2d(c))
+    return Operation('conv_3x3', module)
+
+
+def max_pool_2x2(channels: int, stride: int) ->Operation:
+    module = nn.MaxPool2d(2, stride=stride, padding=0)
+    return Operation('max_pool_2x2', module)
+
+
+REDUCTION_OPERATIONS = [(0, max_pool_2x2), (0, max_pool_3x3), (2, none), (1, conv_3x3), (2, conv_1x7_7x1), (2, max_pool_3x3), (3, none), (1, max_pool_2x2), (2, avg_pool_3x3), (3, conv_1x1)]
 
 
 def relu_conv_bn(in_channels: int, out_channels: int, kernel_size: int=1, stride: int=1, padding: int=0) ->nn.Module:
@@ -294,279 +393,10 @@ class Cell(nn.Module):
         return torch.cat([_states[i] for i in self.concat], dim=1), skip
 
 
-class Operation(nn.Module):
-    """Includes the operation name into the representation string for
-    debugging.
-    """
-
-    def __init__(self, name: str, module: nn.Module):
-        super().__init__()
-        self.name = name
-        self.module = module
-
-    def __repr__(self) ->str:
-        return f'{self.__class__.__name__}[{self.name}]'
-
-    def forward(self, *args: Any) ->Any:
-        return self.module(*args)
-
-
-class FactorizedReduce(nn.Module):
-
-    def __init__(self, in_channels: int, out_channels: int):
-        super().__init__()
-        self.relu = nn.ReLU(inplace=False)
-        self.pad = nn.ZeroPad2d((0, 1, 0, 1))
-        self.conv1 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, bias=False)
-        self.conv2 = nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, stride=2, bias=False)
-        self.bn = nn.BatchNorm2d(out_channels)
-
-    def forward(self, input: Tensor) ->Tensor:
-        x = input
-        x = self.relu(x)
-        x = torch.cat([self.conv1(x), self.conv2(self.pad(x[:, :, 1:, 1:]))], dim=1)
-        x = self.bn(x)
-        return x
-
-
-class stash:
-    """The command to stash a skip tensor.
-
-    ::
-
-        def forward(self, input):
-            yield stash('name', input)
-            return f(input)
-
-    Args:
-        name (str): name of skip tensor
-        input (torch.Tensor or None): tensor to pass to the skip connection
-
-    """
-    __slots__ = 'name', 'tensor'
-
-    def __init__(self, name: str, tensor: Optional[Tensor]) ->None:
-        self.name = name
-        self.tensor = tensor
-
-
-class pop:
-    """The command to pop a skip tensor.
-
-    ::
-
-        def forward(self, input):
-            skip = yield pop('name')
-            return f(input) + skip
-
-    Args:
-        name (str): name of skip tensor
-
-    Returns:
-        the skip tensor previously stashed by another layer under the same name
-
-    """
-    __slots__ = 'name',
-
-    def __init__(self, name: str) ->None:
-        self.name = name
-
-
 Tensors = Tuple[Tensor, ...]
 
 
 TensorOrTensors = Union[Tensor, Tensors]
-
-
-def is_checkpointing() ->bool:
-    """Whether the current forward propagation is under checkpointing.
-
-    Returns:
-        bool: :data:`True` if it's under checkpointing.
-
-    """
-    return thread_local.is_checkpointing
-
-
-def is_recomputing() ->bool:
-    """Whether the current forward propagation is under checkpoint
-    recomputation. Use this to prevent duplicated side-effects at forward
-    propagation::
-
-        class Counter(nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.counter = 0
-
-            def forward(self, input):
-                if not is_recomputing():
-                    self.counter += 1
-                return input
-
-    Returns:
-        bool: :data:`True` if it's under checkpoint recomputation.
-
-    .. seealso:: :ref:`Detecting Recomputation`
-
-    """
-    return thread_local.is_recomputing
-
-
-class SkipsAsTuple(nn.Module):
-    """The base module for old-fashioned skip connections. It handles arguments
-    including the input and the skips.
-    """
-
-    def __init__(self, num_skips: int, unpack_input: Deque[bool], unpack_output: Deque[bool]) ->None:
-        super().__init__()
-        self.num_skips = num_skips
-        self.unpack_input = unpack_input
-        self.unpack_input_for_recomputing: List[bool] = []
-        self.unpack_output = unpack_output
-
-    def forward(self, input_skips: TensorOrTensors) ->TensorOrTensors:
-        input: TensorOrTensors = input_skips
-        skips: Tensors = ()
-        if self.num_skips:
-            assert isinstance(input_skips, tuple)
-            input = input_skips[:-self.num_skips]
-            skips = input_skips[-self.num_skips:]
-            if is_recomputing():
-                unpack_input = self.unpack_input_for_recomputing.pop()
-            else:
-                unpack_input = self.unpack_input.popleft()
-                if is_checkpointing():
-                    self.unpack_input_for_recomputing.append(unpack_input)
-            if unpack_input:
-                input = input[0]
-        output, skips = self._forward(input, skips)
-        unpack_output = torch.is_tensor(output)
-        self.unpack_output.append(unpack_output)
-        if not skips:
-            return output
-        if unpack_output:
-            return cast(Tensor, output), *skips
-        else:
-            return output + skips
-
-    def _forward(self, input: TensorOrTensors, skips: Tensors) ->Tuple[TensorOrTensors, Tensors]:
-        raise NotImplementedError
-
-
-class Pass(nn.Module):
-
-    def forward(self, input):
-        return input
-
-
-TModule = TypeVar('TModule', bound=nn.Module)
-
-
-class DeferredBatchNorm(_BatchNorm):
-    """A BatchNorm layer tracks multiple micro-batches to update running
-    statistics per mini-batch.
-    """
-    sum: Tensor
-    sum_squares: Tensor
-
-    def __init__(self, num_features: int, eps: float=1e-05, momentum: Optional[float]=0.1, affine: bool=True, chunks: int=1) ->None:
-        super().__init__(num_features, eps, momentum, affine, track_running_stats=True)
-        self.register_buffer('sum', torch.zeros_like(self.running_mean))
-        self.register_buffer('sum_squares', torch.zeros_like(self.running_var))
-        self.counter = 0
-        self.tracked = 0
-        self.chunks = chunks
-
-    def _check_input_dim(self, input: Tensor) ->None:
-        if input.dim() <= 2:
-            raise ValueError('expected at least 3D input (got %dD input)' % input.dim())
-
-    def _track(self, input: Tensor) ->bool:
-        """Tracks statistics of a micro-batch."""
-        dim = [0]
-        dim.extend(range(2, input.dim()))
-        with torch.no_grad():
-            self.sum += input.sum(dim)
-            self.sum_squares += (input ** 2).sum(dim)
-        size = input.size().numel() // input.size(1)
-        self.counter += size
-        self.tracked += 1
-        return self.tracked == self.chunks
-
-    def _commit(self) ->None:
-        """Updates the running statistics of a mini-batch."""
-        exponential_average_factor = 0.0
-        self.num_batches_tracked += 1
-        if self.momentum is None:
-            exponential_average_factor = 1.0 / float(self.num_batches_tracked)
-        else:
-            exponential_average_factor = self.momentum
-        mean = self.sum / self.counter
-        var = self.sum_squares / self.counter - mean ** 2
-        m = exponential_average_factor
-        self.running_mean *= 1 - m
-        self.running_mean += mean * m
-        self.running_var *= 1 - m
-        self.running_var += var * m
-        self.sum.zero_()
-        self.sum_squares.zero_()
-        self.counter = 0
-        self.tracked = 0
-
-    def forward(self, input: Tensor) ->Tensor:
-        if not self.training:
-            return F.batch_norm(input, running_mean=self.running_mean, running_var=self.running_var, weight=self.weight, bias=self.bias, training=False, momentum=0.0, eps=self.eps)
-        if not is_recomputing():
-            tracked_enough = self._track(input)
-            if tracked_enough:
-                self._commit()
-        return F.batch_norm(input, running_mean=None, running_var=None, weight=self.weight, bias=self.bias, training=True, momentum=0.0, eps=self.eps)
-
-    @classmethod
-    def convert_deferred_batch_norm(cls, module: TModule, chunks: int=1) ->TModule:
-        """Converts a :class:`nn.BatchNorm` or underlying
-        :class:`nn.BatchNorm`s into :class:`DeferredBatchNorm`::
-
-            from torchvision.models.resnet import resnet101
-            from torchgpipe.batchnorm import DeferredBatchNorm
-            model = resnet101()
-            model = DeferredBatchNorm.convert_deferred_batch_norm(model)
-
-        """
-        if isinstance(module, DeferredBatchNorm) and module.chunks is chunks:
-            return cast(TModule, module)
-        module_output: nn.Module = module
-        if isinstance(module, _BatchNorm) and module.track_running_stats:
-            module_output = DeferredBatchNorm(module.num_features, module.eps, module.momentum, module.affine, chunks)
-            if module.affine:
-                module_output.register_parameter('weight', module.weight)
-                module_output.register_parameter('bias', module.bias)
-            module_output.register_buffer('running_mean', module.running_mean)
-            module_output.register_buffer('running_var', module.running_var)
-            module_output.register_buffer('num_batches_tracked', module.num_batches_tracked)
-        for name, child in module.named_children():
-            module_output.add_module(name, cls.convert_deferred_batch_norm(child, chunks))
-        return cast(TModule, module_output)
-
-
-class CPUStreamType:
-    pass
-
-
-AbstractStream = Union[torch.cuda.Stream, CPUStreamType]
-
-
-class BalanceError(ValueError):
-    pass
-
-
-Device = Union[torch.device, int, str]
-
-
-Devices = Union[Iterable[Device], List[Device]]
-
-
-MOVING_DENIED = TypeError('denied to move parameters and buffers, because GPipe should manage device placement')
 
 
 class Batch:
@@ -673,92 +503,253 @@ class Batch:
         self.value = value[0]
 
 
-RNGStates = Tuple[ByteTensor, Optional[ByteTensor]]
+T = TypeVar('T', bound='Skippable')
 
 
-Recomputed = Tuple[TensorOrTensors, Tensors]
+class CPUStreamType:
+    pass
 
 
-class Context:
-    """The common interface between the :class:`Checkpoint` and
-    :class:`Recompute` context.
+AbstractStream = Union[torch.cuda.Stream, CPUStreamType]
+
+
+class pop:
+    """The command to pop a skip tensor.
+
+    ::
+
+        def forward(self, input):
+            skip = yield pop('name')
+            return f(input) + skip
+
+    Args:
+        name (str): name of skip tensor
+
+    Returns:
+        the skip tensor previously stashed by another layer under the same name
+
     """
-    recomputed: Deque[Recomputed]
-    rng_states: Deque[RNGStates]
-    function: Function
-    input_atomic: bool
-    saved_tensors: Tuple[Tensor, ...]
+    __slots__ = 'name',
 
-    def save_for_backward(self, *tensors: Tensor) ->None:
-        pass
+    def __init__(self, name: str) ->None:
+        self.name = name
 
 
-def save_rng_states(device: torch.device, rng_states: Deque[RNGStates]) ->None:
-    """:meth:`Checkpoint.forward` captures the current PyTorch's random number
-    generator states at CPU and GPU to reuse in :meth:`Recompute.backward`.
+class stash:
+    """The command to stash a skip tensor.
 
-    .. seealso:: :ref:`Referential Transparency`
+    ::
+
+        def forward(self, input):
+            yield stash('name', input)
+            return f(input)
+
+    Args:
+        name (str): name of skip tensor
+        input (torch.Tensor or None): tensor to pass to the skip connection
 
     """
-    cpu_rng_state = torch.get_rng_state()
-    gpu_rng_state: Optional[ByteTensor]
-    if device.type == 'cuda':
-        gpu_rng_state = torch.cuda.get_rng_state(device)
-    else:
-        gpu_rng_state = None
-    rng_states.append((cpu_rng_state, gpu_rng_state))
+    __slots__ = 'name', 'tensor'
+
+    def __init__(self, name: str, tensor: Optional[Tensor]) ->None:
+        self.name = name
+        self.tensor = tensor
 
 
-class Checkpoint(torch.autograd.Function):
+def is_checkpointing() ->bool:
+    """Whether the current forward propagation is under checkpointing.
 
-    @staticmethod
-    def forward(ctx: Context, phony: Tensor, recomputed: Deque[Recomputed], rng_states: Deque[RNGStates], function: Function, input_atomic: bool, *input: Tensor) ->TensorOrTensors:
-        ctx.recomputed = recomputed
-        ctx.rng_states = rng_states
-        save_rng_states(input[0].device, ctx.rng_states)
-        ctx.function = function
-        ctx.input_atomic = input_atomic
-        ctx.save_for_backward(*input)
-        with torch.no_grad(), enable_checkpointing():
-            output = function(input[0] if input_atomic else input)
-        return output
+    Returns:
+        bool: :data:`True` if it's under checkpointing.
 
-    @staticmethod
-    def backward(ctx: Context, *grad_output: Tensor) ->Tuple[Optional[Tensor], ...]:
-        output, input_leaf = ctx.recomputed.pop()
-        if isinstance(output, tuple):
-            tensors = output
+    """
+    return thread_local.is_checkpointing
+
+
+def is_recomputing() ->bool:
+    """Whether the current forward propagation is under checkpoint
+    recomputation. Use this to prevent duplicated side-effects at forward
+    propagation::
+
+        class Counter(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.counter = 0
+
+            def forward(self, input):
+                if not is_recomputing():
+                    self.counter += 1
+                return input
+
+    Returns:
+        bool: :data:`True` if it's under checkpoint recomputation.
+
+    .. seealso:: :ref:`Detecting Recomputation`
+
+    """
+    return thread_local.is_recomputing
+
+
+class SkipsAsTuple(nn.Module):
+    """The base module for old-fashioned skip connections. It handles arguments
+    including the input and the skips.
+    """
+
+    def __init__(self, num_skips: int, unpack_input: Deque[bool], unpack_output: Deque[bool]) ->None:
+        super().__init__()
+        self.num_skips = num_skips
+        self.unpack_input = unpack_input
+        self.unpack_input_for_recomputing: List[bool] = []
+        self.unpack_output = unpack_output
+
+    def forward(self, input_skips: TensorOrTensors) ->TensorOrTensors:
+        input: TensorOrTensors = input_skips
+        skips: Tensors = ()
+        if self.num_skips:
+            assert isinstance(input_skips, tuple)
+            input = input_skips[:-self.num_skips]
+            skips = input_skips[-self.num_skips:]
+            if is_recomputing():
+                unpack_input = self.unpack_input_for_recomputing.pop()
+            else:
+                unpack_input = self.unpack_input.popleft()
+                if is_checkpointing():
+                    self.unpack_input_for_recomputing.append(unpack_input)
+            if unpack_input:
+                input = input[0]
+        output, skips = self._forward(input, skips)
+        unpack_output = torch.is_tensor(output)
+        self.unpack_output.append(unpack_output)
+        if not skips:
+            return output
+        if unpack_output:
+            return cast(Tensor, output), *skips
         else:
-            tensors = output,
-        if any(y.requires_grad for y in tensors):
-            torch.autograd.backward(tensors, grad_output)
-        grad_input: List[Optional[Tensor]] = [None, None, None, None, None]
-        grad_input.extend(x.grad for x in input_leaf)
-        return tuple(grad_input)
+            return output + skips
+
+    def _forward(self, input: TensorOrTensors, skips: Tensors) ->Tuple[TensorOrTensors, Tensors]:
+        raise NotImplementedError
 
 
-class Recompute(torch.autograd.Function):
+class Gutter(SkipsAsTuple):
+    """Just passes the incoming skips."""
 
-    @staticmethod
-    def forward(ctx: Context, phony: Tensor, recomputed: Deque[Recomputed], rng_states: Deque[RNGStates], function: Function, input_atomic: bool, *input: Tensor) ->Tensor:
-        ctx.recomputed = recomputed
-        ctx.rng_states = rng_states
-        ctx.function = function
-        ctx.input_atomic = input_atomic
-        ctx.save_for_backward(*input)
-        return phony
+    def __init__(self, module: nn.Module, num_skips: int, unpack_input: Deque[bool], unpack_output: Deque[bool]) ->None:
+        super().__init__(num_skips, unpack_input, unpack_output)
+        self.module = module
 
-    @staticmethod
-    def backward(ctx: Context, *grad_output: Tensor) ->Tuple[None, ...]:
-        input = ctx.saved_tensors
-        input_leaf = tuple(x.detach().requires_grad_(x.requires_grad) for x in input)
-        with restore_rng_states(input[0].device, ctx.rng_states):
-            with torch.enable_grad(), enable_recomputing():
-                output = ctx.function(input_leaf[0] if ctx.input_atomic else input_leaf)
-        ctx.recomputed.append((output, input_leaf))
-        grad_input: List[None] = [None, None, None, None, None]
-        grad_input.extend(None for _ in ctx.saved_tensors)
-        return tuple(grad_input)
+    def _forward(self, input: TensorOrTensors, skips: Tensors) ->Tuple[TensorOrTensors, Tensors]:
+        output = self.module(input)
+        return output, skips
+
+
+class Pass(nn.Module):
+
+    def forward(self, input):
+        return input
+
+
+TModule = TypeVar('TModule', bound=nn.Module)
+
+
+class DeferredBatchNorm(_BatchNorm):
+    """A BatchNorm layer tracks multiple micro-batches to update running
+    statistics per mini-batch.
+    """
+    sum: Tensor
+    sum_squares: Tensor
+
+    def __init__(self, num_features: int, eps: float=1e-05, momentum: Optional[float]=0.1, affine: bool=True, chunks: int=1) ->None:
+        super().__init__(num_features, eps, momentum, affine, track_running_stats=True)
+        self.register_buffer('sum', torch.zeros_like(self.running_mean))
+        self.register_buffer('sum_squares', torch.zeros_like(self.running_var))
+        self.counter = 0
+        self.tracked = 0
+        self.chunks = chunks
+
+    def _check_input_dim(self, input: Tensor) ->None:
+        if input.dim() <= 2:
+            raise ValueError('expected at least 3D input (got %dD input)' % input.dim())
+
+    def _track(self, input: Tensor) ->bool:
+        """Tracks statistics of a micro-batch."""
+        dim = [0]
+        dim.extend(range(2, input.dim()))
+        with torch.no_grad():
+            self.sum += input.sum(dim)
+            self.sum_squares += (input ** 2).sum(dim)
+        size = input.size().numel() // input.size(1)
+        self.counter += size
+        self.tracked += 1
+        return self.tracked == self.chunks
+
+    def _commit(self) ->None:
+        """Updates the running statistics of a mini-batch."""
+        exponential_average_factor = 0.0
+        self.num_batches_tracked += 1
+        if self.momentum is None:
+            exponential_average_factor = 1.0 / float(self.num_batches_tracked)
+        else:
+            exponential_average_factor = self.momentum
+        mean = self.sum / self.counter
+        var = self.sum_squares / self.counter - mean ** 2
+        m = exponential_average_factor
+        self.running_mean *= 1 - m
+        self.running_mean += mean * m
+        self.running_var *= 1 - m
+        self.running_var += var * m
+        self.sum.zero_()
+        self.sum_squares.zero_()
+        self.counter = 0
+        self.tracked = 0
+
+    def forward(self, input: Tensor) ->Tensor:
+        if not self.training:
+            return F.batch_norm(input, running_mean=self.running_mean, running_var=self.running_var, weight=self.weight, bias=self.bias, training=False, momentum=0.0, eps=self.eps)
+        if not is_recomputing():
+            tracked_enough = self._track(input)
+            if tracked_enough:
+                self._commit()
+        return F.batch_norm(input, running_mean=None, running_var=None, weight=self.weight, bias=self.bias, training=True, momentum=0.0, eps=self.eps)
+
+    @classmethod
+    def convert_deferred_batch_norm(cls, module: TModule, chunks: int=1) ->TModule:
+        """Converts a :class:`nn.BatchNorm` or underlying
+        :class:`nn.BatchNorm`s into :class:`DeferredBatchNorm`::
+
+            from torchvision.models.resnet import resnet101
+            from torchgpipe.batchnorm import DeferredBatchNorm
+            model = resnet101()
+            model = DeferredBatchNorm.convert_deferred_batch_norm(model)
+
+        """
+        if isinstance(module, DeferredBatchNorm) and module.chunks is chunks:
+            return cast(TModule, module)
+        module_output: nn.Module = module
+        if isinstance(module, _BatchNorm) and module.track_running_stats:
+            module_output = DeferredBatchNorm(module.num_features, module.eps, module.momentum, module.affine, chunks)
+            if module.affine:
+                module_output.register_parameter('weight', module.weight)
+                module_output.register_parameter('bias', module.bias)
+            module_output.register_buffer('running_mean', module.running_mean)
+            module_output.register_buffer('running_var', module.running_var)
+            module_output.register_buffer('num_batches_tracked', module.num_batches_tracked)
+        for name, child in module.named_children():
+            module_output.add_module(name, cls.convert_deferred_batch_norm(child, chunks))
+        return cast(TModule, module_output)
+
+
+class BalanceError(ValueError):
+    pass
+
+
+Device = Union[torch.device, int, str]
+
+
+Devices = Union[Iterable[Device], List[Device]]
+
+
+MOVING_DENIED = TypeError('denied to move parameters and buffers, because GPipe should manage device placement')
 
 
 CPUStream = CPUStreamType()
@@ -809,71 +800,6 @@ def get_phony(device: torch.device, *, requires_grad: bool) ->Tensor:
     return phony
 
 
-class Fork(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx: 'Fork', input: Tensor) ->Tuple[Tensor, Tensor]:
-        phony = get_phony(input.device, requires_grad=False)
-        return input.detach(), phony.detach()
-
-    @staticmethod
-    def backward(ctx: 'Fork', grad_input: Tensor, grad_grad: Tensor) ->Tensor:
-        return grad_input
-
-
-def fork(input: Tensor) ->Tuple[Tensor, Tensor]:
-    """Branches out from an autograd lane of the given tensor."""
-    if torch.is_grad_enabled() and input.requires_grad:
-        input, phony = Fork.apply(input)
-    else:
-        phony = get_phony(input.device, requires_grad=False)
-    return input, phony
-
-
-class Join(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx: 'Join', input: Tensor, phony: Tensor) ->Tensor:
-        return input.detach()
-
-    @staticmethod
-    def backward(ctx: 'Join', grad_input: Tensor) ->Tuple[Tensor, None]:
-        return grad_input, None
-
-
-def join(input: Tensor, phony: Tensor) ->Tensor:
-    """Merges two autograd lanes."""
-    if torch.is_grad_enabled() and (input.requires_grad or phony.requires_grad):
-        input = Join.apply(input, phony)
-    return input
-
-
-class Checkpointing:
-    """Generates a pair of :class:`Checkpoint` and :class:`Recompute`."""
-
-    def __init__(self, function: Function, batch: Batch) ->None:
-        self.function = function
-        self.batch = batch
-        self.recomputed: Deque[Recomputed] = deque(maxlen=1)
-        self.rng_states: Deque[RNGStates] = deque(maxlen=1)
-
-    def checkpoint(self) ->Batch:
-        """Returns a batch applied by :class:`Checkpoint`."""
-        input_atomic = self.batch.atomic
-        input = tuple(self.batch)
-        phony = get_phony(self.batch[0].device, requires_grad=True)
-        output = Checkpoint.apply(phony, self.recomputed, self.rng_states, self.function, input_atomic, *input)
-        return Batch(output)
-
-    def recompute(self, batch: Batch) ->None:
-        """Applies :class:`Recompute` to the batch in place."""
-        input_atomic = self.batch.atomic
-        input = tuple(self.batch)
-        batch[0], phony = fork(batch[0])
-        phony = Recompute.apply(phony, self.recomputed, self.rng_states, self.function, input_atomic, *input)
-        batch[0] = join(batch[0], phony)
-
-
 def current_stream(device: torch.device) ->AbstractStream:
     """:func:`torch.cuda.current_stream` for either CPU or CUDA device."""
     if device.type != 'cuda':
@@ -893,39 +819,6 @@ def record_stream(tensor: torch.Tensor, stream: AbstractStream) ->None:
     if is_cuda(stream):
         tensor = tensor.new_empty([0]).set_(tensor.storage())
         tensor.record_stream(as_cuda(stream))
-
-
-class Copy(torch.autograd.Function):
-    """Copies tensors on specific streams."""
-
-    @staticmethod
-    def forward(ctx: Context, prev_stream: AbstractStream, next_stream: AbstractStream, *input: Tensor) ->Tensors:
-        ctx.prev_stream = prev_stream
-        ctx.next_stream = next_stream
-        output = []
-        output_stream = current_stream(get_device(next_stream))
-        with use_stream(prev_stream), use_stream(next_stream):
-            for x in input:
-                y = x.to(get_device(next_stream))
-                output.append(y)
-                record_stream(x, prev_stream)
-                record_stream(y, output_stream)
-        return tuple(output)
-
-    @staticmethod
-    def backward(ctx: Context, *grad_output: Tensor) ->Tuple[Optional[Tensor], ...]:
-        prev_stream = ctx.prev_stream
-        next_stream = ctx.next_stream
-        grad_input: Deque[Tensor] = deque(maxlen=len(grad_output))
-        input_stream = current_stream(get_device(prev_stream))
-        with use_stream(prev_stream), use_stream(next_stream):
-            for x in reversed(grad_output):
-                y = x.to(get_device(prev_stream))
-                grad_input.appendleft(y)
-                record_stream(x, next_stream)
-                record_stream(y, input_stream)
-        grad_streams: Tuple[Optional[Tensor], ...] = (None, None)
-        return grad_streams + tuple(grad_input)
 
 
 class Portal:
@@ -1020,6 +913,96 @@ class Portal:
         return grad
 
 
+RNGStates = Tuple[ByteTensor, Optional[ByteTensor]]
+
+
+Recomputed = Tuple[TensorOrTensors, Tensors]
+
+
+def save_rng_states(device: torch.device, rng_states: Deque[RNGStates]) ->None:
+    """:meth:`Checkpoint.forward` captures the current PyTorch's random number
+    generator states at CPU and GPU to reuse in :meth:`Recompute.backward`.
+
+    .. seealso:: :ref:`Referential Transparency`
+
+    """
+    cpu_rng_state = torch.get_rng_state()
+    gpu_rng_state: Optional[ByteTensor]
+    if device.type == 'cuda':
+        gpu_rng_state = torch.get_rng_state(device)
+    else:
+        gpu_rng_state = None
+    rng_states.append((cpu_rng_state, gpu_rng_state))
+
+
+class Fork(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx: 'Fork', input: Tensor) ->Tuple[Tensor, Tensor]:
+        phony = get_phony(input.device, requires_grad=False)
+        return input.detach(), phony.detach()
+
+    @staticmethod
+    def backward(ctx: 'Fork', grad_input: Tensor, grad_grad: Tensor) ->Tensor:
+        return grad_input
+
+
+def fork(input: Tensor) ->Tuple[Tensor, Tensor]:
+    """Branches out from an autograd lane of the given tensor."""
+    if torch.is_grad_enabled() and input.requires_grad:
+        input, phony = Fork.apply(input)
+    else:
+        phony = get_phony(input.device, requires_grad=False)
+    return input, phony
+
+
+class Join(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx: 'Join', input: Tensor, phony: Tensor) ->Tensor:
+        return input.detach()
+
+    @staticmethod
+    def backward(ctx: 'Join', grad_input: Tensor) ->Tuple[Tensor, None]:
+        return grad_input, None
+
+
+def join(input: Tensor, phony: Tensor) ->Tensor:
+    """Merges two autograd lanes."""
+    if torch.is_grad_enabled() and (input.requires_grad or phony.requires_grad):
+        input = Join.apply(input, phony)
+    return input
+
+
+class Checkpointing:
+    """Generates a pair of :class:`Checkpoint` and :class:`Recompute`."""
+
+    def __init__(self, function: Function, batch: Batch) ->None:
+        self.function = function
+        self.batch = batch
+        self.recomputed: Deque[Recomputed] = deque(maxlen=1)
+        self.rng_states: Deque[RNGStates] = deque(maxlen=1)
+
+    def checkpoint(self) ->Batch:
+        """Returns a batch applied by :class:`Checkpoint`."""
+        input_atomic = self.batch.atomic
+        input = tuple(self.batch)
+        phony = get_phony(self.batch[0].device, requires_grad=True)
+        output = Checkpoint.apply(phony, self.recomputed, self.rng_states, self.function, input_atomic, *input)
+        return Batch(output)
+
+    def recompute(self, batch: Batch) ->None:
+        """Applies :class:`Recompute` to the batch in place."""
+        input_atomic = self.batch.atomic
+        input = tuple(self.batch)
+        batch[0], phony = fork(batch[0])
+        phony = Recompute.apply(phony, self.recomputed, self.rng_states, self.function, input_atomic, *input)
+        batch[0] = join(batch[0], phony)
+
+
+ExcInfo = Tuple[Type[BaseException], BaseException, TracebackType]
+
+
 class Task:
     """A task represents how to compute a micro-batch on a partition.
 
@@ -1073,30 +1056,6 @@ def wait_stream(source: AbstractStream, target: AbstractStream) ->None:
             as_cuda(target).synchronize()
 
 
-class Wait(torch.autograd.Function):
-    """Synchronizes a stream to another stream.
-
-    Place it just before you want to start an operation on the next stream,
-    provided that all operations on the previous stream are done.
-
-    """
-
-    @staticmethod
-    def forward(ctx: Context, prev_stream: AbstractStream, next_stream: AbstractStream, *input: Tensor) ->Tensors:
-        ctx.prev_stream = prev_stream
-        ctx.next_stream = next_stream
-        wait_stream(next_stream, prev_stream)
-        return tuple(x.detach() for x in input)
-
-    @staticmethod
-    def backward(ctx: Context, *grad_input: Tensor) ->Tuple[Optional[Tensor], ...]:
-        prev_stream = ctx.prev_stream
-        next_stream = ctx.next_stream
-        wait_stream(prev_stream, next_stream)
-        grad_streams: Tuple[Optional[Tensor], ...] = (None, None)
-        return grad_streams + grad_input
-
-
 def wait(batch: Batch, prev_stream: AbstractStream, next_stream: AbstractStream) ->None:
     batch[:] = Wait.apply(prev_stream, next_stream, *batch)
 
@@ -1145,7 +1104,7 @@ def split_module(module: nn.Sequential, balance: Iterable[int], devices: List[to
         if len(layers) == balance[j]:
             partition = nn.Sequential(layers)
             device = devices[j]
-            partition.to(device)
+            partition
             partitions.append(partition)
             layers.clear()
             j += 1
@@ -1306,7 +1265,7 @@ class GPipe(Module):
         if deferred_batch_norm:
             module = DeferredBatchNorm.convert_deferred_batch_norm(module, chunks)
         if devices is None:
-            devices = range(torch.device_count())
+            devices = range(torch.cuda.device_count())
         devices = [torch.device(d) for d in devices]
         devices = cast(List[torch.device], devices)
         try:
@@ -1403,9 +1362,6 @@ class GPipe(Module):
         return output
 
 
-T = TypeVar('T', bound='Skippable')
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1413,6 +1369,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (Cell,
+     lambda: ([], {'channels_prev_prev': 4, 'channels_prev': 4, 'channels': 4, 'reduction': 4, 'reduction_prev': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (DeferredBatchNorm,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1443,4 +1403,7 @@ class Test_kakaobrain_torchgpipe(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

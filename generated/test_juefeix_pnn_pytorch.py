@@ -35,20 +35,63 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+from torch.autograd import Variable
+
+
+from torch.autograd import Function
+
+
+import math
+
+
+import torchvision
+
+
+import torch.utils.data
+
+
+import torchvision.transforms as transforms
+
+
+import numpy as np
+
+
+import torch.utils.data as data
+
+
+from sklearn.utils import shuffle
+
+
+import types
+
+
+import random
+
+
+import numbers
+
+
+import scipy as sp
+
+
+from scipy import misc
 
 
 from torch import nn
@@ -60,16 +103,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from torch.autograd import Variable
-
-
-import math
-
-
 import torch.utils.model_zoo as model_zoo
-
-
-import torchvision
 
 
 import torch.optim as optim
@@ -101,19 +135,17 @@ class NoiseLayer(nn.Module):
 
     def __init__(self, in_planes, out_planes, level):
         super(NoiseLayer, self).__init__()
-        self.noise = torch.randn(1, in_planes, 1, 1)
+        self.noise = nn.Parameter(torch.Tensor(0), requires_grad=False)
         self.level = level
-        self.layers = nn.Sequential(nn.ReLU(True), nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1), nn.BatchNorm2d(out_planes))
+        self.layers = nn.Sequential(nn.ReLU(True), nn.BatchNorm2d(in_planes), nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1))
 
     def forward(self, x):
-        tmp1 = x.data.shape
-        tmp2 = self.noise.shape
-        if tmp1[1] != tmp2[1] or tmp1[2] != tmp2[2] or tmp1[3] != tmp2[3]:
-            self.noise = (2 * torch.rand(x.data.shape) - 1) * self.level
-            self.noise = self.noise
-        x.data = x.data + self.noise
-        x = self.layers(x)
-        return x
+        if self.noise.numel() == 0:
+            self.noise.resize_(x.data[0].shape).uniform_()
+            self.noise = (2 * self.noise - 1) * self.level
+        y = torch.add(x, self.noise)
+        z = self.layers(y)
+        return z
 
 
 class NoiseModel(nn.Module):
@@ -141,23 +173,6 @@ class NoiseModel(nn.Module):
         x = x.view(-1, self.num)
         x = self.classifier(x)
         return x
-
-
-class NoiseLayer(nn.Module):
-
-    def __init__(self, in_planes, out_planes, level):
-        super(NoiseLayer, self).__init__()
-        self.noise = nn.Parameter(torch.Tensor(0), requires_grad=False)
-        self.level = level
-        self.layers = nn.Sequential(nn.ReLU(True), nn.BatchNorm2d(in_planes), nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1))
-
-    def forward(self, x):
-        if self.noise.numel() == 0:
-            self.noise.resize_(x.data[0].shape).uniform_()
-            self.noise = (2 * self.noise - 1) * self.level
-        y = torch.add(x, self.noise)
-        z = self.layers(y)
-        return z
 
 
 class NoiseBasicBlock(nn.Module):

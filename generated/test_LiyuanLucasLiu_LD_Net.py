@@ -31,15 +31,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -1185,258 +1186,6 @@ class AdaptiveSoftmax(nn.Module):
 
 class BasicUnit(nn.Module):
     """
-    The basic recurrent unit for the vanilla stacked RNNs.
-
-    Parameters
-    ----------
-    unit : ``str``, required.
-        The type of rnn unit.
-    input_dim : ``int``, required.
-        The input dimension fo the unit.
-    hid_dim : ``int``, required.
-        The hidden dimension fo the unit.
-    droprate : ``float``, required.
-        The dropout ratrio.
-    """
-
-    def __init__(self, unit, input_dim, hid_dim, droprate):
-        super(BasicUnit, self).__init__()
-        self.unit_type = unit
-        rnnunit_map = {'rnn': nn.RNN, 'lstm': nn.LSTM, 'gru': nn.GRU}
-        self.batch_norm = unit == 'bnlstm'
-        self.layer = rnnunit_map[unit](input_dim, hid_dim, 1)
-        self.droprate = droprate
-        self.output_dim = hid_dim
-        self.init_hidden()
-
-    def init_hidden(self):
-        """
-        Initialize hidden states.
-        """
-        self.hidden_state = None
-
-    def rand_ini(self):
-        """
-        Random Initialization.
-        """
-        if not self.batch_norm:
-            utils.init_lstm(self.layer)
-
-    def forward(self, x):
-        """
-        Calculate the output.
-
-        Parameters
-        ----------
-        x : ``torch.LongTensor``, required.
-            the input tensor, of shape (seq_len, batch_size, input_dim).
-
-        Returns
-        ----------
-        output: ``torch.FloatTensor``.   
-            The output of RNNs.
-        """
-        out, new_hidden = self.layer(x, self.hidden_state)
-        self.hidden_state = utils.repackage_hidden(new_hidden)
-        if self.droprate > 0:
-            out = F.dropout(out, p=self.droprate, training=self.training)
-        return out
-
-
-class BasicRNN(nn.Module):
-    """
-    The multi-layer recurrent networks for the vanilla stacked RNNs.
-
-    Parameters
-    ----------
-    layer_num: ``int``, required.
-        The number of layers. 
-    unit : ``torch.nn.Module``, required.
-        The type of rnn unit.
-    input_dim : ``int``, required.
-        The input dimension fo the unit.
-    hid_dim : ``int``, required.
-        The hidden dimension fo the unit.
-    droprate : ``float``, required.
-        The dropout ratrio.
-    """
-
-    def __init__(self, layer_num, unit, emb_dim, hid_dim, droprate):
-        super(BasicRNN, self).__init__()
-        layer_list = [BasicUnit(unit, emb_dim, hid_dim, droprate)] + [BasicUnit(unit, hid_dim, hid_dim, droprate) for i in range(layer_num - 1)]
-        self.layer = nn.Sequential(*layer_list)
-        self.output_dim = layer_list[-1].output_dim
-        self.unit_type = unit
-        self.init_hidden()
-
-    def to_params(self):
-        """
-        To parameters.
-        """
-        return {'rnn_type': 'Basic', 'unit_type': self.layer[0].unit_type, 'layer_num': len(self.layer), 'emb_dim': self.layer[0].layer.input_size, 'hid_dim': self.layer[0].layer.hidden_size, 'droprate': self.layer[0].droprate}
-
-    def init_hidden(self):
-        """
-        Initialize hidden states.
-        """
-        for tup in self.layer.children():
-            tup.init_hidden()
-
-    def rand_ini(self):
-        """
-        Random Initialization.
-        """
-        for tup in self.layer.children():
-            tup.rand_ini()
-
-    def forward(self, x):
-        """
-        Calculate the output.
-
-        Parameters
-        ----------
-        x : ``torch.LongTensor``, required.
-            the input tensor, of shape (seq_len, batch_size, input_dim).
-
-        Returns
-        ----------
-        output: ``torch.FloatTensor``.
-            The output of RNNs.
-        """
-        return self.layer(x)
-
-
-class BasicUnit(nn.Module):
-    """
-    The basic recurrent unit for the densely connected RNNs.
-
-    Parameters
-    ----------
-    unit : ``torch.nn.Module``, required.
-        The type of rnn unit.
-    input_dim : ``float``, required.
-        The input dimension fo the unit.
-    increase_rate : ``float``, required.
-        The hidden dimension fo the unit.
-    droprate : ``float``, required.
-        The dropout ratrio.
-    """
-
-    def __init__(self, unit, input_dim, increase_rate, droprate):
-        super(BasicUnit, self).__init__()
-        rnnunit_map = {'rnn': nn.RNN, 'lstm': nn.LSTM, 'gru': nn.GRU}
-        self.unit_type = unit
-        self.layer = rnnunit_map[unit](input_dim, increase_rate, 1)
-        if 'lstm' == self.unit_type:
-            utils.init_lstm(self.layer)
-        self.droprate = droprate
-        self.input_dim = input_dim
-        self.increase_rate = increase_rate
-        self.output_dim = input_dim + increase_rate
-        self.init_hidden()
-
-    def init_hidden(self):
-        """
-        Initialize hidden states.
-        """
-        self.hidden_state = None
-
-    def rand_ini(self):
-        """
-        Random Initialization.
-        """
-        return
-
-    def forward(self, x):
-        """
-        Calculate the output.
-
-        Parameters
-        ----------
-        x : ``torch.LongTensor``, required.
-            the input tensor, of shape (seq_len, batch_size, input_dim).
-
-        Returns
-        ----------
-        output: ``torch.FloatTensor``.   
-            The output of RNNs.
-        """
-        if self.droprate > 0:
-            new_x = F.dropout(x, p=self.droprate, training=self.training)
-        else:
-            new_x = x
-        out, new_hidden = self.layer(new_x, self.hidden_state)
-        self.hidden_state = utils.repackage_hidden(new_hidden)
-        out = out.contiguous()
-        return torch.cat([x, out], 2)
-
-
-class DenseRNN(nn.Module):
-    """
-    The multi-layer recurrent networks for the densely connected RNNs.
-
-    Parameters
-    ----------
-    layer_num: ``float``, required.
-        The number of layers. 
-    unit : ``torch.nn.Module``, required.
-        The type of rnn unit.
-    input_dim : ``float``, required.
-        The input dimension fo the unit.
-    hid_dim : ``float``, required.
-        The hidden dimension fo the unit.
-    droprate : ``float``, required.
-        The dropout ratrio.
-    """
-
-    def __init__(self, layer_num, unit, emb_dim, hid_dim, droprate):
-        super(DenseRNN, self).__init__()
-        self.unit_type = unit
-        self.layer_list = [BasicUnit(unit, emb_dim + i * hid_dim, hid_dim, droprate) for i in range(layer_num)]
-        self.layer = nn.Sequential(*self.layer_list) if layer_num > 0 else None
-        self.output_dim = self.layer_list[-1].output_dim if layer_num > 0 else emb_dim
-        self.emb_dim = emb_dim
-        self.init_hidden()
-
-    def to_params(self):
-        """
-        To parameters.
-        """
-        return {'rnn_type': 'DenseRNN', 'unit_type': self.layer[0].unit_type, 'layer_num': len(self.layer), 'emb_dim': self.layer[0].input_dim, 'hid_dim': self.layer[0].increase_rate, 'droprate': self.layer[0].droprate}
-
-    def init_hidden(self):
-        """
-        Initialize hidden states.
-        """
-        for tup in self.layer_list:
-            tup.init_hidden()
-
-    def rand_ini(self):
-        """
-        Random Initialization.
-        """
-        for tup in self.layer_list:
-            tup.rand_ini()
-
-    def forward(self, x):
-        """
-        Calculate the output.
-
-        Parameters
-        ----------
-        x : ``torch.LongTensor``, required.
-            the input tensor, of shape (seq_len, batch_size, input_dim).
-
-        Returns
-        ----------
-        output: ``torch.FloatTensor``.
-            The output of RNNs.
-        """
-        return self.layer(x)
-
-
-class BasicUnit(nn.Module):
-    """
     The basic recurrent unit for the densely connected RNNs with layer-wise dropout.
 
     Parameters
@@ -1511,6 +1260,133 @@ class BasicUnit(nn.Module):
         o_out = torch.cat([p_out, out], 2)
         d_out = torch.cat([x, deep_out], 2)
         return d_out, o_out
+
+
+class BasicRNN(nn.Module):
+    """
+    The multi-layer recurrent networks for the vanilla stacked RNNs.
+
+    Parameters
+    ----------
+    layer_num: ``int``, required.
+        The number of layers. 
+    unit : ``torch.nn.Module``, required.
+        The type of rnn unit.
+    input_dim : ``int``, required.
+        The input dimension fo the unit.
+    hid_dim : ``int``, required.
+        The hidden dimension fo the unit.
+    droprate : ``float``, required.
+        The dropout ratrio.
+    """
+
+    def __init__(self, layer_num, unit, emb_dim, hid_dim, droprate):
+        super(BasicRNN, self).__init__()
+        layer_list = [BasicUnit(unit, emb_dim, hid_dim, droprate)] + [BasicUnit(unit, hid_dim, hid_dim, droprate) for i in range(layer_num - 1)]
+        self.layer = nn.Sequential(*layer_list)
+        self.output_dim = layer_list[-1].output_dim
+        self.unit_type = unit
+        self.init_hidden()
+
+    def to_params(self):
+        """
+        To parameters.
+        """
+        return {'rnn_type': 'Basic', 'unit_type': self.layer[0].unit_type, 'layer_num': len(self.layer), 'emb_dim': self.layer[0].layer.input_size, 'hid_dim': self.layer[0].layer.hidden_size, 'droprate': self.layer[0].droprate}
+
+    def init_hidden(self):
+        """
+        Initialize hidden states.
+        """
+        for tup in self.layer.children():
+            tup.init_hidden()
+
+    def rand_ini(self):
+        """
+        Random Initialization.
+        """
+        for tup in self.layer.children():
+            tup.rand_ini()
+
+    def forward(self, x):
+        """
+        Calculate the output.
+
+        Parameters
+        ----------
+        x : ``torch.LongTensor``, required.
+            the input tensor, of shape (seq_len, batch_size, input_dim).
+
+        Returns
+        ----------
+        output: ``torch.FloatTensor``.
+            The output of RNNs.
+        """
+        return self.layer(x)
+
+
+class DenseRNN(nn.Module):
+    """
+    The multi-layer recurrent networks for the densely connected RNNs.
+
+    Parameters
+    ----------
+    layer_num: ``float``, required.
+        The number of layers. 
+    unit : ``torch.nn.Module``, required.
+        The type of rnn unit.
+    input_dim : ``float``, required.
+        The input dimension fo the unit.
+    hid_dim : ``float``, required.
+        The hidden dimension fo the unit.
+    droprate : ``float``, required.
+        The dropout ratrio.
+    """
+
+    def __init__(self, layer_num, unit, emb_dim, hid_dim, droprate):
+        super(DenseRNN, self).__init__()
+        self.unit_type = unit
+        self.layer_list = [BasicUnit(unit, emb_dim + i * hid_dim, hid_dim, droprate) for i in range(layer_num)]
+        self.layer = nn.Sequential(*self.layer_list) if layer_num > 0 else None
+        self.output_dim = self.layer_list[-1].output_dim if layer_num > 0 else emb_dim
+        self.emb_dim = emb_dim
+        self.init_hidden()
+
+    def to_params(self):
+        """
+        To parameters.
+        """
+        return {'rnn_type': 'DenseRNN', 'unit_type': self.layer[0].unit_type, 'layer_num': len(self.layer), 'emb_dim': self.layer[0].input_dim, 'hid_dim': self.layer[0].increase_rate, 'droprate': self.layer[0].droprate}
+
+    def init_hidden(self):
+        """
+        Initialize hidden states.
+        """
+        for tup in self.layer_list:
+            tup.init_hidden()
+
+    def rand_ini(self):
+        """
+        Random Initialization.
+        """
+        for tup in self.layer_list:
+            tup.rand_ini()
+
+    def forward(self, x):
+        """
+        Calculate the output.
+
+        Parameters
+        ----------
+        x : ``torch.LongTensor``, required.
+            the input tensor, of shape (seq_len, batch_size, input_dim).
+
+        Returns
+        ----------
+        output: ``torch.FloatTensor``.
+            The output of RNNs.
+        """
+        return self.layer(x)
 
 
 class LDRNN(nn.Module):

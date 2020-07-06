@@ -16,15 +16,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -48,6 +49,39 @@ from collections import OrderedDict
 
 
 import itertools
+
+
+from numbers import Number
+
+
+import torch.utils.data
+
+
+import time
+
+
+import random
+
+
+from numpy.random import RandomState
+
+
+import torch.optim as optim
+
+
+import torch.backends.cudnn as cudnn
+
+
+from torch.utils.data import DataLoader
+
+
+import collections
+
+
+import numbers
+
+
+import types
 
 
 def log_sum_exp(x, dim, keepdim=False):
@@ -127,16 +161,80 @@ class L2Norm(nn.Module):
 
     def __init__(self, n_channels, scale=20):
         super(L2Norm, self).__init__()
-        self.scale = nn.Parameter(torch.FloatTensor(np.ones((1, n_channels, 1, 1))))
-        nn.init.constant(self.scale, scale)
+        self.weight = nn.Parameter(torch.Tensor(n_channels))
+        nn.init.constant(self.weight, scale)
 
     def forward(self, x):
-        x = x * x.pow(2).sum(1, keepdim=True).clamp(min=1e-10).rsqrt()
-        return self.scale * x
+        x /= x.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-10
+        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
+        return out
 
 
 def bn_relu_conv(in_channels, out_channels, kernel_size, stride=1, padding=0):
     return nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False))
+
+
+class DenseBlock(nn.Module):
+
+    def __init__(self, in_channels, block_depth, growth_rate=48):
+        super(DenseBlock, self).__init__()
+
+
+        class DenseLayer(nn.Module):
+
+            def __init__(self, in_channels, growth_rate, widen=1, dropout=0.0):
+                super(DenseLayer, self).__init__()
+                self.conv1 = bn_relu_conv(in_channels, growth_rate * widen, 1)
+                self.conv2 = bn_relu_conv(growth_rate * widen, growth_rate, 3, padding=1)
+                self.dropout = dropout
+
+            def forward(self, x):
+                out = self.conv1(x)
+                out = self.conv2(out)
+                if self.dropout > 0:
+                    out = F.dropout(out, p=self.dropout, training=self.training)
+                return torch.cat([x, out], 1)
+        layers = []
+        for i in range(block_depth):
+            layers.append(DenseLayer(in_channels + i * growth_rate, growth_rate))
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.layers(x)
+
+
+class LHRH(nn.Module):
+
+    def __init__(self, in_channels, out_channels, widen=1, dropout=0.0, ceil_mode=False):
+        super(LHRH, self).__init__()
+        self.conv1_1 = bn_relu_conv(in_channels, int(out_channels / 2 * widen), 1)
+        self.conv1_2 = bn_relu_conv(int(out_channels / 2 * widen), out_channels // 2, 3, padding=1 * ceil_mode, stride=2)
+        self.pool2 = nn.MaxPool2d(2, ceil_mode=ceil_mode)
+        self.conv2 = bn_relu_conv(in_channels, out_channels // 2, 1)
+        self.dropout = dropout
+
+    def forward(self, x):
+        out1 = self.conv1_2(self.conv1_1(x))
+        out2 = self.conv2(self.pool2(x))
+        if self.dropout > 0:
+            out1 = F.dropout(out1, p=self.dropout, training=self.training)
+            out2 = F.dropout(out2, p=self.dropout, training=self.training)
+        return torch.cat([out1, out2], 1)
+
+
+class Transition(nn.Module):
+
+    def __init__(self, in_channels, out_channels, pool=False, ceil_mode=False, dropout=0.0):
+        super(Transition, self).__init__()
+        self.conv = bn_relu_conv(in_channels, out_channels, 1)
+        self.pool = nn.MaxPool2d(2, ceil_mode=ceil_mode) if pool else nn.Sequential()
+        self.dropout = dropout
+
+    def forward(self, x):
+        out = self.conv(x)
+        if self.dropout > 0:
+            out = F.dropout(out, p=self.dropout, training=self.training)
+        return self.pool(out)
 
 
 def conv_bn_relu(in_channels, out_channels, kernel_size=1, stride=1, padding=0):
@@ -209,85 +307,22 @@ class DSOD300(nn.Module):
         pass
 
 
-class DenseBlock(nn.Module):
-
-    def __init__(self, in_channels, block_depth, growth_rate=48):
-        super(DenseBlock, self).__init__()
-
-
-        class DenseLayer(nn.Module):
-
-            def __init__(self, in_channels, growth_rate, widen=1, dropout=0.0):
-                super(DenseLayer, self).__init__()
-                self.conv1 = bn_relu_conv(in_channels, growth_rate * widen, 1)
-                self.conv2 = bn_relu_conv(growth_rate * widen, growth_rate, 3, padding=1)
-                self.dropout = dropout
-
-            def forward(self, x):
-                out = self.conv1(x)
-                out = self.conv2(out)
-                if self.dropout > 0:
-                    out = F.dropout(out, p=self.dropout, training=self.training)
-                return torch.cat([x, out], 1)
-        layers = []
-        for i in range(block_depth):
-            layers.append(DenseLayer(in_channels + i * growth_rate, growth_rate))
-        self.layers = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.layers(x)
-
-
-class Transition(nn.Module):
-
-    def __init__(self, in_channels, out_channels, pool=False, ceil_mode=False, dropout=0.0):
-        super(Transition, self).__init__()
-        self.conv = bn_relu_conv(in_channels, out_channels, 1)
-        self.pool = nn.MaxPool2d(2, ceil_mode=ceil_mode) if pool else nn.Sequential()
-        self.dropout = dropout
-
-    def forward(self, x):
-        out = self.conv(x)
-        if self.dropout > 0:
-            out = F.dropout(out, p=self.dropout, training=self.training)
-        return self.pool(out)
-
-
-class LHRH(nn.Module):
-
-    def __init__(self, in_channels, out_channels, widen=1, dropout=0.0, ceil_mode=False):
-        super(LHRH, self).__init__()
-        self.conv1_1 = bn_relu_conv(in_channels, int(out_channels / 2 * widen), 1)
-        self.conv1_2 = bn_relu_conv(int(out_channels / 2 * widen), out_channels // 2, 3, padding=1 * ceil_mode, stride=2)
-        self.pool2 = nn.MaxPool2d(2, ceil_mode=ceil_mode)
-        self.conv2 = bn_relu_conv(in_channels, out_channels // 2, 1)
-        self.dropout = dropout
-
-    def forward(self, x):
-        out1 = self.conv1_2(self.conv1_1(x))
-        out2 = self.conv2(self.pool2(x))
-        if self.dropout > 0:
-            out1 = F.dropout(out1, p=self.dropout, training=self.training)
-            out2 = F.dropout(out2, p=self.dropout, training=self.training)
-        return torch.cat([out1, out2], 1)
-
-
-class L2Norm(nn.Module):
-
-    def __init__(self, n_channels, scale=20):
-        super(L2Norm, self).__init__()
-        self.weight = nn.Parameter(torch.Tensor(n_channels))
-        nn.init.constant(self.weight, scale)
-
-    def forward(self, x):
-        norm = x.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-10
-        x /= norm
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
-        return out
-
-
 def conv_relu(in_channels, out_channels, kernel_size, stride=1, padding=0):
     return nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding), nn.ReLU(inplace=True))
+
+
+class TwoWay(nn.Module):
+
+    def __init__(self, in_channels, out_channels=256, bypass=False):
+        super().__init__()
+        if bypass and in_channels == out_channels:
+            self.branch1 = nn.Sequential()
+        else:
+            self.branch1 = conv_relu(in_channels, out_channels, 1)
+        self.branch2 = nn.Sequential(conv_relu(in_channels, out_channels // 2, 1), conv_relu(out_channels // 2, out_channels // 2, 3, padding=1), conv_relu(out_channels // 2, out_channels, 1))
+
+    def forward(self, x):
+        return self.branch1(x) + self.branch2(x)
 
 
 def deconv_relu(in_channels, out_channels, in_size, out_size):
@@ -300,6 +335,56 @@ def deconv_relu(in_channels, out_channels, in_size, out_size):
     else:
         raise ValueError('invalid size')
     return nn.Sequential(dconv, nn.ReLU(inplace=True))
+
+
+class ThreeWay(TwoWay):
+
+    def __init__(self, in_channels1, in_channels2, in_size1, in_size2, out_channels=256):
+        super().__init__(in_channels1, out_channels)
+        self.branch3 = nn.Sequential(conv_relu(in_channels2, out_channels // 2, 3, padding=1), deconv_relu(out_channels // 2, out_channels // 2, in_size2, in_size1), conv_relu(out_channels // 2, out_channels, 1))
+
+    def forward(self, x1, x2):
+        return self.branch1(x1) + self.branch2(x1) + self.branch3(x2)
+
+
+class VGG16(nn.Module):
+    """
+    input image: BGR format, range [0, 255], then subtract mean
+    """
+
+    def __init__(self):
+        super(VGG16, self).__init__()
+        self.conv1_1 = nn.Conv2d(3, 64, 3, padding=1)
+        self.conv1_2 = nn.Conv2d(64, 64, 3, padding=1)
+        self.pool1 = nn.MaxPool2d(2, ceil_mode=True)
+        self.conv2_1 = nn.Conv2d(64, 128, 3, padding=1)
+        self.conv2_2 = nn.Conv2d(128, 128, 3, padding=1)
+        self.pool2 = nn.MaxPool2d(2, ceil_mode=True)
+        self.conv3_1 = nn.Conv2d(128, 256, 3, padding=1)
+        self.conv3_2 = nn.Conv2d(256, 256, 3, padding=1)
+        self.conv3_3 = nn.Conv2d(256, 256, 3, padding=1)
+        self.pool3 = nn.MaxPool2d(2, ceil_mode=True)
+        self.conv4_1 = nn.Conv2d(256, 512, 3, padding=1)
+        self.conv4_2 = nn.Conv2d(512, 512, 3, padding=1)
+        self.conv4_3 = nn.Conv2d(512, 512, 3, padding=1)
+        self.pool4 = nn.MaxPool2d(2, ceil_mode=True)
+        self.conv5_1 = nn.Conv2d(512, 512, 3, padding=1)
+        self.conv5_2 = nn.Conv2d(512, 512, 3, padding=1)
+        self.conv5_3 = nn.Conv2d(512, 512, 3, padding=1)
+        self.pool5 = nn.MaxPool2d(3, stride=1, padding=1)
+        self.conv6 = nn.Conv2d(512, 1024, 3, padding=6, dilation=6)
+        self.conv7 = nn.Conv2d(1024, 1024, 1)
+
+    def load_pretrained(self, path):
+        weights = torch.load(path)
+        lookup = {'conv1_1': '0', 'conv1_2': '2', 'conv2_1': '5', 'conv2_2': '7', 'conv3_1': '10', 'conv3_2': '12', 'conv3_3': '14', 'conv4_1': '17', 'conv4_2': '19', 'conv4_3': '21', 'conv5_1': '24', 'conv5_2': '26', 'conv5_3': '28', 'conv6': '31', 'conv7': '33'}
+        model_dict = self.state_dict()
+        pretrained_dict = {}
+        for name, ind in lookup.items():
+            for ext in ['.weight', '.bias']:
+                pretrained_dict[name + ext] = weights[ind + ext]
+        model_dict.update(pretrained_dict)
+        self.load_state_dict(model_dict)
 
 
 class RUN300(nn.Module):
@@ -375,33 +460,6 @@ class RUN300(nn.Module):
             self.Base.load_pretrained(backbone)
 
 
-class TwoWay(nn.Module):
-
-    def __init__(self, in_channels, out_channels=256, bypass=False):
-        super().__init__()
-        if bypass and in_channels == out_channels:
-            self.branch1 = nn.Sequential()
-        else:
-            self.branch1 = conv_relu(in_channels, out_channels, 1)
-        self.branch2 = nn.Sequential(conv_relu(in_channels, out_channels // 2, 1), conv_relu(out_channels // 2, out_channels // 2, 3, padding=1), conv_relu(out_channels // 2, out_channels, 1))
-
-    def forward(self, x):
-        return self.branch1(x) + self.branch2(x)
-
-
-class L2Norm(nn.Module):
-
-    def __init__(self, n_channels, scale=20):
-        super(L2Norm, self).__init__()
-        self.weight = nn.Parameter(torch.Tensor(n_channels))
-        nn.init.constant(self.weight, scale)
-
-    def forward(self, x):
-        x /= x.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-10
-        out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
-        return out
-
-
 class SSD300(nn.Module):
     config = {'name': 'SSD300-VGG16', 'image_size': 300, 'grids': (38, 19, 10, 5, 3, 1), 'aspect_ratios': ((1 / 2.0, 1, 2), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 2.0, 1, 2), (1 / 2.0, 1, 2)), 'steps': [(s / 300.0) for s in [8, 16, 32, 64, 100, 300]], 'sizes': [(s / 300.0) for s in [30, 60, 111, 162, 213, 264, 315]], 'prior_variance': [0.1, 0.1, 0.2, 0.2]}
 
@@ -462,44 +520,24 @@ class SSD300(nn.Module):
             None
 
 
-class VGG16(nn.Module):
-    """
-    input image: BGR format, range [0, 255], then subtract mean
-    """
+class SSD512(SSD300):
+    config = {'name': 'SSD512-VGG16', 'image_size': 512, 'grids': (64, 32, 16, 8, 4, 2, 1), 'aspect_ratios': ((1 / 2.0, 1, 2), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 3.0, 1 / 2.0, 1, 2, 3), (1 / 2.0, 1, 2), (1 / 2.0, 1, 2)), 'sizes': [(s / 512.0) for s in (20.48, 61.2, 133.12, 215.04, 296.96, 378.88, 460.8, 542.72)], 'init_lr': 0.001, 'stepvalues': (45000, 60000), 'max_iter': 75000}
 
-    def __init__(self):
-        super(VGG16, self).__init__()
-        self.conv1_1 = nn.Conv2d(3, 64, 3, padding=1)
-        self.conv1_2 = nn.Conv2d(64, 64, 3, padding=1)
-        self.pool1 = nn.MaxPool2d(2, ceil_mode=True)
-        self.conv2_1 = nn.Conv2d(64, 128, 3, padding=1)
-        self.conv2_2 = nn.Conv2d(128, 128, 3, padding=1)
-        self.pool2 = nn.MaxPool2d(2, ceil_mode=True)
-        self.conv3_1 = nn.Conv2d(128, 256, 3, padding=1)
-        self.conv3_2 = nn.Conv2d(256, 256, 3, padding=1)
-        self.conv3_3 = nn.Conv2d(256, 256, 3, padding=1)
-        self.pool3 = nn.MaxPool2d(2, ceil_mode=True)
-        self.conv4_1 = nn.Conv2d(256, 512, 3, padding=1)
-        self.conv4_2 = nn.Conv2d(512, 512, 3, padding=1)
-        self.conv4_3 = nn.Conv2d(512, 512, 3, padding=1)
-        self.pool4 = nn.MaxPool2d(2, ceil_mode=True)
-        self.conv5_1 = nn.Conv2d(512, 512, 3, padding=1)
-        self.conv5_2 = nn.Conv2d(512, 512, 3, padding=1)
-        self.conv5_3 = nn.Conv2d(512, 512, 3, padding=1)
-        self.pool5 = nn.MaxPool2d(3, stride=1, padding=1)
-        self.conv6 = nn.Conv2d(512, 1024, 3, padding=6, dilation=6)
-        self.conv7 = nn.Conv2d(1024, 1024, 1)
-
-    def load_pretrained(self, path):
-        weights = torch.load(path)
-        lookup = {'conv1_1': '0', 'conv1_2': '2', 'conv2_1': '5', 'conv2_2': '7', 'conv3_1': '10', 'conv3_2': '12', 'conv3_3': '14', 'conv4_1': '17', 'conv4_2': '19', 'conv4_3': '21', 'conv5_1': '24', 'conv5_2': '26', 'conv5_3': '28', 'conv6': '31', 'conv7': '33'}
-        model_dict = self.state_dict()
-        pretrained_dict = {}
-        for name, ind in lookup.items():
-            for ext in ['.weight', '.bias']:
-                pretrained_dict[name + ext] = weights[ind + ext]
-        model_dict.update(pretrained_dict)
-        self.load_state_dict(model_dict)
+    def __init__(self, n_classes):
+        super(SSD300, self).__init__()
+        self.n_classes = n_classes
+        self.Base = VGG16()
+        self.Extra = nn.Sequential(OrderedDict([('extra1_1', nn.Conv2d(1024, 256, 1)), ('extra1_2', nn.Conv2d(256, 512, 3, padding=1, stride=2)), ('extra2_1', nn.Conv2d(512, 128, 1)), ('extra2_2', nn.Conv2d(128, 256, 3, padding=1, stride=2)), ('extra3_1', nn.Conv2d(256, 128, 1)), ('extra3_2', nn.Conv2d(128, 256, 3, padding=1, stride=2)), ('extra4_1', nn.Conv2d(256, 128, 1)), ('extra4_2', nn.Conv2d(128, 256, 3, padding=1, stride=2)), ('extra5_1', nn.Conv2d(256, 128, 1)), ('extra5_2', nn.Conv2d(128, 256, 3))]))
+        self.pred_layers = ['conv4_3', 'conv7', 'extra1_2', 'extra2_2', 'extra3_2', 'extra4_2', 'extra5_2']
+        n_channels = [512, 1024, 512, 256, 256, 256, 256]
+        self.L2Norm = nn.ModuleList([L2Norm(512, 20)])
+        self.l2norm_layers = ['conv4_3']
+        self.Loc = nn.ModuleList([])
+        self.Conf = nn.ModuleList([])
+        for i, ar in enumerate(self.config['aspect_ratios']):
+            n = len(ar) + 1
+            self.Loc.append(nn.Conv2d(n_channels[i], n * 4, 3, padding=1))
+            self.Conf.append(nn.Conv2d(n_channels[i], n * (self.n_classes + 1), 3, padding=1))
 
 
 import torch

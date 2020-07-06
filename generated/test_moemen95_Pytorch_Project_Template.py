@@ -13,6 +13,8 @@ mnist = _module
 datasets = _module
 celebA = _module
 cifar10 = _module
+example = _module
+mnist = _module
 voc2012 = _module
 graphs = _module
 losses = _module
@@ -51,15 +53,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -70,19 +73,25 @@ import numpy as np
 import torch
 
 
+from torch import nn
+
+
 from torch.backends import cudnn
 
 
 from torch.autograd import Variable
 
 
-from torch.optim import lr_scheduler
-
-
 import random
 
 
-from torch import nn
+import torchvision.utils as vutils
+
+
+import math
+
+
+from torch.optim import lr_scheduler
 
 
 import torch.optim as optim
@@ -91,16 +100,55 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 
-import torch.nn as nn
+import torchvision.transforms as v_transforms
 
 
-import torch.nn.init as init
+import torchvision.utils as v_utils
+
+
+import torchvision.datasets as v_datasets
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import TensorDataset
+
+
+from torch.utils.data import Dataset
+
+
+import logging
 
 
 from torchvision import datasets
 
 
 from torchvision import transforms
+
+
+import scipy.io as sio
+
+
+from torch.utils import data
+
+
+import torchvision.transforms as standard_transforms
+
+
+import torch.nn as nn
+
+
+import torch.nn.init as init
+
+
+import torchvision.transforms as transforms
+
+
+from sklearn.utils.class_weight import compute_class_weight
+
+
+import time
 
 
 class BinaryCrossEntropy(nn.Module):
@@ -139,17 +187,6 @@ class CrossEntropyLoss2d(nn.Module):
         return loss
 
 
-class BinaryCrossEntropy(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.loss = nn.BCELoss()
-
-    def forward(self, logits, labels):
-        loss = self.loss(logits, labels)
-        return loss
-
-
 class HuberLoss(nn.Module):
 
     def __init__(self):
@@ -159,154 +196,6 @@ class HuberLoss(nn.Module):
     def forward(self, logits, labels):
         loss = self.loss(logits, labels)
         return loss
-
-
-def init_model_weights(m):
-    for m in m.modules():
-        if isinstance(m, nn.Conv2d):
-            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-            m.weight.data.normal_(0, math.sqrt(2.0 / n))
-        elif isinstance(m, nn.BatchNorm2d):
-            m.weight.data.fill_(1)
-            m.bias.data.zero_()
-        elif isinstance(m, nn.Linear):
-            m.bias.data.zero_()
-
-
-class CondenseNet(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.config = config
-        self.stages = self.config.stages
-        self.growth_rate = self.config.growth_rate
-        assert len(self.stages) == len(self.growth_rate)
-        self.init_stride = self.config.init_stride
-        self.pool_size = self.config.pool_size
-        self.num_classes = self.config.num_classes
-        self.progress = 0.0
-        self.num_filters = 2 * self.growth_rate[0]
-        """
-        Initializing layers
-        """
-        self.transition_pool = nn.AvgPool2d(kernel_size=2, stride=2)
-        self.pool = nn.AvgPool2d(self.pool_size)
-        self.relu = nn.ReLU(inplace=True)
-        self.init_conv = nn.Conv2d(in_channels=self.config.input_channels, out_channels=self.num_filters, kernel_size=3, stride=self.init_stride, padding=1, bias=False)
-        self.denseblock_one = DenseBlock(num_layers=self.stages[0], in_channels=self.num_filters, growth_rate=self.growth_rate[0], config=self.config)
-        self.num_filters += self.stages[0] * self.growth_rate[0]
-        self.denseblock_two = DenseBlock(num_layers=self.stages[1], in_channels=self.num_filters, growth_rate=self.growth_rate[1], config=self.config)
-        self.num_filters += self.stages[1] * self.growth_rate[1]
-        self.denseblock_three = DenseBlock(num_layers=self.stages[2], in_channels=self.num_filters, growth_rate=self.growth_rate[2], config=self.config)
-        self.num_filters += self.stages[2] * self.growth_rate[2]
-        self.batch_norm = nn.BatchNorm2d(self.num_filters)
-        self.classifier = nn.Linear(self.num_filters, self.num_classes)
-        self.apply(init_model_weights)
-
-    def forward(self, x, progress=None):
-        if progress:
-            LearnedGroupConv.global_progress = progress
-        x = self.init_conv(x)
-        x = self.denseblock_one(x)
-        x = self.transition_pool(x)
-        x = self.denseblock_two(x)
-        x = self.transition_pool(x)
-        x = self.denseblock_three(x)
-        x = self.batch_norm(x)
-        x = self.relu(x)
-        x = self.pool(x)
-        x = x.view(x.size(0), -1)
-        out = self.classifier(x)
-        return out
-
-
-class DenseBlock(nn.Sequential):
-
-    def __init__(self, num_layers, in_channels, growth_rate, config):
-        super().__init__()
-        for layer_id in range(num_layers):
-            layer = DenseLayer(in_channels=in_channels + layer_id * growth_rate, growth_rate=growth_rate, config=config)
-            self.add_module('dense_layer_%d' % (layer_id + 1), layer)
-
-
-class DenseLayer(nn.Module):
-
-    def __init__(self, in_channels, growth_rate, config):
-        super().__init__()
-        self.config = config
-        self.conv_bottleneck = self.config.conv_bottleneck
-        self.group1x1 = self.config.group1x1
-        self.group3x3 = self.config.group3x3
-        self.condense_factor = self.config.condense_factor
-        self.dropout_rate = self.config.dropout_rate
-        self.conv_1 = LearnedGroupConv(in_channels=in_channels, out_channels=self.conv_bottleneck * growth_rate, kernel_size=1, groups=self.group1x1, condense_factor=self.condense_factor, dropout_rate=self.dropout_rate)
-        self.batch_norm = nn.BatchNorm2d(self.conv_bottleneck * growth_rate)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv_2 = nn.Conv2d(in_channels=self.conv_bottleneck * growth_rate, out_channels=growth_rate, kernel_size=3, padding=1, stride=1, groups=self.group3x3, bias=False)
-
-    def forward(self, x):
-        out = self.conv_1(x)
-        out = self.batch_norm(out)
-        out = self.relu(out)
-        out = self.conv_2(out)
-        return torch.cat([x, out], 1)
-
-
-class non_bottleneck_1d(nn.Module):
-
-    def __init__(self, n_channel, drop_rate, dilated):
-        super().__init__()
-        self.conv3x1_1 = nn.Conv2d(n_channel, n_channel, (3, 1), stride=1, padding=(1, 0), bias=True)
-        self.conv1x3_1 = nn.Conv2d(n_channel, n_channel, (1, 3), stride=1, padding=(0, 1), bias=True)
-        self.conv3x1_2 = nn.Conv2d(n_channel, n_channel, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
-        self.conv1x3_2 = nn.Conv2d(n_channel, n_channel, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
-        self.bn1 = nn.BatchNorm2d(n_channel, eps=0.001)
-        self.bn2 = nn.BatchNorm2d(n_channel, eps=0.001)
-        self.relu = nn.ReLU(inplace=True)
-        self.dropout = nn.Dropout2d(drop_rate)
-
-    def forward(self, input):
-        output = self.conv3x1_1(input)
-        output = self.relu(output)
-        output = self.conv1x3_1(output)
-        output = self.bn1(output)
-        output = self.relu(output)
-        output = self.conv3x1_2(output)
-        output = self.relu(output)
-        output = self.conv1x3_2(output)
-        output = self.bn2(output)
-        if self.dropout.p != 0:
-            output = self.dropout(output)
-        return self.relu(output + input)
-
-
-class DownsamplerBlock(nn.Module):
-
-    def __init__(self, in_channel, out_channel):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3), stride=2, padding=1, bias=True)
-        self.pool = nn.MaxPool2d(2, stride=2)
-        self.bn = nn.BatchNorm2d(out_channel, eps=0.001)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, input):
-        output = torch.cat([self.conv(input), self.pool(input)], 1)
-        output = self.bn(output)
-        return self.relu(output)
-
-
-class UpsamplerBlock(nn.Module):
-
-    def __init__(self, in_channel, out_channel):
-        super().__init__()
-        self.conv = nn.ConvTranspose2d(in_channel, out_channel, 3, stride=2, padding=1, output_padding=1, bias=True)
-        self.bn = nn.BatchNorm2d(out_channel, eps=0.001)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, input):
-        output = self.conv(input)
-        output = self.bn(output)
-        return self.relu(output)
 
 
 class LearnedGroupConv(nn.Module):
@@ -408,6 +297,154 @@ class LearnedGroupConv(nn.Module):
     @property
     def mask(self):
         return Variable(self._mask)
+
+
+class DenseLayer(nn.Module):
+
+    def __init__(self, in_channels, growth_rate, config):
+        super().__init__()
+        self.config = config
+        self.conv_bottleneck = self.config.conv_bottleneck
+        self.group1x1 = self.config.group1x1
+        self.group3x3 = self.config.group3x3
+        self.condense_factor = self.config.condense_factor
+        self.dropout_rate = self.config.dropout_rate
+        self.conv_1 = LearnedGroupConv(in_channels=in_channels, out_channels=self.conv_bottleneck * growth_rate, kernel_size=1, groups=self.group1x1, condense_factor=self.condense_factor, dropout_rate=self.dropout_rate)
+        self.batch_norm = nn.BatchNorm2d(self.conv_bottleneck * growth_rate)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv_2 = nn.Conv2d(in_channels=self.conv_bottleneck * growth_rate, out_channels=growth_rate, kernel_size=3, padding=1, stride=1, groups=self.group3x3, bias=False)
+
+    def forward(self, x):
+        out = self.conv_1(x)
+        out = self.batch_norm(out)
+        out = self.relu(out)
+        out = self.conv_2(out)
+        return torch.cat([x, out], 1)
+
+
+class DenseBlock(nn.Sequential):
+
+    def __init__(self, num_layers, in_channels, growth_rate, config):
+        super().__init__()
+        for layer_id in range(num_layers):
+            layer = DenseLayer(in_channels=in_channels + layer_id * growth_rate, growth_rate=growth_rate, config=config)
+            self.add_module('dense_layer_%d' % (layer_id + 1), layer)
+
+
+def init_model_weights(m):
+    for m in m.modules():
+        if isinstance(m, nn.Conv2d):
+            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            m.weight.data.normal_(0, math.sqrt(2.0 / n))
+        elif isinstance(m, nn.BatchNorm2d):
+            m.weight.data.fill_(1)
+            m.bias.data.zero_()
+        elif isinstance(m, nn.Linear):
+            m.bias.data.zero_()
+
+
+class CondenseNet(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.stages = self.config.stages
+        self.growth_rate = self.config.growth_rate
+        assert len(self.stages) == len(self.growth_rate)
+        self.init_stride = self.config.init_stride
+        self.pool_size = self.config.pool_size
+        self.num_classes = self.config.num_classes
+        self.progress = 0.0
+        self.num_filters = 2 * self.growth_rate[0]
+        """
+        Initializing layers
+        """
+        self.transition_pool = nn.AvgPool2d(kernel_size=2, stride=2)
+        self.pool = nn.AvgPool2d(self.pool_size)
+        self.relu = nn.ReLU(inplace=True)
+        self.init_conv = nn.Conv2d(in_channels=self.config.input_channels, out_channels=self.num_filters, kernel_size=3, stride=self.init_stride, padding=1, bias=False)
+        self.denseblock_one = DenseBlock(num_layers=self.stages[0], in_channels=self.num_filters, growth_rate=self.growth_rate[0], config=self.config)
+        self.num_filters += self.stages[0] * self.growth_rate[0]
+        self.denseblock_two = DenseBlock(num_layers=self.stages[1], in_channels=self.num_filters, growth_rate=self.growth_rate[1], config=self.config)
+        self.num_filters += self.stages[1] * self.growth_rate[1]
+        self.denseblock_three = DenseBlock(num_layers=self.stages[2], in_channels=self.num_filters, growth_rate=self.growth_rate[2], config=self.config)
+        self.num_filters += self.stages[2] * self.growth_rate[2]
+        self.batch_norm = nn.BatchNorm2d(self.num_filters)
+        self.classifier = nn.Linear(self.num_filters, self.num_classes)
+        self.apply(init_model_weights)
+
+    def forward(self, x, progress=None):
+        if progress:
+            LearnedGroupConv.global_progress = progress
+        x = self.init_conv(x)
+        x = self.denseblock_one(x)
+        x = self.transition_pool(x)
+        x = self.denseblock_two(x)
+        x = self.transition_pool(x)
+        x = self.denseblock_three(x)
+        x = self.batch_norm(x)
+        x = self.relu(x)
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
+        out = self.classifier(x)
+        return out
+
+
+class non_bottleneck_1d(nn.Module):
+
+    def __init__(self, n_channel, drop_rate, dilated):
+        super().__init__()
+        self.conv3x1_1 = nn.Conv2d(n_channel, n_channel, (3, 1), stride=1, padding=(1, 0), bias=True)
+        self.conv1x3_1 = nn.Conv2d(n_channel, n_channel, (1, 3), stride=1, padding=(0, 1), bias=True)
+        self.conv3x1_2 = nn.Conv2d(n_channel, n_channel, (3, 1), stride=1, padding=(1 * dilated, 0), bias=True, dilation=(dilated, 1))
+        self.conv1x3_2 = nn.Conv2d(n_channel, n_channel, (1, 3), stride=1, padding=(0, 1 * dilated), bias=True, dilation=(1, dilated))
+        self.bn1 = nn.BatchNorm2d(n_channel, eps=0.001)
+        self.bn2 = nn.BatchNorm2d(n_channel, eps=0.001)
+        self.relu = nn.ReLU(inplace=True)
+        self.dropout = nn.Dropout2d(drop_rate)
+
+    def forward(self, input):
+        output = self.conv3x1_1(input)
+        output = self.relu(output)
+        output = self.conv1x3_1(output)
+        output = self.bn1(output)
+        output = self.relu(output)
+        output = self.conv3x1_2(output)
+        output = self.relu(output)
+        output = self.conv1x3_2(output)
+        output = self.bn2(output)
+        if self.dropout.p != 0:
+            output = self.dropout(output)
+        return self.relu(output + input)
+
+
+class DownsamplerBlock(nn.Module):
+
+    def __init__(self, in_channel, out_channel):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channel, out_channel - in_channel, (3, 3), stride=2, padding=1, bias=True)
+        self.pool = nn.MaxPool2d(2, stride=2)
+        self.bn = nn.BatchNorm2d(out_channel, eps=0.001)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, input):
+        output = torch.cat([self.conv(input), self.pool(input)], 1)
+        output = self.bn(output)
+        return self.relu(output)
+
+
+class UpsamplerBlock(nn.Module):
+
+    def __init__(self, in_channel, out_channel):
+        super().__init__()
+        self.conv = nn.ConvTranspose2d(in_channel, out_channel, 3, stride=2, padding=1, output_padding=1, bias=True)
+        self.bn = nn.BatchNorm2d(out_channel, eps=0.001)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, input):
+        output = self.conv(input)
+        output = self.bn(output)
+        return self.relu(output)
 
 
 def weights_init(m):
@@ -568,16 +605,15 @@ class ERF(nn.Module):
         return output
 
 
-class ERFNet(nn.Module):
+class Classifier(nn.Module):
 
     def __init__(self, num_classes):
         super().__init__()
-        self.features = Features()
-        self.classifier = Classifier(num_classes)
+        self.linear = nn.Linear(128, num_classes)
 
     def forward(self, input):
-        output = self.features(input)
-        output = self.classifier(output)
+        output = input.view(input.size(0), 128)
+        output = self.linear(output)
         return output
 
 
@@ -619,15 +655,16 @@ class Features(nn.Module):
         return output
 
 
-class Classifier(nn.Module):
+class ERFNet(nn.Module):
 
     def __init__(self, num_classes):
         super().__init__()
-        self.linear = nn.Linear(128, num_classes)
+        self.features = Features()
+        self.classifier = Classifier(num_classes)
 
     def forward(self, input):
-        output = input.view(input.size(0), 128)
-        output = self.linear(output)
+        output = self.features(input)
+        output = self.classifier(output)
         return output
 
 

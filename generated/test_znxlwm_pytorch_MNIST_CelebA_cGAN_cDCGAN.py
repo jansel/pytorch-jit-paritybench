@@ -10,15 +10,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -54,120 +55,6 @@ def normal_init(m, mean, std):
     if isinstance(m, nn.Linear):
         m.weight.data.normal_(mean, std)
         m.bias.data.zero_()
-
-
-class generator(nn.Module):
-
-    def __init__(self, d=128):
-        super(generator, self).__init__()
-        self.deconv1_1 = nn.ConvTranspose2d(100, d * 4, 4, 1, 0)
-        self.deconv1_1_bn = nn.BatchNorm2d(d * 4)
-        self.deconv1_2 = nn.ConvTranspose2d(2, d * 4, 4, 1, 0)
-        self.deconv1_2_bn = nn.BatchNorm2d(d * 4)
-        self.deconv2 = nn.ConvTranspose2d(d * 8, d * 4, 4, 2, 1)
-        self.deconv2_bn = nn.BatchNorm2d(d * 4)
-        self.deconv3 = nn.ConvTranspose2d(d * 4, d * 2, 4, 2, 1)
-        self.deconv3_bn = nn.BatchNorm2d(d * 2)
-        self.deconv4 = nn.ConvTranspose2d(d * 2, d, 4, 2, 1)
-        self.deconv4_bn = nn.BatchNorm2d(d)
-        self.deconv5 = nn.ConvTranspose2d(d, 3, 4, 2, 1)
-
-    def weight_init(self, mean, std):
-        for m in self._modules:
-            normal_init(self._modules[m], mean, std)
-
-    def forward(self, input, label):
-        x = F.leaky_relu(self.deconv1_1_bn(self.deconv1_1(input)), 0.2)
-        y = F.leaky_relu(self.deconv1_2_bn(self.deconv1_2(label)), 0.2)
-        x = torch.cat([x, y], 1)
-        x = F.leaky_relu(self.deconv2_bn(self.deconv2(x)), 0.2)
-        x = F.leaky_relu(self.deconv3_bn(self.deconv3(x)), 0.2)
-        x = F.leaky_relu(self.deconv4_bn(self.deconv4(x)), 0.2)
-        x = F.tanh(self.deconv5(x))
-        return x
-
-
-class discriminator(nn.Module):
-
-    def __init__(self, d=128):
-        super(discriminator, self).__init__()
-        self.conv1_1 = nn.Conv2d(3, d / 2, 4, 2, 1)
-        self.conv1_2 = nn.Conv2d(2, d / 2, 4, 2, 1)
-        self.conv2 = nn.Conv2d(d, d * 2, 4, 2, 1)
-        self.conv2_bn = nn.BatchNorm2d(d * 2)
-        self.conv3 = nn.Conv2d(d * 2, d * 4, 4, 2, 1)
-        self.conv3_bn = nn.BatchNorm2d(d * 4)
-        self.conv4 = nn.Conv2d(d * 4, d * 8, 4, 2, 1)
-        self.conv4_bn = nn.BatchNorm2d(d * 8)
-        self.conv5 = nn.Conv2d(d * 8, 1, 4, 1, 0)
-
-    def weight_init(self, mean, std):
-        for m in self._modules:
-            normal_init(self._modules[m], mean, std)
-
-    def forward(self, input, label):
-        x = F.leaky_relu(self.conv1_1(input), 0.2)
-        y = F.leaky_relu(self.conv1_2(label), 0.2)
-        x = torch.cat([x, y], 1)
-        x = F.leaky_relu(self.conv2_bn(self.conv2(x)), 0.2)
-        x = F.leaky_relu(self.conv3_bn(self.conv3(x)), 0.2)
-        x = F.leaky_relu(self.conv4_bn(self.conv4(x)), 0.2)
-        x = F.sigmoid(self.conv5(x))
-        return x
-
-
-class generator(nn.Module):
-
-    def __init__(self, d=128):
-        super(generator, self).__init__()
-        self.deconv1_1 = nn.ConvTranspose2d(100, d * 2, 4, 1, 0)
-        self.deconv1_1_bn = nn.BatchNorm2d(d * 2)
-        self.deconv1_2 = nn.ConvTranspose2d(10, d * 2, 4, 1, 0)
-        self.deconv1_2_bn = nn.BatchNorm2d(d * 2)
-        self.deconv2 = nn.ConvTranspose2d(d * 4, d * 2, 4, 2, 1)
-        self.deconv2_bn = nn.BatchNorm2d(d * 2)
-        self.deconv3 = nn.ConvTranspose2d(d * 2, d, 4, 2, 1)
-        self.deconv3_bn = nn.BatchNorm2d(d)
-        self.deconv4 = nn.ConvTranspose2d(d, 1, 4, 2, 1)
-
-    def weight_init(self, mean, std):
-        for m in self._modules:
-            normal_init(self._modules[m], mean, std)
-
-    def forward(self, input, label):
-        x = F.relu(self.deconv1_1_bn(self.deconv1_1(input)))
-        y = F.relu(self.deconv1_2_bn(self.deconv1_2(label)))
-        x = torch.cat([x, y], 1)
-        x = F.relu(self.deconv2_bn(self.deconv2(x)))
-        x = F.relu(self.deconv3_bn(self.deconv3(x)))
-        x = F.tanh(self.deconv4(x))
-        return x
-
-
-class discriminator(nn.Module):
-
-    def __init__(self, d=128):
-        super(discriminator, self).__init__()
-        self.conv1_1 = nn.Conv2d(1, d / 2, 4, 2, 1)
-        self.conv1_2 = nn.Conv2d(10, d / 2, 4, 2, 1)
-        self.conv2 = nn.Conv2d(d, d * 2, 4, 2, 1)
-        self.conv2_bn = nn.BatchNorm2d(d * 2)
-        self.conv3 = nn.Conv2d(d * 2, d * 4, 4, 2, 1)
-        self.conv3_bn = nn.BatchNorm2d(d * 4)
-        self.conv4 = nn.Conv2d(d * 4, 1, 4, 1, 0)
-
-    def weight_init(self, mean, std):
-        for m in self._modules:
-            normal_init(self._modules[m], mean, std)
-
-    def forward(self, input, label):
-        x = F.leaky_relu(self.conv1_1(input), 0.2)
-        y = F.leaky_relu(self.conv1_2(label), 0.2)
-        x = torch.cat([x, y], 1)
-        x = F.leaky_relu(self.conv2_bn(self.conv2(x)), 0.2)
-        x = F.leaky_relu(self.conv3_bn(self.conv3(x)), 0.2)
-        x = F.sigmoid(self.conv4(x))
-        return x
 
 
 class generator(nn.Module):

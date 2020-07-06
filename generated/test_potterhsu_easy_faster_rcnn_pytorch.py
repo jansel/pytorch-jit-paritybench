@@ -38,15 +38,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -63,13 +64,19 @@ from torch import nn
 import torchvision
 
 
+from typing import List
+
+
+import torch
+
+
+from torch import Tensor
+
+
 import random
 
 
 from enum import Enum
-
-
-from typing import List
 
 
 from typing import Iterator
@@ -81,13 +88,37 @@ import torch.utils.data.dataset
 import torch.utils.data.sampler
 
 
-from torch import Tensor
-
-
 from torch.nn import functional as F
 
 
 from torchvision.transforms import transforms
+
+
+from typing import Dict
+
+
+from torchvision.datasets import CocoDetection
+
+
+import numpy as np
+
+
+import torch.utils.data
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.optim import Optimizer
+
+
+from torch.optim.lr_scheduler import MultiStepLR
+
+
+import itertools
+
+
+import time
 
 
 from typing import Union
@@ -96,16 +127,7 @@ from typing import Union
 from typing import Optional
 
 
-import torch
-
-
-from torch.optim import Optimizer
-
-
 from torch.optim.lr_scheduler import _LRScheduler
-
-
-import numpy as np
 
 
 from torch.autograd import Function
@@ -117,7 +139,13 @@ from torch.autograd.function import once_differentiable
 from torch.nn.modules.utils import _pair
 
 
-import time
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
 
 
 import uuid
@@ -130,9 +158,6 @@ import torch.nn as nn
 
 
 from torch import optim
-
-
-from torch.utils.data import DataLoader
 
 
 class BBox(object):
@@ -195,6 +220,53 @@ class BBox(object):
         bboxes[..., [0, 2]] = bboxes[..., [0, 2]].clamp(min=left, max=right)
         bboxes[..., [1, 3]] = bboxes[..., [1, 3]].clamp(min=top, max=bottom)
         return bboxes
+
+
+class _ROIAlign(Function):
+
+    @staticmethod
+    def forward(ctx, input, roi, output_size, spatial_scale, sampling_ratio):
+        ctx.save_for_backward(roi)
+        ctx.output_size = _pair(output_size)
+        ctx.spatial_scale = spatial_scale
+        ctx.sampling_ratio = sampling_ratio
+        ctx.input_shape = input.size()
+        output = _C.roi_align_forward(input, roi, spatial_scale, output_size[0], output_size[1], sampling_ratio)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        rois, = ctx.saved_tensors
+        output_size = ctx.output_size
+        spatial_scale = ctx.spatial_scale
+        sampling_ratio = ctx.sampling_ratio
+        bs, ch, h, w = ctx.input_shape
+        grad_input = _C.roi_align_backward(grad_output, rois, spatial_scale, output_size[0], output_size[1], bs, ch, h, w, sampling_ratio)
+        return grad_input, None, None, None, None
+
+
+roi_align = _ROIAlign.apply
+
+
+class ROIAlign(nn.Module):
+
+    def __init__(self, output_size, spatial_scale, sampling_ratio):
+        super(ROIAlign, self).__init__()
+        self.output_size = output_size
+        self.spatial_scale = spatial_scale
+        self.sampling_ratio = sampling_ratio
+
+    def forward(self, input, rois):
+        return roi_align(input, rois, self.output_size, self.spatial_scale, self.sampling_ratio)
+
+    def __repr__(self):
+        tmpstr = self.__class__.__name__ + '('
+        tmpstr += 'output_size=' + str(self.output_size)
+        tmpstr += ', spatial_scale=' + str(self.spatial_scale)
+        tmpstr += ', sampling_ratio=' + str(self.sampling_ratio)
+        tmpstr += ')'
+        return tmpstr
 
 
 class Pooler(object):
@@ -337,51 +409,4 @@ class RegionProposalNetwork(nn.Module):
             padded_proposal_bboxes.append(torch.cat([nms_proposal_bboxes, torch.zeros(max_nms_proposal_bboxes_length - len(nms_proposal_bboxes), 4)]))
         padded_proposal_bboxes = torch.stack(padded_proposal_bboxes, dim=0)
         return padded_proposal_bboxes
-
-
-class _ROIAlign(Function):
-
-    @staticmethod
-    def forward(ctx, input, roi, output_size, spatial_scale, sampling_ratio):
-        ctx.save_for_backward(roi)
-        ctx.output_size = _pair(output_size)
-        ctx.spatial_scale = spatial_scale
-        ctx.sampling_ratio = sampling_ratio
-        ctx.input_shape = input.size()
-        output = _C.roi_align_forward(input, roi, spatial_scale, output_size[0], output_size[1], sampling_ratio)
-        return output
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, grad_output):
-        rois, = ctx.saved_tensors
-        output_size = ctx.output_size
-        spatial_scale = ctx.spatial_scale
-        sampling_ratio = ctx.sampling_ratio
-        bs, ch, h, w = ctx.input_shape
-        grad_input = _C.roi_align_backward(grad_output, rois, spatial_scale, output_size[0], output_size[1], bs, ch, h, w, sampling_ratio)
-        return grad_input, None, None, None, None
-
-
-roi_align = _ROIAlign.apply
-
-
-class ROIAlign(nn.Module):
-
-    def __init__(self, output_size, spatial_scale, sampling_ratio):
-        super(ROIAlign, self).__init__()
-        self.output_size = output_size
-        self.spatial_scale = spatial_scale
-        self.sampling_ratio = sampling_ratio
-
-    def forward(self, input, rois):
-        return roi_align(input, rois, self.output_size, self.spatial_scale, self.sampling_ratio)
-
-    def __repr__(self):
-        tmpstr = self.__class__.__name__ + '('
-        tmpstr += 'output_size=' + str(self.output_size)
-        tmpstr += ', spatial_scale=' + str(self.spatial_scale)
-        tmpstr += ', sampling_ratio=' + str(self.sampling_ratio)
-        tmpstr += ')'
-        return tmpstr
 

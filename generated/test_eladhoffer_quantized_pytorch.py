@@ -24,15 +24,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -97,6 +98,9 @@ from torch.autograd.function import InplaceFunction
 from torch.autograd.function import Function
 
 
+import random
+
+
 class Concat(nn.Sequential):
 
     def __init__(self, *kargs, **kwargs):
@@ -131,15 +135,6 @@ def conv_bn(in_planes, out_planes, kernel_size, stride=1, padding=0):
     return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(out_planes), nn.ReLU())
 
 
-class block17(block):
-
-    def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
-        super(block17, self).__init__(in_planes, scale, activation)
-        self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(in_planes, 192, 1))]))
-        self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1', conv_bn(in_planes, 128, 1)), ('Conv2d_0b_1x7', conv_bn(128, 160, (1, 7), padding=(0, 3))), ('Conv2d_0c_7x1', conv_bn(160, 192, (7, 1), padding=(3, 0)))]))
-        self.Conv2d_1x1 = conv_bn(384, in_planes, 1)
-
-
 class block35(block):
 
     def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
@@ -148,6 +143,15 @@ class block35(block):
         self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1', conv_bn(in_planes, 32, 1)), ('Conv2d_0b_3x3', conv_bn(32, 32, 3, padding=1))]))
         self.Branch_2 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1', conv_bn(in_planes, 32, 1)), ('Conv2d_0b_3x3', conv_bn(32, 48, 3, padding=1)), ('Conv2d_0c_3x3', conv_bn(48, 64, 3, padding=1))]))
         self.Conv2d_1x1 = conv_bn(128, in_planes, 1)
+
+
+class block17(block):
+
+    def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
+        super(block17, self).__init__(in_planes, scale, activation)
+        self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(in_planes, 192, 1))]))
+        self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1', conv_bn(in_planes, 128, 1)), ('Conv2d_0b_1x7', conv_bn(128, 160, (1, 7), padding=(0, 3))), ('Conv2d_0c_7x1', conv_bn(160, 192, (7, 1), padding=(3, 0)))]))
+        self.Conv2d_1x1 = conv_bn(384, in_planes, 1)
 
 
 class block8(block):
@@ -315,55 +319,6 @@ class mnist_model(nn.Module):
         return out
 
 
-class DepthwiseSeparableFusedConv2d(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0):
-        super(DepthwiseSeparableFusedConv2d, self).__init__()
-        self.components = nn.Sequential(nn.Conv2d(in_channels, in_channels, kernel_size, stride=stride, padding=padding, groups=in_channels), nn.BatchNorm2d(in_channels), nn.ReLU(), nn.Conv2d(in_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
-
-    def forward(self, x):
-        return self.components(x)
-
-
-def nearby_int(n):
-    return int(round(n))
-
-
-class MobileNet(nn.Module):
-
-    def __init__(self, width=1.0, shallow=False, num_classes=1000):
-        super(MobileNet, self).__init__()
-        num_classes = num_classes or 1000
-        width = width or 1.0
-        layers = [nn.Conv2d(3, nearby_int(width * 32), kernel_size=3, stride=2, padding=1, bias=False), nn.BatchNorm2d(nearby_int(width * 32)), nn.ReLU(inplace=True), DepthwiseSeparableFusedConv2d(nearby_int(width * 32), nearby_int(width * 64), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 64), nearby_int(width * 128), kernel_size=3, stride=2, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 128), nearby_int(width * 128), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 128), nearby_int(width * 256), kernel_size=3, stride=2, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 256), nearby_int(width * 256), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 256), nearby_int(width * 512), kernel_size=3, stride=2, padding=1)]
-        if not shallow:
-            layers += [DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1)]
-        layers += [DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 1024), kernel_size=3, stride=2, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 1024), nearby_int(width * 1024), kernel_size=3, stride=1, padding=1)]
-        self.features = nn.Sequential(*layers)
-        self.avg_pool = nn.AvgPool2d(7)
-        self.fc = nn.Linear(nearby_int(width * 1024), num_classes)
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        self.input_transform = {'train': transforms.Compose([transforms.RandomResizedCrop(224, scale=(0.3, 1.0)), transforms.RandomHorizontalFlip(), transforms.ToTensor(), normalize]), 'eval': transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(), normalize])}
-        self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': 0.1, 'momentum': 0.9}, {'epoch': 30, 'lr': 0.01}, {'epoch': 60, 'lr': 0.001}, {'epoch': 80, 'lr': 0.0001}]
-
-    @staticmethod
-    def regularization(model, weight_decay=4e-05):
-        l2_params = 0
-        for m in model.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                l2_params += m.weight.pow(2).sum()
-                if m.bias is not None:
-                    l2_params += m.bias.pow(2).sum()
-        return weight_decay * 0.5 * l2_params
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.avg_pool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-
 BIPRECISION = True
 
 
@@ -374,51 +329,6 @@ NUM_BITS_GRAD = 8
 
 
 NUM_BITS_WEIGHT = 8
-
-
-class DepthwiseSeparableFusedConv2d(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0):
-        super(DepthwiseSeparableFusedConv2d, self).__init__()
-        self.components = nn.Sequential(QConv2d(in_channels, in_channels, kernel_size, stride=stride, padding=padding, groups=in_channels, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION), RangeBN(in_channels, num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD), nn.ReLU(), QConv2d(in_channels, out_channels, 1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION), RangeBN(out_channels, num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD), nn.ReLU())
-
-    def forward(self, x):
-        return self.components(x)
-
-
-class MobileNet(nn.Module):
-
-    def __init__(self, width=1.0, shallow=False, num_classes=1000):
-        super(MobileNet, self).__init__()
-        num_classes = num_classes or 1000
-        width = width or 1.0
-        layers = [QConv2d(3, nearby_int(width * 32), kernel_size=3, stride=2, padding=1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION), RangeBN(nearby_int(width * 32), num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD), nn.ReLU(inplace=True), DepthwiseSeparableFusedConv2d(nearby_int(width * 32), nearby_int(width * 64), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 64), nearby_int(width * 128), kernel_size=3, stride=2, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 128), nearby_int(width * 128), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 128), nearby_int(width * 256), kernel_size=3, stride=2, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 256), nearby_int(width * 256), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 256), nearby_int(width * 512), kernel_size=3, stride=2, padding=1)]
-        if not shallow:
-            layers += [DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1)]
-        layers += [DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 1024), kernel_size=3, stride=2, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 1024), nearby_int(width * 1024), kernel_size=3, stride=1, padding=1)]
-        self.features = nn.Sequential(*layers)
-        self.avg_pool = nn.AvgPool2d(7)
-        self.fc = QLinear(nearby_int(width * 1024), num_classes, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION)
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        self.input_transform = {'train': transforms.Compose([transforms.RandomResizedCrop(224, scale=(0.3, 1.0)), transforms.RandomHorizontalFlip(), transforms.ToTensor(), normalize]), 'eval': transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(), normalize])}
-        self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': 0.1, 'momentum': 0.9}, {'epoch': 30, 'lr': 0.01}, {'epoch': 60, 'lr': 0.001}, {'epoch': 80, 'lr': 0.0001}]
-
-    @staticmethod
-    def regularization(model, weight_decay=4e-05):
-        l2_params = 0
-        for m in model.modules():
-            if isinstance(m, QConv2d) or isinstance(m, nn.Linear):
-                l2_params += m.weight.pow(2).sum()
-                if m.bias is not None:
-                    l2_params += m.bias.pow(2).sum()
-        return weight_decay * 0.5 * l2_params
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.avg_pool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
 
 
 class UniformQuantize(InplaceFunction):
@@ -567,40 +477,6 @@ class QConv2d(nn.Conv2d):
         return output
 
 
-def linear_biprec(input, weight, bias=None, num_bits_grad=None):
-    out1 = F.linear(input.detach(), weight, bias)
-    out2 = F.linear(input, weight.detach(), bias.detach() if bias is not None else None)
-    out2 = quantize_grad(out2, num_bits=num_bits_grad)
-    return out1 + out2 - out1.detach()
-
-
-class QLinear(nn.Linear):
-    """docstring for QConv2d."""
-
-    def __init__(self, in_features, out_features, bias=True, num_bits=8, num_bits_weight=None, num_bits_grad=None, biprecision=False):
-        super(QLinear, self).__init__(in_features, out_features, bias)
-        self.num_bits = num_bits
-        self.num_bits_weight = num_bits_weight or num_bits
-        self.num_bits_grad = num_bits_grad
-        self.biprecision = biprecision
-        self.quantize_input = QuantMeasure(self.num_bits)
-
-    def forward(self, input):
-        qinput = self.quantize_input(input)
-        qweight = quantize(self.weight, num_bits=self.num_bits_weight, min_value=float(self.weight.min()), max_value=float(self.weight.max()))
-        if self.bias is not None:
-            qbias = quantize(self.bias, num_bits=self.num_bits_weight)
-        else:
-            qbias = None
-        if not self.biprecision or self.num_bits_grad is None:
-            output = F.linear(qinput, qweight, qbias)
-            if self.num_bits_grad is not None:
-                output = quantize_grad(output, num_bits=self.num_bits_grad)
-        else:
-            output = linear_biprec(qinput, qweight, qbias, self.num_bits_grad)
-        return output
-
-
 class RangeBN(nn.Module):
 
     def __init__(self, num_features, dim=1, momentum=0.1, affine=True, num_chunks=16, eps=1e-05, num_bits=8, num_bits_grad=8):
@@ -656,6 +532,89 @@ class RangeBN(nn.Module):
         if out.size(3) == 1 and out.size(2) == 1:
             out = out.squeeze(-1).squeeze(-1)
         return out
+
+
+class DepthwiseSeparableFusedConv2d(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0):
+        super(DepthwiseSeparableFusedConv2d, self).__init__()
+        self.components = nn.Sequential(QConv2d(in_channels, in_channels, kernel_size, stride=stride, padding=padding, groups=in_channels, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION), RangeBN(in_channels, num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD), nn.ReLU(), QConv2d(in_channels, out_channels, 1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION), RangeBN(out_channels, num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD), nn.ReLU())
+
+    def forward(self, x):
+        return self.components(x)
+
+
+def linear_biprec(input, weight, bias=None, num_bits_grad=None):
+    out1 = F.linear(input.detach(), weight, bias)
+    out2 = F.linear(input, weight.detach(), bias.detach() if bias is not None else None)
+    out2 = quantize_grad(out2, num_bits=num_bits_grad)
+    return out1 + out2 - out1.detach()
+
+
+class QLinear(nn.Linear):
+    """docstring for QConv2d."""
+
+    def __init__(self, in_features, out_features, bias=True, num_bits=8, num_bits_weight=None, num_bits_grad=None, biprecision=False):
+        super(QLinear, self).__init__(in_features, out_features, bias)
+        self.num_bits = num_bits
+        self.num_bits_weight = num_bits_weight or num_bits
+        self.num_bits_grad = num_bits_grad
+        self.biprecision = biprecision
+        self.quantize_input = QuantMeasure(self.num_bits)
+
+    def forward(self, input):
+        qinput = self.quantize_input(input)
+        qweight = quantize(self.weight, num_bits=self.num_bits_weight, min_value=float(self.weight.min()), max_value=float(self.weight.max()))
+        if self.bias is not None:
+            qbias = quantize(self.bias, num_bits=self.num_bits_weight)
+        else:
+            qbias = None
+        if not self.biprecision or self.num_bits_grad is None:
+            output = F.linear(qinput, qweight, qbias)
+            if self.num_bits_grad is not None:
+                output = quantize_grad(output, num_bits=self.num_bits_grad)
+        else:
+            output = linear_biprec(qinput, qweight, qbias, self.num_bits_grad)
+        return output
+
+
+def nearby_int(n):
+    return int(round(n))
+
+
+class MobileNet(nn.Module):
+
+    def __init__(self, width=1.0, shallow=False, num_classes=1000):
+        super(MobileNet, self).__init__()
+        num_classes = num_classes or 1000
+        width = width or 1.0
+        layers = [QConv2d(3, nearby_int(width * 32), kernel_size=3, stride=2, padding=1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION), RangeBN(nearby_int(width * 32), num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD), nn.ReLU(inplace=True), DepthwiseSeparableFusedConv2d(nearby_int(width * 32), nearby_int(width * 64), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 64), nearby_int(width * 128), kernel_size=3, stride=2, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 128), nearby_int(width * 128), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 128), nearby_int(width * 256), kernel_size=3, stride=2, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 256), nearby_int(width * 256), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 256), nearby_int(width * 512), kernel_size=3, stride=2, padding=1)]
+        if not shallow:
+            layers += [DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 512), kernel_size=3, padding=1)]
+        layers += [DepthwiseSeparableFusedConv2d(nearby_int(width * 512), nearby_int(width * 1024), kernel_size=3, stride=2, padding=1), DepthwiseSeparableFusedConv2d(nearby_int(width * 1024), nearby_int(width * 1024), kernel_size=3, stride=1, padding=1)]
+        self.features = nn.Sequential(*layers)
+        self.avg_pool = nn.AvgPool2d(7)
+        self.fc = QLinear(nearby_int(width * 1024), num_classes, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION)
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        self.input_transform = {'train': transforms.Compose([transforms.RandomResizedCrop(224, scale=(0.3, 1.0)), transforms.RandomHorizontalFlip(), transforms.ToTensor(), normalize]), 'eval': transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(), normalize])}
+        self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': 0.1, 'momentum': 0.9}, {'epoch': 30, 'lr': 0.01}, {'epoch': 60, 'lr': 0.001}, {'epoch': 80, 'lr': 0.0001}]
+
+    @staticmethod
+    def regularization(model, weight_decay=4e-05):
+        l2_params = 0
+        for m in model.modules():
+            if isinstance(m, QConv2d) or isinstance(m, nn.Linear):
+                l2_params += m.weight.pow(2).sum()
+                if m.bias is not None:
+                    l2_params += m.bias.pow(2).sum()
+        return weight_decay * 0.5 * l2_params
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avg_pool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
 
 
 class BiReLUFunction(InplaceFunction):
@@ -719,365 +678,6 @@ class RnLU(nn.Module):
 def conv3x3(in_planes, out_planes, stride=1, bias=False):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=bias)
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self):
-        super(ResNet, self).__init__()
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.relu = BiReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.relu(out)
-        out = self.conv2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = wn(nn.Conv2d(inplanes, planes, kernel_size=1, bias=True))
-        self.conv2 = wn(nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=True))
-        self.conv3 = wn(nn.Conv2d(planes, planes * 4, kernel_size=1, bias=True))
-        self.relu = BiReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self):
-        super(ResNet, self).__init__()
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(wn(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=True)))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = RangeBN(planes, num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = RangeBN(planes, num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = QConv2d(inplanes, planes, kernel_size=1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION)
-        self.bn1 = RangeBN(planes, num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD)
-        self.conv2 = QConv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION)
-        self.bn2 = RangeBN(planes, num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD)
-        self.conv3 = QConv2d(planes, planes * 4, kernel_size=1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION)
-        self.bn3 = RangeBN(planes * 4, num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self):
-        super(ResNet, self).__init__()
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(QConv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION), RangeBN(planes * block.expansion, num_bits=NUM_BITS, num_bits_grad=NUM_BITS_GRAD))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-    @staticmethod
-    def regularization(model, weight_decay=0.0001):
-        l2_params = 0
-        for m in model.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                l2_params += m.weight.pow(2).sum()
-                if m.bias is not None:
-                    l2_params += m.bias.pow(2).sum()
-        return weight_decay * 0.5 * l2_params
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = QConv2d(inplanes, planes, kernel_size=1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = QConv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = QConv2d(planes, planes * 4, kernel_size=1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self):
-        super(ResNet, self).__init__()
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(QConv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
 
 
 def depBatchNorm2d(exists, *kargs, **kwargs):
@@ -1146,6 +746,86 @@ class Bottleneck(nn.Module):
         return out
 
 
+class ResNet(nn.Module):
+
+    def __init__(self):
+        super(ResNet, self).__init__()
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(QConv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD), nn.BatchNorm2d(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
+
+
+def init_model(model):
+    for m in model.modules():
+        if isinstance(m, nn.Conv2d):
+            n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            m.weight.data.normal_(0, math.sqrt(2.0 / n))
+        elif isinstance(m, nn.BatchNorm2d):
+            m.weight.data.fill_(1)
+            m.bias.data.zero_()
+
+
+class ResNet_imagenet(ResNet):
+
+    def __init__(self, num_classes=1000, block=Bottleneck, layers=[3, 4, 23, 3]):
+        super(ResNet_imagenet, self).__init__()
+        self.inplanes = 64
+        self.conv1 = QConv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.avgpool = nn.AvgPool2d(7)
+        self.fc = QLinear(512 * block.expansion, num_classes, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+        init_model(self)
+        self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': 0.1, 'weight_decay': 0.0001, 'momentum': 0.9}, {'epoch': 30, 'lr': 0.01}, {'epoch': 60, 'lr': 0.001, 'weight_decay': 0}, {'epoch': 90, 'lr': 0.0001}]
+
+
+class ResNet_cifar10(ResNet):
+
+    def __init__(self, num_classes=10, block=BasicBlock, depth=18):
+        super(ResNet_cifar10, self).__init__()
+        self.inplanes = 16
+        n = int((depth - 2) / 6)
+        self.conv1 = QConv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = lambda x: x
+        self.layer1 = self._make_layer(block, 16, n)
+        self.layer2 = self._make_layer(block, 32, n, stride=2)
+        self.layer3 = self._make_layer(block, 64, n, stride=2)
+        self.layer4 = lambda x: x
+        self.avgpool = nn.AvgPool2d(8)
+        self.fc = QLinear(64, num_classes, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+        init_model(self)
+        self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': 0.1, 'weight_decay': 0.0001, 'momentum': 0.9}, {'epoch': 81, 'lr': 0.01}, {'epoch': 122, 'lr': 0.001, 'weight_decay': 0}, {'epoch': 164, 'lr': 0.0001}]
+
+
 class PlainDownSample(nn.Module):
 
     def __init__(self, input_dims, output_dims, stride):
@@ -1199,6 +879,45 @@ class ResNeXt(nn.Module):
         return x
 
 
+class ResNeXt_imagenet(ResNeXt):
+
+    def __init__(self, num_classes=1000, block=Bottleneck, layers=[3, 4, 23, 3], batch_norm=True, shortcut='B'):
+        super(ResNeXt_imagenet, self).__init__(shortcut=shortcut)
+        self.inplanes = 64
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=not batch_norm)
+        self.bn1 = depBatchNorm2d(batch_norm, 64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 128, layers[0], batch_norm=batch_norm)
+        self.layer2 = self._make_layer(block, 256, layers[1], stride=2, batch_norm=batch_norm)
+        self.layer3 = self._make_layer(block, 512, layers[2], stride=2, batch_norm=batch_norm)
+        self.layer4 = self._make_layer(block, 1024, layers[3], stride=2, batch_norm=batch_norm)
+        self.avgpool = nn.AvgPool2d(7)
+        self.fc = nn.Linear(1024 * block.expansion, num_classes)
+        init_model(self)
+        self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': 0.1, 'weight_decay': 0.0001, 'momentum': 0.9}, {'epoch': 30, 'lr': 0.01}, {'epoch': 60, 'lr': 0.001, 'weight_decay': 0}, {'epoch': 90, 'lr': 0.0001}]
+
+
+class ResNeXt_cifar10(ResNeXt):
+
+    def __init__(self, num_classes=10, block=BasicBlock, depth=18, batch_norm=True):
+        super(ResNeXt_cifar10, self).__init__()
+        self.inplanes = 16
+        n = int((depth - 2) / 6)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1, bias=not batch_norm)
+        self.bn1 = depBatchNorm2d(batch_norm, 16)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = lambda x: x
+        self.layer1 = self._make_layer(block, 16, n, batch_norm=not batch_norm)
+        self.layer2 = self._make_layer(block, 32, n, stride=2, batch_norm=not batch_norm)
+        self.layer3 = self._make_layer(block, 64, n, stride=2, batch_norm=not batch_norm)
+        self.layer4 = lambda x: x
+        self.avgpool = nn.AvgPool2d(8)
+        self.fc = nn.Linear(64, num_classes)
+        init_model(self)
+        self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': 0.1, 'weight_decay': 0.0001, 'momentum': 0.9}, {'epoch': 81, 'lr': 0.01}, {'epoch': 122, 'lr': 0.001, 'weight_decay': 0}, {'epoch': 164, 'lr': 0.0001}]
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1245,6 +964,22 @@ TESTCASES = [
     (RangeBN,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResNeXt_cifar10,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+    (ResNeXt_imagenet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     True),
+    (ResNet_cifar10,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+    (ResNet_imagenet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
      False),
     (RnLU,
      lambda: ([], {}),
@@ -1313,4 +1048,16 @@ class Test_eladhoffer_quantized_pytorch(_paritybench_base):
 
     def test_014(self):
         self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
 

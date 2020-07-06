@@ -20,17 +20,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+import torch.utils.data as data
+
+
+import numpy as np
+
+
+import random
+
+
+import time
+
+
+from torch.autograd import Variable
+
+
+from torchvision import transforms
+
+
+from torch.autograd import Function
 
 
 import torch.nn as nn
@@ -39,19 +64,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-import torch
-
-
-from torch.autograd import Variable
-
-
 from torch.nn.modules.utils import _pair
-
-
-import numpy as np
-
-
-import time
 
 
 import torch.optim as optim
@@ -74,15 +87,6 @@ class ConvRNNCellBase(nn.Module):
         s += ', hidden_kernel_size={hidden_kernel_size}'
         s += ')'
         return s.format(name=self.__class__.__name__, **self.__dict__)
-
-
-class Sign(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        return SignFunction.apply(x, self.training)
 
 
 class ConvLSTMCell(ConvRNNCellBase):
@@ -117,6 +121,15 @@ class ConvLSTMCell(ConvRNNCellBase):
         cy = forgetgate * cx + ingate * cellgate
         hy = outgate * F.tanh(cy)
         return hy, cy
+
+
+class Sign(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return SignFunction.apply(x, self.training)
 
 
 class EncoderCell(nn.Module):
@@ -201,6 +214,60 @@ class DecoderCell(nn.Module):
         return x, hidden1, hidden2, hidden3, hidden4
 
 
+class double_conv(nn.Module):
+    """(conv => BN => ReLU) * 2"""
+
+    def __init__(self, in_ch, out_ch):
+        super(double_conv, self).__init__()
+        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True), nn.Conv2d(out_ch, out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True))
+
+    def forward(self, x):
+        x = self.conv(x)
+        return x
+
+
+class down(nn.Module):
+
+    def __init__(self, in_ch, out_ch):
+        super(down, self).__init__()
+        self.mpconv = nn.Sequential(nn.MaxPool2d(2), double_conv(in_ch, out_ch))
+
+    def forward(self, x):
+        x = self.mpconv(x)
+        return x
+
+
+class inconv(nn.Module):
+
+    def __init__(self, in_ch, out_ch):
+        super(inconv, self).__init__()
+        self.conv = double_conv(in_ch, out_ch)
+
+    def forward(self, x):
+        x = self.conv(x)
+        return x
+
+
+class up(nn.Module):
+
+    def __init__(self, in_ch, out_ch, bilinear=True):
+        super(up, self).__init__()
+        if bilinear:
+            self.up = nn.UpsamplingBilinear2d(scale_factor=2)
+        else:
+            self.up = nn.ConvTranspose2d(in_ch, out_ch, 2, stride=2)
+        self.conv = double_conv(in_ch, out_ch)
+
+    def forward(self, x1, x2):
+        x1 = self.up(x1)
+        diffX = x1.size()[2] - x2.size()[2]
+        diffY = x1.size()[3] - x2.size()[3]
+        x2 = F.pad(x2, (diffX // 2, int(diffX / 2), diffY // 2, int(diffY / 2)))
+        x = torch.cat([x2, x1], dim=1)
+        x = self.conv(x)
+        return x
+
+
 class UNet(nn.Module):
 
     def __init__(self, n_channels, shrink):
@@ -225,60 +292,6 @@ class UNet(nn.Module):
         out2 = self.up2(out1, x3)
         out3 = self.up3(out2, x2)
         return [out1, out2, out3]
-
-
-class double_conv(nn.Module):
-    """(conv => BN => ReLU) * 2"""
-
-    def __init__(self, in_ch, out_ch):
-        super(double_conv, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_ch, out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True), nn.Conv2d(out_ch, out_ch, 3, padding=1), nn.BatchNorm2d(out_ch), nn.ReLU(inplace=True))
-
-    def forward(self, x):
-        x = self.conv(x)
-        return x
-
-
-class inconv(nn.Module):
-
-    def __init__(self, in_ch, out_ch):
-        super(inconv, self).__init__()
-        self.conv = double_conv(in_ch, out_ch)
-
-    def forward(self, x):
-        x = self.conv(x)
-        return x
-
-
-class down(nn.Module):
-
-    def __init__(self, in_ch, out_ch):
-        super(down, self).__init__()
-        self.mpconv = nn.Sequential(nn.MaxPool2d(2), double_conv(in_ch, out_ch))
-
-    def forward(self, x):
-        x = self.mpconv(x)
-        return x
-
-
-class up(nn.Module):
-
-    def __init__(self, in_ch, out_ch, bilinear=True):
-        super(up, self).__init__()
-        if bilinear:
-            self.up = nn.UpsamplingBilinear2d(scale_factor=2)
-        else:
-            self.up = nn.ConvTranspose2d(in_ch, out_ch, 2, stride=2)
-        self.conv = double_conv(in_ch, out_ch)
-
-    def forward(self, x1, x2):
-        x1 = self.up(x1)
-        diffX = x1.size()[2] - x2.size()[2]
-        diffY = x1.size()[3] - x2.size()[3]
-        x2 = F.pad(x2, (diffX // 2, int(diffX / 2), diffY // 2, int(diffY / 2)))
-        x = torch.cat([x2, x1], dim=1)
-        x = self.conv(x)
-        return x
 
 
 class outconv(nn.Module):

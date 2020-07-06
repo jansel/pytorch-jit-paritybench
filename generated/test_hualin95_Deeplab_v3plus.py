@@ -31,26 +31,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import random
+
+
+import scipy.io
+
+
+import numpy as np
+
+
+import torch
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as ttransforms
 
 
 import math
 
 
 import logging
-
-
-import torch
 
 
 import torch.nn as nn
@@ -83,323 +99,10 @@ import functools
 from torch.nn.parallel.data_parallel import DataParallel
 
 
-import numpy as np
+from torch.autograd import Variable
 
 
 from math import ceil
-
-
-class SeparableConv2d(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, dilation=1, bias=True):
-        super(SeparableConv2d, self).__init__()
-        kernel_size_effective = kernel_size + (kernel_size - 1) * (dilation - 1)
-        pad_total = kernel_size_effective - 1
-        padding = pad_total // 2
-        self.depthwise = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding=padding, dilation=dilation, groups=in_channels, bias=bias)
-        self.relu = nn.ReLU(inplace=True)
-        self.bn = nn.BatchNorm2d(in_channels)
-        self.pointwise = nn.Conv2d(in_channels, out_channels, 1, 1, 0, 1, 1, bias=bias)
-
-    def forward(self, x):
-        x = self.depthwise(x)
-        x = self.relu(x)
-        x = self.bn(x)
-        x = self.pointwise(x)
-        return x
-
-
-class Block(nn.Module):
-
-    def __init__(self, in_filters, out_filters, reps=3, strides=1, start_with_relu=True, grow_first=True, dilation=1):
-        """
-
-        :param in_filters:
-        :param out_filters:
-        :param reps:
-        :param strides:
-        :param start_with_relu:
-        :param grow_first: whether add channels at first
-        """
-        super(Block, self).__init__()
-        if out_filters != in_filters or strides != 1:
-            self.skip = nn.Conv2d(in_filters, out_filters, 1, stride=strides, bias=False)
-            self.skipbn = nn.BatchNorm2d(out_filters)
-        else:
-            self.skip = None
-        self.relu = nn.ReLU(inplace=True)
-        rep = []
-        filters = in_filters
-        if grow_first:
-            rep.append(self.relu)
-            rep.append(SeparableConv2d(in_filters, out_filters, 3, stride=1, bias=False, dilation=dilation))
-            rep.append(nn.BatchNorm2d(out_filters))
-            rep.append(self.relu)
-            rep.append(SeparableConv2d(out_filters, out_filters, 3, stride=1, bias=False, dilation=dilation))
-            rep.append(nn.BatchNorm2d(out_filters))
-        else:
-            rep.append(self.relu)
-            rep.append(SeparableConv2d(in_filters, in_filters, 3, stride=1, bias=False, dilation=dilation))
-            rep.append(nn.BatchNorm2d(in_filters))
-            rep.append(self.relu)
-            rep.append(SeparableConv2d(in_filters, out_filters, 3, stride=1, bias=False, dilation=dilation))
-            rep.append(nn.BatchNorm2d(out_filters))
-        rep.append(self.relu)
-        rep.append(SeparableConv2d(out_filters, out_filters, 3, stride=strides, bias=False, dilation=dilation))
-        rep.append(nn.BatchNorm2d(out_filters))
-        if not start_with_relu:
-            rep = rep[1:]
-        else:
-            rep[0] = nn.ReLU(inplace=False)
-        self.rep = nn.Sequential(*rep)
-
-    def forward(self, inp):
-        x = self.rep(inp)
-        if self.skip is not None:
-            skip = self.skip(inp)
-            skip = self.skipbn(skip)
-        else:
-            skip = inp
-        x += skip
-        return x
-
-
-class Xception(nn.Module):
-    """
-    Xception optimized for the ImageNet dataset, as specified in
-    https://arxiv.org/pdf/1610.02357.pdf
-    """
-
-    def __init__(self, output_stride, pretrained=True):
-        super(Xception, self).__init__()
-        if output_stride == 8:
-            entry_block3_stride = 1
-            middle_block_rate = 2
-            exit_block_rates = 2, 4
-        elif output_stride == 16:
-            entry_block3_stride = 2
-            middle_block_rate = 1
-            exit_block_rates = 1, 2
-        else:
-            raise Warning('atrous_rates must be 8 or 16!')
-        self.conv1 = nn.Conv2d(3, 32, 3, 2, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(32)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(32, 64, 3, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(64)
-        self.block1 = Block(64, 128, 3, 2, start_with_relu=False, grow_first=True)
-        self.block2 = Block(128, 256, 3, 2, start_with_relu=True, grow_first=True)
-        self.block3 = Block(256, 728, 3, strides=entry_block3_stride, start_with_relu=True, grow_first=True)
-        self.block4 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block5 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block6 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block7 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block8 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block9 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block10 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block11 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block12 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block13 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block14 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block15 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block16 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block17 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block18 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block19 = Block(728, 728, 3, 1, start_with_relu=True, grow_first=True, dilation=middle_block_rate)
-        self.block20 = Block(728, 1024, 3, 1, start_with_relu=True, grow_first=False, dilation=exit_block_rates[0])
-        self.conv3 = SeparableConv2d(1024, 1536, kernel_size=3, stride=1, dilation=exit_block_rates[1])
-        self.bn3 = nn.BatchNorm2d(1536)
-        self.conv4 = SeparableConv2d(1536, 1536, kernel_size=3, stride=1, dilation=exit_block_rates[1])
-        self.bn4 = nn.BatchNorm2d(1536)
-        self.conv5 = SeparableConv2d(1536, 2048, kernel_size=3, stride=1, dilation=exit_block_rates[1])
-        self.bn5 = nn.BatchNorm2d(2048)
-        self._init_weights()
-        if pretrained is not False:
-            self._load_xception_weight()
-
-    def forward(self, input):
-        x = self.conv1(input)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = self.relu(x)
-        x = self.block1(x)
-        low_level_features = x
-        x = self.block2(x)
-        x = self.block3(x)
-        x = self.block4(x)
-        x = self.block5(x)
-        x = self.block6(x)
-        x = self.block7(x)
-        x = self.block8(x)
-        x = self.block9(x)
-        x = self.block10(x)
-        x = self.block11(x)
-        x = self.block12(x)
-        x = self.block13(x)
-        x = self.block14(x)
-        x = self.block15(x)
-        x = self.block16(x)
-        x = self.block17(x)
-        x = self.block18(x)
-        x = self.block19(x)
-        x = self.block20(x)
-        x = self.conv3(x)
-        x = self.bn3(x)
-        x = self.relu(x)
-        x = self.conv4(x)
-        x = self.bn4(x)
-        x = self.relu(x)
-        x = self.conv5(x)
-        x = self.bn5(x)
-        x = self.relu(x)
-        return x, low_level_features
-
-    def _load_xception_weight(self):
-        None
-        pretrained_dict = model_zoo.load_url(url='http://data.lip6.fr/cadene/pretrainedmodels/xception-b5690688.pth', model_dir='/data/linhua/VOCdevkit/')
-        model_dict = self.state_dict()
-        new_dict = {}
-        for k, v in pretrained_dict.items():
-            if k in model_dict:
-                if 'pointwise' in k:
-                    v = v.unsqueeze(-1).unsqueeze(-1)
-                if k.startswith('block11'):
-                    new_dict[k] = v
-                    new_dict[k.replace('block11', 'block12')] = v
-                    new_dict[k.replace('block11', 'block13')] = v
-                    new_dict[k.replace('block11', 'block14')] = v
-                    new_dict[k.replace('block11', 'block15')] = v
-                    new_dict[k.replace('block11', 'block16')] = v
-                    new_dict[k.replace('block11', 'block17')] = v
-                    new_dict[k.replace('block11', 'block18')] = v
-                    new_dict[k.replace('block11', 'block19')] = v
-                elif k.startswith('block12'):
-                    new_dict[k.replace('block12', 'block20')] = v
-                elif k.startswith('bn3'):
-                    new_dict[k] = v
-                    model_dict[k.replace('bn3', 'bn4')] = v
-                elif k.startswith('conv4'):
-                    model_dict[k.replace('conv4', 'conv5')] = v
-                elif k.startswith('bn4'):
-                    model_dict[k.replace('bn4', 'bn5')] = v
-                else:
-                    new_dict[k] = v
-        model_dict.update(new_dict)
-        self.load_state_dict(model_dict)
-
-    def _init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, bn_momentum=0.1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = SynchronizedBatchNorm2d(planes, momentum=bn_momentum)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, bias=False)
-        self.bn2 = SynchronizedBatchNorm2d(planes, momentum=bn_momentum)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = SynchronizedBatchNorm2d(planes * self.expansion, momentum=bn_momentum)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, bn_momentum=0.1, pretrained=False, output_stride=16):
-        if output_stride == 16:
-            dilations = [1, 1, 1, 2]
-            strides = [1, 2, 2, 1]
-        elif output_stride == 8:
-            dilations = [1, 1, 2, 4]
-            strides = [1, 2, 1, 1]
-        else:
-            raise Warning('output_stride must be 8 or 16!')
-        self.inplanes = 64
-        super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = SynchronizedBatchNorm2d(64, momentum=bn_momentum)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], stride=strides[0], dilation=dilations[0], bn_momentum=bn_momentum)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=strides[1], dilation=dilations[1], bn_momentum=bn_momentum)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=strides[2], dilation=dilations[2], bn_momentum=bn_momentum)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=strides[3], dilation=dilations[3], bn_momentum=bn_momentum)
-        self._init_weight()
-        if pretrained:
-            self._load_pretrained_model()
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, bn_momentum=0.1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), SynchronizedBatchNorm2d(planes * block.expansion, momentum=bn_momentum))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, dilation, downsample, bn_momentum=bn_momentum))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation, bn_momentum=bn_momentum))
-        return nn.Sequential(*layers)
-
-    def _load_pretrained_model(self):
-        pretrain_dict = model_zoo.load_url(model_urls['resnet101'])
-        model_dict = {}
-        state_dict = self.state_dict()
-        for k, v in pretrain_dict.items():
-            if k in state_dict:
-                model_dict[k] = v
-        state_dict.update(model_dict)
-        self.load_state_dict(state_dict)
-        None
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        low_level_feat = x
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        return x, low_level_feat
-
-    def _init_weight(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                torch.nn.init.kaiming_normal_(m.weight)
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
 
 
 class SeparableConv2d(nn.Module):
@@ -536,149 +239,6 @@ class Xception(nn.Module):
         x = self.features(input)
         x = self.logits(x)
         return x
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, class_num, bn_momentum=0.1):
-        super(Decoder, self).__init__()
-        self.conv1 = nn.Conv2d(256, 48, kernel_size=1, bias=False)
-        self.bn1 = SynchronizedBatchNorm2d(48, momentum=bn_momentum)
-        self.relu = nn.ReLU()
-        self.conv2 = nn.Conv2d(304, 256, kernel_size=3, padding=1, bias=False)
-        self.bn2 = SynchronizedBatchNorm2d(256, momentum=bn_momentum)
-        self.dropout2 = nn.Dropout(0.5)
-        self.conv3 = nn.Conv2d(256, 256, kernel_size=3, padding=1, bias=False)
-        self.bn3 = SynchronizedBatchNorm2d(256, momentum=bn_momentum)
-        self.dropout3 = nn.Dropout(0.1)
-        self.conv4 = nn.Conv2d(256, class_num, kernel_size=1)
-        self._init_weight()
-
-    def forward(self, x, low_level_feature):
-        low_level_feature = self.conv1(low_level_feature)
-        low_level_feature = self.bn1(low_level_feature)
-        low_level_feature = self.relu(low_level_feature)
-        x_4 = F.interpolate(x, size=low_level_feature.size()[2:4], mode='bilinear', align_corners=True)
-        x_4_cat = torch.cat((x_4, low_level_feature), dim=1)
-        x_4_cat = self.conv2(x_4_cat)
-        x_4_cat = self.bn2(x_4_cat)
-        x_4_cat = self.relu(x_4_cat)
-        x_4_cat = self.dropout2(x_4_cat)
-        x_4_cat = self.conv3(x_4_cat)
-        x_4_cat = self.bn3(x_4_cat)
-        x_4_cat = self.relu(x_4_cat)
-        x_4_cat = self.dropout3(x_4_cat)
-        x_4_cat = self.conv4(x_4_cat)
-        return x_4_cat
-
-    def _init_weight(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                torch.nn.init.kaiming_normal_(m.weight)
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-
-def resnet101(bn_momentum=0.1, pretrained=False, output_stride=16):
-    """Constructs a ResNet-101 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], bn_momentum, pretrained, output_stride)
-    return model
-
-
-class DeepLab(nn.Module):
-
-    def __init__(self, output_stride, class_num, pretrained, bn_momentum=0.1, freeze_bn=False):
-        super(DeepLab, self).__init__()
-        self.Resnet101 = resnet101(bn_momentum, pretrained)
-        self.encoder = Encoder(bn_momentum, output_stride)
-        self.decoder = Decoder(class_num, bn_momentum)
-        if freeze_bn:
-            self.freeze_bn()
-            None
-
-    def forward(self, input):
-        x, low_level_features = self.Resnet101(input)
-        x = self.encoder(x)
-        predict = self.decoder(x, low_level_features)
-        output = F.interpolate(predict, size=input.size()[2:4], mode='bilinear', align_corners=True)
-        return output
-
-    def freeze_bn(self):
-        for m in self.modules():
-            if isinstance(m, SynchronizedBatchNorm2d):
-                m.eval()
-
-
-def _AsppConv(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bn_momentum=0.1):
-    asppconv = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, bias=False), SynchronizedBatchNorm2d(out_channels, momentum=bn_momentum), nn.ReLU())
-    return asppconv
-
-
-class AsppModule(nn.Module):
-
-    def __init__(self, bn_momentum=0.1, output_stride=16):
-        super(AsppModule, self).__init__()
-        if output_stride == 16:
-            atrous_rates = [0, 6, 12, 18]
-        elif output_stride == 8:
-            atrous_rates = 2 * [0, 12, 24, 36]
-        else:
-            raise Warning('output_stride must be 8 or 16!')
-        self._atrous_convolution1 = _AsppConv(2048, 256, 1, 1, bn_momentum=bn_momentum)
-        self._atrous_convolution2 = _AsppConv(2048, 256, 3, 1, padding=atrous_rates[1], dilation=atrous_rates[1], bn_momentum=bn_momentum)
-        self._atrous_convolution3 = _AsppConv(2048, 256, 3, 1, padding=atrous_rates[2], dilation=atrous_rates[2], bn_momentum=bn_momentum)
-        self._atrous_convolution4 = _AsppConv(2048, 256, 3, 1, padding=atrous_rates[3], dilation=atrous_rates[3], bn_momentum=bn_momentum)
-        self._image_pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(2048, 256, kernel_size=1, bias=False), SynchronizedBatchNorm2d(256, momentum=bn_momentum), nn.ReLU())
-        self.__init_weight()
-
-    def forward(self, input):
-        input1 = self._atrous_convolution1(input)
-        input2 = self._atrous_convolution2(input)
-        input3 = self._atrous_convolution3(input)
-        input4 = self._atrous_convolution4(input)
-        input5 = self._image_pool(input)
-        input5 = F.interpolate(input=input5, size=input4.size()[2:4], mode='bilinear', align_corners=True)
-        return torch.cat((input1, input2, input3, input4, input5), dim=1)
-
-    def __init_weight(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                torch.nn.init.kaiming_normal_(m.weight)
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-
-class Encoder(nn.Module):
-
-    def __init__(self, bn_momentum=0.1, output_stride=16):
-        super(Encoder, self).__init__()
-        self.ASPP = AsppModule(bn_momentum=bn_momentum, output_stride=output_stride)
-        self.relu = nn.ReLU()
-        self.conv1 = nn.Conv2d(1280, 256, 1, bias=False)
-        self.bn1 = SynchronizedBatchNorm2d(256, momentum=bn_momentum)
-        self.dropout = nn.Dropout(0.5)
-        self.__init_weight()
-
-    def forward(self, input):
-        input = self.ASPP(input)
-        input = self.conv1(input)
-        input = self.bn1(input)
-        input = self.relu(input)
-        input = self.dropout(input)
-        return input
-
-    def __init_weight(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                torch.nn.init.kaiming_normal_(m.weight)
-            elif isinstance(m, SynchronizedBatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
 
 
 class FutureResult(object):
@@ -876,6 +436,439 @@ class _SynchronizedBatchNorm(_BatchNorm):
         self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
         self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
         return mean, bias_var.clamp(self.eps) ** -0.5
+
+
+class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 4d input that is seen as a mini-batch
+    of 3d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm2d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+    
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape:
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm2d, self)._check_input_dim(input)
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, bn_momentum=0.1):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = SynchronizedBatchNorm2d(planes, momentum=bn_momentum)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, bias=False)
+        self.bn2 = SynchronizedBatchNorm2d(planes, momentum=bn_momentum)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = SynchronizedBatchNorm2d(planes * self.expansion, momentum=bn_momentum)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
+
+
+class ResNet(nn.Module):
+
+    def __init__(self, block, layers, bn_momentum=0.1, pretrained=False, output_stride=16):
+        if output_stride == 16:
+            dilations = [1, 1, 1, 2]
+            strides = [1, 2, 2, 1]
+        elif output_stride == 8:
+            dilations = [1, 1, 2, 4]
+            strides = [1, 2, 1, 1]
+        else:
+            raise Warning('output_stride must be 8 or 16!')
+        self.inplanes = 64
+        super(ResNet, self).__init__()
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = SynchronizedBatchNorm2d(64, momentum=bn_momentum)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0], stride=strides[0], dilation=dilations[0], bn_momentum=bn_momentum)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=strides[1], dilation=dilations[1], bn_momentum=bn_momentum)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=strides[2], dilation=dilations[2], bn_momentum=bn_momentum)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=strides[3], dilation=dilations[3], bn_momentum=bn_momentum)
+        self._init_weight()
+        if pretrained:
+            self._load_pretrained_model()
+
+    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, bn_momentum=0.1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), SynchronizedBatchNorm2d(planes * block.expansion, momentum=bn_momentum))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, dilation, downsample, bn_momentum=bn_momentum))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, dilation=dilation, bn_momentum=bn_momentum))
+        return nn.Sequential(*layers)
+
+    def _load_pretrained_model(self):
+        pretrain_dict = model_zoo.load_url(model_urls['resnet101'])
+        model_dict = {}
+        state_dict = self.state_dict()
+        for k, v in pretrain_dict.items():
+            if k in state_dict:
+                model_dict[k] = v
+        state_dict.update(model_dict)
+        self.load_state_dict(state_dict)
+        None
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        low_level_feat = x
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        return x, low_level_feat
+
+    def _init_weight(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+
+class Decoder(nn.Module):
+
+    def __init__(self, class_num, bn_momentum=0.1):
+        super(Decoder, self).__init__()
+        self.conv1 = nn.Conv2d(256, 48, kernel_size=1, bias=False)
+        self.bn1 = SynchronizedBatchNorm2d(48, momentum=bn_momentum)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv2d(304, 256, kernel_size=3, padding=1, bias=False)
+        self.bn2 = SynchronizedBatchNorm2d(256, momentum=bn_momentum)
+        self.dropout2 = nn.Dropout(0.5)
+        self.conv3 = nn.Conv2d(256, 256, kernel_size=3, padding=1, bias=False)
+        self.bn3 = SynchronizedBatchNorm2d(256, momentum=bn_momentum)
+        self.dropout3 = nn.Dropout(0.1)
+        self.conv4 = nn.Conv2d(256, class_num, kernel_size=1)
+        self._init_weight()
+
+    def forward(self, x, low_level_feature):
+        low_level_feature = self.conv1(low_level_feature)
+        low_level_feature = self.bn1(low_level_feature)
+        low_level_feature = self.relu(low_level_feature)
+        x_4 = F.interpolate(x, size=low_level_feature.size()[2:4], mode='bilinear', align_corners=True)
+        x_4_cat = torch.cat((x_4, low_level_feature), dim=1)
+        x_4_cat = self.conv2(x_4_cat)
+        x_4_cat = self.bn2(x_4_cat)
+        x_4_cat = self.relu(x_4_cat)
+        x_4_cat = self.dropout2(x_4_cat)
+        x_4_cat = self.conv3(x_4_cat)
+        x_4_cat = self.bn3(x_4_cat)
+        x_4_cat = self.relu(x_4_cat)
+        x_4_cat = self.dropout3(x_4_cat)
+        x_4_cat = self.conv4(x_4_cat)
+        return x_4_cat
+
+    def _init_weight(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, SynchronizedBatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+
+def _AsppConv(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bn_momentum=0.1):
+    asppconv = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, bias=False), SynchronizedBatchNorm2d(out_channels, momentum=bn_momentum), nn.ReLU())
+    return asppconv
+
+
+class AsppModule(nn.Module):
+
+    def __init__(self, bn_momentum=0.1, output_stride=16):
+        super(AsppModule, self).__init__()
+        if output_stride == 16:
+            atrous_rates = [0, 6, 12, 18]
+        elif output_stride == 8:
+            atrous_rates = 2 * [0, 12, 24, 36]
+        else:
+            raise Warning('output_stride must be 8 or 16!')
+        self._atrous_convolution1 = _AsppConv(2048, 256, 1, 1, bn_momentum=bn_momentum)
+        self._atrous_convolution2 = _AsppConv(2048, 256, 3, 1, padding=atrous_rates[1], dilation=atrous_rates[1], bn_momentum=bn_momentum)
+        self._atrous_convolution3 = _AsppConv(2048, 256, 3, 1, padding=atrous_rates[2], dilation=atrous_rates[2], bn_momentum=bn_momentum)
+        self._atrous_convolution4 = _AsppConv(2048, 256, 3, 1, padding=atrous_rates[3], dilation=atrous_rates[3], bn_momentum=bn_momentum)
+        self._image_pool = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(2048, 256, kernel_size=1, bias=False), SynchronizedBatchNorm2d(256, momentum=bn_momentum), nn.ReLU())
+        self.__init_weight()
+
+    def forward(self, input):
+        input1 = self._atrous_convolution1(input)
+        input2 = self._atrous_convolution2(input)
+        input3 = self._atrous_convolution3(input)
+        input4 = self._atrous_convolution4(input)
+        input5 = self._image_pool(input)
+        input5 = F.interpolate(input=input5, size=input4.size()[2:4], mode='bilinear', align_corners=True)
+        return torch.cat((input1, input2, input3, input4, input5), dim=1)
+
+    def __init_weight(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, SynchronizedBatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+
+class Encoder(nn.Module):
+
+    def __init__(self, bn_momentum=0.1, output_stride=16):
+        super(Encoder, self).__init__()
+        self.ASPP = AsppModule(bn_momentum=bn_momentum, output_stride=output_stride)
+        self.relu = nn.ReLU()
+        self.conv1 = nn.Conv2d(1280, 256, 1, bias=False)
+        self.bn1 = SynchronizedBatchNorm2d(256, momentum=bn_momentum)
+        self.dropout = nn.Dropout(0.5)
+        self.__init_weight()
+
+    def forward(self, input):
+        input = self.ASPP(input)
+        input = self.conv1(input)
+        input = self.bn1(input)
+        input = self.relu(input)
+        input = self.dropout(input)
+        return input
+
+    def __init_weight(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, SynchronizedBatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+
+
+def resnet101(bn_momentum=0.1, pretrained=False, output_stride=16):
+    """Constructs a ResNet-101 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 23, 3], bn_momentum, pretrained, output_stride)
+    return model
+
+
+class DeepLab(nn.Module):
+
+    def __init__(self, output_stride, class_num, pretrained, bn_momentum=0.1, freeze_bn=False):
+        super(DeepLab, self).__init__()
+        self.Resnet101 = resnet101(bn_momentum, pretrained)
+        self.encoder = Encoder(bn_momentum, output_stride)
+        self.decoder = Decoder(class_num, bn_momentum)
+        if freeze_bn:
+            self.freeze_bn()
+            None
+
+    def forward(self, input):
+        x, low_level_features = self.Resnet101(input)
+        x = self.encoder(x)
+        predict = self.decoder(x, low_level_features)
+        output = F.interpolate(predict, size=input.size()[2:4], mode='bilinear', align_corners=True)
+        return output
+
+    def freeze_bn(self):
+        for m in self.modules():
+            if isinstance(m, SynchronizedBatchNorm2d):
+                m.eval()
+
+
+class SynchronizedBatchNorm1d(_SynchronizedBatchNorm):
+    """Applies Synchronized Batch Normalization over a 2d or 3d input that is seen as a
+    mini-batch.
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm1d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+    
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, L)` slices, it's common terminology to call this Temporal BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of size
+            `batch_size x num_features [x width]`
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape:
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm1d, self)._check_input_dim(input)
+
+
+class SynchronizedBatchNorm3d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 5d input that is seen as a mini-batch
+    of 4d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm3d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+    
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, D, H, W)` slices, it's common terminology to call this Volumetric BatchNorm
+    or Spatio-temporal BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x depth x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape:
+        - Input: :math:`(N, C, D, H, W)`
+        - Output: :math:`(N, C, D, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45, 10))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm3d, self)._check_input_dim(input)
 
 
 class CallbackContext(object):

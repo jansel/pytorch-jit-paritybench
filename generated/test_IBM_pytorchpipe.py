@@ -121,15 +121,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -137,10 +138,25 @@ __version__ = '1.0.0'
 import torch
 
 
-import torch.nn as nn
+from numpy import inf
+
+
+from numpy import average
 
 
 import numpy as np
+
+
+import torch.utils.data.sampler as pt_samplers
+
+
+import logging
+
+
+from torch.utils.data import DataLoader
+
+
+import torch.nn as nn
 
 
 from torch.nn import Module
@@ -150,6 +166,24 @@ import torch.nn.functional as F
 
 
 import torchvision.models as models
+
+
+import math
+
+
+from torchvision import transforms
+
+
+import string
+
+
+from torchvision import datasets
+
+
+from torch.utils.data import Dataset
+
+
+import collections
 
 
 from torch.nn.parallel._functions import Scatter
@@ -164,13 +198,25 @@ from torch.nn.parallel.replicate import replicate
 from torch.nn.parallel.parallel_apply import parallel_apply
 
 
-from torch.utils.data import Dataset
+from math import ceil
 
 
-from torch.utils.data import DataLoader
+from torch._six import int_classes as _int_classes
+
+
+from torch.utils.data.sampler import Sampler
+
+
+from time import sleep
 
 
 import time
+
+
+from random import randrange
+
+
+from abc import abstractmethod
 
 
 class SingletonMetaClass(type):
@@ -256,14 +302,14 @@ class AppState(metaclass=SingletonMetaClass):
         """
         Sets all tensor types to GPU/CUDA data types.
         """
-        self.FloatTensor = torch.cuda.FloatTensor
-        self.DoubleTensor = torch.cuda.DoubleTensor
-        self.HalfTensor = torch.cuda.HalfTensor
-        self.ByteTensor = torch.cuda.ByteTensor
-        self.CharTensor = torch.cuda.CharTensor
-        self.ShortTensor = torch.cuda.ShortTensor
-        self.IntTensor = torch.cuda.IntTensor
-        self.LongTensor = torch.cuda.LongTensor
+        self.FloatTensor = torch.FloatTensor
+        self.DoubleTensor = torch.DoubleTensor
+        self.HalfTensor = torch.HalfTensor
+        self.ByteTensor = torch.ByteTensor
+        self.CharTensor = torch.CharTensor
+        self.ShortTensor = torch.ShortTensor
+        self.IntTensor = torch.IntTensor
+        self.LongTensor = torch.LongTensor
 
     def globalkeys(self):
         """
@@ -389,18 +435,18 @@ def load_class_default_config_file(class_type):
     rel_path = module[module.find('ptp') + 4:]
     abs_default_config = os.path.join(AppState().absolute_config_path, 'default', rel_path) + '.yml'
     if not os.path.isfile(abs_default_config):
-        print("ERROR: The default configuration file '{}' for '{}' does not exist".format(abs_default_config, class_type.__module__))
+        None
         exit(-1)
     try:
         with open(abs_default_config, 'r') as stream:
             param_dict = yaml.safe_load(stream)
         if param_dict is None:
-            print("WARNING: The default configuration file '{}' is empty!".format(abs_default_config))
+            None
             return {}
         else:
             return param_dict
     except yaml.YAMLError as e:
-        print("ERROR: Couldn't properly parse the '{}' default configuration file. YAML error:\n  {}".format(abs_default_config, e))
+        None
         exit(-2)
 
 
@@ -739,6 +785,831 @@ class Model(Module, Component):
         return mod_str
 
 
+class CompactBilinearPooling(Model):
+    """
+    Element of one of classical baselines for Visual Question Answering.
+
+    The model inputs (question and image encodings) are combined with Compact Bilinear Pooling mechanism.
+
+    Fukui, A., Park, D. H., Yang, D., Rohrbach, A., Darrell, T., & Rohrbach, M. (2016). Multimodal compact bilinear pooling for visual question answering and visual grounding. arXiv preprint arXiv:1606.01847.
+
+    Gao, Y., Beijbom, O., Zhang, N., & Darrell, T. (2016). Compact bilinear pooling. In Proceedings of the IEEE conference on computer vision and pattern recognition (pp. 317-326).
+
+    Inspired by implementation from:
+    https://github.com/DeepInsight-PCALab/CompactBilinearPooling-Pytorch/blob/master/CompactBilinearPooling.py
+    """
+
+    def __init__(self, name, config):
+        """
+        Initializes the model, creates the required layers.
+
+        :param name: Name of the model (taken from the configuration file).
+
+        :param config: Parameters read from configuration file.
+        :type config: ``ptp.configuration.ConfigInterface``
+
+        """
+        super(CompactBilinearPooling, self).__init__(name, CompactBilinearPooling, config)
+        self.key_image_encodings = self.stream_keys['image_encodings']
+        self.key_question_encodings = self.stream_keys['question_encodings']
+        self.key_outputs = self.stream_keys['outputs']
+        self.image_encoding_size = self.globals['image_encoding_size']
+        self.question_encoding_size = self.globals['question_encoding_size']
+        self.output_size = self.globals['output_size']
+        image_sketch_projection_matrix = self.generate_count_sketch_projection_matrix(self.image_encoding_size, self.output_size)
+        question_sketch_projection_matrix = self.generate_count_sketch_projection_matrix(self.question_encoding_size, self.output_size)
+        trainable_projections = self.config['trainable_projections']
+        self.image_sketch_projection_matrix = torch.nn.Parameter(image_sketch_projection_matrix, requires_grad=trainable_projections)
+        self.question_sketch_projection_matrix = torch.nn.Parameter(question_sketch_projection_matrix, requires_grad=trainable_projections)
+
+    def generate_count_sketch_projection_matrix(self, input_size, output_size):
+        """ 
+        Initializes Count Sketch projection matrix for given input (size).
+        Its role will be to project vector v∈Rn to y∈Rd.
+        We initialize two vectors s∈{−1,1}n and h∈{1,...,d}n:
+            * s contains either 1 or −1 for each index
+            * h maps each index i in the input v to an index j in the output y.
+        Both s and h are initialized randomly from a uniform distribution and remain constant.
+        """
+        s = 2 * np.random.randint(2, size=input_size) - 1
+        s = torch.from_numpy(s)
+        h = np.random.randint(output_size, size=input_size)
+        indices = np.concatenate((np.arange(input_size)[..., np.newaxis], h[..., np.newaxis]), axis=1)
+        indices = torch.from_numpy(indices)
+        sparse_sketch_matrix = torch.sparse.FloatTensor(indices.t(), s, torch.Size([input_size, output_size]))
+        dense_ssm = sparse_sketch_matrix.to_dense().type(self.app_state.FloatTensor)
+        return dense_ssm
+
+    def input_data_definitions(self):
+        """ 
+        Function returns a dictionary with definitions of input data that are required by the component.
+
+        :return: dictionary containing input data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_image_encodings: DataDefinition([-1, self.image_encoding_size], [torch.Tensor], 'Batch of encoded images [BATCH_SIZE x IMAGE_ENCODING_SIZE]'), self.key_question_encodings: DataDefinition([-1, self.question_encoding_size], [torch.Tensor], 'Batch of encoded questions [BATCH_SIZE x QUESTION_ENCODING_SIZE]')}
+
+    def output_data_definitions(self):
+        """ 
+        Function returns a dictionary with definitions of output data produced the component.
+
+        :return: dictionary containing output data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_outputs: DataDefinition([-1, self.output_size], [torch.Tensor], 'Batch of outputs [BATCH_SIZE x OUTPUT_SIZE]')}
+
+    def forward(self, data_streams):
+        """
+        Main forward pass of the model.
+
+        :param data_streams: DataStreams({'images',**})
+        :type data_streams: ``ptp.dadatypes.DataStreams``
+        """
+        enc_img = data_streams[self.key_image_encodings]
+        enc_q = data_streams[self.key_question_encodings]
+        sketch_pm_img = self.image_sketch_projection_matrix
+        sketch_pm_q = self.question_sketch_projection_matrix
+        sketch_img = enc_img.mm(sketch_pm_img)
+        sketch_q = enc_q.mm(sketch_pm_q)
+        sketch_img_reim = torch.stack([sketch_img, torch.zeros(sketch_img.shape).type(self.app_state.FloatTensor)], dim=2)
+        sketch_q_reim = torch.stack([sketch_q, torch.zeros(sketch_q.shape).type(self.app_state.FloatTensor)], dim=2)
+        fft_img = torch.fft(sketch_img_reim, signal_ndim=1)
+        fft_q = torch.fft(sketch_q_reim, signal_ndim=1)
+        real1 = fft_img[:, :, (0)]
+        imag1 = fft_img[:, :, (1)]
+        real2 = fft_q[:, :, (0)]
+        imag2 = fft_q[:, :, (1)]
+        fft_product = torch.stack([real1 * real2 - imag1 * imag2, real1 * imag2 + imag1 * real2], dim=-1)
+        cbp = torch.ifft(fft_product, signal_ndim=1)[:, :, (0)]
+        data_streams.publish({self.key_outputs: cbp})
+
+
+class FactorizedBilinearPooling(Model):
+    """
+    Element of one of the classical baselines for Visual Question Answering.
+    The multi-modal data is fused via sum-pooling of the element-wise multiplied high-dimensional representations and returned (for subsequent classification, done in a separate component e.g. ffn).
+
+    On the basis of: Zhou Yu, Jun Yu. "Beyond Bilinear: Generalized Multi-modal Factorized High-order Pooling for Visual Question Answering" (2015).
+    Code: https://github.com/Cadene/block.bootstrap.pytorch/blob/master/block/models/networks/fusions/fusions.py
+    """
+
+    def __init__(self, name, config):
+        """
+        Initializes the model, creates the required layers.
+
+        :param name: Name of the model (taken from the configuration file).
+
+        :param config: Parameters read from configuration file.
+        :type config: ``ptp.configuration.ConfigInterface``
+
+        """
+        super(FactorizedBilinearPooling, self).__init__(name, FactorizedBilinearPooling, config)
+        self.key_image_encodings = self.stream_keys['image_encodings']
+        self.key_question_encodings = self.stream_keys['question_encodings']
+        self.key_outputs = self.stream_keys['outputs']
+        self.image_encoding_size = self.globals['image_encoding_size']
+        self.question_encoding_size = self.globals['question_encoding_size']
+        self.latent_size = self.config['latent_size']
+        self.factor = self.config['pool_factor']
+        self.output_size = self.latent_size
+        self.globals['output_size'] = self.output_size
+        self.image_encodings_ff = torch.nn.Linear(self.image_encoding_size, self.latent_size * self.factor)
+        self.question_encodings_ff = torch.nn.Linear(self.question_encoding_size, self.latent_size * self.factor)
+        self.activation = torch.nn.ReLU()
+        dropout_rate = self.config['dropout_rate']
+        self.dropout = torch.nn.Dropout(dropout_rate)
+
+    def input_data_definitions(self):
+        """
+        Function returns a dictionary with definitions of input data that are required by the component.
+
+        :return: dictionary containing input data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_image_encodings: DataDefinition([-1, self.image_encoding_size], [torch.Tensor], 'Batch of encoded images [BATCH_SIZE x IMAGE_ENCODING_SIZE]'), self.key_question_encodings: DataDefinition([-1, self.question_encoding_size], [torch.Tensor], 'Batch of encoded questions [BATCH_SIZE x QUESTION_ENCODING_SIZE]')}
+
+    def output_data_definitions(self):
+        """
+        Function returns a dictionary with definitions of output data produced the component.
+
+        :return: dictionary containing output data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_outputs: DataDefinition([-1, self.output_size], [torch.Tensor], 'Batch of outputs [BATCH_SIZE x OUTPUT_SIZE]')}
+
+    def forward(self, data_streams):
+        """
+        Main forward pass of the model.
+
+        :param data_streams: DataStreams({'images',**})
+        :type data_streams: ``ptp.dadatypes.DataStreams``
+        """
+        enc_img = data_streams[self.key_image_encodings]
+        enc_q = data_streams[self.key_question_encodings]
+        latent_img = self.dropout(self.image_encodings_ff(enc_img))
+        latent_q = self.dropout(self.question_encodings_ff(enc_q))
+        enc_z = latent_img * latent_q
+        enc_z = self.dropout(enc_z)
+        enc_z = enc_z.view(enc_z.size(0), self.latent_size, self.factor)
+        enc_z = enc_z.sum(2)
+        enc_z = torch.sqrt(self.activation(enc_z)) - torch.sqrt(self.activation(-enc_z))
+        outputs = F.normalize(enc_z, p=2, dim=1)
+        data_streams.publish({self.key_outputs: outputs})
+
+
+class LowRankBilinearPooling(Model):
+    """
+    Element of one of classical baselines for Visual Question Answering.
+    The model inputs (question and image encodings) are fused via element-wise multiplication and returned (for subsequent classification, done in a separate component e.g. ffn).
+
+    On the basis of: Jiasen Lu and Xiao Lin and Dhruv Batra and Devi Parikh. "Deeper LSTM and normalized CNN visual question answering model" (2015).
+    """
+
+    def __init__(self, name, config):
+        """
+        Initializes the model, creates the required layers.
+
+        :param name: Name of the model (taken from the configuration file).
+
+        :param config: Parameters read from configuration file.
+        :type config: ``ptp.configuration.ConfigInterface``
+
+        """
+        super(LowRankBilinearPooling, self).__init__(name, LowRankBilinearPooling, config)
+        self.key_image_encodings = self.stream_keys['image_encodings']
+        self.key_question_encodings = self.stream_keys['question_encodings']
+        self.key_outputs = self.stream_keys['outputs']
+        self.image_encoding_size = self.globals['image_encoding_size']
+        self.question_encoding_size = self.globals['question_encoding_size']
+        self.output_size = self.globals['output_size']
+        self.image_encodings_ff = torch.nn.Linear(self.image_encoding_size, self.output_size)
+        self.question_encodings_ff = torch.nn.Linear(self.question_encoding_size, self.output_size)
+        self.activation = torch.nn.ReLU()
+        dropout_rate = self.config['dropout_rate']
+        self.dropout = torch.nn.Dropout(dropout_rate)
+
+    def input_data_definitions(self):
+        """ 
+        Function returns a dictionary with definitions of input data that are required by the component.
+
+        :return: dictionary containing input data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_image_encodings: DataDefinition([-1, self.image_encoding_size], [torch.Tensor], 'Batch of encoded images [BATCH_SIZE x IMAGE_ENCODING_SIZE]'), self.key_question_encodings: DataDefinition([-1, self.question_encoding_size], [torch.Tensor], 'Batch of encoded questions [BATCH_SIZE x QUESTION_ENCODING_SIZE]')}
+
+    def output_data_definitions(self):
+        """ 
+        Function returns a dictionary with definitions of output data produced the component.
+
+        :return: dictionary containing output data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_outputs: DataDefinition([-1, self.output_size], [torch.Tensor], 'Batch of outputs [BATCH_SIZE x OUTPUT_SIZE]')}
+
+    def forward(self, data_streams):
+        """
+        Main forward pass of the model.
+
+        :param data_streams: DataStreams({'images',**})
+        :type data_streams: ``ptp.dadatypes.DataStreams``
+        """
+        enc_img = data_streams[self.key_image_encodings]
+        enc_q = data_streams[self.key_question_encodings]
+        enc_img = self.activation(enc_img)
+        enc_img = self.dropout(enc_img)
+        enc_q = self.activation(enc_q)
+        enc_q = self.dropout(enc_q)
+        latent_img = self.image_encodings_ff(enc_img)
+        latent_q = self.question_encodings_ff(enc_q)
+        outputs = latent_img * latent_q
+        data_streams.publish({self.key_outputs: outputs})
+
+
+def apply_attention(input, attention):
+    """ Apply any number of attention maps over the input. """
+    n, c = input.size()[:2]
+    glimpses = attention.size(1)
+    input = input.view(n, 1, c, -1)
+    attention = attention.view(n, glimpses, -1)
+    attention = torch.nn.functional.softmax(attention, dim=-1).unsqueeze(2)
+    weighted = attention * input
+    weighted_mean = weighted.sum(dim=-1)
+    return weighted_mean.view(n, -1)
+
+
+def tile_2d_over_nd(feature_vector, feature_map):
+    """ Repeat the same feature vector over all spatial positions of a given feature map.
+        The feature vector should have the same batch size and number of features as the feature map.
+    """
+    n, c = feature_vector.size()
+    spatial_size = feature_map.dim() - 2
+    tiled = feature_vector.view(n, c, *([1] * spatial_size)).expand_as(feature_map)
+    return tiled
+
+
+class QuestionDrivenAttention(Model):
+    """
+    Element of one of the classical baselines for Visual Question Answering.
+    Attention-weighted image maps are computed based on the question.
+    The multi-modal data (question and attention-weighted image maps) are fused via concatenation and returned (for subsequent classification, done in a separate component e.g. ffn).
+
+    On the basis of: Vahid Kazemi Ali Elqursh. "Show, Ask, Attend, and Answer: A Strong Baseline For Visual Question Answering" (2017).
+    Code: https://github.com/Cyanogenoid/pytorch-vqa/blob/master/model.py
+    """
+
+    def __init__(self, name, config):
+        """
+        Initializes the model, creates the required layers.
+
+        :param name: Name of the model (taken from the configuration file).
+
+        :param config: Parameters read from configuration file.
+        :type config: ``ptp.configuration.ConfigInterface``
+
+        """
+        super(QuestionDrivenAttention, self).__init__(name, QuestionDrivenAttention, config)
+        self.key_feature_maps = self.stream_keys['feature_maps']
+        self.key_question_encodings = self.stream_keys['question_encodings']
+        self.key_outputs = self.stream_keys['outputs']
+        self.feature_maps_height = self.globals['feature_maps_height']
+        self.feature_maps_width = self.globals['feature_maps_width']
+        self.feature_maps_depth = self.globals['feature_maps_depth']
+        self.question_encoding_size = self.globals['question_encoding_size']
+        self.latent_size = self.config['latent_size']
+        self.num_attention_heads = self.config['num_attention_heads']
+        self.output_mode = self.config['output_mode']
+        if self.output_mode == 'Image':
+            self.output_size = self.feature_maps_depth * self.num_attention_heads
+        elif self.output_mode == 'Fusion':
+            self.output_size = self.feature_maps_depth * self.num_attention_heads + self.question_encoding_size
+        else:
+            None
+        self.globals['output_size'] = self.output_size
+        self.image_encodings_conv = torch.nn.Conv2d(self.feature_maps_depth, self.latent_size, 1, bias=False)
+        self.question_encodings_ff = torch.nn.Linear(self.question_encoding_size, self.latent_size)
+        self.attention_conv = torch.nn.Conv2d(self.latent_size, self.num_attention_heads, 1)
+        self.activation = torch.nn.ReLU()
+        dropout_rate = self.config['dropout_rate']
+        self.dropout = torch.nn.Dropout(dropout_rate)
+
+    def input_data_definitions(self):
+        """
+        Function returns a dictionary with definitions of input data that are required by the component.
+
+        :return: dictionary containing input data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_feature_maps: DataDefinition([-1, self.feature_maps_depth, self.feature_maps_height, self.feature_maps_width], [torch.Tensor], 'Batch of feature maps [BATCH_SIZE x FEAT_DEPTH x FEAT_HEIGHT x FEAT_WIDTH]'), self.key_question_encodings: DataDefinition([-1, self.question_encoding_size], [torch.Tensor], 'Batch of encoded questions [BATCH_SIZE x QUESTION_ENCODING_SIZE]')}
+
+    def output_data_definitions(self):
+        """
+        Function returns a dictionary with definitions of output data produced the component.
+
+        :return: dictionary containing output data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_outputs: DataDefinition([-1, self.output_size], [torch.Tensor], 'Batch of outputs [BATCH_SIZE x OUTPUT_SIZE]')}
+
+    def forward(self, data_streams):
+        """
+        Main forward pass of the model.
+
+        :param data_streams: DataStreams({'images',**})
+        :type data_streams: ``ptp.dadatypes.DataStreams``
+        """
+        enc_img = data_streams[self.key_feature_maps]
+        enc_q = data_streams[self.key_question_encodings]
+        enc_img = enc_img / (enc_img.norm(p=2, dim=1, keepdim=True).expand_as(enc_img) + 1e-08)
+        latent_img = self.image_encodings_conv(self.dropout(enc_img))
+        latent_q = self.question_encodings_ff(self.dropout(enc_q))
+        latent_q_tile = tile_2d_over_nd(latent_q, latent_img)
+        attention = self.activation(latent_img + latent_q_tile)
+        attention = self.attention_conv(self.dropout(attention))
+        attention_enc_img = apply_attention(enc_img, attention)
+        if self.output_mode == 'Image':
+            outputs = attention_enc_img
+        elif self.output_mode == 'Fusion':
+            outputs = torch.cat([attention_enc_img, enc_q], dim=1)
+        data_streams.publish({self.key_outputs: outputs})
+
+
+class ConfigurationError(Exception):
+    """ Error thrown when encountered a configuration issue. """
+
+    def __init__(self, msg):
+        """ Stores message """
+        self.msg = msg
+
+    def __str__(self):
+        """ Prints the message """
+        return repr(self.msg)
+
+
+class RelationalNetwork(Model):
+    """
+    Model implements relational network.
+    Model expects image (CNN) features and encoded question.
+
+    
+    Santoro, A., Raposo, D., Barrett, D. G., Malinowski, M., Pascanu, R., Battaglia, P., & Lillicrap, T. (2017). A simple neural network module for relational reasoning. In Advances in neural information processing systems (pp. 4967-4976).
+    Reference paper: https://arxiv.org/abs/1706.01427.
+    """
+
+    def __init__(self, name, config):
+        """
+        Initializes the model, creates the required layers.
+
+        :param name: Name of the model (taken from the configuration file).
+
+        :param config: Parameters read from configuration file.
+        :type config: ``ptp.configuration.ConfigInterface``
+
+        """
+        super(RelationalNetwork, self).__init__(name, RelationalNetwork, config)
+        self.key_feature_maps = self.stream_keys['feature_maps']
+        self.key_question_encodings = self.stream_keys['question_encodings']
+        self.key_outputs = self.stream_keys['outputs']
+        self.feature_maps_height = self.globals['feature_maps_height']
+        self.feature_maps_width = self.globals['feature_maps_width']
+        self.feature_maps_depth = self.globals['feature_maps_depth']
+        self.question_encoding_size = self.globals['question_encoding_size']
+        self.obj_coords = []
+        for h in range(self.feature_maps_height):
+            for w in range(self.feature_maps_width):
+                self.obj_coords.append((h, w))
+        input_size = 2 * self.feature_maps_depth + self.question_encoding_size
+        modules = []
+        dropout_rate = self.config['dropout_rate']
+        g_theta_sizes = self.config['g_theta_sizes']
+        if type(g_theta_sizes) == list and len(g_theta_sizes) > 1:
+            input_dim = input_size
+            for hidden_dim in g_theta_sizes:
+                modules.append(torch.nn.Linear(input_dim, hidden_dim))
+                modules.append(torch.nn.ReLU())
+                if dropout_rate > 0:
+                    modules.append(torch.nn.Dropout(dropout_rate))
+                input_dim = hidden_dim
+            modules.append(torch.nn.Linear(input_dim, hidden_dim))
+            self.logger.info('Created g_theta network with {} layers'.format(len(g_theta_sizes) + 1))
+        else:
+            raise ConfigurationError("'g_theta_sizes' must contain a list with numbers of neurons in g_theta layers (currently {})".format(self.hidden_sizes))
+        self.output_size = g_theta_sizes[-1]
+        self.globals['output_size'] = self.output_size
+        self.g_theta = torch.nn.Sequential(*modules)
+
+    def input_data_definitions(self):
+        """ 
+        Function returns a dictionary with definitions of input data that are required by the component.
+
+        :return: dictionary containing input data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_feature_maps: DataDefinition([-1, self.feature_maps_depth, self.feature_maps_height, self.feature_maps_width], [torch.Tensor], 'Batch of feature maps [BATCH_SIZE x FEAT_DEPTH x FEAT_HEIGHT x FEAT_WIDTH]'), self.key_question_encodings: DataDefinition([-1, self.question_encoding_size], [torch.Tensor], 'Batch of encoded questions [BATCH_SIZE x QUESTION_ENCODING_SIZE]')}
+
+    def output_data_definitions(self):
+        """ 
+        Function returns a dictionary with definitions of output data produced the component.
+
+        :return: dictionary containing output data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_outputs: DataDefinition([-1, self.output_size], [torch.Tensor], 'Batch of outputs [BATCH_SIZE x OUTPUT_SIZE]')}
+
+    def forward(self, data_streams):
+        """
+        Main forward pass of the model.
+
+        :param data_streams: DataStreams({'images',**})
+        :type data_streams: ``ptp.dadatypes.DataStreams``
+        """
+        feat_m = data_streams[self.key_feature_maps]
+        enc_q = data_streams[self.key_question_encodings]
+        relational_inputs = []
+        for h1, w1 in self.obj_coords:
+            for h2, w2 in self.obj_coords:
+                fm1 = feat_m[:, :, (h1), (w1)].view(-1, self.feature_maps_depth)
+                fm2 = feat_m[:, :, (h2), (w2)].view(-1, self.feature_maps_depth)
+                concat = torch.cat([fm1, fm2, enc_q], dim=1)
+                relational_inputs.append(concat)
+        stacked_inputs = torch.stack(relational_inputs, dim=1)
+        shape = stacked_inputs.shape
+        stacked_inputs = stacked_inputs.contiguous().view(-1, shape[-1])
+        stacked_relations = self.g_theta(stacked_inputs)
+        stacked_relations = stacked_relations.view(*shape[0:-1], self.output_size)
+        summed_relations = torch.sum(stacked_relations, dim=1)
+        data_streams.publish({self.key_outputs: summed_relations})
+
+
+class SelfAttention(Model):
+    """
+    Element of one of the classical baselines for Visual Question Answering.
+    Attention within an image or text is computed.
+    The attention weighted data (question or image) is returned (for subsequent classification, done in a separate component e.g. ffn).
+    Currently only supports self-attention on text data
+
+    On the basis of: Vaswani et. al Attention is all you need (2017)
+
+    """
+
+    def __init__(self, name, config):
+        """
+        Initializes the model, creates the required layers.
+
+        :param name: Name of the model (taken from the configuration file).
+
+        :param config: Parameters read from configuration file.
+        :type config: ``ptp.configuration.ConfigInterface``
+
+        """
+        super(SelfAttention, self).__init__(name, SelfAttention, config)
+        self.key_question_encodings = self.stream_keys['question_encodings']
+        self.key_outputs = self.stream_keys['outputs']
+        self.question_encoding_size = self.globals['question_encoding_size']
+        self.latent_size = self.config['latent_size']
+        self.num_attention_heads = self.config['num_attention_heads']
+        self.output_size = self.question_encoding_size * self.num_attention_heads
+        self.activation = torch.nn.ReLU()
+        self.W1 = torch.nn.Linear(self.question_encoding_size, self.latent_size)
+        self.W2 = torch.nn.Linear(self.latent_size, self.num_attention_heads)
+
+    def input_data_definitions(self):
+        """
+        Function returns a dictionary with definitions of input data that are required by the component.
+
+        :return: dictionary containing input data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_question_encodings: DataDefinition([-1, -1, self.question_encoding_size], [torch.Tensor], 'Batch of encoded questions [BATCH_SIZE x SEQ_LEN x QUESTION_ENCODING_SIZE]')}
+
+    def output_data_definitions(self):
+        """
+        Function returns a dictionary with definitions of output data produced the component.
+
+        :return: dictionary containing output data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_outputs: DataDefinition([-1, self.output_size], [torch.Tensor], 'Batch of outputs [BATCH_SIZE x OUTPUT_SIZE]')}
+
+    def forward(self, data_streams):
+        """
+        Main forward pass of the model.
+
+        :param data_streams: DataStreams({'images',**})
+        :type data_streams: ``ptp.dadatypes.DataStreams``
+        """
+        input_enc = data_streams[self.key_question_encodings]
+        batch_size = input_enc.size()[0]
+        self.Attention = torch.softmax(self.W2(self.activation(self.W1(input_enc))), dim=1)
+        input_enc_weighted = torch.matmul(self.Attention.transpose(1, 2), input_enc)
+        outputs = input_enc_weighted.view(batch_size, -1)
+        data_streams.publish({self.key_outputs: outputs})
+
+
+class ConvNetEncoder(Model):
+    """
+    A simple image encoder consisting of 3 consecutive convolutional layers.     The parameters of input image (width, height and depth) are not hardcoded so the encoder can be adjusted for given application.
+    """
+
+    def __init__(self, name, config):
+        """
+        Constructor of the ``SimpleConvNet``. 
+        The overall structure of this CNN is as follows:
+
+            (Conv1 -> MaxPool1 -> ReLu) -> (Conv2 -> MaxPool2 -> ReLu) -> (Conv3 -> MaxPool3 -> ReLu)
+
+        The parameters that the user can change are:
+
+         - For Conv1, Conv2 & Conv3: number of output channels, kernel size, stride and padding.
+         - For MaxPool1, MaxPool2 & MaxPool3: Kernel size
+
+
+        .. note::
+
+            We are using the default values of ``dilatation``, ``groups`` & ``bias`` for ``nn.Conv2D``.
+
+            Similarly for the ``stride``, ``padding``, ``dilatation``, ``return_indices`` & ``ceil_mode`` of             ``nn.MaxPool2D``.
+
+
+        :param name: Name of the model (tken from the configuration file).
+
+        :param config: dict of parameters (read from configuration ``.yaml`` file).
+        :type config: ``ptp.configuration.ConfigInterface``
+
+        """
+        super(ConvNetEncoder, self).__init__(name, ConvNetEncoder, config)
+        self.key_inputs = self.stream_keys['inputs']
+        self.key_feature_maps = self.stream_keys['feature_maps']
+        self.input_width = self.globals['input_width']
+        self.input_height = self.globals['input_height']
+        self.input_depth = self.globals['input_depth']
+        self.out_channels_conv1 = config['conv1']['out_channels']
+        self.kernel_size_conv1 = config['conv1']['kernel_size']
+        self.stride_conv1 = config['conv1']['stride']
+        self.padding_conv1 = config['conv1']['padding']
+        self.kernel_size_maxpool1 = config['maxpool1']['kernel_size']
+        self.out_channels_conv2 = config['conv2']['out_channels']
+        self.kernel_size_conv2 = config['conv2']['kernel_size']
+        self.stride_conv2 = config['conv2']['stride']
+        self.padding_conv2 = config['conv2']['padding']
+        self.kernel_size_maxpool2 = config['maxpool2']['kernel_size']
+        self.out_channels_conv3 = config['conv3']['out_channels']
+        self.kernel_size_conv3 = config['conv3']['kernel_size']
+        self.stride_conv3 = config['conv3']['stride']
+        self.padding_conv3 = config['conv3']['padding']
+        self.kernel_size_maxpool3 = config['maxpool3']['kernel_size']
+        self.conv1 = nn.Conv2d(in_channels=self.input_depth, out_channels=self.out_channels_conv1, kernel_size=self.kernel_size_conv1, stride=self.stride_conv1, padding=self.padding_conv1, dilation=1, groups=1, bias=True)
+        self.width_features_conv1 = np.floor((self.input_width - self.kernel_size_conv1 + 2 * self.padding_conv1) / self.stride_conv1 + 1)
+        self.height_features_conv1 = np.floor((self.input_height - self.kernel_size_conv1 + 2 * self.padding_conv1) / self.stride_conv1 + 1)
+        self.maxpool1 = nn.MaxPool2d(kernel_size=self.kernel_size_maxpool1)
+        self.width_features_maxpool1 = np.floor((self.width_features_conv1 - self.maxpool1.kernel_size + 2 * self.maxpool1.padding) / self.maxpool1.stride + 1)
+        self.height_features_maxpool1 = np.floor((self.height_features_conv1 - self.maxpool1.kernel_size + 2 * self.maxpool1.padding) / self.maxpool1.stride + 1)
+        self.conv2 = nn.Conv2d(in_channels=self.out_channels_conv1, out_channels=self.out_channels_conv2, kernel_size=self.kernel_size_conv2, stride=self.stride_conv2, padding=self.padding_conv2, dilation=1, groups=1, bias=True)
+        self.width_features_conv2 = np.floor((self.width_features_maxpool1 - self.kernel_size_conv2 + 2 * self.padding_conv2) / self.stride_conv2 + 1)
+        self.height_features_conv2 = np.floor((self.height_features_maxpool1 - self.kernel_size_conv2 + 2 * self.padding_conv2) / self.stride_conv2 + 1)
+        self.maxpool2 = nn.MaxPool2d(kernel_size=self.kernel_size_maxpool2)
+        self.width_features_maxpool2 = np.floor((self.width_features_conv2 - self.maxpool2.kernel_size + 2 * self.maxpool2.padding) / self.maxpool2.stride + 1)
+        self.height_features_maxpool2 = np.floor((self.height_features_conv2 - self.maxpool2.kernel_size + 2 * self.maxpool2.padding) / self.maxpool2.stride + 1)
+        self.conv3 = nn.Conv2d(in_channels=self.out_channels_conv2, out_channels=self.out_channels_conv3, kernel_size=self.kernel_size_conv3, stride=self.stride_conv3, padding=self.padding_conv3, dilation=1, groups=1, bias=True)
+        self.width_features_conv3 = np.floor((self.width_features_maxpool2 - self.kernel_size_conv3 + 2 * self.padding_conv3) / self.stride_conv3 + 1)
+        self.height_features_conv3 = np.floor((self.height_features_maxpool2 - self.kernel_size_conv3 + 2 * self.padding_conv3) / self.stride_conv3 + 1)
+        self.maxpool3 = nn.MaxPool2d(kernel_size=self.kernel_size_maxpool3)
+        self.width_features_maxpool3 = np.floor((self.width_features_conv3 - self.maxpool3.kernel_size + 2 * self.maxpool3.padding) / self.maxpool3.stride + 1)
+        self.height_features_maxpool3 = np.floor((self.height_features_conv3 - self.maxpool1.kernel_size + 2 * self.maxpool3.padding) / self.maxpool3.stride + 1)
+        self.globals['feature_map_height'] = self.height_features_maxpool3
+        self.globals['feature_map_width'] = self.width_features_maxpool3
+        self.globals['feature_map_depth'] = self.out_channels_conv3
+        self.logger.info('Input: [-1, {}, {}, {}]'.format(self.input_depth, self.input_width, self.input_height))
+        self.logger.info('Computed output shape of each layer:')
+        self.logger.info('Conv1: [-1, {}, {}, {}]'.format(self.out_channels_conv1, self.width_features_conv1, self.height_features_conv1))
+        self.logger.info('MaxPool1: [-1, {}, {}, {}]'.format(self.out_channels_conv1, self.width_features_maxpool1, self.height_features_maxpool1))
+        self.logger.info('Conv2: [-1, {}, {}, {}]'.format(self.out_channels_conv2, self.width_features_conv2, self.height_features_conv2))
+        self.logger.info('MaxPool2: [-1, {}, {}, {}]'.format(self.out_channels_conv2, self.width_features_maxpool2, self.height_features_maxpool2))
+        self.logger.info('Conv3: [-1, {}, {}, {}]'.format(self.out_channels_conv3, self.width_features_conv3, self.height_features_conv3))
+        self.logger.info('MaxPool3: [-1, {}, {}, {}]'.format(self.out_channels_conv3, self.width_features_maxpool3, self.height_features_maxpool3))
+
+    def input_data_definitions(self):
+        """ 
+        Function returns a dictionary with definitions of input data that are required by the component.
+
+        :return: dictionary containing input data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_inputs: DataDefinition([-1, self.input_depth, self.input_height, self.input_width], [torch.Tensor], 'Batch of images [BATCH_SIZE x IMAGE_DEPTH x IMAGE_HEIGHT x IMAGE WIDTH]')}
+
+    def output_data_definitions(self):
+        """ 
+        Function returns a dictionary with definitions of output data produced the component.
+
+        :return: dictionary containing output data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_feature_maps: DataDefinition([-1, self.out_channels_conv3, self.height_features_maxpool3, self.width_features_maxpool3], [torch.Tensor], 'Batch of filter maps [BATCH_SIZE x FEAT_DEPTH x FEAT_HEIGHT x FEAT_WIDTH]')}
+
+    def forward(self, data_streams):
+        """
+        forward pass of the ``SimpleConvNet`` model.
+
+        :param data_streams: DataStreams({'inputs','outputs'}), where:
+
+            - inputs: [batch_size, in_depth, in_height, in_width],
+            - feature_maps: batch of feature maps [batch_size, out_depth, out_height, out_width]
+
+        """
+        images = data_streams[self.key_inputs]
+        out_conv1 = self.conv1(images)
+        out_maxpool1 = torch.nn.functional.relu(self.maxpool1(out_conv1))
+        out_conv2 = self.conv2(out_maxpool1)
+        out_maxpool2 = torch.nn.functional.relu(self.maxpool2(out_conv2))
+        out_conv3 = self.conv3(out_maxpool2)
+        out_maxpool3 = torch.nn.functional.relu(self.maxpool3(out_conv3))
+        data_streams.publish({self.key_feature_maps: out_maxpool3})
+
+
+def get_value_from_dictionary(key, parameter_dict, accepted_values=[]):
+    """
+    Parses value of the parameter retrieved from a given parameter dictionary using key.
+    Optionally, checks is the values is one of the accepted values.
+
+    :param key: Key of the parameter.
+    :param parameter_dict: Dictionary containing given key (e.g. config or globals)
+    :param accepted_values: List of accepted values (DEFAULT: [])
+
+    :return: List of parsed values
+    """
+    value = parameter_dict[key]
+    assert type(value) == str, 'Parameter value must be a string'
+    if value == '':
+        return None
+    if len(accepted_values) > 0:
+        if value not in accepted_values:
+            raise ConfigurationError("One of the values in '{}' is invalid (current: '{}', accepted: {})".format(key, value, accepted_values))
+    return value
+
+
+class GenericImageEncoder(Model):
+    """
+    Class
+    """
+
+    def __init__(self, name, config):
+        """
+        Initializes the ``LeNet5`` model, creates the required layers.
+
+        :param name: Name of the model (taken from the configuration file).
+
+        :param config: Parameters read from configuration file.
+        :type config: ``ptp.configuration.ConfigInterface``
+
+        """
+        super(GenericImageEncoder, self).__init__(name, GenericImageEncoder, config)
+        self.key_inputs = self.stream_keys['inputs']
+        self.key_outputs = self.stream_keys['outputs']
+        self.return_feature_maps = self.config['return_feature_maps']
+        pretrained = self.config['pretrained']
+        self.model_type = get_value_from_dictionary('model_type', self.config, 'vgg16 | densenet121 | resnet152 | resnet50'.split(' | '))
+        if self.model_type == 'vgg16':
+            self.model = models.vgg16(pretrained=pretrained)
+            if self.return_feature_maps:
+                self.model = self.model.features
+                self.feature_maps_height = 7
+                self.globals['feature_maps_height'] = self.feature_maps_height
+                self.feature_maps_width = 7
+                self.globals['feature_maps_width'] = self.feature_maps_width
+                self.feature_maps_depth = 512
+                self.globals['feature_maps_depth'] = self.feature_maps_depth
+            else:
+                self.output_size = self.globals['output_size']
+                self.model.classifier._modules['6'] = torch.nn.Linear(4096, self.output_size)
+        elif self.model_type == 'densenet121':
+            self.model = models.densenet121(pretrained=pretrained)
+            if self.return_feature_maps:
+                raise ConfigurationError("'densenet121' doesn't support 'return_feature_maps' mode (yet)")
+            self.output_size = self.globals['output_size']
+            self.model.classifier = torch.nn.Linear(1024, self.output_size)
+        elif self.model_type == 'resnet152':
+            self.model = models.resnet152(pretrained=pretrained)
+            if self.return_feature_maps:
+                modules = list(self.model.children())[:-2]
+                self.model = torch.nn.Sequential(*modules)
+                self.feature_maps_height = 7
+                self.globals['feature_maps_height'] = self.feature_maps_height
+                self.feature_maps_width = 7
+                self.globals['feature_maps_width'] = self.feature_maps_width
+                self.feature_maps_depth = 2048
+                self.globals['feature_maps_depth'] = self.feature_maps_depth
+            else:
+                self.output_size = self.globals['output_size']
+                self.model.fc = torch.nn.Linear(2048, self.output_size)
+        elif self.model_type == 'resnet50':
+            self.model = models.resnet50(pretrained=pretrained)
+            if self.return_feature_maps:
+                modules = list(self.model.children())[:-2]
+                self.model = torch.nn.Sequential(*modules)
+                self.feature_maps_height = 7
+                self.globals['feature_maps_height'] = self.feature_maps_height
+                self.feature_maps_width = 7
+                self.globals['feature_maps_width'] = self.feature_maps_width
+                self.feature_maps_depth = 2048
+                self.globals['feature_maps_depth'] = self.feature_maps_depth
+            else:
+                self.output_size = self.globals['output_size']
+                self.model.fc = torch.nn.Linear(2048, self.output_size)
+
+    def input_data_definitions(self):
+        """
+        Function returns a dictionary with definitions of input data that are required by the component.
+
+        :return: dictionary containing input data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_inputs: DataDefinition([-1, 3, 224, 224], [torch.Tensor], 'Batch of images [BATCH_SIZE x IMAGE_DEPTH x IMAGE_HEIGHT x IMAGE WIDTH]')}
+
+    def output_data_definitions(self):
+        """
+        Function returns a dictionary with definitions of output data produced the component.
+
+        :return: dictionary containing output data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        if self.return_feature_maps:
+            return {self.key_outputs: DataDefinition([-1, self.feature_maps_depth, self.feature_maps_height, self.feature_maps_width], [torch.Tensor], 'Batch of feature maps [BATCH_SIZE x FEAT_DEPTH x FEAT_HEIGHT x FEAT_WIDTH]')}
+        else:
+            return {self.key_outputs: DataDefinition([-1, self.output_size], [torch.Tensor], 'Batch of outputs, each represented as probability distribution over classes [BATCH_SIZE x PREDICTION_SIZE]')}
+
+    def forward(self, data_streams):
+        """
+        Main forward pass of the model.
+
+        :param data_streams: DataStreams({'inputs', ....}), where:
+
+            - inputs: expected stream containing images [BATCH_SIZE x IMAGE_DEPTH x IMAGE_HEIGHT x IMAGE WIDTH]
+            - outpus: added stream containing outputs [BATCH_SIZE x PREDICTION_SIZE]
+
+        :type data_streams: ``ptp.data_types.DataStreams``
+
+        """
+        img = data_streams[self.key_inputs]
+        outputs = self.model(img)
+        data_streams.publish({self.key_outputs: outputs})
+
+
+class LeNet5(Model):
+    """
+    A classical LeNet-5 model for MNIST digits classification. 
+    """
+
+    def __init__(self, name, config):
+        """
+        Initializes the ``LeNet5`` model, creates the required layers.
+
+        :param name: Name of the model (taken from the configuration file).
+
+        :param config: Parameters read from configuration file.
+        :type config: ``ptp.configuration.ConfigInterface``
+
+        """
+        super(LeNet5, self).__init__(name, LeNet5, config)
+        self.key_inputs = self.stream_keys['inputs']
+        self.key_predictions = self.stream_keys['predictions']
+        self.prediction_size = self.globals['prediction_size']
+        self.conv1 = torch.nn.Conv2d(1, 6, kernel_size=(5, 5))
+        self.maxpool1 = torch.nn.MaxPool2d(kernel_size=(2, 2), stride=2)
+        self.conv2 = torch.nn.Conv2d(6, 16, kernel_size=(5, 5))
+        self.maxpool2 = torch.nn.MaxPool2d(kernel_size=(2, 2), stride=2)
+        self.conv3 = torch.nn.Conv2d(16, 120, kernel_size=(5, 5))
+        self.linear1 = torch.nn.Linear(120, 84)
+        self.linear2 = torch.nn.Linear(84, self.prediction_size)
+
+    def input_data_definitions(self):
+        """ 
+        Function returns a dictionary with definitions of input data that are required by the component.
+
+        :return: dictionary containing input data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_inputs: DataDefinition([-1, 1, 32, 32], [torch.Tensor], 'Batch of images [BATCH_SIZE x IMAGE_DEPTH x IMAGE_HEIGHT x IMAGE WIDTH]')}
+
+    def output_data_definitions(self):
+        """ 
+        Function returns a dictionary with definitions of output data produced the component.
+
+        :return: dictionary containing output data definitions (each of type :py:class:`ptp.utils.DataDefinition`).
+        """
+        return {self.key_predictions: DataDefinition([-1, self.prediction_size], [torch.Tensor], 'Batch of predictions, each represented as probability distribution over classes [BATCH_SIZE x PREDICTION_SIZE]')}
+
+    def forward(self, data_streams):
+        """
+        Main forward pass of the ``LeNet5`` model.
+
+        :param data_streams: DataStreams({'images',**}), where:
+
+            - images: [batch_size, num_channels, width, height]
+
+        :type data_streams: ``miprometheus.utils.DataStreams``
+
+        :return: Predictions [batch_size, num_classes]
+
+        """
+        img = data_streams[self.key_inputs]
+        x = self.conv1(img)
+        x = torch.nn.functional.relu(x)
+        x = self.maxpool1(x)
+        x = self.conv2(x)
+        x = torch.nn.functional.relu(x)
+        x = self.maxpool2(x)
+        x = self.conv3(x)
+        x = torch.nn.functional.relu(x)
+        x = x.view(-1, 120)
+        x = self.linear1(x)
+        x = torch.nn.functional.relu(x)
+        x = self.linear2(x)
+        predictions = torch.nn.functional.log_softmax(x, dim=1)
+        data_streams.publish({self.key_predictions: predictions})
+
+
 class DataStreams(collections.abc.MutableMapping):
     """
     - Mapping: A container object that supports arbitrary key lookups and implements the methods ``__getitem__``,     ``__iter__`` and ``__len__``.
@@ -884,7 +1755,7 @@ class DataStreams(collections.abc.MutableMapping):
             if isinstance(self[key], torch.Tensor):
                 if keys_to_move is not None and key not in keys_to_move:
                     continue
-                self[key] = self[key].to(device=device)
+                self[key] = self[key]
 
 
 def data_streams_gather(outputs, target_device, dim=0):
@@ -1034,6 +1905,46 @@ class DataStreamsParallel(torch.nn.DataParallel):
         :param stat_agg: ``StatisticsAggregator``
         """
         self.module.aggregate_statistics(stat_col, stat_agg)
+
+
+class TestModel1(Model):
+
+    def __init__(self, input_size, output_size):
+        super(Model, self).__init__()
+        self.fc = nn.Linear(input_size, output_size)
+
+    def forward(self, datadict):
+        input = datadict['index']
+        None
+        output = self.fc(input)
+        None
+        datadict.extend({'middle': output})
+
+    def input_data_definitions(self):
+        return {'index': DataDefinition(1, 1, 'str')}
+
+    def output_data_definitions(self):
+        return {'middle': DataDefinition(1, 1, 'str')}
+
+
+class TestModel2(Model):
+
+    def __init__(self, input_size, output_size):
+        super(Model, self).__init__()
+        self.fc = nn.Linear(input_size, output_size)
+
+    def forward(self, datadict):
+        input = datadict['middle']
+        None
+        output = self.fc(input)
+        None
+        datadict.extend({'output': output})
+
+    def input_data_definitions(self):
+        return {'middle': DataDefinition(1, 1, 'str')}
+
+    def output_data_definitions(self):
+        return {'output': DataDefinition(1, 1, 'str')}
 
 
 import torch

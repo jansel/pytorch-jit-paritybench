@@ -14,15 +14,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -48,6 +49,9 @@ from torch.nn.parameter import Parameter
 import torchvision
 
 
+import torch.optim as optim
+
+
 from torchvision import transforms
 
 
@@ -57,13 +61,25 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 
 
+import time
+
+
 import math
 
 
-import torch.utils.model_zoo as model_zoo
-
-
 import numpy as np
+
+
+import random
+
+
+from torch.utils.data import sampler
+
+
+import torchvision.transforms as transforms
+
+
+import torch.utils.model_zoo as model_zoo
 
 
 class Feature_Extractor(nn.Module):
@@ -353,9 +369,16 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (DTD,
+     lambda: ([], {'nclass': 4, 'nchannel': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4])], {}),
+     False),
 ]
 
 class Test_Wang_Tianwei_Decoupled_attention_network(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 

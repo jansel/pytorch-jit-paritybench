@@ -28,15 +28,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -45,6 +46,9 @@ import copy
 
 
 import torch
+
+
+import numpy as np
 
 
 import torch.nn as nn
@@ -62,10 +66,67 @@ import torch.nn.functional as F
 import itertools
 
 
-import numpy as np
-
-
 import scipy
+
+
+class Pairwise(nn.Module):
+
+    def __init__(self, residual=True, fusion_coord={}, fusion_feat={}, agg={}):
+        super(Pairwise, self).__init__()
+        self.residual = residual
+        self.fusion_coord = fusion_coord
+        self.fusion_feat = fusion_feat
+        self.agg = agg
+        if self.fusion_coord:
+            self.f_coord_module = block.factory_fusion(self.fusion_coord)
+        if self.fusion_feat:
+            self.f_feat_module = block.factory_fusion(self.fusion_feat)
+        self.buffer = None
+
+    def set_buffer(self):
+        self.buffer = {}
+
+    def forward(self, mm, coords=None):
+        bsize = mm.shape[0]
+        nregion = mm.shape[1]
+        Rij = 0
+        if self.fusion_coord:
+            assert coords is not None
+            coords_l = coords[:, :, (None), :]
+            coords_l = coords_l.expand(bsize, nregion, nregion, coords.shape[-1])
+            coords_l = coords_l.contiguous()
+            coords_l = coords_l.view(bsize * nregion * nregion, coords.shape[-1])
+            coords_r = coords[:, (None), :, :]
+            coords_r = coords_r.expand(bsize, nregion, nregion, coords.shape[-1])
+            coords_r = coords_r.contiguous()
+            coords_r = coords_r.view(bsize * nregion * nregion, coords.shape[-1])
+            Rij += self.f_coord_module([coords_l, coords_r])
+        if self.fusion_feat:
+            mm_l = mm[:, :, (None), :]
+            mm_l = mm_l.expand(bsize, nregion, nregion, mm.shape[-1])
+            mm_l = mm_l.contiguous()
+            mm_l = mm_l.view(bsize * nregion * nregion, mm.shape[-1])
+            mm_r = mm[:, (None), :, :]
+            mm_r = mm_r.expand(bsize, nregion, nregion, mm.shape[-1])
+            mm_r = mm_r.contiguous()
+            mm_r = mm_r.view(bsize * nregion * nregion, mm.shape[-1])
+            Rij += self.f_feat_module([mm_l, mm_r])
+        Rij = Rij.view(bsize, nregion, nregion, -1)
+        if self.agg['type'] == 'max':
+            mm_new, argmax = Rij.max(2)
+        else:
+            mm_new = getattr(Rij, self.agg['type'])(2)
+        if self.buffer is not None:
+            self.buffer['mm'] = mm.data.cpu()
+            self.buffer['mm_new'] = mm.data.cpu()
+            self.buffer['argmax'] = argmax.data.cpu()
+            L1_regions = torch.norm(mm_new.data, 1, 2)
+            L2_regions = torch.norm(mm_new.data, 2, 2)
+            self.buffer['L1_max'] = L1_regions.max(1)[0].cpu()
+            self.buffer['L2_max'] = L2_regions.max(1)[0].cpu()
+        if self.residual:
+            mm_new += mm
+        return mm_new
 
 
 class MuRelCell(nn.Module):
@@ -213,64 +274,4 @@ class MuRelNet(nn.Module):
         out['answers'] = [self.aid_to_ans[pred[i]] for i in range(batch_size)]
         out['answer_ids'] = [pred[i] for i in range(batch_size)]
         return out
-
-
-class Pairwise(nn.Module):
-
-    def __init__(self, residual=True, fusion_coord={}, fusion_feat={}, agg={}):
-        super(Pairwise, self).__init__()
-        self.residual = residual
-        self.fusion_coord = fusion_coord
-        self.fusion_feat = fusion_feat
-        self.agg = agg
-        if self.fusion_coord:
-            self.f_coord_module = block.factory_fusion(self.fusion_coord)
-        if self.fusion_feat:
-            self.f_feat_module = block.factory_fusion(self.fusion_feat)
-        self.buffer = None
-
-    def set_buffer(self):
-        self.buffer = {}
-
-    def forward(self, mm, coords=None):
-        bsize = mm.shape[0]
-        nregion = mm.shape[1]
-        Rij = 0
-        if self.fusion_coord:
-            assert coords is not None
-            coords_l = coords[:, :, (None), :]
-            coords_l = coords_l.expand(bsize, nregion, nregion, coords.shape[-1])
-            coords_l = coords_l.contiguous()
-            coords_l = coords_l.view(bsize * nregion * nregion, coords.shape[-1])
-            coords_r = coords[:, (None), :, :]
-            coords_r = coords_r.expand(bsize, nregion, nregion, coords.shape[-1])
-            coords_r = coords_r.contiguous()
-            coords_r = coords_r.view(bsize * nregion * nregion, coords.shape[-1])
-            Rij += self.f_coord_module([coords_l, coords_r])
-        if self.fusion_feat:
-            mm_l = mm[:, :, (None), :]
-            mm_l = mm_l.expand(bsize, nregion, nregion, mm.shape[-1])
-            mm_l = mm_l.contiguous()
-            mm_l = mm_l.view(bsize * nregion * nregion, mm.shape[-1])
-            mm_r = mm[:, (None), :, :]
-            mm_r = mm_r.expand(bsize, nregion, nregion, mm.shape[-1])
-            mm_r = mm_r.contiguous()
-            mm_r = mm_r.view(bsize * nregion * nregion, mm.shape[-1])
-            Rij += self.f_feat_module([mm_l, mm_r])
-        Rij = Rij.view(bsize, nregion, nregion, -1)
-        if self.agg['type'] == 'max':
-            mm_new, argmax = Rij.max(2)
-        else:
-            mm_new = getattr(Rij, self.agg['type'])(2)
-        if self.buffer is not None:
-            self.buffer['mm'] = mm.data.cpu()
-            self.buffer['mm_new'] = mm.data.cpu()
-            self.buffer['argmax'] = argmax.data.cpu()
-            L1_regions = torch.norm(mm_new.data, 1, 2)
-            L2_regions = torch.norm(mm_new.data, 2, 2)
-            self.buffer['L1_max'] = L1_regions.max(1)[0].cpu()
-            self.buffer['L2_max'] = L2_regions.max(1)[0].cpu()
-        if self.residual:
-            mm_new += mm
-        return mm_new
 

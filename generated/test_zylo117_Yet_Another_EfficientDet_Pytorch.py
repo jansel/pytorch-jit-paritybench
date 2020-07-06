@@ -27,15 +27,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -49,16 +50,28 @@ import torch
 from torch import nn
 
 
-import torch.nn as nn
-
-
 import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+import torch.nn as nn
 
 
 from torchvision.ops.boxes import nms as nms_torch
 
 
 import itertools
+
+
+import time
+
+
+from torch.backends import cudnn
 
 
 from torch.nn import functional as F
@@ -77,9 +90,6 @@ from torch.utils import model_zoo
 
 
 import torch.nn.functional as F
-
-
-from torch.utils.data import DataLoader
 
 
 from torchvision import transforms
@@ -115,212 +125,167 @@ from torch.nn.init import _calculate_fan_in_and_fan_out
 from torch.nn.init import _no_grad_normal_
 
 
-class EfficientDetBackbone(nn.Module):
+class Anchors(nn.Module):
+    """
+    adapted and modified from https://github.com/google/automl/blob/master/efficientdet/anchors.py by Zylo117
+    """
 
-    def __init__(self, num_classes=80, compound_coef=0, load_weights=False, **kwargs):
-        super(EfficientDetBackbone, self).__init__()
-        self.compound_coef = compound_coef
-        self.backbone_compound_coef = [0, 1, 2, 3, 4, 5, 6, 6]
-        self.fpn_num_filters = [64, 88, 112, 160, 224, 288, 384, 384]
-        self.fpn_cell_repeats = [3, 4, 5, 6, 7, 7, 8, 8]
-        self.input_sizes = [512, 640, 768, 896, 1024, 1280, 1280, 1536]
-        self.box_class_repeats = [3, 3, 3, 4, 4, 4, 5, 5]
-        self.anchor_scale = [4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 5.0]
-        self.aspect_ratios = kwargs.get('ratios', [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)])
-        self.num_scales = len(kwargs.get('scales', [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]))
-        conv_channel_coef = {(0): [40, 112, 320], (1): [40, 112, 320], (2): [48, 120, 352], (3): [48, 136, 384], (4): [56, 160, 448], (5): [64, 176, 512], (6): [72, 200, 576], (7): [72, 200, 576]}
-        num_anchors = len(self.aspect_ratios) * self.num_scales
-        self.bifpn = nn.Sequential(*[BiFPN(self.fpn_num_filters[self.compound_coef], conv_channel_coef[compound_coef], True if _ == 0 else False, attention=True if compound_coef < 6 else False) for _ in range(self.fpn_cell_repeats[compound_coef])])
-        self.num_classes = num_classes
-        self.regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors, num_layers=self.box_class_repeats[self.compound_coef])
-        self.classifier = Classifier(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors, num_classes=num_classes, num_layers=self.box_class_repeats[self.compound_coef])
-        self.anchors = Anchors(anchor_scale=self.anchor_scale[compound_coef], **kwargs)
-        self.backbone_net = EfficientNet(self.backbone_compound_coef[compound_coef], load_weights)
+    def __init__(self, anchor_scale=4.0, pyramid_levels=None, **kwargs):
+        super().__init__()
+        self.anchor_scale = anchor_scale
+        if pyramid_levels is None:
+            self.pyramid_levels = [3, 4, 5, 6, 7]
+        self.strides = kwargs.get('strides', [(2 ** x) for x in self.pyramid_levels])
+        self.scales = np.array(kwargs.get('scales', [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]))
+        self.ratios = kwargs.get('ratios', [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)])
+        self.last_anchors = {}
+        self.last_shape = None
 
-    def freeze_bn(self):
-        for m in self.modules():
-            if isinstance(m, nn.BatchNorm2d):
-                m.eval()
+    def forward(self, image, dtype=torch.float32):
+        """Generates multiscale anchor boxes.
 
-    def forward(self, inputs):
-        max_size = inputs.shape[-1]
-        _, p3, p4, p5 = self.backbone_net(inputs)
-        features = p3, p4, p5
-        features = self.bifpn(features)
-        regression = self.regressor(features)
-        classification = self.classifier(features)
-        anchors = self.anchors(inputs, inputs.dtype)
-        return features, regression, classification, anchors
+        Args:
+          image_size: integer number of input image size. The input image has the
+            same dimension for width and height. The image_size should be divided by
+            the largest feature stride 2^max_level.
+          anchor_scale: float number representing the scale of size of the base
+            anchor to the feature stride 2^level.
+          anchor_configs: a dictionary with keys as the levels of anchors and
+            values as a list of anchor configuration.
 
-    def init_backbone(self, path):
-        state_dict = torch.load(path)
-        try:
-            ret = self.load_state_dict(state_dict, strict=False)
-            None
-        except RuntimeError as e:
-            None
-
-
-def calc_iou(a, b):
-    area = (b[:, (2)] - b[:, (0)]) * (b[:, (3)] - b[:, (1)])
-    iw = torch.min(torch.unsqueeze(a[:, (3)], dim=1), b[:, (2)]) - torch.max(torch.unsqueeze(a[:, (1)], 1), b[:, (0)])
-    ih = torch.min(torch.unsqueeze(a[:, (2)], dim=1), b[:, (3)]) - torch.max(torch.unsqueeze(a[:, (0)], 1), b[:, (1)])
-    iw = torch.clamp(iw, min=0)
-    ih = torch.clamp(ih, min=0)
-    ua = torch.unsqueeze((a[:, (2)] - a[:, (0)]) * (a[:, (3)] - a[:, (1)]), dim=1) + area - iw * ih
-    ua = torch.clamp(ua, min=1e-08)
-    intersection = iw * ih
-    IoU = intersection / ua
-    return IoU
-
-
-def display(preds, imgs, obj_list, imshow=True, imwrite=False):
-    for i in range(len(imgs)):
-        if len(preds[i]['rois']) == 0:
-            continue
-        for j in range(len(preds[i]['rois'])):
-            x1, y1, x2, y2 = preds[i]['rois'][j].astype(np.int)
-            cv2.rectangle(imgs[i], (x1, y1), (x2, y2), (255, 255, 0), 2)
-            obj = obj_list[preds[i]['class_ids'][j]]
-            score = float(preds[i]['scores'][j])
-            cv2.putText(imgs[i], '{}, {:.3f}'.format(obj, score), (x1, y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
-        if imshow:
-            cv2.imshow('img', imgs[i])
-            cv2.waitKey(0)
-        if imwrite:
-            os.makedirs('test/', exist_ok=True)
-            cv2.imwrite(f'test/{uuid.uuid4().hex}.jpg', imgs[i])
-
-
-def postprocess(x, anchors, regression, classification, regressBoxes, clipBoxes, threshold, iou_threshold):
-    transformed_anchors = regressBoxes(anchors, regression)
-    transformed_anchors = clipBoxes(transformed_anchors, x)
-    scores = torch.max(classification, dim=2, keepdim=True)[0]
-    scores_over_thresh = (scores > threshold)[:, :, (0)]
-    out = []
-    for i in range(x.shape[0]):
-        if scores_over_thresh[i].sum() == 0:
-            out.append({'rois': np.array(()), 'class_ids': np.array(()), 'scores': np.array(())})
-            continue
-        classification_per = classification[i, scores_over_thresh[(i), :], ...].permute(1, 0)
-        transformed_anchors_per = transformed_anchors[i, scores_over_thresh[(i), :], ...]
-        scores_per = scores[i, scores_over_thresh[(i), :], ...]
-        scores_, classes_ = classification_per.max(dim=0)
-        anchors_nms_idx = batched_nms(transformed_anchors_per, scores_per[:, (0)], classes_, iou_threshold=iou_threshold)
-        if anchors_nms_idx.shape[0] != 0:
-            classes_ = classes_[anchors_nms_idx]
-            scores_ = scores_[anchors_nms_idx]
-            boxes_ = transformed_anchors_per[(anchors_nms_idx), :]
-            out.append({'rois': boxes_.cpu().numpy(), 'class_ids': classes_.cpu().numpy(), 'scores': scores_.cpu().numpy()})
+        Returns:
+          anchor_boxes: a numpy array with shape [N, 4], which stacks anchors on all
+            feature levels.
+        Raises:
+          ValueError: input size must be the multiple of largest feature stride.
+        """
+        image_shape = image.shape[2:]
+        if image_shape == self.last_shape and image.device in self.last_anchors:
+            return self.last_anchors[image.device]
+        if self.last_shape is None or self.last_shape != image_shape:
+            self.last_shape = image_shape
+        if dtype == torch.float16:
+            dtype = np.float16
         else:
-            out.append({'rois': np.array(()), 'class_ids': np.array(()), 'scores': np.array(())})
-    return out
+            dtype = np.float32
+        boxes_all = []
+        for stride in self.strides:
+            boxes_level = []
+            for scale, ratio in itertools.product(self.scales, self.ratios):
+                if image_shape[1] % stride != 0:
+                    raise ValueError('input size must be divided by the stride.')
+                base_anchor_size = self.anchor_scale * stride * scale
+                anchor_size_x_2 = base_anchor_size * ratio[0] / 2.0
+                anchor_size_y_2 = base_anchor_size * ratio[1] / 2.0
+                x = np.arange(stride / 2, image_shape[1], stride)
+                y = np.arange(stride / 2, image_shape[0], stride)
+                xv, yv = np.meshgrid(x, y)
+                xv = xv.reshape(-1)
+                yv = yv.reshape(-1)
+                boxes = np.vstack((yv - anchor_size_y_2, xv - anchor_size_x_2, yv + anchor_size_y_2, xv + anchor_size_x_2))
+                boxes = np.swapaxes(boxes, 0, 1)
+                boxes_level.append(np.expand_dims(boxes, axis=1))
+            boxes_level = np.concatenate(boxes_level, axis=1)
+            boxes_all.append(boxes_level.reshape([-1, 4]))
+        anchor_boxes = np.vstack(boxes_all)
+        anchor_boxes = torch.from_numpy(anchor_boxes.astype(dtype))
+        anchor_boxes = anchor_boxes.unsqueeze(0)
+        self.last_anchors[image.device] = anchor_boxes
+        return anchor_boxes
 
 
-class FocalLoss(nn.Module):
+class Conv2dStaticSamePadding(nn.Module):
+    """
+    created by Zylo117
+    The real keras/tensorflow conv2d with same padding
+    """
 
-    def __init__(self):
-        super(FocalLoss, self).__init__()
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, bias=True, groups=1, dilation=1, **kwargs):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, bias=bias, groups=groups)
+        self.stride = self.conv.stride
+        self.kernel_size = self.conv.kernel_size
+        self.dilation = self.conv.dilation
+        if isinstance(self.stride, int):
+            self.stride = [self.stride] * 2
+        elif len(self.stride) == 1:
+            self.stride = [self.stride[0]] * 2
+        if isinstance(self.kernel_size, int):
+            self.kernel_size = [self.kernel_size] * 2
+        elif len(self.kernel_size) == 1:
+            self.kernel_size = [self.kernel_size[0]] * 2
 
-    def forward(self, classifications, regressions, anchors, annotations, **kwargs):
-        alpha = 0.25
-        gamma = 2.0
-        batch_size = classifications.shape[0]
-        classification_losses = []
-        regression_losses = []
-        anchor = anchors[(0), :, :]
-        dtype = anchors.dtype
-        anchor_widths = anchor[:, (3)] - anchor[:, (1)]
-        anchor_heights = anchor[:, (2)] - anchor[:, (0)]
-        anchor_ctr_x = anchor[:, (1)] + 0.5 * anchor_widths
-        anchor_ctr_y = anchor[:, (0)] + 0.5 * anchor_heights
-        for j in range(batch_size):
-            classification = classifications[(j), :, :]
-            regression = regressions[(j), :, :]
-            bbox_annotation = annotations[j]
-            bbox_annotation = bbox_annotation[bbox_annotation[:, (4)] != -1]
-            classification = torch.clamp(classification, 0.0001, 1.0 - 0.0001)
-            if bbox_annotation.shape[0] == 0:
-                if torch.is_available():
-                    alpha_factor = torch.ones_like(classification) * alpha
-                    alpha_factor = alpha_factor
-                    alpha_factor = 1.0 - alpha_factor
-                    focal_weight = classification
-                    focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
-                    bce = -torch.log(1.0 - classification)
-                    cls_loss = focal_weight * bce
-                    regression_losses.append(torch.tensor(0).to(dtype))
-                    classification_losses.append(cls_loss.sum())
-                else:
-                    alpha_factor = torch.ones_like(classification) * alpha
-                    alpha_factor = 1.0 - alpha_factor
-                    focal_weight = classification
-                    focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
-                    bce = -torch.log(1.0 - classification)
-                    cls_loss = focal_weight * bce
-                    regression_losses.append(torch.tensor(0))
-                    classification_losses.append(cls_loss.sum())
-                continue
-            IoU = calc_iou(anchor[:, :], bbox_annotation[:, :4])
-            IoU_max, IoU_argmax = torch.max(IoU, dim=1)
-            targets = torch.ones_like(classification) * -1
-            if torch.is_available():
-                targets = targets
-            targets[(torch.lt(IoU_max, 0.4)), :] = 0
-            positive_indices = torch.ge(IoU_max, 0.5)
-            num_positive_anchors = positive_indices.sum()
-            assigned_annotations = bbox_annotation[(IoU_argmax), :]
-            targets[(positive_indices), :] = 0
-            targets[positive_indices, assigned_annotations[positive_indices, 4].long()] = 1
-            alpha_factor = torch.ones_like(targets) * alpha
-            if torch.is_available():
-                alpha_factor = alpha_factor
-            alpha_factor = torch.where(torch.eq(targets, 1.0), alpha_factor, 1.0 - alpha_factor)
-            focal_weight = torch.where(torch.eq(targets, 1.0), 1.0 - classification, classification)
-            focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
-            bce = -(targets * torch.log(classification) + (1.0 - targets) * torch.log(1.0 - classification))
-            cls_loss = focal_weight * bce
-            zeros = torch.zeros_like(cls_loss)
-            if torch.is_available():
-                zeros = zeros
-            cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, zeros)
-            classification_losses.append(cls_loss.sum() / torch.clamp(num_positive_anchors, min=1.0))
-            if positive_indices.sum() > 0:
-                assigned_annotations = assigned_annotations[(positive_indices), :]
-                anchor_widths_pi = anchor_widths[positive_indices]
-                anchor_heights_pi = anchor_heights[positive_indices]
-                anchor_ctr_x_pi = anchor_ctr_x[positive_indices]
-                anchor_ctr_y_pi = anchor_ctr_y[positive_indices]
-                gt_widths = assigned_annotations[:, (2)] - assigned_annotations[:, (0)]
-                gt_heights = assigned_annotations[:, (3)] - assigned_annotations[:, (1)]
-                gt_ctr_x = assigned_annotations[:, (0)] + 0.5 * gt_widths
-                gt_ctr_y = assigned_annotations[:, (1)] + 0.5 * gt_heights
-                gt_widths = torch.clamp(gt_widths, min=1)
-                gt_heights = torch.clamp(gt_heights, min=1)
-                targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
-                targets_dy = (gt_ctr_y - anchor_ctr_y_pi) / anchor_heights_pi
-                targets_dw = torch.log(gt_widths / anchor_widths_pi)
-                targets_dh = torch.log(gt_heights / anchor_heights_pi)
-                targets = torch.stack((targets_dy, targets_dx, targets_dh, targets_dw))
-                targets = targets.t()
-                regression_diff = torch.abs(targets - regression[(positive_indices), :])
-                regression_loss = torch.where(torch.le(regression_diff, 1.0 / 9.0), 0.5 * 9.0 * torch.pow(regression_diff, 2), regression_diff - 0.5 / 9.0)
-                regression_losses.append(regression_loss.mean())
-            elif torch.is_available():
-                regression_losses.append(torch.tensor(0).to(dtype))
-            else:
-                regression_losses.append(torch.tensor(0))
-        imgs = kwargs.get('imgs', None)
-        if imgs is not None:
-            regressBoxes = BBoxTransform()
-            clipBoxes = ClipBoxes()
-            obj_list = kwargs.get('obj_list', None)
-            out = postprocess(imgs.detach(), torch.stack([anchors[0]] * imgs.shape[0], 0).detach(), regressions.detach(), classifications.detach(), regressBoxes, clipBoxes, 0.5, 0.3)
-            imgs = imgs.permute(0, 2, 3, 1).cpu().numpy()
-            imgs = ((imgs * [0.229, 0.224, 0.225] + [0.485, 0.456, 0.406]) * 255).astype(np.uint8)
-            imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in imgs]
-            display(out, imgs, obj_list, imshow=False, imwrite=True)
-        return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
+    def forward(self, x):
+        h, w = x.shape[-2:]
+        extra_h = (math.ceil(w / self.stride[1]) - 1) * self.stride[1] - w + self.kernel_size[1]
+        extra_v = (math.ceil(h / self.stride[0]) - 1) * self.stride[0] - h + self.kernel_size[0]
+        left = extra_h // 2
+        right = extra_h - left
+        top = extra_v // 2
+        bottom = extra_v - top
+        x = F.pad(x, [left, right, top, bottom])
+        x = self.conv(x)
+        return x
+
+
+class MaxPool2dStaticSamePadding(nn.Module):
+    """
+    created by Zylo117
+    The real keras/tensorflow MaxPool2d with same padding
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.pool = nn.MaxPool2d(*args, **kwargs)
+        self.stride = self.pool.stride
+        self.kernel_size = self.pool.kernel_size
+        if isinstance(self.stride, int):
+            self.stride = [self.stride] * 2
+        elif len(self.stride) == 1:
+            self.stride = [self.stride[0]] * 2
+        if isinstance(self.kernel_size, int):
+            self.kernel_size = [self.kernel_size] * 2
+        elif len(self.kernel_size) == 1:
+            self.kernel_size = [self.kernel_size[0]] * 2
+
+    def forward(self, x):
+        h, w = x.shape[-2:]
+        extra_h = (math.ceil(w / self.stride[1]) - 1) * self.stride[1] - w + self.kernel_size[1]
+        extra_v = (math.ceil(h / self.stride[0]) - 1) * self.stride[0] - h + self.kernel_size[0]
+        left = extra_h // 2
+        right = extra_h - left
+        top = extra_v // 2
+        bottom = extra_v - top
+        x = F.pad(x, [left, right, top, bottom])
+        x = self.pool(x)
+        return x
+
+
+class SwishImplementation(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, i):
+        result = i * torch.sigmoid(i)
+        ctx.save_for_backward(i)
+        return result
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        i = ctx.saved_variables[0]
+        sigmoid_i = torch.sigmoid(i)
+        return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
+
+
+class MemoryEfficientSwish(nn.Module):
+
+    def forward(self, x):
+        return SwishImplementation.apply(x)
+
+
+class Swish(nn.Module):
+
+    def forward(self, x):
+        return x * torch.sigmoid(x)
 
 
 class SeparableConvBlock(nn.Module):
@@ -499,35 +464,6 @@ class BiFPN(nn.Module):
         return p3_out, p4_out, p5_out, p6_out, p7_out
 
 
-class Regressor(nn.Module):
-    """
-    modified by Zylo117
-    """
-
-    def __init__(self, in_channels, num_anchors, num_layers, onnx_export=False):
-        super(Regressor, self).__init__()
-        self.num_layers = num_layers
-        self.num_layers = num_layers
-        self.conv_list = nn.ModuleList([SeparableConvBlock(in_channels, in_channels, norm=False, activation=False) for i in range(num_layers)])
-        self.bn_list = nn.ModuleList([nn.ModuleList([nn.BatchNorm2d(in_channels, momentum=0.01, eps=0.001) for i in range(num_layers)]) for j in range(5)])
-        self.header = SeparableConvBlock(in_channels, num_anchors * 4, norm=False, activation=False)
-        self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
-
-    def forward(self, inputs):
-        feats = []
-        for feat, bn_list in zip(inputs, self.bn_list):
-            for i, bn, conv in zip(range(self.num_layers), bn_list, self.conv_list):
-                feat = conv(feat)
-                feat = bn(feat)
-                feat = self.swish(feat)
-            feat = self.header(feat)
-            feat = feat.permute(0, 2, 3, 1)
-            feat = feat.contiguous().view(feat.shape[0], -1, 4)
-            feats.append(feat)
-        feats = torch.cat(feats, dim=1)
-        return feats
-
-
 class Classifier(nn.Module):
     """
     modified by Zylo117
@@ -560,152 +496,6 @@ class Classifier(nn.Module):
         return feats
 
 
-class EfficientNet(nn.Module):
-    """
-    modified by Zylo117
-    """
-
-    def __init__(self, compound_coef, load_weights=False):
-        super(EfficientNet, self).__init__()
-        model = EffNet.from_pretrained(f'efficientnet-b{compound_coef}', load_weights)
-        del model._conv_head
-        del model._bn1
-        del model._avg_pooling
-        del model._dropout
-        del model._fc
-        self.model = model
-
-    def forward(self, x):
-        x = self.model._conv_stem(x)
-        x = self.model._bn0(x)
-        x = self.model._swish(x)
-        feature_maps = []
-        last_x = None
-        for idx, block in enumerate(self.model._blocks):
-            drop_connect_rate = self.model._global_params.drop_connect_rate
-            if drop_connect_rate:
-                drop_connect_rate *= float(idx) / len(self.model._blocks)
-            x = block(x, drop_connect_rate=drop_connect_rate)
-            if block._depthwise_conv.stride == [2, 2]:
-                feature_maps.append(last_x)
-            elif idx == len(self.model._blocks) - 1:
-                feature_maps.append(x)
-            last_x = x
-        del last_x
-        return feature_maps[1:]
-
-
-class BBoxTransform(nn.Module):
-
-    def forward(self, anchors, regression):
-        """
-        decode_box_outputs adapted from https://github.com/google/automl/blob/master/efficientdet/anchors.py
-
-        Args:
-            anchors: [batchsize, boxes, (y1, x1, y2, x2)]
-            regression: [batchsize, boxes, (dy, dx, dh, dw)]
-
-        Returns:
-
-        """
-        y_centers_a = (anchors[..., 0] + anchors[..., 2]) / 2
-        x_centers_a = (anchors[..., 1] + anchors[..., 3]) / 2
-        ha = anchors[..., 2] - anchors[..., 0]
-        wa = anchors[..., 3] - anchors[..., 1]
-        w = regression[..., 3].exp() * wa
-        h = regression[..., 2].exp() * ha
-        y_centers = regression[..., 0] * ha + y_centers_a
-        x_centers = regression[..., 1] * wa + x_centers_a
-        ymin = y_centers - h / 2.0
-        xmin = x_centers - w / 2.0
-        ymax = y_centers + h / 2.0
-        xmax = x_centers + w / 2.0
-        return torch.stack([xmin, ymin, xmax, ymax], dim=2)
-
-
-class ClipBoxes(nn.Module):
-
-    def __init__(self):
-        super(ClipBoxes, self).__init__()
-
-    def forward(self, boxes, img):
-        batch_size, num_channels, height, width = img.shape
-        boxes[:, :, (0)] = torch.clamp(boxes[:, :, (0)], min=0)
-        boxes[:, :, (1)] = torch.clamp(boxes[:, :, (1)], min=0)
-        boxes[:, :, (2)] = torch.clamp(boxes[:, :, (2)], max=width - 1)
-        boxes[:, :, (3)] = torch.clamp(boxes[:, :, (3)], max=height - 1)
-        return boxes
-
-
-class Anchors(nn.Module):
-    """
-    adapted and modified from https://github.com/google/automl/blob/master/efficientdet/anchors.py by Zylo117
-    """
-
-    def __init__(self, anchor_scale=4.0, pyramid_levels=None, **kwargs):
-        super().__init__()
-        self.anchor_scale = anchor_scale
-        if pyramid_levels is None:
-            self.pyramid_levels = [3, 4, 5, 6, 7]
-        self.strides = kwargs.get('strides', [(2 ** x) for x in self.pyramid_levels])
-        self.scales = np.array(kwargs.get('scales', [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]))
-        self.ratios = kwargs.get('ratios', [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)])
-        self.last_anchors = {}
-        self.last_shape = None
-
-    def forward(self, image, dtype=torch.float32):
-        """Generates multiscale anchor boxes.
-
-        Args:
-          image_size: integer number of input image size. The input image has the
-            same dimension for width and height. The image_size should be divided by
-            the largest feature stride 2^max_level.
-          anchor_scale: float number representing the scale of size of the base
-            anchor to the feature stride 2^level.
-          anchor_configs: a dictionary with keys as the levels of anchors and
-            values as a list of anchor configuration.
-
-        Returns:
-          anchor_boxes: a numpy array with shape [N, 4], which stacks anchors on all
-            feature levels.
-        Raises:
-          ValueError: input size must be the multiple of largest feature stride.
-        """
-        image_shape = image.shape[2:]
-        if image_shape == self.last_shape and image.device in self.last_anchors:
-            return self.last_anchors[image.device]
-        if self.last_shape is None or self.last_shape != image_shape:
-            self.last_shape = image_shape
-        if dtype == torch.float16:
-            dtype = np.float16
-        else:
-            dtype = np.float32
-        boxes_all = []
-        for stride in self.strides:
-            boxes_level = []
-            for scale, ratio in itertools.product(self.scales, self.ratios):
-                if image_shape[1] % stride != 0:
-                    raise ValueError('input size must be divided by the stride.')
-                base_anchor_size = self.anchor_scale * stride * scale
-                anchor_size_x_2 = base_anchor_size * ratio[0] / 2.0
-                anchor_size_y_2 = base_anchor_size * ratio[1] / 2.0
-                x = np.arange(stride / 2, image_shape[1], stride)
-                y = np.arange(stride / 2, image_shape[0], stride)
-                xv, yv = np.meshgrid(x, y)
-                xv = xv.reshape(-1)
-                yv = yv.reshape(-1)
-                boxes = np.vstack((yv - anchor_size_y_2, xv - anchor_size_x_2, yv + anchor_size_y_2, xv + anchor_size_x_2))
-                boxes = np.swapaxes(boxes, 0, 1)
-                boxes_level.append(np.expand_dims(boxes, axis=1))
-            boxes_level = np.concatenate(boxes_level, axis=1)
-            boxes_all.append(boxes_level.reshape([-1, 4]))
-        anchor_boxes = np.vstack(boxes_all)
-        anchor_boxes = torch.from_numpy(anchor_boxes.astype(dtype))
-        anchor_boxes = anchor_boxes.unsqueeze(0)
-        self.last_anchors[image.device] = anchor_boxes
-        return anchor_boxes
-
-
 def drop_connect(inputs, p, training):
     """ Drop connect. """
     if not training:
@@ -717,6 +507,25 @@ def drop_connect(inputs, p, training):
     binary_tensor = torch.floor(random_tensor)
     output = inputs / keep_prob * binary_tensor
     return output
+
+
+class Conv2dDynamicSamePadding(nn.Conv2d):
+    """ 2D Convolutions like TensorFlow, for a dynamic image size """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
+        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
+
+    def forward(self, x):
+        ih, iw = x.size()[-2:]
+        kh, kw = self.weight.size()[-2:]
+        sh, sw = self.stride
+        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 def get_same_padding_conv2d(image_size=None):
@@ -899,13 +708,13 @@ def load_pretrained_weights(model, model_name, load_fc=True, advprop=False):
     state_dict = model_zoo.load_url(url_map_[model_name], map_location=torch.device('cpu'))
     if load_fc:
         ret = model.load_state_dict(state_dict, strict=False)
-        print(ret)
+        None
     else:
         state_dict.pop('_fc.weight')
         state_dict.pop('_fc.bias')
         res = model.load_state_dict(state_dict, strict=False)
         assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']), 'issue loading pretrained weights'
-    print('Loaded pretrained weights for {}'.format(model_name))
+    None
 
 
 def round_filters(filters, global_params):
@@ -1032,50 +841,283 @@ class EfficientNet(nn.Module):
             raise ValueError('model_name should be one of: ' + ', '.join(valid_models))
 
 
-class SwishImplementation(torch.autograd.Function):
+class Regressor(nn.Module):
+    """
+    modified by Zylo117
+    """
 
-    @staticmethod
-    def forward(ctx, i):
-        result = i * torch.sigmoid(i)
-        ctx.save_for_backward(i)
-        return result
+    def __init__(self, in_channels, num_anchors, num_layers, onnx_export=False):
+        super(Regressor, self).__init__()
+        self.num_layers = num_layers
+        self.num_layers = num_layers
+        self.conv_list = nn.ModuleList([SeparableConvBlock(in_channels, in_channels, norm=False, activation=False) for i in range(num_layers)])
+        self.bn_list = nn.ModuleList([nn.ModuleList([nn.BatchNorm2d(in_channels, momentum=0.01, eps=0.001) for i in range(num_layers)]) for j in range(5)])
+        self.header = SeparableConvBlock(in_channels, num_anchors * 4, norm=False, activation=False)
+        self.swish = MemoryEfficientSwish() if not onnx_export else Swish()
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        i = ctx.saved_variables[0]
-        sigmoid_i = torch.sigmoid(i)
-        return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
+    def forward(self, inputs):
+        feats = []
+        for feat, bn_list in zip(inputs, self.bn_list):
+            for i, bn, conv in zip(range(self.num_layers), bn_list, self.conv_list):
+                feat = conv(feat)
+                feat = bn(feat)
+                feat = self.swish(feat)
+            feat = self.header(feat)
+            feat = feat.permute(0, 2, 3, 1)
+            feat = feat.contiguous().view(feat.shape[0], -1, 4)
+            feats.append(feat)
+        feats = torch.cat(feats, dim=1)
+        return feats
 
 
-class MemoryEfficientSwish(nn.Module):
+class EfficientDetBackbone(nn.Module):
 
-    def forward(self, x):
-        return SwishImplementation.apply(x)
+    def __init__(self, num_classes=80, compound_coef=0, load_weights=False, **kwargs):
+        super(EfficientDetBackbone, self).__init__()
+        self.compound_coef = compound_coef
+        self.backbone_compound_coef = [0, 1, 2, 3, 4, 5, 6, 6]
+        self.fpn_num_filters = [64, 88, 112, 160, 224, 288, 384, 384]
+        self.fpn_cell_repeats = [3, 4, 5, 6, 7, 7, 8, 8]
+        self.input_sizes = [512, 640, 768, 896, 1024, 1280, 1280, 1536]
+        self.box_class_repeats = [3, 3, 3, 4, 4, 4, 5, 5]
+        self.anchor_scale = [4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 4.0, 5.0]
+        self.aspect_ratios = kwargs.get('ratios', [(1.0, 1.0), (1.4, 0.7), (0.7, 1.4)])
+        self.num_scales = len(kwargs.get('scales', [2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)]))
+        conv_channel_coef = {(0): [40, 112, 320], (1): [40, 112, 320], (2): [48, 120, 352], (3): [48, 136, 384], (4): [56, 160, 448], (5): [64, 176, 512], (6): [72, 200, 576], (7): [72, 200, 576]}
+        num_anchors = len(self.aspect_ratios) * self.num_scales
+        self.bifpn = nn.Sequential(*[BiFPN(self.fpn_num_filters[self.compound_coef], conv_channel_coef[compound_coef], True if _ == 0 else False, attention=True if compound_coef < 6 else False) for _ in range(self.fpn_cell_repeats[compound_coef])])
+        self.num_classes = num_classes
+        self.regressor = Regressor(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors, num_layers=self.box_class_repeats[self.compound_coef])
+        self.classifier = Classifier(in_channels=self.fpn_num_filters[self.compound_coef], num_anchors=num_anchors, num_classes=num_classes, num_layers=self.box_class_repeats[self.compound_coef])
+        self.anchors = Anchors(anchor_scale=self.anchor_scale[compound_coef], **kwargs)
+        self.backbone_net = EfficientNet(self.backbone_compound_coef[compound_coef], load_weights)
+
+    def freeze_bn(self):
+        for m in self.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.eval()
+
+    def forward(self, inputs):
+        max_size = inputs.shape[-1]
+        _, p3, p4, p5 = self.backbone_net(inputs)
+        features = p3, p4, p5
+        features = self.bifpn(features)
+        regression = self.regressor(features)
+        classification = self.classifier(features)
+        anchors = self.anchors(inputs, inputs.dtype)
+        return features, regression, classification, anchors
+
+    def init_backbone(self, path):
+        state_dict = torch.load(path)
+        try:
+            ret = self.load_state_dict(state_dict, strict=False)
+            None
+        except RuntimeError as e:
+            None
 
 
-class Swish(nn.Module):
+class BBoxTransform(nn.Module):
 
-    def forward(self, x):
-        return x * torch.sigmoid(x)
+    def forward(self, anchors, regression):
+        """
+        decode_box_outputs adapted from https://github.com/google/automl/blob/master/efficientdet/anchors.py
+
+        Args:
+            anchors: [batchsize, boxes, (y1, x1, y2, x2)]
+            regression: [batchsize, boxes, (dy, dx, dh, dw)]
+
+        Returns:
+
+        """
+        y_centers_a = (anchors[..., 0] + anchors[..., 2]) / 2
+        x_centers_a = (anchors[..., 1] + anchors[..., 3]) / 2
+        ha = anchors[..., 2] - anchors[..., 0]
+        wa = anchors[..., 3] - anchors[..., 1]
+        w = regression[..., 3].exp() * wa
+        h = regression[..., 2].exp() * ha
+        y_centers = regression[..., 0] * ha + y_centers_a
+        x_centers = regression[..., 1] * wa + x_centers_a
+        ymin = y_centers - h / 2.0
+        xmin = x_centers - w / 2.0
+        ymax = y_centers + h / 2.0
+        xmax = x_centers + w / 2.0
+        return torch.stack([xmin, ymin, xmax, ymax], dim=2)
 
 
-class Conv2dDynamicSamePadding(nn.Conv2d):
-    """ 2D Convolutions like TensorFlow, for a dynamic image size """
+class ClipBoxes(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
-        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
+    def __init__(self):
+        super(ClipBoxes, self).__init__()
 
-    def forward(self, x):
-        ih, iw = x.size()[-2:]
-        kh, kw = self.weight.size()[-2:]
-        sh, sw = self.stride
-        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
-        if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+    def forward(self, boxes, img):
+        batch_size, num_channels, height, width = img.shape
+        boxes[:, :, (0)] = torch.clamp(boxes[:, :, (0)], min=0)
+        boxes[:, :, (1)] = torch.clamp(boxes[:, :, (1)], min=0)
+        boxes[:, :, (2)] = torch.clamp(boxes[:, :, (2)], max=width - 1)
+        boxes[:, :, (3)] = torch.clamp(boxes[:, :, (3)], max=height - 1)
+        return boxes
+
+
+def calc_iou(a, b):
+    area = (b[:, (2)] - b[:, (0)]) * (b[:, (3)] - b[:, (1)])
+    iw = torch.min(torch.unsqueeze(a[:, (3)], dim=1), b[:, (2)]) - torch.max(torch.unsqueeze(a[:, (1)], 1), b[:, (0)])
+    ih = torch.min(torch.unsqueeze(a[:, (2)], dim=1), b[:, (3)]) - torch.max(torch.unsqueeze(a[:, (0)], 1), b[:, (1)])
+    iw = torch.clamp(iw, min=0)
+    ih = torch.clamp(ih, min=0)
+    ua = torch.unsqueeze((a[:, (2)] - a[:, (0)]) * (a[:, (3)] - a[:, (1)]), dim=1) + area - iw * ih
+    ua = torch.clamp(ua, min=1e-08)
+    intersection = iw * ih
+    IoU = intersection / ua
+    return IoU
+
+
+def display(preds, imgs, obj_list, imshow=True, imwrite=False):
+    for i in range(len(imgs)):
+        if len(preds[i]['rois']) == 0:
+            continue
+        for j in range(len(preds[i]['rois'])):
+            x1, y1, x2, y2 = preds[i]['rois'][j].astype(np.int)
+            cv2.rectangle(imgs[i], (x1, y1), (x2, y2), (255, 255, 0), 2)
+            obj = obj_list[preds[i]['class_ids'][j]]
+            score = float(preds[i]['scores'][j])
+            cv2.putText(imgs[i], '{}, {:.3f}'.format(obj, score), (x1, y1 + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+        if imshow:
+            cv2.imshow('img', imgs[i])
+            cv2.waitKey(0)
+        if imwrite:
+            os.makedirs('test/', exist_ok=True)
+            cv2.imwrite(f'test/{uuid.uuid4().hex}.jpg', imgs[i])
+
+
+def postprocess(x, anchors, regression, classification, regressBoxes, clipBoxes, threshold, iou_threshold):
+    transformed_anchors = regressBoxes(anchors, regression)
+    transformed_anchors = clipBoxes(transformed_anchors, x)
+    scores = torch.max(classification, dim=2, keepdim=True)[0]
+    scores_over_thresh = (scores > threshold)[:, :, (0)]
+    out = []
+    for i in range(x.shape[0]):
+        if scores_over_thresh[i].sum() == 0:
+            out.append({'rois': np.array(()), 'class_ids': np.array(()), 'scores': np.array(())})
+            continue
+        classification_per = classification[i, scores_over_thresh[(i), :], ...].permute(1, 0)
+        transformed_anchors_per = transformed_anchors[i, scores_over_thresh[(i), :], ...]
+        scores_per = scores[i, scores_over_thresh[(i), :], ...]
+        scores_, classes_ = classification_per.max(dim=0)
+        anchors_nms_idx = batched_nms(transformed_anchors_per, scores_per[:, (0)], classes_, iou_threshold=iou_threshold)
+        if anchors_nms_idx.shape[0] != 0:
+            classes_ = classes_[anchors_nms_idx]
+            scores_ = scores_[anchors_nms_idx]
+            boxes_ = transformed_anchors_per[(anchors_nms_idx), :]
+            out.append({'rois': boxes_.cpu().numpy(), 'class_ids': classes_.cpu().numpy(), 'scores': scores_.cpu().numpy()})
+        else:
+            out.append({'rois': np.array(()), 'class_ids': np.array(()), 'scores': np.array(())})
+    return out
+
+
+class FocalLoss(nn.Module):
+
+    def __init__(self):
+        super(FocalLoss, self).__init__()
+
+    def forward(self, classifications, regressions, anchors, annotations, **kwargs):
+        alpha = 0.25
+        gamma = 2.0
+        batch_size = classifications.shape[0]
+        classification_losses = []
+        regression_losses = []
+        anchor = anchors[(0), :, :]
+        dtype = anchors.dtype
+        anchor_widths = anchor[:, (3)] - anchor[:, (1)]
+        anchor_heights = anchor[:, (2)] - anchor[:, (0)]
+        anchor_ctr_x = anchor[:, (1)] + 0.5 * anchor_widths
+        anchor_ctr_y = anchor[:, (0)] + 0.5 * anchor_heights
+        for j in range(batch_size):
+            classification = classifications[(j), :, :]
+            regression = regressions[(j), :, :]
+            bbox_annotation = annotations[j]
+            bbox_annotation = bbox_annotation[bbox_annotation[:, (4)] != -1]
+            classification = torch.clamp(classification, 0.0001, 1.0 - 0.0001)
+            if bbox_annotation.shape[0] == 0:
+                if torch.cuda.is_available():
+                    alpha_factor = torch.ones_like(classification) * alpha
+                    alpha_factor = alpha_factor
+                    alpha_factor = 1.0 - alpha_factor
+                    focal_weight = classification
+                    focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
+                    bce = -torch.log(1.0 - classification)
+                    cls_loss = focal_weight * bce
+                    regression_losses.append(torch.tensor(0).to(dtype))
+                    classification_losses.append(cls_loss.sum())
+                else:
+                    alpha_factor = torch.ones_like(classification) * alpha
+                    alpha_factor = 1.0 - alpha_factor
+                    focal_weight = classification
+                    focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
+                    bce = -torch.log(1.0 - classification)
+                    cls_loss = focal_weight * bce
+                    regression_losses.append(torch.tensor(0))
+                    classification_losses.append(cls_loss.sum())
+                continue
+            IoU = calc_iou(anchor[:, :], bbox_annotation[:, :4])
+            IoU_max, IoU_argmax = torch.max(IoU, dim=1)
+            targets = torch.ones_like(classification) * -1
+            if torch.cuda.is_available():
+                targets = targets
+            targets[(torch.lt(IoU_max, 0.4)), :] = 0
+            positive_indices = torch.ge(IoU_max, 0.5)
+            num_positive_anchors = positive_indices.sum()
+            assigned_annotations = bbox_annotation[(IoU_argmax), :]
+            targets[(positive_indices), :] = 0
+            targets[positive_indices, assigned_annotations[positive_indices, 4].long()] = 1
+            alpha_factor = torch.ones_like(targets) * alpha
+            if torch.cuda.is_available():
+                alpha_factor = alpha_factor
+            alpha_factor = torch.where(torch.eq(targets, 1.0), alpha_factor, 1.0 - alpha_factor)
+            focal_weight = torch.where(torch.eq(targets, 1.0), 1.0 - classification, classification)
+            focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
+            bce = -(targets * torch.log(classification) + (1.0 - targets) * torch.log(1.0 - classification))
+            cls_loss = focal_weight * bce
+            zeros = torch.zeros_like(cls_loss)
+            if torch.cuda.is_available():
+                zeros = zeros
+            cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, zeros)
+            classification_losses.append(cls_loss.sum() / torch.clamp(num_positive_anchors, min=1.0))
+            if positive_indices.sum() > 0:
+                assigned_annotations = assigned_annotations[(positive_indices), :]
+                anchor_widths_pi = anchor_widths[positive_indices]
+                anchor_heights_pi = anchor_heights[positive_indices]
+                anchor_ctr_x_pi = anchor_ctr_x[positive_indices]
+                anchor_ctr_y_pi = anchor_ctr_y[positive_indices]
+                gt_widths = assigned_annotations[:, (2)] - assigned_annotations[:, (0)]
+                gt_heights = assigned_annotations[:, (3)] - assigned_annotations[:, (1)]
+                gt_ctr_x = assigned_annotations[:, (0)] + 0.5 * gt_widths
+                gt_ctr_y = assigned_annotations[:, (1)] + 0.5 * gt_heights
+                gt_widths = torch.clamp(gt_widths, min=1)
+                gt_heights = torch.clamp(gt_heights, min=1)
+                targets_dx = (gt_ctr_x - anchor_ctr_x_pi) / anchor_widths_pi
+                targets_dy = (gt_ctr_y - anchor_ctr_y_pi) / anchor_heights_pi
+                targets_dw = torch.log(gt_widths / anchor_widths_pi)
+                targets_dh = torch.log(gt_heights / anchor_heights_pi)
+                targets = torch.stack((targets_dy, targets_dx, targets_dh, targets_dw))
+                targets = targets.t()
+                regression_diff = torch.abs(targets - regression[(positive_indices), :])
+                regression_loss = torch.where(torch.le(regression_diff, 1.0 / 9.0), 0.5 * 9.0 * torch.pow(regression_diff, 2), regression_diff - 0.5 / 9.0)
+                regression_losses.append(regression_loss.mean())
+            elif torch.cuda.is_available():
+                regression_losses.append(torch.tensor(0).to(dtype))
+            else:
+                regression_losses.append(torch.tensor(0))
+        imgs = kwargs.get('imgs', None)
+        if imgs is not None:
+            regressBoxes = BBoxTransform()
+            clipBoxes = ClipBoxes()
+            obj_list = kwargs.get('obj_list', None)
+            out = postprocess(imgs.detach(), torch.stack([anchors[0]] * imgs.shape[0], 0).detach(), regressions.detach(), classifications.detach(), regressBoxes, clipBoxes, 0.5, 0.3)
+            imgs = imgs.permute(0, 2, 3, 1).cpu().numpy()
+            imgs = ((imgs * [0.229, 0.224, 0.225] + [0.485, 0.456, 0.406]) * 255).astype(np.uint8)
+            imgs = [cv2.cvtColor(img, cv2.COLOR_RGB2BGR) for img in imgs]
+            display(out, imgs, obj_list, imshow=False, imwrite=True)
+        return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
 
 
 class Identity(nn.Module):
@@ -1085,73 +1127,6 @@ class Identity(nn.Module):
 
     def forward(self, input):
         return input
-
-
-class Conv2dStaticSamePadding(nn.Module):
-    """
-    created by Zylo117
-    The real keras/tensorflow conv2d with same padding
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, bias=True, groups=1, dilation=1, **kwargs):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, bias=bias, groups=groups)
-        self.stride = self.conv.stride
-        self.kernel_size = self.conv.kernel_size
-        self.dilation = self.conv.dilation
-        if isinstance(self.stride, int):
-            self.stride = [self.stride] * 2
-        elif len(self.stride) == 1:
-            self.stride = [self.stride[0]] * 2
-        if isinstance(self.kernel_size, int):
-            self.kernel_size = [self.kernel_size] * 2
-        elif len(self.kernel_size) == 1:
-            self.kernel_size = [self.kernel_size[0]] * 2
-
-    def forward(self, x):
-        h, w = x.shape[-2:]
-        extra_h = (math.ceil(w / self.stride[1]) - 1) * self.stride[1] - w + self.kernel_size[1]
-        extra_v = (math.ceil(h / self.stride[0]) - 1) * self.stride[0] - h + self.kernel_size[0]
-        left = extra_h // 2
-        right = extra_h - left
-        top = extra_v // 2
-        bottom = extra_v - top
-        x = F.pad(x, [left, right, top, bottom])
-        x = self.conv(x)
-        return x
-
-
-class MaxPool2dStaticSamePadding(nn.Module):
-    """
-    created by Zylo117
-    The real keras/tensorflow MaxPool2d with same padding
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        self.pool = nn.MaxPool2d(*args, **kwargs)
-        self.stride = self.pool.stride
-        self.kernel_size = self.pool.kernel_size
-        if isinstance(self.stride, int):
-            self.stride = [self.stride] * 2
-        elif len(self.stride) == 1:
-            self.stride = [self.stride[0]] * 2
-        if isinstance(self.kernel_size, int):
-            self.kernel_size = [self.kernel_size] * 2
-        elif len(self.kernel_size) == 1:
-            self.kernel_size = [self.kernel_size[0]] * 2
-
-    def forward(self, x):
-        h, w = x.shape[-2:]
-        extra_h = (math.ceil(w / self.stride[1]) - 1) * self.stride[1] - w + self.kernel_size[1]
-        extra_v = (math.ceil(h / self.stride[0]) - 1) * self.stride[0] - h + self.kernel_size[0]
-        left = extra_h // 2
-        right = extra_h - left
-        top = extra_v // 2
-        bottom = extra_v - top
-        x = F.pad(x, [left, right, top, bottom])
-        x = self.pool(x)
-        return x
 
 
 class ModelWithLoss(nn.Module):
@@ -1372,6 +1347,193 @@ class _SynchronizedBatchNorm(_BatchNorm):
             self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
             self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
         return mean, bias_var.clamp(self.eps) ** -0.5
+
+
+class SynchronizedBatchNorm1d(_SynchronizedBatchNorm):
+    """Applies Synchronized Batch Normalization over a 2d or 3d input that is seen as a
+    mini-batch.
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm1d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, L)` slices, it's common terminology to call this Temporal BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of size
+            `batch_size x num_features [x width]`
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm1d, self)._check_input_dim(input)
+
+
+class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 4d input that is seen as a mini-batch
+    of 3d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm2d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm2d, self)._check_input_dim(input)
+
+
+class SynchronizedBatchNorm3d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 5d input that is seen as a mini-batch
+    of 4d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm3d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, D, H, W)` slices, it's common terminology to call this Volumetric BatchNorm
+    or Spatio-temporal BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x depth x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C, D, H, W)`
+        - Output: :math:`(N, C, D, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45, 10))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm3d, self)._check_input_dim(input)
 
 
 class BatchNorm2dReimpl(nn.Module):

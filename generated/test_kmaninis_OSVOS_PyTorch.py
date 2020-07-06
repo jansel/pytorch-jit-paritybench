@@ -20,23 +20,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import random
 
 
 import numpy as np
 
 
 import torch
+
+
+from torch.utils.data import Dataset
 
 
 from torch.autograd import Variable
@@ -58,6 +65,21 @@ import torch.nn as nn
 
 
 import torch.nn.modules as modules
+
+
+import torch.optim as optim
+
+
+from torchvision import transforms
+
+
+from torch.utils.data import DataLoader
+
+
+import scipy.misc as sm
+
+
+from torchvision import models
 
 
 class PathAbstract(object):
@@ -90,6 +112,36 @@ class Path(PathAbstract):
         return './models'
 
 
+class VGG(nn.Module):
+
+    def __init__(self, features, num_classes=1000):
+        super(VGG, self).__init__()
+        self.features = features
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
+        self._initialize_weights()
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), -1)
+        x = self.classifier(x)
+        return x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                n = m.weight.size(1)
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
+
+
 def center_crop(x, height, width):
     crop_h = torch.FloatTensor([x.size()[2]]).sub(height).div(-2)
     crop_w = torch.FloatTensor([x.size()[3]]).sub(width).div(-2)
@@ -117,10 +169,10 @@ def upsample_filt(size):
 def interp_surgery(lay):
     m, k, h, w = lay.weight.data.size()
     if m != k:
-        print('input + output channels need to be the same')
+        None
         raise ValueError
     if h != w:
-        print('filters need to be square')
+        None
         raise ValueError
     filt = upsample_filt(h)
     for i in range(m):
@@ -241,52 +293,4 @@ class OSVOS(nn.Module):
                     assert layer.data.shape == c_b.shape
                     layer.data = c_b
                     caffe_ind += 1
-
-
-class VGG(nn.Module):
-
-    def __init__(self, features, num_classes=1000):
-        super(VGG, self).__init__()
-        self.features = features
-        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
-        self._initialize_weights()
-
-    def forward(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), -1)
-        x = self.classifier(x)
-        return x
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                n = m.weight.size(1)
-                m.weight.data.normal_(0, 0.01)
-                m.bias.data.zero_()
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (VGG,
-     lambda: ([], {'features': _mock_layer()}),
-     lambda: ([torch.rand([25088, 25088])], {}),
-     True),
-]
-
-class Test_kmaninis_OSVOS_PyTorch(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

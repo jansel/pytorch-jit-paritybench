@@ -3,6 +3,7 @@ _module = sys.modules[__name__]
 del sys
 data = _module
 batch = _module
+data = _module
 dataloader = _module
 dataset = _module
 download = _module
@@ -69,32 +70,57 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import re
 
 
 import torch
 
 
-import torch.nn as nn
+import torch.utils.data
+
+
+from torch.utils.data.dataloader import default_collate
+
+
+import collections
+
+
+from itertools import repeat
+
+
+from itertools import product
 
 
 import numpy as np
+
+
+import scipy.io
+
+
+import torch.nn as nn
 
 
 import time
 
 
 import scipy.sparse as sp
+
+
+from sklearn import preprocessing
 
 
 import torch.nn.functional as F
@@ -112,13 +138,49 @@ import math
 from torch.nn.parameter import Parameter
 
 
+from sklearn.linear_model import LogisticRegression
+
+
 import copy
 
 
 import warnings
 
 
+from sklearn.cluster import KMeans
+
+
+from sklearn.metrics import silhouette_score
+
+
+from sklearn.metrics import normalized_mutual_info_score
+
+
+from sklearn.metrics import auc
+
+
+from sklearn.metrics import f1_score
+
+
+from sklearn.metrics import precision_recall_curve
+
+
+from sklearn.metrics import roc_auc_score
+
+
+from sklearn.utils import shuffle as skshuffle
+
+
+from sklearn.svm import SVC
+
+
+from sklearn.metrics import accuracy_score
+
+
 from scipy import sparse as sp
+
+
+from sklearn.multiclass import OneVsRestClassifier
 
 
 import itertools
@@ -194,6 +256,128 @@ class BaseModel(nn.Module):
         raise NotImplementedError('Models must implement the build_model_from_args method')
 
 
+MODEL_REGISTRY = {}
+
+
+def register_model(name):
+    """
+    New model types can be added to cogdl with the :func:`register_model`
+    function decorator.
+
+    For example::
+
+        @register_model('gat')
+        class GAT(BaseModel):
+            (...)
+
+    Args:
+        name (str): the name of the model
+    """
+
+    def register_model_cls(cls):
+        if name in MODEL_REGISTRY:
+            raise ValueError('Cannot register duplicate model ({})'.format(name))
+        if not issubclass(cls, BaseModel):
+            raise ValueError('Model ({}: {}) must extend BaseModel'.format(name, cls.__name__))
+        MODEL_REGISTRY[name] = cls
+        return cls
+    return register_model_cls
+
+
+class DNGR(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--hidden-size1', type=int, default=1000, help='Hidden size in first layer of Auto-Encoder')
+        parser.add_argument('--hidden-size2', type=int, default=128, help='Hidden size in second layer of Auto-Encoder')
+        parser.add_argument('--noise', type=float, default=0.2, help='denoise rate of DAE')
+        parser.add_argument('--alpha', type=float, default=0.98, help='alhpa is a hyperparameter in DNGR')
+        parser.add_argument('--step', type=int, default=10, help='step is a hyperparameter in DNGR')
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.hidden_size1, args.hidden_size2, args.noise, args.alpha, args.step, args.max_epoch, args.lr)
+
+    def __init__(self, hidden_size1, hidden_size2, noise, alpha, step, max_epoch, lr):
+        super(DNGR, self).__init__()
+        self.hidden_size1 = hidden_size1
+        self.hidden_size2 = hidden_size2
+        self.noise = noise
+        self.alpha = alpha
+        self.step = step
+        self.max_epoch = max_epoch
+        self.lr = lr
+
+    def build_nn(self):
+        self.encoder = nn.Sequential(nn.Linear(self.num_node, self.hidden_size1), nn.Tanh(), nn.Linear(self.hidden_size1, self.hidden_size2), nn.Tanh())
+        self.decoder = nn.Sequential(nn.Linear(self.hidden_size2, self.hidden_size1), nn.Tanh(), nn.Linear(self.hidden_size1, self.num_node), nn.Tanh())
+
+    def forward(self, x):
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded)
+        return encoded, decoded
+
+    def scale_matrix(self, mat):
+        mat = mat - np.diag(np.diag(mat))
+        D_inv = np.diagflat(np.reciprocal(np.sum(mat, axis=0)))
+        mat = np.dot(D_inv, mat)
+        return mat
+
+    def random_surfing(self, adj_matrix):
+        adj_matrix = self.scale_matrix(adj_matrix)
+        P0 = np.eye(self.num_node, dtype='float32')
+        M = np.zeros((self.num_node, self.num_node), dtype='float32')
+        P = np.eye(self.num_node, dtype='float32')
+        for i in range(0, self.step):
+            P = self.alpha * np.dot(P, adj_matrix) + (1 - self.alpha) * P0
+            M = M + P
+        return M
+
+    def get_ppmi_matrix(self, mat):
+        mat = self.random_surfing(mat)
+        M = self.scale_matrix(mat)
+        col_s = np.sum(M, axis=0).reshape(1, self.num_node)
+        row_s = np.sum(M, axis=1).reshape(self.num_node, 1)
+        D = np.sum(col_s)
+        rowcol_s = np.dot(row_s, col_s)
+        PPMI = np.log(np.divide(D * M, rowcol_s))
+        PPMI[np.isnan(PPMI)] = 0.0
+        PPMI[np.isinf(PPMI)] = 0.0
+        PPMI[np.isneginf(PPMI)] = 0.0
+        PPMI[PPMI < 0] = 0.0
+        return PPMI
+
+    def get_denoised_matrix(self, mat):
+        return mat * (np.random.random(mat.shape) > self.noise)
+
+    def get_emb(self, matrix):
+        ut, s, _ = sp.linalg.svds(matrix, self.hidden_size2)
+        emb_matrix = ut * np.sqrt(s)
+        emb_matrix = preprocessing.normalize(emb_matrix, 'l2')
+        return emb_matrix
+
+    def train(self, G):
+        self.num_node = G.number_of_nodes()
+        A = nx.adjacency_matrix(G).todense()
+        PPMI = self.get_ppmi_matrix(A)
+        None
+        input_mat = torch.from_numpy(self.get_denoised_matrix(PPMI).astype(np.float32))
+        self.build_nn()
+        opt = torch.optim.Adam(self.parameters(), lr=self.lr)
+        loss_func = nn.MSELoss()
+        epoch_iter = tqdm(range(self.max_epoch))
+        for epoch in epoch_iter:
+            opt.zero_grad()
+            encoded, decoded = self.forward(input_mat)
+            Loss = loss_func(decoded, input_mat)
+            Loss.backward()
+            epoch_iter.set_description(f'Epoch: {epoch:03d},  Loss: {Loss:.8f}')
+            opt.step()
+        embedding, _ = self.forward(input_mat)
+        return embedding.detach().numpy()
+
+
 class GATNEModel(nn.Module):
 
     def __init__(self, num_nodes, embedding_size, embedding_u_size, edge_type_count, dim_a):
@@ -254,6 +438,297 @@ class NSLoss(nn.Module):
         sum_log_sampled = torch.sum(torch.log(torch.sigmoid(torch.bmm(noise, embs.unsqueeze(2)))), 1).squeeze()
         loss = log_target + sum_log_sampled
         return -loss.sum() / n
+
+
+def generate_pairs(all_walks, vocab, window_size=5):
+    pairs = []
+    skip_window = window_size // 2
+    for layer_id, walks in enumerate(all_walks):
+        for walk in walks:
+            for i in range(len(walk)):
+                for j in range(1, skip_window + 1):
+                    if i - j >= 0:
+                        pairs.append((vocab[walk[i]].index, vocab[walk[i - j]].index, layer_id))
+                    if i + j < len(walk):
+                        pairs.append((vocab[walk[i]].index, vocab[walk[i + j]].index, layer_id))
+    return pairs
+
+
+def generate_vocab(all_walks):
+    index2word = []
+    raw_vocab = defaultdict(int)
+    for walks in all_walks:
+        for walk in walks:
+            for word in walk:
+                raw_vocab[word] += 1
+    vocab = {}
+    for word, v in iteritems(raw_vocab):
+        vocab[word] = Vocab(count=v, index=len(index2word))
+        index2word.append(word)
+    index2word.sort(key=lambda word: vocab[word].count, reverse=True)
+    for i, word in enumerate(index2word):
+        vocab[word].index = i
+    return vocab, index2word
+
+
+class RWGraph:
+
+    def __init__(self, nx_G, node_type=None):
+        self.G = nx_G
+        self.node_type = node_type
+
+    def walk(self, walk_length, start, schema=None):
+        G = self.G
+        rand = random.Random()
+        if schema:
+            schema_items = schema.split('-')
+            assert schema_items[0] == schema_items[-1]
+        walk = [start]
+        while len(walk) < walk_length:
+            cur = walk[-1]
+            candidates = []
+            for node in G[cur].keys():
+                if schema == None or self.node_type[node] == schema_items[len(walk) % (len(schema_items) - 1)]:
+                    candidates.append(node)
+            if candidates:
+                walk.append(rand.choice(candidates))
+            else:
+                break
+        return walk
+
+    def simulate_walks(self, num_walks, walk_length, schema=None):
+        G = self.G
+        walks = []
+        nodes = list(G.nodes())
+        if schema is not None:
+            schema_list = schema.split(',')
+        for walk_iter in range(num_walks):
+            random.shuffle(nodes)
+            for node in nodes:
+                if schema is None:
+                    walks.append(self.walk(walk_length=walk_length, start=node))
+                else:
+                    for schema_iter in schema_list:
+                        if schema_iter.split('-')[0] == self.node_type[node]:
+                            walks.append(self.walk(walk_length=walk_length, start=node, schema=schema_iter))
+        return walks
+
+
+def get_G_from_edges(edges):
+    edge_dict = dict()
+    for edge in edges:
+        edge_key = str(edge[0]) + '_' + str(edge[1])
+        if edge_key not in edge_dict:
+            edge_dict[edge_key] = 1
+        else:
+            edge_dict[edge_key] += 1
+    tmp_G = nx.Graph()
+    for edge_key in edge_dict:
+        weight = edge_dict[edge_key]
+        x = int(edge_key.split('_')[0])
+        y = int(edge_key.split('_')[1])
+        tmp_G.add_edge(x, y)
+        tmp_G[x][y]['weight'] = weight
+    return tmp_G
+
+
+def generate_walks(network_data, num_walks, walk_length, schema=None):
+    if schema is not None:
+        pass
+    else:
+        node_type = None
+    all_walks = []
+    for layer_id in network_data:
+        tmp_data = network_data[layer_id]
+        layer_walker = RWGraph(get_G_from_edges(tmp_data))
+        layer_walks = layer_walker.simulate_walks(num_walks, walk_length, schema=schema)
+        all_walks.append(layer_walks)
+    return all_walks
+
+
+def get_batches(pairs, neighbors, batch_size):
+    n_batches = (len(pairs) + (batch_size - 1)) // batch_size
+    for idx in range(n_batches):
+        x, y, t, neigh = [], [], [], []
+        for i in range(batch_size):
+            index = idx * batch_size + i
+            if index >= len(pairs):
+                break
+            x.append(pairs[index][0])
+            y.append(pairs[index][1])
+            t.append(pairs[index][2])
+            neigh.append(neighbors[pairs[index][0]])
+        yield torch.tensor(x), torch.tensor(y), torch.tensor(t), torch.tensor(neigh)
+
+
+class GATNE(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--walk-length', type=int, default=10, help='Length of walk per source. Default is 10.')
+        parser.add_argument('--walk-num', type=int, default=20, help='Number of walks per source. Default is 20.')
+        parser.add_argument('--window-size', type=int, default=5, help='Window size of skip-gram model. Default is 5.')
+        parser.add_argument('--worker', type=int, default=10, help='Number of parallel workers. Default is 10.')
+        parser.add_argument('--iteration', type=int, default=10, help='Number of iterations. Default is 10.')
+        parser.add_argument('--epoch', type=int, default=20, help='Number of epoch. Default is 20.')
+        parser.add_argument('--batch-size', type=int, default=64, help='Number of batch_size. Default is 64.')
+        parser.add_argument('--edge-dim', type=int, default=10, help='Number of edge embedding dimensions. Default is 10.')
+        parser.add_argument('--att-dim', type=int, default=20, help='Number of attention dimensions. Default is 20.')
+        parser.add_argument('--negative-samples', type=int, default=5, help='Negative samples for optimization. Default is 5.')
+        parser.add_argument('--neighbor-samples', type=int, default=10, help='Neighbor samples for aggregation. Default is 10.')
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.hidden_size, args.walk_length, args.walk_num, args.window_size, args.worker, args.iteration, args.epoch, args.batch_size, args.edge_dim, args.att_dim, args.negative_samples, args.neighbor_samples)
+
+    def __init__(self, dimension, walk_length, walk_num, window_size, worker, iteration, epoch, batch_size, edge_dim, att_dim, negative_samples, neighbor_samples):
+        super(GATNE, self).__init__()
+        self.embedding_size = dimension
+        self.walk_length = walk_length
+        self.walk_num = walk_num
+        self.window_size = window_size
+        self.worker = worker
+        self.iteration = iteration
+        self.epochs = epoch
+        self.batch_size = batch_size
+        self.embedding_u_size = edge_dim
+        self.dim_att = att_dim
+        self.num_sampled = negative_samples
+        self.neighbor_samples = neighbor_samples
+        self.multiplicity = True
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+
+    def train(self, network_data):
+        all_walks = generate_walks(network_data, self.walk_num, self.walk_length)
+        vocab, index2word = generate_vocab(all_walks)
+        train_pairs = generate_pairs(all_walks, vocab)
+        edge_types = list(network_data.keys())
+        num_nodes = len(index2word)
+        edge_type_count = len(edge_types)
+        epochs = self.epochs
+        batch_size = self.batch_size
+        embedding_size = self.embedding_size
+        embedding_u_size = self.embedding_u_size
+        num_sampled = self.num_sampled
+        dim_att = self.dim_att
+        neighbor_samples = self.neighbor_samples
+        neighbors = [[[] for __ in range(edge_type_count)] for _ in range(num_nodes)]
+        for r in range(edge_type_count):
+            g = network_data[edge_types[r]]
+            for x, y in g:
+                ix = vocab[x].index
+                iy = vocab[y].index
+                neighbors[ix][r].append(iy)
+                neighbors[iy][r].append(ix)
+            for i in range(num_nodes):
+                if len(neighbors[i][r]) == 0:
+                    neighbors[i][r] = [i] * neighbor_samples
+                elif len(neighbors[i][r]) < neighbor_samples:
+                    neighbors[i][r].extend(list(np.random.choice(neighbors[i][r], size=neighbor_samples - len(neighbors[i][r]))))
+                elif len(neighbors[i][r]) > neighbor_samples:
+                    neighbors[i][r] = list(np.random.choice(neighbors[i][r], size=neighbor_samples))
+        model = GATNEModel(num_nodes, embedding_size, embedding_u_size, edge_type_count, dim_att)
+        nsloss = NSLoss(num_nodes, num_sampled, embedding_size)
+        model
+        nsloss
+        optimizer = torch.optim.Adam([{'params': model.parameters()}, {'params': nsloss.parameters()}], lr=0.0001)
+        for epoch in range(epochs):
+            random.shuffle(train_pairs)
+            batches = get_batches(train_pairs, neighbors, batch_size)
+            data_iter = tqdm.tqdm(batches, desc='epoch %d' % epoch, total=(len(train_pairs) + (batch_size - 1)) // batch_size, bar_format='{l_bar}{r_bar}')
+            avg_loss = 0.0
+            for i, data in enumerate(data_iter):
+                optimizer.zero_grad()
+                embs = model(data[0], data[2], data[3])
+                loss = nsloss(data[0], embs, data[1])
+                loss.backward()
+                optimizer.step()
+                avg_loss += loss.item()
+                if i % 5000 == 0:
+                    post_fix = {'epoch': epoch, 'iter': i, 'avg_loss': avg_loss / (i + 1), 'loss': loss.item()}
+                    data_iter.write(str(post_fix))
+        final_model = dict(zip(edge_types, [dict() for _ in range(edge_type_count)]))
+        for i in range(num_nodes):
+            train_inputs = torch.tensor([i for _ in range(edge_type_count)])
+            train_types = torch.tensor(list(range(edge_type_count)))
+            node_neigh = torch.tensor([neighbors[i] for _ in range(edge_type_count)])
+            node_emb = model(train_inputs, train_types, node_neigh)
+            for j in range(edge_type_count):
+                final_model[edge_types[j]][index2word[i]] = node_emb[j].cpu().detach().numpy()
+        return final_model
+
+
+class SDNE(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--hidden-size1', type=int, default=1000, help='Hidden size in first layer of Auto-Encoder')
+        parser.add_argument('--hidden-size2', type=int, default=128, help='Hidden size in second layer of Auto-Encoder')
+        parser.add_argument('--droput', type=float, default=0.5, help='Dropout rate')
+        parser.add_argument('--alpha', type=float, default=0.1, help='alhpa is a hyperparameter in SDNE')
+        parser.add_argument('--beta', type=float, default=5, help='beta is a hyperparameter in SDNE')
+        parser.add_argument('--nu1', type=float, default=0.0001, help='nu1 is a hyperparameter in SDNE')
+        parser.add_argument('--nu2', type=float, default=0.001, help='nu2 is a hyperparameter in SDNE')
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.hidden_size1, args.hidden_size2, args.droput, args.alpha, args.beta, args.nu1, args.nu2, args.max_epoch, args.lr)
+
+    def __init__(self, hidden_size1, hidden_size2, droput, alpha, beta, nu1, nu2, max_epoch, lr):
+        super(SDNE, self).__init__()
+        self.hidden_size1 = hidden_size1
+        self.hidden_size2 = hidden_size2
+        self.droput = droput
+        self.alpha = alpha
+        self.beta = beta
+        self.nu1 = nu1
+        self.nu2 = nu2
+        self.max_epoch = max_epoch
+        self.lr = lr
+
+    def build_nn(self):
+        self.encode0 = nn.Linear(self.num_node, self.hidden_size1)
+        self.encode1 = nn.Linear(self.hidden_size1, self.hidden_size2)
+        self.decode0 = nn.Linear(self.hidden_size2, self.hidden_size1)
+        self.decode1 = nn.Linear(self.hidden_size1, self.num_node)
+
+    def forward(self, adj_mat, l_mat):
+        t0 = F.leaky_relu(self.encode0(adj_mat))
+        t0 = F.leaky_relu(self.encode1(t0))
+        self.embedding = t0
+        t0 = F.leaky_relu(self.decode0(t0))
+        t0 = F.leaky_relu(self.decode1(t0))
+        L_1st = 2 * torch.trace(torch.mm(torch.mm(torch.t(self.embedding), l_mat), self.embedding))
+        L_2nd = torch.sum((adj_mat - t0) * adj_mat * self.beta * ((adj_mat - t0) * adj_mat * self.beta))
+        return self.alpha * L_1st, L_2nd, self.alpha * L_1st + L_2nd
+
+    def get_emb(self, adj):
+        t0 = self.encode0(adj)
+        t0 = self.encode1(t0)
+        return t0
+
+    def train(self, G):
+        self.num_node = G.number_of_nodes()
+        self = self
+        A = torch.from_numpy(nx.adjacency_matrix(G).todense().astype(np.float32))
+        L = torch.from_numpy(nx.laplacian_matrix(G).todense().astype(np.float32))
+        self.build_nn()
+        opt = torch.optim.Adam(self.parameters(), lr=self.lr)
+        epoch_iter = tqdm(range(self.max_epoch))
+        for epoch in epoch_iter:
+            opt.zero_grad()
+            L_1st, L_2nd, L_all = self.forward(A, L)
+            L_reg = 0
+            for param in self.parameters():
+                L_reg += self.nu1 * torch.sum(torch.abs(param)) + self.nu2 * torch.sum(param * param)
+            Loss = L_all + L_reg
+            Loss.backward()
+            epoch_iter.set_description(f'Epoch: {epoch:03d}, L_1st: {L_1st:.4f}, L_2nd: {L_2nd:.4f}, L_reg: {L_reg:.4f}')
+            opt.step()
+        embedding = self.get_emb(A)
+        return embedding.detach().numpy()
 
 
 class GraphAttentionLayer(nn.Module):
@@ -364,6 +839,64 @@ class SpGraphAttentionLayer(nn.Module):
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
 
 
+class PetarVGAT(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--hidden-size', type=int, default=8)
+        parser.add_argument('--dropout', type=float, default=0.6)
+        parser.add_argument('--alpha', type=float, default=0.2)
+        parser.add_argument('--nheads', type=int, default=8)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.hidden_size, args.num_classes, args.dropout, args.alpha, args.nheads)
+
+    def __init__(self, nfeat, nhid, nclass, dropout, alpha, nheads):
+        """Dense version of GAT."""
+        super(PetarVGAT, self).__init__()
+        self.dropout = dropout
+        self.attentions = [GraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in range(nheads)]
+        for i, attention in enumerate(self.attentions):
+            self.add_module('attention_{}'.format(i), attention)
+        self.out_att = GraphAttentionLayer(nhid * nheads, nclass, dropout=dropout, alpha=alpha, concat=False)
+
+    def forward(self, x, adj):
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = torch.cat([att(x, adj) for att in self.attentions], dim=1)
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = F.elu(self.out_att(x, adj))
+        return F.log_softmax(x, dim=1)
+
+
+class PetarVSpGAT(PetarVGAT):
+
+    def __init__(self, nfeat, nhid, nclass, dropout, alpha, nheads):
+        """Sparse version of GAT."""
+        BaseModel.__init__(self)
+        self.dropout = dropout
+        self.attentions = [SpGraphAttentionLayer(nfeat, nhid, dropout=dropout, alpha=alpha, concat=True) for _ in range(nheads)]
+        for i, attention in enumerate(self.attentions):
+            self.add_module('attention_{}'.format(i), attention)
+        self.out_att = SpGraphAttentionLayer(nhid * nheads, nclass, dropout=dropout, alpha=alpha, concat=False)
+
+    def forward(self, x, adj):
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = torch.cat([att(x, adj) for att in self.attentions], dim=1)
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = F.elu(self.out_att(x, adj))
+        return F.log_softmax(x, dim=1)
+
+    def loss(self, data):
+        return F.nll_loss(self.forward(data.x, data.edge_index)[data.train_mask], data.y[data.train_mask])
+
+    def predict(self, data):
+        return self.forward(data.x, data.edge_index)
+
+
 class GraphConvolution(nn.Module):
     """
     Simple GCN layer, similar to https://arxiv.org/abs/1609.02907
@@ -397,6 +930,39 @@ class GraphConvolution(nn.Module):
 
     def __repr__(self):
         return self.__class__.__name__ + ' (' + str(self.in_features) + ' -> ' + str(self.out_features) + ')'
+
+
+class TKipfGCN(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--hidden-size', type=int, default=64)
+        parser.add_argument('--dropout', type=float, default=0.5)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.hidden_size, args.num_classes, args.dropout)
+
+    def __init__(self, nfeat, nhid, nclass, dropout):
+        super(TKipfGCN, self).__init__()
+        self.gc1 = GraphConvolution(nfeat, nhid)
+        self.gc2 = GraphConvolution(nhid, nclass)
+        self.dropout = dropout
+
+    def forward(self, x, adj):
+        x = F.relu(self.gc1(x, adj))
+        x = F.dropout(x, self.dropout, training=self.training)
+        x = self.gc2(x, adj)
+        return F.log_softmax(x, dim=-1)
+
+    def loss(self, data):
+        return F.nll_loss(self.forward(data.x, data.edge_index)[data.train_mask], data.y[data.train_mask])
+
+    def predict(self, data):
+        return self.forward(data.x, data.edge_index)
 
 
 class GINLayer(nn.Module):
@@ -453,6 +1019,355 @@ class GINMLP(nn.Module):
         return self.nn[self.num_layers - 1](h)
 
 
+class Data(object):
+    """A plain old python object modeling a single graph with various
+    (optional) attributes:
+
+    Args:
+        x (Tensor, optional): Node feature matrix with shape :obj:`[num_nodes,
+            num_node_features]`. (default: :obj:`None`)
+        edge_index (LongTensor, optional): Graph connectivity in COO format
+            with shape :obj:`[2, num_edges]`. (default: :obj:`None`)
+        edge_attr (Tensor, optional): Edge feature matrix with shape
+            :obj:`[num_edges, num_edge_features]`. (default: :obj:`None`)
+        y (Tensor, optional): Graph or node targets with arbitrary shape.
+            (default: :obj:`None`)
+        pos (Tensor, optional): Node position matrix with shape
+            :obj:`[num_nodes, num_dimensions]`. (default: :obj:`None`)
+
+    The data object is not restricted to these attributes and can be extented
+    by any other additional data.
+    """
+
+    def __init__(self, x=None, edge_index=None, edge_attr=None, y=None, pos=None):
+        self.x = x
+        self.edge_index = edge_index
+        self.edge_attr = edge_attr
+        self.y = y
+        self.pos = pos
+
+    @staticmethod
+    def from_dict(dictionary):
+        """Creates a data object from a python dictionary."""
+        data = Data()
+        for key, item in dictionary.items():
+            data[key] = item
+        return data
+
+    def __getitem__(self, key):
+        """Gets the data of the attribute :obj:`key`."""
+        return getattr(self, key)
+
+    def __setitem__(self, key, value):
+        """Sets the attribute :obj:`key` to :obj:`value`."""
+        setattr(self, key, value)
+
+    @property
+    def keys(self):
+        """Returns all names of graph attributes."""
+        return [key for key in self.__dict__.keys() if self[key] is not None]
+
+    def __len__(self):
+        """Returns the number of all present attributes."""
+        return len(self.keys)
+
+    def __contains__(self, key):
+        """Returns :obj:`True`, if the attribute :obj:`key` is present in the
+        data."""
+        return key in self.keys
+
+    def __iter__(self):
+        """Iterates over all present attributes in the data, yielding their
+        attribute names and content."""
+        for key in sorted(self.keys):
+            yield key, self[key]
+
+    def __call__(self, *keys):
+        """Iterates over all attributes :obj:`*keys` in the data, yielding
+        their attribute names and content.
+        If :obj:`*keys` is not given this method will iterative over all
+        present attributes."""
+        for key in (sorted(self.keys) if not keys else keys):
+            if self[key] is not None:
+                yield key, self[key]
+
+    def cat_dim(self, key, value):
+        """Returns the dimension in which the attribute :obj:`key` with
+        content :obj:`value` gets concatenated when creating batches.
+
+        .. note::
+
+            This method is for internal use only, and should only be overridden
+            if the batch concatenation process is corrupted for a specific data
+            attribute.
+        """
+        return -1 if bool(re.search('(index|face)', key)) else 0
+
+    @property
+    def num_edges(self):
+        """Returns the number of edges in the graph."""
+        for key, item in self('edge_index', 'edge_attr'):
+            return item.size(self.cat_dim(key, item))
+        return None
+
+    @property
+    def num_features(self):
+        """Returns the number of features per node in the graph."""
+        return 1 if self.x.dim() == 1 else self.x.size(1)
+
+    @property
+    def num_nodes(self):
+        if self.x is not None:
+            return self.x.shape[0]
+        return torch.max(self.edge_index) + 1
+
+    def is_coalesced(self):
+        """Returns :obj:`True`, if edge indices are ordered and do not contain
+        duplicate entries."""
+        row, col = self.edge_index
+        index = self.num_nodes * row + col
+        return row.size(0) == torch.unique(index).size(0)
+
+    def apply(self, func, *keys):
+        """Applies the function :obj:`func` to all attributes :obj:`*keys`.
+        If :obj:`*keys` is not given, :obj:`func` is applied to all present
+        attributes.
+        """
+        for key, item in self(*keys):
+            self[key] = func(item)
+        return self
+
+    def contiguous(self, *keys):
+        """Ensures a contiguous memory layout for all attributes :obj:`*keys`.
+        If :obj:`*keys` is not given, all present attributes are ensured to
+        have a contiguous memory layout."""
+        return self.apply(lambda x: x.contiguous(), *keys)
+
+    def to(self, device, *keys):
+        """Performs tensor dtype and/or device conversion to all attributes
+        :obj:`*keys`.
+        If :obj:`*keys` is not given, the conversion is applied to all present
+        attributes."""
+        return self.apply(lambda x: x, *keys)
+
+    def cuda(self, *keys):
+        return self.apply(lambda x: x, *keys)
+
+    def clone(self):
+        return Data.from_dict({k: v.clone() for k, v in self})
+
+    def __repr__(self):
+        info = ['{}={}'.format(key, list(item.size())) for key, item in self]
+        return '{}({})'.format(self.__class__.__name__, ', '.join(info))
+
+
+class Batch(Data):
+    """A plain old python object modeling a batch of graphs as one big
+    (dicconnected) graph. With :class:`cogdl.data.Data` being the
+    base class, all its methods can also be used here.
+    In addition, single graphs can be reconstructed via the assignment vector
+    :obj:`batch`, which maps each node to its respective graph identifier.
+    """
+
+    def __init__(self, batch=None, **kwargs):
+        super(Batch, self).__init__(**kwargs)
+        self.batch = batch
+
+    @staticmethod
+    def from_data_list(data_list):
+        """Constructs a batch object from a python list holding
+        :class:`cogdl.data.Data` objects.
+        The assignment vector :obj:`batch` is created on the fly."""
+        keys = [set(data.keys) for data in data_list]
+        keys = list(set.union(*keys))
+        assert 'batch' not in keys
+        batch = Batch()
+        for key in keys:
+            batch[key] = []
+        batch.batch = []
+        cumsum = 0
+        for i, data in enumerate(data_list):
+            num_nodes = data.num_nodes
+            batch.batch.append(torch.full((num_nodes,), i, dtype=torch.long))
+            for key in data.keys:
+                item = data[key]
+                item = item + cumsum if batch.cumsum(key, item) else item
+                batch[key].append(item)
+            cumsum += num_nodes
+        for key in keys:
+            batch[key] = torch.cat(batch[key], dim=data_list[0].cat_dim(key, batch[key][0]))
+        batch.batch = torch.cat(batch.batch, dim=-1)
+        return batch.contiguous()
+
+    def cumsum(self, key, item):
+        """If :obj:`True`, the attribute :obj:`key` with content :obj:`item`
+        should be added up cumulatively before concatenated together.
+
+        .. note::
+
+            This method is for internal use only, and should only be overridden
+            if the batch concatenation process is corrupted for a specific data
+            attribute.
+        """
+        return bool(re.search('(index|face)', key))
+
+    @property
+    def num_graphs(self):
+        """Returns the number of graphs in the batch."""
+        return self.batch[-1].item() + 1
+
+
+class DataLoader(torch.utils.data.DataLoader):
+    """Data loader which merges data objects from a
+    :class:`cogdl.data.dataset` to a mini-batch.
+
+    Args:
+        dataset (Dataset): The dataset from which to load the data.
+        batch_size (int, optional): How may samples per batch to load.
+            (default: :obj:`1`)
+        shuffle (bool, optional): If set to :obj:`True`, the data will be
+            reshuffled at every epoch (default: :obj:`True`)
+    """
+
+    def __init__(self, dataset, batch_size=1, shuffle=True, **kwargs):
+        super(DataLoader, self).__init__(dataset, batch_size, shuffle, collate_fn=lambda data_list: Batch.from_data_list(data_list), **kwargs)
+
+
+class GIN(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--epsilon', type=float, default=0.0)
+        parser.add_argument('--hidden-size', type=int, default=32)
+        parser.add_argument('--num-layers', type=int, default=5)
+        parser.add_argument('--num-mlp-layers', type=int, default=2)
+        parser.add_argument('--dropout', type=float, default=0.5)
+        parser.add_argument('--train-epsilon', type=bool, default=True)
+        parser.add_argument('--pooling', type=str, default='sum')
+        parser.add_argument('--batch-size', type=int, default=128)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_layers, args.num_features, args.num_classes, args.hidden_size, args.num_mlp_layers, args.epsilon, args.pooling, args.train_epsilon, args.dropout)
+
+    @classmethod
+    def split_dataset(cls, dataset, args):
+        test_index = random.sample(range(len(dataset)), len(dataset) // 10)
+        train_index = [x for x in range(len(dataset)) if x not in test_index]
+        train_dataset = [dataset[i] for i in train_index]
+        test_dataset = [dataset[i] for i in test_index]
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
+        test_loader = DataLoader(test_dataset, batch_size=args.batch_size)
+        return train_loader, test_loader, test_loader
+
+    def __init__(self, num_layers, in_feats, out_feats, hidden_dim, num_mlp_layers, eps=0, pooling='sum', train_eps=False, dropout=0.5):
+        super(GIN, self).__init__()
+        self.gin_layers = nn.ModuleList()
+        self.batch_norm = nn.ModuleList()
+        self.num_layers = num_layers
+        for i in range(num_layers - 1):
+            if i == 0:
+                mlp = GINMLP(in_feats, hidden_dim, hidden_dim, num_mlp_layers)
+            else:
+                mlp = GINMLP(hidden_dim, hidden_dim, hidden_dim, num_mlp_layers)
+            self.gin_layers.append(GINLayer(mlp, eps, train_eps))
+            self.batch_norm.append(nn.BatchNorm1d(hidden_dim))
+        self.linear_prediction = nn.ModuleList()
+        for i in range(self.num_layers):
+            if i == 0:
+                self.linear_prediction.append(nn.Linear(in_feats, out_feats))
+            else:
+                self.linear_prediction.append(nn.Linear(hidden_dim, out_feats))
+        self.dropout = nn.Dropout(dropout)
+        self.criterion = torch.nn.CrossEntropyLoss()
+
+    def forward(self, x, edge_index, batch, edge_weight=None, label=None):
+        h = x
+        layer_rep = [h]
+        for i in range(self.num_layers - 1):
+            h = self.gin_layers[i](h, edge_index)
+            h = self.batch_norm[i](h)
+            h = F.relu(h)
+            layer_rep.append(h)
+        final_score = 0
+        for i in range(self.num_layers):
+            pooled = scatter_add(layer_rep[i], batch, dim=0)
+            final_score += self.dropout(self.linear_prediction[i](pooled))
+        final_score = F.softmax(final_score, dim=-1)
+        if label is not None:
+            loss = self.loss(final_score, label)
+            return final_score, loss
+        return final_score, None
+
+    def loss(self, output, label=None):
+        return self.criterion(output, label)
+
+
+class Graphsage(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--hidden-size', type=int, nargs='+', default=[128])
+        parser.add_argument('--num-layers', type=int, default=2)
+        parser.add_argument('--sample-size', type=int, nargs='+', default=[10, 10])
+        parser.add_argument('--dropout', type=float, default=0.5)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.num_classes, args.hidden_size, args.num_layers, args.sample_size, args.dropout)
+
+    def sampler(self, edge_index, num_sample):
+        if self.adjlist == {}:
+            edge_index = edge_index.t().cpu().tolist()
+            for i in edge_index:
+                if not i[0] in self.adjlist:
+                    self.adjlist[i[0]] = [i[1]]
+                else:
+                    self.adjlist[i[0]].append(i[1])
+        sample_list = []
+        for i in self.adjlist:
+            list = [[i, j] for j in self.adjlist[i]]
+            if len(list) > num_sample:
+                list = random.sample(list, num_sample)
+            sample_list.extend(list)
+        edge_idx = torch.LongTensor(sample_list).t()
+        return edge_idx
+
+    def __init__(self, num_features, num_classes, hidden_size, num_layers, sample_size, dropout):
+        super(Graphsage, self).__init__()
+        self.adjlist = {}
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.sample_size = sample_size
+        self.dropout = dropout
+        shapes = [num_features] + hidden_size + [num_classes]
+        None
+        self.convs = nn.ModuleList([MeanAggregator(shapes[layer], shapes[layer + 1], cached=True) for layer in range(num_layers)])
+
+    def forward(self, x, edge_index):
+        for i in range(self.num_layers):
+            edge_index_sp = self.sampler(edge_index, self.sample_size[i])
+            adj_sp = torch.sparse_coo_tensor(edge_index_sp, torch.ones(edge_index_sp.shape[1]).float(), (x.shape[0], x.shape[0]))
+            x = self.convs[i](x, adj_sp)
+            if i != self.num_layers - 1:
+                x = F.relu(x)
+                x = F.dropout(x, p=self.dropout, training=self.training)
+        return F.log_softmax(x, dim=1)
+
+    def loss(self, data):
+        return F.nll_loss(self.forward(data.x, data.edge_index)[data.train_mask], data.y[data.train_mask])
+
+    def predict(self, data):
+        return self.forward(data.x, data.edge_index)
+
+
 class SUPEncoder(torch.nn.Module):
 
     def __init__(self, num_features, dim, num_layers=1):
@@ -478,34 +1393,15 @@ class SUPEncoder(torch.nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, in_feats, hidden_dim, num_layers=3, num_mlp_layers=2, pooling='sum'):
+    def __init__(self, in_channels, hidden_channels):
         super(Encoder, self).__init__()
-        self.num_layers = num_layers
-        self.gnn_layers = nn.ModuleList()
-        self.bn_layers = nn.ModuleList()
-        for i in range(num_layers):
-            if i == 0:
-                mlp = GINMLP(in_feats, hidden_dim, hidden_dim, num_mlp_layers, use_bn=True)
-            else:
-                mlp = GINMLP(hidden_dim, hidden_dim, hidden_dim, num_mlp_layers, use_bn=True)
-            self.gnn_layers.append(GINLayer(mlp, eps=0, train_eps=True))
-            self.bn_layers.append(nn.BatchNorm1d(hidden_dim))
-        if pooling == 'sum':
-            self.pooling = scatter_add
-        else:
-            raise NotImplementedError
+        self.conv = GCNConv(in_channels, hidden_channels, cached=True)
+        self.prelu = nn.PReLU(hidden_channels)
 
-    def forward(self, x, edge_index, batch):
-        if x is None:
-            x = torch.ones((batch.shape[0], 1))
-        layer_rep = []
-        for i in range(self.num_layers):
-            x = F.relu(self.bn_layers[i](self.gnn_layers[i](x, edge_index)))
-            layer_rep.append(x)
-        pooled_rep = [self.pooling(h, batch, 0) for h in layer_rep]
-        node_rep = torch.cat(layer_rep, dim=1)
-        graph_rep = torch.cat(pooled_rep, dim=1)
-        return graph_rep, node_rep
+    def forward(self, x, edge_index):
+        x = self.conv(x, edge_index)
+        x = self.prelu(x)
+        return x
 
 
 class FF(nn.Module):
@@ -519,17 +1415,445 @@ class FF(nn.Module):
         return F.relu(self.block(x)) + self.shortcut(x)
 
 
-class Encoder(nn.Module):
+class InfoGraph(BaseModel):
 
-    def __init__(self, in_channels, hidden_channels):
-        super(Encoder, self).__init__()
-        self.conv = GCNConv(in_channels, hidden_channels, cached=True)
-        self.prelu = nn.PReLU(hidden_channels)
+    @staticmethod
+    def add_args(parser):
+        parser.add_argument('--hidden-size', type=int, default=64)
+        parser.add_argument('--batch-size', type=int, default=20)
+        parser.add_argument('--target', dest='target', type=int, default=0, help='')
+        parser.add_argument('--train-num', dest='train_num', type=int, default=5000)
+        parser.add_argument('--num-layers', type=int, default=3)
+        parser.add_argument('--use-unsupervised', dest='use_unsup', action='store_true')
+        parser.add_argument('--epochs', type=int, default=40)
+        parser.add_argument('--nn', type=bool, default=True)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.hidden_size, args.num_classes, args.num_layers, args.use_unsup)
+
+    @classmethod
+    def split_dataset(cls, dataset, args):
+        if args.dataset == 'QM9':
+            test_dataset = dataset[:10000]
+            val_dataset = dataset[10000:20000]
+            train_dataset = dataset[20000:20000 + args.train_num]
+            return DataLoader(train_dataset, batch_size=args.batch_size), DataLoader(val_dataset, batch_size=args.batch_size), DataLoader(test_dataset, batch_size=args.batch_size)
+        else:
+            test_index = random.sample(range(len(dataset)), len(dataset) // 10)
+            train_index = [x for x in range(len(dataset)) if x not in test_index]
+            train_dataset = [dataset[i] for i in train_index]
+            test_dataset = [dataset[i] for i in test_index]
+            train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
+            test_loader = DataLoader(test_dataset, batch_size=args.batch_size)
+            return train_loader, test_loader, test_loader
+
+    def __init__(self, in_feats, hidden_dim, out_feats, num_layers=3, unsup=True):
+        super(InfoGraph, self).__init__()
+        self.unsup = unsup
+        self.emb_dim = hidden_dim
+        self.out_feats = out_feats
+        self.sem_fc1 = nn.Linear(num_layers * hidden_dim, hidden_dim)
+        self.sem_fc2 = nn.Linear(hidden_dim, out_feats)
+        if unsup:
+            self.unsup_encoder = Encoder(in_feats, hidden_dim, num_layers)
+            self.register_parameter('sem_encoder', None)
+        else:
+            self.unsup_encoder = SUPEncoder(in_feats, hidden_dim, num_layers)
+            self.sem_encoder = Encoder(in_feats, hidden_dim, num_layers)
+        self._fc1 = FF(num_layers * hidden_dim, hidden_dim)
+        self._fc2 = FF(num_layers * hidden_dim, hidden_dim)
+        self.local_dis = FF(num_layers * hidden_dim, hidden_dim)
+        self.global_dis = FF(num_layers * hidden_dim, hidden_dim)
+        self.criterion = nn.MSELoss()
+
+    def reset_parameters(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight.data)
+
+    def forward(self, x, edge_index=None, batch=None, label=None):
+        if self.unsup:
+            return self.unsup_forward(x, edge_index, batch)
+        else:
+            return self.sup_forward(x, edge_index, batch, label)
+
+    def sup_forward(self, x, edge_index=None, batch=None, label=None):
+        node_feat, graph_feat = self.sem_encoder(x, edge_index, batch)
+        node_feat = F.relu(self.sem_fc1(node_feat))
+        node_feat = self.sem_fc2(node_feat)
+        prediction = F.softmax(node_feat, dim=1)
+        if label is not None:
+            loss = self.sup_loss(prediction, label)
+            loss += self.unsup_loss(x, edge_index, batch)
+            loss += self.unsup_sup_loss(x, edge_index, batch)
+            return prediction, loss
+        return prediction, None
+
+    def unsup_forward(self, x, edge_index=None, batch=None):
+        return self.unsup_loss(x, edge_index, batch)
+
+    def sup_loss(self, prediction, label=None):
+        sup_loss = self.criterion(prediction, label)
+        return sup_loss
+
+    def unsup_loss(self, x, edge_index=None, batch=None):
+        graph_feat, node_feat = self.unsup_encoder(x, edge_index, batch)
+        local_encode = self.local_dis(node_feat)
+        global_encode = self.global_dis(graph_feat)
+        num_graphs = graph_feat.shape[0]
+        num_nodes = node_feat.shape[0]
+        pos_mask = torch.zeros((num_nodes, num_graphs))
+        neg_mask = torch.ones((num_nodes, num_graphs))
+        for nid, gid in enumerate(batch):
+            pos_mask[nid][gid] = 1
+            neg_mask[nid][gid] = 0
+        glob_local_mi = torch.mm(local_encode, global_encode.t())
+        loss = InfoGraph.mi_loss(pos_mask, neg_mask, glob_local_mi, num_nodes, num_nodes * (num_graphs - 1))
+        return graph_feat, loss
+
+    def unsup_sup_loss(self, x, edge_index, batch):
+        sem_g_feat, _ = self.sem_encoder(x, edge_index, batch)
+        un_g_feat, _ = self.unsup_encoder(x, edge_index, batch)
+        sem_encode = self._fc1(sem_g_feat)
+        un_encode = self._fc2(un_g_feat)
+        num_graphs = sem_encode.shape[1]
+        pos_mask = torch.eye(num_graphs)
+        neg_mask = 1 - pos_mask
+        mi = torch.mm(sem_encode, un_encode.t())
+        loss = InfoGraph.mi_loss(pos_mask, neg_mask, mi, pos_mask.sum(), neg_mask.sum())
+        return loss
+
+    @staticmethod
+    def mi_loss(pos_mask, neg_mask, mi, pos_div, neg_div):
+        pos_mi = pos_mask * mi
+        neg_mi = neg_mask * mi
+        pos_loss = F.softplus(-pos_mi).sum()
+        neg_loss = F.softplus(neg_mi).sum()
+        return pos_loss / pos_div + neg_loss / neg_div
+
+
+class MLP(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--hidden-size', type=int, default=16)
+        parser.add_argument('--num-layers', type=int, default=2)
+        parser.add_argument('--dropout', type=float, default=0.5)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.num_classes, args.hidden_size, args.num_layers, args.dropout)
+
+    def __init__(self, num_features, num_classes, hidden_size, num_layers, dropout):
+        super(MLP, self).__init__()
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.dropout = dropout
+        shapes = [num_features] + [hidden_size] * (num_layers - 1) + [num_classes]
+        self.mlp = nn.ModuleList([nn.Linear(shapes[layer], shapes[layer + 1]) for layer in range(num_layers)])
 
     def forward(self, x, edge_index):
-        x = self.conv(x, edge_index)
-        x = self.prelu(x)
-        return x
+        for fc in self.mlp[:-1]:
+            x = F.relu(fc(x))
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.mlp[-1](x)
+        return F.log_softmax(x, dim=1)
+
+    def loss(self, data):
+        return F.nll_loss(self.forward(data.x, data.edge_index)[data.train_mask], data.y[data.train_mask])
+
+    def predict(self, data):
+        return self.forward(data.x, data.edge_index)
+
+
+class Chebyshev(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--hidden-size', type=int, default=64)
+        parser.add_argument('--num-layers', type=int, default=2)
+        parser.add_argument('--dropout', type=float, default=0.5)
+        parser.add_argument('--filter-size', type=int, default=5)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.num_classes, args.hidden_size, args.num_layers, args.dropout, args.filter_size)
+
+    def __init__(self, num_features, num_classes, hidden_size, num_layers, dropout, filter_size):
+        super(Chebyshev, self).__init__()
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.filter_size = filter_size
+        shapes = [num_features] + [hidden_size] * (num_layers - 1) + [num_classes]
+        self.convs = nn.ModuleList([ChebConv(shapes[layer], shapes[layer + 1], filter_size) for layer in range(num_layers)])
+
+    def forward(self, x, edge_index):
+        for conv in self.convs[:-1]:
+            x = F.relu(conv(x, edge_index))
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.convs[-1](x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+    def loss(self, data):
+        return F.nll_loss(self.forward(data.x, data.edge_index)[data.train_mask], data.y[data.train_mask])
+
+    def predict(self, data):
+        return self.forward(data.x, data.edge_index)
+
+
+class DrGAT(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--hidden-size', type=int, default=8)
+        parser.add_argument('--num-heads', type=int, default=8)
+        parser.add_argument('--dropout', type=float, default=0.6)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.num_classes, args.hidden_size, args.num_heads, args.dropout)
+
+    def __init__(self, num_features, num_classes, hidden_size, num_heads, dropout):
+        super(DrGAT, self).__init__()
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.hidden_size = hidden_size
+        self.num_heads = num_heads
+        self.dropout = dropout
+        self.conv1 = GATConv(num_features, hidden_size, heads=num_heads, dropout=dropout)
+        self.conv2 = GATConv(hidden_size * num_heads, num_classes, dropout=dropout)
+        self.se1 = SELayer(num_features, se_channels=int(np.sqrt(num_features)))
+        self.se2 = SELayer(hidden_size * num_heads, se_channels=int(np.sqrt(hidden_size * num_heads)))
+
+    def forward(self, x, edge_index):
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.se1(x)
+        x = F.elu(self.conv1(x, edge_index))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.se2(x)
+        x = F.elu(self.conv2(x, edge_index))
+        return F.log_softmax(x, dim=1)
+
+    def loss(self, data):
+        return F.nll_loss(self.forward(data.x, data.edge_index)[data.train_mask], data.y[data.train_mask])
+
+    def predict(self, data):
+        return self.forward(data.x, data.edge_index)
+
+
+class DrGCN(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--hidden-size', type=int, default=16)
+        parser.add_argument('--num-layers', type=int, default=2)
+        parser.add_argument('--dropout', type=float, default=0.5)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.num_classes, args.hidden_size, args.num_layers, args.dropout)
+
+    def __init__(self, num_features, num_classes, hidden_size, num_layers, dropout):
+        super(DrGCN, self).__init__()
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.dropout = dropout
+        shapes = [num_features] + [hidden_size] * (num_layers - 1) + [num_classes]
+        self.convs = nn.ModuleList([GCNConv(shapes[layer], shapes[layer + 1], cached=True) for layer in range(num_layers)])
+        self.ses = nn.ModuleList([SELayer(shapes[layer], se_channels=int(np.sqrt(shapes[layer]))) for layer in range(num_layers)])
+
+    def forward(self, x, edge_index):
+        x = self.ses[0](x)
+        for se, conv in zip(self.ses[1:], self.convs[:-1]):
+            x = F.relu(conv(x, edge_index))
+            x = se(x)
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.convs[-1](x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+    def loss(self, data):
+        return F.nll_loss(self.forward(data.x, data.edge_index)[data.train_mask], data.y[data.train_mask])
+
+    def predict(self, data):
+        return self.forward(data.x, data.edge_index)
+
+
+class GAT(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--hidden-size', type=int, default=8)
+        parser.add_argument('--num-heads', type=int, default=8)
+        parser.add_argument('--dropout', type=float, default=0.6)
+        parser.add_argument('--lr', type=float, default=0.005)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.num_classes, args.hidden_size, args.num_heads, args.dropout)
+
+    def __init__(self, num_features, num_classes, hidden_size, num_heads, dropout):
+        super(GAT, self).__init__()
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.hidden_size = hidden_size
+        self.num_heads = num_heads
+        self.dropout = dropout
+        self.conv1 = GATConv(num_features, hidden_size, heads=num_heads, dropout=dropout)
+        self.conv2 = GATConv(hidden_size * num_heads, num_classes, dropout=dropout)
+
+    def forward(self, x, edge_index):
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = F.elu(self.conv1(x, edge_index))
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = F.elu(self.conv2(x, edge_index))
+        return F.log_softmax(x, dim=1)
+
+    def loss(self, data):
+        return F.nll_loss(self.forward(data.x, data.edge_index)[data.train_mask], data.y[data.train_mask])
+
+    def predict(self, data):
+        return self.forward(data.x, data.edge_index)
+
+
+class GCN(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--hidden-size', type=int, default=64)
+        parser.add_argument('--num-layers', type=int, default=2)
+        parser.add_argument('--dropout', type=float, default=0.5)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.num_classes, args.hidden_size, args.num_layers, args.dropout)
+
+    def __init__(self, num_features, num_classes, hidden_size, num_layers, dropout):
+        super(GCN, self).__init__()
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.dropout = dropout
+        shapes = [num_features] + [hidden_size] * (num_layers - 1) + [num_classes]
+        self.convs = nn.ModuleList([GCNConv(shapes[layer], shapes[layer + 1], cached=True) for layer in range(num_layers)])
+
+    def forward(self, x, edge_index):
+        for conv in self.convs[:-1]:
+            x = F.relu(conv(x, edge_index))
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.convs[-1](x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+    def loss(self, data):
+        return F.nll_loss(self.forward(data.x, data.edge_index)[data.train_mask], data.y[data.train_mask])
+
+    def predict(self, data):
+        return self.forward(data.x, data.edge_index)
+
+
+def corruption(x, edge_index):
+    return x[torch.randperm(x.size(0))], edge_index
+
+
+class Infomax(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--hidden-size', type=int, default=512)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.num_classes, args.hidden_size)
+
+    def __init__(self, num_features, num_classes, hidden_size):
+        super(Infomax, self).__init__()
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.hidden_size = hidden_size
+        self.model = DeepGraphInfomax(hidden_channels=hidden_size, encoder=Encoder(num_features, hidden_size), summary=lambda z, *args, **kwargs: torch.sigmoid(z.mean(dim=0)), corruption=corruption)
+
+    def forward(self, x, edge_index):
+        return self.model(x, edge_index)
+
+    def loss(self, data):
+        pos_z, neg_z, summary = self.forward(data.x, data.edge_index)
+        loss = self.model.loss(pos_z, neg_z, summary)
+        return loss
+
+    def predict(self, data):
+        z, _, _ = self.forward(data.x, data.edge_index)
+        clf = LogisticRegression(solver='lbfgs', multi_class='auto', max_iter=150)
+        clf.fit(z[data.train_mask].detach().cpu().numpy(), data.y[data.train_mask].detach().cpu().numpy())
+        logits = torch.Tensor(clf.predict_proba(z.detach().cpu().numpy()))
+        if z.is_cuda:
+            logits = logits
+        return logits
+
+
+class UNet(BaseModel):
+
+    @staticmethod
+    def add_args(parser):
+        """Add model-specific arguments to the parser."""
+        parser.add_argument('--num-features', type=int)
+        parser.add_argument('--num-classes', type=int)
+        parser.add_argument('--hidden-size', type=int, default=64)
+        parser.add_argument('--num-layers', type=int, default=2)
+        parser.add_argument('--dropout', type=float, default=0.5)
+
+    @classmethod
+    def build_model_from_args(cls, args):
+        return cls(args.num_features, args.num_classes, args.hidden_size, args.num_layers, args.dropout)
+
+    def __init__(self, num_features, num_classes, hidden_size, num_layers, dropout):
+        super(UNet, self).__init__()
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.unet = GraphUNet(num_features, hidden_size, num_classes, depth=3, pool_ratios=[0.5, 0.5])
+
+    def forward(self, x, edge_index):
+        edge_index, _ = dropout_adj(edge_index, p=0.2, force_undirected=True, num_nodes=x.shape[0], training=self.training)
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.unet(x, edge_index)
+        return F.log_softmax(x, dim=1)
+
+    def loss(self, data):
+        return F.nll_loss(self.forward(data.x, data.edge_index)[data.train_mask], data.y[data.train_mask])
+
+    def predict(self, data):
+        return self.forward(data.x, data.edge_index)
 
 
 import torch
@@ -543,6 +1867,10 @@ TESTCASES = [
      lambda: ([], {'in_feats': 4, 'out_feats': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (GATNEModel,
+     lambda: ([], {'num_nodes': 4, 'embedding_size': 4, 'embedding_u_size': 4, 'edge_type_count': 4, 'dim_a': 4}),
+     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64), torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     True),
     (GINMLP,
      lambda: ([], {'in_feats': 4, 'out_feats': 4, 'hidden_dim': 4, 'num_layers': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -550,6 +1878,14 @@ TESTCASES = [
     (GraphAttentionLayer,
      lambda: ([], {'in_features': 4, 'out_features': 4, 'dropout': 0.5, 'alpha': 4}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MLP,
+     lambda: ([], {'num_features': 4, 'num_classes': 4, 'hidden_size': 4, 'num_layers': 1, 'dropout': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PetarVGAT,
+     lambda: ([], {'nfeat': 4, 'nhid': 4, 'nclass': 4, 'dropout': 0.5, 'alpha': 4, 'nheads': 4}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
 ]
 
@@ -562,4 +1898,13 @@ class Test_THUDM_cogdl(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
 

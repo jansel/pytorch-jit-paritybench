@@ -27,23 +27,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import numpy as np
-
-
 import torch
+
+
+import numpy as np
 
 
 from torch.nn import Module
@@ -58,10 +59,16 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 
 
+from torchvision import transforms
+
+
 from numpy.linalg import solve
 
 
 from scipy.interpolate import RectBivariateSpline as RBS
+
+
+from collections import OrderedDict
 
 
 import torch.nn as nn
@@ -272,13 +279,13 @@ def acquire_weights(UV_weight_npy):
         return np.load(UV_weight_npy)
     else:
         mask_name = UV_weight_npy.replace('weights.npy', 'mask.png')
-        print(mask_name)
+        None
         UV_mask = imread(mask_name)
         if UV_mask.ndim == 3:
             UV_mask = UV_mask[:, :, (0)]
         ret, labels = connectedComponents(UV_mask, connectivity=4)
         unique, counts = np.unique(labels, return_counts=True)
-        print(unique, counts)
+        None
         UV_weights = np.zeros_like(UV_mask).astype(np.float32)
         for id, count in zip(unique, counts):
             if id == 0:

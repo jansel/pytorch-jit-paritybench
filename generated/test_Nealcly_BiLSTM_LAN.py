@@ -23,15 +23,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -510,29 +511,6 @@ class CRF(nn.Module):
         return path_score, decode_idx
 
 
-class LSTM_attention(nn.Module):
-    """ Compose with two layers """
-
-    def __init__(self, lstm_hidden, bilstm_flag, data):
-        super(LSTM_attention, self).__init__()
-        self.lstm = nn.LSTM(lstm_hidden * 4, lstm_hidden, num_layers=1, batch_first=True, bidirectional=bilstm_flag)
-        self.label_attn = multihead_attention(data.HP_hidden_dim, num_heads=data.num_attention_head, dropout_rate=data.HP_dropout)
-        self.droplstm = nn.Dropout(data.HP_dropout)
-        self.gpu = data.HP_gpu
-        if self.gpu:
-            self.lstm = self.lstm
-            self.label_attn = self.label_attn
-
-    def forward(self, lstm_out, label_embs, word_seq_lengths, hidden):
-        lstm_out = pack_padded_sequence(input=lstm_out, lengths=word_seq_lengths.cpu().numpy(), batch_first=True)
-        lstm_out, hidden = self.lstm(lstm_out, hidden)
-        lstm_out, _ = pad_packed_sequence(lstm_out)
-        lstm_out = self.droplstm(lstm_out.transpose(1, 0))
-        label_attention_output = self.label_attn(lstm_out, label_embs, label_embs)
-        lstm_out = torch.cat([lstm_out, label_attention_output], -1)
-        return lstm_out
-
-
 class multihead_attention(nn.Module):
 
     def __init__(self, num_units, num_heads=1, dropout_rate=0, gpu=True, causality=False):
@@ -582,50 +560,27 @@ class multihead_attention(nn.Module):
         return outputs
 
 
-class SeqModel(nn.Module):
+class LSTM_attention(nn.Module):
+    """ Compose with two layers """
 
-    def __init__(self, data):
-        super(SeqModel, self).__init__()
-        self.use_crf = data.use_crf
-        None
-        None
-        if data.use_char:
-            None
-        None
+    def __init__(self, lstm_hidden, bilstm_flag, data):
+        super(LSTM_attention, self).__init__()
+        self.lstm = nn.LSTM(lstm_hidden * 4, lstm_hidden, num_layers=1, batch_first=True, bidirectional=bilstm_flag)
+        self.label_attn = multihead_attention(data.HP_hidden_dim, num_heads=data.num_attention_head, dropout_rate=data.HP_dropout)
+        self.droplstm = nn.Dropout(data.HP_dropout)
         self.gpu = data.HP_gpu
-        self.average_batch = data.average_batch_loss
-        label_size = data.label_alphabet_size
-        self.word_hidden = WordSequence(data)
-        if self.use_crf:
-            self.crf = CRF(label_size, self.gpu)
+        if self.gpu:
+            self.lstm = self.lstm
+            self.label_attn = self.label_attn
 
-    def neg_log_likelihood_loss(self, word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, batch_label, mask, input_label_seq_tensor):
-        outs = self.word_hidden(word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, input_label_seq_tensor)
-        batch_size = word_inputs.size(0)
-        seq_len = word_inputs.size(1)
-        if self.use_crf:
-            total_loss = self.crf.neg_log_likelihood_loss(outs, mask, batch_label)
-            scores, tag_seq = self.crf._viterbi_decode(outs, mask)
-        else:
-            loss_function = nn.NLLLoss(ignore_index=0, size_average=False)
-            outs = outs.view(batch_size * seq_len, -1)
-            score = F.log_softmax(outs, 1)
-            total_loss = loss_function(score, batch_label.view(batch_size * seq_len))
-            _, tag_seq = torch.max(score, 1)
-            tag_seq = tag_seq.view(batch_size, seq_len)
-        if self.average_batch:
-            total_loss = total_loss / batch_size
-        return total_loss, tag_seq
-
-    def forward(self, word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, mask, input_label_seq_tensor):
-        outs = self.word_hidden(word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, input_label_seq_tensor)
-        batch_size = word_inputs.size(0)
-        seq_len = word_inputs.size(1)
-        outs = outs.view(batch_size * seq_len, -1)
-        _, tag_seq = torch.max(outs, 1)
-        tag_seq = tag_seq.view(batch_size, seq_len)
-        tag_seq = mask.long() * tag_seq
-        return tag_seq
+    def forward(self, lstm_out, label_embs, word_seq_lengths, hidden):
+        lstm_out = pack_padded_sequence(input=lstm_out, lengths=word_seq_lengths.cpu().numpy(), batch_first=True)
+        lstm_out, hidden = self.lstm(lstm_out, hidden)
+        lstm_out, _ = pad_packed_sequence(lstm_out)
+        lstm_out = self.droplstm(lstm_out.transpose(1, 0))
+        label_attention_output = self.label_attn(lstm_out, label_embs, label_embs)
+        lstm_out = torch.cat([lstm_out, label_attention_output], -1)
+        return lstm_out
 
 
 class WordRep(nn.Module):
@@ -801,6 +756,52 @@ class WordSequence(nn.Module):
         lstm_out = self.droplstm(lstm_out.transpose(1, 0))
         lstm_out = self.self_attention_last(lstm_out, label_embs, label_embs, True)
         return lstm_out
+
+
+class SeqModel(nn.Module):
+
+    def __init__(self, data):
+        super(SeqModel, self).__init__()
+        self.use_crf = data.use_crf
+        None
+        None
+        if data.use_char:
+            None
+        None
+        self.gpu = data.HP_gpu
+        self.average_batch = data.average_batch_loss
+        label_size = data.label_alphabet_size
+        self.word_hidden = WordSequence(data)
+        if self.use_crf:
+            self.crf = CRF(label_size, self.gpu)
+
+    def neg_log_likelihood_loss(self, word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, batch_label, mask, input_label_seq_tensor):
+        outs = self.word_hidden(word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, input_label_seq_tensor)
+        batch_size = word_inputs.size(0)
+        seq_len = word_inputs.size(1)
+        if self.use_crf:
+            total_loss = self.crf.neg_log_likelihood_loss(outs, mask, batch_label)
+            scores, tag_seq = self.crf._viterbi_decode(outs, mask)
+        else:
+            loss_function = nn.NLLLoss(ignore_index=0, size_average=False)
+            outs = outs.view(batch_size * seq_len, -1)
+            score = F.log_softmax(outs, 1)
+            total_loss = loss_function(score, batch_label.view(batch_size * seq_len))
+            _, tag_seq = torch.max(score, 1)
+            tag_seq = tag_seq.view(batch_size, seq_len)
+        if self.average_batch:
+            total_loss = total_loss / batch_size
+        return total_loss, tag_seq
+
+    def forward(self, word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, mask, input_label_seq_tensor):
+        outs = self.word_hidden(word_inputs, feature_inputs, word_seq_lengths, char_inputs, char_seq_lengths, char_seq_recover, input_label_seq_tensor)
+        batch_size = word_inputs.size(0)
+        seq_len = word_inputs.size(1)
+        outs = outs.view(batch_size * seq_len, -1)
+        _, tag_seq = torch.max(outs, 1)
+        tag_seq = tag_seq.view(batch_size, seq_len)
+        tag_seq = mask.long() * tag_seq
+        return tag_seq
 
 
 import torch

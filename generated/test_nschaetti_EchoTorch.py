@@ -88,17 +88,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+from torch.utils.data.dataset import Dataset
+
+
+import numpy as np
+
+
+from random import shuffle
+
+
+import collections
+
+
+import math
 
 
 import torchvision
@@ -110,22 +129,34 @@ import torch.nn as nn
 import torch.sparse
 
 
-import torch
-
-
 from torch.autograd import Variable
-
-
-import numpy as np
 
 
 import torch.nn.functional as F
 
 
-import math
+from sklearn.decomposition import IncrementalPCA
+
+
+import math as m
+
+
+from scipy.interpolate import interp1d
+
+
+import numpy.linalg as lin
+
+
+from sklearn.decomposition import PCA
 
 
 from torch.utils.data.dataloader import DataLoader
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import torch.optim as optim
@@ -177,6 +208,542 @@ class NilsNet(nn.Module):
         :return:
         """
         return self.feature_selector(x)
+
+
+class ESNCell(nn.Module):
+    """
+    Echo State Network layer
+    """
+
+    def __init__(self, input_dim, output_dim, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, w_fdb=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh, feedbacks=False, feedbacks_dim=None, wfdb_sparsity=None, normalize_feedbacks=False, seed=None, w_distrib='uniform', win_distrib='uniform', wbias_distrib='uniform', win_normal=(0.0, 1.0), w_normal=(0.0, 1.0), wbias_normal=(0.0, 1.0), dtype=torch.float32):
+        """
+        Constructor
+        :param input_dim: Inputs dimension.
+        :param output_dim: Reservoir size
+        :param spectral_radius: Reservoir's spectral radius
+        :param bias_scaling: Scaling of the bias, a constant input to each neuron (default: 0, no bias)
+        :param input_scaling: Scaling of the input weight matrix, default 1.
+        :param w: Internation weights matrix
+        :param w_in: Input-reservoir weights matrix
+        :param w_bias: Bias weights matrix
+        :param sparsity:
+        :param input_set:
+        :param w_sparsity:
+        :param nonlin_func: Reservoir's activation function (tanh, sig, relu)
+        """
+        super(ESNCell, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.spectral_radius = spectral_radius
+        self.bias_scaling = bias_scaling
+        self.input_scaling = input_scaling
+        self.sparsity = sparsity
+        self.input_set = input_set
+        self.w_sparsity = w_sparsity
+        self.nonlin_func = nonlin_func
+        self.feedbacks = feedbacks
+        self.feedbacks_dim = feedbacks_dim
+        self.wfdb_sparsity = wfdb_sparsity
+        self.normalize_feedbacks = normalize_feedbacks
+        self.w_distrib = w_distrib
+        self.win_distrib = win_distrib
+        self.wbias_distrib = wbias_distrib
+        self.win_normal = win_normal
+        self.w_normal = w_normal
+        self.wbias_normal = wbias_normal
+        self.dtype = dtype
+        self.register_buffer('hidden', self.init_hidden())
+        self.register_buffer('w_in', self._generate_win(w_in, seed=seed))
+        self.register_buffer('w', self._generate_w(w, seed=seed))
+        self.register_buffer('w_bias', self._generate_wbias(w_bias, seed=seed))
+        if feedbacks:
+            self.register_buffer('w_fdb', self._generate_wfdb(w_fdb, seed=seed))
+
+    def forward(self, u, y=None, w_out=None, reset_state=True):
+        """
+        Forward
+        :param u: Input signal
+        :param y: Target output signal for teacher forcing
+        :param w_out: Output weights for teacher forcing
+        :return: Resulting hidden states
+        """
+        time_length = int(u.size()[1])
+        n_batches = int(u.size()[0])
+        outputs = Variable(torch.zeros(n_batches, time_length, self.output_dim, dtype=self.dtype))
+        outputs = outputs if self.hidden.is_cuda else outputs
+        for b in range(n_batches):
+            if reset_state:
+                self.reset_hidden()
+            for t in range(time_length):
+                ut = u[b, t]
+                u_win = self.w_in.mv(ut)
+                x_w = self.w.mv(self.hidden)
+                if self.feedbacks and self.training and y is not None:
+                    yt = y[b, t]
+                    y_wfdb = self.w_fdb.mv(yt)
+                    x = u_win + x_w + y_wfdb + self.w_bias
+                elif self.feedbacks and not self.training and w_out is not None:
+                    bias_hidden = torch.cat((Variable(torch.ones(1)), self.hidden), dim=0)
+                    yt = w_out.t().mv(bias_hidden)
+                    if self.normalize_feedbacks:
+                        yt -= torch.min(yt)
+                        yt /= torch.max(yt) - torch.min(yt)
+                        yt /= torch.sum(yt)
+                    y_wfdb = self.w_fdb.mv(yt)
+                    x = u_win + x_w + y_wfdb + self.w_bias
+                else:
+                    x = u_win + x_w + self.w_bias
+                x = self.nonlin_func(x)
+                self.hidden.data = x.view(self.output_dim).data
+                outputs[b, t] = self.hidden
+        return outputs
+
+    def init_hidden(self):
+        """
+        Init hidden layer
+        :return: Initiated hidden layer
+        """
+        return Variable(torch.zeros(self.output_dim, dtype=self.dtype), requires_grad=False)
+
+    def reset_hidden(self):
+        """
+        Reset hidden layer
+        :return:
+        """
+        self.hidden.fill_(0.0)
+
+    def set_hidden(self, x):
+        """
+        Set hidden layer
+        :param x:
+        :return:
+        """
+        self.hidden.data = x.data
+
+    def get_spectral_radius(self):
+        """
+        Get W's spectral radius
+        :return: W's spectral radius
+        """
+        return echotorch.utils.spectral_radius(self.w)
+
+    def _generate_w(self, w, seed=None):
+        """
+        Generate W matrix
+        :return:
+        """
+        if w is None:
+            w = self.generate_w(output_dim=self.output_dim, w_distrib=self.w_distrib, w_sparsity=self.w_sparsity, mean=self.w_normal[0], std=self.w_normal[1], seed=seed, dtype=self.dtype)
+        elif callable(w):
+            w = w(self.output_dim)
+        w *= self.spectral_radius / echotorch.utils.spectral_radius(w)
+        return Variable(w, requires_grad=False)
+
+    def _generate_win(self, w_in, seed=None):
+        """
+        Generate Win matrix
+        :return:
+        """
+        if seed is not None:
+            np.random.seed(seed)
+            torch.random.manual_seed(seed)
+        if w_in is None:
+            if self.win_distrib == 'uniform':
+                w_in = self.generate_uniform_matrix(size=(self.output_dim, self.input_dim), sparsity=self.sparsity, input_set=self.input_set)
+                if self.dtype == torch.float32:
+                    w_in = torch.from_numpy(w_in.astype(np.float32))
+                else:
+                    w_in = torch.from_numpy(w_in.astype(np.float64))
+            else:
+                w_in = self.generate_gaussian_matrix(size=(self.output_dim, self.input_dim), sparsity=self.sparsity, mean=self.win_normal[0], std=self.win_normal[1], dtype=self.dtype)
+            w_in *= self.input_scaling
+        elif callable(w_in):
+            w_in = w_in(self.output_dim, self.input_dim)
+        return Variable(w_in, requires_grad=False)
+
+    def _generate_wbias(self, w_bias, seed=None):
+        """
+        Generate Wbias matrix
+        :return:
+        """
+        if seed is not None:
+            torch.manual_seed(seed)
+        if w_bias is None:
+            if self.w_distrib == 'uniform':
+                w_bias = self.generate_uniform_matrix(size=(1, self.output_dim), sparsity=1.0, input_set=[-1.0, 1.0])
+                if self.dtype == torch.float32:
+                    w_bias = torch.from_numpy(w_bias.astype(np.float32))
+                else:
+                    w_bias = torch.from_numpy(w_bias.astype(np.float64))
+            else:
+                w_bias = self.generate_gaussian_matrix(size=(1, self.output_dim), sparsity=1.0, mean=self.wbias_normal[0], std=self.wbias_normal[1], dtype=self.dtype)
+            w_bias *= self.bias_scaling
+        elif callable(w_bias):
+            w_bias = w_bias(self.output_dim)
+        return Variable(w_bias, requires_grad=False)
+
+    def _generate_wfdb(self, w_fdb, seed=None):
+        """
+        Generate Wfdb matrix
+        :return:
+        """
+        if seed is not None:
+            torch.manual_seed(seed)
+        if w_fdb is None:
+            if self.wfdb_sparsity is None:
+                w_fdb = self.input_scaling * (np.random.randint(0, 2, (self.output_dim, self.feedbacks_dim)) * 2.0 - 1.0)
+                w_fdb = torch.from_numpy(w_fdb.astype(np.float32))
+            else:
+                w_fdb = self.input_scaling * np.random.choice(np.append([0], self.input_set), (self.output_dim, self.feedbacks_dim), p=np.append([1.0 - self.wfdb_sparsity], [self.wfdb_sparsity / len(self.input_set)] * len(self.input_set)))
+                if self.dtype == torch.float32:
+                    w_fdb = torch.from_numpy(w_fdb.astype(np.float32))
+                else:
+                    w_fdb = torch.from_numpy(w_fdb.astype(np.float64))
+        elif callable(w_fdb):
+            w_fdb = w_fdb(self.output_dim, self.feedbacks_dim)
+        return Variable(w_fdb, requires_grad=False)
+
+    @staticmethod
+    def generate_uniform_matrix(size, sparsity, input_set):
+        """
+        Generate uniform Win matrix
+        :param w_in:
+        :param seed:
+        :return:
+        """
+        if sparsity is None:
+            w = np.random.randint(0, 2, size) * 2.0 - 1.0
+        else:
+            w = np.random.choice(np.append([0], input_set), size, p=np.append([1.0 - sparsity], [sparsity / len(input_set)] * len(input_set)))
+        return w
+
+    @staticmethod
+    def generate_gaussian_matrix(size, sparsity, mean=0.0, std=1.0, dtype=torch.float32):
+        """
+        Generate gaussian Win matrix
+        :return:
+        """
+        if sparsity is None:
+            w = torch.zeros(size, dtype=dtype)
+            w = w.normal_(mean=mean, std=std)
+        else:
+            w = torch.zeros(size, dtype=dtype)
+            w = w.normal_(mean=mean, std=std)
+            mask = torch.zeros(size, dtype=dtype)
+            mask.bernoulli_(p=sparsity)
+            w *= mask
+        return w
+
+    @staticmethod
+    def generate_w(output_dim, w_distrib='uniform', w_sparsity=None, mean=0.0, std=1.0, seed=None, dtype=torch.float32):
+        """
+        Generate W matrix
+        :param output_dim:
+        :param w_sparsity:
+        :return:
+        """
+        if seed is not None:
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+        if w_distrib == 'uniform':
+            w = ESNCell.generate_uniform_matrix(size=(output_dim, output_dim), sparsity=w_sparsity, input_set=[-1.0, 1.0])
+            w = torch.from_numpy(w.astype(np.float32))
+        else:
+            w = ESNCell.generate_gaussian_matrix(size=(output_dim, output_dim), sparsity=w_sparsity, mean=mean, std=std, dtype=dtype)
+        return w
+
+    @staticmethod
+    def to_sparse(m):
+        """
+        To sparse matrix
+        :param m:
+        :return:
+        """
+        rows = torch.LongTensor()
+        columns = torch.LongTensor()
+        values = torch.FloatTensor()
+        for i in range(m.shape[0]):
+            for j in range(m.shape[1]):
+                if m[i, j] != 0.0:
+                    rows = torch.cat((rows, torch.LongTensor([i])), dim=0)
+                    columns = torch.cat((columns, torch.LongTensor([j])), dim=0)
+                    values = torch.cat((values, torch.FloatTensor([m[i, j]])), dim=0)
+        indices = torch.cat((rows.unsqueeze(0), columns.unsqueeze(0)), dim=0)
+        return torch.sparse.FloatTensor(indices, values)
+
+
+class LiESNCell(ESNCell):
+    """
+    Leaky-Integrated Echo State Network layer
+    """
+
+    def __init__(self, leaky_rate=1.0, train_leaky_rate=False, *args, **kwargs):
+        """
+        Constructor
+        :param leaky_rate: Reservoir's leaky rate (default 1.0, normal ESN)
+        :param train_leaky_rate: Train leaky rate as parameter? (default: False)
+        """
+        super(LiESNCell, self).__init__(*args, **kwargs)
+        if self.dtype == torch.float32:
+            tensor_type = torch.FloatTensor
+        else:
+            tensor_type = torch.DoubleTensor
+        if train_leaky_rate:
+            self.leaky_rate = nn.Parameter(tensor_type(1).fill_(leaky_rate), requires_grad=True)
+        else:
+            self.register_buffer('leaky_rate', Variable(tensor_type(1).fill_(leaky_rate), requires_grad=False))
+
+    def forward(self, u, y=None, w_out=None, reset_state=True):
+        """
+        Forward
+        :param u: Input signal.
+        :return: Resulting hidden states.
+        """
+        time_length = int(u.size()[1])
+        n_batches = int(u.size()[0])
+        outputs = Variable(torch.zeros(n_batches, time_length, self.output_dim, dtype=self.dtype))
+        outputs = outputs if self.hidden.is_cuda else outputs
+        for b in range(n_batches):
+            if reset_state:
+                self.reset_hidden()
+            for t in range(time_length):
+                ut = u[b, t]
+                u_win = self.w_in.mv(ut)
+                x_w = self.w.mv(self.hidden)
+                if self.feedbacks and self.training and y is not None:
+                    yt = y[b, t]
+                    y_wfdb = self.w_fdb.mv(yt)
+                    x = u_win + x_w + y_wfdb + self.w_bias
+                elif self.feedbacks and not self.training and w_out is not None:
+                    bias_hidden = torch.cat((Variable(torch.ones(1)), self.hidden), dim=0)
+                    yt = w_out.t().mv(bias_hidden)
+                    if self.normalize_feedbacks:
+                        yt -= torch.min(yt)
+                        yt /= torch.max(yt) - torch.min(yt)
+                        yt /= torch.sum(yt)
+                    y_wfdb = self.w_fdb.mv(yt)
+                    x = u_win + x_w + y_wfdb + self.w_bias
+                else:
+                    x = u_win + x_w + self.w_bias
+                x = self.nonlin_func(x)
+                self.hidden.data = (self.hidden.mul(1.0 - self.leaky_rate) + x.view(self.output_dim).mul(self.leaky_rate)).data
+                outputs[b, t] = self.hidden
+        return outputs
+
+
+class BDESNCell(nn.Module):
+    """
+    Bi-directional Echo State Network module
+    """
+
+    def __init__(self, input_dim, hidden_dim, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh, leaky_rate=1.0, create_cell=True):
+        """
+        Constructor
+        :param input_dim: Inputs dimension.
+        :param hidden_dim: Hidden layer dimension
+        :param spectral_radius: Reservoir's spectral radius
+        :param bias_scaling: Scaling of the bias, a constant input to each neuron (default: 0, no bias)
+        :param input_scaling: Scaling of the input weight matrix, default 1.
+        :param w: Internal weights matrix
+        :param w_in: Input-reservoir weights matrix
+        :param w_bias: Bias weights matrix
+        :param sparsity:
+        :param input_set:
+        :param w_sparsity:
+        :param nonlin_func: Reservoir's activation function (tanh, sig, relu)
+        """
+        super(BDESNCell, self).__init__()
+        if create_cell:
+            self.esn_cell = LiESNCell(leaky_rate, False, input_dim, hidden_dim, spectral_radius, bias_scaling, input_scaling, w, w_in, w_bias, None, sparsity, input_set, w_sparsity, nonlin_func)
+
+    @property
+    def w(self):
+        """
+        Hidden weight matrix
+        :return:
+        """
+        return self.esn_cell.w
+
+    @property
+    def w_in(self):
+        """
+        Input matrix
+        :return:
+        """
+        return self.esn_cell.w_in
+
+    def reset(self):
+        """
+        Reset learning
+        :return:
+        """
+        self.output.reset()
+        self.train(True)
+
+    def get_w_out(self):
+        """
+        Output matrix
+        :return:
+        """
+        return self.output.w_out
+
+    def set_w(self, w):
+        """
+        Set W
+        :param w:
+        :return:
+        """
+        self.esn_cell.w = w
+
+    def forward(self, u, y=None):
+        """
+        Forward
+        :param u: Input signal.
+        :param y: Target outputs
+        :return: Output or hidden states
+        """
+        forward_hidden_states = self.esn_cell(u)
+        backward_hidden_states = self.esn_cell(Variable(torch.from_numpy(np.flip(u.data.numpy(), 1).copy())))
+        backward_hidden_states = Variable(torch.from_numpy(np.flip(backward_hidden_states.data.numpy(), 1).copy()))
+        return torch.cat((forward_hidden_states, backward_hidden_states), dim=2)
+
+    def finalize(self):
+        """
+        Finalize training with LU factorization
+        """
+        self.output.finalize()
+        self.train(False)
+
+    def reset_hidden(self):
+        """
+        Reset hidden layer
+        :return:
+        """
+        self.esn_cell.reset_hidden()
+
+    def get_spectral_radius(self):
+        """
+        Get W's spectral radius
+        :return: W's spectral radius
+        """
+        return self.esn_cell.get_spectral_raduis()
+
+
+class RRCell(nn.Module):
+    """
+    Ridge Regression cell
+    """
+
+    def __init__(self, input_dim, output_dim, ridge_param=0.0, feedbacks=False, with_bias=True, learning_algo='inv', softmax_output=False, averaged=False, dtype=torch.float32):
+        """
+        Constructor
+        :param input_dim: Inputs dimension.
+        :param output_dim: Reservoir size
+        """
+        super(RRCell, self).__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.ridge_param = ridge_param
+        self.feedbacks = feedbacks
+        self.with_bias = with_bias
+        self.learning_algo = learning_algo
+        self.softmax_output = softmax_output
+        self.softmax = torch.nn.Softmax(dim=2)
+        self.averaged = averaged
+        self.n_samples = 0
+        self.dtype = dtype
+        if self.with_bias:
+            self.x_size = input_dim + 1
+        else:
+            self.x_size = input_dim
+        self.register_buffer('xTx', Variable(torch.zeros(self.x_size, self.x_size, dtype=dtype), requires_grad=False))
+        self.register_buffer('xTy', Variable(torch.zeros(self.x_size, output_dim, dtype=dtype), requires_grad=False))
+        self.register_buffer('w_out', Variable(torch.zeros(1, input_dim, dtype=dtype), requires_grad=False))
+
+    def reset(self):
+        """
+        Reset learning
+        :return:
+        """
+        """self.xTx.data = torch.zeros(self.x_size, self.x_size)
+        self.xTy.data = torch.zeros(self.x_size, self.output_dim)
+        self.w_out.data = torch.zeros(1, self.input_dim)"""
+        self.xTx.data.fill_(0.0)
+        self.xTy.data.fill_(0.0)
+        self.w_out.data.fill_(0.0)
+        self.train(True)
+
+    def get_w_out(self):
+        """
+        Output matrix
+        :return:
+        """
+        return self.w_out
+
+    def forward(self, x, y=None):
+        """
+        Forward
+        :param x: Input signal.
+        :param y: Target outputs
+        :return: Output or hidden states
+        """
+        batch_size = x.size()[0]
+        time_length = x.size()[1]
+        if self.with_bias:
+            x = self._add_constant(x)
+        if self.training:
+            for b in range(batch_size):
+                if not self.averaged:
+                    self.xTx.data.add_(x[b].t().mm(x[b]).data)
+                    self.xTy.data.add_(x[b].t().mm(y[b]).data)
+                else:
+                    self.xTx.data.add_((x[b].t().mm(x[b]) / time_length).data)
+                    self.xTy.data.add_((x[b].t().mm(y[b]) / time_length).data)
+                    self.n_samples += 1.0
+            if self.with_bias:
+                return x[:, :, 1:]
+            else:
+                return x
+        elif not self.training:
+            outputs = Variable(torch.zeros(batch_size, time_length, self.output_dim, dtype=self.dtype), requires_grad=False)
+            outputs = outputs if self.w_out.is_cuda else outputs
+            for b in range(batch_size):
+                outputs[b] = torch.mm(x[b], self.w_out)
+            if self.softmax_output:
+                return self.softmax(outputs)
+            else:
+                return outputs
+
+    def finalize(self, train=False):
+        """
+        Finalize training with LU factorization or Pseudo-inverse
+        """
+        if self.learning_algo == 'inv':
+            if not self.averaged:
+                ridge_xTx = self.xTx + self.ridge_param * torch.eye(self.input_dim + self.with_bias, dtype=self.dtype)
+                inv_xTx = ridge_xTx.inverse()
+                self.w_out.data = torch.mm(inv_xTx, self.xTy).data
+            else:
+                self.xTx = self.xTx / self.n_samples
+                self.xTy = self.xTy / self.n_samples
+                ridge_xTx = self.xTx + self.ridge_param * torch.eye(self.input_dim + self.with_bias, dtype=self.dtype)
+                inv_xTx = ridge_xTx.inverse()
+                self.w_out.data = torch.mm(inv_xTx, self.xTy).data
+        else:
+            self.w_out.data = torch.gesv(self.xTy, self.xTx + torch.eye(self.esn_cell.output_dim).mul(self.ridge_param)).data
+        self.train(train)
+
+    def _add_constant(self, x):
+        """
+        Add constant
+        :param x:
+        :return:
+        """
+        if x.is_cuda:
+            bias = Variable(torch.ones((x.size()[0], x.size()[1], 1), dtype=self.dtype), requires_grad=False)
+        else:
+            bias = Variable(torch.ones((x.size()[0], x.size()[1], 1), dtype=self.dtype), requires_grad=False)
+        return torch.cat((bias, x), dim=2)
 
 
 class BDESN(nn.Module):
@@ -263,104 +830,6 @@ class BDESN(nn.Module):
         """
         hidden_states = self.esn_cell(u)
         return self.output(hidden_states, y)
-
-    def finalize(self):
-        """
-        Finalize training with LU factorization
-        """
-        self.output.finalize()
-        self.train(False)
-
-    def reset_hidden(self):
-        """
-        Reset hidden layer
-        :return:
-        """
-        self.esn_cell.reset_hidden()
-
-    def get_spectral_radius(self):
-        """
-        Get W's spectral radius
-        :return: W's spectral radius
-        """
-        return self.esn_cell.get_spectral_raduis()
-
-
-class BDESNCell(nn.Module):
-    """
-    Bi-directional Echo State Network module
-    """
-
-    def __init__(self, input_dim, hidden_dim, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh, leaky_rate=1.0, create_cell=True):
-        """
-        Constructor
-        :param input_dim: Inputs dimension.
-        :param hidden_dim: Hidden layer dimension
-        :param spectral_radius: Reservoir's spectral radius
-        :param bias_scaling: Scaling of the bias, a constant input to each neuron (default: 0, no bias)
-        :param input_scaling: Scaling of the input weight matrix, default 1.
-        :param w: Internal weights matrix
-        :param w_in: Input-reservoir weights matrix
-        :param w_bias: Bias weights matrix
-        :param sparsity:
-        :param input_set:
-        :param w_sparsity:
-        :param nonlin_func: Reservoir's activation function (tanh, sig, relu)
-        """
-        super(BDESNCell, self).__init__()
-        if create_cell:
-            self.esn_cell = LiESNCell(leaky_rate, False, input_dim, hidden_dim, spectral_radius, bias_scaling, input_scaling, w, w_in, w_bias, None, sparsity, input_set, w_sparsity, nonlin_func)
-
-    @property
-    def w(self):
-        """
-        Hidden weight matrix
-        :return:
-        """
-        return self.esn_cell.w
-
-    @property
-    def w_in(self):
-        """
-        Input matrix
-        :return:
-        """
-        return self.esn_cell.w_in
-
-    def reset(self):
-        """
-        Reset learning
-        :return:
-        """
-        self.output.reset()
-        self.train(True)
-
-    def get_w_out(self):
-        """
-        Output matrix
-        :return:
-        """
-        return self.output.w_out
-
-    def set_w(self, w):
-        """
-        Set W
-        :param w:
-        :return:
-        """
-        self.esn_cell.w = w
-
-    def forward(self, u, y=None):
-        """
-        Forward
-        :param u: Input signal.
-        :param y: Target outputs
-        :return: Output or hidden states
-        """
-        forward_hidden_states = self.esn_cell(u)
-        backward_hidden_states = self.esn_cell(Variable(torch.from_numpy(np.flip(u.data.numpy(), 1).copy())))
-        backward_hidden_states = Variable(torch.from_numpy(np.flip(backward_hidden_states.data.numpy(), 1).copy()))
-        return torch.cat((forward_hidden_states, backward_hidden_states), dim=2)
 
     def finalize(self):
         """
@@ -514,6 +983,478 @@ def generalized_squared_cosine(Sa, Ua, Sb, Ub):
     num = torch.pow(torch.norm(Vab), 2)
     den = torch.norm(torch.diag(Sa), p=2) * torch.norm(torch.diag(Sb), p=2)
     return num / den
+
+
+class Conceptor(RRCell):
+    """
+    Conceptor
+    """
+
+    def __init__(self, conceptor_dim, aperture=0.0, learning_algo='inv', name='', conceptor_matrix=None, dtype=torch.float32):
+        """
+        Constructor
+        :param input_dim: Inputs dimension.
+        :param output_dim: Reservoir size
+        """
+        super(Conceptor, self).__init__(conceptor_dim, conceptor_dim, ridge_param=aperture, feedbacks=False, with_bias=False, learning_algo=learning_algo, softmax_output=False, dtype=dtype)
+        self.conceptor_dim = conceptor_dim
+        self.aperture = aperture
+        self.name = name
+        self.n_samples = 0.0
+        self.attenuation = 0.0
+        self.register_buffer('R', Variable(torch.zeros(self.x_size, self.x_size, dtype=self.dtype), requires_grad=False))
+        self.register_buffer('C', Variable(torch.zeros(1, conceptor_dim, dtype=self.dtype), requires_grad=False))
+        if conceptor_matrix is not None:
+            self.C = conceptor_matrix
+            self.train(False)
+
+    @property
+    def quota(self):
+        """
+        Compute quota
+        :return:
+        """
+        conceptor_matrix = self.get_C()
+        return float(torch.sum(conceptor_matrix.mm(torch.eye(self.conceptor_dim, dtype=self.dtype))) / self.conceptor_dim)
+
+    def plot(self, colorstring, linewidth=3, resolution=200, dim='2d'):
+        """
+        Plot 2D ellipse
+        :return:
+        """
+        if dim == '2d':
+            Conceptor.plot_ellipse_2D(self.get_C(), colorstring, linewidth, resolution)
+        else:
+            pass
+
+    def clone(self):
+        """
+        Clone
+        :return:
+        """
+        return Conceptor(conceptor_dim=self.conceptor_dim, aperture=self.aperture, name=self.name, conceptor_matrix=self.C, dtype=self.dtype)
+
+    def show(self):
+        """
+        Show the conceptor matrix
+        :return:
+        """
+        plt.imshow(self.C, cmap='Greys')
+        plt.show()
+
+    def set_aperture(self, new_a):
+        """
+        Change aperture
+        :param new_a:
+        :return:
+        """
+        self.C = Conceptor.phi_function(self.C, new_a / self.aperture)
+        self.aperture = new_a
+
+    def multiply_aperture(self, factor):
+        """
+        Multiply aperture
+        :param factor:
+        :return:
+        """
+        self.C = Conceptor.phi_function(self.C, factor)
+        self.aperture *= factor
+
+    def plot_delta_measure(self, start, end, steps=50):
+        """
+        Plot delta measure
+        :param start:
+        :param end:
+        :return:
+        """
+        gamma_values = torch.logspace(start=start, end=end, steps=steps)
+        gamma_log_values = torch.log10(gamma_values)
+        C_norms = torch.zeros(steps)
+        delta_scores = torch.zeros(steps)
+        for i, gamma in enumerate(gamma_values):
+            delta_scores[i], C_norms[i] = self.delta_measure(float(gamma), epsilon=0.1)
+        plt.plot(gamma_log_values.numpy(), delta_scores.numpy())
+        plt.plot(gamma_log_values.numpy(), C_norms.numpy())
+        plt.show()
+
+    def delta_measure(self, gamma, epsilon=0.01):
+        """
+        Compute Delta measure
+        :param gamma:
+        :param epsilon:
+        :return:
+        """
+        A = Conceptor.phi_function(self.C, gamma - epsilon)
+        B = Conceptor.phi_function(self.C, gamma + epsilon)
+        A_norm = math.pow(torch.norm(A, p=2), 2)
+        B_norm = math.pow(torch.norm(B, p=2), 2)
+        d_C_norm = B_norm - A_norm
+        d_log_gamma = np.log(gamma + epsilon) - np.log(gamma - epsilon)
+        """if d_C_norm / d_log_gamma > 50.0:
+            print(A)
+            print(B)
+            print(torch.norm(A, p=2))
+            print(torch.norm(B, p=2))
+            print(d_C_norm)
+            print(gamma)
+            print(d_C_norm / d_log_gamma)
+            exit()
+        # end if"""
+        return d_C_norm / d_log_gamma, d_C_norm
+
+    def get_C(self):
+        """
+        Output matrix
+        :return:
+        """
+        return self.C
+
+    def forward(self, x, y=None):
+        """
+        Forward
+        :param x: Input signal.
+        :param y: Target outputs
+        :return: Output or hidden states
+        """
+        batch_size = x.size(0)
+        time_length = x.size(1)
+        if self.training:
+            for b in range(batch_size):
+                Rj = x[b].t().mm(x[b]) / time_length
+                self.R.data.add_(Rj.data)
+                self.n_samples += 1.0
+            return x
+        elif not self.training:
+            outputs = Variable(torch.zeros(batch_size, time_length, self.output_dim, dtype=self.dtype), requires_grad=False)
+            outputs = outputs if self.C.is_cuda else outputs
+            for b in range(batch_size):
+                outputs[b] = torch.mm(x[b], self.C)
+            self.attenuation = torch.mean(torch.pow(torch.abs(x - outputs), 2)) / torch.mean(torch.pow(torch.abs(x), 2))
+            return outputs
+
+    def finalize(self):
+        """
+        Finalize training with LU factorization or Pseudo-inverse
+        """
+        self.R = self.R / self.n_samples
+        U, S, V = torch.svd(self.R)
+        Snew = torch.mm(torch.diag(S), torch.inverse(torch.diag(S) + math.pow(self.aperture, -2) * torch.eye(self.input_dim, dtype=self.dtype)))
+        self.C.data = torch.mm(torch.mm(U, Snew), U.t()).data
+        self.train(False)
+
+    def set_conceptor(self, c):
+        """
+        Set conceptor
+        :param c:
+        :return:
+        """
+        self.w_out.data = c
+
+    def singular_values(self):
+        """
+        Singular values
+        :return:
+        """
+        Ua, Sa, Va = torch.svd(self.get_C())
+        return Ua, torch.diag(Sa), Va
+
+    def get_quota(self):
+        """
+        Sum of singular values
+        :return:
+        """
+        return float(torch.sum(self.singular_values()))
+
+    @staticmethod
+    def plot_ellipse_2D(A, colorstring, linewidth=3, resolution=200):
+        """
+        Plot 2D ellipse
+        :return:
+        """
+        plt.plot([-1, 1], [0, 0], '--', color='black', linewidth=1)
+        plt.plot([0, 0], [-1, 1], '--', color='black', linewidth=1)
+        plt.plot(np.cos(2.0 * math.pi * np.arange(200) / 200.0), np.sin(2.0 * math.pi * np.arange(200) / 200), '-', color='black', linewidth=1)
+        circ_points = torch.from_numpy(np.array([np.cos(2.0 * math.pi * np.arange(0, resolution) / resolution), np.sin(2.0 * math.pi * np.arange(0, resolution) / resolution)]))
+        E1 = torch.mm(A, circ_points)
+        U, S, Ut = torch.svd(A)
+        plt.plot(S[0].item() * np.array([0.0, U[0, 0]]), S[0].item() * np.array([0.0, U[1, 0]]), linewidth=linewidth, color=colorstring)
+        plt.plot(S[1].item() * np.array([0.0, U[0, 1]]), S[1].item() * np.array([0.0, U[1, 1]]), linewidth=linewidth, color=colorstring)
+        plt.plot(E1[(0), :].numpy(), E1[(1), :].numpy(), linewidth=linewidth, color=colorstring)
+
+    @staticmethod
+    def phi_function(C, gamma):
+        """
+        Multiply aperture matrix
+        :param c:
+        :param gamma:
+        :return:
+        """
+        c = C.clone()
+        conceptor_dim = c.shape[0]
+        dtype = c.dtype
+        return c.mm(torch.inverse(c + m.pow(gamma, -2) * (torch.eye(conceptor_dim, dtype=dtype) - c)))
+
+    @staticmethod
+    def morphing(conceptor_list, mu):
+        """
+        Morphing pattern
+        :param conceptor_list:
+        :return:
+        """
+        for i, c in enumerate(conceptor_list):
+            if i == 0:
+                M = c.mul(mu[i])
+            else:
+                M += c.mul(mu[i])
+        return M
+
+    @staticmethod
+    def similarity(C1, C2):
+        """
+        Similarity between two conceptors
+        :param C1:
+        :param C2:
+        :return:
+        """
+        Ua, Sa, _ = torch.svd(C1.get_C())
+        Ub, Sb, _ = torch.svd(C2.get_C())
+        return generalized_squared_cosine(Sa, Ua, Sb, Ub)
+
+    def sim(self, cb, measure='gsc'):
+        """
+        Similarity with another conceptor
+        :param cb:
+        :return:
+        """
+        Ua, Sa, _ = torch.svd(self.C)
+        Ub, Sb, _ = torch.svd(cb.get_C())
+        if measure == 'gsc':
+            return generalized_squared_cosine(Sa, Ua, Sb, Ub)
+
+    def E_plus(self, x):
+        """
+        Positive evidence
+        :param x: states (x)
+        :return:
+        """
+        return x.mm(self.w_out).mm(x.t())
+
+    def E_neg(self, x, conceptor_list):
+        """
+        Evidence against
+        :param x:
+        :param conceptor_list:
+        :return:
+        """
+        for i, c in enumerate(conceptor_list):
+            if i == 0:
+                new_c = c
+            else:
+                new_c = new_c.logical_or(c)
+        N = new_c.logical_not()
+        return x.t().mm(N.w_out).mm(x)
+
+    def E(self, x, conceptor_list):
+        """
+        Evidence
+        :param x:
+        :param conceptor_list:
+        :return:
+        """
+        return self.E_plus(x) + self.E_neg(x, conceptor_list)
+
+    def logical_or(self, c):
+        """
+        Logical OR
+        :param c:
+        :return:
+        """
+        C = self.C
+        B = c.get_C()
+        I = torch.eye(self.conceptor_dim, dtype=self.dtype)
+        conceptor_matrix = torch.inverse(I + torch.inverse(C.mm(torch.inverse(I - C)) + B.mm(torch.inverse(I - B))))
+        new_c = Conceptor(conceptor_dim=self.conceptor_dim, conceptor_matrix=conceptor_matrix, name='({} OR {})'.format(self.name, c.name), aperture=math.sqrt(math.pow(self.aperture, 2) + math.pow(c.aperture, 2)), dtype=self.dtype)
+        return new_c
+
+    def __or__(self, other):
+        """
+        OR
+        :param other:
+        :return:
+        """
+        return self.logical_or(other)
+
+    def logical_not(self):
+        """
+        Logical NOT
+        :param c:
+        :return:
+        """
+        C = self.C
+        conceptor_matrix = torch.eye(self.conceptor_dim, dtype=self.dtype) - C
+        new_c = Conceptor(conceptor_dim=self.conceptor_dim, conceptor_matrix=conceptor_matrix, name='NOT {}'.format(self.name), aperture=1.0 / self.aperture, dtype=self.dtype)
+        return new_c
+
+    def __invert__(self):
+        """
+        NOT
+        :return:
+        """
+        return self.logical_not()
+
+    def logical_and(self, C2):
+        """
+        Logical AND
+        :param c:
+        :return:
+        """
+        A = self.get_C()
+        B = C2.get_C()
+        dim = A.shape[0]
+        tol = 1e-14
+        UC, SC, UtC = torch.svd(A)
+        UB, SB, UtB = torch.svd(B)
+        dSC = SC
+        dSB = SB
+        numRankC = int(torch.sum(1.0 * (dSC > tol)))
+        numRankB = int(torch.sum(1.0 * (dSB > tol)))
+        if numRankC < dim and numRankB < dim:
+            UC0 = UC[:, numRankC:]
+            UB0 = UB[:, numRankB:]
+            W, Sigma, Wt = torch.svd(torch.mm(UC0, UC0.t()) + torch.mm(UB0, UB0.t()))
+            numRankSigma = int(torch.sum(1.0 * (Sigma > tol)))
+            Wgk = W[:, numRankSigma:]
+            CandB = np.dot(np.dot(Wgk, torch.inverse(np.dot(np.dot(Wgk.T, torch.pinverse(A, tol) + torch.pinverse(B, tol) - np.eye(dim)), Wgk))), Wgk.T)
+        else:
+            CandB = torch.pinverse(A, tol) + torch.pinverse(B, tol) - torch.eye(dim, dtype=self.dtype)
+        new_c = Conceptor(conceptor_dim=self.conceptor_dim, conceptor_matrix=CandB, name='({} AND {})'.format(self.name, C2.name), aperture=math.pow(math.pow(self.aperture, -2) + math.pow(C2.aperture, -2), -0.5), dtype=self.dtype)
+        return new_c
+
+    def __and__(self, other):
+        """
+        AND
+        :param other:
+        :return:
+        """
+        return self.logical_and(other)
+
+    def mul(self, other):
+        """
+        Multiply
+        :param other:
+        :return:
+        """
+        if type(other) is Conceptor:
+            new_c = self.get_C() * other.get_C()
+        else:
+            new_c = self.get_C() * other
+        return Conceptor(self.conceptor_dim, self.aperture, conceptor_matrix=new_c, dtype=self.dtype)
+
+    def __mul__(self, other):
+        """
+        Multiply
+        :param other:
+        :return:
+        """
+        if type(other) is Conceptor:
+            new_c = self.get_C() * other.get_C()
+        else:
+            new_c = self.get_C() * other
+        return Conceptor(self.conceptor_dim, self.aperture, conceptor_matrix=new_c, dtype=self.dtype)
+
+    def __rmul__(self, other):
+        """
+        Multiply
+        :param other:
+        :return:
+        """
+        if type(other) is Conceptor:
+            new_c = self.get_C() * other.get_C()
+        else:
+            new_c = self.get_C() * other
+        return Conceptor(self.conceptor_dim, self.aperture, conceptor_matrix=new_c, dtype=self.dtype)
+
+    def __imul__(self, other):
+        """
+        *=
+        :param other:
+        :return:
+        """
+        if type(other) is Conceptor:
+            new_c = self.get_C() * other.get_C()
+        else:
+            new_c = self.get_C() * other
+        return Conceptor(self.conceptor_dim, self.aperture, conceptor_matrix=new_c, dtype=self.dtype)
+
+    def __add__(self, other):
+        """
+        Add
+        :param other:
+        :return:
+        """
+        if type(other) is Conceptor:
+            new_c = self.get_C() + other.get_C()
+        else:
+            new_c = self.get_C() + other
+        return Conceptor(self.conceptor_dim, self.aperture, conceptor_matrix=new_c, dtype=self.dtype)
+
+    def __radd__(self, other):
+        """
+        Add
+        :param other:
+        :return:
+        """
+        if type(other) is Conceptor:
+            new_c = self.get_C() + other.get_C()
+        else:
+            new_c = self.get_C() + other
+        return Conceptor(self.conceptor_dim, self.aperture, conceptor_matrix=new_c, dtype=self.dtype)
+
+    def __iadd__(self, other):
+        """
+        +=
+        :param other:
+        :return:
+        """
+        if type(other) is Conceptor:
+            new_c = self.get_C() + other.get_C()
+        else:
+            new_c = self.get_C() + other
+        return Conceptor(self.conceptor_dim, self.aperture, conceptor_matrix=new_c, dtype=self.dtype)
+
+    def __ge__(self, other):
+        """
+        Greater or equal
+        :param other:
+        :return:
+        """
+        eig_v = torch.eig(other.get_C() - self.w_out, eigenvectors=False)
+        return float(torch.max(eig_v)) >= 0.0
+
+    def __gt__(self, other):
+        """
+        Greater
+        :param other:
+        :return:
+        """
+        eig_v = torch.eig(other.get_C() - self.w_out, eigenvectors=False)
+        return float(torch.max(eig_v)) > 0.0
+
+    def __lt__(self, other):
+        """
+        Less than
+        :param other:
+        :return:
+        """
+        return not self >= other
+
+    def __le__(self, other):
+        """
+        Less or equal
+        :param other:
+        :return:
+        """
+        return not self > other
 
 
 class ConceptorPool(object):
@@ -801,6 +1742,75 @@ class ConceptorPool(object):
         return float(torch.mean(S))
 
 
+class ConceptorNetCell(LiESNCell):
+    """
+    Special reservoir layer for Conceptors
+    """
+
+    def __init__(self, *args, **kwargs):
+        """
+        Constructor
+        :param leaky_rate: Reservoir's leaky rate (default 1.0, normal ESN)
+        :param train_leaky_rate: Train leaky rate as parameter? (default: False)
+        """
+        super(ConceptorNetCell, self).__init__(*args, **kwargs)
+
+    def forward(self, u=None, y=None, w_out=None, reset_state=True, input_recreation=None, conceptor=None, length=None, mu=None, x0=None):
+        """
+        Forward execution
+        :param u:
+        :param y:
+        :param w_out:
+        :param reset_state:
+        :param generative_mode:
+        :return:
+        """
+        if u is not None:
+            time_length = int(u.size()[1])
+        else:
+            time_length = length
+        if u is not None:
+            n_batches = int(u.size()[0])
+        else:
+            n_batches = 1
+        outputs = Variable(torch.zeros(n_batches, time_length, self.output_dim, dtype=self.dtype))
+        outputs = outputs if self.hidden.is_cuda else outputs
+        for b in range(n_batches):
+            if x0 is not None:
+                self.set_hidden(x0)
+            elif reset_state:
+                self.reset_hidden()
+            for t in range(time_length):
+                if self.training:
+                    ut = u[b, t]
+                    u_win = self.w_in.mv(ut)
+                    x_w = self.w.mv(self.hidden)
+                    x = u_win + x_w + self.w_bias
+                    x = self.nonlin_func(x)
+                    self.hidden.data = x.view(-1).data
+                    outputs[b, t] = self.hidden
+                else:
+                    if u is not None:
+                        ut = u[b, t]
+                        u_win = self.w_in.mv(ut)
+                        x_w = self.w.mv(self.hidden)
+                        x = u_win + x_w + self.w_bias
+                    else:
+                        x_w = input_recreation(self.hidden.view(1, 1, -1))
+                        x = x_w + self.w_bias
+                    x = self.nonlin_func(x)
+                    if type(conceptor) is Conceptor:
+                        xc = conceptor(x.view(1, 1, -1)).view(-1)
+                    elif type(conceptor) is ConceptorPool:
+                        M = conceptor.morphing(mu[b, t])
+                        xc = M(x.view(1, 1, -1)).view(-1)
+                    else:
+                        xc = x.view(-1)
+                    self.hidden.data = xc.data
+                    outputs[b, t] = self.hidden
+        return outputs
+
+
 class ConceptorNet(nn.Module):
     """
     ESN-based ConceptorNet
@@ -1085,266 +2095,210 @@ class ESN(nn.Module):
         return self.esn_cell.get_spectral_raduis()
 
 
-class ESNCell(nn.Module):
+class PCACell(nn.Module):
     """
-    Echo State Network layer
+    Filter the input data through the most significatives principal components
     """
 
-    def __init__(self, input_dim, output_dim, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, w_fdb=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh, feedbacks=False, feedbacks_dim=None, wfdb_sparsity=None, normalize_feedbacks=False, seed=None, w_distrib='uniform', win_distrib='uniform', wbias_distrib='uniform', win_normal=(0.0, 1.0), w_normal=(0.0, 1.0), wbias_normal=(0.0, 1.0), dtype=torch.float32):
+    def __init__(self, input_dim, output_dim, svd=False, reduce=False, var_rel=1e-12, var_abs=1e-15, var_part=None):
         """
         Constructor
-        :param input_dim: Inputs dimension.
-        :param output_dim: Reservoir size
-        :param spectral_radius: Reservoir's spectral radius
-        :param bias_scaling: Scaling of the bias, a constant input to each neuron (default: 0, no bias)
-        :param input_scaling: Scaling of the input weight matrix, default 1.
-        :param w: Internation weights matrix
-        :param w_in: Input-reservoir weights matrix
-        :param w_bias: Bias weights matrix
-        :param sparsity:
-        :param input_set:
-        :param w_sparsity:
-        :param nonlin_func: Reservoir's activation function (tanh, sig, relu)
+        :param input_dim:
+        :param output_dim:
+        :param svd: If True use Singular Value Decomposition instead of the standard eigenvalue problem solver. Use it when PCANode complains about singular covariance matrices.
+        :param reduce: Keep only those principal components which have a variance larger than 'var_abs'
+        :param val_rel: Variance relative to first principal component threshold. Default is 1E-12.
+        :param var_abs: Absolute variance threshold. Default is 1E-15.
+        :param var_part: Variance relative to total variance threshold. Default is None.
         """
-        super(ESNCell, self).__init__()
+        super(PCACell, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
-        self.spectral_radius = spectral_radius
-        self.bias_scaling = bias_scaling
-        self.input_scaling = input_scaling
-        self.sparsity = sparsity
-        self.input_set = input_set
-        self.w_sparsity = w_sparsity
-        self.nonlin_func = nonlin_func
-        self.feedbacks = feedbacks
-        self.feedbacks_dim = feedbacks_dim
-        self.wfdb_sparsity = wfdb_sparsity
-        self.normalize_feedbacks = normalize_feedbacks
-        self.w_distrib = w_distrib
-        self.win_distrib = win_distrib
-        self.wbias_distrib = wbias_distrib
-        self.win_normal = win_normal
-        self.w_normal = w_normal
-        self.wbias_normal = wbias_normal
-        self.dtype = dtype
-        self.register_buffer('hidden', self.init_hidden())
-        self.register_buffer('w_in', self._generate_win(w_in, seed=seed))
-        self.register_buffer('w', self._generate_w(w, seed=seed))
-        self.register_buffer('w_bias', self._generate_wbias(w_bias, seed=seed))
-        if feedbacks:
-            self.register_buffer('w_fdb', self._generate_wfdb(w_fdb, seed=seed))
+        self.svd = svd
+        self.var_abs = var_abs
+        self.var_rel = var_rel
+        self.var_part = var_part
+        self.reduce = reduce
+        self.register_buffer('xTx', Variable(torch.zeros(input_dim, input_dim), requires_grad=False))
+        self.register_buffer('xTx_avg', Variable(torch.zeros(input_dim), requires_grad=False))
+        self.d = None
+        self.v = None
+        self.total_variance = None
+        self.tlen = 0
+        self.avg = None
+        self.explained_variance = None
 
-    def forward(self, u, y=None, w_out=None, reset_state=True):
+    def reset(self):
         """
-        Forward
-        :param u: Input signal
-        :param y: Target output signal for teacher forcing
-        :param w_out: Output weights for teacher forcing
-        :return: Resulting hidden states
-        """
-        time_length = int(u.size()[1])
-        n_batches = int(u.size()[0])
-        outputs = Variable(torch.zeros(n_batches, time_length, self.output_dim, dtype=self.dtype))
-        outputs = outputs if self.hidden.is_cuda else outputs
-        for b in range(n_batches):
-            if reset_state:
-                self.reset_hidden()
-            for t in range(time_length):
-                ut = u[b, t]
-                u_win = self.w_in.mv(ut)
-                x_w = self.w.mv(self.hidden)
-                if self.feedbacks and self.training and y is not None:
-                    yt = y[b, t]
-                    y_wfdb = self.w_fdb.mv(yt)
-                    x = u_win + x_w + y_wfdb + self.w_bias
-                elif self.feedbacks and not self.training and w_out is not None:
-                    bias_hidden = torch.cat((Variable(torch.ones(1)), self.hidden), dim=0)
-                    yt = w_out.t().mv(bias_hidden)
-                    if self.normalize_feedbacks:
-                        yt -= torch.min(yt)
-                        yt /= torch.max(yt) - torch.min(yt)
-                        yt /= torch.sum(yt)
-                    y_wfdb = self.w_fdb.mv(yt)
-                    x = u_win + x_w + y_wfdb + self.w_bias
-                else:
-                    x = u_win + x_w + self.w_bias
-                x = self.nonlin_func(x)
-                self.hidden.data = x.view(self.output_dim).data
-                outputs[b, t] = self.hidden
-        return outputs
-
-    def init_hidden(self):
-        """
-        Init hidden layer
-        :return: Initiated hidden layer
-        """
-        return Variable(torch.zeros(self.output_dim, dtype=self.dtype), requires_grad=False)
-
-    def reset_hidden(self):
-        """
-        Reset hidden layer
+        Reset learning
         :return:
         """
-        self.hidden.fill_(0.0)
+        self._init_internals()
+        self.train(True)
 
-    def set_hidden(self, x):
+    def forward(self, x, y=None):
         """
-        Set hidden layer
+        Forward
+        :param x: Input signal.
+        :param y: Target outputs
+        :return: Output or hidden states
+        """
+        n_batches = int(x.size()[0])
+        time_length = x.size()[1]
+        outputs = Variable(torch.zeros(n_batches, time_length, self.output_dim))
+        outputs = outputs if x.is_cuda else outputs
+        for b in range(n_batches):
+            s = x[b]
+            if self.training:
+                self._update_cov_matrix(s)
+            else:
+                outputs[b] = self._execute_pca(s)
+        return outputs
+
+    def finalize(self):
+        """
+        Finalize training with LU factorization or Pseudo-inverse
+        """
+        xTx, avg, tlen = self._fix(self.xTx, self.xTx_avg, self.tlen)
+        self.avg = avg.unsqueeze(0)
+        if self.tlen < self.input_dim:
+            raise Exception(u'The number of observations ({}) is larger than  the number of input variables ({})'.format(self.tlen, self.input_dim))
+        total_var = torch.diag(xTx).sum()
+        d, v = torch.symeig(xTx, eigenvectors=True)
+        if float(d.min()) < 0:
+            pass
+        indexes = range(d.size(0) - 1, -1, -1)
+        d = torch.take(d, Variable(torch.LongTensor(indexes)))
+        v = v[:, (indexes)]
+        self.explained_variance = torch.sum(d) / total_var
+        self.d = d[:self.output_dim]
+        self.v = v[:, :self.output_dim]
+        self.total_variance = total_var
+        self.train(False)
+
+    def get_explained_variance(self):
+        """
+        The explained variance is the fraction of the original variance that can be explained by the
+        principal components.
+        :return:
+        """
+        return self.explained_variance
+
+    def get_proj_matrix(self, tranposed=True):
+        """
+        Get the projection matrix
+        :param tranposed:
+        :return:
+        """
+        self.train(False)
+        if tranposed:
+            return self.v
+        return self.v.t()
+
+    def get_rec_matrix(self, tranposed=1):
+        """
+        Returns the reconstruction matrix
+        :param tranposed:
+        :return:
+        """
+        self.train(False)
+        if tranposed:
+            return self.v.t()
+        return self.v
+
+    def _execute_pca(self, x, n=None):
+        """
+        Project the input on the first 'n' principal components
+        :param x:
+        :param n:
+        :return:
+        """
+        if n is not None:
+            return (x - self.avg).mm(self.v[:, :n])
+        return (x - self.avg).mm(self.v)
+
+    def _inverse(self, y, n=None):
+        """
+        Project data from the output to the input space using the first 'n' components.
+        :param y:
+        :param n:
+        :return:
+        """
+        if n is None:
+            n = y.shape[1]
+        if n > self.output_dim:
+            raise Exception(u'y has dimension {} but should but at most {}'.format(n, self.output_dim))
+        v = self.get_rec_matrix()
+        if n is not None:
+            return y.mm(v[:n, :]) + self.avg
+        else:
+            return y.mm(v) + self.avg
+
+    def _adjust_output_dim(self):
+        """
+        If the output dimensions is small than the input dimension
+        :return:
+        """
+        if self.desired_variance is None and self.ouput_dim is None:
+            self.output_dim = self.input_dim
+            return None
+        if self.output_dim is not None and self.output_dim >= 1:
+            return self.input_dim - self.output_dim + 1, self.input_dim
+        else:
+            return None
+
+    def _fix(self, mtx, avg, tlen, center=True):
+        """
+        Returns a triple containing the covariance matrix, the average and
+        the number of observations.
+        :param mtx:
+        :param center:
+        :return:
+        """
+        mtx /= tlen - 1
+        if center:
+            avg_mtx = torch.ger(avg, avg)
+            avg_mtx /= tlen * (tlen - 1)
+            mtx -= avg_mtx
+        avg /= tlen
+        return mtx, avg, tlen
+
+    def _update_cov_matrix(self, x):
+        """
+        Update covariance matrix
         :param x:
         :return:
         """
-        self.hidden.data = x.data
+        if self.xTx is None:
+            self._init_internals()
+        self.xTx.data.add_(x.t().mm(x).data)
+        self.xTx_avg.add_(torch.sum(x, dim=0))
+        self.tlen += x.size(0)
 
-    def get_spectral_radius(self):
+    def _init_cov_matrix(self):
         """
-        Get W's spectral radius
-        :return: W's spectral radius
-        """
-        return echotorch.utils.spectral_radius(self.w)
-
-    def _generate_w(self, w, seed=None):
-        """
-        Generate W matrix
+        Initialize covariance matrix
         :return:
         """
-        if w is None:
-            w = self.generate_w(output_dim=self.output_dim, w_distrib=self.w_distrib, w_sparsity=self.w_sparsity, mean=self.w_normal[0], std=self.w_normal[1], seed=seed, dtype=self.dtype)
-        elif callable(w):
-            w = w(self.output_dim)
-        w *= self.spectral_radius / echotorch.utils.spectral_radius(w)
-        return Variable(w, requires_grad=False)
+        self.xTx.data = torch.zeros(self.input_dim, self.input_dim)
+        self.xTx_avg.data = torch.zeros(self.input_dim)
 
-    def _generate_win(self, w_in, seed=None):
+    def _init_internals(self):
         """
-        Generate Win matrix
+        Initialize internals
+        :param x:
         :return:
         """
-        if seed is not None:
-            np.random.seed(seed)
-            torch.random.manual_seed(seed)
-        if w_in is None:
-            if self.win_distrib == 'uniform':
-                w_in = self.generate_uniform_matrix(size=(self.output_dim, self.input_dim), sparsity=self.sparsity, input_set=self.input_set)
-                if self.dtype == torch.float32:
-                    w_in = torch.from_numpy(w_in.astype(np.float32))
-                else:
-                    w_in = torch.from_numpy(w_in.astype(np.float64))
-            else:
-                w_in = self.generate_gaussian_matrix(size=(self.output_dim, self.input_dim), sparsity=self.sparsity, mean=self.win_normal[0], std=self.win_normal[1], dtype=self.dtype)
-            w_in *= self.input_scaling
-        elif callable(w_in):
-            w_in = w_in(self.output_dim, self.input_dim)
-        return Variable(w_in, requires_grad=False)
+        self._init_cov_matrix()
 
-    def _generate_wbias(self, w_bias, seed=None):
+    def _add_constant(self, x):
         """
-        Generate Wbias matrix
+        Add constant
+        :param x:
         :return:
         """
-        if seed is not None:
-            torch.manual_seed(seed)
-        if w_bias is None:
-            if self.w_distrib == 'uniform':
-                w_bias = self.generate_uniform_matrix(size=(1, self.output_dim), sparsity=1.0, input_set=[-1.0, 1.0])
-                if self.dtype == torch.float32:
-                    w_bias = torch.from_numpy(w_bias.astype(np.float32))
-                else:
-                    w_bias = torch.from_numpy(w_bias.astype(np.float64))
-            else:
-                w_bias = self.generate_gaussian_matrix(size=(1, self.output_dim), sparsity=1.0, mean=self.wbias_normal[0], std=self.wbias_normal[1], dtype=self.dtype)
-            w_bias *= self.bias_scaling
-        elif callable(w_bias):
-            w_bias = w_bias(self.output_dim)
-        return Variable(w_bias, requires_grad=False)
-
-    def _generate_wfdb(self, w_fdb, seed=None):
-        """
-        Generate Wfdb matrix
-        :return:
-        """
-        if seed is not None:
-            torch.manual_seed(seed)
-        if w_fdb is None:
-            if self.wfdb_sparsity is None:
-                w_fdb = self.input_scaling * (np.random.randint(0, 2, (self.output_dim, self.feedbacks_dim)) * 2.0 - 1.0)
-                w_fdb = torch.from_numpy(w_fdb.astype(np.float32))
-            else:
-                w_fdb = self.input_scaling * np.random.choice(np.append([0], self.input_set), (self.output_dim, self.feedbacks_dim), p=np.append([1.0 - self.wfdb_sparsity], [self.wfdb_sparsity / len(self.input_set)] * len(self.input_set)))
-                if self.dtype == torch.float32:
-                    w_fdb = torch.from_numpy(w_fdb.astype(np.float32))
-                else:
-                    w_fdb = torch.from_numpy(w_fdb.astype(np.float64))
-        elif callable(w_fdb):
-            w_fdb = w_fdb(self.output_dim, self.feedbacks_dim)
-        return Variable(w_fdb, requires_grad=False)
-
-    @staticmethod
-    def generate_uniform_matrix(size, sparsity, input_set):
-        """
-        Generate uniform Win matrix
-        :param w_in:
-        :param seed:
-        :return:
-        """
-        if sparsity is None:
-            w = np.random.randint(0, 2, size) * 2.0 - 1.0
-        else:
-            w = np.random.choice(np.append([0], input_set), size, p=np.append([1.0 - sparsity], [sparsity / len(input_set)] * len(input_set)))
-        return w
-
-    @staticmethod
-    def generate_gaussian_matrix(size, sparsity, mean=0.0, std=1.0, dtype=torch.float32):
-        """
-        Generate gaussian Win matrix
-        :return:
-        """
-        if sparsity is None:
-            w = torch.zeros(size, dtype=dtype)
-            w = w.normal_(mean=mean, std=std)
-        else:
-            w = torch.zeros(size, dtype=dtype)
-            w = w.normal_(mean=mean, std=std)
-            mask = torch.zeros(size, dtype=dtype)
-            mask.bernoulli_(p=sparsity)
-            w *= mask
-        return w
-
-    @staticmethod
-    def generate_w(output_dim, w_distrib='uniform', w_sparsity=None, mean=0.0, std=1.0, seed=None, dtype=torch.float32):
-        """
-        Generate W matrix
-        :param output_dim:
-        :param w_sparsity:
-        :return:
-        """
-        if seed is not None:
-            torch.manual_seed(seed)
-            np.random.seed(seed)
-        if w_distrib == 'uniform':
-            w = ESNCell.generate_uniform_matrix(size=(output_dim, output_dim), sparsity=w_sparsity, input_set=[-1.0, 1.0])
-            w = torch.from_numpy(w.astype(np.float32))
-        else:
-            w = ESNCell.generate_gaussian_matrix(size=(output_dim, output_dim), sparsity=w_sparsity, mean=mean, std=std, dtype=dtype)
-        return w
-
-    @staticmethod
-    def to_sparse(m):
-        """
-        To sparse matrix
-        :param m:
-        :return:
-        """
-        rows = torch.LongTensor()
-        columns = torch.LongTensor()
-        values = torch.FloatTensor()
-        for i in range(m.shape[0]):
-            for j in range(m.shape[1]):
-                if m[i, j] != 0.0:
-                    rows = torch.cat((rows, torch.LongTensor([i])), dim=0)
-                    columns = torch.cat((columns, torch.LongTensor([j])), dim=0)
-                    values = torch.cat((values, torch.FloatTensor([m[i, j]])), dim=0)
-        indices = torch.cat((rows.unsqueeze(0), columns.unsqueeze(0)), dim=0)
-        return torch.sparse.FloatTensor(indices, values)
+        bias = Variable(torch.ones((x.size()[0], x.size()[1], 1)), requires_grad=False)
+        return torch.cat((bias, x), dim=2)
 
 
 class GatedESN(nn.Module):
@@ -1570,6 +2524,37 @@ class Identity(nn.Module):
         return x
 
 
+class LiESN(ESN):
+    """
+    Leaky-Integrated Echo State Network module
+    """
+
+    def __init__(self, input_dim, hidden_dim, output_dim, spectral_radius=0.9, bias_scaling=0, input_scaling=1.0, w=None, w_in=None, w_bias=None, sparsity=None, input_set=[1.0, -1.0], w_sparsity=None, nonlin_func=torch.tanh, learning_algo='inv', ridge_param=0.0, leaky_rate=1.0, train_leaky_rate=False, feedbacks=False, wfdb_sparsity=None, normalize_feedbacks=False, softmax_output=False, seed=None, washout=0, w_distrib='uniform', win_distrib='uniform', wbias_distrib='uniform', win_normal=(0.0, 1.0), w_normal=(0.0, 1.0), wbias_normal=(0.0, 1.0), dtype=torch.float32):
+        """
+        Constructor
+        :param input_dim:
+        :param hidden_dim:
+        :param output_dim:
+        :param spectral_radius:
+        :param bias_scaling:
+        :param input_scaling:
+        :param w:
+        :param w_in:
+        :param w_bias:
+        :param sparsity:
+        :param input_set:
+        :param w_sparsity:
+        :param nonlin_func:
+        :param learning_algo:
+        :param ridge_param:
+        :param leaky_rate:
+        :param train_leaky_rate:
+        :param feedbacks:
+        """
+        super(LiESN, self).__init__(input_dim, hidden_dim, output_dim, spectral_radius=spectral_radius, bias_scaling=bias_scaling, input_scaling=input_scaling, w=w, w_in=w_in, w_bias=w_bias, sparsity=sparsity, input_set=input_set, w_sparsity=w_sparsity, nonlin_func=nonlin_func, learning_algo=learning_algo, ridge_param=ridge_param, create_cell=False, feedbacks=feedbacks, wfdb_sparsity=wfdb_sparsity, normalize_feedbacks=normalize_feedbacks, softmax_output=softmax_output, seed=seed, washout=washout, w_distrib=w_distrib, win_distrib=win_distrib, wbias_distrib=wbias_distrib, win_normal=win_normal, w_normal=w_normal, wbias_normal=wbias_normal, dtype=torch.float32)
+        self.esn_cell = LiESNCell(leaky_rate, train_leaky_rate, input_dim, hidden_dim, spectral_radius=spectral_radius, bias_scaling=bias_scaling, input_scaling=input_scaling, w=w, w_in=w_in, w_bias=w_bias, sparsity=sparsity, input_set=input_set, w_sparsity=w_sparsity, nonlin_func=nonlin_func, feedbacks=feedbacks, feedbacks_dim=output_dim, wfdb_sparsity=wfdb_sparsity, normalize_feedbacks=normalize_feedbacks, seed=seed, w_distrib=w_distrib, win_distrib=win_distrib, wbias_distrib=wbias_distrib, win_normal=win_normal, w_normal=w_normal, wbias_normal=wbias_normal, dtype=torch.float32)
+
+
 class OnlinePCACell(nn.Module):
     """
     Online PCA cell
@@ -1762,329 +2747,6 @@ class OnlinePCACell(nn.Module):
         :return:
         """
         bias = Variable(torch.ones((x.size()[0], x.size()[1], 1)), requires_grad=False)
-        return torch.cat((bias, x), dim=2)
-
-
-class PCACell(nn.Module):
-    """
-    Filter the input data through the most significatives principal components
-    """
-
-    def __init__(self, input_dim, output_dim, svd=False, reduce=False, var_rel=1e-12, var_abs=1e-15, var_part=None):
-        """
-        Constructor
-        :param input_dim:
-        :param output_dim:
-        :param svd: If True use Singular Value Decomposition instead of the standard eigenvalue problem solver. Use it when PCANode complains about singular covariance matrices.
-        :param reduce: Keep only those principal components which have a variance larger than 'var_abs'
-        :param val_rel: Variance relative to first principal component threshold. Default is 1E-12.
-        :param var_abs: Absolute variance threshold. Default is 1E-15.
-        :param var_part: Variance relative to total variance threshold. Default is None.
-        """
-        super(PCACell, self).__init__()
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        self.svd = svd
-        self.var_abs = var_abs
-        self.var_rel = var_rel
-        self.var_part = var_part
-        self.reduce = reduce
-        self.register_buffer('xTx', Variable(torch.zeros(input_dim, input_dim), requires_grad=False))
-        self.register_buffer('xTx_avg', Variable(torch.zeros(input_dim), requires_grad=False))
-        self.d = None
-        self.v = None
-        self.total_variance = None
-        self.tlen = 0
-        self.avg = None
-        self.explained_variance = None
-
-    def reset(self):
-        """
-        Reset learning
-        :return:
-        """
-        self._init_internals()
-        self.train(True)
-
-    def forward(self, x, y=None):
-        """
-        Forward
-        :param x: Input signal.
-        :param y: Target outputs
-        :return: Output or hidden states
-        """
-        n_batches = int(x.size()[0])
-        time_length = x.size()[1]
-        outputs = Variable(torch.zeros(n_batches, time_length, self.output_dim))
-        outputs = outputs if x.is_cuda else outputs
-        for b in range(n_batches):
-            s = x[b]
-            if self.training:
-                self._update_cov_matrix(s)
-            else:
-                outputs[b] = self._execute_pca(s)
-        return outputs
-
-    def finalize(self):
-        """
-        Finalize training with LU factorization or Pseudo-inverse
-        """
-        xTx, avg, tlen = self._fix(self.xTx, self.xTx_avg, self.tlen)
-        self.avg = avg.unsqueeze(0)
-        if self.tlen < self.input_dim:
-            raise Exception(u'The number of observations ({}) is larger than  the number of input variables ({})'.format(self.tlen, self.input_dim))
-        total_var = torch.diag(xTx).sum()
-        d, v = torch.symeig(xTx, eigenvectors=True)
-        if float(d.min()) < 0:
-            pass
-        indexes = range(d.size(0) - 1, -1, -1)
-        d = torch.take(d, Variable(torch.LongTensor(indexes)))
-        v = v[:, (indexes)]
-        self.explained_variance = torch.sum(d) / total_var
-        self.d = d[:self.output_dim]
-        self.v = v[:, :self.output_dim]
-        self.total_variance = total_var
-        self.train(False)
-
-    def get_explained_variance(self):
-        """
-        The explained variance is the fraction of the original variance that can be explained by the
-        principal components.
-        :return:
-        """
-        return self.explained_variance
-
-    def get_proj_matrix(self, tranposed=True):
-        """
-        Get the projection matrix
-        :param tranposed:
-        :return:
-        """
-        self.train(False)
-        if tranposed:
-            return self.v
-        return self.v.t()
-
-    def get_rec_matrix(self, tranposed=1):
-        """
-        Returns the reconstruction matrix
-        :param tranposed:
-        :return:
-        """
-        self.train(False)
-        if tranposed:
-            return self.v.t()
-        return self.v
-
-    def _execute_pca(self, x, n=None):
-        """
-        Project the input on the first 'n' principal components
-        :param x:
-        :param n:
-        :return:
-        """
-        if n is not None:
-            return (x - self.avg).mm(self.v[:, :n])
-        return (x - self.avg).mm(self.v)
-
-    def _inverse(self, y, n=None):
-        """
-        Project data from the output to the input space using the first 'n' components.
-        :param y:
-        :param n:
-        :return:
-        """
-        if n is None:
-            n = y.shape[1]
-        if n > self.output_dim:
-            raise Exception(u'y has dimension {} but should but at most {}'.format(n, self.output_dim))
-        v = self.get_rec_matrix()
-        if n is not None:
-            return y.mm(v[:n, :]) + self.avg
-        else:
-            return y.mm(v) + self.avg
-
-    def _adjust_output_dim(self):
-        """
-        If the output dimensions is small than the input dimension
-        :return:
-        """
-        if self.desired_variance is None and self.ouput_dim is None:
-            self.output_dim = self.input_dim
-            return None
-        if self.output_dim is not None and self.output_dim >= 1:
-            return self.input_dim - self.output_dim + 1, self.input_dim
-        else:
-            return None
-
-    def _fix(self, mtx, avg, tlen, center=True):
-        """
-        Returns a triple containing the covariance matrix, the average and
-        the number of observations.
-        :param mtx:
-        :param center:
-        :return:
-        """
-        mtx /= tlen - 1
-        if center:
-            avg_mtx = torch.ger(avg, avg)
-            avg_mtx /= tlen * (tlen - 1)
-            mtx -= avg_mtx
-        avg /= tlen
-        return mtx, avg, tlen
-
-    def _update_cov_matrix(self, x):
-        """
-        Update covariance matrix
-        :param x:
-        :return:
-        """
-        if self.xTx is None:
-            self._init_internals()
-        self.xTx.data.add_(x.t().mm(x).data)
-        self.xTx_avg.add_(torch.sum(x, dim=0))
-        self.tlen += x.size(0)
-
-    def _init_cov_matrix(self):
-        """
-        Initialize covariance matrix
-        :return:
-        """
-        self.xTx.data = torch.zeros(self.input_dim, self.input_dim)
-        self.xTx_avg.data = torch.zeros(self.input_dim)
-
-    def _init_internals(self):
-        """
-        Initialize internals
-        :param x:
-        :return:
-        """
-        self._init_cov_matrix()
-
-    def _add_constant(self, x):
-        """
-        Add constant
-        :param x:
-        :return:
-        """
-        bias = Variable(torch.ones((x.size()[0], x.size()[1], 1)), requires_grad=False)
-        return torch.cat((bias, x), dim=2)
-
-
-class RRCell(nn.Module):
-    """
-    Ridge Regression cell
-    """
-
-    def __init__(self, input_dim, output_dim, ridge_param=0.0, feedbacks=False, with_bias=True, learning_algo='inv', softmax_output=False, averaged=False, dtype=torch.float32):
-        """
-        Constructor
-        :param input_dim: Inputs dimension.
-        :param output_dim: Reservoir size
-        """
-        super(RRCell, self).__init__()
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        self.ridge_param = ridge_param
-        self.feedbacks = feedbacks
-        self.with_bias = with_bias
-        self.learning_algo = learning_algo
-        self.softmax_output = softmax_output
-        self.softmax = torch.nn.Softmax(dim=2)
-        self.averaged = averaged
-        self.n_samples = 0
-        self.dtype = dtype
-        if self.with_bias:
-            self.x_size = input_dim + 1
-        else:
-            self.x_size = input_dim
-        self.register_buffer('xTx', Variable(torch.zeros(self.x_size, self.x_size, dtype=dtype), requires_grad=False))
-        self.register_buffer('xTy', Variable(torch.zeros(self.x_size, output_dim, dtype=dtype), requires_grad=False))
-        self.register_buffer('w_out', Variable(torch.zeros(1, input_dim, dtype=dtype), requires_grad=False))
-
-    def reset(self):
-        """
-        Reset learning
-        :return:
-        """
-        """self.xTx.data = torch.zeros(self.x_size, self.x_size)
-        self.xTy.data = torch.zeros(self.x_size, self.output_dim)
-        self.w_out.data = torch.zeros(1, self.input_dim)"""
-        self.xTx.data.fill_(0.0)
-        self.xTy.data.fill_(0.0)
-        self.w_out.data.fill_(0.0)
-        self.train(True)
-
-    def get_w_out(self):
-        """
-        Output matrix
-        :return:
-        """
-        return self.w_out
-
-    def forward(self, x, y=None):
-        """
-        Forward
-        :param x: Input signal.
-        :param y: Target outputs
-        :return: Output or hidden states
-        """
-        batch_size = x.size()[0]
-        time_length = x.size()[1]
-        if self.with_bias:
-            x = self._add_constant(x)
-        if self.training:
-            for b in range(batch_size):
-                if not self.averaged:
-                    self.xTx.data.add_(x[b].t().mm(x[b]).data)
-                    self.xTy.data.add_(x[b].t().mm(y[b]).data)
-                else:
-                    self.xTx.data.add_((x[b].t().mm(x[b]) / time_length).data)
-                    self.xTy.data.add_((x[b].t().mm(y[b]) / time_length).data)
-                    self.n_samples += 1.0
-            if self.with_bias:
-                return x[:, :, 1:]
-            else:
-                return x
-        elif not self.training:
-            outputs = Variable(torch.zeros(batch_size, time_length, self.output_dim, dtype=self.dtype), requires_grad=False)
-            outputs = outputs if self.w_out.is_cuda else outputs
-            for b in range(batch_size):
-                outputs[b] = torch.mm(x[b], self.w_out)
-            if self.softmax_output:
-                return self.softmax(outputs)
-            else:
-                return outputs
-
-    def finalize(self, train=False):
-        """
-        Finalize training with LU factorization or Pseudo-inverse
-        """
-        if self.learning_algo == 'inv':
-            if not self.averaged:
-                ridge_xTx = self.xTx + self.ridge_param * torch.eye(self.input_dim + self.with_bias, dtype=self.dtype)
-                inv_xTx = ridge_xTx.inverse()
-                self.w_out.data = torch.mm(inv_xTx, self.xTy).data
-            else:
-                self.xTx = self.xTx / self.n_samples
-                self.xTy = self.xTy / self.n_samples
-                ridge_xTx = self.xTx + self.ridge_param * torch.eye(self.input_dim + self.with_bias, dtype=self.dtype)
-                inv_xTx = ridge_xTx.inverse()
-                self.w_out.data = torch.mm(inv_xTx, self.xTy).data
-        else:
-            self.w_out.data = torch.gesv(self.xTy, self.xTx + torch.eye(self.esn_cell.output_dim).mul(self.ridge_param)).data
-        self.train(train)
-
-    def _add_constant(self, x):
-        """
-        Add constant
-        :param x:
-        :return:
-        """
-        if x.is_cuda:
-            bias = Variable(torch.ones((x.size()[0], x.size()[1], 1), dtype=self.dtype), requires_grad=False)
-        else:
-            bias = Variable(torch.ones((x.size()[0], x.size()[1], 1), dtype=self.dtype), requires_grad=False)
         return torch.cat((bias, x), dim=2)
 
 
@@ -2450,6 +3112,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (Conceptor,
+     lambda: ([], {'conceptor_dim': 4}),
+     lambda: ([torch.rand([4, 4, 1])], {}),
+     False),
     (Identity,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2459,4 +3125,7 @@ TESTCASES = [
 class Test_nschaetti_EchoTorch(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
 

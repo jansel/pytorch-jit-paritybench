@@ -9,9 +9,11 @@ dataloader = _module
 BaseDataset = _module
 datasets = _module
 ade = _module
+ade = _module
 cityscapes = _module
 voc = _module
 dfn = _module
+engine = _module
 engine = _module
 evaluator = _module
 logger = _module
@@ -31,10 +33,12 @@ sync_bn = _module
 comm = _module
 functions = _module
 parallel = _module
+parallel_apply = _module
 src = _module
 cpu = _module
 setup = _module
 gpu = _module
+setup = _module
 syncbn = _module
 train = _module
 utils = _module
@@ -49,15 +53,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -71,22 +76,49 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-import torch
+import time
 
 
-from torch.utils.checkpoint import checkpoint
+import math
 
 
 import numpy as np
 
 
+import torch.utils.model_zoo as model_zoo
+
+
+import torch
+
+
+from torch.utils import data
+
+
+import torch.utils.data as data
+
+
+import scipy.io as sio
+
+
+from torch.utils.checkpoint import checkpoint
+
+
+import torch.distributed as dist
+
+
+import torch.multiprocessing as mp
+
+
 import scipy.ndimage as nd
+
+
+from torch.cuda._utils import _get_device_index
 
 
 from collections import OrderedDict
 
 
-from torch.nn.parallel.data_parallel import DataParallel
+from torch.optim.sgd import SGD
 
 
 from torch.autograd import Variable
@@ -95,10 +127,25 @@ from torch.autograd import Variable
 from torch.autograd import Function
 
 
+from torch.nn.parallel.data_parallel import DataParallel
+
+
 import torch.cuda.comm as comm
 
 
 from torch.nn.parallel._functions import Broadcast
+
+
+from torch.utils.cpp_extension import load
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
 
 
 import collections
@@ -113,10 +160,10 @@ from torch.nn.functional import batch_norm
 from torch.nn.parallel._functions import ReduceAddCoalesced
 
 
-import torch.distributed as dist
-
-
 import torch.backends.cudnn as cudnn
+
+
+from collections import defaultdict
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -365,6 +412,90 @@ class Xception(nn.Module):
         return x
 
 
+class SELayer(nn.Module):
+
+    def __init__(self, in_planes, out_planes, reduction=16):
+        super(SELayer, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(nn.Linear(in_planes, out_planes // reduction), nn.ReLU(inplace=True), nn.Linear(out_planes // reduction, out_planes), nn.Sigmoid())
+        self.out_planes = out_planes
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, self.out_planes, 1, 1)
+        return y
+
+
+class ChannelAttention(nn.Module):
+
+    def __init__(self, in_planes, out_planes, reduction):
+        super(ChannelAttention, self).__init__()
+        self.channel_attention = SELayer(in_planes, out_planes, reduction)
+
+    def forward(self, x1, x2):
+        fm = torch.cat([x1, x2], 1)
+        channel_attetion = self.channel_attention(fm)
+        fm = x1 * channel_attetion + x2
+        return fm
+
+
+class ConvBnRelu(nn.Module):
+
+    def __init__(self, in_planes, out_planes, ksize, stride, pad, dilation=1, groups=1, has_bn=True, norm_layer=nn.BatchNorm2d, bn_eps=1e-05, has_relu=True, inplace=True, has_bias=False):
+        super(ConvBnRelu, self).__init__()
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=ksize, stride=stride, padding=pad, dilation=dilation, groups=groups, bias=has_bias)
+        self.has_bn = has_bn
+        if self.has_bn:
+            self.bn = norm_layer(out_planes, eps=bn_eps)
+        self.has_relu = has_relu
+        if self.has_relu:
+            self.relu = nn.ReLU(inplace=inplace)
+
+    def forward(self, x):
+        x = self.conv(x)
+        if self.has_bn:
+            x = self.bn(x)
+        if self.has_relu:
+            x = self.relu(x)
+        return x
+
+
+class RefineResidual(nn.Module):
+
+    def __init__(self, in_planes, out_planes, ksize, has_bias=False, has_relu=False, norm_layer=nn.BatchNorm2d, bn_eps=1e-05):
+        super(RefineResidual, self).__init__()
+        self.conv_1x1 = nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, dilation=1, bias=has_bias)
+        self.cbr = ConvBnRelu(out_planes, out_planes, ksize, 1, ksize // 2, has_bias=has_bias, norm_layer=norm_layer, bn_eps=bn_eps)
+        self.conv_refine = nn.Conv2d(out_planes, out_planes, kernel_size=ksize, stride=1, padding=ksize // 2, dilation=1, bias=has_bias)
+        self.has_relu = has_relu
+        if self.has_relu:
+            self.relu = nn.ReLU(inplace=False)
+
+    def forward(self, x):
+        x = self.conv_1x1(x)
+        t = self.cbr(x)
+        t = self.conv_refine(t)
+        if self.has_relu:
+            return self.relu(t + x)
+        return t + x
+
+
+class DFNHead(nn.Module):
+
+    def __init__(self, in_planes, out_planes, scale, norm_layer=nn.BatchNorm2d):
+        super(DFNHead, self).__init__()
+        self.rrb = RefineResidual(in_planes, out_planes * 9, 3, has_bias=False, has_relu=False, norm_layer=norm_layer)
+        self.conv = nn.Conv2d(out_planes * 9, out_planes, kernel_size=1, stride=1, padding=0)
+        self.scale = scale
+
+    def forward(self, x):
+        x = self.rrb(x)
+        x = self.conv(x)
+        x = F.interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=True)
+        return x
+
+
 def load_model(model, model_file, is_restore=False):
     t_start = time.time()
     if isinstance(model_file, str):
@@ -400,12 +531,6 @@ def resnet101(pretrained_model=None, **kwargs):
     if pretrained_model is not None:
         model = load_model(model, pretrained_model)
     return model
-
-
-_global_config['bn_momentum'] = 4
-
-
-_global_config['bn_eps'] = 4
 
 
 class DFN(nn.Module):
@@ -511,21 +636,6 @@ class DFN(nn.Module):
         return F.log_softmax(pred_out[-1], dim=1)
 
 
-class DFNHead(nn.Module):
-
-    def __init__(self, in_planes, out_planes, scale, norm_layer=nn.BatchNorm2d):
-        super(DFNHead, self).__init__()
-        self.rrb = RefineResidual(in_planes, out_planes * 9, 3, has_bias=False, has_relu=False, norm_layer=norm_layer)
-        self.conv = nn.Conv2d(out_planes * 9, out_planes, kernel_size=1, stride=1, padding=0)
-        self.scale = scale
-
-    def forward(self, x):
-        x = self.rrb(x)
-        x = self.conv(x)
-        x = F.interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=True)
-        return x
-
-
 class _ASPPModule(nn.Module):
 
     def __init__(self, inplanes, planes, kernel_size, padding, dilation, BatchNorm):
@@ -612,6 +722,21 @@ class dense_to_space(nn.Module):
         return self.ps(input)
 
 
+class deeperlab_seg_head(nn.Module):
+
+    def __init__(self, inplane, outplane, scale=4, norm_layer=nn.BatchNorm2d):
+        super(deeperlab_seg_head, self).__init__()
+        self.conv = ConvBnRelu(inplane, 256, 7, 1, 3, norm_layer=norm_layer, bn_eps=config.bn_eps)
+        self.conv_seg = nn.Conv2d(256, outplane, kernel_size=1, stride=1, padding=0)
+        self.scale = scale
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.conv_seg(x)
+        x = F.interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=True)
+        return x
+
+
 class deeperlab(nn.Module):
 
     def __init__(self, inplane, outplane, criterion=None, aux_criterion=None, area_alpa=None, pretrained_model=None, norm_layer=nn.BatchNorm2d, detection=False):
@@ -648,21 +773,6 @@ class deeperlab(nn.Module):
             loss = self.criterion(pre, label)
             return loss
         return F.log_softmax(pre, dim=1)
-
-
-class deeperlab_seg_head(nn.Module):
-
-    def __init__(self, inplane, outplane, scale=4, norm_layer=nn.BatchNorm2d):
-        super(deeperlab_seg_head, self).__init__()
-        self.conv = ConvBnRelu(inplane, 256, 7, 1, 3, norm_layer=norm_layer, bn_eps=config.bn_eps)
-        self.conv_seg = nn.Conv2d(256, outplane, kernel_size=1, stride=1, padding=0)
-        self.scale = scale
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.conv_seg(x)
-        x = F.interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=True)
-        return x
 
 
 class SigmoidFocalLoss(nn.Module):
@@ -750,27 +860,6 @@ class BootstrappedCrossEntropy(nn.Module):
         return loss.mean()
 
 
-class ConvBnRelu(nn.Module):
-
-    def __init__(self, in_planes, out_planes, ksize, stride, pad, dilation=1, groups=1, has_bn=True, norm_layer=nn.BatchNorm2d, bn_eps=1e-05, has_relu=True, inplace=True, has_bias=False):
-        super(ConvBnRelu, self).__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=ksize, stride=stride, padding=pad, dilation=dilation, groups=groups, bias=has_bias)
-        self.has_bn = has_bn
-        if self.has_bn:
-            self.bn = norm_layer(out_planes, eps=bn_eps)
-        self.has_relu = has_relu
-        if self.has_relu:
-            self.relu = nn.ReLU(inplace=inplace)
-
-    def forward(self, x):
-        x = self.conv(x)
-        if self.has_bn:
-            x = self.bn(x)
-        if self.has_relu:
-            x = self.relu(x)
-        return x
-
-
 class SeparableConvBnRelu(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1, has_relu=True, norm_layer=nn.BatchNorm2d):
@@ -799,34 +888,6 @@ class GlobalAvgPool2d(nn.Module):
         return inputs
 
 
-class SELayer(nn.Module):
-
-    def __init__(self, in_planes, out_planes, reduction=16):
-        super(SELayer, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(in_planes, out_planes // reduction), nn.ReLU(inplace=True), nn.Linear(out_planes // reduction, out_planes), nn.Sigmoid())
-        self.out_planes = out_planes
-
-    def forward(self, x):
-        b, c, _, _ = x.size()
-        y = self.avg_pool(x).view(b, c)
-        y = self.fc(y).view(b, self.out_planes, 1, 1)
-        return y
-
-
-class ChannelAttention(nn.Module):
-
-    def __init__(self, in_planes, out_planes, reduction):
-        super(ChannelAttention, self).__init__()
-        self.channel_attention = SELayer(in_planes, out_planes, reduction)
-
-    def forward(self, x1, x2):
-        fm = torch.cat([x1, x2], 1)
-        channel_attetion = self.channel_attention(fm)
-        fm = x1 * channel_attetion + x2
-        return fm
-
-
 class BNRefine(nn.Module):
 
     def __init__(self, in_planes, out_planes, ksize, has_bias=False, has_relu=False, norm_layer=nn.BatchNorm2d, bn_eps=1e-05):
@@ -839,26 +900,6 @@ class BNRefine(nn.Module):
 
     def forward(self, x):
         t = self.conv_bn_relu(x)
-        t = self.conv_refine(t)
-        if self.has_relu:
-            return self.relu(t + x)
-        return t + x
-
-
-class RefineResidual(nn.Module):
-
-    def __init__(self, in_planes, out_planes, ksize, has_bias=False, has_relu=False, norm_layer=nn.BatchNorm2d, bn_eps=1e-05):
-        super(RefineResidual, self).__init__()
-        self.conv_1x1 = nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, dilation=1, bias=has_bias)
-        self.cbr = ConvBnRelu(out_planes, out_planes, ksize, 1, ksize // 2, has_bias=has_bias, norm_layer=norm_layer, bn_eps=bn_eps)
-        self.conv_refine = nn.Conv2d(out_planes, out_planes, kernel_size=ksize, stride=1, padding=ksize // 2, dilation=1, bias=has_bias)
-        self.has_relu = has_relu
-        if self.has_relu:
-            self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x = self.conv_1x1(x)
-        t = self.cbr(x)
         t = self.conv_refine(t)
         if self.has_relu:
             return self.relu(t + x)
@@ -1169,6 +1210,84 @@ class _SyncBatchNorm(_BatchNorm):
         return mean, (bias_var + self.eps) ** -0.5
 
 
+class BatchNorm2d(_SyncBatchNorm):
+    """Cross-GPU Synchronized Batch normalization (SyncBN)
+
+    Standard BN [1]_ implementation only normalize the data within each device (GPU).
+    SyncBN normalizes the input within the whole mini-batch.
+    We follow the sync-onece implmentation described in the paper [2]_ .
+    Please see the design idea in the `notes <./notes/syncbn.html>`_.
+
+    .. note::
+        We adapt the awesome python API from another `PyTorch SyncBN Implementation
+        <https://github.com/vacancy/Synchronized-BatchNorm-PyTorch>`_ and provide
+        efficient CUDA backend.
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    The mean and standard-deviation are calculated per-channel over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape:
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Reference:
+        .. [1] Ioffe, Sergey, and Christian Szegedy. "Batch normalization: Accelerating deep network training by reducing internal covariate shift." *ICML 2015*
+        .. [2] Hang Zhang, Kristin Dana, Jianping Shi, Zhongyue Zhang, Xiaogang Wang, Ambrish Tyagi, and Amit Agrawal. "Context Encoding for Semantic Segmentation." *CVPR 2018*
+
+    Examples:
+        >>> m = BatchNorm2d(100)
+        >>> net = torch.nn.DataParallel(m)
+        >>> encoding.parallel.patch_replication_callback(net)
+        >>> output = net(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+        super(BatchNorm2d, self)._check_input_dim(input)
+
+
+class BatchNorm1d(_SyncBatchNorm):
+    """Please see the docs in :class:`encoding.nn.BatchNorm2d`"""
+
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+        super(BatchNorm2d, self)._check_input_dim(input)
+
+
+class BatchNorm3d(_SyncBatchNorm):
+    """Please see the docs in :class:`encoding.nn.BatchNorm2d`"""
+
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
+        super(BatchNorm3d, self)._check_input_dim(input)
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1184,10 +1303,6 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'ksize': 4, 'stride': 1, 'pad': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (DFN,
-     lambda: ([], {'out_planes': 4, 'criterion': _mock_layer(), 'aux_criterion': _mock_layer(), 'alpha': 4}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
     (DFNHead,
      lambda: ([], {'in_planes': 4, 'out_planes': 4, 'scale': 1.0}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1216,10 +1331,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
-    (deeperlab_seg_head,
-     lambda: ([], {'inplane': 4, 'outplane': 4}),
+    (_ASPPModule,
+     lambda: ([], {'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'BatchNorm': _mock_layer}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
+     True),
     (dense_to_space,
      lambda: ([], {'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1266,7 +1381,4 @@ class Test_lingtengqiu_Deeperlab_pytorch(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
 

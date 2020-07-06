@@ -31,11 +31,14 @@ voc_eval = _module
 model = _module
 nms = _module
 _ext = _module
+nms = _module
 build = _module
 nms_cpu = _module
 nms_gpu = _module
 nms_wrapper = _module
 roi_temporal_pooling = _module
+roi_temporal_pooling = _module
+build = _module
 functions = _module
 roi_temporal_pool = _module
 modules = _module
@@ -73,10 +76,12 @@ ECO = _module
 layer_factory = _module
 pytorch_load = _module
 ECOfull = _module
+layer_factory = _module
 pytorch_load = _module
 tf_model_zoo = _module
 bninception = _module
 caffe_pb2 = _module
+layer_factory = _module
 parse_caffe = _module
 pytorch_load = _module
 inceptionresnetv2 = _module
@@ -272,29 +277,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-from torch.nn.modules.module import Module
 
 
 import torch
 
 
-import torch.nn as nn
-
-
 import numpy as np
+
+
+from torch.autograd import Function
+
+
+from torch.nn.modules.module import Module
+
+
+import torch.nn as nn
 
 
 import numpy.random as npr
@@ -327,6 +336,15 @@ from torch import nn
 from torch.nn import functional as F
 
 
+import torchvision
+
+
+import numbers
+
+
+import torch.utils.data as data
+
+
 import torch.utils.model_zoo as model_zoo
 
 
@@ -334,6 +352,12 @@ from torch.nn.init import constant_
 
 
 from torch.nn.init import xavier_uniform_
+
+
+import collections
+
+
+import tensorflow as tf
 
 
 import torch.backends.cudnn as cudnn
@@ -526,9 +550,6 @@ def twins_overlaps_batch(anchors, gt_twins):
     return overlaps
 
 
-_global_config['TRAIN'] = 4
-
-
 class _AnchorTargetLayer(nn.Module):
     """
         Assign anchors to ground-truth targets. Produces anchor classification
@@ -642,26 +663,39 @@ def clip_twins(wins, video_length, batch_size):
     return wins
 
 
-def nms(dets, thresh=0.4):
-    """Pure Python NMS baseline."""
-    if len(dets) == 0:
-        return []
+def nms_cpu(dets, thresh):
+    dets = dets.numpy()
     x1 = dets[:, (0)]
     x2 = dets[:, (1)]
     scores = dets[:, (2)]
-    lengths = x2 - x1
+    length = x2 - x1 + 1
     order = scores.argsort()[::-1]
     keep = []
     while order.size > 0:
-        i = order[0]
+        i = order.item(0)
         keep.append(i)
         xx1 = np.maximum(x1[i], x1[order[1:]])
         xx2 = np.minimum(x2[i], x2[order[1:]])
-        inter = np.maximum(0.0, xx2 - xx1)
-        ovr = inter / (lengths[i] + lengths[order[1:]] - inter)
-        inds = np.where(ovr <= thresh)[0]
+        inter = np.maximum(0.0, xx2 - xx1 + 1)
+        ovr = inter / (length[i] + length[order[1:]] - inter)
+        inds = np.where(ovr < thresh)[0]
         order = order[inds + 1]
+    return torch.IntTensor(keep)
+
+
+def nms_gpu(dets, thresh):
+    keep = dets.new(dets.size(0), 1).zero_().int()
+    num_out = dets.new(1).zero_().int()
+    nms.nms_cuda(keep, dets, num_out, thresh)
+    keep = keep[:num_out[0]]
     return keep
+
+
+def nms(dets, thresh, force_cpu=False):
+    """Dispatch to either CPU or GPU NMS implementations."""
+    if dets.shape[0] == 0:
+        return []
+    return nms_gpu(dets, thresh) if force_cpu == False else nms_cpu(dets, thresh)
 
 
 def twin_transform_inv(wins, deltas, batch_size):
@@ -675,9 +709,6 @@ def twin_transform_inv(wins, deltas, batch_size):
     pred_wins[:, :, 0::2] = pred_ctr_x - 0.5 * pred_l
     pred_wins[:, :, 1::2] = pred_ctr_x + 0.5 * pred_l
     return pred_wins
-
-
-_global_config['USE_GPU_NMS'] = 4
 
 
 class _ProposalLayer(nn.Module):
@@ -913,12 +944,6 @@ def _smooth_l1_loss(bbox_pred, bbox_targets, bbox_inside_weights, bbox_outside_w
     return loss_box
 
 
-_global_config['FEAT_STRIDE'] = 4
-
-
-_global_config['ANCHOR_SCALES'] = 4
-
-
 class _RPN(nn.Module):
     """ region proposal network """
 
@@ -1051,9 +1076,6 @@ def make_layers(cfg, batch_norm=False):
                 layers += [conv3d, nn.ReLU(inplace=True)]
             in_channels = v
     return nn.Sequential(*layers)
-
-
-_global_config['A'] = 4
 
 
 class C3D(nn.Module):
@@ -1233,14 +1255,29 @@ class Mixed_4f(nn.Module):
         return out
 
 
+class BasicConv2d(nn.Module):
+
+    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
+        super(BasicConv2d, self).__init__()
+        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0, affine=True)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        return x
+
+
 class Mixed_5b(nn.Module):
 
     def __init__(self):
         super(Mixed_5b, self).__init__()
-        self.branch0 = nn.Sequential(BasicConv3d(832, 256, kernel_size=1, stride=1))
-        self.branch1 = nn.Sequential(BasicConv3d(832, 160, kernel_size=1, stride=1), BasicConv3d(160, 320, kernel_size=3, stride=1, padding=1))
-        self.branch2 = nn.Sequential(BasicConv3d(832, 32, kernel_size=1, stride=1), BasicConv3d(32, 128, kernel_size=3, stride=1, padding=1))
-        self.branch3 = nn.Sequential(nn.MaxPool3d(kernel_size=(3, 3, 3), stride=1, padding=1), BasicConv3d(832, 128, kernel_size=1, stride=1))
+        self.branch0 = BasicConv2d(192, 96, kernel_size=1, stride=1)
+        self.branch1 = nn.Sequential(BasicConv2d(192, 48, kernel_size=1, stride=1), BasicConv2d(48, 64, kernel_size=5, stride=1, padding=2))
+        self.branch2 = nn.Sequential(BasicConv2d(192, 64, kernel_size=1, stride=1), BasicConv2d(64, 96, kernel_size=3, stride=1, padding=1), BasicConv2d(96, 96, kernel_size=3, stride=1, padding=1))
+        self.branch3 = nn.Sequential(nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False), BasicConv2d(192, 64, kernel_size=1, stride=1))
 
     def forward(self, x):
         x0 = self.branch0(x)
@@ -1353,8 +1390,8 @@ class Bottleneck(nn.Module):
 def downsample_basic_block(x, planes, stride):
     out = F.avg_pool3d(x, kernel_size=1, stride=stride)
     zero_pads = torch.Tensor(out.size(0), planes - out.size(1), out.size(2), out.size(3), out.size(4)).zero_()
-    if isinstance(out.data, torch.cuda.FloatTensor):
-        zero_pads = zero_pads.cuda()
+    if isinstance(out.data, torch.FloatTensor):
+        zero_pads = zero_pads
     out = Variable(torch.cat([out.data, zero_pads], dim=1))
     return out
 
@@ -1412,25 +1449,72 @@ class ResNet(nn.Module):
         return x
 
 
-_global_config['POOLING_LENGTH'] = 4
+class _NonLocalBlockND(nn.Module):
+
+    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
+        super(_NonLocalBlockND, self).__init__()
+        assert dimension in [1, 2, 3]
+        self.dimension = dimension
+        self.sub_sample = sub_sample
+        self.in_channels = in_channels
+        self.inter_channels = inter_channels
+        if self.inter_channels is None:
+            self.inter_channels = in_channels // 2
+            if self.inter_channels == 0:
+                self.inter_channels = 1
+        if dimension == 3:
+            conv_nd = nn.Conv3d
+            max_pool_layer = nn.MaxPool3d(kernel_size=(1, 2, 2))
+            bn = nn.BatchNorm3d
+        elif dimension == 2:
+            conv_nd = nn.Conv2d
+            max_pool_layer = nn.MaxPool2d(kernel_size=(2, 2))
+            bn = nn.BatchNorm2d
+        else:
+            conv_nd = nn.Conv1d
+            max_pool_layer = nn.MaxPool1d(kernel_size=2)
+            bn = nn.BatchNorm1d
+        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        if bn_layer:
+            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
+            nn.init.constant_(self.W[1].weight, 0)
+            nn.init.constant_(self.W[1].bias, 0)
+        else:
+            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
+            nn.init.constant_(self.W.weight, 0)
+            nn.init.constant_(self.W.bias, 0)
+        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
+        if sub_sample:
+            self.g = nn.Sequential(self.g, max_pool_layer)
+            self.phi = nn.Sequential(self.phi, max_pool_layer)
+
+    def forward(self, x):
+        """
+        :param x: (b, c, t, h, w)
+        :return:
+        """
+        batch_size = x.size(0)
+        g_x = self.g(x).view(batch_size, self.inter_channels, -1)
+        g_x = g_x.permute(0, 2, 1)
+        theta_x = self.theta(x).view(batch_size, self.inter_channels, -1)
+        theta_x = theta_x.permute(0, 2, 1)
+        phi_x = self.phi(x).view(batch_size, self.inter_channels, -1)
+        f = torch.matmul(theta_x, phi_x)
+        N = f.size(-1)
+        f_div_C = f / N
+        y = torch.matmul(f_div_C, g_x)
+        y = y.permute(0, 2, 1).contiguous()
+        y = y.view(batch_size, self.inter_channels, *x.size()[2:])
+        W_y = self.W(y)
+        z = W_y + x
+        return z
 
 
-_global_config['NUM_CLASSES'] = 4
+class NONLocalBlock3D(_NonLocalBlockND):
 
-
-_global_config['DEDUP_TWINS'] = 4
-
-
-_global_config['POOLING_WIDTH'] = 4
-
-
-_global_config['USE_ATTENTION'] = 4
-
-
-_global_config['POOLING_MODE'] = 4
-
-
-_global_config['POOLING_HEIGHT'] = 4
+    def __init__(self, in_channels, inter_channels=None, sub_sample=True, bn_layer=True):
+        super(NONLocalBlock3D, self).__init__(in_channels, inter_channels=inter_channels, dimension=3, sub_sample=sub_sample, bn_layer=bn_layer)
 
 
 class _TDCNN(nn.Module):
@@ -1525,66 +1609,16 @@ class _TDCNN(nn.Module):
         self._init_weights()
 
 
-class _NonLocalBlockND(nn.Module):
+class NONLocalBlock1D(_NonLocalBlockND):
 
-    def __init__(self, in_channels, inter_channels=None, dimension=3, sub_sample=True, bn_layer=True):
-        super(_NonLocalBlockND, self).__init__()
-        assert dimension in [1, 2, 3]
-        self.dimension = dimension
-        self.sub_sample = sub_sample
-        self.in_channels = in_channels
-        self.inter_channels = inter_channels
-        if self.inter_channels is None:
-            self.inter_channels = in_channels // 2
-            if self.inter_channels == 0:
-                self.inter_channels = 1
-        if dimension == 3:
-            conv_nd = nn.Conv3d
-            max_pool_layer = nn.MaxPool3d(kernel_size=(1, 2, 2))
-            bn = nn.BatchNorm3d
-        elif dimension == 2:
-            conv_nd = nn.Conv2d
-            max_pool_layer = nn.MaxPool2d(kernel_size=(2, 2))
-            bn = nn.BatchNorm2d
-        else:
-            conv_nd = nn.Conv1d
-            max_pool_layer = nn.MaxPool1d(kernel_size=2)
-            bn = nn.BatchNorm1d
-        self.g = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
-        if bn_layer:
-            self.W = nn.Sequential(conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0), bn(self.in_channels))
-            nn.init.constant_(self.W[1].weight, 0)
-            nn.init.constant_(self.W[1].bias, 0)
-        else:
-            self.W = conv_nd(in_channels=self.inter_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0)
-            nn.init.constant_(self.W.weight, 0)
-            nn.init.constant_(self.W.bias, 0)
-        self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
-        self.phi = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels, kernel_size=1, stride=1, padding=0)
-        if sub_sample:
-            self.g = nn.Sequential(self.g, max_pool_layer)
-            self.phi = nn.Sequential(self.phi, max_pool_layer)
+    def __init__(self, in_channels, inter_channels=None, sub_sample=True, bn_layer=True):
+        super(NONLocalBlock1D, self).__init__(in_channels, inter_channels=inter_channels, dimension=1, sub_sample=sub_sample, bn_layer=bn_layer)
 
-    def forward(self, x):
-        """
-        :param x: (b, c, t, h, w)
-        :return:
-        """
-        batch_size = x.size(0)
-        g_x = self.g(x).view(batch_size, self.inter_channels, -1)
-        g_x = g_x.permute(0, 2, 1)
-        theta_x = self.theta(x).view(batch_size, self.inter_channels, -1)
-        theta_x = theta_x.permute(0, 2, 1)
-        phi_x = self.phi(x).view(batch_size, self.inter_channels, -1)
-        f = torch.matmul(theta_x, phi_x)
-        N = f.size(-1)
-        f_div_C = f / N
-        y = torch.matmul(f_div_C, g_x)
-        y = y.permute(0, 2, 1).contiguous()
-        y = y.view(batch_size, self.inter_channels, *x.size()[2:])
-        W_y = self.W(y)
-        z = W_y + x
-        return z
+
+class NONLocalBlock2D(_NonLocalBlockND):
+
+    def __init__(self, in_channels, inter_channels=None, sub_sample=True, bn_layer=True):
+        super(NONLocalBlock2D, self).__init__(in_channels, inter_channels=inter_channels, dimension=2, sub_sample=sub_sample, bn_layer=bn_layer)
 
 
 class test_PSRoIPooling(Module):
@@ -1605,11 +1639,9 @@ def parse_expr(expr):
     return parts[0].split(','), parts[1], parts[2].split(',')
 
 
-def get_basic_layer(info, channels=None, conv_bias=False, num_segments=4):
+def get_basic_layer(info, channels=None, conv_bias=False):
     id = info['id']
     attr = info['attrs'] if 'attrs' in info else list()
-    if id == 'global_pool':
-        attr['kernel_d'] = int(num_segments / 4)
     out, op, in_vars = parse_expr(info['expr'])
     assert len(out) == 1
     assert len(in_vars) == 1
@@ -1872,37 +1904,10 @@ class BNInception(nn.Module):
         return data_dict[self._op_list[-1][2]]
 
 
-class BasicConv2d(nn.Module):
+class InceptionV3(BNInception):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
-        super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0, affine=True)
-        self.relu = nn.ReLU(inplace=False)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        return x
-
-
-class Mixed_5b(nn.Module):
-
-    def __init__(self):
-        super(Mixed_5b, self).__init__()
-        self.branch0 = BasicConv2d(192, 96, kernel_size=1, stride=1)
-        self.branch1 = nn.Sequential(BasicConv2d(192, 48, kernel_size=1, stride=1), BasicConv2d(48, 64, kernel_size=5, stride=1, padding=2))
-        self.branch2 = nn.Sequential(BasicConv2d(192, 64, kernel_size=1, stride=1), BasicConv2d(64, 96, kernel_size=3, stride=1, padding=1), BasicConv2d(96, 96, kernel_size=3, stride=1, padding=1))
-        self.branch3 = nn.Sequential(nn.AvgPool2d(3, stride=1, padding=1, count_include_pad=False), BasicConv2d(192, 64, kernel_size=1, stride=1))
-
-    def forward(self, x):
-        x0 = self.branch0(x)
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        x3 = self.branch3(x)
-        out = torch.cat((x0, x1, x2, x3), 1)
-        return out
+    def __init__(self, model_path='model_zoo/bninception/inceptionv3.yaml', num_classes=101, weight_url='https://yjxiong.blob.core.windows.net/models/inceptionv3-cuhk-0e09b300b493bc74c.pth'):
+        super(InceptionV3, self).__init__(model_path=model_path, weight_url=weight_url, num_classes=num_classes)
 
 
 class Block35(nn.Module):
@@ -2045,21 +2050,6 @@ class InceptionResnetV2(nn.Module):
         x = self.avgpool_1a(x)
         x = x.view(x.size(0), -1)
         x = self.classif(x)
-        return x
-
-
-class BasicConv2d(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
-        super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0, affine=True)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
         return x
 
 
@@ -2298,6 +2288,14 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1088, 64, 64])], {}),
      False),
+    (NONLocalBlock1D,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
+    (NONLocalBlock2D,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Reduction_A,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 384, 64, 64])], {}),
@@ -2368,4 +2366,10 @@ class Test_sunnyxiaohu_R_C3D_pytorch(_paritybench_base):
 
     def test_019(self):
         self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
 

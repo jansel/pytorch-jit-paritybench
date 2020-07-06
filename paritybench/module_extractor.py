@@ -28,7 +28,7 @@ from .utils import call_with_timeout
 
 log = logging.getLogger(__name__)
 
-NN_MODULE_RE = re.compile(r"(\btorch[.]nn\b)|(\bnn[.]Module\b)", re.MULTILINE)
+NN_MODULE_RE = re.compile(r"(\btorch\b)|(\bnn[.]Module\b)", re.MULTILINE)
 PREFIX = f'''
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
@@ -40,10 +40,11 @@ from torch import Tensor
 
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 {" = ".join(sorted(CONFIG_NAMES))} = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = "1.0.0"
 '''
@@ -76,7 +77,7 @@ class PyTorchModuleExtractor(object):
 
         self.imports = dict()
         self.constants = []
-        self.module_statements = []
+        self.nn_module_names = []
 
         self.available_symbols = dict()
         self.global_config = None
@@ -128,11 +129,10 @@ class PyTorchModuleExtractor(object):
         scope = types.ModuleType("_scope")
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, ast.ClassDef):
+                self.add_available_symbol(node, overwrite)
                 bases = [to_source(x).strip() for x in node.bases]
                 if overwrite and any(self.is_torch_nn_module(scope, x) for x in bases):
-                    self.module_statements.append(node)
-                else:
-                    self.add_available_symbol(node, overwrite)
+                    self.nn_module_names.append(node.name)
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 if overwrite:
                     for module_name, import_node in split_import(node):
@@ -151,9 +151,10 @@ class PyTorchModuleExtractor(object):
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Assign)):
                 self.add_available_symbol(node, overwrite)
 
-    @staticmethod
-    def is_torch_nn_module(scope: types.ModuleType, base: str):
+    def is_torch_nn_module(self, scope: types.ModuleType, base: str):
         if base in ('torch.nn.Module', 'nn.Module', 'Module'):
+            return True
+        if base.split('.')[-1] in self.nn_module_names:
             return True
         try:
             for part in base.split('.'):
@@ -201,14 +202,21 @@ class PyTorchModuleExtractor(object):
                 self.output.run_statement(statement)
             except Exception as e:
                 self.errors.record("constant", e, getattr(statement, "name", ""))
-        for statement in self.module_statements:
-            try:
+        for name in self.nn_module_names:
+            statement = self.available_symbols.pop(name, None)
+            if statement:
                 self.add_requirements(statement)
-                statement = ast.fix_missing_locations(ASTCleanup().visit(statement))
-                self.output.run_statement(statement, source_required=True)
-                self.name_to_ast[statement.name] = statement
-            except Exception as e:
-                self.errors.record("define", e, getattr(statement, "name", ""))
+                try:
+                    self.run_statement(statement)
+                except Exception as e:
+                    self.errors.record("define", e, getattr(statement, "name", ""))
+
+    def run_statement(self, statement):
+        statement = ast.fix_missing_locations(ASTCleanup().visit(statement))
+        self.output.run_statement(statement, source_required=True)
+        name = getattr(statement, "name", None)
+        if name:
+            self.name_to_ast[name] = statement
 
     def add_requirements(self, statement):
         """
@@ -217,13 +225,18 @@ class PyTorchModuleExtractor(object):
         :param statement: ast.Node to add to the module
         """
         reads, writes = ExtractReadsWrites.run(statement)
+        needs = {sym for sym in reads - writes if sym not in self.output}
+        log.debug(f"add_requirements: {getattr(statement, 'name', '')} "
+                  f"available {needs & set(self.available_symbols.keys())} "
+                  f"unavailable {needs - set(self.available_symbols.keys())}")
+
         need_config = False
-        for name in sorted(reads - writes):
+        for name in sorted(needs):
             if name in self.available_symbols and name not in self.output:
                 requirement = self.available_symbols.pop(name)
                 self.add_requirements(requirement)
                 try:
-                    self.output.run_statement(requirement, source_required=True)
+                    self.run_statement(requirement)
                 except:
                     log.warning("Error adding requirement", exc_info=True)
             elif name in CONFIG_NAMES:
@@ -430,7 +443,8 @@ class IncrementalModule(object):
         :param name: alternate name for self.output_module
         :param overwrite: if true, replace an existing symbol
         """
-        if name in {'global', 'try', 'except', 'if', 'in', 'else', 'for', 'return', 'def'}:
+        if name in {'global', 'try', 'except', 'if', 'in', 'else', 'for', 'import', 'pass',
+                    'return', 'def', 'int', 'super', 'torch', '__main__'}:
             return
         if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name):
             return

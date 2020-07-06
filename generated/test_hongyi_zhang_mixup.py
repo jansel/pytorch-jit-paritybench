@@ -22,15 +22,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -77,19 +78,44 @@ from torch.autograd import grad
 from torch.nn.functional import binary_cross_entropy_with_logits as bce
 
 
-class Bottleneck(nn.Module):
+class ShuffleBlock(nn.Module):
 
-    def __init__(self, in_planes, growth_rate):
-        super(Bottleneck, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, 4 * growth_rate, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(4 * growth_rate)
-        self.conv2 = nn.Conv2d(4 * growth_rate, growth_rate, kernel_size=3, padding=1, bias=False)
+    def __init__(self, groups):
+        super(ShuffleBlock, self).__init__()
+        self.groups = groups
 
     def forward(self, x):
-        out = self.conv1(F.relu(self.bn1(x)))
-        out = self.conv2(F.relu(self.bn2(out)))
-        out = torch.cat([out, x], 1)
+        """Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]"""
+        N, C, H, W = x.size()
+        g = self.groups
+        return x.view(N, g, C / g, H, W).permute(0, 2, 1, 3, 4).contiguous().view(N, C, H, W)
+
+
+class Bottleneck(nn.Module):
+
+    def __init__(self, in_planes, out_planes, stride, groups):
+        super(Bottleneck, self).__init__()
+        self.stride = stride
+        mid_planes = out_planes / 4
+        g = 1 if in_planes == 24 else groups
+        self.conv1 = nn.Conv2d(in_planes, mid_planes, kernel_size=1, groups=g, bias=False)
+        self.bn1 = nn.BatchNorm2d(mid_planes)
+        self.shuffle1 = ShuffleBlock(groups=g)
+        self.conv2 = nn.Conv2d(mid_planes, mid_planes, kernel_size=3, stride=stride, padding=1, groups=mid_planes, bias=False)
+        self.bn2 = nn.BatchNorm2d(mid_planes)
+        self.conv3 = nn.Conv2d(mid_planes, out_planes, kernel_size=1, groups=groups, bias=False)
+        self.bn3 = nn.BatchNorm2d(out_planes)
+        self.shortcut = nn.Sequential()
+        if stride == 2:
+            self.shortcut = nn.Sequential(nn.AvgPool2d(3, stride=2, padding=1))
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.shuffle1(out)
+        out = F.relu(self.bn2(self.conv2(out)))
+        out = self.bn3(self.conv3(out))
+        res = self.shortcut(x)
+        out = F.relu(torch.cat([out, res], 1)) if self.stride == 2 else F.relu(out + res)
         return out
 
 
@@ -149,33 +175,6 @@ class DenseNet(nn.Module):
         out = F.avg_pool2d(F.relu(self.bn(out)), 4)
         out = out.view(out.size(0), -1)
         out = self.linear(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-
-    def __init__(self, last_planes, in_planes, out_planes, dense_depth, stride, first_layer):
-        super(Bottleneck, self).__init__()
-        self.out_planes = out_planes
-        self.dense_depth = dense_depth
-        self.conv1 = nn.Conv2d(last_planes, in_planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv2 = nn.Conv2d(in_planes, in_planes, kernel_size=3, stride=stride, padding=1, groups=32, bias=False)
-        self.bn2 = nn.BatchNorm2d(in_planes)
-        self.conv3 = nn.Conv2d(in_planes, out_planes + dense_depth, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_planes + dense_depth)
-        self.shortcut = nn.Sequential()
-        if first_layer:
-            self.shortcut = nn.Sequential(nn.Conv2d(last_planes, out_planes + dense_depth, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(out_planes + dense_depth))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
-        x = self.shortcut(x)
-        d = self.out_planes
-        out = torch.cat([x[:, :d, :, :] + out[:, :d, :, :], x[:, d:, :, :], out[:, d:, :, :]], 1)
-        out = F.relu(out)
         return out
 
 
@@ -291,18 +290,28 @@ class LeNet(nn.Module):
 
 
 class Block(nn.Module):
-    """Depthwise conv + Pointwise conv"""
+    """Grouped convolution block."""
+    expansion = 2
 
-    def __init__(self, in_planes, out_planes, stride=1):
+    def __init__(self, in_planes, cardinality=32, bottleneck_width=4, stride=1):
         super(Block, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, in_planes, kernel_size=3, stride=stride, padding=1, groups=in_planes, bias=False)
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv2 = nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_planes)
+        group_width = cardinality * bottleneck_width
+        self.conv1 = nn.Conv2d(in_planes, group_width, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(group_width)
+        self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
+        self.bn2 = nn.BatchNorm2d(group_width)
+        self.conv3 = nn.Conv2d(group_width, self.expansion * group_width, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(self.expansion * group_width)
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion * group_width:
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * group_width, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * group_width))
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
         out = F.relu(self.bn2(self.conv2(out)))
+        out = self.bn3(self.conv3(out))
+        out += self.shortcut(x)
+        out = F.relu(out)
         return out
 
 
@@ -431,8 +440,6 @@ class PNASNet(nn.Module):
 
 
 class PreActBlock(nn.Module):
-    """Pre-activation version of the BasicBlock."""
-    expansion = 1
 
     def __init__(self, in_planes, planes, stride=1):
         super(PreActBlock, self).__init__()
@@ -440,14 +447,20 @@ class PreActBlock(nn.Module):
         self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False))
+        if stride != 1 or in_planes != planes:
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False))
+        self.fc1 = nn.Conv2d(planes, planes // 16, kernel_size=1)
+        self.fc2 = nn.Conv2d(planes // 16, planes, kernel_size=1)
 
     def forward(self, x):
         out = F.relu(self.bn1(x))
         shortcut = self.shortcut(out) if hasattr(self, 'shortcut') else x
         out = self.conv1(out)
         out = self.conv2(F.relu(self.bn2(out)))
+        w = F.avg_pool2d(out, out.size(2))
+        w = F.relu(self.fc1(w))
+        w = F.sigmoid(self.fc2(w))
+        out = out * w
         out += shortcut
         return out
 
@@ -510,7 +523,6 @@ class PreActResNet(nn.Module):
 
 
 class BasicBlock(nn.Module):
-    expansion = 1
 
     def __init__(self, in_planes, planes, stride=1):
         super(BasicBlock, self).__init__()
@@ -519,36 +531,18 @@ class BasicBlock(nn.Module):
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
         self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
+        if stride != 1 or in_planes != planes:
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes))
+        self.fc1 = nn.Conv2d(planes, planes // 16, kernel_size=1)
+        self.fc2 = nn.Conv2d(planes // 16, planes, kernel_size=1)
 
     def forward(self, x):
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(self.expansion * planes)
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
+        w = F.avg_pool2d(out, out.size(2))
+        w = F.relu(self.fc1(w))
+        w = F.sigmoid(self.fc2(w))
+        out = out * w
         out += self.shortcut(x)
         out = F.relu(out)
         return out
@@ -587,32 +581,6 @@ class ResNet(nn.Module):
         return out
 
 
-class Block(nn.Module):
-    """Grouped convolution block."""
-    expansion = 2
-
-    def __init__(self, in_planes, cardinality=32, bottleneck_width=4, stride=1):
-        super(Block, self).__init__()
-        group_width = cardinality * bottleneck_width
-        self.conv1 = nn.Conv2d(in_planes, group_width, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(group_width)
-        self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
-        self.bn2 = nn.BatchNorm2d(group_width)
-        self.conv3 = nn.Conv2d(group_width, self.expansion * group_width, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(self.expansion * group_width)
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion * group_width:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * group_width, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * group_width))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
-
-
 class ResNeXt(nn.Module):
 
     def __init__(self, num_blocks, cardinality, bottleneck_width, num_classes=10):
@@ -647,58 +615,6 @@ class ResNeXt(nn.Module):
         return out
 
 
-class BasicBlock(nn.Module):
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes))
-        self.fc1 = nn.Conv2d(planes, planes // 16, kernel_size=1)
-        self.fc2 = nn.Conv2d(planes // 16, planes, kernel_size=1)
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
-        w = F.avg_pool2d(out, out.size(2))
-        w = F.relu(self.fc1(w))
-        w = F.sigmoid(self.fc2(w))
-        out = out * w
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
-
-
-class PreActBlock(nn.Module):
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(PreActBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        if stride != 1 or in_planes != planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False))
-        self.fc1 = nn.Conv2d(planes, planes // 16, kernel_size=1)
-        self.fc2 = nn.Conv2d(planes // 16, planes, kernel_size=1)
-
-    def forward(self, x):
-        out = F.relu(self.bn1(x))
-        shortcut = self.shortcut(out) if hasattr(self, 'shortcut') else x
-        out = self.conv1(out)
-        out = self.conv2(F.relu(self.bn2(out)))
-        w = F.avg_pool2d(out, out.size(2))
-        w = F.relu(self.fc1(w))
-        w = F.sigmoid(self.fc2(w))
-        out = out * w
-        out += shortcut
-        return out
-
-
 class SENet(nn.Module):
 
     def __init__(self, block, num_blocks, num_classes=10):
@@ -729,47 +645,6 @@ class SENet(nn.Module):
         out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)
         out = self.linear(out)
-        return out
-
-
-class ShuffleBlock(nn.Module):
-
-    def __init__(self, groups):
-        super(ShuffleBlock, self).__init__()
-        self.groups = groups
-
-    def forward(self, x):
-        """Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]"""
-        N, C, H, W = x.size()
-        g = self.groups
-        return x.view(N, g, C / g, H, W).permute(0, 2, 1, 3, 4).contiguous().view(N, C, H, W)
-
-
-class Bottleneck(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride, groups):
-        super(Bottleneck, self).__init__()
-        self.stride = stride
-        mid_planes = out_planes / 4
-        g = 1 if in_planes == 24 else groups
-        self.conv1 = nn.Conv2d(in_planes, mid_planes, kernel_size=1, groups=g, bias=False)
-        self.bn1 = nn.BatchNorm2d(mid_planes)
-        self.shuffle1 = ShuffleBlock(groups=g)
-        self.conv2 = nn.Conv2d(mid_planes, mid_planes, kernel_size=3, stride=stride, padding=1, groups=mid_planes, bias=False)
-        self.bn2 = nn.BatchNorm2d(mid_planes)
-        self.conv3 = nn.Conv2d(mid_planes, out_planes, kernel_size=1, groups=groups, bias=False)
-        self.bn3 = nn.BatchNorm2d(out_planes)
-        self.shortcut = nn.Sequential()
-        if stride == 2:
-            self.shortcut = nn.Sequential(nn.AvgPool2d(3, stride=2, padding=1))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.shuffle1(out)
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
-        res = self.shortcut(x)
-        out = F.relu(torch.cat([out, res], 1)) if self.stride == 2 else F.relu(out + res)
         return out
 
 

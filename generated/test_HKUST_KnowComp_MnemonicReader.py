@@ -21,17 +21,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+import logging
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data.sampler import Sampler
 
 
 import torch
@@ -55,13 +68,13 @@ import random
 import torch.optim as optim
 
 
-import numpy as np
-
-
-import logging
-
-
 import copy
+
+
+import time
+
+
+from collections import Counter
 
 
 class StackedBRNN(nn.Module):
@@ -173,6 +186,30 @@ class FeedForwardNetwork(nn.Module):
         return x_proj
 
 
+class NonLinearSeqAttn(nn.Module):
+    """Self attention over a sequence:
+
+    * o_i = softmax(function(Wx_i)) for x_i in X.
+    """
+
+    def __init__(self, input_size, hidden_size):
+        super(NonLinearSeqAttn, self).__init__()
+        self.FFN = FeedForwardNetwork(input_size, hidden_size, 1)
+
+    def forward(self, x, x_mask):
+        """
+        Args:
+            x: batch * len * dim
+            x_mask: batch * len (1 for padding, 0 for true)
+        Output:
+            alpha: batch * len
+        """
+        scores = self.FFN(x).squeeze(2)
+        scores.data.masked_fill_(x_mask.data, -float('inf'))
+        alpha = F.softmax(scores)
+        return alpha
+
+
 class PointerNetwork(nn.Module):
 
     def __init__(self, x_size, y_size, hidden_size, dropout_rate=0, cell_type=nn.GRUCell, normalize=True):
@@ -213,6 +250,25 @@ class PointerNetwork(nn.Module):
         hiddens = self.cell(c_, hiddens)
         c, end_scores = self.pointer(x, hiddens, x_mask)
         return start_scores, end_scores
+
+
+class SFU(nn.Module):
+    """Semantic Fusion Unit
+    The ouput vector is expected to not only retrieve correlative information from fusion vectors,
+    but also retain partly unchange as the input vector
+    """
+
+    def __init__(self, input_size, fusion_size):
+        super(SFU, self).__init__()
+        self.linear_r = nn.Linear(input_size + fusion_size, input_size)
+        self.linear_g = nn.Linear(input_size + fusion_size, input_size)
+
+    def forward(self, x, fusions):
+        r_f = torch.cat([x, fusions], 2)
+        r = F.tanh(self.linear_r(r_f))
+        g = F.sigmoid(self.linear_g(r_f))
+        o = g * r + (1 - g) * x
+        return o
 
 
 class MemoryAnsPointer(nn.Module):
@@ -408,30 +464,6 @@ class LinearSeqAttn(nn.Module):
         return alpha
 
 
-class NonLinearSeqAttn(nn.Module):
-    """Self attention over a sequence:
-
-    * o_i = softmax(function(Wx_i)) for x_i in X.
-    """
-
-    def __init__(self, input_size, hidden_size):
-        super(NonLinearSeqAttn, self).__init__()
-        self.FFN = FeedForwardNetwork(input_size, hidden_size, 1)
-
-    def forward(self, x, x_mask):
-        """
-        Args:
-            x: batch * len * dim
-            x_mask: batch * len (1 for padding, 0 for true)
-        Output:
-            alpha: batch * len
-        """
-        scores = self.FFN(x).squeeze(2)
-        scores.data.masked_fill_(x_mask.data, -float('inf'))
-        alpha = F.softmax(scores)
-        return alpha
-
-
 class Gate(nn.Module):
     """Gate Unit
     g = sigmoid(Wx)
@@ -453,25 +485,6 @@ class Gate(nn.Module):
         x_proj = self.linear(x)
         gate = F.sigmoid(x)
         return x_proj * gate
-
-
-class SFU(nn.Module):
-    """Semantic Fusion Unit
-    The ouput vector is expected to not only retrieve correlative information from fusion vectors,
-    but also retain partly unchange as the input vector
-    """
-
-    def __init__(self, input_size, fusion_size):
-        super(SFU, self).__init__()
-        self.linear_r = nn.Linear(input_size + fusion_size, input_size)
-        self.linear_g = nn.Linear(input_size + fusion_size, input_size)
-
-    def forward(self, x, fusions):
-        r_f = torch.cat([x, fusions], 2)
-        r = F.tanh(self.linear_r(r_f))
-        g = F.sigmoid(self.linear_g(r_f))
-        o = g * r + (1 - g) * x
-        return o
 
 
 class MnemonicReader(nn.Module):

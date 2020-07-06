@@ -28,15 +28,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -68,10 +69,16 @@ from collections import OrderedDict
 import time
 
 
+import logging
+
+
 import torchvision
 
 
 from torch.autograd import Variable
+
+
+import torchvision.transforms as transforms
 
 
 from torch.nn.modules.utils import _pair
@@ -106,7 +113,7 @@ class channel_selection(nn.Module):
 
 def try_cuda(x):
     if torch.cuda.is_available():
-        x = x.cuda()
+        x = x
     return x
 
 
@@ -225,17 +232,63 @@ class presnet(nn.Module):
         return x
 
 
+class ConvLayerRotation(nn.Module):
+
+    def __init__(self, rotation_matrix, bias=0, trainable=False):
+        super(ConvLayerRotation, self).__init__()
+        self.rotation_matrix = rotation_matrix.unsqueeze(2).unsqueeze(3)
+        self.rotation_matrix.requires_grad_(trainable)
+        if trainable:
+            self.rotation_matrix = nn.Parameter(self.rotation_matrix)
+        self.trainable = trainable
+        self.bias = bias
+
+    def forward(self, x):
+        if self.bias != 0:
+            x = torch.cat([x, x.new(x.size(0), 1, x.size(2), x.size(3)).fill_(self.bias)], 1)
+        return F.conv2d(x, self.rotation_matrix, None, _pair(1), _pair(0), _pair(1), 1)
+
+    def parameters(self):
+        return [self.rotation_matrix]
+
+    def extra_repr(self):
+        return 'in_channels=%s, out_channels=%s, trainable=%s' % (self.rotation_matrix.size(1), self.rotation_matrix.size(0), self.trainable)
+
+
+class LinearLayerRotation(nn.Module):
+
+    def __init__(self, rotation_matrix, bias=0, trainable=False):
+        super(LinearLayerRotation, self).__init__()
+        self.rotation_matrix = rotation_matrix
+        self.rotation_matrix.requires_grad_(trainable)
+        if trainable:
+            self.rotation_matrix = nn.Parameter(self.rotation_matrix)
+        self.trainable = trainable
+        self.bias = bias
+
+    def forward(self, x):
+        if self.bias != 0:
+            x = torch.cat([x, x.new(x.size(0), 1).fill_(self.bias)], 1)
+        return x @ self.rotation_matrix
+
+    def parameters(self):
+        return [self.rotation_matrix]
+
+    def extra_repr(self):
+        return 'in_features=%s, out_features=%s, trainable=%s' % (self.rotation_matrix.size(1), self.rotation_matrix.size(0), self.trainable)
+
+
 def register_bottleneck_layer(m, Q_g, Q_a, W_star, use_patch, trainable=False):
     assert use_patch
     if isinstance(m, nn.Linear):
-        scale = nn.Linear(W_star.size(1), W_star.size(0), bias=False).cuda()
+        scale = nn.Linear(W_star.size(1), W_star.size(0), bias=False)
         scale.weight.data.copy_(W_star)
         bias = 1.0 if m.bias is not None else 0
         return nn.Sequential(LinearLayerRotation(Q_a, bias, trainable), scale, LinearLayerRotation(Q_g.t(), trainable=trainable))
     elif isinstance(m, nn.Conv2d):
         W_star = W_star.view(W_star.size(0), m.kernel_size[0], m.kernel_size[1], -1)
         W_star = W_star.transpose(2, 3).transpose(1, 2).contiguous()
-        scale = nn.Conv2d(W_star.size(1), W_star.size(0), m.kernel_size, m.stride, m.padding, m.dilation, m.groups, False).cuda()
+        scale = nn.Conv2d(W_star.size(1), W_star.size(0), m.kernel_size, m.stride, m.padding, m.dilation, m.groups, False)
         scale.weight.data.copy_(W_star)
         patch_size = m.kernel_size[0] * m.kernel_size[1]
         bias = 1.0 / patch_size if m.bias is not None else 0
@@ -412,11 +465,11 @@ def _weights_init(m):
             m.bias.data.zero_()
     elif isinstance(m, LinearLayerRotation):
         if m.trainable:
-            print('* init Linear rotation')
+            None
             init.kaiming_normal(m.rotation_matrix)
     elif isinstance(m, ConvLayerRotation):
         if m.trainable:
-            print('* init Conv rotation')
+            None
             init.kaiming_normal(m.rotation_matrix)
 
 
@@ -651,52 +704,6 @@ class BottleneckVGG(nn.Module):
         out = x.view(x.size(0), -1)
         out = self.classifier(out)
         return out
-
-
-class LinearLayerRotation(nn.Module):
-
-    def __init__(self, rotation_matrix, bias=0, trainable=False):
-        super(LinearLayerRotation, self).__init__()
-        self.rotation_matrix = rotation_matrix
-        self.rotation_matrix.requires_grad_(trainable)
-        if trainable:
-            self.rotation_matrix = nn.Parameter(self.rotation_matrix)
-        self.trainable = trainable
-        self.bias = bias
-
-    def forward(self, x):
-        if self.bias != 0:
-            x = torch.cat([x, x.new(x.size(0), 1).fill_(self.bias)], 1)
-        return x @ self.rotation_matrix
-
-    def parameters(self):
-        return [self.rotation_matrix]
-
-    def extra_repr(self):
-        return 'in_features=%s, out_features=%s, trainable=%s' % (self.rotation_matrix.size(1), self.rotation_matrix.size(0), self.trainable)
-
-
-class ConvLayerRotation(nn.Module):
-
-    def __init__(self, rotation_matrix, bias=0, trainable=False):
-        super(ConvLayerRotation, self).__init__()
-        self.rotation_matrix = rotation_matrix.unsqueeze(2).unsqueeze(3)
-        self.rotation_matrix.requires_grad_(trainable)
-        if trainable:
-            self.rotation_matrix = nn.Parameter(self.rotation_matrix)
-        self.trainable = trainable
-        self.bias = bias
-
-    def forward(self, x):
-        if self.bias != 0:
-            x = torch.cat([x, x.new(x.size(0), 1, x.size(2), x.size(3)).fill_(self.bias)], 1)
-        return F.conv2d(x, self.rotation_matrix, None, _pair(1), _pair(0), _pair(1), 1)
-
-    def parameters(self):
-        return [self.rotation_matrix]
-
-    def extra_repr(self):
-        return 'in_channels=%s, out_channels=%s, trainable=%s' % (self.rotation_matrix.size(1), self.rotation_matrix.size(0), self.trainable)
 
 
 import torch

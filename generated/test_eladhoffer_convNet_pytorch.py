@@ -41,26 +41,51 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+import torchvision.datasets as datasets
+
+
+from torch.utils.data.distributed import DistributedSampler
+
+
+from torch.utils.data.sampler import RandomSampler
+
+
+from torch.utils.data import Subset
+
+
+from torch._utils import _accumulate
+
+
+from itertools import chain
+
+
+from copy import deepcopy
+
+
+import warnings
 
 
 import time
 
 
 import logging
-
-
-import torch
 
 
 import torch.nn as nn
@@ -165,6 +190,9 @@ from torchvision.models.vgg import vgg19
 from torchvision.models.vgg import vgg19_bn
 
 
+import random
+
+
 from torch.nn.utils import clip_grad_norm_
 
 
@@ -225,6 +253,118 @@ class _Transition(nn.Sequential):
         self.add_module('relu', nn.ReLU(inplace=True))
         self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
         self.add_module('pool', nn.AvgPool2d(kernel_size=2, stride=2))
+
+
+class CheckpointModule(nn.Module):
+
+    def __init__(self, module, num_segments=1):
+        super(CheckpointModule, self).__init__()
+        assert num_segments == 1 or isinstance(module, nn.Sequential)
+        self.module = module
+        self.num_segments = num_segments
+
+    def forward(self, *inputs):
+        if self.num_segments > 1:
+            return checkpoint_sequential(self.module, self.num_segments, *inputs)
+        else:
+            return checkpoint(self.module, *inputs)
+
+
+def _sum_tensor_scalar(tensor, scalar, expand_size):
+    if scalar is not None:
+        scalar = scalar.expand(expand_size).contiguous()
+    else:
+        return tensor
+    if tensor is None:
+        return scalar
+    return tensor + scalar
+
+
+class ZIConv2d(nn.Conv2d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, multiplier=False, pre_bias=True, post_bias=True):
+        super(ZIConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+        if pre_bias:
+            self.pre_bias = nn.Parameter(torch.tensor([0.0]))
+        else:
+            self.register_parameter('pre_bias', None)
+        if post_bias:
+            self.post_bias = nn.Parameter(torch.tensor([0.0]))
+        else:
+            self.register_parameter('post_bias', None)
+        if multiplier:
+            self.multiplier = nn.Parameter(torch.tensor([1.0]))
+        else:
+            self.register_parameter('multiplier', None)
+
+    def forward(self, x):
+        if self.pre_bias is not None:
+            x = x + self.pre_bias
+        weight = self.weight if self.multiplier is None else self.weight * self.multiplier
+        bias = _sum_tensor_scalar(self.bias, self.post_bias, self.out_channels)
+        return nn.functional.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
+
+
+def conv3x3(in_planes, out_planes, stride=1, groups=1, bias=False, pre_bias=True, post_bias=True, multiplier=False):
+    """3x3 convolution with padding"""
+    return ZIConv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, groups=groups, bias=bias, pre_bias=pre_bias, post_bias=post_bias, multiplier=multiplier)
+
+
+class BasicBlock(nn.Module):
+
+    def __init__(self, inplanes, planes, stride=1, expansion=1, downsample=None, groups=1, residual_block=None, layer_depth=1):
+        super(BasicBlock, self).__init__()
+        self.conv1 = conv3x3(inplanes, planes, stride, groups=groups)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, expansion * planes, groups=groups, multiplier=True)
+        self.downsample = downsample
+        self.residual_block = residual_block
+        self.stride = stride
+        self.expansion = expansion
+        self.layer_depth = layer_depth
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.relu(out)
+        out = self.conv2(out)
+        if self.downsample is not None:
+            residual = self.downsample(residual)
+        if self.residual_block is not None:
+            residual = self.residual_block(residual)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class Bottleneck(nn.Module):
+
+    def __init__(self, inplanes, planes, stride=1, expansion=4, downsample=None, groups=1, residual_block=None, layer_depth=1):
+        super(Bottleneck, self).__init__()
+        self.conv1 = ZIConv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.conv2 = conv3x3(planes, planes, stride=stride, groups=groups)
+        self.conv3 = ZIConv2d(planes, planes * expansion, kernel_size=1, multiplier=True)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.residual_block = residual_block
+        self.stride = stride
+        self.expansion = expansion
+        self.layer_depth = layer_depth
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        if self.downsample is not None:
+            residual = self.downsample(residual)
+        if self.residual_block is not None:
+            residual = self.residual_block(residual)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 def init_model(model):
@@ -291,12 +431,114 @@ class DenseNet(nn.Module):
         return out
 
 
+def weight_decay_config(value=0.0001, log=True):
+    return {'name': 'WeightDecay', 'value': value, 'log': log, 'filter': {'parameter_name': lambda n: 'bias' not in n and 'multiplier' not in n}}
+
+
+class DenseNet_imagenet(DenseNet):
+
+    def __init__(self, growth_rate=32, block_config=(6, 12, 24, 16), num_init_features=64, bn_size=4, drop_rate=0, num_classes=1000, regime='normal', scale_lr=1, **kwargs):
+        super(DenseNet_imagenet, self).__init__(growth_rate, block_config, num_init_features, bn_size, drop_rate, num_classes, **kwargs)
+
+        def ramp_up_lr(lr0, lrT, T):
+            rate = (lrT - lr0) / T
+            return "lambda t: {'lr': %s + t * %s}" % (lr0, rate)
+        if regime == 'normal':
+            self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'momentum': 0.9, 'step_lambda': ramp_up_lr(0.1, 0.1 * scale_lr, 5004 * 5 / scale_lr), 'regularizer': weight_decay_config(0.0001)}, {'epoch': 5, 'lr': scale_lr * 0.1}, {'epoch': 30, 'lr': scale_lr * 0.01}, {'epoch': 60, 'lr': scale_lr * 0.001}, {'epoch': 80, 'lr': scale_lr * 0.0001}]
+        elif regime == 'small':
+            scale_lr *= 4
+            self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'momentum': 0.9, 'lr': scale_lr * 0.1, 'regularizer': weight_decay_config(0.0001)}, {'epoch': 30, 'lr': scale_lr * 0.01}, {'epoch': 60, 'lr': scale_lr * 0.001}, {'epoch': 80, 'lr': scale_lr * 0.0001}]
+            self.data_regime = [{'epoch': 0, 'input_size': 128, 'batch_size': 256}, {'epoch': 80, 'input_size': 224, 'batch_size': 64}]
+            self.data_eval_regime = [{'epoch': 0, 'input_size': 128, 'batch_size': 1024}, {'epoch': 80, 'input_size': 224, 'batch_size': 512}]
+
+
+class DenseNet_cifar(DenseNet):
+
+    @staticmethod
+    def _create_features(num_features):
+        return nn.Sequential(OrderedDict([('conv0', nn.Conv2d(3, num_features, kernel_size=3, stride=1, padding=1, bias=False))]))
+
+    def __init__(self, *kargs, **kwargs):
+        super(DenseNet_cifar, self).__init__(*kargs, **kwargs)
+        self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': 0.1, 'momentum': 0.9, 'regularizer': weight_decay_config(0.0001)}, {'epoch': 150, 'lr': 0.01}, {'epoch': 225, 'lr': 0.001}]
+
+    def forward(self, x):
+        features = self.features(x)
+        out = F.relu(features, inplace=True)
+        out = F.avg_pool2d(out, kernel_size=8, stride=1).view(features.size(0), -1)
+        out = self.classifier(out)
+        return out
+
+
+@torch.jit.script
+def hard_sigmoid(x):
+    return F.relu6(x + 3).div_(6)
+
+
+@torch.jit.script
+def hard_swish(x):
+    return x * hard_sigmoid(x)
+
+
+class HardSwish(nn.Module):
+
+    def __init__(self):
+        super(HardSwish, self).__init__()
+
+    def forward(self, x):
+        return hard_swish(x)
+
+
+@torch.jit.script
+def swish(x):
+    return x * x.sigmoid()
+
+
+class Swish(nn.Module):
+
+    def __init__(self):
+        super(Swish, self).__init__()
+
+    def forward(self, x):
+        return swish(x)
+
+
 class ConvBNAct(nn.Sequential):
 
     def __init__(self, in_channels, out_channels, *kargs, **kwargs):
         hard_act = kwargs.pop('hard_act', False)
         kwargs.setdefault('bias', False)
         super(ConvBNAct, self).__init__(nn.Conv2d(in_channels, out_channels, *kargs, **kwargs), nn.BatchNorm2d(out_channels), HardSwish() if hard_act else Swish())
+
+
+class HardSigmoid(nn.Module):
+
+    def __init__(self):
+        super(HardSigmoid, self).__init__()
+
+    def forward(self, x):
+        return hard_sigmoid(x)
+
+
+class SESwishBlock(nn.Module):
+    """ squeeze-excite block for MBConv """
+
+    def __init__(self, in_channels, out_channels=None, interm_channels=None, ratio=None, hard_act=False):
+        super(SESwishBlock, self).__init__()
+        assert not (interm_channels is None and ratio is None)
+        interm_channels = interm_channels or in_channels // ratio
+        self.in_channels = in_channels
+        if out_channels is None:
+            out_channels = in_channels
+        self.ratio = ratio
+        self.activation = HardSwish() if hard_act else Swish(),
+        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        self.transform = nn.Sequential(nn.Linear(in_channels, interm_channels), HardSwish() if hard_act else Swish(), nn.Linear(interm_channels, out_channels), HardSigmoid() if hard_act else nn.Sigmoid())
+
+    def forward(self, x):
+        x_avg = self.global_pool(x).flatten(1, -1)
+        mask = self.transform(x_avg)
+        return x * mask.unsqueeze(-1).unsqueeze(-1)
 
 
 def drop_connect(x, drop_prob):
@@ -341,10 +583,6 @@ def modify_drop_connect_rate(model, value, log=True):
             if log and m.drop_prob != value:
                 logging.debug('Modified drop-path rate from %s to %s' % (m.drop_prob, value))
             m.drop_prob = value
-
-
-def weight_decay_config(value=0.0001, log=True):
-    return {'name': 'WeightDecay', 'value': value, 'log': log, 'filter': {'parameter_name': lambda n: 'bias' not in n and 'multiplier' not in n}}
 
 
 class EfficientNet(nn.Module):
@@ -433,10 +671,134 @@ class AuxiliaryHeadImageNet(nn.Module):
         return x
 
 
+class FactorizedReduce(nn.Module):
+
+    def __init__(self, C_in, C_out, affine=True):
+        super(FactorizedReduce, self).__init__()
+        assert C_out % 2 == 0
+        self.relu = nn.ReLU(inplace=False)
+        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.bn = nn.BatchNorm2d(C_out, affine=affine)
+
+    def forward(self, x):
+        x = self.relu(x)
+        out = torch.cat([self.conv_1(x), self.conv_2(x[:, :, 1:, 1:])], dim=1)
+        out = self.bn(out)
+        return out
+
+
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
+
+class DilConv(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
+        super(DilConv, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+class SepConv(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
+        super(SepConv, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+OPS = {'avg_pool_3x3': lambda channels, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False), 'max_pool_3x3': lambda channels, stride, affine: nn.MaxPool2d(3, stride=stride, padding=1), 'skip_connect': lambda channels, stride, affine: Identity() if stride == 1 else FactorizedReduce(channels, channels, affine=affine), 'sep_conv_3x3': lambda channels, stride, affine: SepConv(channels, channels, 3, stride, 1, affine=affine), 'sep_conv_5x5': lambda channels, stride, affine: SepConv(channels, channels, 5, stride, 2, affine=affine), 'sep_conv_7x7': lambda channels, stride, affine: SepConv(channels, channels, 7, stride, 3, affine=affine), 'dil_conv_3x3': lambda channels, stride, affine: DilConv(channels, channels, 3, stride, 2, 2, affine=affine), 'dil_conv_5x5': lambda channels, stride, affine: DilConv(channels, channels, 5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda channels, stride, affine: nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(channels, channels, (1, 7), stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(channels, channels, (7, 1), stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(channels, affine=affine))}
+
+
+class ReLUConvBN(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
+        super(ReLUConvBN, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+def drop_path(x, drop_prob):
+    if drop_prob > 0.0:
+        keep_prob = 1.0 - drop_prob
+        mask = x.new(x.size(0), 1, 1, 1).bernoulli_(keep_prob)
+        x.div_(keep_prob)
+        x.mul_(mask)
+    return x
+
+
+class Cell(nn.Module):
+
+    def __init__(self, genotype, C_prev_prev, C_prev, C, reduction, reduction_prev):
+        super(Cell, self).__init__()
+        if reduction_prev:
+            self.preprocess0 = FactorizedReduce(C_prev_prev, C)
+        else:
+            self.preprocess0 = ReLUConvBN(C_prev_prev, C, 1, 1, 0)
+        self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0)
+        if reduction:
+            op_names, indices = zip(*genotype.reduce)
+            concat = genotype.reduce_concat
+        else:
+            op_names, indices = zip(*genotype.normal)
+            concat = genotype.normal_concat
+        self._compile(C, op_names, indices, concat, reduction)
+
+    def _compile(self, C, op_names, indices, concat, reduction):
+        assert len(op_names) == len(indices)
+        self._steps = len(op_names) // 2
+        self._concat = concat
+        self.multiplier = len(concat)
+        self._ops = nn.ModuleList()
+        for name, index in zip(op_names, indices):
+            stride = 2 if reduction and index < 2 else 1
+            op = OPS[name](C, stride, True)
+            self._ops += [op]
+        self._indices = indices
+
+    def forward(self, s0, s1, drop_prob):
+        s0 = self.preprocess0(s0)
+        s1 = self.preprocess1(s1)
+        states = [s0, s1]
+        for i in range(self._steps):
+            h1 = states[self._indices[2 * i]]
+            h2 = states[self._indices[2 * i + 1]]
+            op1 = self._ops[2 * i]
+            op2 = self._ops[2 * i + 1]
+            h1 = op1(h1)
+            h2 = op2(h2)
+            if self.training and drop_prob > 0.0:
+                if not isinstance(op1, Identity):
+                    h1 = drop_path(h1, drop_prob)
+                if not isinstance(op2, Identity):
+                    h2 = drop_path(h2, drop_prob)
+            s = h1 + h2
+            states += [s]
+        return torch.cat([states[i] for i in self._concat], dim=1)
+
+
 Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
 
 
 GENOTYPES = dict(NASNet=Genotype(normal=[('sep_conv_5x5', 1), ('sep_conv_3x3', 0), ('sep_conv_5x5', 0), ('sep_conv_3x3', 0), ('avg_pool_3x3', 1), ('skip_connect', 0), ('avg_pool_3x3', 0), ('avg_pool_3x3', 0), ('sep_conv_3x3', 1), ('skip_connect', 1)], normal_concat=[2, 3, 4, 5, 6], reduce=[('sep_conv_5x5', 1), ('sep_conv_7x7', 0), ('max_pool_3x3', 1), ('sep_conv_7x7', 0), ('avg_pool_3x3', 1), ('sep_conv_5x5', 0), ('skip_connect', 3), ('avg_pool_3x3', 2), ('sep_conv_3x3', 2), ('max_pool_3x3', 1)], reduce_concat=[4, 5, 6]), AmoebaNet=Genotype(normal=[('avg_pool_3x3', 0), ('max_pool_3x3', 1), ('sep_conv_3x3', 0), ('sep_conv_5x5', 2), ('sep_conv_3x3', 0), ('avg_pool_3x3', 3), ('sep_conv_3x3', 1), ('skip_connect', 1), ('skip_connect', 0), ('avg_pool_3x3', 1)], normal_concat=[4, 5, 6], reduce=[('avg_pool_3x3', 0), ('sep_conv_3x3', 1), ('max_pool_3x3', 0), ('sep_conv_7x7', 2), ('sep_conv_7x7', 0), ('avg_pool_3x3', 1), ('max_pool_3x3', 0), ('max_pool_3x3', 1), ('conv_7x1_1x7', 0), ('sep_conv_3x3', 5)], reduce_concat=[3, 4, 6]), DARTS_V1=Genotype(normal=[('sep_conv_3x3', 1), ('sep_conv_3x3', 0), ('skip_connect', 0), ('sep_conv_3x3', 1), ('skip_connect', 0), ('sep_conv_3x3', 1), ('sep_conv_3x3', 0), ('skip_connect', 2)], normal_concat=[2, 3, 4, 5], reduce=[('max_pool_3x3', 0), ('max_pool_3x3', 1), ('skip_connect', 2), ('max_pool_3x3', 0), ('max_pool_3x3', 0), ('skip_connect', 2), ('skip_connect', 2), ('avg_pool_3x3', 0)], reduce_concat=[2, 3, 4, 5]), DARTS=Genotype(normal=[('sep_conv_3x3', 0), ('sep_conv_3x3', 1), ('sep_conv_3x3', 0), ('sep_conv_3x3', 1), ('sep_conv_3x3', 1), ('skip_connect', 0), ('skip_connect', 0), ('dil_conv_3x3', 2)], normal_concat=[2, 3, 4, 5], reduce=[('max_pool_3x3', 0), ('max_pool_3x3', 1), ('skip_connect', 2), ('max_pool_3x3', 1), ('max_pool_3x3', 0), ('skip_connect', 2), ('skip_connect', 2), ('max_pool_3x3', 1)], reduce_concat=[2, 3, 4, 5]))
+
+
+class DARTSCell(Cell):
+
+    def __init__(self, *kargs, **kwargs):
+        super(DARTSCell, self).__init__(GENOTYPES['DARTS'], *kargs, **kwargs)
 
 
 def cosine_anneal_lr(epoch, base_lr=0.025, T_max=600.0, eta_min=0.0):
@@ -447,6 +809,147 @@ def modify_drop_path_rate(model, value, log=True):
     if log and model.drop_path != value:
         logging.debug('Modified drop-path rate from %s to %s' % (model.drop_path, value))
     model.drop_path = value
+
+
+class EvolvedNetworkCIFAR(nn.Module):
+
+    def __init__(self, init_channels=36, num_classes=10, layers=20, auxiliary=True, aux_weight=0.4, drop_path=0.2, num_epochs=600, init_lr=0.025, cell_fn=DARTSCell):
+        super(EvolvedNetworkCIFAR, self).__init__()
+        self._layers = layers
+        self._auxiliary = auxiliary
+        self.drop_path = drop_path
+        stem_multiplier = 3
+        channels = stem_multiplier * init_channels
+        self.stem = nn.Sequential(nn.Conv2d(3, channels, 3, padding=1, bias=False), nn.BatchNorm2d(channels))
+        prev2_channels, prev_channels, channels = channels, channels, init_channels
+        self.cells = nn.ModuleList()
+        reduction_prev = False
+        for i in range(layers):
+            if i in [layers // 3, 2 * layers // 3]:
+                channels *= 2
+                reduction = True
+            else:
+                reduction = False
+            cell = cell_fn(prev2_channels, prev_channels, channels, reduction, reduction_prev)
+            reduction_prev = reduction
+            self.cells += [cell]
+            prev2_channels, prev_channels = prev_channels, cell.multiplier * channels
+            if i == 2 * layers // 3:
+                aux_channels = prev_channels
+        if auxiliary:
+            self.auxiliary_head = AuxiliaryHeadCIFAR(aux_channels, num_classes)
+
+            def loss_fn(*kargs, **kwargs):
+                return MultiOutputLoss([1.0, aux_weight], *kargs, **kwargs)
+            self.criterion = loss_fn
+        self.global_pooling = nn.AdaptiveAvgPool2d(1)
+        self.classifier = nn.Linear(prev_channels, num_classes)
+
+        def config_by_epoch(epoch):
+            return {'lr': cosine_anneal_lr(epoch, base_lr=init_lr, T_max=float(num_epochs)), 'execute': lambda : modify_drop_path_rate(self, drop_path * epoch / float(num_epochs))}
+        self.regime = [{'optimizer': 'SGD', 'momentum': 0.9, 'regularizer': weight_decay_config(0.0003), 'epoch_lambda': config_by_epoch}]
+
+    def forward(self, input):
+        logits_aux = None
+        s0 = s1 = self.stem(input)
+        for i, cell in enumerate(self.cells):
+            s0, s1 = s1, cell(s0, s1, self.drop_path)
+            if i == 2 * self._layers // 3:
+                if self._auxiliary and self.training:
+                    logits_aux = self.auxiliary_head(s1)
+        out = self.global_pooling(s1)
+        logits = self.classifier(out.view(out.size(0), -1))
+        if self._auxiliary:
+            return logits, logits_aux
+        else:
+            return logits
+
+
+class EvolvedNetworkImageNet(nn.Module):
+
+    def __init__(self, init_channels=36, num_classes=1000, layers=20, auxiliary=True, aux_weight=0.4, drop_path=0.2, cell_fn=DARTSCell):
+        super(EvolvedNetworkImageNet, self).__init__()
+        self._layers = layers
+        self._auxiliary = auxiliary
+        self.drop_path = drop_path
+        self.stem0 = nn.Sequential(nn.Conv2d(3, init_channels // 2, kernel_size=3, stride=2, padding=1, bias=False), nn.BatchNorm2d(init_channels // 2), nn.ReLU(inplace=True), nn.Conv2d(init_channels // 2, init_channels, 3, stride=2, padding=1, bias=False), nn.BatchNorm2d(init_channels))
+        self.stem1 = nn.Sequential(nn.ReLU(inplace=True), nn.Conv2d(init_channels, init_channels, 3, stride=2, padding=1, bias=False), nn.BatchNorm2d(init_channels))
+        prev2_channels, prev_channels, channels = init_channels, init_channels, init_channels
+        self.cells = nn.ModuleList()
+        reduction_prev = True
+        for i in range(layers):
+            if i in [layers // 3, 2 * layers // 3]:
+                channels *= 2
+                reduction = True
+            else:
+                reduction = False
+            cell = cell_fn(prev2_channels, prev_channels, channels, reduction, reduction_prev)
+            reduction_prev = reduction
+            self.cells += [cell]
+            prev2_channels, prev_channels = prev_channels, cell.multiplier * channels
+            if i == 2 * layers // 3:
+                aux_channels = prev_channels
+        if auxiliary:
+            self.auxiliary_head = AuxiliaryHeadImageNet(aux_channels, num_classes)
+
+            def loss_fn(*kargs, **kwargs):
+                return MultiOutputLoss([1.0, aux_weight], *kargs, **kwargs)
+            self.criterion = loss_fn
+        self.global_pooling = nn.AvgPool2d(7)
+        self.classifier = nn.Linear(prev_channels, num_classes)
+
+    def forward(self, input):
+        logits_aux = None
+        s0 = self.stem0(input)
+        s1 = self.stem1(s0)
+        for i, cell in enumerate(self.cells):
+            s0, s1 = s1, cell(s0, s1, self.drop_path)
+            if i == 2 * self._layers // 3:
+                if self._auxiliary and self.training:
+                    logits_aux = self.auxiliary_head(s1)
+        out = self.global_pooling(s1)
+        logits = self.classifier(out.view(out.size(0), -1))
+        if self._auxiliary:
+            return logits, logits_aux
+        else:
+            return logits
+
+
+def conv_bn(in_planes, out_planes, kernel_size, stride=1, padding=0):
+    """convolution with batchnorm, relu"""
+    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(out_planes), nn.ReLU())
+
+
+class InceptionModule(nn.Module):
+
+    def __init__(self, in_channels, n1x1_channels, n3x3r_channels, n3x3_channels, dn3x3r_channels, dn3x3_channels, pool_proj_channels=None, type_pool='avg', stride=1):
+        super(InceptionModule, self).__init__()
+        self.in_channels = in_channels
+        self.n1x1_channels = n1x1_channels or 0
+        pool_proj_channels = pool_proj_channels or 0
+        self.stride = stride
+        if n1x1_channels > 0:
+            self.conv_1x1 = conv_bn(in_channels, n1x1_channels, 1, stride)
+        else:
+            self.conv_1x1 = None
+        self.conv_3x3 = nn.Sequential(conv_bn(in_channels, n3x3r_channels, 1), conv_bn(n3x3r_channels, n3x3_channels, 3, stride, padding=1))
+        self.conv_d3x3 = nn.Sequential(conv_bn(in_channels, dn3x3r_channels, 1), conv_bn(dn3x3r_channels, dn3x3_channels, 3, padding=1), conv_bn(dn3x3_channels, dn3x3_channels, 3, stride, padding=1))
+        if type_pool == 'avg':
+            self.pool = nn.AvgPool2d(3, stride, padding=1)
+        elif type_pool == 'max':
+            self.pool = nn.MaxPool2d(3, stride, padding=1)
+        if pool_proj_channels > 0:
+            self.pool = nn.Sequential(self.pool, conv_bn(in_channels, pool_proj_channels, 1))
+
+    def forward(self, inputs):
+        layer_outputs = []
+        if self.conv_1x1 is not None:
+            layer_outputs.append(self.conv_1x1(inputs))
+        layer_outputs.append(self.conv_3x3(inputs))
+        layer_outputs.append(self.conv_d3x3(inputs))
+        layer_outputs.append(self.pool(inputs))
+        output = torch.cat(layer_outputs, 1)
+        return output
 
 
 class Inception_v1_GoogLeNet(nn.Module):
@@ -467,23 +970,6 @@ class Inception_v1_GoogLeNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.classifier(x)
         return x
-
-
-class InceptionModule(nn.Module):
-
-    def __init__(self, inplane, outplane_a1x1, outplane_b3x3_reduce, outplane_b3x3, outplane_c5x5_reduce, outplane_c5x5, outplane_pool_proj):
-        super(InceptionModule, self).__init__()
-        a = nn.Sequential(OrderedDict([('1x1', nn.Conv2d(inplane, outplane_a1x1, (1, 1), (1, 1), (0, 0), bias=False)), ('1x1_bn', nn.BatchNorm2d(outplane_a1x1, affine=True)), ('1x1_relu', nn.ReLU(True))]))
-        b = nn.Sequential(OrderedDict([('3x3_reduce', nn.Conv2d(inplane, outplane_b3x3_reduce, (1, 1), (1, 1), (0, 0), bias=False)), ('3x3_reduce_bn', nn.BatchNorm2d(outplane_b3x3_reduce, affine=True)), ('3x3_relu1', nn.ReLU(True)), ('3x3', nn.Conv2d(outplane_b3x3_reduce, outplane_b3x3, (3, 3), (1, 1), (1, 1), bias=False)), ('3x3_bn', nn.BatchNorm2d(outplane_b3x3, affine=True)), ('3x3_relu2', nn.ReLU(True))]))
-        c = nn.Sequential(OrderedDict([('5x5_reduce', nn.Conv2d(inplane, outplane_c5x5_reduce, (1, 1), (1, 1), (0, 0), bias=False)), ('5x5_reduce_bn', nn.BatchNorm2d(outplane_c5x5_reduce, affine=True)), ('5x5_relu1', nn.ReLU(True)), ('5x5', nn.Conv2d(outplane_c5x5_reduce, outplane_c5x5, (5, 5), (1, 1), (2, 2), bias=False)), ('5x5_bn', nn.BatchNorm2d(outplane_c5x5, affine=True)), ('5x5_relu2', nn.ReLU(True))]))
-        d = nn.Sequential(OrderedDict([('pool_pool', nn.MaxPool2d((3, 3), (1, 1), (1, 1))), ('pool_proj', nn.Conv2d(inplane, outplane_pool_proj, (1, 1), (1, 1), (0, 0))), ('pool_proj_bn', nn.BatchNorm2d(outplane_pool_proj, affine=True)), ('pool_relu', nn.ReLU(True))]))
-        for container in [a, b, c, d]:
-            for name, module in container.named_children():
-                self.add_module(name, module)
-        self.branches = [a, b, c, d]
-
-    def forward(self, input):
-        return torch.cat([branch(input) for branch in self.branches], 1)
 
 
 class Concat(nn.Sequential):
@@ -515,9 +1001,14 @@ class block(nn.Module):
         return output
 
 
-def conv_bn(in_planes, out_planes, kernel_size, stride=1, padding=0):
-    """convolution with batchnorm, relu"""
-    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(out_planes), nn.ReLU())
+class block35(block):
+
+    def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
+        super(block35, self).__init__(in_planes, scale, activation)
+        self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(in_planes, 32, 1))]))
+        self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1', conv_bn(in_planes, 32, 1)), ('Conv2d_0b_3x3', conv_bn(32, 32, 3, padding=1))]))
+        self.Branch_2 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1', conv_bn(in_planes, 32, 1)), ('Conv2d_0b_3x3', conv_bn(32, 48, 3, padding=1)), ('Conv2d_0c_3x3', conv_bn(48, 64, 3, padding=1))]))
+        self.Conv2d_1x1 = conv_bn(128, in_planes, 1)
 
 
 class block17(block):
@@ -527,16 +1018,6 @@ class block17(block):
         self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(in_planes, 192, 1))]))
         self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1', conv_bn(in_planes, 128, 1)), ('Conv2d_0b_1x7', conv_bn(128, 160, (1, 7), padding=(0, 3))), ('Conv2d_0c_7x1', conv_bn(160, 192, (7, 1), padding=(3, 0)))]))
         self.Conv2d_1x1 = conv_bn(384, in_planes, 1)
-
-
-class block35(block):
-
-    def __init__(self, in_planes, scale=1.0, activation=nn.ReLU(True)):
-        super(block35, self).__init__(in_planes, scale, activation)
-        self.Branch_0 = nn.Sequential(OrderedDict([('Conv2d_1x1', conv_bn(in_planes, 32, 1))]))
-        self.Branch_1 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1', conv_bn(in_planes, 32, 1)), ('Conv2d_0b_3x3', conv_bn(32, 32, 3, padding=1))]))
-        self.Branch_2 = nn.Sequential(OrderedDict([('Conv2d_0a_1x1', conv_bn(in_planes, 32, 1)), ('Conv2d_0b_3x3', conv_bn(32, 48, 3, padding=1)), ('Conv2d_0c_3x3', conv_bn(48, 64, 3, padding=1))]))
-        self.Conv2d_1x1 = conv_bn(128, in_planes, 1)
 
 
 class block8(block):
@@ -609,38 +1090,6 @@ class InceptionResnetV2(nn.Module):
         if hasattr(self, 'aux_classifier'):
             branch1 = self.aux_classifier(branch1).view(-1, self.num_classes)
             output = [output, branch1]
-        return output
-
-
-class InceptionModule(nn.Module):
-
-    def __init__(self, in_channels, n1x1_channels, n3x3r_channels, n3x3_channels, dn3x3r_channels, dn3x3_channels, pool_proj_channels=None, type_pool='avg', stride=1):
-        super(InceptionModule, self).__init__()
-        self.in_channels = in_channels
-        self.n1x1_channels = n1x1_channels or 0
-        pool_proj_channels = pool_proj_channels or 0
-        self.stride = stride
-        if n1x1_channels > 0:
-            self.conv_1x1 = conv_bn(in_channels, n1x1_channels, 1, stride)
-        else:
-            self.conv_1x1 = None
-        self.conv_3x3 = nn.Sequential(conv_bn(in_channels, n3x3r_channels, 1), conv_bn(n3x3r_channels, n3x3_channels, 3, stride, padding=1))
-        self.conv_d3x3 = nn.Sequential(conv_bn(in_channels, dn3x3r_channels, 1), conv_bn(dn3x3r_channels, dn3x3_channels, 3, padding=1), conv_bn(dn3x3_channels, dn3x3_channels, 3, stride, padding=1))
-        if type_pool == 'avg':
-            self.pool = nn.AvgPool2d(3, stride, padding=1)
-        elif type_pool == 'max':
-            self.pool = nn.MaxPool2d(3, stride, padding=1)
-        if pool_proj_channels > 0:
-            self.pool = nn.Sequential(self.pool, conv_bn(in_channels, pool_proj_channels, 1))
-
-    def forward(self, inputs):
-        layer_outputs = []
-        if self.conv_1x1 is not None:
-            layer_outputs.append(self.conv_1x1(inputs))
-        layer_outputs.append(self.conv_3x3(inputs))
-        layer_outputs.append(self.conv_d3x3(inputs))
-        layer_outputs.append(self.pool(inputs))
-        output = torch.cat(layer_outputs, 1)
         return output
 
 
@@ -807,48 +1256,6 @@ class MobileNet_v2(nn.Module):
         return x
 
 
-@torch.jit.script
-def swish(x):
-    return x * x.sigmoid()
-
-
-class Swish(nn.Module):
-
-    def __init__(self):
-        super(Swish, self).__init__()
-
-    def forward(self, x):
-        return swish(x)
-
-
-@torch.jit.script
-def hard_sigmoid(x):
-    return F.relu6(x + 3).div_(6)
-
-
-class HardSigmoid(nn.Module):
-
-    def __init__(self):
-        super(HardSigmoid, self).__init__()
-
-    def forward(self, x):
-        return hard_sigmoid(x)
-
-
-@torch.jit.script
-def hard_swish(x):
-    return x * hard_sigmoid(x)
-
-
-class HardSwish(nn.Module):
-
-    def __init__(self):
-        super(HardSwish, self).__init__()
-
-    def forward(self, x):
-        return hard_swish(x)
-
-
 def has_parameters(m):
     return getattr(m, 'weight', None) is not None or getattr(m, 'bias', None) is not None
 
@@ -952,137 +1359,16 @@ class BiReLU(nn.Module):
         return birelu(inputs, inplace=self.inplace)
 
 
-class CheckpointModule(nn.Module):
+class NasNetCell(Cell):
 
-    def __init__(self, module, num_segments=1):
-        super(CheckpointModule, self).__init__()
-        assert num_segments == 1 or isinstance(module, nn.Sequential)
-        self.module = module
-        self.num_segments = num_segments
-
-    def forward(self, *inputs):
-        if self.num_segments > 1:
-            return checkpoint_sequential(self.module, self.num_segments, *inputs)
-        else:
-            return checkpoint(self.module, *inputs)
+    def __init__(self, *kargs, **kwargs):
+        super(NasNetCell, self).__init__(GENOTYPES['NASNet'], *kargs, **kwargs)
 
 
-class ReLUConvBN(nn.Module):
+class AmoebaNetCell(Cell):
 
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super(ReLUConvBN, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class DilConv(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
-        super(DilConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class SepConv(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super(SepConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class FactorizedReduce(nn.Module):
-
-    def __init__(self, C_in, C_out, affine=True):
-        super(FactorizedReduce, self).__init__()
-        assert C_out % 2 == 0
-        self.relu = nn.ReLU(inplace=False)
-        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.bn = nn.BatchNorm2d(C_out, affine=affine)
-
-    def forward(self, x):
-        x = self.relu(x)
-        out = torch.cat([self.conv_1(x), self.conv_2(x[:, :, 1:, 1:])], dim=1)
-        out = self.bn(out)
-        return out
-
-
-OPS = {'avg_pool_3x3': lambda channels, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False), 'max_pool_3x3': lambda channels, stride, affine: nn.MaxPool2d(3, stride=stride, padding=1), 'skip_connect': lambda channels, stride, affine: Identity() if stride == 1 else FactorizedReduce(channels, channels, affine=affine), 'sep_conv_3x3': lambda channels, stride, affine: SepConv(channels, channels, 3, stride, 1, affine=affine), 'sep_conv_5x5': lambda channels, stride, affine: SepConv(channels, channels, 5, stride, 2, affine=affine), 'sep_conv_7x7': lambda channels, stride, affine: SepConv(channels, channels, 7, stride, 3, affine=affine), 'dil_conv_3x3': lambda channels, stride, affine: DilConv(channels, channels, 3, stride, 2, 2, affine=affine), 'dil_conv_5x5': lambda channels, stride, affine: DilConv(channels, channels, 5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda channels, stride, affine: nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(channels, channels, (1, 7), stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(channels, channels, (7, 1), stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(channels, affine=affine))}
-
-
-def drop_path(x, drop_prob):
-    if drop_prob > 0.0:
-        keep_prob = 1.0 - drop_prob
-        mask = x.new(x.size(0), 1, 1, 1).bernoulli_(keep_prob)
-        x.div_(keep_prob)
-        x.mul_(mask)
-    return x
-
-
-class Cell(nn.Module):
-
-    def __init__(self, genotype, C_prev_prev, C_prev, C, reduction, reduction_prev):
-        super(Cell, self).__init__()
-        if reduction_prev:
-            self.preprocess0 = FactorizedReduce(C_prev_prev, C)
-        else:
-            self.preprocess0 = ReLUConvBN(C_prev_prev, C, 1, 1, 0)
-        self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0)
-        if reduction:
-            op_names, indices = zip(*genotype.reduce)
-            concat = genotype.reduce_concat
-        else:
-            op_names, indices = zip(*genotype.normal)
-            concat = genotype.normal_concat
-        self._compile(C, op_names, indices, concat, reduction)
-
-    def _compile(self, C, op_names, indices, concat, reduction):
-        assert len(op_names) == len(indices)
-        self._steps = len(op_names) // 2
-        self._concat = concat
-        self.multiplier = len(concat)
-        self._ops = nn.ModuleList()
-        for name, index in zip(op_names, indices):
-            stride = 2 if reduction and index < 2 else 1
-            op = OPS[name](C, stride, True)
-            self._ops += [op]
-        self._indices = indices
-
-    def forward(self, s0, s1, drop_prob):
-        s0 = self.preprocess0(s0)
-        s1 = self.preprocess1(s1)
-        states = [s0, s1]
-        for i in range(self._steps):
-            h1 = states[self._indices[2 * i]]
-            h2 = states[self._indices[2 * i + 1]]
-            op1 = self._ops[2 * i]
-            op2 = self._ops[2 * i + 1]
-            h1 = op1(h1)
-            h2 = op2(h2)
-            if self.training and drop_prob > 0.0:
-                if not isinstance(op1, Identity):
-                    h1 = drop_path(h1, drop_prob)
-                if not isinstance(op2, Identity):
-                    h2 = drop_path(h2, drop_prob)
-            s = h1 + h2
-            states += [s]
-        return torch.cat([states[i] for i in self._concat], dim=1)
+    def __init__(self, *kargs, **kwargs):
+        super(AmoebaNetCell, self).__init__(GENOTYPES['AmoebaNet'], *kargs, **kwargs)
 
 
 class HadamardProj(nn.Module):
@@ -1153,41 +1439,6 @@ class LinearFixed(nn.Linear):
         x = x / x.norm(2, -1, keepdim=True)
         out = nn.functional.linear(x, w, self.bias)
         return out
-
-
-def _sum_tensor_scalar(tensor, scalar, expand_size):
-    if scalar is not None:
-        scalar = scalar.expand(expand_size).contiguous()
-    else:
-        return tensor
-    if tensor is None:
-        return scalar
-    return tensor + scalar
-
-
-class ZIConv2d(nn.Conv2d):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, multiplier=False, pre_bias=True, post_bias=True):
-        super(ZIConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
-        if pre_bias:
-            self.pre_bias = nn.Parameter(torch.tensor([0.0]))
-        else:
-            self.register_parameter('pre_bias', None)
-        if post_bias:
-            self.post_bias = nn.Parameter(torch.tensor([0.0]))
-        else:
-            self.register_parameter('post_bias', None)
-        if multiplier:
-            self.multiplier = nn.Parameter(torch.tensor([1.0]))
-        else:
-            self.register_parameter('multiplier', None)
-
-    def forward(self, x):
-        if self.pre_bias is not None:
-            x = x + self.pre_bias
-        weight = self.weight if self.multiplier is None else self.weight * self.multiplier
-        bias = _sum_tensor_scalar(self.bias, self.post_bias, self.out_channels)
-        return nn.functional.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 class ZILinear(nn.Linear):
@@ -1671,6 +1922,13 @@ class RangeBN(nn.Module):
         return out
 
 
+class RangeBN1d(RangeBN):
+
+    def __init__(self, num_features, dim=1, momentum=0.1, affine=True, num_chunks=16, eps=1e-05, num_bits=8, num_bits_grad=8):
+        super(RangeBN1d, self).__init__(num_features, dim, momentum, affine, num_chunks, eps, num_bits, num_bits_grad)
+        self.quantize_input = QuantMeasure(self.num_bits, inplace=True, shape_measure=(1, 1), flatten_dims=(1, -1))
+
+
 class SEBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels=None, ratio=16):
@@ -1687,104 +1945,6 @@ class SEBlock(nn.Module):
         x_avg = self.global_pool(x).flatten(1, -1)
         mask = self.transform(x_avg)
         return x * mask.unsqueeze(-1).unsqueeze(-1)
-
-
-class SESwishBlock(nn.Module):
-    """ squeeze-excite block for MBConv """
-
-    def __init__(self, in_channels, out_channels=None, interm_channels=None, ratio=None, hard_act=False):
-        super(SESwishBlock, self).__init__()
-        assert not (interm_channels is None and ratio is None)
-        interm_channels = interm_channels or in_channels // ratio
-        self.in_channels = in_channels
-        if out_channels is None:
-            out_channels = in_channels
-        self.ratio = ratio
-        self.activation = HardSwish() if hard_act else Swish(),
-        self.global_pool = nn.AdaptiveAvgPool2d(1)
-        self.transform = nn.Sequential(nn.Linear(in_channels, interm_channels), HardSwish() if hard_act else Swish(), nn.Linear(interm_channels, out_channels), HardSigmoid() if hard_act else nn.Sigmoid())
-
-    def forward(self, x):
-        x_avg = self.global_pool(x).flatten(1, -1)
-        mask = self.transform(x_avg)
-        return x * mask.unsqueeze(-1).unsqueeze(-1)
-
-
-def conv3x3(in_planes, out_planes, stride=1, groups=1, bias=False, pre_bias=True, post_bias=True, multiplier=False):
-    """3x3 convolution with padding"""
-    return ZIConv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, groups=groups, bias=bias, pre_bias=pre_bias, post_bias=post_bias, multiplier=multiplier)
-
-
-class BasicBlock(nn.Module):
-
-    def __init__(self, inplanes, planes, stride=1, expansion=1, downsample=None, groups=1, residual_block=None, dropout=0.0):
-        super(BasicBlock, self).__init__()
-        dropout = 0 if dropout is None else dropout
-        self.conv1 = conv3x3(inplanes, planes, stride, groups=groups)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, expansion * planes, groups=groups)
-        self.bn2 = nn.BatchNorm2d(expansion * planes)
-        self.downsample = downsample
-        self.residual_block = residual_block
-        self.stride = stride
-        self.expansion = expansion
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.dropout(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(residual)
-        if self.residual_block is not None:
-            residual = self.residual_block(residual)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-
-    def __init__(self, inplanes, planes, stride=1, expansion=4, downsample=None, groups=1, residual_block=None, dropout=0.0):
-        super(Bottleneck, self).__init__()
-        dropout = 0 if dropout is None else dropout
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = conv3x3(planes, planes, stride=stride, groups=groups)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.dropout = nn.Dropout(dropout)
-        self.downsample = downsample
-        self.residual_block = residual_block
-        self.stride = stride
-        self.expansion = expansion
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.dropout(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.dropout(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(residual)
-        if self.residual_block is not None:
-            residual = self.residual_block(residual)
-        out += residual
-        out = self.relu(out)
-        return out
 
 
 class ResNet(nn.Module):
@@ -1826,61 +1986,110 @@ class ResNet(nn.Module):
         return x
 
 
-class BasicBlock(nn.Module):
+def linear_scale(lr0, lrT, T, t0=0):
+    rate = (lrT - lr0) / T
+    return "lambda t: {'lr': max(%s + (t - %s) * %s, 0)}" % (lr0, t0, rate)
 
-    def __init__(self, inplanes, planes, stride=1, expansion=1, downsample=None, groups=1, residual_block=None, layer_depth=1):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride, groups=groups)
+
+def mixsize_config(sz, base_size, base_batch, base_duplicates, adapt_batch, adapt_duplicates):
+    assert adapt_batch or adapt_duplicates or sz == base_size
+    batch_size = base_batch
+    duplicates = base_duplicates
+    if adapt_batch and adapt_duplicates:
+        scale = base_size / sz
+    else:
+        scale = (base_size / sz) ** 2
+    if scale * duplicates < 0.5:
+        adapt_duplicates = False
+        adapt_batch = True
+    if adapt_batch:
+        batch_size = int(round(scale * base_batch))
+    if adapt_duplicates:
+        duplicates = int(round(scale * duplicates))
+    duplicates = max(1, duplicates)
+    return {'input_size': sz, 'batch_size': batch_size, 'duplicates': duplicates}
+
+
+class ResNet_imagenet(ResNet):
+    num_train_images = 1281167
+
+    def __init__(self, num_classes=1000, inplanes=64, block=Bottleneck, residual_block=None, layers=[3, 4, 23, 3], width=[64, 128, 256, 512], expansion=4, groups=[1, 1, 1, 1], regime='normal', scale_lr=1, ramp_up_lr=True, ramp_up_epochs=5, checkpoint_segments=0, mixup=False, epochs=90, base_devices=4, base_device_batch=64, base_duplicates=1, base_image_size=224, mix_size_regime='D+'):
+        super(ResNet_imagenet, self).__init__()
+        self.inplanes = inplanes
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, expansion * planes, groups=groups, multiplier=True)
-        self.downsample = downsample
-        self.residual_block = residual_block
-        self.stride = stride
-        self.expansion = expansion
-        self.layer_depth = layer_depth
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        for i in range(len(layers)):
+            layer = self._make_layer(block=block, planes=width[i], blocks=layers[i], expansion=expansion, stride=1 if i == 0 else 2, residual_block=residual_block, groups=groups[i], mixup=mixup)
+            if checkpoint_segments > 0:
+                layer_checkpoint_segments = min(checkpoint_segments, layers[i])
+                layer = CheckpointModule(layer, layer_checkpoint_segments)
+            setattr(self, 'layer%s' % str(i + 1), layer)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(width[-1] * expansion, num_classes)
+        init_model(self)
+        batch_size = base_devices * base_device_batch
+        num_steps_epoch = math.floor(self.num_train_images / batch_size)
+        ramp_up_steps = num_steps_epoch * ramp_up_epochs
+        self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': scale_lr * 0.1, 'momentum': 0.9, 'regularizer': weight_decay_config(0.0001)}, {'epoch': 30, 'lr': scale_lr * 0.01}, {'epoch': 60, 'lr': scale_lr * 0.001}, {'epoch': 80, 'lr': scale_lr * 0.0001}]
+        if 'cutmix' in regime:
+            self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': scale_lr * 0.1, 'momentum': 0.9, 'regularizer': weight_decay_config(0.0001)}, {'epoch': 75, 'lr': scale_lr * 0.01}, {'epoch': 150, 'lr': scale_lr * 0.001}, {'epoch': 225, 'lr': scale_lr * 0.0001}]
+        if 'linear' in regime:
+            self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': scale_lr * 0.1, 'momentum': 0.9, 'regularizer': weight_decay_config(0.0001), 'step_lambda': linear_scale(scale_lr * 0.1, 0, num_steps_epoch * epochs)}]
+            if ramp_up_lr:
+                self.regime[0]['lr'] = 0
+                self.regime['step_lambda'] = linear_scale(0.1, scale_lr * 0.1, ramp_up_steps)
+                self.regime.append({'epoch': ramp_up_epochs, 'step_lambda': linear_scale(scale_lr * 0.1, 0, num_steps_epoch * (epochs - ramp_up_epochs), ramp_up_steps)})
+                ramp_up_lr = False
+        if 'sampled' in regime:
+            self.regime[0]['regularizer'] = [{'name': 'GradSmooth', 'momentum': 0.9, 'log': False}, weight_decay_config(0.0001)]
+            ramp_up_lr = False
+            self.data_regime = None
 
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.relu(out)
-        out = self.conv2(out)
-        if self.downsample is not None:
-            residual = self.downsample(residual)
-        if self.residual_block is not None:
-            residual = self.residual_block(residual)
-        out += residual
-        out = self.relu(out)
-        return out
+            def size_config(size):
+                return mixsize_config(size, base_size=base_image_size, base_batch=base_device_batch, base_duplicates=base_duplicates, adapt_batch=mix_size_regime == 'B+', adapt_duplicates=mix_size_regime == 'D+')
+            increment = int(base_image_size / 7)
+            if '144' in regime:
+                self.sampled_data_regime = [(0.1, size_config(base_image_size + increment)), (0.1, size_config(base_image_size)), (0.6, size_config(base_image_size - 3 * increment)), (0.2, size_config(base_image_size - 4 * increment))]
+            else:
+                self.sampled_data_regime = [(0.8 / 6, size_config(base_image_size - 3 * increment)), (0.8 / 6, size_config(base_image_size - 2 * increment)), (0.8 / 6, size_config(base_image_size - increment)), (0.2, size_config(base_image_size)), (0.8 / 6, size_config(base_image_size + increment)), (0.8 / 6, size_config(base_image_size + 2 * increment)), (0.8 / 6, size_config(base_image_size + 3 * increment))]
+            self.data_eval_regime = [{'epoch': 0, 'input_size': base_image_size}]
+        if ramp_up_lr and scale_lr > 1:
+            self.regime[0]['step_lambda'] = linear_scale(0.1, 0.1 * scale_lr, ramp_up_steps)
+            self.regime.insert(1, {'epoch': ramp_up_epochs, 'lr': scale_lr * 0.1})
 
 
-class Bottleneck(nn.Module):
+class ResNet_cifar(ResNet):
 
-    def __init__(self, inplanes, planes, stride=1, expansion=4, downsample=None, groups=1, residual_block=None, layer_depth=1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = ZIConv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.conv2 = conv3x3(planes, planes, stride=stride, groups=groups)
-        self.conv3 = ZIConv2d(planes, planes * expansion, kernel_size=1, multiplier=True)
+    def __init__(self, num_classes=10, inplanes=16, block=BasicBlock, depth=18, width=[16, 32, 64], groups=[1, 1, 1], residual_block=None, regime='normal', dropout=None, mixup=False):
+        super(ResNet_cifar, self).__init__()
+        self.inplanes = inplanes
+        n = int((depth - 2) / 6)
+        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.residual_block = residual_block
-        self.stride = stride
-        self.expansion = expansion
-        self.layer_depth = layer_depth
+        self.maxpool = lambda x: x
+        self.layer1 = self._make_layer(block, width[0], n, groups=groups[0], residual_block=residual_block, dropout=dropout, mixup=mixup)
+        self.layer2 = self._make_layer(block, width[1], n, stride=2, groups=groups[1], residual_block=residual_block, dropout=dropout, mixup=mixup)
+        self.layer3 = self._make_layer(block, width[2], n, stride=2, groups=groups[2], residual_block=residual_block, dropout=dropout, mixup=mixup)
+        self.layer4 = lambda x: x
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Linear(width[-1], num_classes)
+        init_model(self)
+        self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': 0.1, 'momentum': 0.9, 'regularizer': weight_decay_config(0.0001)}, {'epoch': 81, 'lr': 0.01}, {'epoch': 122, 'lr': 0.001}, {'epoch': 164, 'lr': 0.0001}]
+        if 'wide-resnet' in regime:
+            self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': 0.1, 'momentum': 0.9, 'regularizer': weight_decay_config(0.0005)}, {'epoch': 60, 'lr': 0.02}, {'epoch': 120, 'lr': 0.004}, {'epoch': 160, 'lr': 0.0008}]
+        if 'sampled' in regime:
+            adapt_batch = True if 'B+' in regime else False
+            adapt_duplicates = True if 'D+' in regime or not adapt_batch else False
 
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        if self.downsample is not None:
-            residual = self.downsample(residual)
-        if self.residual_block is not None:
-            residual = self.residual_block(residual)
-        out += residual
-        out = self.relu(out)
-        return out
+            def size_config(size):
+                return mixsize_config(size, base_size=32, base_batch=64, base_duplicates=1, adapt_batch=adapt_batch, adapt_duplicates=adapt_duplicates)
+            self.regime[0]['regularizer'] = [{'name': 'GradSmooth', 'momentum': 0.9, 'log': False}, weight_decay_config(0.0001)]
+            self.data_regime = None
+            self.sampled_data_regime = [(0.3, size_config(32)), (0.2, size_config(48)), (0.3, size_config(24)), (0.2, size_config(16))]
+            self.data_eval_regime = [{'epoch': 0, 'input_size': 32, 'scale_size': 32}]
 
 
 class ResNetZI(nn.Module):
@@ -1920,6 +2129,80 @@ class ResNetZI(nn.Module):
         x = self.features(x)
         x = self.fc(x)
         return x
+
+
+class ResNetZI_imagenet(ResNetZI):
+
+    def __init__(self, num_classes=1000, inplanes=64, block=Bottleneck, residual_block=None, layers=[3, 4, 23, 3], width=[64, 128, 256, 512], expansion=4, groups=[1, 1, 1, 1], regime='normal', scale_lr=1, checkpoint_segments=0):
+        super(ResNetZI_imagenet, self).__init__()
+        self.inplanes = inplanes
+        self.conv1 = ZIConv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        for i in range(len(layers)):
+            layer = self._make_layer(block=block, planes=width[i], blocks=layers[i], expansion=expansion, stride=1 if i == 0 else 2, residual_block=residual_block, groups=groups[i])
+            if checkpoint_segments > 0:
+                layer_checkpoint_segments = min(checkpoint_segments, layers[i])
+                layer = CheckpointModule(layer, layer_checkpoint_segments)
+            setattr(self, 'layer%s' % str(i + 1), layer)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = ZILinear(width[-1] * expansion, num_classes, bias=True, post_bias=False)
+        init_model(self)
+
+        def ramp_up_lr(lr0, lrT, T):
+            rate = (lrT - lr0) / T
+            return "lambda t: {'lr': %s + t * %s}" % (lr0, rate)
+        if regime == 'normal':
+            self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'momentum': 0.9, 'regularizer': weight_decay_config(0.0001), 'step_lambda': ramp_up_lr(0.1, 0.1 * scale_lr, 5004 * 5 / scale_lr)}, {'epoch': 5, 'lr': scale_lr * 0.1}, {'epoch': 30, 'lr': scale_lr * 0.01}, {'epoch': 60, 'lr': scale_lr * 0.001}, {'epoch': 80, 'lr': scale_lr * 0.0001}]
+        elif regime == 'fast':
+            self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'momentum': 0.9, 'regularizer': weight_decay_config(0.0001), 'step_lambda': ramp_up_lr(0.1, 0.1 * 4 * scale_lr, 5004 * 4 / (4 * scale_lr))}, {'epoch': 4, 'lr': 4 * scale_lr * 0.1}, {'epoch': 18, 'lr': scale_lr * 0.1}, {'epoch': 21, 'lr': scale_lr * 0.01}, {'epoch': 35, 'lr': scale_lr * 0.001}, {'epoch': 43, 'lr': scale_lr * 0.0001}]
+            self.data_regime = [{'epoch': 0, 'input_size': 128, 'batch_size': 256}, {'epoch': 18, 'input_size': 224, 'batch_size': 64}, {'epoch': 41, 'input_size': 288, 'batch_size': 32}]
+        elif regime == 'small':
+            scale_lr *= 4
+            self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'regularizer': weight_decay_config(0.0001), 'momentum': 0.9, 'lr': scale_lr * 0.1}, {'epoch': 30, 'lr': scale_lr * 0.01}, {'epoch': 60, 'lr': scale_lr * 0.001}, {'epoch': 80, 'lr': scale_lr * 0.0001}]
+            self.data_regime = [{'epoch': 0, 'input_size': 128, 'batch_size': 256}, {'epoch': 80, 'input_size': 224, 'batch_size': 64}]
+            self.data_eval_regime = [{'epoch': 0, 'input_size': 128, 'batch_size': 1024}, {'epoch': 80, 'input_size': 224, 'batch_size': 512}]
+        elif regime == 'small_ba':
+            scale_lr = 1
+            self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'regularizer': weight_decay_config(0.0001), 'momentum': 0.9, 'lr': scale_lr * 0.1}, {'epoch': 20, 'lr': scale_lr * 0.01}, {'epoch': 25, 'lr': scale_lr * 0.001}, {'epoch': 28, 'lr': scale_lr * 0.0001}]
+            self.data_regime = [{'epoch': 0, 'input_size': 128, 'batch_size': 64, 'duplicates': 4}, {'epoch': 25, 'input_size': 224, 'batch_size': 64, 'duplicates': 1}]
+            self.data_eval_regime = [{'epoch': 0, 'input_size': 224, 'batch_size': 128}]
+
+
+class ResNetZI_cifar(ResNetZI):
+
+    def __init__(self, num_classes=10, inplanes=16, block=BasicBlock, depth=18, width=[16, 32, 64], groups=[1, 1, 1], residual_block=None):
+        super(ResNetZI_cifar, self).__init__()
+        self.inplanes = inplanes
+        n = int((depth - 2) / 6)
+        self.conv1 = ZIConv2d(3, self.inplanes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = lambda x: x
+        self.layer1 = self._make_layer(block, width[0], n, groups=groups[0], residual_block=residual_block)
+        self.layer2 = self._make_layer(block, width[1], n, stride=2, groups=groups[1], residual_block=residual_block)
+        self.layer3 = self._make_layer(block, width[2], n, stride=2, groups=groups[2], residual_block=residual_block)
+        self.layer4 = lambda x: x
+        self.avgpool = nn.AvgPool2d(8)
+        self.fc = ZILinear(width[-1], num_classes, bias=True, post_bias=False)
+        init_model(self)
+        self.regime = [{'epoch': 0, 'optimizer': 'SGD', 'lr': 0.1, 'momentum': 0.9, 'regularizer': weight_decay_config(0.0001)}, {'epoch': 81, 'lr': 0.01}, {'epoch': 122, 'lr': 0.001}, {'epoch': 164, 'lr': 0.0001}]
+
+
+class ResNeXt_imagenet(ResNet_imagenet):
+
+    def __init__(self, width=[128, 256, 512, 1024], groups=[32, 32, 32, 32], expansion=2, **kwargs):
+        kwargs['width'] = width
+        kwargs['groups'] = groups
+        kwargs['expansion'] = expansion
+        super(ResNeXt_imagenet, self).__init__(**kwargs)
+
+
+class ResNeXt_cifar(ResNet_cifar):
+
+    def __init__(self, width=[64, 128, 256], groups=[4, 8, 16], **kwargs):
+        kwargs['width'] = width
+        kwargs['groups'] = groups
+        super(ResNeXt_cifar, self).__init__(**kwargs)
 
 
 class VGG(nn.Module):
@@ -1964,6 +2247,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 128, 128])], {}),
      True),
+    (AmoebaNetCell,
+     lambda: ([], {'C_prev_prev': 4, 'C_prev': 4, 'C': 4, 'reduction': 4, 'reduction_prev': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (AuxiliaryHeadCIFAR,
      lambda: ([], {'channels': 4, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 8, 8])], {}),
@@ -1984,6 +2271,10 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (BatchNorm3d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
     (BiReLU,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1992,6 +2283,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (DARTSCell,
+     lambda: ([], {'C_prev_prev': 4, 'C_prev': 4, 'C': 4, 'reduction': 4, 'reduction_prev': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (DepthwiseSeparableFusedConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2000,6 +2295,14 @@ TESTCASES = [
      lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4, 'dilation': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (EvolvedNetworkCIFAR,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (EvolvedNetworkImageNet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     False),
     (ExpandedConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2064,6 +2367,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
+    (NasNetCell,
+     lambda: ([], {'C_prev_prev': 4, 'C_prev': 4, 'C': 4, 'reduction': 4, 'reduction_prev': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Proj,
      lambda: ([], {'input_size': 4, 'output_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -2084,10 +2391,22 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (RangeBN1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (ReLUConvBN,
      lambda: ([], {'C_in': 4, 'C_out': 4, 'kernel_size': 4, 'stride': 1, 'padding': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ResNetZI_cifar,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
+    (ResNetZI_imagenet,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
     (SEBlock,
      lambda: ([], {'in_channels': 16}),
      lambda: ([torch.rand([4, 16, 4, 16])], {}),
@@ -2277,4 +2596,31 @@ class Test_eladhoffer_convNet_pytorch(_paritybench_base):
 
     def test_044(self):
         self._check(*TESTCASES[44])
+
+    def test_045(self):
+        self._check(*TESTCASES[45])
+
+    def test_046(self):
+        self._check(*TESTCASES[46])
+
+    def test_047(self):
+        self._check(*TESTCASES[47])
+
+    def test_048(self):
+        self._check(*TESTCASES[48])
+
+    def test_049(self):
+        self._check(*TESTCASES[49])
+
+    def test_050(self):
+        self._check(*TESTCASES[50])
+
+    def test_051(self):
+        self._check(*TESTCASES[51])
+
+    def test_052(self):
+        self._check(*TESTCASES[52])
+
+    def test_053(self):
+        self._check(*TESTCASES[53])
 

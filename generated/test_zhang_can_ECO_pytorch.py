@@ -23,6 +23,7 @@ pytorch_load = _module
 tf_model_zoo = _module
 bninception = _module
 caffe_pb2 = _module
+layer_factory = _module
 parse_caffe = _module
 pytorch_load = _module
 inceptionresnetv2 = _module
@@ -212,17 +213,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch.utils.data as data
+
+
+import numpy as np
+
+
+from numpy.random import randint
 
 
 import time
@@ -258,10 +269,63 @@ from torch.nn.init import constant
 import math
 
 
+from sklearn.metrics import confusion_matrix
+
+
 import torch.utils.model_zoo as model_zoo
 
 
 import torch.nn as nn
+
+
+import collections
+
+
+import tensorflow as tf
+
+
+import random
+
+
+import numbers
+
+
+class SegmentConsensus(torch.autograd.Function):
+
+    def __init__(self, consensus_type, dim=1):
+        self.consensus_type = consensus_type
+        self.dim = dim
+        self.shape = None
+
+    def forward(self, input_tensor):
+        self.shape = input_tensor.size()
+        if self.consensus_type == 'avg':
+            output = input_tensor.mean(dim=self.dim, keepdim=True)
+        elif self.consensus_type == 'identity':
+            output = input_tensor
+        else:
+            output = None
+        return output
+
+    def backward(self, grad_output):
+        if self.consensus_type == 'avg':
+            grad_in = grad_output.expand(self.shape) / float(self.shape[self.dim])
+        elif self.consensus_type == 'identity':
+            grad_in = grad_output
+        else:
+            grad_in = None
+        return grad_in
+
+
+class ConsensusModule(torch.nn.Module):
+
+    def __init__(self, consensus_type, dim=1):
+        super(ConsensusModule, self).__init__()
+        self.consensus_type = consensus_type if consensus_type != 'rnn' else 'identity'
+        self.dim = dim
+
+    def forward(self, input):
+        return SegmentConsensus(self.consensus_type, self.dim)(input)
 
 
 class GroupMultiScaleCrop(object):
@@ -670,44 +734,6 @@ class Identity(torch.nn.Module):
         return input
 
 
-class SegmentConsensus(torch.autograd.Function):
-
-    def __init__(self, consensus_type, dim=1):
-        self.consensus_type = consensus_type
-        self.dim = dim
-        self.shape = None
-
-    def forward(self, input_tensor):
-        self.shape = input_tensor.size()
-        if self.consensus_type == 'avg':
-            output = input_tensor.mean(dim=self.dim, keepdim=True)
-        elif self.consensus_type == 'identity':
-            output = input_tensor
-        else:
-            output = None
-        return output
-
-    def backward(self, grad_output):
-        if self.consensus_type == 'avg':
-            grad_in = grad_output.expand(self.shape) / float(self.shape[self.dim])
-        elif self.consensus_type == 'identity':
-            grad_in = grad_output
-        else:
-            grad_in = None
-        return grad_in
-
-
-class ConsensusModule(torch.nn.Module):
-
-    def __init__(self, consensus_type, dim=1):
-        super(ConsensusModule, self).__init__()
-        self.consensus_type = consensus_type if consensus_type != 'rnn' else 'identity'
-        self.dim = dim
-
-    def forward(self, input):
-        return SegmentConsensus(self.consensus_type, self.dim)(input)
-
-
 LAYER_BUILDER_DICT = dict()
 
 
@@ -716,11 +742,9 @@ def parse_expr(expr):
     return parts[0].split(','), parts[1], parts[2].split(',')
 
 
-def get_basic_layer(info, channels=None, conv_bias=False, num_segments=4):
+def get_basic_layer(info, channels=None, conv_bias=False):
     id = info['id']
     attr = info['attrs'] if 'attrs' in info else list()
-    if id == 'res5b_pool':
-        attr['kernel_d'] = int(num_segments / 4)
     out, op, in_vars = parse_expr(info['expr'])
     assert len(out) == 1
     assert len(in_vars) == 1
@@ -849,13 +873,19 @@ class BNInception(nn.Module):
         return data_dict[self._op_list[-1][2]]
 
 
+class InceptionV3(BNInception):
+
+    def __init__(self, model_path='model_zoo/bninception/inceptionv3.yaml', num_classes=101, weight_url='https://yjxiong.blob.core.windows.net/models/inceptionv3-cuhk-0e09b300b493bc74c.pth'):
+        super(InceptionV3, self).__init__(model_path=model_path, weight_url=weight_url, num_classes=num_classes)
+
+
 class BasicConv2d(nn.Module):
 
     def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
         super(BasicConv2d, self).__init__()
         self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0, affine=True)
-        self.relu = nn.ReLU(inplace=False)
+        self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
         x = self.conv(x)
@@ -1022,21 +1052,6 @@ class InceptionResnetV2(nn.Module):
         x = self.avgpool_1a(x)
         x = x.view(x.size(0), -1)
         x = self.classif(x)
-        return x
-
-
-class BasicConv2d(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride, padding=0):
-        super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, bias=False)
-        self.bn = nn.BatchNorm2d(out_planes, eps=0.001, momentum=0, affine=True)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
         return x
 
 

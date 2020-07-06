@@ -62,17 +62,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils import data
+
+
+import numpy as np
+
+
+import random
 
 
 import torch
@@ -99,19 +109,19 @@ from torchvision.models import resnet
 from torch.autograd import Variable
 
 
-import numpy as np
-
-
 import torch.optim as optim
 
 
 import time
 
 
-from torch import optim
-
-
 import torch.backends.cudnn as cudnn
+
+
+import torchvision.models as models
+
+
+from torch import optim
 
 
 from torch.nn.modules.loss import _Loss
@@ -123,7 +133,28 @@ from torch.nn.modules.loss import _WeightedLoss
 from torch.nn import NLLLoss2d
 
 
-import random
+from torch.optim.optimizer import Optimizer
+
+
+from collections import defaultdict
+
+
+from itertools import chain
+
+
+from torch.optim import Optimizer
+
+
+import warnings
+
+
+import itertools as it
+
+
+from torch.optim.lr_scheduler import MultiStepLR
+
+
+from torch.optim.lr_scheduler import _LRScheduler
 
 
 class ConvBNPReLU(nn.Module):
@@ -156,23 +187,14 @@ class ConvBNPReLU(nn.Module):
 
 class BNPReLU(nn.Module):
 
-    def __init__(self, nOut):
-        """
-        args:
-           nOut: channels of output feature maps
-        """
+    def __init__(self, nIn):
         super().__init__()
-        self.bn = nn.BatchNorm2d(nOut, eps=0.001)
-        self.act = nn.PReLU(nOut)
+        self.bn = nn.BatchNorm2d(nIn, eps=0.001)
+        self.acti = nn.PReLU(nIn)
 
     def forward(self, input):
-        """
-        args:
-           input: input feature map
-           return: normalized and thresholded feature map
-        """
         output = self.bn(input)
-        output = self.act(output)
+        output = self.acti(output)
         return output
 
 
@@ -204,25 +226,17 @@ class ConvBN(nn.Module):
 
 class Conv(nn.Module):
 
-    def __init__(self, nIn, nOut, kSize, stride=1):
-        """
-        args:
-            nIn: number of input channels
-            nOut: number of output channels
-            kSize: kernel size
-            stride: optional stride rate for down-sampling
-        """
+    def __init__(self, nIn, nOut, kSize, stride, padding, dilation=(1, 1), groups=1, bn_acti=False, bias=False):
         super().__init__()
-        padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride, padding=(padding, padding), bias=False)
+        self.bn_acti = bn_acti
+        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kSize, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        if self.bn_acti:
+            self.bn_prelu = BNPReLU(nOut)
 
     def forward(self, input):
-        """
-        args:
-           input: input feature map
-           return: transformed feature map
-        """
         output = self.conv(input)
+        if self.bn_acti:
+            output = self.bn_prelu(output)
         return output
 
 
@@ -381,10 +395,10 @@ class ContextGuidedBlock(nn.Module):
 
 class InputInjection(nn.Module):
 
-    def __init__(self, downsamplingRatio):
+    def __init__(self, ratio):
         super().__init__()
         self.pool = nn.ModuleList()
-        for i in range(0, downsamplingRatio):
+        for i in range(0, ratio):
             self.pool.append(nn.AvgPool2d(3, stride=2, padding=1))
 
     def forward(self, input):
@@ -499,12 +513,35 @@ class DepthConv(nn.Module):
         return self.conv(x)
 
 
+class _ConvBNReLU(nn.Module):
+    """Conv-BN-ReLU"""
+
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, **kwargs):
+        super(_ConvBNReLU, self).__init__()
+        self.conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True))
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class _DWConv(nn.Module):
+    """Depthwise Convolutions"""
+
+    def __init__(self, dw_channels, out_channels, stride=1, **kwargs):
+        super(_DWConv, self).__init__()
+        self.conv = nn.Sequential(nn.Conv2d(dw_channels, out_channels, 3, stride, 1, groups=dw_channels, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True))
+
+    def forward(self, x):
+        return self.conv(x)
+
+
 class LinearBottleneck(nn.Module):
+    """LinearBottleneck used in MobileNetV2"""
 
     def __init__(self, in_channels, out_channels, t=6, stride=2, **kwargs):
         super(LinearBottleneck, self).__init__()
         self.use_shortcut = stride == 1 and in_channels == out_channels
-        self.block = nn.Sequential(Custom_Conv(in_channels, in_channels * t, 1), DepthConv(in_channels * t, in_channels * t, stride), nn.Conv2d(in_channels * t, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels))
+        self.block = nn.Sequential(_ConvBNReLU(in_channels, in_channels * t, 1), _DWConv(in_channels * t, in_channels * t, stride), nn.Conv2d(in_channels * t, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels))
 
     def forward(self, x):
         out = self.block(x)
@@ -564,11 +601,12 @@ class Deep_net(nn.Module):
 
 
 class FeatureFusionModule(nn.Module):
+    """Feature fusion module"""
 
     def __init__(self, highter_in_channels, lower_in_channels, out_channels, scale_factor=4, **kwargs):
         super(FeatureFusionModule, self).__init__()
         self.scale_factor = scale_factor
-        self.dwconv = DepthConv(lower_in_channels, out_channels, 1)
+        self.dwconv = _DWConv(lower_in_channels, out_channels, 1)
         self.conv_lower_res = nn.Sequential(nn.Conv2d(out_channels, out_channels, 1), nn.BatchNorm2d(out_channels))
         self.conv_higher_res = nn.Sequential(nn.Conv2d(highter_in_channels, out_channels, 1), nn.BatchNorm2d(out_channels))
         self.relu = nn.ReLU(True)
@@ -583,12 +621,24 @@ class FeatureFusionModule(nn.Module):
         return self.relu(out)
 
 
+class _DSConv(nn.Module):
+    """Depthwise Separable Convolutions"""
+
+    def __init__(self, dw_channels, out_channels, stride=1, **kwargs):
+        super(_DSConv, self).__init__()
+        self.conv = nn.Sequential(nn.Conv2d(dw_channels, dw_channels, 3, stride, 1, groups=dw_channels, bias=False), nn.BatchNorm2d(dw_channels), nn.ReLU(True), nn.Conv2d(dw_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True))
+
+    def forward(self, x):
+        return self.conv(x)
+
+
 class Classifer(nn.Module):
+    """Classifer"""
 
     def __init__(self, dw_channels, num_classes, stride=1, **kwargs):
         super(Classifer, self).__init__()
-        self.dsconv1 = DepthSepConv(dw_channels, dw_channels, stride)
-        self.dsconv2 = DepthSepConv(dw_channels, dw_channels, stride)
+        self.dsconv1 = _DSConv(dw_channels, dw_channels, stride)
+        self.dsconv2 = _DSConv(dw_channels, dw_channels, stride)
         self.conv = nn.Sequential(nn.Dropout(0.1), nn.Conv2d(dw_channels, num_classes, 1))
 
     def forward(self, x):
@@ -625,35 +675,6 @@ class ContextNet(nn.Module):
             auxout = F.interpolate(auxout, size, mode='bilinear', align_corners=True)
             outputs.append(auxout)
         return x
-
-
-class Conv(nn.Module):
-
-    def __init__(self, nIn, nOut, kSize, stride, padding, dilation=(1, 1), groups=1, bn_acti=False, bias=False):
-        super().__init__()
-        self.bn_acti = bn_acti
-        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kSize, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        if self.bn_acti:
-            self.bn_prelu = BNPReLU(nOut)
-
-    def forward(self, input):
-        output = self.conv(input)
-        if self.bn_acti:
-            output = self.bn_prelu(output)
-        return output
-
-
-class BNPReLU(nn.Module):
-
-    def __init__(self, nIn):
-        super().__init__()
-        self.bn = nn.BatchNorm2d(nIn, eps=0.001)
-        self.acti = nn.PReLU(nIn)
-
-    def forward(self, input):
-        output = self.bn(input)
-        output = self.acti(output)
-        return output
 
 
 class DABModule(nn.Module):
@@ -705,20 +726,6 @@ class DownSamplingBlock(nn.Module):
         return output
 
 
-class InputInjection(nn.Module):
-
-    def __init__(self, ratio):
-        super().__init__()
-        self.pool = nn.ModuleList()
-        for i in range(0, ratio):
-            self.pool.append(nn.AvgPool2d(3, stride=2, padding=1))
-
-    def forward(self, input):
-        for pool in self.pool:
-            input = pool(input)
-        return input
-
-
 class DABNet(nn.Module):
 
     def __init__(self, classes=19, block_1=3, block_2=6):
@@ -761,23 +768,22 @@ class DABNet(nn.Module):
 class DownsamplerBlock(nn.Module):
 
     def __init__(self, ninput, noutput):
-        super(DownsamplerBlock, self).__init__()
-        self.ninput = ninput
-        self.noutput = noutput
-        if self.ninput < self.noutput:
-            self.conv = nn.Conv2d(ninput, noutput - ninput, kernel_size=3, stride=2, padding=1)
-            self.pool = nn.MaxPool2d(2, stride=2)
-        else:
-            self.conv = nn.Conv2d(ninput, noutput, kernel_size=3, stride=2, padding=1)
-        self.bn = nn.BatchNorm2d(noutput)
+        super().__init__()
+        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=True)
+        self.pool = nn.MaxPool2d(2, stride=2)
+        self.bn = nn.BatchNorm2d(noutput, eps=0.001)
+        self.relu = nn.ReLU(inplace=True)
 
-    def forward(self, x):
-        if self.ninput < self.noutput:
-            output = torch.cat([self.conv(x), self.pool(x)], 1)
-        else:
-            output = self.conv(x)
+    def forward(self, input):
+        x1 = self.pool(input)
+        x2 = self.conv(input)
+        diffY = x2.size()[2] - x1.size()[2]
+        diffX = x2.size()[3] - x1.size()[3]
+        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
+        output = torch.cat([x2, x1], 1)
         output = self.bn(output)
-        return F.relu(output)
+        output = self.relu(output)
+        return output
 
 
 class EDAModule(nn.Module):
@@ -865,25 +871,61 @@ class EDANet(nn.Module):
         return output
 
 
+class BetaMish(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        beta = 1.5
+        return x * torch.tanh(torch.log(torch.pow(1 + torch.exp(x), beta)))
+
+
+class Hswish(nn.Module):
+
+    def __init__(self, inplace=True):
+        super(Hswish, self).__init__()
+        self.inplace = inplace
+
+    def forward(self, x):
+        return x * F.relu6(x + 3.0, inplace=self.inplace) / 6.0
+
+
+class Mish(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return x * torch.tanh(F.softplus(x))
+
+
+class Swish(nn.Module):
+
+    def __init__(self):
+        super(Swish, self).__init__()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        return x * self.sigmoid(x)
+
+
+NON_LINEARITY = {'ReLU': nn.ReLU(inplace=True), 'PReLU': nn.PReLU(), 'ReLu6': nn.ReLU6(inplace=True), 'Mish': Mish(), 'BetaMish': BetaMish(), 'Swish': Swish(), 'Hswish': Hswish(), 'tanh': nn.Tanh(), 'sigmoid': nn.Sigmoid()}
+
+
 class InitialBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, padding=0, bias=False, relu=True):
-        super(InitialBlock, self).__init__()
-        if relu:
-            activation = nn.ReLU()
-        else:
-            activation = nn.PReLU()
-        self.main_branch = nn.Conv2d(in_channels, out_channels - 3, kernel_size=kernel_size, stride=2, padding=padding, bias=bias)
-        self.ext_branch = nn.MaxPool2d(kernel_size, stride=2, padding=padding)
-        self.batch_norm = nn.BatchNorm2d(out_channels)
-        self.out_prelu = activation
+    def __init__(self, ninput, noutput, non_linear='ReLU'):
+        super().__init__()
+        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=False)
+        self.pool = nn.MaxPool2d(2, stride=2)
+        self.bn = nn.BatchNorm2d(noutput - ninput, eps=0.001)
+        self.relu = NON_LINEARITY[non_linear]
 
     def forward(self, input):
-        main = self.main_branch(input)
-        ext = self.ext_branch(input)
-        out = torch.cat((main, ext), dim=1)
-        out = self.batch_norm(out)
-        return self.out_prelu(out)
+        output = self.relu(self.bn(self.conv(input)))
+        output = torch.cat([output, self.pool(input)], 1)
+        return output
 
 
 class RegularBottleneck(nn.Module):
@@ -916,66 +958,48 @@ class RegularBottleneck(nn.Module):
 
 class DownsamplingBottleneck(nn.Module):
 
-    def __init__(self, in_channels, out_channels, internal_ratio=4, kernel_size=3, padding=0, return_indices=False, dropout_prob=0.0, bias=False, relu=True):
+    def __init__(self, in_channels, out_channels, internal_ratio=4, kernel_size=3, padding=0, dropout_prob=0.0, bias=False, non_linear='ReLU'):
         super().__init__()
-        self.return_indices = return_indices
         internal_channels = in_channels // internal_ratio
-        if relu:
-            activation = nn.ReLU()
-        else:
-            activation = nn.PReLU()
-        self.main_max1 = nn.MaxPool2d(kernel_size, stride=2, padding=padding, return_indices=return_indices)
-        self.ext_conv1 = nn.Sequential(nn.Conv2d(in_channels, internal_channels, kernel_size=2, stride=2, bias=bias), nn.BatchNorm2d(internal_channels), activation)
-        self.ext_conv2 = nn.Sequential(nn.Conv2d(internal_channels, internal_channels, kernel_size=kernel_size, stride=1, padding=padding, bias=bias), nn.BatchNorm2d(internal_channels), activation)
-        self.ext_conv3 = nn.Sequential(nn.Conv2d(internal_channels, out_channels, kernel_size=1, stride=1, bias=bias), nn.BatchNorm2d(out_channels), activation)
+        self.main_max1 = nn.Sequential(nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=bias))
+        self.ext_conv1 = nn.Sequential(nn.Conv2d(in_channels, internal_channels, kernel_size=2, stride=2, bias=bias), nn.BatchNorm2d(internal_channels), NON_LINEARITY[non_linear])
+        self.ext_conv2 = nn.Sequential(nn.Conv2d(internal_channels, internal_channels, kernel_size=kernel_size, stride=1, padding=padding, bias=bias), nn.BatchNorm2d(internal_channels), NON_LINEARITY[non_linear])
+        self.ext_conv3 = nn.Sequential(nn.Conv2d(internal_channels, out_channels, kernel_size=1, stride=1, bias=bias), nn.BatchNorm2d(out_channels), NON_LINEARITY[non_linear])
         self.ext_regul = nn.Dropout2d(p=dropout_prob)
-        self.out_prelu = activation
+        self.out_prelu = NON_LINEARITY[non_linear]
 
     def forward(self, x):
-        if self.return_indices:
-            main, max_indices = self.main_max1(x)
-        else:
-            main = self.main_max1(x)
+        main = self.main_max1(x)
         ext = self.ext_conv1(x)
         ext = self.ext_conv2(ext)
         ext = self.ext_conv3(ext)
         ext = self.ext_regul(ext)
-        n, ch_ext, h, w = ext.size()
-        ch_main = main.size()[1]
-        padding = torch.zeros(n, ch_ext - ch_main, h, w)
-        if main.is_cuda:
-            padding = padding
-        main = torch.cat((main, padding), 1)
-        out = main + ext
-        return self.out_prelu(out), max_indices
+        out = self.out_prelu(main + ext)
+        return out
 
 
 class UpsamplingBottleneck(nn.Module):
 
-    def __init__(self, in_channels, out_channels, internal_ratio=4, kernel_size=3, padding=0, dropout_prob=0.0, bias=False, relu=True):
+    def __init__(self, in_channels, out_channels, internal_ratio=4, kernel_size=2, padding=0, dropout_prob=0.0, bias=False, non_linear='ReLU'):
         super().__init__()
         internal_channels = in_channels // internal_ratio
-        if relu:
-            activation = nn.ReLU()
-        else:
-            activation = nn.PReLU()
         self.main_conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=bias), nn.BatchNorm2d(out_channels))
-        self.main_unpool1 = nn.MaxUnpool2d(kernel_size=2)
-        self.ext_conv1 = nn.Sequential(nn.Conv2d(in_channels, internal_channels, kernel_size=1, bias=bias), nn.BatchNorm2d(internal_channels), activation)
-        self.ext_conv2 = nn.Sequential(nn.ConvTranspose2d(internal_channels, internal_channels, kernel_size=kernel_size, stride=2, padding=padding, output_padding=1, bias=bias), nn.BatchNorm2d(internal_channels), activation)
-        self.ext_conv3 = nn.Sequential(nn.Conv2d(internal_channels, out_channels, kernel_size=1, bias=bias), nn.BatchNorm2d(out_channels), activation)
+        self.ext_conv1 = nn.Sequential(nn.Conv2d(in_channels, internal_channels, kernel_size=1, bias=bias), nn.BatchNorm2d(internal_channels), NON_LINEARITY[non_linear])
+        self.ext_conv2 = nn.Sequential(nn.ConvTranspose2d(internal_channels, internal_channels, kernel_size=kernel_size, stride=2, padding=padding, output_padding=0, bias=bias), nn.BatchNorm2d(internal_channels), NON_LINEARITY[non_linear])
+        self.ext_conv3 = nn.Sequential(nn.Conv2d(internal_channels, out_channels, kernel_size=1, bias=bias), nn.BatchNorm2d(out_channels), NON_LINEARITY[non_linear])
         self.ext_regul = nn.Dropout2d(p=dropout_prob)
-        self.out_prelu = activation
+        self.out_prelu = NON_LINEARITY[non_linear]
 
-    def forward(self, x, max_indices):
-        main = self.main_conv1(x)
-        main = self.main_unpool1(main, max_indices)
+    def forward(self, x, x_pre):
+        main = x + x_pre
+        main = self.main_conv1(main)
+        main = F.interpolate(main, scale_factor=2, mode='bilinear', align_corners=True)
         ext = self.ext_conv1(x)
         ext = self.ext_conv2(ext)
         ext = self.ext_conv3(ext)
         ext = self.ext_regul(ext)
-        out = main + ext
-        return self.out_prelu(out)
+        out = self.out_prelu(main + ext)
+        return out
 
 
 class ENet(nn.Module):
@@ -1047,20 +1071,6 @@ class ENet(nn.Module):
         return x
 
 
-class DownsamplerBlock(nn.Module):
-
-    def __init__(self, ninput, noutput):
-        super().__init__()
-        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=True)
-        self.pool = nn.MaxPool2d(2, stride=2)
-        self.bn = nn.BatchNorm2d(noutput, eps=0.001)
-
-    def forward(self, input):
-        output = torch.cat([self.conv(input), self.pool(input)], 1)
-        output = self.bn(output)
-        return F.relu(output)
-
-
 class non_bottleneck_1d(nn.Module):
 
     def __init__(self, chann, dropprob, dilated):
@@ -1088,30 +1098,43 @@ class non_bottleneck_1d(nn.Module):
         return F.relu(output + input)
 
 
+class BasicBlock(nn.Module):
+
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, groups=1, bias=False):
+        super(BasicBlock, self).__init__()
+        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size, stride, padding, groups=groups, bias=bias)
+        self.bn1 = nn.BatchNorm2d(out_planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size, 1, padding, groups=groups, bias=bias)
+        self.bn2 = nn.BatchNorm2d(out_planes)
+        self.downsample = None
+        if stride > 1:
+            self.downsample = nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(out_planes))
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out = self.relu(out + residual)
+        return out
+
+
 class Encoder(nn.Module):
 
-    def __init__(self, num_classes):
-        super().__init__()
-        self.initial_block = DownsamplerBlock(3, 16)
-        self.layers = nn.ModuleList()
-        self.layers.append(DownsamplerBlock(16, 64))
-        for x in range(0, 5):
-            self.layers.append(non_bottleneck_1d(64, 0.03, 1))
-        self.layers.append(DownsamplerBlock(64, 128))
-        for x in range(0, 2):
-            self.layers.append(non_bottleneck_1d(128, 0.3, 2))
-            self.layers.append(non_bottleneck_1d(128, 0.3, 4))
-            self.layers.append(non_bottleneck_1d(128, 0.3, 8))
-            self.layers.append(non_bottleneck_1d(128, 0.3, 16))
-        self.output_conv = nn.Conv2d(128, num_classes, 1, stride=1, padding=0, bias=True)
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, groups=1, bias=False):
+        super(Encoder, self).__init__()
+        self.block1 = BasicBlock(in_planes, out_planes, kernel_size, stride, padding, groups, bias)
+        self.block2 = BasicBlock(out_planes, out_planes, kernel_size, 1, padding, groups, bias)
 
-    def forward(self, input, predict=False):
-        output = self.initial_block(input)
-        for layer in self.layers:
-            output = layer(output)
-        if predict:
-            output = self.output_conv(output)
-        return output
+    def forward(self, x):
+        x = self.block1(x)
+        x = self.block2(x)
+        return x
 
 
 class UpsamplerBlock(nn.Module):
@@ -1127,25 +1150,27 @@ class UpsamplerBlock(nn.Module):
         return F.relu(output)
 
 
+def center_crop(layer, max_height, max_width):
+    _, _, h, w = layer.size()
+    diffy = (h - max_height) // 2
+    diffx = (w - max_width) // 2
+    return layer[:, :, diffy:diffy + max_height, diffx:diffx + max_width]
+
+
 class Decoder(nn.Module):
 
-    def __init__(self, num_classes):
-        super().__init__()
-        self.layers = nn.ModuleList()
-        self.layers.append(UpsamplerBlock(128, 64))
-        self.layers.append(non_bottleneck_1d(64, 0, 1))
-        self.layers.append(non_bottleneck_1d(64, 0, 1))
-        self.layers.append(UpsamplerBlock(64, 16))
-        self.layers.append(non_bottleneck_1d(16, 0, 1))
-        self.layers.append(non_bottleneck_1d(16, 0, 1))
-        self.output_conv = nn.ConvTranspose2d(16, num_classes, 2, stride=2, padding=0, output_padding=0, bias=True)
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=False):
+        super(Decoder, self).__init__()
+        self.conv1 = nn.Sequential(nn.Conv2d(in_planes, in_planes // 4, 1, 1, 0, bias=bias), nn.BatchNorm2d(in_planes // 4), nn.ReLU(inplace=True))
+        self.tp_conv = nn.Sequential(nn.ConvTranspose2d(in_planes // 4, in_planes // 4, kernel_size, stride, padding, output_padding, bias=bias), nn.BatchNorm2d(in_planes // 4), nn.ReLU(inplace=True))
+        self.conv2 = nn.Sequential(nn.Conv2d(in_planes // 4, out_planes, 1, 1, 0, bias=bias), nn.BatchNorm2d(out_planes), nn.ReLU(inplace=True))
 
-    def forward(self, input):
-        output = input
-        for layer in self.layers:
-            output = layer(output)
-        output = self.output_conv(output)
-        return output
+    def forward(self, x_high_level, x_low_level):
+        x = self.conv1(x_high_level)
+        x = self.tp_conv(x)
+        x = center_crop(x, x_low_level.size()[2], x_low_level.size()[3])
+        x = self.conv2(x)
+        return x
 
 
 class ERFNet(nn.Module):
@@ -1164,40 +1189,6 @@ class ERFNet(nn.Module):
         else:
             output = self.encoder(input)
             return self.decoder.forward(output)
-
-
-class DownsamplerBlock(nn.Module):
-
-    def __init__(self, ninput, noutput):
-        super().__init__()
-        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=True)
-        self.pool = nn.MaxPool2d(2, stride=2)
-        self.bn = nn.BatchNorm2d(noutput, eps=0.001)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, input):
-        x1 = self.pool(input)
-        x2 = self.conv(input)
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
-        output = torch.cat([x2, x1], 1)
-        output = self.bn(output)
-        output = self.relu(output)
-        return output
-
-
-class UpsamplerBlock(nn.Module):
-
-    def __init__(self, ninput, noutput):
-        super().__init__()
-        self.conv = nn.ConvTranspose2d(ninput, noutput, 3, stride=2, padding=1, output_padding=1, bias=True)
-        self.bn = nn.BatchNorm2d(noutput, eps=0.001)
-
-    def forward(self, input):
-        output = self.conv(input)
-        output = self.bn(output)
-        return F.relu(output)
 
 
 class FCU(nn.Module):
@@ -1317,8 +1308,9 @@ class CBR(nn.Module):
     This class defines the convolution layer with batch normalization and PReLU activation
     """
 
-    def __init__(self, nIn, nOut, kSize, stride=1):
+    def __init__(self, nIn, nOut, kSize, stride=1, groups=1):
         """
+
         :param nIn: number of input channels
         :param nOut: number of output channels
         :param kSize: kernel size
@@ -1326,8 +1318,8 @@ class CBR(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride, padding=(padding, padding), bias=False)
-        self.bn = nn.BatchNorm2d(nOut, eps=0.001)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
+        self.bn = nn.BatchNorm2d(nOut)
         self.act = nn.PReLU(nOut)
 
     def forward(self, input):
@@ -1351,7 +1343,7 @@ class BR(nn.Module):
         :param nOut: output feature maps
         """
         super().__init__()
-        self.bn = nn.BatchNorm2d(nOut, eps=0.001)
+        self.bn = nn.BatchNorm2d(nOut)
         self.act = nn.PReLU(nOut)
 
     def forward(self, input):
@@ -1369,7 +1361,7 @@ class CB(nn.Module):
        This class groups the convolution and batch normalization
     """
 
-    def __init__(self, nIn, nOut, kSize, stride=1):
+    def __init__(self, nIn, nOut, kSize, stride=1, groups=1):
         """
         :param nIn: number of input channels
         :param nOut: number of output channels
@@ -1378,11 +1370,12 @@ class CB(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride, padding=(padding, padding), bias=False)
-        self.bn = nn.BatchNorm2d(nOut, eps=0.001)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
+        self.bn = nn.BatchNorm2d(nOut)
 
     def forward(self, input):
         """
+
         :param input: input feature map
         :return: transformed feature map
         """
@@ -1396,8 +1389,9 @@ class C(nn.Module):
     This class is for a convolutional layer.
     """
 
-    def __init__(self, nIn, nOut, kSize, stride=1):
+    def __init__(self, nIn, nOut, kSize, stride=1, groups=1):
         """
+
         :param nIn: number of input channels
         :param nOut: number of output channels
         :param kSize: kernel size
@@ -1405,7 +1399,7 @@ class C(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride, padding=(padding, padding), bias=False)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
 
     def forward(self, input):
         """
@@ -1418,10 +1412,10 @@ class C(nn.Module):
 
 class CDilated(nn.Module):
     """
-    This class defines the dilated convolution, which can maintain feature map size
+    This class defines the dilated convolution.
     """
 
-    def __init__(self, nIn, nOut, kSize, stride=1, d=1):
+    def __init__(self, nIn, nOut, kSize, stride=1, d=1, groups=1):
         """
         :param nIn: number of input channels
         :param nOut: number of output channels
@@ -1431,7 +1425,7 @@ class CDilated(nn.Module):
         """
         super().__init__()
         padding = int((kSize - 1) / 2) * d
-        self.conv = nn.Conv2d(nIn, nOut, (kSize, kSize), stride=stride, padding=(padding, padding), bias=False, dilation=d)
+        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, dilation=d, groups=groups)
 
     def forward(self, input):
         """
@@ -1874,6 +1868,24 @@ class EESPNet(nn.Module):
         return out_l1, out_l2, out_l3, out_l4
 
 
+class PSPModule(nn.Module):
+
+    def __init__(self, features, out_features=1024, sizes=(1, 2, 4, 8)):
+        super().__init__()
+        self.stages = []
+        self.stages = nn.ModuleList([C(features, features, 3, 1, groups=features) for size in sizes])
+        self.project = CBR(features * (len(sizes) + 1), out_features, 1, 1)
+
+    def forward(self, feats):
+        h, w = feats.size(2), feats.size(3)
+        out = [feats]
+        for stage in self.stages:
+            feats = F.avg_pool2d(feats, kernel_size=3, stride=2, padding=1)
+            upsampled = F.interpolate(input=stage(feats), size=(h, w), mode='bilinear', align_corners=True)
+            out.append(upsampled)
+        return self.project(torch.cat(out, dim=1))
+
+
 class EESPNet_Seg(nn.Module):
 
     def __init__(self, classes=19, s=2, pretrained=None, gpus=1):
@@ -1923,157 +1935,6 @@ class EESPNet_Seg(nn.Module):
         return output
 
 
-class PSPModule(nn.Module):
-
-    def __init__(self, features, out_features=1024, sizes=(1, 2, 4, 8)):
-        super().__init__()
-        self.stages = []
-        self.stages = nn.ModuleList([C(features, features, 3, 1, groups=features) for size in sizes])
-        self.project = CBR(features * (len(sizes) + 1), out_features, 1, 1)
-
-    def forward(self, feats):
-        h, w = feats.size(2), feats.size(3)
-        out = [feats]
-        for stage in self.stages:
-            feats = F.avg_pool2d(feats, kernel_size=3, stride=2, padding=1)
-            upsampled = F.interpolate(input=stage(feats), size=(h, w), mode='bilinear', align_corners=True)
-            out.append(upsampled)
-        return self.project(torch.cat(out, dim=1))
-
-
-class CBR(nn.Module):
-    """
-    This class defines the convolution layer with batch normalization and PReLU activation
-    """
-
-    def __init__(self, nIn, nOut, kSize, stride=1, groups=1):
-        """
-
-        :param nIn: number of input channels
-        :param nOut: number of output channels
-        :param kSize: kernel size
-        :param stride: stride rate for down-sampling. Default is 1
-        """
-        super().__init__()
-        padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
-        self.bn = nn.BatchNorm2d(nOut)
-        self.act = nn.PReLU(nOut)
-
-    def forward(self, input):
-        """
-        :param input: input feature map
-        :return: transformed feature map
-        """
-        output = self.conv(input)
-        output = self.bn(output)
-        output = self.act(output)
-        return output
-
-
-class BR(nn.Module):
-    """
-        This class groups the batch normalization and PReLU activation
-    """
-
-    def __init__(self, nOut):
-        """
-        :param nOut: output feature maps
-        """
-        super().__init__()
-        self.bn = nn.BatchNorm2d(nOut)
-        self.act = nn.PReLU(nOut)
-
-    def forward(self, input):
-        """
-        :param input: input feature map
-        :return: normalized and thresholded feature map
-        """
-        output = self.bn(input)
-        output = self.act(output)
-        return output
-
-
-class CB(nn.Module):
-    """
-       This class groups the convolution and batch normalization
-    """
-
-    def __init__(self, nIn, nOut, kSize, stride=1, groups=1):
-        """
-        :param nIn: number of input channels
-        :param nOut: number of output channels
-        :param kSize: kernel size
-        :param stride: optinal stide for down-sampling
-        """
-        super().__init__()
-        padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
-        self.bn = nn.BatchNorm2d(nOut)
-
-    def forward(self, input):
-        """
-
-        :param input: input feature map
-        :return: transformed feature map
-        """
-        output = self.conv(input)
-        output = self.bn(output)
-        return output
-
-
-class C(nn.Module):
-    """
-    This class is for a convolutional layer.
-    """
-
-    def __init__(self, nIn, nOut, kSize, stride=1, groups=1):
-        """
-
-        :param nIn: number of input channels
-        :param nOut: number of output channels
-        :param kSize: kernel size
-        :param stride: optional stride rate for down-sampling
-        """
-        super().__init__()
-        padding = int((kSize - 1) / 2)
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, groups=groups)
-
-    def forward(self, input):
-        """
-        :param input: input feature map
-        :return: transformed feature map
-        """
-        output = self.conv(input)
-        return output
-
-
-class CDilated(nn.Module):
-    """
-    This class defines the dilated convolution.
-    """
-
-    def __init__(self, nIn, nOut, kSize, stride=1, d=1, groups=1):
-        """
-        :param nIn: number of input channels
-        :param nOut: number of output channels
-        :param kSize: kernel size
-        :param stride: optional stride rate for down-sampling
-        :param d: optional dilation rate
-        """
-        super().__init__()
-        padding = int((kSize - 1) / 2) * d
-        self.conv = nn.Conv2d(nIn, nOut, kSize, stride=stride, padding=padding, bias=False, dilation=d, groups=groups)
-
-    def forward(self, input):
-        """
-        :param input: input feature map
-        :return: transformed feature map
-        """
-        output = self.conv(input)
-        return output
-
-
 class CDilatedB(nn.Module):
     """
     This class defines the dilated convolution with batch normalization.
@@ -2100,23 +1961,29 @@ class CDilatedB(nn.Module):
         return self.bn(self.conv(input))
 
 
+class Hsigmoid(nn.Module):
+
+    def __init__(self, inplace=True):
+        super(Hsigmoid, self).__init__()
+        self.inplace = inplace
+
+    def forward(self, x):
+        return F.relu6(x + 3.0, inplace=self.inplace) / 6.0
+
+
 class SEModule(nn.Module):
 
-    def __init__(self, channels, reduction=16):
+    def __init__(self, channel, act, reduction=4):
         super(SEModule, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1, padding=0)
-        self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1, padding=0)
-        self.sigmoid = nn.Sigmoid()
+        self.conv = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, 1, 0, bias=True), act)
+        self.fc = nn.Sequential(nn.Conv2d(channel // reduction, channel, 1, 1, 0, bias=True), Hsigmoid())
 
-    def forward(self, input):
-        x = self.avg_pool(input)
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        x = self.sigmoid(x)
-        return input * x
+    def forward(self, x):
+        y = self.avg_pool(x)
+        y = self.conv(y)
+        y = self.fc(y)
+        return torch.mul(x, y)
 
 
 def conv1x1(in_planes, out_planes, stride=1, bias=False):
@@ -2277,67 +2144,6 @@ class FPENet(nn.Module):
         return output
 
 
-class InitialBlock(nn.Module):
-
-    def __init__(self, ninput, noutput, non_linear='ReLU'):
-        super().__init__()
-        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=False)
-        self.pool = nn.MaxPool2d(2, stride=2)
-        self.bn = nn.BatchNorm2d(noutput - ninput, eps=0.001)
-        self.relu = NON_LINEARITY[non_linear]
-
-    def forward(self, input):
-        output = self.relu(self.bn(self.conv(input)))
-        output = torch.cat([output, self.pool(input)], 1)
-        return output
-
-
-class DownsamplingBottleneck(nn.Module):
-
-    def __init__(self, in_channels, out_channels, internal_ratio=4, kernel_size=3, padding=0, dropout_prob=0.0, bias=False, non_linear='ReLU'):
-        super().__init__()
-        internal_channels = in_channels // internal_ratio
-        self.main_max1 = nn.Sequential(nn.MaxPool2d(kernel_size=2, stride=2), nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, bias=bias))
-        self.ext_conv1 = nn.Sequential(nn.Conv2d(in_channels, internal_channels, kernel_size=2, stride=2, bias=bias), nn.BatchNorm2d(internal_channels), NON_LINEARITY[non_linear])
-        self.ext_conv2 = nn.Sequential(nn.Conv2d(internal_channels, internal_channels, kernel_size=kernel_size, stride=1, padding=padding, bias=bias), nn.BatchNorm2d(internal_channels), NON_LINEARITY[non_linear])
-        self.ext_conv3 = nn.Sequential(nn.Conv2d(internal_channels, out_channels, kernel_size=1, stride=1, bias=bias), nn.BatchNorm2d(out_channels), NON_LINEARITY[non_linear])
-        self.ext_regul = nn.Dropout2d(p=dropout_prob)
-        self.out_prelu = NON_LINEARITY[non_linear]
-
-    def forward(self, x):
-        main = self.main_max1(x)
-        ext = self.ext_conv1(x)
-        ext = self.ext_conv2(ext)
-        ext = self.ext_conv3(ext)
-        ext = self.ext_regul(ext)
-        out = self.out_prelu(main + ext)
-        return out
-
-
-class UpsamplingBottleneck(nn.Module):
-
-    def __init__(self, in_channels, out_channels, internal_ratio=4, kernel_size=2, padding=0, dropout_prob=0.0, bias=False, non_linear='ReLU'):
-        super().__init__()
-        internal_channels = in_channels // internal_ratio
-        self.main_conv1 = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=bias), nn.BatchNorm2d(out_channels))
-        self.ext_conv1 = nn.Sequential(nn.Conv2d(in_channels, internal_channels, kernel_size=1, bias=bias), nn.BatchNorm2d(internal_channels), NON_LINEARITY[non_linear])
-        self.ext_conv2 = nn.Sequential(nn.ConvTranspose2d(internal_channels, internal_channels, kernel_size=kernel_size, stride=2, padding=padding, output_padding=0, bias=bias), nn.BatchNorm2d(internal_channels), NON_LINEARITY[non_linear])
-        self.ext_conv3 = nn.Sequential(nn.Conv2d(internal_channels, out_channels, kernel_size=1, bias=bias), nn.BatchNorm2d(out_channels), NON_LINEARITY[non_linear])
-        self.ext_regul = nn.Dropout2d(p=dropout_prob)
-        self.out_prelu = NON_LINEARITY[non_linear]
-
-    def forward(self, x, x_pre):
-        main = x + x_pre
-        main = self.main_conv1(main)
-        main = F.interpolate(main, scale_factor=2, mode='bilinear', align_corners=True)
-        ext = self.ext_conv1(x)
-        ext = self.ext_conv2(ext)
-        ext = self.ext_conv3(ext)
-        ext = self.ext_regul(ext)
-        out = self.out_prelu(main + ext)
-        return out
-
-
 class DilatedBlock(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, dilation=1, dropout_prob=0.0, bias=False, non_linear='ReLU'):
@@ -2438,54 +2244,6 @@ class FSSNet(nn.Module):
         return x
 
 
-class _ConvBNReLU(nn.Module):
-    """Conv-BN-ReLU"""
-
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=0, **kwargs):
-        super(_ConvBNReLU, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True))
-
-    def forward(self, x):
-        return self.conv(x)
-
-
-class _DSConv(nn.Module):
-    """Depthwise Separable Convolutions"""
-
-    def __init__(self, dw_channels, out_channels, stride=1, **kwargs):
-        super(_DSConv, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(dw_channels, dw_channels, 3, stride, 1, groups=dw_channels, bias=False), nn.BatchNorm2d(dw_channels), nn.ReLU(True), nn.Conv2d(dw_channels, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True))
-
-    def forward(self, x):
-        return self.conv(x)
-
-
-class _DWConv(nn.Module):
-    """Depthwise Convolutions"""
-
-    def __init__(self, dw_channels, out_channels, stride=1, **kwargs):
-        super(_DWConv, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(dw_channels, out_channels, 3, stride, 1, groups=dw_channels, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU(True))
-
-    def forward(self, x):
-        return self.conv(x)
-
-
-class LinearBottleneck(nn.Module):
-    """LinearBottleneck used in MobileNetV2"""
-
-    def __init__(self, in_channels, out_channels, t=6, stride=2, **kwargs):
-        super(LinearBottleneck, self).__init__()
-        self.use_shortcut = stride == 1 and in_channels == out_channels
-        self.block = nn.Sequential(_ConvBNReLU(in_channels, in_channels * t, 1), _DWConv(in_channels * t, in_channels * t, stride), nn.Conv2d(in_channels * t, out_channels, 1, bias=False), nn.BatchNorm2d(out_channels))
-
-    def forward(self, x):
-        out = self.block(x)
-        if self.use_shortcut:
-            out = x + out
-        return out
-
-
 class PyramidPooling(nn.Module):
     """Pyramid pooling module"""
 
@@ -2557,43 +2315,6 @@ class GlobalFeatureExtractor(nn.Module):
         return x
 
 
-class FeatureFusionModule(nn.Module):
-    """Feature fusion module"""
-
-    def __init__(self, highter_in_channels, lower_in_channels, out_channels, scale_factor=4, **kwargs):
-        super(FeatureFusionModule, self).__init__()
-        self.scale_factor = scale_factor
-        self.dwconv = _DWConv(lower_in_channels, out_channels, 1)
-        self.conv_lower_res = nn.Sequential(nn.Conv2d(out_channels, out_channels, 1), nn.BatchNorm2d(out_channels))
-        self.conv_higher_res = nn.Sequential(nn.Conv2d(highter_in_channels, out_channels, 1), nn.BatchNorm2d(out_channels))
-        self.relu = nn.ReLU(True)
-
-    def forward(self, higher_res_feature, lower_res_feature):
-        _, _, h, w = higher_res_feature.size()
-        lower_res_feature = F.interpolate(lower_res_feature, size=(h, w), mode='bilinear', align_corners=True)
-        lower_res_feature = self.dwconv(lower_res_feature)
-        lower_res_feature = self.conv_lower_res(lower_res_feature)
-        higher_res_feature = self.conv_higher_res(higher_res_feature)
-        out = higher_res_feature + lower_res_feature
-        return self.relu(out)
-
-
-class Classifer(nn.Module):
-    """Classifer"""
-
-    def __init__(self, dw_channels, num_classes, stride=1, **kwargs):
-        super(Classifer, self).__init__()
-        self.dsconv1 = _DSConv(dw_channels, dw_channels, stride)
-        self.dsconv2 = _DSConv(dw_channels, dw_channels, stride)
-        self.conv = nn.Sequential(nn.Dropout(0.1), nn.Conv2d(dw_channels, num_classes, 1))
-
-    def forward(self, x):
-        x = self.dsconv1(x)
-        x = self.dsconv2(x)
-        x = self.conv(x)
-        return x
-
-
 class FastSCNN(nn.Module):
 
     def __init__(self, classes, aux=False, **kwargs):
@@ -2643,27 +2364,6 @@ class Conv2dBnRelu(nn.Module):
 
     def forward(self, x):
         return self.conv(x)
-
-
-class DownsamplerBlock(nn.Module):
-
-    def __init__(self, ninput, noutput):
-        super().__init__()
-        self.conv = nn.Conv2d(ninput, noutput - ninput, (3, 3), stride=2, padding=1, bias=True)
-        self.pool = nn.MaxPool2d(2, stride=2)
-        self.bn = nn.BatchNorm2d(noutput, eps=0.001)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, input):
-        x1 = self.pool(input)
-        x2 = self.conv(input)
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2, diffY // 2, diffY - diffY // 2])
-        output = torch.cat([x2, x1], 1)
-        output = self.bn(output)
-        output = self.relu(output)
-        return output
 
 
 def Channel_shuffle(x, groups):
@@ -2800,68 +2500,6 @@ class LEDNet(nn.Module):
         output = self.apn(output)
         out = F.interpolate(output, input.size()[2:], mode='bilinear', align_corners=True)
         return out
-
-
-class BasicBlock(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, groups=1, bias=False):
-        super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size, stride, padding, groups=groups, bias=bias)
-        self.bn1 = nn.BatchNorm2d(out_planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size, 1, padding, groups=groups, bias=bias)
-        self.bn2 = nn.BatchNorm2d(out_planes)
-        self.downsample = None
-        if stride > 1:
-            self.downsample = nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(out_planes))
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = self.relu(out + residual)
-        return out
-
-
-class Encoder(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, groups=1, bias=False):
-        super(Encoder, self).__init__()
-        self.block1 = BasicBlock(in_planes, out_planes, kernel_size, stride, padding, groups, bias)
-        self.block2 = BasicBlock(out_planes, out_planes, kernel_size, 1, padding, groups, bias)
-
-    def forward(self, x):
-        x = self.block1(x)
-        x = self.block2(x)
-        return x
-
-
-def center_crop(layer, max_height, max_width):
-    _, _, h, w = layer.size()
-    diffy = (h - max_height) // 2
-    diffx = (w - max_width) // 2
-    return layer[:, :, diffy:diffy + max_height, diffx:diffx + max_width]
-
-
-class Decoder(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=False):
-        super(Decoder, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv2d(in_planes, in_planes // 4, 1, 1, 0, bias=bias), nn.BatchNorm2d(in_planes // 4), nn.ReLU(inplace=True))
-        self.tp_conv = nn.Sequential(nn.ConvTranspose2d(in_planes // 4, in_planes // 4, kernel_size, stride, padding, output_padding, bias=bias), nn.BatchNorm2d(in_planes // 4), nn.ReLU(inplace=True))
-        self.conv2 = nn.Sequential(nn.Conv2d(in_planes // 4, out_planes, 1, 1, 0, bias=bias), nn.BatchNorm2d(out_planes), nn.ReLU(inplace=True))
-
-    def forward(self, x_high_level, x_low_level):
-        x = self.conv1(x_high_level)
-        x = self.tp_conv(x)
-        x = center_crop(x, x_low_level.size()[2], x_low_level.size()[3])
-        x = self.conv2(x)
-        return x
 
 
 class LinkNetImprove(nn.Module):
@@ -3291,70 +2929,6 @@ class UNet(nn.Module):
         return x
 
 
-class Mish(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        return x * torch.tanh(F.softplus(x))
-
-
-class BetaMish(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        beta = 1.5
-        return x * torch.tanh(torch.log(torch.pow(1 + torch.exp(x), beta)))
-
-
-class Swish(nn.Module):
-
-    def __init__(self):
-        super(Swish, self).__init__()
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        return x * self.sigmoid(x)
-
-
-class Hswish(nn.Module):
-
-    def __init__(self, inplace=True):
-        super(Hswish, self).__init__()
-        self.inplace = inplace
-
-    def forward(self, x):
-        return x * F.relu6(x + 3.0, inplace=self.inplace) / 6.0
-
-
-class Hsigmoid(nn.Module):
-
-    def __init__(self, inplace=True):
-        super(Hsigmoid, self).__init__()
-        self.inplace = inplace
-
-    def forward(self, x):
-        return F.relu6(x + 3.0, inplace=self.inplace) / 6.0
-
-
-class SEModule(nn.Module):
-
-    def __init__(self, channel, act, reduction=4):
-        super(SEModule, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Sequential(nn.Conv2d(channel, channel // reduction, 1, 1, 0, bias=True), act)
-        self.fc = nn.Sequential(nn.Conv2d(channel // reduction, channel, 1, 1, 0, bias=True), Hsigmoid())
-
-    def forward(self, x):
-        y = self.avg_pool(x)
-        y = self.conv(y)
-        y = self.fc(y)
-        return torch.mul(x, y)
-
-
 class CrossEntropyLoss2d(_WeightedLoss):
     """
     Standard pytorch weighted nn.CrossEntropyLoss
@@ -3779,6 +3353,10 @@ TESTCASES = [
      lambda: ([], {'dw_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (DilatedBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (DilatedConv,
      lambda: ([], {'nIn': 4, 'nOut': 4, 'kSize': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3839,6 +3417,14 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
+    (FSSNet,
+     lambda: ([], {'classes': 4}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (Factorized_Block,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (FastSCNN,
      lambda: ([], {'classes': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -3955,6 +3541,10 @@ TESTCASES = [
      lambda: ([], {'ninput': 4, 'noutput': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (UpsamplingBottleneck,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (_ConvBNReLU,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4221,4 +3811,16 @@ class Test_xiaoyufenfei_Efficient_Segmentation_Networks(_paritybench_base):
 
     def test_075(self):
         self._check(*TESTCASES[75])
+
+    def test_076(self):
+        self._check(*TESTCASES[76])
+
+    def test_077(self):
+        self._check(*TESTCASES[77])
+
+    def test_078(self):
+        self._check(*TESTCASES[78])
+
+    def test_079(self):
+        self._check(*TESTCASES[79])
 

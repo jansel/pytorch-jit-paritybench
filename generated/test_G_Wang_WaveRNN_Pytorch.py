@@ -16,26 +16,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import math
 
 
 import numpy as np
 
 
 import torch
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
+
+
+import math
 
 
 from torch import nn
@@ -51,12 +58,6 @@ from torch.distributions import Normal
 
 
 import torch.nn.functional as F
-
-
-from torch.utils.data import DataLoader
-
-
-from torch.utils.data import Dataset
 
 
 from torch import optim
@@ -161,10 +162,10 @@ def inv_mulaw_quantize(x_mu, quantization_channels=256, cuda=False):
         x = x_mu / mu * 2 - 1.0
         x = np.sign(x) * (np.exp(np.abs(x) * np.log1p(mu)) - 1.0) / mu
     elif isinstance(x_mu, (torch.Tensor, torch.LongTensor)):
-        if isinstance(x_mu, (torch.LongTensor, torch.cuda.LongTensor)):
+        if isinstance(x_mu, (torch.LongTensor, torch.LongTensor)):
             x_mu = x_mu.float()
         if cuda:
-            mu = torch.FloatTensor([mu]).cuda()
+            mu = torch.FloatTensor([mu])
         else:
             mu = torch.FloatTensor([mu])
         x = x_mu / mu * 2 - 1.0
@@ -175,7 +176,7 @@ def inv_mulaw_quantize(x_mu, quantization_channels=256, cuda=False):
 def num_params(model):
     parameters = filter(lambda p: p.requires_grad, model.parameters())
     parameters = sum([np.prod(p.size()) for p in parameters]) / 1000000
-    print('Trainable Parameters: %.3f million' % parameters)
+    None
 
 
 def sample_from_beta_dist(y_hat):
@@ -195,7 +196,7 @@ def sample_from_beta_dist(y_hat):
 def to_one_hot(tensor, n, fill_with=1.0):
     one_hot = torch.FloatTensor(tensor.size() + (n,)).zero_()
     if tensor.is_cuda:
-        one_hot = one_hot.cuda()
+        one_hot = one_hot
     one_hot.scatter_(len(tensor.size()), tensor.unsqueeze(-1), fill_with)
     return one_hot
 

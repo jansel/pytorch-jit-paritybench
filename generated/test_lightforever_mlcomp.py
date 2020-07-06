@@ -15,7 +15,6 @@ valid = _module
 model = _module
 executor = _module
 mlcomp = _module
-__main__ = _module
 __version__ = _module
 contrib = _module
 catalyst = _module
@@ -25,6 +24,7 @@ optim = _module
 cosineanneal = _module
 register = _module
 complex = _module
+infer = _module
 criterion = _module
 ce = _module
 ring = _module
@@ -87,7 +87,6 @@ unet = _module
 decoder = _module
 model = _module
 frame = _module
-torch = _module
 layers = _module
 tensors = _module
 transform = _module
@@ -153,6 +152,7 @@ schedule = _module
 worker = _module
 bash = _module
 catalyst_ = _module
+catalyst_ = _module
 click = _module
 kaggle = _module
 model = _module
@@ -168,15 +168,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -185,6 +186,24 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+from typing import Tuple
+
+
+import torch
+
+
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
+
+from typing import List
 
 
 from torch.nn import CrossEntropyLoss
@@ -196,13 +215,31 @@ from torch.nn.functional import nll_loss
 from torch.nn.functional import log_softmax
 
 
-import torch
-
-
 from torch.nn.parameter import Parameter
 
 
 from torch.nn.modules.loss import CrossEntropyLoss
+
+
+from numbers import Number
+
+
+from collections import defaultdict
+
+
+from typing import Callable
+
+
+from typing import Dict
+
+
+import random
+
+
+import warnings
+
+
+from torchvision.datasets.video_utils import VideoClips
 
 
 from torch import nn
@@ -214,22 +251,25 @@ import logging
 from collections import OrderedDict
 
 
-from typing import Tuple
-
-
-import numpy as np
-
-
-from torch.nn.functional import cross_entropy
+from typing import Iterator
 
 
 from torch.utils.data import Sampler
+
+
+from torch.utils.data import DistributedSampler
+
+
+from torch.nn.functional import cross_entropy
 
 
 import math
 
 
 import torch.utils.model_zoo as model_zoo
+
+
+import functools
 
 
 import re
@@ -244,7 +284,42 @@ from torchvision.models.vgg import VGG
 from torchvision.models.vgg import make_layers
 
 
+import collections
+
+
+import copy
+
+
+from torch.jit import load
+
+
+from torch.utils.data import DataLoader
+
+
+import time
+
+
 from torch.jit import ScriptModule
+
+
+class Net(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, 20, 5, 1)
+        self.conv2 = nn.Conv2d(20, 50, 5, 1)
+        self.fc1 = nn.Linear(4 * 4 * 50, 500)
+        self.fc2 = nn.Linear(500, 10)
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = F.max_pool2d(x, 2, 2)
+        x = F.relu(self.conv2(x))
+        x = F.max_pool2d(x, 2, 2)
+        x = x.view(-1, 4 * 4 * 50)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return F.log_softmax(x, dim=1)
 
 
 class LabelSmoothingCrossEntropy(CrossEntropyLoss):
@@ -302,6 +377,16 @@ class RingLoss(nn.Module):
             diff_sq = torch.pow(torch.abs(diff), 2).mean()
             ringloss = diff_sq.mul_(self.loss_weight)
         return softmax + ringloss
+
+
+class LambdaLayer(nn.Module):
+
+    def __init__(self, lambd):
+        super(LambdaLayer, self).__init__()
+        self.lambd = lambd
+
+    def forward(self, x):
+        return self.lambd(x)
 
 
 class EfficientNet(nn.Module):
@@ -419,141 +504,6 @@ class FullyConvolutionalLinear(nn.Module):
         return x
 
 
-def r2plus1_unit(dim_in, dim_out, temporal_stride, spatial_stride, groups, inplace_relu, bn_eps, bn_mmt, dim_mid=None):
-    """
-    Implementation of `R(2+1)D unit <https://arxiv.org/abs/1711.11248>`_.
-    Decompose one 3D conv into one 2D spatial conv and one 1D temporal conv.
-    Choose the middle dimensionality so that the total No. of parameters
-    in 2D spatial conv and 1D temporal conv is unchanged.
-
-    Args:
-        dim_in (int): the channel dimensions of the input.
-        dim_out (int): the channel dimension of the output.
-        temporal_stride (int): the temporal stride of the bottleneck.
-        spatial_stride (int): the spatial_stride of the bottleneck.
-        groups (int): number of groups for the convolution.
-        inplace_relu (bool): calculate the relu on the original input
-            without allocating new memory.
-        bn_eps (float): epsilon for batch norm.
-        bn_mmt (float): momentum for batch norm. Noted that BN momentum in
-            PyTorch = 1 - BN momentum in Caffe2.
-        dim_mid (Optional[int]): If not None, use the provided channel dimension
-            for the output of the 2D spatial conv. If None, compute the output
-            channel dimension of the 2D spatial conv so that the total No. of
-            model parameters remains unchanged.
-    """
-    if dim_mid is None:
-        dim_mid = int(dim_out * dim_in * 3 * 3 * 3 / (dim_in * 3 * 3 + dim_out * 3))
-        logging.info('dim_in: %d, dim_out: %d. Set dim_mid to %d' % (dim_in, dim_out, dim_mid))
-    conv_middle = nn.Conv3d(dim_in, dim_mid, [1, 3, 3], stride=[1, spatial_stride, spatial_stride], padding=[0, 1, 1], groups=groups, bias=False)
-    conv_middle_bn = nn.BatchNorm3d(dim_mid, eps=bn_eps, momentum=bn_mmt)
-    conv_middle_relu = nn.ReLU(inplace=inplace_relu)
-    conv = nn.Conv3d(dim_mid, dim_out, [3, 1, 1], stride=[temporal_stride, 1, 1], padding=[1, 0, 0], groups=groups, bias=False)
-    return nn.Sequential(conv_middle, conv_middle_bn, conv_middle_relu, conv)
-
-
-class ResNeXt3D(torch.nn.Module):
-    """
-    Implementation of:
-        1. Conventional `post-activated 3D ResNe(X)t <https://arxiv.org/
-        abs/1812.03982>`_.
-
-        2. `Pre-activated 3D ResNe(X)t <https://arxiv.org/abs/1811.12814>`_.
-        The model consists of one stem, a number of stages, and one or multiple
-        heads that are attached to different blocks in the stage.
-    """
-
-    def __init__(self, input_planes: int=3, skip_transformation_type: str='postactivated_shortcut', residual_transformation_type: str='basic_transformation', num_blocks: list=(2, 2, 2, 2), stem_name: str='resnext3d_stem', stem_planes: int=64, stem_temporal_kernel: int=3, stem_spatial_kernel: int=7, stem_maxpool: bool=False, stage_planes: int=64, stage_temporal_kernel_basis: list=([3], [3], [3], [3]), temporal_conv_1x1: list=(False, False, False, False), stage_temporal_stride: list=(1, 2, 2, 2), stage_spatial_stride: list=(1, 2, 2, 2), num_groups: int=1, width_per_group: int=64, zero_init_residual_transform: bool=False, in_plane: int=512, num_classes: int=2):
-        """
-        Args:
-            input_planes (int): the channel dimension of the input.
-                Normally 3 is used for rgb input.
-            skip_transformation_type (str): the type of skip transformation.
-                residual_transformation_type (str):
-                the type of residual transformation.
-            num_blocks (list): list of the number of blocks in stages.
-            stem_name (str): name of model stem.
-            stem_planes (int): the output dimension
-                of the convolution in the model stem.
-            stem_temporal_kernel (int): the temporal kernel
-                size of the convolution
-                in the model stem.
-            stem_spatial_kernel (int): the spatial kernel size
-                of the convolution in the model stem.
-            stem_maxpool (bool): If true, perform max pooling.
-            stage_planes (int): the output channel dimension
-                of the 1st residual stage
-            stage_temporal_kernel_basis (list): Basis of temporal kernel
-                sizes for each of the stage.
-            temporal_conv_1x1 (bool): Only useful for BottleneckTransformation.
-                In a pathaway, if True, do temporal convolution
-                in the first 1x1
-                Conv3d. Otherwise, do it in the second 3x3 Conv3d.
-            stage_temporal_stride (int): the temporal stride of the residual
-                transformation.
-            stage_spatial_stride (int): the spatial stride of the the residual
-                transformation.
-            num_groups (int): number of groups for the convolution.
-                num_groups = 1 is for standard ResNet like networks, and
-                num_groups > 1 is for ResNeXt like networks.
-            width_per_group (int): Number of channels per group in 2nd (group)
-                conv in the residual transformation in the first stage
-            zero_init_residual_transform (bool): if true, the weight of last
-                operation, which could be either BatchNorm3D in post-activated
-                transformation or Conv3D in pre-activated transformation,
-                in the residual transformation is initialized to zero
-            pool_size: for fully convolution layer
-            in_plane: for fully convolution layer
-            num_classes: number of classes
-        """
-        super().__init__()
-        num_stages = len(num_blocks)
-        out_planes = [(stage_planes * 2 ** i) for i in range(num_stages)]
-        in_planes = [stem_planes] + out_planes[:-1]
-        inner_planes = [(num_groups * width_per_group * 2 ** i) for i in range(num_stages)]
-        self.stem = model_stems[stem_name](stem_temporal_kernel, stem_spatial_kernel, input_planes, stem_planes, stem_maxpool)
-        stages = []
-        for s in range(num_stages):
-            stage = ResStage(s + 1, [in_planes[s]], [out_planes[s]], [inner_planes[s]], [stage_temporal_kernel_basis[s]], [temporal_conv_1x1[s]], [stage_temporal_stride[s]], [stage_spatial_stride[s]], [num_blocks[s]], [num_groups], skip_transformation_type, residual_transformation_type, disable_pre_activation=s == 0, final_stage=s == num_stages - 1)
-            stages.append(stage)
-        self.stages = nn.Sequential(*stages)
-        self._init_parameter(zero_init_residual_transform)
-        self.final_avgpool = nn.AdaptiveAvgPool1d(in_plane)
-        self.head_fcl = FullyConvolutionalLinear(in_plane, num_classes)
-
-    def _init_parameter(self, zero_init_residual_transform):
-        for m in self.modules():
-            if isinstance(m, nn.Conv3d):
-                if hasattr(m, 'final_transform_op') and m.final_transform_op and zero_init_residual_transform:
-                    nn.init.constant_(m.weight, 0)
-                else:
-                    nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm3d) and m.affine:
-                if hasattr(m, 'final_transform_op') and m.final_transform_op and zero_init_residual_transform:
-                    batchnorm_weight = 0.0
-                else:
-                    batchnorm_weight = 1.0
-                nn.init.constant_(m.weight, batchnorm_weight)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, mean=0.0, std=0.01)
-                nn.init.constant_(m.bias, 0)
-
-    def forward(self, x):
-        """
-        Args:
-            x: Tensor(B, T, W, H, C)
-        """
-        out = self.stem([x])
-        out = self.stages(out)[0]
-        out = out.view((out.shape[0], 1, -1))
-        out = self.final_avgpool(out)
-        out = self.head_fcl(out)
-        return out
-
-
 class BasicTransformation(nn.Module):
     """
     Basic transformation: 3x3x3 group conv, 3x3x3 group conv
@@ -587,6 +537,70 @@ class BasicTransformation(nn.Module):
 
     def forward(self, x):
         return self.transform(x)
+
+
+def r2plus1_unit(dim_in, dim_out, temporal_stride, spatial_stride, groups, inplace_relu, bn_eps, bn_mmt, dim_mid=None):
+    """
+    Implementation of `R(2+1)D unit <https://arxiv.org/abs/1711.11248>`_.
+    Decompose one 3D conv into one 2D spatial conv and one 1D temporal conv.
+    Choose the middle dimensionality so that the total No. of parameters
+    in 2D spatial conv and 1D temporal conv is unchanged.
+
+    Args:
+        dim_in (int): the channel dimensions of the input.
+        dim_out (int): the channel dimension of the output.
+        temporal_stride (int): the temporal stride of the bottleneck.
+        spatial_stride (int): the spatial_stride of the bottleneck.
+        groups (int): number of groups for the convolution.
+        inplace_relu (bool): calculate the relu on the original input
+            without allocating new memory.
+        bn_eps (float): epsilon for batch norm.
+        bn_mmt (float): momentum for batch norm. Noted that BN momentum in
+            PyTorch = 1 - BN momentum in Caffe2.
+        dim_mid (Optional[int]): If not None, use the provided channel dimension
+            for the output of the 2D spatial conv. If None, compute the output
+            channel dimension of the 2D spatial conv so that the total No. of
+            model parameters remains unchanged.
+    """
+    if dim_mid is None:
+        dim_mid = int(dim_out * dim_in * 3 * 3 * 3 / (dim_in * 3 * 3 + dim_out * 3))
+        logging.info('dim_in: %d, dim_out: %d. Set dim_mid to %d' % (dim_in, dim_out, dim_mid))
+    conv_middle = nn.Conv3d(dim_in, dim_mid, [1, 3, 3], stride=[1, spatial_stride, spatial_stride], padding=[0, 1, 1], groups=groups, bias=False)
+    conv_middle_bn = nn.BatchNorm3d(dim_mid, eps=bn_eps, momentum=bn_mmt)
+    conv_middle_relu = nn.ReLU(inplace=inplace_relu)
+    conv = nn.Conv3d(dim_mid, dim_out, [3, 1, 1], stride=[temporal_stride, 1, 1], padding=[1, 0, 0], groups=groups, bias=False)
+    return nn.Sequential(conv_middle, conv_middle_bn, conv_middle_relu, conv)
+
+
+class BasicR2Plus1DTransformation(BasicTransformation):
+    """
+    Basic transformation: 3x3x3 group conv, 3x3x3 group conv
+    """
+
+    def __init__(self, dim_in, dim_out, temporal_stride, spatial_stride, groups, inplace_relu=True, bn_eps=1e-05, bn_mmt=0.1, **kwargs):
+        """
+        Args:
+            dim_in (int): the channel dimensions of the input.
+            dim_out (int): the channel dimension of the output.
+            temporal_stride (int): the temporal stride of the bottleneck.
+            spatial_stride (int): the spatial_stride of the bottleneck.
+            groups (int): number of groups for the convolution.
+            inplace_relu (bool): calculate the relu on the original input
+                without allocating new memory.
+            bn_eps (float): epsilon for batch norm.
+            bn_mmt (float): momentum for batch norm. Noted that BN momentum in
+                PyTorch = 1 - BN momentum in Caffe2.
+        """
+        super(BasicR2Plus1DTransformation, self).__init__(dim_in, dim_out, temporal_stride, spatial_stride, groups, inplace_relu=inplace_relu, bn_eps=bn_eps, bn_mmt=bn_mmt)
+
+    def _construct_model(self, dim_in, dim_out, temporal_stride, spatial_stride, groups, inplace_relu, bn_eps, bn_mmt):
+        branch2a = r2plus1_unit(dim_in, dim_out, temporal_stride, spatial_stride, groups, inplace_relu, bn_eps, bn_mmt)
+        branch2a_bn = nn.BatchNorm3d(dim_out, eps=bn_eps, momentum=bn_mmt)
+        branch2a_relu = nn.ReLU(inplace=inplace_relu)
+        branch2b = r2plus1_unit(dim_out, dim_out, 1, 1, groups, inplace_relu, bn_eps, bn_mmt)
+        branch2b_bn = nn.BatchNorm3d(dim_out, eps=bn_eps, momentum=bn_mmt)
+        branch2b_bn.final_transform_op = True
+        self.transform = nn.Sequential(branch2a, branch2a_bn, branch2a_relu, branch2b, branch2b_bn)
 
 
 class PostactivatedBottleneckTransformation(nn.Module):
@@ -703,6 +717,9 @@ class PreactivatedBottleneckTransformation(nn.Module):
         return x
 
 
+residual_transformations = {'basic_r2plus1d_transformation': BasicR2Plus1DTransformation, 'basic_transformation': BasicTransformation, 'postactivated_bottleneck_transformation': PostactivatedBottleneckTransformation, 'preactivated_bottleneck_transformation': PreactivatedBottleneckTransformation}
+
+
 class PostactivatedShortcutTransformation(nn.Module):
     """
     Skip connection used in ResNet3D model.
@@ -737,40 +754,6 @@ class PreactivatedShortcutTransformation(nn.Module):
             x = self.branch1_relu(self.branch1_bn(x))
         x = self.branch1(x)
         return x
-
-
-class BasicR2Plus1DTransformation(BasicTransformation):
-    """
-    Basic transformation: 3x3x3 group conv, 3x3x3 group conv
-    """
-
-    def __init__(self, dim_in, dim_out, temporal_stride, spatial_stride, groups, inplace_relu=True, bn_eps=1e-05, bn_mmt=0.1, **kwargs):
-        """
-        Args:
-            dim_in (int): the channel dimensions of the input.
-            dim_out (int): the channel dimension of the output.
-            temporal_stride (int): the temporal stride of the bottleneck.
-            spatial_stride (int): the spatial_stride of the bottleneck.
-            groups (int): number of groups for the convolution.
-            inplace_relu (bool): calculate the relu on the original input
-                without allocating new memory.
-            bn_eps (float): epsilon for batch norm.
-            bn_mmt (float): momentum for batch norm. Noted that BN momentum in
-                PyTorch = 1 - BN momentum in Caffe2.
-        """
-        super(BasicR2Plus1DTransformation, self).__init__(dim_in, dim_out, temporal_stride, spatial_stride, groups, inplace_relu=inplace_relu, bn_eps=bn_eps, bn_mmt=bn_mmt)
-
-    def _construct_model(self, dim_in, dim_out, temporal_stride, spatial_stride, groups, inplace_relu, bn_eps, bn_mmt):
-        branch2a = r2plus1_unit(dim_in, dim_out, temporal_stride, spatial_stride, groups, inplace_relu, bn_eps, bn_mmt)
-        branch2a_bn = nn.BatchNorm3d(dim_out, eps=bn_eps, momentum=bn_mmt)
-        branch2a_relu = nn.ReLU(inplace=inplace_relu)
-        branch2b = r2plus1_unit(dim_out, dim_out, 1, 1, groups, inplace_relu, bn_eps, bn_mmt)
-        branch2b_bn = nn.BatchNorm3d(dim_out, eps=bn_eps, momentum=bn_mmt)
-        branch2b_bn.final_transform_op = True
-        self.transform = nn.Sequential(branch2a, branch2a_bn, branch2a_relu, branch2b, branch2b_bn)
-
-
-residual_transformations = {'basic_r2plus1d_transformation': BasicR2Plus1DTransformation, 'basic_transformation': BasicTransformation, 'postactivated_bottleneck_transformation': PostactivatedBottleneckTransformation, 'preactivated_bottleneck_transformation': PreactivatedBottleneckTransformation}
 
 
 skip_transformations = {'postactivated_shortcut': PostactivatedShortcutTransformation, 'preactivated_shortcut': PreactivatedShortcutTransformation}
@@ -848,6 +831,73 @@ class ResStageBase(nn.Module):
         return output
 
 
+class ResStage(ResStageBase):
+    """
+    Stage of 3D ResNet. It expects to have one or more tensors as input for
+        single pathway (C2D, I3D, SlowOnly), and multi-pathway (SlowFast) cases.
+        More details can be found here:
+        "Slowfast networks for video recognition."
+        https://arxiv.org/pdf/1812.03982.pdf
+    """
+
+    def __init__(self, stage_idx, dim_in, dim_out, dim_inner, temporal_kernel_basis, temporal_conv_1x1, temporal_stride, spatial_stride, num_blocks, num_groups, skip_transformation_type, residual_transformation_type, block_callback=None, inplace_relu=True, bn_eps=1e-05, bn_mmt=0.1, disable_pre_activation=False, final_stage=False):
+        """
+        The `__init__` method of any subclass should also contain these arguments.
+        ResStage builds p streams, where p can be greater or equal to one.
+        Args:
+            stage_idx (int): integer index of stage.
+            dim_in (list): list of p the channel dimensions of the input.
+                Different channel dimensions control the input dimension of
+                different pathways.
+            dim_out (list): list of p the channel dimensions of the output.
+                Different channel dimensions control the input dimension of
+                different pathways.
+            dim_inner (list): list of the p inner channel dimensions of the
+                input.
+                Different channel dimensions control the input dimension of
+                different pathways.
+            temporal_kernel_basis (list): Basis of temporal kernel sizes for each of
+                the stage.
+            temporal_conv_1x1 (list): Only useful for BottleneckBlock.
+                In a pathaway, if True, do temporal convolution in the fist 1x1 Conv3d.
+                Otherwise, do it in the second 3x3 Conv3d
+            temporal_stride (list): the temporal stride of the bottleneck.
+            spatial_stride (list): the spatial_stride of the bottleneck.
+            num_blocks (list): list of p numbers of blocks for each of the
+                pathway.
+            num_groups (list): list of number of p groups for the convolution.
+                num_groups=1 is for standard ResNet like networks, and
+                num_groups>1 is for ResNeXt like networks.
+            skip_transformation_type (str): the type of skip transformation
+            residual_transformation_type (str): the type of residual transformation
+            block_callback (function object): a callback function to be called with
+                residual block and its name as input arguments
+            disable_pre_activation (bool): If true, disable the preactivation,
+                which includes BatchNorm3D and ReLU.
+            final_stage (bool): If true, this is the last stage in the model.
+        """
+        super(ResStage, self).__init__(stage_idx, dim_in, dim_out, dim_inner, temporal_kernel_basis, temporal_conv_1x1, temporal_stride, spatial_stride, num_blocks, num_groups)
+        for p in range(self.num_pathways):
+            blocks = []
+            for i in range(self.num_blocks[p]):
+                block_disable_pre_activation = True if disable_pre_activation and i == 0 else False
+                res_block = ResBlock(dim_in[p] if i == 0 else dim_out[p], dim_out[p], dim_inner[p], self.temporal_kernel_sizes[p][i], temporal_conv_1x1[p], temporal_stride[p] if i == 0 else 1, spatial_stride[p] if i == 0 else 1, skip_transformation_type, residual_transformation_type, num_groups=num_groups[p], inplace_relu=inplace_relu, bn_eps=bn_eps, bn_mmt=bn_mmt, disable_pre_activation=block_disable_pre_activation)
+                block_name = self._block_name(p, stage_idx, i)
+                if block_callback:
+                    res_block = block_callback(block_name, res_block)
+                blocks.append((block_name, res_block))
+            if final_stage and residual_transformation_type == 'preactivated_bottleneck_transformation':
+                activate_bn = nn.BatchNorm3d(dim_out[p])
+                activate_relu = nn.ReLU(inplace=True)
+                activate_bn_name = '-'.join([block_name, 'bn'])
+                activate_relu_name = '-'.join([block_name, 'relu'])
+                if block_callback:
+                    activate_relu = block_callback(activate_relu_name, activate_relu)
+                blocks.append((activate_bn_name, activate_bn))
+                blocks.append((activate_relu_name, activate_relu))
+            self.add_module(self._pathway_name(p), nn.Sequential(OrderedDict(blocks)))
+
+
 class ResNeXt3DStemSinglePathway(nn.Module):
     """
     ResNe(X)t 3D basic stem module. Assume a single pathway.
@@ -904,6 +954,49 @@ class ResNeXt3DStemSinglePathway(nn.Module):
         if self.maxpool:
             x = self.pool_layer(x)
         return x
+
+
+class R2Plus1DStemSinglePathway(ResNeXt3DStemSinglePathway):
+    """
+    R(2+1)D basic stem module. Assume a single pathway.
+    Performs spatial convolution, temporal convolution, BN, and Relu following by a
+        spatiotemporal pooling.
+    """
+
+    def __init__(self, dim_in, dim_out, kernel, stride, padding, maxpool=True, inplace_relu=True, bn_eps=1e-05, bn_mmt=0.1):
+        """
+        The `__init__` method of any subclass should also contain these arguments.
+
+        Args:
+            dim_in (int): the channel dimension of the input. Normally 3 is used
+                for rgb input
+            dim_out (int): the output dimension of the convolution in the stem
+                layer.
+            kernel (list): the kernel size of the convolution in the stem layer.
+                temporal kernel size, height kernel size, width kernel size in
+                order.
+            stride (list): the stride size of the convolution in the stem layer.
+                temporal kernel stride, height kernel size, width kernel size in
+                order.
+            padding (int): the padding size of the convolution in the stem
+                layer, temporal padding size, height padding size, width
+                padding size in order.
+            maxpool (bool): If true, perform max pooling.
+            inplace_relu (bool): calculate the relu on the original input
+                without allocating new memory.
+            bn_eps (float): epsilon for batch norm.
+            bn_mmt (float): momentum for batch norm. Noted that BN momentum in
+                PyTorch = 1 - BN momentum in Caffe2.
+        """
+        super(R2Plus1DStemSinglePathway, self).__init__(dim_in, dim_out, kernel, stride, padding, maxpool=maxpool, inplace_relu=inplace_relu, bn_eps=bn_eps, bn_mmt=bn_mmt)
+
+    def _construct_stem(self, dim_in, dim_out):
+        assert self.stride[1] == self.stride[2], 'Only support identical height stride and width stride'
+        self.conv = r2plus1_unit(dim_in, dim_out, self.stride[0], self.stride[1], 1, self.inplace_relu, self.bn_eps, self.bn_mmt, dim_mid=45)
+        self.bn = nn.BatchNorm3d(dim_out, eps=self.bn_eps, momentum=self.bn_mmt)
+        self.relu = nn.ReLU(self.inplace_relu)
+        if self.maxpool:
+            self.pool_layer = nn.MaxPool3d(kernel_size=[1, 3, 3], stride=[1, 2, 2], padding=[0, 1, 1])
 
 
 class ResNeXt3DStemMultiPathway(nn.Module):
@@ -975,6 +1068,55 @@ class ResNeXt3DStemMultiPathway(nn.Module):
         return x
 
 
+class R2Plus1DStemMultiPathway(ResNeXt3DStemMultiPathway):
+    """
+    Video R(2+1)D stem module. Provides stem operations of Conv, BN, ReLU, MaxPool
+    on input data tensor for one or multiple pathways.
+    """
+
+    def __init__(self, dim_in, dim_out, kernel, stride, padding, inplace_relu=True, bn_eps=1e-05, bn_mmt=0.1, maxpool=(True,)):
+        """
+        The `__init__` method of any subclass should also contain these
+        arguments. List size of 1 for single pathway models (C2D, I3D, SlowOnly
+        and etc), list size of 2 for two pathway models (SlowFast).
+
+        Args:
+            dim_in (list): the list of channel dimensions of the inputs.
+            dim_out (list): the output dimension of the convolution in the stem
+                layer.
+            kernel (list): the kernels' size of the convolutions in the stem
+                layers. Temporal kernel size, height kernel size, width kernel
+                size in order.
+            stride (list): the stride sizes of the convolutions in the stem
+                layer. Temporal kernel stride, height kernel size, width kernel
+                size in order.
+            padding (list): the paddings' sizes of the convolutions in the stem
+                layer. Temporal padding size, height padding size, width padding
+                size in order.
+            inplace_relu (bool): calculate the relu on the original input
+                without allocating new memory.
+            bn_eps (float): epsilon for batch norm.
+            bn_mmt (float): momentum for batch norm. Noted that BN momentum in
+                PyTorch = 1 - BN momentum in Caffe2.
+            maxpool (iterable): At training time, when crop size is 224 x 224, do max
+                pooling. When crop size is 112 x 112, skip max pooling.
+                Default value is a (True,)
+        """
+        super(R2Plus1DStemMultiPathway, self).__init__(dim_in, dim_out, kernel, stride, padding, inplace_relu=inplace_relu, bn_eps=bn_eps, bn_mmt=bn_mmt, maxpool=maxpool)
+
+    def _construct_stem(self, dim_in, dim_out):
+        assert type(dim_in) == list
+        assert all(dim > 0 for dim in dim_in)
+        assert type(dim_out) == list
+        assert all(dim > 0 for dim in dim_out)
+        self.blocks = {}
+        for p in range(len(dim_in)):
+            stem = R2Plus1DStemSinglePathway(dim_in[p], dim_out[p], self.kernel[p], self.stride[p], self.padding[p], inplace_relu=self.inplace_relu, bn_eps=self.bn_eps, bn_mmt=self.bn_mmt, maxpool=self.maxpool[p])
+            stem_name = self._stem_name(p)
+            self.add_module(stem_name, stem)
+            self.blocks[stem_name] = stem
+
+
 class ResNeXt3DStem(nn.Module):
 
     def __init__(self, temporal_kernel, spatial_kernel, input_planes, stem_planes, maxpool):
@@ -986,6 +1128,120 @@ class ResNeXt3DStem(nn.Module):
 
     def forward(self, x):
         return self.stem(x)
+
+
+class R2Plus1DStem(ResNeXt3DStem):
+
+    def __init__(self, temporal_kernel, spatial_kernel, input_planes, stem_planes, maxpool):
+        super(R2Plus1DStem, self).__init__(temporal_kernel, spatial_kernel, input_planes, stem_planes, maxpool)
+
+    def _construct_stem(self, temporal_kernel, spatial_kernel, input_planes, stem_planes, maxpool):
+        self.stem = R2Plus1DStemMultiPathway([input_planes], [stem_planes], [[temporal_kernel, spatial_kernel, spatial_kernel]], [[1, 2, 2]], [[temporal_kernel // 2, spatial_kernel // 2, spatial_kernel // 2]], maxpool=[maxpool])
+
+
+model_stems = {'r2plus1d_stem': R2Plus1DStem, 'resnext3d_stem': ResNeXt3DStem}
+
+
+class ResNeXt3D(torch.nn.Module):
+    """
+    Implementation of:
+        1. Conventional `post-activated 3D ResNe(X)t <https://arxiv.org/
+        abs/1812.03982>`_.
+
+        2. `Pre-activated 3D ResNe(X)t <https://arxiv.org/abs/1811.12814>`_.
+        The model consists of one stem, a number of stages, and one or multiple
+        heads that are attached to different blocks in the stage.
+    """
+
+    def __init__(self, input_planes: int=3, skip_transformation_type: str='postactivated_shortcut', residual_transformation_type: str='basic_transformation', num_blocks: list=(2, 2, 2, 2), stem_name: str='resnext3d_stem', stem_planes: int=64, stem_temporal_kernel: int=3, stem_spatial_kernel: int=7, stem_maxpool: bool=False, stage_planes: int=64, stage_temporal_kernel_basis: list=([3], [3], [3], [3]), temporal_conv_1x1: list=(False, False, False, False), stage_temporal_stride: list=(1, 2, 2, 2), stage_spatial_stride: list=(1, 2, 2, 2), num_groups: int=1, width_per_group: int=64, zero_init_residual_transform: bool=False, in_plane: int=512, num_classes: int=2):
+        """
+        Args:
+            input_planes (int): the channel dimension of the input.
+                Normally 3 is used for rgb input.
+            skip_transformation_type (str): the type of skip transformation.
+                residual_transformation_type (str):
+                the type of residual transformation.
+            num_blocks (list): list of the number of blocks in stages.
+            stem_name (str): name of model stem.
+            stem_planes (int): the output dimension
+                of the convolution in the model stem.
+            stem_temporal_kernel (int): the temporal kernel
+                size of the convolution
+                in the model stem.
+            stem_spatial_kernel (int): the spatial kernel size
+                of the convolution in the model stem.
+            stem_maxpool (bool): If true, perform max pooling.
+            stage_planes (int): the output channel dimension
+                of the 1st residual stage
+            stage_temporal_kernel_basis (list): Basis of temporal kernel
+                sizes for each of the stage.
+            temporal_conv_1x1 (bool): Only useful for BottleneckTransformation.
+                In a pathaway, if True, do temporal convolution
+                in the first 1x1
+                Conv3d. Otherwise, do it in the second 3x3 Conv3d.
+            stage_temporal_stride (int): the temporal stride of the residual
+                transformation.
+            stage_spatial_stride (int): the spatial stride of the the residual
+                transformation.
+            num_groups (int): number of groups for the convolution.
+                num_groups = 1 is for standard ResNet like networks, and
+                num_groups > 1 is for ResNeXt like networks.
+            width_per_group (int): Number of channels per group in 2nd (group)
+                conv in the residual transformation in the first stage
+            zero_init_residual_transform (bool): if true, the weight of last
+                operation, which could be either BatchNorm3D in post-activated
+                transformation or Conv3D in pre-activated transformation,
+                in the residual transformation is initialized to zero
+            pool_size: for fully convolution layer
+            in_plane: for fully convolution layer
+            num_classes: number of classes
+        """
+        super().__init__()
+        num_stages = len(num_blocks)
+        out_planes = [(stage_planes * 2 ** i) for i in range(num_stages)]
+        in_planes = [stem_planes] + out_planes[:-1]
+        inner_planes = [(num_groups * width_per_group * 2 ** i) for i in range(num_stages)]
+        self.stem = model_stems[stem_name](stem_temporal_kernel, stem_spatial_kernel, input_planes, stem_planes, stem_maxpool)
+        stages = []
+        for s in range(num_stages):
+            stage = ResStage(s + 1, [in_planes[s]], [out_planes[s]], [inner_planes[s]], [stage_temporal_kernel_basis[s]], [temporal_conv_1x1[s]], [stage_temporal_stride[s]], [stage_spatial_stride[s]], [num_blocks[s]], [num_groups], skip_transformation_type, residual_transformation_type, disable_pre_activation=s == 0, final_stage=s == num_stages - 1)
+            stages.append(stage)
+        self.stages = nn.Sequential(*stages)
+        self._init_parameter(zero_init_residual_transform)
+        self.final_avgpool = nn.AdaptiveAvgPool1d(in_plane)
+        self.head_fcl = FullyConvolutionalLinear(in_plane, num_classes)
+
+    def _init_parameter(self, zero_init_residual_transform):
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                if hasattr(m, 'final_transform_op') and m.final_transform_op and zero_init_residual_transform:
+                    nn.init.constant_(m.weight, 0)
+                else:
+                    nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm3d) and m.affine:
+                if hasattr(m, 'final_transform_op') and m.final_transform_op and zero_init_residual_transform:
+                    batchnorm_weight = 0.0
+                else:
+                    batchnorm_weight = 1.0
+                nn.init.constant_(m.weight, batchnorm_weight)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, mean=0.0, std=0.01)
+                nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        """
+        Args:
+            x: Tensor(B, T, W, H, C)
+        """
+        out = self.stem([x])
+        out = self.stages(out)[0]
+        out = out.view((out.shape[0], 1, -1))
+        out = self.final_avgpool(out)
+        out = self.head_fcl(out)
+        return out
 
 
 class Model(nn.Module):
@@ -1134,17 +1390,18 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, dilation=(1, 1), residual=True, BatchNorm=None):
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, BatchNorm=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = BatchNorm(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation[1], bias=False, dilation=dilation[1])
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, dilation=dilation, padding=dilation, bias=False)
         self.bn2 = BatchNorm(planes)
         self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = BatchNorm(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
+        self.dilation = dilation
 
     def forward(self, x):
         residual = x
@@ -1384,39 +1641,6 @@ class MobileNetV2(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, BatchNorm=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = BatchNorm(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, dilation=dilation, padding=dilation, bias=False)
-        self.bn2 = BatchNorm(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = BatchNorm(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-        self.dilation = dilation
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
 
 
 class ResNet(nn.Module):
@@ -1841,6 +2065,39 @@ class SegmentationBlock(nn.Module):
         return self.block(x)
 
 
+class FPNDecoder(Model):
+
+    def __init__(self, encoder_channels, pyramid_channels=256, segmentation_channels=128, final_channels=1, dropout=0.2):
+        super().__init__()
+        self.conv1 = nn.Conv2d(encoder_channels[0], pyramid_channels, kernel_size=(1, 1))
+        self.p4 = FPNBlock(pyramid_channels, encoder_channels[1])
+        self.p3 = FPNBlock(pyramid_channels, encoder_channels[2])
+        self.p2 = FPNBlock(pyramid_channels, encoder_channels[3])
+        self.s5 = SegmentationBlock(pyramid_channels, segmentation_channels, n_upsamples=3)
+        self.s4 = SegmentationBlock(pyramid_channels, segmentation_channels, n_upsamples=2)
+        self.s3 = SegmentationBlock(pyramid_channels, segmentation_channels, n_upsamples=1)
+        self.s2 = SegmentationBlock(pyramid_channels, segmentation_channels, n_upsamples=0)
+        self.dropout = nn.Dropout2d(p=dropout, inplace=True)
+        self.final_conv = nn.Conv2d(segmentation_channels, final_channels, kernel_size=1, padding=0)
+        self.initialize()
+
+    def forward(self, x):
+        c5, c4, c3, c2, _ = x
+        p5 = self.conv1(c5)
+        p4 = self.p4([p5, c4])
+        p3 = self.p3([p4, c3])
+        p2 = self.p2([p3, c2])
+        s5 = self.s5(p5)
+        s4 = self.s4(p4)
+        s3 = self.s3(p3)
+        s2 = self.s2(p2)
+        x = s5 + s4 + s3 + s2
+        x = self.dropout(x)
+        x = self.final_conv(x)
+        x = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=True)
+        return x
+
+
 class TransposeX2(nn.Module):
 
     def __init__(self, in_channels, out_channels, use_batchnorm=True, **batchnorm_params):
@@ -1858,15 +2115,49 @@ class TransposeX2(nn.Module):
 
 class DecoderBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, use_batchnorm=True):
+    def __init__(self, in_channels, out_channels, use_batchnorm=True, attention_type=None):
         super().__init__()
-        self.block = nn.Sequential(Conv2dReLU(in_channels, in_channels // 4, kernel_size=1, use_batchnorm=use_batchnorm), TransposeX2(in_channels // 4, in_channels // 4, use_batchnorm=use_batchnorm), Conv2dReLU(in_channels // 4, out_channels, kernel_size=1, use_batchnorm=use_batchnorm))
+        if attention_type is None:
+            self.attention1 = nn.Identity()
+            self.attention2 = nn.Identity()
+        elif attention_type == 'scse':
+            self.attention1 = SCSEModule(in_channels)
+            self.attention2 = SCSEModule(out_channels)
+        self.block = nn.Sequential(Conv2dReLU(in_channels, out_channels, kernel_size=3, padding=1, use_batchnorm=use_batchnorm), Conv2dReLU(out_channels, out_channels, kernel_size=3, padding=1, use_batchnorm=use_batchnorm))
 
     def forward(self, x):
         x, skip = x
-        x = self.block(x)
+        x = F.interpolate(x, scale_factor=2, mode='nearest')
         if skip is not None:
-            x = x + skip
+            x = torch.cat([x, skip], dim=1)
+            x = self.attention1(x)
+        x = self.block(x)
+        x = self.attention2(x)
+        return x
+
+
+class LinknetDecoder(Model):
+
+    def __init__(self, encoder_channels, prefinal_channels=32, final_channels=1, use_batchnorm=True):
+        super().__init__()
+        in_channels = encoder_channels
+        self.layer1 = DecoderBlock(in_channels[0], in_channels[1], use_batchnorm=use_batchnorm)
+        self.layer2 = DecoderBlock(in_channels[1], in_channels[2], use_batchnorm=use_batchnorm)
+        self.layer3 = DecoderBlock(in_channels[2], in_channels[3], use_batchnorm=use_batchnorm)
+        self.layer4 = DecoderBlock(in_channels[3], in_channels[4], use_batchnorm=use_batchnorm)
+        self.layer5 = DecoderBlock(in_channels[4], prefinal_channels, use_batchnorm=use_batchnorm)
+        self.final_conv = nn.Conv2d(prefinal_channels, final_channels, kernel_size=(1, 1))
+        self.initialize()
+
+    def forward(self, x):
+        encoder_head = x[0]
+        skips = x[1:]
+        x = self.layer1([encoder_head, skips[0]])
+        x = self.layer2([x, skips[1]])
+        x = self.layer3([x, skips[2]])
+        x = self.layer4([x, skips[3]])
+        x = self.layer5([x, None])
+        x = self.final_conv(x)
         return x
 
 
@@ -1914,37 +2205,88 @@ class AUXModule(nn.Module):
         return x
 
 
-class DecoderBlock(nn.Module):
+class PSPDecoder(Model):
 
-    def __init__(self, in_channels, out_channels, use_batchnorm=True, attention_type=None):
+    def __init__(self, encoder_channels, downsample_factor=8, use_batchnorm=True, psp_out_channels=512, final_channels=21, aux_output=False, dropout=0.2):
         super().__init__()
-        if attention_type is None:
-            self.attention1 = nn.Identity()
-            self.attention2 = nn.Identity()
-        elif attention_type == 'scse':
-            self.attention1 = SCSEModule(in_channels)
-            self.attention2 = SCSEModule(out_channels)
-        self.block = nn.Sequential(Conv2dReLU(in_channels, out_channels, kernel_size=3, padding=1, use_batchnorm=use_batchnorm), Conv2dReLU(out_channels, out_channels, kernel_size=3, padding=1, use_batchnorm=use_batchnorm))
+        self.downsample_factor = downsample_factor
+        self.out_channels = self._get(encoder_channels)
+        self.aux_output = aux_output
+        self.dropout_factor = dropout
+        self.psp = PSPModule(self.out_channels, sizes=(1, 2, 3, 6), use_bathcnorm=use_batchnorm)
+        self.conv = Conv2dReLU(self.out_channels * 2, psp_out_channels, kernel_size=1, use_batchnorm=use_batchnorm)
+        if self.dropout_factor:
+            self.dropout = nn.Dropout2d(p=dropout)
+        self.final_conv = nn.Conv2d(psp_out_channels, final_channels, kernel_size=(3, 3), padding=1)
+        if self.aux_output:
+            self.aux = AUXModule(self.out_channels, final_channels)
+        self.initialize()
+
+    def _get(self, xs):
+        if self.downsample_factor == 4:
+            return xs[3]
+        elif self.downsample_factor == 8:
+            return xs[2]
+        elif self.downsample_factor == 16:
+            return xs[1]
+        else:
+            raise ValueError('Downsample factor should bi in [4, 8, 16], got {}'.format(self.downsample_factor))
 
     def forward(self, x):
-        x, skip = x
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
-        if skip is not None:
-            x = torch.cat([x, skip], dim=1)
-            x = self.attention1(x)
-        x = self.block(x)
-        x = self.attention2(x)
+        features = self._get(x)
+        x = self.psp(features)
+        x = self.conv(x)
+        if self.dropout_factor:
+            x = self.dropout(x)
+        x = self.final_conv(x)
+        x = F.interpolate(x, scale_factor=self.downsample_factor, mode='bilinear', align_corners=True)
+        if self.training and self.aux_output:
+            aux = self.aux(features)
+            x = [x, aux]
         return x
 
 
-class LambdaLayer(nn.Module):
-
-    def __init__(self, lambd):
-        super(LambdaLayer, self).__init__()
-        self.lambd = lambd
+class CenterBlock(DecoderBlock):
 
     def forward(self, x):
-        return self.lambd(x)
+        return self.block(x)
+
+
+class UnetDecoder(Model):
+
+    def __init__(self, encoder_channels, decoder_channels=(256, 128, 64, 32, 16), final_channels=1, use_batchnorm=True, center=False, attention_type=None):
+        super().__init__()
+        if center:
+            channels = encoder_channels[0]
+            self.center = CenterBlock(channels, channels, use_batchnorm=use_batchnorm)
+        else:
+            self.center = None
+        in_channels = self.compute_channels(encoder_channels, decoder_channels)
+        out_channels = decoder_channels
+        self.layer1 = DecoderBlock(in_channels[0], out_channels[0], use_batchnorm=use_batchnorm, attention_type=attention_type)
+        self.layer2 = DecoderBlock(in_channels[1], out_channels[1], use_batchnorm=use_batchnorm, attention_type=attention_type)
+        self.layer3 = DecoderBlock(in_channels[2], out_channels[2], use_batchnorm=use_batchnorm, attention_type=attention_type)
+        self.layer4 = DecoderBlock(in_channels[3], out_channels[3], use_batchnorm=use_batchnorm, attention_type=attention_type)
+        self.layer5 = DecoderBlock(in_channels[4], out_channels[4], use_batchnorm=use_batchnorm, attention_type=attention_type)
+        self.final_conv = nn.Conv2d(out_channels[4], final_channels, kernel_size=(1, 1))
+        self.initialize()
+
+    def compute_channels(self, encoder_channels, decoder_channels):
+        channels = [encoder_channels[0] + encoder_channels[1], encoder_channels[2] + decoder_channels[0], encoder_channels[3] + decoder_channels[1], encoder_channels[4] + decoder_channels[2], 0 + decoder_channels[3]]
+        return channels
+
+    def forward(self, x):
+        encoder_head = x[0]
+        skips = x[1:]
+        if self.center:
+            encoder_head = self.center(encoder_head)
+        x = self.layer1([encoder_head, skips[0]])
+        x = self.layer2([x, skips[1]])
+        x = self.layer3([x, skips[2]])
+        x = self.layer4([x, skips[3]])
+        x = self.layer5([x, None])
+        x = self.final_conv(x)
+        return x
 
 
 class _ForwardOverrideModel(nn.Module):
@@ -1984,4 +2326,134 @@ class _TracingModelWrapper(nn.Module):
         method_model = _ForwardOverrideModel(self.model, self.method_name)
         example_inputs = {self.method_name: kwargs if len(kwargs) > 0 else args}
         self.tracing_result = torch.jit.trace(method_model, example_inputs=example_inputs)
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AUXModule,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (BasicR2Plus1DTransformation,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'temporal_stride': 1, 'spatial_stride': 1, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (BasicTransformation,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'temporal_stride': 1, 'spatial_stride': 1, 'groups': 1}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (CenterBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Conv2dReLU,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (FullyConvolutionalLinear,
+     lambda: ([], {'dim_in': 4, 'num_classes': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     True),
+    (InvertedResidual,
+     lambda: ([], {'inp': 4, 'oup': 4, 'stride': 1, 'dilation': 1, 'expand_ratio': 4, 'BatchNorm': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LambdaLayer,
+     lambda: ([], {'lambd': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (PSPModule,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (PostactivatedBottleneckTransformation,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'temporal_stride': 1, 'spatial_stride': 1, 'num_groups': 1, 'dim_inner': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (PostactivatedShortcutTransformation,
+     lambda: ([], {'dim_in': 1, 'dim_out': 4, 'temporal_stride': 1, 'spatial_stride': 1}),
+     lambda: ([torch.rand([4, 1, 64, 64, 64])], {}),
+     True),
+    (PreactivatedBottleneckTransformation,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'temporal_stride': 1, 'spatial_stride': 1, 'num_groups': 1, 'dim_inner': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
+    (PyramidStage,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'pool_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ResNeXt3DStemSinglePathway,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4, 'kernel': 4, 'stride': 1, 'padding': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (SCSEModule,
+     lambda: ([], {'ch': 64}),
+     lambda: ([torch.rand([4, 64, 4, 4])], {}),
+     True),
+    (TransposeX2,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (_ASPPModule,
+     lambda: ([], {'inplanes': 4, 'planes': 4, 'kernel_size': 4, 'padding': 4, 'dilation': 1, 'BatchNorm': _mock_layer}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+]
+
+class Test_lightforever_mlcomp(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
 

@@ -46,15 +46,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -71,6 +72,9 @@ import torchvision
 import random
 
 
+from types import MethodType
+
+
 import torch.utils.data as Data
 
 
@@ -84,6 +88,9 @@ from torch.nn.utils.weight_norm import weight_norm
 
 
 import math
+
+
+import torch.optim as Optim
 
 
 import time
@@ -149,26 +156,83 @@ class BaseAdapter(nn.Module):
         raise NotImplementedError()
 
 
-class MLP(nn.Module):
-    """
-    Simple class for non-linear fully connect network
-    """
+def make_mask(feature):
+    return (torch.sum(torch.abs(feature), dim=-1) == 0).unsqueeze(1).unsqueeze(2)
 
-    def __init__(self, dims, act='ReLU', dropout_r=0.0):
-        super(MLP, self).__init__()
-        layers = []
-        for i in range(len(dims) - 1):
-            in_dim = dims[i]
-            out_dim = dims[i + 1]
-            if dropout_r > 0:
-                layers.append(nn.Dropout(dropout_r))
-            layers.append(weight_norm(nn.Linear(in_dim, out_dim), dim=None))
-            if act != '':
-                layers.append(getattr(nn, act)())
-        self.mlp = nn.Sequential(*layers)
+
+class Adapter(BaseAdapter):
+
+    def __init__(self, __C):
+        super(Adapter, self).__init__(__C)
+        self.__C = __C
+
+    def vqa_init(self, __C):
+        self.frcn_linear = nn.Linear(__C.FEAT_SIZE['vqa']['FRCN_FEAT_SIZE'][1], __C.HIDDEN_SIZE)
+
+    def gqa_init(self, __C):
+        self.bbox_linear = nn.Linear(5, __C.BBOXFEAT_EMB_SIZE)
+        self.frcn_linear = nn.Linear(__C.FEAT_SIZE['gqa']['FRCN_FEAT_SIZE'][1] + __C.BBOXFEAT_EMB_SIZE, __C.HIDDEN_SIZE)
+        self.grid_linear = nn.Linear(__C.FEAT_SIZE['gqa']['GRID_FEAT_SIZE'][1], __C.HIDDEN_SIZE)
+
+    def clevr_init(self, __C):
+        self.grid_linear = nn.Linear(__C.FEAT_SIZE['clevr']['GRID_FEAT_SIZE'][1], __C.HIDDEN_SIZE)
+
+    def vqa_forward(self, feat_dict):
+        frcn_feat = feat_dict['FRCN_FEAT']
+        bbox_feat = feat_dict['BBOX_FEAT']
+        img_feat_mask = make_mask(frcn_feat)
+        img_feat = frcn_feat
+        return img_feat, img_feat_mask
+
+    def gqa_forward(self, feat_dict):
+        frcn_feat = feat_dict['FRCN_FEAT']
+        bbox_feat = feat_dict['BBOX_FEAT']
+        grid_feat = feat_dict['GRID_FEAT']
+        img_feat_mask = torch.cat((make_mask(frcn_feat), make_mask(grid_feat)), dim=-1)
+        bbox_feat = self.bbox_linear(bbox_feat)
+        frcn_feat = torch.cat((frcn_feat, bbox_feat), dim=-1)
+        frcn_feat = self.frcn_linear(frcn_feat)
+        grid_feat = self.grid_linear(grid_feat)
+        img_feat = torch.cat((frcn_feat, grid_feat), dim=1)
+        return img_feat, img_feat_mask
+
+    def clevr_forward(self, feat_dict):
+        grid_feat = feat_dict['GRID_FEAT']
+        img_feat_mask = make_mask(grid_feat)
+        img_feat = self.grid_linear(grid_feat)
+        return img_feat, img_feat_mask
+
+
+class FC(nn.Module):
+
+    def __init__(self, in_size, out_size, dropout_r=0.0, use_relu=True):
+        super(FC, self).__init__()
+        self.dropout_r = dropout_r
+        self.use_relu = use_relu
+        self.linear = nn.Linear(in_size, out_size)
+        if use_relu:
+            self.relu = nn.ReLU(inplace=True)
+        if dropout_r > 0:
+            self.dropout = nn.Dropout(dropout_r)
 
     def forward(self, x):
-        return self.mlp(x)
+        x = self.linear(x)
+        if self.use_relu:
+            x = self.relu(x)
+        if self.dropout_r > 0:
+            x = self.dropout(x)
+        return x
+
+
+class MLP(nn.Module):
+
+    def __init__(self, in_size, mid_size, out_size, dropout_r=0.0, use_relu=True):
+        super(MLP, self).__init__()
+        self.fc = FC(in_size, mid_size, dropout_r=dropout_r, use_relu=use_relu)
+        self.linear = nn.Linear(mid_size, out_size)
+
+    def forward(self, x):
+        return self.linear(self.fc(x))
 
 
 class BC(nn.Module):
@@ -246,51 +310,122 @@ class BAN(nn.Module):
         return q
 
 
-def make_mask(feature):
-    return (torch.sum(torch.abs(feature), dim=-1) == 0).unsqueeze(1).unsqueeze(2)
+class MFB(nn.Module):
+
+    def __init__(self, __C, img_feat_size, ques_feat_size, is_first):
+        super(MFB, self).__init__()
+        self.__C = __C
+        self.is_first = is_first
+        self.proj_i = nn.Linear(img_feat_size, __C.MFB_K * __C.MFB_O)
+        self.proj_q = nn.Linear(ques_feat_size, __C.MFB_K * __C.MFB_O)
+        self.dropout = nn.Dropout(__C.DROPOUT_R)
+        self.pool = nn.AvgPool1d(__C.MFB_K, stride=__C.MFB_K)
+
+    def forward(self, img_feat, ques_feat, exp_in=1):
+        """
+            img_feat.size() -> (N, C, img_feat_size)    C = 1 or 100
+            ques_feat.size() -> (N, 1, ques_feat_size)
+            z.size() -> (N, C, MFB_O)
+            exp_out.size() -> (N, C, K*O)
+        """
+        batch_size = img_feat.shape[0]
+        img_feat = self.proj_i(img_feat)
+        ques_feat = self.proj_q(ques_feat)
+        exp_out = img_feat * ques_feat
+        exp_out = self.dropout(exp_out) if self.is_first else self.dropout(exp_out * exp_in)
+        z = self.pool(exp_out) * self.__C.MFB_K
+        z = torch.sqrt(F.relu(z)) - torch.sqrt(F.relu(-z))
+        z = F.normalize(z.view(batch_size, -1))
+        z = z.view(batch_size, -1, self.__C.MFB_O)
+        return z, exp_out
 
 
-class Adapter(BaseAdapter):
+class IAtt(nn.Module):
+
+    def __init__(self, __C, img_feat_size, ques_att_feat_size):
+        super(IAtt, self).__init__()
+        self.__C = __C
+        self.dropout = nn.Dropout(__C.DROPOUT_R)
+        self.mfb = MFB(__C, img_feat_size, ques_att_feat_size, True)
+        self.mlp = MLP(in_size=__C.MFB_O, mid_size=__C.HIDDEN_SIZE, out_size=__C.I_GLIMPSES, dropout_r=__C.DROPOUT_R, use_relu=True)
+
+    def forward(self, img_feat, ques_att_feat):
+        """
+            img_feats.size() -> (N, C, FRCN_FEAT_SIZE)
+            ques_att_feat.size() -> (N, LSTM_OUT_SIZE * Q_GLIMPSES)
+            iatt_feat.size() -> (N, MFB_O * I_GLIMPSES)
+        """
+        ques_att_feat = ques_att_feat.unsqueeze(1)
+        img_feat = self.dropout(img_feat)
+        z, _ = self.mfb(img_feat, ques_att_feat)
+        iatt_maps = self.mlp(z)
+        iatt_maps = F.softmax(iatt_maps, dim=1)
+        iatt_feat_list = []
+        for i in range(self.__C.I_GLIMPSES):
+            mask = iatt_maps[:, :, i:i + 1]
+            mask = mask * img_feat
+            mask = torch.sum(mask, dim=1)
+            iatt_feat_list.append(mask)
+        iatt_feat = torch.cat(iatt_feat_list, dim=1)
+        return iatt_feat
+
+
+class QAtt(nn.Module):
 
     def __init__(self, __C):
-        super(Adapter, self).__init__(__C)
+        super(QAtt, self).__init__()
         self.__C = __C
+        self.mlp = MLP(in_size=__C.LSTM_OUT_SIZE, mid_size=__C.HIDDEN_SIZE, out_size=__C.Q_GLIMPSES, dropout_r=__C.DROPOUT_R, use_relu=True)
 
-    def vqa_init(self, __C):
-        self.frcn_linear = nn.Linear(__C.FEAT_SIZE['vqa']['FRCN_FEAT_SIZE'][1], __C.HIDDEN_SIZE)
+    def forward(self, ques_feat):
+        """
+            ques_feat.size() -> (N, T, LSTM_OUT_SIZE)
+            qatt_feat.size() -> (N, LSTM_OUT_SIZE * Q_GLIMPSES)
+        """
+        qatt_maps = self.mlp(ques_feat)
+        qatt_maps = F.softmax(qatt_maps, dim=1)
+        qatt_feat_list = []
+        for i in range(self.__C.Q_GLIMPSES):
+            mask = qatt_maps[:, :, i:i + 1]
+            mask = mask * ques_feat
+            mask = torch.sum(mask, dim=1)
+            qatt_feat_list.append(mask)
+        qatt_feat = torch.cat(qatt_feat_list, dim=1)
+        return qatt_feat
 
-    def gqa_init(self, __C):
-        self.bbox_linear = nn.Linear(5, __C.BBOXFEAT_EMB_SIZE)
-        self.frcn_linear = nn.Linear(__C.FEAT_SIZE['gqa']['FRCN_FEAT_SIZE'][1] + __C.BBOXFEAT_EMB_SIZE, __C.HIDDEN_SIZE)
-        self.grid_linear = nn.Linear(__C.FEAT_SIZE['gqa']['GRID_FEAT_SIZE'][1], __C.HIDDEN_SIZE)
 
-    def clevr_init(self, __C):
-        self.grid_linear = nn.Linear(__C.FEAT_SIZE['clevr']['GRID_FEAT_SIZE'][1], __C.HIDDEN_SIZE)
+class CoAtt(nn.Module):
 
-    def vqa_forward(self, feat_dict):
-        frcn_feat = feat_dict['FRCN_FEAT']
-        bbox_feat = feat_dict['BBOX_FEAT']
-        img_feat_mask = make_mask(frcn_feat)
-        img_feat = frcn_feat
-        return img_feat, img_feat_mask
+    def __init__(self, __C):
+        super(CoAtt, self).__init__()
+        self.__C = __C
+        img_feat_size = __C.FEAT_SIZE[__C.DATASET]['FRCN_FEAT_SIZE'][1]
+        img_att_feat_size = img_feat_size * __C.I_GLIMPSES
+        ques_att_feat_size = __C.LSTM_OUT_SIZE * __C.Q_GLIMPSES
+        self.q_att = QAtt(__C)
+        self.i_att = IAtt(__C, img_feat_size, ques_att_feat_size)
+        if self.__C.HIGH_ORDER:
+            self.mfh1 = MFB(__C, img_att_feat_size, ques_att_feat_size, True)
+            self.mfh2 = MFB(__C, img_att_feat_size, ques_att_feat_size, False)
+        else:
+            self.mfb = MFB(__C, img_att_feat_size, ques_att_feat_size, True)
 
-    def gqa_forward(self, feat_dict):
-        frcn_feat = feat_dict['FRCN_FEAT']
-        bbox_feat = feat_dict['BBOX_FEAT']
-        grid_feat = feat_dict['GRID_FEAT']
-        img_feat_mask = torch.cat((make_mask(frcn_feat), make_mask(grid_feat)), dim=-1)
-        bbox_feat = self.bbox_linear(bbox_feat)
-        frcn_feat = torch.cat((frcn_feat, bbox_feat), dim=-1)
-        frcn_feat = self.frcn_linear(frcn_feat)
-        grid_feat = self.grid_linear(grid_feat)
-        img_feat = torch.cat((frcn_feat, grid_feat), dim=1)
-        return img_feat, img_feat_mask
-
-    def clevr_forward(self, feat_dict):
-        grid_feat = feat_dict['GRID_FEAT']
-        img_feat_mask = make_mask(grid_feat)
-        img_feat = self.grid_linear(grid_feat)
-        return img_feat, img_feat_mask
+    def forward(self, img_feat, ques_feat):
+        """
+            img_feat.size() -> (N, C, FRCN_FEAT_SIZE)
+            ques_feat.size() -> (N, T, LSTM_OUT_SIZE)
+            z.size() -> MFH:(N, 2*O) / MFB:(N, O)
+        """
+        ques_feat = self.q_att(ques_feat)
+        fuse_feat = self.i_att(img_feat, ques_feat)
+        if self.__C.HIGH_ORDER:
+            z1, exp1 = self.mfh1(fuse_feat.unsqueeze(1), ques_feat.unsqueeze(1))
+            z2, _ = self.mfh2(fuse_feat.unsqueeze(1), ques_feat.unsqueeze(1), exp1)
+            z = torch.cat((z1.squeeze(1), z2.squeeze(1)), 1)
+        else:
+            z, _ = self.mfb(fuse_feat.unsqueeze(1), ques_feat.unsqueeze(1))
+            z = z.squeeze(1)
+        return z
 
 
 class Net(nn.Module):
@@ -298,67 +433,28 @@ class Net(nn.Module):
     def __init__(self, __C, pretrained_emb, token_size, answer_size):
         super(Net, self).__init__()
         self.__C = __C
+        self.adapter = Adapter(__C)
         self.embedding = nn.Embedding(num_embeddings=token_size, embedding_dim=__C.WORD_EMBED_SIZE)
         if __C.USE_GLOVE:
             self.embedding.weight.data.copy_(torch.from_numpy(pretrained_emb))
-        self.rnn = nn.GRU(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C.HIDDEN_SIZE, num_layers=1, batch_first=True)
-        self.adapter = Adapter(__C)
-        self.backbone = BAN(__C)
-        layers = [weight_norm(nn.Linear(__C.HIDDEN_SIZE, __C.FLAT_OUT_SIZE), dim=None), nn.ReLU(), nn.Dropout(__C.CLASSIFER_DROPOUT_R, inplace=True), weight_norm(nn.Linear(__C.FLAT_OUT_SIZE, answer_size), dim=None)]
-        self.classifer = nn.Sequential(*layers)
+        self.lstm = nn.LSTM(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C.LSTM_OUT_SIZE, num_layers=1, batch_first=True)
+        self.dropout = nn.Dropout(__C.DROPOUT_R)
+        self.dropout_lstm = nn.Dropout(__C.DROPOUT_R)
+        self.backbone = CoAtt(__C)
+        if __C.HIGH_ORDER:
+            self.proj = nn.Linear(2 * __C.MFB_O, answer_size)
+        else:
+            self.proj = nn.Linear(__C.MFB_O, answer_size)
 
     def forward(self, frcn_feat, grid_feat, bbox_feat, ques_ix):
-        lang_feat = self.embedding(ques_ix)
-        lang_feat, _ = self.rnn(lang_feat)
         img_feat, _ = self.adapter(frcn_feat, grid_feat, bbox_feat)
-        lang_feat = self.backbone(lang_feat, img_feat)
-        proj_feat = self.classifer(lang_feat.sum(1))
+        ques_feat = self.embedding(ques_ix)
+        ques_feat = self.dropout(ques_feat)
+        ques_feat, _ = self.lstm(ques_feat)
+        ques_feat = self.dropout_lstm(ques_feat)
+        z = self.backbone(img_feat, ques_feat)
+        proj_feat = self.proj(z)
         return proj_feat
-
-
-class Net(nn.Module):
-
-    def __init__(self, __C, pretrained_emb, token_size, answer_size):
-        super(Net, self).__init__()
-        self.__C = __C
-        self.embedding = nn.Embedding(num_embeddings=token_size, embedding_dim=__C.WORD_EMBED_SIZE)
-        if __C.USE_GLOVE:
-            self.embedding.weight.data.copy_(torch.from_numpy(pretrained_emb))
-        self.rnn = nn.LSTM(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C.HIDDEN_SIZE, num_layers=1, batch_first=True)
-        self.adapter = Adapter(__C)
-        self.backbone = TDA(__C)
-        layers = [weight_norm(nn.Linear(__C.HIDDEN_SIZE, __C.FLAT_OUT_SIZE), dim=None), nn.ReLU(), nn.Dropout(__C.CLASSIFER_DROPOUT_R, inplace=True), weight_norm(nn.Linear(__C.FLAT_OUT_SIZE, answer_size), dim=None)]
-        self.classifer = nn.Sequential(*layers)
-
-    def forward(self, frcn_feat, grid_feat, bbox_feat, ques_ix):
-        lang_feat = self.embedding(ques_ix)
-        lang_feat, _ = self.rnn(lang_feat)
-        img_feat, _ = self.adapter(frcn_feat, grid_feat, bbox_feat)
-        joint_feat = self.backbone(lang_feat[:, (-1)], img_feat)
-        proj_feat = self.classifer(joint_feat)
-        return proj_feat
-
-
-class MLP(nn.Module):
-    """
-    class for non-linear fully connect network
-    """
-
-    def __init__(self, dims, act='ELU', dropout_r=0.0):
-        super(MLP, self).__init__()
-        layers = []
-        for i in range(len(dims) - 1):
-            in_dim = dims[i]
-            out_dim = dims[i + 1]
-            if dropout_r > 0:
-                layers.append(nn.Dropout(dropout_r))
-            layers.append(weight_norm(nn.Linear(in_dim, out_dim), dim=None))
-            if act != '':
-                layers.append(getattr(nn, act)())
-        self.mlp = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.mlp(x)
 
 
 class AttnMap(nn.Module):
@@ -449,6 +545,20 @@ class FFN(nn.Module):
         return self.mlp(x)
 
 
+class LayerNorm(nn.Module):
+
+    def __init__(self, size, eps=1e-06):
+        super(LayerNorm, self).__init__()
+        self.eps = eps
+        self.a_2 = nn.Parameter(torch.ones(size))
+        self.b_2 = nn.Parameter(torch.zeros(size))
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+
+
 class SA(nn.Module):
 
     def __init__(self, __C):
@@ -520,229 +630,6 @@ class AttFlat(nn.Module):
         x_atted = torch.cat(att_list, dim=1)
         x_atted = self.linear_merge(x_atted)
         return x_atted
-
-
-class Net(nn.Module):
-
-    def __init__(self, __C, pretrained_emb, token_size, answer_size):
-        super(Net, self).__init__()
-        self.__C = __C
-        self.embedding = nn.Embedding(num_embeddings=token_size, embedding_dim=__C.WORD_EMBED_SIZE)
-        if __C.USE_GLOVE:
-            self.embedding.weight.data.copy_(torch.from_numpy(pretrained_emb))
-        self.lstm = nn.LSTM(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C.HIDDEN_SIZE, num_layers=1, batch_first=True)
-        self.adapter = Adapter(__C)
-        self.backbone = MCA_ED(__C)
-        self.attflat_img = AttFlat(__C)
-        self.attflat_lang = AttFlat(__C)
-        self.proj_norm = LayerNorm(__C.FLAT_OUT_SIZE)
-        self.proj = nn.Linear(__C.FLAT_OUT_SIZE, answer_size)
-
-    def forward(self, frcn_feat, grid_feat, bbox_feat, ques_ix):
-        lang_feat_mask = make_mask(ques_ix.unsqueeze(2))
-        lang_feat = self.embedding(ques_ix)
-        lang_feat, _ = self.lstm(lang_feat)
-        img_feat, img_feat_mask = self.adapter(frcn_feat, grid_feat, bbox_feat)
-        lang_feat, img_feat = self.backbone(lang_feat, img_feat, lang_feat_mask, img_feat_mask)
-        lang_feat = self.attflat_lang(lang_feat, lang_feat_mask)
-        img_feat = self.attflat_img(img_feat, img_feat_mask)
-        proj_feat = lang_feat + img_feat
-        proj_feat = self.proj_norm(proj_feat)
-        proj_feat = self.proj(proj_feat)
-        return proj_feat
-
-
-class MFB(nn.Module):
-
-    def __init__(self, __C, img_feat_size, ques_feat_size, is_first):
-        super(MFB, self).__init__()
-        self.__C = __C
-        self.is_first = is_first
-        self.proj_i = nn.Linear(img_feat_size, __C.MFB_K * __C.MFB_O)
-        self.proj_q = nn.Linear(ques_feat_size, __C.MFB_K * __C.MFB_O)
-        self.dropout = nn.Dropout(__C.DROPOUT_R)
-        self.pool = nn.AvgPool1d(__C.MFB_K, stride=__C.MFB_K)
-
-    def forward(self, img_feat, ques_feat, exp_in=1):
-        """
-            img_feat.size() -> (N, C, img_feat_size)    C = 1 or 100
-            ques_feat.size() -> (N, 1, ques_feat_size)
-            z.size() -> (N, C, MFB_O)
-            exp_out.size() -> (N, C, K*O)
-        """
-        batch_size = img_feat.shape[0]
-        img_feat = self.proj_i(img_feat)
-        ques_feat = self.proj_q(ques_feat)
-        exp_out = img_feat * ques_feat
-        exp_out = self.dropout(exp_out) if self.is_first else self.dropout(exp_out * exp_in)
-        z = self.pool(exp_out) * self.__C.MFB_K
-        z = torch.sqrt(F.relu(z)) - torch.sqrt(F.relu(-z))
-        z = F.normalize(z.view(batch_size, -1))
-        z = z.view(batch_size, -1, self.__C.MFB_O)
-        return z, exp_out
-
-
-class QAtt(nn.Module):
-
-    def __init__(self, __C):
-        super(QAtt, self).__init__()
-        self.__C = __C
-        self.mlp = MLP(in_size=__C.LSTM_OUT_SIZE, mid_size=__C.HIDDEN_SIZE, out_size=__C.Q_GLIMPSES, dropout_r=__C.DROPOUT_R, use_relu=True)
-
-    def forward(self, ques_feat):
-        """
-            ques_feat.size() -> (N, T, LSTM_OUT_SIZE)
-            qatt_feat.size() -> (N, LSTM_OUT_SIZE * Q_GLIMPSES)
-        """
-        qatt_maps = self.mlp(ques_feat)
-        qatt_maps = F.softmax(qatt_maps, dim=1)
-        qatt_feat_list = []
-        for i in range(self.__C.Q_GLIMPSES):
-            mask = qatt_maps[:, :, i:i + 1]
-            mask = mask * ques_feat
-            mask = torch.sum(mask, dim=1)
-            qatt_feat_list.append(mask)
-        qatt_feat = torch.cat(qatt_feat_list, dim=1)
-        return qatt_feat
-
-
-class IAtt(nn.Module):
-
-    def __init__(self, __C, img_feat_size, ques_att_feat_size):
-        super(IAtt, self).__init__()
-        self.__C = __C
-        self.dropout = nn.Dropout(__C.DROPOUT_R)
-        self.mfb = MFB(__C, img_feat_size, ques_att_feat_size, True)
-        self.mlp = MLP(in_size=__C.MFB_O, mid_size=__C.HIDDEN_SIZE, out_size=__C.I_GLIMPSES, dropout_r=__C.DROPOUT_R, use_relu=True)
-
-    def forward(self, img_feat, ques_att_feat):
-        """
-            img_feats.size() -> (N, C, FRCN_FEAT_SIZE)
-            ques_att_feat.size() -> (N, LSTM_OUT_SIZE * Q_GLIMPSES)
-            iatt_feat.size() -> (N, MFB_O * I_GLIMPSES)
-        """
-        ques_att_feat = ques_att_feat.unsqueeze(1)
-        img_feat = self.dropout(img_feat)
-        z, _ = self.mfb(img_feat, ques_att_feat)
-        iatt_maps = self.mlp(z)
-        iatt_maps = F.softmax(iatt_maps, dim=1)
-        iatt_feat_list = []
-        for i in range(self.__C.I_GLIMPSES):
-            mask = iatt_maps[:, :, i:i + 1]
-            mask = mask * img_feat
-            mask = torch.sum(mask, dim=1)
-            iatt_feat_list.append(mask)
-        iatt_feat = torch.cat(iatt_feat_list, dim=1)
-        return iatt_feat
-
-
-class CoAtt(nn.Module):
-
-    def __init__(self, __C):
-        super(CoAtt, self).__init__()
-        self.__C = __C
-        img_feat_size = __C.FEAT_SIZE[__C.DATASET]['FRCN_FEAT_SIZE'][1]
-        img_att_feat_size = img_feat_size * __C.I_GLIMPSES
-        ques_att_feat_size = __C.LSTM_OUT_SIZE * __C.Q_GLIMPSES
-        self.q_att = QAtt(__C)
-        self.i_att = IAtt(__C, img_feat_size, ques_att_feat_size)
-        if self.__C.HIGH_ORDER:
-            self.mfh1 = MFB(__C, img_att_feat_size, ques_att_feat_size, True)
-            self.mfh2 = MFB(__C, img_att_feat_size, ques_att_feat_size, False)
-        else:
-            self.mfb = MFB(__C, img_att_feat_size, ques_att_feat_size, True)
-
-    def forward(self, img_feat, ques_feat):
-        """
-            img_feat.size() -> (N, C, FRCN_FEAT_SIZE)
-            ques_feat.size() -> (N, T, LSTM_OUT_SIZE)
-            z.size() -> MFH:(N, 2*O) / MFB:(N, O)
-        """
-        ques_feat = self.q_att(ques_feat)
-        fuse_feat = self.i_att(img_feat, ques_feat)
-        if self.__C.HIGH_ORDER:
-            z1, exp1 = self.mfh1(fuse_feat.unsqueeze(1), ques_feat.unsqueeze(1))
-            z2, _ = self.mfh2(fuse_feat.unsqueeze(1), ques_feat.unsqueeze(1), exp1)
-            z = torch.cat((z1.squeeze(1), z2.squeeze(1)), 1)
-        else:
-            z, _ = self.mfb(fuse_feat.unsqueeze(1), ques_feat.unsqueeze(1))
-            z = z.squeeze(1)
-        return z
-
-
-class Net(nn.Module):
-
-    def __init__(self, __C, pretrained_emb, token_size, answer_size):
-        super(Net, self).__init__()
-        self.__C = __C
-        self.adapter = Adapter(__C)
-        self.embedding = nn.Embedding(num_embeddings=token_size, embedding_dim=__C.WORD_EMBED_SIZE)
-        if __C.USE_GLOVE:
-            self.embedding.weight.data.copy_(torch.from_numpy(pretrained_emb))
-        self.lstm = nn.LSTM(input_size=__C.WORD_EMBED_SIZE, hidden_size=__C.LSTM_OUT_SIZE, num_layers=1, batch_first=True)
-        self.dropout = nn.Dropout(__C.DROPOUT_R)
-        self.dropout_lstm = nn.Dropout(__C.DROPOUT_R)
-        self.backbone = CoAtt(__C)
-        if __C.HIGH_ORDER:
-            self.proj = nn.Linear(2 * __C.MFB_O, answer_size)
-        else:
-            self.proj = nn.Linear(__C.MFB_O, answer_size)
-
-    def forward(self, frcn_feat, grid_feat, bbox_feat, ques_ix):
-        img_feat, _ = self.adapter(frcn_feat, grid_feat, bbox_feat)
-        ques_feat = self.embedding(ques_ix)
-        ques_feat = self.dropout(ques_feat)
-        ques_feat, _ = self.lstm(ques_feat)
-        ques_feat = self.dropout_lstm(ques_feat)
-        z = self.backbone(img_feat, ques_feat)
-        proj_feat = self.proj(z)
-        return proj_feat
-
-
-class FC(nn.Module):
-
-    def __init__(self, in_size, out_size, dropout_r=0.0, use_relu=True):
-        super(FC, self).__init__()
-        self.dropout_r = dropout_r
-        self.use_relu = use_relu
-        self.linear = nn.Linear(in_size, out_size)
-        if use_relu:
-            self.relu = nn.ReLU(inplace=True)
-        if dropout_r > 0:
-            self.dropout = nn.Dropout(dropout_r)
-
-    def forward(self, x):
-        x = self.linear(x)
-        if self.use_relu:
-            x = self.relu(x)
-        if self.dropout_r > 0:
-            x = self.dropout(x)
-        return x
-
-
-class MLP(nn.Module):
-
-    def __init__(self, in_size, mid_size, out_size, dropout_r=0.0, use_relu=True):
-        super(MLP, self).__init__()
-        self.fc = FC(in_size, mid_size, dropout_r=dropout_r, use_relu=use_relu)
-        self.linear = nn.Linear(mid_size, out_size)
-
-    def forward(self, x):
-        return self.linear(self.fc(x))
-
-
-class LayerNorm(nn.Module):
-
-    def __init__(self, size, eps=1e-06):
-        super(LayerNorm, self).__init__()
-        self.eps = eps
-        self.a_2 = nn.Parameter(torch.ones(size))
-        self.b_2 = nn.Parameter(torch.zeros(size))
-
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
 
 import torch

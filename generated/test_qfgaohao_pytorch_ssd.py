@@ -46,6 +46,7 @@ vgg_ssd = _module
 test = _module
 test_vgg_ssd = _module
 transforms = _module
+transforms = _module
 utils = _module
 box_utils = _module
 box_utils_numpy = _module
@@ -58,20 +59,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import torch.onnx
+
+
 import torch
+
+
+import numpy as np
+
+
+import logging
 
 
 import torch.nn as nn
@@ -89,7 +100,19 @@ from torchvision import datasets
 from torchvision import transforms
 
 
-import logging
+import itertools
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import ConcatDataset
+
+
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
+
+from torch.optim.lr_scheduler import MultiStepLR
 
 
 import torch.utils.model_zoo as model_zoo
@@ -116,9 +139,6 @@ from torch.nn import ModuleList
 from torch.nn import ReLU
 
 
-import numpy as np
-
-
 from typing import List
 
 
@@ -132,6 +152,18 @@ from torch import nn
 
 
 from collections import namedtuple
+
+
+import types
+
+
+from numpy import random
+
+
+import collections
+
+
+import time
 
 
 from collections import OrderedDict
@@ -475,7 +507,7 @@ class SSD(nn.Module):
         if device:
             self.device = device
         else:
-            self.device = torch.device('cuda:0' if torch.is_available() else 'cpu')
+            self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         if is_test:
             self.config = config
             self.priors = config.priors

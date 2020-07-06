@@ -49,7 +49,6 @@ sts2014 = _module
 trecqa = _module
 wikiqa = _module
 decatt = _module
-__main__ = _module
 model = _module
 esim = _module
 model = _module
@@ -62,12 +61,14 @@ main = _module
 train_script = _module
 qa_trainer = _module
 args = _module
+main = _module
 model = _module
 overlap_features = _module
 train = _module
 setup = _module
 bridge = _module
 external_features = _module
+main = _module
 model = _module
 train = _module
 trec_dataset = _module
@@ -90,15 +91,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -127,10 +129,16 @@ import time
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 
-import random
+import re
 
 
 import numpy as np
+
+
+import torch.utils.data as data
+
+
+import random
 
 
 import torch.nn.utils.rnn as rnn_utils
@@ -142,6 +150,45 @@ import torch.utils as utils
 from torch import utils
 
 
+from abc import ABCMeta
+
+
+from abc import abstractmethod
+
+
+from torchtext.data.dataset import Dataset
+
+
+from torchtext.data.example import Example
+
+
+from torchtext.data.field import Field
+
+
+from torchtext.data.field import RawField
+
+
+from torchtext.data.iterator import BucketIterator
+
+
+from torchtext.data.pipeline import Pipeline
+
+
+from torchtext.vocab import Vectors
+
+
+from torchtext.data import Field
+
+
+from torchtext.data import TabularDataset
+
+
+import logging
+
+
+import torch.optim as optim
+
+
 from torch.autograd import Variable
 
 
@@ -151,19 +198,16 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
 
-import logging
-
-
 from torchtext import data
 
 
 from torch.nn import functional as F
 
 
+from collections import Counter
+
+
 import torch.onnx
-
-
-import torch.utils.data as data
 
 
 class ConvRNNModel(nn.Module):
@@ -255,6 +299,31 @@ class WordEmbeddingModel(nn.Module):
         raise NotImplementedError
 
 
+class SSTWordEmbeddingModel(WordEmbeddingModel):
+
+    def __init__(self, id_dict, weights, unknown_vocab=[]):
+        super().__init__(id_dict, weights, unknown_vocab, padding_idx=16259)
+
+    def lookup(self, sentences):
+        indices_list = []
+        max_len = 0
+        for sentence in sentences:
+            indices = []
+            for word in data.sst_tokenize(sentence):
+                try:
+                    index = self.lookup_table[word]
+                    indices.append(index)
+                except KeyError:
+                    continue
+            indices_list.append(indices)
+            if len(indices) > max_len:
+                max_len = len(indices)
+        lengths = [len(x) for x in indices_list]
+        for indices in indices_list:
+            indices.extend([self.padding_idx] * (max_len - len(indices)))
+        return indices_list, lengths
+
+
 class DecAtt(nn.Module):
 
     def __init__(self, num_units, num_classes, embedding_size, dropout, device=0, training=True, project_input=True, use_intra_attention=False, distance_biases=10, max_sentence_length=30):
@@ -321,7 +390,7 @@ class DecAtt(nn.Module):
             raw_index = r_matrix - r.view(-1, 1)
             clipped_index = torch.clamp(raw_index, 0, self.distance_biases - 1)
             clipped_index = Variable(clipped_index.long())
-            if torch.is_available():
+            if torch.cuda.is_available():
                 clipped_index = clipped_index
             bias = self.bias_embedding(clipped_index)
             bias = torch.squeeze(bias)
@@ -462,7 +531,7 @@ class LSTM(nn.Module):
         """
         h = Variable(torch.zeros(x.size(1), x.size(2)))
         c = Variable(torch.zeros(x.size(1), x.size(2)))
-        if torch.is_available():
+        if torch.cuda.is_available():
             h = h
             c = c
         all_hidden = []
@@ -527,7 +596,7 @@ class ESIM(nn.Module):
         return u.astype('float32')
 
     def initialize_lstm(self):
-        if torch.is_available():
+        if torch.cuda.is_available():
             init = torch.Tensor(np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
         else:
             init = torch.Tensor(np.concatenate([self.ortho_weight(), self.ortho_weight(), self.ortho_weight(), self.ortho_weight()], 0))
@@ -605,13 +674,13 @@ class ESIM(nn.Module):
         x2 = self.dropout(sent2)
         idx_1 = [i for i in range(x1.size(0) - 1, -1, -1)]
         idx_1 = Variable(torch.LongTensor(idx_1))
-        if torch.is_available():
+        if torch.cuda.is_available():
             idx_1 = idx_1
         x1_r = torch.index_select(x1, 0, idx_1)
         x1_mask_r = torch.index_select(x1_mask, 0, idx_1)
         idx_2 = [i for i in range(x2.size(0) - 1, -1, -1)]
         idx_2 = Variable(torch.LongTensor(idx_2))
-        if torch.is_available():
+        if torch.cuda.is_available():
             idx_2 = Variable(torch.LongTensor(idx_2))
         x2_r = torch.index_select(x2, 0, idx_2)
         x2_mask_r = torch.index_select(x2_mask, 0, idx_2)
@@ -845,74 +914,6 @@ class PairwiseConv(nn.Module):
         neg = self.linearLayer(neg)
         combine = torch.cat([pos, neg], 1)
         return combine
-
-
-class SmPlusPlus(nn.Module):
-
-    def __init__(self, config):
-        super(SmPlusPlus, self).__init__()
-        output_channel = config.output_channel
-        questions_num = config.questions_num
-        answers_num = config.answers_num
-        words_dim = config.words_dim
-        filter_width = config.filter_width
-        self.mode = config.mode
-        self.dropout = config.dropout
-        n_classes = config.target_class
-        ext_feats_size = config.ext_feats_size
-        if self.mode == 'multichannel':
-            input_channel = 2
-        else:
-            input_channel = 1
-        self.question_embed = nn.Embedding(questions_num, words_dim)
-        self.answer_embed = nn.Embedding(answers_num, words_dim)
-        self.static_question_embed = nn.Embedding(questions_num, words_dim)
-        self.nonstatic_question_embed = nn.Embedding(questions_num, words_dim)
-        self.static_answer_embed = nn.Embedding(answers_num, words_dim)
-        self.nonstatic_answer_embed = nn.Embedding(answers_num, words_dim)
-        self.static_question_embed.weight.requires_grad = False
-        self.static_answer_embed.weight.requires_grad = False
-        self.conv_q = nn.Conv2d(input_channel, output_channel, (filter_width, words_dim), padding=(filter_width - 1, 0))
-        self.conv_a = nn.Conv2d(input_channel, output_channel, (filter_width, words_dim), padding=(filter_width - 1, 0))
-        self.n_hidden = 2 * output_channel + ext_feats_size
-        self.combined_feature_vector = nn.Linear(self.n_hidden, self.n_hidden)
-        self.hidden = nn.Linear(self.n_hidden, n_classes)
-
-    def forward(self, x):
-        x_question = x.sentence_1
-        x_answer = x.sentence_2
-        x_ext = x.ext_feats
-        if self.mode == 'rand':
-            question = self.question_embed(x_question).unsqueeze(1)
-            answer = self.answer_embed(x_answer).unsqueeze(1)
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
-            x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
-        elif self.mode == 'static':
-            question = self.static_question_embed(x_question).unsqueeze(1)
-            answer = self.static_answer_embed(x_answer).unsqueeze(1)
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
-            x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
-        elif self.mode == 'non-static':
-            question = self.nonstatic_question_embed(x_question).unsqueeze(1)
-            answer = self.nonstatic_answer_embed(x_answer).unsqueeze(1)
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
-            x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
-        elif self.mode == 'multichannel':
-            question_static = self.static_question_embed(x_question)
-            answer_static = self.static_answer_embed(x_answer)
-            question_nonstatic = self.nonstatic_question_embed(x_question)
-            answer_nonstatic = self.nonstatic_answer_embed(x_answer)
-            question = torch.stack([question_static, question_nonstatic], dim=1)
-            answer = torch.stack([answer_static, answer_nonstatic], dim=1)
-            x = [F.tanh(self.conv_q(question)).squeeze(3), F.tanh(self.conv_a(answer)).squeeze(3)]
-            x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
-        else:
-            None
-            exit()
-        x.append(x_ext)
-        x = torch.cat(x, 1)
-        x = F.tanh(self.combined_feature_vector(x))
-        return x
 
 
 class SmPlusPlus(nn.Module):
@@ -1216,6 +1217,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (LSTM,
+     lambda: ([], {'device': 0, 'in_dim': 4, 'mem_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (LSTM_Cell,
      lambda: ([], {'device': 0, 'in_dim': 4, 'mem_dim': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -1239,4 +1244,7 @@ class Test_castorini_castor(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

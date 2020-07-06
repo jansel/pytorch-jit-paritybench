@@ -72,15 +72,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -112,10 +113,16 @@ import re
 from torch.nn import CrossEntropyLoss
 
 
-import torch.nn.functional as F
+import tensorflow as tf
 
 
 import numpy as np
+
+
+from tensorflow.python import pywrap_tensorflow
+
+
+import torch.nn.functional as F
 
 
 import math
@@ -131,6 +138,12 @@ import torch.multiprocessing as mp
 
 
 from torch.nn.parallel import DistributedDataParallel
+
+
+from torch.optim import Optimizer
+
+
+from torch.optim.lr_scheduler import LambdaLR
 
 
 class BertClassifier(nn.Module):
@@ -266,13 +279,170 @@ class ClozeModel(torch.nn.Module):
         return prob
 
 
+class LayerNorm(nn.Module):
+
+    def __init__(self, hidden_size, eps=1e-06):
+        super(LayerNorm, self).__init__()
+        self.eps = eps
+        self.gamma = nn.Parameter(torch.ones(hidden_size))
+        self.beta = nn.Parameter(torch.zeros(hidden_size))
+
+    def forward(self, x):
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.gamma * (x - mean) / (std + self.eps) + self.beta
+
+
+class BertEmbedding(nn.Module):
+    """
+    BERT embedding consists of three parts:
+    word embedding, position embedding, and segment embedding.
+    """
+
+    def __init__(self, args, vocab_size):
+        super(BertEmbedding, self).__init__()
+        self.dropout = nn.Dropout(args.dropout)
+        self.max_length = 512
+        self.word_embedding = nn.Embedding(vocab_size, args.emb_size)
+        self.position_embedding = nn.Embedding(self.max_length, args.emb_size)
+        self.segment_embedding = nn.Embedding(3, args.emb_size)
+        self.layer_norm = LayerNorm(args.emb_size)
+
+    def forward(self, src, seg):
+        word_emb = self.word_embedding(src)
+        pos_emb = self.position_embedding(torch.arange(0, word_emb.size(1), device=word_emb.device, dtype=torch.long).unsqueeze(0).repeat(word_emb.size(0), 1))
+        seg_emb = self.segment_embedding(seg)
+        emb = word_emb + pos_emb + seg_emb
+        emb = self.dropout(self.layer_norm(emb))
+        return emb
+
+
+class MultiHeadedAttention(nn.Module):
+    """
+    Each head is a self-attention operation.
+    self-attention refers to https://arxiv.org/pdf/1706.03762.pdf
+    """
+
+    def __init__(self, hidden_size, heads_num, dropout):
+        super(MultiHeadedAttention, self).__init__()
+        self.hidden_size = hidden_size
+        self.heads_num = heads_num
+        self.per_head_size = hidden_size // heads_num
+        self.linear_layers = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(3)])
+        self.dropout = nn.Dropout(dropout)
+        self.final_linear = nn.Linear(hidden_size, hidden_size)
+
+    def forward(self, key, value, query, mask):
+        """
+        Args:
+            key: [batch_size x seq_length x hidden_size]
+            value: [batch_size x seq_length x hidden_size]
+            query: [batch_size x seq_length x hidden_size]
+            mask: [batch_size x 1 x seq_length x seq_length]
+
+        Returns:
+            output: [batch_size x seq_length x hidden_size]
+        """
+        batch_size, seq_length, hidden_size = key.size()
+        heads_num = self.heads_num
+        per_head_size = self.per_head_size
+
+        def shape(x):
+            return x.contiguous().view(batch_size, seq_length, heads_num, per_head_size).transpose(1, 2)
+
+        def unshape(x):
+            return x.transpose(1, 2).contiguous().view(batch_size, seq_length, hidden_size)
+        query, key, value = [l(x).view(batch_size, -1, heads_num, per_head_size).transpose(1, 2) for l, x in zip(self.linear_layers, (query, key, value))]
+        scores = torch.matmul(query, key.transpose(-2, -1))
+        scores = scores / math.sqrt(float(per_head_size))
+        scores = scores + mask
+        probs = nn.Softmax(dim=-1)(scores)
+        probs = self.dropout(probs)
+        output = unshape(torch.matmul(probs, value))
+        output = self.final_linear(output)
+        return output
+
+
+class PositionwiseFeedForward(nn.Module):
+    """ Feed Forward Layer """
+
+    def __init__(self, hidden_size, feedforward_size):
+        super(PositionwiseFeedForward, self).__init__()
+        self.linear_1 = nn.Linear(hidden_size, feedforward_size)
+        self.linear_2 = nn.Linear(feedforward_size, hidden_size)
+
+    def forward(self, x):
+        inter = gelu(self.linear_1(x))
+        output = self.linear_2(inter)
+        return output
+
+
+class TransformerLayer(nn.Module):
+    """
+    Transformer layer mainly consists of two parts:
+    multi-headed self-attention and feed forward layer.
+    """
+
+    def __init__(self, args):
+        super(TransformerLayer, self).__init__()
+        self.self_attn = MultiHeadedAttention(args.hidden_size, args.heads_num, args.dropout)
+        self.dropout_1 = nn.Dropout(args.dropout)
+        self.layer_norm_1 = LayerNorm(args.hidden_size)
+        self.feed_forward = PositionwiseFeedForward(args.hidden_size, args.feedforward_size)
+        self.dropout_2 = nn.Dropout(args.dropout)
+        self.layer_norm_2 = LayerNorm(args.hidden_size)
+
+    def forward(self, hidden, mask):
+        """
+        Args:
+            hidden: [batch_size x seq_length x emb_size]
+            mask: [batch_size x 1 x seq_length x seq_length]
+
+        Returns:
+            output: [batch_size x seq_length x hidden_size]
+        """
+        inter = self.dropout_1(self.self_attn(hidden, hidden, hidden, mask))
+        inter = self.layer_norm_1(inter + hidden)
+        output = self.dropout_2(self.feed_forward(inter))
+        output = self.layer_norm_2(output + inter)
+        return output
+
+
+class BertEncoder(nn.Module):
+    """
+    BERT encoder exploits 12 or 24 transformer layers to extract features.
+    """
+
+    def __init__(self, args):
+        super(BertEncoder, self).__init__()
+        self.layers_num = args.layers_num
+        self.transformer = nn.ModuleList([TransformerLayer(args) for _ in range(self.layers_num)])
+
+    def forward(self, emb, seg):
+        """
+        Args:
+            emb: [batch_size x seq_length x emb_size]
+            seg: [batch_size x seq_length]
+
+        Returns:
+            hidden: [batch_size x seq_length x hidden_size]
+        """
+        seq_length = emb.size(1)
+        mask = (seg > 0).unsqueeze(1).repeat(1, seq_length, 1).unsqueeze(1)
+        mask = mask.float()
+        mask = (1.0 - mask) * -10000.0
+        hidden = emb
+        for i in range(self.layers_num):
+            hidden = self.transformer[i](hidden, mask)
+        return hidden
+
+
 class SequenceEncoder(torch.nn.Module):
 
-    def __init__(self, model):
+    def __init__(self, args, vocab):
         super(SequenceEncoder, self).__init__()
-        self.embedding = model.embedding
-        self.encoder = model.encoder
-        self.eval()
+        self.embedding = BertEmbedding(args, len(vocab))
+        self.encoder = BertEncoder(args)
 
     def forward(self, src, seg):
         emb = self.embedding(src, seg)
@@ -293,19 +463,6 @@ class GenerateModel(torch.nn.Module):
         emb = self.embedding(src, seg)
         output = self.encoder(emb, seg)
         output = gelu(self.target.output_layer(output))
-        return output
-
-
-class SequenceEncoder(torch.nn.Module):
-
-    def __init__(self, args, vocab):
-        super(SequenceEncoder, self).__init__()
-        self.embedding = BertEmbedding(args, len(vocab))
-        self.encoder = BertEncoder(args)
-
-    def forward(self, src, seg):
-        emb = self.embedding(src, seg)
-        output = self.encoder(emb, seg)
         return output
 
 
@@ -336,35 +493,6 @@ class AttnEncoder(nn.Module):
         hidden = emb
         for i in range(self.layers_num):
             hidden = self.self_attn[i](hidden, hidden, hidden, mask)
-        return hidden
-
-
-class BertEncoder(nn.Module):
-    """
-    BERT encoder exploits 12 or 24 transformer layers to extract features.
-    """
-
-    def __init__(self, args):
-        super(BertEncoder, self).__init__()
-        self.layers_num = args.layers_num
-        self.transformer = nn.ModuleList([TransformerLayer(args) for _ in range(self.layers_num)])
-
-    def forward(self, emb, seg):
-        """
-        Args:
-            emb: [batch_size x seq_length x emb_size]
-            seg: [batch_size x seq_length]
-
-        Returns:
-            hidden: [batch_size x seq_length x hidden_size]
-        """
-        seq_length = emb.size(1)
-        mask = (seg > 0).unsqueeze(1).repeat(1, seq_length, 1).unsqueeze(1)
-        mask = mask.float()
-        mask = (1.0 - mask) * -10000.0
-        hidden = emb
-        for i in range(self.layers_num):
-            hidden = self.transformer[i](hidden, mask)
         return hidden
 
 
@@ -616,30 +744,6 @@ class GruEncoder(nn.Module):
             return torch.zeros(self.layers_num, batch_size, self.hidden_size, device=device)
 
 
-class BertEmbedding(nn.Module):
-    """
-    BERT embedding consists of three parts:
-    word embedding, position embedding, and segment embedding.
-    """
-
-    def __init__(self, args, vocab_size):
-        super(BertEmbedding, self).__init__()
-        self.dropout = nn.Dropout(args.dropout)
-        self.max_length = 512
-        self.word_embedding = nn.Embedding(vocab_size, args.emb_size)
-        self.position_embedding = nn.Embedding(self.max_length, args.emb_size)
-        self.segment_embedding = nn.Embedding(3, args.emb_size)
-        self.layer_norm = LayerNorm(args.emb_size)
-
-    def forward(self, src, seg):
-        word_emb = self.word_embedding(src)
-        pos_emb = self.position_embedding(torch.arange(0, word_emb.size(1), device=word_emb.device, dtype=torch.long).unsqueeze(0).repeat(word_emb.size(0), 1))
-        seg_emb = self.segment_embedding(seg)
-        emb = word_emb + pos_emb + seg_emb
-        emb = self.dropout(self.layer_norm(emb))
-        return emb
-
-
 class WordEmbedding(nn.Module):
     """
     """
@@ -654,111 +758,6 @@ class WordEmbedding(nn.Module):
         emb = self.word_embedding(src)
         emb = self.dropout(self.layer_norm(emb))
         return emb
-
-
-class LayerNorm(nn.Module):
-
-    def __init__(self, hidden_size, eps=1e-06):
-        super(LayerNorm, self).__init__()
-        self.eps = eps
-        self.gamma = nn.Parameter(torch.ones(hidden_size))
-        self.beta = nn.Parameter(torch.zeros(hidden_size))
-
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.gamma * (x - mean) / (std + self.eps) + self.beta
-
-
-class MultiHeadedAttention(nn.Module):
-    """
-    Each head is a self-attention operation.
-    self-attention refers to https://arxiv.org/pdf/1706.03762.pdf
-    """
-
-    def __init__(self, hidden_size, heads_num, dropout):
-        super(MultiHeadedAttention, self).__init__()
-        self.hidden_size = hidden_size
-        self.heads_num = heads_num
-        self.per_head_size = hidden_size // heads_num
-        self.linear_layers = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(3)])
-        self.dropout = nn.Dropout(dropout)
-        self.final_linear = nn.Linear(hidden_size, hidden_size)
-
-    def forward(self, key, value, query, mask):
-        """
-        Args:
-            key: [batch_size x seq_length x hidden_size]
-            value: [batch_size x seq_length x hidden_size]
-            query: [batch_size x seq_length x hidden_size]
-            mask: [batch_size x 1 x seq_length x seq_length]
-
-        Returns:
-            output: [batch_size x seq_length x hidden_size]
-        """
-        batch_size, seq_length, hidden_size = key.size()
-        heads_num = self.heads_num
-        per_head_size = self.per_head_size
-
-        def shape(x):
-            return x.contiguous().view(batch_size, seq_length, heads_num, per_head_size).transpose(1, 2)
-
-        def unshape(x):
-            return x.transpose(1, 2).contiguous().view(batch_size, seq_length, hidden_size)
-        query, key, value = [l(x).view(batch_size, -1, heads_num, per_head_size).transpose(1, 2) for l, x in zip(self.linear_layers, (query, key, value))]
-        scores = torch.matmul(query, key.transpose(-2, -1))
-        scores = scores / math.sqrt(float(per_head_size))
-        scores = scores + mask
-        probs = nn.Softmax(dim=-1)(scores)
-        probs = self.dropout(probs)
-        output = unshape(torch.matmul(probs, value))
-        output = self.final_linear(output)
-        return output
-
-
-class PositionwiseFeedForward(nn.Module):
-    """ Feed Forward Layer """
-
-    def __init__(self, hidden_size, feedforward_size):
-        super(PositionwiseFeedForward, self).__init__()
-        self.linear_1 = nn.Linear(hidden_size, feedforward_size)
-        self.linear_2 = nn.Linear(feedforward_size, hidden_size)
-
-    def forward(self, x):
-        inter = gelu(self.linear_1(x))
-        output = self.linear_2(inter)
-        return output
-
-
-class TransformerLayer(nn.Module):
-    """
-    Transformer layer mainly consists of two parts:
-    multi-headed self-attention and feed forward layer.
-    """
-
-    def __init__(self, args):
-        super(TransformerLayer, self).__init__()
-        self.self_attn = MultiHeadedAttention(args.hidden_size, args.heads_num, args.dropout)
-        self.dropout_1 = nn.Dropout(args.dropout)
-        self.layer_norm_1 = LayerNorm(args.hidden_size)
-        self.feed_forward = PositionwiseFeedForward(args.hidden_size, args.feedforward_size)
-        self.dropout_2 = nn.Dropout(args.dropout)
-        self.layer_norm_2 = LayerNorm(args.hidden_size)
-
-    def forward(self, hidden, mask):
-        """
-        Args:
-            hidden: [batch_size x seq_length x emb_size]
-            mask: [batch_size x 1 x seq_length x seq_length]
-
-        Returns:
-            output: [batch_size x seq_length x hidden_size]
-        """
-        inter = self.dropout_1(self.self_attn(hidden, hidden, hidden, mask))
-        inter = self.layer_norm_1(inter + hidden)
-        output = self.dropout_2(self.feed_forward(inter))
-        output = self.layer_norm_2(output + inter)
-        return output
 
 
 class BertModel(nn.Module):
@@ -798,7 +797,7 @@ def word2sub(word_ids, vocab, sub_vocab, subword_type):
     word_ids = word_ids.contiguous().view(-1).tolist()
     words = [vocab.i2w[i] for i in word_ids]
     max_length = max([len(w) for w in words])
-    sub_ids = torch.zeros((len(words), max_length), dtype=torch.long).to(device)
+    sub_ids = torch.zeros((len(words), max_length), dtype=torch.long)
     for i in range(len(words)):
         for j, c in enumerate(words[i]):
             sub_ids[i, j] = sub_vocab.w2i.get(c, UNK_ID)
@@ -1206,6 +1205,10 @@ TESTCASES = [
      lambda: ([], {'args': _mock_config(layers_num=1, kernel_size=4, block_size=4, emb_size=4, hidden_size=4)}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (CnnSubencoder,
+     lambda: ([], {'args': _mock_config(kernel_size=4, emb_size=4), 'vocab_size': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
     (CrnnEncoder,
      lambda: ([], {'args': _mock_config(emb_size=4, hidden_size=4, kernel_size=4, layers_num=1, dropout=0.5)}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -1241,6 +1244,10 @@ TESTCASES = [
     (RcnnEncoder,
      lambda: ([], {'args': _mock_config(emb_size=4, hidden_size=4, kernel_size=4, layers_num=1, dropout=0.5)}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SequenceEncoder,
+     lambda: ([], {'args': _mock_config(dropout=0.5, emb_size=4, layers_num=1, hidden_size=4, heads_num=4, feedforward_size=4), 'vocab': [4, 4]}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64)], {}),
      False),
     (TransformerLayer,
      lambda: ([], {'args': _mock_config(hidden_size=4, heads_num=4, dropout=0.5, feedforward_size=4)}),
@@ -1303,4 +1310,10 @@ class Test_dbiir_UER_py(_paritybench_base):
 
     def test_016(self):
         self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
 

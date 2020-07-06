@@ -14,20 +14,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+from torch.utils.data import Dataset
+
+
+import numpy as np
 
 
 from torch import nn
@@ -54,47 +61,13 @@ import torch.nn.functional as F
 import math
 
 
-from torch import optim
+import time
 
 
 from torch.utils.data import DataLoader
 
 
-import numpy as np
-
-
-import time
-
-
-class WaveVAE(nn.Module):
-
-    def __init__(self):
-        super(WaveVAE, self).__init__()
-        self.encoder = Wavenet(out_channels=2, num_blocks=2, num_layers=10, residual_channels=128, gate_channels=256, skip_channels=128, kernel_size=2, cin_channels=80, upsample_scales=[16, 16])
-        self.decoder = Wavenet_Student(num_blocks_student=[1, 1, 1, 1, 1, 1], num_layers=10)
-        self.log_eps = nn.Parameter(torch.zeros(1))
-
-    def forward(self, x, c):
-        mu_logs = self.encoder(x, c)
-        mu = mu_logs[:, 0:1, :-1]
-        logs = mu_logs[:, 1:, :-1]
-        q_0 = Normal(mu.new_zeros(mu.size()), mu.new_ones(mu.size()))
-        mean_q = (x[:, :, 1:] - mu) * torch.exp(-logs)
-        z = q_0.sample() * torch.exp(self.log_eps) + mean_q
-        z_prior = q_0.sample()
-        z = F.pad(z, pad=(1, 0), mode='constant', value=0)
-        z_prior = F.pad(z_prior, pad=(1, 0), mode='constant', value=0)
-        c_up = self.encoder.upsample(c)
-        x_rec, mu_p, log_p = self.decoder(z, c_up)
-        x_prior = self.decoder.generate(z_prior, c_up)
-        loss_recon = -0.5 * (-log(2.0 * pi) - 2.0 * log_p - torch.pow(x[:, :, 1:] - mu_p, 2) * torch.exp(-2.0 * log_p))
-        loss_kl = 0.5 * (mean_q ** 2 + torch.exp(self.log_eps) ** 2 - 1) - self.log_eps
-        return x_rec, x_prior, loss_recon.mean(), loss_kl.mean()
-
-    def generate(self, z, c):
-        c_up = self.encoder.upsample(c)
-        x_sample = self.decoder.generate(z, c_up)
-        return x_sample
+from torch import optim
 
 
 class Conv(nn.Module):
@@ -226,47 +199,6 @@ class Wavenet(nn.Module):
         return num_dir * (self.kernel_size - 1) * sum(dilations) + self.front_channels
 
 
-class Wavenet_Student(nn.Module):
-
-    def __init__(self, num_blocks_student=[1, 1, 1, 1, 1, 1], num_layers=10, front_channels=32, residual_channels=64, gate_channels=128, skip_channels=64, kernel_size=3, cin_channels=80, causal=True):
-        super(Wavenet_Student, self).__init__()
-        self.num_blocks = num_blocks_student
-        self.num_flow = len(self.num_blocks)
-        self.num_layers = num_layers
-        self.iafs = nn.ModuleList()
-        for i in range(self.num_flow):
-            self.iafs.append(Wavenet_Flow(out_channels=2, num_blocks=self.num_blocks[i], num_layers=self.num_layers, front_channels=front_channels, residual_channels=residual_channels, gate_channels=gate_channels, skip_channels=skip_channels, kernel_size=kernel_size, cin_channels=cin_channels, causal=causal))
-
-    def forward(self, z, c):
-        return self.iaf(z, c)
-
-    def iaf(self, z, c_up):
-        mu_tot, logs_tot = 0.0, 0.0
-        for i, iaf in enumerate(self.iafs):
-            mu_logs = iaf(z, c_up)
-            mu = mu_logs[:, 0:1, :-1]
-            logs = mu_logs[:, 1:, :-1]
-            mu_tot = mu_tot * torch.exp(logs) + mu
-            logs_tot = logs_tot + logs
-            z = z[:, :, 1:] * torch.exp(logs) + mu
-            z = F.pad(z, pad=(1, 0), mode='constant', value=0)
-        return z, mu_tot, logs_tot
-
-    def receptive_field(self):
-        receptive_field = 1
-        for iaf in self.iafs:
-            receptive_field += iaf.receptive_field_size() - 1
-        return receptive_field
-
-    def generate(self, z, c_up):
-        x, _, _ = self.iaf(z, c_up)
-        return x
-
-    def remove_weight_norm(self):
-        for iaf in self.iafs:
-            iaf.remove_weight_norm()
-
-
 class Wavenet_Flow(nn.Module):
 
     def __init__(self, out_channels=1, num_blocks=1, num_layers=10, front_channels=32, residual_channels=64, gate_channels=32, skip_channels=None, kernel_size=3, cin_channels=80, causal=True):
@@ -309,6 +241,78 @@ class Wavenet_Flow(nn.Module):
     def remove_weight_norm(self):
         for f in self.res_blocks:
             f.remove_weight_norm()
+
+
+class Wavenet_Student(nn.Module):
+
+    def __init__(self, num_blocks_student=[1, 1, 1, 1, 1, 1], num_layers=10, front_channels=32, residual_channels=64, gate_channels=128, skip_channels=64, kernel_size=3, cin_channels=80, causal=True):
+        super(Wavenet_Student, self).__init__()
+        self.num_blocks = num_blocks_student
+        self.num_flow = len(self.num_blocks)
+        self.num_layers = num_layers
+        self.iafs = nn.ModuleList()
+        for i in range(self.num_flow):
+            self.iafs.append(Wavenet_Flow(out_channels=2, num_blocks=self.num_blocks[i], num_layers=self.num_layers, front_channels=front_channels, residual_channels=residual_channels, gate_channels=gate_channels, skip_channels=skip_channels, kernel_size=kernel_size, cin_channels=cin_channels, causal=causal))
+
+    def forward(self, z, c):
+        return self.iaf(z, c)
+
+    def iaf(self, z, c_up):
+        mu_tot, logs_tot = 0.0, 0.0
+        for i, iaf in enumerate(self.iafs):
+            mu_logs = iaf(z, c_up)
+            mu = mu_logs[:, 0:1, :-1]
+            logs = mu_logs[:, 1:, :-1]
+            mu_tot = mu_tot * torch.exp(logs) + mu
+            logs_tot = logs_tot + logs
+            z = z[:, :, 1:] * torch.exp(logs) + mu
+            z = F.pad(z, pad=(1, 0), mode='constant', value=0)
+        return z, mu_tot, logs_tot
+
+    def receptive_field(self):
+        receptive_field = 1
+        for iaf in self.iafs:
+            receptive_field += iaf.receptive_field_size() - 1
+        return receptive_field
+
+    def generate(self, z, c_up):
+        x, _, _ = self.iaf(z, c_up)
+        return x
+
+    def remove_weight_norm(self):
+        for iaf in self.iafs:
+            iaf.remove_weight_norm()
+
+
+class WaveVAE(nn.Module):
+
+    def __init__(self):
+        super(WaveVAE, self).__init__()
+        self.encoder = Wavenet(out_channels=2, num_blocks=2, num_layers=10, residual_channels=128, gate_channels=256, skip_channels=128, kernel_size=2, cin_channels=80, upsample_scales=[16, 16])
+        self.decoder = Wavenet_Student(num_blocks_student=[1, 1, 1, 1, 1, 1], num_layers=10)
+        self.log_eps = nn.Parameter(torch.zeros(1))
+
+    def forward(self, x, c):
+        mu_logs = self.encoder(x, c)
+        mu = mu_logs[:, 0:1, :-1]
+        logs = mu_logs[:, 1:, :-1]
+        q_0 = Normal(mu.new_zeros(mu.size()), mu.new_ones(mu.size()))
+        mean_q = (x[:, :, 1:] - mu) * torch.exp(-logs)
+        z = q_0.sample() * torch.exp(self.log_eps) + mean_q
+        z_prior = q_0.sample()
+        z = F.pad(z, pad=(1, 0), mode='constant', value=0)
+        z_prior = F.pad(z_prior, pad=(1, 0), mode='constant', value=0)
+        c_up = self.encoder.upsample(c)
+        x_rec, mu_p, log_p = self.decoder(z, c_up)
+        x_prior = self.decoder.generate(z_prior, c_up)
+        loss_recon = -0.5 * (-log(2.0 * pi) - 2.0 * log_p - torch.pow(x[:, :, 1:] - mu_p, 2) * torch.exp(-2.0 * log_p))
+        loss_kl = 0.5 * (mean_q ** 2 + torch.exp(self.log_eps) ** 2 - 1) - self.log_eps
+        return x_rec, x_prior, loss_recon.mean(), loss_kl.mean()
+
+    def generate(self, z, c):
+        c_up = self.encoder.upsample(c)
+        x_sample = self.decoder.generate(z, c_up)
+        return x_sample
 
 
 import torch

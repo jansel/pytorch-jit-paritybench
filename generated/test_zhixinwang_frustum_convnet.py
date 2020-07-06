@@ -27,6 +27,7 @@ rbbox_iou_torch = _module
 setup = _module
 query_depth_point = _module
 query_depth_point = _module
+setup = _module
 test = _module
 train = _module
 test_net_det = _module
@@ -35,20 +36,22 @@ utils = _module
 box_util = _module
 logger = _module
 training_states = _module
+utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -65,10 +68,22 @@ import numpy as np
 import torch
 
 
+import logging
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data.dataloader import default_collate
+
+
 import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+import warnings
 
 
 from torch import nn
@@ -77,10 +92,13 @@ from torch import nn
 from torch.autograd import Function
 
 
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
 import random as pyrandom
-
-
-import logging
 
 
 import torch.optim as optim
@@ -150,6 +168,51 @@ def Conv2d(i_c, o_c, k, s=1, p=0, bn=True):
         return nn.Sequential(nn.Conv2d(i_c, o_c, k, s, p), nn.ReLU(True))
 
 
+class _query_depth_point(Function):
+
+    @staticmethod
+    def forward(ctx, dis_z, nsample, xyz1, xyz2):
+        """
+        Input:
+            dis_z: float32, depth distance search distance
+            nsample: int32, number of points selected in each ball region
+            xyz1: (batch_size, 3, ndataset) float32 array, input points
+            xyz2: (batch_size, 3, npoint) float32 array, query points
+        Output:
+            idx: (batch_size, npoint, nsample) int32 array, indices to input points
+            pts_cnt: (batch_size, npoint) int32 array, number of unique points in each local region
+        """
+        assert xyz1.is_cuda and xyz1.size(1) == 3
+        assert xyz2.is_cuda and xyz2.size(1) == 3
+        assert xyz1.size(0) == xyz2.size(0)
+        assert xyz1.is_contiguous()
+        assert xyz2.is_contiguous()
+        xyz1 = xyz1.permute(0, 2, 1).contiguous()
+        xyz2 = xyz2.permute(0, 2, 1).contiguous()
+        b = xyz1.size(0)
+        n = xyz1.size(1)
+        m = xyz2.size(1)
+        idx = xyz1.new(b, m, nsample).long().zero_()
+        pts_cnt = xyz1.new(b, m).int().zero_()
+        query_depth_point_cuda.forward(b, n, m, dis_z, nsample, xyz1, xyz2, idx, pts_cnt)
+        return idx, pts_cnt
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return (None,) * 6
+
+
+class QueryDepthPoint(nn.Module):
+
+    def __init__(self, dis_z, nsample):
+        super(QueryDepthPoint, self).__init__()
+        self.dis_z = dis_z
+        self.nsample = nsample
+
+    def forward(self, xyz1, xyz2):
+        return _query_depth_point.apply(self.dis_z, self.nsample, xyz1, xyz2)
+
+
 def init_params(m, method='constant'):
     """
     method: xavier_uniform, kaiming_normal, constant
@@ -215,9 +278,6 @@ class PointNetModule(nn.Module):
         valid = (num > 0).view(batch_size, 1, -1, 1)
         grouped_feature = grouped_feature * valid.float()
         return grouped_feature
-
-
-_global_config['DATA'] = 4
 
 
 class PointNetFeat(nn.Module):
@@ -365,17 +425,24 @@ def center_encode(gt, ex):
     return gt - ex
 
 
-def get_accuracy(output, target, ignore=None):
+def get_accuracy(output, target, topk=(1,), ignore=None):
+    """Computes the precision@k for the specified values of k"""
+    maxk = max(topk)
     assert output.shape[0] == target.shape[0]
     if ignore is not None:
         assert isinstance(ignore, int)
         keep = (target != ignore).nonzero().view(-1)
         output = output[keep]
         target = target[keep]
-    pred = torch.argmax(output, -1)
-    correct = (pred.view(-1) == target.view(-1)).float().sum()
-    acc = correct * (1.0 / target.view(-1).shape[0])
-    return acc
+    batch_size = target.size(0)
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+        res.append(correct_k.mul_(1.0 / batch_size))
+    return res
 
 
 def get_box3d_corners_helper(centers, headings, sizes):
@@ -420,21 +487,21 @@ def boxes3d2corners(boxes_3d):
     w = boxes_3d[:, (4)]
     h = boxes_3d[:, (5)]
     headings = boxes_3d[:, (6)]
-    x_corners = np.stack([l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2], 1)
-    y_corners = np.stack([h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h / 2, -h / 2], 1)
-    z_corners = np.stack([w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2], 1)
-    corners = np.stack([x_corners, y_corners, z_corners], 1)
-    c = np.cos(headings)
-    s = np.sin(headings)
-    ones = np.ones(N, dtype=boxes_3d.dtype)
-    zeros = np.zeros(N, dtype=boxes_3d.dtype)
-    row1 = np.stack([c, zeros, s], 1)
-    row2 = np.stack([zeros, ones, zeros], 1)
-    row3 = np.stack([-s, zeros, c], 1)
-    R = np.stack([row1, row2, row3], 1)
-    corners_3d = np.einsum('bij,bjk->bik', R, corners)
-    corners_3d = corners_3d + np.expand_dims(centers, 2)
-    corners_3d = np.transpose(corners_3d, (0, 2, 1))
+    x_corners = torch.stack([l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2], 1)
+    y_corners = torch.stack([h / 2, h / 2, h / 2, h / 2, -h / 2, -h / 2, -h / 2, -h / 2], 1)
+    z_corners = torch.stack([w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2], 1)
+    corners = torch.stack([x_corners, y_corners, z_corners], 1)
+    c = torch.cos(headings)
+    s = torch.sin(headings)
+    ones = boxes_3d.new(N).fill_(1)
+    zeros = boxes_3d.new(N).fill_(0)
+    row1 = torch.stack([c, zeros, s], 1)
+    row2 = torch.stack([zeros, ones, zeros], 1)
+    row3 = torch.stack([-s, zeros, c], 1)
+    R = torch.stack([row1, row2, row3], 1)
+    corners_3d = torch.bmm(R, corners)
+    corners_3d = corners_3d + centers.unsqueeze(-1)
+    corners_3d = corners_3d.transpose(2, 1)
     return corners_3d
 
 
@@ -472,12 +539,6 @@ def softmax_focal_loss_ignore(prob, target, alpha=0.25, gamma=2, ignore_idx=-1):
     loss = -alpha_t * (1 - prob_t) ** gamma * torch.log(prob_t + 1e-14)
     loss = loss.sum() / (num_fg + 1e-14)
     return loss
-
-
-_global_config['LOSS'] = 4
-
-
-_global_config['IOU_THRESH'] = 4
 
 
 class PointNetDet(nn.Module):
@@ -638,49 +699,4 @@ class PointNetDet(nn.Module):
         losses = {'total_loss': loss, 'cls_loss': cls_loss, 'center_loss': center_loss, 'head_cls_loss': heading_class_loss, 'head_res_loss': heading_res_norm_loss, 'size_cls_loss': size_class_loss, 'size_res_loss': size_res_norm_loss, 'corners_loss': corners_loss}
         metrics = {'cls_acc': cls_prec, 'head_acc': heading_prec, 'size_acc': size_prec, 'IoU_2D': iou2d_mean, 'IoU_3D': iou3d_mean, ('IoU_' + str(cfg.IOU_THRESH)): iou3d_gt_mean}
         return losses, metrics
-
-
-class _query_depth_point(Function):
-
-    @staticmethod
-    def forward(ctx, dis_z, nsample, xyz1, xyz2):
-        """
-        Input:
-            dis_z: float32, depth distance search distance
-            nsample: int32, number of points selected in each ball region
-            xyz1: (batch_size, 3, ndataset) float32 array, input points
-            xyz2: (batch_size, 3, npoint) float32 array, query points
-        Output:
-            idx: (batch_size, npoint, nsample) int32 array, indices to input points
-            pts_cnt: (batch_size, npoint) int32 array, number of unique points in each local region
-        """
-        assert xyz1.is_cuda and xyz1.size(1) == 3
-        assert xyz2.is_cuda and xyz2.size(1) == 3
-        assert xyz1.size(0) == xyz2.size(0)
-        assert xyz1.is_contiguous()
-        assert xyz2.is_contiguous()
-        xyz1 = xyz1.permute(0, 2, 1).contiguous()
-        xyz2 = xyz2.permute(0, 2, 1).contiguous()
-        b = xyz1.size(0)
-        n = xyz1.size(1)
-        m = xyz2.size(1)
-        idx = xyz1.new(b, m, nsample).long().zero_()
-        pts_cnt = xyz1.new(b, m).int().zero_()
-        query_depth_point_cuda.forward(b, n, m, dis_z, nsample, xyz1, xyz2, idx, pts_cnt)
-        return idx, pts_cnt
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return (None,) * 6
-
-
-class QueryDepthPoint(nn.Module):
-
-    def __init__(self, dis_z, nsample):
-        super(QueryDepthPoint, self).__init__()
-        self.dis_z = dis_z
-        self.nsample = nsample
-
-    def forward(self, xyz1, xyz2):
-        return _query_depth_point.apply(self.dis_z, self.nsample, xyz1, xyz2)
 

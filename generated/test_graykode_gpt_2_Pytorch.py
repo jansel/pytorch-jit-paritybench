@@ -12,15 +12,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -41,6 +42,12 @@ from torch.nn.parameter import Parameter
 
 
 import torch.nn.functional as F
+
+
+import random
+
+
+import numpy as np
 
 
 class LayerNorm(nn.Module):
@@ -272,6 +279,14 @@ TESTCASES = [
      lambda: ([], {'nf': 4, 'nx': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (GPT2LMHeadModel,
+     lambda: ([], {'config': _mock_config(n_layer=1, n_embd=4, vocab_size=4, n_positions=4, n_ctx=4, layer_norm_epsilon=1, n_head=4)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+    (GPT2Model,
+     lambda: ([], {'config': _mock_config(n_layer=1, n_embd=4, vocab_size=4, n_positions=4, n_ctx=4, layer_norm_epsilon=1, n_head=4)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
     (LayerNorm,
      lambda: ([], {'hidden_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -297,4 +312,10 @@ class Test_graykode_gpt_2_Pytorch(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

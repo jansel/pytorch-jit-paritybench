@@ -32,19 +32,24 @@ integrate = _module
 interpreter = _module
 jax = _module
 distributions = _module
+ops = _module
 joint = _module
 memoize = _module
+minipyro = _module
 montecarlo = _module
+ops = _module
 optimizer = _module
 pyro = _module
 convert = _module
+distribution = _module
 hmm = _module
 registry = _module
 sum_product = _module
 tensor = _module
 terms = _module
 testing = _module
-torch = _module
+distributions = _module
+ops = _module
 util = _module
 update_headers = _module
 setup = _module
@@ -61,6 +66,7 @@ test_affine = _module
 test_alpha_conversion = _module
 test_cnf = _module
 test_delta = _module
+test_distribution = _module
 test_einsum = _module
 test_gaussian = _module
 test_import = _module
@@ -78,38 +84,48 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import time
 
 
 from collections import OrderedDict
 
 
-import numpy as np
-
-
 import torch
+
+
+import time
+
+
+import numpy as np
 
 
 import torch.nn as nn
 
 
-import itertools
+from torch.distributions import constraints
+
+
+import functools
+
+
+import uuid
 
 
 import math
+
+
+import itertools
 
 
 from torch.optim import Adam
@@ -133,10 +149,55 @@ from torchvision import datasets
 from torchvision import transforms
 
 
-import functools
+from collections import defaultdict
+
+
+from functools import reduce
+
+
+from typing import Tuple
+
+
+from typing import Union
+
+
+from torch import ones
+
+
+from torch import randn
+
+
+from torch import tensor
+
+
+from torch import zeros
 
 
 import inspect
+
+
+import typing
+
+
+import numpy as onp
+
+
+import warnings
+
+
+from collections import namedtuple
+
+
+from numbers import Number
+
+
+import numbers
+
+
+from collections import Hashable
+
+
+from functools import singledispatch
 
 
 import re
@@ -162,6 +223,50 @@ class lazy_property(object):
         value = self.fn(obj)
         setattr(obj, self.fn.__name__, value)
         return value
+
+
+class Domain(namedtuple('Domain', ['shape', 'dtype'])):
+    """
+    An object representing the type and shape of a :class:`Funsor` input or
+    output.
+    """
+
+    def __new__(cls, shape, dtype):
+        assert isinstance(shape, tuple)
+        if get_tracing_state():
+            shape = tuple(map(int, shape))
+        assert all(isinstance(size, int) for size in shape), shape
+        if isinstance(dtype, int):
+            assert not shape
+        elif isinstance(dtype, str):
+            assert dtype == 'real'
+        else:
+            raise ValueError(repr(dtype))
+        return super(Domain, cls).__new__(cls, shape, dtype)
+
+    def __repr__(self):
+        shape = tuple(self.shape)
+        if isinstance(self.dtype, int):
+            if not shape:
+                return 'bint({})'.format(self.dtype)
+            return 'bint({}, {})'.format(self.dtype, shape)
+        if not shape:
+            return 'reals()'
+        return 'reals{}'.format(shape)
+
+    def __iter__(self):
+        if isinstance(self.dtype, int) and not self.shape:
+            return (Number(i, self.dtype) for i in range(self.dtype))
+        raise NotImplementedError
+
+    @lazy_property
+    def num_elements(self):
+        return reduce(operator.mul, self.shape, 1)
+
+    @property
+    def size(self):
+        assert isinstance(self.dtype, int)
+        return self.dtype
 
 
 def broadcast_shape(*shapes, **kwargs):
@@ -315,7 +420,7 @@ def debug_interpret(cls, *args):
         typenames = [_classname(cls)] + [_classname(type(arg)) for arg in args]
     else:
         typenames = [cls.__name__] + [type(arg).__name__ for arg in args]
-    print(indent + ' '.join(typenames))
+    None
     _STACK_SIZE += 1
     try:
         result = _INTERPRETATION(cls, *args)
@@ -325,7 +430,7 @@ def debug_interpret(cls, *args):
         result_str = re.sub('\n', '\n          ' + indent, str(result))
     else:
         result_str = type(result).__name__
-    print(indent + '-> ' + result_str)
+    None
     return result
 
 
@@ -424,6 +529,22 @@ class GetitemMeta(type):
             return instance
 
 
+@singledispatch
+def to_funsor(x, output=None, dim_to_name=None, **kwargs):
+    """
+    Convert to a :class:`Funsor` .
+    Only :class:`Funsor` s and scalars are accepted.
+
+    :param x: An object.
+    :param funsor.domains.Domain output: An optional output hint.
+    :param OrderedDict dim_to_name: An optional mapping from negative batch dimensions to name strings.
+    :return: A Funsor equivalent to ``x``.
+    :rtype: Funsor
+    :raises: ValueError
+    """
+    raise ValueError('Cannot convert to Funsor: {}'.format(repr(x)))
+
+
 class SubsMeta(FunsorMeta):
     """
     Wrapper to call :func:`to_funsor` and check types.
@@ -498,183 +619,6 @@ def _logaddexp(x, y):
 
 
 _builtin_min = min
-
-
-class NumberMeta(FunsorMeta):
-    """
-    Wrapper to fill in default ``dtype``.
-    """
-
-    def __call__(cls, data, dtype=None):
-        if dtype is None:
-            dtype = 'real'
-        return super(NumberMeta, cls).__call__(data, dtype)
-
-
-def get_backend():
-    """
-    Get the current backend of Funsor.
-
-    :return: either "numpy", "torch", or "jax".
-    :rtype: str
-    """
-    return _FUNSOR_BACKEND
-
-
-def get_default_prototype():
-    backend = get_backend()
-    if backend == 'torch':
-        import torch
-        return torch.tensor([])
-    else:
-        return np.array([])
-
-
-def numeric_array(x, dtype=None, device=None):
-    backend = get_backend()
-    if backend == 'torch':
-        import torch
-        return torch.tensor(x, dtype=dtype, device=device)
-    else:
-        return np.array(x, dtype=dtype)
-
-
-def numbers_to_tensors(*args):
-    """
-    Convert :class:`~funsor.terms.Number`s to :class:`funsor.tensor.Tensor`s,
-    using any provided tensor as a prototype, if available.
-    """
-    if any(isinstance(x, Number) for x in args):
-        prototype = get_default_prototype()
-        options = dict(dtype=prototype.dtype)
-        for x in args:
-            if isinstance(x, Tensor):
-                options = dict(dtype=x.data.dtype, device=getattr(x.data, 'device', None))
-                break
-        with ignore_jit_warnings():
-            args = tuple(Tensor(numeric_array(x.data, **options), dtype=x.dtype) if isinstance(x, Number) else x for x in args)
-    return args
-
-
-class DistributionMeta(FunsorMeta):
-    """
-    Wrapper to fill in default values and convert Numbers to Tensors.
-    """
-
-    def __call__(cls, *args, **kwargs):
-        kwargs.update(zip(cls._ast_fields, args))
-        value = kwargs.pop('value', 'value')
-        kwargs = OrderedDict((k, to_funsor(kwargs[k], output=cls._infer_param_domain(k, getattr(kwargs[k], 'shape', ())))) for k in cls._ast_fields if k != 'value')
-        value = to_funsor(value, output=cls._infer_value_domain(**{k: v.output for k, v in kwargs.items()}))
-        args = numbers_to_tensors(*(tuple(kwargs.values()) + (value,)))
-        return super(DistributionMeta, cls).__call__(*args)
-
-
-def align_tensor(new_inputs, x, expand=False):
-    """
-    Permute and add dims to a tensor to match desired ``new_inputs``.
-
-    :param OrderedDict new_inputs: A target set of inputs.
-    :param funsor.terms.Funsor x: A :class:`Tensor` or
-        :class:`~funsor.terms.Number` .
-    :param bool expand: If False (default), set result size to 1 for any input
-        of ``x`` not in ``new_inputs``; if True expand to ``new_inputs`` size.
-    :return: a number or :class:`torch.Tensor` or :class:`np.ndarray` that can be broadcast to other
-        tensors with inputs ``new_inputs``.
-    :rtype: int or float or torch.Tensor or np.ndarray
-    """
-    assert isinstance(new_inputs, OrderedDict)
-    assert isinstance(x, (Number, Tensor))
-    assert all(isinstance(d.dtype, int) for d in x.inputs.values())
-    data = x.data
-    if isinstance(x, Number):
-        return data
-    old_inputs = x.inputs
-    if old_inputs == new_inputs:
-        return data
-    x_keys = tuple(old_inputs)
-    data = ops.permute(data, tuple(x_keys.index(k) for k in new_inputs if k in old_inputs) + tuple(range(len(old_inputs), len(data.shape))))
-    data = data.reshape(tuple(old_inputs[k].dtype if k in old_inputs else 1 for k in new_inputs) + x.output.shape)
-    if expand:
-        data = ops.expand(data, tuple(d.dtype for d in new_inputs.values()) + x.output.shape)
-    return data
-
-
-def align_tensors(*args, **kwargs):
-    """
-    Permute multiple tensors before applying a broadcasted op.
-
-    This is mainly useful for implementing eager funsor operations.
-
-    :param funsor.terms.Funsor \\*args: Multiple :class:`Tensor` s and
-        :class:`~funsor.terms.Number` s.
-    :param bool expand: Whether to expand input tensors. Defaults to False.
-    :return: a pair ``(inputs, tensors)`` where tensors are all
-        :class:`torch.Tensor` s or :class:`np.ndarray` s
-        that can be broadcast together to a single data
-        with given ``inputs``.
-    :rtype: tuple
-    """
-    expand = kwargs.pop('expand', False)
-    assert not kwargs
-    inputs = OrderedDict()
-    for x in args:
-        inputs.update(x.inputs)
-    tensors = [align_tensor(inputs, x, expand=expand) for x in args]
-    return inputs, tensors
-
-
-def dummy_numeric_array(domain):
-    value = 0.1 if domain.dtype == 'real' else 1
-    return ops.expand(numeric_array(value), domain.shape) if domain.shape else value
-
-
-PYRO_STACK = []
-
-
-def tensor_to_funsor(value, cond_indep_stack, output):
-    assert isinstance(value, torch.Tensor)
-    event_shape = output.shape
-    batch_shape = value.shape[:value.dim() - len(event_shape)]
-    if torch._C._get_tracing_state():
-        with funsor.tensor.ignore_jit_warnings():
-            batch_shape = tuple(map(int, batch_shape))
-    inputs = OrderedDict()
-    data = value
-    for dim, size in enumerate(batch_shape):
-        if size == 1:
-            data = data.squeeze(dim - value.dim())
-        else:
-            frame = cond_indep_stack[dim - len(batch_shape)]
-            assert size == frame.size, (size, frame)
-            inputs[frame.name] = funsor.bint(int(size))
-    value = funsor.tensor.Tensor(data, inputs, output.dtype)
-    assert value.output == output
-    return value
-
-
-def apply_stack(msg):
-    for pointer, handler in enumerate(reversed(PYRO_STACK)):
-        handler.process_message(msg)
-        if msg.get('stop'):
-            break
-    if msg['value'] is None:
-        msg['value'] = msg['fn'](*msg['args'])
-    if isinstance(msg['value'], torch.Tensor):
-        msg['value'] = tensor_to_funsor(msg['value'], msg['cond_indep_stack'], msg['output'])
-    for handler in PYRO_STACK[-pointer - 1:]:
-        handler.postprocess_message(msg)
-    return msg
-
-
-def sample(name, fn, obs=None, infer=None):
-    fn = Distribution(fn)
-    if not PYRO_STACK:
-        return fn()
-    initial_msg = {'type': 'sample', 'name': name, 'fn': fn, 'args': (), 'value': obs, 'cond_indep_stack': {}, 'output': fn.output, 'infer': {} if infer is None else infer}
-    msg = apply_stack(initial_msg)
-    assert isinstance(msg['value'], funsor.Funsor)
-    return msg['value']
 
 
 def _find_intervals(intervals, end):
@@ -887,6 +831,12 @@ def _vv(vec1, vec2):
     return ops.matmul(ops.unsqueeze(vec1, -2), ops.unsqueeze(vec2, -1)).squeeze(-1).squeeze(-1)
 
 
+@singledispatch
+def _affine_inputs(fn):
+    assert isinstance(fn, Funsor)
+    return frozenset()
+
+
 def affine_inputs(fn):
     """
     Returns a [sound sub]set of real inputs of ``fn``
@@ -900,6 +850,36 @@ def affine_inputs(fn):
     if result is None:
         result = fn._affine_inputs = _affine_inputs(fn)
     return result
+
+
+def align_tensor(new_inputs, x, expand=False):
+    """
+    Permute and add dims to a tensor to match desired ``new_inputs``.
+
+    :param OrderedDict new_inputs: A target set of inputs.
+    :param funsor.terms.Funsor x: A :class:`Tensor` or
+        :class:`~funsor.terms.Number` .
+    :param bool expand: If False (default), set result size to 1 for any input
+        of ``x`` not in ``new_inputs``; if True expand to ``new_inputs`` size.
+    :return: a number or :class:`torch.Tensor` or :class:`np.ndarray` that can be broadcast to other
+        tensors with inputs ``new_inputs``.
+    :rtype: int or float or torch.Tensor or np.ndarray
+    """
+    assert isinstance(new_inputs, OrderedDict)
+    assert isinstance(x, (Number, Tensor))
+    assert all(isinstance(d.dtype, int) for d in x.inputs.values())
+    data = x.data
+    if isinstance(x, Number):
+        return data
+    old_inputs = x.inputs
+    if old_inputs == new_inputs:
+        return data
+    x_keys = tuple(old_inputs)
+    data = ops.permute(data, tuple(x_keys.index(k) for k in new_inputs if k in old_inputs) + tuple(range(len(old_inputs), len(data.shape))))
+    data = data.reshape(tuple(old_inputs[k].dtype if k in old_inputs else 1 for k in new_inputs) + x.output.shape)
+    if expand:
+        data = ops.expand(data, tuple(d.dtype for d in new_inputs.values()) + x.output.shape)
+    return data
 
 
 def align_gaussian(new_inputs, old):
@@ -945,6 +925,30 @@ def align_gaussian(new_inputs, old):
     return info_vec, precision
 
 
+def align_tensors(*args, **kwargs):
+    """
+    Permute multiple tensors before applying a broadcasted op.
+
+    This is mainly useful for implementing eager funsor operations.
+
+    :param funsor.terms.Funsor \\*args: Multiple :class:`Tensor` s and
+        :class:`~funsor.terms.Number` s.
+    :param bool expand: Whether to expand input tensors. Defaults to False.
+    :return: a pair ``(inputs, tensors)`` where tensors are all
+        :class:`torch.Tensor` s or :class:`np.ndarray` s
+        that can be broadcast together to a single data
+        with given ``inputs``.
+    :rtype: tuple
+    """
+    expand = kwargs.pop('expand', False)
+    assert not kwargs
+    inputs = OrderedDict()
+    for x in args:
+        inputs.update(x.inputs)
+    tensors = [align_tensor(inputs, x, expand=expand) for x in args]
+    return inputs, tensors
+
+
 def gensym(x=None):
     global _GENSYM_COUNTER
     _GENSYM_COUNTER += 1
@@ -954,6 +958,25 @@ def gensym(x=None):
             return x + '_' + str(sym)
         return id(x)
     return 'V' + str(sym)
+
+
+def get_backend():
+    """
+    Get the current backend of Funsor.
+
+    :return: either "numpy", "torch", or "jax".
+    :rtype: str
+    """
+    return _FUNSOR_BACKEND
+
+
+def get_default_prototype():
+    backend = get_backend()
+    if backend == 'torch':
+        import torch
+        return torch.tensor([])
+    else:
+        return np.array([])
 
 
 def extract_affine(fn):
@@ -1065,6 +1088,22 @@ def default_name_to_dim(event_inputs):
     return dict(zip(dim_to_name, range(-len(dim_to_name), 0)))
 
 
+@singledispatch
+def to_data(x, name_to_dim=None, **kwargs):
+    """
+    Extract a python object from a :class:`Funsor`.
+
+    Raises a ``ValueError`` if free variables remain or if the funsor is lazy.
+
+    :param x: An object, possibly a :class:`Funsor`.
+    :param OrderedDict name_to_dim: An optional inputs hint.
+    :return: A non-funsor equivalent to ``x``.
+    :raises: ValueError if any free variables remain.
+    :raises: PatternMissingError if funsor is not fully evaluated.
+    """
+    return x
+
+
 def funsor_to_cat_and_mvn(funsor_, ndims, event_inputs):
     """
     Converts a labeled gaussian mixture model to a pair of distributions.
@@ -1111,6 +1150,31 @@ def funsor_to_mvn(gaussian, ndims, event_inputs=()):
     if ndims != len(result.batch_shape):
         result = result.expand((1,) * (ndims - len(result.batch_shape)) + result.batch_shape)
     return result
+
+
+@to_funsor.register(np.ndarray)
+@to_funsor.register(np.generic)
+def tensor_to_funsor(x, output=None, dim_to_name=None):
+    if not dim_to_name:
+        output = output if output is not None else reals(*x.shape)
+        result = Tensor(x, dtype=output.dtype)
+        if result.output != output:
+            raise ValueError('Invalid shape: expected {}, actual {}'.format(output.shape, result.output.shape))
+        return result
+    else:
+        assert all(isinstance(k, int) and k < 0 and isinstance(v, str) for k, v in dim_to_name.items())
+        if output is None:
+            batch_ndims = min(-min(dim_to_name.keys()), len(x.shape))
+            output = reals(*x.shape[batch_ndims:])
+        packed_inputs = OrderedDict()
+        for dim, size in zip(range(len(x.shape) - len(output.shape)), x.shape):
+            name = dim_to_name.get(dim + len(output.shape) - len(x.shape), None)
+            if name is not None and size > 1:
+                packed_inputs[name] = bint(size)
+        shape = tuple(d.size for d in packed_inputs.values()) + output.shape
+        if x.shape != shape:
+            x = x.reshape(shape)
+        return Tensor(x, packed_inputs, dtype=output.dtype)
 
 
 def matrix_and_mvn_to_funsor(matrix, mvn, event_dims=(), x_name='value_x', y_name='value_y'):

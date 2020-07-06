@@ -57,35 +57,81 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import logging
 
 
 import torch
 
 
-import warnings
-
-
 import torch.distributed as dist
+
+
+from torch import _C
+
+
+from torch.cuda import _lazy_call
+
+
+from torch.cuda import device as device_ctx_manager
+
+
+import logging
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import RandomSampler
+
+
+from torch.utils.data.distributed import DistributedSampler
+
+
+import types
+
+
+import warnings
 
 
 from torch.nn.modules import Module
 
 
 from torch.distributed.distributed_c10d import _get_global_rank
+
+
+from torch.optim import Optimizer
+
+
+from typing import Union
+
+
+from typing import List
+
+
+import math
+
+
+import collections
+
+
+from copy import deepcopy
+
+
+import torch.cuda
+
+
+import time
 
 
 from torch._six import inf
@@ -97,16 +143,28 @@ from torch._utils import _flatten_dense_tensors
 from torch._utils import _unflatten_dense_tensors
 
 
-import math
-
-
 from torch.autograd import Variable
 
 
 from collections import defaultdict
 
 
-from torch.utils.data.distributed import DistributedSampler
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.multiprocessing import Process
+
+
+import numbers
+
+
+import random
+
+
+import numpy as np
 
 
 ADAM_OPTIMIZER = 'adam'
@@ -814,7 +872,7 @@ class DeepSpeedConfig(object):
             self.gradient_accumulation_steps = 1
         else:
             assert False, 'Either train_batch_size or micro_batch_per_gpu needs to be provided'
-        print(f' After Train batch {self.train_batch_size} micro_batch {self.train_micro_batch_size_per_gpu} and grad_acc {self.gradient_accumulation_steps}')
+        None
 
     def _configure_train_batch_size(self):
         self._set_batch_related_parameters()
@@ -825,12 +883,12 @@ class DeepSpeedConfig(object):
         self._do_warning_check()
 
     def print(self, name):
-        print('{}:'.format(name), flush=True)
+        None
         for arg in sorted(vars(self)):
             if arg != '_param_dict':
                 dots = '.' * (29 - len(arg))
-                print('  {} {} {}'.format(arg, dots, getattr(self, arg)), flush=True)
-        print('  json = {}'.format(json.dumps(self._param_dict, sort_keys=True, indent=4, separators=(',', ':'))))
+                None
+        None
 
     def _do_error_check(self):
         if self.zero_enabled:
@@ -1037,7 +1095,7 @@ def _handle_overflow(cpu_sum, x, i):
             if not math.isfinite(float(v)):
                 t_i = v_i
                 break
-        print(f'rank {rank} detected overflow {cpu_sum} in tensor {i}:{t_i} shape {x.shape}')
+        None
 
 
 def flatten_dense_tensors_aligned(tensor_list, alignment, pg):
@@ -1071,12 +1129,12 @@ def see_memory_usage(message):
     return
     if torch.distributed.is_initialized() and not torch.distributed.get_rank() == 0:
         return
-    print(message, flush=True)
-    print('Memory Allocated ', torch.cuda.memory_allocated() / (1024 * 1024 * 1024), 'GigaBytes', flush=True)
-    print('Max Memory Allocated ', torch.cuda.max_memory_allocated() / (1024 * 1024 * 1024), 'GigaBytes', flush=True)
-    print('Cache Allocated ', torch.cuda.memory_cached() / (1024 * 1024 * 1024), 'GigaBytes', flush=True)
-    print('Max cache Allocated ', torch.cuda.max_memory_cached() / (1024 * 1024 * 1024), 'GigaBytes', flush=True)
-    print(' ', flush=True)
+    None
+    None
+    None
+    None
+    None
+    None
 
 
 def split_half_float_double(tensors):
@@ -1103,8 +1161,8 @@ class FP16_DeepSpeedZeroOptimizer(object):
 
     def __init__(self, init_optimizer, timers, static_loss_scale=1.0, dynamic_loss_scale=False, dynamic_loss_args=None, verbose=True, contiguous_gradients=True, reduce_bucket_size=500000000, allgather_bucket_size=5000000000, dp_process_group=None, reduce_scatter=True, overlap_comm=False, mpu=None, clip_grad=0.0):
         if dist.get_rank() == 0:
-            print(f'Reduce bucket size {reduce_bucket_size}')
-            print(f'Allgather bucket size {allgather_bucket_size}')
+            None
+            None
         if not torch.cuda.is_available:
             raise SystemError('Cannot use fp16 without CUDA.')
         self.optimizer = init_optimizer
@@ -1136,11 +1194,11 @@ class FP16_DeepSpeedZeroOptimizer(object):
             see_memory_usage(f'Before moving param group {i} to CPU')
             move_to_cpu(self.fp16_groups[i])
             see_memory_usage(f'After moving param group {i} to CPU')
-            self.fp16_groups_flat.append(flatten_dense_tensors_aligned(self.fp16_groups[i], dist.get_world_size(group=self.dp_process_group), self.dp_process_group).cuda(torch.cuda.current_device()))
+            self.fp16_groups_flat.append(flatten_dense_tensors_aligned(self.fp16_groups[i], dist.get_world_size(group=self.dp_process_group), self.dp_process_group))
             see_memory_usage(f'After flattening and moving param group {i} to GPU')
             if dist.get_rank(group=self.dp_process_group) == 0:
                 see_memory_usage(f'After Flattening and after emptying param group {i} cache')
-                print('')
+                None
             updated_params = _unflatten_dense_tensors(self.fp16_groups_flat[i], self.fp16_groups[i])
             for p, q in zip(self.fp16_groups[i], updated_params):
                 p.data = q.data
@@ -1210,10 +1268,10 @@ class FP16_DeepSpeedZeroOptimizer(object):
         self.initialize_optimizer_states()
         see_memory_usage('After initializing optimizer states')
         if dist.get_rank() == 0:
-            print(f'optimizer state initialized')
+            None
         if dist.get_rank(group=self.dp_process_group) == 0:
             see_memory_usage(f'After initializing ZeRO optimizer')
-            print('')
+            None
 
     def _release_ipg_buffers(self):
         if self.contiguous_gradients:
@@ -1223,7 +1281,7 @@ class FP16_DeepSpeedZeroOptimizer(object):
 
     def initialize_optimizer_states(self):
         for i, group in enumerate(self.fp16_groups):
-            single_grad_partition = torch.zeros(int(self.partition_size[i]), dtype=self.single_partition_of_fp32_groups[i].dtype).cuda()
+            single_grad_partition = torch.zeros(int(self.partition_size[i]), dtype=self.single_partition_of_fp32_groups[i].dtype)
             self.single_partition_of_fp32_groups[i].grad = single_grad_partition
         self.optimizer.step()
         for group in self.single_partition_of_fp32_groups:
@@ -1363,7 +1421,7 @@ class FP16_DeepSpeedZeroOptimizer(object):
 
     def print_rank_0(self, message):
         if dist.get_rank() == 0:
-            print(message)
+            None
 
     def average_tensor(self, tensor):
         if self.overlap_comm:
@@ -1418,7 +1476,7 @@ class FP16_DeepSpeedZeroOptimizer(object):
                 for param_in_partition in group:
                     total_size += param_in_partition.numel()
             see_memory_usage(f'before copying {total_size} gradients into partition')
-            self.grads_in_partition = torch.empty(int(total_size), dtype=torch.half).cuda()
+            self.grads_in_partition = torch.empty(int(total_size), dtype=torch.half)
             see_memory_usage(f'after copying {total_size} gradients into partition')
         new_grad_tensor = self.grads_in_partition.narrow(0, self.grads_in_partition_offset, param.numel())
         new_grad_tensor.copy_(param.grad.view(-1))
@@ -1468,7 +1526,7 @@ class FP16_DeepSpeedZeroOptimizer(object):
         flatten_tensor = _flatten_dense_tensors(tensors)
 
         def print_func():
-            print(flatten_tensor.contiguous().view(-1).narrow(0, start, n))
+            None
         self.sequential_execution(print_func, message)
 
     def get_grads_to_reduce(self, i, partition_id):
@@ -1497,7 +1555,7 @@ class FP16_DeepSpeedZeroOptimizer(object):
         if group is None:
             group = self.dp_process_group
         if dist.get_rank(group=group) == 0:
-            print(message)
+            None
         for id in range(dist.get_world_size(group=group)):
             if id == dist.get_rank(group=group):
                 function()
@@ -1637,7 +1695,7 @@ class FP16_DeepSpeedZeroOptimizer(object):
         norm_type = float(norm_type)
         if norm_type == inf:
             total_norm = max(g.data.abs().max() for g in gradients)
-            total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
+            total_norm_cuda = torch.FloatTensor([float(total_norm)])
             torch.distributed.all_reduce(total_norm_cuda, op=torch.distributed.ReduceOp.MAX, group=self.dp_process_group)
             self._model_parallel_all_reduce(tensor=total_norm_cuda, op=torch.distributed.ReduceOp.MAX)
             total_norm = total_norm_cuda[0].item()
@@ -1647,7 +1705,7 @@ class FP16_DeepSpeedZeroOptimizer(object):
                 if is_model_parallel_parameter(p) or self.model_parallel_rank == 0:
                     param_norm = g.data.double().norm(2)
                     total_norm += param_norm.item() ** 2
-            total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
+            total_norm_cuda = torch.FloatTensor([float(total_norm)])
             torch.distributed.all_reduce(total_norm_cuda, op=torch.distributed.ReduceOp.SUM, group=self.dp_process_group)
             self._model_parallel_all_reduce(tensor=total_norm_cuda, op=torch.distributed.ReduceOp.SUM)
             total_norm = total_norm_cuda[0].item() ** (1.0 / norm_type)
@@ -1697,7 +1755,7 @@ class FP16_DeepSpeedZeroOptimizer(object):
             see_memory_usage('After overflow before clearing gradients')
             self.zero_grad()
             see_memory_usage('After overflow after clearing gradients')
-            print('[deepscale] OVERFLOW! Rank {} Skipping step. Attempted loss scale: {}, reducing to {}'.format(dist.get_rank(), prev_scale, self.loss_scale))
+            None
             timers('optimizer_step').start()
             timers('optimizer_step').stop()
             timers('optimizer_allgather').start()
@@ -1711,9 +1769,9 @@ class FP16_DeepSpeedZeroOptimizer(object):
             norm_groups.append(self.get_grad_norm_direct(self.averaged_gradients[i], self.params_in_partition[i]))
             self.free_grad_in_param_list(self.params_not_in_partition[i])
             if partition_id == dist.get_world_size(group=self.dp_process_group) - 1:
-                single_grad_partition = flatten_dense_tensors_aligned(self.averaged_gradients[i], int(self.partition_size[i]), self.dp_process_group).to(self.single_partition_of_fp32_groups[i].dtype)
+                single_grad_partition = flatten_dense_tensors_aligned(self.averaged_gradients[i], int(self.partition_size[i]), self.dp_process_group)
             else:
-                single_grad_partition = _flatten_dense_tensors(self.averaged_gradients[i]).to(self.single_partition_of_fp32_groups[i].dtype)
+                single_grad_partition = _flatten_dense_tensors(self.averaged_gradients[i])
             assert single_grad_partition.numel() == self.partition_size[i], 'averaged gradients have different number of elements that partition size {} {} {} {}'.format(single_grad_partition.numel(), self.partition_size[i], i, partition_id)
             self.single_partition_of_fp32_groups[i].grad = single_grad_partition
             self.free_grad_in_param_list(self.params_in_partition[i])
@@ -1793,7 +1851,7 @@ class FP16_DeepSpeedZeroOptimizer(object):
     def has_overflow(self, partition_gradients=True):
         if partition_gradients:
             overflow = self.has_overflow_partitioned_grads_serial()
-            overflow_gpu = torch.cuda.ByteTensor([overflow])
+            overflow_gpu = torch.ByteTensor([overflow])
             torch.distributed.all_reduce(overflow_gpu, op=torch.distributed.ReduceOp.MAX, group=self.dp_process_group)
         else:
             params = []
@@ -1801,7 +1859,7 @@ class FP16_DeepSpeedZeroOptimizer(object):
                 for param in group:
                     params.append(param)
             overflow = self.has_overflow_serial(params, is_grad_list=partition_gradients)
-            overflow_gpu = torch.cuda.ByteTensor([overflow])
+            overflow_gpu = torch.ByteTensor([overflow])
         self._model_parallel_all_reduce(tensor=overflow_gpu, op=torch.distributed.ReduceOp.MAX)
         overflow = overflow_gpu[0].item()
         return bool(overflow)
@@ -1831,10 +1889,10 @@ class FP16_DeepSpeedZeroOptimizer(object):
         """
         if self.contiguous_gradients:
             self.ipg_buffer = []
-            buf_0 = torch.empty(self.reduce_bucket_size, dtype=torch.half).cuda()
+            buf_0 = torch.empty(self.reduce_bucket_size, dtype=torch.half)
             self.ipg_buffer.append(buf_0)
             if self.overlap_comm:
-                buf_1 = torch.empty(self.reduce_bucket_size, dtype=torch.half).cuda()
+                buf_1 = torch.empty(self.reduce_bucket_size, dtype=torch.half)
                 self.ipg_buffer.append(buf_1)
             self.ipg_index = 0
         self.loss_scaler.backward(loss.float(), retain_graph=retain_graph)
@@ -1932,7 +1990,7 @@ class CheckOverflow(object):
     def check_using_norm(self, norm_group):
         overflow = -1 in norm_group
         if self.mpu is not None:
-            overflow_gpu = torch.cuda.ByteTensor([overflow])
+            overflow_gpu = torch.ByteTensor([overflow])
             torch.distributed.all_reduce(overflow_gpu, op=torch.distributed.ReduceOp.MAX, group=self.mpu.get_model_parallel_group())
             overflow = overflow_gpu[0].item()
         return bool(overflow)
@@ -1956,7 +2014,7 @@ class CheckOverflow(object):
 
     def has_overflow(self, params):
         overflow = self.has_overflow_serial(params)
-        overflow_gpu = torch.cuda.ByteTensor([overflow])
+        overflow_gpu = torch.ByteTensor([overflow])
         if self.zero_reduce_scatter:
             torch.distributed.all_reduce(overflow_gpu, op=torch.distributed.ReduceOp.MAX, group=torch.distributed.group.WORLD)
         elif self.mpu is not None:
@@ -1983,7 +2041,7 @@ def _initialize_parameter_parallel_groups(parameter_parallel_size=None):
     data_parallel_size = int(dist.get_world_size())
     if parameter_parallel_size is None:
         parameter_parallel_size = int(data_parallel_size)
-    print(data_parallel_size, parameter_parallel_size)
+    None
     assert data_parallel_size % parameter_parallel_size == 0, 'world size should be divisible by parameter parallel size'
     rank = dist.get_rank()
     my_group = None
@@ -2020,7 +2078,7 @@ def _range_check(current_index, element_intervals, tensor_size):
 
 def pprint(msg):
     if not dist.is_initialized() or dist.get_rank() == 0:
-        print(msg)
+        None
 
 
 def flatten_dense_tensors_sub_partition_aligned(tensor_list, dp, max_elements_per_comm, pg):
@@ -2057,7 +2115,7 @@ def flatten_dense_tensors_sub_partition_aligned(tensor_list, dp, max_elements_pe
         padded_tensor_list = tensor_list + [pad_tensor]
         num_elements += elements_to_add
     if pg is None or dist.get_rank(group=pg) == 0:
-        print('Number of Elements (w. padding) is ', num_elements)
+        None
     padded_num_elems = 0
     for p in padded_tensor_list:
         padded_num_elems += p.numel()
@@ -2088,7 +2146,7 @@ def get_grad_norm(parameters, norm_type=2, mpu=None):
     norm_type = float(norm_type)
     if norm_type == inf:
         total_norm = max(p.grad.data.abs().max() for p in parameters)
-        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
+        total_norm_cuda = torch.FloatTensor([float(total_norm)])
         if mpu is not None:
             torch.distributed.all_reduce(total_norm_cuda, op=torch.distributed.ReduceOp.MAX, group=mpu.get_model_parallel_group())
         total_norm = total_norm_cuda[0].item()
@@ -2102,7 +2160,7 @@ def get_grad_norm(parameters, norm_type=2, mpu=None):
             else:
                 param_norm = p.grad.data.float().norm(norm_type)
                 total_norm += param_norm.item() ** norm_type
-        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
+        total_norm_cuda = torch.FloatTensor([float(total_norm)])
         if mpu is not None:
             torch.distributed.all_reduce(total_norm_cuda, op=torch.distributed.ReduceOp.SUM, group=mpu.get_model_parallel_group())
         total_norm = total_norm_cuda[0].item() ** (1.0 / norm_type)
@@ -2135,7 +2193,7 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
         self.all_gather_partitions = all_gather_partitions
         self.allgather_size = allgather_size
         self.max_elements_per_comm = max_elements_per_comm
-        print('max_elements_per_comm={}'.format(max_elements_per_comm))
+        None
         self.fp16_groups = []
         self.fp16_groups_flat = []
         self.parallel_sub_partitioned_fp16_groups = []
@@ -2194,14 +2252,14 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
         num_comm_intervals = int(num_sub_partitions // world_size)
         assert num_sub_partitions % world_size == 0, '{} % {} != 0'.format(num_sub_partitions, world_size)
         if not dist.is_initialized() or dist.get_rank(group=dp_process_group) == 0:
-            print('**** partition info:')
-            print('\t total_num_elements=', total_num_elements)
-            print('\t world_size=', world_size)
-            print('\t max_elements_per_comm=', max_elements_per_comm)
-            print('\t sub_partition_size=', sub_partition_size)
-            print('\t num_sub_partitions=', num_sub_partitions)
-            print('\t num_comm_intervals=', num_comm_intervals)
-            print('****')
+            None
+            None
+            None
+            None
+            None
+            None
+            None
+            None
         comm_partitions = []
         for _ in range(num_comm_intervals):
             comm_partitions.append([])
@@ -2283,9 +2341,9 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
                 if num_elements > sub_partition_size - current_size:
                     num_elements = sub_partition_size - current_size
                 if tensor_offset > 0 or num_elements < tensor.numel():
-                    flat_tensor_list.append(tensor.contiguous().view(-1).narrow(0, int(tensor_offset), int(num_elements)).to(dtype))
+                    flat_tensor_list.append(tensor.contiguous().view(-1).narrow(0, int(tensor_offset), int(num_elements)))
                 else:
-                    flat_tensor_list.append(tensor.to(dtype))
+                    flat_tensor_list.append(tensor)
                 my_params.append(param)
                 my_offsets.append((current_size, num_elements))
                 current_size = current_size + num_elements
@@ -2392,7 +2450,7 @@ class FP16_DeepSpeedZeroOptimizer_Stage1(object):
         if self.overflow:
             self.zero_grad()
             if self.verbose:
-                print('[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'.format(prev_scale, self.loss_scale))
+                None
             return self.overflow
         norm_groups = []
         local_sub_partitions_grad_groups = []
@@ -2535,7 +2593,7 @@ def get_weight_norm(parameters, norm_type=2, mpu=None):
     norm_type = float(norm_type)
     if norm_type == inf:
         total_norm = max(p.data.abs().max() for p in parameters)
-        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
+        total_norm_cuda = torch.FloatTensor([float(total_norm)])
         if mpu is not None:
             torch.distributed.all_reduce(total_norm_cuda, op=torch.distributed.ReduceOp.MAX, group=mpu.get_model_parallel_group())
         total_norm = total_norm_cuda[0].item()
@@ -2555,7 +2613,7 @@ def get_weight_norm(parameters, norm_type=2, mpu=None):
                 except TypeError as err:
                     param_norm = float(torch.norm(p.float(), norm_type))
                 total_norm += param_norm ** norm_type
-        total_norm_cuda = torch.cuda.FloatTensor([float(total_norm)])
+        total_norm_cuda = torch.FloatTensor([float(total_norm)])
         if mpu is not None:
             torch.distributed.all_reduce(total_norm_cuda, op=torch.distributed.ReduceOp.SUM, group=mpu.get_model_parallel_group())
         total_norm = total_norm_cuda[0].item() ** (1.0 / norm_type)
@@ -2644,7 +2702,7 @@ class FP16_Optimizer(object):
         self._update_scale(self.overflow)
         if self.overflow:
             if self.verbose:
-                print('[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'.format(prev_scale, self.cur_scale))
+                None
             return self.overflow
         combined_scale = self.unscale_and_clip_grads(grads_groups_flat, norm_groups, apply_scale=False)
         self.optimizer.step(grads=[[g] for g in grads_groups_flat], output_params=[[p] for p in self.fp16_groups_flat], scale=combined_scale, grad_norms=norm_groups)
@@ -2664,7 +2722,7 @@ class FP16_Optimizer(object):
         norm_groups = []
         for i, group in enumerate(self.fp16_groups):
             data_type = self.fp32_groups_flat[i].dtype
-            grads_groups_flat.append(_flatten_dense_tensors([(torch.zeros(p.size(), dtype=data_type, device=p.device) if p.grad is None else p.grad.to(data_type)) for p in group]))
+            grads_groups_flat.append(_flatten_dense_tensors([(torch.zeros(p.size(), dtype=data_type, device=p.device) if p.grad is None else p.grad) for p in group]))
             self.fp32_groups_flat[i].grad = grads_groups_flat[i]
             norm_groups.append(get_grad_norm(self.fp32_groups_flat, mpu=self.mpu))
         self.overflow = self.overflow_checker.check_using_norm(norm_groups)
@@ -2672,7 +2730,7 @@ class FP16_Optimizer(object):
         self._update_scale(self.overflow)
         if self.overflow:
             if self.verbose:
-                print('[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'.format(prev_scale, self.cur_scale))
+                None
             return self.overflow
         self.unscale_and_clip_grads(grads_groups_flat, norm_groups)
         self.optimizer.step()
@@ -2717,18 +2775,18 @@ class FP16_Optimizer(object):
                 self.cur_scale = max(self.cur_scale / self.scale_factor, self.min_loss_scale)
                 self.last_overflow_iter = self.cur_iter
                 if self.verbose:
-                    print(f'\nGrad overflow on iteration {self.cur_iter}')
-                    print(f'Reducing dynamic loss scale from {prev_scale} to {self.cur_scale}')
+                    None
+                    None
             else:
                 stable_interval = self.cur_iter - self.last_overflow_iter - 1
                 if stable_interval > 0 and stable_interval % self.scale_window == 0:
                     self.cur_scale *= self.scale_factor
                     if self.verbose:
-                        print(f'\nNo Grad overflow for {self.scale_window} iterations')
-                        print(f'Increasing dynamic loss scale from {prev_scale} to {self.cur_scale}')
+                        None
+                        None
         elif skip:
-            print('\nGrad overflow on iteration', self.cur_iter)
-            print('Using static loss scale of', self.cur_scale)
+            None
+            None
         self.cur_iter += 1
         return
 
@@ -2885,7 +2943,7 @@ class FP16_UnfusedOptimizer(object):
         self._update_scale(self.overflow)
         if self.overflow:
             if self.verbose:
-                print('[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'.format(prev_scale, self.cur_scale))
+                None
             return self.overflow
         combined_scale = self.unscale_and_clip_grads(norm_groups, apply_scale=False)
         self.optimizer.step(grads=grads_groups, output_params=self.fp16_groups, scale=combined_scale)
@@ -2902,7 +2960,7 @@ class FP16_UnfusedOptimizer(object):
         self._update_scale(self.overflow)
         if self.overflow:
             if self.verbose:
-                print('[deepspeed] OVERFLOW! Skipping step. Attempted loss scale: {}, reducing to {}'.format(prev_scale, self.cur_scale))
+                None
             return self.overflow
         norm_groups = []
         for i, group in enumerate(self.fp16_groups):
@@ -2911,7 +2969,7 @@ class FP16_UnfusedOptimizer(object):
                 if fp16_param.grad is None:
                     fp32_param.grad = torch.zeros(fp16_param.size(), dtype=fp32_param.dtype, device=fp32_param.device)
                 else:
-                    fp32_param.grad = fp16_param.grad.to(fp32_param.dtype)
+                    fp32_param.grad = fp16_param.grad
         self.unscale_and_clip_grads(norm_groups)
         self.optimizer.step()
         for fp32_group, fp16_group in zip(self.fp32_groups, self.fp16_groups):
@@ -2955,18 +3013,18 @@ class FP16_UnfusedOptimizer(object):
                 self.cur_scale = max(self.cur_scale / self.scale_factor, self.min_loss_scale)
                 self.last_overflow_iter = self.cur_iter
                 if self.verbose:
-                    print('\nGrad overflow on iteration', self.cur_iter)
-                    print(f'Reducing dynamic loss scale from {prev_scale} to {self.cur_scale}')
+                    None
+                    None
             else:
                 stable_interval = self.cur_iter - self.last_overflow_iter - 1
                 if stable_interval > 0 and stable_interval % self.scale_window == 0:
                     self.cur_scale *= self.scale_factor
                     if self.verbose:
-                        print(f'\nNo Grad overflow for {self.scale_window} iterations')
-                        print(f'Increasing dynamic loss scale from {prev_scale} to {self.cur_scale}')
+                        None
+                        None
         elif skip:
-            print('\nGrad overflow on iteration', self.cur_iter)
-            print('Using static loss scale of', self.cur_scale)
+            None
+            None
         self.cur_iter += 1
         return
 
@@ -3179,9 +3237,9 @@ ROUTE_TRAIN = 'train'
 def print_rank_0(message):
     if torch.distributed.is_initialized():
         if torch.distributed.get_rank() == 0:
-            print(message, flush=True)
+            None
     else:
-        print(message, flush=True)
+        None
 
 
 class SynchronizedWallClockTimer:
@@ -3327,10 +3385,10 @@ ZERO_OPTIMIZATION_OPTIMIZER_STATES = 1
 
 
 def print_configuration(args, name):
-    print('{}:'.format(name), flush=True)
+    None
     for arg in sorted(vars(args)):
         dots = '.' * (29 - len(arg))
-        print('  {} {} {}'.format(arg, dots, getattr(args, arg)), flush=True)
+        None
 
 
 def split_half_float_double_csr(tensors):
@@ -3373,19 +3431,4 @@ class MultiOutputModel(torch.nn.Module):
             loss = self.cross_entropy_loss(hidden_dim, y)
             losses.append(loss)
         return tuple(losses)
-
-
-class SimpleModel(torch.nn.Module):
-
-    def __init__(self, hidden_dim, empty_grad=False):
-        super(SimpleModel, self).__init__()
-        self.linear = torch.nn.Linear(hidden_dim, hidden_dim)
-        if empty_grad:
-            self.layers2 = torch.nn.ModuleList([torch.nn.Linear(hidden_dim, hidden_dim)])
-        self.cross_entropy_loss = torch.nn.CrossEntropyLoss()
-
-    def forward(self, x, y):
-        hidden_dim = x
-        hidden_dim = self.linear(hidden_dim)
-        return self.cross_entropy_loss(hidden_dim, y)
 

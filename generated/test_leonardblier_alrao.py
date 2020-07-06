@@ -26,15 +26,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -57,13 +58,16 @@ import numpy as np
 from scipy.stats import ortho_group
 
 
+import torch.optim as optim
+
+
 from numbers import Number
 
 
+from torch.utils.data.dataset import Dataset
+
+
 from collections import OrderedDict
-
-
-import torch.optim as optim
 
 
 from torch.utils import data
@@ -79,6 +83,133 @@ import time
 
 
 from torch.autograd import Variable
+
+
+def log_sum_exp(tensor, dim=None):
+    """
+    Numerically stable implementation of the operation.
+
+    tensor.exp().sum(dim, keepdim).log()
+    From https://github.com/pytorch/pytorch/issues/2591
+    """
+    if dim is not None:
+        m, _ = torch.max(tensor, dim=dim, keepdim=True)
+        tensor0 = tensor - m
+        return m.squeeze(dim=dim) + torch.log(torch.sum(torch.exp(tensor0), dim=dim))
+    else:
+        m = torch.max(tensor)
+        sum_exp = torch.sum(torch.exp(tensor - m))
+        if isinstance(sum_exp, Number):
+            return m + math.log(sum_exp)
+        else:
+            return m + torch.log(sum_exp)
+
+
+class Switch(nn.Module):
+    """
+    Model averaging method 'switch'.
+    See van Erven and Grünwald (2008):
+     (A) https://arxiv.org/abs/0807.1005,
+     (B) http://papers.nips.cc/paper/3277-catching-up-faster-in-bayesian-model-selection-and-model-averaging.pdf.
+
+    This class manages model averaging and updates its parameters using the update
+        rule given in algorithm 1 of (B).
+
+    Parameters:
+        loss: loss used in the model (subclass of pytorch's '_Loss')
+            loss(output, target, size_average = False) returns the loss embedded into a 0-dim tensor
+            the option 'size_average = True' returns the averaged loss
+    """
+
+    def __init__(self, nb_models, theta=0.9999, alpha=0.001, save_ll_perf=False, task='classification', loss=None):
+        super(Switch, self).__init__()
+        self.task = task
+        if task == 'classification' and loss is None:
+            self.loss = F.nll_loss
+        elif loss is not None:
+            self.loss = loss
+        else:
+            raise ValueError('Invalid combination task/loss: {} / {}.'.format(task, loss))
+        self.nb_models = nb_models
+        self.theta = theta
+        self.alpha = alpha
+        self.t = 1
+        self.save_ll_perf = save_ll_perf
+        self.register_buffer('logw', torch.zeros((2, nb_models), requires_grad=False))
+        self.register_buffer('logposterior', torch.full((nb_models,), -np.log(nb_models), requires_grad=False))
+        self.logw[0].fill_(np.log(theta))
+        self.logw[1].fill_(np.log(1 - theta))
+        self.logw -= np.log(nb_models)
+        if self.save_ll_perf:
+            self.reset_ll_perf()
+
+    def reset_ll_perf(self):
+        """
+        Resets the performance record of last layers models
+        """
+        self.ll_loss = [(0) for _ in range(self.nb_models)]
+        self.ll_correct = [(0) for _ in range(self.nb_models)]
+        self.ll_total = 0
+
+    def get_ll_perf(self):
+        """
+        Return the performance (loss and acc) of each last layer
+        """
+        if self.task == 'classification':
+            return [(loss / self.ll_total, corr / self.ll_total) for loss, corr in zip(self.ll_loss, self.ll_correct)]
+        elif self.task == 'regression':
+            return [(loss / self.ll_total) for loss in self.ll_loss]
+
+    def piT(self, t):
+        """
+        Prior  pi_T in algorithm 1 of (B).
+        """
+        return 1 / (t + 1)
+
+    def Supdate(self, lst_ll_out, y):
+        """
+        Switch update rule given in algorithm 1 of (B).
+
+        Arguments:
+            lst_ll_out: list of the outputs of the models, which are supposed to be
+                tensors of log-probabilities
+            y: tensor of targets
+        """
+        if self.save_ll_perf:
+            self.ll_total += 1
+            for k, x in enumerate(lst_ll_out):
+                self.ll_loss[k] += self.loss(x, y).item()
+                if self.task == 'classification':
+                    self.ll_correct[k] += torch.max(x, 1)[1].eq(y.data).sum().item() / y.size(0)
+        logpx = torch.stack([(-self.loss(x, y)) for x in lst_ll_out], dim=0).detach()
+        if any(math.isnan(p) for p in logpx):
+            raise ValueError
+        if self.nb_models == 1:
+            return
+        self.logw += logpx
+        pit = self.piT(self.t)
+        logpool = log_sum_exp(self.logw[0]) + np.log(pit)
+        self.logw[0] += np.log(1 - pit)
+        addtensor = torch.zeros_like(self.logw)
+        addtensor[0].fill_(np.log(self.theta))
+        addtensor[1].fill_(np.log(1 - self.theta))
+        self.logw = log_sum_exp(torch.stack([self.logw, addtensor + logpool - np.log(self.nb_models)], dim=0), dim=0)
+        self.logw -= log_sum_exp(self.logw)
+        self.logposterior = log_sum_exp(self.logw, dim=0)
+        self.t += 1
+
+    def forward(self, lst_ll_out):
+        """
+        Computes the average of the outputs of the different models.
+
+        Arguments:
+            lst_ll_out: list of the outputs of the models, which are supposed to be
+                tensors of log-probabilities
+        """
+        if self.task == 'classification':
+            return log_sum_exp(torch.stack(lst_ll_out, -1) + self.logposterior, dim=-1)
+        elif self.task == 'regression':
+            return torch.stack(lst_ll_out, -1), self.logposterior.exp()
 
 
 class AlraoModel(nn.Module):
@@ -358,182 +489,35 @@ class _Loss(nn.Module):
             self.reduction = reduction
 
 
-def log_sum_exp(tensor, dim=None):
-    """
-    Numerically stable implementation of the operation.
+class L2LossLog(_Loss):
+    __constants__ = ['reduction']
 
-    tensor.exp().sum(dim, keepdim).log()
-    From https://github.com/pytorch/pytorch/issues/2591
-    """
-    if dim is not None:
-        m, _ = torch.max(tensor, dim=dim, keepdim=True)
-        tensor0 = tensor - m
-        return m.squeeze(dim=dim) + torch.log(torch.sum(torch.exp(tensor0), dim=dim))
-    else:
-        m = torch.max(tensor)
-        sum_exp = torch.sum(torch.exp(tensor - m))
-        if isinstance(sum_exp, Number):
-            return m + math.log(sum_exp)
-        else:
-            return m + torch.log(sum_exp)
+    def __init__(self, size_average=None, reduce=None, reduction='mean', sigma2=1.0):
+        super(L2LossLog, self).__init__(size_average, reduce, reduction)
+        self.sigma2 = sigma2
 
-
-class Switch(nn.Module):
-    """
-    Model averaging method 'switch'.
-    See van Erven and Grünwald (2008):
-     (A) https://arxiv.org/abs/0807.1005,
-     (B) http://papers.nips.cc/paper/3277-catching-up-faster-in-bayesian-model-selection-and-model-averaging.pdf.
-
-    This class manages model averaging and updates its parameters using the update
-        rule given in algorithm 1 of (B).
-
-    Parameters:
-        loss: loss used in the model (subclass of pytorch's '_Loss')
-            loss(output, target, size_average = False) returns the loss embedded into a 0-dim tensor
-            the option 'size_average = True' returns the averaged loss
-    """
-
-    def __init__(self, nb_models, theta=0.9999, alpha=0.001, save_ll_perf=False, task='classification', loss=None):
-        super(Switch, self).__init__()
-        self.task = task
-        if task == 'classification' and loss is None:
-            self.loss = F.nll_loss
-        elif loss is not None:
-            self.loss = loss
-        else:
-            raise ValueError('Invalid combination task/loss: {} / {}.'.format(task, loss))
-        self.nb_models = nb_models
-        self.theta = theta
-        self.alpha = alpha
-        self.t = 1
-        self.save_ll_perf = save_ll_perf
-        self.register_buffer('logw', torch.zeros((2, nb_models), requires_grad=False))
-        self.register_buffer('logposterior', torch.full((nb_models,), -np.log(nb_models), requires_grad=False))
-        self.logw[0].fill_(np.log(theta))
-        self.logw[1].fill_(np.log(1 - theta))
-        self.logw -= np.log(nb_models)
-        if self.save_ll_perf:
-            self.reset_ll_perf()
-
-    def reset_ll_perf(self):
-        """
-        Resets the performance record of last layers models
-        """
-        self.ll_loss = [(0) for _ in range(self.nb_models)]
-        self.ll_correct = [(0) for _ in range(self.nb_models)]
-        self.ll_total = 0
-
-    def get_ll_perf(self):
-        """
-        Return the performance (loss and acc) of each last layer
-        """
-        if self.task == 'classification':
-            return [(loss / self.ll_total, corr / self.ll_total) for loss, corr in zip(self.ll_loss, self.ll_correct)]
-        elif self.task == 'regression':
-            return [(loss / self.ll_total) for loss in self.ll_loss]
-
-    def piT(self, t):
-        """
-        Prior  pi_T in algorithm 1 of (B).
-        """
-        return 1 / (t + 1)
-
-    def Supdate(self, lst_ll_out, y):
-        """
-        Switch update rule given in algorithm 1 of (B).
-
-        Arguments:
-            lst_ll_out: list of the outputs of the models, which are supposed to be
-                tensors of log-probabilities
-            y: tensor of targets
-        """
-        if self.save_ll_perf:
-            self.ll_total += 1
-            for k, x in enumerate(lst_ll_out):
-                self.ll_loss[k] += self.loss(x, y).item()
-                if self.task == 'classification':
-                    self.ll_correct[k] += torch.max(x, 1)[1].eq(y.data).sum().item() / y.size(0)
-        logpx = torch.stack([(-self.loss(x, y)) for x in lst_ll_out], dim=0).detach()
-        if any(math.isnan(p) for p in logpx):
+    def forward(self, input, target):
+        if not torch.isfinite(input).all():
             raise ValueError
-        if self.nb_models == 1:
-            return
-        self.logw += logpx
-        pit = self.piT(self.t)
-        logpool = log_sum_exp(self.logw[0]) + np.log(pit)
-        self.logw[0] += np.log(1 - pit)
-        addtensor = torch.zeros_like(self.logw)
-        addtensor[0].fill_(np.log(self.theta))
-        addtensor[1].fill_(np.log(1 - self.theta))
-        self.logw = log_sum_exp(torch.stack([self.logw, addtensor + logpool - np.log(self.nb_models)], dim=0), dim=0)
-        self.logw -= log_sum_exp(self.logw)
-        self.logposterior = log_sum_exp(self.logw, dim=0)
-        self.t += 1
-
-    def forward(self, lst_ll_out):
-        """
-        Computes the average of the outputs of the different models.
-
-        Arguments:
-            lst_ll_out: list of the outputs of the models, which are supposed to be
-                tensors of log-probabilities
-        """
-        if self.task == 'classification':
-            return log_sum_exp(torch.stack(lst_ll_out, -1) + self.logposterior, dim=-1)
-        elif self.task == 'regression':
-            return torch.stack(lst_ll_out, -1), self.logposterior.exp()
+        return ((input - target).pow(2).sum(1) / (2 * self.sigma2)).mean() + 0.5 * math.log(2 * math.pi * self.sigma2)
 
 
-class StandardModel(nn.Module):
+class L2LossAdditional(_Loss):
 
-    def __init__(self, internal_nn, K=1):
-        super(StandardModel, self).__init__()
-        self.internal_nn = internal_nn
-        self.classifier = LinearClassifier(self.internal_nn.linearinputdim, 10)
+    def __init__(self, size_average=None, reduce=None, reduction='mean', sigma2=1.0):
+        super(L2LossAdditional, self).__init__(size_average, reduce, reduction)
+        self.sigma2 = sigma2
 
-    def forward(self, x):
-        x = self.internal_nn(x)
-        return self.classifier(x)
-
-
-class RegModel(nn.Module):
-
-    def __init__(self, input_dim, pre_output_dim):
-        super(RegModel, self).__init__()
-        self.layer = nn.Linear(input_dim, pre_output_dim)
-        self.relu = nn.ReLU()
-        self.linearinputdim = pre_output_dim
-
-    def forward(self, x):
-        x = self.layer(x)
-        x = self.relu(x)
-        return x
-
-
-class StandardModel(nn.Module):
-
-    def __init__(self, internal_nn, K=1):
-        super(StandardModel, self).__init__()
-        self.internal_nn = internal_nn
-        self.last_layer = LinearClassifier(self.internal_nn.linearinputdim, 10)
-
-    def forward(self, x):
-        x = self.internal_nn(x)
-        return self.last_layer(x)
-
-
-class StandardModelReg(nn.Module):
-
-    def __init__(self, internal_nn):
-        super(StandardModelReg, self).__init__()
-        self.internal_nn = internal_nn
-        self.regressor = LinearRegressor(self.internal_nn.linearinputdim, 1)
-
-    def forward(self, x):
-        x = self.internal_nn(x)
-        x = self.regressor(x)
-        return x.unsqueeze(2), x.new().resize_(1).fill_(1.0)
+    def forward(self, input, target):
+        means, ps = input
+        if not torch.isfinite(means).all():
+            raise ValueError
+        means = means.transpose(2, 1).transpose(1, 0)
+        log_probas_per_cl = -(means - target).pow(2).sum(2) / (2 * self.sigma2) - 0.5 * math.log(2 * math.pi * self.sigma2)
+        log_probas_per_cl = log_probas_per_cl.transpose(0, 1)
+        log_probas_per_cl = log_probas_per_cl + ps.log()
+        log_probas = log_sum_exp(log_probas_per_cl, dim=1)
+        return -log_probas.mean()
 
 
 class StandardModel(nn.Module):
@@ -550,6 +534,33 @@ class StandardModel(nn.Module):
             return (x_0,) + x[1:]
         else:
             return self.classifier(x)
+
+
+class RegModel(nn.Module):
+
+    def __init__(self, input_dim, pre_output_dim):
+        super(RegModel, self).__init__()
+        self.layer = nn.Linear(input_dim, pre_output_dim)
+        self.relu = nn.ReLU()
+        self.linearinputdim = pre_output_dim
+
+    def forward(self, x):
+        x = self.layer(x)
+        x = self.relu(x)
+        return x
+
+
+class StandardModelReg(nn.Module):
+
+    def __init__(self, internal_nn):
+        super(StandardModelReg, self).__init__()
+        self.internal_nn = internal_nn
+        self.regressor = LinearRegressor(self.internal_nn.linearinputdim, 1)
+
+    def forward(self, x):
+        x = self.internal_nn(x)
+        x = self.regressor(x)
+        return x.unsqueeze(2), x.new().resize_(1).fill_(1.0)
 
 
 class Inception(nn.Module):
@@ -843,6 +854,10 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'n1x1': 4, 'n3x3red': 4, 'n3x3': 4, 'n5x5red': 4, 'n5x5': 4, 'pool_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (L2LossLog,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (LinearClassifier,
      lambda: ([], {'in_features': 4, 'n_classes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -916,4 +931,7 @@ class Test_leonardblier_alrao(_paritybench_base):
 
     def test_012(self):
         self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

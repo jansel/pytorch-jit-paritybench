@@ -18,20 +18,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import random
+
+
 import torch
+
+
+import numpy as np
 
 
 import torch.nn as nn
@@ -43,35 +50,94 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
-import numpy as np
-
-
 import time
-
-
-import random
 
 
 import torch.optim as optim
 
 
-class GCNClassifier(nn.Module):
-    """ A wrapper classifier for GCNRelationModel. """
+from torch import nn
 
-    def __init__(self, opt, emb_matrix=None):
-        super().__init__()
-        self.gcn_model = GCNRelationModel(opt, emb_matrix=emb_matrix)
-        in_dim = opt['hidden_dim']
-        self.classifier = nn.Linear(in_dim, opt['num_class'])
+
+from torch import optim
+
+
+from torch.optim import Optimizer
+
+
+def rnn_zero_state(batch_size, hidden_dim, num_layers, bidirectional=True, use_cuda=True):
+    total_layers = num_layers * 2 if bidirectional else num_layers
+    state_shape = total_layers, batch_size, hidden_dim
+    h0 = c0 = Variable(torch.zeros(*state_shape), requires_grad=False)
+    if use_cuda:
+        return h0, c0
+    else:
+        return h0, c0
+
+
+class GCN(nn.Module):
+    """ A GCN/Contextualized GCN module operated on dependency graphs. """
+
+    def __init__(self, opt, embeddings, mem_dim, num_layers):
+        super(GCN, self).__init__()
         self.opt = opt
+        self.layers = num_layers
+        self.use_cuda = opt['cuda']
+        self.mem_dim = mem_dim
+        self.in_dim = opt['emb_dim'] + opt['pos_dim'] + opt['ner_dim']
+        self.emb, self.pos_emb, self.ner_emb = embeddings
+        if self.opt.get('rnn', False):
+            input_size = self.in_dim
+            self.rnn = nn.LSTM(input_size, opt['rnn_hidden'], opt['rnn_layers'], batch_first=True, dropout=opt['rnn_dropout'], bidirectional=True)
+            self.in_dim = opt['rnn_hidden'] * 2
+            self.rnn_drop = nn.Dropout(opt['rnn_dropout'])
+        self.in_drop = nn.Dropout(opt['input_dropout'])
+        self.gcn_drop = nn.Dropout(opt['gcn_dropout'])
+        self.W = nn.ModuleList()
+        for layer in range(self.layers):
+            input_dim = self.in_dim if layer == 0 else self.mem_dim
+            self.W.append(nn.Linear(input_dim, self.mem_dim))
 
     def conv_l2(self):
-        return self.gcn_model.gcn.conv_l2()
+        conv_weights = []
+        for w in self.W:
+            conv_weights += [w.weight, w.bias]
+        return sum([x.pow(2).sum() for x in conv_weights])
 
-    def forward(self, inputs):
-        outputs, pooling_output = self.gcn_model(inputs)
-        logits = self.classifier(outputs)
-        return logits, pooling_output
+    def encode_with_rnn(self, rnn_inputs, masks, batch_size):
+        seq_lens = list(masks.data.eq(constant.PAD_ID).long().sum(1).squeeze())
+        h0, c0 = rnn_zero_state(batch_size, self.opt['rnn_hidden'], self.opt['rnn_layers'])
+        rnn_inputs = nn.utils.rnn.pack_padded_sequence(rnn_inputs, seq_lens, batch_first=True)
+        rnn_outputs, (ht, ct) = self.rnn(rnn_inputs, (h0, c0))
+        rnn_outputs, _ = nn.utils.rnn.pad_packed_sequence(rnn_outputs, batch_first=True)
+        return rnn_outputs
+
+    def forward(self, adj, inputs):
+        words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type = inputs
+        word_embs = self.emb(words)
+        embs = [word_embs]
+        if self.opt['pos_dim'] > 0:
+            embs += [self.pos_emb(pos)]
+        if self.opt['ner_dim'] > 0:
+            embs += [self.ner_emb(ner)]
+        embs = torch.cat(embs, dim=2)
+        embs = self.in_drop(embs)
+        if self.opt.get('rnn', False):
+            gcn_inputs = self.rnn_drop(self.encode_with_rnn(embs, masks, words.size()[0]))
+        else:
+            gcn_inputs = embs
+        denom = adj.sum(2).unsqueeze(2) + 1
+        mask = (adj.sum(2) + adj.sum(1)).eq(0).unsqueeze(2)
+        if self.opt.get('no_adj', False):
+            adj = torch.zeros_like(adj)
+        for l in range(self.layers):
+            Ax = adj.bmm(gcn_inputs)
+            AxW = self.W[l](Ax)
+            AxW = AxW + self.W[l](gcn_inputs)
+            AxW = AxW / denom
+            gAxW = F.relu(AxW)
+            gcn_inputs = self.gcn_drop(gAxW) if l < self.layers - 1 else gAxW
+        return gcn_inputs, mask
 
 
 class Tree(object):
@@ -292,77 +358,21 @@ class GCNRelationModel(nn.Module):
         return outputs, h_out
 
 
-def rnn_zero_state(batch_size, hidden_dim, num_layers, bidirectional=True, use_cuda=True):
-    total_layers = num_layers * 2 if bidirectional else num_layers
-    state_shape = total_layers, batch_size, hidden_dim
-    h0 = c0 = Variable(torch.zeros(*state_shape), requires_grad=False)
-    if use_cuda:
-        return h0.cuda(), c0.cuda()
-    else:
-        return h0, c0
+class GCNClassifier(nn.Module):
+    """ A wrapper classifier for GCNRelationModel. """
 
-
-class GCN(nn.Module):
-    """ A GCN/Contextualized GCN module operated on dependency graphs. """
-
-    def __init__(self, opt, embeddings, mem_dim, num_layers):
-        super(GCN, self).__init__()
+    def __init__(self, opt, emb_matrix=None):
+        super().__init__()
+        self.gcn_model = GCNRelationModel(opt, emb_matrix=emb_matrix)
+        in_dim = opt['hidden_dim']
+        self.classifier = nn.Linear(in_dim, opt['num_class'])
         self.opt = opt
-        self.layers = num_layers
-        self.use_cuda = opt['cuda']
-        self.mem_dim = mem_dim
-        self.in_dim = opt['emb_dim'] + opt['pos_dim'] + opt['ner_dim']
-        self.emb, self.pos_emb, self.ner_emb = embeddings
-        if self.opt.get('rnn', False):
-            input_size = self.in_dim
-            self.rnn = nn.LSTM(input_size, opt['rnn_hidden'], opt['rnn_layers'], batch_first=True, dropout=opt['rnn_dropout'], bidirectional=True)
-            self.in_dim = opt['rnn_hidden'] * 2
-            self.rnn_drop = nn.Dropout(opt['rnn_dropout'])
-        self.in_drop = nn.Dropout(opt['input_dropout'])
-        self.gcn_drop = nn.Dropout(opt['gcn_dropout'])
-        self.W = nn.ModuleList()
-        for layer in range(self.layers):
-            input_dim = self.in_dim if layer == 0 else self.mem_dim
-            self.W.append(nn.Linear(input_dim, self.mem_dim))
 
     def conv_l2(self):
-        conv_weights = []
-        for w in self.W:
-            conv_weights += [w.weight, w.bias]
-        return sum([x.pow(2).sum() for x in conv_weights])
+        return self.gcn_model.gcn.conv_l2()
 
-    def encode_with_rnn(self, rnn_inputs, masks, batch_size):
-        seq_lens = list(masks.data.eq(constant.PAD_ID).long().sum(1).squeeze())
-        h0, c0 = rnn_zero_state(batch_size, self.opt['rnn_hidden'], self.opt['rnn_layers'])
-        rnn_inputs = nn.utils.rnn.pack_padded_sequence(rnn_inputs, seq_lens, batch_first=True)
-        rnn_outputs, (ht, ct) = self.rnn(rnn_inputs, (h0, c0))
-        rnn_outputs, _ = nn.utils.rnn.pad_packed_sequence(rnn_outputs, batch_first=True)
-        return rnn_outputs
-
-    def forward(self, adj, inputs):
-        words, masks, pos, ner, deprel, head, subj_pos, obj_pos, subj_type, obj_type = inputs
-        word_embs = self.emb(words)
-        embs = [word_embs]
-        if self.opt['pos_dim'] > 0:
-            embs += [self.pos_emb(pos)]
-        if self.opt['ner_dim'] > 0:
-            embs += [self.ner_emb(ner)]
-        embs = torch.cat(embs, dim=2)
-        embs = self.in_drop(embs)
-        if self.opt.get('rnn', False):
-            gcn_inputs = self.rnn_drop(self.encode_with_rnn(embs, masks, words.size()[0]))
-        else:
-            gcn_inputs = embs
-        denom = adj.sum(2).unsqueeze(2) + 1
-        mask = (adj.sum(2) + adj.sum(1)).eq(0).unsqueeze(2)
-        if self.opt.get('no_adj', False):
-            adj = torch.zeros_like(adj)
-        for l in range(self.layers):
-            Ax = adj.bmm(gcn_inputs)
-            AxW = self.W[l](Ax)
-            AxW = AxW + self.W[l](gcn_inputs)
-            AxW = AxW / denom
-            gAxW = F.relu(AxW)
-            gcn_inputs = self.gcn_drop(gAxW) if l < self.layers - 1 else gAxW
-        return gcn_inputs, mask
+    def forward(self, inputs):
+        outputs, pooling_output = self.gcn_model(inputs)
+        logits = self.classifier(outputs)
+        return logits, pooling_output
 

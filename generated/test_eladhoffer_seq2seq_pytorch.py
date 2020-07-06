@@ -50,15 +50,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -105,10 +106,22 @@ import torchvision.datasets as dset
 import torchvision.transforms as transforms
 
 
-import torch.nn.functional as F
+from torchvision.datasets.folder import default_loader
+
+
+from copy import copy
 
 
 from copy import deepcopy
+
+
+from torch.utils.data import Dataset
+
+
+import warnings
+
+
+import torch.nn.functional as F
 
 
 import math
@@ -159,6 +172,9 @@ from math import floor
 from torch.nn.functional import adaptive_avg_pool2d
 
 
+from collections import Counter
+
+
 import time
 
 
@@ -178,6 +194,20 @@ from torch.nn.utils import clip_grad_norm_
 
 
 import numpy as np
+
+
+class MaskedConv1d(nn.Conv1d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, dilation=1, groups=1, bias=True, causal=True):
+        if causal:
+            padding = (kernel_size - 1) * dilation
+        else:
+            padding = (kernel_size - 1) * dilation // 2
+        super(MaskedConv1d, self).__init__(in_channels, out_channels, kernel_size, stride=1, padding=padding, dilation=dilation, groups=groups, bias=bias)
+
+    def forward(self, inputs):
+        output = super(MaskedConv1d, self).forward(inputs)
+        return output[:, :, :inputs.size(2)]
 
 
 class ResidualBlock(nn.Module):
@@ -212,6 +242,19 @@ class ByteNet(nn.Sequential):
         for s in range(num_sets):
             for r in dilation_rates:
                 self.add_module('block%s_%s' % (s, r), block(num_channels, kernel_size=kernel_size, dilation=r, causal=causal))
+
+
+class GatedConv1d(MaskedConv1d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, dilation=1, groups=1, bias=True, causal=True):
+        super(GatedConv1d, self).__init__(in_channels, 2 * out_channels, kernel_size, dilation, groups, bias, causal)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, inputs):
+        output = super(GatedConv1d, self).forward(inputs)
+        mask, output = output.chunk(2, 1)
+        mask = self.sigmoid(mask)
+        return output * mask
 
 
 class StackedConv(nn.Module):
@@ -467,6 +510,58 @@ class SDPAttention(nn.Module):
         return torch.bmm(sm_qk, v), sm_qk
 
 
+def _sum_tensor_scalar(tensor, scalar, expand_size):
+    if scalar is not None:
+        scalar = scalar.expand(expand_size).contiguous()
+    else:
+        return tensor
+    if tensor is None:
+        return scalar
+    return tensor + scalar
+
+
+class Linear(nn.Linear):
+
+    def __init__(self, in_features, out_features, bias=True, groups=1, multiplier=False, pre_bias=False, post_bias=False):
+        if in_features % groups != 0:
+            raise ValueError('in_features must be divisible by groups')
+        if out_features % groups != 0:
+            raise ValueError('out_features must be divisible by groups')
+        self.groups = groups
+        super(Linear, self).__init__(in_features, out_features // self.groups, bias=False)
+        if bias:
+            self.bias = nn.Parameter(torch.full((out_features,), 0))
+        else:
+            self.register_parameter('bias', None)
+        if pre_bias:
+            self.pre_bias = nn.Parameter(torch.tensor([0.0]))
+        else:
+            self.register_parameter('pre_bias', None)
+        if post_bias:
+            self.post_bias = nn.Parameter(torch.tensor([0.0]))
+        else:
+            self.register_parameter('post_bias', None)
+        if multiplier:
+            self.multiplier = nn.Parameter(torch.tensor([1.0]))
+        else:
+            self.register_parameter('multiplier', None)
+
+    def forward(self, x):
+        if self.pre_bias is not None:
+            x = x + self.pre_bias
+        weight = self.weight if self.multiplier is None else self.weight * self.multiplier
+        bias = _sum_tensor_scalar(self.bias, self.post_bias, self.out_features)
+        if self.groups == 1:
+            out = F.linear(x, weight, bias)
+        else:
+            x_g = x.chunk(self.groups, dim=-1)
+            w_g = weight.chunk(self.groups, dim=-1)
+            out = torch.cat([F.linear(x_g[i], w_g[i]) for i in range(self.groups)], -1)
+            if bias is not None:
+                out += bias
+        return out
+
+
 class MultiHeadAttentionV2(nn.Module):
     """
     Scaled Dot-Product Attention
@@ -558,20 +653,6 @@ class MultiHeadAttention(nn.MultiheadAttention):
         return attn_output, attn_output_weights
 
 
-class MaskedConv1d(nn.Conv1d):
-
-    def __init__(self, in_channels, out_channels, kernel_size, dilation=1, groups=1, bias=True, causal=True):
-        if causal:
-            padding = (kernel_size - 1) * dilation
-        else:
-            padding = (kernel_size - 1) * dilation // 2
-        super(MaskedConv1d, self).__init__(in_channels, out_channels, kernel_size, stride=1, padding=padding, dilation=dilation, groups=groups, bias=bias)
-
-    def forward(self, inputs):
-        output = super(MaskedConv1d, self).forward(inputs)
-        return output[:, :, :inputs.size(2)]
-
-
 class MaskedConv2d(nn.Conv2d):
     """masked over 3rd dimension (2nd spatial dimension)"""
 
@@ -604,58 +685,6 @@ class TimeNorm2d(nn.InstanceNorm2d):
         y = super(TimeNorm2d, self).forward(x)
         y = y.transpose(0, 3)
         return y
-
-
-def _sum_tensor_scalar(tensor, scalar, expand_size):
-    if scalar is not None:
-        scalar = scalar.expand(expand_size).contiguous()
-    else:
-        return tensor
-    if tensor is None:
-        return scalar
-    return tensor + scalar
-
-
-class Linear(nn.Linear):
-
-    def __init__(self, in_features, out_features, bias=True, groups=1, multiplier=False, pre_bias=False, post_bias=False):
-        if in_features % groups != 0:
-            raise ValueError('in_features must be divisible by groups')
-        if out_features % groups != 0:
-            raise ValueError('out_features must be divisible by groups')
-        self.groups = groups
-        super(Linear, self).__init__(in_features, out_features // self.groups, bias=False)
-        if bias:
-            self.bias = nn.Parameter(torch.full((out_features,), 0))
-        else:
-            self.register_parameter('bias', None)
-        if pre_bias:
-            self.pre_bias = nn.Parameter(torch.tensor([0.0]))
-        else:
-            self.register_parameter('pre_bias', None)
-        if post_bias:
-            self.post_bias = nn.Parameter(torch.tensor([0.0]))
-        else:
-            self.register_parameter('post_bias', None)
-        if multiplier:
-            self.multiplier = nn.Parameter(torch.tensor([1.0]))
-        else:
-            self.register_parameter('multiplier', None)
-
-    def forward(self, x):
-        if self.pre_bias is not None:
-            x = x + self.pre_bias
-        weight = self.weight if self.multiplier is None else self.weight * self.multiplier
-        bias = _sum_tensor_scalar(self.bias, self.post_bias, self.out_features)
-        if self.groups == 1:
-            out = F.linear(x, weight, bias)
-        else:
-            x_g = x.chunk(self.groups, dim=-1)
-            w_g = weight.chunk(self.groups, dim=-1)
-            out = torch.cat([F.linear(x_g[i], w_g[i]) for i in range(self.groups)], -1)
-            if bias is not None:
-                out += bias
-        return out
 
 
 class _DenseLayer(nn.Sequential):
@@ -692,6 +721,41 @@ class _Transition(nn.Sequential):
         super(_Transition, self).__init__()
         self.add_module('relu', nn.ReLU(inplace=True))
         self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=True))
+
+
+class Bottleneck(nn.Module):
+
+    def __init__(self, inplanes, planes, kernel_size=(3, 3), stride=1, expansion=4, downsample=None, groups=1, residual_block=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = MaskedConv2d(planes, planes, 3, padding=1, stride=(stride, 1), groups=groups, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * expansion)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.residual_block = residual_block
+        self.stride = stride
+        self.expansion = expansion
+
+    def forward(self, x, cache=None):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out, cache = self.conv2(out, cache)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(residual)
+        if self.residual_block is not None:
+            residual = self.residual_block(residual)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 def init_model(model):
@@ -742,41 +806,6 @@ class DenseNet(nn.Module):
         features = self.features(x)
         out = F.relu(features)
         out = self.conv2(out)
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-
-    def __init__(self, inplanes, planes, kernel_size=(3, 3), stride=1, expansion=4, downsample=None, groups=1, residual_block=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = MaskedConv2d(planes, planes, 3, padding=1, stride=(stride, 1), groups=groups, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.residual_block = residual_block
-        self.stride = stride
-        self.expansion = expansion
-
-    def forward(self, x, cache=None):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out, cache = self.conv2(out, cache)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(residual)
-        if self.residual_block is not None:
-            residual = self.residual_block(residual)
-        out += residual
         out = self.relu(out)
         return out
 
@@ -908,6 +937,29 @@ class StackedCell(nn.Module):
         return inputs, next_hidden
 
 
+class StackedsAttentionCell(StackedCell):
+
+    def __init__(self, input_size, hidden_size, attention_layer, num_layers=1, dropout=0, bias=True, rnn_cell=nn.LSTMCell, residual=False, weight_norm=False):
+        super(StackedsAttentionCell, self).__init__(input_size, hidden_size, num_layers, dropout, bias, rnn_cell, residual)
+        self.attention = attention_layer
+
+    def forward(self, input_with_context, hidden, get_attention=False):
+        inputs, context = input_with_context
+        if isinstance(context, tuple):
+            context_keys, context_values = context
+        else:
+            context_keys = context_values = context
+        hidden_cell, hidden_attention = hidden
+        inputs = torch.cat([inputs, hidden_attention], inputs.dim() - 1)
+        output_cell, hidden_cell = super(StackedsAttentionCell, self).forward(inputs, hidden_cell)
+        output, score = self.attention(output_cell, context_keys, context_values)
+        if get_attention:
+            return output, (hidden_cell, output), score
+        else:
+            del score
+            return output, (hidden_cell, output)
+
+
 class ZoneOutCell(nn.Module):
 
     def __init__(self, cell, zoneout_prob=0):
@@ -983,29 +1035,6 @@ class TimeRecurrentCell(nn.Module):
             return outputs, hidden, attentions
         else:
             return outputs, hidden
-
-
-class StackedsAttentionCell(StackedCell):
-
-    def __init__(self, input_size, hidden_size, attention_layer, num_layers=1, dropout=0, bias=True, rnn_cell=nn.LSTMCell, residual=False, weight_norm=False):
-        super(StackedsAttentionCell, self).__init__(input_size, hidden_size, num_layers, dropout, bias, rnn_cell, residual)
-        self.attention = attention_layer
-
-    def forward(self, input_with_context, hidden, get_attention=False):
-        inputs, context = input_with_context
-        if isinstance(context, tuple):
-            context_keys, context_values = context
-        else:
-            context_keys = context_values = context
-        hidden_cell, hidden_attention = hidden
-        inputs = torch.cat([inputs, hidden_attention], inputs.dim() - 1)
-        output_cell, hidden_cell = super(StackedsAttentionCell, self).forward(inputs, hidden_cell)
-        output, score = self.attention(output_cell, context_keys, context_values)
-        if get_attention:
-            return output, (hidden_cell, output), score
-        else:
-            del score
-            return output, (hidden_cell, output)
 
 
 def wrap_stacked_recurrent(recurrent_func, num_layers=1, residual=False, weight_norm=False):
@@ -1241,6 +1270,24 @@ class EncoderBlock(nn.Module):
         return x
 
 
+class EncoderBlockPreNorm(EncoderBlock):
+
+    def __init__(self, *kargs, **kwargs):
+        super(EncoderBlockPreNorm, self).__init__(*kargs, **kwargs)
+
+    def forward(self, inputs):
+        x = inputs
+        res = x
+        x = self.lnorm1(x) if hasattr(self, 'lnorm1') else x
+        x, _ = self.attention(x, x, x)
+        x = self.dropout(x).add_(res)
+        res = x
+        x = self.lnorm2(x) if hasattr(self, 'lnorm2') else x
+        x = self.fc(x)
+        x = self.dropout(x).add_(res)
+        return x
+
+
 class DecoderBlock(nn.Module):
 
     def __init__(self, hidden_size=512, num_heads=8, inner_linear=2048, inner_groups=1, batch_first=True, layer_norm=True, weight_norm=False, dropout=0, stateful=None, state_dim=None, causal=True):
@@ -1309,6 +1356,38 @@ class DecoderBlock(nn.Module):
         x = self.fc(x)
         x = self.dropout(x).add_(res)
         x = self.lnorm3(x) if hasattr(self, 'lnorm3') else x
+        return x, attn_enc, state
+
+
+class DecoderBlockPreNorm(DecoderBlock):
+
+    def __init__(self, *kargs, **kwargs):
+        super(DecoderBlockPreNorm, self).__init__(*kargs, **kwargs)
+
+    def forward(self, inputs, context, state=None):
+        x = inputs
+        res = x
+        x = self.lnorm1(x) if hasattr(self, 'lnorm1') else x
+        if self.stateful:
+            x, state = self.state_block(x, state)
+        else:
+            if state is None:
+                x_past = x
+            else:
+                x_past = torch.cat((state, x), 1)
+            x, _ = self.masked_attention(x, x_past, x_past)
+            state = x_past
+        if hasattr(self, 'state_proj'):
+            x = self.state_proj(x)
+        x = self.dropout(x).add(res)
+        res = x
+        x = self.lnorm2(x) if hasattr(self, 'lnorm2') else x
+        x, attn_enc = self.attention(x, context, context)
+        x = self.dropout(x).add_(res)
+        res = x
+        x = self.lnorm3(x) if hasattr(self, 'lnorm3') else x
+        x = self.fc(x)
+        x = self.dropout(x).add_(res)
         return x, attn_enc, state
 
 
@@ -1384,6 +1463,103 @@ class CNNEncoderBase(nn.Module):
             return self.context_transform.load_state_dict(state_dict, *kargs, **kwargs)
         else:
             return
+
+
+class ResNetEncoder(CNNEncoderBase):
+
+    def __init__(self, model='resnet50', pretrained=True, **kwargs):
+        model = resnet.__dict__[model](pretrained=pretrained)
+        super(ResNetEncoder, self).__init__(model, context_size=model.fc.in_features, **kwargs)
+        del self.model.fc
+
+    def forward(self, x):
+        with torch.set_grad_enabled(self.finetune):
+            x = self.model.conv1(x)
+            x = self.model.bn1(x)
+            x = self.model.relu(x)
+            x = self.model.maxpool(x)
+            x = self.model.layer1(x)
+            x = self.model.layer2(x)
+            x = self.model.layer3(x)
+            x = self.model.layer4(x)
+        if not self.spatial_context:
+            x = F.avg_pool2d(x, kernel_size=7).view(x.size(0), x.size(1))
+        if hasattr(self, 'context_transform'):
+            x = self.context_transform(x)
+        if hasattr(self, 'context_nonlinearity'):
+            x = self.context_nonlinearity(x)
+        return x
+
+
+class DenseNetEncoder(CNNEncoderBase):
+
+    def __init__(self, model='densenet121', pretrained=True, **kwargs):
+        model = densenet.__dict__[model](pretrained=pretrained)
+        super(DenseNetEncoder, self).__init__(model, context_size=model.classifier.in_features, **kwargs)
+        del self.model.classifier
+
+    def forward(self, x):
+        with torch.set_grad_enabled(self.finetune):
+            features = self.model.features(x)
+            x = F.relu(features, inplace=True)
+        if not self.spatial_context:
+            x = F.avg_pool2d(x, kernel_size=7).view(x.size(0), x.size(1))
+        if hasattr(self, 'context_transform'):
+            x = self.context_transform(x)
+        if hasattr(self, 'context_nonlinearity'):
+            x = self.context_nonlinearity(x)
+        return x
+
+
+class VGGEncoder(CNNEncoderBase):
+
+    def __init__(self, model='vgg16', pretrained=True, **kwargs):
+        model = vgg.__dict__[model](pretrained=pretrained)
+        super(VGGEncoder, self).__init__(model, context_size=model.classifier.in_features, **kwargs)
+        del self.model.classifier
+
+    def forward(self, x):
+        with torch.set_grad_enabled(self.finetune):
+            x = self.features(x)
+        if hasattr(self, 'context_transform'):
+            x = self.context_transform(x)
+        if hasattr(self, 'context_nonlinearity'):
+            x = self.context_nonlinearity(x)
+        return x
+
+
+class AlexNetEncoder(CNNEncoderBase):
+
+    def __init__(self, model='alexnet', pretrained=True, **kwargs):
+        model = alexnet.__dict__[model](pretrained=pretrained)
+        super(AlexNetEncoder, self).__init__(model, context_size=model.classifier.in_features, **kwargs)
+        del self.model.classifier
+
+    def forward(self, x):
+        with torch.set_grad_enabled(self.finetune):
+            x = self.features(x)
+        if hasattr(self, 'context_transform'):
+            x = self.context_transform(x)
+        if hasattr(self, 'context_nonlinearity'):
+            x = self.context_nonlinearity(x)
+        return x
+
+
+class SqueezeNetEncoder(CNNEncoderBase):
+
+    def __init__(self, model='squeezenet1_1', pretrained=True, **kwargs):
+        model = squeezenet.__dict__[model](pretrained=pretrained)
+        super(SqueezeNetEncoder, self).__init__(model, context_size=model.classifier.in_features, **kwargs)
+        del self.model.classifier
+
+    def forward(self, x):
+        with torch.set_grad_enabled(self.finetune):
+            x = self.features(x)
+        if hasattr(self, 'context_transform'):
+            x = self.context_transform(x)
+        if hasattr(self, 'context_nonlinearity'):
+            x = self.context_nonlinearity(x)
+        return x
 
 
 class WeightDrop(torch.nn.Module):
@@ -2029,7 +2205,7 @@ def batch_sequences(seqs, max_length=None, max_tokens=None, fixed_length=None, b
     if len(seqs) == 1 and not fixed_length:
         lengths = _limit_lengths(seqs, max_length, max_tokens)
         seq_tensor = seqs[0].view(-1)[:lengths[0]]
-        seq_tensor = seq_tensor.unsqueeze(batch_dim).to(dtype=dtype, device=device)
+        seq_tensor = seq_tensor.unsqueeze(batch_dim)
     else:
         if sort:
             seqs.sort(key=len, reverse=True)
@@ -2048,7 +2224,7 @@ def batch_sequences(seqs, max_length=None, max_tokens=None, fixed_length=None, b
     if pack:
         seq_tensor = pack_padded_sequence(seq_tensor, lengths, batch_first=batch_first)
         if device is not None:
-            seq_tensor = PackedSequence(seq_tensor.data, seq_tensor.batch_sizes.to(device))
+            seq_tensor = PackedSequence(seq_tensor.data, seq_tensor.batch_sizes)
     return seq_tensor, lengths
 
 
@@ -2126,98 +2302,6 @@ class Seq2Seq(nn.Module):
         else:
             generator = PermutedSequenceGenerator(**params)
         return generator.beam_search(input_decoder, state_list)
-
-
-class EncoderBlockPreNorm(EncoderBlock):
-
-    def __init__(self, *kargs, **kwargs):
-        super(EncoderBlockPreNorm, self).__init__(*kargs, **kwargs)
-
-    def forward(self, inputs):
-        x = inputs
-        res = x
-        x = self.lnorm1(x) if hasattr(self, 'lnorm1') else x
-        x, _ = self.attention(x, x, x)
-        x = self.dropout(x).add_(res)
-        res = x
-        x = self.lnorm2(x) if hasattr(self, 'lnorm2') else x
-        x = self.fc(x)
-        x = self.dropout(x).add_(res)
-        return x
-
-
-class TransformerAttentionEncoder(nn.Module):
-
-    def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6, num_heads=8, inner_linear=2048, inner_groups=1, prenormalized=False, mask_symbol=PAD, batch_first=True, layer_norm=True, weight_norm=False, dropout=0, embedder=None):
-        super(TransformerAttentionEncoder, self).__init__()
-        embedding_size = embedding_size or hidden_size
-        if embedding_size != hidden_size:
-            self.input_projection = nn.Parameter(torch.empty(embedding_size, hidden_size))
-            nn.init.kaiming_uniform_(self.input_projection, a=math.sqrt(5))
-        self.hidden_size = hidden_size
-        self.batch_first = batch_first
-        self.mask_symbol = mask_symbol
-        self.embedder = embedder or nn.Embedding(vocab_size, embedding_size, padding_idx=PAD)
-        self.scale_embedding = hidden_size ** 0.5
-        self.dropout = nn.Dropout(dropout, inplace=True)
-        if prenormalized:
-            block = EncoderBlockPreNorm
-        else:
-            block = EncoderBlock
-        self.blocks = nn.ModuleList([block(hidden_size, num_heads=num_heads, inner_linear=inner_linear, inner_groups=inner_groups, layer_norm=layer_norm, weight_norm=weight_norm, batch_first=batch_first, dropout=dropout) for _ in range(num_layers)])
-        if layer_norm and prenormalized:
-            self.lnorm = nn.LayerNorm(hidden_size)
-
-    def forward(self, inputs, hidden=None):
-        batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
-        if self.mask_symbol is not None:
-            padding_mask = inputs.eq(self.mask_symbol)
-        else:
-            padding_mask = None
-        x = self.embedder(inputs).mul_(self.scale_embedding)
-        if hasattr(self, 'input_projection'):
-            x = x @ self.input_projection
-        pos_embedding = positional_embedding(x.size(time_dim), x.size(-1), device=x.device)
-        x.add_(pos_embedding.unsqueeze(batch_dim))
-        x = self.dropout(x)
-        for block in self.blocks:
-            block.set_mask(padding_mask)
-            x = block(x)
-        if hasattr(self, 'lnorm'):
-            x = self.lnorm(x)
-        return State(outputs=x, mask=padding_mask, batch_first=self.batch_first)
-
-
-class DecoderBlockPreNorm(DecoderBlock):
-
-    def __init__(self, *kargs, **kwargs):
-        super(DecoderBlockPreNorm, self).__init__(*kargs, **kwargs)
-
-    def forward(self, inputs, context, state=None):
-        x = inputs
-        res = x
-        x = self.lnorm1(x) if hasattr(self, 'lnorm1') else x
-        if self.stateful:
-            x, state = self.state_block(x, state)
-        else:
-            if state is None:
-                x_past = x
-            else:
-                x_past = torch.cat((state, x), 1)
-            x, _ = self.masked_attention(x, x_past, x_past)
-            state = x_past
-        if hasattr(self, 'state_proj'):
-            x = self.state_proj(x)
-        x = self.dropout(x).add(res)
-        res = x
-        x = self.lnorm2(x) if hasattr(self, 'lnorm2') else x
-        x, attn_enc = self.attention(x, context, context)
-        x = self.dropout(x).add_(res)
-        res = x
-        x = self.lnorm3(x) if hasattr(self, 'lnorm3') else x
-        x = self.fc(x)
-        x = self.dropout(x).add_(res)
-        return x, attn_enc, state
 
 
 def index_select_2d(x, order):
@@ -2399,6 +2483,128 @@ class TransformerAttentionDecoder(nn.Module):
         return x, state
 
 
+class TransformerAttentionEncoder(nn.Module):
+
+    def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6, num_heads=8, inner_linear=2048, inner_groups=1, prenormalized=False, mask_symbol=PAD, batch_first=True, layer_norm=True, weight_norm=False, dropout=0, embedder=None):
+        super(TransformerAttentionEncoder, self).__init__()
+        embedding_size = embedding_size or hidden_size
+        if embedding_size != hidden_size:
+            self.input_projection = nn.Parameter(torch.empty(embedding_size, hidden_size))
+            nn.init.kaiming_uniform_(self.input_projection, a=math.sqrt(5))
+        self.hidden_size = hidden_size
+        self.batch_first = batch_first
+        self.mask_symbol = mask_symbol
+        self.embedder = embedder or nn.Embedding(vocab_size, embedding_size, padding_idx=PAD)
+        self.scale_embedding = hidden_size ** 0.5
+        self.dropout = nn.Dropout(dropout, inplace=True)
+        if prenormalized:
+            block = EncoderBlockPreNorm
+        else:
+            block = EncoderBlock
+        self.blocks = nn.ModuleList([block(hidden_size, num_heads=num_heads, inner_linear=inner_linear, inner_groups=inner_groups, layer_norm=layer_norm, weight_norm=weight_norm, batch_first=batch_first, dropout=dropout) for _ in range(num_layers)])
+        if layer_norm and prenormalized:
+            self.lnorm = nn.LayerNorm(hidden_size)
+
+    def forward(self, inputs, hidden=None):
+        batch_dim, time_dim = (0, 1) if self.batch_first else (1, 0)
+        if self.mask_symbol is not None:
+            padding_mask = inputs.eq(self.mask_symbol)
+        else:
+            padding_mask = None
+        x = self.embedder(inputs).mul_(self.scale_embedding)
+        if hasattr(self, 'input_projection'):
+            x = x @ self.input_projection
+        pos_embedding = positional_embedding(x.size(time_dim), x.size(-1), device=x.device)
+        x.add_(pos_embedding.unsqueeze(batch_dim))
+        x = self.dropout(x)
+        for block in self.blocks:
+            block.set_mask(padding_mask)
+            x = block(x)
+        if hasattr(self, 'lnorm'):
+            x = self.lnorm(x)
+        return State(outputs=x, mask=padding_mask, batch_first=self.batch_first)
+
+
+class HybridSeq2Seq(Seq2Seq):
+
+    def __init__(self, vocab_size, tie_embedding=False, transfer_hidden=False, encoder=None, decoder=None):
+        super(HybridSeq2Seq, self).__init__()
+        encoder = encoder or {}
+        decoder = decoder or {}
+        encoder.setdefault('vocab_size', vocab_size)
+        encoder_type = encoder.pop('type', 'recurrent')
+        decoder_type = decoder.pop('type', 'recurrent')
+        if encoder_type == 'recurrent':
+            self.encoder = RecurrentEncoder(**encoder)
+        elif encoder_type == 'transformer':
+            self.encoder = TransformerAttentionEncoder(**encoder)
+        decoder['context_size'] = self.encoder.hidden_size
+        if decoder_type == 'recurrent':
+            self.decoder = RecurrentAttentionDecoder(**decoder)
+        elif decoder_type == 'transformer':
+            self.decoder = TransformerAttentionDecoder(**encoder)
+        self.transfer_hidden = transfer_hidden
+        if tie_embedding:
+            self.encoder.embedder.weight = self.decoder.embedder.weight
+
+    def generate(self, input_list, state_list, k=1, feed_all_timesteps=True, get_attention=False):
+        if isinstance(self.decoder, TransformerAttentionDecoder):
+            feed_all_timesteps = True
+        else:
+            feed_all_timesteps = False
+        return super(HybridSeq2Seq, self).generate(input_list, state_list, k=k, feed_all_timesteps=feed_all_timesteps, get_attention=get_attention)
+
+
+class Transformer(Seq2Seq):
+
+    def __init__(self, vocab_size, hidden_size=512, embedding_size=None, num_layers=6, num_heads=8, inner_linear=2048, inner_groups=1, dropout=0.1, prenormalized=False, tie_embedding=True, encoder=None, decoder=None, layer_norm=True, weight_norm=False, batch_first=True, stateful=None):
+        super(Transformer, self).__init__()
+        embedding_size = embedding_size or hidden_size
+        encoder = encoder or {}
+        decoder = decoder or {}
+        encoder = deepcopy(encoder)
+        decoder = deepcopy(decoder)
+        encoder.setdefault('embedding_size', embedding_size)
+        encoder.setdefault('hidden_size', hidden_size)
+        encoder.setdefault('num_layers', num_layers)
+        encoder.setdefault('num_heads', num_heads)
+        encoder.setdefault('vocab_size', vocab_size)
+        encoder.setdefault('layer_norm', layer_norm)
+        encoder.setdefault('weight_norm', weight_norm)
+        encoder.setdefault('dropout', dropout)
+        encoder.setdefault('inner_linear', inner_linear)
+        encoder.setdefault('inner_groups', inner_groups)
+        encoder.setdefault('prenormalized', prenormalized)
+        encoder.setdefault('batch_first', batch_first)
+        decoder.setdefault('embedding_size', embedding_size)
+        decoder.setdefault('hidden_size', hidden_size)
+        decoder.setdefault('num_layers', num_layers)
+        decoder.setdefault('num_heads', num_heads)
+        decoder.setdefault('tie_embedding', tie_embedding)
+        decoder.setdefault('vocab_size', vocab_size)
+        decoder.setdefault('layer_norm', layer_norm)
+        decoder.setdefault('weight_norm', weight_norm)
+        decoder.setdefault('dropout', dropout)
+        decoder.setdefault('inner_linear', inner_linear)
+        decoder.setdefault('inner_groups', inner_groups)
+        decoder.setdefault('batch_first', batch_first)
+        decoder.setdefault('prenormalized', prenormalized)
+        decoder.setdefault('stateful', stateful)
+        if isinstance(vocab_size, tuple):
+            embedder = CharWordEmbedder(vocab_size[1], embedding_size, hidden_size)
+            encoder.setdefault('embedder', embedder)
+            decoder.setdefault('embedder', embedder)
+            decoder['classifier'] = False
+        self.batch_first = batch_first
+        self.encoder = TransformerAttentionEncoder(**encoder)
+        self.decoder = TransformerAttentionDecoder(**decoder)
+        if tie_embedding and not isinstance(vocab_size, tuple):
+            assert self.encoder.embedder.weight.shape == self.decoder.classifier.weight.shape
+            self.encoder.embedder.weight = self.decoder.classifier.weight
+            if embedding_size != hidden_size:
+                self.encoder.input_projection = self.decoder.input_projection
+
+
 class AddLossModule(nn.Module):
     """adds a loss to module for easy parallelization"""
 
@@ -2436,6 +2642,18 @@ TESTCASES = [
      lambda: ([], {'input_size': 4, 'inner_linear': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (ConvEncoder,
+     lambda: ([], {'vocab_size': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+    (DenseNetEncoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (GatedConv1d,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
     (HiddenTransform,
      lambda: ([], {'input_shape': 4, 'output_shape': 4}),
      lambda: ([torch.rand([4, 4])], {}),
@@ -2464,13 +2682,29 @@ TESTCASES = [
      lambda: ([], {'channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (RecurrentEncoder,
+     lambda: ([], {'vocab_size': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+    (ResNetEncoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
     (SDPAttention,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      False),
+    (StackedConv,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 64])], {}),
+     False),
     (TimeNorm2d,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (TransformerAttentionEncoder,
+     lambda: ([], {'vocab_size': 4}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
      False),
     (_Transition,
      lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
@@ -2514,4 +2748,25 @@ class Test_eladhoffer_seq2seq_pytorch(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
 

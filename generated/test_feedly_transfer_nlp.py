@@ -14,6 +14,7 @@ training = _module
 dataset = _module
 lm_tuner_runner = _module
 model = _module
+dataset = _module
 model = _module
 utils = _module
 setup = _module
@@ -27,8 +28,11 @@ test_experiment_runner = _module
 transfer_nlp = _module
 common = _module
 tokenizers = _module
+utils = _module
 embeddings = _module
 embeddings = _module
+utils = _module
+loaders = _module
 loaders = _module
 vectorizers = _module
 vocabulary = _module
@@ -46,15 +50,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -86,6 +91,9 @@ from collections import Counter
 from typing import Tuple
 
 
+import random
+
+
 import torch.nn as nn
 
 
@@ -96,6 +104,12 @@ import copy
 
 
 from typing import Union
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
 
 
 import inspect
@@ -111,6 +125,26 @@ from abc import abstractmethod
 
 
 from collections import defaultdict
+
+
+class DatasetSplits:
+
+    def __init__(self, train_set: Dataset, train_batch_size: int, val_set: Dataset, val_batch_size: int, test_set: Dataset=None, test_batch_size: int=None):
+        self.train_set: Dataset = train_set
+        self.train_batch_size: int = train_batch_size
+        self.val_set: Dataset = val_set
+        self.val_batch_size: int = val_batch_size
+        self.test_set: Dataset = test_set
+        self.test_batch_size: int = test_batch_size
+
+    def train_data_loader(self):
+        return DataLoader(self.train_set, self.train_batch_size, shuffle=True)
+
+    def val_data_loader(self):
+        return DataLoader(self.val_set, self.val_batch_size, shuffle=False)
+
+    def test_data_loader(self):
+        return DataLoader(self.test_set, self.test_batch_size, shuffle=False)
 
 
 TQDM = True
@@ -135,6 +169,133 @@ def register_plugin(registrable: Any, alias: str=None):
 
 
 logger = logging.getLogger(__name__)
+
+
+class CBOWClassifier(torch.nn.Module):
+
+    def __init__(self, data: DatasetSplits, embedding_size: int, glove_path: str=None, padding_idx: int=0):
+        super(CBOWClassifier, self).__init__()
+        self.num_embeddings = len(data.vectorizer.data_vocab)
+        self.embedding_size = embedding_size
+        self.padding_idx = padding_idx
+        if glove_path:
+            logger.info('Using pre-trained word embeddings...')
+            self.embeddings = Embedding(glove_filepath=glove_path, data=data).embeddings
+            self.embeddings = torch.from_numpy(self.embeddings).float()
+            glove_size = len(self.embeddings[0])
+            self.embedding: torch.nn.Embedding = torch.nn.Embedding(embedding_dim=glove_size, num_embeddings=self.num_embeddings, padding_idx=self.padding_idx, _weight=self.embeddings)
+        else:
+            logger.info('Not using pre-trained word embeddings...')
+            self.embedding: torch.nn.Embedding = torch.nn.Embedding(embedding_dim=self.embedding_size, num_embeddings=self.num_embeddings, padding_idx=self.padding_idx)
+        self.fc1 = torch.nn.Linear(in_features=embedding_size, out_features=self.num_embeddings)
+        self.dropout = torch.nn.Dropout(p=0.3)
+
+    def forward(self, x_in: torch.Tensor) ->torch.Tensor:
+        """
+
+        :param x_in: input data tensor. x_in.shape should be (batch, input_dim)
+        :param apply_softmax: flag for the softmax activation
+                should be false if used with the Cross Entropy losses
+        :return: the resulting tensor. tensor.shape should be (batch, output_dim)
+        """
+        x_embedded_sum = self.dropout(self.embedding(x_in).sum(dim=1))
+        y_out = self.fc1(x_embedded_sum)
+        return y_out
+
+
+class NewsClassifier(torch.nn.Module):
+
+    def __init__(self, data: DatasetSplits, embedding_size: int, num_channels: int, hidden_dim: int, dropout_p: float, padding_idx: int=0, glove_path: str=None):
+        super(NewsClassifier, self).__init__()
+        self.num_embeddings = len(data.vectorizer.data_vocab)
+        self.num_classes = len(data.vectorizer.target_vocab)
+        self.num_channels: int = num_channels
+        self.embedding_size: int = embedding_size
+        self.hidden_dim: int = hidden_dim
+        self.padding_idx: int = padding_idx
+        if glove_path:
+            logger.info('Using pre-trained word embeddings...')
+            self.embeddings = Embedding(glove_filepath=glove_path, data=data).embeddings
+            self.embeddings = torch.from_numpy(self.embeddings).float()
+            glove_size = len(self.embeddings[0])
+            self.emb: torch.nn.Embedding = torch.nn.Embedding(embedding_dim=glove_size, num_embeddings=self.num_embeddings, padding_idx=self.padding_idx, _weight=self.embeddings)
+        else:
+            logger.info('Not using pre-trained word embeddings...')
+            self.emb: torch.nn.Embedding = torch.nn.Embedding(embedding_dim=self.embedding_size, num_embeddings=self.num_embeddings, padding_idx=self.padding_idx)
+        self.convnet = torch.nn.Sequential(torch.nn.Conv1d(in_channels=self.embedding_size, out_channels=self.num_channels, kernel_size=3), torch.nn.ELU(), torch.nn.Conv1d(in_channels=self.num_channels, out_channels=self.num_channels, kernel_size=3, stride=2), torch.nn.ELU(), torch.nn.Conv1d(in_channels=self.num_channels, out_channels=self.num_channels, kernel_size=3, stride=1), torch.nn.ELU(), torch.nn.Conv1d(in_channels=self.num_channels, out_channels=self.num_channels, kernel_size=3), torch.nn.ELU())
+        self._dropout_p: float = dropout_p
+        self.dropout = torch.nn.Dropout(p=dropout_p)
+        self.fc1: torch.nn.Linear = torch.nn.Linear(self.num_channels, self.hidden_dim)
+        self.fc2: torch.nn.Linear = torch.nn.Linear(self.hidden_dim, self.num_classes)
+
+    def forward(self, x_in: torch.Tensor, apply_softmax: bool=False) ->torch.Tensor:
+        """
+
+        :param x_in: input data tensor
+        :param apply_softmax: flag for the softmax activation
+                should be false if used with the Cross Entropy losses
+        :return: the resulting tensor. tensor.shape should be (batch, num_classes)
+        """
+        x_embedded = self.emb(x_in).permute(0, 2, 1)
+        features = self.convnet(x_embedded)
+        remaining_size = features.size(dim=2)
+        features = torch.nn.functional.avg_pool1d(features, remaining_size).squeeze(dim=2)
+        features = self.dropout(features)
+        intermediate_vector = torch.nn.functional.relu(self.dropout(self.fc1(features)))
+        prediction_vector = self.fc2(intermediate_vector)
+        if apply_softmax:
+            prediction_vector = torch.nn.functional.softmax(prediction_vector, dim=1)
+        return prediction_vector
+
+
+class MultiLayerPerceptron(torch.nn.Module):
+
+    def __init__(self, data: DatasetSplits, hidden_dim: int):
+        super(MultiLayerPerceptron, self).__init__()
+        self.input_dim = len(data.vectorizer.data_vocab)
+        self.hidden_dim = hidden_dim
+        self.output_dim = len(data.vectorizer.target_vocab)
+        self.fc = torch.nn.Linear(in_features=self.input_dim, out_features=hidden_dim)
+        self.fc2 = torch.nn.Linear(in_features=hidden_dim, out_features=self.output_dim)
+
+    def forward(self, x_in: torch.Tensor, apply_softmax: bool=False) ->torch.Tensor:
+        """
+        Linear -> ReLu -> Linear (+ softmax if probabilities needed)
+        :param x_in: size (batch, input_dim)
+        :param apply_softmax: False if used with the cross entropy loss, True if probability wanted
+        :return:
+        """
+        intermediate = torch.nn.functional.relu(self.fc(x_in))
+        output = self.fc2(intermediate)
+        if self.output_dim == 1:
+            output = output.squeeze()
+        if apply_softmax:
+            output = torch.nn.functional.softmax(output, dim=1)
+        return output
+
+
+class SurnameClassifierCNN(torch.nn.Module):
+
+    def __init__(self, data: DatasetSplits, num_channels: int):
+        super(SurnameClassifierCNN, self).__init__()
+        self.initial_num_channels = len(data.vectorizer.data_vocab)
+        self.num_classes = len(data.vectorizer.target_vocab)
+        self.num_channels: int = num_channels
+        self.convnet = torch.nn.Sequential(torch.nn.Conv1d(in_channels=self.initial_num_channels, out_channels=self.num_channels, kernel_size=3), torch.nn.ELU(), torch.nn.Conv1d(in_channels=self.num_channels, out_channels=self.num_channels, kernel_size=3, stride=2), torch.nn.ELU(), torch.nn.Conv1d(in_channels=self.num_channels, out_channels=self.num_channels, kernel_size=3, stride=2), torch.nn.ELU(), torch.nn.Conv1d(in_channels=self.num_channels, out_channels=self.num_channels, kernel_size=3), torch.nn.ELU())
+        self.fc = torch.nn.Linear(self.num_channels, self.num_classes)
+
+    def forward(self, x_in: torch.Tensor, apply_softmax: bool=False) ->torch.Tensor:
+        """
+        Conv -> ELU -> ELU -> Conv -> ELU -> Linear
+        :param x_in: size (batch, initial_num_channels, max_sequence)
+        :param apply_softmax: False if used with the cross entropy loss, True if probability wanted
+        :return:
+        """
+        features = self.convnet(x_in).squeeze(dim=2)
+        prediction_vector = self.fc(features)
+        if apply_softmax:
+            prediction_vector = torch.nn.functional.softmax(prediction_vector, dim=1)
+        return prediction_vector
 
 
 class ElmanRNN(torch.nn.Module):
@@ -186,7 +347,83 @@ def column_gather(y_out: torch.FloatTensor, x_lengths: torch.LongTensor) ->torch
     return torch.stack(out)
 
 
-@register_plugin
+class SurnameClassifierRNN(torch.nn.Module):
+
+    def __init__(self, data: DatasetSplits, embedding_size: int, rnn_hidden_size: int, batch_first: bool=True, padding_idx: int=0):
+        super(SurnameClassifierRNN, self).__init__()
+        self.num_embeddings = len(data.vectorizer.data_vocab)
+        self.num_classes = len(data.vectorizer.target_vocab)
+        self.emb: torch.nn.Embedding = torch.nn.Embedding(num_embeddings=self.num_embeddings, embedding_dim=embedding_size, padding_idx=padding_idx)
+        self.rnn: ElmanRNN = ElmanRNN(input_size=embedding_size, hidden_size=rnn_hidden_size, batch_first=batch_first)
+        self.fc1: torch.nn.Linear = torch.nn.Linear(in_features=rnn_hidden_size, out_features=rnn_hidden_size)
+        self.fc2: torch.nn.Linear = torch.nn.Linear(in_features=rnn_hidden_size, out_features=self.num_classes)
+        self.dropout = torch.nn.Dropout(p=0.5)
+
+    def forward(self, x_in: torch.Tensor, x_lengths: torch.Tensor=None, apply_softmax: bool=False) ->torch.Tensor:
+        """
+
+        :param x_in: an input data tensor.
+                 x_in.shape should be (batch, input_dim)
+        :param x_lengths: the lengths of each sequence in the batch.
+                 They are used to find the final vector of each sequence
+        :param apply_softmax: a flag for the softmax activation
+                 should be false if used with the Cross Entropy losses
+        :return: the resulting tensor. tensor.shape should be (batch, output_dim)
+        """
+        x_embedded = self.emb(x_in)
+        y_out = self.rnn(x_embedded)
+        if x_lengths is not None:
+            y_out = column_gather(y_out, x_lengths)
+        else:
+            y_out = y_out[:, (-1), :]
+        y_out = torch.nn.functional.relu(self.fc1(self.dropout(y_out)))
+        y_out = self.fc2(self.dropout(y_out))
+        if apply_softmax:
+            y_out = torch.nn.functional.softmax(y_out, dim=1)
+        return y_out
+
+
+class SurnameConditionedGenerationModel(torch.nn.Module):
+
+    def __init__(self, data: DatasetSplits, char_embedding_size: int, rnn_hidden_size: int, batch_first: bool=True, padding_idx: int=0, dropout_p: float=0.5, conditioned: bool=False):
+        super(SurnameConditionedGenerationModel, self).__init__()
+        self.char_vocab_size = len(data.vectorizer.data_vocab)
+        self.num_nationalities = len(data.vectorizer.target_vocab)
+        self.char_emb: torch.nn.Embedding = torch.nn.Embedding(num_embeddings=self.char_vocab_size, embedding_dim=char_embedding_size, padding_idx=padding_idx)
+        self.nation_emb: torch.nn.Embedding = None
+        self.conditioned = conditioned
+        if self.conditioned:
+            self.nation_emb = torch.nn.Embedding(num_embeddings=self.num_nationalities, embedding_dim=rnn_hidden_size)
+        self.rnn: torch.nn.GRU = torch.nn.GRU(input_size=char_embedding_size, hidden_size=rnn_hidden_size, batch_first=batch_first)
+        self.fc: torch.nn.Linear = torch.nn.Linear(in_features=rnn_hidden_size, out_features=self.char_vocab_size)
+        self.dropout = torch.nn.Dropout(p=dropout_p)
+
+    def forward(self, x_in: torch.Tensor, nationality_index: int=0, apply_softmax: bool=False) ->torch.Tensor:
+        """
+
+        :param x_in: input data tensor, x_in.shape should be (batch, max_seq_size)
+        :param nationality_index: The index of the nationality for each data point
+                Used to initialize the hidden state of the RNN
+        :param apply_softmax: flag for the softmax activation
+                should be false if used with the Cross Entropy losses
+        :return: the resulting tensor. tensor.shape should be (batch, char_vocab_size)
+        """
+        x_embedded = self.char_emb(x_in)
+        if self.conditioned:
+            nationality_embedded = self.nation_emb(nationality_index).unsqueeze(0)
+            y_out, _ = self.rnn(x_embedded, nationality_embedded)
+        else:
+            y_out, _ = self.rnn(x_embedded)
+        batch_size, seq_size, feat_size = y_out.shape
+        y_out = y_out.contiguous().view(batch_size * seq_size, feat_size)
+        y_out = self.fc(self.dropout(y_out))
+        if apply_softmax:
+            y_out = torch.nn.functional.softmax(y_out, dim=1)
+        new_feat_size = y_out.shape[-1]
+        y_out = y_out.view(batch_size, seq_size, new_feat_size)
+        return y_out
+
+
 class Transformer(torch.nn.Module):
 
     def __init__(self, embed_dim: int, hidden_dim: int, num_embeddings: int, num_max_positions: int, num_heads: int, num_layers: int, dropout: float, causal: bool):
@@ -229,7 +466,6 @@ class Transformer(torch.nn.Module):
         return h
 
 
-@register_plugin
 class TransformerWithLMHead(torch.nn.Module):
 
     def __init__(self, embed_dim: int, hidden_dim: int, num_max_positions: int, num_heads: int, num_layers: int, dropout: float, causal: bool, initializer_range: float):
@@ -260,7 +496,6 @@ class TransformerWithLMHead(torch.nn.Module):
         return logits
 
 
-@register_plugin
 class TransformerWithClfHead(torch.nn.Module):
 
     def __init__(self, embed_dim: int, hidden_dim: int, num_max_positions: int, num_heads: int, num_layers: int, dropout: float, causal: bool, initializer_range: float, num_classes: int):
@@ -324,7 +559,6 @@ class TransformerWithAdapters(Transformer):
         return h
 
 
-@register_plugin
 class TransformerWithClfHeadAndAdapters(torch.nn.Module):
 
     def __init__(self, adapters_dim: int, embed_dim: int, hidden_dim: int, num_max_positions: int, num_heads: int, num_layers: int, dropout: float, causal: bool, initializer_range: float, num_classes: int):
@@ -352,7 +586,6 @@ class TransformerWithClfHeadAndAdapters(torch.nn.Module):
         return clf_logits
 
 
-@register_plugin
 class TransformerWithClfHeadAndLMHead(torch.nn.Module):
 
     def __init__(self, embed_dim: int, hidden_dim: int, num_max_positions: int, num_heads: int, num_layers: int, dropout: float, causal: bool, initializer_range: float, num_classes: int):
@@ -384,6 +617,26 @@ class TransformerWithClfHeadAndLMHead(torch.nn.Module):
         clf_tokens_states = (hidden_states * clf_tokens_mask.unsqueeze(-1).float()).sum(dim=0)
         clf_logits = self.classification_head(clf_tokens_states)
         return lm_logits, clf_logits
+
+
+class TestModel(torch.nn.Module):
+
+    def __init__(self, data: DatasetSplits, hidden_dim: int):
+        super(TestModel, self).__init__()
+        self.input_dim = len(data.vectorizer.data_vocab)
+        self.output_dim = len(data.vectorizer.target_vocab)
+        self.hidden_dim = hidden_dim
+        self.fc = torch.nn.Linear(in_features=self.input_dim, out_features=hidden_dim)
+        self.fc2 = torch.nn.Linear(in_features=hidden_dim, out_features=self.output_dim)
+
+    def forward(self, x_in: torch.Tensor, apply_softmax: bool=False) ->torch.Tensor:
+        intermediate = torch.nn.functional.relu(self.fc(x_in))
+        output = self.fc2(intermediate)
+        if self.output_dim == 1:
+            output = output.squeeze()
+        if apply_softmax:
+            output = torch.nn.functional.softmax(output, dim=1)
+        return output
 
 
 import torch

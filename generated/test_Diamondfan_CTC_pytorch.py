@@ -16,21 +16,24 @@ train_ctc = _module
 visualize = _module
 BeamSearch = _module
 NgramLM = _module
+ctcDecoder = _module
+data_loader = _module
 tools = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -53,6 +56,15 @@ import numpy as np
 import copy
 
 
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
+
+
+import scipy.signal
+
+
 import math
 
 
@@ -60,6 +72,9 @@ import torch.nn.functional as F
 
 
 from collections import OrderedDict
+
+
+import torchaudio
 
 
 def position_encoding_init(n_position, d_pos_vec):
@@ -117,20 +132,26 @@ class InferenceBatchLogSoftmax(nn.Module):
 
 
 class BatchRNN(nn.Module):
+    """
+    Add BatchNorm before rnn to generate a batchrnn layer
+    """
 
     def __init__(self, input_size, hidden_size, rnn_type=nn.LSTM, bidirectional=False, batch_norm=True, dropout=0.1):
         super(BatchRNN, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.bidirectional = bidirectional
-        self.batch_norm = SequenceWise(nn.BatchNorm1d(input_size)) if batch_norm else None
-        self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size, bidirectional=bidirectional, dropout=dropout, bias=False)
+        self.batch_norm = nn.BatchNorm1d(input_size) if batch_norm else None
+        self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size, bidirectional=bidirectional, bias=False)
+        self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x):
         if self.batch_norm is not None:
+            x = x.transpose(-1, -2)
             x = self.batch_norm(x)
+            x = x.transpose(-1, -2)
         x, _ = self.rnn(x)
-        self.rnn.flatten_parameters()
+        x = self.dropout(x)
         return x
 
 
@@ -237,30 +258,6 @@ class CNN_LSTM_CTC(nn.Module):
             package['training_cer_results'] = training_cer_results
             package['dev_cer_results'] = dev_cer_results
         return package
-
-
-class BatchRNN(nn.Module):
-    """
-    Add BatchNorm before rnn to generate a batchrnn layer
-    """
-
-    def __init__(self, input_size, hidden_size, rnn_type=nn.LSTM, bidirectional=False, batch_norm=True, dropout=0.1):
-        super(BatchRNN, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.bidirectional = bidirectional
-        self.batch_norm = nn.BatchNorm1d(input_size) if batch_norm else None
-        self.rnn = rnn_type(input_size=input_size, hidden_size=hidden_size, bidirectional=bidirectional, bias=False)
-        self.dropout = nn.Dropout(p=dropout)
-
-    def forward(self, x):
-        if self.batch_norm is not None:
-            x = x.transpose(-1, -2)
-            x = self.batch_norm(x)
-            x = x.transpose(-1, -2)
-        x, _ = self.rnn(x)
-        x = self.dropout(x)
-        return x
 
 
 class LayerCNN(nn.Module):

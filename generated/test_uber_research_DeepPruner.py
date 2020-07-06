@@ -33,20 +33,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import random
+
+
+import numpy as np
+
+
+import torchvision.transforms as transforms
 
 
 import torch.nn as nn
@@ -55,7 +65,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-import random
+import torch.utils.data as data
+
+
+import logging
+
+
+import math
 
 
 from collections import namedtuple
@@ -76,16 +92,7 @@ import torch.utils.data
 from torch.autograd import Variable
 
 
-import numpy as np
-
-
 from torchvision import transforms
-
-
-import logging
-
-
-import math
 
 
 import time
@@ -161,419 +168,6 @@ class Reconstruct(nn.Module):
         reconstruction = F.grid_sample(right_input.repeat(grid.size()[0], 1, 1, 1), grid)
         reconstruction = torch.mean(reconstruction, dim=0).unsqueeze(0)
         return reconstruction
-
-
-_global_config['feature_extractor_filter_size'] = 4
-
-
-_global_config['patch_match_args'] = _mock_config()
-
-
-class ImageReconstruction(nn.Module):
-
-    def __init__(self):
-        super(ImageReconstruction, self).__init__()
-        self.patch_match = PatchMatch(args.patch_match_args)
-        filter_size = args.feature_extractor_filter_size
-        self.feature_extractor = feature_extractor(filter_size)
-        self.reconstruct = Reconstruct(filter_size)
-
-    def forward(self, left_input, right_input):
-        """
-        ImageReconstruction:
-        Description: This class performs the task of reconstruction the left image using the data of the other image,,
-            by fidning correspondences (nnf) between the two fields.
-            The images acan be any random images with some overlap between the two to assist
-            the correspondence matching.
-            For feature_extractor, we just use the RGB features of a (self.filter_size * self.filter_size) patch
-            around each pixel.
-            For finding the correspondences, we use the Differentiable PatchMatch.
-            ** Note: There is no assumption of rectification between the two images. **
-            ** Note: The words 'left' and 'right' do not have any significance.**
-
-
-        Args:
-            :left_input:  Left Image (Image 1)
-            :right_input:  Right Image (Image 2)
-
-        Returns:
-            :reconstruction: Reconstructed left image.
-        """
-        left_features, right_features, neighbour_extraction_filter = self.feature_extractor(left_input, right_input)
-        offset_x, offset_y, x_coordinate, y_coordinate = self.patch_match(left_features, right_features)
-        reconstruction = self.reconstruct(right_input, offset_x, offset_y, x_coordinate, y_coordinate, neighbour_extraction_filter.squeeze(1))
-        return reconstruction
-
-
-class RandomSampler(nn.Module):
-
-    def __init__(self, device, number_of_samples):
-        super(RandomSampler, self).__init__()
-        self.number_of_samples = number_of_samples
-        self.range_multiplier = torch.arange(0.0, number_of_samples + 1, 1, device=device).view(number_of_samples + 1, 1, 1)
-
-    def forward(self, min_offset_x, max_offset_x, min_offset_y, max_offset_y):
-        """
-        Random Sampler:
-            Given the search range per pixel (defined by: [[lx(i), ux(i)], [ly(i), uy(i)]]),
-            where lx = lower_bound of the hoizontal offset,
-                  ux = upper_bound of the horizontal offset,
-                  ly = lower_bound of the vertical offset,
-                  uy = upper_bound of teh vertical offset, for all pixel i. )
-            random sampler generates samples from this search range.
-            First the search range is discretized into `number_of_samples` buckets,
-            then a random sample is generated from each random bucket.
-            ** Discretization is done in both xy directions. ** (similar to meshgrid)
-
-        Args:
-            :min_offset_x: Min horizontal offset of the search range.
-            :max_offset_x: Max horizontal offset of the search range.
-            :min_offset_y: Min vertical offset of the search range.
-            :max_offset_y: Max vertical offset of the search range.
-        Returns:
-            :offset_x: samples representing offset in the horizontal direction.
-            :offset_y: samples representing offset in the vertical direction.
-        """
-        device = min_offset_x.get_device()
-        noise = torch.rand(min_offset_x.repeat(1, self.number_of_samples + 1, 1, 1).size(), device=device)
-        offset_x = min_offset_x + (max_offset_x - min_offset_x) / (self.number_of_samples + 1) * (self.range_multiplier + noise)
-        offset_y = min_offset_y + (max_offset_y - min_offset_y) / (self.number_of_samples + 1) * (self.range_multiplier + noise)
-        offset_x = offset_x.unsqueeze_(1).expand(-1, offset_y.size()[1], -1, -1, -1)
-        offset_x = offset_x.contiguous().view(offset_x.size()[0], offset_x.size()[1] * offset_x.size()[2], offset_x.size()[3], offset_x.size()[4])
-        offset_y = offset_y.unsqueeze_(2).expand(-1, -1, offset_y.size()[1], -1, -1)
-        offset_y = offset_y.contiguous().view(offset_y.size()[0], offset_y.size()[1] * offset_y.size()[2], offset_y.size()[3], offset_y.size()[4])
-        return offset_x, offset_y
-
-
-class Evaluate(nn.Module):
-
-    def __init__(self, left_features, filter_size, evaluation_type='softmax', temperature=10000):
-        super(Evaluate, self).__init__()
-        self.temperature = temperature
-        self.filter_size = filter_size
-        self.softmax = torch.nn.Softmax(dim=1)
-        self.evaluation_type = evaluation_type
-        device = left_features.get_device()
-        self.left_x_coordinate = torch.arange(0.0, left_features.size()[3], device=device).repeat(left_features.size()[2]).view(left_features.size()[2], left_features.size()[3])
-        self.left_x_coordinate = torch.clamp(self.left_x_coordinate, min=0, max=left_features.size()[3] - 1)
-        self.left_x_coordinate = self.left_x_coordinate.expand(left_features.size()[0], -1, -1).unsqueeze(1)
-        self.left_y_coordinate = torch.arange(0.0, left_features.size()[2], device=device).unsqueeze(1).repeat(1, left_features.size()[3]).view(left_features.size()[2], left_features.size()[3])
-        self.left_y_coordinate = torch.clamp(self.left_y_coordinate, min=0, max=left_features.size()[3] - 1)
-        self.left_y_coordinate = self.left_y_coordinate.expand(left_features.size()[0], -1, -1).unsqueeze(1)
-
-    def forward(self, left_features, right_features, offset_x, offset_y):
-        """
-        PatchMatch Evaluation Block
-        Description:    For each pixel i, matching scores are computed by taking the inner product between the
-                left feature and the right feature: score(i,j) = feature_left(i), feature_right(i+disparity(i,j))
-                for all candidates j. The best k disparity value for each pixel is carried towards the next iteration.
-
-                As per implementation,
-                the complete disparity search range is discretized into intervals in
-                DisparityInitialization() function. Corresponding to each disparity interval, we have multiple samples
-                to evaluate. The best disparity sample per interval is the output of the function.
-
-        Args:
-            :left_features: Left Image Feature Map
-            :right_features: Right Image Feature Map
-            :offset_x: samples representing offset in the horizontal direction.
-            :offset_y: samples representing offset in the vertical direction.
-
-        Returns:
-            :offset_x: horizontal offset evaluated as the best offset to generate NNF.
-            :offset_y: vertical offset evaluated as the best offset to generate NNF.
-
-        """
-        right_x_coordinate = torch.clamp(self.left_x_coordinate - offset_x, min=0, max=left_features.size()[3] - 1)
-        right_y_coordinate = torch.clamp(self.left_y_coordinate - offset_y, min=0, max=left_features.size()[2] - 1)
-        right_x_coordinate -= right_x_coordinate.size()[3] / 2
-        right_x_coordinate /= right_x_coordinate.size()[3] / 2
-        right_y_coordinate -= right_y_coordinate.size()[2] / 2
-        right_y_coordinate /= right_y_coordinate.size()[2] / 2
-        samples = torch.cat((right_x_coordinate.unsqueeze(4), right_y_coordinate.unsqueeze(4)), dim=4)
-        samples = samples.view(samples.size()[0] * samples.size()[1], samples.size()[2], samples.size()[3], samples.size()[4])
-        offset_strength = torch.mean(-1.0 * torch.abs(left_features.expand(offset_x.size()[1], -1, -1, -1) - F.grid_sample(right_features.expand(offset_x.size()[1], -1, -1, -1), samples)), dim=1) * self.temperature
-        offset_strength = offset_strength.view(left_features.size()[0], offset_strength.size()[0] // left_features.size()[0], offset_strength.size()[1], offset_strength.size()[2])
-        if self.evaluation_type == 'softmax':
-            offset_strength = torch.softmax(offset_strength, dim=1)
-            offset_x = torch.sum(offset_x * offset_strength, dim=1).unsqueeze(1)
-            offset_y = torch.sum(offset_y * offset_strength, dim=1).unsqueeze(1)
-        else:
-            offset_strength = torch.argmax(offset_strength, dim=1).unsqueeze(1)
-            offset_x = torch.gather(offset_x, index=offset_strength, dim=1)
-            offset_y = torch.gather(offset_y, index=offset_strength, dim=1)
-        return offset_x, offset_y
-
-
-class Propagation(nn.Module):
-
-    def __init__(self, device, filter_size):
-        super(Propagation, self).__init__()
-        self.filter_size = filter_size
-        label = torch.arange(0, self.filter_size, device=device).repeat(self.filter_size).view(self.filter_size, 1, 1, 1, self.filter_size)
-        self.one_hot_filter_h = torch.zeros_like(label).scatter_(0, label, 1).float()
-        label = torch.arange(0, self.filter_size, device=device).repeat(self.filter_size).view(self.filter_size, 1, 1, self.filter_size, 1).long()
-        self.one_hot_filter_v = torch.zeros_like(label).scatter_(0, label, 1).float()
-
-    def forward(self, offset_x, offset_y, propagation_type='horizontal'):
-        """
-        PatchMatch Propagation Block
-        Description:    Particles from adjacent pixels are propagated together through convolution with a
-                        one-hot filter, which en-codes the fact that we allow each pixel
-                        to propagate particles to its 4-neighbours.
-        Args:
-            :offset_x: samples representing offset in the horizontal direction.
-            :offset_y: samples representing offset in the vertical direction.
-            :device: Cuda/ CPU device
-            :propagation_type (default:"horizontal"): In order to be memory efficient, we use separable convolutions
-                                                    for propagtaion.
-
-        Returns:
-            :aggregated_offset_x: Horizontal offset samples aggregated from the neighbours.
-            :aggregated_offset_y: Vertical offset samples aggregated from the neighbours.
-
-        """
-        offset_x = offset_x.view(offset_x.size()[0], 1, offset_x.size()[1], offset_x.size()[2], offset_x.size()[3])
-        offset_y = offset_y.view(offset_y.size()[0], 1, offset_y.size()[1], offset_y.size()[2], offset_y.size()[3])
-        if propagation_type is 'horizontal':
-            aggregated_offset_x = F.conv3d(offset_x, self.one_hot_filter_h, padding=(0, 0, self.filter_size // 2))
-            aggregated_offset_y = F.conv3d(offset_y, self.one_hot_filter_h, padding=(0, 0, self.filter_size // 2))
-        else:
-            aggregated_offset_x = F.conv3d(offset_x, self.one_hot_filter_v, padding=(0, self.filter_size // 2, 0))
-            aggregated_offset_y = F.conv3d(offset_y, self.one_hot_filter_v, padding=(0, self.filter_size // 2, 0))
-        aggregated_offset_x = aggregated_offset_x.permute([0, 2, 1, 3, 4])
-        aggregated_offset_x = aggregated_offset_x.contiguous().view(aggregated_offset_x.size()[0], aggregated_offset_x.size()[1] * aggregated_offset_x.size()[2], aggregated_offset_x.size()[3], aggregated_offset_x.size()[4])
-        aggregated_offset_y = aggregated_offset_y.permute([0, 2, 1, 3, 4])
-        aggregated_offset_y = aggregated_offset_y.contiguous().view(aggregated_offset_y.size()[0], aggregated_offset_y.size()[1] * aggregated_offset_y.size()[2], aggregated_offset_y.size()[3], aggregated_offset_y.size()[4])
-        return aggregated_offset_x, aggregated_offset_y
-
-
-class PropagationFaster(nn.Module):
-
-    def __init__(self):
-        super(PropagationFaster, self).__init__()
-
-    def forward(self, offset_x, offset_y, device, propagation_type='horizontal'):
-        """
-        Faster version of PatchMatch Propagation Block
-        This version uses a fixed propagation filter size of size 3. This implementation is not recommended
-        and is used only to do the propagation faster.
-
-        Description:    Particles from adjacent pixels are propagated together through convolution with a
-                        one-hot filter, which en-codes the fact that we allow each pixel
-                        to propagate particles to its 4-neighbours.
-        Args:
-            :offset_x: samples representing offset in the horizontal direction.
-            :offset_y: samples representing offset in the vertical direction.
-            :device: Cuda/ CPU device
-            :propagation_type (default:"horizontal"): In order to be memory efficient, we use separable convolutions
-                                                    for propagtaion.
-
-        Returns:
-            :aggregated_offset_x: Horizontal offset samples aggregated from the neighbours.
-            :aggregated_offset_y: Vertical offset samples aggregated from the neighbours.
-
-        """
-        self.vertical_zeros = torch.zeros((offset_x.size()[0], offset_x.size()[1], 1, offset_x.size()[3]))
-        self.horizontal_zeros = torch.zeros((offset_x.size()[0], offset_x.size()[1], offset_x.size()[2], 1))
-        if propagation_type is 'horizontal':
-            offset_x = torch.cat((torch.cat((self.horizontal_zeros, offset_x[:, :, :, :-1]), dim=3), offset_x, torch.cat((offset_x[:, :, :, 1:], self.horizontal_zeros), dim=3)), dim=1)
-            offset_y = torch.cat((torch.cat((self.horizontal_zeros, offset_y[:, :, :, :-1]), dim=3), offset_y, torch.cat((offset_y[:, :, :, 1:], self.horizontal_zeros), dim=3)), dim=1)
-        else:
-            offset_x = torch.cat((torch.cat((self.vertical_zeros, offset_x[:, :, :-1, :]), dim=2), offset_x, torch.cat((offset_x[:, :, 1:, :], self.vertical_zeros), dim=2)), dim=1)
-            offset_y = torch.cat((torch.cat((self.vertical_zeros, offset_y[:, :, :-1, :]), dim=2), offset_y, torch.cat((offset_y[:, :, 1:, :], self.vertical_zeros), dim=2)), dim=1)
-        return offset_x, offset_y
-
-
-class PatchMatch(nn.Module):
-
-    def __init__(self, patch_match_args):
-        super(PatchMatch, self).__init__()
-        self.propagation_filter_size = patch_match_args.propagation_filter_size
-        self.number_of_samples = patch_match_args.sample_count
-        self.iteration_count = patch_match_args.iteration_count
-        self.evaluation_type = patch_match_args.evaluation_type
-        self.softmax_temperature = patch_match_args.softmax_temperature
-        self.propagation_type = patch_match_args.propagation_type
-        self.window_size_x = patch_match_args.random_search_window_size[0]
-        self.window_size_y = patch_match_args.random_search_window_size[1]
-
-    def forward(self, left_features, right_features):
-        """
-        Differential PatchMatch Block
-        Description:    In this work, we unroll generalized PatchMatch as a recurrent neural network,
-                        where each unrolling step is equivalent to each iteration of the algorithm.
-                        This is important as it allow us to train our full model end-to-end.
-                        Specifically, we design the following layers:
-                            - Initialization or Paticle Sampling
-                            - Propagation
-                            - Evaluation
-        Args:
-            :left_features: Left Image feature map
-            :right_features: Right image feature map
-
-        Returns:
-            :offset_x: offset for each pixel in the left_features corresponding to the
-                                                        right_features in the horizontal direction.
-            :offset_y: offset for each pixel in the left_features corresponding to the
-                                                        right_features in the vertical direction.
-
-            :x_coordinate: X coordinate corresponding to each pxiel.
-            :y_coordinate: Y coordinate corresponding to each pxiel.
-
-            (Offsets and the xy_cooridnates returned are used to generated the NNF field later for reconstruction.)
-
-        """
-        device = left_features.get_device()
-        if self.propagation_type is 'faster_filter_3_propagation':
-            self.propagation = PropagationFaster()
-        else:
-            self.propagation = Propagation(device, self.propagation_filter_size)
-        self.evaluate = Evaluate(left_features, self.propagation_filter_size, self.evaluation_type, self.softmax_temperature)
-        self.uniform_sampler = RandomSampler(device, self.number_of_samples)
-        min_offset_x = torch.zeros((left_features.size()[0], 1, left_features.size()[2], left_features.size()[3])) - left_features.size()[3]
-        max_offset_x = min_offset_x + 2 * left_features.size()[3]
-        min_offset_y = min_offset_x + left_features.size()[3] - left_features.size()[2]
-        max_offset_y = min_offset_y + 2 * left_features.size()[2]
-        for prop_iter in range(self.iteration_count):
-            offset_x, offset_y = self.uniform_sampler(min_offset_x, max_offset_x, min_offset_y, max_offset_y)
-            offset_x, offset_y = self.propagation(offset_x, offset_y, device, 'horizontal')
-            offset_x, offset_y = self.evaluate(left_features, right_features, offset_x, offset_y)
-            offset_x, offset_y = self.propagation(offset_x, offset_y, device, 'vertical')
-            offset_x, offset_y = self.evaluate(left_features, right_features, offset_x, offset_y)
-            min_offset_x = torch.clamp(offset_x - self.window_size_x // 2, min=-left_features.size()[3], max=left_features.size()[3])
-            max_offset_x = torch.clamp(offset_x + self.window_size_x // 2, min=-left_features.size()[3], max=left_features.size()[3])
-            min_offset_y = torch.clamp(offset_y - self.window_size_y // 2, min=-left_features.size()[2], max=left_features.size()[2])
-            max_offset_y = torch.clamp(offset_y + self.window_size_y // 2, min=-left_features.size()[2], max=left_features.size()[2])
-        return offset_x, offset_y, self.evaluate.left_x_coordinate, self.evaluate.left_y_coordinate
-
-
-def convbn_relu(in_planes, out_planes, kernel_size, stride, pad, dilation):
-    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=dilation if dilation > 1 else pad, dilation=dilation, bias=False), nn.BatchNorm2d(out_planes), nn.ReLU(inplace=True))
-
-
-class feature_extraction(nn.Module):
-
-    def __init__(self):
-        super(feature_extraction, self).__init__()
-        self.inplanes = 32
-        self.firstconv = nn.Sequential(convbn_relu(3, 32, 3, 2, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1))
-        self.layer1 = self._make_layer(BasicBlock, 32, 3, 1, 1, 1)
-        self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
-        self.layer3 = self._make_layer(BasicBlock, 128, 3, 1, 1, 1)
-        self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 2)
-        self.branch1 = nn.Sequential(nn.AvgPool2d((64, 64), stride=(64, 64)), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.branch2 = nn.Sequential(nn.AvgPool2d((32, 32), stride=(32, 32)), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.branch3 = nn.Sequential(nn.AvgPool2d((16, 16), stride=(16, 16)), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.branch4 = nn.Sequential(nn.AvgPool2d((8, 8), stride=(8, 8)), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.lastconv = nn.Sequential(convbn_relu(320, 128, 3, 1, 1, 1), nn.Conv2d(128, 32, kernel_size=1, padding=0, stride=1, bias=False))
-
-    def _make_layer(self, block, planes, blocks, stride, pad, dilation):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, pad, dilation))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, 1, None, pad, dilation))
-        return nn.Sequential(*layers)
-
-    def forward(self, input):
-        """
-        Feature Extractor
-        Description:    The goal of the feature extraction network is to produce a reliable pixel-wise
-                        feature representation from the input image. Specifically, we employ four residual blocks
-                        and use X2 dilated convolution for the last block to enlarge the receptive field.
-                        We then apply spatial pyramid pooling to build a 4-level pyramid feature.
-                        Through multi-scale information, the model is able to capture large context while
-                        maintaining a high spatial resolution. The size of the final feature map is 1/4 of
-                        the originalinput image size. We share the parameters for the left and right feature network.
-
-        Args:
-            :input: Input image (RGB)
-
-        Returns:
-            :output_feature: spp_features (downsampled X4)
-            :output1: low_level_features (downsampled X2)
-        """
-        output0 = self.firstconv(input)
-        output1 = self.layer1(output0)
-        output_raw = self.layer2(output1)
-        output = self.layer3(output_raw)
-        output_skip = self.layer4(output)
-        output_branch1 = self.branch1(output_skip)
-        output_branch1 = F.upsample(output_branch1, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
-        output_branch2 = self.branch2(output_skip)
-        output_branch2 = F.upsample(output_branch2, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
-        output_branch3 = self.branch3(output_skip)
-        output_branch3 = F.upsample(output_branch3, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
-        output_branch4 = self.branch4(output_skip)
-        output_branch4 = F.upsample(output_branch4, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
-        output_feature = torch.cat((output_raw, output_skip, output_branch4, output_branch3, output_branch2, output_branch1), 1)
-        output_feature = self.lastconv(output_feature)
-        return output_feature, output1
-
-
-class feature_extraction(nn.Module):
-
-    def __init__(self):
-        super(feature_extraction, self).__init__()
-        self.inplanes = 32
-        self.firstconv = nn.Sequential(convbn_relu(3, 32, 3, 2, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1))
-        self.layer1 = self._make_layer(BasicBlock, 32, 3, 1, 1, 1)
-        self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
-        self.layer3 = self._make_layer(BasicBlock, 128, 3, 2, 1, 1)
-        self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 1)
-        self.branch2 = nn.Sequential(nn.AvgPool2d((32, 32), stride=(32, 32)), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.branch3 = nn.Sequential(nn.AvgPool2d((16, 16), stride=(16, 16)), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.branch4 = nn.Sequential(nn.AvgPool2d((8, 8), stride=(8, 8)), convbn_relu(128, 32, 1, 1, 0, 1))
-        self.lastconv = nn.Sequential(convbn_relu(352, 128, 3, 1, 1, 1), nn.Conv2d(128, 32, kernel_size=1, padding=0, stride=1, bias=False))
-
-    def _make_layer(self, block, planes, blocks, stride, pad, dilation):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, pad, dilation))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, 1, None, pad, dilation))
-        return nn.Sequential(*layers)
-
-    def forward(self, input):
-        """
-        Feature Extractor
-        Description:    The goal of the feature extraction network is to produce a reliable pixel-wise
-                        feature representation from the input image. Specifically, we employ four residual blocks
-                        and use X2 dilated convolution for the last block to enlarge the receptive field.
-                        We then apply spatial pyramid pooling to build a 4-level pyramid feature.
-                        Through multi-scale information, the model is able to capture large context while
-                        maintaining a high spatial resolution. The size of the final feature map is 1/4 of
-                        the originalinput image size. We share the parameters for the left and right feature network.
-
-        Args:
-            :input: Input image (RGB)
-
-        Returns:
-            :output_feature: spp_features (downsampled X8)
-            :output_raw: features (downsampled X4)
-            :output1: low_level_features (downsampled X2)
-        """
-        output0 = self.firstconv(input)
-        output1 = self.layer1(output0)
-        output_raw = self.layer2(output1)
-        output = self.layer3(output_raw)
-        output_skip = self.layer4(output)
-        output_branch2 = self.branch2(output_skip)
-        output_branch2 = F.upsample(output_branch2, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
-        output_branch3 = self.branch3(output_skip)
-        output_branch3 = F.upsample(output_branch3, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
-        output_branch4 = self.branch4(output_skip)
-        output_branch4 = F.upsample(output_branch4, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
-        output_feature = torch.cat((output, output_skip, output_branch4, output_branch3, output_branch2), 1)
-        output_feature = self.lastconv(output_feature)
-        return output_feature, output_raw, output1
 
 
 class DisparityInitialization(nn.Module):
@@ -752,8 +346,125 @@ class PatchMatch(nn.Module):
         return disparity_samples
 
 
+class ImageReconstruction(nn.Module):
+
+    def __init__(self):
+        super(ImageReconstruction, self).__init__()
+        self.patch_match = PatchMatch(args.patch_match_args)
+        filter_size = args.feature_extractor_filter_size
+        self.feature_extractor = feature_extractor(filter_size)
+        self.reconstruct = Reconstruct(filter_size)
+
+    def forward(self, left_input, right_input):
+        """
+        ImageReconstruction:
+        Description: This class performs the task of reconstruction the left image using the data of the other image,,
+            by fidning correspondences (nnf) between the two fields.
+            The images acan be any random images with some overlap between the two to assist
+            the correspondence matching.
+            For feature_extractor, we just use the RGB features of a (self.filter_size * self.filter_size) patch
+            around each pixel.
+            For finding the correspondences, we use the Differentiable PatchMatch.
+            ** Note: There is no assumption of rectification between the two images. **
+            ** Note: The words 'left' and 'right' do not have any significance.**
+
+
+        Args:
+            :left_input:  Left Image (Image 1)
+            :right_input:  Right Image (Image 2)
+
+        Returns:
+            :reconstruction: Reconstructed left image.
+        """
+        left_features, right_features, neighbour_extraction_filter = self.feature_extractor(left_input, right_input)
+        offset_x, offset_y, x_coordinate, y_coordinate = self.patch_match(left_features, right_features)
+        reconstruction = self.reconstruct(right_input, offset_x, offset_y, x_coordinate, y_coordinate, neighbour_extraction_filter.squeeze(1))
+        return reconstruction
+
+
+class RandomSampler(nn.Module):
+
+    def __init__(self, device, number_of_samples):
+        super(RandomSampler, self).__init__()
+        self.number_of_samples = number_of_samples
+        self.range_multiplier = torch.arange(0.0, number_of_samples + 1, 1, device=device).view(number_of_samples + 1, 1, 1)
+
+    def forward(self, min_offset_x, max_offset_x, min_offset_y, max_offset_y):
+        """
+        Random Sampler:
+            Given the search range per pixel (defined by: [[lx(i), ux(i)], [ly(i), uy(i)]]),
+            where lx = lower_bound of the hoizontal offset,
+                  ux = upper_bound of the horizontal offset,
+                  ly = lower_bound of the vertical offset,
+                  uy = upper_bound of teh vertical offset, for all pixel i. )
+            random sampler generates samples from this search range.
+            First the search range is discretized into `number_of_samples` buckets,
+            then a random sample is generated from each random bucket.
+            ** Discretization is done in both xy directions. ** (similar to meshgrid)
+
+        Args:
+            :min_offset_x: Min horizontal offset of the search range.
+            :max_offset_x: Max horizontal offset of the search range.
+            :min_offset_y: Min vertical offset of the search range.
+            :max_offset_y: Max vertical offset of the search range.
+        Returns:
+            :offset_x: samples representing offset in the horizontal direction.
+            :offset_y: samples representing offset in the vertical direction.
+        """
+        device = min_offset_x.get_device()
+        noise = torch.rand(min_offset_x.repeat(1, self.number_of_samples + 1, 1, 1).size(), device=device)
+        offset_x = min_offset_x + (max_offset_x - min_offset_x) / (self.number_of_samples + 1) * (self.range_multiplier + noise)
+        offset_y = min_offset_y + (max_offset_y - min_offset_y) / (self.number_of_samples + 1) * (self.range_multiplier + noise)
+        offset_x = offset_x.unsqueeze_(1).expand(-1, offset_y.size()[1], -1, -1, -1)
+        offset_x = offset_x.contiguous().view(offset_x.size()[0], offset_x.size()[1] * offset_x.size()[2], offset_x.size()[3], offset_x.size()[4])
+        offset_y = offset_y.unsqueeze_(2).expand(-1, -1, offset_y.size()[1], -1, -1)
+        offset_y = offset_y.contiguous().view(offset_y.size()[0], offset_y.size()[1] * offset_y.size()[2], offset_y.size()[3], offset_y.size()[4])
+        return offset_x, offset_y
+
+
+class PropagationFaster(nn.Module):
+
+    def __init__(self):
+        super(PropagationFaster, self).__init__()
+
+    def forward(self, offset_x, offset_y, device, propagation_type='horizontal'):
+        """
+        Faster version of PatchMatch Propagation Block
+        This version uses a fixed propagation filter size of size 3. This implementation is not recommended
+        and is used only to do the propagation faster.
+
+        Description:    Particles from adjacent pixels are propagated together through convolution with a
+                        one-hot filter, which en-codes the fact that we allow each pixel
+                        to propagate particles to its 4-neighbours.
+        Args:
+            :offset_x: samples representing offset in the horizontal direction.
+            :offset_y: samples representing offset in the vertical direction.
+            :device: Cuda/ CPU device
+            :propagation_type (default:"horizontal"): In order to be memory efficient, we use separable convolutions
+                                                    for propagtaion.
+
+        Returns:
+            :aggregated_offset_x: Horizontal offset samples aggregated from the neighbours.
+            :aggregated_offset_y: Vertical offset samples aggregated from the neighbours.
+
+        """
+        self.vertical_zeros = torch.zeros((offset_x.size()[0], offset_x.size()[1], 1, offset_x.size()[3]))
+        self.horizontal_zeros = torch.zeros((offset_x.size()[0], offset_x.size()[1], offset_x.size()[2], 1))
+        if propagation_type is 'horizontal':
+            offset_x = torch.cat((torch.cat((self.horizontal_zeros, offset_x[:, :, :, :-1]), dim=3), offset_x, torch.cat((offset_x[:, :, :, 1:], self.horizontal_zeros), dim=3)), dim=1)
+            offset_y = torch.cat((torch.cat((self.horizontal_zeros, offset_y[:, :, :, :-1]), dim=3), offset_y, torch.cat((offset_y[:, :, :, 1:], self.horizontal_zeros), dim=3)), dim=1)
+        else:
+            offset_x = torch.cat((torch.cat((self.vertical_zeros, offset_x[:, :, :-1, :]), dim=2), offset_x, torch.cat((offset_x[:, :, 1:, :], self.vertical_zeros), dim=2)), dim=1)
+            offset_y = torch.cat((torch.cat((self.vertical_zeros, offset_y[:, :, :-1, :]), dim=2), offset_y, torch.cat((offset_y[:, :, 1:, :], self.vertical_zeros), dim=2)), dim=1)
+        return offset_x, offset_y
+
+
 def convbn(in_planes, out_planes, kernel_size, stride, pad, dilation):
     return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=dilation if dilation > 1 else pad, dilation=dilation, bias=False), nn.BatchNorm2d(out_planes))
+
+
+def convbn_relu(in_planes, out_planes, kernel_size, stride, pad, dilation):
+    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=dilation if dilation > 1 else pad, dilation=dilation, bias=False), nn.BatchNorm2d(out_planes), nn.ReLU(inplace=True))
 
 
 class BasicBlock(nn.Module):
@@ -773,6 +484,67 @@ class BasicBlock(nn.Module):
             x = self.downsample(x)
         out += x
         return out
+
+
+class feature_extraction(nn.Module):
+
+    def __init__(self):
+        super(feature_extraction, self).__init__()
+        self.inplanes = 32
+        self.firstconv = nn.Sequential(convbn_relu(3, 32, 3, 2, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1), convbn_relu(32, 32, 3, 1, 1, 1))
+        self.layer1 = self._make_layer(BasicBlock, 32, 3, 1, 1, 1)
+        self.layer2 = self._make_layer(BasicBlock, 64, 16, 2, 1, 1)
+        self.layer3 = self._make_layer(BasicBlock, 128, 3, 2, 1, 1)
+        self.layer4 = self._make_layer(BasicBlock, 128, 3, 1, 1, 1)
+        self.branch2 = nn.Sequential(nn.AvgPool2d((32, 32), stride=(32, 32)), convbn_relu(128, 32, 1, 1, 0, 1))
+        self.branch3 = nn.Sequential(nn.AvgPool2d((16, 16), stride=(16, 16)), convbn_relu(128, 32, 1, 1, 0, 1))
+        self.branch4 = nn.Sequential(nn.AvgPool2d((8, 8), stride=(8, 8)), convbn_relu(128, 32, 1, 1, 0, 1))
+        self.lastconv = nn.Sequential(convbn_relu(352, 128, 3, 1, 1, 1), nn.Conv2d(128, 32, kernel_size=1, padding=0, stride=1, bias=False))
+
+    def _make_layer(self, block, planes, blocks, stride, pad, dilation):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample, pad, dilation))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, 1, None, pad, dilation))
+        return nn.Sequential(*layers)
+
+    def forward(self, input):
+        """
+        Feature Extractor
+        Description:    The goal of the feature extraction network is to produce a reliable pixel-wise
+                        feature representation from the input image. Specifically, we employ four residual blocks
+                        and use X2 dilated convolution for the last block to enlarge the receptive field.
+                        We then apply spatial pyramid pooling to build a 4-level pyramid feature.
+                        Through multi-scale information, the model is able to capture large context while
+                        maintaining a high spatial resolution. The size of the final feature map is 1/4 of
+                        the originalinput image size. We share the parameters for the left and right feature network.
+
+        Args:
+            :input: Input image (RGB)
+
+        Returns:
+            :output_feature: spp_features (downsampled X8)
+            :output_raw: features (downsampled X4)
+            :output1: low_level_features (downsampled X2)
+        """
+        output0 = self.firstconv(input)
+        output1 = self.layer1(output0)
+        output_raw = self.layer2(output1)
+        output = self.layer3(output_raw)
+        output_skip = self.layer4(output)
+        output_branch2 = self.branch2(output_skip)
+        output_branch2 = F.upsample(output_branch2, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
+        output_branch3 = self.branch3(output_skip)
+        output_branch3 = F.upsample(output_branch3, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
+        output_branch4 = self.branch4(output_skip)
+        output_branch4 = F.upsample(output_branch4, (output_skip.size()[2], output_skip.size()[3]), mode='bilinear')
+        output_feature = torch.cat((output, output_skip, output_branch4, output_branch3, output_branch2), 1)
+        output_feature = self.lastconv(output_feature)
+        return output_feature, output_raw, output1
 
 
 class SubModule(nn.Module):
@@ -796,6 +568,183 @@ class SubModule(nn.Module):
                 m.bias.data.zero_()
             elif isinstance(m, nn.Linear):
                 m.bias.data.zero_()
+
+
+def convbn_2d_lrelu(in_planes, out_planes, kernel_size, stride, pad, dilation=1, bias=False):
+    return nn.Sequential(nn.Conv2d(in_planes, out_planes, kernel_size=(kernel_size, kernel_size), stride=(stride, stride), padding=(pad, pad), dilation=(dilation, dilation), bias=bias), nn.BatchNorm2d(out_planes), nn.LeakyReLU(0.1, inplace=True))
+
+
+class RefinementNet(SubModule):
+
+    def __init__(self, inplanes):
+        super(RefinementNet, self).__init__()
+        self.conv1 = nn.Sequential(convbn_2d_lrelu(inplanes, 32, kernel_size=3, stride=1, pad=1), convbn_2d_lrelu(32, 32, kernel_size=3, stride=1, pad=1, dilation=1), convbn_2d_lrelu(32, 32, kernel_size=3, stride=1, pad=1, dilation=1), convbn_2d_lrelu(32, 16, kernel_size=3, stride=1, pad=2, dilation=2), convbn_2d_lrelu(16, 16, kernel_size=3, stride=1, pad=4, dilation=4), convbn_2d_lrelu(16, 16, kernel_size=3, stride=1, pad=1, dilation=1))
+        self.classif1 = nn.Conv2d(16, 1, kernel_size=3, padding=1, stride=1, bias=False)
+        self.relu = nn.ReLU(inplace=True)
+        self.weight_init()
+
+    def forward(self, input, disparity):
+        """
+        Refinement Block
+        Description:    The network takes left image convolutional features from the second residual block
+                        of the feature network and the current disparity estimation as input.
+                        It then outputs the finetuned disparity prediction. The low-level feature
+                        information serves as a guidance to reduce noise and improve the quality of the final
+                        disparity map, especially on sharp boundaries.
+
+        Args:
+            :input: Input features composed of left image low-level features, cost-aggregator features, and
+                    cost-aggregator disparity.
+
+            :disparity: predicted disparity
+        """
+        output0 = self.conv1(input)
+        output0 = self.classif1(output0)
+        output = self.relu(output0 + disparity)
+        return output
+
+
+def convbn_3d_lrelu(in_planes, out_planes, kernel_size, stride, pad):
+    return nn.Sequential(nn.Conv3d(in_planes, out_planes, kernel_size=kernel_size, padding=(pad, pad, pad), stride=(1, stride, stride), bias=False), nn.BatchNorm3d(out_planes), nn.LeakyReLU(0.1, inplace=True))
+
+
+def convbn_transpose_3d(inplanes, outplanes, kernel_size, padding, output_padding, stride, bias):
+    return nn.Sequential(nn.ConvTranspose3d(inplanes, outplanes, kernel_size, padding=padding, output_padding=output_padding, stride=stride, bias=bias), nn.BatchNorm3d(outplanes))
+
+
+class HourGlass(SubModule):
+
+    def __init__(self, inplanes=16):
+        super(HourGlass, self).__init__()
+        self.conv1 = convbn_3d_lrelu(inplanes, inplanes * 2, kernel_size=3, stride=2, pad=1)
+        self.conv2 = convbn_3d_lrelu(inplanes * 2, inplanes * 2, kernel_size=3, stride=1, pad=1)
+        self.conv1_1 = convbn_3d_lrelu(inplanes * 2, inplanes * 4, kernel_size=3, stride=2, pad=1)
+        self.conv2_1 = convbn_3d_lrelu(inplanes * 4, inplanes * 4, kernel_size=3, stride=1, pad=1)
+        self.conv3 = convbn_3d_lrelu(inplanes * 4, inplanes * 8, kernel_size=3, stride=2, pad=1)
+        self.conv4 = convbn_3d_lrelu(inplanes * 8, inplanes * 8, kernel_size=3, stride=1, pad=1)
+        self.conv5 = convbn_transpose_3d(inplanes * 8, inplanes * 4, kernel_size=3, padding=1, output_padding=(0, 1, 1), stride=(1, 2, 2), bias=False)
+        self.conv6 = convbn_transpose_3d(inplanes * 4, inplanes * 2, kernel_size=3, padding=1, output_padding=(0, 1, 1), stride=(1, 2, 2), bias=False)
+        self.conv7 = convbn_transpose_3d(inplanes * 2, inplanes, kernel_size=3, padding=1, output_padding=(0, 1, 1), stride=(1, 2, 2), bias=False)
+        self.last_conv3d_layer = nn.Sequential(convbn_3d_lrelu(inplanes, inplanes * 2, 3, 1, 1), nn.Conv3d(inplanes * 2, 1, kernel_size=3, padding=1, stride=1, bias=False))
+        self.softmax = nn.Softmax(dim=1)
+        self.weight_init()
+
+
+class MaxDisparityPredictor(HourGlass):
+
+    def __init__(self, hourglass_inplanes=16):
+        super(MaxDisparityPredictor, self).__init__(hourglass_inplanes)
+
+    def forward(self, input, input_disparity):
+        """
+        Confidence Range Prediction (Max Disparity):
+        Description:    The network has a convolutional encoder-decoder structure. It takes the sparse
+                disparity estimations from the differentiable PatchMatch, the left image and the warped right image
+                (warped according to the sparse disparity estimations) as input and outputs the upper bound of
+                the confidence range for each pixel i.
+        Args:
+            :input: Left and Warped right Image features as Cost Volume.
+            :input_disparity: PatchMatch predicted disparity samples.
+        Returns:
+            :disparity_output: Max Disparity of the reduced disaprity search range.
+            :feature_output:   High-level features of the MaxDisparityPredictor
+        """
+        output0 = self.conv1(input)
+        output0_a = self.conv2(output0) + output0
+        output0 = self.conv1_1(output0_a)
+        output0_c = self.conv2_1(output0) + output0
+        output0 = self.conv3(output0_c)
+        output0 = self.conv4(output0) + output0
+        output1 = self.conv5(output0) + output0_c
+        output1 = self.conv6(output1) + output0_a
+        output1 = self.conv7(output1)
+        output2 = self.last_conv3d_layer(output1).squeeze(1)
+        feature_output = output2
+        confidence_output = self.softmax(output2)
+        disparity_output = torch.sum(confidence_output * input_disparity, dim=1).unsqueeze(1)
+        return disparity_output, feature_output
+
+
+class MinDisparityPredictor(HourGlass):
+
+    def __init__(self, hourglass_inplanes=16):
+        super(MinDisparityPredictor, self).__init__(hourglass_inplanes)
+
+    def forward(self, input, input_disparity):
+        """
+        Confidence Range Prediction (Min Disparity):
+        Description:    The network has a convolutional encoder-decoder structure. It takes the sparse
+                disparity estimations from the differentiable PatchMatch, the left image and the warped right image
+                (warped according to the sparse disparity estimations) as input and outputs the lower bound of
+                the confidence range for each pixel i.
+        Args:
+            :input: Left and Warped right Image features as Cost Volume.
+            :input_disparity: PatchMatch predicted disparity samples.
+        Returns:
+            :disparity_output: Min Disparity of the reduced disaprity search range.
+            :feature_output:   High-level features of the MaxDisparityPredictor
+        """
+        output0 = self.conv1(input)
+        output0_a = self.conv2(output0) + output0
+        output0 = self.conv1_1(output0_a)
+        output0_c = self.conv2_1(output0) + output0
+        output0 = self.conv3(output0_c)
+        output0 = self.conv4(output0) + output0
+        output1 = self.conv5(output0) + output0_c
+        output1 = self.conv6(output1) + output0_a
+        output1 = self.conv7(output1)
+        output2 = self.last_conv3d_layer(output1).squeeze(1)
+        feature_output = output2
+        confidence_output = self.softmax(output2)
+        disparity_output = torch.sum(confidence_output * input_disparity, dim=1).unsqueeze(1)
+        return disparity_output, feature_output
+
+
+class CostAggregator(HourGlass):
+
+    def __init__(self, cost_aggregator_inplanes, hourglass_inplanes=16):
+        super(CostAggregator, self).__init__(inplanes=16)
+        self.dres0 = nn.Sequential(convbn_3d_lrelu(cost_aggregator_inplanes, 64, 3, 1, 1), convbn_3d_lrelu(64, 32, 3, 1, 1))
+        self.dres1 = nn.Sequential(convbn_3d_lrelu(32, 32, 3, 1, 1), convbn_3d_lrelu(32, hourglass_inplanes, 3, 1, 1))
+
+    def forward(self, input, input_disparity):
+        """
+        3D Cost Aggregator
+        Description:    Based on the predicted range in the pruning module,
+                we build the 3D cost volume estimator and conduct spatial aggregation.
+                Following common practice, we take the left image, the warped right image and corresponding disparities
+                as input and output the cost over the disparity range at the size B X R X H X W , where R is the number
+                of disparities per pixel. Compared to prior work, our R is more than 10 times smaller, making
+                this module very efficient. Soft-arg max is again used to predict the disparity value ,
+                so that our approach is end-to-end trainable.
+
+        Args:
+            :input:   Cost-Volume composed of left image features, warped right image features,
+                      Confidence range Predictor features and input disparity samples/
+
+            :input_disparity: input disparity samples.
+
+        Returns:
+            :disparity_output: Predicted disparity
+            :feature_output: High-level features of 3d-Cost Aggregator
+
+        """
+        output0 = self.dres0(input)
+        output0_b = self.dres1(output0)
+        output0 = self.conv1(output0_b)
+        output0_a = self.conv2(output0) + output0
+        output0 = self.conv1_1(output0_a)
+        output0_c = self.conv2_1(output0) + output0
+        output0 = self.conv3(output0_c)
+        output0 = self.conv4(output0) + output0
+        output1 = self.conv5(output0) + output0_c
+        output1 = self.conv6(output1) + output0_a
+        output1 = self.conv7(output1) + output0_b
+        output2 = self.last_conv3d_layer(output1).squeeze(1)
+        feature_output = output2
+        confidence_output = self.softmax(output2)
+        disparity_output = torch.sum(confidence_output * input_disparity, dim=1)
+        return disparity_output.unsqueeze(1), feature_output
 
 
 class UniformSampler(nn.Module):
@@ -875,6 +824,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
+    (RefinementNet,
+     lambda: ([], {'inplanes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (feature_extraction,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 256, 256])], {}),
@@ -887,4 +840,7 @@ class Test_uber_research_DeepPruner(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

@@ -24,15 +24,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -77,6 +78,9 @@ import torch.optim
 
 
 from torch import autograd
+
+
+from torch import nn
 
 
 import torch.optim as optim
@@ -779,24 +783,6 @@ class QuaternionLinear(Module):
         return self.__class__.__name__ + '(' + 'in_features=' + str(self.in_features) + ', out_features=' + str(self.out_features) + ', bias=' + str(self.bias is not None) + ', init_criterion=' + str(self.init_criterion) + ', weight_init=' + str(self.weight_init) + ', seed=' + str(self.seed) + ')'
 
 
-class StackedQLSTM(nn.Module):
-
-    def __init__(self, feat_size, hidden_size, use_cuda, n_layers, batch_first=True):
-        super(StackedQLSTM, self).__init__()
-        self.batch_first = batch_first
-        self.layers = nn.ModuleList([QLSTM(feat_size, hidden_size, use_cuda) for _ in range(n_layers)])
-
-    def forward(self, x):
-        if self.batch_first:
-            x = x.permute(1, 0, 2)
-        for layer in self.layers:
-            x = layer(x)
-            x = x[:, :, :-1]
-        if self.batch_first:
-            x = x.permute(1, 0, 2)
-        return x
-
-
 class QLSTM(nn.Module):
 
     def __init__(self, feat_size, hidden_size, CUDA):
@@ -840,6 +826,24 @@ class QLSTM(nn.Module):
             output = self.fco(h)
             out.append(output.unsqueeze(0))
         return torch.cat(out, 0)
+
+
+class StackedQLSTM(nn.Module):
+
+    def __init__(self, feat_size, hidden_size, use_cuda, n_layers, batch_first=True):
+        super(StackedQLSTM, self).__init__()
+        self.batch_first = batch_first
+        self.layers = nn.ModuleList([QLSTM(feat_size, hidden_size, use_cuda) for _ in range(n_layers)])
+
+    def forward(self, x):
+        if self.batch_first:
+            x = x.permute(1, 0, 2)
+        for layer in self.layers:
+            x = layer(x)
+            x = x[:, :, :-1]
+        if self.batch_first:
+            x = x.permute(1, 0, 2)
+        return x
 
 
 class QAE(nn.Module):
@@ -940,199 +944,6 @@ class QRNN(nn.Module):
             at = wx_out[k] + self.uh(h)
             h = at
             output = nn.Tanh()(self.fco(h))
-            out.append(output.unsqueeze(0))
-        return torch.cat(out, 0)
-
-
-class QLSTM(nn.Module):
-
-    def __init__(self, feat_size, hidden_size, CUDA):
-        super(QLSTM, self).__init__()
-        self.act = nn.Tanh()
-        self.act_gate = nn.Sigmoid()
-        self.input_dim = feat_size
-        self.hidden_dim = hidden_size
-        self.CUDA = CUDA
-        self.num_classes = feat_size + 1
-        self.wfx = QuaternionLinearAutograd(self.input_dim, self.hidden_dim)
-        self.ufh = QuaternionLinearAutograd(self.hidden_dim, self.hidden_dim, bias=False)
-        self.wix = QuaternionLinearAutograd(self.input_dim, self.hidden_dim)
-        self.uih = QuaternionLinearAutograd(self.hidden_dim, self.hidden_dim, bias=False)
-        self.wox = QuaternionLinearAutograd(self.input_dim, self.hidden_dim)
-        self.uoh = QuaternionLinearAutograd(self.hidden_dim, self.hidden_dim, bias=False)
-        self.wcx = QuaternionLinearAutograd(self.input_dim, self.hidden_dim)
-        self.uch = QuaternionLinearAutograd(self.hidden_dim, self.hidden_dim, bias=False)
-        self.fco = nn.Linear(self.hidden_dim, self.num_classes)
-        self.adam = torch.optim.Adam(self.parameters(), lr=0.005)
-
-    def forward(self, x):
-        h_init = Variable(torch.zeros(x.shape[1], self.hidden_dim))
-        if self.CUDA:
-            x = x
-            h_init = h_init
-        wfx_out = self.wfx(x)
-        wix_out = self.wix(x)
-        wox_out = self.wox(x)
-        wcx_out = self.wcx(x)
-        out = []
-        c = h_init
-        h = h_init
-        for k in range(x.shape[0]):
-            ft = self.act_gate(wfx_out[k] + self.ufh(h))
-            it = self.act_gate(wix_out[k] + self.uih(h))
-            ot = self.act_gate(wox_out[k] + self.uoh(h))
-            at = wcx_out[k] + self.uch(h)
-            c = it * self.act(at) + ft * c
-            h = ot * self.act(c)
-            output = self.fco(h)
-            out.append(output.unsqueeze(0))
-        return torch.cat(out, 0)
-
-
-class RNN(nn.Module):
-
-    def __init__(self, feat_size, hidden_size, CUDA):
-        super(RNN, self).__init__()
-        self.input_dim = feat_size
-        self.hidden_dim = hidden_size
-        self.num_classes = feat_size
-        self.CUDA = CUDA
-        self.wx = nn.Linear(self.input_dim, self.hidden_dim)
-        self.uh = nn.Linear(self.hidden_dim, self.hidden_dim)
-        self.fco = nn.Linear(self.hidden_dim, self.num_classes)
-        self.adam = torch.optim.Adam(self.parameters(), lr=0.0002)
-
-    def forward(self, x):
-        h_init = Variable(torch.zeros(x.shape[1], self.hidden_dim))
-        if self.CUDA:
-            x = x
-            h_init = h_init
-        wx_out = self.wx(x)
-        h = h_init
-        out = []
-        for k in range(x.shape[0]):
-            at = wx_out[k] + self.uh(h)
-            h = at
-            output = nn.Tanh()(self.fco(h))
-            out.append(output.unsqueeze(0))
-        return torch.cat(out, 0)
-
-
-class LSTM(nn.Module):
-
-    def __init__(self, feat_size, hidden_size, CUDA):
-        super(LSTM, self).__init__()
-        self.act = nn.Tanh()
-        self.act_gate = nn.Sigmoid()
-        self.input_dim = feat_size
-        self.hidden_dim = hidden_size
-        self.CUDA = CUDA
-        self.num_classes = feat_size + 1
-        self.wfx = nn.Linear(self.input_dim, self.hidden_dim)
-        self.ufh = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
-        self.wix = nn.Linear(self.input_dim, self.hidden_dim)
-        self.uih = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
-        self.wox = nn.Linear(self.input_dim, self.hidden_dim)
-        self.uoh = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
-        self.wcx = nn.Linear(self.input_dim, self.hidden_dim)
-        self.uch = nn.Linear(self.hidden_dim, self.hidden_dim, bias=False)
-        self.fco = nn.Linear(self.hidden_dim, self.num_classes)
-        self.adam = torch.optim.Adam(self.parameters(), lr=0.005)
-
-    def forward(self, x):
-        h_init = Variable(torch.zeros(x.shape[1], self.hidden_dim))
-        if self.CUDA:
-            x = x
-            h_init = h_init
-        wfx_out = self.wfx(x)
-        wix_out = self.wix(x)
-        wox_out = self.wox(x)
-        wcx_out = self.wcx(x)
-        out = []
-        c = h_init
-        h = h_init
-        for k in range(x.shape[0]):
-            ft = self.act_gate(wfx_out[k] + self.ufh(h))
-            it = self.act_gate(wix_out[k] + self.uih(h))
-            ot = self.act_gate(wox_out[k] + self.uoh(h))
-            at = wcx_out[k] + self.uch(h)
-            c = it * self.act(at) + ft * c
-            h = ot * self.act(c)
-            output = self.fco(h)
-            out.append(output.unsqueeze(0))
-        return torch.cat(out, 0)
-
-
-class QRNN(nn.Module):
-
-    def __init__(self, feat_size, hidden_size, CUDA):
-        super(QRNN, self).__init__()
-        self.input_dim = feat_size
-        self.hidden_dim = hidden_size
-        self.num_classes = feat_size
-        self.CUDA = CUDA
-        self.wx = QuaternionLinearAutograd(self.input_dim, self.hidden_dim)
-        self.uh = QuaternionLinearAutograd(self.hidden_dim, self.hidden_dim)
-        self.fco = nn.Linear(curr_dim, self.num_classes)
-        self.adam = torch.optim.Adam(self.parameters(), lr=0.005)
-
-    def forward(self, x):
-        h_init = Variable(torch.zeros(x.shape[1], self.hidden_dim))
-        if self.CUDA:
-            x = x
-            h_init = h_init
-        wx_out = self.wx(x)
-        h = h_init
-        out = []
-        for k in range(x.shape[0]):
-            at = wx_out[k] + self.uh(h)
-            h = at
-            output = nn.Tanh()(self.fco(h))
-            out.append(output.unsqueeze(0))
-        return torch.cat(out, 0)
-
-
-class QLSTM(nn.Module):
-
-    def __init__(self, feat_size, hidden_size, CUDA):
-        super(QLSTM, self).__init__()
-        self.act = nn.Tanh()
-        self.act_gate = nn.Sigmoid()
-        self.input_dim = feat_size
-        self.hidden_dim = hidden_size
-        self.CUDA = CUDA
-        self.num_classes = feat_size + 1
-        self.wfx = QuaternionLinearAutograd(self.input_dim, self.hidden_dim)
-        self.ufh = QuaternionLinearAutograd(self.hidden_dim, self.hidden_dim, bias=False)
-        self.wix = QuaternionLinearAutograd(self.input_dim, self.hidden_dim)
-        self.uih = QuaternionLinearAutograd(self.hidden_dim, self.hidden_dim, bias=False)
-        self.wox = QuaternionLinearAutograd(self.input_dim, self.hidden_dim)
-        self.uoh = QuaternionLinearAutograd(self.hidden_dim, self.hidden_dim, bias=False)
-        self.wcx = QuaternionLinearAutograd(self.input_dim, self.hidden_dim)
-        self.uch = QuaternionLinearAutograd(self.hidden_dim, self.hidden_dim, bias=False)
-        self.fco = nn.Linear(self.hidden_dim, self.num_classes)
-        self.adam = torch.optim.Adam(self.parameters(), lr=0.005)
-
-    def forward(self, x):
-        h_init = Variable(torch.zeros(x.shape[1], self.hidden_dim))
-        if self.CUDA:
-            x = x
-            h_init = h_init
-        wfx_out = self.wfx(x)
-        wix_out = self.wix(x)
-        wox_out = self.wox(x)
-        wcx_out = self.wcx(x)
-        out = []
-        c = h_init
-        h = h_init
-        for k in range(x.shape[0]):
-            ft = self.act_gate(wfx_out[k] + self.ufh(h))
-            it = self.act_gate(wix_out[k] + self.uih(h))
-            ot = self.act_gate(wox_out[k] + self.uoh(h))
-            at = wcx_out[k] + self.uch(h)
-            c = it * self.act(at) + ft * c
-            h = ot * self.act(c)
-            output = self.fco(h)
             out.append(output.unsqueeze(0))
         return torch.cat(out, 0)
 

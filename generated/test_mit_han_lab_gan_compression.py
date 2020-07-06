@@ -88,23 +88,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import itertools
+import copy
+
+
+import torch.utils.data
+
+
+import random
+
+
+from abc import ABC
+
+
+from abc import abstractmethod
 
 
 import numpy as np
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
+import itertools
 
 
 import torch
@@ -114,6 +136,15 @@ from torch import nn
 
 
 import torch.nn.functional as F
+
+
+import warnings
+
+
+import time
+
+
+from torch.backends import cudnn
 
 
 import math
@@ -138,6 +169,9 @@ from torch.utils.data import Dataset
 
 
 from torch.utils.data import DataLoader
+
+
+from collections import OrderedDict
 
 
 import functools
@@ -174,6 +208,9 @@ from torch.nn import init
 
 
 from torch.optim import lr_scheduler
+
+
+from torch import multiprocessing as mp
 
 
 BatchNorm = nn.BatchNorm2d
@@ -636,6 +673,53 @@ class DRNSeg(nn.Module):
         raise NotImplementedError('This code is just for evaluation!!!')
 
 
+class BaseNetwork(nn.Module):
+
+    def __init__(self):
+        super(BaseNetwork, self).__init__()
+
+    @staticmethod
+    def modify_commandline_options(parser, is_train):
+        return parser
+
+
+class NLayerDiscriminator(BaseNetwork):
+    """Defines a PatchGAN discriminator"""
+
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d):
+        """Construct a PatchGAN discriminator
+
+        Parameters:
+            input_nc (int)  -- the number of channels in input images
+            ndf (int)       -- the number of filters in the last conv layer
+            n_layers (int)  -- the number of conv layers in the discriminator
+            norm_layer      -- normalization layer
+        """
+        super(NLayerDiscriminator, self).__init__()
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+        kw = 4
+        padw = 1
+        sequence = [nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), nn.LeakyReLU(0.2, True)]
+        nf_mult = 1
+        nf_mult_prev = 1
+        for n in range(1, n_layers):
+            nf_mult_prev = nf_mult
+            nf_mult = min(2 ** n, 8)
+            sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=2, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+        nf_mult_prev = nf_mult
+        nf_mult = min(2 ** n_layers, 8)
+        sequence += [nn.Conv2d(ndf * nf_mult_prev, ndf * nf_mult, kernel_size=kw, stride=1, padding=padw, bias=use_bias), norm_layer(ndf * nf_mult), nn.LeakyReLU(0.2, True)]
+        sequence += [nn.Conv2d(ndf * nf_mult, 1, kernel_size=kw, stride=1, padding=padw)]
+        self.model = nn.Sequential(*sequence)
+
+    def forward(self, input):
+        """Standard forward."""
+        return self.model(input)
+
+
 class MultiscaleDiscriminator(nn.Module):
 
     @staticmethod
@@ -824,11 +908,11 @@ class SeparableConv2d(nn.Module):
 
 class MobileResnetBlock(nn.Module):
 
-    def __init__(self, dim, padding_type, norm_layer, dropout_rate, use_bias):
+    def __init__(self, ic, oc, padding_type, norm_layer, dropout_rate, use_bias):
         super(MobileResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, dropout_rate, use_bias)
+        self.conv_block = self.build_conv_block(ic, oc, padding_type, norm_layer, dropout_rate, use_bias)
 
-    def build_conv_block(self, dim, padding_type, norm_layer, dropout_rate, use_bias):
+    def build_conv_block(self, ic, oc, padding_type, norm_layer, dropout_rate, use_bias):
         conv_block = []
         p = 0
         if padding_type == 'reflect':
@@ -839,7 +923,7 @@ class MobileResnetBlock(nn.Module):
             p = 1
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [SeparableConv2d(in_channels=dim, out_channels=dim, kernel_size=3, padding=p, stride=1), norm_layer(dim), nn.ReLU(True)]
+        conv_block += [SeparableConv2d(in_channels=ic, out_channels=oc, kernel_size=3, padding=p, stride=1), norm_layer(oc), nn.ReLU(True)]
         conv_block += [nn.Dropout(dropout_rate)]
         p = 0
         if padding_type == 'reflect':
@@ -850,7 +934,7 @@ class MobileResnetBlock(nn.Module):
             p = 1
         else:
             raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [SeparableConv2d(in_channels=dim, out_channels=dim, kernel_size=3, padding=p, stride=1), norm_layer(dim)]
+        conv_block += [SeparableConv2d(in_channels=oc, out_channels=ic, kernel_size=3, padding=p, stride=1), norm_layer(oc)]
         return nn.Sequential(*conv_block)
 
     def forward(self, x):
@@ -907,40 +991,33 @@ class ResnetBlock(nn.Module):
         return out
 
 
-class MobileResnetBlock(nn.Module):
+class SuperSeparableConv2d(nn.Module):
 
-    def __init__(self, ic, oc, padding_type, norm_layer, dropout_rate, use_bias):
-        super(MobileResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(ic, oc, padding_type, norm_layer, dropout_rate, use_bias)
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, norm_layer=nn.InstanceNorm2d, use_bias=True, scale_factor=1):
+        super(SuperSeparableConv2d, self).__init__()
+        self.conv = nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=in_channels * scale_factor, kernel_size=kernel_size, stride=stride, padding=padding, groups=in_channels, bias=use_bias), norm_layer(in_channels * scale_factor), nn.Conv2d(in_channels=in_channels * scale_factor, out_channels=out_channels, kernel_size=1, stride=1, bias=use_bias))
 
-    def build_conv_block(self, ic, oc, padding_type, norm_layer, dropout_rate, use_bias):
-        conv_block = []
-        p = 0
-        if padding_type == 'reflect':
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == 'replicate':
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == 'zero':
-            p = 1
+    def forward(self, x, config):
+        in_nc = x.size(1)
+        out_nc = config['channel']
+        conv = self.conv[0]
+        assert isinstance(conv, nn.Conv2d)
+        weight = conv.weight[:in_nc]
+        if conv.bias is not None:
+            bias = conv.bias[:in_nc]
         else:
-            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [SeparableConv2d(in_channels=ic, out_channels=oc, kernel_size=3, padding=p, stride=1), norm_layer(oc), nn.ReLU(True)]
-        conv_block += [nn.Dropout(dropout_rate)]
-        p = 0
-        if padding_type == 'reflect':
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == 'replicate':
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == 'zero':
-            p = 1
+            bias = None
+        x = F.conv2d(x, weight, bias, conv.stride, conv.padding, conv.dilation, in_nc)
+        x = self.conv[1](x)
+        conv = self.conv[2]
+        assert isinstance(conv, nn.Conv2d)
+        weight = conv.weight[:out_nc, :in_nc]
+        if conv.bias is not None:
+            bias = conv.bias[:out_nc]
         else:
-            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [SeparableConv2d(in_channels=oc, out_channels=ic, kernel_size=3, padding=p, stride=1), norm_layer(oc)]
-        return nn.Sequential(*conv_block)
-
-    def forward(self, x):
-        out = x + self.conv_block(x)
-        return out
+            bias = None
+        x = F.conv2d(x, weight, bias, conv.stride, conv.padding, conv.dilation, conv.groups)
+        return x
 
 
 class SuperMobileResnetBlock(nn.Module):
@@ -989,6 +1066,302 @@ class SuperMobileResnetBlock(nn.Module):
         return out
 
 
+class FutureResult(object):
+    """A thread-safe future implementation. Used only as one-to-one pipe."""
+
+    def __init__(self):
+        self._result = None
+        self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
+
+    def put(self, result):
+        with self._lock:
+            assert self._result is None, "Previous result has't been fetched."
+            self._result = result
+            self._cond.notify()
+
+    def get(self):
+        with self._lock:
+            if self._result is None:
+                self._cond.wait()
+            res = self._result
+            self._result = None
+            return res
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
+
+
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+
+
+class SyncMaster(object):
+    """An abstract `SyncMaster` object.
+
+    - During the replication, as the data parallel will trigger an callback of each module, all slave devices should
+    call `register(id)` and obtain an `SlavePipe` to communicate with the master.
+    - During the forward pass, master device invokes `run_master`, all messages from slave devices will be collected,
+    and passed to a registered callback.
+    - After receiving the messages, the master device should gather the information and determine to message passed
+    back to each slave devices.
+    """
+
+    def __init__(self, master_callback):
+        """
+
+        Args:
+            master_callback: a callback to be invoked after having collected messages from slave devices.
+        """
+        self._master_callback = master_callback
+        self._queue = queue.Queue()
+        self._registry = collections.OrderedDict()
+        self._activated = False
+
+    def __getstate__(self):
+        return {'master_callback': self._master_callback}
+
+    def __setstate__(self, state):
+        self.__init__(state['master_callback'])
+
+    def register_slave(self, identifier):
+        """
+        Register an slave device.
+
+        Args:
+            identifier: an identifier, usually is the device id.
+
+        Returns: a `SlavePipe` object which can be used to communicate with the master device.
+
+        """
+        if self._activated:
+            assert self._queue.empty(), 'Queue is not clean before next initialization.'
+            self._activated = False
+            self._registry.clear()
+        future = FutureResult()
+        self._registry[identifier] = _MasterRegistry(future)
+        return SlavePipe(identifier, self._queue, future)
+
+    def run_master(self, master_msg):
+        """
+        Main entry for the master device in each forward pass.
+        The messages were first collected from each devices (including the master device), and then
+        an callback will be invoked to compute the message to be sent back to each devices
+        (including the master device).
+
+        Args:
+            master_msg: the message that the master want to send to itself. This will be placed as the first
+            message when calling `master_callback`. For detailed usage, see `_SynchronizedBatchNorm` for an example.
+
+        Returns: the message to be sent back to the master device.
+
+        """
+        self._activated = True
+        intermediates = [(0, master_msg)]
+        for i in range(self.nr_slaves):
+            intermediates.append(self._queue.get())
+        results = self._master_callback(intermediates)
+        assert results[0][0] == 0, 'The first result should belongs to the master.'
+        for i, res in results:
+            if i == 0:
+                continue
+            self._registry[i].result.put(res)
+        for i in range(self.nr_slaves):
+            assert self._queue.get() is True
+        return results[0][1]
+
+    @property
+    def nr_slaves(self):
+        return len(self._registry)
+
+
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+
+
+def _sum_ft(tensor):
+    """sum over the first and last dimention"""
+    return tensor.sum(dim=0).sum(dim=-1)
+
+
+def _unsqueeze_ft(tensor):
+    """add new dimensions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
+
+
+class _SynchronizedBatchNorm(_BatchNorm):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
+        assert ReduceAddCoalesced is not None, 'Can not use Synchronized Batch Normalization without CUDA support.'
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
+        self._sync_master = SyncMaster(self._data_parallel_master)
+        self._is_parallel = False
+        self._parallel_id = None
+        self._slave_pipe = None
+
+    def forward(self, input):
+        if not (self._is_parallel and self.training):
+            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
+        input_shape = input.size()
+        input = input.view(input.size(0), self.num_features, -1)
+        sum_size = input.size(0) * input.size(2)
+        input_sum = _sum_ft(input)
+        input_ssum = _sum_ft(input ** 2)
+        if self._parallel_id == 0:
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
+        else:
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
+        if self.affine:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
+        else:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
+        return output.view(input_shape)
+
+    def __data_parallel_replicate__(self, ctx, copy_id):
+        self._is_parallel = True
+        self._parallel_id = copy_id
+        if self._parallel_id == 0:
+            ctx.sync_master = self._sync_master
+        else:
+            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
+
+    def _data_parallel_master(self, intermediates):
+        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
+        to_reduce = [i[1][:2] for i in intermediates]
+        to_reduce = [j for i in to_reduce for j in i]
+        target_gpus = [i[1].sum.get_device() for i in intermediates]
+        sum_size = sum([i[1].sum_size for i in intermediates])
+        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
+        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
+        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
+        outputs = []
+        for i, rec in enumerate(intermediates):
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
+        return outputs
+
+    def _compute_mean_std(self, sum_, ssum, size):
+        """Compute the mean and standard-deviation with sum and square-sum. This method
+        also maintains the moving average on the master device."""
+        assert size > 1, 'BatchNorm computes unbiased standard-deviation, which requires size > 1.'
+        mean = sum_ / size
+        sumvar = ssum - sum_ * mean
+        unbias_var = sumvar / (size - 1)
+        bias_var = sumvar / size
+        if hasattr(torch, 'no_grad'):
+            with torch.no_grad():
+                self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+                self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
+        else:
+            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
+        return mean, bias_var.clamp(self.eps) ** -0.5
+
+
+class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 4d input that is seen as a mini-batch
+    of 3d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm2d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm2d, self)._check_input_dim(input)
+
+
+class MobileSPADE(nn.Module):
+
+    def __init__(self, config_text, norm_nc, label_nc, nhidden=128):
+        super(MobileSPADE, self).__init__()
+        assert config_text.startswith('spade')
+        parsed = re.search('spade(\\D+)(\\d)x\\d', config_text)
+        param_free_norm_type = str(parsed.group(1))
+        ks = int(parsed.group(2))
+        if param_free_norm_type == 'instance':
+            self.param_free_norm = nn.InstanceNorm2d(norm_nc, affine=False)
+        elif param_free_norm_type == 'syncbatch':
+            self.param_free_norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
+        elif param_free_norm_type == 'batch':
+            self.param_free_norm = nn.BatchNorm2d(norm_nc, affine=False)
+        else:
+            raise ValueError('%s is not a recognized param-free norm type in SPADE' % param_free_norm_type)
+        pw = ks // 2
+        self.mlp_shared = nn.Sequential(nn.Conv2d(label_nc, nhidden, kernel_size=ks, padding=pw), nn.ReLU())
+        self.mlp_gamma = SeparableConv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
+        self.mlp_beta = SeparableConv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
+
+    def forward(self, x, segmap):
+        normalized = self.param_free_norm(x)
+        segmap = F.interpolate(segmap, size=x.size()[2:], mode='nearest')
+        actv = self.mlp_shared(segmap)
+        gamma = self.mlp_gamma(actv)
+        beta = self.mlp_beta(actv)
+        out = normalized * (1 + gamma) + beta
+        return out
+
+
 class MobileSPADEResnetBlock(nn.Module):
 
     def __init__(self, fin, fout, opt):
@@ -1023,37 +1396,6 @@ class MobileSPADEResnetBlock(nn.Module):
         return F.leaky_relu(x, 0.2)
 
 
-class MobileSPADE(nn.Module):
-
-    def __init__(self, config_text, norm_nc, label_nc, nhidden=128):
-        super(MobileSPADE, self).__init__()
-        assert config_text.startswith('spade')
-        parsed = re.search('spade(\\D+)(\\d)x\\d', config_text)
-        param_free_norm_type = str(parsed.group(1))
-        ks = int(parsed.group(2))
-        if param_free_norm_type == 'instance':
-            self.param_free_norm = nn.InstanceNorm2d(norm_nc, affine=False)
-        elif param_free_norm_type == 'syncbatch':
-            self.param_free_norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
-        elif param_free_norm_type == 'batch':
-            self.param_free_norm = nn.BatchNorm2d(norm_nc, affine=False)
-        else:
-            raise ValueError('%s is not a recognized param-free norm type in SPADE' % param_free_norm_type)
-        pw = ks // 2
-        self.mlp_shared = nn.Sequential(nn.Conv2d(label_nc, nhidden, kernel_size=ks, padding=pw), nn.ReLU())
-        self.mlp_gamma = SeparableConv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
-        self.mlp_beta = SeparableConv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
-
-    def forward(self, x, segmap):
-        normalized = self.param_free_norm(x)
-        segmap = F.interpolate(segmap, size=x.size()[2:], mode='nearest')
-        actv = self.mlp_shared(segmap)
-        gamma = self.mlp_gamma(actv)
-        beta = self.mlp_beta(actv)
-        out = normalized * (1 + gamma) + beta
-        return out
-
-
 class SPADE(nn.Module):
 
     def __init__(self, config_text, norm_nc, label_nc, nhidden=128):
@@ -1085,17 +1427,59 @@ class SPADE(nn.Module):
         return out
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
+class SuperConv2d(nn.Conv2d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros'):
+        super(SuperConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
+
+    def forward(self, x, config):
+        in_nc = x.size(1)
+        out_nc = config['channel']
+        weight = self.weight[:out_nc, :in_nc]
+        if self.bias is not None:
+            bias = self.bias[:out_nc]
+        else:
+            bias = None
+        return F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
 
 
-def _sum_ft(tensor):
-    """sum over the first and last dimention"""
-    return tensor.sum(dim=0).sum(dim=-1)
+class SuperSynchronizedBatchNorm2d(SynchronizedBatchNorm2d):
 
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
+        super(SuperSynchronizedBatchNorm2d, self).__init__(num_features, eps, momentum, affine)
 
-def _unsqueeze_ft(tensor):
-    """add new dimensions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
+    def forward(self, x, config={'calibrate_bn': False}):
+        input = x
+        if x.shape[1] != self.num_features:
+            padding = torch.zeros([x.shape[0], self.num_features - x.shape[1], x.shape[2], x.shape[3]], device=x.device)
+            input = torch.cat([input, padding], dim=1)
+        calibrate_bn = config['calibrate_bn']
+        if not (self._is_parallel and self.training):
+            if calibrate_bn:
+                ret = F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, 1, self.eps)
+            else:
+                ret = F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
+            return ret[:, :x.shape[1]]
+        momentum = self.momentum
+        if calibrate_bn:
+            self.momentum = 1
+        input_shape = input.size()
+        input = input.view(input.size(0), self.num_features, -1)
+        sum_size = input.size(0) * input.size(2)
+        input_sum = _sum_ft(input)
+        input_ssum = _sum_ft(input ** 2)
+        if self._parallel_id == 0:
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
+        else:
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
+        if self.affine:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
+        else:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
+        if calibrate_bn:
+            self.momentum = momentum
+        output = output.view(input_shape)
+        return output[:, :x.shape[1]]
 
 
 class SuperMobileSPADE(nn.Module):
@@ -1269,22 +1653,6 @@ class SuperMobileSPADEResnetBlock(nn.Module):
         return F.leaky_relu(x, 0.2)
 
 
-class SuperConv2d(nn.Conv2d):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros'):
-        super(SuperConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode)
-
-    def forward(self, x, config):
-        in_nc = x.size(1)
-        out_nc = config['channel']
-        weight = self.weight[:out_nc, :in_nc]
-        if self.bias is not None:
-            bias = self.bias[:out_nc]
-        else:
-            bias = None
-        return F.conv2d(x, weight, bias, self.stride, self.padding, self.dilation, self.groups)
-
-
 class SuperConvTranspose2d(nn.ConvTranspose2d):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=True, dilation=1, padding_mode='zeros'):
@@ -1302,223 +1670,129 @@ class SuperConvTranspose2d(nn.ConvTranspose2d):
         return F.conv_transpose2d(x, weight, bias, self.stride, self.padding, output_padding, self.groups, self.dilation)
 
 
-class SuperSeparableConv2d(nn.Module):
+class SynchronizedBatchNorm1d(_SynchronizedBatchNorm):
+    """Applies Synchronized Batch Normalization over a 2d or 3d input that is seen as a
+    mini-batch.
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, norm_layer=nn.InstanceNorm2d, use_bias=True, scale_factor=1):
-        super(SuperSeparableConv2d, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=in_channels * scale_factor, kernel_size=kernel_size, stride=stride, padding=padding, groups=in_channels, bias=use_bias), norm_layer(in_channels * scale_factor), nn.Conv2d(in_channels=in_channels * scale_factor, out_channels=out_channels, kernel_size=1, stride=1, bias=use_bias))
+    .. math::
 
-    def forward(self, x, config):
-        in_nc = x.size(1)
-        out_nc = config['channel']
-        conv = self.conv[0]
-        assert isinstance(conv, nn.Conv2d)
-        weight = conv.weight[:in_nc]
-        if conv.bias is not None:
-            bias = conv.bias[:in_nc]
-        else:
-            bias = None
-        x = F.conv2d(x, weight, bias, conv.stride, conv.padding, conv.dilation, in_nc)
-        x = self.conv[1](x)
-        conv = self.conv[2]
-        assert isinstance(conv, nn.Conv2d)
-        weight = conv.weight[:out_nc, :in_nc]
-        if conv.bias is not None:
-            bias = conv.bias[:out_nc]
-        else:
-            bias = None
-        x = F.conv2d(x, weight, bias, conv.stride, conv.padding, conv.dilation, conv.groups)
-        return x
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
 
+    This module differs from the built-in PyTorch BatchNorm1d as the mean and
+    standard-deviation are reduced across all devices during training.
 
-class FutureResult(object):
-    """A thread-safe future implementation. Used only as one-to-one pipe."""
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
 
-    def __init__(self):
-        self._result = None
-        self._lock = threading.Lock()
-        self._cond = threading.Condition(self._lock)
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
 
-    def put(self, result):
-        with self._lock:
-            assert self._result is None, "Previous result has't been fetched."
-            self._result = result
-            self._cond.notify()
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
 
-    def get(self):
-        with self._lock:
-            if self._result is None:
-                self._cond.wait()
-            res = self._result
-            self._result = None
-            return res
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
 
+    During evaluation, this running mean/variance is used for normalization.
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, L)` slices, it's common terminology to call this Temporal BatchNorm
 
+    Args:
+        num_features: num_features from an expected input of size
+            `batch_size x num_features [x width]`
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
 
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
+    Shape::
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
 
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
-
-
-class SyncMaster(object):
-    """An abstract `SyncMaster` object.
-
-    - During the replication, as the data parallel will trigger an callback of each module, all slave devices should
-    call `register(id)` and obtain an `SlavePipe` to communicate with the master.
-    - During the forward pass, master device invokes `run_master`, all messages from slave devices will be collected,
-    and passed to a registered callback.
-    - After receiving the messages, the master device should gather the information and determine to message passed
-    back to each slave devices.
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100))
+        >>> output = m(input)
     """
 
-    def __init__(self, master_callback):
-        """
-
-        Args:
-            master_callback: a callback to be invoked after having collected messages from slave devices.
-        """
-        self._master_callback = master_callback
-        self._queue = queue.Queue()
-        self._registry = collections.OrderedDict()
-        self._activated = False
-
-    def __getstate__(self):
-        return {'master_callback': self._master_callback}
-
-    def __setstate__(self, state):
-        self.__init__(state['master_callback'])
-
-    def register_slave(self, identifier):
-        """
-        Register an slave device.
-
-        Args:
-            identifier: an identifier, usually is the device id.
-
-        Returns: a `SlavePipe` object which can be used to communicate with the master device.
-
-        """
-        if self._activated:
-            assert self._queue.empty(), 'Queue is not clean before next initialization.'
-            self._activated = False
-            self._registry.clear()
-        future = FutureResult()
-        self._registry[identifier] = _MasterRegistry(future)
-        return SlavePipe(identifier, self._queue, future)
-
-    def run_master(self, master_msg):
-        """
-        Main entry for the master device in each forward pass.
-        The messages were first collected from each devices (including the master device), and then
-        an callback will be invoked to compute the message to be sent back to each devices
-        (including the master device).
-
-        Args:
-            master_msg: the message that the master want to send to itself. This will be placed as the first
-            message when calling `master_callback`. For detailed usage, see `_SynchronizedBatchNorm` for an example.
-
-        Returns: the message to be sent back to the master device.
-
-        """
-        self._activated = True
-        intermediates = [(0, master_msg)]
-        for i in range(self.nr_slaves):
-            intermediates.append(self._queue.get())
-        results = self._master_callback(intermediates)
-        assert results[0][0] == 0, 'The first result should belongs to the master.'
-        for i, res in results:
-            if i == 0:
-                continue
-            self._registry[i].result.put(res)
-        for i in range(self.nr_slaves):
-            assert self._queue.get() is True
-        return results[0][1]
-
-    @property
-    def nr_slaves(self):
-        return len(self._registry)
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm1d, self)._check_input_dim(input)
 
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+class SynchronizedBatchNorm3d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 5d input that is seen as a mini-batch
+    of 4d inputs
 
+    .. math::
 
-class _SynchronizedBatchNorm(_BatchNorm):
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
-        assert ReduceAddCoalesced is not None, 'Can not use Synchronized Batch Normalization without CUDA support.'
-        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
-        self._sync_master = SyncMaster(self._data_parallel_master)
-        self._is_parallel = False
-        self._parallel_id = None
-        self._slave_pipe = None
+    This module differs from the built-in PyTorch BatchNorm3d as the mean and
+    standard-deviation are reduced across all devices during training.
 
-    def forward(self, input):
-        if not (self._is_parallel and self.training):
-            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
-        input_shape = input.size()
-        input = input.view(input.size(0), self.num_features, -1)
-        sum_size = input.size(0) * input.size(2)
-        input_sum = _sum_ft(input)
-        input_ssum = _sum_ft(input ** 2)
-        if self._parallel_id == 0:
-            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
-        else:
-            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
-        if self.affine:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
-        else:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
-        return output.view(input_shape)
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
 
-    def __data_parallel_replicate__(self, ctx, copy_id):
-        self._is_parallel = True
-        self._parallel_id = copy_id
-        if self._parallel_id == 0:
-            ctx.sync_master = self._sync_master
-        else:
-            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
 
-    def _data_parallel_master(self, intermediates):
-        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
-        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
-        to_reduce = [i[1][:2] for i in intermediates]
-        to_reduce = [j for i in to_reduce for j in i]
-        target_gpus = [i[1].sum.get_device() for i in intermediates]
-        sum_size = sum([i[1].sum_size for i in intermediates])
-        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
-        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
-        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
-        outputs = []
-        for i, rec in enumerate(intermediates):
-            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
-        return outputs
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
 
-    def _compute_mean_std(self, sum_, ssum, size):
-        """Compute the mean and standard-deviation with sum and square-sum. This method
-        also maintains the moving average on the master device."""
-        assert size > 1, 'BatchNorm computes unbiased standard-deviation, which requires size > 1.'
-        mean = sum_ / size
-        sumvar = ssum - sum_ * mean
-        unbias_var = sumvar / (size - 1)
-        bias_var = sumvar / size
-        if hasattr(torch, 'no_grad'):
-            with torch.no_grad():
-                self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
-                self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
-        else:
-            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
-            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
-        return mean, bias_var.clamp(self.eps) ** -0.5
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, D, H, W)` slices, it's common terminology to call this Volumetric BatchNorm
+    or Spatio-temporal BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x depth x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C, D, H, W)`
+        - Output: :math:`(N, C, D, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45, 10))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm3d, self)._check_input_dim(input)
 
 
 class BatchNorm2dReimpl(nn.Module):
@@ -1614,16 +1888,6 @@ class DataParallelWithCallback(DataParallel):
         return modules
 
 
-class BaseNetwork(nn.Module):
-
-    def __init__(self):
-        super(BaseNetwork, self).__init__()
-
-    @staticmethod
-    def modify_commandline_options(parser, is_train):
-        return parser
-
-
 class Identity(nn.Module):
 
     def forward(self, x):
@@ -1669,6 +1933,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (NLayerDiscriminator,
+     lambda: ([], {'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
     (SeparableConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1709,4 +1977,7 @@ class Test_mit_han_lab_gan_compression(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

@@ -25,20 +25,60 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import random
+
+
+import numpy as np
+
+
 import torch
+
+
+import logging
+
+
+import torchvision
+
+
+from torch.utils.data import SubsetRandomSampler
+
+
+from torch.utils.data import Sampler
+
+
+from torch.utils.data.dataset import ConcatDataset
+
+
+from torchvision.transforms import transforms
+
+
+from sklearn.model_selection import StratifiedShuffleSplit
+
+
+from torchvision.datasets.utils import check_integrity
+
+
+from torchvision.datasets.utils import download_url
+
+
+import copy
+
+
+from collections import defaultdict
 
 
 from torch import nn
@@ -65,16 +105,10 @@ from torch.autograd import Variable
 import torch.nn.init as init
 
 
-import numpy as np
-
-
 from torch.nn.modules.module import Module
 
 
 import itertools
-
-
-import logging
 
 
 from collections import OrderedDict
@@ -91,87 +125,61 @@ def conv3x3(in_planes, out_planes, stride=1):
 
 
 class BasicBlock(nn.Module):
-    outchannel_ratio = 1
+    expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, p_shakedrop=1.0):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = conv3x3(planes, planes)
-        self.bn3 = nn.BatchNorm2d(planes)
+        self.bn2 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-        self.shake_drop = ShakeDrop(p_shakedrop)
 
     def forward(self, x):
-        out = self.bn1(x)
-        out = self.conv1(out)
-        out = self.bn2(out)
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
         out = self.relu(out)
         out = self.conv2(out)
-        out = self.bn3(out)
-        out = self.shake_drop(out)
+        out = self.bn2(out)
         if self.downsample is not None:
-            shortcut = self.downsample(x)
-            featuremap_size = shortcut.size()[2:4]
-        else:
-            shortcut = x
-            featuremap_size = out.size()[2:4]
-        batch_size = out.size()[0]
-        residual_channel = out.size()[1]
-        shortcut_channel = shortcut.size()[1]
-        if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0))
-            out += torch.cat((shortcut, padding), 1)
-        else:
-            out += shortcut
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
         return out
 
 
 class Bottleneck(nn.Module):
-    outchannel_ratio = 4
+    expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, p_shakedrop=1.0):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes * 1, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 1)
-        self.conv3 = nn.Conv2d(planes * 1, planes * Bottleneck.outchannel_ratio, kernel_size=1, bias=False)
-        self.bn4 = nn.BatchNorm2d(planes * Bottleneck.outchannel_ratio)
+        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * Bottleneck.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-        self.shake_drop = ShakeDrop(p_shakedrop)
 
     def forward(self, x):
-        out = self.bn1(x)
-        out = self.conv1(out)
-        out = self.bn2(out)
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
         out = self.relu(out)
         out = self.conv2(out)
-        out = self.bn3(out)
+        out = self.bn2(out)
         out = self.relu(out)
         out = self.conv3(out)
-        out = self.bn4(out)
-        out = self.shake_drop(out)
+        out = self.bn3(out)
         if self.downsample is not None:
-            shortcut = self.downsample(x)
-            featuremap_size = shortcut.size()[2:4]
-        else:
-            shortcut = x
-            featuremap_size = out.size()[2:4]
-        batch_size = out.size()[0]
-        residual_channel = out.size()[1]
-        shortcut_channel = shortcut.size()[1]
-        if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0))
-            out += torch.cat((shortcut, padding), 1)
-        else:
-            out += shortcut
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
         return out
 
 
@@ -283,65 +291,6 @@ class PyramidNet(nn.Module):
         return x
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * Bottleneck.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
 class ResNet(nn.Module):
 
     def __init__(self, dataset, depth, num_classes, bottleneck=False):
@@ -429,10 +378,10 @@ class ShakeDropFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, training=True, p_drop=0.5, alpha_range=[-1, 1]):
         if training:
-            gate = torch.cuda.FloatTensor([0]).bernoulli_(1 - p_drop)
+            gate = torch.FloatTensor([0]).bernoulli_(1 - p_drop)
             ctx.save_for_backward(gate)
             if gate.item() == 0:
-                alpha = torch.cuda.FloatTensor(x.size(0)).uniform_(*alpha_range)
+                alpha = torch.FloatTensor(x.size(0)).uniform_(*alpha_range)
                 alpha = alpha.view(alpha.size(0), 1, 1, 1).expand_as(x)
                 return alpha * x
             else:
@@ -444,7 +393,7 @@ class ShakeDropFunction(torch.autograd.Function):
     def backward(ctx, grad_output):
         gate = ctx.saved_tensors[0]
         if gate.item() == 0:
-            beta = torch.cuda.FloatTensor(grad_output.size(0)).uniform_(0, 1)
+            beta = torch.FloatTensor(grad_output.size(0)).uniform_(0, 1)
             beta = beta.view(beta.size(0), 1, 1, 1).expand_as(grad_output)
             beta = Variable(beta)
             return beta * grad_output, None, None, None
@@ -468,7 +417,7 @@ class ShakeShake(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x1, x2, training=True):
         if training:
-            alpha = torch.cuda.FloatTensor(x1.size(0)).uniform_()
+            alpha = torch.FloatTensor(x1.size(0)).uniform_()
             alpha = alpha.view(alpha.size(0), 1, 1, 1).expand_as(x1)
         else:
             alpha = 0.5
@@ -476,10 +425,29 @@ class ShakeShake(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        beta = torch.cuda.FloatTensor(grad_output.size(0)).uniform_()
+        beta = torch.FloatTensor(grad_output.size(0)).uniform_()
         beta = beta.view(beta.size(0), 1, 1, 1).expand_as(grad_output)
         beta = Variable(beta)
         return beta * grad_output, (1 - beta) * grad_output, None
+
+
+class Shortcut(nn.Module):
+
+    def __init__(self, in_ch, out_ch, stride):
+        super(Shortcut, self).__init__()
+        self.stride = stride
+        self.conv1 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0, bias=False)
+        self.conv2 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0, bias=False)
+        self.bn = nn.BatchNorm2d(out_ch)
+
+    def forward(self, x):
+        h = F.relu(x)
+        h1 = F.avg_pool2d(h, 1, self.stride)
+        h1 = self.conv1(h1)
+        h2 = F.avg_pool2d(F.pad(h, (-1, 1, -1, 1)), 1, self.stride)
+        h2 = self.conv2(h2)
+        h = torch.cat((h1, h2), 1)
+        return self.bn(h)
 
 
 class ShakeBlock(nn.Module):
@@ -604,25 +572,6 @@ class ShakeResNeXt(nn.Module):
             layers.append(ShakeBottleNeck(self.in_ch, mid_ch, out_ch, cardinary, stride=stride))
             self.in_ch, stride = out_ch, 1
         return nn.Sequential(*layers)
-
-
-class Shortcut(nn.Module):
-
-    def __init__(self, in_ch, out_ch, stride):
-        super(Shortcut, self).__init__()
-        self.stride = stride
-        self.conv1 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0, bias=False)
-        self.conv2 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0, bias=False)
-        self.bn = nn.BatchNorm2d(out_ch)
-
-    def forward(self, x):
-        h = F.relu(x)
-        h1 = F.avg_pool2d(h, 1, self.stride)
-        h1 = self.conv1(h1)
-        h2 = F.avg_pool2d(F.pad(h, (-1, 1, -1, 1)), 1, self.stride)
-        h2 = self.conv2(h2)
-        h = torch.cat((h1, h2), 1)
-        return self.bn(h)
 
 
 _bn_momentum = 0.1

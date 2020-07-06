@@ -91,26 +91,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import torch.nn as nn
 
 
 import torch
 
 
+from torch.utils.tensorboard import SummaryWriter
+
+
+import torch.nn as nn
+
+
 from torch import nn as nn
+
+
+import torch.functional as F
 
 
 from torch.nn import MSELoss
@@ -120,6 +127,24 @@ from torch.nn import SmoothL1Loss
 
 
 from torch.nn import L1Loss
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision import transforms
+
+
+import numpy as np
+
+
+from torch.utils.data import DataLoader
+
+
+import torchvision.transforms as transforms
+
+
+from scipy import ndimage
 
 
 from abc import ABC
@@ -140,90 +165,34 @@ from functools import partial
 from collections import OrderedDict
 
 
+import torch.optim as optim
+
+
 from numpy import inf
+
+
+import random
+
+
+import time
+
+
+import torch.backends.cudnn as cudnn
+
+
+import itertools
 
 
 import math
 
 
-import numpy as np
-
-
-def flatten(tensor):
-    """Flattens a given tensor such that the channel axis is first.
-    The shapes are transformed as follows:
-       (N, C, D, H, W) -> (C, N * D * H * W)
-    """
-    C = tensor.size(1)
-    axis_order = (1, 0) + tuple(range(2, tensor.dim()))
-    transposed = tensor.permute(axis_order)
-    return transposed.contiguous().view(C, -1)
-
-
-def compute_per_channel_dice(input, target, epsilon=1e-06, weight=None):
-    """
-    Computes DiceCoefficient as defined in https://arxiv.org/abs/1606.04797 given  a multi channel input and target.
-    Assumes the input is a normalized probability, e.g. a result of Sigmoid or Softmax function.
-
-    Args:
-         input (torch.Tensor): NxCxSpatial input tensor
-         target (torch.Tensor): NxCxSpatial target tensor
-         epsilon (float): prevents division by zero
-         weight (torch.Tensor): Cx1 tensor of weight per channel/class
-    """
-    assert input.size() == target.size(), "'input' and 'target' must have the same shape"
-    input = flatten(input)
-    target = flatten(target)
-    target = target.float()
-    intersect = (input * target).sum(-1)
-    if weight is not None:
-        intersect = weight * intersect
-    denominator = (input * input).sum(-1) + (target * target).sum(-1)
-    return 2 * (intersect / denominator.clamp(min=epsilon))
-
-
-def expand_as_one_hot(input, C, ignore_index=None):
-    """
-    Converts NxDxHxW label image to NxCxDxHxW, where each label gets converted to its corresponding one-hot vector
-    :param input: 4D input image (NxDxHxW)
-    :param C: number of channels/labels
-    :param ignore_index: ignore index to be kept during the expansion
-    :return: 5D output image (NxCxDxHxW)
-    """
-    if input.dim() == 5:
-        return input
-    assert input.dim() == 4
-    input = input.unsqueeze(1)
-    shape = list(input.size())
-    shape[1] = C
-    if ignore_index is not None:
-        mask = input.expand(shape) == ignore_index
-        input = input.clone()
-        input[input == ignore_index] = 0
-        result = torch.zeros(shape).to(input.device).scatter_(1, input, 1)
-        result[mask] = ignore_index
-        return result
-    else:
-        return torch.zeros(shape).to(input.device).scatter_(1, input, 1)
-
-
-class BCEDiceLoss(nn.Module):
-    """Linear combination of BCE and Dice losses3D"""
-
-    def __init__(self, alpha=1, beta=1, classes=4):
-        super(BCEDiceLoss, self).__init__()
-        self.alpha = alpha
-        self.bce = nn.BCEWithLogitsLoss()
-        self.beta = beta
-        self.dice = DiceLoss(classes=classes)
-        self.classes = classes
-
-    def forward(self, input, target):
-        target_expanded = expand_as_one_hot(target.long(), self.classes)
-        assert input.size() == target_expanded.size(), "'input' and 'target' must have the same shape"
-        loss_1 = self.alpha * self.bce(input, target_expanded)
-        loss_2, channel_score = self.beta * self.dice(input, target_expanded)
-        return loss_1 + loss_2, channel_score
+def expand_as_one_hot(target, classes):
+    shape = target.size()
+    shape = list(shape)
+    shape.insert(1, classes)
+    shape = tuple(shape)
+    src = target.unsqueeze(1).long()
+    return torch.zeros(shape).scatter_(1, src, 1).squeeze(0)
 
 
 class _AbstractDiceLoss(nn.Module):
@@ -267,6 +236,73 @@ class _AbstractDiceLoss(nn.Module):
         loss = 1.0 - torch.mean(per_channel_dice)
         per_channel_dice = per_channel_dice.detach().cpu().numpy()
         return loss, per_channel_dice
+
+
+def flatten(tensor):
+    """Flattens a given tensor such that the channel axis is first.
+    The shapes are transformed as follows:
+       (N, C, D, H, W) -> (C, N * D * H * W)
+    """
+    C = tensor.size(1)
+    axis_order = (1, 0) + tuple(range(2, tensor.dim()))
+    transposed = tensor.permute(axis_order)
+    return transposed.contiguous().view(C, -1)
+
+
+def compute_per_channel_dice(input, target, epsilon=1e-06, weight=None):
+    """
+    Computes DiceCoefficient as defined in https://arxiv.org/abs/1606.04797 given  a multi channel input and target.
+    Assumes the input is a normalized probability, e.g. a result of Sigmoid or Softmax function.
+
+    Args:
+         input (torch.Tensor): NxCxSpatial input tensor
+         target (torch.Tensor): NxCxSpatial target tensor
+         epsilon (float): prevents division by zero
+         weight (torch.Tensor): Cx1 tensor of weight per channel/class
+    """
+    assert input.size() == target.size(), "'input' and 'target' must have the same shape"
+    input = flatten(input)
+    target = flatten(target)
+    target = target.float()
+    intersect = (input * target).sum(-1)
+    if weight is not None:
+        intersect = weight * intersect
+    denominator = (input * input).sum(-1) + (target * target).sum(-1)
+    return 2 * (intersect / denominator.clamp(min=epsilon))
+
+
+class DiceLoss(_AbstractDiceLoss):
+    """Computes Dice Loss according to https://arxiv.org/abs/1606.04797.
+    For multi-class segmentation `weight` parameter can be used to assign different weights per class.
+    """
+
+    def __init__(self, classes=4, skip_index_after=None, weight=None, sigmoid_normalization=True):
+        super().__init__(weight, sigmoid_normalization)
+        self.classes = classes
+        if skip_index_after is not None:
+            self.skip_index_after = skip_index_after
+
+    def dice(self, input, target, weight):
+        return compute_per_channel_dice(input, target, weight=self.weight)
+
+
+class BCEDiceLoss(nn.Module):
+    """Linear combination of BCE and Dice losses3D"""
+
+    def __init__(self, alpha=1, beta=1, classes=4):
+        super(BCEDiceLoss, self).__init__()
+        self.alpha = alpha
+        self.bce = nn.BCEWithLogitsLoss()
+        self.beta = beta
+        self.dice = DiceLoss(classes=classes)
+        self.classes = classes
+
+    def forward(self, input, target):
+        target_expanded = expand_as_one_hot(target.long(), self.classes)
+        assert input.size() == target_expanded.size(), "'input' and 'target' must have the same shape"
+        loss_1 = self.alpha * self.bce(input, target_expanded)
+        loss_2, channel_score = self.beta * self.dice(input, target_expanded)
+        return loss_1 + loss_2, channel_score
 
 
 class ContrastiveLoss(torch.nn.Module):
@@ -432,6 +468,35 @@ class _MaskingLossWrapper(nn.Module):
         input = input * mask
         target = target * mask
         return self.loss(input, target)
+
+
+class GeneralizedDiceLoss(_AbstractDiceLoss):
+    """Computes Generalized Dice Loss (GDL) as described in https://arxiv.org/pdf/1707.03237.pdf.
+    """
+
+    def __init__(self, classes=4, sigmoid_normalization=True, skip_index_after=None, epsilon=1e-06):
+        super().__init__(weight=None, sigmoid_normalization=sigmoid_normalization)
+        self.epsilon = epsilon
+        self.classes = classes
+        if skip_index_after is not None:
+            self.skip_index_after = skip_index_after
+
+    def dice(self, input, target, weight):
+        assert input.size() == target.size()
+        input = flatten(input)
+        target = flatten(target)
+        target = target.float()
+        if input.size(0) == 1:
+            input = torch.cat((input, 1 - input), dim=0)
+            target = torch.cat((target, 1 - target), dim=0)
+        w_l = target.sum(-1)
+        w_l = 1 / (w_l * w_l).clamp(min=self.epsilon)
+        w_l.requires_grad = False
+        intersect = (input * target).sum(-1)
+        intersect = intersect * w_l
+        denominator = (input + target).sum(-1)
+        denominator = (denominator * w_l).clamp(min=self.epsilon)
+        return 2 * (intersect.sum() / denominator.sum())
 
 
 class PixelWiseCrossEntropyLoss(nn.Module):
@@ -777,11 +842,14 @@ class CNN(nn.Module):
 
 class _DenseLayer(nn.Sequential):
 
-    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate=0.2):
+    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate):
         super(_DenseLayer, self).__init__()
         self.add_module('norm1', nn.BatchNorm3d(num_input_features)),
         self.add_module('relu1', nn.ReLU(inplace=True)),
-        self.add_module('conv1', nn.Conv3d(num_input_features, bn_size * growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
+        self.add_module('conv1', nn.Conv3d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)),
+        self.add_module('norm2', nn.BatchNorm3d(bn_size * growth_rate)),
+        self.add_module('relu2', nn.ReLU(inplace=True)),
+        self.add_module('conv2', nn.Conv3d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
         self.drop_rate = drop_rate
         if self.drop_rate > 0:
             self.drop_layer = nn.Dropout(p=self.drop_rate)
@@ -794,32 +862,24 @@ class _DenseLayer(nn.Sequential):
 
 
 class _DenseBlock(nn.Sequential):
-    """
-    to keep the spatial dims o=i, this formula is applied
-    o = [i + 2*p - k - (k-1)*(d-1)]/s + 1
-    """
 
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate=0.2):
+    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
             layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
             self.add_module('denselayer%d' % (i + 1), layer)
 
 
-class _Transition(nn.Module):
+class _Transition(nn.Sequential):
 
     def __init__(self, num_input_features, num_output_features):
         super(_Transition, self).__init__()
-        norm = nn.BatchNorm3d(num_input_features)
-        relu = nn.ReLU(inplace=True)
-        conv3d = nn.Conv3d(num_input_features, num_output_features, kernel_size=1, padding=0, stride=1)
-        self.conv = nn.Sequential(norm, relu, conv3d)
-        self.max_pool = nn.MaxPool3d(kernel_size=2, stride=2)
-
-    def forward(self, x):
-        k = self.conv(x)
-        y = self.max_pool(k)
-        return y, k
+        self.add_module('norm', nn.BatchNorm3d(num_input_features))
+        self.add_module('relu', nn.ReLU(inplace=True))
+        self.add_module('conv', nn.Conv3d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
+        self.add_module('pool_norm', nn.BatchNorm3d(num_output_features))
+        self.add_module('pool_relu', nn.ReLU(inplace=True))
+        self.add_module('pool', nn.Conv3d(num_output_features, num_output_features, kernel_size=2, stride=2))
 
 
 class _Upsampling(nn.Sequential):
@@ -838,6 +898,50 @@ class _Upsampling(nn.Sequential):
         self.add_module('conv', nn.Conv3d(input_features, input_features, kernel_size=1, stride=1, padding=0, bias=False))
         self.add_module('transp_conv_1', nn.ConvTranspose3d(input_features, self.tr_conv1_features, kernel_size=2, padding=0, output_padding=0, stride=2))
         self.add_module('transp_conv_2', nn.ConvTranspose3d(self.tr_conv1_features, self.tr_conv2_features, kernel_size=2, padding=0, output_padding=0, stride=2))
+
+
+class DenseVoxelNet(BaseModel):
+    """
+    Implementation based on https://arxiv.org/abs/1708.00573
+    Trainable params: 1,783,408 (roughly 1.8 mentioned in the paper)
+    """
+
+    def __init__(self, in_channels=1, classes=3):
+        super(DenseVoxelNet, self).__init__()
+        num_input_features = 16
+        self.dense_1_out_features = 160
+        self.dense_2_out_features = 304
+        self.up_out_features = 64
+        self.classes = classes
+        self.in_channels = in_channels
+        self.conv_init = nn.Conv3d(in_channels, num_input_features, kernel_size=1, stride=2, padding=0, bias=False)
+        self.dense_1 = _DenseBlock(num_layers=12, num_input_features=num_input_features, bn_size=1, growth_rate=12)
+        self.trans = _Transition(self.dense_1_out_features, self.dense_1_out_features)
+        self.dense_2 = _DenseBlock(num_layers=12, num_input_features=self.dense_1_out_features, bn_size=1, growth_rate=12)
+        self.up_block = _Upsampling(self.dense_2_out_features, self.up_out_features)
+        self.conv_final = nn.Conv3d(self.up_out_features, classes, kernel_size=1, padding=0, bias=False)
+        self.transpose = nn.ConvTranspose3d(self.dense_1_out_features, self.up_out_features, kernel_size=2, padding=0, output_padding=0, stride=2)
+
+    def forward(self, x):
+        x = self.conv_init(x)
+        x = self.dense_1(x)
+        x, t = self.trans(x)
+        x = self.dense_2(x)
+        x = self.up_block(x)
+        y1 = self.conv_final(x)
+        t = self.transpose(t)
+        y2 = self.conv_final(t)
+        return y1, y2
+
+    def test(self, device='cpu'):
+        a = torch.rand(1, self.in_channels, 8, 8, 8)
+        ideal_out = torch.rand(1, self.classes, 8, 8, 8)
+        summary(self, (self.in_channels, 8, 8, 8), device=device)
+        b, c = self.forward(a)
+        torchsummaryX.summary(self, a)
+        assert ideal_out.shape == b.shape
+        assert ideal_out.shape == c.shape
+        None
 
 
 class _HyperDenseLayer(nn.Sequential):
@@ -891,6 +995,198 @@ class _HyperDenseBlockEarlyFusion(nn.Sequential):
         for i in range(self.number_of_conv_layers):
             layer = _HyperDenseLayer(in_kernels[i], out_kernels[i + 1], drop_rate)
             self.add_module('denselayer%d' % (i + 1), layer)
+
+
+class SinglePathDenseNet(BaseModel):
+
+    def __init__(self, in_channels, classes=4, drop_rate=0.1, return_logits=True, early_fusion=False):
+        super(SinglePathDenseNet, self).__init__()
+        self.return_logits = return_logits
+        self.features = nn.Sequential()
+        self.num_classes = classes
+        self.input_channels = in_channels
+        if early_fusion:
+            block = _HyperDenseBlockEarlyFusion(num_input_features=in_channels, drop_rate=drop_rate)
+            if in_channels == 52:
+                total_conv_channels = 477
+            elif in_channels == 3:
+                total_conv_channels = 426
+            else:
+                total_conv_channels = 503
+        else:
+            block = _HyperDenseBlock(num_input_features=in_channels, drop_rate=drop_rate)
+            if in_channels == 2:
+                total_conv_channels = 452
+            else:
+                total_conv_channels = 451
+        self.features.add_module('denseblock1', block)
+        self.features.add_module('conv1x1_1', nn.Conv3d(total_conv_channels, 400, kernel_size=1, stride=1, padding=0, bias=False))
+        self.features.add_module('drop_1', nn.Dropout(p=0.5))
+        self.features.add_module('conv1x1_2', nn.Conv3d(400, 200, kernel_size=1, stride=1, padding=0, bias=False))
+        self.features.add_module('drop_2', nn.Dropout(p=0.5))
+        self.features.add_module('conv1x1_3', nn.Conv3d(200, 150, kernel_size=1, stride=1, padding=0, bias=False))
+        self.features.add_module('drop_3', nn.Dropout(p=0.5))
+        self.classifier = nn.Sequential()
+        self.classifier.add_module('classifier', nn.Conv3d(150, self.num_classes, kernel_size=1, stride=1, padding=0, bias=False))
+
+    def forward(self, x):
+        features = self.features(x)
+        if self.return_logits:
+            out = self.classifier(features)
+            return out
+        else:
+            return features
+
+    def test(self, device='cpu'):
+        input_tensor = torch.rand(1, self.input_channels, 12, 12, 12)
+        ideal_out = torch.rand(1, self.num_classes, 12, 12, 12)
+        out = self.forward(input_tensor)
+        assert ideal_out.shape == out.shape
+        summary(self, (self.input_channels, 12, 12, 12), device=device)
+        None
+
+
+class DualPathDenseNet(BaseModel):
+
+    def __init__(self, in_channels, classes=4, drop_rate=0, fusion='concat'):
+        """
+        2-stream and 3-stream implementation with late fusion
+        :param in_channels: 2 or 3 (dual or triple path based on paper specifications).
+        Channels are the input modalities i.e T1,T2 etc..
+        :param drop_rate:  dropout rate for dense layers
+        :param classes: number of classes to segment
+        :param fusion: 'concat or 'sum'
+        """
+        super(DualPathDenseNet, self).__init__()
+        self.input_channels = in_channels
+        self.num_classes = classes
+        self.fusion = fusion
+        if self.fusion == 'concat':
+            in_classifier_channels = self.input_channels * 150
+        else:
+            in_classifier_channels = 150
+        if self.input_channels == 2:
+            self.stream_1 = SinglePathDenseNet(in_channels=1, drop_rate=drop_rate, classes=classes, return_logits=False, early_fusion=True)
+            self.stream_2 = SinglePathDenseNet(in_channels=1, drop_rate=drop_rate, classes=classes, return_logits=False, early_fusion=True)
+        if self.input_channels == 3:
+            self.stream_1 = SinglePathDenseNet(in_channels=1, drop_rate=drop_rate, classes=classes, return_logits=False)
+            self.stream_2 = SinglePathDenseNet(in_channels=1, drop_rate=drop_rate, classes=classes, return_logits=False)
+            self.stream_3 = SinglePathDenseNet(in_channels=1, drop_rate=drop_rate, classes=classes, return_logits=False)
+        self.classifier = nn.Sequential()
+        self.classifier.add_module('classifier', nn.Conv3d(in_classifier_channels, classes, kernel_size=1, stride=1, padding=0, bias=False))
+
+    def forward(self, multi_channel_medical_img):
+        """
+        :param multi_channel_medical_img: shape of [batch, input_channels, height, width, depth]
+        :return: late fusion classification predictions
+        """
+        channels = multi_channel_medical_img.shape[1]
+        if channels != self.input_channels:
+            None
+            return None
+        elif self.input_channels == 2:
+            in_stream_1 = multi_channel_medical_img[:, (0), (...)].unsqueeze(dim=1)
+            in_stream_2 = multi_channel_medical_img[:, (1), (...)].unsqueeze(dim=1)
+            output_features_t1 = self.stream_1(in_stream_1)
+            output_features_t2 = self.stream_2(in_stream_2)
+            if self.fusion == 'concat':
+                concat_features = torch.cat((output_features_t1, output_features_t2), dim=1)
+                return self.classifier(concat_features)
+            else:
+                features = output_features_t1 + output_features_t2
+                return self.classifier(features)
+        elif self.input_channels == 3:
+            in_stream_1 = multi_channel_medical_img[:, (0), (...)].unsqueeze(dim=1)
+            in_stream_2 = multi_channel_medical_img[:, (1), (...)].unsqueeze(dim=1)
+            in_stream_3 = multi_channel_medical_img[:, (2), (...)].unsqueeze(dim=1)
+            output_features_t1 = self.stream_1(in_stream_1)
+            output_features_t2 = self.stream_2(in_stream_2)
+            output_features_t3 = self.stream_3(in_stream_3)
+            if self.fusion == 'concat':
+                concat_features = torch.cat((output_features_t1, output_features_t2, output_features_t3), dim=1)
+                return self.classifier(concat_features)
+            else:
+                features = output_features_t1 + output_features_t2 + output_features_t3
+                return self.classifier(features)
+
+    def test(self, device='cpu'):
+        input_tensor = torch.rand(1, self.input_channels, 12, 12, 12)
+        ideal_out = torch.rand(1, self.num_classes, 12, 12, 12)
+        out = self.forward(input_tensor)
+        assert ideal_out.shape == out.shape
+        summary(self, (self.input_channels, 12, 12, 12), device=device)
+        torchsummaryX.summary(self, input_tensor)
+        None
+
+
+class DualSingleDenseNet(BaseModel):
+    """
+    2-stream and 3-stream implementation with early fusion
+    dual-single-densenet OR Disentangled modalities with early fusion in the paper
+    """
+
+    def __init__(self, in_channels, classes=4, drop_rate=0.5):
+        """
+
+        :param input_channels: 2 or 3 (dual or triple path based on paper specifications).
+        Channels are the input modalities i.e T1,T2 etc..
+        :param drop_rate:  dropout rate for dense layers
+        :param classes: number of classes to segment
+        :param fusion: 'concat or 'sum'
+        """
+        super(DualSingleDenseNet, self).__init__()
+        self.input_channels = in_channels
+        self.num_classes = classes
+        if self.input_channels == 2:
+            self.early_conv_1 = _HyperDenseLayer(num_input_features=1, num_output_channels=25, drop_rate=drop_rate)
+            self.early_conv_2 = _HyperDenseLayer(num_input_features=1, num_output_channels=25, drop_rate=drop_rate)
+            single_path_channels = 52
+            self.stream_1 = SinglePathDenseNet(in_channels=single_path_channels, drop_rate=drop_rate, classes=classes, return_logits=True, early_fusion=True)
+            self.classifier = nn.Sequential()
+        if self.input_channels == 3:
+            self.early_conv_1 = _HyperDenseLayer(num_input_features=1, num_output_channels=25, drop_rate=0)
+            self.early_conv_2 = _HyperDenseLayer(num_input_features=1, num_output_channels=25, drop_rate=0)
+            self.early_conv_3 = _HyperDenseLayer(num_input_features=1, num_output_channels=25, drop_rate=0)
+            single_path_channels = 78
+            self.stream_1 = SinglePathDenseNet(in_channels=single_path_channels, drop_rate=drop_rate, classes=classes, return_logits=True, early_fusion=True)
+
+    def forward(self, multi_channel_medical_img):
+        """
+        :param multi_channel_medical_img: shape of [batch, input_channels, height, width, depth]
+        :return: late fusion classification predictions
+        """
+        channels = multi_channel_medical_img.shape[1]
+        if channels != self.input_channels:
+            None
+            return None
+        elif self.input_channels == 2:
+            in_1 = multi_channel_medical_img[:, (0), (...)].unsqueeze(dim=1)
+            in_2 = multi_channel_medical_img[:, (1), (...)].unsqueeze(dim=1)
+            y1 = self.early_conv_1(in_1)
+            y2 = self.early_conv_1(in_2)
+            None
+            None
+            in_stream = torch.cat((y1, y2), dim=1)
+            logits = self.stream_1(in_stream)
+            return logits
+        elif self.input_channels == 3:
+            in_1 = multi_channel_medical_img[:, (0), (...)].unsqueeze(dim=1)
+            in_2 = multi_channel_medical_img[:, (1), (...)].unsqueeze(dim=1)
+            in_3 = multi_channel_medical_img[:, (2), (...)].unsqueeze(dim=1)
+            y1 = self.early_conv_1(in_1)
+            y2 = self.early_conv_2(in_2)
+            y3 = self.early_conv_3(in_3)
+            in_stream = torch.cat((y1, y2, y3), dim=1)
+            logits = self.stream_1(in_stream)
+            return logits
+
+    def test(self, device='cpu'):
+        input_tensor = torch.rand(1, self.input_channels, 12, 12, 12)
+        ideal_out = torch.rand(1, self.num_classes, 12, 12, 12)
+        out = self.forward(input_tensor)
+        assert ideal_out.shape == out.shape
+        summary(self, (self.input_channels, 12, 12, 12), device=device)
+        None
 
 
 class ConvInit(nn.Module):
@@ -970,6 +1266,104 @@ class Conv1x1x1(nn.Module):
         return self.conv_dil(x)
 
 
+class HighResNet3D(BaseModel):
+
+    def __init__(self, in_channels=1, classes=4, shortcut_type='A', dropout_layer=True):
+        super(HighResNet3D, self).__init__()
+        self.in_channels = in_channels
+        self.shortcut_type = shortcut_type
+        self.classes = classes
+        self.init_channels = 16
+        self.red_channels = 16
+        self.dil2_channels = 32
+        self.dil4_channels = 64
+        self.conv_out_channels = 80
+        if self.shortcut_type == 'B':
+            self.res_pad_1 = Conv1x1x1(self.red_channels, self.dil2_channels)
+            self.res_pad_2 = Conv1x1x1(self.dil2_channels, self.dil4_channels)
+        self.conv_init = ConvInit(in_channels)
+        self.red_blocks1 = self.create_red(self.init_channels)
+        self.red_blocks2 = self.create_red(self.red_channels)
+        self.red_blocks3 = self.create_red(self.red_channels)
+        self.dil2block1 = self.create_dil2(self.red_channels)
+        self.dil2block2 = self.create_dil2(self.dil2_channels)
+        self.dil2block3 = self.create_dil2(self.dil2_channels)
+        self.dil4block1 = self.create_dil4(self.dil2_channels)
+        self.dil4block2 = self.create_dil4(self.dil4_channels)
+        self.dil4block3 = self.create_dil4(self.dil4_channels)
+        if dropout_layer:
+            conv_out = nn.Conv3d(self.dil4_channels, self.conv_out_channels, kernel_size=1)
+            drop3d = nn.Dropout3d()
+            conv1x1x1 = Conv1x1x1(self.conv_out_channels, self.classes)
+            self.conv_out = nn.Sequential(conv_out, drop3d, conv1x1x1)
+        else:
+            self.conv_out = Conv1x1x1(self.dil4_channels, self.classes)
+
+    def shortcut_pad(self, x, desired_channels):
+        if self.shortcut_type == 'A':
+            batch_size, channels, dim0, dim1, dim2 = x.shape
+            extra_channels = desired_channels - channels
+            zero_channels = int(extra_channels / 2)
+            zeros_half = x.new_zeros(batch_size, zero_channels, dim0, dim1, dim2)
+            y = torch.cat((zeros_half, x, zeros_half), dim=1)
+        elif self.shortcut_type == 'B':
+            if desired_channels == self.dil2_channels:
+                y = self.res_pad_1(x)
+            elif desired_channels == self.dil4_channels:
+                y = self.res_pad_2(x)
+        return y
+
+    def create_red(self, in_channels):
+        conv_red_1 = ConvRed(in_channels)
+        conv_red_2 = ConvRed(self.red_channels)
+        return nn.Sequential(conv_red_1, conv_red_2)
+
+    def create_dil2(self, in_channels):
+        conv_dil2_1 = DilatedConv2(in_channels)
+        conv_dil2_2 = DilatedConv2(self.dil2_channels)
+        return nn.Sequential(conv_dil2_1, conv_dil2_2)
+
+    def create_dil4(self, in_channels):
+        conv_dil4_1 = DilatedConv4(in_channels)
+        conv_dil4_2 = DilatedConv4(self.dil4_channels)
+        return nn.Sequential(conv_dil4_1, conv_dil4_2)
+
+    def red_forward(self, x):
+        x, x_res = self.conv_init(x)
+        x_red_1 = self.red_blocks1(x)
+        x_red_2 = self.red_blocks2(x_red_1 + x_res)
+        x_red_3 = self.red_blocks3(x_red_2 + x_red_1)
+        return x_red_3, x_red_2
+
+    def dilation2(self, x_red_3, x_red_2):
+        x_dil2_1 = self.dil2block1(x_red_3 + x_red_2)
+        x_red_padded = self.shortcut_pad(x_red_3, self.dil2_channels)
+        x_dil2_2 = self.dil2block2(x_dil2_1 + x_red_padded)
+        x_dil2_3 = self.dil2block3(x_dil2_2 + x_dil2_1)
+        return x_dil2_3, x_dil2_2
+
+    def dilation4(self, x_dil2_3, x_dil2_2):
+        x_dil4_1 = self.dil4block1(x_dil2_3 + x_dil2_2)
+        x_dil2_padded = self.shortcut_pad(x_dil2_3, self.dil4_channels)
+        x_dil4_2 = self.dil4block2(x_dil4_1 + x_dil2_padded)
+        x_dil4_3 = self.dil4block3(x_dil4_2 + x_dil4_1)
+        return x_dil4_3 + x_dil4_2
+
+    def forward(self, x):
+        x_red_3, x_red_2 = self.red_forward(x)
+        x_dil2_3, x_dil2_2 = self.dilation2(x_red_3, x_red_2)
+        x_dil4 = self.dilation4(x_dil2_3, x_dil2_2)
+        y = self.conv_out(x_dil4)
+        return y
+
+    def test(self):
+        x = torch.rand(1, self.in_channels, 32, 32, 32)
+        pred = self.forward(x)
+        target = torch.rand(1, self.classes, 32, 32, 32)
+        assert target.shape == pred.shape
+        None
+
+
 def conv(nin, nout, kernel_size=3, stride=1, padding=1, bias=False, layer=nn.Conv2d, BN=False, ws=False, activ=nn.LeakyReLU(0.2), gainWS=2):
     convlayer = layer(nin, nout, kernel_size, stride=stride, padding=padding, bias=bias)
     layers = []
@@ -1005,6 +1399,248 @@ class ResidualConv(nn.Module):
     def forward(self, input):
         out = self.convs(input)
         return self.activation(out + self.res(input))
+
+
+def convBlock(nin, nout, kernel_size=3, batchNorm=False, layer=nn.Conv3d, bias=True, dropout_rate=0.0, dilation=1):
+    if batchNorm == False:
+        return nn.Sequential(nn.PReLU(), nn.Dropout(p=dropout_rate), layer(nin, nout, kernel_size=kernel_size, bias=bias, dilation=dilation))
+    else:
+        return nn.Sequential(nn.BatchNorm3d(nin), nn.PReLU(), nn.Dropout(p=dropout_rate), layer(nin, nout, kernel_size=kernel_size, bias=bias, dilation=dilation))
+
+
+def croppCenter(tensorToCrop, finalShape):
+    org_shape = tensorToCrop.shape
+    diff = org_shape[2] - finalShape[2]
+    croppBorders = int(diff / 2)
+    return tensorToCrop[:, :, croppBorders:org_shape[2] - croppBorders, croppBorders:org_shape[3] - croppBorders, croppBorders:org_shape[4] - croppBorders]
+
+
+class HyperDenseNet_2Mod(BaseModel):
+
+    def __init__(self, in_channels=2, classes=4):
+        super(HyperDenseNet_2Mod, self).__init__()
+        self.num_classes = classes
+        assert in_channels == 2, 'input channels must be two for this architecture'
+        self.conv1_Top = convBlock(1, 25)
+        self.conv2_Top = convBlock(50, 25, batchNorm=True)
+        self.conv3_Top = convBlock(100, 25, batchNorm=True)
+        self.conv4_Top = convBlock(150, 50, batchNorm=True)
+        self.conv5_Top = convBlock(250, 50, batchNorm=True)
+        self.conv6_Top = convBlock(350, 50, batchNorm=True)
+        self.conv7_Top = convBlock(450, 75, batchNorm=True)
+        self.conv8_Top = convBlock(600, 75, batchNorm=True)
+        self.conv9_Top = convBlock(750, 75, batchNorm=True)
+        self.conv1_Bottom = convBlock(1, 25)
+        self.conv2_Bottom = convBlock(50, 25, batchNorm=True)
+        self.conv3_Bottom = convBlock(100, 25, batchNorm=True)
+        self.conv4_Bottom = convBlock(150, 50, batchNorm=True)
+        self.conv5_Bottom = convBlock(250, 50, batchNorm=True)
+        self.conv6_Bottom = convBlock(350, 50, batchNorm=True)
+        self.conv7_Bottom = convBlock(450, 75, batchNorm=True)
+        self.conv8_Bottom = convBlock(600, 75, batchNorm=True)
+        self.conv9_Bottom = convBlock(750, 75, batchNorm=True)
+        self.fully_1 = nn.Conv3d(1800, 400, kernel_size=1)
+        self.fully_2 = nn.Conv3d(400, 200, kernel_size=1)
+        self.fully_3 = nn.Conv3d(200, 150, kernel_size=1)
+        self.final = nn.Conv3d(150, classes, kernel_size=1)
+
+    def forward(self, input):
+        None
+        y1t = self.conv1_Top(input[:, 0:1, :, :, :])
+        y1b = self.conv1_Bottom(input[:, 1:2, :, :, :])
+        y2t_i = torch.cat((y1t, y1b), dim=1)
+        y2b_i = torch.cat((y1b, y1t), dim=1)
+        y2t_o = self.conv2_Top(y2t_i)
+        y2b_o = self.conv2_Bottom(y2b_i)
+        y2t_i_cropped = croppCenter(y2t_i, y2t_o.shape)
+        y2b_i_cropped = croppCenter(y2b_i, y2t_o.shape)
+        y3t_i = torch.cat((y2t_i_cropped, y2t_o, y2b_o), dim=1)
+        y3b_i = torch.cat((y2b_i_cropped, y2b_o, y2t_o), dim=1)
+        y3t_o = self.conv3_Top(y3t_i)
+        y3b_o = self.conv3_Bottom(y3b_i)
+        y3t_i_cropped = croppCenter(y3t_i, y3t_o.shape)
+        y3b_i_cropped = croppCenter(y3b_i, y3t_o.shape)
+        y4t_i = torch.cat((y3t_i_cropped, y3t_o, y3b_o), dim=1)
+        y4b_i = torch.cat((y3b_i_cropped, y3b_o, y3t_o), dim=1)
+        y4t_o = self.conv4_Top(y4t_i)
+        y4b_o = self.conv4_Bottom(y4b_i)
+        y4t_i_cropped = croppCenter(y4t_i, y4t_o.shape)
+        y4b_i_cropped = croppCenter(y4b_i, y4t_o.shape)
+        y5t_i = torch.cat((y4t_i_cropped, y4t_o, y4b_o), dim=1)
+        y5b_i = torch.cat((y4b_i_cropped, y4b_o, y4t_o), dim=1)
+        y5t_o = self.conv5_Top(y5t_i)
+        y5b_o = self.conv5_Bottom(y5b_i)
+        y5t_i_cropped = croppCenter(y5t_i, y5t_o.shape)
+        y5b_i_cropped = croppCenter(y5b_i, y5t_o.shape)
+        y6t_i = torch.cat((y5t_i_cropped, y5t_o, y5b_o), dim=1)
+        y6b_i = torch.cat((y5b_i_cropped, y5b_o, y5t_o), dim=1)
+        y6t_o = self.conv6_Top(y6t_i)
+        y6b_o = self.conv6_Bottom(y6b_i)
+        y6t_i_cropped = croppCenter(y6t_i, y6t_o.shape)
+        y6b_i_cropped = croppCenter(y6b_i, y6t_o.shape)
+        y7t_i = torch.cat((y6t_i_cropped, y6t_o, y6b_o), dim=1)
+        y7b_i = torch.cat((y6b_i_cropped, y6b_o, y6t_o), dim=1)
+        y7t_o = self.conv7_Top(y7t_i)
+        y7b_o = self.conv7_Bottom(y7b_i)
+        y7t_i_cropped = croppCenter(y7t_i, y7t_o.shape)
+        y7b_i_cropped = croppCenter(y7b_i, y7t_o.shape)
+        y8t_i = torch.cat((y7t_i_cropped, y7t_o, y7b_o), dim=1)
+        y8b_i = torch.cat((y7b_i_cropped, y7b_o, y7t_o), dim=1)
+        y8t_o = self.conv8_Top(y8t_i)
+        y8b_o = self.conv8_Bottom(y8b_i)
+        y8t_i_cropped = croppCenter(y8t_i, y8t_o.shape)
+        y8b_i_cropped = croppCenter(y8b_i, y8t_o.shape)
+        y9t_i = torch.cat((y8t_i_cropped, y8t_o, y8b_o), dim=1)
+        y9b_i = torch.cat((y8b_i_cropped, y8b_o, y8t_o), dim=1)
+        y9t_o = self.conv9_Top(y9t_i)
+        y9b_o = self.conv9_Bottom(y9b_i)
+        y9t_i_cropped = croppCenter(y9t_i, y9t_o.shape)
+        y9b_i_cropped = croppCenter(y9b_i, y9t_o.shape)
+        outputPath_top = torch.cat((y9t_i_cropped, y9t_o, y9b_o), dim=1)
+        outputPath_bottom = torch.cat((y9b_i_cropped, y9b_o, y9t_o), dim=1)
+        inputFully = torch.cat((outputPath_top, outputPath_bottom), dim=1)
+        y = self.fully_1(inputFully)
+        y = self.fully_2(y)
+        y = self.fully_3(y)
+        return self.final(y)
+
+    def test(self, device='cpu'):
+        input_tensor = torch.rand(1, 2, 22, 22, 22)
+        ideal_out = torch.rand(1, self.num_classes, 22, 22, 22)
+        out = self.forward(input_tensor)
+        None
+
+
+class HyperDenseNet(BaseModel):
+
+    def __init__(self, in_channels=3, classes=4):
+        super(HyperDenseNet, self).__init__()
+        assert in_channels == 3, 'HyperDensenet supports 3 in_channels. For 2 in_channels use HyperDenseNet_2Mod '
+        self.num_classes = classes
+        self.conv1_Top = convBlock(1, 25)
+        self.conv2_Top = convBlock(75, 25, batchNorm=True)
+        self.conv3_Top = convBlock(150, 25, batchNorm=True)
+        self.conv4_Top = convBlock(225, 50, batchNorm=True)
+        self.conv5_Top = convBlock(375, 50, batchNorm=True)
+        self.conv6_Top = convBlock(525, 50, batchNorm=True)
+        self.conv7_Top = convBlock(675, 75, batchNorm=True)
+        self.conv8_Top = convBlock(900, 75, batchNorm=True)
+        self.conv9_Top = convBlock(1125, 75, batchNorm=True)
+        self.conv1_Middle = convBlock(1, 25)
+        self.conv2_Middle = convBlock(75, 25, batchNorm=True)
+        self.conv3_Middle = convBlock(150, 25, batchNorm=True)
+        self.conv4_Middle = convBlock(225, 50, batchNorm=True)
+        self.conv5_Middle = convBlock(375, 50, batchNorm=True)
+        self.conv6_Middle = convBlock(525, 50, batchNorm=True)
+        self.conv7_Middle = convBlock(675, 75, batchNorm=True)
+        self.conv8_Middle = convBlock(900, 75, batchNorm=True)
+        self.conv9_Middle = convBlock(1125, 75, batchNorm=True)
+        self.conv1_Bottom = convBlock(1, 25)
+        self.conv2_Bottom = convBlock(75, 25, batchNorm=True)
+        self.conv3_Bottom = convBlock(150, 25, batchNorm=True)
+        self.conv4_Bottom = convBlock(225, 50, batchNorm=True)
+        self.conv5_Bottom = convBlock(375, 50, batchNorm=True)
+        self.conv6_Bottom = convBlock(525, 50, batchNorm=True)
+        self.conv7_Bottom = convBlock(675, 75, batchNorm=True)
+        self.conv8_Bottom = convBlock(900, 75, batchNorm=True)
+        self.conv9_Bottom = convBlock(1125, 75, batchNorm=True)
+        self.fully_1 = nn.Conv3d(4050, 400, kernel_size=1)
+        self.fully_2 = nn.Conv3d(400, 200, kernel_size=1)
+        self.fully_3 = nn.Conv3d(200, 150, kernel_size=1)
+        self.final = nn.Conv3d(150, classes, kernel_size=1)
+
+    def forward(self, input):
+        y1t = self.conv1_Top(input[:, 0:1, :, :, :])
+        y1m = self.conv1_Middle(input[:, 1:2, :, :, :])
+        y1b = self.conv1_Bottom(input[:, 2:3, :, :, :])
+        y2t_i = torch.cat((y1t, y1m, y1b), dim=1)
+        y2m_i = torch.cat((y1m, y1t, y1b), dim=1)
+        y2b_i = torch.cat((y1b, y1t, y1m), dim=1)
+        y2t_o = self.conv2_Top(y2t_i)
+        y2m_o = self.conv2_Middle(y2m_i)
+        y2b_o = self.conv2_Bottom(y2b_i)
+        y2t_i_cropped = croppCenter(y2t_i, y2t_o.shape)
+        y2m_i_cropped = croppCenter(y2m_i, y2t_o.shape)
+        y2b_i_cropped = croppCenter(y2b_i, y2t_o.shape)
+        y3t_i = torch.cat((y2t_i_cropped, y2t_o, y2m_o, y2b_o), dim=1)
+        y3m_i = torch.cat((y2m_i_cropped, y2m_o, y2t_o, y2b_o), dim=1)
+        y3b_i = torch.cat((y2b_i_cropped, y2b_o, y2t_o, y2m_o), dim=1)
+        y3t_o = self.conv3_Top(y3t_i)
+        y3m_o = self.conv3_Middle(y3m_i)
+        y3b_o = self.conv3_Bottom(y3b_i)
+        y3t_i_cropped = croppCenter(y3t_i, y3t_o.shape)
+        y3m_i_cropped = croppCenter(y3m_i, y3t_o.shape)
+        y3b_i_cropped = croppCenter(y3b_i, y3t_o.shape)
+        y4t_i = torch.cat((y3t_i_cropped, y3t_o, y3m_o, y3b_o), dim=1)
+        y4m_i = torch.cat((y3m_i_cropped, y3m_o, y3t_o, y3b_o), dim=1)
+        y4b_i = torch.cat((y3b_i_cropped, y3b_o, y3t_o, y3m_o), dim=1)
+        y4t_o = self.conv4_Top(y4t_i)
+        y4m_o = self.conv4_Middle(y4m_i)
+        y4b_o = self.conv4_Bottom(y4b_i)
+        y4t_i_cropped = croppCenter(y4t_i, y4t_o.shape)
+        y4m_i_cropped = croppCenter(y4m_i, y4t_o.shape)
+        y4b_i_cropped = croppCenter(y4b_i, y4t_o.shape)
+        y5t_i = torch.cat((y4t_i_cropped, y4t_o, y4m_o, y4b_o), dim=1)
+        y5m_i = torch.cat((y4m_i_cropped, y4m_o, y4t_o, y4b_o), dim=1)
+        y5b_i = torch.cat((y4b_i_cropped, y4b_o, y4t_o, y4m_o), dim=1)
+        y5t_o = self.conv5_Top(y5t_i)
+        y5m_o = self.conv5_Middle(y5m_i)
+        y5b_o = self.conv5_Bottom(y5b_i)
+        y5t_i_cropped = croppCenter(y5t_i, y5t_o.shape)
+        y5m_i_cropped = croppCenter(y5m_i, y5t_o.shape)
+        y5b_i_cropped = croppCenter(y5b_i, y5t_o.shape)
+        y6t_i = torch.cat((y5t_i_cropped, y5t_o, y5m_o, y5b_o), dim=1)
+        y6m_i = torch.cat((y5m_i_cropped, y5m_o, y5t_o, y5b_o), dim=1)
+        y6b_i = torch.cat((y5b_i_cropped, y5b_o, y5t_o, y5m_o), dim=1)
+        y6t_o = self.conv6_Top(y6t_i)
+        y6m_o = self.conv6_Middle(y6m_i)
+        y6b_o = self.conv6_Bottom(y6b_i)
+        y6t_i_cropped = croppCenter(y6t_i, y6t_o.shape)
+        y6m_i_cropped = croppCenter(y6m_i, y6t_o.shape)
+        y6b_i_cropped = croppCenter(y6b_i, y6t_o.shape)
+        y7t_i = torch.cat((y6t_i_cropped, y6t_o, y6m_o, y6b_o), dim=1)
+        y7m_i = torch.cat((y6m_i_cropped, y6m_o, y6t_o, y6b_o), dim=1)
+        y7b_i = torch.cat((y6b_i_cropped, y6b_o, y6t_o, y6m_o), dim=1)
+        y7t_o = self.conv7_Top(y7t_i)
+        y7m_o = self.conv7_Middle(y7m_i)
+        y7b_o = self.conv7_Bottom(y7b_i)
+        y7t_i_cropped = croppCenter(y7t_i, y7t_o.shape)
+        y7m_i_cropped = croppCenter(y7m_i, y7t_o.shape)
+        y7b_i_cropped = croppCenter(y7b_i, y7t_o.shape)
+        y8t_i = torch.cat((y7t_i_cropped, y7t_o, y7m_o, y7b_o), dim=1)
+        y8m_i = torch.cat((y7m_i_cropped, y7m_o, y7t_o, y7b_o), dim=1)
+        y8b_i = torch.cat((y7b_i_cropped, y7b_o, y7t_o, y7m_o), dim=1)
+        y8t_o = self.conv8_Top(y8t_i)
+        y8m_o = self.conv8_Middle(y8m_i)
+        y8b_o = self.conv8_Bottom(y8b_i)
+        y8t_i_cropped = croppCenter(y8t_i, y8t_o.shape)
+        y8m_i_cropped = croppCenter(y8m_i, y8t_o.shape)
+        y8b_i_cropped = croppCenter(y8b_i, y8t_o.shape)
+        y9t_i = torch.cat((y8t_i_cropped, y8t_o, y8m_o, y8b_o), dim=1)
+        y9m_i = torch.cat((y8m_i_cropped, y8m_o, y8t_o, y8b_o), dim=1)
+        y9b_i = torch.cat((y8b_i_cropped, y8b_o, y8t_o, y8m_o), dim=1)
+        y9t_o = self.conv9_Top(y9t_i)
+        y9m_o = self.conv9_Middle(y9m_i)
+        y9b_o = self.conv9_Bottom(y9b_i)
+        y9t_i_cropped = croppCenter(y9t_i, y9t_o.shape)
+        y9m_i_cropped = croppCenter(y9m_i, y9t_o.shape)
+        y9b_i_cropped = croppCenter(y9b_i, y9t_o.shape)
+        outputPath_top = torch.cat((y9t_i_cropped, y9t_o, y9m_o, y9b_o), dim=1)
+        outputPath_middle = torch.cat((y9m_i_cropped, y9m_o, y9t_o, y9b_o), dim=1)
+        outputPath_bottom = torch.cat((y9b_i_cropped, y9b_o, y9t_o, y9m_o), dim=1)
+        inputFully = torch.cat((outputPath_top, outputPath_middle, outputPath_bottom), dim=1)
+        y = self.fully_1(inputFully)
+        y = self.fully_2(y)
+        y = self.fully_3(y)
+        return self.final(y)
+
+    def test(self, device='cpu'):
+        device = torch.device(device)
+        input_tensor = torch.rand(1, 3, 20, 20, 20)
+        ideal_out = torch.rand(1, self.num_classes, 20, 20, 20)
+        out = self.forward(input_tensor)
+        summary(self, (3, 16, 16, 16))
+        None
 
 
 def find_padding(dilation, kernel):
@@ -1125,6 +1761,73 @@ class TranspConvNet(nn.Module):
         x = self.conv_1(x)
         y = self.conv_final(x)
         return y
+
+
+class ResNetMed3D(BaseModel):
+
+    def __init__(self, in_channels=3, classes=10, block=BasicBlock, layers=[1, 1, 1, 1], block_inplanes=[64, 128, 256, 512], no_max_pool=False, shortcut_type='B', widen_factor=1.0):
+        super().__init__()
+        block_inplanes = [int(x * widen_factor) for x in block_inplanes]
+        self.in_planes = block_inplanes[0]
+        self.no_max_pool = no_max_pool
+        self.in_channels = in_channels
+        self.conv1 = nn.Conv3d(in_channels, self.in_planes, kernel_size=(7, 7, 7), stride=(2, 2, 2), padding=(3, 3, 3), bias=False)
+        self.bn1 = nn.BatchNorm3d(self.in_planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, block_inplanes[0], layers[0], shortcut_type)
+        self.layer2 = self._make_layer(block, block_inplanes[1], layers[1], shortcut_type, stride=2)
+        self.layer3 = self._make_layer(block, block_inplanes[2], layers[2], shortcut_type, stride=1, dilation=2)
+        self.layer4 = self._make_layer(block, block_inplanes[3], layers[3], shortcut_type, stride=1, dilation=4)
+        self.segm = TranspConvNet(in_channels=512 * block.expansion, classes=classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm3d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+
+    def _downsample_basic_block(self, x, planes, stride):
+        out = F.avg_pool3d(x, kernel_size=1, stride=stride)
+        zero_pads = torch.zeros(out.size(0), planes - out.size(1), out.size(2), out.size(3), out.size(4))
+        if isinstance(out.data, torch.FloatTensor):
+            zero_pads = zero_pads
+        out = torch.cat([out.data, zero_pads], dim=1)
+        return out
+
+    def _make_layer(self, block, planes, blocks, shortcut_type, stride=1, dilation=1):
+        downsample = None
+        if stride != 1 or self.in_planes != planes * block.expansion:
+            if shortcut_type == 'A':
+                downsample = partial(self._downsample_basic_block, planes=planes * block.expansion, stride=stride)
+            else:
+                downsample = nn.Sequential(conv1x1x1(self.in_planes, planes * block.expansion, stride), nn.BatchNorm3d(planes * block.expansion))
+        layers = []
+        layers.append(block(in_planes=self.in_planes, planes=planes, stride=stride, dilation=dilation, downsample=downsample))
+        self.in_planes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.in_planes, planes, dilation=dilation))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        if not self.no_max_pool:
+            x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        None
+        x = self.segm(x)
+        return x
+
+    def test(self):
+        a = torch.rand(1, self.in_channels, 16, 16, 16)
+        y = self.forward(a)
+        target = torch.rand(1, self.classes, 16, 16, 16)
+        assert a.shape == y.shape
 
 
 class GreenBlock(nn.Module):
@@ -1319,46 +2022,108 @@ class VAE(nn.Module):
         return dec, mu, logvar
 
 
-class _DenseLayer(nn.Sequential):
+class ResNet3dVAE(BaseModel):
 
-    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate):
-        super(_DenseLayer, self).__init__()
-        self.add_module('norm1', nn.BatchNorm3d(num_input_features)),
-        self.add_module('relu1', nn.ReLU(inplace=True)),
-        self.add_module('conv1', nn.Conv3d(num_input_features, bn_size * growth_rate, kernel_size=1, stride=1, bias=False)),
-        self.add_module('norm2', nn.BatchNorm3d(bn_size * growth_rate)),
-        self.add_module('relu2', nn.ReLU(inplace=True)),
-        self.add_module('conv2', nn.Conv3d(bn_size * growth_rate, growth_rate, kernel_size=3, stride=1, padding=1, bias=False)),
-        self.drop_rate = drop_rate
-        if self.drop_rate > 0:
-            self.drop_layer = nn.Dropout(p=self.drop_rate)
+    def __init__(self, in_channels=2, classes=4, max_conv_channels=256, dim=(64, 64, 64)):
+        super(ResNet3dVAE, self).__init__()
+        self.dim = dim
+        vae_in_dim = int(dim[0] >> 3), int(dim[1] >> 3), int(dim[0] >> 3)
+        vae_out_dim = in_channels, dim[0], dim[1], dim[2]
+        self.classes = classes
+        self.modalities = in_channels
+        start_channels = 32
+        self.encoder = ResNetEncoder(in_channels=in_channels, start_channels=start_channels)
+        self.decoder = Decoder(in_channels=max_conv_channels, classes=classes)
+        self.vae = VAE(in_channels=max_conv_channels, in_dim=vae_in_dim, out_dim=vae_out_dim)
 
     def forward(self, x):
-        new_features = super(_DenseLayer, self).forward(x)
-        if self.drop_rate > 0:
-            new_features = self.drop_layer(new_features)
-        return torch.cat([x, new_features], 1)
+        x1, x2, x3, x4 = self.encoder(x)
+        y = self.decoder(x1, x2, x3, x4)
+        vae_out, mu, logvar = self.vae(x4)
+        return y, vae_out, mu, logvar
+
+    def test(self):
+        inp = torch.rand(1, self.modalities, self.dim[0], self.dim[1], self.dim[2])
+        ideal = torch.rand(1, self.classes, self.dim[0], self.dim[1], self.dim[2])
+        y, vae_out, mu, logvar = self.forward(inp)
+        assert vae_out.shape == inp.shape, vae_out.shape
+        assert y.shape == ideal.shape
+        assert mu.shape == logvar.shape
+        None
 
 
-class _DenseBlock(nn.Sequential):
+class SkipDenseNet3D(BaseModel):
+    """Densely Connected Convolutional Networks" <https://arxiv.org/pdf/1608.06993.pdf>`
+    Based on the implementation of https://github.com/tbuikr/3D-SkipDenseSeg
+    Paper here : https://arxiv.org/pdf/1709.03199.pdf
 
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
-        super(_DenseBlock, self).__init__()
-        for i in range(num_layers):
-            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
-            self.add_module('denselayer%d' % (i + 1), layer)
+    Args:
+        growth_rate (int) - how many filters to add each layer (`k` in paper)
+        block_config (list of 4 ints) - how many layers in each pooling block
+        num_init_features (int) - the number of filters to learn in the first convolution layer
+        bn_size (int) - multiplicative factor for number of bottle neck layers
+          (i.e. bn_size * k features in the bottleneck layer)
+        drop_rate (float) - dropout rate after each dense layer
+        classes (int) - number of classification classes
+    """
 
+    def __init__(self, in_channels=2, classes=4, growth_rate=16, block_config=(4, 4, 4, 4), num_init_features=32, drop_rate=0.1, bn_size=4):
+        super(SkipDenseNet3D, self).__init__()
+        self.num_classes = classes
+        self.features = nn.Sequential(OrderedDict([('conv0', nn.Conv3d(in_channels, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)), ('norm0', nn.BatchNorm3d(num_init_features)), ('relu0', nn.ReLU(inplace=True)), ('conv1', nn.Conv3d(num_init_features, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)), ('norm1', nn.BatchNorm3d(num_init_features)), ('relu1', nn.ReLU(inplace=True)), ('conv2', nn.Conv3d(num_init_features, num_init_features, kernel_size=3, stride=1, padding=1, bias=False))]))
+        self.features_bn = nn.Sequential(OrderedDict([('norm2', nn.BatchNorm3d(num_init_features)), ('relu2', nn.ReLU(inplace=True))]))
+        self.conv_pool_first = nn.Conv3d(num_init_features, num_init_features, kernel_size=2, stride=2, padding=0, bias=False)
+        num_features = num_init_features
+        self.dense_blocks = nn.ModuleList([])
+        self.transit_blocks = nn.ModuleList([])
+        self.upsampling_blocks = nn.ModuleList([])
+        for i, num_layers in enumerate(block_config):
+            block = _DenseBlock(num_layers=num_layers, num_input_features=num_features, bn_size=bn_size, growth_rate=growth_rate, drop_rate=drop_rate)
+            self.dense_blocks.append(block)
+            num_features = num_features + num_layers * growth_rate
+            up_block = nn.ConvTranspose3d(num_features, classes, kernel_size=2 ** (i + 1) + 2, stride=2 ** (i + 1), padding=1, groups=classes, bias=False)
+            self.upsampling_blocks.append(up_block)
+            if i != len(block_config) - 1:
+                trans = _Transition(num_input_features=num_features, num_output_features=num_features // 2)
+                self.transit_blocks.append(trans)
+                num_features = num_features // 2
+        self.bn_class = nn.BatchNorm3d(classes * 4 + num_init_features)
+        self.conv_class = nn.Conv3d(classes * 4 + num_init_features, classes, kernel_size=1, padding=0)
+        self.relu_last = nn.ReLU()
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.kaiming_normal_(m.weight)
+            elif isinstance(m, nn.BatchNorm3d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
 
-class _Transition(nn.Sequential):
+    def forward(self, x):
+        first_three_features = self.features(x)
+        first_three_features_bn = self.features_bn(first_three_features)
+        out = self.conv_pool_first(first_three_features_bn)
+        out = self.dense_blocks[0](out)
+        up_block1 = self.upsampling_blocks[0](out)
+        out = self.transit_blocks[0](out)
+        out = self.dense_blocks[1](out)
+        up_block2 = self.upsampling_blocks[1](out)
+        out = self.transit_blocks[1](out)
+        out = self.dense_blocks[2](out)
+        up_block3 = self.upsampling_blocks[2](out)
+        out = self.transit_blocks[2](out)
+        out = self.dense_blocks[3](out)
+        up_block4 = self.upsampling_blocks[3](out)
+        out = torch.cat([up_block1, up_block2, up_block3, up_block4, first_three_features], 1)
+        out = self.conv_class(self.relu_last(self.bn_class(out)))
+        return out
 
-    def __init__(self, num_input_features, num_output_features):
-        super(_Transition, self).__init__()
-        self.add_module('norm', nn.BatchNorm3d(num_input_features))
-        self.add_module('relu', nn.ReLU(inplace=True))
-        self.add_module('conv', nn.Conv3d(num_input_features, num_output_features, kernel_size=1, stride=1, bias=False))
-        self.add_module('pool_norm', nn.BatchNorm3d(num_output_features))
-        self.add_module('pool_relu', nn.ReLU(inplace=True))
-        self.add_module('pool', nn.Conv3d(num_output_features, num_output_features, kernel_size=2, stride=2))
+    def test(self, device='cpu'):
+        input_tensor = torch.rand(1, 2, 32, 32, 32)
+        ideal_out = torch.rand(1, self.num_classes, 32, 32, 32)
+        out = self.forward(input_tensor)
+        assert ideal_out.shape == out.shape
+        summary(self, (2, 32, 32, 32), device=device)
+        torchsummaryX.summary(self, input_tensor)
+        None
 
 
 class DoubleConv(nn.Module):
@@ -1424,6 +2189,188 @@ class OutConv(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         return x
+
+
+class Unet(BaseModel):
+
+    def __init__(self, in_channels, classes):
+        super(Unet, self).__init__()
+        self.n_channels = in_channels
+        self.n_classes = classes
+        self.inc = InConv(in_channels, 64)
+        self.down1 = Down(64, 128)
+        self.down2 = Down(128, 256)
+        self.down3 = Down(256, 512)
+        self.down4 = Down(512, 512)
+        self.up1 = Up(1024, 256)
+        self.up2 = Up(512, 128)
+        self.up3 = Up(256, 64)
+        self.up4 = Up(128, 64)
+        self.outc = OutConv(64, classes)
+
+    def forward(self, x):
+        x1 = self.inc(x)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
+        x = self.outc(x)
+        return x
+
+    def test(self, device='cpu'):
+        device = torch.device(device)
+        input_tensor = torch.rand(1, self.n_channels, 32, 32)
+        ideal_out = torch.rand(1, self.n_classes, 32, 32)
+        out = self.forward(input_tensor)
+        assert ideal_out.shape == out.shape
+        summary(self, (self.n_channels, 32, 32, 32), device=device)
+        None
+
+
+class UNet3D(BaseModel):
+    """
+    Implementations based on the Unet3D paper: https://arxiv.org/abs/1606.06650
+    """
+
+    def __init__(self, in_channels, n_classes, base_n_filter=8):
+        super(UNet3D, self).__init__()
+        self.in_channels = in_channels
+        self.n_classes = n_classes
+        self.base_n_filter = base_n_filter
+        self.lrelu = nn.LeakyReLU()
+        self.dropout3d = nn.Dropout3d(p=0.6)
+        self.upsacle = nn.Upsample(scale_factor=2, mode='nearest')
+        self.softmax = nn.Softmax(dim=1)
+        self.conv3d_c1_1 = nn.Conv3d(self.in_channels, self.base_n_filter, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv3d_c1_2 = nn.Conv3d(self.base_n_filter, self.base_n_filter, kernel_size=3, stride=1, padding=1, bias=False)
+        self.lrelu_conv_c1 = self.lrelu_conv(self.base_n_filter, self.base_n_filter)
+        self.inorm3d_c1 = nn.InstanceNorm3d(self.base_n_filter)
+        self.conv3d_c2 = nn.Conv3d(self.base_n_filter, self.base_n_filter * 2, kernel_size=3, stride=2, padding=1, bias=False)
+        self.norm_lrelu_conv_c2 = self.norm_lrelu_conv(self.base_n_filter * 2, self.base_n_filter * 2)
+        self.inorm3d_c2 = nn.InstanceNorm3d(self.base_n_filter * 2)
+        self.conv3d_c3 = nn.Conv3d(self.base_n_filter * 2, self.base_n_filter * 4, kernel_size=3, stride=2, padding=1, bias=False)
+        self.norm_lrelu_conv_c3 = self.norm_lrelu_conv(self.base_n_filter * 4, self.base_n_filter * 4)
+        self.inorm3d_c3 = nn.InstanceNorm3d(self.base_n_filter * 4)
+        self.conv3d_c4 = nn.Conv3d(self.base_n_filter * 4, self.base_n_filter * 8, kernel_size=3, stride=2, padding=1, bias=False)
+        self.norm_lrelu_conv_c4 = self.norm_lrelu_conv(self.base_n_filter * 8, self.base_n_filter * 8)
+        self.inorm3d_c4 = nn.InstanceNorm3d(self.base_n_filter * 8)
+        self.conv3d_c5 = nn.Conv3d(self.base_n_filter * 8, self.base_n_filter * 16, kernel_size=3, stride=2, padding=1, bias=False)
+        self.norm_lrelu_conv_c5 = self.norm_lrelu_conv(self.base_n_filter * 16, self.base_n_filter * 16)
+        self.norm_lrelu_upscale_conv_norm_lrelu_l0 = self.norm_lrelu_upscale_conv_norm_lrelu(self.base_n_filter * 16, self.base_n_filter * 8)
+        self.conv3d_l0 = nn.Conv3d(self.base_n_filter * 8, self.base_n_filter * 8, kernel_size=1, stride=1, padding=0, bias=False)
+        self.inorm3d_l0 = nn.InstanceNorm3d(self.base_n_filter * 8)
+        self.conv_norm_lrelu_l1 = self.conv_norm_lrelu(self.base_n_filter * 16, self.base_n_filter * 16)
+        self.conv3d_l1 = nn.Conv3d(self.base_n_filter * 16, self.base_n_filter * 8, kernel_size=1, stride=1, padding=0, bias=False)
+        self.norm_lrelu_upscale_conv_norm_lrelu_l1 = self.norm_lrelu_upscale_conv_norm_lrelu(self.base_n_filter * 8, self.base_n_filter * 4)
+        self.conv_norm_lrelu_l2 = self.conv_norm_lrelu(self.base_n_filter * 8, self.base_n_filter * 8)
+        self.conv3d_l2 = nn.Conv3d(self.base_n_filter * 8, self.base_n_filter * 4, kernel_size=1, stride=1, padding=0, bias=False)
+        self.norm_lrelu_upscale_conv_norm_lrelu_l2 = self.norm_lrelu_upscale_conv_norm_lrelu(self.base_n_filter * 4, self.base_n_filter * 2)
+        self.conv_norm_lrelu_l3 = self.conv_norm_lrelu(self.base_n_filter * 4, self.base_n_filter * 4)
+        self.conv3d_l3 = nn.Conv3d(self.base_n_filter * 4, self.base_n_filter * 2, kernel_size=1, stride=1, padding=0, bias=False)
+        self.norm_lrelu_upscale_conv_norm_lrelu_l3 = self.norm_lrelu_upscale_conv_norm_lrelu(self.base_n_filter * 2, self.base_n_filter)
+        self.conv_norm_lrelu_l4 = self.conv_norm_lrelu(self.base_n_filter * 2, self.base_n_filter * 2)
+        self.conv3d_l4 = nn.Conv3d(self.base_n_filter * 2, self.n_classes, kernel_size=1, stride=1, padding=0, bias=False)
+        self.ds2_1x1_conv3d = nn.Conv3d(self.base_n_filter * 8, self.n_classes, kernel_size=1, stride=1, padding=0, bias=False)
+        self.ds3_1x1_conv3d = nn.Conv3d(self.base_n_filter * 4, self.n_classes, kernel_size=1, stride=1, padding=0, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def conv_norm_lrelu(self, feat_in, feat_out):
+        return nn.Sequential(nn.Conv3d(feat_in, feat_out, kernel_size=3, stride=1, padding=1, bias=False), nn.InstanceNorm3d(feat_out), nn.LeakyReLU())
+
+    def norm_lrelu_conv(self, feat_in, feat_out):
+        return nn.Sequential(nn.InstanceNorm3d(feat_in), nn.LeakyReLU(), nn.Conv3d(feat_in, feat_out, kernel_size=3, stride=1, padding=1, bias=False))
+
+    def lrelu_conv(self, feat_in, feat_out):
+        return nn.Sequential(nn.LeakyReLU(), nn.Conv3d(feat_in, feat_out, kernel_size=3, stride=1, padding=1, bias=False))
+
+    def norm_lrelu_upscale_conv_norm_lrelu(self, feat_in, feat_out):
+        return nn.Sequential(nn.InstanceNorm3d(feat_in), nn.LeakyReLU(), nn.Upsample(scale_factor=2, mode='nearest'), nn.Conv3d(feat_in, feat_out, kernel_size=3, stride=1, padding=1, bias=False), nn.InstanceNorm3d(feat_out), nn.LeakyReLU())
+
+    def forward(self, x):
+        out = self.conv3d_c1_1(x)
+        residual_1 = out
+        out = self.lrelu(out)
+        out = self.conv3d_c1_2(out)
+        out = self.dropout3d(out)
+        out = self.lrelu_conv_c1(out)
+        out += residual_1
+        context_1 = self.lrelu(out)
+        out = self.inorm3d_c1(out)
+        out = self.lrelu(out)
+        out = self.conv3d_c2(out)
+        residual_2 = out
+        out = self.norm_lrelu_conv_c2(out)
+        out = self.dropout3d(out)
+        out = self.norm_lrelu_conv_c2(out)
+        out += residual_2
+        out = self.inorm3d_c2(out)
+        out = self.lrelu(out)
+        context_2 = out
+        out = self.conv3d_c3(out)
+        residual_3 = out
+        out = self.norm_lrelu_conv_c3(out)
+        out = self.dropout3d(out)
+        out = self.norm_lrelu_conv_c3(out)
+        out += residual_3
+        out = self.inorm3d_c3(out)
+        out = self.lrelu(out)
+        context_3 = out
+        out = self.conv3d_c4(out)
+        residual_4 = out
+        out = self.norm_lrelu_conv_c4(out)
+        out = self.dropout3d(out)
+        out = self.norm_lrelu_conv_c4(out)
+        out += residual_4
+        out = self.inorm3d_c4(out)
+        out = self.lrelu(out)
+        context_4 = out
+        out = self.conv3d_c5(out)
+        residual_5 = out
+        out = self.norm_lrelu_conv_c5(out)
+        out = self.dropout3d(out)
+        out = self.norm_lrelu_conv_c5(out)
+        out += residual_5
+        out = self.norm_lrelu_upscale_conv_norm_lrelu_l0(out)
+        out = self.conv3d_l0(out)
+        out = self.inorm3d_l0(out)
+        out = self.lrelu(out)
+        out = torch.cat([out, context_4], dim=1)
+        out = self.conv_norm_lrelu_l1(out)
+        out = self.conv3d_l1(out)
+        out = self.norm_lrelu_upscale_conv_norm_lrelu_l1(out)
+        out = torch.cat([out, context_3], dim=1)
+        out = self.conv_norm_lrelu_l2(out)
+        ds2 = out
+        out = self.conv3d_l2(out)
+        out = self.norm_lrelu_upscale_conv_norm_lrelu_l2(out)
+        out = torch.cat([out, context_2], dim=1)
+        out = self.conv_norm_lrelu_l3(out)
+        ds3 = out
+        out = self.conv3d_l3(out)
+        out = self.norm_lrelu_upscale_conv_norm_lrelu_l3(out)
+        out = torch.cat([out, context_1], dim=1)
+        out = self.conv_norm_lrelu_l4(out)
+        out_pred = self.conv3d_l4(out)
+        ds2_1x1_conv = self.ds2_1x1_conv3d(ds2)
+        ds1_ds2_sum_upscale = self.upsacle(ds2_1x1_conv)
+        ds3_1x1_conv = self.ds3_1x1_conv3d(ds3)
+        ds1_ds2_sum_upscale_ds3_sum = ds1_ds2_sum_upscale + ds3_1x1_conv
+        ds1_ds2_sum_upscale_ds3_sum_upscale = self.upsacle(ds1_ds2_sum_upscale_ds3_sum)
+        out = out_pred + ds1_ds2_sum_upscale_ds3_sum_upscale
+        seg_layer = out
+        return seg_layer
+
+    def test(self, device='cpu'):
+        input_tensor = torch.rand(1, 2, 32, 32, 32)
+        ideal_out = torch.rand(1, self.n_classes, 32, 32, 32)
+        out = self.forward(input_tensor)
+        assert ideal_out.shape == out.shape
+        summary(self, (2, 32, 32, 32), device='cpu')
+        None
 
 
 def ELUCons(elu, nchan):
@@ -1537,6 +2484,86 @@ class OutputTransition(nn.Module):
         return out
 
 
+class VNet(BaseModel):
+    """
+    Implementations based on the Vnet paper: https://arxiv.org/abs/1606.04797
+    """
+
+    def __init__(self, elu=True, in_channels=1, classes=4):
+        super(VNet, self).__init__()
+        self.classes = classes
+        self.in_channels = in_channels
+        self.in_tr = InputTransition(in_channels, elu=elu)
+        self.down_tr32 = DownTransition(16, 1, elu)
+        self.down_tr64 = DownTransition(32, 2, elu)
+        self.down_tr128 = DownTransition(64, 3, elu, dropout=True)
+        self.down_tr256 = DownTransition(128, 2, elu, dropout=True)
+        self.up_tr256 = UpTransition(256, 256, 2, elu, dropout=True)
+        self.up_tr128 = UpTransition(256, 128, 2, elu, dropout=True)
+        self.up_tr64 = UpTransition(128, 64, 1, elu)
+        self.up_tr32 = UpTransition(64, 32, 1, elu)
+        self.out_tr = OutputTransition(32, classes, elu)
+
+    def forward(self, x):
+        out16 = self.in_tr(x)
+        out32 = self.down_tr32(out16)
+        out64 = self.down_tr64(out32)
+        out128 = self.down_tr128(out64)
+        out256 = self.down_tr256(out128)
+        out = self.up_tr256(out256, out128)
+        out = self.up_tr128(out, out64)
+        out = self.up_tr64(out, out32)
+        out = self.up_tr32(out, out16)
+        out = self.out_tr(out)
+        return out
+
+    def test(self, device='cpu'):
+        input_tensor = torch.rand(1, self.in_channels, 32, 32, 32)
+        ideal_out = torch.rand(1, self.classes, 32, 32, 32)
+        out = self.forward(input_tensor)
+        assert ideal_out.shape == out.shape
+        summary(self, (self.in_channels, 32, 32, 32), device=device)
+        None
+
+
+class VNetLight(BaseModel):
+    """
+    A lighter version of Vnet that skips down_tr256 and up_tr256 in oreder to reduce time and space complexity
+    """
+
+    def __init__(self, elu=True, in_channels=1, classes=4):
+        super(VNetLight, self).__init__()
+        self.classes = classes
+        self.in_channels = in_channels
+        self.in_tr = InputTransition(in_channels, elu)
+        self.down_tr32 = DownTransition(16, 1, elu)
+        self.down_tr64 = DownTransition(32, 2, elu)
+        self.down_tr128 = DownTransition(64, 3, elu, dropout=True)
+        self.up_tr128 = UpTransition(128, 128, 2, elu, dropout=True)
+        self.up_tr64 = UpTransition(128, 64, 1, elu)
+        self.up_tr32 = UpTransition(64, 32, 1, elu)
+        self.out_tr = OutputTransition(32, classes, elu)
+
+    def forward(self, x):
+        out16 = self.in_tr(x)
+        out32 = self.down_tr32(out16)
+        out64 = self.down_tr64(out32)
+        out128 = self.down_tr128(out64)
+        out = self.up_tr128(out128, out64)
+        out = self.up_tr64(out, out32)
+        out = self.up_tr32(out, out16)
+        out = self.out_tr(out)
+        return out
+
+    def test(self, device='cpu'):
+        input_tensor = torch.rand(1, self.in_channels, 32, 32, 32)
+        ideal_out = torch.rand(1, self.classes, 32, 32, 32)
+        out = self.forward(input_tensor)
+        assert ideal_out.shape == out.shape
+        summary(self, (self.in_channels, 32, 32, 32), device=device)
+        None
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1556,9 +2583,33 @@ TESTCASES = [
      lambda: ([], {'classes': 4}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      True),
+    (ContrastiveLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (Conv1x1x1,
+     lambda: ([], {'in_channels': 4, 'classes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
     (ConvInit,
      lambda: ([], {'in_channels': 4}),
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+     True),
+    (ConvRed,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
+    (DiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DilatedConv2,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
+    (DilatedConv4,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
      True),
     (DoubleConv,
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
@@ -1572,33 +2623,29 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
      True),
-    (DownTransition,
-     lambda: ([], {'inChans': 4, 'nConvs': 4, 'elu': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
+    (DualPathDenseNet,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DualSingleDenseNet,
+     lambda: ([], {'in_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (Flatten,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (GeneralizedDiceLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (InConv,
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (InputTransition,
-     lambda: ([], {'in_channels': 4, 'elu': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
-     True),
-    (LUConv,
-     lambda: ([], {'nchan': 4, 'elu': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
-     True),
     (OutConv,
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (OutputTransition,
-     lambda: ([], {'in_channels': 4, 'classes': 4, 'elu': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
      True),
     (PEXP,
      lambda: ([], {'n_input': 4, 'n_out': 4}),
@@ -1612,6 +2659,10 @@ TESTCASES = [
      lambda: ([], {'loss': MSELoss()}),
      lambda: ([torch.rand([4, 3, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
+    (Unet,
+     lambda: ([], {'in_channels': 4, 'classes': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     True),
     (Up,
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
      lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 3, 4, 4])], {}),
@@ -1624,10 +2675,38 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
      True),
+    (_DenseBlock,
+     lambda: ([], {'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (_DenseLayer,
+     lambda: ([], {'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (_HyperDenseBlock,
+     lambda: ([], {'num_input_features': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (_HyperDenseBlockEarlyFusion,
+     lambda: ([], {'num_input_features': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (_HyperDenseLayer,
+     lambda: ([], {'num_input_features': 4, 'num_output_channels': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
     (_MaskingLossWrapper,
      lambda: ([], {'loss': MSELoss(), 'ignore_index': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
+    (_Transition,
+     lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
+    (_Upsampling,
+     lambda: ([], {'input_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
 ]
 
 class Test_black0017_MedicalZooPytorch(_paritybench_base):
@@ -1693,4 +2772,43 @@ class Test_black0017_MedicalZooPytorch(_paritybench_base):
 
     def test_020(self):
         self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
+
+    def test_025(self):
+        self._check(*TESTCASES[25])
+
+    def test_026(self):
+        self._check(*TESTCASES[26])
+
+    def test_027(self):
+        self._check(*TESTCASES[27])
+
+    def test_028(self):
+        self._check(*TESTCASES[28])
+
+    def test_029(self):
+        self._check(*TESTCASES[29])
+
+    def test_030(self):
+        self._check(*TESTCASES[30])
+
+    def test_031(self):
+        self._check(*TESTCASES[31])
+
+    def test_032(self):
+        self._check(*TESTCASES[32])
+
+    def test_033(self):
+        self._check(*TESTCASES[33])
 

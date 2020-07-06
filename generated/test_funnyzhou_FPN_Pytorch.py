@@ -30,19 +30,29 @@ utils = _module
 model = _module
 nms = _module
 _ext = _module
+nms = _module
 build = _module
 nms_gpu = _module
 nms_wrapper = _module
 roi_align = _module
+roi_align = _module
+build = _module
 functions = _module
+roi_align = _module
 modules = _module
 roi_align = _module
 roi_crop = _module
 crop_resize = _module
+roi_crop = _module
+build = _module
+crop_resize = _module
 gridgen = _module
+roi_crop = _module
 gridgen = _module
 roi_crop = _module
 roi_pooling = _module
+roi_pooling = _module
+build = _module
 roi_pool = _module
 roi_pool = _module
 net_utils = _module
@@ -59,6 +69,9 @@ keypoint_rcnn_heads = _module
 mask_rcnn_heads = _module
 model_builder = _module
 roi_xfrom = _module
+roi_align = _module
+build = _module
+roi_align = _module
 roi_align = _module
 rpn_heads = _module
 nn = _module
@@ -114,15 +127,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -142,7 +156,22 @@ import torch.nn as nn
 from torch.nn import init
 
 
+from collections import defaultdict
+
+
+from torch.autograd import Variable
+
+
+import logging
+
+
 import torch.nn.functional as F
+
+
+from scipy.ndimage.interpolation import map_coordinates as sp_map_coordinates
+
+
+from torch.autograd import Function
 
 
 from torch.nn.modules.module import Module
@@ -152,9 +181,6 @@ from torch.nn.functional import avg_pool2d
 
 
 from torch.nn.functional import max_pool2d
-
-
-from torch.autograd import Variable
 
 
 import torchvision.models as models
@@ -175,9 +201,6 @@ from torch import nn
 import torch.nn.init as init
 
 
-import logging
-
-
 from functools import partial
 
 
@@ -193,10 +216,43 @@ import math
 from functools import reduce
 
 
+import torch.cuda.comm as comm
+
+
 from torch.nn import Module
 
 
-from collections import defaultdict
+import re
+
+
+from torch._six import string_classes
+
+
+from torch._six import int_classes
+
+
+import numpy.random as npr
+
+
+import torch.utils.data as data
+
+
+import torch.utils.data.sampler as torch_sampler
+
+
+from torch.utils.data.dataloader import default_collate
+
+
+from torch._six import int_classes as _int_classes
+
+
+from collections import Iterable
+
+
+from itertools import chain
+
+
+import time
 
 
 class ConvNet(nn.Module):
@@ -226,62 +282,6 @@ class ConvNet(nn.Module):
         x = self.fc(x.view(x.size()[:2]))
         x = F.softmax(x)
         return x
-
-
-class DeformConvNet(nn.Module):
-
-    def __init__(self):
-        super(DeformConvNet, self).__init__()
-        self.conv11 = nn.Conv2d(1, 32, 3, padding=1)
-        self.bn11 = nn.BatchNorm2d(32)
-        self.offset12 = ConvOffset2D(32)
-        self.conv12 = nn.Conv2d(32, 64, 3, padding=1, stride=2)
-        self.bn12 = nn.BatchNorm2d(64)
-        self.offset21 = ConvOffset2D(64)
-        self.conv21 = nn.Conv2d(64, 128, 3, padding=1)
-        self.bn21 = nn.BatchNorm2d(128)
-        self.offset22 = ConvOffset2D(128)
-        self.conv22 = nn.Conv2d(128, 128, 3, padding=1, stride=2)
-        self.bn22 = nn.BatchNorm2d(128)
-        self.fc = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = F.relu(self.conv11(x))
-        x = self.bn11(x)
-        x = self.offset12(x)
-        x = F.relu(self.conv12(x))
-        x = self.bn12(x)
-        x = self.offset21(x)
-        x = F.relu(self.conv21(x))
-        x = self.bn21(x)
-        x = self.offset22(x)
-        x = F.relu(self.conv22(x))
-        x = self.bn22(x)
-        x = F.avg_pool2d(x, kernel_size=[x.size(2), x.size(3)])
-        x = self.fc(x.view(x.size()[:2]))
-        x = F.softmax(x)
-        return x
-
-    def freeze(self, module_classes):
-        """
-        freeze modules for finetuning
-        """
-        for k, m in self._modules.items():
-            if any([(type(m) == mc) for mc in module_classes]):
-                for param in m.parameters():
-                    param.requires_grad = False
-
-    def unfreeze(self, module_classes):
-        """
-        unfreeze modules
-        """
-        for k, m in self._modules.items():
-            if any([isinstance(m, mc) for mc in module_classes]):
-                for param in m.parameters():
-                    param.requires_grad = True
-
-    def parameters(self):
-        return filter(lambda p: p.requires_grad, super(DeformConvNet, self).parameters())
 
 
 def th_flatten(a):
@@ -319,7 +319,7 @@ def th_batch_map_coordinates(input, coords, order=1):
     idx = th_repeat(torch.arange(0, batch_size), n_coords).long()
     idx = Variable(idx, requires_grad=False)
     if input.is_cuda:
-        idx = idx.cuda()
+        idx = idx
 
     def _get_vals_by_coords(input, coords):
         indices = torch.stack([idx, th_flatten(coords[..., 0]), th_flatten(coords[..., 1])], 1)
@@ -353,7 +353,7 @@ def th_generate_grid(batch_size, input_height, input_width, dtype, cuda):
     grid = np_repeat_2d(grid, batch_size)
     grid = torch.from_numpy(grid).type(dtype)
     if cuda:
-        grid = grid.cuda()
+        grid = grid
     return Variable(grid, requires_grad=False)
 
 
@@ -451,12 +451,69 @@ class ConvOffset2D(nn.Conv2d):
         return x
 
 
+class DeformConvNet(nn.Module):
+
+    def __init__(self):
+        super(DeformConvNet, self).__init__()
+        self.conv11 = nn.Conv2d(1, 32, 3, padding=1)
+        self.bn11 = nn.BatchNorm2d(32)
+        self.offset12 = ConvOffset2D(32)
+        self.conv12 = nn.Conv2d(32, 64, 3, padding=1, stride=2)
+        self.bn12 = nn.BatchNorm2d(64)
+        self.offset21 = ConvOffset2D(64)
+        self.conv21 = nn.Conv2d(64, 128, 3, padding=1)
+        self.bn21 = nn.BatchNorm2d(128)
+        self.offset22 = ConvOffset2D(128)
+        self.conv22 = nn.Conv2d(128, 128, 3, padding=1, stride=2)
+        self.bn22 = nn.BatchNorm2d(128)
+        self.fc = nn.Linear(128, 10)
+
+    def forward(self, x):
+        x = F.relu(self.conv11(x))
+        x = self.bn11(x)
+        x = self.offset12(x)
+        x = F.relu(self.conv12(x))
+        x = self.bn12(x)
+        x = self.offset21(x)
+        x = F.relu(self.conv21(x))
+        x = self.bn21(x)
+        x = self.offset22(x)
+        x = F.relu(self.conv22(x))
+        x = self.bn22(x)
+        x = F.avg_pool2d(x, kernel_size=[x.size(2), x.size(3)])
+        x = self.fc(x.view(x.size()[:2]))
+        x = F.softmax(x)
+        return x
+
+    def freeze(self, module_classes):
+        """
+        freeze modules for finetuning
+        """
+        for k, m in self._modules.items():
+            if any([(type(m) == mc) for mc in module_classes]):
+                for param in m.parameters():
+                    param.requires_grad = False
+
+    def unfreeze(self, module_classes):
+        """
+        unfreeze modules
+        """
+        for k, m in self._modules.items():
+            if any([isinstance(m, mc) for mc in module_classes]):
+                for param in m.parameters():
+                    param.requires_grad = True
+
+    def parameters(self):
+        return filter(lambda p: p.requires_grad, super(DeformConvNet, self).parameters())
+
+
 class RoIAlignFunction(Function):
 
-    def __init__(self, aligned_height, aligned_width, spatial_scale):
+    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
         self.aligned_width = int(aligned_width)
         self.aligned_height = int(aligned_height)
         self.spatial_scale = float(spatial_scale)
+        self.sampling_ratio = int(sampling_ratio)
         self.rois = None
         self.feature_size = None
 
@@ -467,7 +524,7 @@ class RoIAlignFunction(Function):
         num_rois = rois.size(0)
         output = features.new(num_rois, num_channels, self.aligned_height, self.aligned_width).zero_()
         if features.is_cuda:
-            roi_align.roi_align_forward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, features, rois, output)
+            roi_align.roi_align_forward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, self.sampling_ratio, features, rois, output)
         else:
             raise NotImplementedError
         return output
@@ -476,45 +533,48 @@ class RoIAlignFunction(Function):
         assert self.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = self.feature_size
         grad_input = self.rois.new(batch_size, num_channels, data_height, data_width).zero_()
-        roi_align.roi_align_backward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, grad_output, self.rois, grad_input)
+        roi_align.roi_align_backward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, self.sampling_ratio, grad_output, self.rois, grad_input)
         return grad_input, None
 
 
 class RoIAlign(Module):
 
-    def __init__(self, aligned_height, aligned_width, spatial_scale):
+    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
         super(RoIAlign, self).__init__()
         self.aligned_width = int(aligned_width)
         self.aligned_height = int(aligned_height)
         self.spatial_scale = float(spatial_scale)
+        self.sampling_ratio = int(sampling_ratio)
 
     def forward(self, features, rois):
-        return RoIAlignFunction(self.aligned_height, self.aligned_width, self.spatial_scale)(features, rois)
+        return RoIAlignFunction(self.aligned_height, self.aligned_width, self.spatial_scale, self.sampling_ratio)(features, rois)
 
 
 class RoIAlignAvg(Module):
 
-    def __init__(self, aligned_height, aligned_width, spatial_scale):
+    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
         super(RoIAlignAvg, self).__init__()
         self.aligned_width = int(aligned_width)
         self.aligned_height = int(aligned_height)
         self.spatial_scale = float(spatial_scale)
+        self.sampling_ratio = int(sampling_ratio)
 
     def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale)(features, rois)
+        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale, self.sampling_ratio)(features, rois)
         return avg_pool2d(x, kernel_size=2, stride=1)
 
 
 class RoIAlignMax(Module):
 
-    def __init__(self, aligned_height, aligned_width, spatial_scale):
+    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
         super(RoIAlignMax, self).__init__()
         self.aligned_width = int(aligned_width)
         self.aligned_height = int(aligned_height)
         self.spatial_scale = float(spatial_scale)
+        self.sampling_ratio = int(sampling_ratio)
 
     def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale)(features, rois)
+        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale, self.sampling_ratio)(features, rois)
         return max_pool2d(x, kernel_size=2, stride=1)
 
 
@@ -815,49 +875,21 @@ class Depth3DGridGen_with_mask(Module):
         return output
 
 
-defines = []
-
-
-extra_objects = ['src/nms_cuda_kernel.cu.o']
-
-
-headers = []
-
-
-sources = []
-
-
-with_cuda = False
-
-
 class RoICropFunction(Function):
 
     def forward(self, input1, input2):
-        self.input1 = input1
-        self.input2 = input2
-        self.device_c = ffi.new('int *')
-        output = torch.zeros(input2.size()[0], input1.size()[1], input2.size()[1], input2.size()[2])
-        if input1.is_cuda:
-            self.device = torch.cuda.current_device()
-        else:
-            self.device = -1
-        self.device_c[0] = self.device
-        if not input1.is_cuda:
-            roi_crop.BilinearSamplerBHWD_updateOutput(input1, input2, output)
-        else:
-            output = output.cuda(self.device)
-            roi_crop.BilinearSamplerBHWD_updateOutput_cuda(input1, input2, output)
+        self.input1 = input1.clone()
+        self.input2 = input2.clone()
+        output = input2.new(input2.size()[0], input1.size()[1], input2.size()[1], input2.size()[2]).zero_()
+        assert output.get_device() == input1.get_device(), 'output and input1 must on the same device'
+        assert output.get_device() == input2.get_device(), 'output and input2 must on the same device'
+        roi_crop.BilinearSamplerBHWD_updateOutput_cuda(input1, input2, output)
         return output
 
     def backward(self, grad_output):
-        grad_input1 = torch.zeros(self.input1.size())
-        grad_input2 = torch.zeros(self.input2.size())
-        if not grad_output.is_cuda:
-            roi_crop.BilinearSamplerBHWD_updateGradInput(self.input1, self.input2, grad_input1, grad_input2, grad_output)
-        else:
-            grad_input1 = grad_input1.cuda(self.device)
-            grad_input2 = grad_input2.cuda(self.device)
-            roi_crop.BilinearSamplerBHWD_updateGradInput_cuda(self.input1, self.input2, grad_input1, grad_input2, grad_output)
+        grad_input1 = self.input1.new(self.input1.size()).zero_()
+        grad_input2 = self.input2.new(self.input2.size()).zero_()
+        roi_crop.BilinearSamplerBHWD_updateGradInput_cuda(self.input1, self.input2, grad_input1, grad_input2, grad_output)
         return grad_input1, grad_input2
 
 
@@ -918,9 +950,6 @@ HIGHEST_BACKBONE_LVL = 5
 LOWEST_BACKBONE_LVL = 2
 
 
-_global_config['FPN'] = 4
-
-
 def get_min_max_levels():
     """The min and max FPN levels required for supporting RPN and/or RoI
     transform operations on multiple FPN levels.
@@ -939,7 +968,36 @@ def get_min_max_levels():
     return min_level, max_level
 
 
-_global_config['GROUP_NORM'] = 4
+class topdown_lateral_module(nn.Module):
+    """Add a top-down lateral module."""
+
+    def __init__(self, dim_in_top, dim_in_lateral):
+        super().__init__()
+        self.dim_in_top = dim_in_top
+        self.dim_in_lateral = dim_in_lateral
+        self.dim_out = dim_in_top
+        if cfg.FPN.USE_GN:
+            self.conv_lateral = nn.Sequential(nn.Conv2d(dim_in_lateral, self.dim_out, 1, 1, 0, bias=False), nn.GroupNorm(net_utils.get_group_gn(self.dim_out), self.dim_out, eps=cfg.GROUP_NORM.EPSILON))
+        else:
+            self.conv_lateral = nn.Conv2d(dim_in_lateral, self.dim_out, 1, 1, 0)
+        self._init_weights()
+
+    def _init_weights(self):
+        if cfg.FPN.USE_GN:
+            conv = self.conv_lateral[0]
+        else:
+            conv = self.conv_lateral
+        if cfg.FPN.ZERO_INIT_LATERAL:
+            init.constant_(conv.weight, 0)
+        else:
+            mynn.init.XavierFill(conv.weight)
+        if conv.bias is not None:
+            init.constant_(conv.bias, 0)
+
+    def forward(self, top_blob, lateral_blob):
+        lat = self.conv_lateral(lateral_blob)
+        td = F.upsample(top_blob, scale_factor=2, mode='nearest')
+        return lat + td
 
 
 class fpn(nn.Module):
@@ -1057,36 +1115,195 @@ class fpn(nn.Module):
             return fpn_output_blobs
 
 
-class topdown_lateral_module(nn.Module):
-    """Add a top-down lateral module."""
+def collect(inputs, is_training):
+    cfg_key = 'TRAIN' if is_training else 'TEST'
+    post_nms_topN = int(cfg[cfg_key].RPN_POST_NMS_TOP_N * cfg.FPN.RPN_COLLECT_SCALE + 0.5)
+    k_max = cfg.FPN.RPN_MAX_LEVEL
+    k_min = cfg.FPN.RPN_MIN_LEVEL
+    num_lvls = k_max - k_min + 1
+    roi_inputs = inputs[:num_lvls]
+    score_inputs = inputs[num_lvls:]
+    rois = np.concatenate(roi_inputs)
+    scores = np.concatenate(score_inputs).squeeze()
+    inds = np.argsort(-scores)[:post_nms_topN]
+    rois = rois[(inds), :]
+    return rois
 
-    def __init__(self, dim_in_top, dim_in_lateral):
+
+def distribute(rois, label_blobs):
+    """To understand the output blob order see return value of
+    roi_data.fast_rcnn.get_fast_rcnn_blob_names(is_training=False)
+    """
+    lvl_min = cfg.FPN.ROI_MIN_LEVEL
+    lvl_max = cfg.FPN.ROI_MAX_LEVEL
+    lvls = fpn_utils.map_rois_to_fpn_levels(rois[:, 1:5], lvl_min, lvl_max)
+    output_blob_names = roi_data.fast_rcnn.get_fast_rcnn_blob_names(is_training=False)
+    outputs = [None] * len(output_blob_names)
+    outputs[0] = rois
+    rois_idx_order = np.empty((0,))
+    for output_idx, lvl in enumerate(range(lvl_min, lvl_max + 1)):
+        idx_lvl = np.where(lvls == lvl)[0]
+        blob_roi_level = rois[(idx_lvl), :]
+        outputs[output_idx + 1] = blob_roi_level
+        rois_idx_order = np.concatenate((rois_idx_order, idx_lvl))
+    rois_idx_restore = np.argsort(rois_idx_order)
+    outputs[-1] = rois_idx_restore.astype(np.int32)
+    return dict(zip(output_blob_names, outputs))
+
+
+class CollectAndDistributeFpnRpnProposalsOp(nn.Module):
+    """Merge RPN proposals generated at multiple FPN levels and then
+    distribute those proposals to their appropriate FPN levels. An anchor
+    at one FPN level may predict an RoI that will map to another level,
+    hence the need to redistribute the proposals.
+
+    This function assumes standard blob names for input and output blobs.
+
+    Input blobs: [rpn_rois_fpn<min>, ..., rpn_rois_fpn<max>,
+                  rpn_roi_probs_fpn<min>, ..., rpn_roi_probs_fpn<max>]
+        - rpn_rois_fpn<i> are the RPN proposals for FPN level i; see rpn_rois
+        documentation from GenerateProposals.
+        - rpn_roi_probs_fpn<i> are the RPN objectness probabilities for FPN
+        level i; see rpn_roi_probs documentation from GenerateProposals.
+
+    If used during training, then the input blobs will also include:
+        [roidb, im_info] (see GenerateProposalLabels).
+
+    Output blobs: [rois_fpn<min>, ..., rois_rpn<max>, rois,
+                   rois_idx_restore]
+        - rois_fpn<i> are the RPN proposals for FPN level i
+        - rois_idx_restore is a permutation on the concatenation of all
+        rois_fpn<i>, i=min...max, such that when applied the RPN RoIs are
+        restored to their original order in the input blobs.
+
+    If used during training, then the output blobs will also include:
+        [labels, bbox_targets, bbox_inside_weights, bbox_outside_weights].
+    """
+
+    def __init__(self):
         super().__init__()
-        self.dim_in_top = dim_in_top
-        self.dim_in_lateral = dim_in_lateral
-        self.dim_out = dim_in_top
-        if cfg.FPN.USE_GN:
-            self.conv_lateral = nn.Sequential(nn.Conv2d(dim_in_lateral, self.dim_out, 1, 1, 0, bias=False), nn.GroupNorm(net_utils.get_group_gn(self.dim_out), self.dim_out, eps=cfg.GROUP_NORM.EPSILON))
-        else:
-            self.conv_lateral = nn.Conv2d(dim_in_lateral, self.dim_out, 1, 1, 0)
-        self._init_weights()
 
-    def _init_weights(self):
-        if cfg.FPN.USE_GN:
-            conv = self.conv_lateral[0]
+    def forward(self, inputs, roidb, im_info, stage=0):
+        """
+        Args:
+            inputs: a list of [rpn_rois_fpn2, ..., rpn_rois_fpn6,
+                               rpn_roi_probs_fpn2, ..., rpn_roi_probs_fpn6]
+            im_info: [[im_height, im_width, im_scale], ...]
+        """
+        if stage == 0:
+            rois = collect(inputs, self.training)
         else:
-            conv = self.conv_lateral
-        if cfg.FPN.ZERO_INIT_LATERAL:
-            init.constant_(conv.weight, 0)
+            rois = inputs
+        if self.training:
+            im_scales = im_info.data.numpy()[:, (2)]
+            json_dataset.add_proposals(roidb, rois, im_scales, crowd_thresh=0)
+            output_blob_names = roi_data.fast_rcnn.get_fast_rcnn_blob_names()
+            blobs = {k: [] for k in output_blob_names}
+            roi_data.fast_rcnn.add_fast_rcnn_blobs(blobs, im_scales, roidb, stage)
         else:
-            mynn.init.XavierFill(conv.weight)
-        if conv.bias is not None:
-            init.constant_(conv.bias, 0)
+            blobs = distribute(rois, None)
+        return blobs
 
-    def forward(self, top_blob, lateral_blob):
-        lat = self.conv_lateral(lateral_blob)
-        td = F.upsample(top_blob, scale_factor=2, mode='nearest')
-        return lat + td
+
+def _filter_boxes(boxes, min_size, im_info):
+    """Only keep boxes with both sides >= min_size and center within the image.
+  """
+    min_size *= im_info[2]
+    ws = boxes[:, (2)] - boxes[:, (0)] + 1
+    hs = boxes[:, (3)] - boxes[:, (1)] + 1
+    x_ctr = boxes[:, (0)] + ws / 2.0
+    y_ctr = boxes[:, (1)] + hs / 2.0
+    keep = np.where((ws >= min_size) & (hs >= min_size) & (x_ctr < im_info[1]) & (y_ctr < im_info[0]))[0]
+    return keep
+
+
+class GenerateProposalsOp(nn.Module):
+
+    def __init__(self, anchors, spatial_scale):
+        super().__init__()
+        self._anchors = anchors
+        self._num_anchors = self._anchors.shape[0]
+        self._feat_stride = 1.0 / spatial_scale
+
+    def forward(self, rpn_cls_prob, rpn_bbox_pred, im_info):
+        """Op for generating RPN porposals.
+
+        blobs_in:
+          - 'rpn_cls_probs': 4D tensor of shape (N, A, H, W), where N is the
+            number of minibatch images, A is the number of anchors per
+            locations, and (H, W) is the spatial size of the prediction grid.
+            Each value represents a "probability of object" rating in [0, 1].
+          - 'rpn_bbox_pred': 4D tensor of shape (N, 4 * A, H, W) of predicted
+            deltas for transformation anchor boxes into RPN proposals.
+          - 'im_info': 2D tensor of shape (N, 3) where the three columns encode
+            the input image's [height, width, scale]. Height and width are
+            for the input to the network, not the original image; scale is the
+            scale factor used to scale the original image to the network input
+            size.
+
+        blobs_out:
+          - 'rpn_rois': 2D tensor of shape (R, 5), for R RPN proposals where the
+            five columns encode [batch ind, x1, y1, x2, y2]. The boxes are
+            w.r.t. the network input, which is a *scaled* version of the
+            original image; these proposals must be scaled by 1 / scale (where
+            scale comes from im_info; see above) to transform it back to the
+            original input image coordinate system.
+          - 'rpn_roi_probs': 1D tensor of objectness probability scores
+            (extracted from rpn_cls_probs; see above).
+        """
+        """Type conversion"""
+        scores = rpn_cls_prob.data.cpu().numpy()
+        bbox_deltas = rpn_bbox_pred.data.cpu().numpy()
+        im_info = im_info.data.cpu().numpy()
+        height, width = scores.shape[-2:]
+        shift_x = np.arange(0, width) * self._feat_stride
+        shift_y = np.arange(0, height) * self._feat_stride
+        shift_x, shift_y = np.meshgrid(shift_x, shift_y, copy=False)
+        shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(), shift_y.ravel())).transpose()
+        num_images = scores.shape[0]
+        A = self._num_anchors
+        K = shifts.shape[0]
+        all_anchors = self._anchors[(np.newaxis), :, :] + shifts[:, (np.newaxis), :]
+        all_anchors = all_anchors.reshape((K * A, 4))
+        rois = np.empty((0, 5), dtype=np.float32)
+        roi_probs = np.empty((0, 1), dtype=np.float32)
+        for im_i in range(num_images):
+            im_i_boxes, im_i_probs = self.proposals_for_one_image(im_info[(im_i), :], all_anchors, bbox_deltas[(im_i), :, :, :], scores[(im_i), :, :, :])
+            batch_inds = im_i * np.ones((im_i_boxes.shape[0], 1), dtype=np.float32)
+            im_i_rois = np.hstack((batch_inds, im_i_boxes))
+            rois = np.append(rois, im_i_rois, axis=0)
+            roi_probs = np.append(roi_probs, im_i_probs, axis=0)
+        return rois, roi_probs
+
+    def proposals_for_one_image(self, im_info, all_anchors, bbox_deltas, scores):
+        cfg_key = 'TRAIN' if self.training else 'TEST'
+        pre_nms_topN = cfg[cfg_key].RPN_PRE_NMS_TOP_N
+        post_nms_topN = cfg[cfg_key].RPN_POST_NMS_TOP_N
+        nms_thresh = cfg[cfg_key].RPN_NMS_THRESH
+        min_size = cfg[cfg_key].RPN_MIN_SIZE
+        bbox_deltas = bbox_deltas.transpose((1, 2, 0)).reshape((-1, 4))
+        scores = scores.transpose((1, 2, 0)).reshape((-1, 1))
+        if pre_nms_topN <= 0 or pre_nms_topN >= len(scores):
+            order = np.argsort(-scores.squeeze())
+        else:
+            inds = np.argpartition(-scores.squeeze(), pre_nms_topN)[:pre_nms_topN]
+            order = np.argsort(-scores[inds].squeeze())
+            order = inds[order]
+        bbox_deltas = bbox_deltas[(order), :]
+        all_anchors = all_anchors[(order), :]
+        scores = scores[order]
+        proposals = box_utils.bbox_transform(all_anchors, bbox_deltas, (1.0, 1.0, 1.0, 1.0))
+        proposals = box_utils.clip_tiled_boxes(proposals, im_info[:2])
+        keep = _filter_boxes(proposals, min_size, im_info)
+        proposals = proposals[(keep), :]
+        scores = scores[keep]
+        if nms_thresh > 0:
+            keep = box_utils.nms(np.hstack((proposals, scores)), nms_thresh)
+            if post_nms_topN > 0:
+                keep = keep[:post_nms_topN]
+            proposals = proposals[(keep), :]
+            scores = scores[keep]
+        return proposals, scores
 
 
 def _mkanchors(ws, hs, x_ctr, y_ctr):
@@ -1144,12 +1361,6 @@ def generate_anchors(stride=16, sizes=(32, 64, 128, 256, 512), aspect_ratios=(0.
     sizes, and aspect ratios as given.
     """
     return _generate_anchors(stride, np.array(sizes, dtype=np.float) / stride, np.array(aspect_ratios, dtype=np.float))
-
-
-_global_config['MODEL'] = 4
-
-
-_global_config['RPN'] = 4
 
 
 class fpn_rpn_outputs(nn.Module):
@@ -1270,9 +1481,6 @@ class FocalLoss(nn.Module):
         else:
             loss = batch_loss.sum()
         return loss
-
-
-_global_config['RESNETS'] = 4
 
 
 def add_residual_block(inplanes, outplanes, innerplanes, dilation, stride, deform=False):
@@ -1401,9 +1609,6 @@ class ResNet_convX_body(nn.Module):
         return x
 
 
-_global_config['FAST_RCNN'] = 4
-
-
 class ResNet_roi_conv5_head(nn.Module):
 
     def __init__(self, dim_in, roi_xform_func, spatial_scale):
@@ -1524,96 +1729,6 @@ class bottleneck_gn_transformation(nn.Module):
         out += residual
         out = self.relu(out)
         return out
-
-
-def collect(inputs, is_training):
-    cfg_key = 'TRAIN' if is_training else 'TEST'
-    post_nms_topN = int(cfg[cfg_key].RPN_POST_NMS_TOP_N * cfg.FPN.RPN_COLLECT_SCALE + 0.5)
-    k_max = cfg.FPN.RPN_MAX_LEVEL
-    k_min = cfg.FPN.RPN_MIN_LEVEL
-    num_lvls = k_max - k_min + 1
-    roi_inputs = inputs[:num_lvls]
-    score_inputs = inputs[num_lvls:]
-    rois = np.concatenate(roi_inputs)
-    scores = np.concatenate(score_inputs).squeeze()
-    inds = np.argsort(-scores)[:post_nms_topN]
-    rois = rois[(inds), :]
-    return rois
-
-
-def distribute(rois, label_blobs):
-    """To understand the output blob order see return value of
-    roi_data.fast_rcnn.get_fast_rcnn_blob_names(is_training=False)
-    """
-    lvl_min = cfg.FPN.ROI_MIN_LEVEL
-    lvl_max = cfg.FPN.ROI_MAX_LEVEL
-    lvls = fpn_utils.map_rois_to_fpn_levels(rois[:, 1:5], lvl_min, lvl_max)
-    output_blob_names = roi_data.fast_rcnn.get_fast_rcnn_blob_names(is_training=False)
-    outputs = [None] * len(output_blob_names)
-    outputs[0] = rois
-    rois_idx_order = np.empty((0,))
-    for output_idx, lvl in enumerate(range(lvl_min, lvl_max + 1)):
-        idx_lvl = np.where(lvls == lvl)[0]
-        blob_roi_level = rois[(idx_lvl), :]
-        outputs[output_idx + 1] = blob_roi_level
-        rois_idx_order = np.concatenate((rois_idx_order, idx_lvl))
-    rois_idx_restore = np.argsort(rois_idx_order)
-    outputs[-1] = rois_idx_restore.astype(np.int32)
-    return dict(zip(output_blob_names, outputs))
-
-
-class CollectAndDistributeFpnRpnProposalsOp(nn.Module):
-    """Merge RPN proposals generated at multiple FPN levels and then
-    distribute those proposals to their appropriate FPN levels. An anchor
-    at one FPN level may predict an RoI that will map to another level,
-    hence the need to redistribute the proposals.
-
-    This function assumes standard blob names for input and output blobs.
-
-    Input blobs: [rpn_rois_fpn<min>, ..., rpn_rois_fpn<max>,
-                  rpn_roi_probs_fpn<min>, ..., rpn_roi_probs_fpn<max>]
-        - rpn_rois_fpn<i> are the RPN proposals for FPN level i; see rpn_rois
-        documentation from GenerateProposals.
-        - rpn_roi_probs_fpn<i> are the RPN objectness probabilities for FPN
-        level i; see rpn_roi_probs documentation from GenerateProposals.
-
-    If used during training, then the input blobs will also include:
-        [roidb, im_info] (see GenerateProposalLabels).
-
-    Output blobs: [rois_fpn<min>, ..., rois_rpn<max>, rois,
-                   rois_idx_restore]
-        - rois_fpn<i> are the RPN proposals for FPN level i
-        - rois_idx_restore is a permutation on the concatenation of all
-        rois_fpn<i>, i=min...max, such that when applied the RPN RoIs are
-        restored to their original order in the input blobs.
-
-    If used during training, then the output blobs will also include:
-        [labels, bbox_targets, bbox_inside_weights, bbox_outside_weights].
-    """
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, inputs, roidb, im_info, stage=0):
-        """
-        Args:
-            inputs: a list of [rpn_rois_fpn2, ..., rpn_rois_fpn6,
-                               rpn_roi_probs_fpn2, ..., rpn_roi_probs_fpn6]
-            im_info: [[im_height, im_width, im_scale], ...]
-        """
-        if stage == 0:
-            rois = collect(inputs, self.training)
-        else:
-            rois = inputs
-        if self.training:
-            im_scales = im_info.data.numpy()[:, (2)]
-            json_dataset.add_proposals(roidb, rois, im_scales, crowd_thresh=0)
-            output_blob_names = roi_data.fast_rcnn.get_fast_rcnn_blob_names()
-            blobs = {k: [] for k in output_blob_names}
-            roi_data.fast_rcnn.add_fast_rcnn_blobs(blobs, im_scales, roidb, stage)
-        else:
-            blobs = distribute(rois, None)
-        return blobs
 
 
 class fast_rcnn_outputs(nn.Module):
@@ -1799,110 +1914,6 @@ class GenerateProposalLabelsOp(nn.Module):
         return blobs
 
 
-def _filter_boxes(boxes, min_size, im_info):
-    """Only keep boxes with both sides >= min_size and center within the image.
-  """
-    min_size *= im_info[2]
-    ws = boxes[:, (2)] - boxes[:, (0)] + 1
-    hs = boxes[:, (3)] - boxes[:, (1)] + 1
-    x_ctr = boxes[:, (0)] + ws / 2.0
-    y_ctr = boxes[:, (1)] + hs / 2.0
-    keep = np.where((ws >= min_size) & (hs >= min_size) & (x_ctr < im_info[1]) & (y_ctr < im_info[0]))[0]
-    return keep
-
-
-class GenerateProposalsOp(nn.Module):
-
-    def __init__(self, anchors, spatial_scale):
-        super().__init__()
-        self._anchors = anchors
-        self._num_anchors = self._anchors.shape[0]
-        self._feat_stride = 1.0 / spatial_scale
-
-    def forward(self, rpn_cls_prob, rpn_bbox_pred, im_info):
-        """Op for generating RPN porposals.
-
-        blobs_in:
-          - 'rpn_cls_probs': 4D tensor of shape (N, A, H, W), where N is the
-            number of minibatch images, A is the number of anchors per
-            locations, and (H, W) is the spatial size of the prediction grid.
-            Each value represents a "probability of object" rating in [0, 1].
-          - 'rpn_bbox_pred': 4D tensor of shape (N, 4 * A, H, W) of predicted
-            deltas for transformation anchor boxes into RPN proposals.
-          - 'im_info': 2D tensor of shape (N, 3) where the three columns encode
-            the input image's [height, width, scale]. Height and width are
-            for the input to the network, not the original image; scale is the
-            scale factor used to scale the original image to the network input
-            size.
-
-        blobs_out:
-          - 'rpn_rois': 2D tensor of shape (R, 5), for R RPN proposals where the
-            five columns encode [batch ind, x1, y1, x2, y2]. The boxes are
-            w.r.t. the network input, which is a *scaled* version of the
-            original image; these proposals must be scaled by 1 / scale (where
-            scale comes from im_info; see above) to transform it back to the
-            original input image coordinate system.
-          - 'rpn_roi_probs': 1D tensor of objectness probability scores
-            (extracted from rpn_cls_probs; see above).
-        """
-        """Type conversion"""
-        scores = rpn_cls_prob.data.cpu().numpy()
-        bbox_deltas = rpn_bbox_pred.data.cpu().numpy()
-        im_info = im_info.data.cpu().numpy()
-        height, width = scores.shape[-2:]
-        shift_x = np.arange(0, width) * self._feat_stride
-        shift_y = np.arange(0, height) * self._feat_stride
-        shift_x, shift_y = np.meshgrid(shift_x, shift_y, copy=False)
-        shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(), shift_y.ravel())).transpose()
-        num_images = scores.shape[0]
-        A = self._num_anchors
-        K = shifts.shape[0]
-        all_anchors = self._anchors[(np.newaxis), :, :] + shifts[:, (np.newaxis), :]
-        all_anchors = all_anchors.reshape((K * A, 4))
-        rois = np.empty((0, 5), dtype=np.float32)
-        roi_probs = np.empty((0, 1), dtype=np.float32)
-        for im_i in range(num_images):
-            im_i_boxes, im_i_probs = self.proposals_for_one_image(im_info[(im_i), :], all_anchors, bbox_deltas[(im_i), :, :, :], scores[(im_i), :, :, :])
-            batch_inds = im_i * np.ones((im_i_boxes.shape[0], 1), dtype=np.float32)
-            im_i_rois = np.hstack((batch_inds, im_i_boxes))
-            rois = np.append(rois, im_i_rois, axis=0)
-            roi_probs = np.append(roi_probs, im_i_probs, axis=0)
-        return rois, roi_probs
-
-    def proposals_for_one_image(self, im_info, all_anchors, bbox_deltas, scores):
-        cfg_key = 'TRAIN' if self.training else 'TEST'
-        pre_nms_topN = cfg[cfg_key].RPN_PRE_NMS_TOP_N
-        post_nms_topN = cfg[cfg_key].RPN_POST_NMS_TOP_N
-        nms_thresh = cfg[cfg_key].RPN_NMS_THRESH
-        min_size = cfg[cfg_key].RPN_MIN_SIZE
-        bbox_deltas = bbox_deltas.transpose((1, 2, 0)).reshape((-1, 4))
-        scores = scores.transpose((1, 2, 0)).reshape((-1, 1))
-        if pre_nms_topN <= 0 or pre_nms_topN >= len(scores):
-            order = np.argsort(-scores.squeeze())
-        else:
-            inds = np.argpartition(-scores.squeeze(), pre_nms_topN)[:pre_nms_topN]
-            order = np.argsort(-scores[inds].squeeze())
-            order = inds[order]
-        bbox_deltas = bbox_deltas[(order), :]
-        all_anchors = all_anchors[(order), :]
-        scores = scores[order]
-        proposals = box_utils.bbox_transform(all_anchors, bbox_deltas, (1.0, 1.0, 1.0, 1.0))
-        proposals = box_utils.clip_tiled_boxes(proposals, im_info[:2])
-        keep = _filter_boxes(proposals, min_size, im_info)
-        proposals = proposals[(keep), :]
-        scores = scores[keep]
-        if nms_thresh > 0:
-            keep = box_utils.nms(np.hstack((proposals, scores)), nms_thresh)
-            if post_nms_topN > 0:
-                keep = keep[:post_nms_topN]
-            proposals = proposals[(keep), :]
-            scores = scores[keep]
-        return proposals, scores
-
-
-_global_config['KRCNN'] = 4
-
-
 class keypoint_outputs(nn.Module):
     """Mask R-CNN keypoint specific outputs: keypoint heatmaps."""
 
@@ -1995,9 +2006,6 @@ class roi_pose_head_v1convX(nn.Module):
         x = self.roi_xform(x, rpn_ret, blob_rois='keypoint_rois', method=cfg.KRCNN.ROI_XFORM_METHOD, resolution=cfg.KRCNN.ROI_XFORM_RESOLUTION, spatial_scale=self.spatial_scale, sampling_ratio=cfg.KRCNN.ROI_XFORM_SAMPLING_RATIO)
         x = self.conv_fcn(x)
         return x
-
-
-_global_config['MRCNN'] = 4
 
 
 class mask_rcnn_outputs(nn.Module):
@@ -2220,9 +2228,6 @@ class mask_rcnn_fcn_head_v0up(nn.Module):
         return x
 
 
-_global_config['PYTORCH_VERSION_LESS_THAN_040'] = 4
-
-
 def check_inference(net_func):
 
     @wraps(net_func)
@@ -2275,15 +2280,6 @@ def get_func(func_name):
     except Exception:
         logger.error('Failed to find function: %s', func_name)
         raise
-
-
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
-
-
-_global_config['TRAIN'] = 4
-
-
-_global_config['CASCADE_RCNN'] = 4
 
 
 class Generalized_RCNN(nn.Module):
@@ -2586,47 +2582,6 @@ class Generalized_RCNN(nn.Module):
         return_dict['losses'][key] = value
 
 
-class RoIAlign(Module):
-
-    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
-        super(RoIAlign, self).__init__()
-        self.aligned_width = int(aligned_width)
-        self.aligned_height = int(aligned_height)
-        self.spatial_scale = float(spatial_scale)
-        self.sampling_ratio = int(sampling_ratio)
-
-    def forward(self, features, rois):
-        return RoIAlignFunction(self.aligned_height, self.aligned_width, self.spatial_scale, self.sampling_ratio)(features, rois)
-
-
-class RoIAlignAvg(Module):
-
-    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
-        super(RoIAlignAvg, self).__init__()
-        self.aligned_width = int(aligned_width)
-        self.aligned_height = int(aligned_height)
-        self.spatial_scale = float(spatial_scale)
-        self.sampling_ratio = int(sampling_ratio)
-
-    def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale, self.sampling_ratio)(features, rois)
-        return avg_pool2d(x, kernel_size=2, stride=1)
-
-
-class RoIAlignMax(Module):
-
-    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
-        super(RoIAlignMax, self).__init__()
-        self.aligned_width = int(aligned_width)
-        self.aligned_height = int(aligned_height)
-        self.spatial_scale = float(spatial_scale)
-        self.sampling_ratio = int(sampling_ratio)
-
-    def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale, self.sampling_ratio)(features, rois)
-        return max_pool2d(x, kernel_size=2, stride=1)
-
-
 class single_scale_rpn_outputs(nn.Module):
     """Add RPN outputs to a single scale model (i.e., no FPN)."""
 
@@ -2813,7 +2768,7 @@ class Scatter(Function):
         outputs = comm.scatter(input, ctx.target_gpus, ctx.chunk_sizes, ctx.dim, streams)
         if streams is not None:
             for i, output in enumerate(outputs):
-                with torch.cuda.device(ctx.target_gpus[i]):
+                with torch.device(ctx.target_gpus[i]):
                     main_stream = torch.cuda.current_stream()
                     main_stream.wait_stream(streams[i])
                     output.record_stream(main_stream)
@@ -2904,12 +2859,12 @@ class DataParallel(Module):
 
     def __init__(self, module, device_ids=None, output_device=None, dim=0, cpu_keywords=[], minibatch=False, batch_outputs=True):
         super(DataParallel, self).__init__()
-        if not torch.is_available():
+        if not torch.cuda.is_available():
             self.module = module
             self.device_ids = []
             return
         if device_ids is None:
-            device_ids = list(range(torch.device_count()))
+            device_ids = list(range(torch.cuda.device_count()))
         if output_device is None:
             output_device = device_ids[0]
         self.dim = dim
@@ -3006,6 +2961,10 @@ TESTCASES = [
      lambda: ([], {'filters': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (DataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
     (DeformConvNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 1, 64, 64])], {}),
@@ -3038,4 +2997,7 @@ class Test_funnyzhou_FPN_Pytorch(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

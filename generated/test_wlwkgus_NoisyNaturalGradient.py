@@ -18,32 +18,58 @@ test = _module
 train = _module
 utils = _module
 html = _module
+utils = _module
 visualizer = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torchvision.datasets import SVHN
+
+
+from torchvision.datasets import CIFAR10
+
+
+from torchvision.datasets import MNIST
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
 
 
 import torch
 
 
-from torch import nn
+from abc import abstractmethod
+
+
+from collections import OrderedDict
 
 
 from torch.autograd import Variable
+
+
+from torch import nn
+
+
+from torch.optim import lr_scheduler
 
 
 from torch.nn.parameter import Parameter
@@ -53,6 +79,18 @@ from torch.nn import functional as F
 
 
 import math
+
+
+from torch.optim.optimizer import Optimizer
+
+
+from itertools import chain
+
+
+import time
+
+
+import numpy as np
 
 
 class BayesianLinear(nn.Module):

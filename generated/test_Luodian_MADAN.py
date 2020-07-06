@@ -21,13 +21,16 @@ models = _module
 adda_net = _module
 drn = _module
 fcn8s = _module
+models = _module
 task_net = _module
 util = _module
 tools = _module
 train_adda_net = _module
 train_task_net = _module
+util = _module
 transforms = _module
 util = _module
+data = _module
 base_data_loader = _module
 base_dataset = _module
 gta5_cityscapes = _module
@@ -49,6 +52,7 @@ train = _module
 get_data = _module
 html = _module
 image_pool = _module
+util = _module
 visualizer = _module
 eval_fcn = _module
 train_fcn = _module
@@ -59,32 +63,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import logging
+import torch.utils.data
+
+
+import numpy as np
+
+
+import torch.utils.data as data
 
 
 import torch
+
+
+from torchvision import transforms
+
+
+import scipy.io
+
+
+import logging
 
 
 import torch.nn as nn
 
 
 import torch.nn.functional as F
-
-
-import numpy as np
 
 
 from torch.nn import init
@@ -117,7 +134,13 @@ import torch.optim as optim
 from torchvision import datasets
 
 
-from torchvision import transforms
+from functools import partial
+
+
+import numbers
+
+
+import random
 
 
 import logging.config
@@ -129,6 +152,9 @@ from collections import OrderedDict
 from torch.nn.parameter import Parameter
 
 
+import torchvision.transforms as transforms
+
+
 import itertools
 
 
@@ -136,6 +162,9 @@ import functools
 
 
 from torch.optim import lr_scheduler
+
+
+import time
 
 
 from torchvision.transforms import transforms
@@ -223,7 +252,7 @@ models = {}
 def get_model(name, num_cls=10, **args):
     net = models[name](num_cls=num_cls, **args)
     if torch.cuda.is_available():
-        net = net.cuda()
+        net = net
     return net
 
 
@@ -235,7 +264,6 @@ def register_model(name):
     return decorator
 
 
-@register_model('AddaNet')
 class AddaNet(nn.Module):
     """Defines and Adda Network."""
 
@@ -541,7 +569,6 @@ def make_layers(cfg, batch_norm=False):
     return nn.Sequential(*layers)
 
 
-@register_model('fcn8s')
 class VGG16_FCN8s(nn.Module):
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
 
@@ -636,6 +663,23 @@ class VGG16_FCN8s(nn.Module):
             vgg_head_param.data = v.view(vgg_head_param.size())
 
 
+class VGG16_FCN8s_caffe(VGG16_FCN8s):
+    transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(), torchvision.transforms.Normalize(mean=[0.485, 0.458, 0.408], std=[0.00392156862745098] * 3), torchvision.transforms.Lambda(lambda x: torch.stack(torch.unbind(x, 1)[::-1], 1))])
+
+    def load_base_weights(self):
+        base_state_dict = model_zoo.load_url('https://s3-us-west-2.amazonaws.com/jcjohns-models/vgg16-00b39a1b.pth')
+        vgg_state_dict = {k[len('features.'):]: v for k, v in base_state_dict.items() if k.startswith('features.')}
+        self.vgg.load_state_dict(vgg_state_dict)
+        vgg_head_params = self.vgg_head.parameters()
+        for k, v in base_state_dict.items():
+            if not k.startswith('classifier.'):
+                continue
+            if k.startswith('classifier.6.'):
+                continue
+            vgg_head_param = next(vgg_head_params)
+            vgg_head_param.data = v.view(vgg_head_param.size())
+
+
 class Discriminator(nn.Module):
 
     def __init__(self, input_dim=4096, output_dim=2, pretrained=False, weights_init=''):
@@ -697,7 +741,7 @@ def init_weights(net, init_type='normal', gain=0.02):
         elif classname.find('BatchNorm2d') != -1:
             init.normal_(m.weight.data, 1.0, gain)
             init.constant_(m.bias.data, 0.0)
-    print('initialize network with %s' % init_type)
+    None
     net.apply(init_func)
 
 
@@ -739,6 +783,32 @@ class TaskNet(nn.Module):
         torch.save(self.state_dict(), out_path)
 
 
+class LeNet(TaskNet):
+    """Network used for MNIST or USPS experiments."""
+    num_channels = 1
+    image_size = 28
+    name = 'LeNet'
+    out_dim = 500
+
+    def setup_net(self):
+        self.conv_params = nn.Sequential(nn.Conv2d(self.num_channels, 20, kernel_size=5), nn.MaxPool2d(2), nn.ReLU(), nn.Conv2d(20, 50, kernel_size=5), nn.Dropout2d(p=0.5), nn.MaxPool2d(2), nn.ReLU())
+        self.fc_params = nn.Linear(50 * 4 * 4, 500)
+        self.classifier = nn.Sequential(nn.ReLU(), nn.Dropout(p=0.5), nn.Linear(500, self.num_cls))
+
+
+class DTNClassifier(TaskNet):
+    """Classifier used for SVHN->MNIST Experiment"""
+    num_channels = 3
+    image_size = 32
+    name = 'DTN'
+    out_dim = 512
+
+    def setup_net(self):
+        self.conv_params = nn.Sequential(nn.Conv2d(self.num_channels, 64, kernel_size=5, stride=2, padding=2), nn.BatchNorm2d(64), nn.Dropout2d(0.1), nn.ReLU(), nn.Conv2d(64, 128, kernel_size=5, stride=2, padding=2), nn.BatchNorm2d(128), nn.Dropout2d(0.3), nn.ReLU(), nn.Conv2d(128, 256, kernel_size=5, stride=2, padding=2), nn.BatchNorm2d(256), nn.Dropout2d(0.5), nn.ReLU())
+        self.fc_params = nn.Sequential(nn.Linear(256 * 4 * 4, 512), nn.BatchNorm1d(512))
+        self.classifier = nn.Sequential(nn.ReLU(), nn.Dropout(), nn.Linear(512, self.num_cls))
+
+
 class GANLoss(nn.Module):
 
     def __init__(self, use_lsgan=True, target_real_label=1.0, target_fake_label=0.0):
@@ -760,38 +830,6 @@ class GANLoss(nn.Module):
     def __call__(self, input, target_is_real):
         target_tensor = self.get_target_tensor(input, target_is_real)
         return self.loss(input, target_tensor)
-
-
-class ResnetGenerator(nn.Module):
-
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
-        assert n_blocks >= 0
-        super(ResnetGenerator, self).__init__()
-        self.input_nc = input_nc
-        self.output_nc = output_nc
-        self.ngf = ngf
-        if type(norm_layer) == functools.partial:
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
-        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.ReLU(True)]
-        n_downsampling = 2
-        for i in range(n_downsampling):
-            mult = 2 ** i
-            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
-        mult = 2 ** n_downsampling
-        for i in range(n_blocks):
-            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
-        for i in range(n_downsampling):
-            mult = 2 ** (n_downsampling - i)
-            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
-        model += [nn.ReflectionPad2d(3)]
-        model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
-        model += [nn.Tanh()]
-        self.model = nn.Sequential(*model)
-
-    def forward(self, input):
-        return self.model(input)
 
 
 class ResnetBlock(nn.Module):
@@ -831,18 +869,33 @@ class ResnetBlock(nn.Module):
         return out
 
 
-class UnetGenerator(nn.Module):
+class ResnetGenerator(nn.Module):
 
-    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False):
-        super(UnetGenerator, self).__init__()
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)
-        for i in range(num_downs - 5):
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_dropout=use_dropout)
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)
-        self.model = unet_block
+    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, padding_type='reflect'):
+        assert n_blocks >= 0
+        super(ResnetGenerator, self).__init__()
+        self.input_nc = input_nc
+        self.output_nc = output_nc
+        self.ngf = ngf
+        if type(norm_layer) == functools.partial:
+            use_bias = norm_layer.func == nn.InstanceNorm2d
+        else:
+            use_bias = norm_layer == nn.InstanceNorm2d
+        model = [nn.ReflectionPad2d(3), nn.Conv2d(input_nc, ngf, kernel_size=7, padding=0, bias=use_bias), norm_layer(ngf), nn.ReLU(True)]
+        n_downsampling = 2
+        for i in range(n_downsampling):
+            mult = 2 ** i
+            model += [nn.Conv2d(ngf * mult, ngf * mult * 2, kernel_size=3, stride=2, padding=1, bias=use_bias), norm_layer(ngf * mult * 2), nn.ReLU(True)]
+        mult = 2 ** n_downsampling
+        for i in range(n_blocks):
+            model += [ResnetBlock(ngf * mult, padding_type=padding_type, norm_layer=norm_layer, use_dropout=use_dropout, use_bias=use_bias)]
+        for i in range(n_downsampling):
+            mult = 2 ** (n_downsampling - i)
+            model += [nn.ConvTranspose2d(ngf * mult, int(ngf * mult / 2), kernel_size=3, stride=2, padding=1, output_padding=1, bias=use_bias), norm_layer(int(ngf * mult / 2)), nn.ReLU(True)]
+        model += [nn.ReflectionPad2d(3)]
+        model += [nn.Conv2d(ngf, output_nc, kernel_size=7, padding=0)]
+        model += [nn.Tanh()]
+        self.model = nn.Sequential(*model)
 
     def forward(self, input):
         return self.model(input)
@@ -889,6 +942,23 @@ class UnetSkipConnectionBlock(nn.Module):
             return self.model(x)
         else:
             return torch.cat([x, self.model(x)], 1)
+
+
+class UnetGenerator(nn.Module):
+
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False):
+        super(UnetGenerator, self).__init__()
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=None, norm_layer=norm_layer, innermost=True)
+        for i in range(num_downs - 5):
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer, use_dropout=use_dropout)
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)
+        self.model = unet_block
+
+    def forward(self, input):
+        return self.model(input)
 
 
 class NLayerDiscriminator(nn.Module):
@@ -978,6 +1048,10 @@ TESTCASES = [
      lambda: ([], {'input_nc': 4, 'ndf': 4}),
      lambda: ([torch.rand([4, 4, 32, 32])], {}),
      True),
+    (DTNClassifier,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 32, 32])], {}),
+     False),
     (Discriminator,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4096, 64, 64])], {}),
@@ -1031,4 +1105,7 @@ class Test_Luodian_MADAN(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

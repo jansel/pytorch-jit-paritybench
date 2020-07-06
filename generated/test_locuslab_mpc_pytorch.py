@@ -22,15 +22,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -493,7 +494,7 @@ def pnqp(H, q, lower, upper, x_init=None, n_iter=20):
             max_armijo = torch.max(armijos)
             count += 1
         x = maybe_x
-    print('[WARNING] pnqp warning: Did not converge')
+    None
     return x, H_ if n == 1 else H_lu_, If, i
 
 
@@ -700,7 +701,7 @@ class LQRStep(Function):
                     ub[ub > self.delta_u] = self.delta_u
                 kt, Qt_uu_free_LU, If, n_qp_iter = pnqp(Qt_uu, qt_u, lb, ub, x_init=prev_kt, n_iter=20)
                 if self.verbose > 1:
-                    print('  + n_qp_iter: ', n_qp_iter + 1)
+                    None
                 n_total_qp_iter += 1 + n_qp_iter
                 prev_kt = kt
                 Qt_ux_ = Qt_ux.clone()

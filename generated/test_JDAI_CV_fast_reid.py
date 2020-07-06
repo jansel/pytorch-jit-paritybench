@@ -27,6 +27,7 @@ triplet_sampler = _module
 transforms = _module
 autoaugment = _module
 functional = _module
+transforms = _module
 engine = _module
 defaults = _module
 hooks = _module
@@ -96,6 +97,7 @@ ranger = _module
 swa = _module
 utils = _module
 checkpoint = _module
+comm = _module
 events = _module
 file_io = _module
 history_buffer = _module
@@ -130,40 +132,91 @@ caffe_export = _module
 caffe_inference = _module
 export2tf = _module
 pytorch_to_caffe = _module
+export2tf = _module
+train_net = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+from torch.backends import cudnn
+
+
+import torch
+
+
+import torch.multiprocessing as mp
+
+
+from collections import deque
 
 
 import logging
 
 
+from torch._six import container_abcs
+
+
+from torch._six import string_classes
+
+
+from torch._six import int_classes
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
+
+
+import copy
+
+
+import itertools
+
+
+from typing import Optional
+
+
+from torch.utils.data import Sampler
+
+
+import random
+
+
+from collections import defaultdict
+
+
+from torch.utils.data.sampler import Sampler
+
+
+import math
+
+
 from collections import OrderedDict
-
-
-import torch
 
 
 import torch.nn.functional as F
 
 
 from torch.nn import DataParallel
-
-
-import itertools
 
 
 import warnings
@@ -178,28 +231,16 @@ from collections import Counter
 from torch import nn
 
 
-import numpy as np
-
-
-import copy
+import tensorflow as tf
 
 
 import torchvision.transforms as transforms
-
-
-from torch.backends import cudnn
-
-
-import math
 
 
 import torch.nn as nn
 
 
 from torch.nn import Parameter
-
-
-import random
 
 
 from torch.nn.modules.batchnorm import BatchNorm2d
@@ -244,13 +285,28 @@ from torch.utils import model_zoo
 from torch.nn import init
 
 
-from collections import defaultdict
+from typing import List
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
+
+from torch.optim import *
+
+
+from torch.optim.optimizer import Optimizer
+
+
+from torch.utils.tensorboard import SummaryWriter
+
+
+from torch.optim import Adam
 
 
 from typing import Any
-
-
-from torch.utils.data import Dataset
 
 
 from torch.nn.parallel import DataParallel
@@ -259,10 +315,88 @@ from torch.nn.parallel import DataParallel
 from torch.nn.parallel import DistributedDataParallel
 
 
+import torch.distributed as dist
+
+
+from typing import IO
+
+
+from typing import Callable
+
+
+from typing import Dict
+
+
+from typing import MutableMapping
+
+
+from typing import Union
+
+
 from torch.autograd import Variable
 
 
+from scipy.stats import norm
+
+
+from sklearn import metrics
+
+
 from torch.nn.modules.utils import _list_with_default
+
+
+class Registry(object):
+    """
+    The registry that provides name -> object mapping, to support third-party
+    users' custom modules.
+    To create a registry (e.g. a backbone registry):
+    .. code-block:: python
+        BACKBONE_REGISTRY = Registry('BACKBONE')
+    To register an object:
+    .. code-block:: python
+        @BACKBONE_REGISTRY.register()
+        class MyBackbone():
+            ...
+    Or:
+    .. code-block:: python
+        BACKBONE_REGISTRY.register(MyBackbone)
+    """
+
+    def __init__(self, name: str) ->None:
+        """
+        Args:
+            name (str): the name of this registry
+        """
+        self._name: str = name
+        self._obj_map: Dict[str, object] = {}
+
+    def _do_register(self, name: str, obj: object) ->None:
+        assert name not in self._obj_map, "An object named '{}' was already registered in '{}' registry!".format(name, self._name)
+        self._obj_map[name] = obj
+
+    def register(self, obj: object=None) ->Optional[object]:
+        """
+        Register the given object under the the name `obj.__name__`.
+        Can be used as either a decorator or not. See docstring of this class for usage.
+        """
+        if obj is None:
+
+            def deco(func_or_class: object) ->object:
+                name = func_or_class.__name__
+                self._do_register(name, func_or_class)
+                return func_or_class
+            return deco
+        name = obj.__name__
+        self._do_register(name, obj)
+
+    def get(self, name: str) ->object:
+        ret = self._obj_map.get(name)
+        if ret is None:
+            raise KeyError("No object named '{}' found in '{}' registry!".format(name, self._name))
+        return ret
+
+
+BACKBONE_REGISTRY = Registry('BACKBONE')
 
 
 def build_backbone(cfg):
@@ -274,6 +408,9 @@ def build_backbone(cfg):
     backbone_name = cfg.MODEL.BACKBONE.NAME
     backbone = BACKBONE_REGISTRY.get(backbone_name)(cfg)
     return backbone
+
+
+REID_HEADS_REGISTRY = Registry('HEADS')
 
 
 def build_reid_heads(cfg, in_feat, num_classes, pool_layer):
@@ -340,6 +477,43 @@ class GELU(nn.Module):
 
     def forward(self, x):
         return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+
+
+def one_hot(labels: torch.Tensor, num_classes: int, dtype: Optional[torch.dtype]=None) ->torch.Tensor:
+    """Converts an integer label x-D tensor to a one-hot (x+1)-D tensor.
+    Args:
+        labels (torch.Tensor) : tensor with labels of shape :math:`(N, *)`,
+                                where N is batch size. Each value is an integer
+                                representing correct classification.
+        num_classes (int): number of classes in labels.
+        device (Optional[torch.device]): the desired device of returned tensor.
+         Default: if None, uses the current device for the default tensor type
+         (see torch.set_default_tensor_type()). device will be the CPU for CPU
+         tensor types and the current CUDA device for CUDA tensor types.
+        dtype (Optional[torch.dtype]): the desired data type of returned
+         tensor. Default: if None, infers data type from values.
+    Returns:
+        torch.Tensor: the labels in one hot tensor of shape :math:`(N, C, *)`,
+    Examples::
+        >>> labels = torch.LongTensor([[[0, 1], [2, 0]]])
+        >>> one_hot(labels, num_classes=3)
+        tensor([[[[1., 0.],
+                  [0., 1.]],
+                 [[0., 1.],
+                  [0., 0.]],
+                 [[0., 0.],
+                  [1., 0.]]]]
+    """
+    if not torch.is_tensor(labels):
+        raise TypeError('Input labels type is not a torch.Tensor. Got {}'.format(type(labels)))
+    if not labels.dtype == torch.int64:
+        raise ValueError('labels must be of the same dtype torch.int64. Got: {}'.format(labels.dtype))
+    if num_classes < 1:
+        raise ValueError('The number of classes must be bigger than one. Got: {}'.format(num_classes))
+    device = labels.device
+    shape = labels.shape
+    one_hot = torch.zeros(shape[0], num_classes, *shape[1:], device=device, dtype=dtype)
+    return one_hot.scatter_(1, labels.unsqueeze(1), 1.0)
 
 
 class Arcface(nn.Module):
@@ -498,6 +672,283 @@ class GhostBatchNorm(BatchNorm):
             return outputs
         else:
             return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, False, self.momentum, self.eps)
+
+
+class FutureResult(object):
+    """A thread-safe future implementation. Used only as one-to-one pipe."""
+
+    def __init__(self):
+        self._result = None
+        self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
+
+    def put(self, result):
+        with self._lock:
+            assert self._result is None, "Previous result has't been fetched."
+            self._result = result
+            self._cond.notify()
+
+    def get(self):
+        with self._lock:
+            if self._result is None:
+                self._cond.wait()
+            res = self._result
+            self._result = None
+            return res
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
+
+
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+
+
+class SyncMaster(object):
+    """An abstract `SyncMaster` object.
+
+    - During the replication, as the data parallel will trigger an callback of each module, all slave devices should
+    call `register(id)` and obtain an `SlavePipe` to communicate with the master.
+    - During the forward pass, master device invokes `run_master`, all messages from slave devices will be collected,
+    and passed to a registered callback.
+    - After receiving the messages, the master device should gather the information and determine to message passed
+    back to each slave devices.
+    """
+
+    def __init__(self, master_callback):
+        """
+
+        Args:
+            master_callback: a callback to be invoked after having collected messages from slave devices.
+        """
+        self._master_callback = master_callback
+        self._queue = queue.Queue()
+        self._registry = collections.OrderedDict()
+        self._activated = False
+
+    def __getstate__(self):
+        return {'master_callback': self._master_callback}
+
+    def __setstate__(self, state):
+        self.__init__(state['master_callback'])
+
+    def register_slave(self, identifier):
+        """
+        Register an slave device.
+
+        Args:
+            identifier: an identifier, usually is the device id.
+
+        Returns: a `SlavePipe` object which can be used to communicate with the master device.
+
+        """
+        if self._activated:
+            assert self._queue.empty(), 'Queue is not clean before next initialization.'
+            self._activated = False
+            self._registry.clear()
+        future = FutureResult()
+        self._registry[identifier] = _MasterRegistry(future)
+        return SlavePipe(identifier, self._queue, future)
+
+    def run_master(self, master_msg):
+        """
+        Main entry for the master device in each forward pass.
+        The messages were first collected from each devices (including the master device), and then
+        an callback will be invoked to compute the message to be sent back to each devices
+        (including the master device).
+
+        Args:
+            master_msg: the message that the master want to send to itself. This will be placed as the first
+            message when calling `master_callback`. For detailed usage, see `_SynchronizedBatchNorm` for an example.
+
+        Returns: the message to be sent back to the master device.
+
+        """
+        self._activated = True
+        intermediates = [(0, master_msg)]
+        for i in range(self.nr_slaves):
+            intermediates.append(self._queue.get())
+        results = self._master_callback(intermediates)
+        assert results[0][0] == 0, 'The first result should belongs to the master.'
+        for i, res in results:
+            if i == 0:
+                continue
+            self._registry[i].result.put(res)
+        for i in range(self.nr_slaves):
+            assert self._queue.get() is True
+        return results[0][1]
+
+    @property
+    def nr_slaves(self):
+        return len(self._registry)
+
+
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+
+
+def _sum_ft(tensor):
+    """sum over the first and last dimention"""
+    return tensor.sum(dim=0).sum(dim=-1)
+
+
+def _unsqueeze_ft(tensor):
+    """add new dimensions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
+
+
+class _SynchronizedBatchNorm(_BatchNorm):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, weight_freeze=False, bias_freeze=False, affine=True):
+        assert ReduceAddCoalesced is not None, 'Can not use Synchronized Batch Normalization without CUDA support.'
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
+        self.weight.requires_grad_(not weight_freeze)
+        self.bias.requires_grad_(not bias_freeze)
+        self._sync_master = SyncMaster(self._data_parallel_master)
+        self._is_parallel = False
+        self._parallel_id = None
+        self._slave_pipe = None
+
+    def forward(self, input):
+        if not (self._is_parallel and self.training):
+            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
+        input_shape = input.size()
+        input = input.view(input.size(0), self.num_features, -1)
+        sum_size = input.size(0) * input.size(2)
+        input_sum = _sum_ft(input)
+        input_ssum = _sum_ft(input ** 2)
+        if self._parallel_id == 0:
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
+        else:
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
+        if self.affine:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
+        else:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
+        return output.view(input_shape)
+
+    def __data_parallel_replicate__(self, ctx, copy_id):
+        self._is_parallel = True
+        self._parallel_id = copy_id
+        if self._parallel_id == 0:
+            ctx.sync_master = self._sync_master
+        else:
+            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
+
+    def _data_parallel_master(self, intermediates):
+        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
+        to_reduce = [i[1][:2] for i in intermediates]
+        to_reduce = [j for i in to_reduce for j in i]
+        target_gpus = [i[1].sum.get_device() for i in intermediates]
+        sum_size = sum([i[1].sum_size for i in intermediates])
+        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
+        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
+        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
+        outputs = []
+        for i, rec in enumerate(intermediates):
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
+        return outputs
+
+    def _compute_mean_std(self, sum_, ssum, size):
+        """Compute the mean and standard-deviation with sum and square-sum. This method
+        also maintains the moving average on the master device."""
+        assert size > 1, 'BatchNorm computes unbiased standard-deviation, which requires size > 1.'
+        mean = sum_ / size
+        sumvar = ssum - sum_ * mean
+        unbias_var = sumvar / (size - 1)
+        bias_var = sumvar / size
+        if hasattr(torch, 'no_grad'):
+            with torch.no_grad():
+                self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+                self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
+        else:
+            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
+        return mean, bias_var.clamp(self.eps) ** -0.5
+
+
+class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 4d input that is seen as a mini-batch
+    of 3d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm2d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape::
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm2d, self)._check_input_dim(input)
+
+
+class SyncBatchNorm(SynchronizedBatchNorm2d):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, weight_freeze=False, bias_freeze=False, weight_init=1.0, bias_init=0.0):
+        super().__init__(num_features, eps=eps, momentum=momentum, weight_freeze=weight_freeze, bias_freeze=bias_freeze)
+        if weight_init is not None:
+            self.weight.data.fill_(weight_init)
+        if bias_init is not None:
+            self.bias.data.fill_(bias_init)
 
 
 def get_norm(norm, out_channels, num_splits=1, **kwargs):
@@ -773,17 +1224,13 @@ class GeneralizedMeanPooling(nn.Module):
         return self.__class__.__name__ + '(' + str(self.p) + ', ' + 'output_size=' + str(self.output_size) + ')'
 
 
-class AdaptiveAvgMaxPool2d(nn.Module):
+class GeneralizedMeanPoolingP(GeneralizedMeanPooling):
+    """ Same, but norm is trainable
+    """
 
-    def __init__(self):
-        super(AdaptiveAvgMaxPool2d, self).__init__()
-        self.avgpool = FastGlobalAvgPool2d()
-
-    def forward(self, x):
-        x_avg = self.avgpool(x, self.output_size)
-        x_max = F.adaptive_max_pool2d(x, 1)
-        x = x_max + x_avg
-        return x
+    def __init__(self, norm=3, output_size=1, eps=1e-06):
+        super(GeneralizedMeanPoolingP, self).__init__(norm, output_size, eps)
+        self.p = nn.Parameter(torch.ones(1) * norm)
 
 
 class FastGlobalAvgPool2d(nn.Module):
@@ -800,6 +1247,19 @@ class FastGlobalAvgPool2d(nn.Module):
             return x.view(x.size(0), x.size(1), -1).mean(-1).view(x.size(0), x.size(1), 1, 1)
 
 
+class AdaptiveAvgMaxPool2d(nn.Module):
+
+    def __init__(self):
+        super(AdaptiveAvgMaxPool2d, self).__init__()
+        self.avgpool = FastGlobalAvgPool2d()
+
+    def forward(self, x):
+        x_avg = self.avgpool(x, self.output_size)
+        x_max = F.adaptive_max_pool2d(x, 1)
+        x = x_max + x_avg
+        return x
+
+
 class SELayer(nn.Module):
 
     def __init__(self, channel, reduction=16):
@@ -812,6 +1272,24 @@ class SELayer(nn.Module):
         y = self.avg_pool(x).view(b, c)
         y = self.fc(y).view(b, c, 1, 1)
         return x * y.expand_as(x)
+
+
+class rSoftMax(nn.Module):
+
+    def __init__(self, radix, cardinality):
+        super().__init__()
+        self.radix = radix
+        self.cardinality = cardinality
+
+    def forward(self, x):
+        batch = x.size(0)
+        if self.radix > 1:
+            x = x.view(batch, self.cardinality, self.radix, -1).transpose(1, 2)
+            x = F.softmax(x, dim=1)
+            x = x.reshape(batch, -1)
+        else:
+            x = torch.sigmoid(x)
+        return x
 
 
 class SplAtConv2d(nn.Module):
@@ -870,227 +1348,129 @@ class SplAtConv2d(nn.Module):
         return out.contiguous()
 
 
-class rSoftMax(nn.Module):
+class SynchronizedBatchNorm1d(_SynchronizedBatchNorm):
+    """Applies Synchronized Batch Normalization over a 2d or 3d input that is seen as a
+    mini-batch.
 
-    def __init__(self, radix, cardinality):
-        super().__init__()
-        self.radix = radix
-        self.cardinality = cardinality
+    .. math::
 
-    def forward(self, x):
-        batch = x.size(0)
-        if self.radix > 1:
-            x = x.view(batch, self.cardinality, self.radix, -1).transpose(1, 2)
-            x = F.softmax(x, dim=1)
-            x = x.reshape(batch, -1)
-        else:
-            x = torch.sigmoid(x)
-        return x
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
 
+    This module differs from the built-in PyTorch BatchNorm1d as the mean and
+    standard-deviation are reduced across all devices during training.
 
-class FutureResult(object):
-    """A thread-safe future implementation. Used only as one-to-one pipe."""
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
 
-    def __init__(self):
-        self._result = None
-        self._lock = threading.Lock()
-        self._cond = threading.Condition(self._lock)
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
 
-    def put(self, result):
-        with self._lock:
-            assert self._result is None, "Previous result has't been fetched."
-            self._result = result
-            self._cond.notify()
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
 
-    def get(self):
-        with self._lock:
-            if self._result is None:
-                self._cond.wait()
-            res = self._result
-            self._result = None
-            return res
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
 
+    During evaluation, this running mean/variance is used for normalization.
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, L)` slices, it's common terminology to call this Temporal BatchNorm
 
+    Args:
+        num_features: num_features from an expected input of size
+            `batch_size x num_features [x width]`
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
 
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
+    Shape::
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
 
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
-
-
-class SyncMaster(object):
-    """An abstract `SyncMaster` object.
-
-    - During the replication, as the data parallel will trigger an callback of each module, all slave devices should
-    call `register(id)` and obtain an `SlavePipe` to communicate with the master.
-    - During the forward pass, master device invokes `run_master`, all messages from slave devices will be collected,
-    and passed to a registered callback.
-    - After receiving the messages, the master device should gather the information and determine to message passed
-    back to each slave devices.
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100))
+        >>> output = m(input)
     """
 
-    def __init__(self, master_callback):
-        """
-
-        Args:
-            master_callback: a callback to be invoked after having collected messages from slave devices.
-        """
-        self._master_callback = master_callback
-        self._queue = queue.Queue()
-        self._registry = collections.OrderedDict()
-        self._activated = False
-
-    def __getstate__(self):
-        return {'master_callback': self._master_callback}
-
-    def __setstate__(self, state):
-        self.__init__(state['master_callback'])
-
-    def register_slave(self, identifier):
-        """
-        Register an slave device.
-
-        Args:
-            identifier: an identifier, usually is the device id.
-
-        Returns: a `SlavePipe` object which can be used to communicate with the master device.
-
-        """
-        if self._activated:
-            assert self._queue.empty(), 'Queue is not clean before next initialization.'
-            self._activated = False
-            self._registry.clear()
-        future = FutureResult()
-        self._registry[identifier] = _MasterRegistry(future)
-        return SlavePipe(identifier, self._queue, future)
-
-    def run_master(self, master_msg):
-        """
-        Main entry for the master device in each forward pass.
-        The messages were first collected from each devices (including the master device), and then
-        an callback will be invoked to compute the message to be sent back to each devices
-        (including the master device).
-
-        Args:
-            master_msg: the message that the master want to send to itself. This will be placed as the first
-            message when calling `master_callback`. For detailed usage, see `_SynchronizedBatchNorm` for an example.
-
-        Returns: the message to be sent back to the master device.
-
-        """
-        self._activated = True
-        intermediates = [(0, master_msg)]
-        for i in range(self.nr_slaves):
-            intermediates.append(self._queue.get())
-        results = self._master_callback(intermediates)
-        assert results[0][0] == 0, 'The first result should belongs to the master.'
-        for i, res in results:
-            if i == 0:
-                continue
-            self._registry[i].result.put(res)
-        for i in range(self.nr_slaves):
-            assert self._queue.get() is True
-        return results[0][1]
-
-    @property
-    def nr_slaves(self):
-        return len(self._registry)
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm1d, self)._check_input_dim(input)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
+class SynchronizedBatchNorm3d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 5d input that is seen as a mini-batch
+    of 4d inputs
 
+    .. math::
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
 
+    This module differs from the built-in PyTorch BatchNorm3d as the mean and
+    standard-deviation are reduced across all devices during training.
 
-def _sum_ft(tensor):
-    """sum over the first and last dimention"""
-    return tensor.sum(dim=0).sum(dim=-1)
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
 
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
 
-def _unsqueeze_ft(tensor):
-    """add new dimensions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
 
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
 
-class _SynchronizedBatchNorm(_BatchNorm):
+    During evaluation, this running mean/variance is used for normalization.
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, weight_freeze=False, bias_freeze=False, affine=True):
-        assert ReduceAddCoalesced is not None, 'Can not use Synchronized Batch Normalization without CUDA support.'
-        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
-        self.weight.requires_grad_(not weight_freeze)
-        self.bias.requires_grad_(not bias_freeze)
-        self._sync_master = SyncMaster(self._data_parallel_master)
-        self._is_parallel = False
-        self._parallel_id = None
-        self._slave_pipe = None
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, D, H, W)` slices, it's common terminology to call this Volumetric BatchNorm
+    or Spatio-temporal BatchNorm
 
-    def forward(self, input):
-        if not (self._is_parallel and self.training):
-            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
-        input_shape = input.size()
-        input = input.view(input.size(0), self.num_features, -1)
-        sum_size = input.size(0) * input.size(2)
-        input_sum = _sum_ft(input)
-        input_ssum = _sum_ft(input ** 2)
-        if self._parallel_id == 0:
-            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
-        else:
-            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
-        if self.affine:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
-        else:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
-        return output.view(input_shape)
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x depth x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
 
-    def __data_parallel_replicate__(self, ctx, copy_id):
-        self._is_parallel = True
-        self._parallel_id = copy_id
-        if self._parallel_id == 0:
-            ctx.sync_master = self._sync_master
-        else:
-            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
+    Shape::
+        - Input: :math:`(N, C, D, H, W)`
+        - Output: :math:`(N, C, D, H, W)` (same shape as input)
 
-    def _data_parallel_master(self, intermediates):
-        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
-        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
-        to_reduce = [i[1][:2] for i in intermediates]
-        to_reduce = [j for i in to_reduce for j in i]
-        target_gpus = [i[1].sum.get_device() for i in intermediates]
-        sum_size = sum([i[1].sum_size for i in intermediates])
-        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
-        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
-        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
-        outputs = []
-        for i, rec in enumerate(intermediates):
-            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
-        return outputs
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45, 10))
+        >>> output = m(input)
+    """
 
-    def _compute_mean_std(self, sum_, ssum, size):
-        """Compute the mean and standard-deviation with sum and square-sum. This method
-        also maintains the moving average on the master device."""
-        assert size > 1, 'BatchNorm computes unbiased standard-deviation, which requires size > 1.'
-        mean = sum_ / size
-        sumvar = ssum - sum_ * mean
-        unbias_var = sumvar / (size - 1)
-        bias_var = sumvar / size
-        if hasattr(torch, 'no_grad'):
-            with torch.no_grad():
-                self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
-                self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
-        else:
-            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
-            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
-        return mean, bias_var.clamp(self.eps) ** -0.5
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm3d, self)._check_input_dim(input)
 
 
 class BatchNorm2dReimpl(nn.Module):
@@ -1406,64 +1786,45 @@ class OSNet(nn.Module):
 
 
 class Bottleneck(nn.Module):
-    """ResNet Bottleneck
+    """
+    RexNeXt bottleneck type C
     """
     expansion = 4
 
-    def __init__(self, inplanes, planes, bn_norm, num_splits, with_ibn=False, stride=1, downsample=None, radix=1, cardinality=1, bottleneck_width=64, avd=False, avd_first=False, dilation=1, is_first=False, rectified_conv=False, rectify_avg=False, dropblock_prob=0.0, last_gamma=False):
+    def __init__(self, inplanes, planes, with_ibn, baseWidth, cardinality, stride=1, downsample=None):
+        """ Constructor
+        Args:
+            inplanes: input channel dimensionality
+            planes: output channel dimensionality
+            baseWidth: base width.
+            cardinality: num of convolution groups.
+            stride: conv stride. Replaces pooling layer.
+        """
         super(Bottleneck, self).__init__()
-        group_width = int(planes * (bottleneck_width / 64.0)) * cardinality
-        self.conv1 = nn.Conv2d(inplanes, group_width, kernel_size=1, bias=False)
+        D = int(math.floor(planes * (baseWidth / 64)))
+        C = cardinality
+        self.conv1 = nn.Conv2d(inplanes, D * C, kernel_size=1, stride=1, padding=0, bias=False)
         if with_ibn:
-            self.bn1 = IBN(group_width, bn_norm, num_splits)
+            self.bn1 = IBN(D * C)
         else:
-            self.bn1 = get_norm(bn_norm, group_width, num_splits)
-        self.dropblock_prob = dropblock_prob
-        self.radix = radix
-        self.avd = avd and (stride > 1 or is_first)
-        self.avd_first = avd_first
-        if self.avd:
-            self.avd_layer = nn.AvgPool2d(3, stride, padding=1)
-            stride = 1
-        if radix > 1:
-            self.conv2 = SplAtConv2d(group_width, group_width, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, groups=cardinality, bias=False, radix=radix, rectify=rectified_conv, rectify_avg=rectify_avg, norm_layer=bn_norm, num_splits=num_splits, dropblock_prob=dropblock_prob)
-        elif rectified_conv:
-            self.conv2 = RFConv2d(group_width, group_width, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, groups=cardinality, bias=False, average_mode=rectify_avg)
-            self.bn2 = get_norm(bn_norm, group_width, num_splits)
-        else:
-            self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, groups=cardinality, bias=False)
-            self.bn2 = get_norm(bn_norm, group_width, num_splits)
-        self.conv3 = nn.Conv2d(group_width, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = get_norm(bn_norm, planes * 4, num_splits)
-        if last_gamma:
-            from torch.nn.init import zeros_
-            zeros_(self.bn3.weight)
+            self.bn1 = nn.BatchNorm2d(D * C)
+        self.conv2 = nn.Conv2d(D * C, D * C, kernel_size=3, stride=stride, padding=1, groups=C, bias=False)
+        self.bn2 = nn.BatchNorm2d(D * C)
+        self.conv3 = nn.Conv2d(D * C, planes * 4, kernel_size=1, stride=1, padding=0, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
-        self.dilation = dilation
-        self.stride = stride
 
     def forward(self, x):
         residual = x
         out = self.conv1(x)
         out = self.bn1(out)
-        if self.dropblock_prob > 0.0:
-            out = self.dropblock1(out)
         out = self.relu(out)
-        if self.avd and self.avd_first:
-            out = self.avd_layer(out)
         out = self.conv2(out)
-        if self.radix == 1:
-            out = self.bn2(out)
-            if self.dropblock_prob > 0.0:
-                out = self.dropblock2(out)
-            out = self.relu(out)
-        if self.avd and not self.avd_first:
-            out = self.avd_layer(out)
+        out = self.bn2(out)
+        out = self.relu(out)
         out = self.conv3(out)
         out = self.bn3(out)
-        if self.dropblock_prob > 0.0:
-            out = self.dropblock3(out)
         if self.downsample is not None:
             residual = self.downsample(x)
         out += residual
@@ -1652,46 +2013,6 @@ class BasicBlock(nn.Module):
         return out
 
 
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, bn_norm, num_splits, with_ibn=False, with_se=False, stride=1, downsample=None, reduction=16):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        if with_ibn:
-            self.bn1 = IBN(planes, bn_norm, num_splits)
-        else:
-            self.bn1 = get_norm(bn_norm, planes, num_splits)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = get_norm(bn_norm, planes, num_splits)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = get_norm(bn_norm, planes * 4, num_splits)
-        self.relu = nn.ReLU(inplace=True)
-        if with_se:
-            self.se = SELayer(planes * 4, reduction)
-        else:
-            self.se = nn.Identity()
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        out = self.se(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
 class ResNet(nn.Module):
 
     def __init__(self, last_stride, bn_norm, num_splits, with_ibn, with_se, with_nl, block, layers, non_layers):
@@ -1785,53 +2106,6 @@ class ResNet(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
-
-
-class Bottleneck(nn.Module):
-    """
-    RexNeXt bottleneck type C
-    """
-    expansion = 4
-
-    def __init__(self, inplanes, planes, with_ibn, baseWidth, cardinality, stride=1, downsample=None):
-        """ Constructor
-        Args:
-            inplanes: input channel dimensionality
-            planes: output channel dimensionality
-            baseWidth: base width.
-            cardinality: num of convolution groups.
-            stride: conv stride. Replaces pooling layer.
-        """
-        super(Bottleneck, self).__init__()
-        D = int(math.floor(planes * (baseWidth / 64)))
-        C = cardinality
-        self.conv1 = nn.Conv2d(inplanes, D * C, kernel_size=1, stride=1, padding=0, bias=False)
-        if with_ibn:
-            self.bn1 = IBN(D * C)
-        else:
-            self.bn1 = nn.BatchNorm2d(D * C)
-        self.conv2 = nn.Conv2d(D * C, D * C, kernel_size=3, stride=stride, padding=1, groups=C, bias=False)
-        self.bn2 = nn.BatchNorm2d(D * C)
-        self.conv3 = nn.Conv2d(D * C, planes * 4, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
 
 
 class ResNeXt(nn.Module):
@@ -1935,6 +2209,123 @@ def weights_init_kaiming(m):
             nn.init.constant_(m.bias, 0.0)
 
 
+class BNneckHead(nn.Module):
+
+    def __init__(self, cfg, in_feat, num_classes, pool_layer):
+        super().__init__()
+        self.neck_feat = cfg.MODEL.HEADS.NECK_FEAT
+        self.pool_layer = pool_layer
+        self.bnneck = get_norm(cfg.MODEL.HEADS.NORM, in_feat, cfg.MODEL.HEADS.NORM_SPLIT, bias_freeze=True)
+        self.bnneck.apply(weights_init_kaiming)
+        cls_type = cfg.MODEL.HEADS.CLS_LAYER
+        if cls_type == 'linear':
+            self.classifier = nn.Linear(in_feat, num_classes, bias=False)
+        elif cls_type == 'arcface':
+            self.classifier = Arcface(cfg, in_feat, num_classes)
+        elif cls_type == 'circle':
+            self.classifier = Circle(cfg, in_feat, num_classes)
+        else:
+            raise KeyError(f"{cls_type} is invalid, please choose from 'linear', 'arcface' and 'circle'.")
+        self.classifier.apply(weights_init_classifier)
+
+    def forward(self, features, targets=None):
+        """
+        See :class:`ReIDHeads.forward`.
+        """
+        global_feat = self.pool_layer(features)
+        bn_feat = self.bnneck(global_feat)
+        bn_feat = bn_feat[..., 0, 0]
+        if not self.training:
+            return bn_feat
+        try:
+            pred_class_logits = self.classifier(bn_feat)
+        except TypeError:
+            pred_class_logits = self.classifier(bn_feat, targets)
+        if self.neck_feat == 'before':
+            feat = global_feat[..., 0, 0]
+        elif self.neck_feat == 'after':
+            feat = bn_feat
+        else:
+            raise KeyError("MODEL.HEADS.NECK_FEAT value is invalid, must choose from ('after' & 'before')")
+        return pred_class_logits, feat, targets
+
+
+class LinearHead(nn.Module):
+
+    def __init__(self, cfg, in_feat, num_classes, pool_layer):
+        super().__init__()
+        self.pool_layer = pool_layer
+        cls_type = cfg.MODEL.HEADS.CLS_LAYER
+        if cls_type == 'linear':
+            self.classifier = nn.Linear(in_feat, num_classes, bias=False)
+        elif cls_type == 'arcface':
+            self.classifier = Arcface(cfg, in_feat, num_classes)
+        elif cls_type == 'circle':
+            self.classifier = Circle(cfg, in_feat, num_classes)
+        else:
+            raise KeyError(f"{cls_type} is invalid, please choose from 'linear', 'arcface' and 'circle'.")
+        self.classifier.apply(weights_init_classifier)
+
+    def forward(self, features, targets=None):
+        """
+        See :class:`ReIDHeads.forward`.
+        """
+        global_feat = self.pool_layer(features)
+        global_feat = global_feat[..., 0, 0]
+        if not self.training:
+            return global_feat
+        try:
+            pred_class_logits = self.classifier(global_feat)
+        except TypeError:
+            pred_class_logits = self.classifier(global_feat, targets)
+        return pred_class_logits, global_feat, targets
+
+
+class ReductionHead(nn.Module):
+
+    def __init__(self, cfg, in_feat, num_classes, pool_layer):
+        super().__init__()
+        reduction_dim = cfg.MODEL.HEADS.REDUCTION_DIM
+        self.neck_feat = cfg.MODEL.HEADS.NECK_FEAT
+        self.pool_layer = pool_layer
+        self.bottleneck = nn.Sequential(nn.Conv2d(in_feat, reduction_dim, 1, 1, bias=False), get_norm(cfg.MODEL.HEADS.NORM, reduction_dim, cfg.MODEL.HEADS.NORM_SPLIT), nn.LeakyReLU(0.1, inplace=True))
+        self.bnneck = get_norm(cfg.MODEL.HEADS.NORM, reduction_dim, cfg.MODEL.HEADS.NORM_SPLIT, bias_freeze=True)
+        self.bottleneck.apply(weights_init_kaiming)
+        self.bnneck.apply(weights_init_kaiming)
+        cls_type = cfg.MODEL.HEADS.CLS_LAYER
+        if cls_type == 'linear':
+            self.classifier = nn.Linear(reduction_dim, num_classes, bias=False)
+        elif cls_type == 'arcface':
+            self.classifier = Arcface(cfg, reduction_dim, num_classes)
+        elif cls_type == 'circle':
+            self.classifier = Circle(cfg, reduction_dim, num_classes)
+        else:
+            raise KeyError(f"{cls_type} is invalid, please choose from 'linear', 'arcface' and 'circle'.")
+        self.classifier.apply(weights_init_classifier)
+
+    def forward(self, features, targets=None):
+        """
+        See :class:`ReIDHeads.forward`.
+        """
+        features = self.pool_layer(features)
+        global_feat = self.bottleneck(features)
+        bn_feat = self.bnneck(global_feat)
+        bn_feat = bn_feat[..., 0, 0]
+        if not self.training:
+            return bn_feat
+        try:
+            pred_class_logits = self.classifier(bn_feat)
+        except TypeError:
+            pred_class_logits = self.classifier(bn_feat, targets)
+        if self.neck_feat == 'before':
+            feat = global_feat[..., 0, 0]
+        elif self.neck_feat == 'after':
+            feat = bn_feat
+        else:
+            raise KeyError("MODEL.HEADS.NECK_FEAT value is invalid, must choose from ('after' & 'before')")
+        return pred_class_logits, feat, targets
+
+
 class CenterLoss(nn.Module):
     """Center loss.
     Reference:
@@ -1971,13 +2362,7 @@ class CenterLoss(nn.Module):
         return loss
 
 
-class GeneralizedMeanPoolingP(GeneralizedMeanPooling):
-    """ Same, but norm is trainable
-    """
-
-    def __init__(self, norm=3, output_size=1, eps=1e-06):
-        super(GeneralizedMeanPoolingP, self).__init__(norm, output_size, eps)
-        self.p = nn.Parameter(torch.ones(1) * norm)
+META_ARCH_REGISTRY = Registry('META_ARCH')
 
 
 def reid_losses(cfg, pred_class_logits, global_features, gt_classes, prefix='') ->dict:
@@ -1990,6 +2375,67 @@ def reid_losses(cfg, pred_class_logits, global_features, gt_classes, prefix='') 
         named_loss_dict[prefix + name] = loss_dict[name]
     del loss_dict
     return named_loss_dict
+
+
+class Baseline(nn.Module):
+
+    def __init__(self, cfg):
+        super().__init__()
+        self.register_buffer('pixel_mean', torch.Tensor(cfg.MODEL.PIXEL_MEAN).view(1, -1, 1, 1))
+        self.register_buffer('pixel_std', torch.Tensor(cfg.MODEL.PIXEL_STD).view(1, -1, 1, 1))
+        self._cfg = cfg
+        self.backbone = build_backbone(cfg)
+        pool_type = cfg.MODEL.HEADS.POOL_LAYER
+        if pool_type == 'avgpool':
+            pool_layer = FastGlobalAvgPool2d()
+        elif pool_type == 'maxpool':
+            pool_layer = nn.AdaptiveMaxPool2d(1)
+        elif pool_type == 'gempool':
+            pool_layer = GeneralizedMeanPoolingP()
+        elif pool_type == 'avgmaxpool':
+            pool_layer = AdaptiveAvgMaxPool2d()
+        elif pool_type == 'identity':
+            pool_layer = nn.Identity()
+        else:
+            raise KeyError(f"{pool_type} is invalid, please choose from 'avgpool', 'maxpool', 'gempool', 'avgmaxpool' and 'identity'.")
+        in_feat = cfg.MODEL.HEADS.IN_FEAT
+        num_classes = cfg.MODEL.HEADS.NUM_CLASSES
+        self.heads = build_reid_heads(cfg, in_feat, num_classes, pool_layer)
+
+    @property
+    def device(self):
+        return self.pixel_mean.device
+
+    def forward(self, batched_inputs):
+        if not self.training:
+            pred_feat = self.inference(batched_inputs)
+            try:
+                return pred_feat, batched_inputs['targets'], batched_inputs['camid']
+            except Exception:
+                return pred_feat
+        images = self.preprocess_image(batched_inputs)
+        targets = batched_inputs['targets'].long()
+        features = self.backbone(images)
+        return self.heads(features, targets)
+
+    def inference(self, batched_inputs):
+        assert not self.training
+        images = self.preprocess_image(batched_inputs)
+        features = self.backbone(images)
+        pred_feat = self.heads(features)
+        return pred_feat
+
+    def preprocess_image(self, batched_inputs):
+        """
+        Normalize and batch the input images.
+        """
+        images = batched_inputs['images']
+        images.sub_(self.pixel_mean).div_(self.pixel_std)
+        return images
+
+    def losses(self, outputs):
+        logits, feat, targets = outputs
+        return reid_losses(self._cfg, logits, feat, targets)
 
 
 _CURRENT_STORAGE_STACK = []
@@ -2054,6 +2500,152 @@ class CrossEntropyLoss(object):
         return {'loss_cls': loss * self._scale}
 
 
+class MGN(nn.Module):
+
+    def __init__(self, cfg):
+        super().__init__()
+        self.register_buffer('pixel_mean', torch.Tensor(cfg.MODEL.PIXEL_MEAN).view(1, -1, 1, 1))
+        self.register_buffer('pixel_std', torch.Tensor(cfg.MODEL.PIXEL_STD).view(1, -1, 1, 1))
+        self._cfg = cfg
+        bn_norm = cfg.MODEL.BACKBONE.NORM
+        num_splits = cfg.MODEL.BACKBONE.NORM_SPLIT
+        with_se = cfg.MODEL.BACKBONE.WITH_SE
+        backbone = build_backbone(cfg)
+        self.backbone = nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu, backbone.maxpool, backbone.layer1, backbone.layer2, backbone.layer3[0])
+        res_conv4 = nn.Sequential(*backbone.layer3[1:])
+        res_g_conv5 = backbone.layer4
+        res_p_conv5 = nn.Sequential(Bottleneck(1024, 512, bn_norm, num_splits, False, with_se, downsample=nn.Sequential(nn.Conv2d(1024, 2048, 1, bias=False), get_norm(bn_norm, 2048, num_splits))), Bottleneck(2048, 512, bn_norm, num_splits, False, with_se), Bottleneck(2048, 512, bn_norm, num_splits, False, with_se))
+        res_p_conv5.load_state_dict(backbone.layer4.state_dict())
+        pool_type = cfg.MODEL.HEADS.POOL_LAYER
+        if pool_type == 'avgpool':
+            pool_layer = FastGlobalAvgPool2d()
+        elif pool_type == 'maxpool':
+            pool_layer = nn.AdaptiveMaxPool2d(1)
+        elif pool_type == 'gempool':
+            pool_layer = GeneralizedMeanPoolingP()
+        elif pool_type == 'avgmaxpool':
+            pool_layer = AdaptiveAvgMaxPool2d()
+        elif pool_type == 'identity':
+            pool_layer = nn.Identity()
+        else:
+            raise KeyError(f"{pool_type} is invalid, please choose from 'avgpool', 'maxpool', 'gempool', 'avgmaxpool' and 'identity'.")
+        in_feat = cfg.MODEL.HEADS.IN_FEAT
+        num_classes = cfg.MODEL.HEADS.NUM_CLASSES
+        self.b1 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_g_conv5))
+        self.b1_pool = self._build_pool_reduce(pool_layer, bn_norm, num_splits, reduce_dim=in_feat)
+        self.b1_head = build_reid_heads(cfg, in_feat, num_classes, nn.Identity())
+        self.b2 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_p_conv5))
+        self.b2_pool = self._build_pool_reduce(pool_layer, bn_norm, num_splits, reduce_dim=in_feat)
+        self.b2_head = build_reid_heads(cfg, in_feat, num_classes, nn.Identity())
+        self.b21_pool = self._build_pool_reduce(pool_layer, bn_norm, num_splits, reduce_dim=in_feat)
+        self.b21_head = build_reid_heads(cfg, in_feat, num_classes, nn.Identity())
+        self.b22_pool = self._build_pool_reduce(pool_layer, bn_norm, num_splits, reduce_dim=in_feat)
+        self.b22_head = build_reid_heads(cfg, in_feat, num_classes, nn.Identity())
+        self.b3 = nn.Sequential(copy.deepcopy(res_conv4), copy.deepcopy(res_p_conv5))
+        self.b3_pool = self._build_pool_reduce(pool_layer, bn_norm, num_splits, reduce_dim=in_feat)
+        self.b3_head = build_reid_heads(cfg, in_feat, num_classes, nn.Identity())
+        self.b31_pool = self._build_pool_reduce(pool_layer, bn_norm, num_splits, reduce_dim=in_feat)
+        self.b31_head = build_reid_heads(cfg, in_feat, num_classes, nn.Identity())
+        self.b32_pool = self._build_pool_reduce(pool_layer, bn_norm, num_splits, reduce_dim=in_feat)
+        self.b32_head = build_reid_heads(cfg, in_feat, num_classes, nn.Identity())
+        self.b33_pool = self._build_pool_reduce(pool_layer, bn_norm, num_splits, reduce_dim=in_feat)
+        self.b33_head = build_reid_heads(cfg, in_feat, num_classes, nn.Identity())
+
+    @staticmethod
+    def _build_pool_reduce(pool_layer, bn_norm, num_splits, input_dim=2048, reduce_dim=256):
+        pool_reduce = nn.Sequential(pool_layer, nn.Conv2d(input_dim, reduce_dim, 1, bias=False), get_norm(bn_norm, reduce_dim, num_splits), nn.ReLU(True))
+        pool_reduce.apply(weights_init_kaiming)
+        return pool_reduce
+
+    @property
+    def device(self):
+        return self.pixel_mean.device
+
+    def forward(self, batched_inputs):
+        if not self.training:
+            pred_feat = self.inference(batched_inputs)
+            try:
+                return pred_feat, batched_inputs['targets'], batched_inputs['camid']
+            except Exception:
+                return pred_feat
+        images = self.preprocess_image(batched_inputs)
+        targets = batched_inputs['targets'].long()
+        features = self.backbone(images)
+        b1_feat = self.b1(features)
+        b1_pool_feat = self.b1_pool(b1_feat)
+        b1_logits, b1_pool_feat, _ = self.b1_head(b1_pool_feat, targets)
+        b2_feat = self.b2(features)
+        b2_pool_feat = self.b2_pool(b2_feat)
+        b2_logits, b2_pool_feat, _ = self.b2_head(b2_pool_feat, targets)
+        b21_feat, b22_feat = torch.chunk(b2_feat, 2, dim=2)
+        b21_pool_feat = self.b21_pool(b21_feat)
+        b21_logits, b21_pool_feat, _ = self.b21_head(b21_pool_feat, targets)
+        b22_pool_feat = self.b22_pool(b22_feat)
+        b22_logits, b22_pool_feat, _ = self.b22_head(b22_pool_feat, targets)
+        b3_feat = self.b3(features)
+        b3_pool_feat = self.b3_pool(b3_feat)
+        b3_logits, b3_pool_feat, _ = self.b3_head(b3_pool_feat, targets)
+        b31_feat, b32_feat, b33_feat = torch.chunk(b3_feat, 3, dim=2)
+        b31_pool_feat = self.b31_pool(b31_feat)
+        b31_logits, b31_pool_feat, _ = self.b31_head(b31_pool_feat, targets)
+        b32_pool_feat = self.b32_pool(b32_feat)
+        b32_logits, b32_pool_feat, _ = self.b32_head(b32_pool_feat, targets)
+        b33_pool_feat = self.b33_pool(b33_feat)
+        b33_logits, b33_pool_feat, _ = self.b33_head(b33_pool_feat, targets)
+        return (b1_logits, b2_logits, b3_logits, b21_logits, b22_logits, b31_logits, b32_logits, b33_logits), (b1_pool_feat, b2_pool_feat, b3_pool_feat, torch.cat((b21_pool_feat, b22_pool_feat), dim=1), torch.cat((b31_pool_feat, b32_pool_feat, b33_pool_feat), dim=1)), targets
+
+    def inference(self, batched_inputs):
+        assert not self.training
+        images = self.preprocess_image(batched_inputs)
+        features = self.backbone(images)
+        b1_feat = self.b1(features)
+        b1_pool_feat = self.b1_pool(b1_feat)
+        b1_pool_feat = self.b1_head(b1_pool_feat)
+        b2_feat = self.b2(features)
+        b2_pool_feat = self.b2_pool(b2_feat)
+        b2_pool_feat = self.b2_head(b2_pool_feat)
+        b21_feat, b22_feat = torch.chunk(b2_feat, 2, dim=2)
+        b21_pool_feat = self.b21_pool(b21_feat)
+        b21_pool_feat = self.b21_head(b21_pool_feat)
+        b22_pool_feat = self.b22_pool(b22_feat)
+        b22_pool_feat = self.b22_head(b22_pool_feat)
+        b3_feat = self.b3(features)
+        b3_pool_feat = self.b3_pool(b3_feat)
+        b3_pool_feat = self.b3_head(b3_pool_feat)
+        b31_feat, b32_feat, b33_feat = torch.chunk(b3_feat, 3, dim=2)
+        b31_pool_feat = self.b31_pool(b31_feat)
+        b31_pool_feat = self.b31_head(b31_pool_feat)
+        b32_pool_feat = self.b32_pool(b32_feat)
+        b32_pool_feat = self.b32_head(b32_pool_feat)
+        b33_pool_feat = self.b33_pool(b33_feat)
+        b33_pool_feat = self.b33_head(b33_pool_feat)
+        pred_feat = torch.cat([b1_pool_feat, b2_pool_feat, b3_pool_feat, b21_pool_feat, b22_pool_feat, b31_pool_feat, b32_pool_feat, b33_pool_feat], dim=1)
+        return pred_feat
+
+    def preprocess_image(self, batched_inputs):
+        """
+        Normalize and batch the input images.
+        """
+        images = batched_inputs['images']
+        images.sub_(self.pixel_mean).div_(self.pixel_std)
+        return images
+
+    def losses(self, outputs):
+        logits, feats, targets = outputs
+        loss_dict = {}
+        loss_dict.update(reid_losses(self._cfg, logits[0], feats[0], targets, 'b1_'))
+        loss_dict.update(reid_losses(self._cfg, logits[1], feats[1], targets, 'b2_'))
+        loss_dict.update(reid_losses(self._cfg, logits[2], feats[2], targets, 'b3_'))
+        loss_dict.update(reid_losses(self._cfg, logits[3], feats[3], targets, 'b21_'))
+        loss_dict.update(reid_losses(self._cfg, logits[5], feats[4], targets, 'b31_'))
+        part_ce_loss = [(CrossEntropyLoss(self._cfg)(logits[4], None, targets), 'b22_'), (CrossEntropyLoss(self._cfg)(logits[6], None, targets), 'b32_'), (CrossEntropyLoss(self._cfg)(logits[7], None, targets), 'b33_')]
+        named_ce_loss = {}
+        for item in part_ce_loss:
+            named_ce_loss[item[1] + [*item[0]][0]] = [*item[0].values()][0]
+        loss_dict.update(named_ce_loss)
+        return loss_dict
+
+
 class OcclusionUnit(nn.Module):
 
     def __init__(self, in_planes=2048):
@@ -2086,6 +2678,67 @@ class OcclusionUnit(nn.Module):
         SpaFeat1 = SpaFeat1.view((SpaFeat1.size(0), SpaFeat1.size(1) * SpaFeat1.size(2), -1))
         global_feats = mask_score.matmul(SpaFeat1).view(SpaFeat1.shape[0], -1, 1, 1)
         return global_feats, mask_weight, mask_weight_norm
+
+
+class DSRHead(nn.Module):
+
+    def __init__(self, cfg, in_feat, num_classes, pool_layer=nn.AdaptiveAvgPool2d(1)):
+        super().__init__()
+        self.pool_layer = pool_layer
+        self.occ_unit = OcclusionUnit(in_planes=in_feat)
+        self.MaxPool1 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        self.MaxPool2 = nn.MaxPool2d(kernel_size=4, stride=2, padding=0)
+        self.MaxPool3 = nn.MaxPool2d(kernel_size=6, stride=2, padding=0)
+        self.MaxPool4 = nn.MaxPool2d(kernel_size=8, stride=2, padding=0)
+        self.bnneck = get_norm(cfg.MODEL.HEADS.NORM, in_feat, cfg.MODEL.HEADS.NORM_SPLIT, bias_freeze=True)
+        self.bnneck.apply(weights_init_kaiming)
+        self.bnneck_occ = get_norm(cfg.MODEL.HEADS.NORM, in_feat, cfg.MODEL.HEADS.NORM_SPLIT, bias_freeze=True)
+        self.bnneck_occ.apply(weights_init_kaiming)
+        if cfg.MODEL.HEADS.CLS_LAYER == 'linear':
+            self.classifier = nn.Linear(in_feat, num_classes, bias=False)
+            self.classifier_occ = nn.Linear(in_feat, num_classes, bias=False)
+            self.classifier.apply(weights_init_classifier)
+            self.classifier_occ.apply(weights_init_classifier)
+        elif cfg.MODEL.HEADS.CLS_LAYER == 'arcface':
+            self.classifier = Arcface(cfg, in_feat)
+            self.classifier_occ = Arcface(cfg, in_feat)
+        elif cfg.MODEL.HEADS.CLS_LAYER == 'circle':
+            self.classifier = Circle(cfg, in_feat)
+            self.classifier_occ = Circle(cfg, in_feat)
+        else:
+            self.classifier = nn.Linear(in_feat, num_classes, bias=False)
+            self.classifier_occ = nn.Linear(in_feat, num_classes, bias=False)
+            self.classifier.apply(weights_init_classifier)
+            self.classifier_occ.apply(weights_init_classifier)
+
+    def forward(self, features, targets=None):
+        """
+        See :class:`ReIDHeads.forward`.
+        """
+        SpaFeat1 = self.MaxPool1(features)
+        SpaFeat2 = self.MaxPool2(features)
+        SpaFeat3 = self.MaxPool3(features)
+        SpaFeat4 = self.MaxPool4(features)
+        Feat1 = SpaFeat1.view(SpaFeat1.size(0), SpaFeat1.size(1), SpaFeat1.size(2) * SpaFeat1.size(3))
+        Feat2 = SpaFeat2.view(SpaFeat2.size(0), SpaFeat2.size(1), SpaFeat2.size(2) * SpaFeat2.size(3))
+        Feat3 = SpaFeat3.view(SpaFeat3.size(0), SpaFeat3.size(1), SpaFeat3.size(2) * SpaFeat3.size(3))
+        Feat4 = SpaFeat4.view(SpaFeat4.size(0), SpaFeat4.size(1), SpaFeat4.size(2) * SpaFeat4.size(3))
+        SpatialFeatAll = torch.cat((Feat1, Feat2, Feat3, Feat4), dim=2)
+        foreground_feat, mask_weight, mask_weight_norm = self.occ_unit(features)
+        bn_foreground_feat = self.bnneck_occ(foreground_feat)
+        bn_foreground_feat = bn_foreground_feat[..., 0, 0]
+        if not self.training:
+            return bn_foreground_feat, SpatialFeatAll, mask_weight_norm
+        global_feat = self.pool_layer(features)
+        bn_feat = self.bnneck(global_feat)
+        bn_feat = bn_feat[..., 0, 0]
+        try:
+            pred_class_logits = self.classifier(bn_feat)
+            fore_pred_class_legits = self.classifier_occ(bn_foreground_feat)
+        except TypeError:
+            pred_class_logits = self.classifier(bn_feat, targets)
+            fore_pred_class_legits = self.classifier_occ(bn_foreground_feat, targets)
+        return pred_class_logits, global_feat[..., 0, 0], fore_pred_class_legits, foreground_feat[..., 0, 0], targets
 
 
 import torch

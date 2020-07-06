@@ -5,6 +5,7 @@ checkpoint = _module
 datasets = _module
 augmentations = _module
 cityscapes = _module
+cityscapes = _module
 list = _module
 make_list = _module
 select_hard = _module
@@ -36,7 +37,9 @@ dense = _module
 dropout = _module
 efficient = _module
 inplace_abn = _module
+functions = _module
 iabn = _module
+setup = _module
 misc = _module
 mobile = _module
 residual = _module
@@ -55,20 +58,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torchvision.transforms as transforms
+
+
+from random import shuffle
+
+
+import numpy as np
+
+
+import torch
+
+
+from torch.utils import data
 
 
 import torch.backends.cudnn as cudnn
@@ -78,12 +94,6 @@ import torch.nn.functional as F
 
 
 import torch.nn as nn
-
-
-import numpy as np
-
-
-import torch
 
 
 import time
@@ -113,16 +123,37 @@ from torch.autograd import Function
 from torch.nn.modules.utils import _pair
 
 
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+import torch.distributed as dist
+
+
+import torch.autograd as autograd
+
+
+import torch.cuda.comm as comm
+
+
+from torch.autograd.function import once_differentiable
+
+
+from torch.utils.cpp_extension import load
+
+
 import torch.nn.functional as functional
+
+
+from torch.optim import Optimizer
 
 
 import scipy.ndimage as nd
 
 
 import functools
-
-
-import torch.cuda.comm as comm
 
 
 from torch.nn.parallel.data_parallel import DataParallel
@@ -152,9 +183,9 @@ class Swish(nn.Module):
 
 class SEBlock(nn.Module):
 
-    def __init__(self, in_planes, reduced_dim, act_type='relu'):
+    def __init__(self, in_planes, reduced_dim):
         super(SEBlock, self).__init__()
-        self.channel_se = nn.Sequential(OrderedDict([('linear1', nn.Conv2d(in_planes, reduced_dim, kernel_size=1, stride=1, padding=0, bias=True)), ('act', Swish(inplace=True) if act_type == 'swish' else nn.LeakyReLU(inplace=True, negative_slope=0.01)), ('linear2', nn.Conv2d(reduced_dim, in_planes, kernel_size=1, stride=1, padding=0, bias=True))]))
+        self.channel_se = nn.Sequential(OrderedDict([('linear1', nn.Conv2d(in_planes, reduced_dim, kernel_size=1, stride=1, padding=0, bias=True)), ('act', nn.LeakyReLU(negative_slope=0.01, inplace=True)), ('linear2', nn.Conv2d(reduced_dim, in_planes, kernel_size=1, stride=1, padding=0, bias=True))]))
 
     def forward(self, x):
         x_se = torch.sigmoid(self.channel_se(F.adaptive_avg_pool2d(x, output_size=(1, 1))))
@@ -163,12 +194,11 @@ class SEBlock(nn.Module):
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, groups=1, dilate=1, act_type='relu'):
+    def __init__(self, in_planes, out_planes, kernel_size, stride=1, groups=1, dilate=1):
         super(ConvBlock, self).__init__()
-        assert stride in [1, 2]
         dilate = 1 if stride > 1 else dilate
         padding = (kernel_size - 1) // 2 * dilate
-        self.conv_block = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_channels=in_planes, out_channels=out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilate, groups=groups, bias=False)), ('norm', nn.BatchNorm2d(num_features=out_planes, eps=0.001, momentum=0.01)), ('act', Swish(inplace=True) if act_type == 'swish' else nn.LeakyReLU(inplace=True, negative_slope=0.01))]))
+        self.conv_block = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilate, groups=groups, bias=False)), ('norm', nn.BatchNorm2d(num_features=out_planes, eps=0.001, momentum=0.01)), ('act', nn.LeakyReLU(negative_slope=0.01, inplace=True))]))
 
     def forward(self, x):
         return self.conv_block(x)
@@ -269,22 +299,35 @@ class DSASPPBlock(nn.Module):
         return F.interpolate(input=x, size=(int(feat_h * self.up_ratio), int(feat_w * self.up_ratio)), mode='bilinear', align_corners=True)
 
 
+class DSConvBlock(nn.Module):
+
+    def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, dilate=1):
+        super(DSConvBlock, self).__init__()
+        dilate = 1 if stride > 1 else dilate
+        padding = (kernel_size - 1) // 2 * dilate
+        self.depth_wise = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_planes, in_planes, kernel_size, stride, padding, dilate, groups=in_planes, bias=False)), ('norm', nn.BatchNorm2d(num_features=out_planes, eps=0.001, momentum=0.01))]))
+        self.point_wise = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False)), ('norm', nn.BatchNorm2d(num_features=out_planes, eps=0.001, momentum=0.01)), ('act', nn.LeakyReLU(negative_slope=0.01, inplace=True))]))
+
+    def forward(self, x):
+        return self.point_wise(self.depth_wise(x))
+
+
 class BiFPNBlock(nn.Module):
     """
     Bi-directional Feature Pyramid Network
     """
 
-    def __init__(self, feature_size=64, expand_ratio=1, epsilon=0.0001):
+    def __init__(self, feature_size=64, epsilon=0.0001):
         super(BiFPNBlock, self).__init__()
         self.epsilon = epsilon
-        self.p1_td = MixDepthBlock(feature_size, feature_size, expand_ratio=expand_ratio, exp_kernel_sizes=[1], kernel_sizes=[3, 5, 7, 9], poi_kernel_sizes=[1], stride=1, dilate=1, reduction_ratio=2, dropout_rate=0.0, act_type='relu')
-        self.p2_td = MixDepthBlock(feature_size, feature_size, expand_ratio=expand_ratio, exp_kernel_sizes=[1], kernel_sizes=[3, 5, 7, 9], poi_kernel_sizes=[1], stride=1, dilate=1, reduction_ratio=2, dropout_rate=0.0, act_type='relu')
-        self.p3_td = MixDepthBlock(feature_size, feature_size, expand_ratio=expand_ratio, exp_kernel_sizes=[1], kernel_sizes=[3, 5, 7, 9], poi_kernel_sizes=[1], stride=1, dilate=1, reduction_ratio=2, dropout_rate=0.0, act_type='relu')
-        self.p4_td = MixDepthBlock(feature_size, feature_size, expand_ratio=expand_ratio, exp_kernel_sizes=[1], kernel_sizes=[3, 5, 7, 9], poi_kernel_sizes=[1], stride=1, dilate=1, reduction_ratio=2, dropout_rate=0.0, act_type='relu')
-        self.p2_bu = MixDepthBlock(feature_size, feature_size, expand_ratio=expand_ratio, exp_kernel_sizes=[1], kernel_sizes=[3, 5, 7, 9], poi_kernel_sizes=[1], stride=1, dilate=1, reduction_ratio=2, dropout_rate=0.0, act_type='relu')
-        self.p3_bu = MixDepthBlock(feature_size, feature_size, expand_ratio=expand_ratio, exp_kernel_sizes=[1], kernel_sizes=[3, 5, 7, 9], poi_kernel_sizes=[1], stride=1, dilate=1, reduction_ratio=2, dropout_rate=0.0, act_type='relu')
-        self.p4_bu = MixDepthBlock(feature_size, feature_size, expand_ratio=expand_ratio, exp_kernel_sizes=[1], kernel_sizes=[3, 5, 7, 9], poi_kernel_sizes=[1], stride=1, dilate=1, reduction_ratio=2, dropout_rate=0.0, act_type='relu')
-        self.p5_bu = MixDepthBlock(feature_size, feature_size, expand_ratio=expand_ratio, exp_kernel_sizes=[1], kernel_sizes=[3, 5, 7, 9], poi_kernel_sizes=[1], stride=1, dilate=1, reduction_ratio=2, dropout_rate=0.0, act_type='relu')
+        self.p1_td = DSConvBlock(feature_size, feature_size)
+        self.p2_td = DSConvBlock(feature_size, feature_size)
+        self.p3_td = DSConvBlock(feature_size, feature_size)
+        self.p4_td = DSConvBlock(feature_size, feature_size)
+        self.p2_out = DSConvBlock(feature_size, feature_size)
+        self.p3_out = DSConvBlock(feature_size, feature_size)
+        self.p4_out = DSConvBlock(feature_size, feature_size)
+        self.p5_out = DSConvBlock(feature_size, feature_size)
         self.w1 = nn.Parameter(torch.Tensor(2, 4).fill_(0.5))
         self.w2 = nn.Parameter(torch.Tensor(3, 4).fill_(0.5))
 
@@ -295,34 +338,39 @@ class BiFPNBlock(nn.Module):
         w2 = F.relu(self.w2)
         w2 /= torch.sum(w2, dim=0) + self.epsilon
         p5_td = p5_x
-        p4_td = self.p4_td(w1[0, 0] * p4_x + w1[1, 0] * p5_td)
-        p3_td = self.p3_td(w1[0, 1] * p3_x + w1[1, 1] * p4_td)
-        p2_td = self.p2_td(w1[0, 2] * p2_x + w1[1, 2] * p3_td)
+        p4_td = self.p4_td(w1[0, 0] * p4_x + w1[1, 0] * F.interpolate(p5_td, scale_factor=2, mode='bilinear', align_corners=True))
+        p3_td = self.p3_td(w1[0, 1] * p3_x + w1[1, 1] * F.interpolate(p4_td, scale_factor=2, mode='bilinear', align_corners=True))
+        p2_td = self.p2_td(w1[0, 2] * p2_x + w1[1, 2] * F.interpolate(p3_td, scale_factor=2, mode='bilinear', align_corners=True))
         p1_td = self.p1_td(w1[0, 3] * p1_x + w1[1, 3] * F.interpolate(p2_td, scale_factor=2, mode='bilinear', align_corners=True))
-        p1_bu = p1_td
-        p2_bu = self.p2_bu(w2[0, 0] * p2_x + w2[1, 0] * p2_td + w2[2, 0] * F.interpolate(p1_bu, scale_factor=0.5, mode='bilinear', align_corners=True))
-        p3_bu = self.p3_bu(w2[0, 1] * p3_x + w2[1, 1] * p3_td + w2[2, 1] * p2_bu)
-        p4_bu = self.p4_bu(w2[0, 2] * p4_x + w2[1, 2] * p4_td + w2[2, 2] * p3_bu)
-        p5_bu = self.p5_bu(w2[0, 3] * p5_x + w2[1, 3] * p5_td + w2[2, 3] * p4_bu)
-        return p1_bu, p2_bu, p3_bu, p4_bu, p5_bu
+        p1_out = p1_td
+        p2_out = self.p2_out(w2[0, 0] * p2_x + w2[1, 0] * p2_td + w2[2, 0] * F.interpolate(p1_out, scale_factor=0.5, mode='bilinear', align_corners=True))
+        p3_out = self.p3_out(w2[0, 1] * p3_x + w2[1, 1] * p3_td + w2[2, 1] * F.interpolate(p2_out, scale_factor=0.5, mode='bilinear', align_corners=True))
+        p4_out = self.p4_out(w2[0, 2] * p4_x + w2[1, 2] * p4_td + w2[2, 2] * F.interpolate(p3_out, scale_factor=0.5, mode='bilinear', align_corners=True))
+        p5_out = self.p5_out(w2[0, 3] * p5_x + w2[1, 3] * p5_td + w2[2, 3] * F.interpolate(p4_out, scale_factor=0.5, mode='bilinear', align_corners=True))
+        return p1_out, p2_out, p3_out, p4_out, p5_out
 
 
 class BiFPNDecoder(nn.Module):
 
-    def __init__(self, bone_feat_sizes, feature_size=64, expand_ratio=1, fpn_repeats=3):
+    def __init__(self, bone_feat_sizes, feature_size=64, fpn_repeats=2):
         super(BiFPNDecoder, self).__init__()
-        self.p1 = ConvBlock(bone_feat_sizes[0], feature_size, kernel_size=1, stride=1, act_type='relu')
-        self.p2 = ConvBlock(bone_feat_sizes[1], feature_size, kernel_size=1, stride=1, act_type='relu')
-        self.p3 = ConvBlock(bone_feat_sizes[2], feature_size, kernel_size=1, stride=1, act_type='relu')
-        self.p4 = ConvBlock(bone_feat_sizes[3], feature_size, kernel_size=1, stride=1, act_type='relu')
-        self.p5 = ConvBlock(bone_feat_sizes[4], feature_size, kernel_size=1, stride=1, act_type='relu')
+        self.p1 = ConvBlock(bone_feat_sizes[0], feature_size, kernel_size=1, stride=1)
+        self.p2 = ConvBlock(bone_feat_sizes[1], feature_size, kernel_size=1, stride=1)
+        self.p3 = ConvBlock(bone_feat_sizes[2], feature_size, kernel_size=1, stride=1)
+        self.p4 = ConvBlock(bone_feat_sizes[3], feature_size, kernel_size=1, stride=1)
+        self.p5 = ConvBlock(bone_feat_sizes[4], feature_size, kernel_size=1, stride=1)
         bifpns_seq = []
         for bifpn_id in range(fpn_repeats):
-            bifpns_seq.append(('bi_fpn%d' % (bifpn_id + 1), BiFPNBlock(feature_size=feature_size, expand_ratio=expand_ratio)))
+            bifpns_seq.append(('bi_fpn%d' % (bifpn_id + 1), BiFPNBlock(feature_size)))
         self.bifpns = nn.Sequential(OrderedDict(bifpns_seq))
 
     def forward(self, feat1, feat2, feat3, feat4, feat5):
-        return self.bifpns([self.p1(feat1), self.p2(feat2), self.p3(feat3), self.p4(feat4), self.p5(feat5)])
+        p1 = self.p1(feat1)
+        p2 = self.p2(feat2)
+        p3 = self.p3(feat3)
+        p4 = self.p4(feat4)
+        p5 = self.p5(feat5)
+        return self.bifpns([p1, p2, p3, p4, p5])
 
 
 class MixNetSeg(nn.Module):
@@ -419,6 +467,460 @@ class MixNetSeg(nn.Module):
         return aux_score, main_score
 
 
+ACT_ELU = 'elu'
+
+
+ACT_LEAKY_RELU = 'leaky_relu'
+
+
+ACT_RELU = 'relu'
+
+
+class ABN(nn.Module):
+    """Activated Batch Normalization
+
+    This gathers a `BatchNorm2d` and an activation function in a single module
+    """
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
+        """Creates an Activated Batch Normalization module
+
+        Parameters
+        ----------
+        num_features : int
+            Number of feature channels in the input and output.
+        eps : float
+            Small constant to prevent numerical issues.
+        momentum : float
+            Momentum factor applied to compute running statistics as.
+        affine : bool
+            If `True` apply learned scale and shift transformation after normalization.
+        activation : str
+            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
+        slope : float
+            Negative slope for the `leaky_relu` activation.
+        """
+        super(ABN, self).__init__()
+        self.num_features = num_features
+        self.affine = affine
+        self.eps = eps
+        self.momentum = momentum
+        self.activation = activation
+        self.slope = slope
+        if self.affine:
+            self.weight = nn.Parameter(torch.ones(num_features))
+            self.bias = nn.Parameter(torch.zeros(num_features))
+        else:
+            self.register_parameter('weight', None)
+            self.register_parameter('bias', None)
+        self.register_buffer('running_mean', torch.zeros(num_features))
+        self.register_buffer('running_var', torch.ones(num_features))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.constant_(self.running_mean, 0)
+        nn.init.constant_(self.running_var, 1)
+        if self.affine:
+            nn.init.constant_(self.weight, 1)
+            nn.init.constant_(self.bias, 0)
+
+    def forward(self, x):
+        x = functional.batch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
+        if self.activation == ACT_RELU:
+            return functional.relu(x, inplace=True)
+        elif self.activation == ACT_LEAKY_RELU:
+            return functional.leaky_relu(x, negative_slope=self.slope, inplace=True)
+        elif self.activation == ACT_ELU:
+            return functional.elu(x, inplace=True)
+        else:
+            return x
+
+    def __repr__(self):
+        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
+        if self.activation == 'leaky_relu':
+            rep += ', slope={slope})'
+        else:
+            rep += ')'
+        return rep.format(name=self.__class__.__name__, **self.__dict__)
+
+
+class InPlaceABN(ABN):
+    """InPlace Activated Batch Normalization"""
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
+        """Creates an InPlace Activated Batch Normalization module
+
+        Parameters
+        ----------
+        num_features : int
+            Number of feature channels in the input and output.
+        eps : float
+            Small constant to prevent numerical issues.
+        momentum : float
+            Momentum factor applied to compute running statistics as.
+        affine : bool
+            If `True` apply learned scale and shift transformation after normalization.
+        activation : str
+            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
+        slope : float
+            Negative slope for the `leaky_relu` activation.
+        """
+        super(InPlaceABN, self).__init__(num_features, eps, momentum, affine, activation, slope)
+
+    def forward(self, x):
+        return inplace_abn(x, self.weight, self.bias, self.running_mean, self.running_var, self.training, self.momentum, self.eps, self.activation, self.slope)
+
+
+class DSASPPInPlaceABNBlock(nn.Module):
+
+    def __init__(self, in_chs, out_chs, up_ratio=2, aspp_dilate=(12, 24, 36), norm_act=InPlaceABN):
+        super(DSASPPInPlaceABNBlock, self).__init__()
+        self.up_ratio = up_ratio
+        self.in_norm = norm_act(in_chs)
+        self.gave_pool = nn.Sequential(OrderedDict([('gavg', nn.AdaptiveAvgPool2d((3, 3))), ('conv1_0', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, groups=1, dilation=1, bias=False))]))
+        self.conv1x1 = nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, groups=1, dilation=1, bias=False)
+        self.aspp_bra1 = nn.Conv2d(in_chs, in_chs, kernel_size=3, stride=1, padding=aspp_dilate[0], groups=in_chs, dilation=aspp_dilate[0], bias=False)
+        self.aspp_bra2 = nn.Conv2d(in_chs, in_chs, kernel_size=3, stride=1, padding=aspp_dilate[1], groups=in_chs, dilation=aspp_dilate[1], bias=False)
+        self.aspp_bra3 = nn.Conv2d(in_chs, in_chs, kernel_size=3, stride=1, padding=aspp_dilate[2], groups=in_chs, dilation=aspp_dilate[2], bias=False)
+        self.aspp_catdown = nn.Sequential(OrderedDict([('norm_act', norm_act(3 * in_chs + 2 * out_chs)), ('conv_down', nn.Conv2d(3 * in_chs + 2 * out_chs, out_chs, kernel_size=1, stride=1, padding=1, groups=1, dilation=1, bias=False))]))
+
+    def forward(self, x):
+        _, _, feat_h, feat_w = x.size()
+        x = self.in_norm(x)
+        x = self.aspp_catdown(torch.cat((self.aspp_bra1(x), F.interpolate(input=self.gave_pool(x), size=(feat_h, feat_w), mode='bilinear', align_corners=True), self.aspp_bra2(x), self.conv1x1(x), self.aspp_bra3(x)), dim=1))
+        return F.interpolate(input=x, size=(int(feat_h * self.up_ratio), int(feat_w * self.up_ratio)), mode='bilinear', align_corners=True)
+
+
+class InPlaceABNSync(ABN):
+    """InPlace Activated Batch Normalization with cross-GPU synchronization
+    This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DistributedDataParallel`.
+    """
+
+    def forward(self, x):
+        return inplace_abn_sync(x, self.weight, self.bias, self.running_mean, self.running_var, self.training, self.momentum, self.eps, self.activation, self.slope)
+
+    def __repr__(self):
+        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
+        if self.activation == 'leaky_relu':
+            rep += ', slope={slope})'
+        else:
+            rep += ')'
+        return rep.format(name=self.__class__.__name__, **self.__dict__)
+
+
+class InvertedResidual(nn.Module):
+
+    def __init__(self, inp, oup, stride, dilate, expand_ratio):
+        """
+        InvertedResidual: Core block of the MobileNetV2
+        :param inp:    (int) Number of the input channels
+        :param oup:    (int) Number of the output channels
+        :param stride: (int) Stride used in the Conv3x3
+        :param dilate: (int) Dilation used in the Conv3x3
+        :param expand_ratio: (int) Expand ratio of the Channel Width of the Block
+        """
+        super(InvertedResidual, self).__init__()
+        self.stride = stride
+        assert stride in [1, 2]
+        self.use_res_connect = self.stride == 1 and inp == oup
+        self.conv = nn.Sequential(nn.Conv2d(in_channels=inp, out_channels=inp * expand_ratio, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False), nn.BatchNorm2d(num_features=inp * expand_ratio), nn.LeakyReLU(inplace=True, negative_slope=0.01), nn.Conv2d(in_channels=inp * expand_ratio, out_channels=inp * expand_ratio, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=inp * expand_ratio, bias=False), nn.BatchNorm2d(num_features=inp * expand_ratio), nn.LeakyReLU(inplace=True, negative_slope=0.01), nn.Conv2d(in_channels=inp * expand_ratio, out_channels=oup, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False), nn.BatchNorm2d(num_features=oup))
+
+    def forward(self, x):
+        if self.use_res_connect:
+            return x + self.conv(x)
+        else:
+            return self.conv(x)
+
+
+class InvertedResidualIABN(nn.Module):
+
+    def __init__(self, inp, oup, stride, dilate, expand_ratio, norm_act=InPlaceABN):
+        """
+        InvertedResidual: Core block of the MobileNetV2
+        :param inp:    (int) Number of the input channels
+        :param oup:    (int) Number of the output channels
+        :param stride: (int) Stride used in the Conv3x3
+        :param dilate: (int) Dilation used in the Conv3x3
+        :param expand_ratio: (int) Expand ratio of the Channel Width of the Block
+        """
+        super(InvertedResidualIABN, self).__init__()
+        self.stride = stride
+        assert stride in [1, 2]
+        self.use_res_connect = self.stride == 1 and inp == oup
+        self.conv = nn.Sequential(norm_act(inp), nn.Conv2d(in_channels=inp, out_channels=inp * expand_ratio, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False), norm_act(inp * expand_ratio), nn.Conv2d(in_channels=inp * expand_ratio, out_channels=inp * expand_ratio, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=inp * expand_ratio, bias=False), norm_act(inp * expand_ratio), nn.Conv2d(in_channels=inp * expand_ratio, out_channels=oup, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False))
+
+    def forward(self, x):
+        if self.use_res_connect:
+            return x + self.conv(x)
+        else:
+            return self.conv(x)
+
+
+class PBCSABlock(nn.Module):
+    """
+    Parallel Bottleneck Channel-Spatial Attention Block
+    """
+
+    def __init__(self, in_chns, reduct_ratio=16, dilation=4, use_res=True):
+        super(PBCSABlock, self).__init__()
+        self.use_res = use_res
+        self.ch_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.ch_max_pool = nn.AdaptiveMaxPool2d((1, 1))
+        self.se_block = nn.Sequential(nn.Conv2d(in_chns, in_chns // reduct_ratio, kernel_size=1, stride=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(in_chns // reduct_ratio, in_chns, kernel_size=1, stride=1, padding=0))
+        self.sp_conv = nn.Sequential(nn.Conv2d(in_chns, in_chns // reduct_ratio, kernel_size=1, stride=1, padding=0, bias=False), nn.Conv2d(in_chns // reduct_ratio, in_chns // reduct_ratio, kernel_size=3, stride=1, padding=dilation, dilation=dilation, bias=False), nn.Conv2d(in_chns // reduct_ratio, in_chns // reduct_ratio, kernel_size=3, stride=1, padding=dilation, dilation=dilation, bias=False), nn.Conv2d(in_chns // reduct_ratio, 1, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(1))
+
+    def forward(self, x):
+        ch_att = self.se_block(self.ch_avg_pool(x) + self.ch_max_pool(x))
+        ch_att = torch.mul(x, ch_att.sigmoid().exp())
+        sp_att = torch.mul(x, self.sp_conv(x).sigmoid().exp())
+        if self.use_res:
+            return sp_att + x + ch_att
+        return sp_att + ch_att
+
+
+class MobileNetV2Plus(nn.Module):
+
+    def __init__(self, num_classes=19, width_multi=1.0, fuse_chns=512, aspp_chns=256, aspp_dilate=(12, 24, 36), norm_act=InPlaceABN):
+        """
+        MobileNetV2Plus: MobileNetV2 based Semantic Segmentation
+        :param num_classes:    (int)  Number of classes
+        :param width_multi: (float) Network width multiplier
+        :param aspp_chns:    (tuple) Number of the output channels of the ASPP Block
+        :param aspp_dilate:   (tuple) Dilation rates used in ASPP
+        """
+        super(MobileNetV2Plus, self).__init__()
+        self.num_classes = num_classes
+        self.inverted_residual_setting = [[1, 16, 1, 1, 1], [6, 24, 2, 2, 1], [6, 32, 3, 2, 1], [6, 64, 4, 1, 2], [6, 96, 3, 1, 4], [6, 160, 3, 1, 8], [6, 320, 1, 1, 16]]
+        input_channel = int(32 * width_multi)
+        self.mod1 = nn.Sequential(OrderedDict([('conv', nn.Conv2d(3, input_channel, kernel_size=3, stride=2, padding=1, bias=False)), ('norm', nn.BatchNorm2d(input_channel)), ('act', nn.LeakyReLU(inplace=True, negative_slope=0.01))]))
+        mod_id = 0
+        for t, c, n, s, d in self.inverted_residual_setting:
+            output_channel = int(c * width_multi)
+            blocks = []
+            for block_id in range(n):
+                if block_id == 0 and s == 2:
+                    blocks.append(('block%d' % (block_id + 1), InvertedResidual(inp=input_channel, oup=output_channel, stride=s, dilate=1, expand_ratio=t)))
+                else:
+                    blocks.append(('block%d' % (block_id + 1), InvertedResidual(inp=input_channel, oup=output_channel, stride=1, dilate=d, expand_ratio=t)))
+                input_channel = output_channel
+            self.add_module('mod%d' % (mod_id + 2), nn.Sequential(OrderedDict(blocks)))
+            mod_id += 1
+        org_last_chns = self.inverted_residual_setting[0][1] + self.inverted_residual_setting[1][1] + self.inverted_residual_setting[2][1] + self.inverted_residual_setting[3][1] + self.inverted_residual_setting[4][1] + self.inverted_residual_setting[5][1] + self.inverted_residual_setting[6][1]
+        feat_chns = int(org_last_chns * width_multi) if width_multi > 1.0 else org_last_chns
+        self.feat_fuse = InvertedResidualIABN(inp=feat_chns, oup=fuse_chns, stride=1, dilate=1, expand_ratio=1, norm_act=norm_act)
+        self.pyramid_pool = DSASPPInPlaceABNBlock(fuse_chns, aspp_chns, aspp_dilate=aspp_dilate, norm_act=norm_act)
+        feat_chns = aspp_chns + self.inverted_residual_setting[1][1] + self.inverted_residual_setting[0][1]
+        self.final_fuse = InvertedResidualIABN(inp=feat_chns, oup=aspp_chns, stride=1, dilate=1, expand_ratio=1, norm_act=norm_act)
+        self.aspp_scse = PBCSABlock(in_chns=aspp_chns, reduct_ratio=16, dilation=16, use_res=True)
+        self.score = nn.Sequential(OrderedDict([('dropout', nn.Dropout2d(0.175)), ('norm', norm_act(aspp_chns)), ('conv', nn.Conv2d(aspp_chns, self.num_classes, kernel_size=1, stride=1, padding=0, bias=True))]))
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, a=0.1, mode='fan_in', nonlinearity='leaky_relu')
+                if hasattr(m, 'bias') and m.bias is not None:
+                    init.constant_(m.bias, 0.0)
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, ABN) or isinstance(m, InPlaceABN) or isinstance(m, InPlaceABNSync):
+                init.normal_(m.weight, 1.0, 0.0256)
+                init.constant_(m.bias, 0.0)
+            elif isinstance(m, nn.Linear):
+                init.xavier_uniform_(m.weight, 0.1)
+                init.constant_(m.bias, 0.0)
+
+    def train(self, mode=True, freeze_bn=False, freeze_bn_affine=False):
+        super(MobileNetV2Plus, self).train()
+        if freeze_bn:
+            for m in self.modules():
+                if isinstance(m, nn.BatchNorm2d):
+                    m.eval()
+                    if freeze_bn_affine:
+                        m.weight.requires_grad = False
+                        m.bias.requires_grad = False
+
+    def forward(self, x):
+        _, _, in_h, in_w = x.size()
+        assert in_h % 8 == 0 and in_w % 8 == 0, '> in_size must product of 8!!!'
+        stg1 = self.mod1(x)
+        stg1 = self.mod2(stg1)
+        stg1_1 = F.max_pool2d(input=stg1, kernel_size=3, stride=2, padding=1)
+        stg1_2 = F.max_pool2d(input=stg1_1, kernel_size=3, stride=2, padding=1)
+        stg2 = self.mod3(stg1)
+        stg2_1 = F.max_pool2d(input=stg2, kernel_size=3, stride=2, padding=1)
+        stg3 = self.mod4(stg2)
+        stg4 = self.mod5(stg3)
+        stg5 = self.mod6(stg4)
+        stg6 = self.mod7(stg5)
+        stg7 = self.mod8(stg6)
+        feat = self.feat_fuse(torch.cat((stg3, stg4, stg5, stg6, stg7, stg1_2, stg2_1), dim=1))
+        feat = self.aspp_scse(self.final_fuse(torch.cat((stg2, self.pyramid_pool(feat), stg1_1), dim=1)))
+        feat = F.interpolate(input=self.score(feat), size=(in_h, in_w), mode='bilinear', align_corners=True)
+        return feat
+
+
+def channel_shuffle(x, groups):
+    batch_size, num_channels, height, width = x.size()
+    channels_per_group = num_channels // groups
+    x = x.view(batch_size, groups, channels_per_group, height, width)
+    x = torch.transpose(x, 1, 2).contiguous()
+    x = x.view(batch_size, -1, height, width)
+    return x
+
+
+class ShuffleRes(nn.Module):
+
+    def __init__(self, in_chns, out_chns, stride, dilate, branch_model):
+        super(ShuffleRes, self).__init__()
+        self.branch_model = branch_model
+        assert stride in [1, 2]
+        self.stride = stride
+        mid_chns = out_chns // 2
+        if self.branch_model == 1:
+            self.branch2 = nn.Sequential(nn.Conv2d(mid_chns, mid_chns, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_chns), nn.LeakyReLU(inplace=True, negative_slope=0.01), nn.Conv2d(mid_chns, mid_chns, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=mid_chns, bias=False), nn.BatchNorm2d(mid_chns), nn.Conv2d(mid_chns, mid_chns, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_chns), nn.LeakyReLU(inplace=True, negative_slope=0.01))
+        else:
+            self.branch1 = nn.Sequential(nn.Conv2d(in_chns, in_chns, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=in_chns, bias=False), nn.BatchNorm2d(in_chns), nn.Conv2d(in_chns, mid_chns, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_chns), nn.LeakyReLU(inplace=True, negative_slope=0.01))
+            self.branch2 = nn.Sequential(nn.Conv2d(in_chns, mid_chns, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_chns), nn.LeakyReLU(inplace=True, negative_slope=0.01), nn.Conv2d(mid_chns, mid_chns, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=mid_chns, bias=False), nn.BatchNorm2d(mid_chns), nn.Conv2d(mid_chns, mid_chns, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_chns), nn.LeakyReLU(inplace=True, negative_slope=0.01))
+
+    def forward(self, x):
+        if 1 == self.branch_model:
+            x1 = x[:, :x.shape[1] // 2, :, :]
+            x2 = x[:, x.shape[1] // 2:, :, :]
+            out = torch.cat((x1, self.branch2(x2)), dim=1)
+        elif 2 == self.branch_model:
+            out = torch.cat((self.branch1(x), self.branch2(x)), dim=1)
+        return channel_shuffle(out, 2)
+
+
+class ShuffleResIABN(nn.Module):
+
+    def __init__(self, in_chns, out_chns, stride, dilate, branch_model, norm_act=InPlaceABN):
+        super(ShuffleResIABN, self).__init__()
+        self.branch_model = branch_model
+        self.stride = stride
+        assert stride in [1, 2]
+        mid_chns = out_chns // 2
+        if self.branch_model == 1:
+            self.in_norm = norm_act(mid_chns)
+            self.branch2 = nn.Sequential(nn.Conv2d(mid_chns, mid_chns, 1, 1, 0, bias=False), norm_act(mid_chns), nn.Conv2d(mid_chns, mid_chns, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=mid_chns, bias=False), norm_act(mid_chns), nn.Conv2d(mid_chns, mid_chns, 1, 1, 0, bias=False))
+        else:
+            self.in_norm = norm_act(in_chns)
+            self.branch1 = nn.Sequential(nn.Conv2d(in_chns, in_chns, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=in_chns, bias=False), norm_act(in_chns), nn.Conv2d(in_chns, mid_chns, 1, 1, 0, bias=False))
+            self.branch2 = nn.Sequential(nn.Conv2d(in_chns, mid_chns, 1, 1, 0, bias=False), norm_act(mid_chns), nn.Conv2d(mid_chns, mid_chns, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=mid_chns, bias=False), norm_act(mid_chns), nn.Conv2d(mid_chns, mid_chns, 1, 1, 0, bias=False))
+
+    def forward(self, x):
+        if 1 == self.branch_model:
+            x = self.in_norm(x)
+            x1 = x[:, :x.shape[1] // 2, :, :]
+            x2 = x[:, x.shape[1] // 2:, :, :]
+            out = torch.cat((x1, self.branch2(x2)), dim=1)
+        elif 2 == self.branch_model:
+            x = self.in_norm(x)
+            out = torch.cat((self.branch1(x), self.branch2(x)), dim=1)
+        return channel_shuffle(out, groups=2)
+
+
+class UnsharpMaskV2(nn.Module):
+
+    def __init__(self, channel, kernel_size=7, padding=3, amount=1.0, threshold=0, norm_act=ABN):
+        super(UnsharpMaskV2, self).__init__()
+        self.kernel_size = kernel_size
+        self.padding = padding
+        self.amount = amount
+        self.threshold = threshold
+        self.norm_act = norm_act(channel)
+
+    def forward(self, x):
+        x = self.norm_act(x)
+        res = x.clone()
+        blurred = F.avg_pool2d(input=x, kernel_size=self.kernel_size, stride=1, padding=self.padding, ceil_mode=False, count_include_pad=True)
+        sharpened = res * (self.amount + 1.0) - blurred * self.amount
+        if self.threshold > 0:
+            sharpened = torch.where(torch.abs(res - blurred) < self.threshold, sharpened, res)
+        return sharpened
+
+
+class ShuffleNetV2Plus(nn.Module):
+
+    def __init__(self, num_classes=19, fuse_chns=512, aspp_chns=256, aspp_dilate=(12, 24, 36), width_multi=1.0, norm_act=InPlaceABN):
+        super(ShuffleNetV2Plus, self).__init__()
+        self.stg_repeats = [4, 8, 4]
+        self.stride = [2, 1, 1]
+        self.dilate = [1, 2, 4]
+        if width_multi == 0.5:
+            self.stg_chns = [-1, 24, 48, 96, 192]
+        elif width_multi == 1.0:
+            self.stg_chns = [-1, 24, 116, 232, 464]
+        elif width_multi == 1.5:
+            self.stg_chns = [-1, 24, 176, 352, 704]
+        elif width_multi == 2.0:
+            self.stg_chns = [-1, 24, 224, 488, 976]
+        else:
+            raise ValueError('{} width_multi is not supported'.format(width_multi))
+        input_channel = self.stg_chns[1]
+        self.mod1 = nn.Sequential(OrderedDict([('conv', nn.Conv2d(3, input_channel, kernel_size=3, stride=2, padding=1, bias=False)), ('norm', nn.BatchNorm2d(input_channel)), ('act', nn.LeakyReLU(inplace=True, negative_slope=0.01)), ('pool', nn.MaxPool2d(kernel_size=3, stride=2, padding=1))]))
+        self.features = []
+        mod_id = 0
+        for stg_idx in range(len(self.stg_repeats)):
+            num_repeat = self.stg_repeats[stg_idx]
+            stride = self.stride[stg_idx]
+            dilate = self.dilate[stg_idx]
+            output_channel = self.stg_chns[stg_idx + 2]
+            blocks = []
+            for block_id in range(num_repeat):
+                if block_id == 0:
+                    blocks.append(('block%d' % (block_id + 1), ShuffleRes(input_channel, output_channel, stride=stride, dilate=1, branch_model=2)))
+                else:
+                    blocks.append(('block%d' % (block_id + 1), ShuffleRes(input_channel, output_channel, stride=1, dilate=dilate, branch_model=1)))
+                input_channel = output_channel
+            self.add_module('mod%d' % (mod_id + 2), nn.Sequential(OrderedDict(blocks)))
+            mod_id += 1
+        feat_chns = self.stg_chns[1] + self.stg_chns[2] + self.stg_chns[3] + self.stg_chns[4]
+        self.feat_fusion = ShuffleResIABN(feat_chns, fuse_chns, stride=1, dilate=2, branch_model=2, norm_act=norm_act)
+        self.pyramid_pool = DSASPPInPlaceABNBlock(fuse_chns, aspp_chns, aspp_dilate=aspp_dilate, norm_act=norm_act)
+        feat_chns = aspp_chns + self.stg_chns[1]
+        self.final_fusion = ShuffleResIABN(feat_chns, aspp_chns, stride=1, dilate=2, branch_model=2, norm_act=norm_act)
+        self.usm = UnsharpMaskV2(aspp_chns, kernel_size=9, padding=4, amount=1.0, threshold=0, norm_act=norm_act)
+        self.aspp_scse = PBCSABlock(in_chns=aspp_chns, reduct_ratio=16, dilation=4, use_res=True)
+        self.score = nn.Sequential(OrderedDict([('dropout', nn.Dropout2d(0.175)), ('norm', norm_act(aspp_chns)), ('conv', nn.Conv2d(aspp_chns, num_classes, kernel_size=1, stride=1, padding=0, bias=True))]))
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, a=0.01, mode='fan_in', nonlinearity='leaky_relu')
+                if hasattr(m, 'bias') and m.bias is not None:
+                    init.constant_(m.bias, 0.0)
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, ABN) or isinstance(m, InPlaceABN) or isinstance(m, InPlaceABNSync):
+                init.normal_(m.weight, 1.0, 0.0256)
+                init.constant_(m.bias, 0.0)
+            elif isinstance(m, nn.Linear):
+                init.xavier_uniform_(m.weight, 0.1)
+                init.constant_(m.bias, 0.0)
+
+    def train(self, mode=True, freeze_bn=False, freeze_bn_affine=False):
+        super(ShuffleNetV2Plus, self).train()
+        if freeze_bn:
+            for m in self.modules():
+                if isinstance(m, nn.BatchNorm2d):
+                    m.eval()
+                    if freeze_bn_affine:
+                        m.weight.requires_grad = False
+                        m.bias.requires_grad = False
+
+    def forward(self, x):
+        _, _, in_h, in_w = x.size()
+        assert in_h % 8 == 0 and in_w % 8 == 0, '> Error, in_size must be product of 8!!!'
+        stg1 = self.mod1(x)
+        stg1_1 = F.max_pool2d(input=stg1, kernel_size=3, stride=2, padding=1)
+        stg2 = self.mod2(stg1)
+        stg3 = self.mod3(stg2)
+        stg4 = self.mod4(stg3)
+        feat = self.feat_fusion(torch.cat((stg2, stg4, stg3, stg1_1), dim=1))
+        feat = self.aspp_scse(self.usm(self.final_fusion(torch.cat((stg1, self.pyramid_pool(feat)), dim=1))))
+        feat = F.interpolate(input=self.score(feat), size=(in_h, in_w), mode='bilinear', align_corners=True)
+        return feat
+
+
 class ASPPBlock(nn.Module):
 
     def __init__(self, in_chs, out_chs, up_ratio=2, aspp_dilate=(4, 8, 12)):
@@ -437,16 +939,56 @@ class ASPPBlock(nn.Module):
         return F.interpolate(input=self.aspp_catdown(x), size=(int(feat_h * self.up_ratio), int(feat_w * self.up_ratio)), mode='bilinear', align_corners=True)
 
 
-class SEBlock(nn.Module):
+class ASPPInPlaceABNBlock(nn.Module):
 
-    def __init__(self, channel, reduct_ratio=16):
-        super(SEBlock, self).__init__()
-        self.channel_se = nn.Sequential(OrderedDict([('avgpool', nn.AdaptiveAvgPool2d(1)), ('linear1', nn.Conv2d(channel, channel // reduct_ratio, kernel_size=1, stride=1, padding=0)), ('relu', nn.ReLU(inplace=True)), ('linear2', nn.Conv2d(channel // reduct_ratio, channel, kernel_size=1, stride=1, padding=0))]))
+    def __init__(self, in_chs, out_chs, up_ratio=2, aspp_dilate=(12, 24, 36), norm_act=InPlaceABN):
+        super(ASPPInPlaceABNBlock, self).__init__()
+        self.up_ratio = up_ratio
+        self.in_norm = norm_act(in_chs)
+        self.gave_pool = nn.Sequential(OrderedDict([('gavg', nn.AdaptiveAvgPool2d((3, 3))), ('conv1_0', nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, groups=1, bias=False, dilation=1))]))
+        self.conv1x1 = nn.Conv2d(in_chs, out_chs, kernel_size=1, stride=1, padding=0, groups=1, dilation=1, bias=False)
+        self.aspp_bra1 = nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_dilate[0], groups=1, dilation=aspp_dilate[0], bias=False)
+        self.aspp_bra2 = nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_dilate[1], groups=1, dilation=aspp_dilate[1], bias=False)
+        self.aspp_bra3 = nn.Conv2d(in_chs, out_chs, kernel_size=3, stride=1, padding=aspp_dilate[2], groups=1, dilation=aspp_dilate[2], bias=False)
+        self.aspp_catdown = nn.Sequential(OrderedDict([('norm_act', norm_act(5 * out_chs)), ('conv_down', nn.Conv2d(5 * out_chs, out_chs, kernel_size=1, stride=1, padding=1, bias=False, groups=1, dilation=1)), ('dropout', nn.Dropout2d(p=0.25, inplace=True))]))
 
     def forward(self, x):
-        inputs = x
-        chn_se = self.channel_se(x).sigmoid().exp()
-        return torch.mul(inputs, chn_se)
+        _, _, feat_h, feat_w = x.size()
+        x = self.in_norm(x)
+        x = torch.cat((self.aspp_bra1(x), F.interpolate(input=self.gave_pool(x), size=(feat_h, feat_w), mode='bilinear', align_corners=True), self.aspp_bra2(x), self.conv1x1(x), self.aspp_bra3(x)), dim=1)
+        return F.interpolate(input=self.aspp_catdown(x), size=(int(feat_h * self.up_ratio), int(feat_w * self.up_ratio)), mode='bilinear', align_corners=True)
+
+
+class DenseAsppBlock(nn.Sequential):
+    """ ConvNet block for building DenseASPP. """
+
+    def __init__(self, input_num, num1, num2, dilation_rate, drop_out, norm_act=InPlaceABN):
+        super(DenseAsppBlock, self).__init__()
+        self.add_module('norm_1', norm_act(input_num))
+        self.add_module('conv_1', nn.Conv2d(in_channels=input_num, out_channels=num1, kernel_size=1))
+        self.add_module('norm_2', norm_act(num1))
+        self.add_module('conv_2', nn.Conv2d(in_channels=num1, out_channels=num2, kernel_size=3, dilation=dilation_rate, padding=dilation_rate))
+        self.drop_rate = drop_out
+
+    def forward(self, _input):
+        feature = super(DenseAsppBlock, self).forward(_input)
+        if self.drop_rate > 0:
+            feature = F.dropout2d(feature, p=self.drop_rate, training=self.training)
+        return feature
+
+
+class LightHeadBlock(nn.Module):
+
+    def __init__(self, in_chs, mid_chs=64, out_chs=256, kernel_size=15):
+        super(LightHeadBlock, self).__init__()
+        pad = int((kernel_size - 1) / 2)
+        self.conv_l = nn.Sequential(OrderedDict([('conv_lu', nn.Conv2d(in_chs, mid_chs, kernel_size=(kernel_size, 1), padding=(pad, 0))), ('conv_ld', nn.Conv2d(mid_chs, out_chs, kernel_size=(1, kernel_size), padding=(0, pad)))]))
+        self.conv_r = nn.Sequential(OrderedDict([('conv_ru', nn.Conv2d(in_chs, mid_chs, kernel_size=(1, kernel_size), padding=(0, pad))), ('conv_rd', nn.Conv2d(mid_chs, out_chs, kernel_size=(kernel_size, 1), padding=(pad, 0)))]))
+
+    def forward(self, x):
+        x_l = self.conv_l(x)
+        x_r = self.conv_r(x)
+        return torch.add(x_l, 1, x_r)
 
 
 class SCSEBlock(nn.Module):
@@ -509,28 +1051,6 @@ class SCSABlock(nn.Module):
         if self.is_res:
             return sp_att + self.gamma * res
         return sp_att
-
-
-class PBCSABlock(nn.Module):
-    """
-    Parallel Bottleneck Channel-Spatial Attention Block
-    """
-
-    def __init__(self, in_chns, reduct_ratio=16, dilation=4, use_res=True):
-        super(PBCSABlock, self).__init__()
-        self.use_res = use_res
-        self.ch_avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.ch_max_pool = nn.AdaptiveMaxPool2d((1, 1))
-        self.se_block = nn.Sequential(nn.Conv2d(in_chns, in_chns // reduct_ratio, kernel_size=1, stride=1, padding=0), nn.ReLU(inplace=True), nn.Conv2d(in_chns // reduct_ratio, in_chns, kernel_size=1, stride=1, padding=0))
-        self.sp_conv = nn.Sequential(nn.Conv2d(in_chns, in_chns // reduct_ratio, kernel_size=1, stride=1, padding=0, bias=False), nn.Conv2d(in_chns // reduct_ratio, in_chns // reduct_ratio, kernel_size=3, stride=1, padding=dilation, dilation=dilation, bias=False), nn.Conv2d(in_chns // reduct_ratio, in_chns // reduct_ratio, kernel_size=3, stride=1, padding=dilation, dilation=dilation, bias=False), nn.Conv2d(in_chns // reduct_ratio, 1, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(1))
-
-    def forward(self, x):
-        ch_att = self.se_block(self.ch_avg_pool(x) + self.ch_max_pool(x))
-        ch_att = torch.mul(x, ch_att.sigmoid().exp())
-        sp_att = torch.mul(x, self.sp_conv(x).sigmoid().exp())
-        if self.use_res:
-            return sp_att + x + ch_att
-        return sp_att + ch_att
 
 
 class PABlock(nn.Module):
@@ -747,6 +1267,25 @@ class ModulatedDeformConv(nn.Module):
         return modulated_deform_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
 
 
+class ModulatedDeformConvPack(ModulatedDeformConv):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, bias=True):
+        super(ModulatedDeformConvPack, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, deformable_groups, bias)
+        self.conv_offset_mask = nn.Conv2d(self.in_channels // self.groups, self.deformable_groups * 3 * self.kernel_size[0] * self.kernel_size[1], kernel_size=self.kernel_size, stride=_pair(self.stride), padding=_pair(self.padding), bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset_mask.weight.data.zero_()
+        self.conv_offset_mask.bias.data.zero_()
+
+    def forward(self, input):
+        out = self.conv_offset_mask(input)
+        o1, o2, mask = torch.chunk(out, 3, dim=1)
+        offset = torch.cat((o1, o2), dim=1)
+        mask = torch.sigmoid(mask)
+        return modulated_deform_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
+
+
 class DeformRoIPoolingFunction(Function):
 
     @staticmethod
@@ -806,6 +1345,87 @@ class DeformRoIPooling(nn.Module):
         return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
 
 
+class DeformRoIPoolingPack(DeformRoIPooling):
+
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, deform_fc_channels=1024):
+        super(DeformRoIPoolingPack, self).__init__(spatial_scale, out_size, out_channels, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.deform_fc_channels = deform_fc_channels
+        if not no_trans:
+            self.offset_fc = nn.Sequential(nn.Linear(self.out_size * self.out_size * self.out_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.out_size * self.out_size * 2))
+            self.offset_fc[-1].weight.data.zero_()
+            self.offset_fc[-1].bias.data.zero_()
+
+    def forward(self, data, rois):
+        assert data.size(1) == self.out_channels
+        if self.no_trans:
+            offset = data.new_empty(0)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+        else:
+            n = rois.shape[0]
+            offset = data.new_empty(0)
+            x = deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset = self.offset_fc(x.view(n, -1))
+            offset = offset.view(n, 2, self.out_size, self.out_size)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+
+
+class ModulatedDeformRoIPoolingPack(DeformRoIPooling):
+
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, deform_fc_channels=1024):
+        super(ModulatedDeformRoIPoolingPack, self).__init__(spatial_scale, out_size, out_channels, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.deform_fc_channels = deform_fc_channels
+        if not no_trans:
+            self.offset_fc = nn.Sequential(nn.Linear(self.out_size * self.out_size * self.out_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.out_size * self.out_size * 2))
+            self.offset_fc[-1].weight.data.zero_()
+            self.offset_fc[-1].bias.data.zero_()
+            self.mask_fc = nn.Sequential(nn.Linear(self.out_size * self.out_size * self.out_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.out_size * self.out_size * 1), nn.Sigmoid())
+            self.mask_fc[2].weight.data.zero_()
+            self.mask_fc[2].bias.data.zero_()
+
+    def forward(self, data, rois):
+        assert data.size(1) == self.out_channels
+        if self.no_trans:
+            offset = data.new_empty(0)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+        else:
+            n = rois.shape[0]
+            offset = data.new_empty(0)
+            x = deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset = self.offset_fc(x.view(n, -1))
+            offset = offset.view(n, 2, self.out_size, self.out_size)
+            mask = self.mask_fc(x.view(n, -1))
+            mask = mask.view(n, 1, self.out_size, self.out_size)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std) * mask
+
+
+class DenseModule(nn.Module):
+
+    def __init__(self, in_channels, growth, layers, bottleneck_factor=4, norm_act=ABN, dilation=1):
+        super(DenseModule, self).__init__()
+        self.in_channels = in_channels
+        self.growth = growth
+        self.layers = layers
+        self.convs1 = nn.ModuleList()
+        self.convs3 = nn.ModuleList()
+        for i in range(self.layers):
+            self.convs1.append(nn.Sequential(OrderedDict([('bn', norm_act(in_channels)), ('conv', nn.Conv2d(in_channels, self.growth * bottleneck_factor, 1, bias=False))])))
+            self.convs3.append(nn.Sequential(OrderedDict([('bn', norm_act(self.growth * bottleneck_factor)), ('conv', nn.Conv2d(self.growth * bottleneck_factor, self.growth, 3, padding=dilation, bias=False, dilation=dilation))])))
+            in_channels += self.growth
+
+    @property
+    def out_channels(self):
+        return self.in_channels + self.growth * self.layers
+
+    def forward(self, x):
+        inputs = [x]
+        for i in range(self.layers):
+            x = torch.cat(inputs, dim=1)
+            x = self.convs1[i](x)
+            x = self.convs3[i](x)
+            inputs += [x]
+        return torch.cat(inputs, dim=1)
+
+
 class DropBlock2D(nn.Module):
     """Randomly zeroes spatial blocks of the input tensor.
     As described in the paper
@@ -843,113 +1463,6 @@ class DropBlock2D(nn.Module):
         return input * mask * mask.numel() / mask.sum()
 
 
-class DSConvBlock(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, dilate=1):
-        super(DSConvBlock, self).__init__()
-        dilate = 1 if stride > 1 else dilate
-        padding = (kernel_size - 1) // 2 * dilate
-        self.depth_wise = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_planes, in_planes, kernel_size, stride, padding, dilate, groups=in_planes, bias=False)), ('norm', nn.BatchNorm2d(num_features=out_planes, eps=0.001, momentum=0.01))]))
-        self.point_wise = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False)), ('norm', nn.BatchNorm2d(num_features=out_planes, eps=0.001, momentum=0.01)), ('act', nn.LeakyReLU(negative_slope=0.01, inplace=True))]))
-
-    def forward(self, x):
-        return self.point_wise(self.depth_wise(x))
-
-
-class Swish(nn.Module):
-
-    def __init__(self, inplace=True):
-        super(Swish, self).__init__()
-        self.inplace = inplace
-
-    def forward(self, x):
-        return x.mul_(x.sigmoid()) if self.inplace else x.mul(x.sigmoid())
-
-
-class ConvBlock(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride=1, groups=1, dilate=1):
-        super(ConvBlock, self).__init__()
-        dilate = 1 if stride > 1 else dilate
-        padding = (kernel_size - 1) // 2 * dilate
-        self.conv_block = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_planes, out_planes, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilate, groups=groups, bias=False)), ('norm', nn.BatchNorm2d(num_features=out_planes, eps=0.001, momentum=0.01)), ('act', nn.LeakyReLU(negative_slope=0.01, inplace=True))]))
-
-    def forward(self, x):
-        return self.conv_block(x)
-
-
-class SEBlock(nn.Module):
-
-    def __init__(self, in_planes, reduced_dim):
-        super(SEBlock, self).__init__()
-        self.channel_se = nn.Sequential(OrderedDict([('linear1', nn.Conv2d(in_planes, reduced_dim, kernel_size=1, stride=1, padding=0, bias=True)), ('act', nn.LeakyReLU(negative_slope=0.01, inplace=True)), ('linear2', nn.Conv2d(reduced_dim, in_planes, kernel_size=1, stride=1, padding=0, bias=True))]))
-
-    def forward(self, x):
-        x_se = torch.sigmoid(self.channel_se(F.adaptive_avg_pool2d(x, output_size=(1, 1))))
-        return torch.mul(x, x_se)
-
-
-class BiFPNBlock(nn.Module):
-    """
-    Bi-directional Feature Pyramid Network
-    """
-
-    def __init__(self, feature_size=64, epsilon=0.0001):
-        super(BiFPNBlock, self).__init__()
-        self.epsilon = epsilon
-        self.p1_td = DSConvBlock(feature_size, feature_size)
-        self.p2_td = DSConvBlock(feature_size, feature_size)
-        self.p3_td = DSConvBlock(feature_size, feature_size)
-        self.p4_td = DSConvBlock(feature_size, feature_size)
-        self.p2_out = DSConvBlock(feature_size, feature_size)
-        self.p3_out = DSConvBlock(feature_size, feature_size)
-        self.p4_out = DSConvBlock(feature_size, feature_size)
-        self.p5_out = DSConvBlock(feature_size, feature_size)
-        self.w1 = nn.Parameter(torch.Tensor(2, 4).fill_(0.5))
-        self.w2 = nn.Parameter(torch.Tensor(3, 4).fill_(0.5))
-
-    def forward(self, inputs):
-        p1_x, p2_x, p3_x, p4_x, p5_x = inputs
-        w1 = F.relu(self.w1)
-        w1 /= torch.sum(w1, dim=0) + self.epsilon
-        w2 = F.relu(self.w2)
-        w2 /= torch.sum(w2, dim=0) + self.epsilon
-        p5_td = p5_x
-        p4_td = self.p4_td(w1[0, 0] * p4_x + w1[1, 0] * F.interpolate(p5_td, scale_factor=2, mode='bilinear', align_corners=True))
-        p3_td = self.p3_td(w1[0, 1] * p3_x + w1[1, 1] * F.interpolate(p4_td, scale_factor=2, mode='bilinear', align_corners=True))
-        p2_td = self.p2_td(w1[0, 2] * p2_x + w1[1, 2] * F.interpolate(p3_td, scale_factor=2, mode='bilinear', align_corners=True))
-        p1_td = self.p1_td(w1[0, 3] * p1_x + w1[1, 3] * F.interpolate(p2_td, scale_factor=2, mode='bilinear', align_corners=True))
-        p1_out = p1_td
-        p2_out = self.p2_out(w2[0, 0] * p2_x + w2[1, 0] * p2_td + w2[2, 0] * F.interpolate(p1_out, scale_factor=0.5, mode='bilinear', align_corners=True))
-        p3_out = self.p3_out(w2[0, 1] * p3_x + w2[1, 1] * p3_td + w2[2, 1] * F.interpolate(p2_out, scale_factor=0.5, mode='bilinear', align_corners=True))
-        p4_out = self.p4_out(w2[0, 2] * p4_x + w2[1, 2] * p4_td + w2[2, 2] * F.interpolate(p3_out, scale_factor=0.5, mode='bilinear', align_corners=True))
-        p5_out = self.p5_out(w2[0, 3] * p5_x + w2[1, 3] * p5_td + w2[2, 3] * F.interpolate(p4_out, scale_factor=0.5, mode='bilinear', align_corners=True))
-        return p1_out, p2_out, p3_out, p4_out, p5_out
-
-
-class BiFPNDecoder(nn.Module):
-
-    def __init__(self, bone_feat_sizes, feature_size=64, fpn_repeats=2):
-        super(BiFPNDecoder, self).__init__()
-        self.p1 = ConvBlock(bone_feat_sizes[0], feature_size, kernel_size=1, stride=1)
-        self.p2 = ConvBlock(bone_feat_sizes[1], feature_size, kernel_size=1, stride=1)
-        self.p3 = ConvBlock(bone_feat_sizes[2], feature_size, kernel_size=1, stride=1)
-        self.p4 = ConvBlock(bone_feat_sizes[3], feature_size, kernel_size=1, stride=1)
-        self.p5 = ConvBlock(bone_feat_sizes[4], feature_size, kernel_size=1, stride=1)
-        bifpns_seq = []
-        for bifpn_id in range(fpn_repeats):
-            bifpns_seq.append(('bi_fpn%d' % (bifpn_id + 1), BiFPNBlock(feature_size)))
-        self.bifpns = nn.Sequential(OrderedDict(bifpns_seq))
-
-    def forward(self, feat1, feat2, feat3, feat4, feat5):
-        p1 = self.p1(feat1)
-        p2 = self.p2(feat2)
-        p3 = self.p3(feat3)
-        p4 = self.p4(feat4)
-        p5 = self.p5(feat5)
-        return self.bifpns([p1, p2, p3, p4, p5])
-
-
 class MBConvBlock(nn.Module):
 
     def __init__(self, in_planes, out_planes, expand_ratio, kernel_size, stride, dilate, reduction_ratio=4, dropout_rate=0.2):
@@ -985,83 +1498,6 @@ class MBConvBlock(nn.Module):
         return x
 
 
-ACT_ELU = 'elu'
-
-
-ACT_LEAKY_RELU = 'leaky_relu'
-
-
-ACT_RELU = 'relu'
-
-
-class ABN(nn.Module):
-    """Activated Batch Normalization
-
-    This gathers a `BatchNorm2d` and an activation function in a single module
-    """
-
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates an Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(ABN, self).__init__()
-        self.num_features = num_features
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        self.activation = activation
-        self.slope = slope
-        if self.affine:
-            self.weight = nn.Parameter(torch.ones(num_features))
-            self.bias = nn.Parameter(torch.zeros(num_features))
-        else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        nn.init.constant_(self.running_mean, 0)
-        nn.init.constant_(self.running_var, 1)
-        if self.affine:
-            nn.init.constant_(self.weight, 1)
-            nn.init.constant_(self.bias, 0)
-
-    def forward(self, x):
-        x = functional.batch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
-        if self.activation == ACT_RELU:
-            return functional.relu(x, inplace=True)
-        elif self.activation == ACT_LEAKY_RELU:
-            return functional.leaky_relu(x, negative_slope=self.slope, inplace=True)
-        elif self.activation == ACT_ELU:
-            return functional.elu(x, inplace=True)
-        else:
-            return x
-
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ', slope={slope})'
-        else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
-
-
 class CoordInfo(nn.Module):
 
     def __init__(self, with_r=True):
@@ -1088,44 +1524,6 @@ class CoordInfo(nn.Module):
             rr = torch.sqrt(torch.pow(i_coords.type_as(x) - 0.5, 2) + torch.pow(j_coords.type_as(x) - 0.5, 2))
             ret = torch.cat([ret, rr], dim=1)
         return ret
-
-
-class LightHeadBlock(nn.Module):
-
-    def __init__(self, in_chs, mid_chs=64, out_chs=256, kernel_size=15):
-        super(LightHeadBlock, self).__init__()
-        pad = int((kernel_size - 1) / 2)
-        self.conv_l = nn.Sequential(OrderedDict([('conv_lu', nn.Conv2d(in_chs, mid_chs, kernel_size=(kernel_size, 1), padding=(pad, 0))), ('conv_ld', nn.Conv2d(mid_chs, out_chs, kernel_size=(1, kernel_size), padding=(0, pad)))]))
-        self.conv_r = nn.Sequential(OrderedDict([('conv_ru', nn.Conv2d(in_chs, mid_chs, kernel_size=(1, kernel_size), padding=(0, pad))), ('conv_rd', nn.Conv2d(mid_chs, out_chs, kernel_size=(kernel_size, 1), padding=(pad, 0)))]))
-
-    def forward(self, x):
-        x_l = self.conv_l(x)
-        x_r = self.conv_r(x)
-        return torch.add(x_l, 1, x_r)
-
-
-class InvertedResidual(nn.Module):
-
-    def __init__(self, inp, oup, stride, dilate, expand_ratio):
-        """
-        InvertedResidual: Core block of the MobileNetV2
-        :param inp:    (int) Number of the input channels
-        :param oup:    (int) Number of the output channels
-        :param stride: (int) Stride used in the Conv3x3
-        :param dilate: (int) Dilation used in the Conv3x3
-        :param expand_ratio: (int) Expand ratio of the Channel Width of the Block
-        """
-        super(InvertedResidual, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv = nn.Sequential(nn.Conv2d(in_channels=inp, out_channels=inp * expand_ratio, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False), nn.BatchNorm2d(num_features=inp * expand_ratio), nn.LeakyReLU(inplace=True, negative_slope=0.01), nn.Conv2d(in_channels=inp * expand_ratio, out_channels=inp * expand_ratio, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=inp * expand_ratio, bias=False), nn.BatchNorm2d(num_features=inp * expand_ratio), nn.LeakyReLU(inplace=True, negative_slope=0.01), nn.Conv2d(in_channels=inp * expand_ratio, out_channels=oup, kernel_size=1, stride=1, padding=0, dilation=1, groups=1, bias=False), nn.BatchNorm2d(num_features=oup))
-
-    def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
 
 
 class IdentityResidualBlock(nn.Module):
@@ -1185,59 +1583,6 @@ class IdentityResidualBlock(nn.Module):
         out = self.convs(bn1)
         out.add_(shortcut)
         return out
-
-
-def channel_shuffle(x, groups):
-    batch_size, num_channels, height, width = x.size()
-    channels_per_group = num_channels // groups
-    x = x.view(batch_size, groups, channels_per_group, height, width)
-    x = torch.transpose(x, 1, 2).contiguous()
-    x = x.view(batch_size, -1, height, width)
-    return x
-
-
-class ShuffleRes(nn.Module):
-
-    def __init__(self, in_chns, out_chns, stride, dilate, branch_model):
-        super(ShuffleRes, self).__init__()
-        self.branch_model = branch_model
-        assert stride in [1, 2]
-        self.stride = stride
-        mid_chns = out_chns // 2
-        if self.branch_model == 1:
-            self.branch2 = nn.Sequential(nn.Conv2d(mid_chns, mid_chns, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_chns), nn.LeakyReLU(inplace=True, negative_slope=0.01), nn.Conv2d(mid_chns, mid_chns, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=mid_chns, bias=False), nn.BatchNorm2d(mid_chns), nn.Conv2d(mid_chns, mid_chns, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_chns), nn.LeakyReLU(inplace=True, negative_slope=0.01))
-        else:
-            self.branch1 = nn.Sequential(nn.Conv2d(in_chns, in_chns, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=in_chns, bias=False), nn.BatchNorm2d(in_chns), nn.Conv2d(in_chns, mid_chns, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_chns), nn.LeakyReLU(inplace=True, negative_slope=0.01))
-            self.branch2 = nn.Sequential(nn.Conv2d(in_chns, mid_chns, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_chns), nn.LeakyReLU(inplace=True, negative_slope=0.01), nn.Conv2d(mid_chns, mid_chns, kernel_size=3, stride=stride, padding=dilate, dilation=dilate, groups=mid_chns, bias=False), nn.BatchNorm2d(mid_chns), nn.Conv2d(mid_chns, mid_chns, 1, 1, 0, bias=False), nn.BatchNorm2d(mid_chns), nn.LeakyReLU(inplace=True, negative_slope=0.01))
-
-    def forward(self, x):
-        if 1 == self.branch_model:
-            x1 = x[:, :x.shape[1] // 2, :, :]
-            x2 = x[:, x.shape[1] // 2:, :, :]
-            out = torch.cat((x1, self.branch2(x2)), dim=1)
-        elif 2 == self.branch_model:
-            out = torch.cat((self.branch1(x), self.branch2(x)), dim=1)
-        return channel_shuffle(out, 2)
-
-
-class UnsharpMaskV2(nn.Module):
-
-    def __init__(self, channel, kernel_size=7, padding=3, amount=1.0, threshold=0, norm_act=ABN):
-        super(UnsharpMaskV2, self).__init__()
-        self.kernel_size = kernel_size
-        self.padding = padding
-        self.amount = amount
-        self.threshold = threshold
-        self.norm_act = norm_act(channel)
-
-    def forward(self, x):
-        x = self.norm_act(x)
-        res = x.clone()
-        blurred = F.avg_pool2d(input=x, kernel_size=self.kernel_size, stride=1, padding=self.padding, ceil_mode=False, count_include_pad=True)
-        sharpened = res * (self.amount + 1.0) - blurred * self.amount
-        if self.threshold > 0:
-            sharpened = torch.where(torch.abs(res - blurred) < self.threshold, sharpened, res)
-        return sharpened
 
 
 class GaussianBlur(nn.Module):
@@ -1949,7 +2294,7 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices
         if device is None:
             device = get_a_var(input).get_device()
         try:
-            with torch.cuda.device(device):
+            with torch.device(device):
                 output = module(input, target)
             with lock:
                 results[i] = output
@@ -2044,6 +2389,10 @@ TESTCASES = [
     (DataParallelModel,
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (DenseModule,
+     lambda: ([], {'in_channels': 4, 'growth': 4, 'layers': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (DiceLoss2D,
      lambda: ([], {}),
@@ -2204,4 +2553,7 @@ class Test_ansleliu_LightNetPlusPlus(_paritybench_base):
 
     def test_026(self):
         self._check(*TESTCASES[26])
+
+    def test_027(self):
+        self._check(*TESTCASES[27])
 

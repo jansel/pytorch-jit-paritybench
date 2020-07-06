@@ -33,20 +33,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import numpy as np
 
 
 import torch.nn as nn
@@ -58,10 +62,22 @@ import torch.nn.functional as F
 from torchvision.models import *
 
 
-import numpy as np
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
+
+
+import torchvision.transforms.functional as F
 
 
 import random
+
+
+import numbers
 
 
 import torch.optim
@@ -70,19 +86,10 @@ import torch.optim
 from torch.utils.tensorboard import SummaryWriter
 
 
-from torchvision import transforms
-
-
 from torchvision import utils
 
 
 from torchvision import models
-
-
-from torch.utils.data import DataLoader
-
-
-import torchvision.transforms.functional as F
 
 
 from torch.autograd import Variable
@@ -92,6 +99,9 @@ from torch.nn import Conv2d
 
 
 from math import exp
+
+
+import math
 
 
 class ResBlock(nn.Module):
@@ -289,7 +299,7 @@ def _ssim(img1, img2, window_size=11, window=None, val_range=2, size_average=Tru
     batch, channel, height, width = img1.size()
     if window is None:
         real_size = min(window_size, height, width)
-        window = create_window(real_size, channel=channel).to(img1.device)
+        window = create_window(real_size, channel=channel)
     mu1 = F.conv2d(img1, window, padding=padd, groups=channel)
     mu2 = F.conv2d(img2, window, padding=padd, groups=channel)
     mu1_sq = mu1.pow(2)
@@ -336,7 +346,7 @@ def dfl_ssim(img1, img2, mask, window_size=11, val_range=1, gauss='original'):
     batch, channel, height, width = img1.size()
     img1, img2 = torch.mul(img1, mask), torch.mul(img2, mask)
     real_size = min(window_size, height, width)
-    window = create_window(real_size, gauss=gauss).to(img1.device)
+    window = create_window(real_size, gauss=gauss)
     c1 = (0.01 * val_range) ** 2
     c2 = (0.03 * val_range) ** 2
     mu1 = F.conv2d(img1, window, padding=padd, groups=channel)

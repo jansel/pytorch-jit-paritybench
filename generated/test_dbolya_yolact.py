@@ -46,15 +46,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -68,13 +69,13 @@ import torch.nn as nn
 from collections import OrderedDict
 
 
+import numpy as np
+
+
 import torch.utils.data as data
 
 
 import torch.nn.functional as F
-
-
-import numpy as np
 
 
 import random
@@ -110,7 +111,25 @@ from torch.nn.modules.utils import _pair
 from torch.autograd.function import once_differentiable
 
 
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
 from torch.autograd import gradcheck
+
+
+from itertools import product
+
+
+from numpy import random
+
+
+from scipy.optimize import minimize
 
 
 import torch.optim as optim
@@ -125,9 +144,6 @@ from torchvision import transforms
 import types
 
 
-from numpy import random
-
-
 from collections import deque
 
 
@@ -135,9 +151,6 @@ import torchvision
 
 
 from torchvision.models.resnet import Bottleneck
-
-
-from itertools import product
 
 
 from typing import List
@@ -165,6 +178,55 @@ class _DCNv2(Function):
 
 
 dcn_v2_conv = _DCNv2.apply
+
+
+class DCNv2(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, deformable_groups=1):
+        super(DCNv2, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = _pair(kernel_size)
+        self.stride = _pair(stride)
+        self.padding = _pair(padding)
+        self.dilation = _pair(dilation)
+        self.deformable_groups = deformable_groups
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
+        self.bias = nn.Parameter(torch.Tensor(out_channels))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        n = self.in_channels
+        for k in self.kernel_size:
+            n *= k
+        stdv = 1.0 / math.sqrt(n)
+        self.weight.data.uniform_(-stdv, stdv)
+        self.bias.data.zero_()
+
+    def forward(self, input, offset, mask):
+        assert 2 * self.deformable_groups * self.kernel_size[0] * self.kernel_size[1] == offset.shape[1]
+        assert self.deformable_groups * self.kernel_size[0] * self.kernel_size[1] == mask.shape[1]
+        return dcn_v2_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.deformable_groups)
+
+
+class DCN(DCNv2):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, deformable_groups=1):
+        super(DCN, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, deformable_groups)
+        channels_ = self.deformable_groups * 3 * self.kernel_size[0] * self.kernel_size[1]
+        self.conv_offset_mask = nn.Conv2d(self.in_channels, channels_, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset_mask.weight.data.zero_()
+        self.conv_offset_mask.bias.data.zero_()
+
+    def forward(self, input):
+        out = self.conv_offset_mask(input)
+        o1, o2, mask = torch.chunk(out, 3, dim=1)
+        offset = torch.cat((o1, o2), dim=1)
+        mask = torch.sigmoid(mask)
+        return dcn_v2_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.deformable_groups)
 
 
 class Bottleneck(nn.Module):
@@ -274,6 +336,49 @@ class ResNetBackbone(nn.Module):
     def add_layer(self, conv_channels=1024, downsample=2, depth=1, block=Bottleneck):
         """ Add a downsample layer to the backbone as per what SSD does. """
         self._make_layer(block, conv_channels // block.expansion, blocks=depth, stride=downsample)
+
+
+class ResNetBackboneGN(ResNetBackbone):
+
+    def __init__(self, layers, num_groups=32):
+        super().__init__(layers, norm_layer=lambda x: nn.GroupNorm(num_groups, x))
+
+    def init_backbone(self, path):
+        """ The path here comes from detectron. So we load it differently. """
+        with open(path, 'rb') as f:
+            state_dict = pickle.load(f, encoding='latin1')
+            state_dict = state_dict['blobs']
+        our_state_dict_keys = list(self.state_dict().keys())
+        new_state_dict = {}
+        gn_trans = lambda x: 'gn_s' if x == 'weight' else 'gn_b'
+        layeridx2res = lambda x: 'res' + str(int(x) + 2)
+        block2branch = lambda x: 'branch2' + ('a', 'b', 'c')[int(x[-1:]) - 1]
+        for key in our_state_dict_keys:
+            parts = key.split('.')
+            transcribed_key = ''
+            if parts[0] == 'conv1':
+                transcribed_key = 'conv1_w'
+            elif parts[0] == 'bn1':
+                transcribed_key = 'conv1_' + gn_trans(parts[1])
+            elif parts[0] == 'layers':
+                if int(parts[1]) >= self.num_base_layers:
+                    continue
+                transcribed_key = layeridx2res(parts[1])
+                transcribed_key += '_' + parts[2] + '_'
+                if parts[3] == 'downsample':
+                    transcribed_key += 'branch1_'
+                    if parts[4] == '0':
+                        transcribed_key += 'w'
+                    else:
+                        transcribed_key += gn_trans(parts[5])
+                else:
+                    transcribed_key += block2branch(parts[3]) + '_'
+                    if 'conv' in parts[3]:
+                        transcribed_key += 'w'
+                    else:
+                        transcribed_key += gn_trans(parts[4])
+            new_state_dict[key] = torch.Tensor(state_dict[transcribed_key])
+        self.load_state_dict(new_state_dict, strict=False)
 
 
 def darknetconvlayer(in_channels, out_channels, *args, **kwdargs):
@@ -431,40 +536,82 @@ class VGGBackbone(nn.Module):
         self.layers.append(layer)
 
 
-class CustomDataParallel(torch.nn.DataParallel):
-    """ A Custom Data Parallel class that properly gathers lists of dictionaries. """
+def enforce_size(img, targets, masks, num_crowds, new_w, new_h):
+    """ Ensures that the image is the given size without distorting aspect ratio. """
+    with torch.no_grad():
+        _, h, w = img.size()
+        if h == new_h and w == new_w:
+            return img, targets, masks, num_crowds
+        w_prime = new_w
+        h_prime = h * new_w / w
+        if h_prime > new_h:
+            w_prime *= new_h / h_prime
+            h_prime = new_h
+        w_prime = int(w_prime)
+        h_prime = int(h_prime)
+        img = F.interpolate(img.unsqueeze(0), (h_prime, w_prime), mode='bilinear', align_corners=False)
+        img.squeeze_(0)
+        masks = F.interpolate(masks.unsqueeze(0), (h_prime, w_prime), mode='bilinear', align_corners=False)
+        masks.squeeze_(0)
+        targets[:, ([0, 2])] *= w_prime / new_w
+        targets[:, ([1, 3])] *= h_prime / new_h
+        pad_dims = 0, new_w - w_prime, 0, new_h - h_prime
+        img = F.pad(img, pad_dims, mode='constant', value=0)
+        masks = F.pad(masks, pad_dims, mode='constant', value=0)
+        return img, targets, masks, num_crowds
+
+
+def gradinator(x):
+    x.requires_grad = False
+    return x
+
+
+def prepare_data(datum, devices: list=None, allocation: list=None):
+    with torch.no_grad():
+        if devices is None:
+            devices = ['cuda:0'] if args.cuda else ['cpu']
+        if allocation is None:
+            allocation = [args.batch_size // len(devices)] * (len(devices) - 1)
+            allocation.append(args.batch_size - sum(allocation))
+        images, (targets, masks, num_crowds) = datum
+        cur_idx = 0
+        for device, alloc in zip(devices, allocation):
+            for _ in range(alloc):
+                images[cur_idx] = gradinator(images[cur_idx])
+                targets[cur_idx] = gradinator(targets[cur_idx])
+                masks[cur_idx] = gradinator(masks[cur_idx])
+                cur_idx += 1
+        if cfg.preserve_aspect_ratio:
+            _, h, w = images[random.randint(0, len(images) - 1)].size()
+            for idx, (image, target, mask, num_crowd) in enumerate(zip(images, targets, masks, num_crowds)):
+                images[idx], targets[idx], masks[idx], num_crowds[idx] = enforce_size(image, target, mask, num_crowd, w, h)
+        cur_idx = 0
+        split_images, split_targets, split_masks, split_numcrowds = [[None for alloc in allocation] for _ in range(4)]
+        for device_idx, alloc in enumerate(allocation):
+            split_images[device_idx] = torch.stack(images[cur_idx:cur_idx + alloc], dim=0)
+            split_targets[device_idx] = targets[cur_idx:cur_idx + alloc]
+            split_masks[device_idx] = masks[cur_idx:cur_idx + alloc]
+            split_numcrowds[device_idx] = num_crowds[cur_idx:cur_idx + alloc]
+            cur_idx += alloc
+        return split_images, split_targets, split_masks, split_numcrowds
+
+
+class CustomDataParallel(nn.DataParallel):
+    """
+    This is a custom version of DataParallel that works better with our training data.
+    It should also be faster than the general case.
+    """
+
+    def scatter(self, inputs, kwargs, device_ids):
+        devices = [('cuda:' + str(x)) for x in device_ids]
+        splits = prepare_data(inputs[0], devices, allocation=args.batch_alloc)
+        return [[split[device_idx] for split in splits] for device_idx in range(len(devices))], [kwargs] * len(devices)
 
     def gather(self, outputs, output_device):
-        return sum(outputs, [])
-
-
-class DCNv2(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, deformable_groups=1):
-        super(DCNv2, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = _pair(kernel_size)
-        self.stride = _pair(stride)
-        self.padding = _pair(padding)
-        self.dilation = _pair(dilation)
-        self.deformable_groups = deformable_groups
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels, *self.kernel_size))
-        self.bias = nn.Parameter(torch.Tensor(out_channels))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        n = self.in_channels
-        for k in self.kernel_size:
-            n *= k
-        stdv = 1.0 / math.sqrt(n)
-        self.weight.data.uniform_(-stdv, stdv)
-        self.bias.data.zero_()
-
-    def forward(self, input, offset, mask):
-        assert 2 * self.deformable_groups * self.kernel_size[0] * self.kernel_size[1] == offset.shape[1]
-        assert self.deformable_groups * self.kernel_size[0] * self.kernel_size[1] == mask.shape[1]
-        return dcn_v2_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.deformable_groups)
+        out = {}
+        for k in outputs[0]:
+            out[k] = torch.stack([output[k] for output in outputs])
+        return out
 
 
 class _DCNv2Pooling(Function):
@@ -511,6 +658,30 @@ class DCNv2Pooling(nn.Module):
         assert input.shape[1] == self.output_dim
         if self.no_trans:
             offset = input.new()
+        return dcn_v2_pooling(input, rois, offset, self.spatial_scale, self.pooled_size, self.output_dim, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+
+
+class DCNPooling(DCNv2Pooling):
+
+    def __init__(self, spatial_scale, pooled_size, output_dim, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, deform_fc_dim=1024):
+        super(DCNPooling, self).__init__(spatial_scale, pooled_size, output_dim, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.deform_fc_dim = deform_fc_dim
+        if not no_trans:
+            self.offset_mask_fc = nn.Sequential(nn.Linear(self.pooled_size * self.pooled_size * self.output_dim, self.deform_fc_dim), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_dim, self.deform_fc_dim), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_dim, self.pooled_size * self.pooled_size * 3))
+            self.offset_mask_fc[4].weight.data.zero_()
+            self.offset_mask_fc[4].bias.data.zero_()
+
+    def forward(self, input, rois):
+        offset = input.new()
+        if not self.no_trans:
+            n = rois.shape[0]
+            roi = dcn_v2_pooling(input, rois, offset, self.spatial_scale, self.pooled_size, self.output_dim, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset_mask = self.offset_mask_fc(roi.view(n, -1))
+            offset_mask = offset_mask.view(n, 3, self.pooled_size, self.pooled_size)
+            o1, o2, mask = torch.chunk(offset_mask, 3, dim=1)
+            offset = torch.cat((o1, o2), dim=1)
+            mask = torch.sigmoid(mask)
+            return dcn_v2_pooling(input, rois, offset, self.spatial_scale, self.pooled_size, self.output_dim, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std) * mask
         return dcn_v2_pooling(input, rois, offset, self.spatial_scale, self.pooled_size, self.output_dim, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
 
 
@@ -564,7 +735,7 @@ class Config(object):
 
     def print(self):
         for k, v in vars(self).items():
-            print(k, ' = ', v)
+            None
 
 
 activation_func = Config({'tanh': torch.tanh, 'sigmoid': torch.sigmoid, 'softmax': lambda x: torch.nn.functional.softmax(x, dim=-1), 'relu': lambda x: torch.nn.functional.relu(x, inplace=True), 'none': lambda x: x})
@@ -760,7 +931,7 @@ def intersect(box_a, box_b):
     return inter[:, (0)] * inter[:, (1)]
 
 
-def jaccard(box_a, box_b, iscrowd: bool=False):
+def jaccard(box_a, box_b, iscrowd=False):
     """Compute the jaccard overlap of two sets of boxes.  The jaccard overlap
     is simply the intersection over union of two boxes.  Here we operate on
     ground truth boxes and default boxes. If iscrowd=True, put the crowd in box_b.
@@ -772,29 +943,14 @@ def jaccard(box_a, box_b, iscrowd: bool=False):
     Return:
         jaccard overlap: (tensor) Shape: [box_a.size(0), box_b.size(0)]
     """
-    use_batch = True
-    if box_a.dim() == 2:
-        use_batch = False
-        box_a = box_a[None, ...]
-        box_b = box_b[None, ...]
     inter = intersect(box_a, box_b)
-    area_a = ((box_a[:, :, (2)] - box_a[:, :, (0)]) * (box_a[:, :, (3)] - box_a[:, :, (1)])).unsqueeze(2).expand_as(inter)
-    area_b = ((box_b[:, :, (2)] - box_b[:, :, (0)]) * (box_b[:, :, (3)] - box_b[:, :, (1)])).unsqueeze(1).expand_as(inter)
+    area_a = ((box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])).unsqueeze(1).expand_as(inter)
+    area_b = ((box_b[:, (2)] - box_b[:, (0)]) * (box_b[:, (3)] - box_b[:, (1)])).unsqueeze(0).expand_as(inter)
     union = area_a + area_b - inter
-    out = inter / area_a if iscrowd else inter / union
-    return out if use_batch else out.squeeze(0)
-
-
-_global_config['use_yolo_regressors'] = 4
-
-
-_global_config['use_prediction_matching'] = 4
-
-
-_global_config['use_change_matching'] = 4
-
-
-_global_config['crowd_iou_threshold'] = 4
+    if iscrowd:
+        return inter / area_a
+    else:
+        return inter / union
 
 
 def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes, loc_t, conf_t, idx_t, idx, loc_data):
@@ -839,18 +995,6 @@ def match(pos_thresh, neg_thresh, truths, priors, labels, crowd_boxes, loc_t, co
     loc_t[idx] = loc
     conf_t[idx] = conf
     idx_t[idx] = best_truth_idx
-
-
-_global_config['mask_size'] = 4
-
-
-_global_config['mask_alpha'] = 4
-
-
-_global_config['use_mask_scoring'] = 4
-
-
-_global_config['class_existence_alpha'] = 4
 
 
 class MultiBoxLoss(nn.Module):
@@ -1329,190 +1473,231 @@ class MultiBoxLoss(nn.Module):
         return loss_i * cfg.maskiou_alpha
 
 
-def enforce_size(img, targets, masks, num_crowds, new_w, new_h):
-    """ Ensures that the image is the given size without distorting aspect ratio. """
-    with torch.no_grad():
-        _, h, w = img.size()
-        if h == new_h and w == new_w:
-            return img, targets, masks, num_crowds
-        w_prime = new_w
-        h_prime = h * new_w / w
-        if h_prime > new_h:
-            w_prime *= new_h / h_prime
-            h_prime = new_h
-        w_prime = int(w_prime)
-        h_prime = int(h_prime)
-        img = F.interpolate(img.unsqueeze(0), (h_prime, w_prime), mode='bilinear', align_corners=False)
-        img.squeeze_(0)
-        masks = F.interpolate(masks.unsqueeze(0), (h_prime, w_prime), mode='bilinear', align_corners=False)
-        masks.squeeze_(0)
-        targets[:, ([0, 2])] *= w_prime / new_w
-        targets[:, ([1, 3])] *= h_prime / new_h
-        pad_dims = 0, new_w - w_prime, 0, new_h - h_prime
-        img = F.pad(img, pad_dims, mode='constant', value=0)
-        masks = F.pad(masks, pad_dims, mode='constant', value=0)
-        return img, targets, masks, num_crowds
-
-
-def gradinator(x):
-    x.requires_grad = False
-    return x
-
-
-_global_config['preserve_aspect_ratio'] = 4
-
-
-_global_config['batch_size'] = 4
-
-
-_global_config['cuda'] = False
-
-
-def prepare_data(datum, devices: list=None, allocation: list=None):
-    with torch.no_grad():
-        if devices is None:
-            devices = ['cuda:0'] if args.cuda else ['cpu']
-        if allocation is None:
-            allocation = [args.batch_size // len(devices)] * (len(devices) - 1)
-            allocation.append(args.batch_size - sum(allocation))
-        images, (targets, masks, num_crowds) = datum
-        cur_idx = 0
-        for device, alloc in zip(devices, allocation):
-            for _ in range(alloc):
-                images[cur_idx] = gradinator(images[cur_idx].to(device))
-                targets[cur_idx] = gradinator(targets[cur_idx].to(device))
-                masks[cur_idx] = gradinator(masks[cur_idx].to(device))
-                cur_idx += 1
-        if cfg.preserve_aspect_ratio:
-            _, h, w = images[random.randint(0, len(images) - 1)].size()
-            for idx, (image, target, mask, num_crowd) in enumerate(zip(images, targets, masks, num_crowds)):
-                images[idx], targets[idx], masks[idx], num_crowds[idx] = enforce_size(image, target, mask, num_crowd, w, h)
-        cur_idx = 0
-        split_images, split_targets, split_masks, split_numcrowds = [[None for alloc in allocation] for _ in range(4)]
-        for device_idx, alloc in enumerate(allocation):
-            split_images[device_idx] = torch.stack(images[cur_idx:cur_idx + alloc], dim=0)
-            split_targets[device_idx] = targets[cur_idx:cur_idx + alloc]
-            split_masks[device_idx] = masks[cur_idx:cur_idx + alloc]
-            split_numcrowds[device_idx] = num_crowds[cur_idx:cur_idx + alloc]
-            cur_idx += alloc
-        return split_images, split_targets, split_masks, split_numcrowds
-
-
-_global_config['batch_alloc'] = 4
-
-
-class CustomDataParallel(nn.DataParallel):
-    """
-    This is a custom version of DataParallel that works better with our training data.
-    It should also be faster than the general case.
+class Detect(object):
+    """At test time, Detect is the final layer of SSD.  Decode location preds,
+    apply non-maximum suppression to location predictions based on conf
+    scores and threshold to a top_k number of output predictions for both
+    confidence score and locations, as the predicted masks.
     """
 
-    def scatter(self, inputs, kwargs, device_ids):
-        devices = [('cuda:' + str(x)) for x in device_ids]
-        splits = prepare_data(inputs[0], devices, allocation=args.batch_alloc)
-        return [[split[device_idx] for split in splits] for device_idx in range(len(devices))], [kwargs] * len(devices)
+    def __init__(self, num_classes, bkg_label, top_k, conf_thresh, nms_thresh):
+        self.num_classes = num_classes
+        self.background_label = bkg_label
+        self.top_k = top_k
+        self.nms_thresh = nms_thresh
+        if nms_thresh <= 0:
+            raise ValueError('nms_threshold must be non negative.')
+        self.conf_thresh = conf_thresh
+        self.use_cross_class_nms = False
+        self.use_fast_nms = False
 
-    def gather(self, outputs, output_device):
-        out = {}
-        for k in outputs[0]:
-            out[k] = torch.stack([output[k] for output in outputs])
+    def __call__(self, predictions, net):
+        """
+        Args:
+             loc_data: (tensor) Loc preds from loc layers
+                Shape: [batch, num_priors, 4]
+            conf_data: (tensor) Shape: Conf preds from conf layers
+                Shape: [batch, num_priors, num_classes]
+            mask_data: (tensor) Mask preds from mask layers
+                Shape: [batch, num_priors, mask_dim]
+            prior_data: (tensor) Prior boxes and variances from priorbox layers
+                Shape: [num_priors, 4]
+            proto_data: (tensor) If using mask_type.lincomb, the prototype masks
+                Shape: [batch, mask_h, mask_w, mask_dim]
+        
+        Returns:
+            output of shape (batch_size, top_k, 1 + 1 + 4 + mask_dim)
+            These outputs are in the order: class idx, confidence, bbox coords, and mask.
+
+            Note that the outputs are sorted only if cross_class_nms is False
+        """
+        loc_data = predictions['loc']
+        conf_data = predictions['conf']
+        mask_data = predictions['mask']
+        prior_data = predictions['priors']
+        proto_data = predictions['proto'] if 'proto' in predictions else None
+        inst_data = predictions['inst'] if 'inst' in predictions else None
+        out = []
+        with timer.env('Detect'):
+            batch_size = loc_data.size(0)
+            num_priors = prior_data.size(0)
+            conf_preds = conf_data.view(batch_size, num_priors, self.num_classes).transpose(2, 1).contiguous()
+            for batch_idx in range(batch_size):
+                decoded_boxes = decode(loc_data[batch_idx], prior_data)
+                result = self.detect(batch_idx, conf_preds, decoded_boxes, mask_data, inst_data)
+                if result is not None and proto_data is not None:
+                    result['proto'] = proto_data[batch_idx]
+                out.append({'detection': result, 'net': net})
         return out
 
-
-MEANS = 103.94, 116.78, 123.68
-
-
-_global_config['max_size'] = 4
-
-
-_global_config['discard_box_height'] = 4
-
-
-_global_config['discard_box_width'] = 4
-
-
-class Resize(object):
-    """ If preserve_aspect_ratio is true, this resizes to an approximate area of max_size * max_size """
-
-    @staticmethod
-    def calc_size_preserve_ar(img_w, img_h, max_size):
-        """ I mathed this one out on the piece of paper. Resulting width*height = approx max_size^2 """
-        ratio = sqrt(img_w / img_h)
-        w = max_size * ratio
-        h = max_size / ratio
-        return int(w), int(h)
-
-    def __init__(self, resize_gt=True):
-        self.resize_gt = resize_gt
-        self.max_size = cfg.max_size
-        self.preserve_aspect_ratio = cfg.preserve_aspect_ratio
-
-    def __call__(self, image, masks, boxes, labels=None):
-        img_h, img_w, _ = image.shape
-        if self.preserve_aspect_ratio:
-            width, height = Resize.calc_size_preserve_ar(img_w, img_h, self.max_size)
-        else:
-            width, height = self.max_size, self.max_size
-        image = cv2.resize(image, (width, height))
-        if self.resize_gt:
-            masks = masks.transpose((1, 2, 0))
-            masks = cv2.resize(masks, (width, height))
-            if len(masks.shape) == 2:
-                masks = np.expand_dims(masks, 0)
+    def detect(self, batch_idx, conf_preds, decoded_boxes, mask_data, inst_data):
+        """ Perform nms for only the max scoring class that isn't background (class 0) """
+        cur_scores = conf_preds[(batch_idx), 1:, :]
+        conf_scores, _ = torch.max(cur_scores, dim=0)
+        keep = conf_scores > self.conf_thresh
+        scores = cur_scores[:, (keep)]
+        boxes = decoded_boxes[(keep), :]
+        masks = mask_data[(batch_idx), (keep), :]
+        if inst_data is not None:
+            inst = inst_data[(batch_idx), (keep), :]
+        if scores.size(1) == 0:
+            return None
+        if self.use_fast_nms:
+            if self.use_cross_class_nms:
+                boxes, masks, classes, scores = self.cc_fast_nms(boxes, masks, scores, self.nms_thresh, self.top_k)
             else:
-                masks = masks.transpose((2, 0, 1))
-            boxes[:, ([0, 2])] *= width / img_w
-            boxes[:, ([1, 3])] *= height / img_h
-        w = boxes[:, (2)] - boxes[:, (0)]
-        h = boxes[:, (3)] - boxes[:, (1)]
-        keep = (w > cfg.discard_box_width) * (h > cfg.discard_box_height)
-        masks = masks[keep]
-        boxes = boxes[keep]
-        labels['labels'] = labels['labels'][keep]
-        labels['num_crowds'] = (labels['labels'] < 0).sum()
-        return image, masks, boxes, labels
-
-
-STD = 57.38, 57.12, 58.4
-
-
-_global_config['backbone'] = 4
-
-
-class FastBaseTransform(torch.nn.Module):
-    """
-    Transform that does all operations on the GPU for super speed.
-    This doesn't suppport a lot of config settings and should only be used for production.
-    Maintain this as necessary.
-    """
-
-    def __init__(self):
-        super().__init__()
-        self.mean = torch.Tensor(MEANS).float()[(None), :, (None), (None)]
-        self.std = torch.Tensor(STD).float()[(None), :, (None), (None)]
-        self.transform = cfg.backbone.transform
-
-    def forward(self, img):
-        self.mean = self.mean
-        self.std = self.std
-        if cfg.preserve_aspect_ratio:
-            _, h, w, _ = img.size()
-            img_size = Resize.calc_size_preserve_ar(w, h, cfg.max_size)
-            img_size = img_size[1], img_size[0]
+                boxes, masks, classes, scores = self.fast_nms(boxes, masks, scores, self.nms_thresh, self.top_k)
         else:
-            img_size = cfg.max_size, cfg.max_size
-        img = img.permute(0, 3, 1, 2).contiguous()
-        img = F.interpolate(img, img_size, mode='bilinear', align_corners=False)
-        if self.transform.normalize:
-            img = (img - self.mean) / self.std
-        elif self.transform.subtract_means:
-            img = img - self.mean
-        elif self.transform.to_float:
-            img = img / 255
-        if self.transform.channel_order != 'RGB':
-            raise NotImplementedError
-        img = img[:, (2, 1, 0), :, :].contiguous()
-        return img
+            boxes, masks, classes, scores = self.traditional_nms(boxes, masks, scores, self.nms_thresh, self.conf_thresh)
+            if self.use_cross_class_nms:
+                None
+        return {'box': boxes, 'mask': masks, 'class': classes, 'score': scores}
+
+    def cc_fast_nms(self, boxes, masks, scores, iou_threshold: float=0.5, top_k: int=200):
+        scores, classes = scores.max(dim=0)
+        _, idx = scores.sort(0, descending=True)
+        idx = idx[:top_k]
+        boxes_idx = boxes[idx]
+        iou = jaccard(boxes_idx, boxes_idx)
+        iou.triu_(diagonal=1)
+        iou_max, _ = torch.max(iou, dim=0)
+        idx_out = idx[iou_max <= iou_threshold]
+        return boxes[idx_out], masks[idx_out], classes[idx_out], scores[idx_out]
+
+    def fast_nms(self, boxes, masks, scores, iou_threshold: float=0.5, top_k: int=200, second_threshold: bool=False):
+        scores, idx = scores.sort(1, descending=True)
+        idx = idx[:, :top_k].contiguous()
+        scores = scores[:, :top_k]
+        num_classes, num_dets = idx.size()
+        boxes = boxes[(idx.view(-1)), :].view(num_classes, num_dets, 4)
+        masks = masks[(idx.view(-1)), :].view(num_classes, num_dets, -1)
+        iou = jaccard(boxes, boxes)
+        iou.triu_(diagonal=1)
+        iou_max, _ = iou.max(dim=1)
+        keep = iou_max <= iou_threshold
+        if second_threshold:
+            keep *= scores > self.conf_thresh
+        classes = torch.arange(num_classes, device=boxes.device)[:, (None)].expand_as(keep)
+        classes = classes[keep]
+        boxes = boxes[keep]
+        masks = masks[keep]
+        scores = scores[keep]
+        scores, idx = scores.sort(0, descending=True)
+        idx = idx[:cfg.max_num_detections]
+        scores = scores[:cfg.max_num_detections]
+        classes = classes[idx]
+        boxes = boxes[idx]
+        masks = masks[idx]
+        return boxes, masks, classes, scores
+
+    def traditional_nms(self, boxes, masks, scores, iou_threshold=0.5, conf_thresh=0.05):
+        pyximport.install(setup_args={'include_dirs': np.get_include()}, reload_support=True)
+        num_classes = scores.size(0)
+        idx_lst = []
+        cls_lst = []
+        scr_lst = []
+        boxes = boxes * cfg.max_size
+        for _cls in range(num_classes):
+            cls_scores = scores[(_cls), :]
+            conf_mask = cls_scores > conf_thresh
+            idx = torch.arange(cls_scores.size(0), device=boxes.device)
+            cls_scores = cls_scores[conf_mask]
+            idx = idx[conf_mask]
+            if cls_scores.size(0) == 0:
+                continue
+            preds = torch.cat([boxes[conf_mask], cls_scores[:, (None)]], dim=1).cpu().numpy()
+            keep = cnms(preds, iou_threshold)
+            keep = torch.Tensor(keep, device=boxes.device).long()
+            idx_lst.append(idx[keep])
+            cls_lst.append(keep * 0 + _cls)
+            scr_lst.append(cls_scores[keep])
+        idx = torch.cat(idx_lst, dim=0)
+        classes = torch.cat(cls_lst, dim=0)
+        scores = torch.cat(scr_lst, dim=0)
+        scores, idx2 = scores.sort(0, descending=True)
+        idx2 = idx2[:cfg.max_num_detections]
+        scores = scores[:cfg.max_num_detections]
+        idx = idx[idx2]
+        classes = classes[idx2]
+        return boxes[idx] / cfg.max_size, masks[idx], classes, scores
+
+
+use_jit = torch.cuda.device_count() <= 1
+
+
+ScriptModuleWrapper = torch.jit.ScriptModule if use_jit else nn.Module
+
+
+script_method_wrapper = torch.jit.script_method if use_jit else lambda fn, _rcn=None: fn
+
+
+class FPN(ScriptModuleWrapper):
+    """
+    Implements a general version of the FPN introduced in
+    https://arxiv.org/pdf/1612.03144.pdf
+
+    Parameters (in cfg.fpn):
+        - num_features (int): The number of output features in the fpn layers.
+        - interpolation_mode (str): The mode to pass to F.interpolate.
+        - num_downsample (int): The number of downsampled layers to add onto the selected layers.
+                                These extra layers are downsampled from the last selected layer.
+
+    Args:
+        - in_channels (list): For each conv layer you supply in the forward pass,
+                              how many features will it have?
+    """
+    __constants__ = ['interpolation_mode', 'num_downsample', 'use_conv_downsample', 'relu_pred_layers', 'lat_layers', 'pred_layers', 'downsample_layers', 'relu_downsample_layers']
+
+    def __init__(self, in_channels):
+        super().__init__()
+        self.lat_layers = nn.ModuleList([nn.Conv2d(x, cfg.fpn.num_features, kernel_size=1) for x in reversed(in_channels)])
+        padding = 1 if cfg.fpn.pad else 0
+        self.pred_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.num_features, cfg.fpn.num_features, kernel_size=3, padding=padding) for _ in in_channels])
+        if cfg.fpn.use_conv_downsample:
+            self.downsample_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.num_features, cfg.fpn.num_features, kernel_size=3, padding=1, stride=2) for _ in range(cfg.fpn.num_downsample)])
+        self.interpolation_mode = cfg.fpn.interpolation_mode
+        self.num_downsample = cfg.fpn.num_downsample
+        self.use_conv_downsample = cfg.fpn.use_conv_downsample
+        self.relu_downsample_layers = cfg.fpn.relu_downsample_layers
+        self.relu_pred_layers = cfg.fpn.relu_pred_layers
+
+    @script_method_wrapper
+    def forward(self, convouts: List[torch.Tensor]):
+        """
+        Args:
+            - convouts (list): A list of convouts for the corresponding layers in in_channels.
+        Returns:
+            - A list of FPN convouts in the same order as x with extra downsample layers if requested.
+        """
+        out = []
+        x = torch.zeros(1, device=convouts[0].device)
+        for i in range(len(convouts)):
+            out.append(x)
+        j = len(convouts)
+        for lat_layer in self.lat_layers:
+            j -= 1
+            if j < len(convouts) - 1:
+                _, _, h, w = convouts[j].size()
+                x = F.interpolate(x, size=(h, w), mode=self.interpolation_mode, align_corners=False)
+            x = x + lat_layer(convouts[j])
+            out[j] = x
+        j = len(convouts)
+        for pred_layer in self.pred_layers:
+            j -= 1
+            out[j] = pred_layer(out[j])
+            if self.relu_pred_layers:
+                F.relu(out[j], inplace=True)
+        cur_idx = len(out)
+        if self.use_conv_downsample:
+            for downsample_layer in self.downsample_layers:
+                out.append(downsample_layer(out[-1]))
+        else:
+            for idx in range(self.num_downsample):
+                out.append(nn.functional.max_pool2d(out[-1], 1, stride=2))
+        if self.relu_downsample_layers:
+            for idx in range(len(out) - cur_idx):
+                out[idx] = F.relu(out[idx + cur_idx], inplace=False)
+        return out
 
 
 class Concat(nn.Module):
@@ -1557,43 +1742,18 @@ def make_net(in_channels, conf, include_last_relu=True):
     return nn.Sequential(*net), in_channels
 
 
-_global_config['extra_head_net'] = 4
+class FastMaskIoUNet(ScriptModuleWrapper):
 
+    def __init__(self):
+        super().__init__()
+        input_channels = 1
+        last_layer = [(cfg.num_classes - 1, 1, {})]
+        self.maskiou_net, _ = make_net(input_channels, cfg.maskiou_net + last_layer, include_last_relu=True)
 
-_global_config['_tmp_img_h'] = 4
-
-
-_global_config['mask_proto_prototypes_as_features'] = 4
-
-
-_global_config['mask_proto_coeff_activation'] = 4
-
-
-_global_config['extra_layers'] = 1
-
-
-_global_config['num_heads'] = 4
-
-
-_global_config['mask_dim'] = 4
-
-
-_global_config['eval_mask_branch'] = 4
-
-
-_global_config['num_classes'] = 4
-
-
-_global_config['_tmp_img_w'] = 4
-
-
-_global_config['mask_type'] = 4
-
-
-_global_config['head_layer_params'] = 1
-
-
-_global_config['use_instance_coeff'] = 4
+    def forward(self, x):
+        x = self.maskiou_net(x)
+        maskiou_p = F.max_pool2d(x, kernel_size=x.size()[2:]).squeeze(-1).squeeze(-1)
+        return maskiou_p
 
 
 class PredictionModule(nn.Module):
@@ -1761,258 +1921,6 @@ class PredictionModule(nn.Module):
         return self.priors
 
 
-_global_config['max_num_detections'] = 4
-
-
-class Detect(object):
-    """At test time, Detect is the final layer of SSD.  Decode location preds,
-    apply non-maximum suppression to location predictions based on conf
-    scores and threshold to a top_k number of output predictions for both
-    confidence score and locations, as the predicted masks.
-    """
-
-    def __init__(self, num_classes, bkg_label, top_k, conf_thresh, nms_thresh):
-        self.num_classes = num_classes
-        self.background_label = bkg_label
-        self.top_k = top_k
-        self.nms_thresh = nms_thresh
-        if nms_thresh <= 0:
-            raise ValueError('nms_threshold must be non negative.')
-        self.conf_thresh = conf_thresh
-        self.use_cross_class_nms = False
-        self.use_fast_nms = False
-
-    def __call__(self, predictions, net):
-        """
-        Args:
-             loc_data: (tensor) Loc preds from loc layers
-                Shape: [batch, num_priors, 4]
-            conf_data: (tensor) Shape: Conf preds from conf layers
-                Shape: [batch, num_priors, num_classes]
-            mask_data: (tensor) Mask preds from mask layers
-                Shape: [batch, num_priors, mask_dim]
-            prior_data: (tensor) Prior boxes and variances from priorbox layers
-                Shape: [num_priors, 4]
-            proto_data: (tensor) If using mask_type.lincomb, the prototype masks
-                Shape: [batch, mask_h, mask_w, mask_dim]
-        
-        Returns:
-            output of shape (batch_size, top_k, 1 + 1 + 4 + mask_dim)
-            These outputs are in the order: class idx, confidence, bbox coords, and mask.
-
-            Note that the outputs are sorted only if cross_class_nms is False
-        """
-        loc_data = predictions['loc']
-        conf_data = predictions['conf']
-        mask_data = predictions['mask']
-        prior_data = predictions['priors']
-        proto_data = predictions['proto'] if 'proto' in predictions else None
-        inst_data = predictions['inst'] if 'inst' in predictions else None
-        out = []
-        with timer.env('Detect'):
-            batch_size = loc_data.size(0)
-            num_priors = prior_data.size(0)
-            conf_preds = conf_data.view(batch_size, num_priors, self.num_classes).transpose(2, 1).contiguous()
-            for batch_idx in range(batch_size):
-                decoded_boxes = decode(loc_data[batch_idx], prior_data)
-                result = self.detect(batch_idx, conf_preds, decoded_boxes, mask_data, inst_data)
-                if result is not None and proto_data is not None:
-                    result['proto'] = proto_data[batch_idx]
-                out.append({'detection': result, 'net': net})
-        return out
-
-    def detect(self, batch_idx, conf_preds, decoded_boxes, mask_data, inst_data):
-        """ Perform nms for only the max scoring class that isn't background (class 0) """
-        cur_scores = conf_preds[(batch_idx), 1:, :]
-        conf_scores, _ = torch.max(cur_scores, dim=0)
-        keep = conf_scores > self.conf_thresh
-        scores = cur_scores[:, (keep)]
-        boxes = decoded_boxes[(keep), :]
-        masks = mask_data[(batch_idx), (keep), :]
-        if inst_data is not None:
-            inst = inst_data[(batch_idx), (keep), :]
-        if scores.size(1) == 0:
-            return None
-        if self.use_fast_nms:
-            if self.use_cross_class_nms:
-                boxes, masks, classes, scores = self.cc_fast_nms(boxes, masks, scores, self.nms_thresh, self.top_k)
-            else:
-                boxes, masks, classes, scores = self.fast_nms(boxes, masks, scores, self.nms_thresh, self.top_k)
-        else:
-            boxes, masks, classes, scores = self.traditional_nms(boxes, masks, scores, self.nms_thresh, self.conf_thresh)
-            if self.use_cross_class_nms:
-                print('Warning: Cross Class Traditional NMS is not implemented.')
-        return {'box': boxes, 'mask': masks, 'class': classes, 'score': scores}
-
-    def cc_fast_nms(self, boxes, masks, scores, iou_threshold: float=0.5, top_k: int=200):
-        scores, classes = scores.max(dim=0)
-        _, idx = scores.sort(0, descending=True)
-        idx = idx[:top_k]
-        boxes_idx = boxes[idx]
-        iou = jaccard(boxes_idx, boxes_idx)
-        iou.triu_(diagonal=1)
-        iou_max, _ = torch.max(iou, dim=0)
-        idx_out = idx[iou_max <= iou_threshold]
-        return boxes[idx_out], masks[idx_out], classes[idx_out], scores[idx_out]
-
-    def fast_nms(self, boxes, masks, scores, iou_threshold: float=0.5, top_k: int=200, second_threshold: bool=False):
-        scores, idx = scores.sort(1, descending=True)
-        idx = idx[:, :top_k].contiguous()
-        scores = scores[:, :top_k]
-        num_classes, num_dets = idx.size()
-        boxes = boxes[(idx.view(-1)), :].view(num_classes, num_dets, 4)
-        masks = masks[(idx.view(-1)), :].view(num_classes, num_dets, -1)
-        iou = jaccard(boxes, boxes)
-        iou.triu_(diagonal=1)
-        iou_max, _ = iou.max(dim=1)
-        keep = iou_max <= iou_threshold
-        if second_threshold:
-            keep *= scores > self.conf_thresh
-        classes = torch.arange(num_classes, device=boxes.device)[:, (None)].expand_as(keep)
-        classes = classes[keep]
-        boxes = boxes[keep]
-        masks = masks[keep]
-        scores = scores[keep]
-        scores, idx = scores.sort(0, descending=True)
-        idx = idx[:cfg.max_num_detections]
-        scores = scores[:cfg.max_num_detections]
-        classes = classes[idx]
-        boxes = boxes[idx]
-        masks = masks[idx]
-        return boxes, masks, classes, scores
-
-    def traditional_nms(self, boxes, masks, scores, iou_threshold=0.5, conf_thresh=0.05):
-        import pyximport
-        pyximport.install(setup_args={'include_dirs': np.get_include()}, reload_support=True)
-        from utils.cython_nms import nms as cnms
-        num_classes = scores.size(0)
-        idx_lst = []
-        cls_lst = []
-        scr_lst = []
-        boxes = boxes * cfg.max_size
-        for _cls in range(num_classes):
-            cls_scores = scores[(_cls), :]
-            conf_mask = cls_scores > conf_thresh
-            idx = torch.arange(cls_scores.size(0), device=boxes.device)
-            cls_scores = cls_scores[conf_mask]
-            idx = idx[conf_mask]
-            if cls_scores.size(0) == 0:
-                continue
-            preds = torch.cat([boxes[conf_mask], cls_scores[:, (None)]], dim=1).cpu().numpy()
-            keep = cnms(preds, iou_threshold)
-            keep = torch.Tensor(keep, device=boxes.device).long()
-            idx_lst.append(idx[keep])
-            cls_lst.append(keep * 0 + _cls)
-            scr_lst.append(cls_scores[keep])
-        idx = torch.cat(idx_lst, dim=0)
-        classes = torch.cat(cls_lst, dim=0)
-        scores = torch.cat(scr_lst, dim=0)
-        scores, idx2 = scores.sort(0, descending=True)
-        idx2 = idx2[:cfg.max_num_detections]
-        scores = scores[:cfg.max_num_detections]
-        idx = idx[idx2]
-        classes = classes[idx2]
-        return boxes[idx] / cfg.max_size, masks[idx], classes, scores
-
-
-use_jit = torch.cuda.device_count() <= 1
-
-
-ScriptModuleWrapper = torch.jit.ScriptModule if use_jit else nn.Module
-
-
-script_method_wrapper = torch.jit.script_method if use_jit else lambda fn, _rcn=None: fn
-
-
-_global_config['fpn'] = 4
-
-
-class FPN(ScriptModuleWrapper):
-    """
-    Implements a general version of the FPN introduced in
-    https://arxiv.org/pdf/1612.03144.pdf
-
-    Parameters (in cfg.fpn):
-        - num_features (int): The number of output features in the fpn layers.
-        - interpolation_mode (str): The mode to pass to F.interpolate.
-        - num_downsample (int): The number of downsampled layers to add onto the selected layers.
-                                These extra layers are downsampled from the last selected layer.
-
-    Args:
-        - in_channels (list): For each conv layer you supply in the forward pass,
-                              how many features will it have?
-    """
-    __constants__ = ['interpolation_mode', 'num_downsample', 'use_conv_downsample', 'relu_pred_layers', 'lat_layers', 'pred_layers', 'downsample_layers', 'relu_downsample_layers']
-
-    def __init__(self, in_channels):
-        super().__init__()
-        self.lat_layers = nn.ModuleList([nn.Conv2d(x, cfg.fpn.num_features, kernel_size=1) for x in reversed(in_channels)])
-        padding = 1 if cfg.fpn.pad else 0
-        self.pred_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.num_features, cfg.fpn.num_features, kernel_size=3, padding=padding) for _ in in_channels])
-        if cfg.fpn.use_conv_downsample:
-            self.downsample_layers = nn.ModuleList([nn.Conv2d(cfg.fpn.num_features, cfg.fpn.num_features, kernel_size=3, padding=1, stride=2) for _ in range(cfg.fpn.num_downsample)])
-        self.interpolation_mode = cfg.fpn.interpolation_mode
-        self.num_downsample = cfg.fpn.num_downsample
-        self.use_conv_downsample = cfg.fpn.use_conv_downsample
-        self.relu_downsample_layers = cfg.fpn.relu_downsample_layers
-        self.relu_pred_layers = cfg.fpn.relu_pred_layers
-
-    @script_method_wrapper
-    def forward(self, convouts: List[torch.Tensor]):
-        """
-        Args:
-            - convouts (list): A list of convouts for the corresponding layers in in_channels.
-        Returns:
-            - A list of FPN convouts in the same order as x with extra downsample layers if requested.
-        """
-        out = []
-        x = torch.zeros(1, device=convouts[0].device)
-        for i in range(len(convouts)):
-            out.append(x)
-        j = len(convouts)
-        for lat_layer in self.lat_layers:
-            j -= 1
-            if j < len(convouts) - 1:
-                _, _, h, w = convouts[j].size()
-                x = F.interpolate(x, size=(h, w), mode=self.interpolation_mode, align_corners=False)
-            x = x + lat_layer(convouts[j])
-            out[j] = x
-        j = len(convouts)
-        for pred_layer in self.pred_layers:
-            j -= 1
-            out[j] = pred_layer(out[j])
-            if self.relu_pred_layers:
-                F.relu(out[j], inplace=True)
-        cur_idx = len(out)
-        if self.use_conv_downsample:
-            for downsample_layer in self.downsample_layers:
-                out.append(downsample_layer(out[-1]))
-        else:
-            for idx in range(self.num_downsample):
-                out.append(nn.functional.max_pool2d(out[-1], 1, stride=2))
-        if self.relu_downsample_layers:
-            for idx in range(len(out) - cur_idx):
-                out[idx] = F.relu(out[idx + cur_idx], inplace=False)
-        return out
-
-
-_global_config['maskiou_net'] = 4
-
-
-class FastMaskIoUNet(ScriptModuleWrapper):
-
-    def __init__(self):
-        super().__init__()
-        input_channels = 1
-        last_layer = [(cfg.num_classes - 1, 1, {})]
-        self.maskiou_net, _ = make_net(input_channels, cfg.maskiou_net + last_layer, include_last_relu=True)
-
-    def forward(self, x):
-        x = self.maskiou_net(x)
-        maskiou_p = F.max_pool2d(x, kernel_size=x.size()[2:]).squeeze(-1).squeeze(-1)
-        return maskiou_p
-
-
 def construct_backbone(cfg):
     """ Constructs a backbone given a backbone config object (see config.py). """
     backbone = cfg.type(*cfg.args)
@@ -2020,9 +1928,6 @@ def construct_backbone(cfg):
     while len(backbone.layers) < num_layers:
         backbone.add_layer()
     return backbone
-
-
-_global_config['mask_proto_use_grid'] = 4
 
 
 class Yolact(nn.Module):
@@ -2227,6 +2132,107 @@ class Yolact(nn.Module):
             return self.detect(pred_outs, self)
 
 
+class NetLoss(nn.Module):
+    """
+    A wrapper for running the network and computing the loss
+    This is so we can more efficiently use DataParallel.
+    """
+
+    def __init__(self, net: Yolact, criterion: MultiBoxLoss):
+        super().__init__()
+        self.net = net
+        self.criterion = criterion
+
+    def forward(self, images, targets, masks, num_crowds):
+        preds = self.net(images)
+        losses = self.criterion(self.net, preds, targets, masks, num_crowds)
+        return losses
+
+
+MEANS = 103.94, 116.78, 123.68
+
+
+class Resize(object):
+    """ If preserve_aspect_ratio is true, this resizes to an approximate area of max_size * max_size """
+
+    @staticmethod
+    def calc_size_preserve_ar(img_w, img_h, max_size):
+        """ I mathed this one out on the piece of paper. Resulting width*height = approx max_size^2 """
+        ratio = sqrt(img_w / img_h)
+        w = max_size * ratio
+        h = max_size / ratio
+        return int(w), int(h)
+
+    def __init__(self, resize_gt=True):
+        self.resize_gt = resize_gt
+        self.max_size = cfg.max_size
+        self.preserve_aspect_ratio = cfg.preserve_aspect_ratio
+
+    def __call__(self, image, masks, boxes, labels=None):
+        img_h, img_w, _ = image.shape
+        if self.preserve_aspect_ratio:
+            width, height = Resize.calc_size_preserve_ar(img_w, img_h, self.max_size)
+        else:
+            width, height = self.max_size, self.max_size
+        image = cv2.resize(image, (width, height))
+        if self.resize_gt:
+            masks = masks.transpose((1, 2, 0))
+            masks = cv2.resize(masks, (width, height))
+            if len(masks.shape) == 2:
+                masks = np.expand_dims(masks, 0)
+            else:
+                masks = masks.transpose((2, 0, 1))
+            boxes[:, ([0, 2])] *= width / img_w
+            boxes[:, ([1, 3])] *= height / img_h
+        w = boxes[:, (2)] - boxes[:, (0)]
+        h = boxes[:, (3)] - boxes[:, (1)]
+        keep = (w > cfg.discard_box_width) * (h > cfg.discard_box_height)
+        masks = masks[keep]
+        boxes = boxes[keep]
+        labels['labels'] = labels['labels'][keep]
+        labels['num_crowds'] = (labels['labels'] < 0).sum()
+        return image, masks, boxes, labels
+
+
+STD = 57.38, 57.12, 58.4
+
+
+class FastBaseTransform(torch.nn.Module):
+    """
+    Transform that does all operations on the GPU for super speed.
+    This doesn't suppport a lot of config settings and should only be used for production.
+    Maintain this as necessary.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.mean = torch.Tensor(MEANS).float()[(None), :, (None), (None)]
+        self.std = torch.Tensor(STD).float()[(None), :, (None), (None)]
+        self.transform = cfg.backbone.transform
+
+    def forward(self, img):
+        self.mean = self.mean
+        self.std = self.std
+        if cfg.preserve_aspect_ratio:
+            _, h, w, _ = img.size()
+            img_size = Resize.calc_size_preserve_ar(w, h, cfg.max_size)
+            img_size = img_size[1], img_size[0]
+        else:
+            img_size = cfg.max_size, cfg.max_size
+        img = img.permute(0, 3, 1, 2).contiguous()
+        img = F.interpolate(img, img_size, mode='bilinear', align_corners=False)
+        if self.transform.normalize:
+            img = (img - self.mean) / self.std
+        elif self.transform.subtract_means:
+            img = img - self.mean
+        elif self.transform.to_float:
+            img = img / 255
+        if self.transform.channel_order != 'RGB':
+            raise NotImplementedError
+        img = img[:, (2, 1, 0), :, :].contiguous()
+        return img
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -2243,6 +2249,10 @@ TESTCASES = [
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
     (ResNetBackbone,
+     lambda: ([], {'layers': [4, 4, 4, 4]}),
+     lambda: ([torch.rand([4, 3, 64, 64])], {}),
+     False),
+    (ResNetBackboneGN,
      lambda: ([], {'layers': [4, 4, 4, 4]}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
      False),
@@ -2264,4 +2274,7 @@ class Test_dbolya_yolact(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

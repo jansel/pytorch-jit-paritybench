@@ -8,6 +8,7 @@ correlation_package = _module
 _ext = _module
 corr = _module
 functions = _module
+corr = _module
 modules = _module
 corr = _module
 setup = _module
@@ -23,32 +24,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-from torch.nn.modules.module import Module
+import torch.utils.data as data
+
+
+import numpy as np
 
 
 import torch
+
+
+from torch.autograd import Function
+
+
+from torch.nn.modules.module import Module
 
 
 import torch.nn as nn
 
 
 from torch.autograd import Variable
-
-
-import numpy as np
 
 
 import torchvision.models as models
@@ -92,8 +100,8 @@ class correlation(Function):
         input1, input2 = self.saved_tensors
         rbot1 = input1.new()
         rbot2 = input2.new()
-        grad_input1 = torch.zeros(input1.size()).cuda()
-        grad_input2 = torch.zeros(input2.size()).cuda()
+        grad_input1 = torch.zeros(input1.size())
+        grad_input2 = torch.zeros(input2.size())
         corr.corr_cuda_backward(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
         return grad_input1, grad_input2
 
@@ -142,8 +150,8 @@ class correlation1d(Function):
         input1, input2 = self.saved_tensors
         rbot1 = input1.new()
         rbot2 = input2.new()
-        grad_input1 = torch.zeros(input1.size()).cuda()
-        grad_input2 = torch.zeros(input2.size()).cuda()
+        grad_input1 = torch.zeros(input1.size())
+        grad_input2 = torch.zeros(input2.size())
         corr.corr1d_cuda_backward(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
         return grad_input1, grad_input2
 

@@ -17,17 +17,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
 
 
 import torch
@@ -37,9 +41,6 @@ import torch.nn as nn
 
 
 from torch.autograd import Variable
-
-
-import numpy as np
 
 
 from torch.nn.functional import sigmoid
@@ -118,35 +119,6 @@ class Conv_up(nn.Module):
         x1 = torch.cat((x1, x2), dim=1)
         x1 = self.conv(x1)
         return x1
-
-
-class CleanU_Net(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super(CleanU_Net, self).__init__()
-        self.Conv_down1 = Conv_down(in_channels, 64)
-        self.Conv_down2 = Conv_down(64, 128)
-        self.Conv_down3 = Conv_down(128, 256)
-        self.Conv_down4 = Conv_down(256, 512)
-        self.Conv_down5 = Conv_down(512, 1024)
-        self.Conv_up1 = Conv_up(1024, 512)
-        self.Conv_up2 = Conv_up(512, 256)
-        self.Conv_up3 = Conv_up(256, 128)
-        self.Conv_up4 = Conv_up(128, 64)
-        self.Conv_out = nn.Conv2d(64, out_channels, 1, padding=0, stride=1)
-
-    def forward(self, x):
-        x, conv1 = self.Conv_down1(x)
-        x, conv2 = self.Conv_down2(x)
-        x, conv3 = self.Conv_down3(x)
-        x, conv4 = self.Conv_down4(x)
-        _, x = self.Conv_down5(x)
-        x = self.Conv_up1(x, conv4)
-        x = self.Conv_up2(x, conv3)
-        x = self.Conv_up3(x, conv2)
-        x = self.Conv_up4(x, conv1)
-        x = self.Conv_out(x)
-        return x
 
 
 class CleanU_Net(nn.Module):

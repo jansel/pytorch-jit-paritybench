@@ -8,38 +8,58 @@ train = _module
 maxent = _module
 main = _module
 model = _module
+test = _module
 train_model = _module
 utils = _module
 zfilter = _module
+main = _module
 model = _module
 ppo = _module
+test = _module
+utils = _module
+main = _module
 model = _module
+test = _module
 train_model = _module
+utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+from collections import deque
 
 
 import torch
 
 
+import torch.optim as optim
+
+
 import torch.nn as nn
 
 
-import numpy as np
+import math
+
+
+from torch.distributions import Normal
 
 
 class Actor(nn.Module):
@@ -93,78 +113,6 @@ class Discriminator(nn.Module):
         x = torch.tanh(self.fc2(x))
         prob = torch.sigmoid(self.fc3(x))
         return prob
-
-
-class Actor(nn.Module):
-
-    def __init__(self, num_inputs, num_outputs, args):
-        super(Actor, self).__init__()
-        self.fc1 = nn.Linear(num_inputs, args.hidden_size)
-        self.fc2 = nn.Linear(args.hidden_size, args.hidden_size)
-        self.fc3 = nn.Linear(args.hidden_size, num_outputs)
-        self.fc3.weight.data.mul_(0.1)
-        self.fc3.bias.data.mul_(0.0)
-
-    def forward(self, x):
-        x = torch.tanh(self.fc1(x))
-        x = torch.tanh(self.fc2(x))
-        mu = self.fc3(x)
-        logstd = torch.zeros_like(mu)
-        std = torch.exp(logstd)
-        return mu, std
-
-
-class Critic(nn.Module):
-
-    def __init__(self, num_inputs, args):
-        super(Critic, self).__init__()
-        self.fc1 = nn.Linear(num_inputs, args.hidden_size)
-        self.fc2 = nn.Linear(args.hidden_size, args.hidden_size)
-        self.fc3 = nn.Linear(args.hidden_size, 1)
-        self.fc3.weight.data.mul_(0.1)
-        self.fc3.bias.data.mul_(0.0)
-
-    def forward(self, x):
-        x = torch.tanh(self.fc1(x))
-        x = torch.tanh(self.fc2(x))
-        v = self.fc3(x)
-        return v
-
-
-class Actor(nn.Module):
-
-    def __init__(self, num_inputs, num_outputs, args):
-        super(Actor, self).__init__()
-        self.fc1 = nn.Linear(num_inputs, args.hidden_size)
-        self.fc2 = nn.Linear(args.hidden_size, args.hidden_size)
-        self.fc3 = nn.Linear(args.hidden_size, num_outputs)
-        self.fc3.weight.data.mul_(0.1)
-        self.fc3.bias.data.mul_(0.0)
-
-    def forward(self, x):
-        x = torch.tanh(self.fc1(x))
-        x = torch.tanh(self.fc2(x))
-        mu = self.fc3(x)
-        logstd = torch.zeros_like(mu)
-        std = torch.exp(logstd)
-        return mu, std
-
-
-class Critic(nn.Module):
-
-    def __init__(self, num_inputs, args):
-        super(Critic, self).__init__()
-        self.fc1 = nn.Linear(num_inputs, args.hidden_size)
-        self.fc2 = nn.Linear(args.hidden_size, args.hidden_size)
-        self.fc3 = nn.Linear(args.hidden_size, 1)
-        self.fc3.weight.data.mul_(0.1)
-        self.fc3.bias.data.mul_(0.0)
-
-    def forward(self, x):
-        x = torch.tanh(self.fc1(x))
-        x = torch.tanh(self.fc2(x))
-        v = self.fc3(x)
-        return v
 
 
 class VDB(nn.Module):

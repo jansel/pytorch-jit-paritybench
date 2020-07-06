@@ -31,15 +31,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -47,10 +48,43 @@ __version__ = '1.0.0'
 import torch
 
 
-import torch.nn as nn
+import torch.jit
+
+
+import torch.autograd
+
+
+import torch.serialization
+
+
+from torch.jit import _unique_state_dict
+
+
+import math
+
+
+import numpy as np
+
+
+import torchvision
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
 
 
 from torch.autograd import Function
+
+
+from math import sqrt as sqrt
+
+
+from itertools import product as product
+
+
+import torch.nn as nn
 
 
 from torch.autograd import Variable
@@ -60,6 +94,12 @@ import torch.nn.init as init
 
 
 import torch.nn.functional as F
+
+
+import time
+
+
+import collections
 
 
 class L2Norm(nn.Module):
@@ -194,9 +234,6 @@ def match(threshold, truths, priors, variances, labels, loc_t, conf_t, idx):
     loc = encode(matches, priors, variances)
     loc_t[idx] = loc
     conf_t[idx] = conf
-
-
-_global_config['variance'] = 4
 
 
 class MultiBoxLoss(nn.Module):

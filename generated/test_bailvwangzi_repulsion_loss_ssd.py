@@ -27,20 +27,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import numpy as np
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
+from torch.autograd import Variable
+
+
+import time
 
 
 import torch.nn as nn
@@ -49,19 +65,13 @@ import torch.nn as nn
 import torch.backends.cudnn as cudnn
 
 
-from torch.autograd import Variable
-
-
-import torch.utils.data as data
-
-
-import time
-
-
-import numpy as np
-
-
 from torch.autograd import Function
+
+
+from math import sqrt as sqrt
+
+
+from itertools import product as product
 
 
 import torch.nn.init as init
@@ -70,10 +80,16 @@ import torch.nn.init as init
 import torch.nn.functional as F
 
 
-import torchvision.transforms as transforms
-
-
 import torch.optim as optim
+
+
+from torchvision import transforms
+
+
+import types
+
+
+from numpy import random
 
 
 class L2Norm(nn.Module):
@@ -94,6 +110,63 @@ class L2Norm(nn.Module):
         x = torch.div(x, norm)
         out = self.weight.unsqueeze(0).unsqueeze(2).unsqueeze(3).expand_as(x) * x
         return out
+
+
+def IoG(box_a, box_b):
+    """Compute the IoG of two sets of boxes.  
+    E.g.:
+        A ∩ B / A = A ∩ B / area(A)
+    Args:
+        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
+        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_objects,4]
+    Return:
+        IoG: (tensor) Shape: [num_objects]
+    """
+    inter_xmin = torch.max(box_a[:, (0)], box_b[:, (0)])
+    inter_ymin = torch.max(box_a[:, (1)], box_b[:, (1)])
+    inter_xmax = torch.min(box_a[:, (2)], box_b[:, (2)])
+    inter_ymax = torch.min(box_a[:, (3)], box_b[:, (3)])
+    Iw = torch.clamp(inter_xmax - inter_xmin, min=0)
+    Ih = torch.clamp(inter_ymax - inter_ymin, min=0)
+    I = Iw * Ih
+    G = (box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
+    return I / G
+
+
+def decode_new(loc, priors, variances):
+    """Decode locations from predictions using priors to undo
+    the encoding we did for offset regression at train time.
+    Args:
+        loc (tensor): location predictions for loc layers,
+            Shape: [num_priors,4]
+        priors (tensor): Prior boxes in center-offset form.
+            Shape: [num_priors,4].
+        variances: (list[float]) Variances of priorboxes
+    Return:
+        decoded bounding box predictions
+    """
+    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
+    boxes[:, :2] = boxes[:, :2] - boxes[:, 2:] / 2
+    boxes[:, 2:] = boxes[:, 2:] + boxes[:, :2]
+    return boxes
+
+
+class RepulsionLoss(nn.Module):
+
+    def __init__(self, use_gpu=True, sigma=0.0):
+        super(RepulsionLoss, self).__init__()
+        self.use_gpu = use_gpu
+        self.variance = cfg['variance']
+        self.sigma = sigma
+
+    def smoothln(self, x, sigma=0.0):
+        pass
+
+    def forward(self, loc_data, ground_data, prior_data):
+        decoded_boxes = decode_new(loc_data, Variable(prior_data.data, requires_grad=False), self.variance)
+        iog = IoG(ground_data, decoded_boxes)
+        loss = torch.sum(iog)
+        return loss
 
 
 def log_sum_exp(x):
@@ -145,22 +218,10 @@ def encode(matched, priors, variances):
 
 
 def intersect(box_a, box_b):
-    """ We resize both tensors to [A,B,2] without new malloc:
-    [A,2] -> [A,1,2] -> [A,B,2]
-    [B,2] -> [1,B,2] -> [A,B,2]
-    Then we compute the area of intersect between box_a and box_b.
-    Args:
-      box_a: (tensor) bounding boxes, Shape: [A,4].
-      box_b: (tensor) bounding boxes, Shape: [B,4].
-    Return:
-      (tensor) intersection area, Shape: [A,B].
-    """
-    A = box_a.size(0)
-    B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
-    inter = torch.clamp(max_xy - min_xy, min=0)
-    return inter[:, :, (0)] * inter[:, :, (1)]
+    max_xy = np.minimum(box_a[:, 2:], box_b[2:])
+    min_xy = np.maximum(box_a[:, :2], box_b[:2])
+    inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
+    return inter[:, (0)] * inter[:, (1)]
 
 
 def jaccard(box_a, box_b):
@@ -237,9 +298,6 @@ def match(threshold, predicts, truths, priors, variances, labels, loc_t, loc_g, 
     second_truth_idx.squeeze_(0)
     matches_G = truths[second_truth_idx]
     loc_g[idx] = matches_G
-
-
-_global_config['variance'] = 4
 
 
 class MultiBoxLoss(nn.Module):
@@ -340,63 +398,6 @@ class MultiBoxLoss(nn.Module):
         loss_l_repul /= N
         loss_c /= N
         return loss_l, loss_l_repul, loss_c
-
-
-def IoG(box_a, box_b):
-    """Compute the IoG of two sets of boxes.  
-    E.g.:
-        A ∩ B / A = A ∩ B / area(A)
-    Args:
-        box_a: (tensor) Ground truth bounding boxes, Shape: [num_objects,4]
-        box_b: (tensor) Prior boxes from priorbox layers, Shape: [num_objects,4]
-    Return:
-        IoG: (tensor) Shape: [num_objects]
-    """
-    inter_xmin = torch.max(box_a[:, (0)], box_b[:, (0)])
-    inter_ymin = torch.max(box_a[:, (1)], box_b[:, (1)])
-    inter_xmax = torch.min(box_a[:, (2)], box_b[:, (2)])
-    inter_ymax = torch.min(box_a[:, (3)], box_b[:, (3)])
-    Iw = torch.clamp(inter_xmax - inter_xmin, min=0)
-    Ih = torch.clamp(inter_ymax - inter_ymin, min=0)
-    I = Iw * Ih
-    G = (box_a[:, (2)] - box_a[:, (0)]) * (box_a[:, (3)] - box_a[:, (1)])
-    return I / G
-
-
-def decode_new(loc, priors, variances):
-    """Decode locations from predictions using priors to undo
-    the encoding we did for offset regression at train time.
-    Args:
-        loc (tensor): location predictions for loc layers,
-            Shape: [num_priors,4]
-        priors (tensor): Prior boxes in center-offset form.
-            Shape: [num_priors,4].
-        variances: (list[float]) Variances of priorboxes
-    Return:
-        decoded bounding box predictions
-    """
-    boxes = torch.cat((priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:], priors[:, 2:] * torch.exp(loc[:, 2:] * variances[1])), 1)
-    boxes[:, :2] = boxes[:, :2] - boxes[:, 2:] / 2
-    boxes[:, 2:] = boxes[:, 2:] + boxes[:, :2]
-    return boxes
-
-
-class RepulsionLoss(nn.Module):
-
-    def __init__(self, use_gpu=True, sigma=0.0):
-        super(RepulsionLoss, self).__init__()
-        self.use_gpu = use_gpu
-        self.variance = cfg['variance']
-        self.sigma = sigma
-
-    def smoothln(self, x, sigma=0.0):
-        pass
-
-    def forward(self, loc_data, ground_data, prior_data):
-        decoded_boxes = decode_new(loc_data, Variable(prior_data.data, requires_grad=False), self.variance)
-        iog = IoG(ground_data, decoded_boxes)
-        loss = torch.sum(iog)
-        return loss
 
 
 def nms(boxes, scores, overlap=0.5, top_k=200):

@@ -70,10 +70,14 @@ loss_scaler = _module
 mlp = _module
 mlp = _module
 multi_tensor_apply = _module
+multi_tensor_apply = _module
 normalization = _module
 fused_layer_norm = _module
 fused_adagrad = _module
+fused_adam = _module
+fused_lamb = _module
 fused_novograd = _module
+fused_sgd = _module
 LARC = _module
 parallel = _module
 distributed = _module
@@ -84,6 +88,7 @@ sync_batchnorm = _module
 sync_batchnorm_kernel = _module
 pyprof = _module
 fused_adam = _module
+fused_layer_norm = _module
 custom_function = _module
 custom_module = _module
 imagenet = _module
@@ -98,7 +103,6 @@ resnet = _module
 nvtx = _module
 nvmarker = _module
 parse = _module
-__main__ = _module
 db = _module
 kernel = _module
 nvvp = _module
@@ -147,6 +151,7 @@ test_multi_tensor_scale = _module
 test_multiple_models_optimizers_losses = _module
 test_promotion = _module
 test_rnn = _module
+utils = _module
 run_fp16util = _module
 test_fp16util = _module
 test_fused_layer_norm = _module
@@ -163,6 +168,7 @@ compare = _module
 main_amp = _module
 ddp_race_condition_test = _module
 amp_master_params = _module
+compare = _module
 python_single_gpu_unit_test = _module
 single_gpu_unit_test = _module
 test_batchnorm1d = _module
@@ -173,15 +179,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -201,6 +208,9 @@ import torch.nn.functional as F
 import math
 
 
+import warnings
+
+
 from torch._six import string_classes
 
 
@@ -213,7 +223,7 @@ import numpy as np
 from types import MethodType
 
 
-import warnings
+import types
 
 
 import itertools
@@ -225,6 +235,9 @@ from collections import OrderedDict
 import torch.nn.functional
 
 
+from itertools import product
+
+
 from torch.nn.modules.batchnorm import _BatchNorm
 
 
@@ -234,7 +247,16 @@ from torch import nn
 from torch.nn import Parameter
 
 
-import types
+from torch.optim.optimizer import Optimizer
+
+
+from torch.optim.optimizer import required
+
+
+import collections
+
+
+from itertools import permutations
 
 
 import random
@@ -276,6 +298,9 @@ from itertools import chain
 import copy
 
 
+from torch.autograd.function import Function
+
+
 import torch.cuda.profiler as profiler
 
 
@@ -283,6 +308,9 @@ import torchvision.models as models
 
 
 import torch.optim as optim
+
+
+import inspect
 
 
 import torch.cuda.nvtx as nvtx
@@ -336,356 +364,123 @@ import itertools as it
 from math import floor
 
 
-import inspect
+from time import time
 
 
 from torch.nn import Module
 
 
-class bidirectionalRNN(nn.Module):
+class RNNCell(nn.Module):
+    """ 
+    RNNCell 
+    gate_multiplier is related to the architecture you're working with
+    For LSTM-like it will be 4 and GRU-like will be 3.
+    Always assumes input is NOT batch_first.
+    Output size that's not hidden size will use output projection
+    Hidden_states is number of hidden states that are needed for cell
+    if one will go directly to cell as tensor, if more will go as list
     """
-    bidirectionalRNN
-    """
 
-    def __init__(self, inputRNN, num_layers=1, dropout=0):
-        super(bidirectionalRNN, self).__init__()
-        self.dropout = dropout
-        self.fwd = stackedRNN(inputRNN, num_layers=num_layers, dropout=dropout)
-        self.bckwrd = stackedRNN(inputRNN.new_like(), num_layers=num_layers, dropout=dropout)
-        self.rnns = nn.ModuleList([self.fwd, self.bckwrd])
+    def __init__(self, gate_multiplier, input_size, hidden_size, cell, n_hidden_states=2, bias=False, output_size=None):
+        super(RNNCell, self).__init__()
+        self.gate_multiplier = gate_multiplier
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.cell = cell
+        self.bias = bias
+        self.output_size = output_size
+        if output_size is None:
+            self.output_size = hidden_size
+        self.gate_size = gate_multiplier * self.hidden_size
+        self.n_hidden_states = n_hidden_states
+        self.w_ih = nn.Parameter(torch.Tensor(self.gate_size, self.input_size))
+        self.w_hh = nn.Parameter(torch.Tensor(self.gate_size, self.output_size))
+        if self.output_size != self.hidden_size:
+            self.w_ho = nn.Parameter(torch.Tensor(self.output_size, self.hidden_size))
+        self.b_ih = self.b_hh = None
+        if self.bias:
+            self.b_ih = nn.Parameter(torch.Tensor(self.gate_size))
+            self.b_hh = nn.Parameter(torch.Tensor(self.gate_size))
+        self.hidden = [None for states in range(self.n_hidden_states)]
+        self.reset_parameters()
 
-    def forward(self, input, collect_hidden=False):
+    def new_like(self, new_input_size=None):
         """
-        forward()
+        new_like()
         """
-        seq_len = input.size(0)
-        bsz = input.size(1)
-        fwd_out, fwd_hiddens = list(self.fwd(input, collect_hidden=collect_hidden))
-        bckwrd_out, bckwrd_hiddens = list(self.bckwrd(input, reverse=True, collect_hidden=collect_hidden))
-        output = torch.cat([fwd_out, bckwrd_out], -1)
-        hiddens = tuple(torch.cat(hidden, -1) for hidden in zip(fwd_hiddens, bckwrd_hiddens))
-        return output, hiddens
+        if new_input_size is None:
+            new_input_size = self.input_size
+        return type(self)(self.gate_multiplier, new_input_size, self.hidden_size, self.cell, self.n_hidden_states, self.bias, self.output_size)
 
-    def reset_parameters(self):
+    def reset_parameters(self, gain=1):
         """
         reset_parameters()
         """
-        for rnn in self.rnns:
-            rnn.reset_parameters()
+        stdev = 1.0 / math.sqrt(self.hidden_size)
+        for param in self.parameters():
+            param.data.uniform_(-stdev, stdev)
+    """
+    Xavier reset:
+    def reset_parameters(self, gain=1):
+        stdv = 1.0 / math.sqrt(self.gate_size)
+
+        for param in self.parameters():
+            if (param.dim() > 1):
+                torch.nn.init.xavier_normal(param, gain)
+            else:
+                param.data.uniform_(-stdv, stdv)
+    """
 
     def init_hidden(self, bsz):
         """
         init_hidden()
         """
-        for rnn in self.rnns:
-            rnn.init_hidden(bsz)
-
-    def detach_hidden(self):
-        """
-        detach_hidden()
-        """
-        for rnn in self.rnns:
-            rnn.detachHidden()
+        for param in self.parameters():
+            if param is not None:
+                a_param = param
+                break
+        for i, _ in enumerate(self.hidden):
+            if self.hidden[i] is None or self.hidden[i].data.size()[0] != bsz:
+                if i == 0:
+                    hidden_size = self.output_size
+                else:
+                    hidden_size = self.hidden_size
+                tens = a_param.data.new(bsz, hidden_size).zero_()
+                self.hidden[i] = Variable(tens, requires_grad=False)
 
     def reset_hidden(self, bsz):
         """
         reset_hidden()
         """
-        for rnn in self.rnns:
-            rnn.reset_hidden(bsz)
+        for i, _ in enumerate(self.hidden):
+            self.hidden[i] = None
+        self.init_hidden(bsz)
 
-    def init_inference(self, bsz):
+    def detach_hidden(self):
         """
-        init_inference()
+        detach_hidden()
         """
-        for rnn in self.rnns:
-            rnn.init_inference(bsz)
+        for i, _ in enumerate(self.hidden):
+            if self.hidden[i] is None:
+                raise RuntimeError('Must initialize hidden state before you can detach it')
+        for i, _ in enumerate(self.hidden):
+            self.hidden[i] = self.hidden[i].detach()
 
-
-class OperatorLayerBase(ABC):
-    """
-	Base class for all layers and operators.
-	Every derived class should have the following functions.
-	"""
-
-    @abstractmethod
-    def tc(self):
+    def forward(self, input):
         """
-		Tensor core usage by the kernel.
-		Return "1" (yes), "0" (no, but possible), "-" (not applicable)
-		"""
-        pass
-
-    @abstractmethod
-    def params(self):
+        forward()
+        if not inited or bsz has changed this will create hidden states
         """
-		Kernel parameters to be printed.
-		"""
-        pass
-
-    @abstractmethod
-    def flops(self):
-        """
-		Note that 1 FMA = 2 flops.
-		"""
-        pass
-
-    @abstractmethod
-    def bytes(self):
-        pass
-
-    @abstractmethod
-    def mod(self):
-        """
-		Name of the module/class e.g. torch.nn.functional.
-		"""
-        pass
-
-    @abstractmethod
-    def op(self):
-        """
-		Name of the operator e.g. sigmoid.
-		"""
-        pass
-
-
-class Utility(object):
-
-    @staticmethod
-    def numElems(shape):
-        assert type(shape) == tuple
-        return reduce(lambda x, y: x * y, shape, 1)
-
-    @staticmethod
-    def typeToBytes(t):
-        if t in ['uint8', 'int8', 'byte', 'char', 'bool']:
-            return 1
-        elif t in ['float16', 'half', 'int16', 'short']:
-            return 2
-        elif t in ['float32', 'float', 'int32', 'int']:
-            return 4
-        elif t in ['int64', 'long', 'float64', 'double']:
-            return 8
-        assert False
-
-    @staticmethod
-    def typeToString(t):
-        if t in ['uint8', 'byte', 'char']:
-            return 'uint8'
-        elif t in ['int8']:
-            return 'int8'
-        elif t in ['int16', 'short']:
-            return 'int16'
-        elif t in ['float16', 'half']:
-            return 'fp16'
-        elif t in ['float32', 'float']:
-            return 'fp32'
-        elif t in ['int32', 'int']:
-            return 'int32'
-        elif t in ['int64', 'long']:
-            return 'int64'
-        elif t in ['float64', 'double']:
-            return 'fp64'
-        elif t in ['bool']:
-            return 'bool'
-        assert False
-
-    @staticmethod
-    def hasNVTX(marker):
-        if type(marker) is str:
-            try:
-                marker = eval(marker)
-            except:
-                return False
-        if type(marker) is dict:
-            keys = marker.keys()
-            return 'mod' in keys and 'op' in keys and 'args' in keys
+        self.init_hidden(input.size()[0])
+        hidden_state = self.hidden[0] if self.n_hidden_states == 1 else self.hidden
+        self.hidden = self.cell(input, hidden_state, self.w_ih, self.w_hh, b_ih=self.b_ih, b_hh=self.b_hh)
+        if self.n_hidden_states > 1:
+            self.hidden = list(self.hidden)
         else:
-            return False
-
-    @staticmethod
-    def isscalar(t):
-        return t in ['float', 'int']
-
-
-def ctaTile(name):
-    name = name.split('_')
-    name = list(filter(lambda x: 'x' in x, name))
-    name = list(filter(lambda x: 'slice' not in x, name))
-    assert len(name) == 1
-    name = name[0].split('x')
-    assert len(name) == 2
-    name = list(map(int, name))
-    return name[0], name[1]
-
-
-def hasTileSize(name):
-    if 'sgemm' in name or '884gemm' in name or 'hgemm' in name:
-        return True
-    else:
-        return False
-
-
-class RNNCell(OperatorLayerBase):
-    """
-	This class supports RNNCell, LSTMCell and GRUCell.
-	"""
-
-    def __init__(self, d):
-        marker = eval(d.argMarker[0])
-        mod = marker['mod']
-        op = marker['op']
-        args = marker['args']
-        self.marker = marker
-        self.mod_ = mod
-        self.op_ = op
-        self.args = args
-        self.name = d.name
-        self.dir = d.dir
-        self.sub = d.sub
-        self.grid = d.grid
-        assert op == 'forward'
-        assert mod in ['LSTMCell', 'GRUCell', 'RNNCell']
-        assert len(args) in [2, 3]
-        x, h = args[0], args[1]
-        b1, ii = x['shape']
-        b2, hh = h['shape']
-        assert b1 == b2
-        assert x['dtype'] == h['dtype']
-        t = x['dtype']
-        self.cell = mod
-        self.inp = ii
-        self.hid = hh
-        self.b = b1
-        self.type = t
-        self.multiple = 1
-        if self.cell == 'LSTMCell':
-            self.multiple = 4
-        elif self.cell == 'GRUCell':
-            self.multiple = 3
-        self.gemm = None
-        self.m = None
-        self.n = None
-        self.k = None
-        self.elems = 0
-        self.bar()
-
-    def params(self):
-        if self.gemm is None:
-            p = OrderedDict([('cell', self.cell), ('X', self.inp), ('H', self.hid), ('B', self.b), ('type', self.type)])
-        else:
-            assert self.m is not None
-            assert self.n is not None
-            assert self.k is not None
-            p = OrderedDict([('gemm', self.gemm), ('M', self.m), ('N', self.n), ('K', self.k), ('type', self.type)])
-        return p
-
-    def tc(self):
-        if 'gemm' in self.name:
-            return 1 if '884gemm' in self.name else 0
-        else:
-            return '-'
-
-    def op(self):
-        return self.op_
-
-    def mod(self):
-        return self.mod_
-
-    def bytes(self):
-        if self.gemm is not None:
-            m, n, k, t = self.m, self.n, self.k, self.type
-            b = (m * k + k * n + m * n) * Utility.typeToBytes(t)
-        elif self.elems != 0:
-            b = self.elems * Utility.typeToBytes(self.type)
-        else:
-            b = 0
-        return b
-
-    def flops(self):
-        if self.gemm is not None:
-            m, n, k = self.m, self.n, self.k
-            f = 2 * m * n * k
-        elif self.elems != 0:
-            f = 0
-        else:
-            f = 0
-        return f
-
-    def bar(self):
-        cell = self.cell
-        X = self.inp
-        H = self.hid
-        B = self.b
-        t = self.type
-        subseqId = self.sub
-        direc = self.dir
-        name = self.name
-        grid = self.grid
-        multiple = self.multiple
-        if direc == 'fprop':
-            subseqId = subseqId % 3
-            if subseqId == 0:
-                self.gemm = 'layer'
-                self.m = multiple * H
-                self.n = B
-                self.k = X
-            elif subseqId == 1:
-                self.gemm = 'recur'
-                self.m = multiple * H
-                self.n = B
-                self.k = H
-            else:
-                layerGemmElems = multiple * H * B
-                recurGemmElems = multiple * H * B
-                cElems = H * B
-                hElems = H * B
-                totElems = layerGemmElems + recurGemmElems + 2 * cElems + hElems
-                self.elems = totElems
-        elif 'gemm' in name and hasTileSize(name):
-            tileX, tileY = ctaTile(name)
-            grid = grid.split(',')
-            gridX, gridY, gridZ = map(lambda x: int(x), grid)
-            gemmM = tileX * gridX
-            gemmN = tileY * gridY
-            if name[-3:] == '_nn':
-                if gemmM == H:
-                    gemmN = B
-                    gemmK = multiple * H
-                    self.gemm = 'recur'
-                    self.m = gemmM
-                    self.n = gemmN
-                    self.k = gemmK
-                elif gemmM == X:
-                    gemmK = multiple * H
-                    self.gemm = 'layer'
-                    self.m = gemmM
-                    self.n = gemmN
-                    self.k = gemmK
-                else:
-                    pass
-            elif name[-3:] == '_nt':
-                if gemmM == H:
-                    assert gemmN == multiple * H
-                    gemmK = B
-                    self.gemm = 'recur'
-                    self.m = gemmM
-                    self.n = gemmN
-                    self.k = gemmK
-                elif gemmM == X:
-                    assert gemmN == multiple * H
-                    gemmK = B
-                    self.gemm = 'layer'
-                    self.m = gemmM
-                    self.n = gemmN
-                    self.k = gemmK
-                else:
-                    pass
-            else:
-                pass
-        else:
-            pass
-        return
+            self.hidden = [self.hidden]
+        if self.output_size != self.hidden_size:
+            self.hidden[0] = F.linear(self.hidden[0], self.w_ho)
+        return tuple(self.hidden)
 
 
 def is_iterable(maybe_iterable):
@@ -819,117 +614,116 @@ class stackedRNN(nn.Module):
             rnn.init_inference(bsz)
 
 
-class RNNCell(nn.Module):
-    """ 
-    RNNCell 
-    gate_multiplier is related to the architecture you're working with
-    For LSTM-like it will be 4 and GRU-like will be 3.
-    Always assumes input is NOT batch_first.
-    Output size that's not hidden size will use output projection
-    Hidden_states is number of hidden states that are needed for cell
-    if one will go directly to cell as tensor, if more will go as list
+class bidirectionalRNN(nn.Module):
+    """
+    bidirectionalRNN
     """
 
-    def __init__(self, gate_multiplier, input_size, hidden_size, cell, n_hidden_states=2, bias=False, output_size=None):
-        super(RNNCell, self).__init__()
-        self.gate_multiplier = gate_multiplier
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.cell = cell
-        self.bias = bias
-        self.output_size = output_size
-        if output_size is None:
-            self.output_size = hidden_size
-        self.gate_size = gate_multiplier * self.hidden_size
-        self.n_hidden_states = n_hidden_states
-        self.w_ih = nn.Parameter(torch.Tensor(self.gate_size, self.input_size))
-        self.w_hh = nn.Parameter(torch.Tensor(self.gate_size, self.output_size))
-        if self.output_size != self.hidden_size:
-            self.w_ho = nn.Parameter(torch.Tensor(self.output_size, self.hidden_size))
-        self.b_ih = self.b_hh = None
-        if self.bias:
-            self.b_ih = nn.Parameter(torch.Tensor(self.gate_size))
-            self.b_hh = nn.Parameter(torch.Tensor(self.gate_size))
-        self.hidden = [None for states in range(self.n_hidden_states)]
-        self.reset_parameters()
+    def __init__(self, inputRNN, num_layers=1, dropout=0):
+        super(bidirectionalRNN, self).__init__()
+        self.dropout = dropout
+        self.fwd = stackedRNN(inputRNN, num_layers=num_layers, dropout=dropout)
+        self.bckwrd = stackedRNN(inputRNN.new_like(), num_layers=num_layers, dropout=dropout)
+        self.rnns = nn.ModuleList([self.fwd, self.bckwrd])
 
-    def new_like(self, new_input_size=None):
+    def forward(self, input, collect_hidden=False):
         """
-        new_like()
+        forward()
         """
-        if new_input_size is None:
-            new_input_size = self.input_size
-        return type(self)(self.gate_multiplier, new_input_size, self.hidden_size, self.cell, self.n_hidden_states, self.bias, self.output_size)
+        seq_len = input.size(0)
+        bsz = input.size(1)
+        fwd_out, fwd_hiddens = list(self.fwd(input, collect_hidden=collect_hidden))
+        bckwrd_out, bckwrd_hiddens = list(self.bckwrd(input, reverse=True, collect_hidden=collect_hidden))
+        output = torch.cat([fwd_out, bckwrd_out], -1)
+        hiddens = tuple(torch.cat(hidden, -1) for hidden in zip(fwd_hiddens, bckwrd_hiddens))
+        return output, hiddens
 
-    def reset_parameters(self, gain=1):
+    def reset_parameters(self):
         """
         reset_parameters()
         """
-        stdev = 1.0 / math.sqrt(self.hidden_size)
-        for param in self.parameters():
-            param.data.uniform_(-stdev, stdev)
-    """
-    Xavier reset:
-    def reset_parameters(self, gain=1):
-        stdv = 1.0 / math.sqrt(self.gate_size)
-
-        for param in self.parameters():
-            if (param.dim() > 1):
-                torch.nn.init.xavier_normal(param, gain)
-            else:
-                param.data.uniform_(-stdv, stdv)
-    """
+        for rnn in self.rnns:
+            rnn.reset_parameters()
 
     def init_hidden(self, bsz):
         """
         init_hidden()
         """
-        for param in self.parameters():
-            if param is not None:
-                a_param = param
-                break
-        for i, _ in enumerate(self.hidden):
-            if self.hidden[i] is None or self.hidden[i].data.size()[0] != bsz:
-                if i == 0:
-                    hidden_size = self.output_size
-                else:
-                    hidden_size = self.hidden_size
-                tens = a_param.data.new(bsz, hidden_size).zero_()
-                self.hidden[i] = Variable(tens, requires_grad=False)
-
-    def reset_hidden(self, bsz):
-        """
-        reset_hidden()
-        """
-        for i, _ in enumerate(self.hidden):
-            self.hidden[i] = None
-        self.init_hidden(bsz)
+        for rnn in self.rnns:
+            rnn.init_hidden(bsz)
 
     def detach_hidden(self):
         """
         detach_hidden()
         """
-        for i, _ in enumerate(self.hidden):
-            if self.hidden[i] is None:
-                raise RuntimeError('Must initialize hidden state before you can detach it')
-        for i, _ in enumerate(self.hidden):
-            self.hidden[i] = self.hidden[i].detach()
+        for rnn in self.rnns:
+            rnn.detachHidden()
+
+    def reset_hidden(self, bsz):
+        """
+        reset_hidden()
+        """
+        for rnn in self.rnns:
+            rnn.reset_hidden(bsz)
+
+    def init_inference(self, bsz):
+        """
+        init_inference()
+        """
+        for rnn in self.rnns:
+            rnn.init_inference(bsz)
+
+
+def mLSTMCell(input, hidden, w_ih, w_hh, w_mih, w_mhh, b_ih=None, b_hh=None):
+    """
+    mLSTMCell
+    """
+    if input.is_cuda:
+        igates = F.linear(input, w_ih)
+        m = F.linear(input, w_mih) * F.linear(hidden[0], w_mhh)
+        hgates = F.linear(m, w_hh)
+        state = fusedBackend.LSTMFused.apply
+        return state(igates, hgates, hidden[1], b_ih, b_hh)
+    hx, cx = hidden
+    m = F.linear(input, w_mih) * F.linear(hidden[0], w_mhh)
+    gates = F.linear(input, w_ih, b_ih) + F.linear(m, w_hh, b_hh)
+    ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+    ingate = F.sigmoid(ingate)
+    forgetgate = F.sigmoid(forgetgate)
+    cellgate = F.tanh(cellgate)
+    outgate = F.sigmoid(outgate)
+    cy = forgetgate * cx + ingate * cellgate
+    hy = outgate * F.tanh(cy)
+    return hy, cy
+
+
+class mLSTMRNNCell(RNNCell):
+    """
+    mLSTMRNNCell
+    """
+
+    def __init__(self, input_size, hidden_size, bias=False, output_size=None):
+        gate_multiplier = 4
+        super(mLSTMRNNCell, self).__init__(gate_multiplier, input_size, hidden_size, mLSTMCell, n_hidden_states=2, bias=bias, output_size=output_size)
+        self.w_mih = nn.Parameter(torch.Tensor(self.output_size, self.input_size))
+        self.w_mhh = nn.Parameter(torch.Tensor(self.output_size, self.output_size))
+        self.reset_parameters()
 
     def forward(self, input):
         """
-        forward()
-        if not inited or bsz has changed this will create hidden states
+        mLSTMRNNCell.forward()
         """
         self.init_hidden(input.size()[0])
         hidden_state = self.hidden[0] if self.n_hidden_states == 1 else self.hidden
-        self.hidden = self.cell(input, hidden_state, self.w_ih, self.w_hh, b_ih=self.b_ih, b_hh=self.b_hh)
-        if self.n_hidden_states > 1:
-            self.hidden = list(self.hidden)
-        else:
-            self.hidden = [self.hidden]
+        self.hidden = list(self.cell(input, hidden_state, self.w_ih, self.w_hh, self.w_mih, self.w_mhh, b_ih=self.b_ih, b_hh=self.b_hh))
         if self.output_size != self.hidden_size:
             self.hidden[0] = F.linear(self.hidden[0], self.w_ho)
         return tuple(self.hidden)
+
+    def new_like(self, new_input_size=None):
+        if new_input_size is None:
+            new_input_size = self.input_size
+        return type(self)(new_input_size, self.hidden_size, self.bias, self.output_size)
 
 
 class bn_NHWC_impl(torch.autograd.Function):
@@ -981,7 +775,7 @@ class bn_addrelu_NHWC_impl(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, z, s, b, rm, riv, mini_m, mini_riv, grid_dim_y, ret_cta, mom, epsilon, is_train, bn_group, my_data, pair_data, magic, pair_data2, pair_data3, fwd_occup, fwd_grid_x, bwd_occup, bwd_grid_x, multi_stream):
         if is_train:
-            bitmask = torch.cuda.IntTensor((x.numel() + 31) // 32 * 2 * grid_dim_y)
+            bitmask = torch.IntTensor((x.numel() + 31) // 32 * 2 * grid_dim_y)
             ctx.save_for_backward(x, s, b, rm, riv, mini_m, mini_riv, bitmask)
             ctx.epsilon = epsilon
             ctx.momentum = mom
@@ -1041,7 +835,7 @@ class BatchNorm2d_NHWC(_BatchNorm):
         self.bwd_occupancy = min(bnp.bn_bwd_nhwc_occupancy(), max_cta_per_sm)
         self.addrelu_fwd_occupancy = min(bnp.bn_addrelu_fwd_nhwc_occupancy(), max_cta_per_sm)
         self.addrelu_bwd_occupancy = min(bnp.bn_addrelu_bwd_nhwc_occupancy(), max_cta_per_sm)
-        mp_count = torch.get_device_properties(None).multi_processor_count
+        mp_count = torch.cuda.get_device_properties(None).multi_processor_count
         self.fwd_grid_dim_x = max(mp_count * self.fwd_occupancy - cta_launch_margin, 1)
         self.bwd_grid_dim_x = max(mp_count * self.bwd_occupancy - cta_launch_margin, 1)
         self.addrelu_fwd_grid_dim_x = max(mp_count * self.addrelu_fwd_occupancy - cta_launch_margin, 1)
@@ -1101,6 +895,146 @@ class BatchNorm2d_NHWC(_BatchNorm):
                     bnp.close_remote_data(self.pair_handle3)
 
 
+class FusedLayerNormAffineFunction(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input, weight, bias, normalized_shape, eps):
+        global fused_layer_norm_cuda
+        if fused_layer_norm_cuda is None:
+            fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
+        ctx.normalized_shape = normalized_shape
+        ctx.eps = eps
+        input_ = input.contiguous()
+        weight_ = weight.contiguous()
+        bias_ = bias.contiguous()
+        output, mean, invvar = fused_layer_norm_cuda.forward_affine(input_, ctx.normalized_shape, weight_, bias_, ctx.eps)
+        ctx.save_for_backward(input_, weight_, bias_, mean, invvar)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input_, weight_, bias_, mean, invvar = ctx.saved_tensors
+        grad_input = grad_weight = grad_bias = None
+        grad_input, grad_weight, grad_bias = fused_layer_norm_cuda.backward_affine(grad_output.contiguous(), mean, invvar, input_, ctx.normalized_shape, weight_, bias_, ctx.eps)
+        return grad_input, grad_weight, grad_bias, None, None
+
+
+class FusedLayerNormFunction(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input, normalized_shape, eps):
+        global fused_layer_norm_cuda
+        if fused_layer_norm_cuda is None:
+            fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
+        ctx.normalized_shape = normalized_shape
+        ctx.eps = eps
+        input_ = input.contiguous()
+        output, mean, invvar = fused_layer_norm_cuda.forward(input_, ctx.normalized_shape, ctx.eps)
+        ctx.save_for_backward(input_, mean, invvar)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input_, mean, invvar = ctx.saved_tensors
+        grad_input = None
+        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(), mean, invvar, input_, ctx.normalized_shape, ctx.eps)
+        return grad_input, None, None
+
+
+class FusedLayerNorm(torch.nn.Module):
+    """Applies Layer Normalization over a mini-batch of inputs as described in
+    the paper `Layer Normalization`_ .
+
+    Currently only runs on cuda() tensors.
+
+    .. math::
+        y = \\frac{x - \\mathrm{E}[x]}{ \\sqrt{\\mathrm{Var}[x] + \\epsilon}} * \\gamma + \\beta
+
+    The mean and standard-deviation are calculated separately over the last
+    certain number dimensions which have to be of the shape specified by
+    :attr:`normalized_shape`.
+    :math:`\\gamma` and :math:`\\beta` are learnable affine transform parameters of
+    :attr:`normalized_shape` if :attr:`elementwise_affine` is ``True``.
+
+    .. note::
+        Unlike Batch Normalization and Instance Normalization, which applies
+        scalar scale and bias for each entire channel/plane with the
+        :attr:`affine` option, Layer Normalization applies per-element scale and
+        bias with :attr:`elementwise_affine`.
+
+    This layer uses statistics computed from input data in both training and
+    evaluation modes.
+
+    Args:
+        normalized_shape (int or list or torch.Size): input shape from an expected input
+            of size
+
+            .. math::
+                [* \\times \\text{normalized}\\_\\text{shape}[0] \\times \\text{normalized}\\_\\text{shape}[1]
+                    \\times \\ldots \\times \\text{normalized}\\_\\text{shape}[-1]]
+
+            If a single integer is used, it is treated as a singleton list, and this module will
+            normalize over the last dimension which is expected to be of that specific size.
+        eps: a value added to the denominator for numerical stability. Default: 1e-5
+        elementwise_affine: a boolean value that when set to ``True``, this module
+            has learnable per-element affine parameters initialized to ones (for weights)
+            and zeros (for biases). Default: ``True``.
+
+    Shape:
+        - Input: :math:`(N, *)`
+        - Output: :math:`(N, *)` (same shape as input)
+
+    Examples::
+
+        >>> input = torch.randn(20, 5, 10, 10)
+        >>> # With Learnable Parameters
+        >>> m = apex.normalization.FusedLayerNorm(input.size()[1:])
+        >>> # Without Learnable Parameters
+        >>> m = apex.normalization.FusedLayerNorm(input.size()[1:], elementwise_affine=False)
+        >>> # Normalize over last two dimensions
+        >>> m = apex.normalization.FusedLayerNorm([10, 10])
+        >>> # Normalize over last dimension of size 10
+        >>> m = apex.normalization.FusedLayerNorm(10)
+        >>> # Activating the module
+        >>> output = m(input)
+
+    .. _`Layer Normalization`: https://arxiv.org/abs/1607.06450
+    """
+
+    def __init__(self, normalized_shape, eps=1e-05, elementwise_affine=True):
+        super(FusedLayerNorm, self).__init__()
+        global fused_layer_norm_cuda
+        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
+        if isinstance(normalized_shape, numbers.Integral):
+            normalized_shape = normalized_shape,
+        self.normalized_shape = torch.Size(normalized_shape)
+        self.eps = eps
+        self.elementwise_affine = elementwise_affine
+        if self.elementwise_affine:
+            self.weight = Parameter(torch.Tensor(*normalized_shape))
+            self.bias = Parameter(torch.Tensor(*normalized_shape))
+        else:
+            self.register_parameter('weight', None)
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if self.elementwise_affine:
+            init.ones_(self.weight)
+            init.zeros_(self.bias)
+
+    def forward(self, input):
+        if not input.is_cuda:
+            return F.layer_norm(input, self.normalized_shape, self.weight, self.bias, self.eps)
+        if self.elementwise_affine:
+            return FusedLayerNormAffineFunction.apply(input, self.weight, self.bias, self.normalized_shape, self.eps)
+        else:
+            return FusedLayerNormFunction.apply(input, self.normalized_shape, self.eps)
+
+    def extra_repr(self):
+        return '{normalized_shape}, eps={eps}, elementwise_affine={elementwise_affine}'.format(**self.__dict__)
+
+
 class EncdecAttnFunc(torch.autograd.Function):
 
     @staticmethod
@@ -1131,13 +1065,13 @@ class EncdecAttnFunc(torch.autograd.Function):
             if use_time_mask:
                 assert len(mask.size()) == 2, 'Timing mask is not 2D!'
                 assert mask.size(0) == mask.size(1), 'Sequence length should match!'
-                mask = mask.to(torch.bool)
+                mask = mask
                 matmul1_results = matmul1_results.masked_fill_(mask, float('-inf'))
             else:
                 batches, seql_q, seql_k = matmul1_results.size()
                 seqs = int(batches / heads)
                 matmul1_results = matmul1_results.view(seqs, heads, seql_q, seql_k)
-                mask = mask.to(torch.bool)
+                mask = mask
                 matmul1_results = matmul1_results.masked_fill_(mask.unsqueeze(1).unsqueeze(2), float('-inf'))
                 matmul1_results = matmul1_results.view(seqs * heads, seql_q, seql_k)
         softmax_results = F.softmax(matmul1_results, dim=-1)
@@ -1440,13 +1374,13 @@ class SelfAttnFunc(torch.autograd.Function):
             if use_time_mask:
                 assert len(mask.size()) == 2, 'Timing mask is not 2D!'
                 assert mask.size(0) == mask.size(1), 'Sequence length should match!'
-                mask = mask.to(torch.bool)
+                mask = mask
                 matmul1_results = matmul1_results.masked_fill_(mask, float('-inf'))
             else:
                 batches, seql_q, seql_k = matmul1_results.size()
                 seqs = int(batches / heads)
                 matmul1_results = matmul1_results.view(seqs, heads, seql_q, seql_k)
-                mask = mask.to(torch.bool)
+                mask = mask
                 matmul1_results = matmul1_results.masked_fill_(mask.unsqueeze(1).unsqueeze(2), float('-inf'))
                 matmul1_results = matmul1_results.view(seqs * heads, seql_q, seql_k)
         softmax_results = F.softmax(matmul1_results, dim=-1)
@@ -1672,12 +1606,12 @@ def convert_module(module, dtype):
     for param in module.parameters(recurse=False):
         if param is not None:
             if param.data.dtype.is_floating_point:
-                param.data = param.data.to(dtype=dtype)
+                param.data = param.data
             if param._grad is not None and param._grad.data.dtype.is_floating_point:
-                param._grad.data = param._grad.data.to(dtype=dtype)
+                param._grad.data = param._grad.data
     for buf in module.buffers(recurse=False):
         if buf is not None and buf.data.dtype.is_floating_point:
-            buf.data = buf.data.to(dtype=dtype)
+            buf.data = buf.data
 
 
 def convert_network(network, dtype):
@@ -1779,154 +1713,13 @@ class MLP(torch.nn.Module):
         return s
 
 
-class FusedLayerNormAffineFunction(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, input, weight, bias, normalized_shape, eps):
-        global fused_layer_norm_cuda
-        if fused_layer_norm_cuda is None:
-            fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
-        ctx.normalized_shape = normalized_shape
-        ctx.eps = eps
-        input_ = input.contiguous()
-        weight_ = weight.contiguous()
-        bias_ = bias.contiguous()
-        output, mean, invvar = fused_layer_norm_cuda.forward_affine(input_, ctx.normalized_shape, weight_, bias_, ctx.eps)
-        ctx.save_for_backward(input_, weight_, bias_, mean, invvar)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input_, weight_, bias_, mean, invvar = ctx.saved_tensors
-        grad_input = grad_weight = grad_bias = None
-        grad_input, grad_weight, grad_bias = fused_layer_norm_cuda.backward_affine(grad_output.contiguous(), mean, invvar, input_, ctx.normalized_shape, weight_, bias_, ctx.eps)
-        return grad_input, grad_weight, grad_bias, None, None
-
-
-class FusedLayerNormFunction(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, input, normalized_shape, eps):
-        global fused_layer_norm_cuda
-        if fused_layer_norm_cuda is None:
-            fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
-        ctx.normalized_shape = normalized_shape
-        ctx.eps = eps
-        input_ = input.contiguous()
-        output, mean, invvar = fused_layer_norm_cuda.forward(input_, ctx.normalized_shape, ctx.eps)
-        ctx.save_for_backward(input_, mean, invvar)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input_, mean, invvar = ctx.saved_tensors
-        grad_input = None
-        grad_input = fused_layer_norm_cuda.backward(grad_output.contiguous(), mean, invvar, input_, ctx.normalized_shape, ctx.eps)
-        return grad_input, None, None
-
-
-class FusedLayerNorm(torch.nn.Module):
-    """Applies Layer Normalization over a mini-batch of inputs as described in
-    the paper `Layer Normalization`_ .
-
-    Currently only runs on cuda() tensors.
-
-    .. math::
-        y = \\frac{x - \\mathrm{E}[x]}{ \\sqrt{\\mathrm{Var}[x] + \\epsilon}} * \\gamma + \\beta
-
-    The mean and standard-deviation are calculated separately over the last
-    certain number dimensions which have to be of the shape specified by
-    :attr:`normalized_shape`.
-    :math:`\\gamma` and :math:`\\beta` are learnable affine transform parameters of
-    :attr:`normalized_shape` if :attr:`elementwise_affine` is ``True``.
-
-    .. note::
-        Unlike Batch Normalization and Instance Normalization, which applies
-        scalar scale and bias for each entire channel/plane with the
-        :attr:`affine` option, Layer Normalization applies per-element scale and
-        bias with :attr:`elementwise_affine`.
-
-    This layer uses statistics computed from input data in both training and
-    evaluation modes.
-
-    Args:
-        normalized_shape (int or list or torch.Size): input shape from an expected input
-            of size
-
-            .. math::
-                [* \\times \\text{normalized}\\_\\text{shape}[0] \\times \\text{normalized}\\_\\text{shape}[1]
-                    \\times \\ldots \\times \\text{normalized}\\_\\text{shape}[-1]]
-
-            If a single integer is used, it is treated as a singleton list, and this module will
-            normalize over the last dimension which is expected to be of that specific size.
-        eps: a value added to the denominator for numerical stability. Default: 1e-5
-        elementwise_affine: a boolean value that when set to ``True``, this module
-            has learnable per-element affine parameters initialized to ones (for weights)
-            and zeros (for biases). Default: ``True``.
-
-    Shape:
-        - Input: :math:`(N, *)`
-        - Output: :math:`(N, *)` (same shape as input)
-
-    Examples::
-
-        >>> input = torch.randn(20, 5, 10, 10)
-        >>> # With Learnable Parameters
-        >>> m = apex.normalization.FusedLayerNorm(input.size()[1:])
-        >>> # Without Learnable Parameters
-        >>> m = apex.normalization.FusedLayerNorm(input.size()[1:], elementwise_affine=False)
-        >>> # Normalize over last two dimensions
-        >>> m = apex.normalization.FusedLayerNorm([10, 10])
-        >>> # Normalize over last dimension of size 10
-        >>> m = apex.normalization.FusedLayerNorm(10)
-        >>> # Activating the module
-        >>> output = m(input)
-
-    .. _`Layer Normalization`: https://arxiv.org/abs/1607.06450
-    """
-
-    def __init__(self, normalized_shape, eps=1e-05, elementwise_affine=True):
-        super(FusedLayerNorm, self).__init__()
-        global fused_layer_norm_cuda
-        fused_layer_norm_cuda = importlib.import_module('fused_layer_norm_cuda')
-        if isinstance(normalized_shape, numbers.Integral):
-            normalized_shape = normalized_shape,
-        self.normalized_shape = torch.Size(normalized_shape)
-        self.eps = eps
-        self.elementwise_affine = elementwise_affine
-        if self.elementwise_affine:
-            self.weight = Parameter(torch.Tensor(*normalized_shape))
-            self.bias = Parameter(torch.Tensor(*normalized_shape))
-        else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        if self.elementwise_affine:
-            init.ones_(self.weight)
-            init.zeros_(self.bias)
-
-    def forward(self, input):
-        if not input.is_cuda:
-            return F.layer_norm(input, self.normalized_shape, self.weight, self.bias, self.eps)
-        if self.elementwise_affine:
-            return FusedLayerNormAffineFunction.apply(input, self.weight, self.bias, self.normalized_shape, self.eps)
-        else:
-            return FusedLayerNormFunction.apply(input, self.normalized_shape, self.eps)
-
-    def extra_repr(self):
-        return '{normalized_shape}, eps={eps}, elementwise_affine={elementwise_affine}'.format(**self.__dict__)
-
-
 def import_flatten_impl():
     global flatten_impl, unflatten_impl, imported_flatten_impl
     try:
-        import apex_C
         flatten_impl = apex_C.flatten
         unflatten_impl = apex_C.unflatten
     except ImportError:
-        print('Warning:  apex was installed without --cpp_ext.  Falling back to Python flatten and unflatten.')
+        None
         flatten_impl = torch._utils._flatten_dense_tensors
         unflatten_impl = torch._utils._unflatten_dense_tensors
     imported_flatten_impl = True
@@ -1982,7 +1775,6 @@ class MultiTensorApply(object):
 
     def __init__(self, chunk_size):
         try:
-            import amp_C
             MultiTensorApply.available = True
             self.chunk_size = chunk_size
         except ImportError as err:
@@ -2081,7 +1873,7 @@ class DistributedDataParallel(Module):
             self.allreduce_trigger_params = set([id(param) for param in allreduce_trigger_params])
         self.delay_allreduce = delay_allreduce
         self.message_size = message_size
-        self.main_stream = torch.current_stream()
+        self.main_stream = torch.cuda.current_stream()
         self.bucket_streams = []
         self.bucket_events = []
         self.module = module
@@ -2153,7 +1945,7 @@ class DistributedDataParallel(Module):
         def overlapping_backward_epilogue():
             for stream, event in zip(self.bucket_streams, self.bucket_events):
                 stream.record_event(event)
-                torch.current_stream().wait_event(event)
+                torch.cuda.current_stream().wait_event(event)
             if self.next_bucket != self.num_buckets:
                 raise RuntimeError('In epilogue, next_bucket ({}) != num_buckets ({}).  '.format(self.next_bucket, self.num_buckets), 'This probably indicates some buckets were not allreduced.')
             for actual, expected in zip(self.buckets_ready_size, self.bucket_sizes):
@@ -2169,7 +1961,7 @@ class DistributedDataParallel(Module):
 
                     def allreduce_hook(*unused):
                         if self.prof:
-                            torch.nvtx.range_push('allreduce_hook')
+                            torch.cuda.nvtx.range_push('allreduce_hook')
                         if not self._disable_allreduce:
                             if self.delay_allreduce or self.needs_refresh:
                                 if not self.delay_allreduce and self.needs_refresh:
@@ -2197,7 +1989,7 @@ class DistributedDataParallel(Module):
                                     self.callback_queued = True
                                 self.comm_ready_buckets(param)
                         if self.prof:
-                            torch.nvtx.range_pop()
+                            torch.cuda.nvtx.range_pop()
                     grad_acc.register_hook(allreduce_hook)
                     self.grad_accs.append(grad_acc)
                 wrapper(param)
@@ -2221,9 +2013,9 @@ class DistributedDataParallel(Module):
         else:
             bucket_stream = self._stream_this_bucket(bucket_idx)
             bucket_event = self._event_this_bucket(bucket_idx)
-            torch.current_stream().record_event(bucket_event)
+            torch.cuda.current_stream().record_event(bucket_event)
             bucket_stream.wait_event(bucket_event)
-        with torch.stream(bucket_stream):
+        with torch.cuda.stream(bucket_stream):
             tensor_to_allreduce = tensor
             if self.allreduce_always_fp32:
                 tensor_to_allreduce = tensor.float()
@@ -2258,7 +2050,7 @@ class DistributedDataParallel(Module):
     def allreduce_fallback(self):
         for stream, event in zip(self.bucket_streams, self.bucket_events):
             stream.record_event(event)
-            torch.current_stream().wait_event(event)
+            torch.cuda.current_stream().wait_event(event)
         if self.retain_allreduce_buffers:
             grads = [param.grad for param in self.module.parameters() if param.grad is not None]
         else:
@@ -2271,7 +2063,7 @@ class DistributedDataParallel(Module):
 
     def comm_ready_buckets(self, param):
         if self.prof:
-            torch.nvtx.range_push('comm_ready_buckets')
+            torch.cuda.nvtx.range_push('comm_ready_buckets')
         bucket_idx, bucket_loc = self.param_id_to_bucket[id(param)]
         if self.buckets[bucket_idx][bucket_loc] is not None:
             raise RuntimeError('The backward pass is attempting to replace an already-filled bucket slot.  This is almost certainly an error.')
@@ -2298,12 +2090,12 @@ class DistributedDataParallel(Module):
             else:
                 self.ready_buckets_not_reduced.add(bucket_idx)
         if self.prof:
-            torch.nvtx.range_pop()
+            torch.cuda.nvtx.range_pop()
 
     def forward(self, *inputs, **kwargs):
         result = self.module(*inputs, **kwargs)
         if self.prof:
-            torch.nvtx.range_push('forward pass DDP logic')
+            torch.cuda.nvtx.range_push('forward pass DDP logic')
         if not self._disable_allreduce:
             if not self.delay_allreduce:
                 param_list = [param for param in self.module.parameters() if param.requires_grad]
@@ -2332,7 +2124,7 @@ class DistributedDataParallel(Module):
                     if self.allreduce_communicators:
                         self.bucket_pgs = self.allreduce_communicators[0]
                         self.bucket_streams = self.allreduce_communicators[1]
-                        self.bucket_events = [torch.Event(enable_timing=False, blocking=False) for _ in range(self.num_allreduce_streams)]
+                        self.bucket_events = [torch.cuda.Event(enable_timing=False, blocking=False) for _ in range(self.num_allreduce_streams)]
                     else:
                         if self.allreduce_different_streams:
                             if not self.bucket_pgs:
@@ -2341,11 +2133,11 @@ class DistributedDataParallel(Module):
                                     None
                         if self.allreduce_different_streams:
                             if not self.bucket_streams:
-                                self.bucket_streams = [torch.Stream() for _ in range(self.num_allreduce_streams)]
-                                self.bucket_events = [torch.Event(enable_timing=False, blocking=False) for _ in range(self.num_allreduce_streams)]
+                                self.bucket_streams = [torch.cuda.Stream() for _ in range(self.num_allreduce_streams)]
+                                self.bucket_events = [torch.cuda.Event(enable_timing=False, blocking=False) for _ in range(self.num_allreduce_streams)]
                         elif not self.bucket_streams:
-                            self.bucket_streams = [torch.Stream()]
-                            self.bucket_events = [torch.Event(enable_timing=False, blocking=False)]
+                            self.bucket_streams = [torch.cuda.Stream()]
+                            self.bucket_events = [torch.cuda.Event(enable_timing=False, blocking=False)]
                     self.buckets_ready_size = [(0) for i in range(self.num_buckets)]
                     if self.retain_allreduce_buffers:
                         self.allreduce_buffers = [None for _ in range(self.num_buckets)]
@@ -2354,171 +2146,61 @@ class DistributedDataParallel(Module):
                 self.active_params = param_list
             self.callback_queued = False
         if self.prof:
-            torch.nvtx.range_pop()
+            torch.cuda.nvtx.range_pop()
         return result
 
 
 class SyncBatchnormFunction(Function):
 
     @staticmethod
-    def forward(ctx, input, z, weight, bias, running_mean, running_variance, eps, track_running_stats=True, momentum=1.0, process_group=None, channel_last=False, fuse_relu=False):
-        input = input.contiguous()
-        world_size = 0
-        mean = None
-        var_biased = None
-        inv_std = None
-        var = None
-        out = None
-        count = None
-        if track_running_stats:
-            if channel_last:
-                count = int(input.numel() / input.size(-1))
-                mean, var_biased = syncbn.welford_mean_var_c_last(input)
-            else:
-                count = int(input.numel() / input.size(1))
-                mean, var_biased = syncbn.welford_mean_var(input)
-            if torch.distributed.is_initialized():
-                if not process_group:
-                    process_group = torch.distributed.group.WORLD
-                world_size = torch.distributed.get_world_size(process_group)
-                mean_all = torch.empty(world_size, mean.size(0), dtype=mean.dtype, device=mean.device)
-                var_all = torch.empty(world_size, var_biased.size(0), dtype=var_biased.dtype, device=var_biased.device)
-                mean_l = [mean_all.narrow(0, i, 1) for i in range(world_size)]
-                var_l = [var_all.narrow(0, i, 1) for i in range(world_size)]
-                torch.distributed.all_gather(mean_l, mean, process_group)
-                torch.distributed.all_gather(var_l, var_biased, process_group)
-                mean, var, inv_std = syncbn.welford_parallel(mean_all, var_all, count, eps)
-            else:
-                inv_std = 1.0 / torch.sqrt(var_biased + eps)
-                var = var_biased * count / (count - 1)
-            if count == 1 and world_size < 2:
-                raise ValueError('Expected more than 1 value per channel when training, got input size{}'.format(input.size()))
-            r_m_inc = mean if running_mean.dtype != torch.float16 else mean.half()
-            r_v_inc = var if running_variance.dtype != torch.float16 else var.half()
-            running_mean.data = running_mean.data * (1 - momentum) + momentum * r_m_inc
-            running_variance.data = running_variance.data * (1 - momentum) + momentum * r_v_inc
-        else:
-            mean = running_mean.data
-            inv_std = 1.0 / torch.sqrt(running_variance.data + eps)
-        ctx.save_for_backward(input, weight, mean, inv_std, z, bias)
+    def forward(ctx, input, weight, bias, running_mean, running_variance, eps, process_group, world_size):
+        torch.cuda.nvtx.range_push('sync_BN_fw')
+        c_last_input = input.transpose(1, -1).contiguous().clone()
+        ctx.save_for_backward(c_last_input, weight, bias, running_mean, running_variance)
+        ctx.eps = eps
         ctx.process_group = process_group
-        ctx.channel_last = channel_last
         ctx.world_size = world_size
-        ctx.fuse_relu = fuse_relu
-        if channel_last:
-            out = syncbn.batchnorm_forward_c_last(input, z, mean, inv_std, weight, bias, fuse_relu)
-        else:
-            out = syncbn.batchnorm_forward(input, mean, inv_std, weight, bias)
-        return out
+        c_last_input = (c_last_input - running_mean) / torch.sqrt(running_variance + eps)
+        if weight is not None:
+            c_last_input = c_last_input * weight
+        if bias is not None:
+            c_last_input = c_last_input + bias
+        torch.cuda.nvtx.range_pop()
+        return c_last_input.transpose(1, -1).contiguous().clone()
 
     @staticmethod
     def backward(ctx, grad_output):
-        grad_output = grad_output.contiguous()
-        saved_input, weight, mean, inv_std, z, bias = ctx.saved_tensors
+        torch.cuda.nvtx.range_push('sync_BN_bw')
+        c_last_input, weight, bias, running_mean, running_variance = ctx.saved_tensors
+        eps = ctx.eps
         process_group = ctx.process_group
-        channel_last = ctx.channel_last
         world_size = ctx.world_size
-        fuse_relu = ctx.fuse_relu
-        grad_input = grad_z = grad_weight = grad_bias = None
-        if fuse_relu:
-            grad_output = syncbn.relu_bw_c_last(grad_output, saved_input, z, mean, inv_std, weight, bias)
-        if isinstance(z, torch.Tensor) and ctx.needs_input_grad[1]:
-            grad_z = grad_output.clone()
-        if channel_last:
-            mean_dy, mean_dy_xmu, grad_weight, grad_bias = syncbn.reduce_bn_c_last(grad_output, saved_input, mean, inv_std, weight)
-        else:
-            mean_dy, mean_dy_xmu, grad_weight, grad_bias = syncbn.reduce_bn(grad_output, saved_input, mean, inv_std, weight)
+        grad_input = grad_weight = grad_bias = None
+        num_features = running_mean.size()[0]
+        torch.cuda.nvtx.range_push('carilli field')
+        c_last_grad = grad_output.transpose(1, -1).contiguous()
+        c_grad = c_last_grad.view(-1, num_features).contiguous()
+        torch.cuda.nvtx.range_pop()
         if ctx.needs_input_grad[0]:
+            mean_dy = c_grad.mean(0)
+            mean_dy_xmu = (c_last_grad * (c_last_input - running_mean)).view(-1, num_features).mean(0)
             if torch.distributed.is_initialized():
                 torch.distributed.all_reduce(mean_dy, ReduceOp.SUM, process_group)
                 mean_dy = mean_dy / world_size
                 torch.distributed.all_reduce(mean_dy_xmu, ReduceOp.SUM, process_group)
                 mean_dy_xmu = mean_dy_xmu / world_size
-            if channel_last:
-                grad_input = syncbn.batchnorm_backward_c_last(grad_output, saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
-            else:
-                grad_input = syncbn.batchnorm_backward(grad_output, saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
-        if weight is None or not ctx.needs_input_grad[2]:
-            grad_weight = None
-        if weight is None or not ctx.needs_input_grad[3]:
-            grad_bias = None
-        return grad_input, grad_z, grad_weight, grad_bias, None, None, None, None, None, None, None, None
-
-
-class SyncBatchNorm(_BatchNorm):
-    """
-    synchronized batch normalization module extented from `torch.nn.BatchNormNd`
-    with the added stats reduction across multiple processes.
-    :class:`apex.parallel.SyncBatchNorm` is designed to work with
-    `DistributedDataParallel`.
-
-    When running in training mode, the layer reduces stats across all processes
-    to increase the effective batchsize for normalization layer. This is useful
-    in applications where batch size is small on a given process that would
-    diminish converged accuracy of the model. The model uses collective
-    communication package from `torch.distributed`.
-
-    When running in evaluation mode, the layer falls back to
-    `torch.nn.functional.batch_norm`
-
-    Args:
-        num_features: :math:`C` from an expected input of size
-            :math:`(N, C, L)` or :math:`L` from input of size :math:`(N, L)`
-        eps: a value added to the denominator for numerical stability.
-            Default: 1e-5
-        momentum: the value used for the running_mean and running_var
-            computation. Can be set to ``None`` for cumulative moving average
-            (i.e. simple average). Default: 0.1
-        affine: a boolean value that when set to ``True``, this module has
-            learnable affine parameters. Default: ``True``
-        track_running_stats: a boolean value that when set to ``True``, this
-            module tracks the running mean and variance, and when set to ``False``,
-            this module does not track such statistics and always uses batch
-            statistics in both training and eval modes. Default: ``True``
-        process_group: pass in a process group within which the stats of the
-            mini-batch is being synchronized. ``None`` for using default process
-            group
-        channel_last: a boolean value that when set to ``True``, this module
-            take the last dimension of the input tensor to be the channel
-            dimension. Default: False
-
-    Examples::
-        >>> # channel first tensor
-        >>> sbn = apex.parallel.SyncBatchNorm(100).cuda()
-        >>> inp = torch.randn(10, 100, 14, 14).cuda()
-        >>> out = sbn(inp)
-        >>> inp = torch.randn(3, 100, 20).cuda()
-        >>> out = sbn(inp)
-        >>> # channel last tensor
-        >>> sbn = apex.parallel.SyncBatchNorm(100, channel_last=True).cuda()
-        >>> inp = torch.randn(10, 14, 14, 100).cuda()
-    """
-
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, process_group=None, channel_last=False, fuse_relu=False):
-        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
-        self.process_group = process_group
-        self.channel_last = channel_last
-        self.fuse_relu = fuse_relu
-
-    def _specify_process_group(self, process_group):
-        self.process_group = process_group
-
-    def _specify_channel_last(self, channel_last):
-        self.channel_last = channel_last
-
-    def forward(self, input, z=None):
-        channel_last = self.channel_last if input.dim() != 2 else True
-        if not self.training and self.track_running_stats and not channel_last and not self.fuse_relu and z == None:
-            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, False, 0.0, self.eps)
-        else:
-            exponential_average_factor = 0.0
-            if self.training and self.track_running_stats:
-                self.num_batches_tracked += 1
-                if self.momentum is None:
-                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
-                else:
-                    exponential_average_factor = self.momentum
-            return SyncBatchnormFunction.apply(input, z, self.weight, self.bias, self.running_mean, self.running_var, self.eps, self.training or not self.track_running_stats, exponential_average_factor, self.process_group, channel_last, self.fuse_relu)
+            c_last_grad_input = (c_last_grad - mean_dy - (c_last_input - running_mean) / (running_variance + eps) * mean_dy_xmu) / torch.sqrt(running_variance + eps)
+            if weight is not None:
+                c_last_grad_input.mul_(weight)
+            grad_input = c_last_grad_input.transpose(1, -1).contiguous()
+        grad_weight = None
+        if weight is not None and ctx.needs_input_grad[1]:
+            grad_weight = ((c_last_input - running_mean) / torch.sqrt(running_variance + eps) * c_last_grad).view(-1, num_features).sum(0)
+        grad_bias = None
+        if bias is not None and ctx.needs_input_grad[2]:
+            grad_bias = c_grad.sum(0)
+        torch.cuda.nvtx.range_pop()
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None
 
 
 class SyncBatchNorm(_BatchNorm):
@@ -2578,7 +2260,7 @@ class SyncBatchNorm(_BatchNorm):
         self.process_group = process_group
 
     def forward(self, input):
-        torch.nvtx.range_push('sync_bn_fw_with_mean_var')
+        torch.cuda.nvtx.range_push('sync_bn_fw_with_mean_var')
         mean = None
         var = None
         cast = None
@@ -2592,7 +2274,7 @@ class SyncBatchNorm(_BatchNorm):
                 input = input
                 cast = input.dtype
         if not self.training and self.track_running_stats:
-            torch.nvtx.range_pop()
+            torch.cuda.nvtx.range_pop()
             out = F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, False, 0.0, self.eps)
         else:
             process_group = self.process_group
@@ -2623,32 +2305,9 @@ class SyncBatchNorm(_BatchNorm):
                     self.running_mean = self.momentum * mean + (1 - self.momentum) * self.running_mean
                 if self.running_var is not None:
                     self.running_var = m / (m - 1) * self.momentum * var + (1 - self.momentum) * self.running_var
-            torch.nvtx.range_pop()
+            torch.cuda.nvtx.range_pop()
             out = SyncBatchnormFunction.apply(input, self.weight, self.bias, mean, var, self.eps, process_group, world_size)
         return out
-
-
-class Foo(torch.nn.Module):
-
-    def __init__(self, size):
-        super(Foo, self).__init__()
-        self.n = torch.nn.Parameter(torch.ones(size))
-        self.m = torch.nn.Parameter(torch.ones(size))
-
-    def forward(self, input):
-        return self.n * input + self.m
-
-
-class Foo(torch.jit.ScriptModule):
-
-    def __init__(self, size):
-        super(Foo, self).__init__()
-        self.n = torch.nn.Parameter(torch.ones(size))
-        self.m = torch.nn.Parameter(torch.ones(size))
-
-    @torch.jit.script_method
-    def forward(self, input):
-        return self.n * input + self.m
 
 
 class Foo(torch.nn.Module):
@@ -2925,61 +2584,6 @@ class PromoteModule(torch.nn.Module):
         return self.ops(input, self.weight)
 
 
-class MyModel(torch.nn.Module):
-
-    def __init__(self):
-        super(MyModel, self).__init__()
-        self.conv1 = nn.Conv2d(3, 6, 3, 1, 1)
-        self.bn1 = nn.BatchNorm2d(6)
-        self.param = nn.Parameter(torch.randn(1))
-
-    def forward(self, x):
-        x = x * self.param
-        x = F.relu(self.conv1(x))
-        x = self.bn1(x)
-        return x
-
-
-class MyModel(torch.nn.Module):
-
-    def __init__(self, unique):
-        super(MyModel, self).__init__()
-        self.weight0 = Parameter(unique + torch.arange(2, device='cuda', dtype=torch.float32))
-        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device='cuda', dtype=torch.float16))
-
-    @staticmethod
-    def ops(input, weight0, weight1):
-        return (input * weight0.float() * weight1.float()).sum()
-
-    def forward(self, input):
-        return self.ops(input, self.weight0, self.weight1)
-
-
-class MyModel(torch.nn.Module):
-
-    def __init__(self, unique):
-        super(MyModel, self).__init__()
-        self.weight0 = Parameter(unique + torch.arange(2, device='cuda', dtype=torch.float32))
-
-    def forward(self, input):
-        return (input * self.weight0).sum()
-
-
-class MyModel(torch.nn.Module):
-
-    def __init__(self, unique):
-        super(MyModel, self).__init__()
-        self.weight0 = Parameter(unique + torch.arange(2, device='cuda', dtype=torch.float32))
-        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device='cuda', dtype=torch.float16))
-
-    @staticmethod
-    def ops(input, weight0, weight1):
-        return (input * weight0.float() * weight1.float()).sum()
-
-    def forward(self, input):
-        return self.ops(input, self.weight0, self.weight1)
-
-
 class DummyBlock(nn.Module):
 
     def __init__(self):
@@ -3054,6 +2658,14 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 16777216])], {}),
      True),
+    (SyncBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (mLSTMRNNCell,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
     (tofp16,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3075,4 +2687,10 @@ class Test_NVIDIA_apex(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

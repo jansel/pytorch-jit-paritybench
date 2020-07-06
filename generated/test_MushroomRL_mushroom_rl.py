@@ -40,6 +40,7 @@ copdac_q = _module
 stochastic_ac = _module
 deep_actor_critic = _module
 a2c = _module
+deep_actor_critic = _module
 ppo = _module
 sac = _module
 td3 = _module
@@ -159,7 +160,6 @@ replay_memory = _module
 running_stats = _module
 spaces = _module
 table = _module
-torch = _module
 value_functions = _module
 variance_parameters = _module
 viewer = _module
@@ -205,15 +205,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -239,6 +240,9 @@ from copy import deepcopy
 from itertools import chain
 
 
+from sklearn.ensemble import ExtraTreesRegressor
+
+
 import itertools
 
 
@@ -250,194 +254,30 @@ from torch import nn
 
 class CriticNetwork(nn.Module):
 
-    def __init__(self, input_shape, output_shape, n_features, **kwargs):
+    def __init__(self, input_shape, output_shape, **kwargs):
         super().__init__()
         n_input = input_shape[-1]
         n_output = output_shape[0]
-        self._h1 = nn.Linear(n_input, n_features)
-        self._h2 = nn.Linear(n_features, n_features)
-        self._h3 = nn.Linear(n_features, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('linear'))
+        self._h = nn.Linear(n_input, n_output)
+        nn.init.xavier_uniform_(self._h.weight, gain=nn.init.calculate_gain('relu'))
 
     def forward(self, state, action):
         state_action = torch.cat((state.float(), action.float()), dim=1)
-        features1 = F.relu(self._h1(state_action))
-        features2 = F.relu(self._h2(features1))
-        q = self._h3(features2)
+        q = F.relu(self._h(state_action))
         return torch.squeeze(q)
 
 
 class ActorNetwork(nn.Module):
 
-    def __init__(self, input_shape, output_shape, n_features, **kwargs):
+    def __init__(self, input_shape, output_shape, **kwargs):
         super(ActorNetwork, self).__init__()
         n_input = input_shape[-1]
         n_output = output_shape[0]
-        self._h1 = nn.Linear(n_input, n_features)
-        self._h2 = nn.Linear(n_features, n_features)
-        self._h3 = nn.Linear(n_features, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('linear'))
+        self._h = nn.Linear(n_input, n_output)
+        nn.init.xavier_uniform_(self._h.weight, gain=nn.init.calculate_gain('relu'))
 
     def forward(self, state):
-        features1 = F.relu(self._h1(torch.squeeze(state, 1).float()))
-        features2 = F.relu(self._h2(features1))
-        a = self._h3(features2)
-        return a
-
-
-class Network(nn.Module):
-    n_features = 512
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super().__init__()
-        n_input = input_shape[0]
-        n_output = output_shape[0]
-        self._h1 = nn.Conv2d(n_input, 32, kernel_size=8, stride=4)
-        self._h2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        self._h3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self._h4 = nn.Linear(3136, self.n_features)
-        self._h5 = nn.Linear(self.n_features, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h4.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h5.weight, gain=nn.init.calculate_gain('linear'))
-
-    def forward(self, state, action=None):
-        h = F.relu(self._h1(state.float() / 255.0))
-        h = F.relu(self._h2(h))
-        h = F.relu(self._h3(h))
-        h = F.relu(self._h4(h.view(-1, 3136)))
-        q = self._h5(h)
-        if action is None:
-            return q
-        else:
-            q_acted = torch.squeeze(q.gather(1, action.long()))
-            return q_acted
-
-
-class Network(nn.Module):
-
-    def __init__(self, input_shape, output_shape, n_features, **kwargs):
-        super().__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h1 = nn.Linear(n_input, n_features)
-        self._h2 = nn.Linear(n_features, n_features)
-        self._h3 = nn.Linear(n_features, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('linear'))
-
-    def forward(self, state, action=None):
-        features1 = F.relu(self._h1(torch.squeeze(state, 1).float()))
-        features2 = F.relu(self._h2(features1))
-        q = self._h3(features2)
-        if action is None:
-            return q
-        else:
-            action = action.long()
-            q_acted = torch.squeeze(q.gather(1, action))
-            return q_acted
-
-
-class Network(nn.Module):
-    n_features = 512
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super().__init__()
-        n_input = input_shape[0]
-        n_output = output_shape[0]
-        self._h1 = nn.Conv2d(n_input, 32, kernel_size=8, stride=4)
-        self._h2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        self._h3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self._h4 = nn.Linear(3136, self.n_features)
-        self._h5 = nn.Linear(self.n_features, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h4.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h5.weight, gain=nn.init.calculate_gain('linear'))
-
-    def forward(self, state, action=None):
-        h = F.relu(self._h1(state.float() / 255.0))
-        h = F.relu(self._h2(h))
-        h = F.relu(self._h3(h))
-        h = F.relu(self._h4(h.view(-1, 3136)))
-        q = self._h5(h)
-        if action is None:
-            return q
-        else:
-            q_acted = torch.squeeze(q.gather(1, action.long()))
-            return q_acted
-
-
-class FeatureNetwork(nn.Module):
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super().__init__()
-        n_input = input_shape[0]
-        self._h1 = nn.Conv2d(n_input, 32, kernel_size=8, stride=4)
-        self._h2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        self._h3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        self._h4 = nn.Linear(3136, Network.n_features)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h4.weight, gain=nn.init.calculate_gain('relu'))
-
-    def forward(self, state, action=None):
-        h = F.relu(self._h1(state.float() / 255.0))
-        h = F.relu(self._h2(h))
-        h = F.relu(self._h3(h))
-        h = F.relu(self._h4(h.view(-1, 3136)))
-        return h
-
-
-class CriticNetwork(nn.Module):
-
-    def __init__(self, input_shape, output_shape, n_features, **kwargs):
-        super(CriticNetwork, self).__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._in = nn.Linear(n_input, n_features[0])
-        self._h1 = nn.Linear(n_features[0], n_features[1])
-        self._out = nn.Linear(n_features[1], n_output)
-        nn.init.xavier_uniform_(self._in.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._out.weight, gain=nn.init.calculate_gain('linear'))
-
-    def forward(self, state, action):
-        in_feats = torch.cat((state.float(), action.float()), dim=1)
-        feats = F.relu(self._in(in_feats))
-        feats = F.relu(self._h1(feats))
-        out = self._out(feats)
-        return torch.squeeze(out)
-
-
-class ActorNetwork(nn.Module):
-
-    def __init__(self, input_shape, output_shape, n_features, **kwargs):
-        super(ActorNetwork, self).__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._in = nn.Linear(n_input, n_features[0])
-        self._h1 = nn.Linear(n_features[0], n_features[1])
-        self._out = nn.Linear(n_features[1], n_output)
-        nn.init.xavier_uniform_(self._in.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._out.weight, gain=nn.init.calculate_gain('linear'))
-
-    def forward(self, state):
-        in_feats = torch.squeeze(state, 1).float()
-        feats = F.relu(self._in(in_feats))
-        feats = F.relu(self._h1(feats))
-        out = self._out(feats)
-        return out
+        return F.relu(self._h(torch.squeeze(state, 1).float()))
 
 
 class Network(nn.Module):
@@ -454,112 +294,19 @@ class Network(nn.Module):
         nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('linear'))
 
     def forward(self, state, **kwargs):
-        features1 = torch.tanh(self._h1(torch.squeeze(state, 1).float()))
+        features1 = torch.tanh(self._h1(torch.squeeze(state, -1).float()))
         features2 = torch.tanh(self._h2(features1))
         a = self._h3(features2)
         return a
 
 
-class CriticNetwork(nn.Module):
+class FeatureNetwork(nn.Module):
 
-    def __init__(self, input_shape, output_shape, n_features, **kwargs):
+    def __init__(self, input_shape, output_shape, **kwargs):
         super().__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h1 = nn.Linear(n_input, n_features)
-        self._h2 = nn.Linear(n_features, n_features)
-        self._h3 = nn.Linear(n_features, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('linear'))
 
-    def forward(self, state, action):
-        state_action = torch.cat((state.float(), action.float()), dim=1)
-        features1 = F.relu(self._h1(state_action))
-        features2 = F.relu(self._h2(features1))
-        q = self._h3(features2)
-        return torch.squeeze(q)
-
-
-class ActorNetwork(nn.Module):
-
-    def __init__(self, input_shape, output_shape, n_features, **kwargs):
-        super(ActorNetwork, self).__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h1 = nn.Linear(n_input, n_features)
-        self._h2 = nn.Linear(n_features, n_features)
-        self._h3 = nn.Linear(n_features, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('linear'))
-
-    def forward(self, state):
-        features1 = F.relu(self._h1(torch.squeeze(state, 1).float()))
-        features2 = F.relu(self._h2(features1))
-        a = self._h3(features2)
-        return a
-
-
-class CriticNetwork(nn.Module):
-
-    def __init__(self, input_shape, output_shape, n_features, **kwargs):
-        super().__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h1 = nn.Linear(n_input, n_features)
-        self._h2 = nn.Linear(n_features, n_features)
-        self._h3 = nn.Linear(n_features, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('linear'))
-
-    def forward(self, state, action):
-        state_action = torch.cat((state.float(), action.float()), dim=1)
-        features1 = F.relu(self._h1(state_action))
-        features2 = F.relu(self._h2(features1))
-        q = self._h3(features2)
-        return torch.squeeze(q)
-
-
-class ActorNetwork(nn.Module):
-
-    def __init__(self, input_shape, output_shape, n_features, **kwargs):
-        super(ActorNetwork, self).__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h1 = nn.Linear(n_input, n_features)
-        self._h2 = nn.Linear(n_features, n_features)
-        self._h3 = nn.Linear(n_features, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('linear'))
-
-    def forward(self, state):
-        features1 = F.relu(self._h1(torch.squeeze(state, 1).float()))
-        features2 = F.relu(self._h2(features1))
-        a = self._h3(features2)
-        return a
-
-
-class Network(nn.Module):
-
-    def __init__(self, input_shape, output_shape, n_features, **kwargs):
-        super(Network, self).__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h1 = nn.Linear(n_input, n_features)
-        self._h2 = nn.Linear(n_features, n_features)
-        self._h3 = nn.Linear(n_features, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('relu'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('linear'))
-
-    def forward(self, state, **kwargs):
-        features1 = F.relu(self._h1(torch.squeeze(state, 1).float()))
-        features2 = F.relu(self._h2(features1))
-        a = self._h3(features2)
-        return a
+    def forward(self, state, action=None):
+        return torch.squeeze(state, 1).float()
 
 
 class CategoricalNetwork(nn.Module):
@@ -700,135 +447,6 @@ class PyTorchGaussianRBF(nn.Module):
         return tensor_list
 
 
-class Network(nn.Module):
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super().__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h = nn.Linear(n_input, n_output)
-        nn.init.xavier_uniform_(self._h.weight, gain=nn.init.calculate_gain('relu'))
-
-    def forward(self, state):
-        return F.relu(self._h(torch.squeeze(state, 1).float()))
-
-
-class CriticNetwork(nn.Module):
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super().__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h = nn.Linear(n_input, n_output)
-        nn.init.xavier_uniform_(self._h.weight, gain=nn.init.calculate_gain('relu'))
-
-    def forward(self, state, action):
-        state_action = torch.cat((state.float(), action.float()), dim=1)
-        q = F.relu(self._h(state_action))
-        return torch.squeeze(q)
-
-
-class ActorNetwork(nn.Module):
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super(ActorNetwork, self).__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h = nn.Linear(n_input, n_output)
-        nn.init.xavier_uniform_(self._h.weight, gain=nn.init.calculate_gain('relu'))
-
-    def forward(self, state):
-        return F.relu(self._h(torch.squeeze(state, 1).float()))
-
-
-class Network(nn.Module):
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super().__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h1 = nn.Linear(n_input, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-
-    def forward(self, state, action=None):
-        q = F.relu(self._h1(torch.squeeze(state, 1).float()))
-        if action is None:
-            return q
-        else:
-            action = action.long()
-            q_acted = torch.squeeze(q.gather(1, action))
-            return q_acted
-
-
-class FeatureNetwork(nn.Module):
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super().__init__()
-
-    def forward(self, state, action=None):
-        return torch.squeeze(state, 1).float()
-
-
-class CriticNetwork(nn.Module):
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super().__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h = nn.Linear(n_input, n_output)
-        nn.init.xavier_uniform_(self._h.weight, gain=nn.init.calculate_gain('relu'))
-
-    def forward(self, state, action):
-        state_action = torch.cat((state.float(), action.float()), dim=1)
-        q = F.relu(self._h(state_action))
-        return torch.squeeze(q)
-
-
-class ActorNetwork(nn.Module):
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super(ActorNetwork, self).__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h = nn.Linear(n_input, n_output)
-        nn.init.xavier_uniform_(self._h.weight, gain=nn.init.calculate_gain('relu'))
-
-    def forward(self, state):
-        return F.relu(self._h(torch.squeeze(state, 1).float()))
-
-
-class Network(nn.Module):
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super().__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h1 = nn.Linear(n_input, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('relu'))
-
-    def forward(self, state, action=None):
-        q = F.relu(self._h1(torch.squeeze(state, 1).float()))
-        if action is None:
-            return q
-        else:
-            action = action.long()
-            q_acted = torch.squeeze(q.gather(1, action))
-            return q_acted
-
-
-class Network(nn.Module):
-
-    def __init__(self, input_shape, output_shape, **kwargs):
-        super(Network, self).__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h = nn.Linear(n_input, n_output)
-        nn.init.xavier_uniform_(self._h.weight, gain=nn.init.calculate_gain('relu'))
-
-    def forward(self, state, **kwargs):
-        return F.relu(self._h(torch.squeeze(state, 1).float()))
-
-
 class ExampleNet(nn.Module):
 
     def __init__(self, input_shape, output_shape, **kwargs):
@@ -845,26 +463,6 @@ class ExampleNet(nn.Module):
             action = a.long()
             q_acted = torch.squeeze(q.gather(1, action))
             return q_acted
-
-
-class Network(nn.Module):
-
-    def __init__(self, input_shape, output_shape, n_features, **kwargs):
-        super(Network, self).__init__()
-        n_input = input_shape[-1]
-        n_output = output_shape[0]
-        self._h1 = nn.Linear(n_input, n_features)
-        self._h2 = nn.Linear(n_features, n_features)
-        self._h3 = nn.Linear(n_features, n_output)
-        nn.init.xavier_uniform_(self._h1.weight, gain=nn.init.calculate_gain('tanh'))
-        nn.init.xavier_uniform_(self._h2.weight, gain=nn.init.calculate_gain('tanh'))
-        nn.init.xavier_uniform_(self._h3.weight, gain=nn.init.calculate_gain('linear'))
-
-    def forward(self, state, **kwargs):
-        features1 = torch.tanh(self._h1(torch.squeeze(state, -1).float()))
-        features2 = torch.tanh(self._h2(features1))
-        a = self._h3(features2)
-        return a
 
 
 import torch

@@ -11,15 +11,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -33,10 +34,16 @@ import torch.nn as nn
 import torch.nn.utils.rnn as rnn_utils
 
 
-import time
-
-
 import numpy as np
+
+
+from collections import defaultdict
+
+
+from torch.utils.data import Dataset
+
+
+import time
 
 
 from torch.utils.data import DataLoader
@@ -45,12 +52,15 @@ from torch.utils.data import DataLoader
 from collections import OrderedDict
 
 
-from collections import defaultdict
+from torch.autograd import Variable
+
+
+from collections import Counter
 
 
 def to_var(x, volatile=False):
     if torch.cuda.is_available():
-        x = x.cuda()
+        x = x
     return Variable(x, volatile=volatile)
 
 
@@ -58,7 +68,7 @@ class SentenceVAE(nn.Module):
 
     def __init__(self, vocab_size, embedding_size, rnn_type, hidden_size, word_dropout, embedding_dropout, latent_size, sos_idx, eos_idx, pad_idx, unk_idx, max_sequence_length, num_layers=1, bidirectional=False):
         super().__init__()
-        self.tensor = torch.FloatTensor if torch.is_available() else torch.Tensor
+        self.tensor = torch.FloatTensor if torch.cuda.is_available() else torch.Tensor
         self.max_sequence_length = max_sequence_length
         self.sos_idx = sos_idx
         self.eos_idx = eos_idx
@@ -109,7 +119,7 @@ class SentenceVAE(nn.Module):
             hidden = hidden.unsqueeze(0)
         if self.word_dropout_rate > 0:
             prob = torch.rand(input_sequence.size())
-            if torch.is_available():
+            if torch.cuda.is_available():
                 prob = prob
             prob[(input_sequence.data - self.sos_idx) * (input_sequence.data - self.pad_idx) == 0] = 1
             decoder_input_sequence = input_sequence.clone()

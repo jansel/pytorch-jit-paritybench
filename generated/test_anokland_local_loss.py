@@ -7,15 +7,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -72,9 +73,6 @@ class LinearFAFunction(torch.autograd.Function):
         return grad_input, grad_weight, grad_weight_fa, grad_bias
 
 
-_global_config['cuda'] = False
-
-
 class LinearFA(nn.Module):
     """Linear feedback alignment module.
 
@@ -115,9 +113,6 @@ class LinearFA(nn.Module):
         return self.__class__.__name__ + '(' + 'in_features=' + str(self.input_features) + ', out_features=' + str(self.output_features) + ', bias=' + str(self.bias is not None) + ')'
 
 
-_global_config['no_similarity_std'] = 4
-
-
 def similarity_matrix(x):
     """ Calculate adjusted cosine similarity matrix of size x.size(0) x x.size(0). """
     if x.dim() == 4:
@@ -130,15 +125,6 @@ def similarity_matrix(x):
     xn = xc / (1e-08 + torch.sqrt(torch.sum(xc ** 2, dim=1))).unsqueeze(1)
     R = xn.matmul(xn.transpose(1, 0)).clamp(-1, 1)
     return R
-
-
-_global_config['optim'] = _mock_config()
-
-
-_global_config['alpha'] = 4
-
-
-_global_config['dropout'] = 0.5
 
 
 class LocalLossBlockLinear(nn.Module):
@@ -490,18 +476,6 @@ class LocalLossBlockConv(nn.Module):
         return h_return, loss
 
 
-_global_config['momentum'] = 4
-
-
-_global_config['no_detach'] = 4
-
-
-_global_config['pre_act'] = 4
-
-
-_global_config['weight_decay'] = 4
-
-
 class BasicBlock(nn.Module):
     """ Used in ResNet() """
     expansion = 1
@@ -606,9 +580,6 @@ class Bottleneck(nn.Module):
                 self.optimizer.step()
                 self.optimizer.zero_grad()
         return out, y, y_onehot, loss_total
-
-
-_global_config['backprop'] = 4
 
 
 class ResNet(nn.Module):
@@ -880,12 +851,6 @@ class Net(nn.Module):
         return x, total_loss
 
 
-_global_config['num_hidden'] = 4
-
-
-_global_config['num_layers'] = 1
-
-
 class VGGn(nn.Module):
     """
     VGG and VGG-like networks.
@@ -990,22 +955,4 @@ class VGGn(nn.Module):
                 input_ch = x
                 first_layer = False
         return nn.Sequential(*layers), input_dim // scale_cum
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (LinearFA,
-     lambda: ([], {'input_features': 4, 'output_features': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-]
-
-class Test_anokland_local_loss(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
 

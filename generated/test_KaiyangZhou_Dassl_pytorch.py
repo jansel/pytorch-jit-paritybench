@@ -30,6 +30,7 @@ samplers = _module
 transforms = _module
 autoaugment = _module
 randaugment = _module
+transforms = _module
 engine = _module
 adabn = _module
 adda = _module
@@ -105,29 +106,75 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import copy
 
 
 import torch
 
 
-import torch.nn as nn
+import torchvision.transforms as T
+
+
+from torch.utils.data import Dataset as TorchDataset
+
+
+import copy
+
+
+import random
+
+
+from collections import defaultdict
+
+
+from torch.utils.data.sampler import Sampler
+
+
+from torch.utils.data.sampler import RandomSampler
+
+
+from torch.utils.data.sampler import SequentialSampler
 
 
 import numpy as np
+
+
+from torchvision.transforms import Resize
+
+
+from torchvision.transforms import Compose
+
+
+from torchvision.transforms import ToTensor
+
+
+from torchvision.transforms import Normalize
+
+
+from torchvision.transforms import CenterCrop
+
+
+from torchvision.transforms import RandomCrop
+
+
+from torchvision.transforms import RandomResizedCrop
+
+
+from torchvision.transforms import RandomHorizontalFlip
+
+
+import torch.nn as nn
 
 
 from torch.nn import functional as F
@@ -140,6 +187,9 @@ from collections import OrderedDict
 
 
 from torch.utils.tensorboard import SummaryWriter
+
+
+from sklearn.metrics import confusion_matrix
 
 
 import torch.utils.model_zoo as model_zoo
@@ -173,6 +223,9 @@ from torch.autograd import Function
 
 
 import warnings
+
+
+from torch.optim.optimizer import Optimizer
 
 
 class Experts(nn.Module):
@@ -215,19 +268,6 @@ class Prototypes(nn.Module):
         out = self.prototypes(x)
         out = out / self.temp
         return out
-
-
-class Experts(nn.Module):
-
-    def __init__(self, n_source, fdim, num_classes):
-        super().__init__()
-        self.linears = nn.ModuleList([nn.Linear(fdim, num_classes) for _ in range(n_source)])
-        self.softmax = nn.Softmax(dim=1)
-
-    def forward(self, i, x):
-        x = self.linears[i](x)
-        x = self.softmax(x)
-        return x
 
 
 class Registry:
@@ -320,7 +360,7 @@ def build_backbone(name, verbose=True, **kwargs):
     avai_backbones = BACKBONE_REGISTRY.registered_names()
     check_availability(name, avai_backbones)
     if verbose:
-        print('Backbone: {}'.format(name))
+        None
     return BACKBONE_REGISTRY.get(name)(**kwargs)
 
 
@@ -331,7 +371,7 @@ def build_head(name, verbose=True, **kwargs):
     avai_heads = HEAD_REGISTRY.registered_names()
     check_availability(name, avai_heads)
     if verbose:
-        print('Head: {}'.format(name))
+        None
     return HEAD_REGISTRY.get(name)(**kwargs)
 
 
@@ -385,6 +425,40 @@ class Backbone(nn.Module):
         return self._out_features
 
 
+class FeatureExtractor(Backbone):
+
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=5, stride=1, padding=2)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.conv2 = nn.Conv2d(64, 64, kernel_size=5, stride=1, padding=2)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=5, stride=1, padding=2)
+        self.bn3 = nn.BatchNorm2d(128)
+        self.fc1 = nn.Linear(8192, 3072)
+        self.bn1_fc = nn.BatchNorm1d(3072)
+        self.fc2 = nn.Linear(3072, 2048)
+        self.bn2_fc = nn.BatchNorm1d(2048)
+        self._out_features = 2048
+
+    def _check_input(self, x):
+        H, W = x.shape[2:]
+        assert H == 32 and W == 32, 'Input to network must be 32x32, but got {}x{}'.format(H, W)
+
+    def forward(self, x):
+        self._check_input(x)
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.max_pool2d(x, stride=2, kernel_size=3, padding=1)
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.max_pool2d(x, stride=2, kernel_size=3, padding=1)
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = x.view(x.size(0), 8192)
+        x = F.relu(self.bn1_fc(self.fc1(x)))
+        x = F.dropout(x, training=self.training)
+        x = F.relu(self.bn2_fc(self.fc2(x)))
+        return x
+
+
 class Convolution(nn.Module):
 
     def __init__(self, c_in, c_out):
@@ -394,6 +468,90 @@ class Convolution(nn.Module):
 
     def forward(self, x):
         return self.relu(self.conv(x))
+
+
+class ConvNet(Backbone):
+
+    def __init__(self, c_hidden=64):
+        super().__init__()
+        self.conv1 = Convolution(3, c_hidden)
+        self.conv2 = Convolution(c_hidden, c_hidden)
+        self.conv3 = Convolution(c_hidden, c_hidden)
+        self.conv4 = Convolution(c_hidden, c_hidden)
+        self._out_features = 2 ** 2 * c_hidden
+
+    def _check_input(self, x):
+        H, W = x.shape[2:]
+        assert H == 32 and W == 32, 'Input to network must be 32x32, but got {}x{}'.format(H, W)
+
+    def forward(self, x):
+        self._check_input(x)
+        x = self.conv1(x)
+        x = F.max_pool2d(x, 2)
+        x = self.conv2(x)
+        x = F.max_pool2d(x, 2)
+        x = self.conv3(x)
+        x = F.max_pool2d(x, 2)
+        x = self.conv4(x)
+        x = F.max_pool2d(x, 2)
+        return x.view(x.size(0), -1)
+
+
+class CNN(Backbone):
+
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 64, 5)
+        self.conv2 = nn.Conv2d(64, 128, 5)
+        self.fc3 = nn.Linear(5 * 5 * 128, 1024)
+        self.fc4 = nn.Linear(1024, 1024)
+        self._out_features = 1024
+
+    def _check_input(self, x):
+        H, W = x.shape[2:]
+        assert H == 32 and W == 32, 'Input to network must be 32x32, but got {}x{}'.format(H, W)
+
+    def forward(self, x):
+        self._check_input(x)
+        x = self.conv1(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2)
+        x = self.conv2(x)
+        x = F.relu(x)
+        x = F.max_pool2d(x, 2)
+        x = x.view(x.size(0), -1)
+        x = self.fc3(x)
+        x = F.relu(x)
+        x = self.fc4(x)
+        x = F.relu(x)
+        return x
+
+
+class SwishImplementation(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, i):
+        result = i * torch.sigmoid(i)
+        ctx.save_for_backward(i)
+        return result
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        i = ctx.saved_variables[0]
+        sigmoid_i = torch.sigmoid(i)
+        return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
+
+
+class MemoryEfficientSwish(nn.Module):
+
+    def forward(self, x):
+        return SwishImplementation.apply(x)
+
+
+class Swish(nn.Module):
+
+    def forward(self, x):
+        return x * torch.sigmoid(x)
 
 
 def get_width_and_height_from_size(x):
@@ -431,6 +589,58 @@ def drop_connect(inputs, p, training):
     binary_tensor = torch.floor(random_tensor)
     output = inputs / keep_prob * binary_tensor
     return output
+
+
+class Conv2dDynamicSamePadding(nn.Conv2d):
+    """ 2D Convolutions like TensorFlow, for a dynamic image size """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
+        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
+
+    def forward(self, x):
+        ih, iw = x.size()[-2:]
+        kh, kw = self.weight.size()[-2:]
+        sh, sw = self.stride
+        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+
+
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, input):
+        return input
+
+
+class Conv2dStaticSamePadding(nn.Conv2d):
+    """ 2D Convolutions like TensorFlow, for a fixed image size"""
+
+    def __init__(self, in_channels, out_channels, kernel_size, image_size=None, **kwargs):
+        super().__init__(in_channels, out_channels, kernel_size, **kwargs)
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
+        assert image_size is not None
+        ih, iw = (image_size, image_size) if isinstance(image_size, int) else image_size
+        kh, kw = self.weight.size()[-2:]
+        sh, sw = self.stride
+        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
+        if pad_h > 0 or pad_w > 0:
+            self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2))
+        else:
+            self.static_padding = Identity()
+
+    def forward(self, x):
+        x = self.static_padding(x)
+        x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+        return x
 
 
 def get_same_padding_conv2d(image_size=None):
@@ -511,87 +721,297 @@ class MBConvBlock(nn.Module):
         self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
 
 
-class SwishImplementation(torch.autograd.Function):
+def efficientnet_params(model_name):
+    """ Map EfficientNet model name to parameter coefficients. """
+    params_dict = {'efficientnet-b0': (1.0, 1.0, 224, 0.2), 'efficientnet-b1': (1.0, 1.1, 240, 0.2), 'efficientnet-b2': (1.1, 1.2, 260, 0.3), 'efficientnet-b3': (1.2, 1.4, 300, 0.3), 'efficientnet-b4': (1.4, 1.8, 380, 0.4), 'efficientnet-b5': (1.6, 2.2, 456, 0.4), 'efficientnet-b6': (1.8, 2.6, 528, 0.5), 'efficientnet-b7': (2.0, 3.1, 600, 0.5), 'efficientnet-b8': (2.2, 3.6, 672, 0.5), 'efficientnet-l2': (4.3, 5.3, 800, 0.5)}
+    return params_dict[model_name]
+
+
+BlockArgs = collections.namedtuple('BlockArgs', ['kernel_size', 'num_repeat', 'input_filters', 'output_filters', 'expand_ratio', 'id_skip', 'stride', 'se_ratio'])
+
+
+class BlockDecoder(object):
+    """ Block Decoder for readability, straight from the official TensorFlow repository """
 
     @staticmethod
-    def forward(ctx, i):
-        result = i * torch.sigmoid(i)
-        ctx.save_for_backward(i)
-        return result
+    def _decode_block_string(block_string):
+        """ Gets a block through a string notation of arguments. """
+        assert isinstance(block_string, str)
+        ops = block_string.split('_')
+        options = {}
+        for op in ops:
+            splits = re.split('(\\d.*)', op)
+            if len(splits) >= 2:
+                key, value = splits[:2]
+                options[key] = value
+        assert 's' in options and len(options['s']) == 1 or len(options['s']) == 2 and options['s'][0] == options['s'][1]
+        return BlockArgs(kernel_size=int(options['k']), num_repeat=int(options['r']), input_filters=int(options['i']), output_filters=int(options['o']), expand_ratio=int(options['e']), id_skip='noskip' not in block_string, se_ratio=float(options['se']) if 'se' in options else None, stride=[int(options['s'][0])])
 
     @staticmethod
-    def backward(ctx, grad_output):
-        i = ctx.saved_variables[0]
-        sigmoid_i = torch.sigmoid(i)
-        return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
+    def _encode_block_string(block):
+        """Encodes a block to a string."""
+        args = ['r%d' % block.num_repeat, 'k%d' % block.kernel_size, 's%d%d' % (block.strides[0], block.strides[1]), 'e%s' % block.expand_ratio, 'i%d' % block.input_filters, 'o%d' % block.output_filters]
+        if 0 < block.se_ratio <= 1:
+            args.append('se%s' % block.se_ratio)
+        if block.id_skip is False:
+            args.append('noskip')
+        return '_'.join(args)
+
+    @staticmethod
+    def decode(string_list):
+        """
+        Decodes a list of string notations to specify blocks inside the network.
+
+        :param string_list: a list of strings, each string is a notation of block
+        :return: a list of BlockArgs namedtuples of block args
+        """
+        assert isinstance(string_list, list)
+        blocks_args = []
+        for block_string in string_list:
+            blocks_args.append(BlockDecoder._decode_block_string(block_string))
+        return blocks_args
+
+    @staticmethod
+    def encode(blocks_args):
+        """
+        Encodes a list of BlockArgs to a list of strings.
+
+        :param blocks_args: a list of BlockArgs namedtuples of block args
+        :return: a list of strings, each string is a notation of block
+        """
+        block_strings = []
+        for block in blocks_args:
+            block_strings.append(BlockDecoder._encode_block_string(block))
+        return block_strings
 
 
-class MemoryEfficientSwish(nn.Module):
-
-    def forward(self, x):
-        return SwishImplementation.apply(x)
+GlobalParams = collections.namedtuple('GlobalParams', ['batch_norm_momentum', 'batch_norm_epsilon', 'dropout_rate', 'num_classes', 'width_coefficient', 'depth_coefficient', 'depth_divisor', 'min_depth', 'drop_connect_rate', 'image_size'])
 
 
-class Swish(nn.Module):
-
-    def forward(self, x):
-        return x * torch.sigmoid(x)
-
-
-class Conv2dDynamicSamePadding(nn.Conv2d):
-    """ 2D Convolutions like TensorFlow, for a dynamic image size """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
-        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
-
-    def forward(self, x):
-        ih, iw = x.size()[-2:]
-        kh, kw = self.weight.size()[-2:]
-        sh, sw = self.stride
-        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
-        if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+def efficientnet(width_coefficient=None, depth_coefficient=None, dropout_rate=0.2, drop_connect_rate=0.2, image_size=None, num_classes=1000):
+    """ Creates a efficientnet model. """
+    blocks_args = ['r1_k3_s11_e1_i32_o16_se0.25', 'r2_k3_s22_e6_i16_o24_se0.25', 'r2_k5_s22_e6_i24_o40_se0.25', 'r3_k3_s22_e6_i40_o80_se0.25', 'r3_k5_s11_e6_i80_o112_se0.25', 'r4_k5_s22_e6_i112_o192_se0.25', 'r1_k3_s11_e6_i192_o320_se0.25']
+    blocks_args = BlockDecoder.decode(blocks_args)
+    global_params = GlobalParams(batch_norm_momentum=0.99, batch_norm_epsilon=0.001, dropout_rate=dropout_rate, drop_connect_rate=drop_connect_rate, num_classes=num_classes, width_coefficient=width_coefficient, depth_coefficient=depth_coefficient, depth_divisor=8, min_depth=None, image_size=image_size)
+    return blocks_args, global_params
 
 
-def Identity(img, v):
-    return img
+def get_model_params(model_name, override_params):
+    """ Get the block args and global params for a given model """
+    if model_name.startswith('efficientnet'):
+        w, d, s, p = efficientnet_params(model_name)
+        blocks_args, global_params = efficientnet(width_coefficient=w, depth_coefficient=d, dropout_rate=p, image_size=s)
+    else:
+        raise NotImplementedError('model name is not pre-defined: %s' % model_name)
+    if override_params:
+        global_params = global_params._replace(**override_params)
+    return blocks_args, global_params
 
 
-class Conv2dStaticSamePadding(nn.Conv2d):
-    """ 2D Convolutions like TensorFlow, for a fixed image size"""
+def load_checkpoint(fpath):
+    """Load checkpoint.
 
-    def __init__(self, in_channels, out_channels, kernel_size, image_size=None, **kwargs):
-        super().__init__(in_channels, out_channels, kernel_size, **kwargs)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
-        assert image_size is not None
-        ih, iw = (image_size, image_size) if isinstance(image_size, int) else image_size
-        kh, kw = self.weight.size()[-2:]
-        sh, sw = self.stride
-        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
-        if pad_h > 0 or pad_w > 0:
-            self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2))
+    ``UnicodeDecodeError`` can be well handled, which means
+    python2-saved files can be read from python3.
+
+    Args:
+        fpath (str): path to checkpoint.
+
+    Returns:
+        dict
+
+    Examples::
+        >>> fpath = 'log/my_model/model.pth.tar-10'
+        >>> checkpoint = load_checkpoint(fpath)
+    """
+    if fpath is None:
+        raise ValueError('File path is None')
+    if not osp.exists(fpath):
+        raise FileNotFoundError('File is not found at "{}"'.format(fpath))
+    map_location = None if torch.cuda.is_available() else 'cpu'
+    try:
+        checkpoint = torch.load(fpath, map_location=map_location)
+    except UnicodeDecodeError:
+        pickle.load = partial(pickle.load, encoding='latin1')
+        pickle.Unpickler = partial(pickle.Unpickler, encoding='latin1')
+        checkpoint = torch.load(fpath, pickle_module=pickle, map_location=map_location)
+    except Exception:
+        None
+        raise
+    return checkpoint
+
+
+def load_pretrained_weights(model, weight_path):
+    """Load pretrianed weights to model.
+
+    Features::
+        - Incompatible layers (unmatched in name or size) will be ignored.
+        - Can automatically deal with keys containing "module.".
+
+    Args:
+        model (nn.Module): network model.
+        weight_path (str): path to pretrained weights.
+
+    Examples::
+        >>> weight_path = 'log/my_model/model-best.pth.tar'
+        >>> load_pretrained_weights(model, weight_path)
+    """
+    checkpoint = load_checkpoint(weight_path)
+    if 'state_dict' in checkpoint:
+        state_dict = checkpoint['state_dict']
+    else:
+        state_dict = checkpoint
+    model_dict = model.state_dict()
+    new_state_dict = OrderedDict()
+    matched_layers, discarded_layers = [], []
+    for k, v in state_dict.items():
+        if k.startswith('module.'):
+            k = k[7:]
+        if k in model_dict and model_dict[k].size() == v.size():
+            new_state_dict[k] = v
+            matched_layers.append(k)
         else:
-            self.static_padding = Identity()
+            discarded_layers.append(k)
+    model_dict.update(new_state_dict)
+    model.load_state_dict(model_dict)
+    if len(matched_layers) == 0:
+        warnings.warn('The pretrained weights "{}" cannot be loaded, please check the key names manually (** ignored and continue **)'.format(weight_path))
+    else:
+        None
+        if len(discarded_layers) > 0:
+            None
 
-    def forward(self, x):
-        x = self.static_padding(x)
-        x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+
+def round_filters(filters, global_params):
+    """ Calculate and round number of filters based on depth multiplier. """
+    multiplier = global_params.width_coefficient
+    if not multiplier:
+        return filters
+    divisor = global_params.depth_divisor
+    min_depth = global_params.min_depth
+    filters *= multiplier
+    min_depth = min_depth or divisor
+    new_filters = max(min_depth, int(filters + divisor / 2) // divisor * divisor)
+    if new_filters < 0.9 * filters:
+        new_filters += divisor
+    return int(new_filters)
+
+
+def round_repeats(repeats, global_params):
+    """ Round number of filters based on depth multiplier. """
+    multiplier = global_params.depth_coefficient
+    if not multiplier:
+        return repeats
+    return int(math.ceil(multiplier * repeats))
+
+
+class EfficientNet(Backbone):
+    """
+    An EfficientNet model. Most easily loaded with the .from_name or .from_pretrained methods
+
+    Args:
+        blocks_args (list): A list of BlockArgs to construct blocks
+        global_params (namedtuple): A set of GlobalParams shared between blocks
+
+    Example:
+        model = EfficientNet.from_pretrained('efficientnet-b0')
+
+    """
+
+    def __init__(self, blocks_args=None, global_params=None):
+        super().__init__()
+        assert isinstance(blocks_args, list), 'blocks_args should be a list'
+        assert len(blocks_args) > 0, 'block args must be greater than 0'
+        self._global_params = global_params
+        self._blocks_args = blocks_args
+        bn_mom = 1 - self._global_params.batch_norm_momentum
+        bn_eps = self._global_params.batch_norm_epsilon
+        image_size = global_params.image_size
+        Conv2d = get_same_padding_conv2d(image_size=global_params.image_size)
+        in_channels = 3
+        out_channels = round_filters(32, self._global_params)
+        self._conv_stem = Conv2d(in_channels, out_channels, kernel_size=3, stride=2, bias=False)
+        self._bn0 = nn.BatchNorm2d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
+        image_size = calculate_output_image_size(image_size, 2)
+        self._blocks = nn.ModuleList([])
+        for block_args in self._blocks_args:
+            block_args = block_args._replace(input_filters=round_filters(block_args.input_filters, self._global_params), output_filters=round_filters(block_args.output_filters, self._global_params), num_repeat=round_repeats(block_args.num_repeat, self._global_params))
+            self._blocks.append(MBConvBlock(block_args, self._global_params, image_size=image_size))
+            image_size = calculate_output_image_size(image_size, block_args.stride)
+            if block_args.num_repeat > 1:
+                block_args = block_args._replace(input_filters=block_args.output_filters, stride=1)
+            for _ in range(block_args.num_repeat - 1):
+                self._blocks.append(MBConvBlock(block_args, self._global_params, image_size=image_size))
+        in_channels = block_args.output_filters
+        out_channels = round_filters(1280, self._global_params)
+        Conv2d = get_same_padding_conv2d(image_size=image_size)
+        self._conv_head = Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+        self._bn1 = nn.BatchNorm2d(num_features=out_channels, momentum=bn_mom, eps=bn_eps)
+        self._avg_pooling = nn.AdaptiveAvgPool2d(1)
+        self._dropout = nn.Dropout(self._global_params.dropout_rate)
+        self._swish = MemoryEfficientSwish()
+        self._out_features = out_channels
+
+    def set_swish(self, memory_efficient=True):
+        """Sets swish function as memory efficient (for training) or standard (for export)"""
+        self._swish = MemoryEfficientSwish() if memory_efficient else Swish()
+        for block in self._blocks:
+            block.set_swish(memory_efficient)
+
+    def extract_features(self, inputs):
+        """ Returns output of the final convolution layer """
+        x = self._swish(self._bn0(self._conv_stem(inputs)))
+        for idx, block in enumerate(self._blocks):
+            drop_connect_rate = self._global_params.drop_connect_rate
+            if drop_connect_rate:
+                drop_connect_rate *= float(idx) / len(self._blocks)
+            x = block(x, drop_connect_rate=drop_connect_rate)
+        x = self._swish(self._bn1(self._conv_head(x)))
         return x
 
+    def forward(self, inputs):
+        """
+        Calls extract_features to extract features, applies
+        final linear layer, and returns logits.
+        """
+        bs = inputs.size(0)
+        x = self.extract_features(inputs)
+        x = self._avg_pooling(x)
+        x = x.view(bs, -1)
+        x = self._dropout(x)
+        return x
 
-class Identity(nn.Module):
+    @classmethod
+    def from_name(cls, model_name, override_params=None):
+        cls._check_model_name_is_valid(model_name)
+        blocks_args, global_params = get_model_params(model_name, override_params)
+        return cls(blocks_args, global_params)
 
-    def __init__(self):
-        super(Identity, self).__init__()
+    @classmethod
+    def from_pretrained(cls, model_name, advprop=False, num_classes=1000, in_channels=3):
+        model = cls.from_name(model_name, override_params={'num_classes': num_classes})
+        load_pretrained_weights(model, model_name, load_fc=num_classes == 1000, advprop=advprop)
+        model._change_in_channels(in_channels)
+        return model
 
-    def forward(self, input):
-        return input
+    @classmethod
+    def get_image_size(cls, model_name):
+        cls._check_model_name_is_valid(model_name)
+        _, _, res, _ = efficientnet_params(model_name)
+        return res
+
+    @classmethod
+    def _check_model_name_is_valid(cls, model_name):
+        """ Validates model name. """
+        valid_models = [('efficientnet-b' + str(i)) for i in range(9)]
+        if model_name not in valid_models:
+            raise ValueError('model_name should be one of: ' + ', '.join(valid_models))
+
+    def _change_in_channels(model, in_channels):
+        if in_channels != 3:
+            Conv2d = get_same_padding_conv2d(image_size=model._global_params.image_size)
+            out_channels = round_filters(32, model._global_params)
+            model._conv_stem = Conv2d(in_channels, out_channels, kernel_size=3, stride=2, bias=False)
 
 
 class ConvBNReLU(nn.Sequential):
@@ -601,25 +1021,114 @@ class ConvBNReLU(nn.Sequential):
         super().__init__(nn.Conv2d(in_planes, out_planes, kernel_size, stride, padding, groups=groups, bias=False), nn.BatchNorm2d(out_planes), nn.ReLU6(inplace=True))
 
 
+def channel_shuffle(x, groups):
+    batchsize, num_channels, height, width = x.data.size()
+    channels_per_group = num_channels // groups
+    x = x.view(batchsize, groups, channels_per_group, height, width)
+    x = torch.transpose(x, 1, 2).contiguous()
+    x = x.view(batchsize, -1, height, width)
+    return x
+
+
 class InvertedResidual(nn.Module):
 
-    def __init__(self, inp, oup, stride, expand_ratio):
+    def __init__(self, inp, oup, stride):
         super().__init__()
+        if not 1 <= stride <= 3:
+            raise ValueError('illegal stride value')
         self.stride = stride
-        assert stride in [1, 2]
-        hidden_dim = int(round(inp * expand_ratio))
-        self.use_res_connect = self.stride == 1 and inp == oup
-        layers = []
-        if expand_ratio != 1:
-            layers.append(ConvBNReLU(inp, hidden_dim, kernel_size=1))
-        layers.extend([ConvBNReLU(hidden_dim, hidden_dim, stride=stride, groups=hidden_dim), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup)])
-        self.conv = nn.Sequential(*layers)
+        branch_features = oup // 2
+        assert self.stride != 1 or inp == branch_features << 1
+        if self.stride > 1:
+            self.branch1 = nn.Sequential(self.depthwise_conv(inp, inp, kernel_size=3, stride=self.stride, padding=1), nn.BatchNorm2d(inp), nn.Conv2d(inp, branch_features, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(branch_features), nn.ReLU(inplace=True))
+        self.branch2 = nn.Sequential(nn.Conv2d(inp if self.stride > 1 else branch_features, branch_features, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(branch_features), nn.ReLU(inplace=True), self.depthwise_conv(branch_features, branch_features, kernel_size=3, stride=self.stride, padding=1), nn.BatchNorm2d(branch_features), nn.Conv2d(branch_features, branch_features, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(branch_features), nn.ReLU(inplace=True))
+
+    @staticmethod
+    def depthwise_conv(i, o, kernel_size, stride=1, padding=0, bias=False):
+        return nn.Conv2d(i, o, kernel_size, stride, padding, bias=bias, groups=i)
 
     def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
+        if self.stride == 1:
+            x1, x2 = x.chunk(2, dim=1)
+            out = torch.cat((x1, self.branch2(x2)), dim=1)
         else:
-            return self.conv(x)
+            out = torch.cat((self.branch1(x), self.branch2(x)), dim=1)
+        out = channel_shuffle(out, 2)
+        return out
+
+
+def _make_divisible(v, divisor, min_value=None):
+    """
+    This function is taken from the original tf repo.
+    It ensures that all layers have a channel number that is divisible by 8
+    It can be seen here:
+    https://github.com/tensorflow/models/blob/master/research/slim/nets/mobilenet/mobilenet.py
+    :param v:
+    :param divisor:
+    :param min_value:
+    :return:
+    """
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
+
+
+class MobileNetV2(Backbone):
+
+    def __init__(self, width_mult=1.0, inverted_residual_setting=None, round_nearest=8, block=None):
+        """
+        MobileNet V2.
+
+        Args:
+            width_mult (float): Width multiplier - adjusts number of channels in each layer by this amount
+            inverted_residual_setting: Network structure
+            round_nearest (int): Round the number of channels in each layer to be a multiple of this number
+            Set to 1 to turn off rounding
+            block: Module specifying inverted residual building block for mobilenet
+        """
+        super().__init__()
+        if block is None:
+            block = InvertedResidual
+        input_channel = 32
+        last_channel = 1280
+        if inverted_residual_setting is None:
+            inverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 320, 1, 1]]
+        if len(inverted_residual_setting) == 0 or len(inverted_residual_setting[0]) != 4:
+            raise ValueError('inverted_residual_setting should be non-empty or a 4-element list, got {}'.format(inverted_residual_setting))
+        input_channel = _make_divisible(input_channel * width_mult, round_nearest)
+        self.last_channel = _make_divisible(last_channel * max(1.0, width_mult), round_nearest)
+        features = [ConvBNReLU(3, input_channel, stride=2)]
+        for t, c, n, s in inverted_residual_setting:
+            output_channel = _make_divisible(c * width_mult, round_nearest)
+            for i in range(n):
+                stride = s if i == 0 else 1
+                features.append(block(input_channel, output_channel, stride, expand_ratio=t))
+                input_channel = output_channel
+        features.append(ConvBNReLU(input_channel, self.last_channel, kernel_size=1))
+        self.features = nn.Sequential(*features)
+        self._out_features = self.last_channel
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.ones_(m.weight)
+                nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.zeros_(m.bias)
+
+    def _forward_impl(self, x):
+        x = self.features(x)
+        x = x.mean([2, 3])
+        return x
+
+    def forward(self, x):
+        return self._forward_impl(x)
 
 
 class PreActBlock(nn.Module):
@@ -667,36 +1176,61 @@ class PreActBottleneck(nn.Module):
         return out
 
 
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+class PreActResNet(Backbone):
+
+    def __init__(self, block, num_blocks):
+        super().__init__()
+        self.in_planes = 64
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
+        self._out_features = 512 * block.expansion
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        out = F.avg_pool2d(out, 4)
+        out = out.view(out.size(0), -1)
+        return out
 
 
 class BasicBlock(nn.Module):
-    expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, in_planes, out_planes, stride, dropRate=0.0):
         super().__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
+        self.bn1 = nn.BatchNorm2d(in_planes)
+        self.relu1 = nn.LeakyReLU(0.01, inplace=True)
+        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_planes)
+        self.relu2 = nn.LeakyReLU(0.01, inplace=True)
+        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.droprate = dropRate
+        self.equalInOut = in_planes == out_planes
+        self.convShortcut = not self.equalInOut and nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False) or None
 
     def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
+        if not self.equalInOut:
+            x = self.relu1(self.bn1(x))
+        else:
+            out = self.relu1(self.bn1(x))
+        out = self.relu2(self.bn2(self.conv1(out if self.equalInOut else x)))
+        if self.droprate > 0:
+            out = F.dropout(out, p=self.droprate, training=self.training)
         out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
+        return torch.add(x if self.equalInOut else self.convShortcut(x), out)
 
 
 class Bottleneck(nn.Module):
@@ -731,66 +1265,137 @@ class Bottleneck(nn.Module):
         return out
 
 
-def channel_shuffle(x, groups):
-    batchsize, num_channels, height, width = x.data.size()
-    channels_per_group = num_channels // groups
-    x = x.view(batchsize, groups, channels_per_group, height, width)
-    x = torch.transpose(x, 1, 2).contiguous()
-    x = x.view(batchsize, -1, height, width)
-    return x
+class ResNet(Backbone):
 
-
-class InvertedResidual(nn.Module):
-
-    def __init__(self, inp, oup, stride):
+    def __init__(self, block, layers, **kwargs):
+        self.inplanes = 64
         super().__init__()
-        if not 1 <= stride <= 3:
-            raise ValueError('illegal stride value')
-        self.stride = stride
-        branch_features = oup // 2
-        assert self.stride != 1 or inp == branch_features << 1
-        if self.stride > 1:
-            self.branch1 = nn.Sequential(self.depthwise_conv(inp, inp, kernel_size=3, stride=self.stride, padding=1), nn.BatchNorm2d(inp), nn.Conv2d(inp, branch_features, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(branch_features), nn.ReLU(inplace=True))
-        self.branch2 = nn.Sequential(nn.Conv2d(inp if self.stride > 1 else branch_features, branch_features, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(branch_features), nn.ReLU(inplace=True), self.depthwise_conv(branch_features, branch_features, kernel_size=3, stride=self.stride, padding=1), nn.BatchNorm2d(branch_features), nn.Conv2d(branch_features, branch_features, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(branch_features), nn.ReLU(inplace=True))
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.global_avgpool = nn.AdaptiveAvgPool2d(1)
+        self._out_features = 512 * block.expansion
+        self._init_params()
 
-    @staticmethod
-    def depthwise_conv(i, o, kernel_size, stride=1, padding=0, bias=False):
-        return nn.Conv2d(i, o, kernel_size, stride, padding, bias=bias, groups=i)
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+        return nn.Sequential(*layers)
+
+    def _init_params(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm1d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def featuremaps(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        return self.layer4(x)
 
     def forward(self, x):
-        if self.stride == 1:
-            x1, x2 = x.chunk(2, dim=1)
-            out = torch.cat((x1, self.branch2(x2)), dim=1)
-        else:
-            out = torch.cat((self.branch1(x), self.branch2(x)), dim=1)
-        out = channel_shuffle(out, 2)
-        return out
+        f = self.featuremaps(x)
+        v = self.global_avgpool(f)
+        return v.view(v.size(0), -1)
 
 
-class BasicBlock(nn.Module):
+class ShuffleNetV2(Backbone):
 
-    def __init__(self, in_planes, out_planes, stride, dropRate=0.0):
+    def __init__(self, stages_repeats, stages_out_channels, **kwargs):
         super().__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.relu1 = nn.LeakyReLU(0.01, inplace=True)
-        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_planes)
-        self.relu2 = nn.LeakyReLU(0.01, inplace=True)
-        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.droprate = dropRate
-        self.equalInOut = in_planes == out_planes
-        self.convShortcut = not self.equalInOut and nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False) or None
+        if len(stages_repeats) != 3:
+            raise ValueError('expected stages_repeats as list of 3 positive ints')
+        if len(stages_out_channels) != 5:
+            raise ValueError('expected stages_out_channels as list of 5 positive ints')
+        self._stage_out_channels = stages_out_channels
+        input_channels = 3
+        output_channels = self._stage_out_channels[0]
+        self.conv1 = nn.Sequential(nn.Conv2d(input_channels, output_channels, 3, 2, 1, bias=False), nn.BatchNorm2d(output_channels), nn.ReLU(inplace=True))
+        input_channels = output_channels
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        stage_names = ['stage{}'.format(i) for i in [2, 3, 4]]
+        for name, repeats, output_channels in zip(stage_names, stages_repeats, self._stage_out_channels[1:]):
+            seq = [InvertedResidual(input_channels, output_channels, 2)]
+            for i in range(repeats - 1):
+                seq.append(InvertedResidual(output_channels, output_channels, 1))
+            setattr(self, name, nn.Sequential(*seq))
+            input_channels = output_channels
+        output_channels = self._stage_out_channels[-1]
+        self.conv5 = nn.Sequential(nn.Conv2d(input_channels, output_channels, 1, 1, 0, bias=False), nn.BatchNorm2d(output_channels), nn.ReLU(inplace=True))
+        self.global_avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self._out_features = output_channels
+
+    def featuremaps(self, x):
+        x = self.conv1(x)
+        x = self.maxpool(x)
+        x = self.stage2(x)
+        x = self.stage3(x)
+        x = self.stage4(x)
+        x = self.conv5(x)
+        return x
 
     def forward(self, x):
-        if not self.equalInOut:
-            x = self.relu1(self.bn1(x))
-        else:
-            out = self.relu1(self.bn1(x))
-        out = self.relu2(self.bn2(self.conv1(out if self.equalInOut else x)))
-        if self.droprate > 0:
-            out = F.dropout(out, p=self.droprate, training=self.training)
-        out = self.conv2(out)
-        return torch.add(x if self.equalInOut else self.convShortcut(x), out)
+        f = self.featuremaps(x)
+        v = self.global_avgpool(f)
+        return v.view(v.size(0), -1)
+
+
+class VGG(Backbone):
+
+    def __init__(self, features, init_weights=True):
+        super().__init__()
+        self.features = features
+        self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
+        self.classifier = nn.Sequential(nn.Linear(512 * 7 * 7, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout())
+        self._out_features = 4096
+        if init_weights:
+            self._initialize_weights()
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        return self.classifier(x)
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
 
 
 class NetworkBlock(nn.Module):
@@ -807,6 +1412,40 @@ class NetworkBlock(nn.Module):
 
     def forward(self, x):
         return self.layer(x)
+
+
+class WideResNet(Backbone):
+
+    def __init__(self, depth, widen_factor, dropRate=0.0):
+        super().__init__()
+        nChannels = [16, 16 * widen_factor, 32 * widen_factor, 64 * widen_factor]
+        assert (depth - 4) % 6 == 0
+        n = (depth - 4) / 6
+        block = BasicBlock
+        self.conv1 = nn.Conv2d(3, nChannels[0], kernel_size=3, stride=1, padding=1, bias=False)
+        self.block1 = NetworkBlock(n, nChannels[0], nChannels[1], block, 1, dropRate)
+        self.block2 = NetworkBlock(n, nChannels[1], nChannels[2], block, 2, dropRate)
+        self.block3 = NetworkBlock(n, nChannels[2], nChannels[3], block, 2, dropRate)
+        self.bn1 = nn.BatchNorm2d(nChannels[3])
+        self.relu = nn.LeakyReLU(0.01, inplace=True)
+        self._out_features = nChannels[3]
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                m.bias.data.zero_()
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.block1(out)
+        out = self.block2(out)
+        out = self.block3(out)
+        out = self.relu(self.bn1(out))
+        out = F.adaptive_avg_pool2d(out, 1)
+        return out.view(out.size(0), -1)
 
 
 class MLP(nn.Module):
@@ -999,6 +1638,18 @@ class _DSBN(nn.Module):
         return self.bn[self.domain_idx](x)
 
 
+class DSBN1d(_DSBN):
+
+    def __init__(self, num_features, n_domain):
+        super().__init__(num_features, n_domain, '1d')
+
+
+class DSBN2d(_DSBN):
+
+    def __init__(self, num_features, n_domain):
+        super().__init__(num_features, n_domain, '2d')
+
+
 class MaximumMeanDiscrepancy(nn.Module):
 
     def __init__(self, kernel_type='rbf', normalize=False):
@@ -1088,6 +1739,75 @@ class OptimalTransport(nn.Module):
         else:
             raise ValueError('Unknown cost function: {}. Expected to be one of [cosine | euclidean]'.format(dist_metric))
         return dist_mat
+
+
+class SinkhornDivergence(OptimalTransport):
+    thre = 0.001
+
+    def __init__(self, dist_metric='cosine', eps=0.01, max_iter=5, bp_to_sinkhorn=False):
+        super().__init__()
+        self.dist_metric = dist_metric
+        self.eps = eps
+        self.max_iter = max_iter
+        self.bp_to_sinkhorn = bp_to_sinkhorn
+
+    def forward(self, x, y):
+        W_xy = self.transport_cost(x, y)
+        W_xx = self.transport_cost(x, x)
+        W_yy = self.transport_cost(y, y)
+        return 2 * W_xy - W_xx - W_yy
+
+    def transport_cost(self, x, y, return_pi=False):
+        C = self.distance(x, y, dist_metric=self.dist_metric)
+        pi = self.sinkhorn_iterate(C, self.eps, self.max_iter, self.thre)
+        if not self.bp_to_sinkhorn:
+            pi = pi.detach()
+        cost = torch.sum(pi * C)
+        if return_pi:
+            return cost, pi
+        return cost
+
+    @staticmethod
+    def sinkhorn_iterate(C, eps, max_iter, thre):
+        nx, ny = C.shape
+        mu = torch.ones(nx, dtype=C.dtype, device=C.device) * (1.0 / nx)
+        nu = torch.ones(ny, dtype=C.dtype, device=C.device) * (1.0 / ny)
+        u = torch.zeros_like(mu)
+        v = torch.zeros_like(nu)
+
+        def M(_C, _u, _v):
+            """Modified cost for logarithmic updates.
+            Eq: M_{ij} = (-c_{ij} + u_i + v_j) / epsilon
+            """
+            return (-_C + _u.unsqueeze(-1) + _v.unsqueeze(-2)) / eps
+        real_iter = 0
+        for i in range(max_iter):
+            u0 = u
+            u = eps * (torch.log(mu + 1e-08) - torch.logsumexp(M(C, u, v), dim=1)) + u
+            v = eps * (torch.log(nu + 1e-08) - torch.logsumexp(M(C, u, v).permute(1, 0), dim=1)) + v
+            err = (u - u0).abs().sum()
+            real_iter += 1
+            if err.item() < thre:
+                break
+        return torch.exp(M(C, u, v))
+
+
+class MinibatchEnergyDistance(SinkhornDivergence):
+
+    def __init__(self, dist_metric='cosine', eps=0.01, max_iter=5, bp_to_sinkhorn=False):
+        super().__init__(dist_metric=dist_metric, eps=eps, max_iter=max_iter, bp_to_sinkhorn=bp_to_sinkhorn)
+
+    def forward(self, x, y):
+        x1, x2 = torch.split(x, x.size(0) // 2, dim=0)
+        y1, y2 = torch.split(y, y.size(0) // 2, dim=0)
+        cost = 0
+        cost += self.transport_cost(x1, y1)
+        cost += self.transport_cost(x1, y2)
+        cost += self.transport_cost(x2, y1)
+        cost += self.transport_cost(x2, y2)
+        cost -= 2 * self.transport_cost(x1, x2)
+        cost -= 2 * self.transport_cost(y1, y2)
+        return cost
 
 
 class _ReverseGrad(Function):
@@ -1235,6 +1955,20 @@ class _TransNorm(nn.Module):
         return output
 
 
+class TransNorm1d(_TransNorm):
+
+    def _check_input(self, x):
+        if x.dim() != 2:
+            raise ValueError('Expected the input to be 2-D, but got {}-D'.format(x.dim()))
+
+
+class TransNorm2d(_TransNorm):
+
+    def _check_input(self, x):
+        if x.dim() != 4:
+            raise ValueError('Expected the input to be 4-D, but got {}-D'.format(x.dim()))
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1262,6 +1996,14 @@ TESTCASES = [
      lambda: ([], {'c_in': 4, 'c_out': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (DSBN1d,
+     lambda: ([], {'num_features': 4, 'n_domain': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (DSBN2d,
+     lambda: ([], {'num_features': 4, 'n_domain': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Experts,
      lambda: ([], {'n_source': 4, 'fdim': 4, 'num_classes': 4}),
      lambda: ([0, torch.rand([4, 4, 4, 4])], {}),
@@ -1289,6 +2031,10 @@ TESTCASES = [
     (MemoryEfficientSwish,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MinibatchEnergyDistance,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
     (NetworkBlock,
      lambda: ([], {'nb_layers': 1, 'in_planes': 4, 'out_planes': 4, 'block': _mock_layer, 'stride': 1}),
@@ -1318,10 +2064,22 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([], {}),
      False),
+    (SinkhornDivergence,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
     (Swish,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (TransNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (TransNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
 ]
 
 class Test_KaiyangZhou_Dassl_pytorch(_paritybench_base):
@@ -1384,4 +2142,22 @@ class Test_KaiyangZhou_Dassl_pytorch(_paritybench_base):
 
     def test_019(self):
         self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
+
+    def test_025(self):
+        self._check(*TESTCASES[25])
 

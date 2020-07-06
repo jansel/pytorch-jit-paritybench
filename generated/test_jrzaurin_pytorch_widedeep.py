@@ -54,29 +54,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import re
+import numpy as np
+
+
+import torch
+
+
+from torchvision.transforms import ToTensor
+
+
+from torchvision.transforms import Normalize
 
 
 import warnings
 
 
+from copy import deepcopy
+
+
+import re
+
+
 from torch import nn
-
-
-import torch
 
 
 import torch.nn as nn
@@ -85,13 +98,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-import numpy as np
+from sklearn.utils import Bunch
+
+
+from torch.utils.data import Dataset
 
 
 from torchvision import models
 
 
+from sklearn.model_selection import train_test_split
+
+
 from torch.utils.data import DataLoader
+
+
+import math
+
+
+from torch.optim.optimizer import Optimizer
 
 
 from torch.nn import Module
@@ -119,9 +144,6 @@ from torchvision.transforms import Lambda
 
 
 from torchvision.transforms import LinearTransformation
-
-
-from torchvision.transforms import Normalize
 
 
 from torchvision.transforms import Pad
@@ -170,12 +192,6 @@ from torchvision.transforms import TenCrop
 
 
 from torchvision.transforms import ToPILImage
-
-
-from torchvision.transforms import ToTensor
-
-
-from torch.optim.optimizer import Optimizer
 
 
 from torch.utils.data.dataloader import DataLoader
@@ -229,7 +245,16 @@ from types import SimpleNamespace
 import string
 
 
-from torch.utils.data import Dataset
+from torch.optim.lr_scheduler import StepLR
+
+
+from torch.optim.lr_scheduler import CyclicLR
+
+
+from itertools import chain
+
+
+from copy import deepcopy as c
 
 
 use_cuda = torch.cuda.is_available()
@@ -912,7 +937,7 @@ class WarmUp(object):
             maximum learning rate value during the triangular cycle.
         """
         if self.verbose:
-            print('Warming up {} for {} epochs'.format(model_name, n_epochs))
+            None
         model.train()
         optimizer = torch.optim.AdamW(model.parameters(), lr=max_lr / 10.0)
         step_size_up, step_size_down = self._steps_up_down(len(loader), n_epochs)
@@ -979,7 +1004,7 @@ class WarmUp(object):
             base_lr: List = []
         for i, (lr, layer) in enumerate(zip(layers_max_lr, layers)):
             if self.verbose:
-                print('Warming up {}, layer {} of {}'.format(model_name, i + 1, len(layers)))
+                None
             for p in layer.parameters():
                 p.requires_grad = True
             if routine == 'felbo':
@@ -996,7 +1021,7 @@ class WarmUp(object):
                     p.requires_grad = False
         if routine == 'felbo':
             if self.verbose:
-                print('Warming up one last epoch with all warmed up layers trainable')
+                None
             for layer in layers:
                 for p in layer.parameters():
                     p.requires_grad = True
@@ -1021,9 +1046,9 @@ class WarmUp(object):
             with trange(steps, disable=self.verbose != 1) as t:
                 for batch_idx, (data, target) in zip(t, loader):
                     t.set_description('epoch %i' % (epoch + 1))
-                    X = data[model_name].cuda() if use_cuda else data[model_name]
+                    X = data[model_name] if use_cuda else data[model_name]
                     y = target.float() if self.method != 'multiclass' else target
-                    y = y.cuda() if use_cuda else y
+                    y = y if use_cuda else y
                     optimizer.zero_grad()
                     y_pred = self.activation_fn(model(X))
                     loss = self.loss_fn(y_pred, y)

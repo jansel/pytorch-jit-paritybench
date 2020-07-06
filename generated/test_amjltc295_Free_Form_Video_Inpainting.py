@@ -20,6 +20,7 @@ test_network = _module
 train = _module
 util = _module
 html = _module
+util = _module
 visualizer = _module
 libs = _module
 jpg_demo = _module
@@ -32,6 +33,7 @@ ssim_theano = _module
 vifp = _module
 src = _module
 base = _module
+base_data_loader = _module
 base_model = _module
 base_trainer = _module
 data_loaders = _module
@@ -66,6 +68,8 @@ gen_masks = _module
 merge_into_base = _module
 rename = _module
 reorder = _module
+train = _module
+trainer = _module
 trainer = _module
 utils = _module
 directory_IO = _module
@@ -83,15 +87,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -99,10 +104,25 @@ __version__ = '1.0.0'
 import torch
 
 
-import torch.nn as nn
+import torch.utils.data
+
+
+import torch.utils.data as data
+
+
+import numpy as np
+
+
+from collections import OrderedDict
 
 
 from torch.autograd import Variable
+
+
+from scipy.ndimage import zoom
+
+
+import torch.nn as nn
 
 
 from collections import namedtuple
@@ -117,13 +137,55 @@ import scipy
 import scipy.misc
 
 
-import numpy as np
+import torch.backends.cudnn as cudnn
+
+
+import time
+
+
+import inspect
+
+
+import re
+
+
+import collections
+
+
+from scipy.ndimage.interpolation import zoom
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data.dataloader import default_collate
+
+
+from torch.utils.data.sampler import SubsetRandomSampler
 
 
 import logging
 
 
 import math
+
+
+import random
+
+
+from torchvision import transforms
+
+
+from torch.utils.data.dataset import Dataset
+
+
+import torchvision
+
+
+import numbers
+
+
+from scipy import linalg
 
 
 from torch import nn
@@ -133,6 +195,15 @@ import torch.nn.functional as F
 
 
 import functools
+
+
+from copy import copy
+
+
+from torchvision.utils import make_grid
+
+
+from torchvision.transforms import ToPILImage
 
 
 class PerceptualLoss(torch.nn.Module):
@@ -202,6 +273,16 @@ class PNet(nn.Module):
             return val, all_scores
         else:
             return val
+
+
+class NetLinLayer(nn.Module):
+    """ A single linear layer which does a 1x1 conv """
+
+    def __init__(self, chn_in, chn_out=1, use_dropout=False):
+        super(NetLinLayer, self).__init__()
+        layers = [nn.Dropout()] if use_dropout else []
+        layers += [nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, bias=False)]
+        self.model = nn.Sequential(*layers)
 
 
 class PNetLin(nn.Module):
@@ -333,22 +414,42 @@ class BCERankingLoss(nn.Module):
         return self.loss(self.logit, per)
 
 
-class NetLinLayer(nn.Module):
-    """ A single linear layer which does a 1x1 conv """
-
-    def __init__(self, chn_in, chn_out=1, use_dropout=False):
-        super(NetLinLayer, self).__init__()
-        layers = [nn.Dropout()] if use_dropout else []
-        layers += [nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, bias=False)]
-        self.model = nn.Sequential(*layers)
-
-
 class FakeNet(nn.Module):
 
     def __init__(self, use_gpu=True, colorspace='Lab'):
         super(FakeNet, self).__init__()
         self.use_gpu = use_gpu
         self.colorspace = colorspace
+
+
+class L2(FakeNet):
+
+    def forward(self, in0, in1):
+        assert in0.size()[0] == 1
+        if self.colorspace == 'RGB':
+            N, C, X, Y = in0.size()
+            value = torch.mean(torch.mean(torch.mean((in0 - in1) ** 2, dim=1).view(N, 1, X, Y), dim=2).view(N, 1, 1, Y), dim=3).view(N)
+            return value
+        elif self.colorspace == 'Lab':
+            value = util.l2(util.tensor2np(util.tensor2tensorlab(in0.data, to_norm=False)), util.tensor2np(util.tensor2tensorlab(in1.data, to_norm=False)), range=100.0).astype('float')
+            ret_var = Variable(torch.Tensor((value,)))
+            if self.use_gpu:
+                ret_var = ret_var
+            return ret_var
+
+
+class DSSIM(FakeNet):
+
+    def forward(self, in0, in1):
+        assert in0.size()[0] == 1
+        if self.colorspace == 'RGB':
+            value = util.dssim(1.0 * util.tensor2im(in0.data), 1.0 * util.tensor2im(in1.data), range=255.0).astype('float')
+        elif self.colorspace == 'Lab':
+            value = util.dssim(util.tensor2np(util.tensor2tensorlab(in0.data, to_norm=False)), util.tensor2np(util.tensor2tensorlab(in1.data, to_norm=False)), range=100.0).astype('float')
+        ret_var = Variable(torch.Tensor((value,)))
+        if self.use_gpu:
+            ret_var = ret_var
+        return ret_var
 
 
 class squeezenet(torch.nn.Module):
@@ -698,7 +799,6 @@ class NN3Dby2DTSM(NN3Dby2D):
 
         def forward(self, xs):
             B, C, L, H, W = xs.shape
-            from model.tsm_utils import tsm
             xs_tsm = tsm(xs.transpose(1, 2), L, 'zero').contiguous()
             out = self.layer(xs_tsm.view(B * L, C, H, W))
             _, C_, H_, W_ = out.shape
@@ -771,6 +871,42 @@ class VanillaDeconv(nn.Module):
         return self.conv(xs_resized)
 
 
+class GatedConv(VanillaConv):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, norm='SN', activation=nn.LeakyReLU(0.2, inplace=True), conv_by='3d'):
+        super().__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, norm, activation, conv_by)
+        if conv_by == '2dtsm':
+            self.module = NN3Dby2D
+        self.gatingConv = self.module.Conv3d(in_channels, out_channels, kernel_size, stride, self.padding, dilation, groups, bias)
+        if norm == 'SN':
+            self.gatingConv = nn.utils.spectral_norm(self.gatingConv)
+        self.sigmoid = nn.Sigmoid()
+        self.store_gated_values = False
+
+    def gated(self, mask):
+        out = self.sigmoid(mask)
+        if self.store_gated_values:
+            self.gated_values = out.detach().cpu()
+        return out
+
+    def forward(self, xs):
+        gating = self.gatingConv(xs)
+        feature = self.featureConv(xs)
+        if self.activation:
+            feature = self.activation(feature)
+        out = self.gated(gating) * feature
+        if self.norm is not None:
+            out = self.norm_layer(out)
+        return out
+
+
+class GatedDeconv(VanillaDeconv):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, norm='SN', activation=nn.LeakyReLU(0.2, inplace=True), scale_factor=2, conv_by='3d'):
+        super().__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, norm, activation, scale_factor, conv_by)
+        self.conv = GatedConv(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, norm, activation, conv_by=conv_by)
+
+
 class PartialConv(VanillaConv):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, norm='SN', activation=nn.LeakyReLU(0.2, inplace=True), conv_by='3d'):
@@ -789,7 +925,7 @@ class PartialConv(VanillaConv):
         if self.featureConv.bias is not None:
             output_bias = self.featureConv.bias.view(1, -1, 1, 1, 1)
         else:
-            output_bias = torch.zeros([1, 1, 1, 1, 1]).to(inp.device)
+            output_bias = torch.zeros([1, 1, 1, 1, 1])
         with torch.no_grad():
             mask_sum = self.mask_sum_conv(mask)
         no_update_holes = mask_sum == 0
@@ -908,6 +1044,37 @@ class CombCN(nn.Module):
             x = getattr(self, f'conv{i}')(x)
         completed_frame = self.conv17(x)
         return completed_frame
+
+
+class CompletionNet(BaseModel):
+
+    def __init__(self):
+        super().__init__()
+        self.videoCN = VideoCN()
+        self.combCN = CombCN()
+
+    def forward(self, imgs, masks, guidances=None):
+        masked_imgs = imgs * masks
+        masked_video = masked_imgs.transpose(1, 2)
+        masks = masks.transpose(1, 2)
+        d_masks = nn.functional.interpolate(masks, scale_factor=[1, 0.5, 0.5])
+        d_masked_video = nn.functional.interpolate(masked_video, scale_factor=[1, 0.5, 0.5])
+        d_input = torch.cat([d_masked_video, d_masks], dim=1)
+        imcomplete_video = self.videoCN(d_input)
+        imcomplete_video = imcomplete_video * (1 - d_masks) + d_masked_video * d_masks
+        output = []
+        for i in range(imcomplete_video.shape[2]):
+            masked_frame = masked_video[:, :, (i)]
+            mask = masks[:, :, (i)]
+            imcomplete_frame = imcomplete_video[:, :, (i)]
+            comb_input = torch.cat([masked_frame, mask], dim=1)
+            completed_frame = self.combCN(comb_input, imcomplete_frame)
+            output.append(completed_frame)
+        output = torch.stack(output, dim=2)
+        output = (1 - masks) * output + masks * masked_video
+        output = output.transpose(1, 2)
+        model_output = {'outputs': output, 'imcomplete_video': imcomplete_video}
+        return model_output
 
 
 class MaxPool3dSamePadding(nn.MaxPool3d):
@@ -1156,7 +1323,45 @@ class ReconLoss(nn.Module):
             return self.loss_fn(outputs, targets)
 
 
+class Vgg16(torch.nn.Module):
+
+    def __init__(self, requires_grad=False):
+        super(Vgg16, self).__init__()
+        vgg_pretrained_features = models.vgg16(pretrained=True).features
+        self.slice1 = torch.nn.Sequential()
+        self.slice2 = torch.nn.Sequential()
+        self.slice3 = torch.nn.Sequential()
+        self.slice4 = torch.nn.Sequential()
+        for x in range(4):
+            self.slice1.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(4, 9):
+            self.slice2.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(9, 16):
+            self.slice3.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(16, 23):
+            self.slice4.add_module(str(x), vgg_pretrained_features[x])
+        if not requires_grad:
+            for param in self.parameters():
+                param.requires_grad = False
+
+    def forward(self, X):
+        h = self.slice1(X)
+        h_relu1_2 = h
+        h = self.slice2(h)
+        h_relu2_2 = h
+        h = self.slice3(h)
+        h_relu3_3 = h
+        h = self.slice4(h)
+        h_relu4_3 = h
+        vgg_outputs = namedtuple('VggOutputs', ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
+        out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
+        return out
+
+
 device = torch.device('cuda')
+
+
+vgg = Vgg16(requires_grad=False)
 
 
 class VGGLoss(nn.Module):
@@ -1352,6 +1557,18 @@ class TemporalWarpingLoss(nn.Module):
         return self._get_loss(outputs, warped_outputs, non_occlusion_masks, masks)
 
 
+class TemporalWarpingError(TemporalWarpingLoss):
+
+    def __init__(self, flownet_checkpoint_path, alpha=50):
+        super().__init__(flownet_checkpoint_path, alpha)
+        self.loss_fn = L2LossMaskedMean(reduction='none')
+
+    def _get_loss(self, outputs, warped_outputs, non_occlusion_masks, masks):
+        loss = self.loss_fn(outputs[:, 1:] * non_occlusion_masks, warped_outputs * non_occlusion_masks, masks[:, 1:]).sum(1).sum(1).sum(1).sum(1)
+        loss = loss / non_occlusion_masks.sum(1).sum(1).sum(1).sum(1)
+        return loss.sum()
+
+
 class TVLoss(nn.Module):
 
     def __init__(self):
@@ -1408,42 +1625,6 @@ class AdversarialLoss(nn.Module):
             return loss
 
 
-class GatedConv(VanillaConv):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, norm='SN', activation=nn.LeakyReLU(0.2, inplace=True), conv_by='3d'):
-        super().__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, norm, activation, conv_by)
-        if conv_by == '2dtsm':
-            self.module = NN3Dby2D
-        self.gatingConv = self.module.Conv3d(in_channels, out_channels, kernel_size, stride, self.padding, dilation, groups, bias)
-        if norm == 'SN':
-            self.gatingConv = nn.utils.spectral_norm(self.gatingConv)
-        self.sigmoid = nn.Sigmoid()
-        self.store_gated_values = False
-
-    def gated(self, mask):
-        out = self.sigmoid(mask)
-        if self.store_gated_values:
-            self.gated_values = out.detach().cpu()
-        return out
-
-    def forward(self, xs):
-        gating = self.gatingConv(xs)
-        feature = self.featureConv(xs)
-        if self.activation:
-            feature = self.activation(feature)
-        out = self.gated(gating) * feature
-        if self.norm is not None:
-            out = self.norm_layer(out)
-        return out
-
-
-class GatedDeconv(VanillaDeconv):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, norm='SN', activation=nn.LeakyReLU(0.2, inplace=True), scale_factor=2, conv_by='3d'):
-        super().__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, norm, activation, scale_factor, conv_by)
-        self.conv = GatedConv(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, norm, activation, conv_by=conv_by)
-
-
 class BaseModule(nn.Module):
 
     def __init__(self, conv_type):
@@ -1491,6 +1672,12 @@ class DownSampleModule(BaseModule):
         c7 = self.conv7(a4)
         c8 = self.conv8(c7)
         return c8, c4, c2
+
+
+class AttentionDownSampleModule(DownSampleModule):
+
+    def __init__(self, nc_in, nf, use_bias, norm, conv_by, conv_type):
+        super().__init__(nc_in, nf, use_bias, norm, conv_by, conv_type)
 
 
 class UpSampleModule(BaseModule):
@@ -1566,12 +1753,6 @@ class CoarseNet(nn.Module):
         return out
 
 
-class AttentionDownSampleModule(DownSampleModule):
-
-    def __init__(self, nc_in, nf, use_bias, norm, conv_by, conv_type):
-        super().__init__(nc_in, nf, use_bias, norm, conv_by, conv_type)
-
-
 class RefineNet(CoarseNet):
 
     def __init__(self, nc_in, nc_out, nf, use_bias, norm, conv_by, conv_type, use_skip_connection: bool=False):
@@ -1607,6 +1788,34 @@ class Generator(nn.Module):
             return {'outputs': coarse_outputs}
 
 
+class SNTemporalPatchGANDiscriminator(BaseModule):
+
+    def __init__(self, nc_in, nf=64, norm='SN', use_sigmoid=True, use_bias=True, conv_type='vanilla', conv_by='3d'):
+        super().__init__(conv_type)
+        use_bias = use_bias
+        self.use_sigmoid = use_sigmoid
+        self.conv1 = self.ConvBlock(nc_in, nf * 1, kernel_size=(3, 5, 5), stride=(1, 2, 2), padding=1, bias=use_bias, norm=norm, conv_by=conv_by)
+        self.conv2 = self.ConvBlock(nf * 1, nf * 2, kernel_size=(3, 5, 5), stride=(1, 2, 2), padding=(1, 2, 2), bias=use_bias, norm=norm, conv_by=conv_by)
+        self.conv3 = self.ConvBlock(nf * 2, nf * 4, kernel_size=(3, 5, 5), stride=(1, 2, 2), padding=(1, 2, 2), bias=use_bias, norm=norm, conv_by=conv_by)
+        self.conv4 = self.ConvBlock(nf * 4, nf * 4, kernel_size=(3, 5, 5), stride=(1, 2, 2), padding=(1, 2, 2), bias=use_bias, norm=norm, conv_by=conv_by)
+        self.conv5 = self.ConvBlock(nf * 4, nf * 4, kernel_size=(3, 5, 5), stride=(1, 2, 2), padding=(1, 2, 2), bias=use_bias, norm=norm, conv_by=conv_by)
+        self.conv6 = self.ConvBlock(nf * 4, nf * 4, kernel_size=(3, 5, 5), stride=(1, 2, 2), padding=(1, 2, 2), bias=use_bias, norm=None, activation=None, conv_by=conv_by)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, xs):
+        xs_t = torch.transpose(xs, 1, 2)
+        c1 = self.conv1(xs_t)
+        c2 = self.conv2(c1)
+        c3 = self.conv3(c2)
+        c4 = self.conv4(c3)
+        c5 = self.conv5(c4)
+        c6 = self.conv6(c5)
+        if self.use_sigmoid:
+            c6 = torch.sigmoid(c6)
+        out = torch.transpose(c6, 1, 2)
+        return out
+
+
 class TemporalPatchGANDiscriminator(nn.Module):
 
     def __init__(self, input_nc, output_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm3d, use_sigmoid=False):
@@ -1636,160 +1845,46 @@ class TemporalPatchGANDiscriminator(nn.Module):
         return self.model(input)
 
 
-class Vgg16(torch.nn.Module):
+class VideoInpaintingModel(BaseModel):
 
-    def __init__(self, requires_grad=False):
-        super(Vgg16, self).__init__()
-        vgg_pretrained_features = models.vgg16(pretrained=True).features
-        self.slice1 = torch.nn.Sequential()
-        self.slice2 = torch.nn.Sequential()
-        self.slice3 = torch.nn.Sequential()
-        self.slice4 = torch.nn.Sequential()
-        for x in range(4):
-            self.slice1.add_module(str(x), vgg_pretrained_features[x])
-        for x in range(4, 9):
-            self.slice2.add_module(str(x), vgg_pretrained_features[x])
-        for x in range(9, 16):
-            self.slice3.add_module(str(x), vgg_pretrained_features[x])
-        for x in range(16, 23):
-            self.slice4.add_module(str(x), vgg_pretrained_features[x])
-        if not requires_grad:
-            for param in self.parameters():
-                param.requires_grad = False
+    def __init__(self, opts, nc_in=5, nc_out=3, d_s_args={}, d_t_args={}):
+        super().__init__()
+        self.d_t_args = {'nf': 32, 'use_sigmoid': True, 'norm': 'SN'}
+        for key, value in d_t_args.items():
+            self.d_t_args[key] = value
+        self.d_s_args = {'nf': 32, 'use_sigmoid': True, 'norm': 'SN'}
+        for key, value in d_s_args.items():
+            self.d_s_args[key] = value
+        nf = opts['nf']
+        norm = opts['norm']
+        use_bias = opts['bias']
+        self.conv_by = opts['conv_by'] if 'conv_by' in opts else '3d'
+        self.conv_type = opts['conv_type'] if 'conv_type' in opts else 'gated'
+        self.use_refine = opts['use_refine'] if 'use_refine' in opts else False
+        use_skip_connection = opts.get('use_skip_connection', False)
+        self.opts = opts
+        self.generator = Generator(nc_in, nc_out, nf, use_bias, norm, self.conv_by, self.conv_type, use_refine=self.use_refine, use_skip_connection=use_skip_connection)
+        if 'spatial_discriminator' not in opts or opts['spatial_discriminator']:
+            self.spatial_discriminator = SNTemporalPatchGANDiscriminator(nc_in=5, conv_type='2d', **self.d_s_args)
+        if 'temporal_discriminator' not in opts or opts['temporal_discriminator']:
+            self.temporal_discriminator = SNTemporalPatchGANDiscriminator(nc_in=5, **self.d_t_args)
 
-    def forward(self, X):
-        h = self.slice1(X)
-        h_relu1_2 = h
-        h = self.slice2(h)
-        h_relu2_2 = h
-        h = self.slice3(h)
-        h_relu3_3 = h
-        h = self.slice4(h)
-        h_relu4_3 = h
-        vgg_outputs = namedtuple('VggOutputs', ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
-        out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
-        return out
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (AdversarialLoss,
-     lambda: ([], {}),
-     lambda: ([], {'outputs': torch.rand([4, 4]), 'is_real': 4}),
-     True),
-    (Conv2dBlock,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (Conv3dBlock,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
-     True),
-    (Dist2LogitLayer,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 1, 4, 4]), torch.rand([4, 1, 4, 4])], {}),
-     False),
-    (GatedConv,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
-     False),
-    (GatedDeconv,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
-     False),
-    (L1LossMaskedMean,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (L2LossMaskedMean,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (Unit3D,
-     lambda: ([], {'in_channels': 4, 'output_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
-     False),
-    (VanillaConv,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
-     False),
-    (VanillaDeconv,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
-     False),
-    (Vgg16,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
-    (alexnet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
-    (resnet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
-    (squeezenet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
-    (vgg16,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
-]
-
-class Test_amjltc295_Free_Form_Video_Inpainting(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
-
-    def test_008(self):
-        self._check(*TESTCASES[8])
-
-    def test_009(self):
-        self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
-
-    def test_013(self):
-        self._check(*TESTCASES[13])
-
-    def test_014(self):
-        self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
+    def forward(self, imgs, masks, guidances=None, model='G'):
+        if model == 'G':
+            masked_imgs = imgs * masks
+            output = self.generator(masked_imgs, masks, guidances)
+        elif model == 'D_t':
+            guidances = torch.full_like(masks, 0.0) if guidances is None else guidances
+            input_imgs = torch.cat([imgs, masks, guidances], dim=2)
+            output = self.temporal_discriminator(input_imgs)
+        elif model == 'D_s':
+            guidances = torch.full_like(masks, 0.0) if guidances is None else guidances
+            input_imgs = torch.cat([imgs, masks, guidances], dim=2)
+            in_shape = list(input_imgs.shape)
+            input_imgs = input_imgs.view([in_shape[0] * in_shape[1]] + in_shape[2:])
+            output = self.spatial_discriminator(input_imgs)
+            output = output.view(in_shape[0], in_shape[1], -1)
+        else:
+            raise ValueError(f'forwarding model should be "G", "D_t", or "D_s", but got {model}')
+        return output
 

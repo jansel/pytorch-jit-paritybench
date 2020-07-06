@@ -20,17 +20,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+import time
 
 
 import torch
@@ -48,12 +58,6 @@ import torch.utils.model_zoo as model_zoo
 from collections import OrderedDict
 
 
-import time
-
-
-import numpy as np
-
-
 import torchvision
 
 
@@ -64,6 +68,9 @@ from torch.autograd import Variable
 
 
 from torch.utils.data import DataLoader
+
+
+from sklearn.metrics import roc_auc_score
 
 
 import torchvision.datasets as dsets
@@ -155,9 +162,6 @@ class DenseNet(nn.Module):
         return att_feats, fc_feats, out
 
 
-_global_config['small'] = 4
-
-
 class DenseNet121(nn.Module):
     """Model modified.
 
@@ -208,9 +212,6 @@ def hard_mining(neg_output, neg_labels, num_hard, largest=True):
     neg_output = torch.index_select(neg_output, 0, idcs)
     neg_labels = torch.index_select(neg_labels, 0, idcs)
     return neg_output, neg_labels
-
-
-_global_config['model'] = 4
 
 
 class Loss(nn.Module):

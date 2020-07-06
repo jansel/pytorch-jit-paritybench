@@ -20,26 +20,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils.data import DataLoader
+
+
+import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+import torch
+
+
+import time
+
+
+import torchvision.transforms as std_trnsf
 
 
 import copy
 
 
 import logging
-
-
-import torch
 
 
 import math
@@ -60,9 +76,6 @@ from torch import nn
 from torch.nn import functional as F
 
 
-import numpy as np
-
-
 from torchvision.models import squeezenet1_1
 
 
@@ -73,9 +86,6 @@ from torch.nn.init import xavier_normal_
 
 
 from collections import OrderedDict
-
-
-import torchvision.transforms as std_trnsf
 
 
 def fixed_padding(inputs, kernel_size, rate):
@@ -89,16 +99,14 @@ def fixed_padding(inputs, kernel_size, rate):
 
 class SeparableConv2d(nn.Module):
 
-    def __init__(self, inplanes, planes, kernel_size=3, stride=1, dilation=1, bias=False):
+    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1, bias=False):
         super(SeparableConv2d, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, inplanes, kernel_size, stride, 0, dilation, groups=inplanes, bias=bias)
-        self.bn = nn.BatchNorm2d(inplanes)
-        self.pointwise = nn.Conv2d(inplanes, planes, 1, 1, 0, 1, 1, bias=bias)
+        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, dilation, groups=in_channels, bias=bias)
+        self.pointwise = nn.Conv2d(in_channels, out_channels, 1, 1, 0, 1, 1, bias=bias)
 
     def forward(self, x):
-        x = fixed_padding(x, self.conv1.kernel_size[0], dilation=self.conv1.dilation[0])
+        x = fixed_padding(x, self.conv1.kernel_size[0], rate=self.conv1.dilation[0])
         x = self.conv1(x)
-        x = self.bn(x)
         x = self.pointwise(x)
         return x
 
@@ -363,20 +371,6 @@ class DeepLab(nn.Module):
         return x
 
 
-class SeparableConv2d(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size=1, stride=1, padding=0, dilation=1, bias=False):
-        super(SeparableConv2d, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size, stride, padding, dilation, groups=in_channels, bias=bias)
-        self.pointwise = nn.Conv2d(in_channels, out_channels, 1, 1, 0, 1, 1, bias=bias)
-
-    def forward(self, x):
-        x = fixed_padding(x, self.conv1.kernel_size[0], rate=self.conv1.dilation[0])
-        x = self.conv1(x)
-        x = self.pointwise(x)
-        return x
-
-
 class GreenBlock(nn.Module):
 
     def __init__(self, in_channel, out_channel):
@@ -467,7 +461,7 @@ class HairMattingLoss(nn.modules.loss._Loss):
         self.bce_loss = nn.BCEWithLogitsLoss()
 
     def forward(self, pred, true, image):
-        device = 'cuda' if torch.is_available() else 'cpu'
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
         loss2 = None
         if self.ratio_of_gradient > 0:
             sobel_kernel_x = torch.Tensor([[1.0, 0.0, -1.0], [2.0, 0.0, -2.0], [1.0, 0.0, -1.0]])
@@ -613,6 +607,10 @@ TESTCASES = [
      lambda: ([], {'return_with_logits': 4}),
      lambda: ([torch.rand([4, 256, 64, 64]), torch.rand([4, 128, 64, 64])], {}),
      True),
+    (HairMattingLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (MobileMattingFCN,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -688,4 +686,7 @@ class Test_YBIGTA_pytorch_hair_segmentation(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
 

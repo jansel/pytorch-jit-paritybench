@@ -14,15 +14,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -82,6 +83,28 @@ class BasicBlock(nn.Module):
         return out
 
 
+class PreActBasicBlock(BasicBlock):
+
+    def __init__(self, inplanes, planes, stride):
+        super(PreActBasicBlock, self).__init__(inplanes, planes, stride)
+        if inplanes != planes:
+            self.downsample = nn.Sequential(nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride, bias=False))
+        else:
+            self.downsample = lambda x: x
+        self.bn1 = nn.BatchNorm2d(inplanes)
+
+    def forward(self, x):
+        residual = self.downsample(x)
+        out = self.bn1(x)
+        out = self.relu(out)
+        out = self.conv1(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out += residual
+        return out
+
+
 class ResNet(nn.Module):
 
     def __init__(self, block, n_size, num_classes=10):
@@ -126,6 +149,40 @@ class ResNet(nn.Module):
         return x
 
 
+class PreActResNet(ResNet):
+
+    def __init__(self, block, n_size, num_classes=10):
+        super(PreActResNet, self).__init__(block, n_size, num_classes)
+        self.bn1 = nn.BatchNorm2d(self.inplane)
+        self.initialize()
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return x
+
+
+class SELayer(nn.Module):
+
+    def __init__(self, channel, reduction=16):
+        super(SELayer, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction, bias=False), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel, bias=False), nn.Sigmoid())
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+
 class SEInception3(nn.Module):
 
     def __init__(self, num_classes, aux_logits=True, transform_input=False):
@@ -151,20 +208,6 @@ class SEInception3(nn.Module):
         if (h, w) != (299, 299):
             raise ValueError('input size must be (299, 299)')
         return self.model(x)
-
-
-class SELayer(nn.Module):
-
-    def __init__(self, channel, reduction=16):
-        super(SELayer, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction, bias=False), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel, bias=False), nn.Sigmoid())
-
-    def forward(self, x):
-        b, c, _, _ = x.size()
-        y = self.avg_pool(x).view(b, c)
-        y = self.fc(y).view(b, c, 1, 1)
-        return x * y.expand_as(x)
 
 
 class SEBasicBlock(nn.Module):
@@ -303,6 +346,25 @@ class CifarSEResNet(nn.Module):
         return x
 
 
+class CifarSEPreActResNet(CifarSEResNet):
+
+    def __init__(self, block, n_size, num_classes=10, reduction=16):
+        super(CifarSEPreActResNet, self).__init__(block, n_size, num_classes, reduction)
+        self.bn1 = nn.BatchNorm2d(self.inplane)
+        self.initialize()
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -318,6 +380,10 @@ TESTCASES = [
      lambda: ([], {'inplanes': 4, 'planes': 16}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (PreActBasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (SELayer,
      lambda: ([], {'channel': 16}),
      lambda: ([torch.rand([4, 16, 4, 16])], {}),
@@ -333,4 +399,7 @@ class Test_moskomule_senet_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

@@ -15,15 +15,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -141,6 +142,44 @@ class UnidirectionalInterface(torch.nn.Module):
         _Manager.backward(loss)
 
 
+class ForwardInterface(UnidirectionalInterface):
+    """`Interface` for synthesizing activations in the forward pass.
+
+    Can be used to achieve a forward unlock. It does not make too much sense to
+    use it on its own, as it breaks backpropagation (no gradients pass through
+    `ForwardInterface`). To achieve both forward and update unlock, use
+    `BidirectionalInterface`.
+
+    Args:
+        synthesizer: `Synthesizer` to use to generate `messages`.
+    """
+
+    def forward(self, message, trigger):
+        """Synthetic forward pass, no backward pass.
+
+        Convenience method combining `send` and `receive`. Updates the
+        `message` estimate based on `trigger` and returns a synthetic
+        `message`.
+
+        Works only in `training` mode, otherwise just returns the input
+        `message`.
+
+        Args:
+            message: Ground truth `message` that should be synthesized based on
+                `trigger`.
+            trigger: `trigger` that the `message` should be synthesized based
+                on.
+
+        Returns:
+            The synthesized `message`.
+        """
+        if self.training:
+            self.send(message, trigger)
+            return self.receive(trigger)
+        else:
+            return message
+
+
 class _SyntheticGradientUpdater(torch.autograd.Function):
 
     @staticmethod
@@ -232,44 +271,6 @@ class BackwardInterface(UnidirectionalInterface):
             return _SyntheticGradientUpdater.apply(trigger, self.synthesizer(trigger, _Manager.get_current_context()))
         else:
             return trigger
-
-
-class ForwardInterface(UnidirectionalInterface):
-    """`Interface` for synthesizing activations in the forward pass.
-
-    Can be used to achieve a forward unlock. It does not make too much sense to
-    use it on its own, as it breaks backpropagation (no gradients pass through
-    `ForwardInterface`). To achieve both forward and update unlock, use
-    `BidirectionalInterface`.
-
-    Args:
-        synthesizer: `Synthesizer` to use to generate `messages`.
-    """
-
-    def forward(self, message, trigger):
-        """Synthetic forward pass, no backward pass.
-
-        Convenience method combining `send` and `receive`. Updates the
-        `message` estimate based on `trigger` and returns a synthetic
-        `message`.
-
-        Works only in `training` mode, otherwise just returns the input
-        `message`.
-
-        Args:
-            message: Ground truth `message` that should be synthesized based on
-                `trigger`.
-            trigger: `trigger` that the `message` should be synthesized based
-                on.
-
-        Returns:
-            The synthesized `message`.
-        """
-        if self.training:
-            self.send(message, trigger)
-            return self.receive(trigger)
-        else:
-            return message
 
 
 class BidirectionalInterface(torch.nn.Module):
@@ -399,107 +400,14 @@ class BasicSynthesizer(torch.nn.Module):
         return last
 
 
-_global_config['cuda'] = False
-
-
 def one_hot(indexes, n_classes):
     result = torch.FloatTensor(indexes.size() + (n_classes,))
     if args.cuda:
-        result = result.cuda()
+        result = result
     result.zero_()
     indexes_rank = len(indexes.size())
     result.scatter_(dim=indexes_rank, index=indexes.data.unsqueeze(dim=indexes_rank), value=1)
     return Variable(result)
-
-
-_global_config['context'] = 4
-
-
-_global_config['dni'] = 4
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv1_bn = nn.BatchNorm2d(10)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_bn = nn.BatchNorm2d(20)
-        self.conv2_drop = nn.Dropout2d()
-        if args.dni:
-            self.backward_interface = dni.BackwardInterface(ConvSynthesizer())
-        self.fc1 = nn.Linear(320, 50)
-        self.fc1_bn = nn.BatchNorm1d(50)
-        self.fc2 = nn.Linear(50, 10)
-        self.fc2_bn = nn.BatchNorm1d(10)
-
-    def forward(self, x, y=None):
-        x = F.relu(F.max_pool2d(self.conv1_bn(self.conv1(x)), 2))
-        x = F.max_pool2d(self.conv2_drop(self.conv2_bn(self.conv2(x))), 2)
-        if args.dni and self.training:
-            if args.context:
-                context = one_hot(y, 10)
-            else:
-                context = None
-            with dni.synthesizer_context(context):
-                x = self.backward_interface(x)
-        x = F.relu(x)
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1_bn(self.fc1(x)))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2_bn(self.fc2(x))
-        return F.log_softmax(x)
-
-
-class ConvSynthesizer(nn.Module):
-
-    def __init__(self):
-        super(ConvSynthesizer, self).__init__()
-        self.input_trigger = nn.Conv2d(20, 20, kernel_size=5, padding=2)
-        self.input_context = nn.Linear(10, 20)
-        self.hidden = nn.Conv2d(20, 20, kernel_size=5, padding=2)
-        self.output = nn.Conv2d(20, 20, kernel_size=5, padding=2)
-        nn.init.constant(self.output.weight, 0)
-
-    def forward(self, trigger, context):
-        x = self.input_trigger(trigger)
-        if context is not None:
-            x += self.input_context(context).unsqueeze(2).unsqueeze(3).expand_as(x)
-        x = self.hidden(F.relu(x))
-        return self.output(F.relu(x))
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.hidden1 = nn.Linear(784, 256, bias=False)
-        self.hidden1_bn = nn.BatchNorm1d(256)
-        self.hidden2 = nn.Linear(256, 256, bias=False)
-        self.hidden2_bn = nn.BatchNorm1d(256)
-        if args.dni:
-            if args.context:
-                context_dim = 10
-            else:
-                context_dim = None
-            self.bidirectional_interface = dni.BidirectionalInterface(dni.BasicSynthesizer(output_dim=256, n_hidden=2, trigger_dim=784, context_dim=context_dim), dni.BasicSynthesizer(output_dim=256, n_hidden=2, context_dim=context_dim))
-        self.output = nn.Linear(256, 10, bias=False)
-        self.output_bn = nn.BatchNorm1d(10)
-
-    def forward(self, x, y=None):
-        input_flat = x.view(x.size()[0], -1)
-        x = self.hidden1_bn(self.hidden1(input_flat))
-        x = self.hidden2_bn(self.hidden2(F.relu(x)))
-        if args.dni and self.training:
-            if args.context:
-                context = one_hot(y, 10)
-            else:
-                context = None
-            with dni.synthesizer_context(context):
-                x = self.bidirectional_interface(x, input_flat)
-        x = self.output_bn(self.output(F.relu(x)))
-        return F.log_softmax(x)
 
 
 class Net(nn.Module):
@@ -532,6 +440,24 @@ class Net(nn.Module):
                 x = self.backward_interface(x)
         x = self.output_bn(self.output(F.relu(x)))
         return F.log_softmax(x)
+
+
+class ConvSynthesizer(nn.Module):
+
+    def __init__(self):
+        super(ConvSynthesizer, self).__init__()
+        self.input_trigger = nn.Conv2d(20, 20, kernel_size=5, padding=2)
+        self.input_context = nn.Linear(10, 20)
+        self.hidden = nn.Conv2d(20, 20, kernel_size=5, padding=2)
+        self.output = nn.Conv2d(20, 20, kernel_size=5, padding=2)
+        nn.init.constant(self.output.weight, 0)
+
+    def forward(self, trigger, context):
+        x = self.input_trigger(trigger)
+        if context is not None:
+            x += self.input_context(context).unsqueeze(2).unsqueeze(3).expand_as(x)
+        x = self.hidden(F.relu(x))
+        return self.output(F.relu(x))
 
 
 class RNNModel(nn.Module):
@@ -616,7 +542,7 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BackwardInterface,
-     lambda: ([], {'synthesizer': 4}),
+     lambda: ([], {'synthesizer': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (BasicSynthesizer,
@@ -630,10 +556,6 @@ TESTCASES = [
     (ForwardInterface,
      lambda: ([], {'synthesizer': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (Net,
-     lambda: ([], {}),
-     lambda: ([torch.rand([784, 784])], {}),
      False),
 ]
 
@@ -649,7 +571,4 @@ class Test_koz4k_dni_pytorch(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

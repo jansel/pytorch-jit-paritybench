@@ -27,20 +27,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import torch.utils.data
+
+
+import numpy as np
+
+
+from torch.distributions.categorical import Categorical
 
 
 import torch.nn as nn
@@ -55,22 +65,25 @@ from torch.distributions.normal import Normal
 import torch.nn.functional as F
 
 
-from torch.distributions.categorical import Categorical
+import time
+
+
+from torchvision import transforms
+
+
+from time import sleep
+
+
+from torch.multiprocessing import Process
+
+
+from torch.multiprocessing import Queue
 
 
 from functools import partial
 
 
 from torch.utils.data import DataLoader
-
-
-from torchvision import transforms
-
-
-import numpy as np
-
-
-import torch.utils.data
 
 
 from torch import optim
@@ -80,6 +93,12 @@ from torch.nn import functional as F
 
 
 from torchvision.utils import save_image
+
+
+from torch.optim import Optimizer
+
+
+import math
 
 
 class Controller(nn.Module):
@@ -106,6 +125,87 @@ class _MDRNNBase(nn.Module):
 
     def forward(self, *inputs):
         pass
+
+
+class MDRNN(_MDRNNBase):
+    """ MDRNN model for multi steps forward """
+
+    def __init__(self, latents, actions, hiddens, gaussians):
+        super().__init__(latents, actions, hiddens, gaussians)
+        self.rnn = nn.LSTM(latents + actions, hiddens)
+
+    def forward(self, actions, latents):
+        """ MULTI STEPS forward.
+
+        :args actions: (SEQ_LEN, BSIZE, ASIZE) torch tensor
+        :args latents: (SEQ_LEN, BSIZE, LSIZE) torch tensor
+
+        :returns: mu_nlat, sig_nlat, pi_nlat, rs, ds, parameters of the GMM
+        prediction for the next latent, gaussian prediction of the reward and
+        logit prediction of terminality.
+            - mu_nlat: (SEQ_LEN, BSIZE, N_GAUSS, LSIZE) torch tensor
+            - sigma_nlat: (SEQ_LEN, BSIZE, N_GAUSS, LSIZE) torch tensor
+            - logpi_nlat: (SEQ_LEN, BSIZE, N_GAUSS) torch tensor
+            - rs: (SEQ_LEN, BSIZE) torch tensor
+            - ds: (SEQ_LEN, BSIZE) torch tensor
+        """
+        seq_len, bs = actions.size(0), actions.size(1)
+        ins = torch.cat([actions, latents], dim=-1)
+        outs, _ = self.rnn(ins)
+        gmm_outs = self.gmm_linear(outs)
+        stride = self.gaussians * self.latents
+        mus = gmm_outs[:, :, :stride]
+        mus = mus.view(seq_len, bs, self.gaussians, self.latents)
+        sigmas = gmm_outs[:, :, stride:2 * stride]
+        sigmas = sigmas.view(seq_len, bs, self.gaussians, self.latents)
+        sigmas = torch.exp(sigmas)
+        pi = gmm_outs[:, :, 2 * stride:2 * stride + self.gaussians]
+        pi = pi.view(seq_len, bs, self.gaussians)
+        logpi = f.log_softmax(pi, dim=-1)
+        rs = gmm_outs[:, :, (-2)]
+        ds = gmm_outs[:, :, (-1)]
+        return mus, sigmas, logpi, rs, ds
+
+
+class MDRNNCell(_MDRNNBase):
+    """ MDRNN model for one step forward """
+
+    def __init__(self, latents, actions, hiddens, gaussians):
+        super().__init__(latents, actions, hiddens, gaussians)
+        self.rnn = nn.LSTMCell(latents + actions, hiddens)
+
+    def forward(self, action, latent, hidden):
+        """ ONE STEP forward.
+
+        :args actions: (BSIZE, ASIZE) torch tensor
+        :args latents: (BSIZE, LSIZE) torch tensor
+        :args hidden: (BSIZE, RSIZE) torch tensor
+
+        :returns: mu_nlat, sig_nlat, pi_nlat, r, d, next_hidden, parameters of
+        the GMM prediction for the next latent, gaussian prediction of the
+        reward, logit prediction of terminality and next hidden state.
+            - mu_nlat: (BSIZE, N_GAUSS, LSIZE) torch tensor
+            - sigma_nlat: (BSIZE, N_GAUSS, LSIZE) torch tensor
+            - logpi_nlat: (BSIZE, N_GAUSS) torch tensor
+            - rs: (BSIZE) torch tensor
+            - ds: (BSIZE) torch tensor
+        """
+        in_al = torch.cat([action, latent], dim=1)
+        next_hidden = self.rnn(in_al, hidden)
+        out_rnn = next_hidden[0]
+        out_full = self.gmm_linear(out_rnn)
+        stride = self.gaussians * self.latents
+        mus = out_full[:, :stride]
+        mus = mus.view(-1, self.gaussians, self.latents)
+        sigmas = out_full[:, stride:2 * stride]
+        sigmas = sigmas.view(-1, self.gaussians, self.latents)
+        sigmas = torch.exp(sigmas)
+        pi = out_full[:, 2 * stride:2 * stride + self.gaussians]
+        pi = pi.view(-1, self.gaussians)
+        logpi = f.log_softmax(pi, dim=-1)
+        r = out_full[:, (-2)]
+        d = out_full[:, (-1)]
+        return mus, sigmas, logpi, r, d, next_hidden
 
 
 class Decoder(nn.Module):
@@ -188,6 +288,10 @@ TESTCASES = [
      lambda: ([], {'img_channels': 4, 'latent_size': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
      True),
+    (MDRNN,
+     lambda: ([], {'latents': 4, 'actions': 4, 'hiddens': 4, 'gaussians': 4}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     True),
     (VAE,
      lambda: ([], {'img_channels': 4, 'latent_size': 4}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
@@ -210,4 +314,7 @@ class Test_ctallec_world_models(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

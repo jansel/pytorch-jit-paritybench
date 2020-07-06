@@ -38,15 +38,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -63,13 +64,22 @@ import torch.optim as optim
 from collections import OrderedDict
 
 
+import torchvision
+
+
+from torchvision import transforms
+
+
+import torch.utils.data as data
+
+
+import random
+
+
 import torch.nn.functional as F
 
 
 import numpy as np
-
-
-import torchvision
 
 
 import warnings
@@ -125,90 +135,31 @@ class BNClassifier(nn.Module):
 
     def forward(self, x):
         feature = self.bn(x)
-        cls_score = self.classifier(feature)
-        return feature, cls_score
-
-
-class Model(nn.Module):
-
-    def __init__(self, class_num):
-        super(Model, self).__init__()
-        self.class_num = class_num
-        resnet = torchvision.models.resnet50(pretrained=True)
-        resnet.layer4[0].conv2.stride = 1, 1
-        resnet.layer4[0].downsample[0].stride = 1, 1
-        self.resnet_conv = nn.Sequential(resnet.conv1, resnet.bn1, resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4)
-        self.gap = nn.AdaptiveAvgPool2d(1)
-        self.classifier = BNClassifier(2048, self.class_num)
-
-    def forward(self, x):
-        features = self.gap(self.resnet_conv(x)).squeeze(dim=2).squeeze(dim=2)
-        bned_features, cls_score = self.classifier(features)
-        if self.training:
-            return features, cls_score
-        else:
-            return bned_features
-
-
-class BNClassifier(nn.Module):
-    """bn + fc"""
-
-    def __init__(self, in_dim, class_num):
-        super(BNClassifier, self).__init__()
-        self.in_dim = in_dim
-        self.class_num = class_num
-        self.bn = nn.BatchNorm1d(self.in_dim)
-        self.bn.bias.requires_grad_(False)
-        self.classifier = nn.Linear(self.in_dim, self.class_num, bias=False)
-        self.bn.apply(weights_init_kaiming)
-        self.classifier.apply(weights_init_classifier)
-
-    def forward(self, x):
-        feature = self.bn(x)
-        cls_score = self.classifier(feature)
-        return feature, cls_score
-
-
-class Model(nn.Module):
-
-    def __init__(self, class_num):
-        super(Model, self).__init__()
-        self.class_num = class_num
-        resnet = torchvision.models.resnet50(pretrained=True)
-        resnet.layer4[0].conv2.stride = 1, 1
-        resnet.layer4[0].downsample[0].stride = 1, 1
-        self.resnet_conv = nn.Sequential(resnet.conv1, resnet.bn1, resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4)
-        self.gap = nn.AdaptiveAvgPool2d(1)
-        self.classifier = BNClassifier(2048, self.class_num)
-
-    def forward(self, x):
-        features = self.gap(self.resnet_conv(x)).squeeze(dim=2).squeeze(dim=2)
-        bned_features, cls_score = self.classifier(features)
-        if self.training:
-            return features, cls_score
-        else:
-            return bned_features
-
-
-class BNClassifier(nn.Module):
-    """bn + fc"""
-
-    def __init__(self, in_dim, class_num):
-        super(BNClassifier, self).__init__()
-        self.in_dim = in_dim
-        self.class_num = class_num
-        self.bn = nn.BatchNorm1d(self.in_dim)
-        self.bn.bias.requires_grad_(False)
-        self.classifier = nn.Linear(self.in_dim, self.class_num, bias=False)
-        self.bn.apply(weights_init_kaiming)
-        self.classifier.apply(weights_init_classifier)
-
-    def forward(self, x):
-        feature = self.bn(x)
         if not self.training:
             return feature, None
         cls_score = self.classifier(feature)
         return feature, cls_score
+
+
+class Model(nn.Module):
+
+    def __init__(self, class_num):
+        super(Model, self).__init__()
+        self.class_num = class_num
+        resnet = torchvision.models.resnet50(pretrained=True)
+        resnet.layer4[0].conv2.stride = 1, 1
+        resnet.layer4[0].downsample[0].stride = 1, 1
+        self.resnet_conv = nn.Sequential(resnet.conv1, resnet.bn1, resnet.maxpool, resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4)
+        self.gap = nn.AdaptiveAvgPool2d(1)
+        self.classifier = BNClassifier(2048, self.class_num)
+
+    def forward(self, x):
+        features = self.gap(self.resnet_conv(x)).squeeze(dim=2).squeeze(dim=2)
+        bned_features, cls_score = self.classifier(features)
+        if self.training:
+            return features, cls_score
+        else:
+            return bned_features
 
 
 class ConvLayer(nn.Module):
@@ -693,7 +644,7 @@ def resnet50_ibn_a(pretrained=False, **kwargs):
     model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
     if pretrained:
         model.load_state_dict(torch.load(join(realpath(dirname(__file__)), './models/r50_ibn_a.pth')))
-        print('successfully load imagenet pre-trained resnet50-ibn model')
+        None
     return model
 
 

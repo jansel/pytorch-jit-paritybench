@@ -30,6 +30,7 @@ triangulate = _module
 utils = _module
 pose_utils = _module
 transforms = _module
+utils = _module
 vis = _module
 zipreader = _module
 train = _module
@@ -41,35 +42,57 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import torch.nn as nn
-
-
-import torch
+import time
 
 
 import logging
 
 
-import math
-
-
 import numpy as np
 
 
+import torch
+
+
+import torch.nn as nn
+
+
+import copy
+
+
+import random
+
+
+from torch.utils.data import Dataset
+
+
+import math
+
+
+import scipy
+
+
+from scipy.interpolate import RegularGridInterpolator
+
+
 import torch.nn.functional as F
+
+
+import torch.optim as optim
 
 
 import torch.nn.parallel
@@ -111,164 +134,6 @@ class JointsMSELoss(nn.Module):
             else:
                 loss += self.criterion(heatmap_pred, heatmap_gt)
         return loss
-
-
-class ChannelWiseFC(nn.Module):
-
-    def __init__(self, size):
-        super(ChannelWiseFC, self).__init__()
-        self.weight = nn.Parameter(torch.Tensor(size, size))
-        self.weight.data.uniform_(0, 0.1)
-
-    def forward(self, input):
-        N, C, H, W = input.size()
-        input_reshape = input.reshape(N * C, H * W)
-        output = torch.matmul(input_reshape, self.weight)
-        output_reshape = output.reshape(N, C, H, W)
-        return output_reshape
-
-
-class Aggregation(nn.Module):
-
-    def __init__(self, cfg, weights=[0.4, 0.2, 0.2, 0.2]):
-        super(Aggregation, self).__init__()
-        NUM_NETS = 12
-        size = int(cfg.NETWORK.HEATMAP_SIZE[0])
-        self.weights = weights
-        self.aggre = nn.ModuleList()
-        for i in range(NUM_NETS):
-            self.aggre.append(ChannelWiseFC(size * size))
-
-    def sort_views(self, target, all_views):
-        indicator = [(target is item) for item in all_views]
-        new_views = [target.clone()]
-        for i, item in zip(indicator, all_views):
-            if not i:
-                new_views.append(item.clone())
-        return new_views
-
-    def fuse_with_weights(self, views):
-        target = torch.zeros_like(views[0])
-        for v, w in zip(views, self.weights):
-            target += v * w
-        return target
-
-    def forward(self, inputs):
-        index = 0
-        outputs = []
-        nviews = len(inputs)
-        for i in range(nviews):
-            sorted_inputs = self.sort_views(inputs[i], inputs)
-            warped = [sorted_inputs[0]]
-            for j in range(1, nviews):
-                fc = self.aggre[index]
-                fc_output = fc(sorted_inputs[j])
-                warped.append(fc_output)
-                index += 1
-            output = self.fuse_with_weights(warped)
-            outputs.append(output)
-        return outputs
-
-
-class MultiViewPose(nn.Module):
-
-    def __init__(self, PoseResNet, Aggre, CFG):
-        super(MultiViewPose, self).__init__()
-        self.config = CFG
-        self.resnet = PoseResNet
-        self.aggre_layer = Aggre
-
-    def forward(self, views):
-        if isinstance(views, list):
-            single_views = []
-            for view in views:
-                heatmaps = self.resnet(view)
-                single_views.append(heatmaps)
-            multi_views = []
-            if self.config.NETWORK.AGGRE:
-                multi_views = self.aggre_layer(single_views)
-            return single_views, multi_views
-        else:
-            return self.resnet(views)
-
-
-class ChannelWiseFC(nn.Module):
-
-    def __init__(self, size):
-        super(ChannelWiseFC, self).__init__()
-        self.weight = nn.Parameter(torch.Tensor(size, size))
-        self.weight.data.uniform_(0, 0.1)
-
-    def forward(self, input):
-        N, C, H, W = input.size()
-        input_reshape = input.reshape(N * C, H * W)
-        output = torch.matmul(input_reshape, self.weight)
-        output_reshape = output.reshape(N, C, H, W)
-        return output_reshape
-
-
-class Aggregation(nn.Module):
-
-    def __init__(self, cfg, weights=[0.4, 0.2, 0.2, 0.2]):
-        super(Aggregation, self).__init__()
-        NUM_NETS = 12
-        size = int(cfg.NETWORK.HEATMAP_SIZE[0])
-        self.weights = weights
-        self.aggre = nn.ModuleList()
-        for i in range(NUM_NETS):
-            self.aggre.append(ChannelWiseFC(size * size))
-
-    def sort_views(self, target, all_views):
-        indicator = [(target is item) for item in all_views]
-        new_views = [target.clone()]
-        for i, item in zip(indicator, all_views):
-            if not i:
-                new_views.append(item.clone())
-        return new_views
-
-    def fuse_with_weights(self, views):
-        target = torch.zeros_like(views[0])
-        for v, w in zip(views, self.weights):
-            target += v * w
-        return target
-
-    def forward(self, inputs):
-        index = 0
-        outputs = []
-        nviews = len(inputs)
-        for i in range(nviews):
-            sorted_inputs = self.sort_views(inputs[i], inputs)
-            warped = [sorted_inputs[0]]
-            for j in range(1, nviews):
-                fc = self.aggre[index]
-                fc_output = fc(sorted_inputs[j])
-                warped.append(fc_output)
-                index += 1
-            output = self.fuse_with_weights(warped)
-            outputs.append(output)
-        return outputs
-
-
-class MultiViewPose(nn.Module):
-
-    def __init__(self, PoseResNet, Aggre, CFG):
-        super(MultiViewPose, self).__init__()
-        self.config = CFG
-        self.resnet = PoseResNet
-        self.aggre_layer = Aggre
-
-    def forward(self, views):
-        if isinstance(views, list):
-            single_views = []
-            for view in views:
-                heatmaps = self.resnet(view)
-                single_views.append(heatmaps)
-            multi_views = []
-            if self.config.NETWORK.AGGRE:
-                multi_views = self.aggre_layer(single_views)
-            return single_views, multi_views
-        else:
-            return self.resnet(views)
 
 
 class ChannelWiseFC(nn.Module):
@@ -793,65 +658,6 @@ class PoseMobileNetV2(nn.Module):
                     nn.init.normal_(m.weight, std=0.001)
                     if self.deconv_with_bias:
                         nn.init.constant_(m.bias, 0)
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
 
 
 class PoseResNet(nn.Module):

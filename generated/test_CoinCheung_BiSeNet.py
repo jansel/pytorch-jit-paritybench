@@ -24,6 +24,7 @@ evaluate = _module
 model = _module
 resnet = _module
 train = _module
+logger = _module
 loss = _module
 model = _module
 modules = _module
@@ -42,15 +43,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -64,28 +66,31 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+import torch.distributed as dist
+
+
+import numpy as np
+
+
 import logging
 
 
 import math
 
 
-import numpy as np
-
-
-import torch.distributed as dist
+import time
 
 
 from torch.utils.data.sampler import Sampler
 
 
 import random
-
-
-import time
-
-
-from torch.utils.data import DataLoader
 
 
 import torchvision.transforms as transforms
@@ -106,19 +111,37 @@ import torch.nn.functional as functional
 from collections import OrderedDict
 
 
+import torch.autograd as autograd
+
+
+import torch.cuda.comm as comm
+
+
+from torch.autograd.function import once_differentiable
+
+
+from torch.utils.cpp_extension import load
+
+
 class ConvBNReLU(nn.Module):
 
-    def __init__(self, in_chan, out_chan, ks=3, stride=1, padding=1, dilation=1, groups=1, bias=False):
+    def __init__(self, in_chan, out_chan, ks=3, stride=1, padding=1, *args, **kwargs):
         super(ConvBNReLU, self).__init__()
-        self.conv = nn.Conv2d(in_chan, out_chan, kernel_size=ks, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.bn = nn.BatchNorm2d(out_chan)
-        self.relu = nn.ReLU(inplace=True)
+        self.conv = nn.Conv2d(in_chan, out_chan, kernel_size=ks, stride=stride, padding=padding, bias=False)
+        self.bn = BatchNorm2d(out_chan)
+        self.init_weight()
 
     def forward(self, x):
-        feat = self.conv(x)
-        feat = self.bn(feat)
-        feat = self.relu(feat)
-        return feat
+        x = self.conv(x)
+        x = self.bn(x)
+        return x
+
+    def init_weight(self):
+        for ly in self.children():
+            if isinstance(ly, nn.Conv2d):
+                nn.init.kaiming_normal_(ly.weight, a=1)
+                if not ly.bias is None:
+                    nn.init.constant_(ly.bias, 0)
 
 
 class DetailBranch(nn.Module):
@@ -317,40 +340,22 @@ class BiSeNetV2(nn.Module):
 
 class OhemCELoss(nn.Module):
 
-    def __init__(self, thresh, ignore_lb=255):
+    def __init__(self, thresh, n_min, ignore_lb=255, *args, **kwargs):
         super(OhemCELoss, self).__init__()
-        self.thresh = -torch.log(torch.tensor(thresh, requires_grad=False, dtype=torch.float))
+        self.thresh = -torch.log(torch.tensor(thresh, dtype=torch.float))
+        self.n_min = n_min
         self.ignore_lb = ignore_lb
         self.criteria = nn.CrossEntropyLoss(ignore_index=ignore_lb, reduction='none')
 
     def forward(self, logits, labels):
-        n_min = labels[labels != self.ignore_lb].numel() // 16
+        N, C, H, W = logits.size()
         loss = self.criteria(logits, labels).view(-1)
-        loss_hard = loss[loss > self.thresh]
-        if loss_hard.numel() < n_min:
-            loss_hard, _ = loss.topk(n_min)
-        return torch.mean(loss_hard)
-
-
-class ConvBNReLU(nn.Module):
-
-    def __init__(self, in_chan, out_chan, ks=3, stride=1, padding=1, *args, **kwargs):
-        super(ConvBNReLU, self).__init__()
-        self.conv = nn.Conv2d(in_chan, out_chan, kernel_size=ks, stride=stride, padding=padding, bias=False)
-        self.bn = BatchNorm2d(out_chan)
-        self.init_weight()
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        return x
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
+        loss, _ = torch.sort(loss, descending=True)
+        if loss[self.n_min] > self.thresh:
+            loss = loss[loss > self.thresh]
+        else:
+            loss = loss[:self.n_min]
+        return torch.mean(loss)
 
 
 class BiSeNetOutput(nn.Module):
@@ -376,7 +381,7 @@ class BiSeNetOutput(nn.Module):
     def get_params(self):
         wd_params, nowd_params = [], []
         for name, module in self.named_modules():
-            if isinstance(module, nn.Linear) or isinstance(module, nn.Conv2d):
+            if isinstance(module, (nn.Linear, nn.Conv2d)):
                 wd_params.append(module.weight)
                 if not module.bias is None:
                     nowd_params.append(module.bias)
@@ -412,433 +417,6 @@ class AttentionRefinementModule(nn.Module):
                     nn.init.constant_(ly.bias, 0)
 
 
-class ContextPath(nn.Module):
-
-    def __init__(self, *args, **kwargs):
-        super(ContextPath, self).__init__()
-        self.resnet = Resnet18()
-        self.arm16 = AttentionRefinementModule(256, 128)
-        self.arm32 = AttentionRefinementModule(512, 128)
-        self.conv_head32 = ConvBNReLU(128, 128, ks=3, stride=1, padding=1)
-        self.conv_head16 = ConvBNReLU(128, 128, ks=3, stride=1, padding=1)
-        self.conv_avg = ConvBNReLU(512, 128, ks=1, stride=1, padding=0)
-        self.init_weight()
-
-    def forward(self, x):
-        H0, W0 = x.size()[2:]
-        feat8, feat16, feat32 = self.resnet(x)
-        H8, W8 = feat8.size()[2:]
-        H16, W16 = feat16.size()[2:]
-        H32, W32 = feat32.size()[2:]
-        avg = F.avg_pool2d(feat32, feat32.size()[2:])
-        avg = self.conv_avg(avg)
-        avg_up = F.interpolate(avg, (H32, W32), mode='nearest')
-        feat32_arm = self.arm32(feat32)
-        feat32_sum = feat32_arm + avg_up
-        feat32_up = F.interpolate(feat32_sum, (H16, W16), mode='nearest')
-        feat32_up = self.conv_head32(feat32_up)
-        feat16_arm = self.arm16(feat16)
-        feat16_sum = feat16_arm + feat32_up
-        feat16_up = F.interpolate(feat16_sum, (H8, W8), mode='nearest')
-        feat16_up = self.conv_head16(feat16_up)
-        return feat8, feat16_up, feat32_up
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, (nn.Linear, nn.Conv2d)):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, BatchNorm2d):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
-
-
-class SpatialPath(nn.Module):
-
-    def __init__(self, *args, **kwargs):
-        super(SpatialPath, self).__init__()
-        self.conv1 = ConvBNReLU(3, 64, ks=7, stride=2, padding=3)
-        self.conv2 = ConvBNReLU(64, 64, ks=3, stride=2, padding=1)
-        self.conv3 = ConvBNReLU(64, 64, ks=3, stride=2, padding=1)
-        self.conv_out = ConvBNReLU(64, 128, ks=1, stride=1, padding=0)
-        self.init_weight()
-
-    def forward(self, x):
-        feat = self.conv1(x)
-        feat = self.conv2(feat)
-        feat = self.conv3(feat)
-        feat = self.conv_out(feat)
-        return feat
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, nn.Linear) or isinstance(module, nn.Conv2d):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, BatchNorm2d):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
-
-
-class FeatureFusionModule(nn.Module):
-
-    def __init__(self, in_chan, out_chan, *args, **kwargs):
-        super(FeatureFusionModule, self).__init__()
-        self.convblk = ConvBNReLU(in_chan, out_chan, ks=1, stride=1, padding=0)
-        self.conv1 = nn.Conv2d(out_chan, out_chan // 4, kernel_size=1, stride=1, padding=0, bias=False)
-        self.conv2 = nn.Conv2d(out_chan // 4, out_chan, kernel_size=1, stride=1, padding=0, bias=False)
-        self.relu = nn.ReLU(inplace=True)
-        self.sigmoid = nn.Sigmoid()
-        self.init_weight()
-
-    def forward(self, fsp, fcp):
-        fcat = torch.cat([fsp, fcp], dim=1)
-        feat = self.convblk(fcat)
-        atten = F.avg_pool2d(feat, feat.size()[2:])
-        atten = self.conv1(atten)
-        atten = self.relu(atten)
-        atten = self.conv2(atten)
-        atten = self.sigmoid(atten)
-        feat_atten = torch.mul(feat, atten)
-        feat_out = feat_atten + feat
-        return feat_out
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, nn.Linear) or isinstance(module, nn.Conv2d):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, BatchNorm2d):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
-
-
-class BiSeNet(nn.Module):
-
-    def __init__(self, n_classes, *args, **kwargs):
-        super(BiSeNet, self).__init__()
-        self.cp = ContextPath()
-        self.ffm = FeatureFusionModule(256, 256)
-        self.conv_out = BiSeNetOutput(256, 256, n_classes)
-        self.conv_out16 = BiSeNetOutput(128, 64, n_classes)
-        self.conv_out32 = BiSeNetOutput(128, 64, n_classes)
-        self.init_weight()
-
-    def forward(self, x):
-        H, W = x.size()[2:]
-        feat_res8, feat_cp8, feat_cp16 = self.cp(x)
-        feat_sp = feat_res8
-        feat_fuse = self.ffm(feat_sp, feat_cp8)
-        feat_out = self.conv_out(feat_fuse)
-        feat_out16 = self.conv_out16(feat_cp8)
-        feat_out32 = self.conv_out32(feat_cp16)
-        feat_out = F.interpolate(feat_out, (H, W), mode='bilinear', align_corners=True)
-        feat_out16 = F.interpolate(feat_out16, (H, W), mode='bilinear', align_corners=True)
-        feat_out32 = F.interpolate(feat_out32, (H, W), mode='bilinear', align_corners=True)
-        return feat_out, feat_out16, feat_out32
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params = [], [], [], []
-        for name, child in self.named_children():
-            child_wd_params, child_nowd_params = child.get_params()
-            if isinstance(child, FeatureFusionModule) or isinstance(child, BiSeNetOutput):
-                lr_mul_wd_params += child_wd_params
-                lr_mul_nowd_params += child_nowd_params
-            else:
-                wd_params += child_wd_params
-                nowd_params += child_nowd_params
-        return wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params
-
-
-class ConvBNReLU(nn.Module):
-
-    def __init__(self, in_chan, out_chan, ks=3, stride=1, padding=1, *args, **kwargs):
-        super(ConvBNReLU, self).__init__()
-        self.conv = nn.Conv2d(in_chan, out_chan, kernel_size=ks, stride=stride, padding=padding, bias=False)
-        self.bn = BatchNorm2d(out_chan)
-        self.relu = nn.ReLU(inplace=True)
-        self.init_weight()
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        return x
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-
-class BiSeNetOutput(nn.Module):
-
-    def __init__(self, in_chan, mid_chan, n_classes, *args, **kwargs):
-        super(BiSeNetOutput, self).__init__()
-        self.conv = ConvBNReLU(in_chan, mid_chan, ks=3, stride=1, padding=1)
-        self.conv_out = nn.Conv2d(mid_chan, n_classes, kernel_size=1, bias=False)
-        self.init_weight()
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.conv_out(x)
-        return x
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, (nn.Linear, nn.Conv2d)):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, nn.modules.batchnorm._BatchNorm):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
-
-
-class AttentionRefinementModule(nn.Module):
-
-    def __init__(self, in_chan, out_chan, *args, **kwargs):
-        super(AttentionRefinementModule, self).__init__()
-        self.conv = ConvBNReLU(in_chan, out_chan, ks=3, stride=1, padding=1)
-        self.conv_atten = nn.Conv2d(out_chan, out_chan, kernel_size=1, bias=False)
-        self.bn_atten = BatchNorm2d(out_chan)
-        self.sigmoid_atten = nn.Sigmoid()
-        self.init_weight()
-
-    def forward(self, x):
-        feat = self.conv(x)
-        atten = F.avg_pool2d(feat, feat.size()[2:])
-        atten = self.conv_atten(atten)
-        atten = self.bn_atten(atten)
-        atten = self.sigmoid_atten(atten)
-        out = torch.mul(feat, atten)
-        return out
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-
-class ContextPath(nn.Module):
-
-    def __init__(self, *args, **kwargs):
-        super(ContextPath, self).__init__()
-        self.resnet = Resnet18()
-        self.arm16 = AttentionRefinementModule(256, 128)
-        self.arm32 = AttentionRefinementModule(512, 128)
-        self.conv_head32 = ConvBNReLU(128, 128, ks=3, stride=1, padding=1)
-        self.conv_head16 = ConvBNReLU(128, 128, ks=3, stride=1, padding=1)
-        self.conv_avg = ConvBNReLU(512, 128, ks=1, stride=1, padding=0)
-        self.init_weight()
-
-    def forward(self, x):
-        H0, W0 = x.size()[2:]
-        feat8, feat16, feat32 = self.resnet(x)
-        H8, W8 = feat8.size()[2:]
-        H16, W16 = feat16.size()[2:]
-        H32, W32 = feat32.size()[2:]
-        avg = F.avg_pool2d(feat32, feat32.size()[2:])
-        avg = self.conv_avg(avg)
-        avg_up = F.interpolate(avg, (H32, W32), mode='nearest')
-        feat32_arm = self.arm32(feat32)
-        feat32_sum = feat32_arm + avg_up
-        feat32_up = F.interpolate(feat32_sum, (H16, W16), mode='nearest')
-        feat32_up = self.conv_head32(feat32_up)
-        feat16_arm = self.arm16(feat16)
-        feat16_sum = feat16_arm + feat32_up
-        feat16_up = F.interpolate(feat16_sum, (H8, W8), mode='nearest')
-        feat16_up = self.conv_head16(feat16_up)
-        return feat16_up, feat32_up
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, (nn.Linear, nn.Conv2d)):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, nn.modules.batchnorm._BatchNorm):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
-
-
-class SpatialPath(nn.Module):
-
-    def __init__(self, *args, **kwargs):
-        super(SpatialPath, self).__init__()
-        self.conv1 = ConvBNReLU(3, 64, ks=7, stride=2, padding=3)
-        self.conv2 = ConvBNReLU(64, 64, ks=3, stride=2, padding=1)
-        self.conv3 = ConvBNReLU(64, 64, ks=3, stride=2, padding=1)
-        self.conv_out = ConvBNReLU(64, 128, ks=1, stride=1, padding=0)
-        self.init_weight()
-
-    def forward(self, x):
-        feat = self.conv1(x)
-        feat = self.conv2(feat)
-        feat = self.conv3(feat)
-        feat = self.conv_out(feat)
-        return feat
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, nn.Linear) or isinstance(module, nn.Conv2d):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, nn.modules.batchnorm._BatchNorm):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
-
-
-class FeatureFusionModule(nn.Module):
-
-    def __init__(self, in_chan, out_chan, *args, **kwargs):
-        super(FeatureFusionModule, self).__init__()
-        self.convblk = ConvBNReLU(in_chan, out_chan, ks=1, stride=1, padding=0)
-        self.conv1 = nn.Conv2d(out_chan, out_chan // 4, kernel_size=1, stride=1, padding=0, bias=False)
-        self.conv2 = nn.Conv2d(out_chan // 4, out_chan, kernel_size=1, stride=1, padding=0, bias=False)
-        self.relu = nn.ReLU(inplace=True)
-        self.sigmoid = nn.Sigmoid()
-        self.init_weight()
-
-    def forward(self, fsp, fcp):
-        fcat = torch.cat([fsp, fcp], dim=1)
-        feat = self.convblk(fcat)
-        atten = F.avg_pool2d(feat, feat.size()[2:])
-        atten = self.conv1(atten)
-        atten = self.relu(atten)
-        atten = self.conv2(atten)
-        atten = self.sigmoid(atten)
-        feat_atten = torch.mul(feat, atten)
-        feat_out = feat_atten + feat
-        return feat_out
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, (nn.Linear, nn.Conv2d)):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, nn.modules.batchnorm._BatchNorm):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
-
-
-class BiSeNet(nn.Module):
-
-    def __init__(self, n_classes, *args, **kwargs):
-        super(BiSeNet, self).__init__()
-        self.cp = ContextPath()
-        self.sp = SpatialPath()
-        self.ffm = FeatureFusionModule(256, 256)
-        self.conv_out = BiSeNetOutput(256, 256, n_classes)
-        self.conv_out16 = BiSeNetOutput(128, 64, n_classes)
-        self.conv_out32 = BiSeNetOutput(128, 64, n_classes)
-        self.init_weight()
-
-    def forward(self, x):
-        H, W = x.size()[2:]
-        feat_cp8, feat_cp16 = self.cp(x)
-        feat_sp = self.sp(x)
-        feat_fuse = self.ffm(feat_sp, feat_cp8)
-        feat_out = self.conv_out(feat_fuse)
-        feat_out16 = self.conv_out16(feat_cp8)
-        feat_out32 = self.conv_out32(feat_cp16)
-        feat_out = F.interpolate(feat_out, (H, W), mode='bilinear', align_corners=True)
-        feat_out16 = F.interpolate(feat_out16, (H, W), mode='bilinear', align_corners=True)
-        feat_out32 = F.interpolate(feat_out32, (H, W), mode='bilinear', align_corners=True)
-        return feat_out, feat_out16, feat_out32
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params = [], [], [], []
-        for name, child in self.named_children():
-            child_wd_params, child_nowd_params = child.get_params()
-            if isinstance(child, (FeatureFusionModule, BiSeNetOutput)):
-                lr_mul_wd_params += child_wd_params
-                lr_mul_nowd_params += child_nowd_params
-            else:
-                wd_params += child_wd_params
-                nowd_params += child_nowd_params
-        return wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params
-
-
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -851,16 +429,15 @@ class BasicBlock(nn.Module):
         self.conv1 = conv3x3(in_chan, out_chan, stride)
         self.bn1 = BatchNorm2d(out_chan)
         self.conv2 = conv3x3(out_chan, out_chan)
-        self.bn2 = BatchNorm2d(out_chan)
+        self.bn2 = BatchNorm2d(out_chan, activation='none')
         self.relu = nn.ReLU(inplace=True)
         self.downsample = None
         if in_chan != out_chan or stride != 1:
-            self.downsample = nn.Sequential(nn.Conv2d(in_chan, out_chan, kernel_size=1, stride=stride, bias=False), BatchNorm2d(out_chan))
+            self.downsample = nn.Sequential(nn.Conv2d(in_chan, out_chan, kernel_size=1, stride=stride, bias=False), BatchNorm2d(out_chan, activation='none'))
 
     def forward(self, x):
         residual = self.conv1(x)
         residual = self.bn1(residual)
-        residual = self.relu(residual)
         residual = self.conv2(residual)
         residual = self.bn2(residual)
         shortcut = x
@@ -887,7 +464,6 @@ class Resnet18(nn.Module):
         super(Resnet18, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = create_layer_basic(64, 64, bnum=2, stride=1)
         self.layer2 = create_layer_basic(64, 128, bnum=2, stride=2)
@@ -898,7 +474,6 @@ class Resnet18(nn.Module):
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
-        x = self.relu(x)
         x = self.maxpool(x)
         x = self.layer1(x)
         feat8 = self.layer2(x)
@@ -922,125 +497,9 @@ class Resnet18(nn.Module):
                 wd_params.append(module.weight)
                 if not module.bias is None:
                     nowd_params.append(module.bias)
-            elif isinstance(module, nn.modules.batchnorm._BatchNorm):
+            elif isinstance(module, (BatchNorm2d, nn.BatchNorm2d)):
                 nowd_params += list(module.parameters())
         return wd_params, nowd_params
-
-
-class OhemCELoss(nn.Module):
-
-    def __init__(self, thresh, n_min, ignore_lb=255, *args, **kwargs):
-        super(OhemCELoss, self).__init__()
-        self.thresh = -torch.log(torch.tensor(thresh, dtype=torch.float))
-        self.n_min = n_min
-        self.ignore_lb = ignore_lb
-        self.criteria = nn.CrossEntropyLoss(ignore_index=ignore_lb, reduction='none')
-
-    def forward(self, logits, labels):
-        N, C, H, W = logits.size()
-        loss = self.criteria(logits, labels).view(-1)
-        loss, _ = torch.sort(loss, descending=True)
-        if loss[self.n_min] > self.thresh:
-            loss = loss[loss > self.thresh]
-        else:
-            loss = loss[:self.n_min]
-        return torch.mean(loss)
-
-
-class SoftmaxFocalLoss(nn.Module):
-
-    def __init__(self, gamma, ignore_lb=255, *args, **kwargs):
-        super(FocalLoss, self).__init__()
-        self.gamma = gamma
-        self.nll = nn.NLLLoss(ignore_index=ignore_lb)
-
-    def forward(self, logits, labels):
-        scores = F.softmax(logits, dim=1)
-        factor = torch.pow(1.0 - scores, self.gamma)
-        log_score = F.log_softmax(logits, dim=1)
-        log_score = factor * log_score
-        loss = self.nll(log_score, labels)
-        return loss
-
-
-class ConvBNReLU(nn.Module):
-
-    def __init__(self, in_chan, out_chan, ks=3, stride=1, padding=1, *args, **kwargs):
-        super(ConvBNReLU, self).__init__()
-        self.conv = nn.Conv2d(in_chan, out_chan, kernel_size=ks, stride=stride, padding=padding, bias=False)
-        self.bn = BatchNorm2d(out_chan)
-        self.init_weight()
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        return x
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-
-class BiSeNetOutput(nn.Module):
-
-    def __init__(self, in_chan, mid_chan, n_classes, *args, **kwargs):
-        super(BiSeNetOutput, self).__init__()
-        self.conv = ConvBNReLU(in_chan, mid_chan, ks=3, stride=1, padding=1)
-        self.conv_out = nn.Conv2d(mid_chan, n_classes, kernel_size=1, bias=False)
-        self.init_weight()
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.conv_out(x)
-        return x
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, (nn.Linear, nn.Conv2d)):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, BatchNorm2d):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
-
-
-class AttentionRefinementModule(nn.Module):
-
-    def __init__(self, in_chan, out_chan, *args, **kwargs):
-        super(AttentionRefinementModule, self).__init__()
-        self.conv = ConvBNReLU(in_chan, out_chan, ks=3, stride=1, padding=1)
-        self.conv_atten = nn.Conv2d(out_chan, out_chan, kernel_size=1, bias=False)
-        self.bn_atten = BatchNorm2d(out_chan, activation='none')
-        self.sigmoid_atten = nn.Sigmoid()
-        self.init_weight()
-
-    def forward(self, x):
-        feat = self.conv(x)
-        atten = F.avg_pool2d(feat, feat.size()[2:])
-        atten = self.conv_atten(atten)
-        atten = self.bn_atten(atten)
-        atten = self.sigmoid_atten(atten)
-        out = torch.mul(feat, atten)
-        return out
-
-    def init_weight(self):
-        for ly in self.children():
-            if isinstance(ly, nn.Conv2d):
-                nn.init.kaiming_normal_(ly.weight, a=1)
-                if not ly.bias is None:
-                    nn.init.constant_(ly.bias, 0)
 
 
 class ContextPath(nn.Module):
@@ -1214,6 +673,22 @@ class BiSeNet(nn.Module):
                 wd_params += child_wd_params
                 nowd_params += child_nowd_params
         return wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params
+
+
+class SoftmaxFocalLoss(nn.Module):
+
+    def __init__(self, gamma, ignore_lb=255, *args, **kwargs):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.nll = nn.NLLLoss(ignore_index=ignore_lb)
+
+    def forward(self, logits, labels):
+        scores = F.softmax(logits, dim=1)
+        factor = torch.pow(1.0 - scores, self.gamma)
+        log_score = F.log_softmax(logits, dim=1)
+        log_score = factor * log_score
+        loss = self.nll(log_score, labels)
+        return loss
 
 
 ACT_ELU = 'elu'
@@ -1291,6 +766,146 @@ class ABN(nn.Module):
         else:
             rep += ')'
         return rep.format(name=self.__class__.__name__, **self.__dict__)
+
+
+ACT_NONE = 'none'
+
+
+def _act_backward(ctx, x, dx):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _backend.leaky_relu_backward(x, dx, ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _backend.elu_backward(x, dx)
+    elif ctx.activation == ACT_NONE:
+        pass
+
+
+def _act_forward(ctx, x):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _backend.leaky_relu_forward(x, ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _backend.elu_forward(x)
+    elif ctx.activation == ACT_NONE:
+        pass
+
+
+def _count_samples(x):
+    count = 1
+    for i, s in enumerate(x.size()):
+        if i != 1:
+            count *= s
+    return count
+
+
+class InPlaceABN(autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, weight, bias, running_mean, running_var, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01):
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        ctx.affine = weight is not None and bias is not None
+        count = _count_samples(x)
+        x = x.contiguous()
+        weight = weight.contiguous() if ctx.affine else x.new_empty(0)
+        bias = bias.contiguous() if ctx.affine else x.new_empty(0)
+        if ctx.training:
+            mean, var = _backend.mean_var(x)
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * count / (count - 1))
+            ctx.mark_dirty(x, running_mean, running_var)
+        else:
+            mean, var = running_mean.contiguous(), running_var.contiguous()
+            ctx.mark_dirty(x)
+        _backend.forward(x, mean, var, weight, bias, ctx.affine, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, var, weight, bias)
+        return x
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, var, weight, bias = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.training:
+            edz, eydz = _backend.edz_eydz(z, dz, weight, bias, ctx.affine, ctx.eps)
+        else:
+            edz = dz.new_zeros(dz.size(1))
+            eydz = dz.new_zeros(dz.size(1))
+        dx = _backend.backward(z, dz, var, weight, bias, edz, eydz, ctx.affine, ctx.eps)
+        dweight = eydz * weight.sign() if ctx.affine else None
+        dbias = edz if ctx.affine else None
+        return dx, dweight, dbias, None, None, None, None, None, None, None
+
+
+class InPlaceABNSync(autograd.Function):
+
+    @classmethod
+    def forward(cls, ctx, x, weight, bias, running_mean, running_var, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01, equal_batches=True):
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        ctx.affine = weight is not None and bias is not None
+        ctx.world_size = dist.get_world_size() if dist.is_initialized() else 1
+        batch_size = x.new_tensor([x.shape[0]], dtype=torch.long)
+        x = x.contiguous()
+        weight = weight.contiguous() if ctx.affine else x.new_empty(0)
+        bias = bias.contiguous() if ctx.affine else x.new_empty(0)
+        if ctx.training:
+            mean, var = _backend.mean_var(x)
+            if ctx.world_size > 1:
+                if equal_batches:
+                    batch_size *= ctx.world_size
+                else:
+                    dist.all_reduce(batch_size, dist.ReduceOp.SUM)
+                ctx.factor = x.shape[0] / float(batch_size.item())
+                mean_all = mean.clone() * ctx.factor
+                dist.all_reduce(mean_all, dist.ReduceOp.SUM)
+                var_all = (var + (mean - mean_all) ** 2) * ctx.factor
+                dist.all_reduce(var_all, dist.ReduceOp.SUM)
+                mean = mean_all
+                var = var_all
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            count = batch_size.item() * x.view(x.shape[0], x.shape[1], -1).shape[-1]
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * (float(count) / (count - 1)))
+            ctx.mark_dirty(x, running_mean, running_var)
+        else:
+            mean, var = running_mean.contiguous(), running_var.contiguous()
+            ctx.mark_dirty(x)
+        _backend.forward(x, mean, var, weight, bias, ctx.affine, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, var, weight, bias)
+        return x
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, var, weight, bias = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.training:
+            edz, eydz = _backend.edz_eydz(z, dz, weight, bias, ctx.affine, ctx.eps)
+            edz_local = edz.clone()
+            eydz_local = eydz.clone()
+            if ctx.world_size > 1:
+                edz *= ctx.factor
+                dist.all_reduce(edz, dist.ReduceOp.SUM)
+                eydz *= ctx.factor
+                dist.all_reduce(eydz, dist.ReduceOp.SUM)
+        else:
+            edz_local = edz = dz.new_zeros(dz.size(1))
+            eydz_local = eydz = dz.new_zeros(dz.size(1))
+        dx = _backend.backward(z, dz, var, weight, bias, edz, eydz, ctx.affine, ctx.eps)
+        dweight = eydz_local * weight.sign() if ctx.affine else None
+        dbias = edz_local if ctx.affine else None
+        return dx, dweight, dbias, None, None, None, None, None, None, None
 
 
 class DeeplabV3(nn.Module):
@@ -1450,76 +1065,6 @@ class IdentityResidualBlock(nn.Module):
         out = self.convs(bn1)
         out.add_(shortcut)
         return out
-
-
-class BasicBlock(nn.Module):
-
-    def __init__(self, in_chan, out_chan, stride=1):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(in_chan, out_chan, stride)
-        self.bn1 = BatchNorm2d(out_chan)
-        self.conv2 = conv3x3(out_chan, out_chan)
-        self.bn2 = BatchNorm2d(out_chan, activation='none')
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = None
-        if in_chan != out_chan or stride != 1:
-            self.downsample = nn.Sequential(nn.Conv2d(in_chan, out_chan, kernel_size=1, stride=stride, bias=False), BatchNorm2d(out_chan, activation='none'))
-
-    def forward(self, x):
-        residual = self.conv1(x)
-        residual = self.bn1(residual)
-        residual = self.conv2(residual)
-        residual = self.bn2(residual)
-        shortcut = x
-        if self.downsample is not None:
-            shortcut = self.downsample(x)
-        out = shortcut + residual
-        out = self.relu(out)
-        return out
-
-
-class Resnet18(nn.Module):
-
-    def __init__(self):
-        super(Resnet18, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = BatchNorm2d(64)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = create_layer_basic(64, 64, bnum=2, stride=1)
-        self.layer2 = create_layer_basic(64, 128, bnum=2, stride=2)
-        self.layer3 = create_layer_basic(128, 256, bnum=2, stride=2)
-        self.layer4 = create_layer_basic(256, 512, bnum=2, stride=2)
-        self.init_weight()
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        feat8 = self.layer2(x)
-        feat16 = self.layer3(feat8)
-        feat32 = self.layer4(feat16)
-        return feat8, feat16, feat32
-
-    def init_weight(self):
-        state_dict = modelzoo.load_url(resnet18_url)
-        self_state_dict = self.state_dict()
-        for k, v in state_dict.items():
-            if 'fc' in k:
-                continue
-            self_state_dict.update({k: v})
-        self.load_state_dict(self_state_dict)
-
-    def get_params(self):
-        wd_params, nowd_params = [], []
-        for name, module in self.named_modules():
-            if isinstance(module, (nn.Linear, nn.Conv2d)):
-                wd_params.append(module.weight)
-                if not module.bias is None:
-                    nowd_params.append(module.bias)
-            elif isinstance(module, (BatchNorm2d, nn.BatchNorm2d)):
-                nowd_params += list(module.parameters())
-        return wd_params, nowd_params
 
 
 import torch

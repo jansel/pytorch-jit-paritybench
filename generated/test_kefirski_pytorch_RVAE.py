@@ -24,15 +24,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -53,6 +54,12 @@ from torch.autograd import Variable
 
 
 from torch.nn import Parameter
+
+
+from torch.optim import Adam
+
+
+from torch.optim import SGD
 
 
 def f_and(x, y):
@@ -106,6 +113,44 @@ class Decoder(nn.Module):
         return result, final_state
 
 
+class Highway(nn.Module):
+
+    def __init__(self, size, num_layers, f):
+        super(Highway, self).__init__()
+        self.num_layers = num_layers
+        self.nonlinear = [nn.Linear(size, size) for _ in range(num_layers)]
+        for i, module in enumerate(self.nonlinear):
+            self._add_to_parameters(module.parameters(), 'nonlinear_module_{}'.format(i))
+        self.linear = [nn.Linear(size, size) for _ in range(num_layers)]
+        for i, module in enumerate(self.linear):
+            self._add_to_parameters(module.parameters(), 'linear_module_{}'.format(i))
+        self.gate = [nn.Linear(size, size) for _ in range(num_layers)]
+        for i, module in enumerate(self.gate):
+            self._add_to_parameters(module.parameters(), 'gate_module_{}'.format(i))
+        self.f = f
+
+    def forward(self, x):
+        """
+        :param x: tensor with shape of [batch_size, size]
+
+        :return: tensor with shape of [batch_size, size]
+
+        applies σ(x) ⨀ (f(G(x))) + (1 - σ(x)) ⨀ (Q(x)) transformation | G and Q is affine transformation,
+            f is non-linear transformation, σ(x) is affine transformation with sigmoid non-linearition
+            and ⨀ is element-wise multiplication
+        """
+        for layer in range(self.num_layers):
+            gate = F.sigmoid(self.gate[layer](x))
+            nonlinear = self.f(self.nonlinear[layer](x))
+            linear = self.linear[layer](x)
+            x = gate * nonlinear + (1 - gate) * linear
+        return x
+
+    def _add_to_parameters(self, parameters, name):
+        for i, parameter in enumerate(parameters):
+            self.register_parameter(name='{}-{}'.format(name, i), param=parameter)
+
+
 class Encoder(nn.Module):
 
     def __init__(self, params):
@@ -132,6 +177,69 @@ class Encoder(nn.Module):
         h_1, h_2 = final_state[0], final_state[1]
         final_state = t.cat([h_1, h_2], 1)
         return final_state
+
+
+class TDNN(nn.Module):
+
+    def __init__(self, params):
+        super(TDNN, self).__init__()
+        self.params = params
+        self.kernels = [Parameter(t.Tensor(out_dim, self.params.char_embed_size, kW).uniform_(-1, 1)) for kW, out_dim in params.kernels]
+        self._add_to_parameters(self.kernels, 'TDNN_kernel')
+
+    def forward(self, x):
+        """
+        :param x: tensor with shape [batch_size, max_seq_len, max_word_len, char_embed_size]
+
+        :return: tensor with shape [batch_size, max_seq_len, depth_sum]
+
+        applies multikenrel 1d-conv layer along every word in input with max-over-time pooling
+            to emit fixed-size output
+        """
+        input_size = x.size()
+        input_size_len = len(input_size)
+        assert input_size_len == 4, 'Wrong input rang, must be equal to 4, but {} found'.format(input_size_len)
+        [batch_size, seq_len, _, embed_size] = input_size
+        assert embed_size == self.params.char_embed_size, 'Wrong embedding size, must be equal to {}, but {} found'.format(self.params.char_embed_size, embed_size)
+        x = x.view(-1, self.params.max_word_len, self.params.char_embed_size).transpose(1, 2).contiguous()
+        xs = [F.tanh(F.conv1d(x, kernel)) for kernel in self.kernels]
+        xs = [x.max(2)[0].squeeze(2) for x in xs]
+        x = t.cat(xs, 1)
+        x = x.view(batch_size, seq_len, -1)
+        return x
+
+    def _add_to_parameters(self, parameters, name):
+        for i, parameter in enumerate(parameters):
+            self.register_parameter(name='{}-{}'.format(name, i), param=parameter)
+
+
+class Embedding(nn.Module):
+
+    def __init__(self, params, path='../../../'):
+        super(Embedding, self).__init__()
+        self.params = params
+        word_embed = np.load(path + 'data/word_embeddings.npy')
+        self.word_embed = nn.Embedding(self.params.word_vocab_size, self.params.word_embed_size)
+        self.char_embed = nn.Embedding(self.params.char_vocab_size, self.params.char_embed_size)
+        self.word_embed.weight = Parameter(t.from_numpy(word_embed).float(), requires_grad=False)
+        self.char_embed.weight = Parameter(t.Tensor(self.params.char_vocab_size, self.params.char_embed_size).uniform_(-1, 1))
+        self.TDNN = TDNN(self.params)
+
+    def forward(self, word_input, character_input):
+        """
+        :param word_input: [batch_size, seq_len] tensor of Long type
+        :param character_input: [batch_size, seq_len, max_word_len] tensor of Long type
+        :return: input embedding with shape of [batch_size, seq_len, word_embed_size + sum_depth]
+        """
+        assert word_input.size()[:2] == character_input.size()[:2], 'Word input and character input must have the same sizes, but {} and {} found'.format(word_input.size(), character_input.size())
+        [batch_size, seq_len] = word_input.size()
+        word_input = self.word_embed(word_input)
+        character_input = character_input.view(-1, self.params.max_word_len)
+        character_input = self.char_embed(character_input)
+        character_input = character_input.view(batch_size, seq_len, self.params.max_word_len, self.params.char_embed_size)
+        character_input = self.TDNN(character_input)
+        result = t.cat([word_input, character_input], 2)
+        return result
 
 
 def kld_coef(i):
@@ -253,73 +361,6 @@ class RVAE(nn.Module):
         return result
 
 
-class Embedding(nn.Module):
-
-    def __init__(self, params, path='../../../'):
-        super(Embedding, self).__init__()
-        self.params = params
-        word_embed = np.load(path + 'data/word_embeddings.npy')
-        self.word_embed = nn.Embedding(self.params.word_vocab_size, self.params.word_embed_size)
-        self.char_embed = nn.Embedding(self.params.char_vocab_size, self.params.char_embed_size)
-        self.word_embed.weight = Parameter(t.from_numpy(word_embed).float(), requires_grad=False)
-        self.char_embed.weight = Parameter(t.Tensor(self.params.char_vocab_size, self.params.char_embed_size).uniform_(-1, 1))
-        self.TDNN = TDNN(self.params)
-
-    def forward(self, word_input, character_input):
-        """
-        :param word_input: [batch_size, seq_len] tensor of Long type
-        :param character_input: [batch_size, seq_len, max_word_len] tensor of Long type
-        :return: input embedding with shape of [batch_size, seq_len, word_embed_size + sum_depth]
-        """
-        assert word_input.size()[:2] == character_input.size()[:2], 'Word input and character input must have the same sizes, but {} and {} found'.format(word_input.size(), character_input.size())
-        [batch_size, seq_len] = word_input.size()
-        word_input = self.word_embed(word_input)
-        character_input = character_input.view(-1, self.params.max_word_len)
-        character_input = self.char_embed(character_input)
-        character_input = character_input.view(batch_size, seq_len, self.params.max_word_len, self.params.char_embed_size)
-        character_input = self.TDNN(character_input)
-        result = t.cat([word_input, character_input], 2)
-        return result
-
-
-class Highway(nn.Module):
-
-    def __init__(self, size, num_layers, f):
-        super(Highway, self).__init__()
-        self.num_layers = num_layers
-        self.nonlinear = [nn.Linear(size, size) for _ in range(num_layers)]
-        for i, module in enumerate(self.nonlinear):
-            self._add_to_parameters(module.parameters(), 'nonlinear_module_{}'.format(i))
-        self.linear = [nn.Linear(size, size) for _ in range(num_layers)]
-        for i, module in enumerate(self.linear):
-            self._add_to_parameters(module.parameters(), 'linear_module_{}'.format(i))
-        self.gate = [nn.Linear(size, size) for _ in range(num_layers)]
-        for i, module in enumerate(self.gate):
-            self._add_to_parameters(module.parameters(), 'gate_module_{}'.format(i))
-        self.f = f
-
-    def forward(self, x):
-        """
-        :param x: tensor with shape of [batch_size, size]
-
-        :return: tensor with shape of [batch_size, size]
-
-        applies σ(x) ⨀ (f(G(x))) + (1 - σ(x)) ⨀ (Q(x)) transformation | G and Q is affine transformation,
-            f is non-linear transformation, σ(x) is affine transformation with sigmoid non-linearition
-            and ⨀ is element-wise multiplication
-        """
-        for layer in range(self.num_layers):
-            gate = F.sigmoid(self.gate[layer](x))
-            nonlinear = self.f(self.nonlinear[layer](x))
-            linear = self.linear[layer](x)
-            x = gate * nonlinear + (1 - gate) * linear
-        return x
-
-    def _add_to_parameters(self, parameters, name):
-        for i, parameter in enumerate(parameters):
-            self.register_parameter(name='{}-{}'.format(name, i), param=parameter)
-
-
 class NEG_loss(nn.Module):
 
     def __init__(self, num_classes, embed_size):
@@ -366,40 +407,6 @@ class NEG_loss(nn.Module):
 
     def input_embeddings(self):
         return self.in_embed.weight.data.cpu().numpy()
-
-
-class TDNN(nn.Module):
-
-    def __init__(self, params):
-        super(TDNN, self).__init__()
-        self.params = params
-        self.kernels = [Parameter(t.Tensor(out_dim, self.params.char_embed_size, kW).uniform_(-1, 1)) for kW, out_dim in params.kernels]
-        self._add_to_parameters(self.kernels, 'TDNN_kernel')
-
-    def forward(self, x):
-        """
-        :param x: tensor with shape [batch_size, max_seq_len, max_word_len, char_embed_size]
-
-        :return: tensor with shape [batch_size, max_seq_len, depth_sum]
-
-        applies multikenrel 1d-conv layer along every word in input with max-over-time pooling
-            to emit fixed-size output
-        """
-        input_size = x.size()
-        input_size_len = len(input_size)
-        assert input_size_len == 4, 'Wrong input rang, must be equal to 4, but {} found'.format(input_size_len)
-        [batch_size, seq_len, _, embed_size] = input_size
-        assert embed_size == self.params.char_embed_size, 'Wrong embedding size, must be equal to {}, but {} found'.format(self.params.char_embed_size, embed_size)
-        x = x.view(-1, self.params.max_word_len, self.params.char_embed_size).transpose(1, 2).contiguous()
-        xs = [F.tanh(F.conv1d(x, kernel)) for kernel in self.kernels]
-        xs = [x.max(2)[0].squeeze(2) for x in xs]
-        x = t.cat(xs, 1)
-        x = x.view(batch_size, seq_len, -1)
-        return x
-
-    def _add_to_parameters(self, parameters, name):
-        for i, parameter in enumerate(parameters):
-            self.register_parameter(name='{}-{}'.format(name, i), param=parameter)
 
 
 import torch

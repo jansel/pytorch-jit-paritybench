@@ -56,6 +56,7 @@ tensor_norm = _module
 trainer = _module
 imagenet_classification = _module
 imagenet_val = _module
+models = _module
 mobilenetv1 = _module
 proxylessnas = _module
 vgg = _module
@@ -93,6 +94,7 @@ stft = _module
 conf = _module
 noxfile = _module
 setup = _module
+common = _module
 generate_quant_input = _module
 test_act_scaling = _module
 test_conv1d = _module
@@ -107,26 +109,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
 
 
 from typing import Optional
 
 
 from enum import auto
-
-
-import torch
 
 
 from torch import Tensor
@@ -210,6 +213,9 @@ from torch.nn.functional import linear
 from functools import partial
 
 
+from collections import namedtuple
+
+
 from typing import Dict
 
 
@@ -228,6 +234,9 @@ from torch.nn import BatchNorm1d
 from torch.nn import Dropout
 
 
+from torch import hub
+
+
 from torch.autograd import Function
 
 
@@ -235,6 +244,27 @@ import torch.nn.init as init
 
 
 import random
+
+
+import time
+
+
+import torch.optim as optim
+
+
+from torch.optim.lr_scheduler import MultiStepLR
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
+
+
+from torchvision.datasets import MNIST
+
+
+from torchvision.datasets import CIFAR10
 
 
 import torch.nn.parallel
@@ -264,13 +294,34 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 
 
+import copy
+
+
+from scipy.io.wavfile import write
+
+
 import numpy as np
+
+
+from scipy.signal import get_window
+
+
+from scipy.io.wavfile import read
 
 
 from torch.autograd import Variable
 
 
-from scipy.signal import get_window
+from string import Template
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import include_paths
+
+
+from torch.utils.cpp_extension import library_paths
 
 
 class IdentityBitWidth(torch.jit.ScriptModule):
@@ -289,7 +340,93 @@ class ZeroLsbTruncBitWidth(torch.jit.ScriptModule):
 MIN_INT_BIT_WIDTH = 2
 
 
-_global_config['IGNORE_MISSING_KEYS'] = 4
+class CeilSte(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(CeilSte, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return ceil_ste(x)
+
+
+class ClampMin(torch.jit.ScriptModule):
+    __constants__ = ['min_val']
+
+    def __init__(self, min_val: float) ->None:
+        super(ClampMin, self).__init__()
+        self.min_val = min_val
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return x.clamp_min(self.min_val)
+
+
+class FloorSte(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(FloorSte, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return floor_ste(x)
+
+
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
+
+class LogTwo(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(LogTwo, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return torch.log2(x)
+
+
+class PowerOfTwo(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(PowerOfTwo, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return 2.0 ** x
+
+
+class RoundSte(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(RoundSte, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return round_ste(x)
+
+
+@torch.jit.script
+def identity(x: torch.Tensor) ->torch.Tensor:
+    """ Identity function
+
+    Parameters
+    ----------
+    x : Tensor
+        Input Tensor
+
+    Returns
+    -------
+    Tensor
+        Unaltered input tensor
+
+    """
+    return x
 
 
 NON_ZERO_EPSILON = 1e-06
@@ -543,6 +680,143 @@ class TernaryQuant(torch.jit.ScriptModule):
         y = mask.float() * ternary_sign_ste(x)
         y = y * scale
         return y, scale, zero_hw_sentinel + self.bit_width
+
+
+class IntQuant(torch.jit.ScriptModule):
+    """ Class that implement the quantization of the input tensor, which is then converted to its floating point
+    representation according to the scale factor (i.e. scale/int_scale).
+
+    All values required for the quantization are determined externally.
+
+
+    Parameters
+    ----------
+    float_to_int_impl: Module
+        Module that performs the conversion from floating point to integer representation
+    tensor_clamp_impl: Module
+        Module that performs the clamping of the input values for a proper integer representation
+    signed: Bool
+        Bool that determines whether to use signed or unsigned integers.
+    narrow_range: Bool
+        Bool that determines whether to enable or not the narrow range representation.
+
+    Methods
+    -------
+    to_int(scale, int_scale_msb_clamp_bit_width, x)
+        Perform the conversion to integer of the input tensor.
+        After diving by the scale factor (i.e. scale/int_scale), the input tensor is clamped in the range of admissible
+        integer values, and then converted to integer according to the strategy defined by `float_to_int_impl`.
+
+        Parameters
+        ----------
+        x: Tensor
+            Input tensor that will be quantized
+        scale: Tensor
+            Floating point component of the scale factor
+        int_scale: Tensor
+            Integer component of the scale factor
+        msb_clamp_bit_width: Tensor
+            Bit_width to be used for the conversion to integer
+
+    forward(scale, int_scale, msb_clamp_bit_width, x)
+        Perform the quantization of the input tensor. The value is first converted to its integer representation and
+        quantized, then converted to its floating representation multiplying it by the scale factor
+        (i.e. scale/scale_int)
+
+        Parameters
+        ----------
+        x: Tensor
+            Input tensor that will be quantized
+        scale: Tensor
+            Floating point component of the scale factor
+        int_scale: Tensor
+            Integer component of the scale factor
+        msb_clamp_bit_width: Tensor
+            Bit_width to be used for the conversion to integer
+
+        Returns
+        -------
+        Tensor
+            The quantized tensor after its conversion to floating point
+
+    min_int(bit_width)
+        Determines the minimum integer representable according to the values of `signed`, `narrow_range`, and
+        `bit_width`.
+
+        Parameters
+        ----------
+        bit_width: Tensor
+            Number of bits for determining the minimum integer representable
+
+        Returns
+        -------
+        Tensor
+            The minimum integer representable
+
+    max_int(bit_width)
+        Determines the maximum signed integer representable according to the values of `signed`, `narrow_range`, and
+        `bit_width`.
+
+        Parameters
+        ----------
+        bit_width: Tensor
+            Number of bits for determining the maximum integer representable
+
+        Returns
+        -------
+        Tensor
+            The maximum integer representable
+
+    max_uint(bit_width)
+        Determines the maximum unsigned integer representable according to the values of `narrow_range` and
+        `bit_width`.
+
+        Parameters
+        ----------
+        bit_width: Tensor
+            Number of bits for determining the maximum integer representable
+
+        Returns
+        -------
+        Tensor
+            The maximum integer representable
+    """
+    __constants__ = ['signed', 'narrow_range']
+
+    def __init__(self, narrow_range: bool, signed: bool, float_to_int_impl: Module, tensor_clamp_impl: Module):
+        super(IntQuant, self).__init__()
+        self.float_to_int_impl = float_to_int_impl
+        self.tensor_clamp_impl = tensor_clamp_impl
+        self.signed = signed
+        self.narrow_range = narrow_range
+
+    def to_int(self, scale: Tensor, int_scale: Tensor, msb_clamp_bit_width: Tensor, x: Tensor) ->Tensor:
+        y = x / scale
+        y = y * int_scale
+        min_int_val = self.min_int(msb_clamp_bit_width)
+        max_int_val = self.max_int(msb_clamp_bit_width)
+        y = self.tensor_clamp_impl(y, min_val=min_int_val, max_val=max_int_val)
+        y = self.float_to_int_impl(y)
+        return y
+
+    @torch.jit.script_method
+    def min_int(self, bit_width):
+        return min_int(self.signed, self.narrow_range, bit_width)
+
+    @torch.jit.script_method
+    def max_int(self, bit_width):
+        return max_int(self.signed, bit_width)
+
+    @torch.jit.script_method
+    def max_uint(self, bit_width):
+        return max_uint(self.narrow_range, bit_width)
+
+    @torch.jit.script_method
+    def forward(self, scale: Tensor, int_scale: Tensor, msb_clamp_bit_width: Tensor, x: Tensor) ->Tensor:
+        y_int = self.to_int(scale, int_scale, msb_clamp_bit_width, x)
+        y = y_int / int_scale
+        y = y * scale
+        return y
 
 
 class PrescaledRestrictIntQuantWithInputBitWidth(torch.jit.ScriptModule):
@@ -799,233 +1073,6 @@ class RescalingIntQuant(torch.jit.ScriptModule):
         return y, output_scale, output_bit_width
 
 
-class IntQuant(torch.jit.ScriptModule):
-    """ Class that implement the quantization of the input tensor, which is then converted to its floating point
-    representation according to the scale factor (i.e. scale/int_scale).
-
-    All values required for the quantization are determined externally.
-
-
-    Parameters
-    ----------
-    float_to_int_impl: Module
-        Module that performs the conversion from floating point to integer representation
-    tensor_clamp_impl: Module
-        Module that performs the clamping of the input values for a proper integer representation
-    signed: Bool
-        Bool that determines whether to use signed or unsigned integers.
-    narrow_range: Bool
-        Bool that determines whether to enable or not the narrow range representation.
-
-    Methods
-    -------
-    to_int(scale, int_scale_msb_clamp_bit_width, x)
-        Perform the conversion to integer of the input tensor.
-        After diving by the scale factor (i.e. scale/int_scale), the input tensor is clamped in the range of admissible
-        integer values, and then converted to integer according to the strategy defined by `float_to_int_impl`.
-
-        Parameters
-        ----------
-        x: Tensor
-            Input tensor that will be quantized
-        scale: Tensor
-            Floating point component of the scale factor
-        int_scale: Tensor
-            Integer component of the scale factor
-        msb_clamp_bit_width: Tensor
-            Bit_width to be used for the conversion to integer
-
-    forward(scale, int_scale, msb_clamp_bit_width, x)
-        Perform the quantization of the input tensor. The value is first converted to its integer representation and
-        quantized, then converted to its floating representation multiplying it by the scale factor
-        (i.e. scale/scale_int)
-
-        Parameters
-        ----------
-        x: Tensor
-            Input tensor that will be quantized
-        scale: Tensor
-            Floating point component of the scale factor
-        int_scale: Tensor
-            Integer component of the scale factor
-        msb_clamp_bit_width: Tensor
-            Bit_width to be used for the conversion to integer
-
-        Returns
-        -------
-        Tensor
-            The quantized tensor after its conversion to floating point
-
-    min_int(bit_width)
-        Determines the minimum integer representable according to the values of `signed`, `narrow_range`, and
-        `bit_width`.
-
-        Parameters
-        ----------
-        bit_width: Tensor
-            Number of bits for determining the minimum integer representable
-
-        Returns
-        -------
-        Tensor
-            The minimum integer representable
-
-    max_int(bit_width)
-        Determines the maximum signed integer representable according to the values of `signed`, `narrow_range`, and
-        `bit_width`.
-
-        Parameters
-        ----------
-        bit_width: Tensor
-            Number of bits for determining the maximum integer representable
-
-        Returns
-        -------
-        Tensor
-            The maximum integer representable
-
-    max_uint(bit_width)
-        Determines the maximum unsigned integer representable according to the values of `narrow_range` and
-        `bit_width`.
-
-        Parameters
-        ----------
-        bit_width: Tensor
-            Number of bits for determining the maximum integer representable
-
-        Returns
-        -------
-        Tensor
-            The maximum integer representable
-    """
-    __constants__ = ['signed', 'narrow_range']
-
-    def __init__(self, narrow_range: bool, signed: bool, float_to_int_impl: Module, tensor_clamp_impl: Module):
-        super(IntQuant, self).__init__()
-        self.float_to_int_impl = float_to_int_impl
-        self.tensor_clamp_impl = tensor_clamp_impl
-        self.signed = signed
-        self.narrow_range = narrow_range
-
-    def to_int(self, scale: Tensor, int_scale: Tensor, msb_clamp_bit_width: Tensor, x: Tensor) ->Tensor:
-        y = x / scale
-        y = y * int_scale
-        min_int_val = self.min_int(msb_clamp_bit_width)
-        max_int_val = self.max_int(msb_clamp_bit_width)
-        y = self.tensor_clamp_impl(y, min_val=min_int_val, max_val=max_int_val)
-        y = self.float_to_int_impl(y)
-        return y
-
-    @torch.jit.script_method
-    def min_int(self, bit_width):
-        return min_int(self.signed, self.narrow_range, bit_width)
-
-    @torch.jit.script_method
-    def max_int(self, bit_width):
-        return max_int(self.signed, bit_width)
-
-    @torch.jit.script_method
-    def max_uint(self, bit_width):
-        return max_uint(self.narrow_range, bit_width)
-
-    @torch.jit.script_method
-    def forward(self, scale: Tensor, int_scale: Tensor, msb_clamp_bit_width: Tensor, x: Tensor) ->Tensor:
-        y_int = self.to_int(scale, int_scale, msb_clamp_bit_width, x)
-        y = y_int / int_scale
-        y = y * scale
-        return y
-
-
-class CeilSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(CeilSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return ceil_ste(x)
-
-
-class ClampMin(torch.jit.ScriptModule):
-    __constants__ = ['min_val']
-
-    def __init__(self, min_val: float) ->None:
-        super(ClampMin, self).__init__()
-        self.min_val = min_val
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return x.clamp_min(self.min_val)
-
-
-class FloorSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(FloorSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return floor_ste(x)
-
-
-@torch.jit.script
-def identity(x: torch.Tensor) ->torch.Tensor:
-    """ Identity function
-
-    Parameters
-    ----------
-    x : Tensor
-        Input Tensor
-
-    Returns
-    -------
-    Tensor
-        Unaltered input tensor
-
-    """
-    return x
-
-
-class Identity(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(Identity, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return identity(x)
-
-
-class LogTwo(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(LogTwo, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return torch.log2(x)
-
-
-class PowerOfTwo(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(PowerOfTwo, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return 2.0 ** x
-
-
-class RoundSte(torch.jit.ScriptModule):
-
-    def __init__(self) ->None:
-        super(RoundSte, self).__init__()
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return round_ste(x)
-
-
 class AffineRescaling(torch.jit.ScriptModule):
 
     def __init__(self, affine_shape):
@@ -1049,6 +1096,85 @@ class AffineRescaling(torch.jit.ScriptModule):
 
 
 SCALING_SCALAR_SHAPE = ()
+
+
+class AbsAve(torch.jit.ScriptModule):
+    __constants__ = ['reduce_dim']
+
+    def __init__(self, reduce_dim) ->None:
+        super(AbsAve, self).__init__()
+        self.reduce_dim = reduce_dim
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        if self.reduce_dim is None:
+            return torch.mean(torch.abs(x))
+        else:
+            return torch.mean(torch.abs(x), dim=self.reduce_dim)
+
+
+class AbsMax(torch.jit.ScriptModule):
+    __constants__ = ['reduce_dim']
+
+    def __init__(self, reduce_dim) ->None:
+        super(AbsMax, self).__init__()
+        self.reduce_dim = reduce_dim
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        if self.reduce_dim is None:
+            return torch.max(torch.abs(x))
+        else:
+            return torch.max(torch.abs(x), dim=self.reduce_dim)[0]
+
+
+class AbsMaxAve(torch.jit.ScriptModule):
+    __constants__ = ['reduce_dim']
+
+    def __init__(self, reduce_dim) ->None:
+        super(AbsMaxAve, self).__init__()
+        self.reduce_dim = reduce_dim
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return torch.mean(torch.max(torch.abs(x), dim=self.reduce_dim)[0])
+
+
+STD_DEV_EPSILON = 1e-08
+
+
+class MeanSigmaStd(torch.jit.ScriptModule):
+    __constants__ = ['reduce_dim', 'output_shape', 'std_dev_epsilon', 'const_sigma']
+
+    def __init__(self, reduce_dim, const_sigma, learned_sigma, output_shape) ->None:
+        super(MeanSigmaStd, self).__init__()
+        self.reduce_dim = reduce_dim
+        self.const_sigma = const_sigma
+        self.learned_sigma = learned_sigma
+        self.output_shape = output_shape
+        self.std_dev_epsilon = STD_DEV_EPSILON
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        abs_val = torch.abs(x)
+        if self.reduce_dim is None:
+            mean_val = torch.mean(abs_val)
+            std_val = torch.sqrt(torch.var(abs_val) + self.std_dev_epsilon)
+        else:
+            mean_val = torch.mean(torch.abs(x), dim=self.reduce_dim)
+            mean_val = mean_val.view(self.output_shape)
+            std_val = torch.sqrt(torch.var(abs_val, dim=self.reduce_dim) + self.std_dev_epsilon)
+            std_val = std_val.view(self.output_shape)
+        if self.const_sigma is not None:
+            return mean_val + self.const_sigma * std_val
+        else:
+            return mean_val + self.learned_sigma * std_val
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        super(MeanSigmaStd, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+        sigma_key = prefix + 'learned_sigma'
+        if config.IGNORE_MISSING_KEYS and sigma_key in missing_keys:
+            missing_keys.remove(sigma_key)
 
 
 @torch.jit.script
@@ -1136,6 +1262,55 @@ class StatsInputViewShapeImpl(object):
     OVER_OUTPUT_CHANNELS = OverOutputChannelView
     OVER_BATCH_OVER_TENSOR = OverBatchOverTensorView
     OVER_BATCH_OVER_OUTPUT_CHANNELS = OverBatchOverOutputChannelView
+
+
+class _ViewCatParameterWrapper(torch.jit.ScriptModule):
+    __constants__ = ['shape', 'cat_dim']
+
+    def __init__(self, parameter, view_shape_impl, cat_dim):
+        super(_ViewCatParameterWrapper, self).__init__()
+        self.parameter = parameter
+        self.shape = view_shape_impl().shape(parameter)
+        self.cat_dim = cat_dim
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return torch.cat([self.parameter.view(self.shape), x], dim=self.cat_dim)
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        super(_ViewCatParameterWrapper, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+        parameter_key = prefix + 'parameter'
+        if parameter_key in missing_keys:
+            missing_keys.remove(parameter_key)
+
+    def state_dict(self, destination=None, prefix='', keep_vars=False):
+        output_dict = super(_ViewCatParameterWrapper, self).state_dict(destination, prefix, keep_vars)
+        del output_dict[prefix + 'parameter']
+        return output_dict
+
+
+class _ViewParameterWrapper(torch.jit.ScriptModule):
+    __constants__ = ['shape']
+
+    def __init__(self, parameter, view_shape_impl):
+        super(_ViewParameterWrapper, self).__init__()
+        self.parameter = parameter
+        self.shape = view_shape_impl().shape(parameter)
+
+    @torch.jit.script_method
+    def forward(self):
+        return self.parameter.view(self.shape)
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        super(_ViewParameterWrapper, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+        parameter_key = prefix + 'parameter'
+        if parameter_key in missing_keys:
+            missing_keys.remove(parameter_key)
+
+    def state_dict(self, destination=None, prefix='', keep_vars=False):
+        output_dict = super(_ViewParameterWrapper, self).state_dict(destination, prefix, keep_vars)
+        del output_dict[prefix + 'parameter']
+        return output_dict
 
 
 @torch.jit.script
@@ -1239,134 +1414,6 @@ class PowerOfTwoIntScale(torch.jit.ScriptModule):
         return max_int(self.signed, bit_width) + 1
 
 
-class _ViewParameterWrapper(torch.jit.ScriptModule):
-    __constants__ = ['shape']
-
-    def __init__(self, parameter, view_shape_impl):
-        super(_ViewParameterWrapper, self).__init__()
-        self.parameter = parameter
-        self.shape = view_shape_impl().shape(parameter)
-
-    @torch.jit.script_method
-    def forward(self):
-        return self.parameter.view(self.shape)
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        super(_ViewParameterWrapper, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-        parameter_key = prefix + 'parameter'
-        if parameter_key in missing_keys:
-            missing_keys.remove(parameter_key)
-
-    def state_dict(self, destination=None, prefix='', keep_vars=False):
-        output_dict = super(_ViewParameterWrapper, self).state_dict(destination, prefix, keep_vars)
-        del output_dict[prefix + 'parameter']
-        return output_dict
-
-
-class _ViewCatParameterWrapper(torch.jit.ScriptModule):
-    __constants__ = ['shape', 'cat_dim']
-
-    def __init__(self, parameter, view_shape_impl, cat_dim):
-        super(_ViewCatParameterWrapper, self).__init__()
-        self.parameter = parameter
-        self.shape = view_shape_impl().shape(parameter)
-        self.cat_dim = cat_dim
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return torch.cat([self.parameter.view(self.shape), x], dim=self.cat_dim)
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        super(_ViewCatParameterWrapper, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-        parameter_key = prefix + 'parameter'
-        if parameter_key in missing_keys:
-            missing_keys.remove(parameter_key)
-
-    def state_dict(self, destination=None, prefix='', keep_vars=False):
-        output_dict = super(_ViewCatParameterWrapper, self).state_dict(destination, prefix, keep_vars)
-        del output_dict[prefix + 'parameter']
-        return output_dict
-
-
-class AbsMax(torch.jit.ScriptModule):
-    __constants__ = ['reduce_dim']
-
-    def __init__(self, reduce_dim) ->None:
-        super(AbsMax, self).__init__()
-        self.reduce_dim = reduce_dim
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        if self.reduce_dim is None:
-            return torch.max(torch.abs(x))
-        else:
-            return torch.max(torch.abs(x), dim=self.reduce_dim)[0]
-
-
-class AbsMaxAve(torch.jit.ScriptModule):
-    __constants__ = ['reduce_dim']
-
-    def __init__(self, reduce_dim) ->None:
-        super(AbsMaxAve, self).__init__()
-        self.reduce_dim = reduce_dim
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return torch.mean(torch.max(torch.abs(x), dim=self.reduce_dim)[0])
-
-
-class AbsAve(torch.jit.ScriptModule):
-    __constants__ = ['reduce_dim']
-
-    def __init__(self, reduce_dim) ->None:
-        super(AbsAve, self).__init__()
-        self.reduce_dim = reduce_dim
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        if self.reduce_dim is None:
-            return torch.mean(torch.abs(x))
-        else:
-            return torch.mean(torch.abs(x), dim=self.reduce_dim)
-
-
-STD_DEV_EPSILON = 1e-08
-
-
-class MeanSigmaStd(torch.jit.ScriptModule):
-    __constants__ = ['reduce_dim', 'output_shape', 'std_dev_epsilon', 'const_sigma']
-
-    def __init__(self, reduce_dim, const_sigma, learned_sigma, output_shape) ->None:
-        super(MeanSigmaStd, self).__init__()
-        self.reduce_dim = reduce_dim
-        self.const_sigma = const_sigma
-        self.learned_sigma = learned_sigma
-        self.output_shape = output_shape
-        self.std_dev_epsilon = STD_DEV_EPSILON
-
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        abs_val = torch.abs(x)
-        if self.reduce_dim is None:
-            mean_val = torch.mean(abs_val)
-            std_val = torch.sqrt(torch.var(abs_val) + self.std_dev_epsilon)
-        else:
-            mean_val = torch.mean(torch.abs(x), dim=self.reduce_dim)
-            mean_val = mean_val.view(self.output_shape)
-            std_val = torch.sqrt(torch.var(abs_val, dim=self.reduce_dim) + self.std_dev_epsilon)
-            std_val = std_val.view(self.output_shape)
-        if self.const_sigma is not None:
-            return mean_val + self.const_sigma * std_val
-        else:
-            return mean_val + self.learned_sigma * std_val
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        super(MeanSigmaStd, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-        sigma_key = prefix + 'learned_sigma'
-        if config.IGNORE_MISSING_KEYS and sigma_key in missing_keys:
-            missing_keys.remove(sigma_key)
-
-
 @torch.jit.script
 def max_uint(narrow_range: bool, bit_width: torch.Tensor) ->torch.Tensor:
     """ Compute the maximum unsigned integer representable
@@ -1396,6 +1443,114 @@ def max_uint(narrow_range: bool, bit_width: torch.Tensor) ->torch.Tensor:
 
 def pack_quant_tensor(tensor, scale, bit_width):
     return QuantTensor._make([tensor, scale, bit_width])
+
+
+class QuantTensor(namedtuple('QuantTensor', ['tensor', 'scale', 'bit_width'])):
+
+    @staticmethod
+    def check_input_type(other):
+        if not isinstance(other, QuantTensor):
+            raise Exception('Other tensor is not a QuantTensor')
+
+    def check_scaling_factors_same(self, other):
+        if not torch.allclose(self.scale, other.scale):
+            raise Exception('Scalign factors are different')
+
+    def __neg__(self):
+        return QuantTensor._make([-self.tensor, self.scale, self.bit_width])
+
+    def __add__(self, other):
+        QuantTensor.check_input_type(other)
+        self.check_scaling_factors_same(other)
+        output_tensor = self.tensor + other.tensor
+        output_scale = (self.scale + other.scale) / 2
+        max_uint_val = max_uint(narrow_range=False, bit_width=self.bit_width)
+        max_uint_val += max_uint(narrow_range=False, bit_width=other.bit_width)
+        output_bit_width = ceil_ste(torch.log2(max_uint_val))
+        output = pack_quant_tensor(output_tensor, output_scale, output_bit_width)
+        return output
+
+    def __mul__(self, other):
+        QuantTensor.check_input_type(other)
+        output_tensor = self.tensor * other.tensor
+        output_scale = self.scale * other.scale
+        output_bit_width = self.bit_width + other.bit_width
+        output = pack_quant_tensor(output_tensor, output_scale, output_bit_width)
+        return output
+
+    def __sub__(self, other):
+        return self.__add__(-other)
+
+    def __truediv__(self, other):
+        QuantTensor.check_input_type(other)
+        output_tensor = self.tensor / other.tensor
+        output_scale = self.scale / other.scale
+        output_bit_width = self.bit_width - other.bit_width
+        output = pack_quant_tensor(output_tensor, output_scale, output_bit_width)
+        return output
+
+    def __abs__(self):
+        return QuantTensor._make([abs(self.tensor), self.scale, self.bit_width])
+
+    def __pos__(self):
+        return self
+
+    def __int__(self):
+        return round_ste(self.tensor / self.scale)
+
+    def __float__(self):
+        return self.tensor
+
+    def __index__(self):
+        raise NotImplementedError
+
+    def __round__(self):
+        raise NotImplementedError
+
+    def __trunc__(self):
+        raise NotImplementedError
+
+    def __floor__(self):
+        raise NotImplementedError
+
+    def __ceil__(self):
+        raise NotImplementedError
+
+    def __complex__(self):
+        raise NotImplementedError
+
+    def __invert__(self):
+        raise NotImplementedError
+
+    def __matmul__(self, other):
+        raise NotImplementedError
+
+    def __floordiv__(self, other):
+        raise NotImplementedError
+
+    def __mod__(self, other):
+        raise NotImplementedError
+
+    def __divmod__(self, other):
+        raise NotImplementedError
+
+    def __pow__(self, other):
+        raise NotImplementedError
+
+    def __lshift__(self, other):
+        raise NotImplementedError
+
+    def __rshift__(self, other):
+        raise NotImplementedError
+
+    def __and__(self, other):
+        raise NotImplementedError
+
+    def __xor__(self, other):
+        raise NotImplementedError
+
+    def __or__(self, other):
+        raise NotImplementedError
 
 
 class QuantLayer(object):
@@ -1490,6 +1645,43 @@ class QuantAccumulator(QuantLayer, Module):
         return self.pack_output(output, output_scale, output_bit_width)
 
 
+ZERO_HW_SENTINEL_NAME = 'zero_hw_sentinel'
+
+
+ZERO_HW_SENTINEL_VALUE = 0.0
+
+
+class QuantProxy(nn.Module):
+    __metaclass__ = ABCMeta
+
+    def __init__(self):
+        super(QuantProxy, self).__init__()
+        self.register_buffer(ZERO_HW_SENTINEL_NAME, torch.tensor(ZERO_HW_SENTINEL_VALUE))
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        super(QuantProxy, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+        zero_hw_sentinel_key = prefix + ZERO_HW_SENTINEL_NAME
+        if zero_hw_sentinel_key in missing_keys:
+            missing_keys.remove(zero_hw_sentinel_key)
+        if zero_hw_sentinel_key in unexpected_keys:
+            unexpected_keys.remove(zero_hw_sentinel_key)
+
+    def state_dict(self, destination=None, prefix='', keep_vars=False):
+        output_dict = super(QuantProxy, self).state_dict(destination, prefix, keep_vars)
+        del output_dict[prefix + ZERO_HW_SENTINEL_NAME]
+        return output_dict
+
+
+class TensorClamp(torch.jit.ScriptModule):
+
+    def __init__(self) ->None:
+        super(TensorClamp, self).__init__()
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor, min_val: torch.Tensor, max_val: torch.Tensor):
+        return tensor_clamp(x, min_val=min_val, max_val=max_val)
+
+
 class QuantActivation(QuantLayer, Module):
     __metaclass__ = ABCMeta
 
@@ -1522,23 +1714,53 @@ class QuantActivation(QuantLayer, Module):
         return self.pack_output(output, output_scale, output_bit_width)
 
 
-class TensorClamp(torch.jit.ScriptModule):
+class FusedActivationQuantProxy(torch.jit.ScriptModule):
 
-    def __init__(self) ->None:
-        super(TensorClamp, self).__init__()
+    def __init__(self, activation_impl, tensor_quant):
+        super(FusedActivationQuantProxy, self).__init__()
+        self.activation_impl = activation_impl
+        self.tensor_quant = tensor_quant
 
     @torch.jit.script_method
-    def forward(self, x: torch.Tensor, min_val: torch.Tensor, max_val: torch.Tensor):
-        return tensor_clamp(x, min_val=min_val, max_val=max_val)
+    def forward(self, x, zero_hw_sentinel):
+        x = self.activation_impl(x)
+        x, output_scale, output_bit_width = self.tensor_quant(x, zero_hw_sentinel)
+        return x, output_scale, output_bit_width
+
+
+SCALING_MIN_VAL = 2e-09
+
+
+class ConstScalarClamp(torch.jit.ScriptModule):
+    __constants__ = ['min_val', 'max_val']
+
+    def __init__(self, min_val, max_val) ->None:
+        super(ConstScalarClamp, self).__init__()
+        self.min_val = min_val
+        self.max_val = max_val
+
+    @torch.jit.script_method
+    def forward(self, x: torch.Tensor):
+        return torch.clamp(x, min=self.min_val, max=self.max_val)
 
 
 OVER_BATCH_OVER_CHANNELS_4D_SHAPE = 1, -1, 1, 1
 
 
-ZERO_HW_SENTINEL_NAME = 'zero_hw_sentinel'
+class ParameterQuantProxy(QuantProxy):
+    __metaclass__ = ABCMeta
 
+    @property
+    def tensor_quant(self):
+        return self._tensor_quant
 
-SCALING_MIN_VAL = 2e-09
+    @tensor_quant.setter
+    def tensor_quant(self, tensor_quant):
+        self._tensor_quant = tensor_quant
+
+    @tensor_quant.deleter
+    def tensor_quant(self):
+        del self._tensor_quant
 
 
 class TensorClampSte(torch.jit.ScriptModule):
@@ -1551,7 +1773,14 @@ class TensorClampSte(torch.jit.ScriptModule):
         return tensor_clamp_ste(x, min_val, max_val)
 
 
-_global_config['REINIT_WEIGHT_QUANT_ON_LOAD'] = 4
+class WeightReg(nn.Module):
+
+    def __init__(self):
+        super(WeightReg, self).__init__()
+        pass
+
+    def forward(self, weight):
+        return weight + 0
 
 
 def mul_add_from_bn(bn_mean, bn_var, bn_eps, bn_weight, bn_bias, affine_only):
@@ -1574,54 +1803,6 @@ class ScaleBias(nn.Module):
 
     def forward(self, x):
         return x * self.weight + self.bias
-
-
-class WeightReg(nn.Module):
-
-    def __init__(self):
-        super(WeightReg, self).__init__()
-        pass
-
-    def forward(self, weight):
-        return weight + 0
-
-
-ZERO_HW_SENTINEL_VALUE = 0.0
-
-
-class QuantProxy(nn.Module):
-    __metaclass__ = ABCMeta
-
-    def __init__(self):
-        super(QuantProxy, self).__init__()
-        self.register_buffer(ZERO_HW_SENTINEL_NAME, torch.tensor(ZERO_HW_SENTINEL_VALUE))
-
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
-        super(QuantProxy, self)._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
-        zero_hw_sentinel_key = prefix + ZERO_HW_SENTINEL_NAME
-        if zero_hw_sentinel_key in missing_keys:
-            missing_keys.remove(zero_hw_sentinel_key)
-        if zero_hw_sentinel_key in unexpected_keys:
-            unexpected_keys.remove(zero_hw_sentinel_key)
-
-    def state_dict(self, destination=None, prefix='', keep_vars=False):
-        output_dict = super(QuantProxy, self).state_dict(destination, prefix, keep_vars)
-        del output_dict[prefix + ZERO_HW_SENTINEL_NAME]
-        return output_dict
-
-
-class FusedActivationQuantProxy(torch.jit.ScriptModule):
-
-    def __init__(self, activation_impl, tensor_quant):
-        super(FusedActivationQuantProxy, self).__init__()
-        self.activation_impl = activation_impl
-        self.tensor_quant = tensor_quant
-
-    @torch.jit.script_method
-    def forward(self, x, zero_hw_sentinel):
-        x = self.activation_impl(x)
-        x, output_scale, output_bit_width = self.tensor_quant(x, zero_hw_sentinel)
-        return x, output_scale, output_bit_width
 
 
 class TupleSequential(Sequential):
@@ -1655,17 +1836,35 @@ LAST_FC_IN_FEATURES = 512
 LAST_FC_PER_OUT_CH_SCALING = False
 
 
-class ConstScalarClamp(torch.jit.ScriptModule):
-    __constants__ = ['min_val', 'max_val']
+class TensorNorm(nn.Module):
 
-    def __init__(self, min_val, max_val) ->None:
-        super(ConstScalarClamp, self).__init__()
-        self.min_val = min_val
-        self.max_val = max_val
+    def __init__(self, eps=0.0001, momentum=0.1):
+        super().__init__()
+        self.eps = eps
+        self.momentum = momentum
+        self.weight = nn.Parameter(torch.rand(1))
+        self.bias = nn.Parameter(torch.rand(1))
+        self.register_buffer('running_mean', torch.zeros(1))
+        self.register_buffer('running_var', torch.ones(1))
+        self.reset_running_stats()
 
-    @torch.jit.script_method
-    def forward(self, x: torch.Tensor):
-        return torch.clamp(x, min=self.min_val, max=self.max_val)
+    def reset_running_stats(self):
+        self.running_mean.zero_()
+        self.running_var.fill_(1)
+        init.ones_(self.weight)
+        init.zeros_(self.bias)
+
+    def forward(self, x):
+        if self.training:
+            mean = x.mean()
+            unbias_var = x.var(unbiased=True)
+            biased_var = x.var(unbiased=False)
+            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.detach()
+            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.detach()
+            inv_std = 1 / (biased_var + self.eps).pow(0.5)
+            return (x - mean) * inv_std * self.weight + self.bias
+        else:
+            return (x - self.running_mean) / (self.running_var + self.eps).pow(0.5) * self.weight + self.bias
 
 
 ACT_PER_OUT_CH_SCALING = False
@@ -1906,50 +2105,6 @@ class SqrHingeLoss(nn.Module):
         return squared_hinge_loss.apply(input, target)
 
 
-class TensorNorm(nn.Module):
-
-    def __init__(self, eps=0.0001, momentum=0.1):
-        super().__init__()
-        self.eps = eps
-        self.momentum = momentum
-        self.weight = nn.Parameter(torch.rand(1))
-        self.bias = nn.Parameter(torch.rand(1))
-        self.register_buffer('running_mean', torch.zeros(1))
-        self.register_buffer('running_var', torch.ones(1))
-        self.reset_running_stats()
-
-    def reset_running_stats(self):
-        self.running_mean.zero_()
-        self.running_var.fill_(1)
-        init.ones_(self.weight)
-        init.zeros_(self.bias)
-
-    def forward(self, x):
-        if self.training:
-            mean = x.mean()
-            unbias_var = x.var(unbiased=True)
-            biased_var = x.var(unbiased=False)
-            self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.detach()
-            self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.detach()
-            inv_std = 1 / (biased_var + self.eps).pow(0.5)
-            return (x - mean) * inv_std * self.weight + self.bias
-        else:
-            return (x - self.running_mean) / (self.running_var + self.eps).pow(0.5) * self.weight + self.bias
-
-
-class DwsConvBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride, bit_width, pw_activation_scaling_per_channel=False):
-        super(DwsConvBlock, self).__init__()
-        self.dw_conv = ConvBlock(in_channels=in_channels, out_channels=in_channels, groups=in_channels, kernel_size=3, padding=1, stride=stride, weight_bit_width=bit_width, act_bit_width=bit_width)
-        self.pw_conv = ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=1, padding=0, weight_bit_width=bit_width, act_bit_width=bit_width, activation_scaling_per_channel=pw_activation_scaling_per_channel)
-
-    def forward(self, x):
-        x = self.dw_conv(x)
-        x = self.pw_conv(x)
-        return x
-
-
 ENABLE_BIAS_QUANT = False
 
 
@@ -1973,16 +2128,32 @@ ACT_SCALING_PER_CHANNEL = False
 
 class ConvBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, weight_bit_width, act_bit_width, stride=1, padding=0, groups=1, bn_eps=1e-05, activation_scaling_per_channel=False):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, weight_bit_width, act_bit_width, act_scaling_per_channel, bias, groups=1, bn_eps=1e-05, shared_act=None, return_quant_tensor=False):
         super(ConvBlock, self).__init__()
-        self.conv = make_quant_conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=False, bit_width=weight_bit_width)
+        self.conv = make_quant_conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, bit_width=weight_bit_width, weight_scaling_per_output_channel=True)
         self.bn = nn.BatchNorm2d(num_features=out_channels, eps=bn_eps)
-        self.activation = make_quant_relu(bit_width=act_bit_width, per_channel_broadcastable_shape=(1, out_channels, 1, 1), scaling_per_channel=activation_scaling_per_channel, return_quant_tensor=True)
+        if shared_act is None:
+            self.activ = make_quant_relu(bit_width=act_bit_width, scaling_per_channel=act_scaling_per_channel, per_channel_broadcastable_shape=(1, out_channels, 1, 1), return_quant_tensor=return_quant_tensor)
+        else:
+            self.activ = shared_act
 
     def forward(self, x):
         x = self.conv(x)
         x = self.bn(x)
-        x = self.activation(x)
+        x = self.activ(x)
+        return x
+
+
+class DwsConvBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, stride, bit_width, pw_activation_scaling_per_channel=False):
+        super(DwsConvBlock, self).__init__()
+        self.dw_conv = ConvBlock(in_channels=in_channels, out_channels=in_channels, groups=in_channels, kernel_size=3, padding=1, stride=stride, weight_bit_width=bit_width, act_bit_width=bit_width)
+        self.pw_conv = ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=1, padding=0, weight_bit_width=bit_width, act_bit_width=bit_width, activation_scaling_per_channel=pw_activation_scaling_per_channel)
+
+    def forward(self, x):
+        x = self.dw_conv(x)
+        x = self.pw_conv(x)
         return x
 
 
@@ -2016,24 +2187,6 @@ class MobileNet(nn.Module):
         x = x.view(x.size(0), -1)
         out = self.output(pack_quant_tensor(x, scale, bit_width))
         return out
-
-
-class ConvBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, weight_bit_width, act_bit_width, act_scaling_per_channel, bias, groups=1, bn_eps=1e-05, shared_act=None, return_quant_tensor=False):
-        super(ConvBlock, self).__init__()
-        self.conv = make_quant_conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups, bias=bias, bit_width=weight_bit_width, weight_scaling_per_output_channel=True)
-        self.bn = nn.BatchNorm2d(num_features=out_channels, eps=bn_eps)
-        if shared_act is None:
-            self.activ = make_quant_relu(bit_width=act_bit_width, scaling_per_channel=act_scaling_per_channel, per_channel_broadcastable_shape=(1, out_channels, 1, 1), return_quant_tensor=return_quant_tensor)
-        else:
-            self.activ = shared_act
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.activ(x)
-        return x
 
 
 class ProxylessBlock(nn.Module):
@@ -2206,6 +2359,540 @@ class AudioPreprocessor(nn.Module):
 
     def get_seq_len(self, length):
         return torch.ceil(length / self.hop_length)
+
+
+class AudioToSpectrogramPreprocessor(AudioPreprocessor):
+    """Preprocessor that converts wavs to spectrograms.
+    Uses torchaudio's Spectrogram class as a featurizer.
+
+    Args:
+        sample_rate (int): Sample rate of the input audio data.
+            Defaults to 16000
+        window_size (float): Size of window for fft in seconds
+            Defaults to 0.02
+        window_stride (float): Stride of window for fft in seconds
+            Defaults to 0.01
+        n_window_size (int): Size of window for fft in samples
+            Defaults to None. Use one of window_size or n_window_size.
+        n_window_stride (int): Stride of window for fft in samples
+            Defaults to None. Use one of window_stride or n_window_stride.
+        n_fft (int): Length of FT window. If None, it uses the smallest power
+            of 2 that is larger than n_window_size.
+            Defaults to None
+        window (str): Windowing function for fft. can be one of ['hann',
+            'hamming', 'blackman', 'bartlett', 'none', 'null']
+            Defaults to "hann"
+        normalized (bool): Whether to normalize by magnitude after stft
+    """
+
+    def __init__(self, *, sample_rate=16000, window_size=0.02, window_stride=0.01, n_window_size=None, n_window_stride=None, n_fft=None, window='hann', normalized=True, **kwargs):
+        if not have_torchaudio:
+            raise ModuleNotFoundError('torchaudio is not installed but is necessary for AudioToSpectrogramPreprocessor. We recommend you try building it from source for the PyTorch version you have.')
+        if window_size and n_window_size:
+            raise ValueError(f'{self} received both window_size and n_window_size. Only one should be specified.')
+        if window_stride and n_window_stride:
+            raise ValueError(f'{self} received both window_stride and n_window_stride. Only one should be specified.')
+        if window_size:
+            n_window_size = int(window_size * sample_rate)
+        if window_stride:
+            n_window_stride = int(window_stride * sample_rate)
+        super().__init__(n_window_size, n_window_stride, **kwargs)
+        self.win_length = n_window_size
+        self.hop_length = n_window_stride
+        self.n_fft = n_fft or 2 ** math.ceil(math.log2(self.win_length))
+        window_fn = self.torch_windows.get(window, None)
+        if window_fn is None:
+            raise ValueError(f"Window argument for AudioProcessor is invalid: {window}.For no window function, use 'ones' or None.")
+        self.featurizer = torchaudio.transforms.Spectrogram(n_fft=self.n_fft, win_length=self.win_length, hop_length=self.hop_length, window_fn=window_fn, normalized=normalized)
+        self.featurizer
+
+    def get_features(self, input_signal, length):
+        return self.featurizer(input_signal)
+
+
+CONSTANT = 1e-05
+
+
+def window_sumsquare(window, n_frames, hop_length=200, win_length=800, n_fft=800, dtype=np.float32, norm=None):
+    """
+    # from librosa 0.6
+    Compute the sum-square envelope of a window function at a given hop length.
+
+    This is used to estimate modulation effects induced by windowing
+    observations in short-time fourier transforms.
+
+    Parameters
+    ----------
+    window : string, tuple, number, callable, or list-like
+        Window specification, as in `get_window`
+
+    n_frames : int > 0
+        The number of analysis frames
+
+    hop_length : int > 0
+        The number of samples to advance between frames
+
+    win_length : [optional]
+        The length of the window function.  By default, this matches `n_fft`.
+
+    n_fft : int > 0
+        The length of each analysis frame.
+
+    dtype : np.dtype
+        The data type of the output
+
+    Returns
+    -------
+    wss : np.ndarray, shape=`(n_fft + hop_length * (n_frames - 1))`
+        The sum-squared envelope of the window function
+    """
+    if win_length is None:
+        win_length = n_fft
+    n = n_fft + hop_length * (n_frames - 1)
+    x = np.zeros(n, dtype=dtype)
+    win_sq = get_window(window, win_length, fftbins=True)
+    win_sq = librosa_util.normalize(win_sq, norm=norm) ** 2
+    win_sq = librosa_util.pad_center(win_sq, n_fft)
+    for i in range(n_frames):
+        sample = i * hop_length
+        x[sample:min(n, sample + n_fft)] += win_sq[:max(0, min(n_fft, n - sample))]
+    return x
+
+
+class STFT(torch.nn.Module):
+    """adapted from Prem Seetharaman's https://github.com/pseeth/pytorch-stft"""
+
+    def __init__(self, filter_length=800, hop_length=200, win_length=800, window='hann'):
+        super(STFT, self).__init__()
+        self.filter_length = filter_length
+        self.hop_length = hop_length
+        self.win_length = win_length
+        self.window = window
+        self.forward_transform = None
+        scale = self.filter_length / self.hop_length
+        fourier_basis = np.fft.fft(np.eye(self.filter_length))
+        cutoff = int(self.filter_length / 2 + 1)
+        fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.imag(fourier_basis[:cutoff, :])])
+        forward_basis = torch.FloatTensor(fourier_basis[:, (None), :])
+        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, (None), :])
+        if window is not None:
+            assert filter_length >= win_length
+            fft_window = get_window(window, win_length, fftbins=True)
+            fft_window = pad_center(fft_window, filter_length)
+            fft_window = torch.from_numpy(fft_window).float()
+            forward_basis *= fft_window
+            inverse_basis *= fft_window
+        self.register_buffer('forward_basis', forward_basis.float())
+        self.register_buffer('inverse_basis', inverse_basis.float())
+
+    def transform(self, input_data):
+        num_batches = input_data.size(0)
+        num_samples = input_data.size(1)
+        self.num_samples = num_samples
+        input_data = input_data.view(num_batches, 1, num_samples)
+        input_data = F.pad(input_data.unsqueeze(1), (int(self.filter_length / 2), int(self.filter_length / 2), 0, 0), mode='reflect')
+        input_data = input_data.squeeze(1)
+        if torch.cuda.is_available():
+            forward_transform = F.conv1d(input_data, Variable(self.forward_basis, requires_grad=False), stride=self.hop_length, padding=0).cpu()
+        else:
+            forward_transform = F.conv1d(input_data, Variable(self.forward_basis, requires_grad=False), stride=self.hop_length, padding=0).cpu()
+        cutoff = int(self.filter_length / 2 + 1)
+        real_part = forward_transform[:, :cutoff, :]
+        imag_part = forward_transform[:, cutoff:, :]
+        magnitude = torch.sqrt(real_part ** 2 + imag_part ** 2)
+        phase = torch.autograd.Variable(torch.atan2(imag_part.data, real_part.data))
+        return magnitude, phase
+
+    def inverse(self, magnitude, phase):
+        recombine_magnitude_phase = torch.cat([magnitude * torch.cos(phase), magnitude * torch.sin(phase)], dim=1)
+        inverse_transform = F.conv_transpose1d(recombine_magnitude_phase, Variable(self.inverse_basis, requires_grad=False), stride=self.hop_length, padding=0)
+        if self.window is not None:
+            window_sum = window_sumsquare(self.window, magnitude.size(-1), hop_length=self.hop_length, win_length=self.win_length, n_fft=self.filter_length, dtype=np.float32)
+            approx_nonzero_indices = torch.from_numpy(np.where(window_sum > tiny(window_sum))[0])
+            window_sum = torch.autograd.Variable(torch.from_numpy(window_sum), requires_grad=False)
+            window_sum = window_sum if magnitude.is_cuda else window_sum
+            inverse_transform[:, :, (approx_nonzero_indices)] /= window_sum[approx_nonzero_indices]
+            inverse_transform *= float(self.filter_length) / self.hop_length
+        inverse_transform = inverse_transform[:, :, int(self.filter_length / 2):]
+        inverse_transform = inverse_transform[:, :, :-int(self.filter_length / 2)]
+        return inverse_transform
+
+    def forward(self, input_data):
+        self.magnitude, self.phase = self.transform(input_data)
+        reconstruction = self.inverse(self.magnitude, self.phase)
+        return reconstruction
+
+
+def normalize_batch(x, seq_len, normalize_type):
+    if normalize_type == 'per_feature':
+        x_mean = torch.zeros((seq_len.shape[0], x.shape[1]), dtype=x.dtype, device=x.device)
+        x_std = torch.zeros((seq_len.shape[0], x.shape[1]), dtype=x.dtype, device=x.device)
+        for i in range(x.shape[0]):
+            x_mean[(i), :] = x[(i), :, :seq_len[i]].mean(dim=1)
+            x_std[(i), :] = x[(i), :, :seq_len[i]].std(dim=1)
+        x_std += CONSTANT
+        return (x - x_mean.unsqueeze(2)) / x_std.unsqueeze(2)
+    elif normalize_type == 'all_features':
+        x_mean = torch.zeros(seq_len.shape, dtype=x.dtype, device=x.device)
+        x_std = torch.zeros(seq_len.shape, dtype=x.dtype, device=x.device)
+        for i in range(x.shape[0]):
+            x_mean[i] = x[(i), :, :seq_len[i].item()].mean()
+            x_std[i] = x[(i), :, :seq_len[i].item()].std()
+        x_std += CONSTANT
+        return (x - x_mean.view(-1, 1, 1)) / x_std.view(-1, 1, 1)
+    else:
+        return x
+
+
+def splice_frames(x, frame_splicing):
+    """ Stacks frames together across feature dim
+
+    input is batch_size, feature_dim, num_frames
+    output is batch_size, feature_dim*frame_splicing, num_frames
+
+    """
+    seq = [x]
+    for n in range(1, frame_splicing):
+        seq.append(torch.cat([x[:, :, :n], x[:, :, n:]], dim=2))
+    return torch.cat(seq, dim=1)
+
+
+class FilterbankFeatures(nn.Module):
+    """Featurizer that converts wavs to Mel Spectrograms.
+    See AudioToMelSpectrogramPreprocessor for args.
+    """
+
+    def __init__(self, *, sample_rate=16000, n_window_size=320, n_window_stride=160, window='hann', normalize='per_feature', n_fft=None, preemph=0.97, nfilt=64, lowfreq=0, highfreq=None, log=True, log_zero_guard_type='add', log_zero_guard_value=2 ** -24, dither=CONSTANT, pad_to=16, max_duration=16.7, frame_splicing=1, stft_conv=False, pad_value=0, mag_power=2.0, logger=None):
+        super(FilterbankFeatures, self).__init__()
+        if n_window_size is None or n_window_stride is None or not isinstance(n_window_size, int) or not isinstance(n_window_stride, int) or n_window_size <= 0 or n_window_stride <= 0:
+            raise ValueError(f'{self} got an invalid value for either n_window_size or n_window_stride. Both must be positive ints.')
+        if logger:
+            logger.info(f'PADDING: {pad_to}')
+        else:
+            None
+        self.win_length = n_window_size
+        self.hop_length = n_window_stride
+        self.n_fft = n_fft or 2 ** math.ceil(math.log2(self.win_length))
+        self.stft_conv = stft_conv
+        if stft_conv:
+            if logger:
+                logger.info('STFT using conv')
+            else:
+                None
+
+
+            class STFTPatch(STFT):
+
+                def __init__(self, *params, **kw_params):
+                    super(STFTPatch, self).__init__(*params, **kw_params)
+
+                def forward(self, input_data):
+                    return super(STFTPatch, self).transform(input_data)[0]
+            self.stft = STFTPatch(self.n_fft, self.hop_length, self.win_length, window)
+        else:
+            None
+            torch_windows = {'hann': torch.hann_window, 'hamming': torch.hamming_window, 'blackman': torch.blackman_window, 'bartlett': torch.bartlett_window, 'none': None}
+            window_fn = torch_windows.get(window, None)
+            window_tensor = window_fn(self.win_length, periodic=False) if window_fn else None
+            self.register_buffer('window', window_tensor)
+            self.stft = lambda x: torch.stft(x, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.win_length, center=True, window=self.window)
+        self.normalize = normalize
+        self.log = log
+        self.dither = dither
+        self.frame_splicing = frame_splicing
+        self.nfilt = nfilt
+        self.preemph = preemph
+        self.pad_to = pad_to
+        highfreq = highfreq or sample_rate / 2
+        filterbanks = torch.tensor(librosa.filters.mel(sample_rate, self.n_fft, n_mels=nfilt, fmin=lowfreq, fmax=highfreq), dtype=torch.float).unsqueeze(0)
+        self.register_buffer('fb', filterbanks)
+        max_length = self.get_seq_len(torch.tensor(max_duration * sample_rate, dtype=torch.float))
+        max_pad = pad_to - max_length % pad_to
+        self.max_length = max_length + max_pad
+        self.pad_value = pad_value
+        self.mag_power = mag_power
+        if log_zero_guard_type not in ['add', 'clamp']:
+            raise ValueError(f"{self} received {log_zero_guard_type} for the log_zero_guard_type parameter. It must be either 'add' or 'clamp'.")
+        self.log_zero_guard_value = lambda _: log_zero_guard_value
+        if isinstance(log_zero_guard_value, str):
+            if log_zero_guard_value == 'tiny':
+                self.log_zero_guard_value = lambda x: torch.finfo(x.dtype).tiny
+            elif log_zero_guard_value == 'eps':
+                self.log_zero_guard_value = lambda x: torch.finfo(x.dtype).eps
+            else:
+                raise ValueError(f"{self} received {log_zero_guard_value} for the log_zero_guard_type parameter. It must be either a number, 'tiny', or 'eps'")
+        self.log_zero_guard_type = log_zero_guard_type
+
+    def get_seq_len(self, seq_len):
+        return torch.ceil(seq_len / self.hop_length)
+
+    @property
+    def filter_banks(self):
+        return self.fb
+
+    @torch.no_grad()
+    def forward(self, x, seq_len):
+        seq_len = self.get_seq_len(seq_len.float())
+        if self.dither > 0:
+            x += self.dither * torch.randn_like(x)
+        if self.preemph is not None:
+            x = torch.cat((x[:, (0)].unsqueeze(1), x[:, 1:] - self.preemph * x[:, :-1]), dim=1)
+        x = self.stft(x)
+        if self.mag_power != 1.0:
+            x = x.pow(self.mag_power)
+        if not self.stft_conv:
+            x = x.sum(-1)
+        x = torch.matmul(self.fb, x)
+        if self.log:
+            if self.log_zero_guard_type == 'add':
+                x = torch.log(x + self.log_zero_guard_value(x))
+            elif self.log_zero_guard_type == 'clamp':
+                x = torch.log(torch.clamp(x, min=self.log_zero_guard_value(x)))
+            else:
+                raise ValueError('log_zero_guard_type was not understood')
+        if self.frame_splicing > 1:
+            x = splice_frames(x, self.frame_splicing)
+        if self.normalize:
+            x = normalize_batch(x, seq_len, normalize_type=self.normalize)
+        max_len = x.size(-1)
+        mask = torch.arange(max_len)
+        mask = mask.expand(x.size(0), max_len) >= seq_len.unsqueeze(1)
+        x = x.masked_fill(mask.unsqueeze(1).type(torch.bool), self.pad_value)
+        del mask
+        pad_to = self.pad_to
+        if not self.training:
+            pad_to = 16
+        if pad_to == 'max':
+            x = nn.functional.pad(x, (0, self.max_length - x.size(-1)), value=self.pad_value)
+        elif pad_to > 0:
+            pad_amt = x.size(-1) % pad_to
+            if pad_amt != 0:
+                x = nn.functional.pad(x, (0, pad_to - pad_amt), value=self.pad_value)
+        return x
+
+
+class AudioToMelSpectrogramPreprocessor(AudioPreprocessor):
+    """Featurizer that converts wavs to mel spectrograms.
+    We don't use torchaudio's implementation here because the original
+    implementation is not the same, so for the sake of backwards-compatibility
+    this will use the old FilterbankFeatures for now.
+
+    Args:
+        sample_rate (int): Sample rate of the input audio data.
+            Defaults to 16000
+        window_size (float): Size of window for fft in seconds
+            Defaults to 0.02
+        window_stride (float): Stride of window for fft in seconds
+            Defaults to 0.01
+        n_window_size (int): Size of window for fft in samples
+            Defaults to None. Use one of window_size or n_window_size.
+        n_window_stride (int): Stride of window for fft in samples
+            Defaults to None. Use one of window_stride or n_window_stride.
+        window (str): Windowing function for fft. can be one of ['hann',
+            'hamming', 'blackman', 'bartlett']
+            Defaults to "hann"
+        normalize (str): Can be one of ['per_feature', 'all_features']; all
+            other options disable feature normalization. 'all_features'
+            normalizes the entire spectrogram to be mean 0 with std 1.
+            'pre_features' normalizes per channel / freq instead.
+            Defaults to "per_feature"
+        n_fft (int): Length of FT window. If None, it uses the smallest power
+            of 2 that is larger than n_window_size.
+            Defaults to None
+        preemph (float): Amount of pre emphasis to add to audio. Can be
+            disabled by passing None.
+            Defaults to 0.97
+        features (int): Number of mel spectrogram freq bins to output.
+            Defaults to 64
+        lowfreq (int): Lower bound on mel basis in Hz.
+            Defaults to 0
+        highfreq  (int): Lower bound on mel basis in Hz.
+            Defaults to None
+        log (bool): Log features.
+            Defaults to True
+        log_zero_guard_type(str): Need to avoid taking the log of zero. There
+            are two options: "add" or "clamp".
+            Defaults to "add".
+        log_zero_guard_value(float, or str): Add or clamp requires the number
+            to add with or clamp to. log_zero_guard_value can either be a float
+            or "tiny" or "eps". torch.finfo is used if "tiny" or "eps" is
+            passed.
+            Defaults to 2**-24.
+        dither (float): Amount of white-noise dithering.
+            Defaults to 1e-5
+        pad_to (int): Ensures that the output size of the time dimension is
+            a multiple of pad_to.
+            Defaults to 16
+        frame_splicing (int): Defaults to 1
+        stft_conv (bool): If True, uses pytorch_stft and convolutions. If
+            False, uses torch.stft.
+            Defaults to False
+        pad_value (float): The value that shorter mels are padded with.
+            Defaults to 0
+        mag_power (float): The power that the linear spectrogram is raised to
+            prior to multiplication with mel basis.
+            Defaults to 2 for a power spec
+    """
+
+    def __init__(self, *, sample_rate=16000, window_size=0.02, window_stride=0.01, n_window_size=None, n_window_stride=None, window='hann', normalize='per_feature', n_fft=None, preemph=0.97, features=64, lowfreq=0, highfreq=None, log=True, log_zero_guard_type='add', log_zero_guard_value=2 ** -24, dither=1e-05, pad_to=16, frame_splicing=1, stft_conv=False, pad_value=0, mag_power=2.0, **kwargs):
+        if window_size and n_window_size:
+            raise ValueError(f'{self} received both window_size and n_window_size. Only one should be specified.')
+        if window_stride and n_window_stride:
+            raise ValueError(f'{self} received both window_stride and n_window_stride. Only one should be specified.')
+        if window_size:
+            n_window_size = int(window_size * sample_rate)
+        if window_stride:
+            n_window_stride = int(window_stride * sample_rate)
+        super().__init__(n_window_size, n_window_stride, **kwargs)
+        self.featurizer = FilterbankFeatures(sample_rate=sample_rate, n_window_size=n_window_size, n_window_stride=n_window_stride, window=window, normalize=normalize, n_fft=n_fft, preemph=preemph, nfilt=features, lowfreq=lowfreq, highfreq=highfreq, log=log, log_zero_guard_type=log_zero_guard_type, log_zero_guard_value=log_zero_guard_value, dither=dither, pad_to=pad_to, frame_splicing=frame_splicing, stft_conv=stft_conv, pad_value=pad_value, mag_power=mag_power, logger=None)
+
+    def get_features(self, input_signal, length):
+        return self.featurizer(input_signal, length)
+
+    def get_seq_len(self, seq_len):
+        return self.featurizer.get_seq_len(seq_len)
+
+    @property
+    def filter_banks(self):
+        return self.featurizer.filter_banks
+
+
+class AudioToMFCCPreprocessor(AudioPreprocessor):
+    """Preprocessor that converts wavs to MFCCs.
+    Uses torchaudio.transforms.MFCC.
+
+    Args:
+        sample_rate: The sample rate of the audio.
+            Defaults to 16000.
+        window_size: Size of window for fft in seconds. Used to calculate the
+            win_length arg for mel spectrogram.
+            Defaults to 0.02
+        window_stride: Stride of window for fft in seconds. Used to caculate
+            the hop_length arg for mel spect.
+            Defaults to 0.01
+        n_window_size: Size of window for fft in samples
+            Defaults to None. Use one of window_size or n_window_size.
+        n_window_stride: Stride of window for fft in samples
+            Defaults to None. Use one of window_stride or n_window_stride.
+        window: Windowing function for fft. can be one of ['hann',
+            'hamming', 'blackman', 'bartlett', 'none', 'null'].
+            Defaults to 'hann'
+        n_fft: Length of FT window. If None, it uses the smallest power of 2
+            that is larger than n_window_size.
+            Defaults to None
+        lowfreq (int): Lower bound on mel basis in Hz.
+            Defaults to 0
+        highfreq  (int): Lower bound on mel basis in Hz.
+            Defaults to None
+        n_mels: Number of mel filterbanks.
+            Defaults to 64
+        n_mfcc: Number of coefficients to retain
+            Defaults to 64
+        dct_type: Type of discrete cosine transform to use
+        norm: Type of norm to use
+        log: Whether to use log-mel spectrograms instead of db-scaled.
+            Defaults to True.
+    """
+
+    def __init__(self, *, sample_rate=16000, window_size=0.02, window_stride=0.01, n_window_size=None, n_window_stride=None, window='hann', n_fft=None, lowfreq=0.0, highfreq=None, n_mels=64, n_mfcc=64, dct_type=2, norm='ortho', log=True, **kwargs):
+        if not have_torchaudio:
+            raise ModuleNotFoundError('torchaudio is not installed but is necessary for AudioToMFCCPreprocessor. We recommend you try building it from source for the PyTorch version you have.')
+        if window_size and n_window_size:
+            raise ValueError(f'{self} received both window_size and n_window_size. Only one should be specified.')
+        if window_stride and n_window_stride:
+            raise ValueError(f'{self} received both window_stride and n_window_stride. Only one should be specified.')
+        if window_size:
+            n_window_size = int(window_size * sample_rate)
+        if window_stride:
+            n_window_stride = int(window_stride * sample_rate)
+        super().__init__(n_window_size, n_window_stride, **kwargs)
+        mel_kwargs = {}
+        mel_kwargs['f_min'] = lowfreq
+        mel_kwargs['f_max'] = highfreq
+        mel_kwargs['n_mels'] = n_mels
+        mel_kwargs['n_fft'] = n_fft or 2 ** math.ceil(math.log2(n_window_size))
+        mel_kwargs['win_length'] = n_window_size
+        mel_kwargs['hop_length'] = n_window_stride
+        window_fn = self.torch_windows.get(window, None)
+        if window_fn is None:
+            raise ValueError(f"Window argument for AudioProcessor is invalid: {window}.For no window function, use 'ones' or None.")
+        mel_kwargs['window_fn'] = window_fn
+        self.featurizer = torchaudio.transforms.MFCC(sample_rate=sample_rate, n_mfcc=n_mfcc, dct_type=dct_type, norm=norm, log_mels=log, melkwargs=mel_kwargs)
+        self.featurizer
+
+    def get_features(self, input_signal, length):
+        return self.featurizer(input_signal)
+
+
+class SpecAugment(nn.Module):
+    """
+    Zeroes out(cuts) random continuous horisontal or
+    vertical segments of the spectrogram as described in
+    SpecAugment (https://arxiv.org/abs/1904.08779).
+
+    params:
+    freq_masks - how many frequency segments should be cut
+    time_masks - how many time segments should be cut
+    freq_width - maximum number of frequencies to be cut in one segment
+    time_width - maximum number of time steps to be cut in one segment
+    """
+
+    def __init__(self, freq_masks=0, time_masks=0, freq_width=10, time_width=10, rng=None):
+        super(SpecAugment, self).__init__()
+        self._rng = random.Random() if rng is None else rng
+        self.freq_masks = freq_masks
+        self.time_masks = time_masks
+        self.freq_width = freq_width
+        self.time_width = time_width
+
+    @torch.no_grad()
+    def forward(self, x):
+        sh = x.shape
+        mask = torch.zeros(x.shape).byte()
+        for idx in range(sh[0]):
+            for i in range(self.freq_masks):
+                x_left = int(self._rng.uniform(0, sh[1] - self.freq_width))
+                w = int(self._rng.uniform(0, self.freq_width))
+                mask[(idx), x_left:x_left + w, :] = 1
+            for i in range(self.time_masks):
+                y_left = int(self._rng.uniform(0, sh[2] - self.time_width))
+                w = int(self._rng.uniform(0, self.time_width))
+                mask[(idx), :, y_left:y_left + w] = 1
+        x = x.masked_fill(mask.type(torch.bool), 0)
+        return x
+
+
+class SpecCutout(nn.Module):
+    """
+    Zeroes out(cuts) random rectangles in the spectrogram
+    as described in (https://arxiv.org/abs/1708.04552).
+
+    params:
+    rect_masks - how many rectangular masks should be cut
+    rect_freq - maximum size of cut rectangles along the frequency dimension
+    rect_time - maximum size of cut rectangles along the time dimension
+    """
+
+    def __init__(self, rect_masks=0, rect_time=5, rect_freq=20, rng=None):
+        super(SpecCutout, self).__init__()
+        self._rng = random.Random() if rng is None else rng
+        self.rect_masks = rect_masks
+        self.rect_time = rect_time
+        self.rect_freq = rect_freq
+
+    @torch.no_grad()
+    def forward(self, x):
+        sh = x.shape
+        mask = torch.zeros(x.shape).byte()
+        for idx in range(sh[0]):
+            for i in range(self.rect_masks):
+                rect_x = int(self._rng.uniform(0, sh[1] - self.rect_freq))
+                rect_y = int(self._rng.uniform(0, sh[2] - self.rect_time))
+                w_x = int(self._rng.uniform(0, self.rect_time))
+                w_y = int(self._rng.uniform(0, self.rect_freq))
+                mask[(idx), rect_x:rect_x + w_x, rect_y:rect_y + w_y] = 1
+        x = x.masked_fill(mask.type(torch.bool), 0)
+        return x
 
 
 class SpectrogramAugmentation(nn.Module):
@@ -2500,7 +3187,7 @@ def clean_punctuations(string, table, punctuation_to_replace):
 
 def warn_common_chars(string):
     if re.search('[£€]', string):
-        print("WARNING: Your transcript contains one of '£' or '€' which we donot currently handle")
+        None
 
 
 def clean_text(string, table, punctuation_to_replace):
@@ -2535,7 +3222,7 @@ class ManifestEN(ManifestBase):
             if logger:
                 logger.warning('WARNING: Normalizing {} failed'.format(text))
             else:
-                print('WARNING: Normalizing {} failed'.format(text))
+                None
             return None
         return text
 
@@ -2883,7 +3570,7 @@ class AudioAugmentor(object):
         ptbs = []
         for p in config:
             if p['aug_type'] not in perturbation_types:
-                print(p['aug_type'], 'perturbation not known. Skipping.')
+                None
                 continue
             perturbation = perturbation_types[p['aug_type']]
             ptbs.append((p['prob'], perturbation(**p['cfg'])))
@@ -3077,157 +3764,6 @@ class CTCLossNM(nn.Module):
 
     def _loss_function(self, **kwargs):
         return self._loss(*kwargs.values())
-
-
-CONSTANT = 1e-05
-
-
-def normalize_batch(x, seq_len, normalize_type):
-    if normalize_type == 'per_feature':
-        x_mean = torch.zeros((seq_len.shape[0], x.shape[1]), dtype=x.dtype, device=x.device)
-        x_std = torch.zeros((seq_len.shape[0], x.shape[1]), dtype=x.dtype, device=x.device)
-        for i in range(x.shape[0]):
-            x_mean[(i), :] = x[(i), :, :seq_len[i]].mean(dim=1)
-            x_std[(i), :] = x[(i), :, :seq_len[i]].std(dim=1)
-        x_std += CONSTANT
-        return (x - x_mean.unsqueeze(2)) / x_std.unsqueeze(2)
-    elif normalize_type == 'all_features':
-        x_mean = torch.zeros(seq_len.shape, dtype=x.dtype, device=x.device)
-        x_std = torch.zeros(seq_len.shape, dtype=x.dtype, device=x.device)
-        for i in range(x.shape[0]):
-            x_mean[i] = x[(i), :, :seq_len[i].item()].mean()
-            x_std[i] = x[(i), :, :seq_len[i].item()].std()
-        x_std += CONSTANT
-        return (x - x_mean.view(-1, 1, 1)) / x_std.view(-1, 1, 1)
-    else:
-        return x
-
-
-def splice_frames(x, frame_splicing):
-    """ Stacks frames together across feature dim
-
-    input is batch_size, feature_dim, num_frames
-    output is batch_size, feature_dim*frame_splicing, num_frames
-
-    """
-    seq = [x]
-    for n in range(1, frame_splicing):
-        seq.append(torch.cat([x[:, :, :n], x[:, :, n:]], dim=2))
-    return torch.cat(seq, dim=1)
-
-
-class FilterbankFeatures(nn.Module):
-    """Featurizer that converts wavs to Mel Spectrograms.
-    See AudioToMelSpectrogramPreprocessor for args.
-    """
-
-    def __init__(self, *, sample_rate=16000, n_window_size=320, n_window_stride=160, window='hann', normalize='per_feature', n_fft=None, preemph=0.97, nfilt=64, lowfreq=0, highfreq=None, log=True, log_zero_guard_type='add', log_zero_guard_value=2 ** -24, dither=CONSTANT, pad_to=16, max_duration=16.7, frame_splicing=1, stft_conv=False, pad_value=0, mag_power=2.0, logger=None):
-        super(FilterbankFeatures, self).__init__()
-        if n_window_size is None or n_window_stride is None or not isinstance(n_window_size, int) or not isinstance(n_window_stride, int) or n_window_size <= 0 or n_window_stride <= 0:
-            raise ValueError(f'{self} got an invalid value for either n_window_size or n_window_stride. Both must be positive ints.')
-        if logger:
-            logger.info(f'PADDING: {pad_to}')
-        else:
-            None
-        self.win_length = n_window_size
-        self.hop_length = n_window_stride
-        self.n_fft = n_fft or 2 ** math.ceil(math.log2(self.win_length))
-        self.stft_conv = stft_conv
-        if stft_conv:
-            if logger:
-                logger.info('STFT using conv')
-            else:
-                None
-
-
-            class STFTPatch(STFT):
-
-                def __init__(self, *params, **kw_params):
-                    super(STFTPatch, self).__init__(*params, **kw_params)
-
-                def forward(self, input_data):
-                    return super(STFTPatch, self).transform(input_data)[0]
-            self.stft = STFTPatch(self.n_fft, self.hop_length, self.win_length, window)
-        else:
-            None
-            torch_windows = {'hann': torch.hann_window, 'hamming': torch.hamming_window, 'blackman': torch.blackman_window, 'bartlett': torch.bartlett_window, 'none': None}
-            window_fn = torch_windows.get(window, None)
-            window_tensor = window_fn(self.win_length, periodic=False) if window_fn else None
-            self.register_buffer('window', window_tensor)
-            self.stft = lambda x: torch.stft(x, n_fft=self.n_fft, hop_length=self.hop_length, win_length=self.win_length, center=True, window=self.window)
-        self.normalize = normalize
-        self.log = log
-        self.dither = dither
-        self.frame_splicing = frame_splicing
-        self.nfilt = nfilt
-        self.preemph = preemph
-        self.pad_to = pad_to
-        highfreq = highfreq or sample_rate / 2
-        filterbanks = torch.tensor(librosa.filters.mel(sample_rate, self.n_fft, n_mels=nfilt, fmin=lowfreq, fmax=highfreq), dtype=torch.float).unsqueeze(0)
-        self.register_buffer('fb', filterbanks)
-        max_length = self.get_seq_len(torch.tensor(max_duration * sample_rate, dtype=torch.float))
-        max_pad = pad_to - max_length % pad_to
-        self.max_length = max_length + max_pad
-        self.pad_value = pad_value
-        self.mag_power = mag_power
-        if log_zero_guard_type not in ['add', 'clamp']:
-            raise ValueError(f"{self} received {log_zero_guard_type} for the log_zero_guard_type parameter. It must be either 'add' or 'clamp'.")
-        self.log_zero_guard_value = lambda _: log_zero_guard_value
-        if isinstance(log_zero_guard_value, str):
-            if log_zero_guard_value == 'tiny':
-                self.log_zero_guard_value = lambda x: torch.finfo(x.dtype).tiny
-            elif log_zero_guard_value == 'eps':
-                self.log_zero_guard_value = lambda x: torch.finfo(x.dtype).eps
-            else:
-                raise ValueError(f"{self} received {log_zero_guard_value} for the log_zero_guard_type parameter. It must be either a number, 'tiny', or 'eps'")
-        self.log_zero_guard_type = log_zero_guard_type
-
-    def get_seq_len(self, seq_len):
-        return torch.ceil(seq_len / self.hop_length)
-
-    @property
-    def filter_banks(self):
-        return self.fb
-
-    @torch.no_grad()
-    def forward(self, x, seq_len):
-        seq_len = self.get_seq_len(seq_len.float())
-        if self.dither > 0:
-            x += self.dither * torch.randn_like(x)
-        if self.preemph is not None:
-            x = torch.cat((x[:, (0)].unsqueeze(1), x[:, 1:] - self.preemph * x[:, :-1]), dim=1)
-        x = self.stft(x)
-        if self.mag_power != 1.0:
-            x = x.pow(self.mag_power)
-        if not self.stft_conv:
-            x = x.sum(-1)
-        x = torch.matmul(self.fb, x)
-        if self.log:
-            if self.log_zero_guard_type == 'add':
-                x = torch.log(x + self.log_zero_guard_value(x))
-            elif self.log_zero_guard_type == 'clamp':
-                x = torch.log(torch.clamp(x, min=self.log_zero_guard_value(x)))
-            else:
-                raise ValueError('log_zero_guard_type was not understood')
-        if self.frame_splicing > 1:
-            x = splice_frames(x, self.frame_splicing)
-        if self.normalize:
-            x = normalize_batch(x, seq_len, normalize_type=self.normalize)
-        max_len = x.size(-1)
-        mask = torch.arange(max_len)
-        mask = mask.expand(x.size(0), max_len) >= seq_len.unsqueeze(1)
-        x = x.masked_fill(mask.unsqueeze(1).type(torch.bool), self.pad_value)
-        del mask
-        pad_to = self.pad_to
-        if not self.training:
-            pad_to = 16
-        if pad_to == 'max':
-            x = nn.functional.pad(x, (0, self.max_length - x.size(-1)), value=self.pad_value)
-        elif pad_to > 0:
-            pad_amt = x.size(-1) % pad_to
-            if pad_amt != 0:
-                x = nn.functional.pad(x, (0, pad_to - pad_amt), value=self.pad_value)
-        return x
 
 
 BIAS_CONFIGS = False
@@ -3477,7 +4013,7 @@ class JasperBlock(nn.Module):
                     elif conv_mod.bias is not None and not conv_bias_key in state_dict:
                         state_dict[conv_bias_key] = add_factor
                     else:
-                        if torch.is_available():
+                        if torch.cuda.is_available():
                             add_factor = add_factor
                         conv_mod.bias = nn.Parameter(add_factor)
                         state_dict[conv_bias_key] = add_factor
@@ -3487,77 +4023,6 @@ class JasperBlock(nn.Module):
             if k in keys_to_delete:
                 del state_dict[k]
         assert len(self.conv_module_to_merge) == index
-
-
-class SpecAugment(nn.Module):
-    """
-    Zeroes out(cuts) random continuous horisontal or
-    vertical segments of the spectrogram as described in
-    SpecAugment (https://arxiv.org/abs/1904.08779).
-
-    params:
-    freq_masks - how many frequency segments should be cut
-    time_masks - how many time segments should be cut
-    freq_width - maximum number of frequencies to be cut in one segment
-    time_width - maximum number of time steps to be cut in one segment
-    """
-
-    def __init__(self, freq_masks=0, time_masks=0, freq_width=10, time_width=10, rng=None):
-        super(SpecAugment, self).__init__()
-        self._rng = random.Random() if rng is None else rng
-        self.freq_masks = freq_masks
-        self.time_masks = time_masks
-        self.freq_width = freq_width
-        self.time_width = time_width
-
-    @torch.no_grad()
-    def forward(self, x):
-        sh = x.shape
-        mask = torch.zeros(x.shape).byte()
-        for idx in range(sh[0]):
-            for i in range(self.freq_masks):
-                x_left = int(self._rng.uniform(0, sh[1] - self.freq_width))
-                w = int(self._rng.uniform(0, self.freq_width))
-                mask[(idx), x_left:x_left + w, :] = 1
-            for i in range(self.time_masks):
-                y_left = int(self._rng.uniform(0, sh[2] - self.time_width))
-                w = int(self._rng.uniform(0, self.time_width))
-                mask[(idx), :, y_left:y_left + w] = 1
-        x = x.masked_fill(mask.type(torch.bool), 0)
-        return x
-
-
-class SpecCutout(nn.Module):
-    """
-    Zeroes out(cuts) random rectangles in the spectrogram
-    as described in (https://arxiv.org/abs/1708.04552).
-
-    params:
-    rect_masks - how many rectangular masks should be cut
-    rect_freq - maximum size of cut rectangles along the frequency dimension
-    rect_time - maximum size of cut rectangles along the time dimension
-    """
-
-    def __init__(self, rect_masks=0, rect_time=5, rect_freq=20, rng=None):
-        super(SpecCutout, self).__init__()
-        self._rng = random.Random() if rng is None else rng
-        self.rect_masks = rect_masks
-        self.rect_time = rect_time
-        self.rect_freq = rect_freq
-
-    @torch.no_grad()
-    def forward(self, x):
-        sh = x.shape
-        mask = torch.zeros(x.shape).byte()
-        for idx in range(sh[0]):
-            for i in range(self.rect_masks):
-                rect_x = int(self._rng.uniform(0, sh[1] - self.rect_freq))
-                rect_y = int(self._rng.uniform(0, sh[2] - self.rect_time))
-                w_x = int(self._rng.uniform(0, self.rect_time))
-                w_y = int(self._rng.uniform(0, self.rect_freq))
-                mask[(idx), rect_x:rect_x + w_x, rect_y:rect_y + w_y] = 1
-        x = x.masked_fill(mask.type(torch.bool), 0)
-        return x
 
 
 def init_weights(m, mode='xavier_uniform'):
@@ -3722,15 +4187,6 @@ class Quartznet(nn.Module):
         None
 
 
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
 MAX_WAV_VALUE = 32768.0
 
 
@@ -3746,6 +4202,39 @@ def make_leakyRelu_activation(bit_width):
     el2 = make_hardtanh_activation(bit_width=bit_width)
     layer = nn.Sequential(el1, el2)
     return layer
+
+
+class ResStack(nn.Module):
+
+    def __init__(self, channel, bit_width):
+        super(ResStack, self).__init__()
+        self.scale_norm = make_hardtanh_activation(bit_width=bit_width, return_quant_tensor=True)
+        self.layers = nn.ModuleList([nn.Sequential(make_leakyRelu_activation(bit_width), nn.utils.weight_norm(make_quantconv1d(channel, channel, kernel_size=3, stride=1, padding=3 ** i, dilation=3 ** i, bit_width=bit_width)), make_leakyRelu_activation(bit_width), nn.utils.weight_norm(make_quantconv1d(channel, channel, kernel_size=3, stride=1, padding=1, dilation=1, bit_width=bit_width))) for i in range(3)])
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = self.scale_norm(x)
+            if isinstance(x, QuantTensor):
+                x_unp, _, _ = x
+            else:
+                x_unp = x
+            x_layer = self.scale_norm(layer(x_unp))
+            if isinstance(x_layer, QuantTensor):
+                x_layer_unp, _, _ = x_layer
+            else:
+                x_layer_unp = x_layer
+            if self.training:
+                x = x_unp + x_layer_unp
+            else:
+                x = x + x_layer
+        if isinstance(x, QuantTensor):
+            x, _, _ = x
+        return x
+
+    def remove_weight_norm(self):
+        for layer in self.layers:
+            nn.utils.remove_weight_norm(layer[1])
+            nn.utils.remove_weight_norm(layer[3])
 
 
 def make_tanh_activation(bit_width):
@@ -3791,149 +4280,6 @@ class Generator(nn.Module):
         audio = audio.clamp(min=-MAX_WAV_VALUE, max=MAX_WAV_VALUE - 1)
         audio = audio.short()
         return audio
-
-
-class ResStack(nn.Module):
-
-    def __init__(self, channel, bit_width):
-        super(ResStack, self).__init__()
-        self.scale_norm = make_hardtanh_activation(bit_width=bit_width, return_quant_tensor=True)
-        self.layers = nn.ModuleList([nn.Sequential(make_leakyRelu_activation(bit_width), nn.utils.weight_norm(make_quantconv1d(channel, channel, kernel_size=3, stride=1, padding=3 ** i, dilation=3 ** i, bit_width=bit_width)), make_leakyRelu_activation(bit_width), nn.utils.weight_norm(make_quantconv1d(channel, channel, kernel_size=3, stride=1, padding=1, dilation=1, bit_width=bit_width))) for i in range(3)])
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = self.scale_norm(x)
-            if isinstance(x, QuantTensor):
-                x_unp, _, _ = x
-            else:
-                x_unp = x
-            x_layer = self.scale_norm(layer(x_unp))
-            if isinstance(x_layer, QuantTensor):
-                x_layer_unp, _, _ = x_layer
-            else:
-                x_layer_unp = x_layer
-            if self.training:
-                x = x_unp + x_layer_unp
-            else:
-                x = x + x_layer
-        if isinstance(x, QuantTensor):
-            x, _, _ = x
-        return x
-
-    def remove_weight_norm(self):
-        for layer in self.layers:
-            nn.utils.remove_weight_norm(layer[1])
-            nn.utils.remove_weight_norm(layer[3])
-
-
-def window_sumsquare(window, n_frames, hop_length=200, win_length=800, n_fft=800, dtype=np.float32, norm=None):
-    """
-    # from librosa 0.6
-    Compute the sum-square envelope of a window function at a given hop length.
-
-    This is used to estimate modulation effects induced by windowing
-    observations in short-time fourier transforms.
-
-    Parameters
-    ----------
-    window : string, tuple, number, callable, or list-like
-        Window specification, as in `get_window`
-
-    n_frames : int > 0
-        The number of analysis frames
-
-    hop_length : int > 0
-        The number of samples to advance between frames
-
-    win_length : [optional]
-        The length of the window function.  By default, this matches `n_fft`.
-
-    n_fft : int > 0
-        The length of each analysis frame.
-
-    dtype : np.dtype
-        The data type of the output
-
-    Returns
-    -------
-    wss : np.ndarray, shape=`(n_fft + hop_length * (n_frames - 1))`
-        The sum-squared envelope of the window function
-    """
-    if win_length is None:
-        win_length = n_fft
-    n = n_fft + hop_length * (n_frames - 1)
-    x = np.zeros(n, dtype=dtype)
-    win_sq = get_window(window, win_length, fftbins=True)
-    win_sq = librosa_util.normalize(win_sq, norm=norm) ** 2
-    win_sq = librosa_util.pad_center(win_sq, n_fft)
-    for i in range(n_frames):
-        sample = i * hop_length
-        x[sample:min(n, sample + n_fft)] += win_sq[:max(0, min(n_fft, n - sample))]
-    return x
-
-
-class STFT(torch.nn.Module):
-    """adapted from Prem Seetharaman's https://github.com/pseeth/pytorch-stft"""
-
-    def __init__(self, filter_length=800, hop_length=200, win_length=800, window='hann'):
-        super(STFT, self).__init__()
-        self.filter_length = filter_length
-        self.hop_length = hop_length
-        self.win_length = win_length
-        self.window = window
-        self.forward_transform = None
-        scale = self.filter_length / self.hop_length
-        fourier_basis = np.fft.fft(np.eye(self.filter_length))
-        cutoff = int(self.filter_length / 2 + 1)
-        fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.imag(fourier_basis[:cutoff, :])])
-        forward_basis = torch.FloatTensor(fourier_basis[:, (None), :])
-        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, (None), :])
-        if window is not None:
-            assert filter_length >= win_length
-            fft_window = get_window(window, win_length, fftbins=True)
-            fft_window = pad_center(fft_window, filter_length)
-            fft_window = torch.from_numpy(fft_window).float()
-            forward_basis *= fft_window
-            inverse_basis *= fft_window
-        self.register_buffer('forward_basis', forward_basis.float())
-        self.register_buffer('inverse_basis', inverse_basis.float())
-
-    def transform(self, input_data):
-        num_batches = input_data.size(0)
-        num_samples = input_data.size(1)
-        self.num_samples = num_samples
-        input_data = input_data.view(num_batches, 1, num_samples)
-        input_data = F.pad(input_data.unsqueeze(1), (int(self.filter_length / 2), int(self.filter_length / 2), 0, 0), mode='reflect')
-        input_data = input_data.squeeze(1)
-        if torch.is_available():
-            forward_transform = F.conv1d(input_data, Variable(self.forward_basis, requires_grad=False), stride=self.hop_length, padding=0).cpu()
-        else:
-            forward_transform = F.conv1d(input_data, Variable(self.forward_basis, requires_grad=False), stride=self.hop_length, padding=0).cpu()
-        cutoff = int(self.filter_length / 2 + 1)
-        real_part = forward_transform[:, :cutoff, :]
-        imag_part = forward_transform[:, cutoff:, :]
-        magnitude = torch.sqrt(real_part ** 2 + imag_part ** 2)
-        phase = torch.autograd.Variable(torch.atan2(imag_part.data, real_part.data))
-        return magnitude, phase
-
-    def inverse(self, magnitude, phase):
-        recombine_magnitude_phase = torch.cat([magnitude * torch.cos(phase), magnitude * torch.sin(phase)], dim=1)
-        inverse_transform = F.conv_transpose1d(recombine_magnitude_phase, Variable(self.inverse_basis, requires_grad=False), stride=self.hop_length, padding=0)
-        if self.window is not None:
-            window_sum = window_sumsquare(self.window, magnitude.size(-1), hop_length=self.hop_length, win_length=self.win_length, n_fft=self.filter_length, dtype=np.float32)
-            approx_nonzero_indices = torch.from_numpy(np.where(window_sum > tiny(window_sum))[0])
-            window_sum = torch.autograd.Variable(torch.from_numpy(window_sum), requires_grad=False)
-            window_sum = window_sum if magnitude.is_cuda else window_sum
-            inverse_transform[:, :, (approx_nonzero_indices)] /= window_sum[approx_nonzero_indices]
-            inverse_transform *= float(self.filter_length) / self.hop_length
-        inverse_transform = inverse_transform[:, :, int(self.filter_length / 2):]
-        inverse_transform = inverse_transform[:, :, :-int(self.filter_length / 2)]
-        return inverse_transform
-
-    def forward(self, input_data):
-        self.magnitude, self.phase = self.transform(input_data)
-        reconstruction = self.inverse(self.magnitude, self.phase)
-        return reconstruction
 
 
 def dynamic_range_compression(x, C=1, clip_val=1e-05):

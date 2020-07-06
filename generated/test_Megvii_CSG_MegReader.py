@@ -120,6 +120,7 @@ eval = _module
 experiment = _module
 ops = _module
 ctc_loss_2d = _module
+setup = _module
 json_to_lmdb = _module
 nori_to_lmdb = _module
 structure = _module
@@ -143,11 +144,13 @@ mask_rcnn = _module
 seg_detector_representer = _module
 seg_recognition_representer = _module
 sequence_recognition_representer = _module
+visualizer = _module
 visualizers = _module
 ctc_visualizer2d = _module
 seg_detector_visualizer = _module
 seg_recognition_visualizer = _module
 sequence_recognition_visualizer = _module
+textsnake = _module
 train = _module
 trainer = _module
 checkpoint = _module
@@ -159,15 +162,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -190,16 +194,34 @@ import torch.nn as nn
 from torch import nn
 
 
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
 import torch.nn.functional as F
 
 
 import torch.utils.model_zoo as model_zoo
 
 
-import numpy as np
+import functools
 
 
 import torch.distributed as dist
+
+
+from collections import defaultdict
+
+
+import torch.utils.data as data
+
+
+import time
+
+
+import numpy as np
 
 
 from torch.utils.data import Sampler
@@ -211,7 +233,10 @@ from torch.utils.data import ConcatDataset
 from torch.utils.data import BatchSampler
 
 
-import time
+from torch.utils.data import Dataset as TorchDataset
+
+
+from collections import OrderedDict
 
 
 import warnings
@@ -220,7 +245,13 @@ import warnings
 from scipy import ndimage
 
 
-from collections import OrderedDict
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+import torch.optim.lr_scheduler as lr_scheduler
 
 
 class DeformConvFunction(Function):
@@ -311,6 +342,22 @@ class DeformConv(nn.Module):
         return deform_conv(x, offset, self.weight, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
 
 
+class DeformConvPack(DeformConv):
+
+    def __init__(self, *args, **kwargs):
+        super(DeformConvPack, self).__init__(*args, **kwargs)
+        self.conv_offset = nn.Conv2d(self.in_channels, self.deformable_groups * 2 * self.kernel_size[0] * self.kernel_size[1], kernel_size=self.kernel_size, stride=_pair(self.stride), padding=_pair(self.padding), bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset.weight.data.zero_()
+        self.conv_offset.bias.data.zero_()
+
+    def forward(self, x):
+        offset = self.conv_offset(x)
+        return deform_conv(x, offset, self.weight, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
+
+
 class ModulatedDeformConvFunction(Function):
 
     @staticmethod
@@ -394,6 +441,25 @@ class ModulatedDeformConv(nn.Module):
         return modulated_deform_conv(x, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
 
 
+class ModulatedDeformConvPack(ModulatedDeformConv):
+
+    def __init__(self, *args, **kwargs):
+        super(ModulatedDeformConvPack, self).__init__(*args, **kwargs)
+        self.conv_offset_mask = nn.Conv2d(self.in_channels, self.deformable_groups * 3 * self.kernel_size[0] * self.kernel_size[1], kernel_size=self.kernel_size, stride=_pair(self.stride), padding=_pair(self.padding), bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset_mask.weight.data.zero_()
+        self.conv_offset_mask.bias.data.zero_()
+
+    def forward(self, x):
+        out = self.conv_offset_mask(x)
+        o1, o2, mask = torch.chunk(out, 3, dim=1)
+        offset = torch.cat((o1, o2), dim=1)
+        mask = torch.sigmoid(mask)
+        return modulated_deform_conv(x, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
+
+
 class DeformRoIPoolingFunction(Function):
 
     @staticmethod
@@ -451,6 +517,97 @@ class DeformRoIPooling(nn.Module):
         if self.no_trans:
             offset = data.new_empty(0)
         return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+
+
+class DeformRoIPoolingPack(DeformRoIPooling):
+
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, num_offset_fcs=3, deform_fc_channels=1024):
+        super(DeformRoIPoolingPack, self).__init__(spatial_scale, out_size, out_channels, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.num_offset_fcs = num_offset_fcs
+        self.deform_fc_channels = deform_fc_channels
+        if not no_trans:
+            seq = []
+            ic = self.out_size * self.out_size * self.out_channels
+            for i in range(self.num_offset_fcs):
+                if i < self.num_offset_fcs - 1:
+                    oc = self.deform_fc_channels
+                else:
+                    oc = self.out_size * self.out_size * 2
+                seq.append(nn.Linear(ic, oc))
+                ic = oc
+                if i < self.num_offset_fcs - 1:
+                    seq.append(nn.ReLU(inplace=True))
+            self.offset_fc = nn.Sequential(*seq)
+            self.offset_fc[-1].weight.data.zero_()
+            self.offset_fc[-1].bias.data.zero_()
+
+    def forward(self, data, rois):
+        assert data.size(1) == self.out_channels
+        if self.no_trans:
+            offset = data.new_empty(0)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+        else:
+            n = rois.shape[0]
+            offset = data.new_empty(0)
+            x = deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset = self.offset_fc(x.view(n, -1))
+            offset = offset.view(n, 2, self.out_size, self.out_size)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+
+
+class ModulatedDeformRoIPoolingPack(DeformRoIPooling):
+
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, num_offset_fcs=3, num_mask_fcs=2, deform_fc_channels=1024):
+        super(ModulatedDeformRoIPoolingPack, self).__init__(spatial_scale, out_size, out_channels, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.num_offset_fcs = num_offset_fcs
+        self.num_mask_fcs = num_mask_fcs
+        self.deform_fc_channels = deform_fc_channels
+        if not no_trans:
+            offset_fc_seq = []
+            ic = self.out_size * self.out_size * self.out_channels
+            for i in range(self.num_offset_fcs):
+                if i < self.num_offset_fcs - 1:
+                    oc = self.deform_fc_channels
+                else:
+                    oc = self.out_size * self.out_size * 2
+                offset_fc_seq.append(nn.Linear(ic, oc))
+                ic = oc
+                if i < self.num_offset_fcs - 1:
+                    offset_fc_seq.append(nn.ReLU(inplace=True))
+            self.offset_fc = nn.Sequential(*offset_fc_seq)
+            self.offset_fc[-1].weight.data.zero_()
+            self.offset_fc[-1].bias.data.zero_()
+            mask_fc_seq = []
+            ic = self.out_size * self.out_size * self.out_channels
+            for i in range(self.num_mask_fcs):
+                if i < self.num_mask_fcs - 1:
+                    oc = self.deform_fc_channels
+                else:
+                    oc = self.out_size * self.out_size
+                mask_fc_seq.append(nn.Linear(ic, oc))
+                ic = oc
+                if i < self.num_mask_fcs - 1:
+                    mask_fc_seq.append(nn.ReLU(inplace=True))
+                else:
+                    mask_fc_seq.append(nn.Sigmoid())
+            self.mask_fc = nn.Sequential(*mask_fc_seq)
+            self.mask_fc[-2].weight.data.zero_()
+            self.mask_fc[-2].bias.data.zero_()
+
+    def forward(self, data, rois):
+        assert data.size(1) == self.out_channels
+        if self.no_trans:
+            offset = data.new_empty(0)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+        else:
+            n = rois.shape[0]
+            offset = data.new_empty(0)
+            x = deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset = self.offset_fc(x.view(n, -1))
+            offset = offset.view(n, 2, self.out_size, self.out_size)
+            mask = self.mask_fc(x.view(n, -1))
+            mask = mask.view(n, 1, self.out_size, self.out_size)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std) * mask
 
 
 class CRNN(nn.Module):
@@ -554,9 +711,6 @@ class PPMDeepsup(nn.Module):
         ppm_out = torch.cat(ppm_out, 1)
         x = self.conv_last(ppm_out)
         return x
-
-
-_global_config['sync_bn'] = 4
 
 
 def bn(*args, **kwargs):
@@ -800,6 +954,88 @@ class ResnetDilated(nn.Module):
         return x
 
 
+class Attn(nn.Module):
+
+    def __init__(self, method, hidden_dims, embed_size):
+        super(Attn, self).__init__()
+        self.method = method
+        self.hidden_dims = hidden_dims
+        self.embed_size = embed_size
+        self.attn = nn.Linear(2 * self.hidden_dims + embed_size, hidden_dims)
+        self.v = nn.Parameter(torch.rand(hidden_dims))
+        stdv = 1.0 / math.sqrt(self.v.size(0))
+        self.v.data.normal_(mean=0, std=stdv)
+
+    def forward(self, hidden, encoder_outputs):
+        """
+        :param hidden: 
+            previous hidden state of the decoder, in shape (layers*directions,B,H)
+        :param encoder_outputs:
+            encoder outputs from Encoder, in shape (T,B,H)
+        :return
+            attention energies in shape (B,T)
+        """
+        max_len = encoder_outputs.size(0)
+        H = hidden.repeat(max_len, 1, 1).transpose(0, 1)
+        encoder_outputs = encoder_outputs.transpose(0, 1)
+        attn_energies = self.score(H, encoder_outputs)
+        return nn.functional.softmax(attn_energies, dim=1).unsqueeze(1)
+
+    def score(self, hidden, encoder_outputs):
+        energy = torch.tanh(self.attn(torch.cat([hidden, encoder_outputs], 2)))
+        energy = energy.transpose(2, 1)
+        v = self.v.repeat(encoder_outputs.data.shape[0], 1).unsqueeze(1)
+        energy = torch.bmm(v, energy)
+        return energy.squeeze(1)
+
+
+class AttentionRNNCell(nn.Module):
+
+    def __init__(self, hidden_dims, embedded_dims, nr_classes, n_layers=1, dropout_p=0, bidirectional=False):
+        super(AttentionRNNCell, self).__init__()
+        self.hidden_dims = hidden_dims
+        self.embedded_dims = embedded_dims
+        self.nr_classes = nr_classes
+        self.n_layers = n_layers
+        self.dropout_p = dropout_p
+        self.embedding = nn.Embedding(nr_classes, nr_classes)
+        self.embedding.weight.data = torch.eye(nr_classes)
+        self.dropout = nn.Dropout(dropout_p)
+        self.word_linear = nn.Linear(nr_classes, hidden_dims)
+        self.attn = Attn('concat', hidden_dims, embedded_dims)
+        self.rnn = nn.GRUCell(2 * hidden_dims + embedded_dims, hidden_dims)
+        self.out = nn.Linear(hidden_dims, nr_classes)
+
+    def forward(self, word_input, last_hidden, encoder_outputs, train=True):
+        """
+        :param word_input:
+            word input for current time step, in shape (B)
+        :param last_hidden:
+            last hidden stat of the decoder, in shape (layers*direction*B*H)
+        :param encoder_outputs:
+            encoder outputs in shape (T*B*H)
+        :return
+            decoder output
+        Note: we run this one step at a time i.e. you should use a outer loop 
+            to process the whole sequence
+        """
+        batch_size = word_input.size(0)
+        word_embedded_onehot = self.embedding(word_input.to(last_hidden.device).type(torch.long)).view(1, batch_size, -1)
+        word_embedded = self.word_linear(word_embedded_onehot)
+        attn_weights = self.attn(last_hidden, encoder_outputs)
+        context = attn_weights.bmm(encoder_outputs.transpose(0, 1))
+        context = context.transpose(0, 1)
+        rnn_input = torch.cat([word_embedded, context], 2)
+        last_hidden = last_hidden.view(batch_size, -1)
+        rnn_input = rnn_input.view(batch_size, -1)
+        hidden = self.rnn(rnn_input, last_hidden)
+        if train:
+            output = nn.functional.log_softmax(self.out(hidden), dim=1)
+        else:
+            output = nn.functional.softmax(self.out(hidden), dim=1)
+        return output, hidden, attn_weights
+
+
 class State:
 
     def __init__(self, cmd_key=None, autoload=True, default=None):
@@ -959,88 +1195,6 @@ class EnglishCharset(Charset):
 
 
 DefaultCharset = EnglishCharset
-
-
-class Attn(nn.Module):
-
-    def __init__(self, method, hidden_dims, embed_size):
-        super(Attn, self).__init__()
-        self.method = method
-        self.hidden_dims = hidden_dims
-        self.embed_size = embed_size
-        self.attn = nn.Linear(2 * self.hidden_dims + embed_size, hidden_dims)
-        self.v = nn.Parameter(torch.rand(hidden_dims))
-        stdv = 1.0 / math.sqrt(self.v.size(0))
-        self.v.data.normal_(mean=0, std=stdv)
-
-    def forward(self, hidden, encoder_outputs):
-        """
-        :param hidden: 
-            previous hidden state of the decoder, in shape (layers*directions,B,H)
-        :param encoder_outputs:
-            encoder outputs from Encoder, in shape (T,B,H)
-        :return
-            attention energies in shape (B,T)
-        """
-        max_len = encoder_outputs.size(0)
-        H = hidden.repeat(max_len, 1, 1).transpose(0, 1)
-        encoder_outputs = encoder_outputs.transpose(0, 1)
-        attn_energies = self.score(H, encoder_outputs)
-        return nn.functional.softmax(attn_energies, dim=1).unsqueeze(1)
-
-    def score(self, hidden, encoder_outputs):
-        energy = torch.tanh(self.attn(torch.cat([hidden, encoder_outputs], 2)))
-        energy = energy.transpose(2, 1)
-        v = self.v.repeat(encoder_outputs.data.shape[0], 1).unsqueeze(1)
-        energy = torch.bmm(v, energy)
-        return energy.squeeze(1)
-
-
-class AttentionRNNCell(nn.Module):
-
-    def __init__(self, hidden_dims, embedded_dims, nr_classes, n_layers=1, dropout_p=0, bidirectional=False):
-        super(AttentionRNNCell, self).__init__()
-        self.hidden_dims = hidden_dims
-        self.embedded_dims = embedded_dims
-        self.nr_classes = nr_classes
-        self.n_layers = n_layers
-        self.dropout_p = dropout_p
-        self.embedding = nn.Embedding(nr_classes, nr_classes)
-        self.embedding.weight.data = torch.eye(nr_classes)
-        self.dropout = nn.Dropout(dropout_p)
-        self.word_linear = nn.Linear(nr_classes, hidden_dims)
-        self.attn = Attn('concat', hidden_dims, embedded_dims)
-        self.rnn = nn.GRUCell(2 * hidden_dims + embedded_dims, hidden_dims)
-        self.out = nn.Linear(hidden_dims, nr_classes)
-
-    def forward(self, word_input, last_hidden, encoder_outputs, train=True):
-        """
-        :param word_input:
-            word input for current time step, in shape (B)
-        :param last_hidden:
-            last hidden stat of the decoder, in shape (layers*direction*B*H)
-        :param encoder_outputs:
-            encoder outputs in shape (T*B*H)
-        :return
-            decoder output
-        Note: we run this one step at a time i.e. you should use a outer loop 
-            to process the whole sequence
-        """
-        batch_size = word_input.size(0)
-        word_embedded_onehot = self.embedding(word_input.to(last_hidden.device).type(torch.long)).view(1, batch_size, -1)
-        word_embedded = self.word_linear(word_embedded_onehot)
-        attn_weights = self.attn(last_hidden, encoder_outputs)
-        context = attn_weights.bmm(encoder_outputs.transpose(0, 1))
-        context = context.transpose(0, 1)
-        rnn_input = torch.cat([word_embedded, context], 2)
-        last_hidden = last_hidden.view(batch_size, -1)
-        rnn_input = rnn_input.view(batch_size, -1)
-        hidden = self.rnn(rnn_input, last_hidden)
-        if train:
-            output = nn.functional.log_softmax(self.out(hidden), dim=1)
-        else:
-            output = nn.functional.softmax(self.out(hidden), dim=1)
-        return output, hidden, attn_weights
 
 
 class BalanceCrossEntropyLoss(nn.Module):
@@ -1353,39 +1507,17 @@ class CTCLoss2D(nn.Module):
 
 class DiceLoss(nn.Module):
     """
-    Loss function from https://arxiv.org/abs/1707.03237,
-    where iou computation is introduced heatmap manner to measure the
-    diversity bwtween tow heatmaps.
+    DiceLoss on binary.
+    For SegDetector without adaptive module.
     """
 
     def __init__(self, eps=1e-06):
         super(DiceLoss, self).__init__()
-        self.eps = eps
+        self.loss = Loss(eps)
 
-    def forward(self, pred: torch.Tensor, gt, mask, weights=None):
-        """
-        pred: one or two heatmaps of shape (N, 1, H, W),
-            the losses of tow heatmaps are added together.
-        gt: (N, 1, H, W)
-        mask: (N, H, W)
-        """
-        assert pred.dim() == 4, pred.dim()
-        return self._compute(pred, gt, mask, weights)
-
-    def _compute(self, pred, gt, mask, weights):
-        if pred.dim() == 4:
-            pred = pred[:, (0), :, :]
-            gt = gt[:, (0), :, :]
-        assert pred.shape == gt.shape
-        assert pred.shape == mask.shape
-        if weights is not None:
-            assert weights.shape == mask.shape
-            mask = weights * mask
-        intersection = (pred * gt * mask).sum()
-        union = (pred * mask).sum() + (gt * mask).sum() + self.eps
-        loss = 1 - 2.0 * intersection / union
-        assert loss <= 1
-        return loss
+    def forward(self, pred, batch):
+        loss = self.loss(pred['binary'], batch['gt'], batch['mask'])
+        return loss, dict(dice_loss=loss)
 
 
 class LeakyDiceLoss(nn.Module):
@@ -1413,6 +1545,105 @@ class LeakyDiceLoss(nn.Module):
         excede = 1 - excede
         loss = coverage * self.coverage_scale + excede
         return loss, dict(coverage=coverage, excede=excede)
+
+
+class InstanceDiceLoss(DiceLoss):
+    """
+    DiceLoss normalized on each instance.
+    Input:
+        pred: (N, 1, H, W)
+        gt: (N, 1, H, W)
+        mask: (N, H, W)
+    Note: This class assume that input tensors are on gpu,
+        while cput computation is required to find union areas.
+    """
+    REDUCTION = ['mean', 'sum', 'none']
+
+    def __init__(self, threshold=0.3, iou_thresh=0.2, reduction=None, max_regions=100, eps=1e-06):
+        nn.Module.__init__(self)
+        self.threshold = threshold
+        self.iou_thresh = iou_thresh
+        self.reduction = reduction
+        if self.reduction is None:
+            self.reduction = 'mean'
+        assert self.reduction in self.REDUCTION
+        self.max_regions = max_regions
+        self.eps = eps
+
+    def label(self, tensor_on_gpu, blur=None):
+        """
+        Args:
+            tensor_on_gpu: (N, 1, H, W)
+            blur: Lambda. If exists, each instance will be blured using `blur`.
+        """
+        tensor = tensor_on_gpu.cpu().detach().numpy()
+        instance_maps = []
+        instance_counts = []
+        for batch_index in range(tensor_on_gpu.shape[0]):
+            instance = tensor[batch_index]
+            if blur is not None:
+                instance = blur(instance)
+            lable_map, instance_count = ndimage.label(instance[0])
+            instance_count = min(self.max_regions, instance_count)
+            instance_map = []
+            for index in range(1, instance_count):
+                instance = torch.from_numpy(lable_map == index).type(torch.float32)
+                instance_map.append(instance)
+            instance_maps.append(instance_map)
+        return instance_maps, instance_counts
+
+    def iou(self, pred, gt):
+        overlap = (pred * gt).sum()
+        return max(overlap / pred.sum(), overlap / gt.sum())
+
+    def replace_or_add(self, dest, value):
+        if dest is None:
+            return value
+        if value is None:
+            return dest
+        return dest + value
+
+    def forward(self, pred, gt, mask):
+        torch.cuda.synchronize()
+        pred_label_maps, _ = self.label(pred > self.threshold)
+        gt_label_maps, _ = self.label(gt)
+        losses = []
+        for batch_index, gt_instance_maps in enumerate(gt_label_maps):
+            pred_instance_maps = pred_label_maps[batch_index]
+            if gt_instance_maps is None or pred_instance_maps is None:
+                continue
+            single_loss = None
+            mask_not_matched = set(range(len(pred_instance_maps)))
+            for gt_instance_map in gt_instance_maps:
+                instance_loss = None
+                for instance_index, pred_instance_map in enumerate(pred_instance_maps):
+                    if self.iou(pred_instance_map, gt_instance_map) > self.iou_thresh:
+                        match_loss = self._compute(pred[batch_index][0], gt[batch_index][0], mask[batch_index] * (pred_instance_map + gt_instance_map > 0).type(torch.float32))
+                        instance_loss = self.replace_or_add(instance_loss, match_loss)
+                        if instance_index in mask_not_matched:
+                            mask_not_matched.remove(instance_index)
+                if instance_loss is None:
+                    instance_loss = self._compute(pred[batch_index][0], gt[batch_index][0], mask[batch_index] * gt_instance_map)
+                single_loss = self.replace_or_add(single_loss, instance_loss)
+            """Whether to compute single loss on instances which contrain no positive sample.
+            if single_loss is None:
+                single_loss = self._compute(
+                        pred[batch_index][0], gt[batch_index][0],
+                        mask[batch_index])
+            """
+            for instance_index in mask_not_matched:
+                single_loss = self.replace_or_add(single_loss, self._compute(pred[batch_index][0], gt[batch_index][0], mask[batch_index] * pred_instance_maps[instance_index]))
+            if single_loss is not None:
+                losses.append(single_loss)
+        if self.reduction == 'none':
+            loss = losses
+        else:
+            assert self.reduction in ['sum', 'mean']
+            count = len(losses)
+            loss = sum(losses)
+            if self.reduction == 'mean':
+                loss = loss / count
+        return loss
 
 
 class EASTDecoder(nn.Module):
@@ -1682,21 +1913,6 @@ class SegDetector(nn.Module):
         return torch.reciprocal(1 + torch.exp(-self.k * (x - y)))
 
 
-class DiceLoss(nn.Module):
-    """
-    DiceLoss on binary.
-    For SegDetector without adaptive module.
-    """
-
-    def __init__(self, eps=1e-06):
-        super(DiceLoss, self).__init__()
-        self.loss = Loss(eps)
-
-    def forward(self, pred, batch):
-        loss = self.loss(pred['binary'], batch['gt'], batch['mask'])
-        return loss, dict(dice_loss=loss)
-
-
 class AdaptiveDiceLoss(nn.Module):
     """
     Integration of DiceLoss on both binary
@@ -1766,6 +1982,19 @@ class L1DiceLoss(nn.Module):
         loss = dice_loss + self.l1_scale * l1_loss
         metrics.update(**l1_metric)
         return loss, metrics
+
+
+class FullL1DiceLoss(L1DiceLoss):
+    """
+    L1loss on thresh, pixels with topk losses in non-text regions are also counted.
+    DiceLoss on thresh_binary and binary.
+    """
+
+    def __init__(self, eps=1e-06, l1_scale=10):
+        nn.Module.__init__(self)
+        self.dice_loss = AdaptiveDiceLoss(eps=eps)
+        self.l1_loss = BalanceL1Loss()
+        self.l1_scale = l1_scale
 
 
 class L1BalanceCELoss(nn.Module):
@@ -1890,6 +2119,110 @@ class SimpleDetectionDecoder(nn.Module):
             return pred
 
 
+class SimpleSegDecoder(SimpleDetectionDecoder):
+
+    def create_pred_layers(self):
+        return {'heatmap': self.create_pred_layer(1)}
+
+    def postprocess_pred(self, pred):
+        pred['heatmap'] = F.sigmoid(pred['heatmap'])
+        return pred
+
+    def calculate_losses(self, pred, label):
+        heatmap = label['heatmap']
+        heatmap_weight = label['heatmap_weight']
+        heatmap_pred = pred['heatmap']
+        heatmap_loss = F.binary_cross_entropy_with_logits(heatmap_pred, heatmap, reduction='none')
+        heatmap_loss = (heatmap_loss * heatmap_weight).mean(dim=(1, 2, 3))
+        return {'heatmap_loss': heatmap_loss}
+
+
+class SimpleEASTDecoder(SimpleDetectionDecoder):
+
+    def __init__(self, feature_channels=256, densebox_ratio=1000.0, densebox_rescale_factor=512):
+        SimpleDetectionDecoder.__init__(self, feature_channels)
+        self.densebox_ratio = densebox_ratio
+        self.densebox_rescale_factor = densebox_rescale_factor
+
+    def create_pred_layers(self):
+        return {'heatmap': self.create_pred_layer(1), 'densebox': self.create_pred_layer(8)}
+
+    def postprocess_pred(self, pred):
+        pred['heatmap'] = F.sigmoid(pred['heatmap'])
+        pred['densebox'] = pred['densebox'] * self.densebox_rescale_factor
+        return pred
+
+    def calculate_losses(self, pred, label):
+        heatmap = label['heatmap']
+        heatmap_weight = label['heatmap_weight']
+        densebox = label['densebox'] / self.densebox_rescale_factor
+        densebox_weight = label['densebox_weight']
+        heatmap_pred = pred['heatmap']
+        densebox_pred = pred['densebox']
+        heatmap_loss = F.binary_cross_entropy_with_logits(heatmap_pred, heatmap, reduction='none')
+        heatmap_loss = (heatmap_loss * heatmap_weight).mean(dim=(1, 2, 3))
+        densebox_loss = F.mse_loss(densebox_pred, densebox, reduction='none')
+        densebox_loss = (densebox_loss * densebox_weight).mean(dim=(1, 2, 3)) * self.densebox_ratio
+        return {'heatmap_loss': heatmap_loss, 'densebox_loss': densebox_loss}
+
+
+class SimpleTextsnakeDecoder(SimpleDetectionDecoder):
+
+    def __init__(self, feature_channels=256, radius_ratio=10.0):
+        SimpleDetectionDecoder.__init__(self, feature_channels)
+        self.radius_ratio = radius_ratio
+
+    def create_pred_layers(self):
+        return {'heatmap': self.create_pred_layer(1), 'radius': self.create_pred_layer(1)}
+
+    def postprocess_pred(self, pred):
+        pred['heatmap'] = F.sigmoid(pred['heatmap'])
+        pred['radius'] = torch.exp(pred['radius'])
+        return pred
+
+    def calculate_losses(self, pred, label):
+        heatmap = label['heatmap']
+        heatmap_weight = label['heatmap_weight']
+        radius = torch.log(label['radius'] + 1)
+        radius_weight = label['radius_weight']
+        heatmap_pred = pred['heatmap']
+        radius_pred = pred['radius']
+        heatmap_loss = F.binary_cross_entropy_with_logits(heatmap_pred, heatmap, reduction='none')
+        heatmap_loss = (heatmap_loss * heatmap_weight).mean(dim=(1, 2, 3))
+        radius_loss = F.smooth_l1_loss(radius_pred, radius, reduction='none')
+        radius_loss = (radius_loss * radius_weight).mean(dim=(1, 2, 3)) * self.radius_ratio
+        return {'heatmap_loss': heatmap_loss, 'radius_loss': radius_loss}
+
+
+class SimpleMSRDecoder(SimpleDetectionDecoder):
+
+    def __init__(self, feature_channels=256, offset_ratio=1000.0, offset_rescale_factor=512):
+        SimpleDetectionDecoder.__init__(self, feature_channels)
+        self.offset_ratio = offset_ratio
+        self.offset_rescale_factor = offset_rescale_factor
+
+    def create_pred_layers(self):
+        return {'heatmap': self.create_pred_layer(1), 'offset': self.create_pred_layer(2)}
+
+    def postprocess_pred(self, pred):
+        pred['heatmap'] = F.sigmoid(pred['heatmap'])
+        pred['offset'] = pred['offset'] * self.offset_rescale_factor
+        return pred
+
+    def calculate_losses(self, pred, label):
+        heatmap = label['heatmap']
+        heatmap_weight = label['heatmap_weight']
+        offset = label['offset'] / self.offset_rescale_factor
+        offset_weight = label['offset_weight']
+        heatmap_pred = pred['heatmap']
+        offset_pred = pred['offset']
+        heatmap_loss = F.binary_cross_entropy_with_logits(heatmap_pred, heatmap, reduction='none')
+        heatmap_loss = (heatmap_loss * heatmap_weight).mean(dim=(1, 2, 3))
+        offset_loss = F.mse_loss(offset_pred, offset, reduction='none')
+        offset_loss = (offset_loss * offset_weight).mean(dim=(1, 2, 3)) * self.offset_ratio
+        return {'heatmap_loss': heatmap_loss, 'offset_loss': offset_loss}
+
+
 class TextsnakeDecoder(nn.Module):
 
     def __init__(self, channels=256):
@@ -1991,7 +2324,7 @@ class BasicModel(nn.Module):
 
 def parallelize(model, distributed, local_rank):
     if distributed:
-        return apex.parallel.DistributedDataParallel(model.cuda())
+        return apex.parallel.DistributedDataParallel(model)
     else:
         return nn.DataParallel(model)
 
@@ -2234,6 +2567,26 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 2048, 64, 64])], {}),
      False),
+    (SimpleDetectionDecoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 64, 64]), torch.rand([4, 4]), torch.rand([4, 4]), 0], {}),
+     False),
+    (SimpleEASTDecoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 64, 64]), torch.rand([4, 4]), torch.rand([4, 4]), 0], {}),
+     False),
+    (SimpleMSRDecoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 64, 64]), torch.rand([4, 4]), torch.rand([4, 4]), 0], {}),
+     False),
+    (SimpleSegDecoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 64, 64]), torch.rand([4, 4]), torch.rand([4, 4]), 0], {}),
+     False),
+    (SimpleTextsnakeDecoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 256, 64, 64]), torch.rand([4, 4]), torch.rand([4, 4]), 0], {}),
+     False),
 ]
 
 class Test_Megvii_CSG_MegReader(_paritybench_base):
@@ -2263,4 +2616,19 @@ class Test_Megvii_CSG_MegReader(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

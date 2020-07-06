@@ -24,20 +24,22 @@ sru = _module
 cuda_functional = _module
 sru_functional = _module
 version = _module
+test_sru = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -63,13 +65,31 @@ import numpy as np
 import logging
 
 
-import time
+import re
 
 
 import random
 
 
+import string
+
+
+from collections import Counter
+
+
+import time
+
+
 import math
+
+
+from torch import nn
+
+
+from torch.autograd import Function
+
+
+from torch.utils.cpp_extension import load
 
 
 import copy
@@ -239,12 +259,12 @@ class LinearSeqAttn(nn.Module):
 
 
 def normalize_emb_(data):
-    print(data.size(), data[:10].norm(2, 1))
+    None
     norms = data.norm(2, 1) + 1e-08
     if norms.dim() == 1:
         norms = norms.unsqueeze(1)
     data.div_(norms.expand_as(data))
-    print(data.size(), data[:10].norm(2, 1))
+    None
 
 
 class RnnDocReader(nn.Module):
@@ -361,138 +381,6 @@ class CNN_Text(nn.Module):
         return x
 
 
-def deep_iter(x):
-    if isinstance(x, list) or isinstance(x, tuple):
-        for u in x:
-            for v in deep_iter(u):
-                yield v
-    else:
-        yield x
-
-
-class EmbeddingLayer(nn.Module):
-
-    def __init__(self, n_d, words, embs=None, fix_emb=True, oov='<oov>', pad='<pad>', normalize=True):
-        super(EmbeddingLayer, self).__init__()
-        word2id = {}
-        if embs is not None:
-            embwords, embvecs = embs
-            for word in embwords:
-                assert word not in word2id, 'Duplicate words in pre-trained embeddings'
-                word2id[word] = len(word2id)
-            sys.stdout.write('{} pre-trained word embeddings loaded.\n'.format(len(word2id)))
-            if n_d != len(embvecs[0]):
-                sys.stdout.write('[WARNING] n_d ({}) != word vector size ({}). Use {} for embeddings.\n'.format(n_d, len(embvecs[0]), len(embvecs[0])))
-                n_d = len(embvecs[0])
-        for w in deep_iter(words):
-            if w not in word2id:
-                word2id[w] = len(word2id)
-        if oov not in word2id:
-            word2id[oov] = len(word2id)
-        if pad not in word2id:
-            word2id[pad] = len(word2id)
-        self.word2id = word2id
-        self.n_V, self.n_d = len(word2id), n_d
-        self.oovid = word2id[oov]
-        self.padid = word2id[pad]
-        self.embedding = nn.Embedding(self.n_V, n_d)
-        self.embedding.weight.data.uniform_(-0.25, 0.25)
-        if embs is not None:
-            weight = self.embedding.weight
-            weight.data[:len(embwords)].copy_(torch.from_numpy(embvecs))
-            sys.stdout.write('embedding shape: {}\n'.format(weight.size()))
-        if normalize:
-            weight = self.embedding.weight
-            norms = weight.data.norm(2, 1)
-            if norms.dim() == 1:
-                norms = norms.unsqueeze(1)
-            weight.data.div_(norms.expand_as(weight.data))
-        if fix_emb:
-            self.embedding.weight.requires_grad = False
-
-    def forward(self, input):
-        return self.embedding(input)
-
-
-class Model(nn.Module):
-
-    def __init__(self, args, emb_layer, nclasses=2):
-        super(Model, self).__init__()
-        self.args = args
-        self.drop = nn.Dropout(args.dropout)
-        self.emb_layer = emb_layer
-        if args.cnn:
-            self.encoder = modules.CNN_Text(emb_layer.n_d, widths=[3, 4, 5])
-            d_out = 300
-        elif args.lstm:
-            self.encoder = nn.LSTM(emb_layer.n_d, args.d, args.depth, dropout=args.dropout)
-            d_out = args.d
-        else:
-            self.encoder = SRU(emb_layer.n_d, args.d, args.depth, dropout=args.dropout)
-            d_out = args.d
-        self.out = nn.Linear(d_out, nclasses)
-
-    def forward(self, input):
-        if self.args.cnn:
-            input = input.t()
-        emb = self.emb_layer(input)
-        emb = self.drop(emb)
-        if self.args.cnn:
-            output = self.encoder(emb)
-        else:
-            output, hidden = self.encoder(emb)
-            output = output[-1]
-        output = self.drop(output)
-        return self.out(output)
-
-
-class Model(nn.Module):
-
-    def __init__(self, words, args):
-        super(Model, self).__init__()
-        self.args = args
-        if args.n_e:
-            self.n_e = args.n_e
-        else:
-            self.n_e = len(words) if len(words) < args.n_d else args.n_d
-        self.n_d = args.n_d
-        self.depth = args.depth
-        self.drop = nn.Dropout(args.dropout)
-        self.embedding_layer = nn.Embedding(len(words), self.n_e)
-        self.n_V = len(words)
-        if args.lstm:
-            self.rnn = nn.LSTM(self.n_e, self.n_d, self.depth, dropout=args.dropout)
-        else:
-            self.rnn = sru.SRU(self.n_e, self.n_d, self.depth, dropout=args.dropout, n_proj=args.n_proj, highway_bias=args.bias, layer_norm=args.layer_norm)
-        self.output_layer = nn.Linear(self.n_d, self.n_V)
-        self.init_weights()
-
-    def init_weights(self, val_range=None):
-        params = list(self.embedding_layer.parameters()) + list(self.output_layer.parameters()) + (list(self.rnn.parameters()) if self.args.lstm else [])
-        for p in params:
-            if p.dim() > 1:
-                val = val_range or (3.0 / p.size(0)) ** 0.5
-                p.data.uniform_(-val, val)
-            else:
-                p.data.zero_()
-
-    def forward(self, x, hidden):
-        emb = self.drop(self.embedding_layer(x))
-        output, hidden = self.rnn(emb, hidden)
-        output = self.drop(output)
-        output = output.view(-1, output.size(2))
-        output = self.output_layer(output)
-        return output, hidden
-
-    def init_hidden(self, batch_size):
-        weight = next(self.parameters()).data
-        zeros = Variable(weight.new(self.depth, batch_size, self.n_d).zero_())
-        if self.args.lstm:
-            return zeros, zeros
-        else:
-            return zeros
-
-
 class EmbeddingLayer(nn.Module):
 
     def __init__(self, n_d, words, fix_emb=False):
@@ -510,54 +398,6 @@ class EmbeddingLayer(nn.Module):
 
     def map_to_ids(self, text):
         return np.asarray([self.word2id[x] for x in text], dtype='int64')
-
-
-class Model(nn.Module):
-
-    def __init__(self, words, args):
-        super(Model, self).__init__()
-        self.args = args
-        self.n_d = args.d
-        self.depth = args.depth
-        self.drop = nn.Dropout(args.dropout)
-        self.embedding_layer = EmbeddingLayer(self.n_d, words)
-        self.n_V = self.embedding_layer.n_V
-        if args.lstm:
-            self.rnn = nn.LSTM(self.n_d, self.n_d, self.depth, dropout=args.rnn_dropout)
-        else:
-            self.rnn = sru.SRU(self.n_d, self.n_d, self.depth, dropout=args.rnn_dropout, rnn_dropout=args.rnn_dropout, use_tanh=0, rescale=False, v1=True, highway_bias=args.bias)
-        self.output_layer = nn.Linear(self.n_d, self.n_V)
-        self.output_layer.weight = self.embedding_layer.embedding.weight
-        self.init_weights()
-
-    def init_weights(self):
-        val_range = (3.0 / self.n_d) ** 0.5
-        params = list(self.embedding_layer.parameters()) + list(self.output_layer.parameters()) + (list(self.rnn.parameters()) if self.args.lstm else [])
-        for p in params:
-            if p.dim() > 1:
-                p.data.uniform_(-val_range, val_range)
-            else:
-                p.data.zero_()
-
-    def forward(self, x, hidden):
-        emb = self.drop(self.embedding_layer(x))
-        output, hidden = self.rnn(emb, hidden)
-        output = self.drop(output)
-        output = output.view(-1, output.size(2))
-        output = self.output_layer(output)
-        return output, hidden
-
-    def init_hidden(self, batch_size):
-        weight = next(self.parameters()).data
-        zeros = Variable(weight.new(self.depth, batch_size, self.n_d).zero_())
-        if self.args.lstm:
-            return zeros, zeros
-        else:
-            return zeros
-
-    def print_pnorm(self):
-        norms = ['{:.0f}'.format(x.norm().item()) for x in self.parameters()]
-        sys.stdout.write('\tp_norm: {}\n'.format(norms))
 
 
 class Model(nn.Module):
@@ -695,14 +535,6 @@ class SRU_Compute_CPU:
                 h[(t), :, (di), :] = h_t
             c_final.append(c_t.view(batch, d))
         return h.view(length, batch, -1), torch.stack(c_final, dim=1).view(batch, -1)
-
-
-def _lazy_load_cuda_kernel():
-    try:
-        from .cuda_functional import SRU_Compute_GPU
-    except:
-        from cuda_functional import SRU_Compute_GPU
-    return SRU_Compute_GPU
 
 
 class SRUCell(nn.Module):

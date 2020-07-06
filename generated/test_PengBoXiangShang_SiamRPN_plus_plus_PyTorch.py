@@ -24,20 +24,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import numpy as np
+
+
+from torch.utils.data.dataset import Dataset
 
 
 import torch.nn as nn
@@ -56,9 +63,6 @@ import collections
 
 
 import time
-
-
-import numpy as np
 
 
 import torch.backends.cudnn as cudnn
@@ -118,41 +122,6 @@ class RPN(nn.Module):
         bbox_regression_prediction = self.Box_Head(depthwise_cross_reg)
         cls_prediction = self.Cls_Head(depthwise_cross_cls)
         return cls_prediction, bbox_regression_prediction
-
-
-def resnet50(pretrained=False, **kwargs):
-    """Constructs a ResNet-50 model.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
-    return model
-
-
-class SiamRPN(nn.Module):
-
-    def __init__(self):
-        super(SiamRPN, self).__init__()
-        self.examplar_branch = resnet50()
-        self.search_region_branch = resnet50()
-        self.conv3_3_RPN = RPN()
-        self.conv4_6_RPN = RPN()
-        self.conv5_3_RPN = RPN()
-        self.weighted_sum_layer_alpha = nn.Conv2d(30, 10, kernel_size=1, padding=0, groups=10)
-        self.weighted_sum_layer_beta = nn.Conv2d(60, 20, kernel_size=1, padding=0, groups=20)
-
-    def forward(self, examplar, search_region):
-        _, examplar_conv_3_output, examplar_conv_4_output, examplar_conv_5_output = self.examplar_branch(examplar)
-        _, search_region_conv_3_output, search_region_conv_4_output, search_region_conv_5_output = self.search_region_branch(search_region)
-        conv3_3_cls_prediction, conv3_3_bbox_regression_prediction = self.conv3_3_RPN(examplar_conv_3_output, search_region_conv_3_output, examplar.size()[0])
-        conv4_6_cls_prediction, conv4_6_bbox_regression_prediction = self.conv4_6_RPN(examplar_conv_4_output, search_region_conv_4_output, examplar.size()[0])
-        conv5_3_cls_prediction, conv5_3_bbox_regression_prediction = self.conv5_3_RPN(examplar_conv_5_output, search_region_conv_5_output, examplar.size()[0])
-        stacked_cls_prediction = torch.cat((conv3_3_cls_prediction, conv4_6_cls_prediction, conv5_3_cls_prediction), 2).reshape(examplar.size()[0], 10, -1, 25, 25).reshape(examplar.size()[0], -1, 25, 25)
-        stacked_regression_prediction = torch.cat((conv3_3_bbox_regression_prediction, conv4_6_bbox_regression_prediction, conv5_3_bbox_regression_prediction), 2).reshape(examplar.size()[0], 20, -1, 25, 25).reshape(examplar.size()[0], -1, 25, 25)
-        fused_cls_prediction = self.weighted_sum_layer_alpha(stacked_cls_prediction)
-        fused_regression_prediction = self.weighted_sum_layer_beta(stacked_regression_prediction)
-        return fused_cls_prediction, fused_regression_prediction
 
 
 def conv1x1(in_planes, out_planes, stride=1):
@@ -275,4 +244,39 @@ class ResNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x, conv_3_output, conv_4_output, conv_5_output
+
+
+def resnet50(pretrained=False, **kwargs):
+    """Constructs a ResNet-50 model.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    return model
+
+
+class SiamRPN(nn.Module):
+
+    def __init__(self):
+        super(SiamRPN, self).__init__()
+        self.examplar_branch = resnet50()
+        self.search_region_branch = resnet50()
+        self.conv3_3_RPN = RPN()
+        self.conv4_6_RPN = RPN()
+        self.conv5_3_RPN = RPN()
+        self.weighted_sum_layer_alpha = nn.Conv2d(30, 10, kernel_size=1, padding=0, groups=10)
+        self.weighted_sum_layer_beta = nn.Conv2d(60, 20, kernel_size=1, padding=0, groups=20)
+
+    def forward(self, examplar, search_region):
+        _, examplar_conv_3_output, examplar_conv_4_output, examplar_conv_5_output = self.examplar_branch(examplar)
+        _, search_region_conv_3_output, search_region_conv_4_output, search_region_conv_5_output = self.search_region_branch(search_region)
+        conv3_3_cls_prediction, conv3_3_bbox_regression_prediction = self.conv3_3_RPN(examplar_conv_3_output, search_region_conv_3_output, examplar.size()[0])
+        conv4_6_cls_prediction, conv4_6_bbox_regression_prediction = self.conv4_6_RPN(examplar_conv_4_output, search_region_conv_4_output, examplar.size()[0])
+        conv5_3_cls_prediction, conv5_3_bbox_regression_prediction = self.conv5_3_RPN(examplar_conv_5_output, search_region_conv_5_output, examplar.size()[0])
+        stacked_cls_prediction = torch.cat((conv3_3_cls_prediction, conv4_6_cls_prediction, conv5_3_cls_prediction), 2).reshape(examplar.size()[0], 10, -1, 25, 25).reshape(examplar.size()[0], -1, 25, 25)
+        stacked_regression_prediction = torch.cat((conv3_3_bbox_regression_prediction, conv4_6_bbox_regression_prediction, conv5_3_bbox_regression_prediction), 2).reshape(examplar.size()[0], 20, -1, 25, 25).reshape(examplar.size()[0], -1, 25, 25)
+        fused_cls_prediction = self.weighted_sum_layer_alpha(stacked_cls_prediction)
+        fused_regression_prediction = self.weighted_sum_layer_beta(stacked_regression_prediction)
+        return fused_cls_prediction, fused_regression_prediction
 

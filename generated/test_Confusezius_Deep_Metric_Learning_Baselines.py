@@ -14,15 +14,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -54,6 +55,15 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 
+from sklearn import metrics
+
+
+from sklearn import cluster
+
+
+from sklearn.cluster import KMeans
+
+
 from scipy.spatial.distance import squareform
 
 
@@ -69,6 +79,9 @@ import copy
 from scipy.spatial import distance
 
 
+from sklearn.preprocessing import normalize
+
+
 from collections import namedtuple
 
 
@@ -81,89 +94,103 @@ from torch.utils import model_zoo
 import itertools as it
 
 
+from sklearn.decomposition import PCA
+
+
 import torchvision.models as models
 
 
-_GoogLeNetOuputs = namedtuple('GoogLeNetOuputs', ['logits', 'aux_logits2', 'aux_logits1'])
+model_urls = {'googlenet': 'https://download.pytorch.org/models/googlenet-1378be20.pth'}
+
+
+def googlenet(pretrained=False, **kwargs):
+    """GoogLeNet (Inception v1) model architecture from
+    `"Going Deeper with Convolutions" <http://arxiv.org/abs/1409.4842>`_.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        aux_logits (bool): If True, adds two auxiliary branches that can improve training.
+            Default: *False* when pretrained is True otherwise *True*
+        transform_input (bool): If True, preprocesses the input according to the method with which it
+            was trained on ImageNet. Default: *False*
+    """
+    if pretrained:
+        if 'transform_input' not in kwargs:
+            kwargs['transform_input'] = True
+        if 'aux_logits' not in kwargs:
+            kwargs['aux_logits'] = False
+        if kwargs['aux_logits']:
+            warnings.warn('auxiliary heads in the pretrained googlenet model are NOT pretrained, so make sure to train them')
+        original_aux_logits = kwargs['aux_logits']
+        kwargs['aux_logits'] = True
+        kwargs['init_weights'] = False
+        model = GoogLeNet(**kwargs)
+        model.load_state_dict(model_zoo.load_url(model_urls['googlenet']))
+        if not original_aux_logits:
+            model.aux_logits = False
+            del model.aux1, model.aux2
+        return model
+    return GoogLeNet(**kwargs)
+
+
+def rename_attr(model, attr, name):
+    """
+    Rename attribute in a class. Simply helper function.
+
+    Args:
+        model:  General Class for which attributes should be renamed.
+        attr:   str, Name of target attribute.
+        name:   str, New attribute name.
+    """
+    setattr(model, name, getattr(model, attr))
+    delattr(model, attr)
 
 
 class GoogLeNet(nn.Module):
+    """
+    Container for GoogLeNet s.t. it can be used for metric learning.
+    The Network has been broken down to allow for higher modularity, if one wishes
+    to target specific layers/blocks directly.
+    """
 
-    def __init__(self, num_classes=1000, aux_logits=True, transform_input=False, init_weights=True):
+    def __init__(self, opt):
+        """
+        Args:
+            opt: argparse.Namespace, contains all training-specific parameters.
+        Returns:
+            Nothing!
+        """
         super(GoogLeNet, self).__init__()
-        self.aux_logits = aux_logits
-        self.transform_input = transform_input
-        self.conv1 = BasicConv2d(3, 64, kernel_size=7, stride=2, padding=3)
-        self.maxpool1 = nn.MaxPool2d(3, stride=2, ceil_mode=True)
-        self.conv2 = BasicConv2d(64, 64, kernel_size=1)
-        self.conv3 = BasicConv2d(64, 192, kernel_size=3, padding=1)
-        self.maxpool2 = nn.MaxPool2d(3, stride=2, ceil_mode=True)
-        self.inception3a = Inception(192, 64, 96, 128, 16, 32, 32)
-        self.inception3b = Inception(256, 128, 128, 192, 32, 96, 64)
-        self.maxpool3 = nn.MaxPool2d(3, stride=2, ceil_mode=True)
-        self.inception4a = Inception(480, 192, 96, 208, 16, 48, 64)
-        self.inception4b = Inception(512, 160, 112, 224, 24, 64, 64)
-        self.inception4c = Inception(512, 128, 128, 256, 24, 64, 64)
-        self.inception4d = Inception(512, 112, 144, 288, 32, 64, 64)
-        self.inception4e = Inception(528, 256, 160, 320, 32, 128, 128)
-        self.maxpool4 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
-        self.inception5a = Inception(832, 256, 160, 320, 32, 128, 128)
-        self.inception5b = Inception(832, 384, 192, 384, 48, 128, 128)
-        if aux_logits:
-            self.aux1 = InceptionAux(512, num_classes)
-            self.aux2 = InceptionAux(528, num_classes)
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.dropout = nn.Dropout(0.2)
-        self.fc = nn.Linear(1024, num_classes)
-        if init_weights:
-            self._initialize_weights()
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                import scipy.stats as stats
-                X = stats.truncnorm(-2, 2, scale=0.01)
-                values = torch.as_tensor(X.rvs(m.weight.numel()), dtype=m.weight.dtype)
-                values = values.view(m.weight.size())
-                with torch.no_grad():
-                    m.weight.copy_(values)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
+        self.pars = opt
+        self.model = googlenet.googlenet(num_classes=1000, pretrained='imagenet' if not opt.not_pretrained else False)
+        for module in filter(lambda m: type(m) == nn.BatchNorm2d, self.model.modules()):
+            module.eval()
+            module.train = lambda _: None
+        rename_attr(self.model, 'fc', 'last_linear')
+        self.layer_blocks = nn.ModuleList([self.model.inception3a, self.model.inception3b, self.model.maxpool3, self.model.inception4a, self.model.inception4b, self.model.inception4c, self.model.inception4d, self.model.inception4e, self.model.maxpool4, self.model.inception5a, self.model.inception5b, self.model.avgpool])
+        self.model.last_linear = torch.nn.Linear(self.model.last_linear.in_features, opt.embed_dim)
 
     def forward(self, x):
-        if self.transform_input:
-            x_ch0 = torch.unsqueeze(x[:, (0)], 1) * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
-            x_ch1 = torch.unsqueeze(x[:, (1)], 1) * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
-            x_ch2 = torch.unsqueeze(x[:, (2)], 1) * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
-            x = torch.cat((x_ch0, x_ch1, x_ch2), 1)
-        x = self.conv1(x)
-        x = self.maxpool1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = self.maxpool2(x)
-        x = self.inception3a(x)
-        x = self.inception3b(x)
-        x = self.maxpool3(x)
-        x = self.inception4a(x)
-        if self.training and self.aux_logits:
-            aux1 = self.aux1(x)
-        x = self.inception4b(x)
-        x = self.inception4c(x)
-        x = self.inception4d(x)
-        if self.training and self.aux_logits:
-            aux2 = self.aux2(x)
-        x = self.inception4e(x)
-        x = self.maxpool4(x)
-        x = self.inception5a(x)
-        x = self.inception5b(x)
-        x = self.avgpool(x)
+        x = self.model.conv3(self.model.conv2(self.model.maxpool1(self.model.conv1(x))))
+        x = self.model.maxpool2(x)
+        for layerblock in self.layer_blocks:
+            x = layerblock(x)
         x = x.view(x.size(0), -1)
-        x = self.dropout(x)
-        x = self.fc(x)
-        if self.training and self.aux_logits:
-            return _GoogLeNetOuputs(x, aux2, aux1)
-        return x
+        x = self.model.dropout(x)
+        mod_x = self.model.last_linear(x)
+        return mod_x if self.pars.loss == 'npair' else torch.nn.functional.normalize(mod_x, dim=-1)
+
+
+class BasicConv2d(nn.Module):
+
+    def __init__(self, in_channels, out_channels, **kwargs):
+        super(BasicConv2d, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, bias=False, **kwargs)
+        self.bn = nn.BatchNorm2d(out_channels, eps=0.001)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        return F.relu(x, inplace=True)
 
 
 class Inception(nn.Module):
@@ -200,19 +227,6 @@ class InceptionAux(nn.Module):
         x = F.dropout(x, 0.7, training=self.training)
         x = self.fc2(x)
         return x
-
-
-class BasicConv2d(nn.Module):
-
-    def __init__(self, in_channels, out_channels, **kwargs):
-        super(BasicConv2d, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, bias=False, **kwargs)
-        self.bn = nn.BatchNorm2d(out_channels, eps=0.001)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        return F.relu(x, inplace=True)
 
 
 class TupleSampler:
@@ -625,86 +639,6 @@ class CEClassLoss(torch.nn.Module):
             cross-entropy loss (torch.Tensor(), batch-averaged by default)
         """
         return self.ce_loss(self.mapper(batch), labels.type(torch.LongTensor))
-
-
-model_urls = {'googlenet': 'https://download.pytorch.org/models/googlenet-1378be20.pth'}
-
-
-def googlenet(pretrained=False, **kwargs):
-    """GoogLeNet (Inception v1) model architecture from
-    `"Going Deeper with Convolutions" <http://arxiv.org/abs/1409.4842>`_.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        aux_logits (bool): If True, adds two auxiliary branches that can improve training.
-            Default: *False* when pretrained is True otherwise *True*
-        transform_input (bool): If True, preprocesses the input according to the method with which it
-            was trained on ImageNet. Default: *False*
-    """
-    if pretrained:
-        if 'transform_input' not in kwargs:
-            kwargs['transform_input'] = True
-        if 'aux_logits' not in kwargs:
-            kwargs['aux_logits'] = False
-        if kwargs['aux_logits']:
-            warnings.warn('auxiliary heads in the pretrained googlenet model are NOT pretrained, so make sure to train them')
-        original_aux_logits = kwargs['aux_logits']
-        kwargs['aux_logits'] = True
-        kwargs['init_weights'] = False
-        model = GoogLeNet(**kwargs)
-        model.load_state_dict(model_zoo.load_url(model_urls['googlenet']))
-        if not original_aux_logits:
-            model.aux_logits = False
-            del model.aux1, model.aux2
-        return model
-    return GoogLeNet(**kwargs)
-
-
-def rename_attr(model, attr, name):
-    """
-    Rename attribute in a class. Simply helper function.
-
-    Args:
-        model:  General Class for which attributes should be renamed.
-        attr:   str, Name of target attribute.
-        name:   str, New attribute name.
-    """
-    setattr(model, name, getattr(model, attr))
-    delattr(model, attr)
-
-
-class GoogLeNet(nn.Module):
-    """
-    Container for GoogLeNet s.t. it can be used for metric learning.
-    The Network has been broken down to allow for higher modularity, if one wishes
-    to target specific layers/blocks directly.
-    """
-
-    def __init__(self, opt):
-        """
-        Args:
-            opt: argparse.Namespace, contains all training-specific parameters.
-        Returns:
-            Nothing!
-        """
-        super(GoogLeNet, self).__init__()
-        self.pars = opt
-        self.model = googlenet.googlenet(num_classes=1000, pretrained='imagenet' if not opt.not_pretrained else False)
-        for module in filter(lambda m: type(m) == nn.BatchNorm2d, self.model.modules()):
-            module.eval()
-            module.train = lambda _: None
-        rename_attr(self.model, 'fc', 'last_linear')
-        self.layer_blocks = nn.ModuleList([self.model.inception3a, self.model.inception3b, self.model.maxpool3, self.model.inception4a, self.model.inception4b, self.model.inception4c, self.model.inception4d, self.model.inception4e, self.model.maxpool4, self.model.inception5a, self.model.inception5b, self.model.avgpool])
-        self.model.last_linear = torch.nn.Linear(self.model.last_linear.in_features, opt.embed_dim)
-
-    def forward(self, x):
-        x = self.model.conv3(self.model.conv2(self.model.maxpool1(self.model.conv1(x))))
-        x = self.model.maxpool2(x)
-        for layerblock in self.layer_blocks:
-            x = layerblock(x)
-        x = x.view(x.size(0), -1)
-        x = self.model.dropout(x)
-        mod_x = self.model.last_linear(x)
-        return mod_x if self.pars.loss == 'npair' else torch.nn.functional.normalize(mod_x, dim=-1)
 
 
 class ResNet50(nn.Module):

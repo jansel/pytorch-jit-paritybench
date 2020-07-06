@@ -31,6 +31,7 @@ her = _module
 sac_agent = _module
 common = _module
 abstract = _module
+agent = _module
 reward_fn = _module
 buffer = _module
 priortized_replay_buffer = _module
@@ -58,9 +59,11 @@ networks = _module
 fd = _module
 ddpg_agent = _module
 dqn_agent = _module
+sac_agent = _module
 per = _module
 ddpg_agent = _module
 agent = _module
+utils = _module
 registry = _module
 agent = _module
 agent = _module
@@ -78,15 +81,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -109,6 +113,30 @@ import torch.nn as nn
 import torch.optim as optim
 
 
+from abc import ABC
+
+
+from abc import abstractmethod
+
+
+from typing import Union
+
+
+import random
+
+
+from typing import Any
+
+
+from typing import List
+
+
+from collections import deque
+
+
+from typing import Deque
+
+
 from collections import OrderedDict
 
 
@@ -116,18 +144,6 @@ from typing import Callable
 
 
 from torch.nn import functional as F
-
-
-from collections import deque
-
-
-import random
-
-
-from typing import Deque
-
-
-from typing import List
 
 
 from torch.distributions import Normal
@@ -258,18 +274,6 @@ class Bottleneck(nn.Module):
 HEADS = Registry('heads')
 
 
-class NoisyMLPHandler:
-    """Includes methods to handle noisy linear."""
-
-    def reset_noise(self):
-        """Re-sample noise"""
-        for _, module in self.named_children():
-            module.reset_noise()
-
-
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
-
 def init_layer_uniform(layer: nn.Linear, init_w: float=0.003) ->nn.Linear:
     """Init uniform parameters on the single layer"""
     layer.weight.data.uniform_(-init_w, init_w)
@@ -338,6 +342,35 @@ class NoisyLinear(nn.Module):
         It doesn't show remarkable difference of performance.
         """
         return F.linear(x, self.weight_mu + self.weight_sigma * self.weight_epsilon, self.bias_mu + self.bias_sigma * self.bias_epsilon)
+
+
+class NoisyLinearConstructor:
+    """Constructor class for changing hyper parameters of NoisyLinear.
+
+    Attributes:
+        std_init (float): initial std value
+
+    """
+
+    def __init__(self, std_init: float=0.5):
+        """Initialize."""
+        self.std_init = std_init
+
+    def __call__(self, in_features: int, out_features: int) ->NoisyLinear:
+        """Return NoisyLinear instance set hyper parameters"""
+        return NoisyLinear(in_features, out_features, self.std_init)
+
+
+class NoisyMLPHandler:
+    """Includes methods to handle noisy linear."""
+
+    def reset_noise(self):
+        """Re-sample noise"""
+        for _, module in self.named_children():
+            module.reset_noise()
+
+
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
 import torch

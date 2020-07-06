@@ -21,20 +21,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import torch.utils.data as data
+
+
+import numpy as np
+
+
+import torch.backends.cudnn as cudnn
+
+
+import time
+
+
+from collections import OrderedDict
 
 
 import torch.nn as nn
@@ -46,22 +62,16 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
-import time
-
-
 import torch.optim as optim
 
 
-import torch.backends.cudnn as cudnn
-
-
-import torch.utils.data as data
-
-
-import numpy as np
-
-
 from numpy import random
+
+
+from itertools import product
+
+
+from math import sqrt
 
 
 class Bottleneck(nn.Module):
@@ -211,12 +221,6 @@ def make_net(in_channels, cfg_net, include_last_relu=True):
     return nn.Sequential(*net), in_channels
 
 
-_global_config['aspect_ratios'] = 4
-
-
-_global_config['num_classes'] = 4
-
-
 class PredictionModule(nn.Module):
 
     def __init__(self, in_channels, coef_dim):
@@ -281,12 +285,6 @@ def construct_backbone(cfg_backbone):
     return backbone
 
 
-_global_config['img_size'] = 4
-
-
-_global_config['use_square_anchors'] = 4
-
-
 def make_anchors(conv_h, conv_w, scale):
     prior_data = []
     for j, i in product(range(conv_h), range(conv_w)):
@@ -303,18 +301,6 @@ def make_anchors(conv_h, conv_w, scale):
 
 
 mask_proto_net = [(256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (256, 3, {'padding': 1}), (None, -2, {}), (256, 3, {'padding': 1}), (32, 1, {})]
-
-
-_global_config['backbone'] = 4
-
-
-_global_config['freeze_bn'] = 4
-
-
-_global_config['train_semantic'] = False
-
-
-_global_config['scales'] = 1.0
 
 
 class Yolact(nn.Module):
@@ -481,10 +467,24 @@ def encode(matched, priors):
 
 
 def intersect(box_a, box_b):
-    max_xy = np.minimum(box_a[:, 2:], box_b[2:])
-    min_xy = np.maximum(box_a[:, :2], box_b[:2])
-    inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
-    return inter[:, (0)] * inter[:, (1)]
+    """
+    We resize both tensors to [A,B,2] without new malloc:
+    [A,2] -> [A,1,2] -> [A,B,2]
+    [B,2] -> [1,B,2] -> [A,B,2]
+    Then we compute the area of intersect between box_a and box_b.
+    Args:
+      box_a: (tensor) bounding boxes, Shape: [n, A, 4].
+      box_b: (tensor) bounding boxes, Shape: [n, B, 4].
+    Return:
+      (tensor) intersection area, Shape: [n,A,B].
+    """
+    n = box_a.size(0)
+    A = box_a.size(1)
+    B = box_b.size(1)
+    max_xy = torch.min(box_a[:, :, 2:].unsqueeze(2).expand(n, A, B, 2), box_b[:, :, 2:].unsqueeze(1).expand(n, A, B, 2))
+    min_xy = torch.max(box_a[:, :, :2].unsqueeze(2).expand(n, A, B, 2), box_b[:, :, :2].unsqueeze(1).expand(n, A, B, 2))
+    inter = torch.clamp(max_xy - min_xy, min=0)
+    return inter[:, :, :, (0)] * inter[:, :, :, (1)]
 
 
 def jaccard(box_a, box_b, iscrowd: bool=False):
@@ -508,9 +508,6 @@ def jaccard(box_a, box_b, iscrowd: bool=False):
     union = area_a + area_b - inter
     out = inter / area_a if iscrowd else inter / union
     return out if use_batch else out.squeeze(0)
-
-
-_global_config['crowd_iou_threshold'] = 4
 
 
 def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
@@ -546,21 +543,6 @@ def match(pos_thresh, neg_thresh, box_gt, priors, class_gt, crowd_boxes):
         conf[(conf <= 0) & (best_crowd_overlap > cfg.crowd_iou_threshold)] = -1
     offsets = encode(each_prior_box, priors)
     return offsets, conf, each_prior_box, each_prior_index
-
-
-_global_config['masks_to_train'] = False
-
-
-_global_config['mask_alpha'] = 4
-
-
-_global_config['conf_alpha'] = 4
-
-
-_global_config['bbox_alpha'] = 4
-
-
-_global_config['semantic_alpha'] = 4
 
 
 class Multi_Loss(nn.Module):

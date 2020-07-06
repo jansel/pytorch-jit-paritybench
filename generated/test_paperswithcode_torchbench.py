@@ -19,10 +19,14 @@ imagenet = _module
 mnist = _module
 stl10 = _module
 svhn = _module
+utils = _module
 image_generation = _module
+cifar10 = _module
+imagenet = _module
 utils = _module
 language_modelling = _module
 utils = _module
+wikitext103 = _module
 object_detection = _module
 coco = _module
 coco_eval = _module
@@ -31,6 +35,13 @@ transforms = _module
 utils = _module
 voc_eval = _module
 semantic_segmentation = _module
+ade20k = _module
+camvid = _module
+cityscapes = _module
+pascalcontext = _module
+pascalvoc = _module
+transforms = _module
+utils = _module
 common_utils = _module
 fakedata_generation = _module
 test_datasets = _module
@@ -41,17 +52,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import re
+
+
+from torch.utils.data import Dataset
+
+
+import copy
+
+
+import torch
+
+
+from torchvision.datasets.vision import VisionDataset
+
+
+from torch.utils.model_zoo import tqdm
+
+
+import numpy as np
+
+
+from torch.utils.data import Subset
 
 
 from torch.utils.data import DataLoader
@@ -63,16 +99,16 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 
 
-import numpy as np
+import time
+
+
+import torchvision
 
 
 from scipy import linalg
 
 
 from scipy.stats import entropy
-
-
-import torch
 
 
 import torch.utils.data
@@ -93,10 +129,22 @@ from torchvision.models.inception import inception_v3
 from torch.nn import CrossEntropyLoss
 
 
-import torchvision
+import torch.distributed as dist
 
 
-import time
+import torch._six
+
+
+from collections import defaultdict
+
+
+import random
+
+
+from torchvision.transforms import functional as F
+
+
+from torchvision import transforms as T
 
 
 class FIDInceptionModel(nn.Module):

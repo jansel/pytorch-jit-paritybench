@@ -13,20 +13,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+import copy
+
+
 import torch
+
+
+from torch.autograd import Variable
 
 
 import torch.nn as nn
@@ -38,22 +54,87 @@ from torch.nn import UpsamplingNearest2d
 from torch.nn import Upsample
 
 
-from torch.autograd import Variable
-
-
-from torch.utils.data import Dataset
-
-
-from torch.utils.data import DataLoader
-
-
-import numpy as np
-
-
 import torch.optim as optim
 
 
 from torch.backends import cudnn
+
+
+class Residual(nn.Module):
+    """
+    残差模块，并不改变特征图的宽高
+    """
+
+    def __init__(self, ins, outs):
+        super(Residual, self).__init__()
+        self.convBlock = nn.Sequential(nn.BatchNorm2d(ins), nn.ReLU(inplace=True), nn.Conv2d(ins, outs / 2, 1), nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs / 2, 3, 1, 1), nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs, 1))
+        if ins != outs:
+            self.skipConv = nn.Conv2d(ins, outs, 1)
+        self.ins = ins
+        self.outs = outs
+
+    def forward(self, x):
+        residual = x
+        x = self.convBlock(x)
+        if self.ins != self.outs:
+            residual = self.skipConv(residual)
+        x += residual
+        return x
+
+
+class HourGlass(nn.Module):
+    """不改变特征图的高宽"""
+
+    def __init__(self, n=4, f=128):
+        """
+        :param n: hourglass模块的层级数目
+        :param f: hourglass模块中的特征图数量
+        :return:
+        """
+        super(HourGlass, self).__init__()
+        self._n = n
+        self._f = f
+        self._init_layers(self._n, self._f)
+
+    def _init_layers(self, n, f):
+        setattr(self, 'res' + str(n) + '_1', Residual(f, f))
+        setattr(self, 'pool' + str(n) + '_1', nn.MaxPool2d(2, 2))
+        setattr(self, 'res' + str(n) + '_2', Residual(f, f))
+        if n > 1:
+            self._init_layers(n - 1, f)
+        else:
+            self.res_center = Residual(f, f)
+        setattr(self, 'res' + str(n) + '_3', Residual(f, f))
+        setattr(self, 'unsample' + str(n), Upsample(scale_factor=2))
+
+    def _forward(self, x, n, f):
+        up1 = x
+        up1 = eval('self.res' + str(n) + '_1')(up1)
+        low1 = eval('self.pool' + str(n) + '_1')(x)
+        low1 = eval('self.res' + str(n) + '_2')(low1)
+        if n > 1:
+            low2 = self._forward(low1, n - 1, f)
+        else:
+            low2 = self.res_center(low1)
+        low3 = low2
+        low3 = eval('self.' + 'res' + str(n) + '_3')(low3)
+        up2 = eval('self.' + 'unsample' + str(n)).forward(low3)
+        return up1 + up2
+
+    def forward(self, x):
+        return self._forward(x, self._n, self._f)
+
+
+class Lin(nn.Module):
+
+    def __init__(self, numIn=128, numout=15):
+        super(Lin, self).__init__()
+        self.conv = nn.Conv2d(numIn, numout, 1)
+        self.bn = nn.BatchNorm2d(numout)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        return self.relu(self.bn(self.conv(x)))
 
 
 class StackedHourGlass(nn.Module):
@@ -105,160 +186,6 @@ class StackedHourGlass(nn.Module):
                 tmpOut_ = eval('self.hg' + str(i) + '_conv2')(tmpOut)
                 inter = inter + ll_ + tmpOut_
         return out
-
-
-class HourGlass(nn.Module):
-    """不改变特征图的高宽"""
-
-    def __init__(self, n=4, f=256):
-        """
-        :param n: hourglass模块的层级数目
-        :param f: hourglass模块中的特征图数量
-        :return:
-        """
-        super(HourGlass, self).__init__()
-        self._n = n
-        self._f = f
-        self._init_layers(self._n, self._f)
-
-    def _init_layers(self, n, f):
-        setattr(self, 'res' + str(n) + '_1', Residual(f, f))
-        setattr(self, 'pool' + str(n) + '_1', nn.MaxPool2d(2, 2))
-        setattr(self, 'res' + str(n) + '_2', Residual(f, f))
-        if n > 1:
-            self._init_layers(n - 1, f)
-        else:
-            self.res_center = Residual(f, f)
-        setattr(self, 'res' + str(n) + '_3', Residual(f, f))
-        setattr(self, 'SUSN' + str(n), Upsample(scale_factor=2))
-
-    def _forward(self, x, n, f):
-        up1 = x
-        up1 = eval('self.res' + str(n) + '_1')(up1)
-        low1 = eval('self.pool' + str(n) + '_1')(x)
-        low1 = eval('self.res' + str(n) + '_2')(low1)
-        if n > 1:
-            low2 = self._forward(low1, n - 1, f)
-        else:
-            low2 = self.res_center(low1)
-        low3 = low2
-        low3 = eval('self.' + 'res' + str(n) + '_3')(low3)
-        up2 = eval('self.' + 'SUSN' + str(n)).forward(low3)
-        return up1 + up2
-
-    def forward(self, x):
-        return self._forward(x, self._n, self._f)
-
-
-class Residual(nn.Module):
-    """
-    残差模块，并不改变特征图的宽高
-    """
-
-    def __init__(self, ins, outs):
-        super(Residual, self).__init__()
-        self.convBlock = nn.Sequential(nn.BatchNorm2d(ins), nn.ReLU(inplace=True), nn.Conv2d(ins, outs / 2, 1), nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs / 2, 3, 1, 1), nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs, 1))
-        if ins != outs:
-            self.skipConv = nn.Conv2d(ins, outs, 1)
-        self.ins = ins
-        self.outs = outs
-
-    def forward(self, x):
-        residual = x
-        x = self.convBlock(x)
-        if self.ins != self.outs:
-            residual = self.skipConv(residual)
-        x += residual
-        return x
-
-
-class Lin(nn.Module):
-
-    def __init__(self, numIn, numout):
-        super(Lin, self).__init__()
-        self.conv = nn.Conv2d(numIn, numout, 1)
-        self.bn = nn.BatchNorm2d(numout)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        return self.relu(self.bn(self.conv(x)))
-
-
-class HourGlass(nn.Module):
-    """不改变特征图的高宽"""
-
-    def __init__(self, n=4, f=128):
-        """
-        :param n: hourglass模块的层级数目
-        :param f: hourglass模块中的特征图数量
-        :return:
-        """
-        super(HourGlass, self).__init__()
-        self._n = n
-        self._f = f
-        self._init_layers(self._n, self._f)
-
-    def _init_layers(self, n, f):
-        setattr(self, 'res' + str(n) + '_1', Residual(f, f))
-        setattr(self, 'pool' + str(n) + '_1', nn.MaxPool2d(2, 2))
-        setattr(self, 'res' + str(n) + '_2', Residual(f, f))
-        if n > 1:
-            self._init_layers(n - 1, f)
-        else:
-            self.res_center = Residual(f, f)
-        setattr(self, 'res' + str(n) + '_3', Residual(f, f))
-        setattr(self, 'unsample' + str(n), Upsample(scale_factor=2))
-
-    def _forward(self, x, n, f):
-        up1 = x
-        up1 = eval('self.res' + str(n) + '_1')(up1)
-        low1 = eval('self.pool' + str(n) + '_1')(x)
-        low1 = eval('self.res' + str(n) + '_2')(low1)
-        if n > 1:
-            low2 = self._forward(low1, n - 1, f)
-        else:
-            low2 = self.res_center(low1)
-        low3 = low2
-        low3 = eval('self.' + 'res' + str(n) + '_3')(low3)
-        up2 = eval('self.' + 'unsample' + str(n)).forward(low3)
-        return up1 + up2
-
-    def forward(self, x):
-        return self._forward(x, self._n, self._f)
-
-
-class Residual(nn.Module):
-    """
-    残差模块，并不改变特征图的宽高
-    """
-
-    def __init__(self, ins, outs):
-        super(Residual, self).__init__()
-        self.convBlock = nn.Sequential(nn.BatchNorm2d(ins), nn.ReLU(inplace=True), nn.Conv2d(ins, outs / 2, 1), nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs / 2, 3, 1, 1), nn.BatchNorm2d(outs / 2), nn.ReLU(inplace=True), nn.Conv2d(outs / 2, outs, 1))
-        if ins != outs:
-            self.skipConv = nn.Conv2d(ins, outs, 1)
-        self.ins = ins
-        self.outs = outs
-
-    def forward(self, x):
-        residual = x
-        x = self.convBlock(x)
-        if self.ins != self.outs:
-            residual = self.skipConv(residual)
-        x += residual
-        return x
-
-
-class Lin(nn.Module):
-
-    def __init__(self, numIn=128, numout=15):
-        super(Lin, self).__init__()
-        self.conv = nn.Conv2d(numIn, numout, 1)
-        self.bn = nn.BatchNorm2d(numout)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        return self.relu(self.bn(self.conv(x)))
 
 
 class KFSGNet(nn.Module):

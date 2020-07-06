@@ -11,15 +11,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -37,64 +38,6 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
-
-
-class Actor(nn.Module):
-
-    def __init__(self, state_dim, action_dim, max_action):
-        super(Actor, self).__init__()
-        self.l1 = nn.Linear(state_dim, 400)
-        self.l2 = nn.Linear(400, 300)
-        self.l3 = nn.Linear(300, action_dim)
-        self.max_action = max_action
-
-    def forward(self, state):
-        a = F.relu(self.l1(state))
-        a = F.relu(self.l2(a))
-        return self.max_action * torch.tanh(self.l3(a))
-
-
-class Critic(nn.Module):
-
-    def __init__(self, state_dim, action_dim):
-        super(Critic, self).__init__()
-        self.l1 = nn.Linear(state_dim, 400)
-        self.l2 = nn.Linear(400 + action_dim, 300)
-        self.l3 = nn.Linear(300, 1)
-
-    def forward(self, state, action):
-        q = F.relu(self.l1(state))
-        q = F.relu(self.l2(torch.cat([q, action], 1)))
-        return self.l3(q)
-
-
-class Actor(nn.Module):
-
-    def __init__(self, state_dim, action_dim, max_action):
-        super(Actor, self).__init__()
-        self.l1 = nn.Linear(state_dim, 400)
-        self.l2 = nn.Linear(400, 300)
-        self.l3 = nn.Linear(300, action_dim)
-        self.max_action = max_action
-
-    def forward(self, state):
-        a = F.relu(self.l1(state))
-        a = F.relu(self.l2(a))
-        return self.max_action * torch.tanh(self.l3(a))
-
-
-class Critic(nn.Module):
-
-    def __init__(self, state_dim, action_dim):
-        super(Critic, self).__init__()
-        self.l1 = nn.Linear(state_dim + action_dim, 400)
-        self.l2 = nn.Linear(400, 300)
-        self.l3 = nn.Linear(300, 1)
-
-    def forward(self, state, action):
-        q = F.relu(self.l1(torch.cat([state, action], 1)))
-        q = F.relu(self.l2(q))
-        return self.l3(q)
 
 
 class Actor(nn.Module):

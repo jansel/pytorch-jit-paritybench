@@ -2,7 +2,6 @@ import sys
 _module = sys.modules[__name__]
 del sys
 locator = _module
-__main__ = _module
 argparser = _module
 bmm = _module
 data = _module
@@ -21,6 +20,7 @@ unet_parts = _module
 utils = _module
 paint = _module
 train = _module
+utils = _module
 generate_csv = _module
 parseResults = _module
 spacing_stats_to_csv = _module
@@ -30,35 +30,90 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import math
+import numpy as np
 
 
 import torch
 
 
-import numpy as np
+import random
 
 
-from torch.nn import functional as F
+import torchvision
+
+
+from collections import OrderedDict
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
+import math
+
+
+from itertools import chain
+
+
+import torch.optim as optim
+
+
+from torch import nn
+
+
+from torch.autograd import Variable
+
+
+from torch.utils.data import DataLoader
+
+
+import torch.optim.lr_scheduler
 
 
 import time
 
 
-from torch import nn
+import itertools
+
+
+from torch.utils import data
+
+
+import torchvision as tv
+
+
+from torchvision.models import inception_v3
+
+
+import numbers
+
+
+from sklearn.utils.extmath import cartesian
+
+
+from torch.nn import functional as F
+
+
+from sklearn.metrics.pairwise import pairwise_distances
+
+
+from sklearn.neighbors.kde import KernelDensity
 
 
 import torch.nn as nn
@@ -67,10 +122,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from torch.autograd import Variable
-
-
 import warnings
+
+
+import sklearn.mixture
+
+
+import scipy.stats
 
 
 def cdist(x, y):
@@ -214,6 +272,80 @@ class WeightedHausdorffDistance(nn.Module):
         return res
 
 
+class double_conv(nn.Module):
+
+    def __init__(self, in_ch, out_ch, normaliz=True, activ=True):
+        super(double_conv, self).__init__()
+        ops = []
+        ops += [nn.Conv2d(in_ch, out_ch, 3, padding=1)]
+        if normaliz:
+            ops += [nn.BatchNorm2d(out_ch)]
+        if activ:
+            ops += [nn.ReLU(inplace=True)]
+        ops += [nn.Conv2d(out_ch, out_ch, 3, padding=1)]
+        if normaliz:
+            ops += [nn.BatchNorm2d(out_ch)]
+        if activ:
+            ops += [nn.ReLU(inplace=True)]
+        self.conv = nn.Sequential(*ops)
+
+    def forward(self, x):
+        x = self.conv(x)
+        return x
+
+
+class down(nn.Module):
+
+    def __init__(self, in_ch, out_ch, normaliz=True):
+        super(down, self).__init__()
+        self.mpconv = nn.Sequential(nn.MaxPool2d(2), double_conv(in_ch, out_ch, normaliz=normaliz))
+
+    def forward(self, x):
+        x = self.mpconv(x)
+        return x
+
+
+class inconv(nn.Module):
+
+    def __init__(self, in_ch, out_ch):
+        super(inconv, self).__init__()
+        self.conv = double_conv(in_ch, out_ch)
+
+    def forward(self, x):
+        x = self.conv(x)
+        return x
+
+
+class outconv(nn.Module):
+
+    def __init__(self, in_ch, out_ch):
+        super(outconv, self).__init__()
+        self.conv = nn.Conv2d(in_ch, out_ch, 1)
+
+    def forward(self, x):
+        x = self.conv(x)
+        return x
+
+
+class up(nn.Module):
+
+    def __init__(self, in_ch, out_ch, normaliz=True, activ=True):
+        super(up, self).__init__()
+        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        self.conv = double_conv(in_ch, out_ch, normaliz=normaliz, activ=activ)
+
+    def forward(self, x1, x2):
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            x1 = self.up(x1)
+        diffY = x2.size()[2] - x1.size()[2]
+        diffX = x2.size()[3] - x1.size()[3]
+        x1 = F.pad(x1, (diffX // 2, int(math.ceil(diffX / 2)), diffY // 2, int(math.ceil(diffY / 2))))
+        x = torch.cat([x2, x1], dim=1)
+        x = self.conv(x)
+        return x
+
+
 class UNet(nn.Module):
 
     def __init__(self, n_channels, n_classes, height, width, known_n_points=None, ultrasmall=False, device=torch.device('cuda')):
@@ -311,80 +443,6 @@ class UNet(nn.Module):
             n_pts = torch.tensor([self.known_n_points] * batch_size, dtype=torch.get_default_dtype())
             n_pts = n_pts
             return x, n_pts
-
-
-class double_conv(nn.Module):
-
-    def __init__(self, in_ch, out_ch, normaliz=True, activ=True):
-        super(double_conv, self).__init__()
-        ops = []
-        ops += [nn.Conv2d(in_ch, out_ch, 3, padding=1)]
-        if normaliz:
-            ops += [nn.BatchNorm2d(out_ch)]
-        if activ:
-            ops += [nn.ReLU(inplace=True)]
-        ops += [nn.Conv2d(out_ch, out_ch, 3, padding=1)]
-        if normaliz:
-            ops += [nn.BatchNorm2d(out_ch)]
-        if activ:
-            ops += [nn.ReLU(inplace=True)]
-        self.conv = nn.Sequential(*ops)
-
-    def forward(self, x):
-        x = self.conv(x)
-        return x
-
-
-class inconv(nn.Module):
-
-    def __init__(self, in_ch, out_ch):
-        super(inconv, self).__init__()
-        self.conv = double_conv(in_ch, out_ch)
-
-    def forward(self, x):
-        x = self.conv(x)
-        return x
-
-
-class down(nn.Module):
-
-    def __init__(self, in_ch, out_ch, normaliz=True):
-        super(down, self).__init__()
-        self.mpconv = nn.Sequential(nn.MaxPool2d(2), double_conv(in_ch, out_ch, normaliz=normaliz))
-
-    def forward(self, x):
-        x = self.mpconv(x)
-        return x
-
-
-class up(nn.Module):
-
-    def __init__(self, in_ch, out_ch, normaliz=True, activ=True):
-        super(up, self).__init__()
-        self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        self.conv = double_conv(in_ch, out_ch, normaliz=normaliz, activ=activ)
-
-    def forward(self, x1, x2):
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            x1 = self.up(x1)
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
-        x1 = F.pad(x1, (diffX // 2, int(math.ceil(diffX / 2)), diffY // 2, int(math.ceil(diffY / 2))))
-        x = torch.cat([x2, x1], dim=1)
-        x = self.conv(x)
-        return x
-
-
-class outconv(nn.Module):
-
-    def __init__(self, in_ch, out_ch):
-        super(outconv, self).__init__()
-        self.conv = nn.Conv2d(in_ch, out_ch, 1)
-
-    def forward(self, x):
-        x = self.conv(x)
-        return x
 
 
 import torch

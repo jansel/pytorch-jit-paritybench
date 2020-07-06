@@ -76,15 +76,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -113,10 +114,13 @@ import numpy as np
 import torch
 
 
-from torch import autograd
+from torch import distributed as dist
 
 
 from torch.distributions.kl import kl_divergence
+
+
+from torch import autograd
 
 
 from torch.nn.utils import parameters_to_vector
@@ -140,10 +144,10 @@ from torch.nn import functional as F
 import torchvision as tv
 
 
-from torch.utils.data import DataLoader
-
-
 from torchvision import transforms
+
+
+from torch.utils.data import DataLoader
 
 
 from torchvision.datasets import MNIST
@@ -158,27 +162,50 @@ import torch.nn.functional as F
 from torch.autograd import grad
 
 
+from torch.utils.data import Dataset
+
+
 import copy
+
+
+import torch.utils.data as data
+
+
+from torchvision.datasets import ImageFolder
+
+
+from torch.utils.data import ConcatDataset
+
+
+from torchvision.datasets.omniglot import Omniglot
+
+
+import scipy.io
 
 
 from scipy.stats import truncnorm
 
 
-DIM = 5
+import re
 
 
-class Model(nn.Module):
+from torch.utils.data import TensorDataset
+
+
+import string
+
+
+class Model(torch.nn.Module):
 
     def __init__(self):
-        super(Model, self).__init__()
-        self.mu = nn.Parameter(th.randn(DIM))
-        self.sigma = nn.Parameter(th.randn(DIM))
+        super().__init__()
+        self.model = torch.nn.Sequential(torch.nn.Linear(4, 64), torch.nn.Tanh(), torch.nn.Linear(64, 2))
 
-    def forward(self, x=None):
-        return dist.Normal(self.mu, self.sigma)
+    def forward(self, x):
+        return self.model(x)
 
 
-EPSILON = 1e-08
+EPSILON = 1e-06
 
 
 def linear_init(module):
@@ -246,35 +273,6 @@ class CategoricalPolicy(nn.Module):
 
 
 class Net(nn.Module):
-    """Head for sentence-level classification tasks."""
-
-    def __init__(self, num_classes, input_dim=768, inner_dim=200, pooler_dropout=0.3):
-        super().__init__()
-        self.dense = nn.Linear(input_dim, inner_dim)
-        self.activation_fn = nn.ReLU()
-        self.dropout = nn.Dropout(p=pooler_dropout)
-        self.out_proj = nn.Linear(inner_dim, num_classes)
-
-    def forward(self, x, **kwargs):
-        x = self.dropout(x)
-        x = self.dense(x)
-        x = self.activation_fn(x)
-        x = self.dropout(x)
-        x = F.log_softmax(self.out_proj(x), dim=1)
-        return x
-
-
-class Lambda(nn.Module):
-
-    def __init__(self, fn):
-        super(Lambda, self).__init__()
-        self.fn = fn
-
-    def forward(self, x):
-        return self.fn(x)
-
-
-class Net(nn.Module):
 
     def __init__(self, ways=3):
         super(Net, self).__init__()
@@ -294,11 +292,27 @@ class Net(nn.Module):
         return F.log_softmax(x, dim=1)
 
 
+class Lambda(nn.Module):
+
+    def __init__(self, fn):
+        super(Lambda, self).__init__()
+        self.fn = fn
+
+    def forward(self, x):
+        return self.fn(x)
+
+
+def conv_block(in_channels, out_channels):
+    bn = nn.BatchNorm2d(out_channels)
+    nn.init.uniform_(bn.weight)
+    return nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1), bn, nn.ReLU(), nn.MaxPool2d(2))
+
+
 class Convnet(nn.Module):
 
     def __init__(self, x_dim=3, hid_dim=64, z_dim=64):
         super().__init__()
-        self.encoder = l2l.vision.models.ConvBase(output_size=z_dim, hidden=hid_dim, channels=x_dim)
+        self.encoder = nn.Sequential(conv_block(x_dim, hid_dim), conv_block(hid_dim, hid_dim), conv_block(hid_dim, hid_dim), conv_block(hid_dim, z_dim))
         self.out_channels = 1600
 
     def forward(self, x):
@@ -320,6 +334,361 @@ class BaseLearner(nn.Module):
 
     def forward(self, *args, **kwargs):
         return self.module(*args, **kwargs)
+
+
+def clone_module(module):
+    """
+
+    [[Source]](https://github.com/learnables/learn2learn/blob/master/learn2learn/utils.py)
+
+    **Description**
+
+    Creates a copy of a module, whose parameters/buffers/submodules
+    are created using PyTorch's torch.clone().
+
+    This implies that the computational graph is kept, and you can compute
+    the derivatives of the new modules' parameters w.r.t the original
+    parameters.
+
+    **Arguments**
+
+    * **module** (Module) - Module to be cloned.
+
+    **Return**
+
+    * (Module) - The cloned module.
+
+    **Example**
+
+    ~~~python
+    net = nn.Sequential(Linear(20, 10), nn.ReLU(), nn.Linear(10, 2))
+    clone = clone_module(net)
+    error = loss(clone(X), y)
+    error.backward()  # Gradients are back-propagate all the way to net.
+    ~~~
+    """
+    if not isinstance(module, torch.nn.Module):
+        return module
+    clone = module.__new__(type(module))
+    clone.__dict__ = module.__dict__.copy()
+    clone._parameters = clone._parameters.copy()
+    clone._buffers = clone._buffers.copy()
+    clone._modules = clone._modules.copy()
+    if hasattr(clone, '_parameters'):
+        for param_key in module._parameters:
+            if module._parameters[param_key] is not None:
+                cloned = module._parameters[param_key].clone()
+                clone._parameters[param_key] = cloned
+    if hasattr(clone, '_buffers'):
+        for buffer_key in module._buffers:
+            if clone._buffers[buffer_key] is not None and clone._buffers[buffer_key].requires_grad:
+                clone._buffers[buffer_key] = module._buffers[buffer_key].clone()
+    if hasattr(clone, '_modules'):
+        for module_key in clone._modules:
+            clone._modules[module_key] = clone_module(module._modules[module_key])
+    clone = clone._apply(lambda x: x)
+    return clone
+
+
+def maml_update(model, lr, grads=None):
+    """
+    [[Source]](https://github.com/learnables/learn2learn/blob/master/learn2learn/algorithms/maml.py)
+
+    **Description**
+
+    Performs a MAML update on model using grads and lr.
+    The function re-routes the Python object, thus avoiding in-place
+    operations.
+
+    NOTE: The model itself is updated in-place (no deepcopy), but the
+          parameters' tensors are not.
+
+    **Arguments**
+
+    * **model** (Module) - The model to update.
+    * **lr** (float) - The learning rate used to update the model.
+    * **grads** (list, *optional*, default=None) - A list of gradients for each parameter
+        of the model. If None, will use the gradients in .grad attributes.
+
+    **Example**
+    ~~~python
+    maml = l2l.algorithms.MAML(Model(), lr=0.1)
+    model = maml.clone() # The next two lines essentially implement model.adapt(loss)
+    grads = autograd.grad(loss, model.parameters(), create_graph=True)
+    maml_update(model, lr=0.1, grads)
+    ~~~
+    """
+    if grads is not None:
+        params = list(model.parameters())
+        if not len(grads) == len(list(params)):
+            msg = 'WARNING:maml_update(): Parameters and gradients have different length. ('
+            msg += str(len(params)) + ' vs ' + str(len(grads)) + ')'
+            None
+        for p, g in zip(params, grads):
+            p.grad = g
+    for param_key in model._parameters:
+        p = model._parameters[param_key]
+        if p is not None and p.grad is not None:
+            model._parameters[param_key] = p - lr * p.grad
+    for buffer_key in model._buffers:
+        buff = model._buffers[buffer_key]
+        if buff is not None and buff.grad is not None:
+            model._buffers[buffer_key] = buff - lr * buff.grad
+    for module_key in model._modules:
+        model._modules[module_key] = maml_update(model._modules[module_key], lr=lr, grads=None)
+    model._apply(lambda x: x)
+    return model
+
+
+class MAML(BaseLearner):
+    """
+
+    [[Source]](https://github.com/learnables/learn2learn/blob/master/learn2learn/algorithms/maml.py)
+
+    **Description**
+
+    High-level implementation of *Model-Agnostic Meta-Learning*.
+
+    This class wraps an arbitrary nn.Module and augments it with `clone()` and `adapt()`
+    methods.
+
+    For the first-order version of MAML (i.e. FOMAML), set the `first_order` flag to `True`
+    upon initialization.
+
+    **Arguments**
+
+    * **model** (Module) - Module to be wrapped.
+    * **lr** (float) - Fast adaptation learning rate.
+    * **first_order** (bool, *optional*, default=False) - Whether to use the first-order
+        approximation of MAML. (FOMAML)
+    * **allow_unused** (bool, *optional*, default=None) - Whether to allow differentiation
+        of unused parameters. Defaults to `allow_nograd`.
+    * **allow_nograd** (bool, *optional*, default=False) - Whether to allow adaptation with
+        parameters that have `requires_grad = False`.
+
+    **References**
+
+    1. Finn et al. 2017. "Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks."
+
+    **Example**
+
+    ~~~python
+    linear = l2l.algorithms.MAML(nn.Linear(20, 10), lr=0.01)
+    clone = linear.clone()
+    error = loss(clone(X), y)
+    clone.adapt(error)
+    error = loss(clone(X), y)
+    error.backward()
+    ~~~
+    """
+
+    def __init__(self, model, lr, first_order=False, allow_unused=None, allow_nograd=False):
+        super(MAML, self).__init__()
+        self.module = model
+        self.lr = lr
+        self.first_order = first_order
+        self.allow_nograd = allow_nograd
+        if allow_unused is None:
+            allow_unused = allow_nograd
+        self.allow_unused = allow_unused
+
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+    def adapt(self, loss, first_order=None, allow_unused=None, allow_nograd=None):
+        """
+        **Description**
+
+        Takes a gradient step on the loss and updates the cloned parameters in place.
+
+        **Arguments**
+
+        * **loss** (Tensor) - Loss to minimize upon update.
+        * **first_order** (bool, *optional*, default=None) - Whether to use first- or
+            second-order updates. Defaults to self.first_order.
+        * **allow_unused** (bool, *optional*, default=None) - Whether to allow differentiation
+            of unused parameters. Defaults to self.allow_unused.
+        * **allow_nograd** (bool, *optional*, default=None) - Whether to allow adaptation with
+            parameters that have `requires_grad = False`. Defaults to self.allow_nograd.
+
+        """
+        if first_order is None:
+            first_order = self.first_order
+        if allow_unused is None:
+            allow_unused = self.allow_unused
+        if allow_nograd is None:
+            allow_nograd = self.allow_nograd
+        second_order = not first_order
+        if allow_nograd:
+            diff_params = [p for p in self.module.parameters() if p.requires_grad]
+            grad_params = grad(loss, diff_params, retain_graph=second_order, create_graph=second_order, allow_unused=allow_unused)
+            gradients = []
+            grad_counter = 0
+            for param in self.module.parameters():
+                if param.requires_grad:
+                    gradient = grad_params[grad_counter]
+                    grad_counter += 1
+                else:
+                    gradient = None
+                gradients.append(gradient)
+        else:
+            try:
+                gradients = grad(loss, self.module.parameters(), retain_graph=second_order, create_graph=second_order, allow_unused=allow_unused)
+            except RuntimeError:
+                traceback.print_exc()
+                None
+        self.module = maml_update(self.module, self.lr, gradients)
+
+    def clone(self, first_order=None, allow_unused=None, allow_nograd=None):
+        """
+        **Description**
+
+        Returns a `MAML`-wrapped copy of the module whose parameters and buffers
+        are `torch.clone`d from the original module.
+
+        This implies that back-propagating losses on the cloned module will
+        populate the buffers of the original module.
+        For more information, refer to learn2learn.clone_module().
+
+        **Arguments**
+
+        * **first_order** (bool, *optional*, default=None) - Whether the clone uses first-
+            or second-order updates. Defaults to self.first_order.
+        * **allow_unused** (bool, *optional*, default=None) - Whether to allow differentiation
+        of unused parameters. Defaults to self.allow_unused.
+        * **allow_nograd** (bool, *optional*, default=False) - Whether to allow adaptation with
+            parameters that have `requires_grad = False`. Defaults to self.allow_nograd.
+
+        """
+        if first_order is None:
+            first_order = self.first_order
+        if allow_unused is None:
+            allow_unused = self.allow_unused
+        if allow_nograd is None:
+            allow_nograd = self.allow_nograd
+        return MAML(clone_module(self.module), lr=self.lr, first_order=first_order, allow_unused=allow_unused, allow_nograd=allow_nograd)
+
+
+def clone_parameters(param_list):
+    return [p.clone() for p in param_list]
+
+
+def meta_sgd_update(model, lrs=None, grads=None):
+    """
+
+    **Description**
+
+    Performs a MetaSGD update on model using grads and lrs.
+    The function re-routes the Python object, thus avoiding in-place
+    operations.
+
+    NOTE: The model itself is updated in-place (no deepcopy), but the
+          parameters' tensors are not.
+
+    **Arguments**
+
+    * **model** (Module) - The model to update.
+    * **lrs** (list) - The meta-learned learning rates used to update the model.
+    * **grads** (list, *optional*, default=None) - A list of gradients for each parameter
+        of the model. If None, will use the gradients in .grad attributes.
+
+    **Example**
+    ~~~python
+    meta = l2l.algorithms.MetaSGD(Model(), lr=1.0)
+    lrs = [th.ones_like(p) for p in meta.model.parameters()]
+    model = meta.clone() # The next two lines essentially implement model.adapt(loss)
+    grads = autograd.grad(loss, model.parameters(), create_graph=True)
+    meta_sgd_update(model, lrs=lrs, grads)
+    ~~~
+    """
+    if grads is not None and lrs is not None:
+        for p, lr, g in zip(model.parameters(), lrs, grads):
+            p.grad = g
+            p._lr = lr
+    for param_key in model._parameters:
+        p = model._parameters[param_key]
+        if p is not None and p.grad is not None:
+            model._parameters[param_key] = p - p._lr * p.grad
+    for buffer_key in model._buffers:
+        buff = model._buffers[buffer_key]
+        if buff is not None and buff.grad is not None and buff._lr is not None:
+            model._buffers[buffer_key] = buff - buff._lr * buff.grad
+    for module_key in model._modules:
+        model._modules[module_key] = meta_sgd_update(model._modules[module_key])
+    return model
+
+
+class MetaSGD(BaseLearner):
+    """
+
+    [[Source]](https://github.com/learnables/learn2learn/blob/master/learn2learn/algorithms/meta_sgd.py)
+
+    **Description**
+
+    High-level implementation of *Meta-SGD*.
+
+    This class wraps an arbitrary nn.Module and augments it with `clone()` and `adapt`
+    methods.
+    It behaves similarly to `MAML`, but in addition a set of per-parameters learning rates
+    are learned for fast-adaptation.
+
+    **Arguments**
+
+    * **model** (Module) - Module to be wrapped.
+    * **lr** (float) - Initialization value of the per-parameter fast adaptation learning rates.
+    * **first_order** (bool, *optional*, default=False) - Whether to use the first-order version.
+    * **lrs** (list of Parameters, *optional*, default=None) - If not None, overrides `lr`, and uses the list
+        as learning rates for fast-adaptation.
+
+    **References**
+
+    1. Li et al. 2017. “Meta-SGD: Learning to Learn Quickly for Few-Shot Learning.” arXiv.
+
+    **Example**
+
+    ~~~python
+    linear = l2l.algorithms.MetaSGD(nn.Linear(20, 10), lr=0.01)
+    clone = linear.clone()
+    error = loss(clone(X), y)
+    clone.adapt(error)
+    error = loss(clone(X), y)
+    error.backward()
+    ~~~
+    """
+
+    def __init__(self, model, lr=1.0, first_order=False, lrs=None):
+        super(MetaSGD, self).__init__()
+        self.module = model
+        if lrs is None:
+            lrs = [(th.ones_like(p) * lr) for p in model.parameters()]
+            lrs = nn.ParameterList([nn.Parameter(lr) for lr in lrs])
+        self.lrs = lrs
+        self.first_order = first_order
+
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+    def clone(self):
+        """
+        **Descritpion**
+
+        Akin to `MAML.clone()` but for MetaSGD: it includes a set of learnable fast-adaptation
+        learning rates.
+        """
+        return MetaSGD(clone_module(self.module), lrs=clone_parameters(self.lrs), first_order=self.first_order)
+
+    def adapt(self, loss, first_order=None):
+        """
+        **Descritpion**
+
+        Akin to `MAML.adapt()` but for MetaSGD: it updates the model with the learnable
+        per-parameter learning rates.
+        """
+        if first_order is None:
+            first_order = self.first_order
+        second_order = not first_order
+        gradients = grad(loss, self.module.parameters(), retain_graph=second_order, create_graph=second_order)
+        self.module = meta_sgd_update(self.module, self.lrs, gradients)
 
 
 def truncated_normal_(tensor, mean=0.0, std=1.0):
@@ -517,34 +886,6 @@ class MiniImagenetCNN(nn.Module):
         return x
 
 
-def conv_block(in_channels, out_channels):
-    bn = nn.BatchNorm2d(out_channels)
-    nn.init.uniform_(bn.weight)
-    return nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1), bn, nn.ReLU(), nn.MaxPool2d(2))
-
-
-class Convnet(nn.Module):
-
-    def __init__(self, x_dim=3, hid_dim=64, z_dim=64):
-        super().__init__()
-        self.encoder = nn.Sequential(conv_block(x_dim, hid_dim), conv_block(hid_dim, hid_dim), conv_block(hid_dim, hid_dim), conv_block(hid_dim, z_dim))
-        self.out_channels = 1600
-
-    def forward(self, x):
-        x = self.encoder(x)
-        return x.view(x.size(0), -1)
-
-
-class Model(torch.nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.model = torch.nn.Sequential(torch.nn.Linear(4, 64), torch.nn.Tanh(), torch.nn.Linear(64, 2))
-
-    def forward(self, x):
-        return self.model(x)
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -576,6 +917,10 @@ TESTCASES = [
      lambda: ([], {'input_size': 4, 'output_size': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      True),
+    (MAML,
+     lambda: ([], {'model': _mock_layer(), 'lr': 4}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
     (MiniImagenetCNN,
      lambda: ([], {'output_size': 4}),
      lambda: ([torch.rand([4, 3, 81, 81])], {}),
@@ -624,4 +969,7 @@ class Test_learnables_learn2learn(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

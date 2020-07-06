@@ -47,29 +47,52 @@ model = _module
 trainer = _module
 base_trainer = _module
 parallel_trainer = _module
+trainer = _module
 utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import time
 
 
 import torch
 
 
+import torch.distributions as ds
+
+
 import torch.distributions as distributions
+
+
+import torch.utils.data as data
+
+
+import torchvision
+
+
+import torchvision.datasets as dsets
+
+
+import torchvision.transforms as transforms
+
+
+from torch.optim import Adam
 
 
 import torch.nn as nn
@@ -79,9 +102,6 @@ import torch.nn.functional as F
 
 
 from torch.nn import Parameter
-
-
-import torchvision
 
 
 import torch.autograd as autograd
@@ -94,6 +114,15 @@ from math import log
 
 
 from math import log2
+
+
+from inspect import _empty
+
+
+from inspect import signature
+
+
+from warnings import warn
 
 
 class BasicBlock2d(nn.Module):
@@ -895,6 +924,442 @@ class DiscriminatorLoss(nn.Module):
             return loss.item()
 
 
+def minimax_generator_loss(dgz, nonsaturating=True, reduction='mean'):
+    if nonsaturating:
+        target = torch.ones_like(dgz)
+        return F.binary_cross_entropy_with_logits(dgz, target, reduction=reduction)
+    else:
+        target = torch.zeros_like(dgz)
+        return -1.0 * F.binary_cross_entropy_with_logits(dgz, target, reduction=reduction)
+
+
+class MinimaxGeneratorLoss(GeneratorLoss):
+    """Minimax game generator loss from the original GAN paper `"Generative Adversarial Networks
+    by Goodfellow et. al." <https://arxiv.org/abs/1406.2661>`_
+
+    The loss can be described as:
+
+    .. math:: L(G) = log(1 - D(G(z)))
+
+    The nonsaturating heuristic is also supported:
+
+    .. math:: L(G) = -log(D(G(z)))
+
+    where
+
+    - :math:`G` : Generator
+    - :math:`D` : Discriminator
+    - :math:`z` : A sample from the noise prior
+
+    Args:
+        reduction (str, optional): Specifies the reduction to apply to the output.
+            If ``none`` no reduction will be applied. If ``mean`` the outputs are averaged over batch size.
+            If ``sum`` the elements of the output are summed.
+        override_train_ops (function, optional): Function to be used in place of the default ``train_ops``
+        nonsaturating(bool, optional): Specifies whether to use the nonsaturating heuristic
+            loss for the generator.
+    """
+
+    def __init__(self, reduction='mean', nonsaturating=True, override_train_ops=None):
+        super(MinimaxGeneratorLoss, self).__init__(reduction, override_train_ops)
+        self.nonsaturating = nonsaturating
+
+    def forward(self, dgz):
+        """Computes the loss for the given input.
+
+        Args:
+            dgz (torch.Tensor) : Output of the Discriminator with generated data. It must have the
+                                 dimensions (N, \\*) where \\* means any number of additional
+                                 dimensions.
+
+        Returns:
+            scalar if reduction is applied else Tensor with dimensions (N, \\*).
+        """
+        return minimax_generator_loss(dgz, self.nonsaturating, self.reduction)
+
+
+def minimax_discriminator_loss(dx, dgz, label_smoothing=0.0, reduction='mean'):
+    target_ones = torch.ones_like(dgz) * (1.0 - label_smoothing)
+    target_zeros = torch.zeros_like(dx)
+    loss = F.binary_cross_entropy_with_logits(dx, target_ones, reduction=reduction)
+    loss += F.binary_cross_entropy_with_logits(dgz, target_zeros, reduction=reduction)
+    return loss
+
+
+class MinimaxDiscriminatorLoss(DiscriminatorLoss):
+    """Minimax game discriminator loss from the original GAN paper `"Generative Adversarial Networks
+    by Goodfellow et. al." <https://arxiv.org/abs/1406.2661>`_
+
+    The loss can be described as:
+
+    .. math:: L(D) = -[log(D(x)) + log(1 - D(G(z)))]
+
+    where
+
+    - :math:`G` : Generator
+    - :math:`D` : Discriminator
+    - :math:`x` : A sample from the data distribution
+    - :math:`z` : A sample from the noise prior
+
+    Args:
+        label_smoothing (float, optional): The factor by which the labels (1 in this case) needs
+            to be smoothened. For example, label_smoothing = 0.2 changes the value of the real
+            labels to 0.8.
+        reduction (str, optional): Specifies the reduction to apply to the output.
+            If ``none`` no reduction will be applied. If ``mean`` the mean of the output.
+            If ``sum`` the elements of the output will be summed.
+        override_train_ops (function, optional): A function is passed to this argument,
+            if the default ``train_ops`` is not to be used.
+    """
+
+    def __init__(self, label_smoothing=0.0, reduction='mean', override_train_ops=None):
+        super(MinimaxDiscriminatorLoss, self).__init__(reduction, override_train_ops)
+        self.label_smoothing = label_smoothing
+
+    def forward(self, dx, dgz):
+        """Computes the loss for the given input.
+
+        Args:
+            dx (torch.Tensor) : Output of the Discriminator with real data. It must have the
+                                dimensions (N, \\*) where \\* means any number of additional
+                                dimensions.
+            dgz (torch.Tensor) : Output of the Discriminator with generated data. It must have the
+                                 dimensions (N, \\*) where \\* means any number of additional
+                                 dimensions.
+
+        Returns:
+            scalar if reduction is applied else Tensor with dimensions (N, \\*).
+        """
+        return minimax_discriminator_loss(dx, dgz, label_smoothing=self.label_smoothing, reduction=self.reduction)
+
+
+def reduce(x, reduction=None):
+    """Applies reduction on a torch.Tensor.
+
+    Args:
+        x (torch.Tensor): The tensor on which reduction is to be applied.
+        reduction (str, optional): The reduction to be applied. If ``mean`` the  mean value of the
+            Tensor is returned. If ``sum`` the elements of the Tensor will be summed. If none of the
+            above then the Tensor is returning without any change.
+
+    Returns:
+        As per the above ``reduction`` convention.
+    """
+    if reduction == 'mean':
+        return torch.mean(x)
+    elif reduction == 'sum':
+        return torch.sum(x)
+    else:
+        return x
+
+
+def mutual_information_penalty(c_dis, c_cont, dist_dis, dist_cont, reduction='mean'):
+    log_probs = torch.Tensor([torch.mean(dist.log_prob(c)) for dist, c in zip((dist_dis, dist_cont), (c_dis, c_cont))])
+    return reduce(-1.0 * log_probs, reduction)
+
+
+class MutualInformationPenalty(GeneratorLoss, DiscriminatorLoss):
+    """Mutual Information Penalty as defined in
+    `"InfoGAN : Interpretable Representation Learning by Information Maximising Generative Adversarial Nets
+    by Chen et. al." <https://arxiv.org/abs/1606.03657>`_ paper
+
+    The loss is the variational lower bound of the mutual information between
+    the latent codes and the generator distribution and is defined as
+
+    .. math:: L(G,Q) = log(Q|x)
+
+    where
+
+    - :math:`x` is drawn from the generator distribution G(z,c)
+    - :math:`c` drawn from the latent code prior :math:`P(c)`
+
+    Args:
+        lambd (float, optional): The scaling factor for the loss.
+        reduction (str, optional): Specifies the reduction to apply to the output.
+            If ``none`` no reduction will be applied. If ``mean`` the mean of the output.
+            If ``sum`` the elements of the output will be summed.
+        override_train_ops (function, optional): A function is passed to this argument,
+            if the default ``train_ops`` is not to be used.
+    """
+
+    def __init__(self, lambd=1.0, reduction='mean', override_train_ops=None):
+        super(MutualInformationPenalty, self).__init__(reduction, override_train_ops)
+        self.lambd = lambd
+
+    def forward(self, c_dis, c_cont, dist_dis, dist_cont):
+        """Computes the loss for the given input.
+
+        Args:
+            c_dis (int): The discrete latent code sampled from the prior.
+            c_cont (int): The continuous latent code sampled from the prior.
+            dist_dis (torch.distributions.Distribution): The auxilliary distribution :math:`Q(c|x)` over the
+                discrete latent code output by the discriminator.
+            dist_cont (torch.distributions.Distribution): The auxilliary distribution :math:`Q(c|x)` over the
+                continuous latent code output by the discriminator.
+
+        Returns:
+            scalar if reduction is applied else Tensor with dimensions (N, \\*).
+        """
+        return mutual_information_penalty(c_dis, c_cont, dist_dis, dist_cont, reduction=self.reduction)
+
+    def train_ops(self, generator, discriminator, optimizer_generator, optimizer_discriminator, dis_code, cont_code, device, batch_size):
+        if self.override_train_ops is not None:
+            self.override_train_ops(generator, discriminator, optimizer_generator, optimizer_discriminator, dis_code, cont_code, device, batch_size)
+        else:
+            noise = torch.randn(batch_size, generator.encoding_dims, device=device)
+            optimizer_discriminator.zero_grad()
+            optimizer_generator.zero_grad()
+            fake = generator(noise, dis_code, cont_code)
+            _, dist_dis, dist_cont = discriminator(fake, True)
+            loss = self.forward(dis_code, cont_code, dist_dis, dist_cont)
+            weighted_loss = self.lambd * loss
+            weighted_loss.backward()
+            optimizer_discriminator.step()
+            optimizer_generator.step()
+            return weighted_loss.item()
+
+
+def wasserstein_generator_loss(fgz, reduction='mean'):
+    return reduce(-1.0 * fgz, reduction)
+
+
+class WassersteinGeneratorLoss(GeneratorLoss):
+    """Wasserstein GAN generator loss from
+    `"Wasserstein GAN by Arjovsky et. al." <https://arxiv.org/abs/1701.07875>`_ paper
+
+    The loss can be described as:
+
+    .. math:: L(G) = -f(G(z))
+
+    where
+
+    - :math:`G` : Generator
+    - :math:`f` : Critic/Discriminator
+    - :math:`z` : A sample from the noise prior
+
+    Args:
+        reduction (str, optional): Specifies the reduction to apply to the output.
+            If ``none`` no reduction will be applied. If ``mean`` the mean of the output.
+            If ``sum`` the elements of the output will be summed.
+        override_train_ops (function, optional): A function is passed to this argument,
+            if the default ``train_ops`` is not to be used.
+    """
+
+    def forward(self, fgz):
+        """Computes the loss for the given input.
+
+        Args:
+            dgz (torch.Tensor) : Output of the Discriminator with generated data. It must have the
+                                 dimensions (N, \\*) where \\* means any number of additional
+                                 dimensions.
+
+        Returns:
+            scalar if reduction is applied else Tensor with dimensions (N, \\*).
+        """
+        return wasserstein_generator_loss(fgz, self.reduction)
+
+
+def wasserstein_discriminator_loss(fx, fgz, reduction='mean'):
+    return reduce(fgz - fx, reduction)
+
+
+class WassersteinDiscriminatorLoss(DiscriminatorLoss):
+    """Wasserstein GAN generator loss from
+    `"Wasserstein GAN by Arjovsky et. al." <https://arxiv.org/abs/1701.07875>`_ paper
+
+    The loss can be described as:
+
+    .. math:: L(D) = f(G(z)) - f(x)
+
+    where
+
+    - :math:`G` : Generator
+    - :math:`f` : Critic/Discriminator
+    - :math:`x` : A sample from the data distribution
+    - :math:`z` : A sample from the noise prior
+
+    Args:
+        reduction (str, optional): Specifies the reduction to apply to the output.
+            If ``none`` no reduction will be applied. If ``mean`` the mean of the output.
+            If ``sum`` the elements of the output will be summed.
+        clip (tuple, optional): Tuple that specifies the maximum and minimum parameter
+            clamping to be applied, as per the original version of the Wasserstein loss
+            without Gradient Penalty.
+        override_train_ops (function, optional): A function is passed to this argument,
+            if the default ``train_ops`` is not to be used.
+    """
+
+    def __init__(self, reduction='mean', clip=None, override_train_ops=None):
+        super(WassersteinDiscriminatorLoss, self).__init__(reduction, override_train_ops)
+        if (isinstance(clip, tuple) or isinstance(clip, list)) and len(clip) > 1:
+            self.clip = clip
+        else:
+            self.clip = None
+
+    def forward(self, fx, fgz):
+        """Computes the loss for the given input.
+
+        Args:
+            fx (torch.Tensor) : Output of the Discriminator with real data. It must have the
+                                dimensions (N, \\*) where \\* means any number of additional
+                                dimensions.
+            fgz (torch.Tensor) : Output of the Discriminator with generated data. It must have the
+                                 dimensions (N, \\*) where \\* means any number of additional
+                                 dimensions.
+
+        Returns:
+            scalar if reduction is applied else Tensor with dimensions (N, \\*).
+        """
+        return wasserstein_discriminator_loss(fx, fgz, self.reduction)
+
+    def train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs, device, labels=None):
+        """Defines the standard ``train_ops`` used by wasserstein discriminator loss.
+
+        The ``standard optimization algorithm`` for the ``discriminator`` defined in this train_ops
+        is as follows:
+
+        1. Clamp the discriminator parameters to satisfy :math:`lipschitz\\ condition`
+        2. :math:`fake = generator(noise)`
+        3. :math:`value_1 = discriminator(fake)`
+        4. :math:`value_2 = discriminator(real)`
+        5. :math:`loss = loss\\_function(value_1, value_2)`
+        6. Backpropagate by computing :math:`\\nabla loss`
+        7. Run a step of the optimizer for discriminator
+
+        Args:
+            generator (torchgan.models.Generator): The model to be optimized.
+            discriminator (torchgan.models.Discriminator): The discriminator which judges the
+                performance of the generator.
+            optimizer_discriminator (torch.optim.Optimizer): Optimizer which updates the ``parameters``
+                of the ``discriminator``.
+            real_inputs (torch.Tensor): The real data to be fed to the ``discriminator``.
+            device (torch.device): Device on which the ``generator`` and ``discriminator`` is present.
+            labels (torch.Tensor, optional): Labels for the data.
+
+        Returns:
+            Scalar value of the loss.
+        """
+        if self.override_train_ops is not None:
+            return self.override_train_ops(generator, discriminator, optimizer_discriminator, real_inputs, device, labels)
+        else:
+            if self.clip is not None:
+                for p in discriminator.parameters():
+                    p.data.clamp_(self.clip[0], self.clip[1])
+            return super(WassersteinDiscriminatorLoss, self).train_ops(generator, discriminator, optimizer_discriminator, real_inputs, device, labels)
+
+
+def wasserstein_gradient_penalty(interpolate, d_interpolate, reduction='mean'):
+    grad_outputs = torch.ones_like(d_interpolate)
+    gradients = autograd.grad(outputs=d_interpolate, inputs=interpolate, grad_outputs=grad_outputs, create_graph=True, retain_graph=True, only_inputs=True)[0]
+    gradient_penalty = (gradients.norm(2) - 1) ** 2
+    return reduce(gradient_penalty, reduction)
+
+
+class WassersteinGradientPenalty(DiscriminatorLoss):
+    """Gradient Penalty for the Improved Wasserstein GAN discriminator from
+    `"Improved Training of Wasserstein GANs
+    by Gulrajani et. al." <https://arxiv.org/abs/1704.00028>`_ paper
+
+    The gradient penalty is calculated as:
+
+    .. math: \\lambda \\times (||\\nabla(D(x))||_2 - 1)^2
+
+    The gradient being taken with respect to x
+
+    where
+
+    - :math:`G` : Generator
+    - :math:`D` : Disrciminator/Critic
+    - :math:`\\lambda` : Scaling hyperparameter
+    - :math:`x` : Interpolation term for the gradient penalty
+
+    Args:
+        reduction (str, optional): Specifies the reduction to apply to the output.
+            If ``none`` no reduction will be applied. If ``mean`` the mean of the output.
+            If ``sum`` the elements of the output will be summed.
+        lambd (float,optional): Hyperparameter lambda for scaling the gradient penalty.
+        override_train_ops (function, optional): A function is passed to this argument,
+            if the default ``train_ops`` is not to be used.
+    """
+
+    def __init__(self, reduction='mean', lambd=10.0, override_train_ops=None):
+        super(WassersteinGradientPenalty, self).__init__(reduction, override_train_ops)
+        self.lambd = lambd
+        self.override_train_ops = override_train_ops
+
+    def forward(self, interpolate, d_interpolate):
+        """Computes the loss for the given input.
+
+        Args:
+            interpolate (torch.Tensor) : It must have the dimensions (N, \\*) where
+                                         \\* means any number of additional dimensions.
+            d_interpolate (torch.Tensor) : Output of the ``discriminator`` with ``interpolate``
+                                           as the input. It must have the dimensions (N, \\*)
+                                           where \\* means any number of additional dimensions.
+
+        Returns:
+            scalar if reduction is applied else Tensor with dimensions (N, \\*).
+        """
+        return wasserstein_gradient_penalty(interpolate, d_interpolate, self.reduction)
+
+    def train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs, device, labels=None):
+        """Defines the standard ``train_ops`` used by the Wasserstein Gradient Penalty.
+
+        The ``standard optimization algorithm`` for the ``discriminator`` defined in this train_ops
+        is as follows:
+
+        1. :math:`fake = generator(noise)`
+        2. :math:`interpolate = \\epsilon \\times real + (1 - \\epsilon) \\times fake`
+        3. :math:`d\\_interpolate = discriminator(interpolate)`
+        4. :math:`loss = \\lambda loss\\_function(interpolate, d\\_interpolate)`
+        5. Backpropagate by computing :math:`\\nabla loss`
+        6. Run a step of the optimizer for discriminator
+
+        Args:
+            generator (torchgan.models.Generator): The model to be optimized.
+            discriminator (torchgan.models.Discriminator): The discriminator which judges the
+                performance of the generator.
+            optimizer_discriminator (torch.optim.Optimizer): Optimizer which updates the ``parameters``
+                of the ``discriminator``.
+            real_inputs (torch.Tensor): The real data to be fed to the ``discriminator``.
+            device (torch.device): Device on which the ``generator`` and ``discriminator`` is present.
+            batch_size (int): Batch Size of the data infered from the ``DataLoader`` by the ``Trainer``.
+            labels (torch.Tensor, optional): Labels for the data.
+
+        Returns:
+            Scalar value of the loss.
+        """
+        if self.override_train_ops is not None:
+            return self.override_train_ops(self, generator, discriminator, optimizer_discriminator, real_inputs, labels)
+        else:
+            if labels is None and (generator.label_type == 'required' or discriminator.label_type == 'required'):
+                raise Exception('GAN model requires labels for training')
+            batch_size = real_inputs.size(0)
+            noise = torch.randn(batch_size, generator.encoding_dims, device=device)
+            if generator.label_type == 'generated':
+                label_gen = torch.randint(0, generator.num_classes, (batch_size,), device=device)
+            optimizer_discriminator.zero_grad()
+            if generator.label_type == 'none':
+                fake = generator(noise)
+            elif generator.label_type == 'required':
+                fake = generator(noise, labels)
+            else:
+                fake = generator(noise, label_gen)
+            eps = torch.rand(1).item()
+            interpolate = eps * real_inputs + (1 - eps) * fake
+            if discriminator.label_type == 'none':
+                d_interpolate = discriminator(interpolate)
+            elif generator.label_type == 'generated':
+                d_interpolate = discriminator(interpolate, label_gen)
+            else:
+                d_interpolate = discriminator(interpolate, labels)
+            loss = self.forward(interpolate, d_interpolate)
+            weighted_loss = self.lambd * loss
+            weighted_loss.backward()
+            optimizer_discriminator.step()
+            return loss.item()
+
+
 class Generator(nn.Module):
     """Base class for all Generator models. All Generator models must subclass this.
 
@@ -973,6 +1438,14 @@ TESTCASES = [
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4])], {}),
      True),
+    (MinimaxDiscriminatorLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MinimaxGeneratorLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (TransitionBlock2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -983,6 +1456,14 @@ TESTCASES = [
      True),
     (VirtualBatchNorm,
      lambda: ([], {'in_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (WassersteinDiscriminatorLoss,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (WassersteinGeneratorLoss,
+     lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
 ]
@@ -999,4 +1480,16 @@ class Test_torchgan_torchgan(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

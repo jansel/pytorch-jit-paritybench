@@ -10,7 +10,12 @@ relgan_instructor = _module
 sentigan_instructor = _module
 seqgan_instructor = _module
 instructor = _module
+jsdgan_instructor = _module
+leakgan_instructor = _module
+maligan_instructor = _module
 relgan_instructor = _module
+sentigan_instructor = _module
+seqgan_instructor = _module
 main = _module
 basic = _module
 bleu = _module
@@ -50,38 +55,48 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import numpy as np
+import re
+
+
+import time
 
 
 import torch
 
 
+from time import strftime
+
+
+from time import localtime
+
+
+import numpy as np
+
+
 import torch.nn as nn
-
-
-import torch.nn.functional as F
 
 
 import torch.optim as optim
 
 
+import torch.nn.functional as F
+
+
 import math
-
-
-import time
 
 
 import torch.autograd as autograd
@@ -90,10 +105,13 @@ import torch.autograd as autograd
 from torch import nn
 
 
-from time import strftime
+import random
 
 
-from time import localtime
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
 
 
 import logging
@@ -123,288 +141,6 @@ def truncated_normal_(tensor, mean=0, std=1):
     tensor.data.copy_(tmp.gather(-1, ind).squeeze(-1))
     tensor.data.mul_(std).add_(mean)
     return tensor
-
-
-_global_config['gen_init'] = 4
-
-
-_global_config['batch_size'] = 4
-
-
-_global_config['start_letter'] = 4
-
-
-class LeakGAN_G(nn.Module):
-
-    def __init__(self, embedding_dim, hidden_dim, vocab_size, max_seq_len, padding_idx, goal_size, step_size, gpu=False):
-        super(LeakGAN_G, self).__init__()
-        self.name = 'leakgan'
-        self.hidden_dim = hidden_dim
-        self.embedding_dim = embedding_dim
-        self.max_seq_len = max_seq_len
-        self.vocab_size = vocab_size
-        self.padding_idx = padding_idx
-        self.goal_size = goal_size
-        self.goal_out_size = goal_out_size
-        self.step_size = step_size
-        self.gpu = gpu
-        self.temperature = 1.5
-        self.embeddings = nn.Embedding(vocab_size, embedding_dim, padding_idx=padding_idx)
-        self.worker = nn.LSTM(embedding_dim, hidden_dim)
-        self.manager = nn.LSTM(goal_out_size, hidden_dim)
-        self.work2goal = nn.Linear(hidden_dim, vocab_size * goal_size)
-        self.mana2goal = nn.Linear(hidden_dim, goal_out_size)
-        self.goal2goal = nn.Linear(goal_out_size, goal_size, bias=False)
-        self.goal_init = nn.Parameter(torch.rand((cfg.batch_size, goal_out_size)))
-        self.init_params()
-
-    def forward(self, idx, inp, work_hidden, mana_hidden, feature, real_goal, no_log=False, train=False):
-        """
-        Embeds input and sample on token at a time (seq_len = 1)
-
-        :param idx: index of current token in sentence
-        :param inp: [batch_size]
-        :param work_hidden: 1 * batch_size * hidden_dim
-        :param mana_hidden: 1 * batch_size * hidden_dim
-        :param feature: 1 * batch_size * total_num_filters, feature of current sentence
-        :param real_goal: batch_size * goal_out_size, real_goal in LeakGAN source code
-        :param no_log: no log operation
-        :param train: if train
-
-        :return: out, cur_goal, work_hidden, mana_hidden
-            - out: batch_size * vocab_size
-            - cur_goal: batch_size * 1 * goal_out_size
-        """
-        emb = self.embeddings(inp).unsqueeze(0)
-        mana_out, mana_hidden = self.manager(feature, mana_hidden)
-        mana_out = self.mana2goal(mana_out.permute([1, 0, 2]))
-        cur_goal = F.normalize(mana_out, dim=-1)
-        _real_goal = self.goal2goal(real_goal)
-        _real_goal = F.normalize(_real_goal, p=2, dim=-1).unsqueeze(-1)
-        work_out, work_hidden = self.worker(emb, work_hidden)
-        work_out = self.work2goal(work_out).view(-1, self.vocab_size, self.goal_size)
-        out = torch.matmul(work_out, _real_goal).squeeze(-1)
-        if idx > 1:
-            if train:
-                temperature = 1.0
-            else:
-                temperature = self.temperature
-        else:
-            temperature = self.temperature
-        out = temperature * out
-        if no_log:
-            out = F.softmax(out, dim=-1)
-        else:
-            out = F.log_softmax(out, dim=-1)
-        return out, cur_goal, work_hidden, mana_hidden
-
-    def sample(self, num_samples, batch_size, dis, start_letter=cfg.start_letter, train=False):
-        """
-        Samples the network and returns num_samples samples of length max_seq_len.
-        :return: samples: batch_size * max_seq_len
-        """
-        num_batch = num_samples // batch_size + 1 if num_samples != batch_size else 1
-        samples = torch.zeros(num_batch * batch_size, self.max_seq_len).long()
-        fake_sentences = torch.zeros((batch_size, self.max_seq_len))
-        for b in range(num_batch):
-            leak_sample, _, _, _ = self.forward_leakgan(fake_sentences, dis, if_sample=True, no_log=False, start_letter=start_letter, train=False)
-            assert leak_sample.shape == (batch_size, self.max_seq_len)
-            samples[b * batch_size:(b + 1) * batch_size, :] = leak_sample
-        samples = samples[:num_samples, :]
-        return samples
-
-    def pretrain_loss(self, target, dis, start_letter=cfg.start_letter):
-        """
-        Returns the pretrain_generator Loss for predicting target sequence.
-
-        Inputs: target, dis, start_letter
-            - target: batch_size * seq_len
-
-        """
-        batch_size, seq_len = target.size()
-        _, feature_array, goal_array, leak_out_array = self.forward_leakgan(target, dis, if_sample=False, no_log=False, start_letter=start_letter)
-        mana_cos_loss = self.manager_cos_loss(batch_size, feature_array, goal_array)
-        manager_loss = -torch.sum(mana_cos_loss) / (batch_size * (seq_len // self.step_size))
-        work_nll_loss = self.worker_nll_loss(target, leak_out_array)
-        work_loss = torch.sum(work_nll_loss) / (batch_size * seq_len)
-        return manager_loss, work_loss
-
-    def adversarial_loss(self, target, rewards, dis, start_letter=cfg.start_letter):
-        """
-        Returns a pseudo-loss that gives corresponding policy gradients (on calling .backward()).
-        Inspired by the example in http://karpathy.github.io/2016/05/31/rl/
-
-        Inputs: target, rewards, dis, start_letter
-            - target: batch_size * seq_len
-            - rewards: batch_size * seq_len (discriminator rewards for each token)
-        """
-        batch_size, seq_len = target.size()
-        _, feature_array, goal_array, leak_out_array = self.forward_leakgan(target, dis, if_sample=False, no_log=False, start_letter=start_letter, train=True)
-        t0 = time.time()
-        mana_cos_loss = self.manager_cos_loss(batch_size, feature_array, goal_array)
-        mana_loss = -torch.sum(rewards * mana_cos_loss) / (batch_size * (seq_len // self.step_size))
-        work_nll_loss = self.worker_nll_loss(target, leak_out_array)
-        work_cos_reward = self.worker_cos_reward(feature_array, goal_array)
-        work_loss = -torch.sum(work_nll_loss * work_cos_reward) / (batch_size * seq_len)
-        return mana_loss, work_loss
-
-    def manager_cos_loss(self, batch_size, feature_array, goal_array):
-        """
-        Get manager cosine distance loss
-
-        :return cos_loss: batch_size * (seq_len / step_size)
-        """
-        sub_feature = torch.zeros(batch_size, self.max_seq_len // self.step_size, self.goal_out_size)
-        real_goal = torch.zeros(batch_size, self.max_seq_len // self.step_size, self.goal_out_size)
-        for i in range(self.max_seq_len // self.step_size):
-            idx = i * self.step_size
-            sub_feature[:, (i), :] = feature_array[:, (idx + self.step_size), :] - feature_array[:, (idx), :]
-            if i == 0:
-                real_goal[:, (i), :] = self.goal_init[:batch_size, :]
-            else:
-                idx = (i - 1) * self.step_size + 1
-                real_goal[:, (i), :] = torch.sum(goal_array[:, idx:idx + 4, :], dim=1)
-        sub_feature = F.normalize(sub_feature, p=2, dim=-1)
-        real_goal = F.normalize(real_goal, p=2, dim=-1)
-        cos_loss = F.cosine_similarity(sub_feature, real_goal, dim=-1)
-        return cos_loss
-
-    def worker_nll_loss(self, target, leak_out_array):
-        """
-        Get NLL loss for worker
-
-        :return loss: batch_size * seq_len
-        """
-        loss_fn = nn.NLLLoss(reduction='none')
-        loss = loss_fn(leak_out_array.permute([0, 2, 1]), target)
-        return loss
-
-    def worker_cos_reward(self, feature_array, goal_array):
-        """
-        Get reward for worker (cosine distance)
-
-        :return: cos_loss: batch_size * seq_len
-        """
-        for i in range(int(self.max_seq_len / self.step_size)):
-            real_feature = feature_array[:, (i * self.step_size), :].unsqueeze(1).expand((-1, self.step_size, -1))
-            feature_array[:, i * self.step_size:(i + 1) * self.step_size, :] = real_feature
-            if i > 0:
-                sum_goal = torch.sum(goal_array[:, (i - 1) * self.step_size:i * self.step_size, :], dim=1, keepdim=True)
-            else:
-                sum_goal = goal_array[:, (0), :].unsqueeze(1)
-            goal_array[:, i * self.step_size:(i + 1) * self.step_size, :] = sum_goal.expand((-1, self.step_size, -1))
-        offset_feature = feature_array[:, 1:, :]
-        goal_array = goal_array[:, :self.max_seq_len, :]
-        sub_feature = offset_feature - goal_array
-        sub_feature = F.normalize(sub_feature, p=2, dim=-1)
-        all_goal = F.normalize(goal_array, p=2, dim=-1)
-        cos_loss = F.cosine_similarity(sub_feature, all_goal, dim=-1)
-        return cos_loss
-
-    def forward_leakgan(self, sentences, dis, if_sample, no_log=False, start_letter=cfg.start_letter, train=False):
-        """
-        Get all feature and goals according to given sentences
-        :param sentences: batch_size * max_seq_len, not include start token
-        :param dis: discriminator model
-        :param if_sample: if use to sample token
-        :param no_log: if use log operation
-        :param start_letter:
-        :param train: if use temperature parameter
-        :return samples, feature_array, goal_array, leak_out_array:
-            - samples: batch_size * max_seq_len
-            - feature_array: batch_size * (max_seq_len + 1) * total_num_filter
-            - goal_array: batch_size * (max_seq_len + 1) * goal_out_size
-            - leak_out_array: batch_size * max_seq_len * vocab_size
-        """
-        batch_size, seq_len = sentences.size()
-        feature_array = torch.zeros((batch_size, seq_len + 1, self.goal_out_size))
-        goal_array = torch.zeros((batch_size, seq_len + 1, self.goal_out_size))
-        leak_out_array = torch.zeros((batch_size, seq_len + 1, self.vocab_size))
-        samples = torch.zeros(batch_size, seq_len + 1).long()
-        work_hidden = self.init_hidden(batch_size)
-        mana_hidden = self.init_hidden(batch_size)
-        leak_inp = torch.LongTensor([start_letter] * batch_size)
-        real_goal = self.goal_init[:batch_size, :]
-        if self.gpu:
-            feature_array = feature_array
-            goal_array = goal_array
-            leak_out_array = leak_out_array
-        goal_array[:, (0), :] = real_goal
-        for i in range(seq_len + 1):
-            if if_sample:
-                dis_inp = samples[:, :seq_len]
-            else:
-                dis_inp = torch.zeros(batch_size, seq_len).long()
-                if i > 0:
-                    dis_inp[:, :i] = sentences[:, :i]
-                    leak_inp = sentences[:, (i - 1)]
-            if self.gpu:
-                dis_inp = dis_inp
-                leak_inp = leak_inp
-            feature = dis.get_feature(dis_inp).unsqueeze(0)
-            feature_array[:, (i), :] = feature.squeeze(0)
-            out, cur_goal, work_hidden, mana_hidden = self.forward(i, leak_inp, work_hidden, mana_hidden, feature, real_goal, no_log=no_log, train=train)
-            leak_out_array[:, (i), :] = out
-            goal_array[:, (i), :] = cur_goal.squeeze(1)
-            if i > 0 and i % self.step_size == 0:
-                real_goal = torch.sum(goal_array[:, i - 3:i + 1, :], dim=1)
-                if i / self.step_size == 1:
-                    real_goal += self.goal_init[:batch_size, :]
-            if not no_log:
-                out = torch.exp(out)
-            out = torch.multinomial(out, 1).view(-1)
-            samples[:, (i)] = out.data
-            leak_inp = out
-        samples = samples[:, :seq_len]
-        leak_out_array = leak_out_array[:, :seq_len, :]
-        return samples, feature_array, goal_array, leak_out_array
-
-    def batchNLLLoss(self, target, dis, start_letter=cfg.start_letter):
-        _, _, _, leak_out_array = self.forward_leakgan(target, dis, if_sample=False, no_log=False, start_letter=start_letter)
-        nll_loss = torch.mean(self.worker_nll_loss(target, leak_out_array))
-        return nll_loss
-
-    def init_hidden(self, batch_size=1):
-        h = torch.zeros(1, batch_size, self.hidden_dim)
-        c = torch.zeros(1, batch_size, self.hidden_dim)
-        if self.gpu:
-            return h, c
-        else:
-            return h, c
-
-    def init_goal(self, batch_size):
-        goal = torch.rand((batch_size, self.goal_out_size)).normal_(std=0.1)
-        goal = nn.Parameter(goal)
-        if self.gpu:
-            return goal
-        else:
-            return goal
-
-    def split_params(self):
-        mana_params = list()
-        work_params = list()
-        mana_params += list(self.manager.parameters())
-        mana_params += list(self.mana2goal.parameters())
-        mana_params.append(self.goal_init)
-        work_params += list(self.embeddings.parameters())
-        work_params += list(self.worker.parameters())
-        work_params += list(self.work2goal.parameters())
-        work_params += list(self.goal2goal.parameters())
-        return mana_params, work_params
-
-    def init_params(self):
-        for param in self.parameters():
-            if param.requires_grad and len(param.shape) > 0:
-                stddev = 1 / math.sqrt(param.shape[0])
-                if cfg.gen_init == 'uniform':
-                    torch.nn.init.uniform_(param, a=-0.05, b=0.05)
-                elif cfg.gen_init == 'normal':
-                    torch.nn.init.normal_(param, std=stddev)
-                elif cfg.gen_init == 'truncated_normal':
-                    truncated_normal_(param, std=stddev)
-
-
-_global_config['dis_init'] = 4
 
 
 class CNNDiscriminator(nn.Module):
@@ -519,86 +255,38 @@ class GRUDiscriminator(nn.Module):
                     truncated_normal_(param, std=stddev)
 
 
-class LSTMGenerator(nn.Module):
+class CNNClassifier(CNNDiscriminator):
 
-    def __init__(self, embedding_dim, hidden_dim, vocab_size, max_seq_len, padding_idx, gpu=False):
-        super(LSTMGenerator, self).__init__()
-        self.name = 'vanilla'
-        self.hidden_dim = hidden_dim
-        self.embedding_dim = embedding_dim
+    def __init__(self, k_label, embed_dim, max_seq_len, num_rep, vocab_size, filter_sizes, num_filters, padding_idx, gpu=False, dropout=0.25):
+        super(CNNClassifier, self).__init__(embed_dim, vocab_size, filter_sizes, num_filters, padding_idx, gpu, dropout)
+        self.k_label = k_label
+        self.embed_dim = embed_dim
         self.max_seq_len = max_seq_len
-        self.vocab_size = vocab_size
-        self.padding_idx = padding_idx
-        self.gpu = gpu
-        self.temperature = 1.0
-        self.embeddings = nn.Embedding(vocab_size, embedding_dim, padding_idx=padding_idx)
-        self.lstm = nn.LSTM(embedding_dim, hidden_dim, batch_first=True)
-        self.lstm2out = nn.Linear(hidden_dim, vocab_size)
-        self.softmax = nn.LogSoftmax(dim=-1)
+        self.feature_dim = sum(num_filters)
+        self.emb_dim_single = int(embed_dim / num_rep)
+        self.embeddings = nn.Embedding(vocab_size, embed_dim, padding_idx=padding_idx)
+        self.convs = nn.ModuleList([nn.Conv2d(1, n, (f, embed_dim)) for n, f in zip(num_filters, filter_sizes)])
+        self.highway = nn.Linear(self.feature_dim, self.feature_dim)
+        self.feature2out = nn.Linear(self.feature_dim, 100)
+        self.out2logits = nn.Linear(100, k_label)
+        self.dropout = nn.Dropout(dropout)
         self.init_params()
 
-    def forward(self, inp, hidden, need_hidden=False):
+    def forward(self, inp):
         """
-        Embeds input and applies LSTM
-        :param inp: batch_size * seq_len
-        :param hidden: (h, c)
-        :param need_hidden: if return hidden, use for sampling
+        Get logits of discriminator
+        :param inp: batch_size * seq_len * vocab_size
+        :return logits: [batch_size * num_rep] (1-D tensor)
         """
-        emb = self.embeddings(inp)
-        if len(inp.size()) == 1:
-            emb = emb.unsqueeze(1)
-        out, hidden = self.lstm(emb, hidden)
-        out = out.contiguous().view(-1, self.hidden_dim)
-        out = self.lstm2out(out)
-        pred = self.softmax(out)
-        if need_hidden:
-            return pred, hidden
-        else:
-            return pred
-
-    def sample(self, num_samples, batch_size, start_letter=cfg.start_letter):
-        """
-        Samples the network and returns num_samples samples of length max_seq_len.
-        :return samples: num_samples * max_seq_length (a sampled sequence in each row)
-        """
-        num_batch = num_samples // batch_size + 1 if num_samples != batch_size else 1
-        samples = torch.zeros(num_batch * batch_size, self.max_seq_len).long()
-        for b in range(num_batch):
-            hidden = self.init_hidden(batch_size)
-            inp = torch.LongTensor([start_letter] * batch_size)
-            if self.gpu:
-                inp = inp
-            for i in range(self.max_seq_len):
-                out, hidden = self.forward(inp, hidden, need_hidden=True)
-                next_token = torch.multinomial(torch.exp(out), 1)
-                samples[b * batch_size:(b + 1) * batch_size, (i)] = next_token.view(-1)
-                inp = next_token.view(-1)
-        samples = samples[:num_samples]
-        return samples
-
-    def init_params(self):
-        for param in self.parameters():
-            if param.requires_grad and len(param.shape) > 0:
-                stddev = 1 / math.sqrt(param.shape[0])
-                if cfg.gen_init == 'uniform':
-                    torch.nn.init.uniform_(param, a=-0.05, b=0.05)
-                elif cfg.gen_init == 'normal':
-                    torch.nn.init.normal_(param, std=stddev)
-                elif cfg.gen_init == 'truncated_normal':
-                    truncated_normal_(param, std=stddev)
-
-    def init_oracle(self):
-        for param in self.parameters():
-            if param.requires_grad:
-                torch.nn.init.normal_(param, mean=0, std=1)
-
-    def init_hidden(self, batch_size=cfg.batch_size):
-        h = torch.zeros(1, batch_size, self.hidden_dim)
-        c = torch.zeros(1, batch_size, self.hidden_dim)
-        if self.gpu:
-            return h, c
-        else:
-            return h, c
+        emb = self.embeddings(inp).unsqueeze(1)
+        convs = [F.relu(conv(emb)).squeeze(3) for conv in self.convs]
+        pools = [F.max_pool1d(conv, conv.size(2)).squeeze(2) for conv in convs]
+        pred = torch.cat(pools, 1)
+        highway = self.highway(pred)
+        pred = torch.sigmoid(highway) * F.relu(highway) + (1.0 - torch.sigmoid(highway)) * pred
+        pred = self.feature2out(self.dropout(pred))
+        logits = self.out2logits(self.dropout(pred)).squeeze(1)
+        return logits
 
 
 class RelationalMemory(nn.Module):
@@ -840,7 +528,7 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (RelationalMemory,
      lambda: ([], {'mem_slots': 4, 'head_size': 4, 'input_size': 4}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     lambda: ([torch.rand([4, 4, 2, 2]), torch.rand([4, 4, 4])], {}),
      False),
 ]
 

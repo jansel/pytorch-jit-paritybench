@@ -99,15 +99,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -125,6 +126,21 @@ from typing import Any
 
 
 import torch
+
+
+import itertools
+
+
+from collections import defaultdict
+
+
+from typing import Dict
+
+
+from typing import Iterable
+
+
+from typing import Iterator
 
 
 from typing import List
@@ -160,19 +176,19 @@ from typing import NamedTuple
 from torch.utils.data import DataLoader
 
 
+from enum import Enum
+
+
+from typing import Set
+
+
 from typing import Callable
-
-
-from typing import Iterator
 
 
 import torch.nn.functional as F
 
 
 from abc import abstractclassmethod
-
-
-from typing import Dict
 
 
 from torch.distributions import Beta
@@ -220,6 +236,18 @@ import time
 from torch.utils.tensorboard import SummaryWriter
 
 
+from scipy.special import erf
+
+
+from scipy.special import erfinv
+
+
+from itertools import islice
+
+
+from torch.distributions import Uniform
+
+
 from torch.nn.utils import clip_grad_norm_
 
 
@@ -233,6 +261,51 @@ from itertools import chain
 
 
 from itertools import combinations
+
+
+class ArgProj(nn.Module):
+
+    def __init__(self, in_features: int, args_dim: Dict[str, int], domain_map: Callable[..., Tuple[torch.Tensor]], dtype: np.dtype=np.float32, prefix: Optional[str]=None, **kwargs):
+        super().__init__(**kwargs)
+        self.args_dim = args_dim
+        self.dtype = dtype
+        self.proj = nn.ModuleList([nn.Linear(in_features, dim) for dim in args_dim.values()])
+        self.domain_map = domain_map
+
+    def forward(self, x: torch.Tensor) ->Tuple[torch.Tensor]:
+        params_unbounded = [proj(x) for proj in self.proj]
+        return self.domain_map(*params_unbounded)
+
+
+class LambdaLayer(nn.Module):
+
+    def __init__(self, function):
+        super().__init__()
+        self._func = function
+
+    def forward(self, x, *args):
+        return self._func(x, *args)
+
+
+class Output(ABC):
+    in_features: int
+    args_dim: Dict[str, int]
+    _dtype: np.dtype = np.float32
+
+    @property
+    def dtype(self):
+        return self._dtype
+
+    @dtype.setter
+    def dtype(self, dtype: np.dtype):
+        self._dtype = dtype
+
+    def get_args_proj(self, in_features: int, prefix: Optional[str]=None) ->ArgProj:
+        return ArgProj(in_features=in_features, args_dim=self.args_dim, domain_map=LambdaLayer(self.domain_map), prefix=prefix, dtype=self.dtype)
+
+    @abstractclassmethod
+    def domain_map(cls, *args: torch.Tensor):
+        pass
 
 
 def fqname_for(cls: type) ->str:
@@ -401,6 +474,120 @@ def validated(base_model=None):
     return validator
 
 
+class FeatureEmbedder(nn.Module):
+
+    def __init__(self, cardinalities: List[int], embedding_dims: List[int]) ->None:
+        super().__init__()
+        self.__num_features = len(cardinalities)
+
+        def create_embedding(c: int, d: int) ->nn.Embedding:
+            embedding = nn.Embedding(c, d)
+            return embedding
+        self.__embedders = nn.ModuleList([create_embedding(c, d) for c, d in zip(cardinalities, embedding_dims)])
+
+    def forward(self, features: torch.Tensor) ->torch.Tensor:
+        if self.__num_features > 1:
+            cat_feature_slices = torch.chunk(features, self.__num_features, dim=-1)
+        else:
+            cat_feature_slices = [features]
+        return torch.cat([embed(cat_feature_slice.squeeze(-1)) for embed, cat_feature_slice in zip(self.__embedders, cat_feature_slices)], dim=-1)
+
+
+class Scaler(ABC, nn.Module):
+
+    def __init__(self, keepdim: bool=False, time_first: bool=True):
+        super().__init__()
+        self.keepdim = keepdim
+        self.time_first = time_first
+
+    @abstractmethod
+    def compute_scale(self, data: torch.Tensor, observed_indicator: torch.Tensor) ->torch.Tensor:
+        pass
+
+    def forward(self, data: torch.Tensor, observed_indicator: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Parameters
+        ----------
+        data
+            tensor of shape (N, T, C) if ``time_first == True`` or (N, C, T)
+            if ``time_first == False`` containing the data to be scaled
+
+        observed_indicator
+            observed_indicator: binary tensor with the same shape as
+            ``data``, that has 1 in correspondence of observed data points,
+            and 0 in correspondence of missing data points.
+
+        Returns
+        -------
+        Tensor
+            Tensor containing the "scaled" data, shape: (N, T, C) or (N, C, T).
+        Tensor
+            Tensor containing the scale, of shape (N, C) if ``keepdim == False``, 
+            and shape (N, 1, C) or (N, C, 1) if ``keepdim == True``.
+        """
+        scale = self.compute_scale(data, observed_indicator)
+        if self.time_first:
+            dim = 1
+        else:
+            dim = 2
+        if self.keepdim:
+            scale = scale.unsqueeze(dim=dim)
+            return data / scale, scale
+        else:
+            return data / scale.unsqueeze(dim=dim), scale
+
+
+class MeanScaler(Scaler):
+    """
+    The ``MeanScaler`` computes a per-item scale according to the average
+    absolute value over time of each item. The average is computed only among
+    the observed values in the data tensor, as indicated by the second
+    argument. Items with no observed data are assigned a scale based on the
+    global average.
+
+    Parameters
+    ----------
+    minimum_scale
+        default scale that is used if the time series has only zeros.
+    """
+
+    def __init__(self, minimum_scale: float=1e-10, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.register_buffer('minimum_scale', torch.tensor(minimum_scale))
+
+    def compute_scale(self, data: torch.Tensor, observed_indicator: torch.Tensor) ->torch.Tensor:
+        if self.time_first:
+            dim = 1
+        else:
+            dim = 2
+        num_observed = observed_indicator.sum(dim=dim)
+        sum_observed = (data.abs() * observed_indicator).sum(dim=dim)
+        total_observed = num_observed.sum(dim=0)
+        denominator = torch.max(total_observed, torch.ones_like(total_observed))
+        default_scale = sum_observed.sum(dim=0) / denominator
+        denominator = torch.max(num_observed, torch.ones_like(num_observed))
+        scale = sum_observed / denominator
+        scale = torch.where(sum_observed > torch.zeros_like(sum_observed), scale, default_scale * torch.ones_like(num_observed))
+        return torch.max(scale, self.minimum_scale).detach()
+
+
+class NOPScaler(Scaler):
+    """
+    The ``NOPScaler`` assigns a scale equals to 1 to each input item, i.e.,
+    no scaling is applied upon calling the ``NOPScaler``.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def compute_scale(self, data: torch.Tensor, observed_indicator: torch.Tensor) ->torch.Tensor:
+        if self.time_first:
+            dim = 1
+        else:
+            dim = 2
+        return torch.ones_like(data).mean(dim=dim)
+
+
 def prod(xs):
     p = 1
     for x in xs:
@@ -496,6 +683,28 @@ class LSTNetBase(nn.Module):
         return torch.sigmoid(out) if self.output_activation == 'sigmoid' else torch.tanh(out), scale
 
 
+class LSTNetTrain(LSTNetBase):
+
+    def __init__(self, *args, **kwargs) ->None:
+        super().__init__(*args, **kwargs)
+        self.loss_fn = nn.L1Loss()
+
+    def forward(self, past_target: torch.Tensor, past_observed_values: torch.Tensor, future_target: torch.Tensor) ->torch.Tensor:
+        ret, scale = super().forward(past_target, past_observed_values)
+        if self.horizon:
+            future_target = future_target[(...), -1:]
+        loss = self.loss_fn(ret * scale, future_target)
+        return loss
+
+
+class LSTNetPredict(LSTNetBase):
+
+    def forward(self, past_target: torch.Tensor, past_observed_values: torch.Tensor) ->torch.Tensor:
+        ret, scale = super().forward(past_target, past_observed_values)
+        ret = (ret * scale).permute(0, 2, 1)
+        return ret.unsqueeze(1)
+
+
 class NBEATSBlock(nn.Module):
 
     def __init__(self, units, thetas_dim, num_block_layers=4, backcast_length=10, forecast_length=5, share_thetas=False):
@@ -518,20 +727,6 @@ class NBEATSBlock(nn.Module):
 
     def forward(self, x):
         return self.fc(x)
-
-
-class NBEATSGenericBlock(NBEATSBlock):
-
-    def __init__(self, units, thetas_dim, num_block_layers=4, backcast_length=10, forecast_length=5):
-        super(NBEATSGenericBlock, self).__init__(units=units, thetas_dim=thetas_dim, num_block_layers=num_block_layers, backcast_length=backcast_length, forecast_length=forecast_length)
-        self.backcast_fc = nn.Linear(thetas_dim, backcast_length)
-        self.forecast_fc = nn.Linear(thetas_dim, forecast_length)
-
-    def forward(self, x):
-        x = super().forward(x)
-        theta_b = F.relu(self.theta_b_fc(x))
-        theta_f = F.relu(self.theta_f_fc(x))
-        return self.backcast_fc(theta_b), self.forecast_fc(theta_f)
 
 
 def linspace(backcast_length: int, forecast_length: int) ->Tuple[np.ndarray, np.ndarray]:
@@ -578,6 +773,20 @@ class NBEATSTrendBlock(NBEATSBlock):
         backcast = self.theta_b_fc(x).mm(self.T_backcast)
         forecast = self.theta_f_fc(x).mm(self.T_forecast)
         return backcast, forecast
+
+
+class NBEATSGenericBlock(NBEATSBlock):
+
+    def __init__(self, units, thetas_dim, num_block_layers=4, backcast_length=10, forecast_length=5):
+        super(NBEATSGenericBlock, self).__init__(units=units, thetas_dim=thetas_dim, num_block_layers=num_block_layers, backcast_length=backcast_length, forecast_length=forecast_length)
+        self.backcast_fc = nn.Linear(thetas_dim, backcast_length)
+        self.forecast_fc = nn.Linear(thetas_dim, forecast_length)
+
+    def forward(self, x):
+        x = super().forward(x)
+        theta_b = F.relu(self.theta_b_fc(x))
+        theta_f = F.relu(self.theta_f_fc(x))
+        return self.backcast_fc(theta_b), self.forecast_fc(theta_f)
 
 
 class NBEATSNetwork(nn.Module):
@@ -636,84 +845,37 @@ class NBEATSNetwork(nn.Module):
         return torch.mean(torch.abs(future_target - forecast), dim=1) * torch.logical_not(flag) / (seasonal_error + flag)
 
 
-class ArgProj(nn.Module):
+class NBEATSTrainingNetwork(NBEATSNetwork):
 
-    def __init__(self, in_features: int, args_dim: Dict[str, int], domain_map: Callable[..., Tuple[torch.Tensor]], dtype: np.dtype=np.float32, prefix: Optional[str]=None, **kwargs):
-        super().__init__(**kwargs)
-        self.args_dim = args_dim
-        self.dtype = dtype
-        self.proj = nn.ModuleList([nn.Linear(in_features, dim) for dim in args_dim.values()])
-        self.domain_map = domain_map
+    def __init__(self, loss_function: str, freq: str, *args, **kwargs) ->None:
+        super(NBEATSTrainingNetwork, self).__init__(*args, **kwargs)
+        self.loss_function = loss_function
+        self.freq = freq
+        self.periodicity = get_seasonality(self.freq)
+        if self.loss_function == 'MASE':
+            assert self.periodicity < self.context_length + self.prediction_length, "If the 'periodicity' of your data is less than 'context_length' + 'prediction_length' the seasonal_error cannot be calculated and thus 'MASE' cannot be used for optimization."
 
-    def forward(self, x: torch.Tensor) ->Tuple[torch.Tensor]:
-        params_unbounded = [proj(x) for proj in self.proj]
-        return self.domain_map(*params_unbounded)
-
-
-class FeatureEmbedder(nn.Module):
-
-    def __init__(self, cardinalities: List[int], embedding_dims: List[int]) ->None:
-        super().__init__()
-        self.__num_features = len(cardinalities)
-
-        def create_embedding(c: int, d: int) ->nn.Embedding:
-            embedding = nn.Embedding(c, d)
-            return embedding
-        self.__embedders = nn.ModuleList([create_embedding(c, d) for c, d in zip(cardinalities, embedding_dims)])
-
-    def forward(self, features: torch.Tensor) ->torch.Tensor:
-        if self.__num_features > 1:
-            cat_feature_slices = torch.chunk(features, self.__num_features, dim=-1)
+    def forward(self, past_target: torch.Tensor, future_target: torch.Tensor) ->torch.Tensor:
+        forecast = super().forward(past_target=past_target)
+        if self.loss_function == 'sMAPE':
+            loss = self.smape_loss(forecast, future_target)
+        elif self.loss_function == 'MAPE':
+            loss = self.mape_loss(forecast, future_target)
+        elif self.loss_function == 'MASE':
+            loss = self.mase_loss(forecast, future_target, past_target, self.periodicity)
         else:
-            cat_feature_slices = [features]
-        return torch.cat([embed(cat_feature_slice.squeeze(-1)) for embed, cat_feature_slice in zip(self.__embedders, cat_feature_slices)], dim=-1)
+            raise ValueError(f'Invalid value {self.loss_function} for argument loss_function.')
+        return loss.mean()
 
 
-class FeatureAssembler(nn.Module):
+class NBEATSPredictionNetwork(NBEATSNetwork):
 
-    def __init__(self, T: int, embed_static: Optional[FeatureEmbedder]=None, embed_dynamic: Optional[FeatureEmbedder]=None) ->None:
-        super().__init__()
-        self.T = T
-        self.embeddings = nn.ModuleDict({'embed_static': embed_static, 'embed_dynamic': embed_dynamic})
+    def __init__(self, *args, **kwargs) ->None:
+        super(NBEATSPredictionNetwork, self).__init__(*args, **kwargs)
 
-    def forward(self, feat_static_cat: torch.Tensor, feat_static_real: torch.Tensor, feat_dynamic_cat: torch.Tensor, feat_dynamic_real: torch.Tensor) ->torch.Tensor:
-        processed_features = [self.process_static_cat(feat_static_cat), self.process_static_real(feat_static_real), self.process_dynamic_cat(feat_dynamic_cat), self.process_dynamic_real(feat_dynamic_real)]
-        return torch.cat(processed_features, dim=-1)
-
-    def process_static_cat(self, feature: torch.Tensor) ->torch.Tensor:
-        if self.embeddings['embed_static'] is not None:
-            feature = self.embeddings['embed_static'](feature)
-        return feature.unsqueeze(1).expand(-1, self.T, -1).float()
-
-    def process_dynamic_cat(self, feature: torch.Tensor) ->torch.Tensor:
-        if self.embeddings['embed_dynamic'] is None:
-            return feature.float()
-        else:
-            return self.embeddings['embed_dynamic'](feature)
-
-    def process_static_real(self, feature: torch.Tensor) ->torch.Tensor:
-        return feature.unsqueeze(1).expand(-1, self.T, -1)
-
-    def process_dynamic_real(self, feature: torch.Tensor) ->torch.Tensor:
-        return feature
-
-
-class FlowSequential(nn.Sequential):
-    """ Container for layers of a normalizing flow """
-
-    def forward(self, x, y):
-        sum_log_abs_det_jacobians = 0
-        for module in self:
-            x, log_abs_det_jacobian = module(x, y)
-            sum_log_abs_det_jacobians += log_abs_det_jacobian
-        return x, sum_log_abs_det_jacobians
-
-    def inverse(self, u, y):
-        sum_log_abs_det_jacobians = 0
-        for module in reversed(self):
-            u, log_abs_det_jacobian = module.inverse(u, y)
-            sum_log_abs_det_jacobians += log_abs_det_jacobian
-        return u, sum_log_abs_det_jacobians
+    def forward(self, past_target: torch.Tensor, future_target: torch.Tensor=None) ->torch.Tensor:
+        forecasts = super().forward(past_target=past_target)
+        return forecasts.unsqueeze(1)
 
 
 class BatchNorm(nn.Module):
@@ -757,39 +919,70 @@ class BatchNorm(nn.Module):
         return x, log_abs_det_jacobian.expand_as(x)
 
 
-class LinearMaskedCoupling(nn.Module):
-    """ Modified RealNVP Coupling Layers per the MAF paper """
+class Flow(nn.Module):
 
-    def __init__(self, input_size, hidden_size, n_hidden, mask, cond_label_size=None):
+    def __init__(self, input_size):
         super().__init__()
-        self.register_buffer('mask', mask)
-        s_net = [nn.Linear(input_size + (cond_label_size if cond_label_size is not None else 0), hidden_size)]
-        for _ in range(n_hidden):
-            s_net += [nn.Tanh(), nn.Linear(hidden_size, hidden_size)]
-        s_net += [nn.Tanh(), nn.Linear(hidden_size, input_size)]
-        self.s_net = nn.Sequential(*s_net)
-        self.t_net = copy.deepcopy(self.s_net)
-        for i in range(len(self.t_net)):
-            if not isinstance(self.t_net[i], nn.Linear):
-                self.t_net[i] = nn.ReLU()
+        self.__scale = None
+        self.net = None
+        self.register_buffer('base_dist_mean', torch.zeros(input_size))
+        self.register_buffer('base_dist_var', torch.ones(input_size))
 
-    def forward(self, x, y=None):
-        mx = x * self.mask
-        s = self.s_net(mx if y is None else torch.cat([y, mx], dim=-1))
-        t = self.t_net(mx if y is None else torch.cat([y, mx], dim=-1)) * (1 - self.mask)
-        log_s = torch.tanh(s) * (1 - self.mask)
-        u = x * torch.exp(log_s) + t
-        log_abs_det_jacobian = log_s
+    @property
+    def base_dist(self):
+        return Normal(self.base_dist_mean, self.base_dist_var)
+
+    @property
+    def scale(self):
+        return self.__scale
+
+    @scale.setter
+    def scale(self, scale):
+        self.__scale = scale
+
+    def forward(self, x, cond):
+        if self.scale is not None:
+            x /= self.scale
+        u, log_abs_det_jacobian = self.net(x, cond)
         return u, log_abs_det_jacobian
 
-    def inverse(self, u, y=None):
-        mu = u * self.mask
-        s = self.s_net(mu if y is None else torch.cat([y, mu], dim=-1))
-        t = self.t_net(mu if y is None else torch.cat([y, mu], dim=-1)) * (1 - self.mask)
-        log_s = torch.tanh(s) * (1 - self.mask)
-        x = (u - t) * torch.exp(-log_s)
-        log_abs_det_jacobian = -log_s
+    def inverse(self, u, cond):
+        x, log_abs_det_jacobian = self.net.inverse(u, cond)
+        if self.scale is not None:
+            x *= self.scale
+            log_abs_det_jacobian += torch.log(torch.abs(self.scale))
         return x, log_abs_det_jacobian
+
+    def log_prob(self, x, cond):
+        u, sum_log_abs_det_jacobians = self.forward(x, cond)
+        return torch.sum(self.base_dist.log_prob(u) + sum_log_abs_det_jacobians, dim=-1)
+
+    def sample(self, sample_shape=torch.Size(), cond=None):
+        if cond is not None:
+            shape = cond.shape[:-1]
+        else:
+            shape = sample_shape
+        u = self.base_dist.sample(shape)
+        sample, _ = self.inverse(u, cond)
+        return sample
+
+
+class FlowSequential(nn.Sequential):
+    """ Container for layers of a normalizing flow """
+
+    def forward(self, x, y):
+        sum_log_abs_det_jacobians = 0
+        for module in self:
+            x, log_abs_det_jacobian = module(x, y)
+            sum_log_abs_det_jacobians += log_abs_det_jacobian
+        return x, sum_log_abs_det_jacobians
+
+    def inverse(self, u, y):
+        sum_log_abs_det_jacobians = 0
+        for module in reversed(self):
+            u, log_abs_det_jacobian = module.inverse(u, y)
+            sum_log_abs_det_jacobians += log_abs_det_jacobian
+        return u, sum_log_abs_det_jacobians
 
 
 class MaskedLinear(nn.Linear):
@@ -882,106 +1075,94 @@ class MADE(nn.Module):
         return torch.sum(self.base_dist.log_prob(u) + log_abs_det_jacobian, dim=-1)
 
 
-class Flow(nn.Module):
+class MAF(Flow):
 
-    def __init__(self, input_size):
+    def __init__(self, n_blocks, input_size, hidden_size, n_hidden, cond_label_size=None, activation='ReLU', input_order='sequential', batch_norm=True):
+        super().__init__(input_size)
+        modules = []
+        self.input_degrees = None
+        for i in range(n_blocks):
+            modules += [MADE(input_size, hidden_size, n_hidden, cond_label_size, activation, input_order, self.input_degrees)]
+            self.input_degrees = modules[-1].input_degrees.flip(0)
+            modules += batch_norm * [BatchNorm(input_size)]
+        self.net = FlowSequential(*modules)
+
+
+class LinearMaskedCoupling(nn.Module):
+    """ Modified RealNVP Coupling Layers per the MAF paper """
+
+    def __init__(self, input_size, hidden_size, n_hidden, mask, cond_label_size=None):
         super().__init__()
-        self.__scale = None
-        self.net = None
-        self.register_buffer('base_dist_mean', torch.zeros(input_size))
-        self.register_buffer('base_dist_var', torch.ones(input_size))
+        self.register_buffer('mask', mask)
+        s_net = [nn.Linear(input_size + (cond_label_size if cond_label_size is not None else 0), hidden_size)]
+        for _ in range(n_hidden):
+            s_net += [nn.Tanh(), nn.Linear(hidden_size, hidden_size)]
+        s_net += [nn.Tanh(), nn.Linear(hidden_size, input_size)]
+        self.s_net = nn.Sequential(*s_net)
+        self.t_net = copy.deepcopy(self.s_net)
+        for i in range(len(self.t_net)):
+            if not isinstance(self.t_net[i], nn.Linear):
+                self.t_net[i] = nn.ReLU()
 
-    @property
-    def base_dist(self):
-        return Normal(self.base_dist_mean, self.base_dist_var)
-
-    @property
-    def scale(self):
-        return self.__scale
-
-    @scale.setter
-    def scale(self, scale):
-        self.__scale = scale
-
-    def forward(self, x, cond):
-        if self.scale is not None:
-            x /= self.scale
-        u, log_abs_det_jacobian = self.net(x, cond)
+    def forward(self, x, y=None):
+        mx = x * self.mask
+        s = self.s_net(mx if y is None else torch.cat([y, mx], dim=-1))
+        t = self.t_net(mx if y is None else torch.cat([y, mx], dim=-1)) * (1 - self.mask)
+        log_s = torch.tanh(s) * (1 - self.mask)
+        u = x * torch.exp(log_s) + t
+        log_abs_det_jacobian = log_s
         return u, log_abs_det_jacobian
 
-    def inverse(self, u, cond):
-        x, log_abs_det_jacobian = self.net.inverse(u, cond)
-        if self.scale is not None:
-            x *= self.scale
-            log_abs_det_jacobian += torch.log(torch.abs(self.scale))
+    def inverse(self, u, y=None):
+        mu = u * self.mask
+        s = self.s_net(mu if y is None else torch.cat([y, mu], dim=-1))
+        t = self.t_net(mu if y is None else torch.cat([y, mu], dim=-1)) * (1 - self.mask)
+        log_s = torch.tanh(s) * (1 - self.mask)
+        x = (u - t) * torch.exp(-log_s)
+        log_abs_det_jacobian = -log_s
         return x, log_abs_det_jacobian
 
-    def log_prob(self, x, cond):
-        u, sum_log_abs_det_jacobians = self.forward(x, cond)
-        return torch.sum(self.base_dist.log_prob(u) + sum_log_abs_det_jacobians, dim=-1)
 
-    def sample(self, sample_shape=torch.Size(), cond=None):
-        if cond is not None:
-            shape = cond.shape[:-1]
-        else:
-            shape = sample_shape
-        u = self.base_dist.sample(shape)
-        sample, _ = self.inverse(u, cond)
-        return sample
+class RealNVP(Flow):
+
+    def __init__(self, n_blocks, input_size, hidden_size, n_hidden, cond_label_size=None, batch_norm=True):
+        super().__init__(input_size)
+        modules = []
+        mask = torch.arange(input_size).float() % 2
+        for i in range(n_blocks):
+            modules += [LinearMaskedCoupling(input_size, hidden_size, n_hidden, mask, cond_label_size)]
+            mask = 1 - mask
+            modules += batch_norm * [BatchNorm(input_size)]
+        self.net = FlowSequential(*modules)
 
 
-class LambdaLayer(nn.Module):
+class FeatureAssembler(nn.Module):
 
-    def __init__(self, function):
+    def __init__(self, T: int, embed_static: Optional[FeatureEmbedder]=None, embed_dynamic: Optional[FeatureEmbedder]=None) ->None:
         super().__init__()
-        self._func = function
+        self.T = T
+        self.embeddings = nn.ModuleDict({'embed_static': embed_static, 'embed_dynamic': embed_dynamic})
 
-    def forward(self, x, *args):
-        return self._func(x, *args)
+    def forward(self, feat_static_cat: torch.Tensor, feat_static_real: torch.Tensor, feat_dynamic_cat: torch.Tensor, feat_dynamic_real: torch.Tensor) ->torch.Tensor:
+        processed_features = [self.process_static_cat(feat_static_cat), self.process_static_real(feat_static_real), self.process_dynamic_cat(feat_dynamic_cat), self.process_dynamic_real(feat_dynamic_real)]
+        return torch.cat(processed_features, dim=-1)
 
+    def process_static_cat(self, feature: torch.Tensor) ->torch.Tensor:
+        if self.embeddings['embed_static'] is not None:
+            feature = self.embeddings['embed_static'](feature)
+        return feature.unsqueeze(1).expand(-1, self.T, -1).float()
 
-class Scaler(ABC, nn.Module):
-
-    def __init__(self, keepdim: bool=False, time_first: bool=True):
-        super().__init__()
-        self.keepdim = keepdim
-        self.time_first = time_first
-
-    @abstractmethod
-    def compute_scale(self, data: torch.Tensor, observed_indicator: torch.Tensor) ->torch.Tensor:
-        pass
-
-    def forward(self, data: torch.Tensor, observed_indicator: torch.Tensor) ->Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Parameters
-        ----------
-        data
-            tensor of shape (N, T, C) if ``time_first == True`` or (N, C, T)
-            if ``time_first == False`` containing the data to be scaled
-
-        observed_indicator
-            observed_indicator: binary tensor with the same shape as
-            ``data``, that has 1 in correspondence of observed data points,
-            and 0 in correspondence of missing data points.
-
-        Returns
-        -------
-        Tensor
-            Tensor containing the "scaled" data, shape: (N, T, C) or (N, C, T).
-        Tensor
-            Tensor containing the scale, of shape (N, C) if ``keepdim == False``, 
-            and shape (N, 1, C) or (N, C, 1) if ``keepdim == True``.
-        """
-        scale = self.compute_scale(data, observed_indicator)
-        if self.time_first:
-            dim = 1
+    def process_dynamic_cat(self, feature: torch.Tensor) ->torch.Tensor:
+        if self.embeddings['embed_dynamic'] is None:
+            return feature.float()
         else:
-            dim = 2
-        if self.keepdim:
-            scale = scale.unsqueeze(dim=dim)
-            return data / scale, scale
-        else:
-            return data / scale.unsqueeze(dim=dim), scale
+            return self.embeddings['embed_dynamic'](feature)
+
+    def process_static_real(self, feature: torch.Tensor) ->torch.Tensor:
+        return feature.unsqueeze(1).expand(-1, self.T, -1)
+
+    def process_dynamic_real(self, feature: torch.Tensor) ->torch.Tensor:
+        return feature
 
 
 import torch
@@ -1011,6 +1192,10 @@ TESTCASES = [
      lambda: ([], {'input_size': 4, 'hidden_size': 4, 'n_hidden': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (MeanScaler,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (NBEATSBlock,
      lambda: ([], {'units': 4, 'thetas_dim': 4}),
      lambda: ([torch.rand([10, 10])], {}),
@@ -1027,6 +1212,10 @@ TESTCASES = [
      lambda: ([], {'units': 4, 'thetas_dim': 4}),
      lambda: ([torch.rand([10, 10])], {}),
      False),
+    (NOPScaler,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
 ]
 
 class Test_zalandoresearch_pytorch_ts(_paritybench_base):
@@ -1056,4 +1245,10 @@ class Test_zalandoresearch_pytorch_ts(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

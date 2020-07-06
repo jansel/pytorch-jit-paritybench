@@ -31,15 +31,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -69,6 +70,9 @@ from torch.nn import functional as F
 
 
 from torchvision import transforms
+
+
+from torch.utils.data import DataLoader
 
 
 import torch.nn as nn
@@ -101,34 +105,96 @@ import torch.optim.lr_scheduler as lr_scheduler
 from torch.nn.parallel import DistributedDataParallel
 
 
+import torch.distributed as dist
+
+
+def l2normalize(v, eps=1e-12):
+    return v / (v.norm() + eps)
+
+
+class SpectralNorm(nn.Module):
+    """
+    Based on https://github.com/heykeetae/Self-Attention-GAN/blob/master/spectral.py
+    and add _noupdate_u_v() for evaluation
+    """
+
+    def __init__(self, module, name='weight', power_iterations=1):
+        super(SpectralNorm, self).__init__()
+        self.module = module
+        self.name = name
+        self.power_iterations = power_iterations
+        if not self._made_params():
+            self._make_params()
+
+    def _update_u_v(self):
+        u = getattr(self.module, self.name + '_u')
+        v = getattr(self.module, self.name + '_v')
+        w = getattr(self.module, self.name + '_bar')
+        height = w.data.shape[0]
+        for _ in range(self.power_iterations):
+            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
+            u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
+        sigma = u.dot(w.view(height, -1).mv(v))
+        setattr(self.module, self.name, w / sigma.expand_as(w))
+
+    def _noupdate_u_v(self):
+        u = getattr(self.module, self.name + '_u')
+        v = getattr(self.module, self.name + '_v')
+        w = getattr(self.module, self.name + '_bar')
+        height = w.data.shape[0]
+        sigma = u.dot(w.view(height, -1).mv(v))
+        setattr(self.module, self.name, w / sigma.expand_as(w))
+
+    def _made_params(self):
+        try:
+            u = getattr(self.module, self.name + '_u')
+            v = getattr(self.module, self.name + '_v')
+            w = getattr(self.module, self.name + '_bar')
+            return True
+        except AttributeError:
+            return False
+
+    def _make_params(self):
+        w = getattr(self.module, self.name)
+        height = w.data.shape[0]
+        width = w.view(height, -1).data.shape[1]
+        u = Parameter(w.data.new(height).normal_(0, 1), requires_grad=False)
+        v = Parameter(w.data.new(width).normal_(0, 1), requires_grad=False)
+        u.data = l2normalize(u.data)
+        v.data = l2normalize(v.data)
+        w_bar = Parameter(w.data)
+        del self.module._parameters[self.name]
+        self.module.register_parameter(self.name + '_u', u)
+        self.module.register_parameter(self.name + '_v', v)
+        self.module.register_parameter(self.name + '_bar', w_bar)
+
+    def forward(self, *args):
+        if self.module.training:
+            self._update_u_v()
+        else:
+            self._noupdate_u_v()
+        return self.module.forward(*args)
+
+
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=dilation, groups=groups, bias=False, dilation=dilation)
 
 
-def conv5x5(in_planes, out_planes, stride=1, groups=1, dilation=1):
-    """5x5 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=5, stride=stride, padding=2, groups=groups, bias=False, dilation=dilation)
-
-
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, upsample=None, norm_layer=None, large_kernel=False):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None):
         super(BasicBlock, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
-        self.stride = stride
-        conv = conv5x5 if large_kernel else conv3x3
-        if self.stride > 1:
-            self.conv1 = SpectralNorm(nn.ConvTranspose2d(inplanes, inplanes, kernel_size=4, stride=2, padding=1, bias=False))
-        else:
-            self.conv1 = SpectralNorm(conv(inplanes, inplanes))
-        self.bn1 = norm_layer(inplanes)
-        self.activation = nn.LeakyReLU(0.2, inplace=True)
-        self.conv2 = SpectralNorm(conv(inplanes, planes))
+        self.conv1 = SpectralNorm(conv3x3(inplanes, planes, stride))
+        self.bn1 = norm_layer(planes)
+        self.activation = nn.ReLU(inplace=True)
+        self.conv2 = SpectralNorm(conv3x3(planes, planes))
         self.bn2 = norm_layer(planes)
-        self.upsample = upsample
+        self.downsample = downsample
+        self.stride = stride
 
     def forward(self, x):
         identity = x
@@ -137,8 +203,8 @@ class BasicBlock(nn.Module):
         out = self.activation(out)
         out = self.conv2(out)
         out = self.bn2(out)
-        if self.upsample is not None:
-            identity = self.upsample(x)
+        if self.downsample is not None:
+            identity = self.downsample(x)
         out += identity
         out = self.activation(out)
         return out
@@ -212,35 +278,6 @@ class ResNet_D_Dec(nn.Module):
         x = self.conv2(x)
         alpha = (self.tanh(x) + 1.0) / 2.0
         return alpha, None
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, norm_layer=None):
-        super(BasicBlock, self).__init__()
-        if norm_layer is None:
-            norm_layer = nn.BatchNorm2d
-        self.conv1 = SpectralNorm(conv3x3(inplanes, planes, stride))
-        self.bn1 = norm_layer(planes)
-        self.activation = nn.ReLU(inplace=True)
-        self.conv2 = SpectralNorm(conv3x3(planes, planes))
-        self.bn2 = norm_layer(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.activation(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.activation(out)
-        return out
 
 
 class ResNet_D(nn.Module):
@@ -332,74 +369,6 @@ class Generator(nn.Module):
         embedding, mid_fea = self.encoder(inp)
         alpha, info_dict = self.decoder(embedding, mid_fea)
         return alpha, info_dict
-
-
-def l2normalize(v, eps=1e-12):
-    return v / (v.norm() + eps)
-
-
-class SpectralNorm(nn.Module):
-    """
-    Based on https://github.com/heykeetae/Self-Attention-GAN/blob/master/spectral.py
-    and add _noupdate_u_v() for evaluation
-    """
-
-    def __init__(self, module, name='weight', power_iterations=1):
-        super(SpectralNorm, self).__init__()
-        self.module = module
-        self.name = name
-        self.power_iterations = power_iterations
-        if not self._made_params():
-            self._make_params()
-
-    def _update_u_v(self):
-        u = getattr(self.module, self.name + '_u')
-        v = getattr(self.module, self.name + '_v')
-        w = getattr(self.module, self.name + '_bar')
-        height = w.data.shape[0]
-        for _ in range(self.power_iterations):
-            v.data = l2normalize(torch.mv(torch.t(w.view(height, -1).data), u.data))
-            u.data = l2normalize(torch.mv(w.view(height, -1).data, v.data))
-        sigma = u.dot(w.view(height, -1).mv(v))
-        setattr(self.module, self.name, w / sigma.expand_as(w))
-
-    def _noupdate_u_v(self):
-        u = getattr(self.module, self.name + '_u')
-        v = getattr(self.module, self.name + '_v')
-        w = getattr(self.module, self.name + '_bar')
-        height = w.data.shape[0]
-        sigma = u.dot(w.view(height, -1).mv(v))
-        setattr(self.module, self.name, w / sigma.expand_as(w))
-
-    def _made_params(self):
-        try:
-            u = getattr(self.module, self.name + '_u')
-            v = getattr(self.module, self.name + '_v')
-            w = getattr(self.module, self.name + '_bar')
-            return True
-        except AttributeError:
-            return False
-
-    def _make_params(self):
-        w = getattr(self.module, self.name)
-        height = w.data.shape[0]
-        width = w.view(height, -1).data.shape[1]
-        u = Parameter(w.data.new(height).normal_(0, 1), requires_grad=False)
-        v = Parameter(w.data.new(width).normal_(0, 1), requires_grad=False)
-        u.data = l2normalize(u.data)
-        v.data = l2normalize(v.data)
-        w_bar = Parameter(w.data)
-        del self.module._parameters[self.name]
-        self.module.register_parameter(self.name + '_u', u)
-        self.module.register_parameter(self.name + '_v', v)
-        self.module.register_parameter(self.name + '_bar', w_bar)
-
-    def forward(self, *args):
-        if self.module.training:
-            self._update_u_v()
-        else:
-            self._noupdate_u_v()
-        return self.module.forward(*args)
 
 
 class GuidedCxtAtten(nn.Module):

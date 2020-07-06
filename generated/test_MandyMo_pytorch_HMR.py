@@ -27,15 +27,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -64,6 +65,18 @@ import math
 import torchvision
 
 
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+import scipy.io as scio
+
+
+import random
+
+
 import re
 
 
@@ -71,12 +84,6 @@ import torch.utils.model_zoo as model_zoo
 
 
 from collections import OrderedDict
-
-
-from torch.utils.data import Dataset
-
-
-from torch.utils.data import DataLoader
 
 
 from torch.utils.data import ConcatDataset
@@ -116,22 +123,88 @@ class PoseDiscriminator(nn.Module):
         return torch.cat(o, 1), internal_outputs
 
 
-_global_config['beta_count'] = 4
+class LinearModel(nn.Module):
+    """
+        input param:
+            fc_layers: a list of neuron count, such as [2133, 1024, 1024, 85]
+            use_dropout: a list of bool define use dropout or not for each layer, such as [True, True, False]
+            drop_prob: a list of float defined the drop prob, such as [0.5, 0.5, 0]
+            use_ac_func: a list of bool define use active function or not, such as [True, True, False]
+    """
+
+    def __init__(self, fc_layers, use_dropout, drop_prob, use_ac_func):
+        super(LinearModel, self).__init__()
+        self.fc_layers = fc_layers
+        self.use_dropout = use_dropout
+        self.drop_prob = drop_prob
+        self.use_ac_func = use_ac_func
+        if not self._check():
+            msg = 'wrong LinearModel parameters!'
+            None
+            sys.exit(msg)
+        self.create_layers()
+
+    def _check(self):
+        while True:
+            if not isinstance(self.fc_layers, list):
+                None
+                break
+            if not isinstance(self.use_dropout, list):
+                None
+                break
+            if not isinstance(self.drop_prob, list):
+                None
+                break
+            if not isinstance(self.use_ac_func, list):
+                None
+                break
+            l_fc_layer = len(self.fc_layers)
+            l_use_drop = len(self.use_dropout)
+            l_drop_porb = len(self.drop_prob)
+            l_use_ac_func = len(self.use_ac_func)
+            return l_fc_layer >= 2 and l_use_drop < l_fc_layer and l_drop_porb < l_fc_layer and l_use_ac_func < l_fc_layer and l_drop_porb == l_use_drop
+        return False
+
+    def create_layers(self):
+        l_fc_layer = len(self.fc_layers)
+        l_use_drop = len(self.use_dropout)
+        l_drop_porb = len(self.drop_prob)
+        l_use_ac_func = len(self.use_ac_func)
+        self.fc_blocks = nn.Sequential()
+        for _ in range(l_fc_layer - 1):
+            self.fc_blocks.add_module(name='regressor_fc_{}'.format(_), module=nn.Linear(in_features=self.fc_layers[_], out_features=self.fc_layers[_ + 1]))
+            if _ < l_use_ac_func and self.use_ac_func[_]:
+                self.fc_blocks.add_module(name='regressor_af_{}'.format(_), module=nn.ReLU())
+            if _ < l_use_drop and self.use_dropout[_]:
+                self.fc_blocks.add_module(name='regressor_fc_dropout_{}'.format(_), module=nn.Dropout(p=self.drop_prob[_]))
+
+    def forward(self, inputs):
+        msg = 'the base class [LinearModel] is not callable!'
+        sys.exit(msg)
 
 
-_global_config['joint_count'] = 4
+class FullPoseDiscriminator(LinearModel):
+
+    def __init__(self, fc_layers, use_dropout, drop_prob, use_ac_func):
+        if fc_layers[-1] != 1:
+            msg = 'the neuron count of the last layer must be 1, but got {}'.format(fc_layers[-1])
+            sys.exit(msg)
+        super(FullPoseDiscriminator, self).__init__(fc_layers, use_dropout, drop_prob, use_ac_func)
+
+    def forward(self, inputs):
+        return self.fc_blocks(inputs)
 
 
-_global_config['smpl_model'] = 4
+class ShapeDiscriminator(LinearModel):
 
+    def __init__(self, fc_layers, use_dropout, drop_prob, use_ac_func):
+        if fc_layers[-1] != 1:
+            msg = 'the neuron count of the last layer must be 1, but got {}'.format(fc_layers[-1])
+            sys.exit(msg)
+        super(ShapeDiscriminator, self).__init__(fc_layers, use_dropout, drop_prob, use_ac_func)
 
-_global_config['feature_count'] = 4
-
-
-_global_config['smpl_mean_theta_path'] = 4
-
-
-_global_config['total_theta_count'] = 4
+    def forward(self, inputs):
+        return self.fc_blocks(inputs)
 
 
 class Discriminator(nn.Module):
@@ -187,7 +260,7 @@ class Discriminator(nn.Module):
 
 class Residual(nn.Module):
 
-    def __init__(self, use_bn, input_channels, out_channels, mid_channels):
+    def __init__(self, use_bn, input_channels, out_channels, mid_channels, kernel_size=3, padding=1, stride=1):
         super(Residual, self).__init__()
         self.use_bn = use_bn
         self.out_channels = out_channels
@@ -199,7 +272,7 @@ class Residual(nn.Module):
             self.bn_0 = nn.BatchNorm2d(num_features=self.mid_channels)
             self.bn_1 = nn.BatchNorm2d(num_features=self.mid_channels)
             self.bn_2 = nn.BatchNorm2d(num_features=self.out_channels)
-        self.conv = nn.Conv2d(self.mid_channels, self.mid_channels, kernel_size=3, padding=1)
+        self.conv = nn.Conv2d(self.mid_channels, self.mid_channels, kernel_size=kernel_size, padding=padding, stride=stride)
         self.up_channel = nn.Conv2d(self.mid_channels, out_channels, kernel_size=1)
         if input_channels != out_channels:
             self.trans = nn.Conv2d(input_channels, out_channels, kernel_size=1)
@@ -299,104 +372,6 @@ class HourGlass(nn.Module):
             o1 = self.blocks[_](o1)
             x = o1 + o2 + x
         return o
-
-
-class LinearModel(nn.Module):
-    """
-        input param:
-            fc_layers: a list of neuron count, such as [2133, 1024, 1024, 85]
-            use_dropout: a list of bool define use dropout or not for each layer, such as [True, True, False]
-            drop_prob: a list of float defined the drop prob, such as [0.5, 0.5, 0]
-            use_ac_func: a list of bool define use active function or not, such as [True, True, False]
-    """
-
-    def __init__(self, fc_layers, use_dropout, drop_prob, use_ac_func):
-        super(LinearModel, self).__init__()
-        self.fc_layers = fc_layers
-        self.use_dropout = use_dropout
-        self.drop_prob = drop_prob
-        self.use_ac_func = use_ac_func
-        if not self._check():
-            msg = 'wrong LinearModel parameters!'
-            None
-            sys.exit(msg)
-        self.create_layers()
-
-    def _check(self):
-        while True:
-            if not isinstance(self.fc_layers, list):
-                None
-                break
-            if not isinstance(self.use_dropout, list):
-                None
-                break
-            if not isinstance(self.drop_prob, list):
-                None
-                break
-            if not isinstance(self.use_ac_func, list):
-                None
-                break
-            l_fc_layer = len(self.fc_layers)
-            l_use_drop = len(self.use_dropout)
-            l_drop_porb = len(self.drop_prob)
-            l_use_ac_func = len(self.use_ac_func)
-            return l_fc_layer >= 2 and l_use_drop < l_fc_layer and l_drop_porb < l_fc_layer and l_use_ac_func < l_fc_layer and l_drop_porb == l_use_drop
-        return False
-
-    def create_layers(self):
-        l_fc_layer = len(self.fc_layers)
-        l_use_drop = len(self.use_dropout)
-        l_drop_porb = len(self.drop_prob)
-        l_use_ac_func = len(self.use_ac_func)
-        self.fc_blocks = nn.Sequential()
-        for _ in range(l_fc_layer - 1):
-            self.fc_blocks.add_module(name='regressor_fc_{}'.format(_), module=nn.Linear(in_features=self.fc_layers[_], out_features=self.fc_layers[_ + 1]))
-            if _ < l_use_ac_func and self.use_ac_func[_]:
-                self.fc_blocks.add_module(name='regressor_af_{}'.format(_), module=nn.ReLU())
-            if _ < l_use_drop and self.use_dropout[_]:
-                self.fc_blocks.add_module(name='regressor_fc_dropout_{}'.format(_), module=nn.Dropout(p=self.drop_prob[_]))
-
-    def forward(self, inputs):
-        msg = 'the base class [LinearModel] is not callable!'
-        sys.exit(msg)
-
-
-class Residual(nn.Module):
-
-    def __init__(self, use_bn, input_channels, out_channels, mid_channels, kernel_size=3, padding=1, stride=1):
-        super(Residual, self).__init__()
-        self.use_bn = use_bn
-        self.out_channels = out_channels
-        self.input_channels = input_channels
-        self.mid_channels = mid_channels
-        self.down_channel = nn.Conv2d(input_channels, self.mid_channels, kernel_size=1)
-        self.AcFunc = nn.ReLU()
-        if use_bn:
-            self.bn_0 = nn.BatchNorm2d(num_features=self.mid_channels)
-            self.bn_1 = nn.BatchNorm2d(num_features=self.mid_channels)
-            self.bn_2 = nn.BatchNorm2d(num_features=self.out_channels)
-        self.conv = nn.Conv2d(self.mid_channels, self.mid_channels, kernel_size=kernel_size, padding=padding, stride=stride)
-        self.up_channel = nn.Conv2d(self.mid_channels, out_channels, kernel_size=1)
-        if input_channels != out_channels:
-            self.trans = nn.Conv2d(input_channels, out_channels, kernel_size=1)
-
-    def forward(self, inputs):
-        x = self.down_channel(inputs)
-        if self.use_bn:
-            x = self.bn_0(x)
-        x = self.AcFunc(x)
-        x = self.conv(x)
-        if self.use_bn:
-            x = self.bn_1(x)
-        x = self.AcFunc(x)
-        x = self.up_channel(x)
-        if self.input_channels != self.out_channels:
-            x += self.trans(inputs)
-        else:
-            x += inputs
-        if self.use_bn:
-            x = self.bn_2(x)
-        return self.AcFunc(x)
 
 
 class PRNetEncoder(nn.Module):
@@ -525,7 +500,7 @@ def batch_global_rigid_transformation(Rs, Js, parent, rotate_base=False):
     if rotate_base:
         np_rot_x = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]], dtype=np.float)
         np_rot_x = np.reshape(np.tile(np_rot_x, [N, 1]), [N, 3, 3])
-        rot_x = Variable(torch.from_numpy(np_rot_x).float()).cuda()
+        rot_x = Variable(torch.from_numpy(np_rot_x).float())
         root_rotation = torch.matmul(Rs[:, (0), :, :], rot_x)
     else:
         root_rotation = Rs[:, (0), :, :]
@@ -533,7 +508,7 @@ def batch_global_rigid_transformation(Rs, Js, parent, rotate_base=False):
 
     def make_A(R, t):
         R_homo = F.pad(R, [0, 0, 0, 1, 0, 0])
-        t_homo = torch.cat([t, Variable(torch.ones(N, 1, 1)).cuda()], dim=1)
+        t_homo = torch.cat([t, Variable(torch.ones(N, 1, 1))], dim=1)
         return torch.cat([R_homo, t_homo], 2)
     A0 = make_A(root_rotation, Js[:, (0)])
     results = [A0]
@@ -544,7 +519,7 @@ def batch_global_rigid_transformation(Rs, Js, parent, rotate_base=False):
         results.append(res_here)
     results = torch.stack(results, dim=1)
     new_J = results[:, :, :3, (3)]
-    Js_w0 = torch.cat([Js, Variable(torch.zeros(N, 24, 1, 1)).cuda()], dim=2)
+    Js_w0 = torch.cat([Js, Variable(torch.zeros(N, 24, 1, 1))], dim=2)
     init_bone = torch.matmul(results, Js_w0)
     init_bone = F.pad(init_bone, [3, 0, 0, 0, 0, 0, 0, 0])
     A = results - init_bone
@@ -579,15 +554,6 @@ def batch_rodrigues(theta):
     v_sin = torch.sin(angle)
     quat = torch.cat([v_cos, v_sin * normalized], dim=1)
     return quat2mat(quat)
-
-
-_global_config['eval_batch_size'] = 4
-
-
-_global_config['batch_size'] = 4
-
-
-_global_config['batch_3d_size'] = 4
 
 
 class SMPL(nn.Module):
@@ -885,21 +851,6 @@ def load_denseNet(net_type):
     else:
         msg = 'invalid denset net type'
         sys.exit(msg)
-
-
-_global_config['crop_size'] = 4
-
-
-_global_config['encoder_network'] = 4
-
-
-_global_config['allowed_encoder_net'] = 4
-
-
-_global_config['enable_inter_supervision'] = 4
-
-
-_global_config['encoder_feature_count'] = 4
 
 
 class HMRNetBase(nn.Module):

@@ -10,16 +10,19 @@ config = _module
 defaults = _module
 path_catlog = _module
 data = _module
+build = _module
 datasets = _module
 coco = _module
 evaluation = _module
 voc = _module
 eval_detection_voc = _module
+voc = _module
 samplers = _module
 distributed = _module
 iteration_based_batch_sampler = _module
 transforms = _module
 target_transform = _module
+transforms = _module
 engine = _module
 inference = _module
 trainer = _module
@@ -37,11 +40,13 @@ vgg = _module
 box_head = _module
 box_head = _module
 box_predictor = _module
+inference = _module
 loss = _module
 detector = _module
 ssd_detector = _module
 registry = _module
 solver = _module
+build = _module
 lr_scheduler = _module
 structures = _module
 container = _module
@@ -60,23 +65,51 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import math
+import time
 
 
 import torch
+
+
+import numpy as np
+
+
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data.dataloader import default_collate
+
+
+from torch.utils.data import ConcatDataset
+
+
+import torch.utils.data
+
+
+import math
 
 
 import torch.distributed as dist
@@ -85,10 +118,22 @@ import torch.distributed as dist
 from torch.utils.data.sampler import Sampler
 
 
+from torch.utils.data.sampler import BatchSampler
+
+
+from torchvision import transforms
+
+
+import types
+
+
+from numpy import random
+
+
 import logging
 
 
-import torch.utils.data
+import collections
 
 
 import torch.nn as nn
@@ -100,19 +145,37 @@ import torch.nn.init as init
 from torch import nn
 
 
+from itertools import product
+
+
+from math import sqrt
+
+
 from torch.nn import functional as F
 
 
 import re
 
 
-import collections
-
-
 import torch.nn.functional as F
 
 
+from torch.optim.lr_scheduler import _LRScheduler
+
+
 from torch.nn.parallel import DistributedDataParallel
+
+
+from collections import deque
+
+
+from collections import defaultdict
+
+
+import warnings
+
+
+import torchvision
 
 
 class L2Norm(nn.Module):
@@ -144,6 +207,25 @@ class SeparableConv2d(nn.Module):
 
     def forward(self, x):
         return self.conv(x)
+
+
+class Conv2dSamePadding(nn.Conv2d):
+    """ 2D Convolutions like TensorFlow """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
+        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
+
+    def forward(self, x):
+        ih, iw = x.size()[-2:]
+        kh, kw = self.weight.size()[-2:]
+        sh, sw = self.stride
+        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 def drop_connect(inputs, p, training):
@@ -412,7 +494,7 @@ def load_pretrained_weights(model, model_name):
     """ Loads pretrained weights, and downloads if loading for the first time. """
     state_dict = load_state_dict_from_url(url_map[model_name])
     model.load_state_dict(state_dict, strict=False)
-    print('Loaded pretrained weights for {}'.format(model_name))
+    None
 
 
 def round_filters(filters, global_params):
@@ -528,25 +610,6 @@ class EfficientNet(nn.Module):
         valid_models = [('efficientnet_b' + str(i)) for i in range(num_models)]
         if model_name.replace('-', '_') not in valid_models:
             raise ValueError('model_name should be one of: ' + ', '.join(valid_models))
-
-
-class Conv2dSamePadding(nn.Conv2d):
-    """ 2D Convolutions like TensorFlow """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
-        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
-
-    def forward(self, x):
-        ih, iw = x.size()[-2:]
-        kh, kw = self.weight.size()[-2:]
-        sh, sw = self.stride
-        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
-        if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 
 class ConvBNReLU(nn.Sequential):
@@ -694,6 +757,40 @@ class VGG(nn.Module):
         return tuple(features)
 
 
+class MultiBoxLoss(nn.Module):
+
+    def __init__(self, neg_pos_ratio):
+        """Implement SSD MultiBox Loss.
+
+        Basically, MultiBox loss combines classification loss
+         and Smooth L1 regression loss.
+        """
+        super(MultiBoxLoss, self).__init__()
+        self.neg_pos_ratio = neg_pos_ratio
+
+    def forward(self, confidence, predicted_locations, labels, gt_locations):
+        """Compute classification loss and smooth l1 loss.
+
+        Args:
+            confidence (batch_size, num_priors, num_classes): class predictions.
+            predicted_locations (batch_size, num_priors, 4): predicted locations.
+            labels (batch_size, num_priors): real labels of all the priors.
+            gt_locations (batch_size, num_priors, 4): real boxes corresponding all the priors.
+        """
+        num_classes = confidence.size(2)
+        with torch.no_grad():
+            loss = -F.log_softmax(confidence, dim=2)[:, :, (0)]
+            mask = box_utils.hard_negative_mining(loss, labels, self.neg_pos_ratio)
+        confidence = confidence[(mask), :]
+        classification_loss = F.cross_entropy(confidence.view(-1, num_classes), labels[mask], reduction='sum')
+        pos_mask = labels > 0
+        predicted_locations = predicted_locations[(pos_mask), :].view(-1, 4)
+        gt_locations = gt_locations[(pos_mask), :].view(-1, 4)
+        smooth_l1_loss = F.smooth_l1_loss(predicted_locations, gt_locations, reduction='sum')
+        num_pos = gt_locations.size(0)
+        return smooth_l1_loss / num_pos, classification_loss / num_pos
+
+
 class Container:
     """
     Help class for manage boxes, labels, etc...
@@ -794,7 +891,7 @@ def batched_nms(boxes, scores, idxs, iou_threshold):
     if boxes.numel() == 0:
         return torch.empty((0,), dtype=torch.int64, device=boxes.device)
     max_coordinate = boxes.max()
-    offsets = idxs.to(boxes) * (max_coordinate + 1)
+    offsets = idxs * (max_coordinate + 1)
     boxes_for_nms = boxes + offsets[:, (None)]
     keep = nms(boxes_for_nms, scores, iou_threshold)
     return keep
@@ -887,6 +984,41 @@ def make_box_predictor(cfg):
     return registry.BOX_PREDICTORS[cfg.MODEL.BOX_HEAD.PREDICTOR](cfg)
 
 
+class SSDBoxHead(nn.Module):
+
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.predictor = make_box_predictor(cfg)
+        self.loss_evaluator = MultiBoxLoss(neg_pos_ratio=cfg.MODEL.NEG_POS_RATIO)
+        self.post_processor = PostProcessor(cfg)
+        self.priors = None
+
+    def forward(self, features, targets=None):
+        cls_logits, bbox_pred = self.predictor(features)
+        if self.training:
+            return self._forward_train(cls_logits, bbox_pred, targets)
+        else:
+            return self._forward_test(cls_logits, bbox_pred)
+
+    def _forward_train(self, cls_logits, bbox_pred, targets):
+        gt_boxes, gt_labels = targets['boxes'], targets['labels']
+        reg_loss, cls_loss = self.loss_evaluator(cls_logits, bbox_pred, gt_labels, gt_boxes)
+        loss_dict = dict(reg_loss=reg_loss, cls_loss=cls_loss)
+        detections = cls_logits, bbox_pred
+        return detections, loss_dict
+
+    def _forward_test(self, cls_logits, bbox_pred):
+        if self.priors is None:
+            self.priors = PriorBox(self.cfg)()
+        scores = F.softmax(cls_logits, dim=2)
+        boxes = box_utils.convert_locations_to_boxes(bbox_pred, self.priors, self.cfg.MODEL.CENTER_VARIANCE, self.cfg.MODEL.SIZE_VARIANCE)
+        boxes = box_utils.center_form_to_corner_form(boxes)
+        detections = scores, boxes
+        detections = self.post_processor(detections)
+        return detections, {}
+
+
 class BoxPredictor(nn.Module):
 
     def __init__(self, cfg):
@@ -923,38 +1055,28 @@ class BoxPredictor(nn.Module):
         return cls_logits, bbox_pred
 
 
-class MultiBoxLoss(nn.Module):
+class SSDBoxPredictor(BoxPredictor):
 
-    def __init__(self, neg_pos_ratio):
-        """Implement SSD MultiBox Loss.
+    def cls_block(self, level, out_channels, boxes_per_location):
+        return nn.Conv2d(out_channels, boxes_per_location * self.cfg.MODEL.NUM_CLASSES, kernel_size=3, stride=1, padding=1)
 
-        Basically, MultiBox loss combines classification loss
-         and Smooth L1 regression loss.
-        """
-        super(MultiBoxLoss, self).__init__()
-        self.neg_pos_ratio = neg_pos_ratio
+    def reg_block(self, level, out_channels, boxes_per_location):
+        return nn.Conv2d(out_channels, boxes_per_location * 4, kernel_size=3, stride=1, padding=1)
 
-    def forward(self, confidence, predicted_locations, labels, gt_locations):
-        """Compute classification loss and smooth l1 loss.
 
-        Args:
-            confidence (batch_size, num_priors, num_classes): class predictions.
-            predicted_locations (batch_size, num_priors, 4): predicted locations.
-            labels (batch_size, num_priors): real labels of all the priors.
-            gt_locations (batch_size, num_priors, 4): real boxes corresponding all the priors.
-        """
-        num_classes = confidence.size(2)
-        with torch.no_grad():
-            loss = -F.log_softmax(confidence, dim=2)[:, :, (0)]
-            mask = box_utils.hard_negative_mining(loss, labels, self.neg_pos_ratio)
-        confidence = confidence[(mask), :]
-        classification_loss = F.cross_entropy(confidence.view(-1, num_classes), labels[mask], reduction='sum')
-        pos_mask = labels > 0
-        predicted_locations = predicted_locations[(pos_mask), :].view(-1, 4)
-        gt_locations = gt_locations[(pos_mask), :].view(-1, 4)
-        smooth_l1_loss = F.smooth_l1_loss(predicted_locations, gt_locations, reduction='sum')
-        num_pos = gt_locations.size(0)
-        return smooth_l1_loss / num_pos, classification_loss / num_pos
+class SSDLiteBoxPredictor(BoxPredictor):
+
+    def cls_block(self, level, out_channels, boxes_per_location):
+        num_levels = len(self.cfg.MODEL.BACKBONE.OUT_CHANNELS)
+        if level == num_levels - 1:
+            return nn.Conv2d(out_channels, boxes_per_location * self.cfg.MODEL.NUM_CLASSES, kernel_size=1)
+        return SeparableConv2d(out_channels, boxes_per_location * self.cfg.MODEL.NUM_CLASSES, kernel_size=3, stride=1, padding=1)
+
+    def reg_block(self, level, out_channels, boxes_per_location):
+        num_levels = len(self.cfg.MODEL.BACKBONE.OUT_CHANNELS)
+        if level == num_levels - 1:
+            return nn.Conv2d(out_channels, boxes_per_location * 4, kernel_size=1)
+        return SeparableConv2d(out_channels, boxes_per_location * 4, kernel_size=3, stride=1, padding=1)
 
 
 def build_backbone(cfg):

@@ -10,15 +10,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -60,12 +61,6 @@ from torch.utils.data import Dataset
 
 
 import math
-
-
-_global_config['d_model'] = 4
-
-
-d_model = config.d_model
 
 
 class PosEncoder(nn.Module):
@@ -121,15 +116,6 @@ class Highway(nn.Module):
         return x
 
 
-_global_config['num_heads'] = 4
-
-
-n_head = config.num_heads
-
-
-d_k = d_model // n_head
-
-
 def mask_logits(target, mask):
     return target * (1 - mask) + mask * -1e+30
 
@@ -175,12 +161,6 @@ class SelfAttention(nn.Module):
         return out.transpose(1, 2)
 
 
-_global_config['dropout'] = 0.5
-
-
-dropout = config.dropout
-
-
 class MultiHeadAttention(nn.Module):
 
     def __init__(self):
@@ -211,24 +191,6 @@ class MultiHeadAttention(nn.Module):
         out = self.fc(out)
         out = self.dropout(out)
         return out.transpose(1, 2)
-
-
-_global_config['char_dim'] = 4
-
-
-d_char = config.char_dim
-
-
-_global_config['glove_dim'] = 4
-
-
-d_word = config.glove_dim
-
-
-_global_config['dropout_char'] = 0.5
-
-
-dropout_char = config.dropout_char
 
 
 class Embedding(nn.Module):
@@ -344,21 +306,6 @@ class Pointer(nn.Module):
         return p1, p2
 
 
-_global_config['para_limit'] = 4
-
-
-len_c = config.para_limit
-
-
-_global_config['ques_limit'] = 4
-
-
-len_q = config.ques_limit
-
-
-_global_config['pretrained_char'] = False
-
-
 class QANet(nn.Module):
 
     def __init__(self, word_mat, char_mat):
@@ -407,10 +354,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (CQAttention,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
-     False),
     (DepthwiseSeparableConv,
      lambda: ([], {'in_ch': 4, 'out_ch': 4, 'k': 4}),
      lambda: ([torch.rand([4, 4, 64])], {}),
@@ -418,22 +361,6 @@ TESTCASES = [
     (Highway,
      lambda: ([], {'layer_num': 1, 'size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (MultiHeadAttention,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
-     False),
-    (Pointer,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
-     True),
-    (PosEncoder,
-     lambda: ([], {'length': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (SelfAttention,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
      False),
 ]
 
@@ -443,19 +370,4 @@ class Test_setoidz_QANet_pytorch(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
 

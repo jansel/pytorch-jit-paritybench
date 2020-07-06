@@ -19,15 +19,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -215,7 +216,7 @@ class SoftBootstrapCrossEntropy(nn.BCELoss):
 use_cuda = torch.cuda.is_available()
 
 
-FloatTensor = torch.cuda.FloatTensor if use_cuda else torch.FloatTensor
+FloatTensor = torch.FloatTensor if use_cuda else torch.FloatTensor
 
 
 class BCERegionLoss(nn.Module):
@@ -252,6 +253,23 @@ class BCERegionLoss(nn.Module):
         boundary = torch.pow(F.relu(boundary - 1), 2)
         boundary_loss = boundary.view(boundary.size(0), -1).sum(-1).mean()
         return bce_loss, bce_loss + 0.2 * region_loss + 0.05 * scale_loss + 0.1 * boundary_loss
+
+
+class FeatureExtractor(nn.Module):
+
+    def __init__(self, encoder, feature_range=3):
+        super(FeatureExtractor, self).__init__()
+        self.layers = nn.Sequential(*[encoder.features[i] for i in range(feature_range)])
+        for layer in self.layers:
+            for param in layer.parameters():
+                param.requires_grad = False
+
+    def forward(self, x):
+        out = []
+        for layer in self.layers:
+            x = layer(x)
+            out.append(x)
+        return out
 
 
 def gram_matrix(feat):
@@ -292,23 +310,6 @@ class InpaintingLoss(nn.Module):
         return loss
 
 
-class FeatureExtractor(nn.Module):
-
-    def __init__(self, encoder, feature_range=3):
-        super(FeatureExtractor, self).__init__()
-        self.layers = nn.Sequential(*[encoder.features[i] for i in range(feature_range)])
-        for layer in self.layers:
-            for param in layer.parameters():
-                param.requires_grad = False
-
-    def forward(self, x):
-        out = []
-        for layer in self.layers:
-            x = layer(x)
-            out.append(x)
-        return out
-
-
 class tofp32(nn.Module):
 
     def __init__(self):
@@ -333,15 +334,30 @@ class tofp16(nn.Module):
         return input.half()
 
 
-class DoubleAvdPool(nn.AvgPool2d):
+def Conv_block(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, BN=False, activation=None):
+    m = [nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)]
+    if BN:
+        if activation:
+            m += [nn.Sequential(nn.BatchNorm2d(out_channels), activation)]
+        else:
+            m += [nn.Sequential(nn.BatchNorm2d(out_channels))]
+    if BN is False and activation is not None:
+        m += [activation]
+    return m
 
-    def __init__(self, kernel_size):
-        super(DoubleAvdPool, self).__init__(kernel_size=kernel_size)
-        self.kernel_size = kernel_size
 
-    def forward(self, args):
-        type(args)
-        return tuple(map(lambda x: avg_pool2d(x, kernel_size=self.kernel_size), args))
+def partial_convolution_block(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=False, BN=True, activation=True, use_1_conv=False, no_holes_1_conv=False, same_holes=False):
+    if use_1_conv:
+        m = [PartialConv1x1(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)]
+    elif no_holes_1_conv:
+        m = [PartialConvNoHoles(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)]
+    else:
+        m = [PartialConv(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, same_holes)]
+    if BN:
+        m += [PartialActivatedBN(out_channels, activation)]
+    if not BN and activation:
+        m += [PartialActivation(activation)]
+    return nn.Sequential(*m)
 
 
 class DoubleUpSample(nn.Module):
@@ -353,6 +369,17 @@ class DoubleUpSample(nn.Module):
     def forward(self, args):
         x, mask = args
         return self.upsample(x), self.upsample(mask)
+
+
+class DoubleAvdPool(nn.AvgPool2d):
+
+    def __init__(self, kernel_size):
+        super(DoubleAvdPool, self).__init__(kernel_size=kernel_size)
+        self.kernel_size = kernel_size
+
+    def forward(self, args):
+        type(args)
+        return tuple(map(lambda x: avg_pool2d(x, kernel_size=self.kernel_size), args))
 
 
 import torch

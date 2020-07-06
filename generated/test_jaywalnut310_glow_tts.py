@@ -23,15 +23,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -54,6 +55,15 @@ from torch import nn
 from torch.nn import functional as F
 
 
+from scipy.signal import get_window
+
+
+import random
+
+
+import torch.utils.data
+
+
 from torch import optim
 
 
@@ -69,9 +79,6 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
-from scipy.signal import get_window
-
-
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -81,91 +88,54 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 
 
-class Encoder(nn.Module):
-
-    def __init__(self, hidden_channels, filter_channels, n_heads, n_layers, kernel_size=1, p_dropout=0.0, window_size=None, block_length=None, **kwargs):
-        super().__init__()
-        self.hidden_channels = hidden_channels
-        self.filter_channels = filter_channels
-        self.n_heads = n_heads
-        self.n_layers = n_layers
-        self.kernel_size = kernel_size
-        self.p_dropout = p_dropout
-        self.window_size = window_size
-        self.block_length = block_length
-        self.drop = nn.Dropout(p_dropout)
-        self.attn_layers = nn.ModuleList()
-        self.norm_layers_1 = nn.ModuleList()
-        self.ffn_layers = nn.ModuleList()
-        self.norm_layers_2 = nn.ModuleList()
-        for i in range(self.n_layers):
-            self.attn_layers.append(MultiHeadAttention(hidden_channels, hidden_channels, n_heads, window_size=window_size, p_dropout=p_dropout, block_length=block_length))
-            self.norm_layers_1.append(LayerNorm(hidden_channels))
-            self.ffn_layers.append(FFN(hidden_channels, hidden_channels, filter_channels, kernel_size, p_dropout=p_dropout))
-            self.norm_layers_2.append(LayerNorm(hidden_channels))
-
-    def forward(self, x, x_mask):
-        attn_mask = x_mask.unsqueeze(2) * x_mask.unsqueeze(-1)
-        for i in range(self.n_layers):
-            x = x * x_mask
-            y = self.attn_layers[i](x, x, attn_mask)
-            y = self.drop(y)
-            x = self.norm_layers_1[i](x + y)
-            y = self.ffn_layers[i](x, x_mask)
-            y = self.drop(y)
-            x = self.norm_layers_2[i](x + y)
-        x = x * x_mask
-        return x
+import logging
 
 
-class CouplingBlock(nn.Module):
+from scipy.io.wavfile import read
 
-    def __init__(self, in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels=0, p_dropout=0, sigmoid_scale=False):
+
+class FFN(nn.Module):
+
+    def __init__(self, in_channels, out_channels, filter_channels, kernel_size, p_dropout=0.0, activation=None):
         super().__init__()
         self.in_channels = in_channels
-        self.hidden_channels = hidden_channels
+        self.out_channels = out_channels
+        self.filter_channels = filter_channels
         self.kernel_size = kernel_size
-        self.dilation_rate = dilation_rate
-        self.n_layers = n_layers
-        self.gin_channels = gin_channels
         self.p_dropout = p_dropout
-        self.sigmoid_scale = sigmoid_scale
-        start = torch.nn.Conv1d(in_channels // 2, hidden_channels, 1)
-        start = torch.nn.utils.weight_norm(start)
-        self.start = start
-        end = torch.nn.Conv1d(hidden_channels, in_channels, 1)
-        end.weight.data.zero_()
-        end.bias.data.zero_()
-        self.end = end
-        self.wn = modules.WN(in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels, p_dropout)
+        self.activation = activation
+        self.conv_1 = nn.Conv1d(in_channels, filter_channels, kernel_size, padding=kernel_size // 2)
+        self.conv_2 = nn.Conv1d(filter_channels, out_channels, kernel_size, padding=kernel_size // 2)
+        self.drop = nn.Dropout(p_dropout)
 
-    def forward(self, x, x_mask=None, reverse=False, g=None, **kwargs):
-        b, c, t = x.size()
-        if x_mask is None:
-            x_mask = 1
-            attn_mask = None
+    def forward(self, x, x_mask):
+        x = self.conv_1(x * x_mask)
+        if self.activation == 'gelu':
+            x = x * torch.sigmoid(1.702 * x)
         else:
-            attn_mask = x_mask.unsqueeze(2) * x_mask.unsqueeze(-1)
-        x_0, x_1 = x[:, :self.in_channels // 2], x[:, self.in_channels // 2:]
-        x = self.start(x_0) * x_mask
-        x = self.wn(x, x_mask, g)
-        out = self.end(x)
-        z_0 = x_0
-        m = out[:, :self.in_channels // 2, :]
-        logs = out[:, self.in_channels // 2:, :]
-        if self.sigmoid_scale:
-            logs = torch.log(1e-06 + torch.sigmoid(logs + 2))
-        if reverse:
-            z_1 = (x_1 - m) * torch.exp(-logs) * x_mask
-            logdet = None
-        else:
-            z_1 = (m + torch.exp(logs) * x_1) * x_mask
-            logdet = torch.sum(logs * x_mask, [1, 2])
-        z = torch.cat([z_0, z_1], 1)
-        return z, logdet
+            x = torch.relu(x)
+        x = self.drop(x)
+        x = self.conv_2(x * x_mask)
+        return x * x_mask
 
-    def store_inverse(self):
-        self.wn.remove_weight_norm()
+
+class LayerNorm(nn.Module):
+
+    def __init__(self, channels, eps=0.0001):
+        super().__init__()
+        self.channels = channels
+        self.eps = eps
+        self.gamma = nn.Parameter(torch.ones(channels))
+        self.beta = nn.Parameter(torch.zeros(channels))
+
+    def forward(self, x):
+        n_dims = len(x.shape)
+        mean = torch.mean(x, 1, keepdim=True)
+        variance = torch.mean((x - mean) ** 2, 1, keepdim=True)
+        x = (x - mean) * torch.rsqrt(variance + self.eps)
+        shape = [1, -1] + [1] * (n_dims - 2)
+        x = x * self.gamma.view(*shape) + self.beta.view(*shape)
+        return x
 
 
 class MultiHeadAttention(nn.Module):
@@ -305,29 +275,224 @@ class MultiHeadAttention(nn.Module):
         return torch.unsqueeze(torch.unsqueeze(-torch.log1p(torch.abs(diff)), 0), 0)
 
 
-class FFN(nn.Module):
+class Encoder(nn.Module):
 
-    def __init__(self, in_channels, out_channels, filter_channels, kernel_size, p_dropout=0.0, activation=None):
+    def __init__(self, hidden_channels, filter_channels, n_heads, n_layers, kernel_size=1, p_dropout=0.0, window_size=None, block_length=None, **kwargs):
         super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
+        self.hidden_channels = hidden_channels
         self.filter_channels = filter_channels
+        self.n_heads = n_heads
+        self.n_layers = n_layers
         self.kernel_size = kernel_size
         self.p_dropout = p_dropout
-        self.activation = activation
-        self.conv_1 = nn.Conv1d(in_channels, filter_channels, kernel_size, padding=kernel_size // 2)
-        self.conv_2 = nn.Conv1d(filter_channels, out_channels, kernel_size, padding=kernel_size // 2)
+        self.window_size = window_size
+        self.block_length = block_length
         self.drop = nn.Dropout(p_dropout)
+        self.attn_layers = nn.ModuleList()
+        self.norm_layers_1 = nn.ModuleList()
+        self.ffn_layers = nn.ModuleList()
+        self.norm_layers_2 = nn.ModuleList()
+        for i in range(self.n_layers):
+            self.attn_layers.append(MultiHeadAttention(hidden_channels, hidden_channels, n_heads, window_size=window_size, p_dropout=p_dropout, block_length=block_length))
+            self.norm_layers_1.append(LayerNorm(hidden_channels))
+            self.ffn_layers.append(FFN(hidden_channels, hidden_channels, filter_channels, kernel_size, p_dropout=p_dropout))
+            self.norm_layers_2.append(LayerNorm(hidden_channels))
 
     def forward(self, x, x_mask):
-        x = self.conv_1(x * x_mask)
-        if self.activation == 'gelu':
-            x = x * torch.sigmoid(1.702 * x)
+        attn_mask = x_mask.unsqueeze(2) * x_mask.unsqueeze(-1)
+        for i in range(self.n_layers):
+            x = x * x_mask
+            y = self.attn_layers[i](x, x, attn_mask)
+            y = self.drop(y)
+            x = self.norm_layers_1[i](x + y)
+            y = self.ffn_layers[i](x, x_mask)
+            y = self.drop(y)
+            x = self.norm_layers_2[i](x + y)
+        x = x * x_mask
+        return x
+
+
+class CouplingBlock(nn.Module):
+
+    def __init__(self, in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels=0, p_dropout=0, sigmoid_scale=False):
+        super().__init__()
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.kernel_size = kernel_size
+        self.dilation_rate = dilation_rate
+        self.n_layers = n_layers
+        self.gin_channels = gin_channels
+        self.p_dropout = p_dropout
+        self.sigmoid_scale = sigmoid_scale
+        start = torch.nn.Conv1d(in_channels // 2, hidden_channels, 1)
+        start = torch.nn.utils.weight_norm(start)
+        self.start = start
+        end = torch.nn.Conv1d(hidden_channels, in_channels, 1)
+        end.weight.data.zero_()
+        end.bias.data.zero_()
+        self.end = end
+        self.wn = modules.WN(in_channels, hidden_channels, kernel_size, dilation_rate, n_layers, gin_channels, p_dropout)
+
+    def forward(self, x, x_mask=None, reverse=False, g=None, **kwargs):
+        b, c, t = x.size()
+        if x_mask is None:
+            x_mask = 1
+            attn_mask = None
         else:
-            x = torch.relu(x)
-        x = self.drop(x)
-        x = self.conv_2(x * x_mask)
-        return x * x_mask
+            attn_mask = x_mask.unsqueeze(2) * x_mask.unsqueeze(-1)
+        x_0, x_1 = x[:, :self.in_channels // 2], x[:, self.in_channels // 2:]
+        x = self.start(x_0) * x_mask
+        x = self.wn(x, x_mask, g)
+        out = self.end(x)
+        z_0 = x_0
+        m = out[:, :self.in_channels // 2, :]
+        logs = out[:, self.in_channels // 2:, :]
+        if self.sigmoid_scale:
+            logs = torch.log(1e-06 + torch.sigmoid(logs + 2))
+        if reverse:
+            z_1 = (x_1 - m) * torch.exp(-logs) * x_mask
+            logdet = None
+        else:
+            z_1 = (m + torch.exp(logs) * x_1) * x_mask
+            logdet = torch.sum(logs * x_mask, [1, 2])
+        z = torch.cat([z_0, z_1], 1)
+        return z, logdet
+
+    def store_inverse(self):
+        self.wn.remove_weight_norm()
+
+
+def window_sumsquare(window, n_frames, hop_length=200, win_length=800, n_fft=800, dtype=np.float32, norm=None):
+    """
+    # from librosa 0.6
+    Compute the sum-square envelope of a window function at a given hop length.
+
+    This is used to estimate modulation effects induced by windowing
+    observations in short-time fourier transforms.
+
+    Parameters
+    ----------
+    window : string, tuple, number, callable, or list-like
+        Window specification, as in `get_window`
+
+    n_frames : int > 0
+        The number of analysis frames
+
+    hop_length : int > 0
+        The number of samples to advance between frames
+
+    win_length : [optional]
+        The length of the window function.  By default, this matches `n_fft`.
+
+    n_fft : int > 0
+        The length of each analysis frame.
+
+    dtype : np.dtype
+        The data type of the output
+
+    Returns
+    -------
+    wss : np.ndarray, shape=`(n_fft + hop_length * (n_frames - 1))`
+        The sum-squared envelope of the window function
+    """
+    if win_length is None:
+        win_length = n_fft
+    n = n_fft + hop_length * (n_frames - 1)
+    x = np.zeros(n, dtype=dtype)
+    win_sq = get_window(window, win_length, fftbins=True)
+    win_sq = librosa_util.normalize(win_sq, norm=norm) ** 2
+    win_sq = librosa_util.pad_center(win_sq, n_fft)
+    for i in range(n_frames):
+        sample = i * hop_length
+        x[sample:min(n, sample + n_fft)] += win_sq[:max(0, min(n_fft, n - sample))]
+    return x
+
+
+class STFT(torch.nn.Module):
+    """adapted from Prem Seetharaman's https://github.com/pseeth/pytorch-stft"""
+
+    def __init__(self, filter_length=800, hop_length=200, win_length=800, window='hann'):
+        super(STFT, self).__init__()
+        self.filter_length = filter_length
+        self.hop_length = hop_length
+        self.win_length = win_length
+        self.window = window
+        self.forward_transform = None
+        scale = self.filter_length / self.hop_length
+        fourier_basis = np.fft.fft(np.eye(self.filter_length))
+        cutoff = int(self.filter_length / 2 + 1)
+        fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.imag(fourier_basis[:cutoff, :])])
+        forward_basis = torch.FloatTensor(fourier_basis[:, (None), :])
+        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, (None), :])
+        if window is not None:
+            assert filter_length >= win_length
+            fft_window = get_window(window, win_length, fftbins=True)
+            fft_window = pad_center(fft_window, filter_length)
+            fft_window = torch.from_numpy(fft_window).float()
+            forward_basis *= fft_window
+            inverse_basis *= fft_window
+        self.register_buffer('forward_basis', forward_basis.float())
+        self.register_buffer('inverse_basis', inverse_basis.float())
+
+    def transform(self, input_data):
+        num_batches = input_data.size(0)
+        num_samples = input_data.size(1)
+        self.num_samples = num_samples
+        if input_data.device.type == 'cuda':
+            input_data = input_data.view(num_batches, 1, num_samples)
+            input_data = F.pad(input_data.unsqueeze(1), (int(self.filter_length / 2), int(self.filter_length / 2), 0, 0), mode='reflect')
+            input_data = input_data.squeeze(1)
+            forward_transform = F.conv1d(input_data, self.forward_basis, stride=self.hop_length, padding=0)
+            cutoff = int(self.filter_length / 2 + 1)
+            real_part = forward_transform[:, :cutoff, :]
+            imag_part = forward_transform[:, cutoff:, :]
+        else:
+            x = input_data.detach().numpy()
+            real_part = []
+            imag_part = []
+            for y in x:
+                y_ = stft(y, self.filter_length, self.hop_length, self.win_length, self.window)
+                real_part.append(y_.real[(None), :, :])
+                imag_part.append(y_.imag[(None), :, :])
+            real_part = np.concatenate(real_part, 0)
+            imag_part = np.concatenate(imag_part, 0)
+            real_part = torch.from_numpy(real_part)
+            imag_part = torch.from_numpy(imag_part)
+        magnitude = torch.sqrt(real_part ** 2 + imag_part ** 2)
+        phase = torch.atan2(imag_part.data, real_part.data)
+        return magnitude, phase
+
+    def inverse(self, magnitude, phase):
+        recombine_magnitude_phase = torch.cat([magnitude * torch.cos(phase), magnitude * torch.sin(phase)], dim=1)
+        if magnitude.device.type == 'cuda':
+            inverse_transform = F.conv_transpose1d(recombine_magnitude_phase, self.inverse_basis, stride=self.hop_length, padding=0)
+            if self.window is not None:
+                window_sum = window_sumsquare(self.window, magnitude.size(-1), hop_length=self.hop_length, win_length=self.win_length, n_fft=self.filter_length, dtype=np.float32)
+                approx_nonzero_indices = torch.from_numpy(np.where(window_sum > tiny(window_sum))[0])
+                window_sum = torch.from_numpy(window_sum)
+                inverse_transform[:, :, (approx_nonzero_indices)] /= window_sum[approx_nonzero_indices]
+                inverse_transform *= float(self.filter_length) / self.hop_length
+            inverse_transform = inverse_transform[:, :, int(self.filter_length / 2):]
+            inverse_transform = inverse_transform[:, :, :-int(self.filter_length / 2)]
+            inverse_transform = inverse_transform.squeeze(1)
+        else:
+            x_org = recombine_magnitude_phase.detach().numpy()
+            n_b, n_f, n_t = x_org.shape
+            x = np.empty([n_b, n_f // 2, n_t], dtype=np.complex64)
+            x.real = x_org[:, :n_f // 2]
+            x.imag = x_org[:, n_f // 2:]
+            inverse_transform = []
+            for y in x:
+                y_ = istft(y, self.hop_length, self.win_length, self.window)
+                inverse_transform.append(y_[(None), :])
+            inverse_transform = np.concatenate(inverse_transform, 0)
+            inverse_transform = torch.from_numpy(inverse_transform)
+        return inverse_transform
+
+    def forward(self, input_data):
+        self.magnitude, self.phase = self.transform(input_data)
+        reconstruction = self.inverse(self.magnitude, self.phase)
+        return reconstruction
 
 
 def dynamic_range_compression(x, C=1, clip_val=1e-05):
@@ -591,25 +756,6 @@ class FlowGenerator(nn.Module):
         self.decoder.store_inverse()
 
 
-class LayerNorm(nn.Module):
-
-    def __init__(self, channels, eps=0.0001):
-        super().__init__()
-        self.channels = channels
-        self.eps = eps
-        self.gamma = nn.Parameter(torch.ones(channels))
-        self.beta = nn.Parameter(torch.zeros(channels))
-
-    def forward(self, x):
-        n_dims = len(x.shape)
-        mean = torch.mean(x, 1, keepdim=True)
-        variance = torch.mean((x - mean) ** 2, 1, keepdim=True)
-        x = (x - mean) * torch.rsqrt(variance + self.eps)
-        shape = [1, -1] + [1] * (n_dims - 2)
-        x = x * self.gamma.view(*shape) + self.beta.view(*shape)
-        return x
-
-
 class ConvReluNorm(nn.Module):
 
     def __init__(self, in_channels, hidden_channels, out_channels, kernel_size, n_layers, p_dropout):
@@ -793,139 +939,6 @@ class InvConvNear(nn.Module):
 
     def store_inverse(self):
         self.weight_inv = torch.inverse(self.weight.float())
-
-
-def window_sumsquare(window, n_frames, hop_length=200, win_length=800, n_fft=800, dtype=np.float32, norm=None):
-    """
-    # from librosa 0.6
-    Compute the sum-square envelope of a window function at a given hop length.
-
-    This is used to estimate modulation effects induced by windowing
-    observations in short-time fourier transforms.
-
-    Parameters
-    ----------
-    window : string, tuple, number, callable, or list-like
-        Window specification, as in `get_window`
-
-    n_frames : int > 0
-        The number of analysis frames
-
-    hop_length : int > 0
-        The number of samples to advance between frames
-
-    win_length : [optional]
-        The length of the window function.  By default, this matches `n_fft`.
-
-    n_fft : int > 0
-        The length of each analysis frame.
-
-    dtype : np.dtype
-        The data type of the output
-
-    Returns
-    -------
-    wss : np.ndarray, shape=`(n_fft + hop_length * (n_frames - 1))`
-        The sum-squared envelope of the window function
-    """
-    if win_length is None:
-        win_length = n_fft
-    n = n_fft + hop_length * (n_frames - 1)
-    x = np.zeros(n, dtype=dtype)
-    win_sq = get_window(window, win_length, fftbins=True)
-    win_sq = librosa_util.normalize(win_sq, norm=norm) ** 2
-    win_sq = librosa_util.pad_center(win_sq, n_fft)
-    for i in range(n_frames):
-        sample = i * hop_length
-        x[sample:min(n, sample + n_fft)] += win_sq[:max(0, min(n_fft, n - sample))]
-    return x
-
-
-class STFT(torch.nn.Module):
-    """adapted from Prem Seetharaman's https://github.com/pseeth/pytorch-stft"""
-
-    def __init__(self, filter_length=800, hop_length=200, win_length=800, window='hann'):
-        super(STFT, self).__init__()
-        self.filter_length = filter_length
-        self.hop_length = hop_length
-        self.win_length = win_length
-        self.window = window
-        self.forward_transform = None
-        scale = self.filter_length / self.hop_length
-        fourier_basis = np.fft.fft(np.eye(self.filter_length))
-        cutoff = int(self.filter_length / 2 + 1)
-        fourier_basis = np.vstack([np.real(fourier_basis[:cutoff, :]), np.imag(fourier_basis[:cutoff, :])])
-        forward_basis = torch.FloatTensor(fourier_basis[:, (None), :])
-        inverse_basis = torch.FloatTensor(np.linalg.pinv(scale * fourier_basis).T[:, (None), :])
-        if window is not None:
-            assert filter_length >= win_length
-            fft_window = get_window(window, win_length, fftbins=True)
-            fft_window = pad_center(fft_window, filter_length)
-            fft_window = torch.from_numpy(fft_window).float()
-            forward_basis *= fft_window
-            inverse_basis *= fft_window
-        self.register_buffer('forward_basis', forward_basis.float())
-        self.register_buffer('inverse_basis', inverse_basis.float())
-
-    def transform(self, input_data):
-        num_batches = input_data.size(0)
-        num_samples = input_data.size(1)
-        self.num_samples = num_samples
-        if input_data.device.type == 'cuda':
-            input_data = input_data.view(num_batches, 1, num_samples)
-            input_data = F.pad(input_data.unsqueeze(1), (int(self.filter_length / 2), int(self.filter_length / 2), 0, 0), mode='reflect')
-            input_data = input_data.squeeze(1)
-            forward_transform = F.conv1d(input_data, self.forward_basis, stride=self.hop_length, padding=0)
-            cutoff = int(self.filter_length / 2 + 1)
-            real_part = forward_transform[:, :cutoff, :]
-            imag_part = forward_transform[:, cutoff:, :]
-        else:
-            x = input_data.detach().numpy()
-            real_part = []
-            imag_part = []
-            for y in x:
-                y_ = stft(y, self.filter_length, self.hop_length, self.win_length, self.window)
-                real_part.append(y_.real[(None), :, :])
-                imag_part.append(y_.imag[(None), :, :])
-            real_part = np.concatenate(real_part, 0)
-            imag_part = np.concatenate(imag_part, 0)
-            real_part = torch.from_numpy(real_part)
-            imag_part = torch.from_numpy(imag_part)
-        magnitude = torch.sqrt(real_part ** 2 + imag_part ** 2)
-        phase = torch.atan2(imag_part.data, real_part.data)
-        return magnitude, phase
-
-    def inverse(self, magnitude, phase):
-        recombine_magnitude_phase = torch.cat([magnitude * torch.cos(phase), magnitude * torch.sin(phase)], dim=1)
-        if magnitude.device.type == 'cuda':
-            inverse_transform = F.conv_transpose1d(recombine_magnitude_phase, self.inverse_basis, stride=self.hop_length, padding=0)
-            if self.window is not None:
-                window_sum = window_sumsquare(self.window, magnitude.size(-1), hop_length=self.hop_length, win_length=self.win_length, n_fft=self.filter_length, dtype=np.float32)
-                approx_nonzero_indices = torch.from_numpy(np.where(window_sum > tiny(window_sum))[0])
-                window_sum = torch.from_numpy(window_sum)
-                inverse_transform[:, :, (approx_nonzero_indices)] /= window_sum[approx_nonzero_indices]
-                inverse_transform *= float(self.filter_length) / self.hop_length
-            inverse_transform = inverse_transform[:, :, int(self.filter_length / 2):]
-            inverse_transform = inverse_transform[:, :, :-int(self.filter_length / 2)]
-            inverse_transform = inverse_transform.squeeze(1)
-        else:
-            x_org = recombine_magnitude_phase.detach().numpy()
-            n_b, n_f, n_t = x_org.shape
-            x = np.empty([n_b, n_f // 2, n_t], dtype=np.complex64)
-            x.real = x_org[:, :n_f // 2]
-            x.imag = x_org[:, n_f // 2:]
-            inverse_transform = []
-            for y in x:
-                y_ = istft(y, self.hop_length, self.win_length, self.window)
-                inverse_transform.append(y_[(None), :])
-            inverse_transform = np.concatenate(inverse_transform, 0)
-            inverse_transform = torch.from_numpy(inverse_transform)
-        return inverse_transform
-
-    def forward(self, input_data):
-        self.magnitude, self.phase = self.transform(input_data)
-        reconstruction = self.inverse(self.magnitude, self.phase)
-        return reconstruction
 
 
 import torch

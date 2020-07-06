@@ -26,15 +26,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -111,9 +112,6 @@ import random
 from torch.autograd import grad
 
 
-_global_config['env_name'] = 4
-
-
 class Net(nn.Module):
     """docstring for Net"""
 
@@ -133,167 +131,6 @@ class Net(nn.Module):
         x = F.relu(x)
         action_prob = self.out(x)
         return action_prob
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.fc1 = nn.Linear(num_state, 100)
-        self.fc2 = nn.Linear(100, num_action)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        action_value = self.fc2(x)
-        return action_value
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.fc1 = nn.Linear(num_state, 100)
-        self.fc2 = nn.Linear(100, num_action)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        action_prob = self.fc2(x)
-        return action_prob
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.fc1 = nn.Linear(NUM_STATES, 30)
-        self.fc1.weight.data.normal_(0, 0.1)
-        self.fc2 = nn.Linear(30, NUM_ACTIONS)
-        self.fc2.weight.data.normal_(0, 0.1)
-
-    def forward(self, x):
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        return x
-
-
-class Net(nn.Module):
-    """docstring for Net"""
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.fc1 = nn.Linear(NUM_STATES, 50)
-        self.fc1.weight.data.normal_(0, 0.1)
-        self.fc2 = nn.Linear(50, 30)
-        self.fc2.weight.data.normal_(0, 0.1)
-        self.out = nn.Linear(30, NUM_ACTIONS)
-        self.out.weight.data.normal_(0, 0.1)
-
-    def forward(self, x):
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.fc2(x)
-        x = F.relu(x)
-        action_prob = self.out(x)
-        return action_prob
-
-
-class Policy(nn.Module):
-
-    def __init__(self):
-        super(Policy, self).__init__()
-        self.affine1 = nn.Linear(4, 128)
-        self.affine2 = nn.Linear(128, 2)
-        self.saved_log_probs = []
-        self.rewards = []
-
-    def forward(self, x):
-        x = F.relu(self.affine1(x))
-        action_scores = self.affine2(x)
-        return F.softmax(action_scores, dim=1)
-
-
-class Policy(nn.Module):
-
-    def __init__(self):
-        super(Policy, self).__init__()
-        self.affine1 = nn.Linear(4, 128)
-        self.affine2 = nn.Linear(128, 2)
-        self.saved_log_probs = []
-        self.rewards = []
-
-    def forward(self, x):
-        x = F.relu(self.affine1(x))
-        action_scores = self.affine2(x)
-        return F.softmax(action_scores, dim=1)
-
-
-class Policy(nn.Module):
-
-    def __init__(self, n_states, n_hidden, n_output):
-        super(Policy, self).__init__()
-        self.linear1 = nn.Linear(n_states, n_hidden)
-        self.linear2 = nn.Linear(n_hidden, n_output)
-        self.reward = []
-        self.log_act_probs = []
-        self.Gt = []
-        self.sigma = []
-
-    def forward(self, x):
-        x = F.relu(self.linear1(x))
-        output = F.softmax(self.linear2(x), dim=1)
-        return output
-
-
-gamma = 0.99
-
-
-class Policy(nn.Module):
-
-    def __init__(self):
-        super(Policy, self).__init__()
-        self.fc1 = nn.Linear(state_space, 20)
-        self.fc3 = nn.Linear(20, action_space)
-        self.gamma = gamma
-        self.saved_log_probs = []
-        self.rewards = []
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.softmax(self.fc3(x), dim=1)
-        return x
-
-
-class Policy(nn.Module):
-
-    def __init__(self):
-        super(Policy, self).__init__()
-        self.state_space = state_space
-        self.action_space = action_space
-        self.fc1 = nn.Linear(self.state_space, 128)
-        self.fc2 = nn.Linear(128, self.action_space)
-
-    def forward(self, x):
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = F.softmax(self.fc2(x), dim=-1)
-        return x
-
-
-class Policy(nn.Module):
-
-    def __init__(self):
-        super(Policy, self).__init__()
-        self.fc1 = nn.Linear(state_space, 20)
-        self.fc3 = nn.Linear(20, action_space)
-        self.gamma = gamma
-        self.saved_log_probs = []
-        self.rewards = []
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.softmax(self.fc3(x), dim=1)
-        return x
 
 
 class Policy(nn.Module):
@@ -354,115 +191,32 @@ class Actor(nn.Module):
 
     def __init__(self, state_dim, action_dim, max_action):
         super(Actor, self).__init__()
-        self.l1 = nn.Linear(state_dim, 400)
-        self.l2 = nn.Linear(400, 300)
-        self.l3 = nn.Linear(300, action_dim)
+        self.fc1 = nn.Linear(state_dim, 400)
+        self.fc2 = nn.Linear(400, 300)
+        self.fc3 = nn.Linear(300, action_dim)
         self.max_action = max_action
 
-    def forward(self, x):
-        x = F.relu(self.l1(x))
-        x = F.relu(self.l2(x))
-        x = self.max_action * torch.tanh(self.l3(x))
-        return x
+    def forward(self, state):
+        a = F.relu(self.fc1(state))
+        a = F.relu(self.fc2(a))
+        a = torch.tanh(self.fc3(a)) * self.max_action
+        return a
 
 
 class Critic(nn.Module):
 
     def __init__(self, state_dim, action_dim):
         super(Critic, self).__init__()
-        self.l1 = nn.Linear(state_dim + action_dim, 400)
-        self.l2 = nn.Linear(400, 300)
-        self.l3 = nn.Linear(300, 1)
+        self.fc1 = nn.Linear(state_dim + action_dim, 400)
+        self.fc2 = nn.Linear(400, 300)
+        self.fc3 = nn.Linear(300, 1)
 
-    def forward(self, x, u):
-        x = F.relu(self.l1(torch.cat([x, u], 1)))
-        x = F.relu(self.l2(x))
-        x = self.l3(x)
-        return x
-
-
-class Actor(nn.Module):
-
-    def __init__(self):
-        super(Actor, self).__init__()
-        self.fc1 = nn.Linear(num_state, 64)
-        self.fc2 = nn.Linear(64, 8)
-        self.mu_head = nn.Linear(8, 1)
-        self.sigma_head = nn.Linear(8, 1)
-
-    def forward(self, x):
-        x = F.leaky_relu(self.fc1(x))
-        x = F.leaky_relu(self.fc2(x))
-        mu = self.mu_head(x)
-        sigma = self.sigma_head(x)
-        return mu, sigma
-
-
-class Critic(nn.Module):
-
-    def __init__(self):
-        super(Critic, self).__init__()
-        self.fc1 = nn.Linear(num_state, 64)
-        self.fc2 = nn.Linear(64, 8)
-        self.state_value = nn.Linear(8, 1)
-
-    def forward(self, x):
-        x = F.leaky_relu(self.fc1(x))
-        x = F.leaky_relu(self.fc2(x))
-        value = self.state_value(x)
-        return value
-
-
-class Actor(nn.Module):
-
-    def __init__(self):
-        super(Actor, self).__init__()
-        self.fc1 = nn.Linear(num_state, 100)
-        self.action_head = nn.Linear(100, num_action)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        action_prob = F.softmax(self.action_head(x), dim=1)
-        return action_prob
-
-
-class Critic(nn.Module):
-
-    def __init__(self):
-        super(Critic, self).__init__()
-        self.fc1 = nn.Linear(num_state, 100)
-        self.state_value = nn.Linear(100, 1)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        value = self.state_value(x)
-        return value
-
-
-class Actor(nn.Module):
-
-    def __init__(self):
-        super(Actor, self).__init__()
-        self.fc1 = nn.Linear(num_state, 128)
-        self.action_head = nn.Linear(128, num_action)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        action_prob = F.softmax(self.action_head(x), dim=1)
-        return action_prob
-
-
-class Critic(nn.Module):
-
-    def __init__(self):
-        super(Critic, self).__init__()
-        self.fc1 = nn.Linear(num_state, 128)
-        self.state_value = nn.Linear(128, 1)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        value = self.state_value(x)
-        return value
+    def forward(self, state, action):
+        state_action = torch.cat([state, action], 1)
+        q = F.relu(self.fc1(state_action))
+        q = F.relu(self.fc2(q))
+        q = self.fc3(q)
+        return q
 
 
 class ActorNet(nn.Module):
@@ -493,42 +247,6 @@ class CriticNet(nn.Module):
         return state_value
 
 
-class Actor(nn.Module):
-
-    def __init__(self, state_dim, min_log_std=-20, max_log_std=2):
-        super(Actor, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.mu_head = nn.Linear(256, 1)
-        self.log_std_head = nn.Linear(256, 1)
-        self.max_action = max_action
-        self.min_log_std = min_log_std
-        self.max_log_std = max_log_std
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        mu = self.mu_head(x)
-        log_std_head = F.relu(self.log_std_head(x))
-        log_std_head = torch.clamp(log_std_head, self.min_log_std, self.max_log_std)
-        return mu, log_std_head
-
-
-class Critic(nn.Module):
-
-    def __init__(self, state_dim):
-        super(Critic, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 1)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
 class Q(nn.Module):
 
     def __init__(self, state_dim, action_dim):
@@ -545,190 +263,6 @@ class Q(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
-
-
-class Critic(nn.Module):
-
-    def __init__(self, state_dim):
-        super(Critic, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 1)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
-class Q(nn.Module):
-
-    def __init__(self, state_dim, action_dim):
-        super(Q, self).__init__()
-        self.fc1 = nn.Linear(state_dim + action_dim, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 1)
-
-    def forward(self, s, a):
-        s = s.reshape(-1, state_dim)
-        a = a.reshape(-1, action_dim)
-        x = torch.cat((s, a), -1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
-class Actor(nn.Module):
-
-    def __init__(self, state_dim, min_log_std=-10, max_log_std=2):
-        super(Actor, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.mu_head = nn.Linear(256, 1)
-        self.log_std_head = nn.Linear(256, 1)
-        self.max_action = max_action
-        self.min_log_std = min_log_std
-        self.max_log_std = max_log_std
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        mu = self.mu_head(x)
-        log_std_head = F.relu(self.log_std_head(x))
-        log_std_head = torch.clamp(log_std_head, self.min_log_std, self.max_log_std)
-        return mu, log_std_head
-
-
-class Critic(nn.Module):
-
-    def __init__(self, state_dim):
-        super(Critic, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 1)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
-class Q(nn.Module):
-
-    def __init__(self, state_dim, action_dim):
-        super(Q, self).__init__()
-        self.fc1 = nn.Linear(state_dim + action_dim, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 1)
-
-    def forward(self, s, a):
-        s = s.reshape(-1, state_dim)
-        a = a.reshape(-1, action_dim)
-        x = torch.cat((s, a), -1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
-class Critic(nn.Module):
-
-    def __init__(self, state_dim):
-        super(Critic, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 1)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
-class Q(nn.Module):
-
-    def __init__(self, state_dim, action_dim):
-        super(Q, self).__init__()
-        self.fc1 = nn.Linear(state_dim + action_dim, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 1)
-
-    def forward(self, s, a):
-        s = s.reshape(-1, state_dim)
-        a = a.reshape(-1, action_dim)
-        x = torch.cat((s, a), -1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
-class Actor(nn.Module):
-
-    def __init__(self, state_dim, action_dim, max_action):
-        super(Actor, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 400)
-        self.fc2 = nn.Linear(400, 300)
-        self.fc3 = nn.Linear(300, action_dim)
-        self.max_action = max_action
-
-    def forward(self, state):
-        a = F.relu(self.fc1(state))
-        a = F.relu(self.fc2(a))
-        a = torch.tanh(self.fc3(a)) * self.max_action
-        return a
-
-
-class Critic(nn.Module):
-
-    def __init__(self, state_dim, action_dim):
-        super(Critic, self).__init__()
-        self.fc1 = nn.Linear(state_dim + action_dim, 400)
-        self.fc2 = nn.Linear(400, 300)
-        self.fc3 = nn.Linear(300, 1)
-
-    def forward(self, state, action):
-        state_action = torch.cat([state, action], 1)
-        q = F.relu(self.fc1(state_action))
-        q = F.relu(self.fc2(q))
-        q = self.fc3(q)
-        return q
-
-
-class Actor(nn.Module):
-
-    def __init__(self, state_dim, action_dim, max_action):
-        super(Actor, self).__init__()
-        self.fc1 = nn.Linear(state_dim, 400)
-        self.fc2 = nn.Linear(400, 300)
-        self.fc3 = nn.Linear(300, action_dim)
-        self.max_action = max_action
-
-    def forward(self, state):
-        a = F.relu(self.fc1(state))
-        a = F.relu(self.fc2(a))
-        a = torch.tanh(self.fc3(a)) * self.max_action
-        return a
-
-
-class Critic(nn.Module):
-
-    def __init__(self, state_dim, action_dim):
-        super(Critic, self).__init__()
-        self.fc1 = nn.Linear(state_dim + action_dim, 400)
-        self.fc2 = nn.Linear(400, 300)
-        self.fc3 = nn.Linear(300, 1)
-
-    def forward(self, state, action):
-        state_action = torch.cat([state, action], 1)
-        q = F.relu(self.fc1(state_action))
-        q = F.relu(self.fc2(q))
-        q = self.fc3(q)
-        return q
 
 
 import torch

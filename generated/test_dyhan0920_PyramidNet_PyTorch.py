@@ -10,15 +10,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -71,83 +72,61 @@ def conv3x3(in_planes, out_planes, stride=1):
 
 
 class BasicBlock(nn.Module):
-    outchannel_ratio = 1
+    expansion = 1
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = conv3x3(planes, planes)
-        self.bn3 = nn.BatchNorm2d(planes)
+        self.bn2 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
 
     def forward(self, x):
-        out = self.bn1(x)
-        out = self.conv1(out)
-        out = self.bn2(out)
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
         out = self.relu(out)
         out = self.conv2(out)
-        out = self.bn3(out)
+        out = self.bn2(out)
         if self.downsample is not None:
-            shortcut = self.downsample(x)
-            featuremap_size = shortcut.size()[2:4]
-        else:
-            shortcut = x
-            featuremap_size = out.size()[2:4]
-        batch_size = out.size()[0]
-        residual_channel = out.size()[1]
-        shortcut_channel = shortcut.size()[1]
-        if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0))
-            out += torch.cat((shortcut, padding), 1)
-        else:
-            out += shortcut
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
         return out
 
 
 class Bottleneck(nn.Module):
-    outchannel_ratio = 4
+    expansion = 4
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes * 1, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 1)
-        self.conv3 = nn.Conv2d(planes * 1, planes * Bottleneck.outchannel_ratio, kernel_size=1, bias=False)
-        self.bn4 = nn.BatchNorm2d(planes * Bottleneck.outchannel_ratio)
+        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * Bottleneck.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
 
     def forward(self, x):
-        out = self.bn1(x)
-        out = self.conv1(out)
-        out = self.bn2(out)
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
         out = self.relu(out)
         out = self.conv2(out)
-        out = self.bn3(out)
+        out = self.bn2(out)
         out = self.relu(out)
         out = self.conv3(out)
-        out = self.bn4(out)
+        out = self.bn3(out)
         if self.downsample is not None:
-            shortcut = self.downsample(x)
-            featuremap_size = shortcut.size()[2:4]
-        else:
-            shortcut = x
-            featuremap_size = out.size()[2:4]
-        batch_size = out.size()[0]
-        residual_channel = out.size()[1]
-        shortcut_channel = shortcut.size()[1]
-        if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0))
-            out += torch.cat((shortcut, padding), 1)
-        else:
-            out += shortcut
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
         return out
 
 
@@ -257,73 +236,6 @@ class PyramidNet(nn.Module):
         return x
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, preact='no_preact'):
-        super(BasicBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(inplanes)
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = conv3x3(planes, planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-        self.preact = preact
-
-    def forward(self, x):
-        residual = x
-        out = self.bn1(x)
-        out = self.relu(out)
-        if self.downsample is not None:
-            if self.preact == 'preact':
-                residual = self.downsample(out)
-            else:
-                residual = self.downsample(x)
-        out = self.conv1(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out += residual
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, preact='no_preact'):
-        super(Bottleneck, self).__init__()
-        self.bn1 = nn.BatchNorm2d(inplanes)
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.expansion, kernel_size=1, bias=False)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-        self.preact = preact
-
-    def forward(self, x):
-        residual = x
-        out = self.bn1(x)
-        out = self.relu(out)
-        if self.downsample is not None:
-            if self.preact == 'preact':
-                residual = self.downsample(out)
-            else:
-                residual = self.downsample(x)
-        out = self.conv1(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn3(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out += residual
-        return out
-
-
 class PreResNet(nn.Module):
 
     def __init__(self, dataset, depth, num_classes, bottleneck=False):
@@ -406,65 +318,6 @@ class PreResNet(nn.Module):
             x = x.view(x.size(0), -1)
             x = self.fc(x)
         return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * Bottleneck.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
 
 
 class ResNet(nn.Module):

@@ -25,6 +25,7 @@ common_layers = _module
 constants = _module
 data = _module
 char_data = _module
+data = _module
 dictionary = _module
 iterators = _module
 language_pair_upsampling_dataset = _module
@@ -116,6 +117,7 @@ test_semi_supervised_task = _module
 test_train = _module
 test_utils = _module
 test_vocab_reduction = _module
+utils = _module
 torchscript_export = _module
 train = _module
 transformer = _module
@@ -134,15 +136,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -168,6 +171,9 @@ from torch import Tensor
 import torch.nn as nn
 
 
+from torch.autograd import Variable
+
+
 from torch import nn
 
 
@@ -175,18 +181,6 @@ import math
 
 
 from typing import List
-
-
-from torch.nn.utils.rnn import pack_padded_sequence
-
-
-import logging
-
-
-import abc
-
-
-import copy
 
 
 from typing import Tuple
@@ -198,7 +192,37 @@ import torch.jit
 import torch.jit.quantized
 
 
+from torch.nn.utils.rnn import pack_padded_sequence
+
+
+import logging
+
+
+from collections import OrderedDict
+
+
+from collections import deque
+
+
+from typing import Any
+
+
+from typing import Deque
+
+
+import abc
+
+
+from typing import NamedTuple
+
+
+import copy
+
+
 import torch.onnx.operators
+
+
+import collections
 
 
 import time
@@ -207,10 +231,7 @@ import time
 from torch.serialization import default_restore_location
 
 
-from collections import OrderedDict
-
-
-from typing import Any
+from enum import Enum
 
 
 from torch.nn.utils.rnn import PackedSequence
@@ -219,10 +240,16 @@ from torch.nn.utils.rnn import PackedSequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
 
+import random
+
+
+import itertools
+
+
 import numpy.testing as npt
 
 
-import random
+from typing import Callable
 
 
 from typing import Union
@@ -248,221 +275,6 @@ class BaseAttention(nn.Module):
         raise NotImplementedError
 
 
-class HighwayLayer(nn.Module):
-
-    def __init__(self, input_dim, transform_activation=F.relu, gate_activation=F.softmax, gate_bias=-2):
-        super().__init__()
-        self.highway_transform_activation = transform_activation
-        self.highway_gate_activation = gate_activation
-        self.highway_transform = nn.Linear(input_dim, input_dim)
-        self.highway_gate = nn.Linear(input_dim, input_dim)
-        self.highway_gate.bias.data.fill_(gate_bias)
-
-    def forward(self, x):
-        transform_output = self.highway_transform_activation(self.highway_transform(x))
-        gate_output = self.highway_gate_activation(self.highway_gate(x))
-        transformation_part = torch.mul(transform_output, gate_output)
-        carry_part = torch.mul(torch.FloatTensor([1.0]).type_as(gate_output) - gate_output, x)
-        return torch.add(transformation_part, carry_part)
-
-
-TAGS = ['@DIGITS', '@EMOTICON', '@FBENTITY', '@MULTIPUNCT', '@NOTRANSLATE', '@PERSON', '@PLAIN', '@URL', '@USERNAME']
-
-
-class CharCNNModel(nn.Module):
-    """
-    A Conv network to generate word embedding from character embeddings, from
-    Character-Aware Neural Language Models, https://arxiv.org/abs/1508.06615.
-
-    Components include convolutional filters, pooling, and
-    optional highway network. We also have the ability to use pretrained ELMo
-    which corresponds to the byte embeddings, CNN weights and the highway layer.
-    """
-
-    def __init__(self, dictionary, num_chars=50, char_embed_dim=32, convolutions_params='((128, 3), (128, 5))', nonlinear_fn_type='tanh', num_highway_layers=0, char_cnn_output_dim=-1, use_pretrained_weights=False, finetune_pretrained_weights=False, weights_file=None):
-        super().__init__()
-        self.dictionary = dictionary
-        self.padding_idx = dictionary.pad()
-        self.use_pretrained_weights = use_pretrained_weights
-        self.convolutions_params = convolutions_params
-        self.num_highway_layers = num_highway_layers
-        self.char_embed_dim = char_embed_dim
-        self.num_embeddings = num_chars
-        self.char_cnn_output_dim = char_cnn_output_dim
-        self.filter_dims = sum(f[0] for f in self.convolutions_params)
-        if use_pretrained_weights:
-            self._weight_file = weights_file
-            self._finetune_pretrained_weights = finetune_pretrained_weights
-            self._load_weights()
-        else:
-            if nonlinear_fn_type == 'tanh':
-                nonlinear_fn = nn.Tanh
-            elif nonlinear_fn_type == 'relu':
-                nonlinear_fn = nn.ReLU
-            else:
-                raise Exception('Invalid nonlinear type: {}'.format(nonlinear_fn_type))
-            self.embed_chars = rnn.Embedding(num_embeddings=num_chars, embedding_dim=char_embed_dim, padding_idx=self.padding_idx, freeze_embed=False)
-            self.convolutions = nn.ModuleList([nn.Sequential(nn.Conv1d(char_embed_dim, num_filters, kernel_size, padding=kernel_size), nonlinear_fn()) for num_filters, kernel_size in self.convolutions_params])
-            highway_layers = []
-            for _ in range(self.num_highway_layers):
-                highway_layers.append(HighwayLayer(self.filter_dims))
-            self.highway_layers = nn.ModuleList(highway_layers)
-            if char_cnn_output_dim != -1:
-                self.projection = nn.Linear(self.filter_dims, self.char_cnn_output_dim, bias=True)
-
-    def _load_weights(self):
-        """
-        Function to load pretrained weights including byte embeddings.
-        """
-        self.npz_weights = np.load(self._weight_file)
-        self._load_byte_embedding()
-        self._load_cnn_weights()
-        self._load_highway()
-        self._load_projection()
-
-    def _load_byte_embedding(self):
-        """
-        Function to load the pre-trained byte embeddings. We need to ensure that
-        the embeddings account for special yoda tags as well.
-        """
-        char_embed_weights = self.npz_weights['char_embed']
-        num_tags = TAGS.__len__()
-        weights = np.zeros((char_embed_weights.shape[0] + num_tags + 1, char_embed_weights.shape[1]), dtype='float32')
-        weights[1:-num_tags, :] = char_embed_weights
-        self.embed_chars = rnn.Embedding(num_embeddings=self.num_embeddings, embedding_dim=self.char_embed_dim, padding_idx=self.padding_idx, freeze_embed=self._finetune_pretrained_weights)
-        self.embed_chars.weight.data.copy_(torch.FloatTensor(weights))
-
-    def _load_cnn_weights(self):
-        """
-        Function to load the weights associated with the pretrained CNN filters.
-        For this to work correctly, the cnn params specified in the input arguments
-        should match up with the pretrained architecture.
-        """
-        convolutions = []
-        for i, (num_filters, kernel_size) in enumerate(self.convolutions_params):
-            conv = torch.nn.Conv1d(in_channels=self.char_embed_dim, out_channels=num_filters, kernel_size=kernel_size, padding=kernel_size, bias=True)
-            weight = self.npz_weights['W_cnn_{}'.format(i)]
-            bias = self.npz_weights['b_cnn_{}'.format(i)]
-            w_reshaped = np.transpose(weight.squeeze(axis=0), axes=(2, 1, 0))
-            if w_reshaped.shape != tuple(conv.weight.data.shape):
-                raise ValueError('Invalid weight file')
-            conv.weight.data.copy_(torch.div(torch.FloatTensor(w_reshaped), kernel_size * 1.0))
-            conv.bias.data.copy_(torch.div(torch.FloatTensor(bias), kernel_size * 1.0))
-            conv.weight.requires_grad = self._finetune_pretrained_weights
-            conv.bias.requires_grad = self._finetune_pretrained_weights
-            convolutions.append(nn.Sequential(conv))
-        self.convolutions = nn.ModuleList(convolutions)
-
-    def _load_highway(self):
-        """
-        Function to load the weights associated with the pretrained highway
-        network. In order to ensure the norm of the weights match up with the
-        rest of the model, we need to normalize the pretrained weights.
-        Here we divide by a fixed constant.
-        """
-        input_dim = sum(f[0] for f in self.convolutions_params)
-        highway_layers = []
-        for k in range(self.num_highway_layers):
-            highway_layer = HighwayLayer(input_dim)
-            w_transform = np.transpose(self.npz_weights['W_transform_{}'.format(k)])
-            b_transform = self.npz_weights['b_transform_{}'.format(k)]
-            highway_layer.highway_transform.weight.data.copy_(torch.div(torch.FloatTensor(w_transform), 6.0))
-            highway_layer.highway_transform.bias.data.copy_(torch.FloatTensor(b_transform))
-            highway_layer.highway_transform.weight.requires_grad = self._finetune_pretrained_weights
-            highway_layer.highway_transform.bias.requires_grad = self._finetune_pretrained_weights
-            w_carry = np.transpose(self.npz_weights['W_carry_{}'.format(k)])
-            highway_layer.highway_gate.weight.data.copy_(torch.div(torch.FloatTensor(w_carry), 6.0))
-            highway_layer.highway_gate.weight.requires_grad = self._finetune_pretrained_weights
-            b_carry = self.npz_weights['b_carry_{}'.format(k)]
-            highway_layer.highway_gate.bias.data.copy_(torch.FloatTensor(b_carry))
-            highway_layer.highway_gate.bias.requires_grad = self._finetune_pretrained_weights
-        highway_layers.append(highway_layer)
-        self.highway_layers = nn.ModuleList(highway_layers)
-
-    def _load_projection(self):
-        """
-        Function to load the weights associated with the pretrained projection
-        layer. In order to ensure the norm of the weights match up with the
-        rest of the model, we need to normalize the pretrained weights.
-        Here we divide by a fixed constant.
-        """
-        input_dim = self.filter_dims
-        self.projection = nn.Linear(input_dim, self.char_cnn_output_dim, bias=True)
-        weight = self.npz_weights['W_proj']
-        bias = self.npz_weights['b_proj']
-        self.projection.weight.data.copy_(torch.div(torch.FloatTensor(np.transpose(weight)), 10.0))
-        self.projection.bias.data.copy_(torch.div(torch.FloatTensor(np.transpose(bias)), 10.0))
-        self.projection.weight.requires_grad = self._finetune_pretrained_weights
-        self.projection.bias.requires_grad = self._finetune_pretrained_weights
-
-    def forward(self, char_inds_flat):
-        x = self.embed_chars(char_inds_flat)
-        encoder_padding_mask = char_inds_flat.eq(self.padding_idx)
-        char_lengths = torch.sum(~encoder_padding_mask, dim=0)
-        if not encoder_padding_mask.any():
-            encoder_padding_mask = None
-        kernel_outputs = []
-        for conv in self.convolutions:
-            if encoder_padding_mask is not None:
-                x = x.masked_fill(encoder_padding_mask.unsqueeze(-1), 0)
-            conv_output = conv(x.permute(1, 2, 0))
-            kernel_outputs.append(conv_output)
-        pools = [self.pooling(conv, char_lengths, dim=2) for conv in kernel_outputs]
-        encoder_output = torch.cat([p for p in pools], 1)
-        for highway_layer in self.highway_layers:
-            encoder_output = highway_layer(encoder_output)
-        if self.char_cnn_output_dim != -1:
-            encoder_output = self.projection(encoder_output)
-        return encoder_output
-
-    def pooling(self, inputs, char_lengths, dim):
-        return torch.max(inputs, dim=dim)[0]
-
-
-class CharRNNModel(nn.Module):
-    """Bi-LSTM over characters to produce a word embedding from characters"""
-
-    def __init__(self, dictionary, num_chars, char_embed_dim, char_rnn_units, char_rnn_layers):
-        super().__init__()
-        self.num_chars = num_chars
-        self.padding_idx = dictionary.pad()
-        self.embed_chars = rnn.Embedding(num_embeddings=num_chars, embedding_dim=char_embed_dim, padding_idx=self.padding_idx, freeze_embed=False)
-        assert char_rnn_units % 2 == 0, 'char_rnn_units must be even (to be divided evenly between directions)'
-        self.char_lstm_encoder = rnn.LSTMSequenceEncoder.LSTM(char_embed_dim, char_rnn_units // 2, num_layers=char_rnn_layers, bidirectional=True)
-        self.onnx_export_model = False
-
-    def forward(self, src_tokens, src_lengths, char_inds, word_lengths):
-        bsz, seqlen, maxchars = char_inds.size()
-        if self.onnx_export_model:
-            assert bsz == 1
-            maxchars_tensor = torch.onnx.operators.shape_as_tensor(char_inds)[2]
-            char_inds_flat_shape = torch.cat((torch.LongTensor([-1]), maxchars_tensor.view(1)))
-            char_inds_flat = torch.onnx.operators.reshape_from_tensor_shape(char_inds, char_inds_flat_shape).t()
-            char_rnn_input = self.embed_chars(char_inds_flat)
-            packed_char_input = pack_padded_sequence(char_rnn_input, word_lengths.view(-1))
-        else:
-            nonzero_word_locations = word_lengths > 0
-            word_lengths_flat = word_lengths[nonzero_word_locations]
-            char_inds_flat = char_inds[nonzero_word_locations].t()
-            sorted_word_lengths, word_length_order = torch.sort(word_lengths_flat, descending=True)
-            char_rnn_input = self.embed_chars(char_inds_flat[:, (word_length_order)])
-            packed_char_input = pack_padded_sequence(char_rnn_input, sorted_word_lengths)
-        _, (h_last, _) = self.char_lstm_encoder(packed_char_input)
-        char_rnn_output = torch.cat((h_last[(-2), :, :], h_last[(-1), :, :]), dim=1)
-        if self.onnx_export_model:
-            x = char_rnn_output.unsqueeze(1)
-        else:
-            _, inverted_word_length_order = torch.sort(word_length_order)
-            unsorted_rnn_output = char_rnn_output[(inverted_word_length_order), :]
-            x = char_rnn_output.new(bsz, seqlen, unsorted_rnn_output.shape[1])
-            x[nonzero_word_locations] = unsorted_rnn_output
-            x = x.transpose(0, 1)
-        return x
-
-    def prepare_for_onnx_export_(self, **kwargs):
-        self.onnx_export_model = True
-
-
 def Linear(in_features, out_features, bias=True):
     m = nn.Linear(in_features, out_features, bias)
     nn.init.xavier_uniform_(m.weight)
@@ -471,251 +283,438 @@ def Linear(in_features, out_features, bias=True):
     return m
 
 
-def NonlinearLayer(in_features, out_features, bias=True, activation_fn=nn.ReLU):
-    """Weight-normalized non-linear layer (input: N x T x C)"""
-    m = nn.Linear(in_features, out_features, bias=bias)
-    m.weight.data.uniform_(-0.1, 0.1)
-    if bias:
-        m.bias.data.uniform_(-0.1, 0.1)
-    return nn.Sequential(m, activation_fn())
+ATTENTION_REGISTRY = {}
 
 
-class ContextEmbedding(nn.Module):
-    """
-    This class implements context-dependent word embeddings as described in
-    https://arxiv.org/pdf/1607.00578.pdf
-    """
+def register_attention(name):
+    """Decorator to register a new attention type."""
 
-    def __init__(self, embed_dim):
-        super().__init__()
-        self.nonlinear = NonlinearLayer(embed_dim, embed_dim, bias=True, activation_fn=nn.ReLU)
-        self.linear = Linear(embed_dim, embed_dim, bias=True)
-        self.sigmoid = torch.nn.Sigmoid()
-
-    def forward(self, src):
-        c = torch.mean(self.nonlinear(src), 1, True)
-        return src * self.sigmoid(self.linear(c))
+    def register_attention_cls(cls):
+        if name in ATTENTION_REGISTRY:
+            raise ValueError('Cannot register duplicate attention ({})'.format(name))
+        if not issubclass(cls, BaseAttention):
+            raise ValueError('Attention ({} : {}) must extend BaseAttention'.format(name, cls.__name__))
+        ATTENTION_REGISTRY[name] = cls
+        return cls
+    return register_attention_cls
 
 
-class VariableLengthRecurrent(nn.Module):
-    """
-    This class acts as a generator of autograd for varying seq lengths with
-    different padding behaviors, such as right padding, and order of seq lengths,
-    such as descending order.
+class DotAttention(BaseAttention):
 
-    The logic is mostly inspired from torch/nn/_functions/rnn.py, so it may be
-    merged in the future.
-    """
+    def __init__(self, decoder_hidden_state_dim, context_dim, **kwargs):
+        super().__init__(decoder_hidden_state_dim, context_dim)
+        self.input_proj = None
+        force_projection = kwargs.get('force_projection', False)
+        if force_projection or decoder_hidden_state_dim != context_dim:
+            self.input_proj = Linear(decoder_hidden_state_dim, context_dim, bias=True)
+        self.src_length_masking = kwargs.get('src_length_masking', True)
 
-    def __init__(self, rnn_cell, reverse=False):
-        super().__init__()
-        self.rnn_cell = rnn_cell
-        self.reverse = reverse
+    def prepare_for_onnx_export_(self, **kwargs):
+        self.src_length_masking = False
 
-    def forward(self, x, hidden, batch_size_per_step):
-        self.batch_size_per_step = batch_size_per_step
-        self.starting_batch_size = batch_size_per_step[-1] if self.reverse else batch_size_per_step[0]
-        output = []
-        input_offset = x.size(0) if self.reverse else 0
-        hiddens = []
-        flat_hidden = not isinstance(hidden, tuple)
-        if flat_hidden:
-            hidden = hidden,
-        initial_hidden = hidden
-        if self.reverse:
-            hidden = tuple(h[:self.batch_size_per_step[-1]] for h in hidden)
-        last_batch_size = self.starting_batch_size
-        for i in range(len(self.batch_size_per_step)):
-            if self.reverse:
-                step_batch_size = self.batch_size_per_step[-1 - i]
-                step_input = x[input_offset - step_batch_size:input_offset]
-                input_offset -= step_batch_size
-            else:
-                step_batch_size = self.batch_size_per_step[i]
-                step_input = x[input_offset:input_offset + step_batch_size]
-                input_offset += step_batch_size
-            new_pads = last_batch_size - step_batch_size
-            if new_pads > 0:
-                hiddens.insert(0, tuple(h[-new_pads:] for h in hidden))
-                hidden = tuple(h[:-new_pads] for h in hidden)
-            if new_pads < 0:
-                hidden = tuple(torch.cat((h, ih[last_batch_size:step_batch_size]), 0) for h, ih in zip(hidden, initial_hidden))
-            last_batch_size = step_batch_size
-            if flat_hidden:
-                hidden = self.rnn_cell(step_input, hidden[0]),
-            else:
-                hidden = self.rnn_cell(step_input, hidden)
-            output.append(hidden[0])
-        if not self.reverse:
-            hiddens.insert(0, hidden)
-            hidden = tuple(torch.cat(h, 0) for h in zip(*hiddens))
-        assert output[0].size(0) == self.starting_batch_size
-        if flat_hidden:
-            hidden = hidden[0]
-        if self.reverse:
-            output.reverse()
-        output = torch.cat(output, 0)
-        return hidden, output
+    def forward(self, decoder_state, source_hids, src_lengths):
+        source_hids = source_hids.transpose(0, 1)
+        if self.input_proj is not None:
+            decoder_state = self.input_proj(decoder_state)
+        attn_scores = torch.bmm(source_hids, decoder_state.unsqueeze(2)).squeeze(2)
+        normalized_masked_attn_scores = attention_utils.masked_softmax(attn_scores, src_lengths, self.src_length_masking)
+        attn_weighted_context = (source_hids * normalized_masked_attn_scores.unsqueeze(2)).contiguous().sum(1)
+        return attn_weighted_context, normalized_masked_attn_scores.t()
 
 
-class RNNLayer(nn.Module):
-    """
-    A wrapper of rnn cells, with their corresponding forward function.
-    If bidirectional, halve the hidden_size for each cell.
+class MLPAttention(BaseAttention):
+    """The original attention from Badhanau et al. (2014)
+    https://arxiv.org/abs/1409.0473 based on a Multi-Layer Perceptron.
+
+    The attention score between position i in the encoder and position j in the
+    decoder is:
+    alpha_ij = V_a * tanh(W_ae * enc_i + W_ad * dec_j + b_a)
     """
 
-    def __init__(self, input_size, hidden_size, cell_type='lstm', is_bidirectional=False):
-        super().__init__()
-        self.is_bidirectional = is_bidirectional
-        num_directions = 2 if is_bidirectional else 1
-        if cell_type == 'lstm':
-            cell_class = rnn_cell.LSTMCell
-        elif cell_type == 'milstm':
-            cell_class = rnn_cell.MILSTMCell
-        elif cell_type == 'layer_norm_lstm':
-            cell_class = rnn_cell.LayerNormLSTMCell
-        else:
-            raise Exception(f'{cell_type} not implemented')
-        self.fwd_cell = cell_class(input_size, hidden_size // num_directions)
-        if is_bidirectional:
-            self.bwd_cell = cell_class(input_size, hidden_size // num_directions)
-        self.fwd_func = VariableLengthRecurrent(rnn_cell=self.fwd_cell, reverse=False)
-        if is_bidirectional:
-            self.bwd_func = VariableLengthRecurrent(rnn_cell=self.bwd_cell, reverse=True)
+    def __init__(self, decoder_hidden_state_dim, context_dim, **kwargs):
+        super().__init__(decoder_hidden_state_dim, context_dim)
+        self.context_dim = context_dim
+        self.attention_dim = kwargs.get('attention_dim', context_dim)
+        self.encoder_proj = Linear(context_dim, self.attention_dim, bias=True)
+        self.decoder_proj = Linear(decoder_hidden_state_dim, self.attention_dim, bias=False)
+        self.to_scores = Linear(self.attention_dim, 1, bias=False)
+        self.src_length_masking = kwargs.get('src_length_masking', True)
 
-    def forward(self, x, hidden, batch_size_per_step):
-        fwd_hidden, fwd_output = self.fwd_func.forward(x, hidden, batch_size_per_step)
-        if self.is_bidirectional:
-            bwd_hidden, bwd_output = self.bwd_func.forward(x, hidden, batch_size_per_step)
-            combined_hidden = [fwd_hidden, bwd_hidden]
-            bi_hiddens, bi_cells = zip(*combined_hidden)
-            next_hidden = torch.cat(bi_hiddens, bi_hiddens[0].dim() - 1), torch.cat(bi_cells, bi_cells[0].dim() - 1)
-            output = torch.cat([fwd_output, bwd_output], x.dim() - 1)
-        else:
-            next_hidden = fwd_hidden
-            output = fwd_output
-        return next_hidden, output
+    def prepare_for_onnx_export_(self, **kwargs):
+        self.src_length_masking = False
 
+    def forward(self, decoder_state, source_hids, src_lengths):
+        """The expected input dimensions are:
 
-class Embedding(nn.Embedding):
-    """
-    A wrapper around the embedding layer, which can be randomly initialized or
-    loaded from a .npy file. Also supports normalization of embeddings to have
-    zero mean and unit variance (weighted by token frequency) - this is useful
-    for example when creating adversarial perturbations of the embeddings that
-    should have norms relative to the embeddings' norms.
-    """
-
-    def __init__(self, num_embeddings, embedding_dim, padding_idx, freeze_embed=False, normalize_embed=False, normalize_decay_rate=0.99):
-        super().__init__(num_embeddings, embedding_dim, padding_idx=padding_idx)
-        nn.init.uniform_(self.weight, -0.1, 0.1)
-        nn.init.constant_(self.weight[padding_idx], 0.0)
-        if freeze_embed:
-            self.weight.requires_grad = False
-        assert 0.0 < normalize_decay_rate < 1.0
-        self.normalize = normalize_embed
-        self.normalize_decay_rate = normalize_decay_rate
-        self.mean = None
-        self.var = None
-        self.init_normalization_if_needed()
-
-    def forward(self, x):
-        x = super().forward(x)
-        if self.normalize:
-            if self.training:
-                self._update_normalize_params(x)
-            x = (x - self.mean) / torch.sqrt(self.var + 1e-06)
-        return x
-
-    def init_normalization_if_needed(self):
-        if not self.normalize:
-            return
-        self.mean = nn.Parameter(self.weight.mean(dim=0), requires_grad=False)
-        self.var = nn.Parameter(self.weight.var(dim=0), requires_grad=False)
-
-    def _update_normalize_params(self, x):
+        decoder_state: bsz x decoder_hidden_state_dim
+        source_hids: src_len x bsz x context_dim
+        src_lengths: bsz
         """
-        Updates the observed mean and variance of the token embeddings. Note
-        that these will be weighted by the empirical frequency of each token
-        (i.e. common tokens will be more heavily weighted in the params).
+        src_len, bsz, _ = source_hids.size()
+        flat_source_hids = source_hids.view(-1, self.context_dim)
+        encoder_component = self.encoder_proj(flat_source_hids)
+        encoder_component = encoder_component.view(src_len, bsz, self.attention_dim)
+        decoder_component = self.decoder_proj(decoder_state).unsqueeze(0)
+        hidden_att = F.tanh((decoder_component + encoder_component).view(-1, self.attention_dim))
+        attn_scores = self.to_scores(hidden_att).view(src_len, bsz).t()
+        normalized_masked_attn_scores = attention_utils.masked_softmax(attn_scores, src_lengths, self.src_length_masking).t()
+        attn_weighted_context = (source_hids * normalized_masked_attn_scores.unsqueeze(2)).sum(0)
+        return attn_weighted_context, normalized_masked_attn_scores
+
+
+def combine_heads(X):
+    """
+    Combine heads (the inverse of split heads):
+    1) Transpose X from (batch size, nheads, sequence length, d_head) to
+        (batch size, sequence length, nheads, d_head)
+    2) Combine (reshape) last 2 dimensions (nheads, d_head) into 1 (d_model)
+
+    Inputs:
+      X : [batch size * nheads, sequence length, d_head]
+      nheads : integer
+      d_head : integer
+
+    Outputs:
+      [batch_size, seq_len, d_model]
+
+    """
+    X = X.transpose(1, 2)
+    nheads, d_head = X.shape[-2:]
+    return X.contiguous().view(list(X.shape[:-2]) + [nheads * d_head])
+
+
+def create_src_lengths_mask(batch_size, src_lengths):
+    max_srclen = src_lengths.max()
+    src_indices = torch.arange(0, max_srclen).unsqueeze(0).type_as(src_lengths)
+    src_indices = src_indices.expand(batch_size, max_srclen)
+    src_lengths = src_lengths.unsqueeze(dim=1).expand(batch_size, max_srclen)
+    return (src_indices < src_lengths).int().detach()
+
+
+def apply_masks(scores, batch_size, unseen_mask, src_lengths):
+    seq_len = scores.shape[-1]
+    sequence_mask = torch.ones(seq_len, seq_len).unsqueeze(0).int()
+    if unseen_mask:
+        sequence_mask = torch.tril(torch.ones(seq_len, seq_len), diagonal=0).unsqueeze(0).int()
+    if src_lengths is not None:
+        src_lengths_mask = create_src_lengths_mask(batch_size=batch_size, src_lengths=src_lengths).unsqueeze(-2)
+        sequence_mask = sequence_mask & src_lengths_mask
+    sequence_mask = sequence_mask.unsqueeze(1)
+    scores = scores.masked_fill(sequence_mask == 0, -np.inf)
+    return scores
+
+
+def scaled_dot_prod_attn(query, key, value, unseen_mask=False, src_lengths=None):
+    """
+    Scaled Dot Product Attention
+
+    Implements equation:
+    Attention(Q, K, V) = softmax(QK^T/\\sqrt{d_k})V
+
+    Inputs:
+      query : [batch size, nheads, sequence length, d_k]
+      key : [batch size, nheads, sequence length, d_k]
+      value : [batch size, nheads, sequence length, d_v]
+      unseen_mask: if True, only attend to previous sequence positions
+      src_lengths_mask: if True, mask padding based on src_lengths
+
+    Outputs:
+      attn: [batch size, sequence length, d_v]
+
+    Note that in this implementation d_q = d_k = d_v = dim
+    """
+    d_k = query.shape[-1]
+    scores = torch.matmul(query, key.transpose(2, 3)) / math.sqrt(d_k)
+    if unseen_mask or src_lengths is not None:
+        scores = apply_masks(scores=scores, batch_size=query.shape[0], unseen_mask=unseen_mask, src_lengths=src_lengths)
+    p_attn = F.softmax(scores, dim=-1)
+    return torch.matmul(p_attn, value), p_attn
+
+
+def split_heads(X, nheads):
+    """
+    Split heads:
+    1) Split (reshape) last dimension (size d_model) into nheads, d_head
+    2) Transpose X from (batch size, sequence length, nheads, d_head) to
+        (batch size, nheads, sequence length, d_head)
+
+    Inputs:
+      X : [batch size, sequence length, nheads * d_head]
+      nheads : integer
+    Outputs:
+      [batch size,  nheads, sequence length, d_head]
+
+    """
+    last_dim = X.shape[-1]
+    assert last_dim % nheads == 0
+    X_last_dim_split = X.view(list(X.shape[:-1]) + [nheads, last_dim // nheads])
+    return X_last_dim_split.transpose(1, 2)
+
+
+class MultiheadAttention(nn.Module):
+    """
+    Multiheaded Scaled Dot Product Attention
+
+    Implements equation:
+    MultiHead(Q, K, V) = Concat(head_1,...,head_h)W^O
+        where head_i = Attention(QW_i^Q, KW_i^K, VW_i^V)
+
+    Similarly to the above, d_k = d_v = d_model / h
+
+    Inputs
+      init:
+        nheads : integer # of attention heads
+        d_model : model dimensionality
+        d_head : dimensionality of a single head
+
+      forward:
+        query : [batch size, sequence length, d_model]
+        key: [batch size, sequence length, d_model]
+        value: [batch size, sequence length, d_model]
+      unseen_mask: if True, only attend to previous sequence positions
+      src_lengths_mask: if True, mask padding based on src_lengths
+
+    Output
+      result : [batch_size, sequence length, d_model]
+    """
+
+    def __init__(self, nheads, d_model):
+        """Take in model size and number of heads."""
+        super(MultiheadAttention, self).__init__()
+        assert d_model % nheads == 0
+        self.d_head = d_model // nheads
+        self.nheads = nheads
+        self.Q_fc = nn.Linear(d_model, d_model, bias=False)
+        self.K_fc = nn.Linear(d_model, d_model, bias=False)
+        self.V_fc = nn.Linear(d_model, d_model, bias=False)
+        self.output_fc = nn.Linear(d_model, d_model, bias=False)
+        self.attn = None
+
+    def forward(self, query, key, value, unseen_mask=False, src_lengths=None):
+        query = split_heads(self.Q_fc(query), self.nheads)
+        key = split_heads(self.K_fc(key), self.nheads)
+        value = split_heads(self.V_fc(value), self.nheads)
+        x, self.attn = scaled_dot_prod_attn(query=query, key=key, value=value, unseen_mask=unseen_mask, src_lengths=src_lengths)
+        x = combine_heads(x)
+        return self.output_fc(x)
+
+
+def maybe_cuda(t):
+    """Calls `cuda()` on `t` if cuda is available."""
+    if torch.cuda.is_available():
+        return t
+    return t
+
+
+class NoAttention(BaseAttention):
+
+    def __init__(self, decoder_hidden_state_dim, context_dim, **kwargs):
+        super().__init__(decoder_hidden_state_dim, 0)
+
+    def forward(self, decoder_state, source_hids, src_lengths):
+        return None, maybe_cuda(torch.zeros(1, src_lengths.shape[0]))
+
+
+class PoolingAttention(BaseAttention):
+
+    def __init__(self, decoder_hidden_state_dim, context_dim, **kwargs):
+        super().__init__(decoder_hidden_state_dim, context_dim)
+        self.pool_type = kwargs.get('pool_type', 'mean')
+
+    def forward(self, decoder_state, source_hids, src_lengths):
+        assert self.decoder_hidden_state_dim == self.context_dim
+        max_src_len = source_hids.size()[0]
+        assert max_src_len == src_lengths.data.max()
+        batch_size = source_hids.size()[1]
+        src_mask = attention_utils.create_src_lengths_mask(batch_size, src_lengths).type_as(source_hids).t().unsqueeze(2)
+        if self.pool_type == 'mean':
+            denom = src_lengths.view(1, batch_size, 1).type_as(source_hids)
+            masked_hiddens = source_hids * src_mask
+            context = (masked_hiddens / denom).sum(dim=0)
+        elif self.pool_type == 'max':
+            masked_hiddens = source_hids - 10000000.0 * (1 - src_mask)
+            context = masked_hiddens.max(dim=0)[0]
+        else:
+            raise ValueError(f'Pooling type {self.pool_type} is not supported.')
+        attn_scores = Variable(torch.ones(src_mask.shape[1], src_mask.shape[0]).type_as(source_hids.data), requires_grad=False).t()
+        return context, attn_scores
+
+
+class MaxPoolingAttention(PoolingAttention):
+
+    def __init__(self, decoder_hidden_state_dim, context_dim, **kwargs):
+        super().__init__(decoder_hidden_state_dim, context_dim, pool_type='max')
+
+
+class MeanPoolingAttention(PoolingAttention):
+
+    def __init__(self, decoder_hidden_state_dim, context_dim, **kwargs):
+        super().__init__(decoder_hidden_state_dim, context_dim, pool_type='mean')
+
+
+class BeamDecode(torch.jit.ScriptModule):
+    """
+    Decodes the output of Beam Search to get the top hypotheses
+    """
+
+    def __init__(self, eos_token_id, length_penalty, nbest, beam_size, stop_at_eos):
+        super().__init__()
+        self.eos_token_id = torch.jit.Attribute(eos_token_id, int)
+        self.length_penalty = torch.jit.Attribute(length_penalty, float)
+        self.nbest = torch.jit.Attribute(nbest, int)
+        self.beam_size = torch.jit.Attribute(beam_size, int)
+        self.stop_at_eos = torch.jit.Attribute(int(stop_at_eos), int)
+
+    @torch.jit.script_method
+    @torch.no_grad()
+    def forward(self, beam_tokens: Tensor, beam_scores: Tensor, token_weights: Tensor, beam_prev_indices: Tensor, num_steps: int) ->List[Tuple[Tensor, float, List[float], Tensor, Tensor]]:
+        self._check_dimensions(beam_tokens, beam_scores, token_weights, beam_prev_indices, num_steps)
+        end_states = self._get_all_end_states(beam_tokens, beam_scores, beam_prev_indices, num_steps)
+        outputs = torch.jit.annotate(List[Tuple[Tensor, float, List[float], Tensor, Tensor]], [])
+        for state_idx in range(len(end_states)):
+            state = end_states[state_idx]
+            hypothesis_score = float(state[0])
+            beam_indices = self._get_output_steps_to_beam_indices(state, beam_prev_indices)
+            beam_output = torch.jit.annotate(List[Tensor], [])
+            token_level_scores = torch.jit.annotate(List[float], [])
+            position = int(state[1])
+            hyp_index = int(state[2])
+            best_indices = torch.tensor([position, hyp_index])
+            back_alignment_weights = []
+            assert position + 1 == len(beam_indices)
+            pos = 1
+            prev_beam_index = -1
+            while pos < len(beam_indices):
+                beam_index = beam_indices[pos]
+                beam_output.append(beam_tokens[pos][beam_index])
+                if pos == 1:
+                    token_level_scores.append(float(beam_scores[pos][beam_index]))
+                else:
+                    token_level_scores.append(float(beam_scores[pos][beam_index]) - float(beam_scores[pos - 1][prev_beam_index]))
+                back_alignment_weights.append(token_weights[pos][beam_index].detach())
+                prev_beam_index = beam_index
+                pos += 1
+            outputs.append((torch.stack(beam_output), hypothesis_score, token_level_scores, torch.stack(back_alignment_weights, dim=1), best_indices))
+        return outputs
+
+    @torch.jit.script_method
+    def _get_output_steps_to_beam_indices(self, end_state: Tensor, beam_prev_indices: Tensor) ->List[int]:
         """
-        assert x.size()[-1:] == self.mean.size()
-        x_flattened = x.view(-1, x.size(-1))
-        x_mean = x_flattened.mean(dim=0)
-        self.mean.data = self.normalize_decay_rate * self.mean.data + (1.0 - self.normalize_decay_rate) * x_mean
-        x_var = ((x_flattened - self.mean) ** 2).mean(dim=0)
-        self.var.data = self.normalize_decay_rate * self.var.data + (1.0 - self.normalize_decay_rate) * x_var
+        Returns a mapping from each output position and the beam index that was
+        picked from the beam search results.
+        """
+        present_position = int(end_state[1])
+        beam_index = int(end_state[2])
+        beam_indices = torch.jit.annotate(List[int], [])
+        while present_position >= 0:
+            beam_indices.insert(0, beam_index)
+            beam_index = int(beam_prev_indices[present_position][beam_index])
+            present_position = present_position - 1
+        return beam_indices
+
+    @torch.jit.script_method
+    def _add_to_end_states(self, end_states: List[Tensor], min_score: float, state: Tensor, min_index: int) ->Tuple[List[Tensor], float, int]:
+        """
+        Maintains a list of atmost `nbest` highest end states
+        """
+        if len(end_states) < self.nbest:
+            end_states.append(state)
+            if float(state[0]) <= min_score:
+                min_score = float(state[0])
+                min_index = len(end_states) - 1
+        elif bool(state[0] > min_score):
+            end_states[min_index] = state
+            min_index = -1
+            min_score = float('inf')
+            for idx in range(len(end_states)):
+                s = end_states[idx]
+                if bool(float(s[0]) <= min_score):
+                    min_index = idx
+                    min_score = float(s[0])
+        return end_states, min_score, min_index
+
+    @torch.jit.script_method
+    def _get_all_end_states(self, beam_tokens: Tensor, beam_scores: Tensor, beam_prev_indices: Tensor, num_steps: int) ->Tensor:
+        """
+        Return all end states and hypothesis scores for those end states.
+        """
+        min_score = float('inf')
+        min_index = -1
+        end_states = torch.jit.annotate(List[Tensor], [])
+        prev_hypo_is_finished = torch.zeros(self.beam_size).byte()
+        position = 1
+        while bool(position <= num_steps):
+            hypo_is_finished = torch.zeros(self.beam_size).byte()
+            for hyp_index in range(self.beam_size):
+                prev_pos = beam_prev_indices[position][hyp_index]
+                hypo_is_finished[hyp_index] = prev_hypo_is_finished[prev_pos]
+                if bool(hypo_is_finished[hyp_index] == 0):
+                    if bool(beam_tokens[position][hyp_index] == self.eos_token_id) or bool(position == num_steps):
+                        if bool(self.stop_at_eos):
+                            hypo_is_finished[hyp_index] = 1
+                        hypo_score = float(beam_scores[position][hyp_index])
+                        if bool(self.length_penalty != 0):
+                            hypo_score = hypo_score / float(position) ** float(self.length_penalty)
+                        end_states, min_score, min_index = self._add_to_end_states(end_states, min_score, torch.tensor([hypo_score, float(position), float(hyp_index)]), min_index)
+            prev_hypo_is_finished = hypo_is_finished
+            position = position + 1
+        end_states = torch.stack(end_states)
+        _, sorted_end_state_indices = end_states[:, (0)].sort(dim=0, descending=True)
+        end_states = end_states[(sorted_end_state_indices), :]
+        return end_states
+
+    @torch.jit.script_method
+    def _check_dimensions(self, beam_tokens: Tensor, beam_scores: Tensor, token_weights: Tensor, beam_prev_indices: Tensor, num_steps: int) ->None:
+        assert beam_tokens.size(1) == self.beam_size, 'Dimension of beam_tokens : {} and beam size : {} are not consistent'.format(beam_tokens.size(), self.beam_size)
+        assert beam_scores.size(1) == self.beam_size, 'Dimension of beam_scores : {} and beam size : {} are not consistent'.format(beam_scores.size(), self.beam_size)
+        assert token_weights.size(1) == self.beam_size, 'Dimension of token_weights : {} and beam size : {} are not consistent'.format(token_weights.size(), self.beam_size)
+        assert beam_prev_indices.size(1) == self.beam_size, 'Dimension of beam_prev_indices : {} and beam size : {} '
+        """are not consistent""".format(beam_prev_indices.size(), self.beam_size)
+        assert beam_tokens.size(0) <= num_steps + 1, 'Dimension of beam_tokens : {} and num_steps : {} are not consistent'.format(beam_tokens.size(), num_steps)
+        assert beam_scores.size(0) <= num_steps + 1, 'Dimension of beam_scores : {} and num_steps : {} are not consistent'.format(beam_scores.size(), num_steps)
+        assert token_weights.size(0) <= num_steps + 1, 'Dimension of token_weights : {} and num_steps : {} are not consistent'.format(token_weights.size(), num_steps)
+        assert beam_prev_indices.size(0) <= num_steps + 1, 'Dimension of beam_prev_indices : {} and num_steps : {} are not consistent'.format(beam_prev_indices.size(), num_steps)
 
 
-class OutputProjection(nn.Module):
-    """Output projection layer."""
+class BeamDecodeWithEOS(BeamDecode):
+    """
+    Run beam decoding based on the beam search output from
+    DecoderBatchedStepEnsemble2BeamWithEOS. The differences compared with BeamDecode is:
+    1.there's no need to check prev_hypos finished or not when trying to get all end
+    states since we don't expand at eos token in DecoderBatchedStepEnsemble2BeamWithEOS.
+    2. add extra step for eos token at the end.
+    """
 
-    def __init__(self, out_embed_dim, vocab_size, vocab_reduction_module=None):
-        super().__init__()
-        self.out_embed_dim = out_embed_dim
-        self.vocab_size = vocab_size
-        self.output_projection_w = nn.Parameter(torch.FloatTensor(self.vocab_size, self.out_embed_dim).uniform_(-0.1, 0.1))
-        self.output_projection_b = nn.Parameter(torch.FloatTensor(self.vocab_size).zero_())
-        self.vocab_reduction_module = vocab_reduction_module
+    @torch.jit.script_method
+    def _get_all_end_states(self, beam_tokens: Tensor, beam_scores: Tensor, beam_prev_indices: Tensor, num_steps: int) ->Tensor:
+        min_score = float('inf')
+        min_index = -1
+        end_states = torch.jit.annotate(List[Tensor], [])
+        position = 1
+        while bool(position <= num_steps + 1):
+            for hyp_index in range(self.beam_size):
+                if bool(beam_tokens[position][hyp_index] == self.eos_token_id) or bool(position == num_steps + 1):
+                    hypo_score = float(beam_scores[position][hyp_index])
+                    if bool(self.length_penalty != 0):
+                        hypo_score = hypo_score / float(position) ** float(self.length_penalty)
+                    end_states, min_score, min_index = self._add_to_end_states(end_states, min_score, torch.tensor([hypo_score, float(position), float(hyp_index)]), min_index)
+            position = position + 1
+        end_states = torch.stack(end_states)
+        _, sorted_end_state_indices = end_states[:, (0)].sort(dim=0, descending=True)
+        end_states = end_states[(sorted_end_state_indices), :]
+        return end_states
 
-    def forward(self, x, src_tokens=None, input_tokens=None, possible_translation_tokens=None):
-        output_projection_w = self.output_projection_w
-        output_projection_b = self.output_projection_b
-        decoder_input_tokens = input_tokens if self.training else None
-        if self.vocab_reduction_module and possible_translation_tokens is None:
-            possible_translation_tokens = self.vocab_reduction_module(src_tokens, decoder_input_tokens=decoder_input_tokens)
-        if possible_translation_tokens is not None:
-            output_projection_w = output_projection_w.index_select(dim=0, index=possible_translation_tokens)
-            output_projection_b = output_projection_b.index_select(dim=0, index=possible_translation_tokens)
-        batch_time_hidden = torch.onnx.operators.shape_as_tensor(x)
-        x_flat_shape = torch.cat((torch.LongTensor([-1]), batch_time_hidden[2].view(1)))
-        x_flat = torch.onnx.operators.reshape_from_tensor_shape(x, x_flat_shape)
-        projection_flat = torch.matmul(output_projection_w, x_flat.t()).t()
-        logits_shape = torch.cat((batch_time_hidden[:2], torch.LongTensor([-1])))
-        logits = torch.onnx.operators.reshape_from_tensor_shape(projection_flat, logits_shape) + output_projection_b
-        return logits, possible_translation_tokens
-
-
-class TransformerEncoderGivenEmbeddings(nn.Module):
-
-    def __init__(self, args, proj_to_decoder):
-        super().__init__()
-        self.layers = nn.ModuleList([])
-        self.layers.extend([fairseq_transformer.TransformerEncoderLayer(args) for i in range(args.encoder_layers)])
-
-    def forward(self, x, positions, encoder_padding_mask):
-        for layer in self.layers:
-            x = layer(x, encoder_padding_mask)
-        return x
-
-    def upgrade_state_dict_named(self, state_dict, name):
-        for i in range(len(self.layers)):
-            self.layers[i].upgrade_state_dict_named(state_dict, f'{name}.layers.{i}')
-
-
-class TransformerEmbedding(nn.Module):
-
-    def __init__(self, args, embed_tokens):
-        super().__init__()
-        self.dropout = args.dropout
-        embed_dim = embed_tokens.embedding_dim
-        self.padding_idx = embed_tokens.padding_idx
-        self.embed_tokens = embed_tokens
-        self.embed_scale = math.sqrt(embed_dim)
-        self.embed_positions = fairseq_transformer.PositionalEmbedding(1024, embed_dim, self.padding_idx, learned=args.encoder_learned_pos)
-
-    def forward(self, src_tokens, src_lengths):
-        x = self.embed_tokens(src_tokens)
-        src_tokens_tensor = pytorch_translate_utils.get_source_tokens_tensor(src_tokens)
-        x = self.embed_scale * x
-        positions = self.embed_positions(src_tokens_tensor)
-        x += positions
-        x = F.dropout(x, p=self.dropout, training=self.training)
-        x = x.transpose(0, 1)
-        encoder_padding_mask = src_tokens_tensor.eq(self.padding_idx)
-        if not encoder_padding_mask.any():
-            encoder_padding_mask = None
-        return x, encoder_padding_mask, positions
+    @torch.jit.script_method
+    def _check_dimensions(self, beam_tokens: Tensor, beam_scores: Tensor, token_weights: Tensor, beam_prev_indices: Tensor, num_steps: int) ->None:
+        assert beam_tokens.size(1) == 2 * self.beam_size, 'Dimension of beam_tokens : {} and beam size : {} are not consistent'.format(beam_tokens.size(), self.beam_size)
+        assert beam_scores.size(1) == 2 * self.beam_size, 'Dimension of beam_scores : {} and beam size : {} are not consistent'.format(beam_scores.size(), self.beam_size)
+        assert token_weights.size(1) == 2 * self.beam_size, 'Dimension of token_weights : {} and beam size : {} are not consistent'.format(token_weights.size(), self.beam_size)
+        assert beam_prev_indices.size(1) == 2 * self.beam_size, 'Dimension of beam_prev_indices : {} and beam size : {} '
+        """are not consistent""".format(beam_prev_indices.size(), self.beam_size)
+        assert beam_tokens.size(0) <= num_steps + 2, 'Dimension of beam_tokens : {} and num_steps : {} are not consistent'.format(beam_tokens.size(), num_steps)
+        assert beam_scores.size(0) <= num_steps + 2, 'Dimension of beam_scores : {} and num_steps : {} are not consistent'.format(beam_scores.size(), num_steps)
+        assert token_weights.size(0) <= num_steps + 2, 'Dimension of token_weights : {} and num_steps : {} are not consistent'.format(token_weights.size(), num_steps)
+        assert beam_prev_indices.size(0) <= num_steps + 2, 'Dimension of beam_prev_indices : {} and num_steps : {} are not consistent'.format(beam_prev_indices.size(), num_steps)
 
 
 def load_to_cpu(path: str) ->Dict[str, Any]:
@@ -796,65 +795,6 @@ def load_models_from_checkpoints(checkpoint_filenames, src_dict_filename, dst_di
         else:
             models.append(model)
     return models, src_dict, dst_dict
-
-
-class EncoderEnsemble(nn.Module):
-
-    def __init__(self, models, src_dict=None):
-        super().__init__()
-        self.models = models
-        self.src_dict = src_dict
-        for i, model in enumerate(self.models):
-            model.prepare_for_onnx_export_()
-            if hasattr(model, 'get_student_model'):
-                model = model.get_student_model()
-                self.models[i] = model
-            self._modules[f'model_{i}'] = model
-        self.enable_precompute_reduced_weights = False
-
-    def forward(self, src_tokens, src_lengths):
-        src_tokens_seq_first = src_tokens.t()
-        futures = []
-        for model in self.models:
-            model.eval()
-            futures.append(torch.jit._fork(model.encoder, src_tokens_seq_first, src_lengths))
-        return self.get_outputs(src_tokens, futures)
-
-    def get_outputs(self, src_tokens, encoder_futures):
-        outputs = []
-        output_names = []
-        states = []
-        possible_translation_tokens = None
-        if hasattr(self.models[0].decoder, 'vocab_reduction_module'):
-            vocab_reduction_module = self.models[0].decoder.vocab_reduction_module
-            if vocab_reduction_module is not None:
-                possible_translation_tokens = vocab_reduction_module(src_tokens=src_tokens, decoder_input_tokens=None)
-        reduced_weights = {}
-        for i, model in enumerate(self.models):
-            if self.enable_precompute_reduced_weights and hasattr(model.decoder, '_precompute_reduced_weights') and possible_translation_tokens is not None:
-                reduced_weights[i] = torch.jit._fork(model.decoder._precompute_reduced_weights, possible_translation_tokens)
-        for i, (model, future) in enumerate(zip(self.models, encoder_futures)):
-            encoder_out = torch.jit._wait(future)
-            encoder_outputs = encoder_out[0]
-            outputs.append(encoder_outputs)
-            output_names.append(f'encoder_output_{i}')
-            if hasattr(model.decoder, '_init_prev_states'):
-                states.extend(model.decoder._init_prev_states(encoder_out))
-            if self.enable_precompute_reduced_weights and hasattr(model.decoder, '_precompute_reduced_weights') and possible_translation_tokens is not None:
-                states.extend(torch.jit._wait(reduced_weights[i]))
-        if possible_translation_tokens is not None:
-            outputs.append(possible_translation_tokens)
-            output_names.append('possible_translation_tokens')
-        for i, state in enumerate(states):
-            outputs.append(state)
-            output_names.append(f'initial_state_{i}')
-        self.output_names = output_names
-        return tuple(outputs)
-
-    @classmethod
-    def build_from_checkpoints(cls, checkpoint_filenames, src_dict_filename, dst_dict_filename, lexical_dict_paths=None):
-        models, src_dict, _ = load_models_from_checkpoints(checkpoint_filenames, src_dict_filename, dst_dict_filename, lexical_dict_paths)
-        return cls(models, src_dict=src_dict)
 
 
 class DecoderBatchedStepEnsemble(nn.Module):
@@ -1124,11 +1064,145 @@ class DecoderBatchedStepEnsemble(nn.Module):
         return cls(models, tgt_dict, beam_size=beam_size, word_reward=word_reward, unk_reward=unk_reward)
 
 
-class FakeEncoderEnsemble(torch.jit.ScriptModule):
+class DecoderBatchedStepEnsemble2BeamWithEOS(DecoderBatchedStepEnsemble):
+    """
+    This class inherits DecoderBatchedStepEnsemble class. While keeping the basic
+    functionality of running decoding ensemble, two new features are added:
+    expanding double beam size at each search step in case half are eos, appending
+    extra EOS tokens at the end.
+    """
 
-    @torch.jit.script_method
-    def forward(self, src_tokens, src_lengths) ->None:
-        raise RuntimeError('Called EncoderEnsemble on a BeamSearch thats not word-source')
+    def forward(self, input_tokens, prev_scores, active_hypos, timestep, final_step, *inputs, src_tuple=None):
+        input_tokens = input_tokens.index_select(dim=0, index=active_hypos).unsqueeze(1)
+        prev_scores = prev_scores.index_select(dim=0, index=active_hypos)
+        eos_token = torch.LongTensor([self.tgt_dict.eos()])
+        log_probs_per_model, attn_weights_per_model, state_outputs, beam_axis_per_state, possible_translation_tokens = self._get_decoder_outputs(input_tokens, prev_scores, timestep, *inputs, src_tuple=src_tuple)
+        average_log_probs = torch.mean(torch.cat(log_probs_per_model, dim=1), dim=1, keepdim=True)
+        if possible_translation_tokens is None:
+            word_rewards = self.word_rewards
+        else:
+            word_rewards = self.word_rewards.index_select(0, possible_translation_tokens)
+        word_rewards = word_rewards.unsqueeze(dim=0).unsqueeze(dim=0)
+        average_log_probs_with_rewards = average_log_probs + word_rewards
+        average_attn_weights = torch.mean(torch.cat(attn_weights_per_model, dim=1), dim=1, keepdim=True)
+
+        @torch.jit.script
+        def generate_outputs(final_step: Tensor, average_log_probs_with_rewards: Tensor, average_attn_weights: Tensor, prev_scores: Tensor, eos_token: Tensor, beam_size: int) ->Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+            double_beam_size = 2 * beam_size
+            if bool(final_step):
+                cand_tokens = eos_token.repeat(double_beam_size)
+                eos_scores = average_log_probs_with_rewards.index_select(dim=2, index=eos_token)
+                eos_scores_flat = eos_scores.view(-1)
+                cand_scores = prev_scores.view(-1) + eos_scores_flat
+                cand_scores = cand_scores.repeat(2)
+                cand_prev_hypos = torch.arange(0, double_beam_size).type_as(cand_tokens)
+                cand_attention_weights = average_attn_weights.squeeze(1).repeat(2, 1)
+                active_hypos = torch.arange(0, beam_size).type_as(cand_tokens)
+            else:
+                cand_scores_k_by_2k, cand_tokens_k_by_2k = torch.topk(average_log_probs_with_rewards.squeeze(1), k=double_beam_size)
+                prev_scores_k_by_2k = prev_scores.view(-1, 1).expand(-1, double_beam_size)
+                total_scores_k_by_2k = cand_scores_k_by_2k + prev_scores_k_by_2k
+                total_scores_flat_2k = total_scores_k_by_2k.view(-1)
+                cand_tokens_flat_2k = cand_tokens_k_by_2k.view(-1)
+                cand_scores, cand_indices = torch.topk(total_scores_flat_2k, k=double_beam_size)
+                cand_tokens = cand_tokens_flat_2k.index_select(dim=0, index=cand_indices).view(-1)
+                eos_mask = cand_tokens.eq(eos_token[0])
+                cand_prev_hypos = cand_indices / double_beam_size
+                cand_prev_hypos = cand_prev_hypos.type_as(cand_tokens)
+                cand_offsets = torch.arange(0, double_beam_size)
+                active_mask = torch.add(eos_mask.type_as(cand_offsets) * double_beam_size, cand_offsets)
+                _, active_hypos = torch.topk(active_mask, k=beam_size, dim=0, largest=False, sorted=True)
+                cand_attention_weights = average_attn_weights.index_select(dim=0, index=cand_prev_hypos).squeeze(1)
+            return cand_tokens, cand_scores, cand_prev_hypos, cand_attention_weights, active_hypos
+        cand_tokens, cand_scores, cand_prev_hypos, cand_attention_weights, active_hypos = generate_outputs(final_step, average_log_probs_with_rewards, average_attn_weights, prev_scores, eos_token=eos_token, beam_size=self.beam_size)
+        active_prev_hypos = cand_prev_hypos.index_select(dim=0, index=active_hypos)
+        if possible_translation_tokens is not None:
+            cand_tokens = possible_translation_tokens.index_select(dim=0, index=cand_tokens)
+        self.input_names = ['prev_tokens', 'prev_scores', 'active_hypos', 'timestep']
+        for i in range(len(self.models)):
+            self.input_names.append(f'fixed_input_{i}')
+        if possible_translation_tokens is not None:
+            self.input_names.append('possible_translation_tokens')
+        active_outputs = [cand_tokens, cand_scores, cand_prev_hypos, cand_attention_weights, active_hypos]
+        self.output_names = ['cand_tokens', 'cand_scores', 'cand_prev_hypos', 'cand_attention_weights', 'active_hypos']
+        for i in range(len(self.models)):
+            self.output_names.append(f'fixed_input_{i}')
+            if self.tile_internal:
+                active_outputs.append(inputs[i].repeat(1, self.beam_size, 1))
+            else:
+                active_outputs.append(inputs[i])
+        if possible_translation_tokens is not None:
+            self.output_names.append('possible_translation_tokens')
+            active_outputs.append(possible_translation_tokens)
+        for i, state in enumerate(state_outputs):
+            beam_axis = beam_axis_per_state[i]
+            if beam_axis is None:
+                next_state = state
+            else:
+                next_state = state.index_select(dim=beam_axis, index=active_prev_hypos)
+            active_outputs.append(next_state)
+            self.output_names.append(f'state_output_{i}')
+            self.input_names.append(f'state_input_{i}')
+        return tuple(active_outputs)
+
+
+class EncoderEnsemble(nn.Module):
+
+    def __init__(self, models, src_dict=None):
+        super().__init__()
+        self.models = models
+        self.src_dict = src_dict
+        for i, model in enumerate(self.models):
+            model.prepare_for_onnx_export_()
+            if hasattr(model, 'get_student_model'):
+                model = model.get_student_model()
+                self.models[i] = model
+            self._modules[f'model_{i}'] = model
+        self.enable_precompute_reduced_weights = False
+
+    def forward(self, src_tokens, src_lengths):
+        src_tokens_seq_first = src_tokens.t()
+        futures = []
+        for model in self.models:
+            model.eval()
+            futures.append(torch.jit._fork(model.encoder, src_tokens_seq_first, src_lengths))
+        return self.get_outputs(src_tokens, futures)
+
+    def get_outputs(self, src_tokens, encoder_futures):
+        outputs = []
+        output_names = []
+        states = []
+        possible_translation_tokens = None
+        if hasattr(self.models[0].decoder, 'vocab_reduction_module'):
+            vocab_reduction_module = self.models[0].decoder.vocab_reduction_module
+            if vocab_reduction_module is not None:
+                possible_translation_tokens = vocab_reduction_module(src_tokens=src_tokens, decoder_input_tokens=None)
+        reduced_weights = {}
+        for i, model in enumerate(self.models):
+            if self.enable_precompute_reduced_weights and hasattr(model.decoder, '_precompute_reduced_weights') and possible_translation_tokens is not None:
+                reduced_weights[i] = torch.jit._fork(model.decoder._precompute_reduced_weights, possible_translation_tokens)
+        for i, (model, future) in enumerate(zip(self.models, encoder_futures)):
+            encoder_out = torch.jit._wait(future)
+            encoder_outputs = encoder_out[0]
+            outputs.append(encoder_outputs)
+            output_names.append(f'encoder_output_{i}')
+            if hasattr(model.decoder, '_init_prev_states'):
+                states.extend(model.decoder._init_prev_states(encoder_out))
+            if self.enable_precompute_reduced_weights and hasattr(model.decoder, '_precompute_reduced_weights') and possible_translation_tokens is not None:
+                states.extend(torch.jit._wait(reduced_weights[i]))
+        if possible_translation_tokens is not None:
+            outputs.append(possible_translation_tokens)
+            output_names.append('possible_translation_tokens')
+        for i, state in enumerate(states):
+            outputs.append(state)
+            output_names.append(f'initial_state_{i}')
+        self.output_names = output_names
+        return tuple(outputs)
+
+    @classmethod
+    def build_from_checkpoints(cls, checkpoint_filenames, src_dict_filename, dst_dict_filename, lexical_dict_paths=None):
+        models, src_dict, _ = load_models_from_checkpoints(checkpoint_filenames, src_dict_filename, dst_dict_filename, lexical_dict_paths)
+        return cls(models, src_dict=src_dict)
 
 
 class FakeCharSourceEncoderEnsemble(torch.jit.ScriptModule):
@@ -1136,6 +1210,584 @@ class FakeCharSourceEncoderEnsemble(torch.jit.ScriptModule):
     @torch.jit.script_method
     def forward(self, src_tokens, src_lengths, char_inds, word_lengths) ->None:
         raise RuntimeError('Called CharSourceEncoderEnsemble on a BeamSearch thats not char-source')
+
+
+class BeamSearchAndDecodeV2(torch.jit.ScriptModule):
+    """
+    The difference between BeamSearchAndDecodeV2 and BeamSearchAndDecode is: V2 calls
+    DecoderBatchedStepEnsemble2BeamWithEOS instead of DecoderBatchedStepEnsemble when
+    running beam search. Also, since extra EOS token has been added, it calls
+    BeamDecodeWithEOS when running beam decoding which supports adding extra EOS token.
+    """
+
+    def __init__(self, models, tgt_dict, src_tokens, src_lengths, eos_token_id, length_penalty, nbest, beam_size, stop_at_eos, word_reward=0, unk_reward=0, quantize=False):
+        super().__init__()
+        self.models = models
+        self.tgt_dict = tgt_dict
+        self.beam_size = torch.jit.Attribute(beam_size, int)
+        self.word_reward = torch.jit.Attribute(word_reward, float)
+        self.unk_reward = torch.jit.Attribute(unk_reward, float)
+        encoder_ens = EncoderEnsemble(self.models)
+        encoder_ens.enable_precompute_reduced_weights = True
+        if quantize:
+            encoder_ens = torch.jit.quantized.quantize_linear_modules(encoder_ens)
+            encoder_ens = torch.jit.quantized.quantize_rnn_cell_modules(encoder_ens)
+        self.is_char_source = False
+        enc_inputs = src_tokens, src_lengths
+        example_encoder_outs = encoder_ens(*enc_inputs)
+        self.encoder_ens = torch.jit.trace(encoder_ens, enc_inputs, _force_outplace=True)
+        self.encoder_ens_char_source = FakeCharSourceEncoderEnsemble()
+        decoder_ens = DecoderBatchedStepEnsemble2BeamWithEOS(self.models, tgt_dict, beam_size, word_reward, unk_reward, tile_internal=False)
+        decoder_ens.enable_precompute_reduced_weights = True
+        if quantize:
+            decoder_ens = torch.jit.quantized.quantize_linear_modules(decoder_ens)
+            decoder_ens = torch.jit.quantized.quantize_rnn_cell_modules(decoder_ens)
+            decoder_ens = torch.jit.quantized.quantize_rnn_modules(decoder_ens)
+        decoder_ens_tile = DecoderBatchedStepEnsemble2BeamWithEOS(self.models, tgt_dict, beam_size, word_reward, unk_reward, tile_internal=True)
+        decoder_ens_tile.enable_precompute_reduced_weights = True
+        if quantize:
+            decoder_ens_tile = torch.jit.quantized.quantize_linear_modules(decoder_ens_tile)
+            decoder_ens_tile = torch.jit.quantized.quantize_rnn_cell_modules(decoder_ens_tile)
+            decoder_ens_tile = torch.jit.quantized.quantize_rnn_modules(decoder_ens_tile)
+        prev_token = torch.LongTensor([0])
+        prev_scores = torch.FloatTensor([0.0])
+        ts = torch.LongTensor([0])
+        final_step = torch.tensor([False], dtype=torch.bool)
+        active_hypos = torch.LongTensor([0])
+        _, _, _, _, _, *tiled_states = decoder_ens_tile(prev_token, prev_scores, active_hypos, ts, final_step, *example_encoder_outs)
+        self.decoder_ens_tile = torch.jit.trace(decoder_ens_tile, (prev_token, prev_scores, active_hypos, ts, final_step, *example_encoder_outs), _force_outplace=True)
+        self.decoder_ens = torch.jit.trace(decoder_ens, (prev_token.repeat(self.beam_size), prev_scores.repeat(self.beam_size), active_hypos.repeat(self.beam_size), ts, final_step, *tiled_states), _force_outplace=True)
+        self.beam_decode = BeamDecodeWithEOS(eos_token_id, length_penalty, nbest, beam_size, stop_at_eos)
+        self.input_names = ['src_tokens', 'src_lengths', 'prev_token', 'prev_scores', 'attn_weights', 'prev_hypos_indices', 'num_steps']
+        self.output_names = ['beam_output', 'hypothesis_score', 'token_level_scores', 'back_alignment_weights', 'best_indices']
+
+    @torch.jit.script_method
+    def forward(self, src_tokens: torch.Tensor, src_lengths: torch.Tensor, prev_token: torch.Tensor, prev_scores: torch.Tensor, attn_weights: torch.Tensor, prev_hypos_indices: torch.Tensor, active_hypos: torch.Tensor, num_steps: int) ->List[Tuple[Tensor, float, List[float], Tensor, Tensor]]:
+        enc_states = self.encoder_ens(src_tokens, src_lengths)
+        enc_states = torch.jit._unwrap_optional(enc_states)
+        all_tokens = [prev_token.repeat(repeats=[2 * self.beam_size])]
+        all_scores = [prev_scores.repeat(repeats=[2 * self.beam_size])]
+        all_weights = [attn_weights.unsqueeze(dim=0).repeat(repeats=[2 * self.beam_size, 1])]
+        all_prev_indices = [prev_hypos_indices]
+        prev_token, prev_scores, prev_hypos_indices, attn_weights, active_hypos, *states = self.decoder_ens_tile(prev_token, prev_scores, active_hypos, torch.tensor([0]), torch.tensor([False]), *enc_states)
+        all_tokens = all_tokens.append(prev_token)
+        all_scores = all_scores.append(prev_scores)
+        all_weights = all_weights.append(attn_weights)
+        all_prev_indices = all_prev_indices.append(prev_hypos_indices)
+        for i in range(num_steps - 1):
+            prev_token, prev_scores, prev_hypos_indices, attn_weights, active_hypos, *states = self.decoder_ens(prev_token, prev_scores, active_hypos, torch.tensor([i + 1]), torch.tensor([False]), *states)
+            all_tokens = all_tokens.append(prev_token)
+            all_scores = all_scores.append(prev_scores)
+            all_weights = all_weights.append(attn_weights)
+            all_prev_indices = all_prev_indices.append(prev_hypos_indices)
+        prev_token, prev_scores, prev_hypos_indices, attn_weights, active_hypos, *states = self.decoder_ens(prev_token, prev_scores, active_hypos, torch.tensor([num_steps]), torch.tensor([True]), *states)
+        all_tokens = all_tokens.append(prev_token)
+        all_scores = all_scores.append(prev_scores)
+        all_weights = all_weights.append(attn_weights)
+        all_prev_indices = all_prev_indices.append(prev_hypos_indices)
+        outputs = torch.jit.annotate(List[Tuple[Tensor, float, List[float], Tensor, Tensor]], [])
+        outputs = self.beam_decode(torch.stack(all_tokens, dim=0), torch.stack(all_scores, dim=0), torch.stack(all_weights, dim=0), torch.stack(all_prev_indices, dim=0), num_steps)
+        return outputs
+
+    @classmethod
+    def build_from_checkpoints(cls, checkpoint_filenames, src_dict_filename, dst_dict_filename, beam_size, length_penalty, nbest, word_reward=0, unk_reward=0, lexical_dict_paths=None):
+        length = 10
+        models, _, tgt_dict = load_models_from_checkpoints(checkpoint_filenames, src_dict_filename, dst_dict_filename, lexical_dict_paths)
+        src_tokens = torch.LongTensor(np.ones((length, 1), dtype='int64'))
+        src_lengths = torch.IntTensor(np.array([length], dtype='int32'))
+        eos_token_id = tgt_dict.eos()
+        return cls(models, tgt_dict, src_tokens, src_lengths, eos_token_id, length_penalty=length_penalty, nbest=nbest, beam_size=beam_size, stop_at_eos=True, word_reward=word_reward, unk_reward=unk_reward, quantize=True)
+
+    def save_to_pytorch(self, output_path):
+
+        def pack(s):
+            if hasattr(s, '_pack'):
+                s._pack()
+
+        def unpack(s):
+            if hasattr(s, '_unpack'):
+                s._unpack()
+        self.apply(pack)
+        torch.jit.save(self, output_path)
+        self.apply(unpack)
+
+
+class HighwayLayer(nn.Module):
+
+    def __init__(self, input_dim, transform_activation=F.relu, gate_activation=F.softmax, gate_bias=-2):
+        super().__init__()
+        self.highway_transform_activation = transform_activation
+        self.highway_gate_activation = gate_activation
+        self.highway_transform = nn.Linear(input_dim, input_dim)
+        self.highway_gate = nn.Linear(input_dim, input_dim)
+        self.highway_gate.bias.data.fill_(gate_bias)
+
+    def forward(self, x):
+        transform_output = self.highway_transform_activation(self.highway_transform(x))
+        gate_output = self.highway_gate_activation(self.highway_gate(x))
+        transformation_part = torch.mul(transform_output, gate_output)
+        carry_part = torch.mul(torch.FloatTensor([1.0]).type_as(gate_output) - gate_output, x)
+        return torch.add(transformation_part, carry_part)
+
+
+TAGS = ['@DIGITS', '@EMOTICON', '@FBENTITY', '@MULTIPUNCT', '@NOTRANSLATE', '@PERSON', '@PLAIN', '@URL', '@USERNAME']
+
+
+class CharCNNModel(nn.Module):
+    """
+    A Conv network to generate word embedding from character embeddings, from
+    Character-Aware Neural Language Models, https://arxiv.org/abs/1508.06615.
+
+    Components include convolutional filters, pooling, and
+    optional highway network. We also have the ability to use pretrained ELMo
+    which corresponds to the byte embeddings, CNN weights and the highway layer.
+    """
+
+    def __init__(self, dictionary, num_chars=50, char_embed_dim=32, convolutions_params='((128, 3), (128, 5))', nonlinear_fn_type='tanh', num_highway_layers=0, char_cnn_output_dim=-1, use_pretrained_weights=False, finetune_pretrained_weights=False, weights_file=None):
+        super().__init__()
+        self.dictionary = dictionary
+        self.padding_idx = dictionary.pad()
+        self.use_pretrained_weights = use_pretrained_weights
+        self.convolutions_params = convolutions_params
+        self.num_highway_layers = num_highway_layers
+        self.char_embed_dim = char_embed_dim
+        self.num_embeddings = num_chars
+        self.char_cnn_output_dim = char_cnn_output_dim
+        self.filter_dims = sum(f[0] for f in self.convolutions_params)
+        if use_pretrained_weights:
+            self._weight_file = weights_file
+            self._finetune_pretrained_weights = finetune_pretrained_weights
+            self._load_weights()
+        else:
+            if nonlinear_fn_type == 'tanh':
+                nonlinear_fn = nn.Tanh
+            elif nonlinear_fn_type == 'relu':
+                nonlinear_fn = nn.ReLU
+            else:
+                raise Exception('Invalid nonlinear type: {}'.format(nonlinear_fn_type))
+            self.embed_chars = rnn.Embedding(num_embeddings=num_chars, embedding_dim=char_embed_dim, padding_idx=self.padding_idx, freeze_embed=False)
+            self.convolutions = nn.ModuleList([nn.Sequential(nn.Conv1d(char_embed_dim, num_filters, kernel_size, padding=kernel_size), nonlinear_fn()) for num_filters, kernel_size in self.convolutions_params])
+            highway_layers = []
+            for _ in range(self.num_highway_layers):
+                highway_layers.append(HighwayLayer(self.filter_dims))
+            self.highway_layers = nn.ModuleList(highway_layers)
+            if char_cnn_output_dim != -1:
+                self.projection = nn.Linear(self.filter_dims, self.char_cnn_output_dim, bias=True)
+
+    def _load_weights(self):
+        """
+        Function to load pretrained weights including byte embeddings.
+        """
+        self.npz_weights = np.load(self._weight_file)
+        self._load_byte_embedding()
+        self._load_cnn_weights()
+        self._load_highway()
+        self._load_projection()
+
+    def _load_byte_embedding(self):
+        """
+        Function to load the pre-trained byte embeddings. We need to ensure that
+        the embeddings account for special yoda tags as well.
+        """
+        char_embed_weights = self.npz_weights['char_embed']
+        num_tags = TAGS.__len__()
+        weights = np.zeros((char_embed_weights.shape[0] + num_tags + 1, char_embed_weights.shape[1]), dtype='float32')
+        weights[1:-num_tags, :] = char_embed_weights
+        self.embed_chars = rnn.Embedding(num_embeddings=self.num_embeddings, embedding_dim=self.char_embed_dim, padding_idx=self.padding_idx, freeze_embed=self._finetune_pretrained_weights)
+        self.embed_chars.weight.data.copy_(torch.FloatTensor(weights))
+
+    def _load_cnn_weights(self):
+        """
+        Function to load the weights associated with the pretrained CNN filters.
+        For this to work correctly, the cnn params specified in the input arguments
+        should match up with the pretrained architecture.
+        """
+        convolutions = []
+        for i, (num_filters, kernel_size) in enumerate(self.convolutions_params):
+            conv = torch.nn.Conv1d(in_channels=self.char_embed_dim, out_channels=num_filters, kernel_size=kernel_size, padding=kernel_size, bias=True)
+            weight = self.npz_weights['W_cnn_{}'.format(i)]
+            bias = self.npz_weights['b_cnn_{}'.format(i)]
+            w_reshaped = np.transpose(weight.squeeze(axis=0), axes=(2, 1, 0))
+            if w_reshaped.shape != tuple(conv.weight.data.shape):
+                raise ValueError('Invalid weight file')
+            conv.weight.data.copy_(torch.div(torch.FloatTensor(w_reshaped), kernel_size * 1.0))
+            conv.bias.data.copy_(torch.div(torch.FloatTensor(bias), kernel_size * 1.0))
+            conv.weight.requires_grad = self._finetune_pretrained_weights
+            conv.bias.requires_grad = self._finetune_pretrained_weights
+            convolutions.append(nn.Sequential(conv))
+        self.convolutions = nn.ModuleList(convolutions)
+
+    def _load_highway(self):
+        """
+        Function to load the weights associated with the pretrained highway
+        network. In order to ensure the norm of the weights match up with the
+        rest of the model, we need to normalize the pretrained weights.
+        Here we divide by a fixed constant.
+        """
+        input_dim = sum(f[0] for f in self.convolutions_params)
+        highway_layers = []
+        for k in range(self.num_highway_layers):
+            highway_layer = HighwayLayer(input_dim)
+            w_transform = np.transpose(self.npz_weights['W_transform_{}'.format(k)])
+            b_transform = self.npz_weights['b_transform_{}'.format(k)]
+            highway_layer.highway_transform.weight.data.copy_(torch.div(torch.FloatTensor(w_transform), 6.0))
+            highway_layer.highway_transform.bias.data.copy_(torch.FloatTensor(b_transform))
+            highway_layer.highway_transform.weight.requires_grad = self._finetune_pretrained_weights
+            highway_layer.highway_transform.bias.requires_grad = self._finetune_pretrained_weights
+            w_carry = np.transpose(self.npz_weights['W_carry_{}'.format(k)])
+            highway_layer.highway_gate.weight.data.copy_(torch.div(torch.FloatTensor(w_carry), 6.0))
+            highway_layer.highway_gate.weight.requires_grad = self._finetune_pretrained_weights
+            b_carry = self.npz_weights['b_carry_{}'.format(k)]
+            highway_layer.highway_gate.bias.data.copy_(torch.FloatTensor(b_carry))
+            highway_layer.highway_gate.bias.requires_grad = self._finetune_pretrained_weights
+        highway_layers.append(highway_layer)
+        self.highway_layers = nn.ModuleList(highway_layers)
+
+    def _load_projection(self):
+        """
+        Function to load the weights associated with the pretrained projection
+        layer. In order to ensure the norm of the weights match up with the
+        rest of the model, we need to normalize the pretrained weights.
+        Here we divide by a fixed constant.
+        """
+        input_dim = self.filter_dims
+        self.projection = nn.Linear(input_dim, self.char_cnn_output_dim, bias=True)
+        weight = self.npz_weights['W_proj']
+        bias = self.npz_weights['b_proj']
+        self.projection.weight.data.copy_(torch.div(torch.FloatTensor(np.transpose(weight)), 10.0))
+        self.projection.bias.data.copy_(torch.div(torch.FloatTensor(np.transpose(bias)), 10.0))
+        self.projection.weight.requires_grad = self._finetune_pretrained_weights
+        self.projection.bias.requires_grad = self._finetune_pretrained_weights
+
+    def forward(self, char_inds_flat):
+        x = self.embed_chars(char_inds_flat)
+        encoder_padding_mask = char_inds_flat.eq(self.padding_idx)
+        char_lengths = torch.sum(~encoder_padding_mask, dim=0)
+        if not encoder_padding_mask.any():
+            encoder_padding_mask = None
+        kernel_outputs = []
+        for conv in self.convolutions:
+            if encoder_padding_mask is not None:
+                x = x.masked_fill(encoder_padding_mask.unsqueeze(-1), 0)
+            conv_output = conv(x.permute(1, 2, 0))
+            kernel_outputs.append(conv_output)
+        pools = [self.pooling(conv, char_lengths, dim=2) for conv in kernel_outputs]
+        encoder_output = torch.cat([p for p in pools], 1)
+        for highway_layer in self.highway_layers:
+            encoder_output = highway_layer(encoder_output)
+        if self.char_cnn_output_dim != -1:
+            encoder_output = self.projection(encoder_output)
+        return encoder_output
+
+    def pooling(self, inputs, char_lengths, dim):
+        return torch.max(inputs, dim=dim)[0]
+
+
+class CharRNNModel(nn.Module):
+    """Bi-LSTM over characters to produce a word embedding from characters"""
+
+    def __init__(self, dictionary, num_chars, char_embed_dim, char_rnn_units, char_rnn_layers):
+        super().__init__()
+        self.num_chars = num_chars
+        self.padding_idx = dictionary.pad()
+        self.embed_chars = rnn.Embedding(num_embeddings=num_chars, embedding_dim=char_embed_dim, padding_idx=self.padding_idx, freeze_embed=False)
+        assert char_rnn_units % 2 == 0, 'char_rnn_units must be even (to be divided evenly between directions)'
+        self.char_lstm_encoder = rnn.LSTMSequenceEncoder.LSTM(char_embed_dim, char_rnn_units // 2, num_layers=char_rnn_layers, bidirectional=True)
+        self.onnx_export_model = False
+
+    def forward(self, src_tokens, src_lengths, char_inds, word_lengths):
+        bsz, seqlen, maxchars = char_inds.size()
+        if self.onnx_export_model:
+            assert bsz == 1
+            maxchars_tensor = torch.onnx.operators.shape_as_tensor(char_inds)[2]
+            char_inds_flat_shape = torch.cat((torch.LongTensor([-1]), maxchars_tensor.view(1)))
+            char_inds_flat = torch.onnx.operators.reshape_from_tensor_shape(char_inds, char_inds_flat_shape).t()
+            char_rnn_input = self.embed_chars(char_inds_flat)
+            packed_char_input = pack_padded_sequence(char_rnn_input, word_lengths.view(-1))
+        else:
+            nonzero_word_locations = word_lengths > 0
+            word_lengths_flat = word_lengths[nonzero_word_locations]
+            char_inds_flat = char_inds[nonzero_word_locations].t()
+            sorted_word_lengths, word_length_order = torch.sort(word_lengths_flat, descending=True)
+            char_rnn_input = self.embed_chars(char_inds_flat[:, (word_length_order)])
+            packed_char_input = pack_padded_sequence(char_rnn_input, sorted_word_lengths)
+        _, (h_last, _) = self.char_lstm_encoder(packed_char_input)
+        char_rnn_output = torch.cat((h_last[(-2), :, :], h_last[(-1), :, :]), dim=1)
+        if self.onnx_export_model:
+            x = char_rnn_output.unsqueeze(1)
+        else:
+            _, inverted_word_length_order = torch.sort(word_length_order)
+            unsorted_rnn_output = char_rnn_output[(inverted_word_length_order), :]
+            x = char_rnn_output.new(bsz, seqlen, unsorted_rnn_output.shape[1])
+            x[nonzero_word_locations] = unsorted_rnn_output
+            x = x.transpose(0, 1)
+        return x
+
+    def prepare_for_onnx_export_(self, **kwargs):
+        self.onnx_export_model = True
+
+
+def NonlinearLayer(in_features, out_features, bias=True, activation_fn=nn.ReLU):
+    """Weight-normalized non-linear layer (input: N x T x C)"""
+    m = nn.Linear(in_features, out_features, bias=bias)
+    m.weight.data.uniform_(-0.1, 0.1)
+    if bias:
+        m.bias.data.uniform_(-0.1, 0.1)
+    return nn.Sequential(m, activation_fn())
+
+
+class ContextEmbedding(nn.Module):
+    """
+    This class implements context-dependent word embeddings as described in
+    https://arxiv.org/pdf/1607.00578.pdf
+    """
+
+    def __init__(self, embed_dim):
+        super().__init__()
+        self.nonlinear = NonlinearLayer(embed_dim, embed_dim, bias=True, activation_fn=nn.ReLU)
+        self.linear = Linear(embed_dim, embed_dim, bias=True)
+        self.sigmoid = torch.nn.Sigmoid()
+
+    def forward(self, src):
+        c = torch.mean(self.nonlinear(src), 1, True)
+        return src * self.sigmoid(self.linear(c))
+
+
+class VariableLengthRecurrent(nn.Module):
+    """
+    This class acts as a generator of autograd for varying seq lengths with
+    different padding behaviors, such as right padding, and order of seq lengths,
+    such as descending order.
+
+    The logic is mostly inspired from torch/nn/_functions/rnn.py, so it may be
+    merged in the future.
+    """
+
+    def __init__(self, rnn_cell, reverse=False):
+        super().__init__()
+        self.rnn_cell = rnn_cell
+        self.reverse = reverse
+
+    def forward(self, x, hidden, batch_size_per_step):
+        self.batch_size_per_step = batch_size_per_step
+        self.starting_batch_size = batch_size_per_step[-1] if self.reverse else batch_size_per_step[0]
+        output = []
+        input_offset = x.size(0) if self.reverse else 0
+        hiddens = []
+        flat_hidden = not isinstance(hidden, tuple)
+        if flat_hidden:
+            hidden = hidden,
+        initial_hidden = hidden
+        if self.reverse:
+            hidden = tuple(h[:self.batch_size_per_step[-1]] for h in hidden)
+        last_batch_size = self.starting_batch_size
+        for i in range(len(self.batch_size_per_step)):
+            if self.reverse:
+                step_batch_size = self.batch_size_per_step[-1 - i]
+                step_input = x[input_offset - step_batch_size:input_offset]
+                input_offset -= step_batch_size
+            else:
+                step_batch_size = self.batch_size_per_step[i]
+                step_input = x[input_offset:input_offset + step_batch_size]
+                input_offset += step_batch_size
+            new_pads = last_batch_size - step_batch_size
+            if new_pads > 0:
+                hiddens.insert(0, tuple(h[-new_pads:] for h in hidden))
+                hidden = tuple(h[:-new_pads] for h in hidden)
+            if new_pads < 0:
+                hidden = tuple(torch.cat((h, ih[last_batch_size:step_batch_size]), 0) for h, ih in zip(hidden, initial_hidden))
+            last_batch_size = step_batch_size
+            if flat_hidden:
+                hidden = self.rnn_cell(step_input, hidden[0]),
+            else:
+                hidden = self.rnn_cell(step_input, hidden)
+            output.append(hidden[0])
+        if not self.reverse:
+            hiddens.insert(0, hidden)
+            hidden = tuple(torch.cat(h, 0) for h in zip(*hiddens))
+        assert output[0].size(0) == self.starting_batch_size
+        if flat_hidden:
+            hidden = hidden[0]
+        if self.reverse:
+            output.reverse()
+        output = torch.cat(output, 0)
+        return hidden, output
+
+
+class RNNLayer(nn.Module):
+    """
+    A wrapper of rnn cells, with their corresponding forward function.
+    If bidirectional, halve the hidden_size for each cell.
+    """
+
+    def __init__(self, input_size, hidden_size, cell_type='lstm', is_bidirectional=False):
+        super().__init__()
+        self.is_bidirectional = is_bidirectional
+        num_directions = 2 if is_bidirectional else 1
+        if cell_type == 'lstm':
+            cell_class = rnn_cell.LSTMCell
+        elif cell_type == 'milstm':
+            cell_class = rnn_cell.MILSTMCell
+        elif cell_type == 'layer_norm_lstm':
+            cell_class = rnn_cell.LayerNormLSTMCell
+        else:
+            raise Exception(f'{cell_type} not implemented')
+        self.fwd_cell = cell_class(input_size, hidden_size // num_directions)
+        if is_bidirectional:
+            self.bwd_cell = cell_class(input_size, hidden_size // num_directions)
+        self.fwd_func = VariableLengthRecurrent(rnn_cell=self.fwd_cell, reverse=False)
+        if is_bidirectional:
+            self.bwd_func = VariableLengthRecurrent(rnn_cell=self.bwd_cell, reverse=True)
+
+    def forward(self, x, hidden, batch_size_per_step):
+        fwd_hidden, fwd_output = self.fwd_func.forward(x, hidden, batch_size_per_step)
+        if self.is_bidirectional:
+            bwd_hidden, bwd_output = self.bwd_func.forward(x, hidden, batch_size_per_step)
+            combined_hidden = [fwd_hidden, bwd_hidden]
+            bi_hiddens, bi_cells = zip(*combined_hidden)
+            next_hidden = torch.cat(bi_hiddens, bi_hiddens[0].dim() - 1), torch.cat(bi_cells, bi_cells[0].dim() - 1)
+            output = torch.cat([fwd_output, bwd_output], x.dim() - 1)
+        else:
+            next_hidden = fwd_hidden
+            output = fwd_output
+        return next_hidden, output
+
+
+def Embedding(num_embeddings, embedding_dim, padding_idx):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+    nn.init.normal_(m.weight, mean=0, std=embedding_dim ** -0.5)
+    nn.init.constant_(m.weight[padding_idx], 0)
+    return m
+
+
+class OutputProjection(nn.Module):
+    """Output projection layer."""
+
+    def __init__(self, out_embed_dim, vocab_size, vocab_reduction_module=None):
+        super().__init__()
+        self.out_embed_dim = out_embed_dim
+        self.vocab_size = vocab_size
+        self.output_projection_w = nn.Parameter(torch.FloatTensor(self.vocab_size, self.out_embed_dim).uniform_(-0.1, 0.1))
+        self.output_projection_b = nn.Parameter(torch.FloatTensor(self.vocab_size).zero_())
+        self.vocab_reduction_module = vocab_reduction_module
+
+    def forward(self, x, src_tokens=None, input_tokens=None, possible_translation_tokens=None):
+        output_projection_w = self.output_projection_w
+        output_projection_b = self.output_projection_b
+        decoder_input_tokens = input_tokens if self.training else None
+        if self.vocab_reduction_module and possible_translation_tokens is None:
+            possible_translation_tokens = self.vocab_reduction_module(src_tokens, decoder_input_tokens=decoder_input_tokens)
+        if possible_translation_tokens is not None:
+            output_projection_w = output_projection_w.index_select(dim=0, index=possible_translation_tokens)
+            output_projection_b = output_projection_b.index_select(dim=0, index=possible_translation_tokens)
+        batch_time_hidden = torch.onnx.operators.shape_as_tensor(x)
+        x_flat_shape = torch.cat((torch.LongTensor([-1]), batch_time_hidden[2].view(1)))
+        x_flat = torch.onnx.operators.reshape_from_tensor_shape(x, x_flat_shape)
+        projection_flat = torch.matmul(output_projection_w, x_flat.t()).t()
+        logits_shape = torch.cat((batch_time_hidden[:2], torch.LongTensor([-1])))
+        logits = torch.onnx.operators.reshape_from_tensor_shape(projection_flat, logits_shape) + output_projection_b
+        return logits, possible_translation_tokens
+
+
+class TransformerEncoderGivenEmbeddings(nn.Module):
+
+    def __init__(self, args, proj_to_decoder):
+        super().__init__()
+        self.layers = nn.ModuleList([])
+        self.layers.extend([fairseq_transformer.TransformerEncoderLayer(args) for i in range(args.encoder_layers)])
+
+    def forward(self, x, positions, encoder_padding_mask):
+        for layer in self.layers:
+            x = layer(x, encoder_padding_mask)
+        return x
+
+    def upgrade_state_dict_named(self, state_dict, name):
+        for i in range(len(self.layers)):
+            self.layers[i].upgrade_state_dict_named(state_dict, f'{name}.layers.{i}')
+
+
+class TransformerEmbedding(nn.Module):
+
+    def __init__(self, args, embed_tokens):
+        super().__init__()
+        self.dropout = args.dropout
+        embed_dim = embed_tokens.embedding_dim
+        self.padding_idx = embed_tokens.padding_idx
+        self.embed_tokens = embed_tokens
+        self.embed_scale = math.sqrt(embed_dim)
+        self.embed_positions = fairseq_transformer.PositionalEmbedding(1024, embed_dim, self.padding_idx, learned=args.encoder_learned_pos)
+
+    def forward(self, src_tokens, src_lengths):
+        x = self.embed_tokens(src_tokens)
+        src_tokens_tensor = pytorch_translate_utils.get_source_tokens_tensor(src_tokens)
+        x = self.embed_scale * x
+        positions = self.embed_positions(src_tokens_tensor)
+        x += positions
+        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = x.transpose(0, 1)
+        encoder_padding_mask = src_tokens_tensor.eq(self.padding_idx)
+        if not encoder_padding_mask.any():
+            encoder_padding_mask = None
+        return x, encoder_padding_mask, positions
+
+
+class FakeEncoderEnsemble(torch.jit.ScriptModule):
+
+    @torch.jit.script_method
+    def forward(self, src_tokens, src_lengths) ->None:
+        raise RuntimeError('Called EncoderEnsemble on a BeamSearch thats not word-source')
+
+
+class CharSourceEncoderEnsemble(nn.Module):
+
+    def __init__(self, models, src_dict=None):
+        super().__init__()
+        self.models = models
+        self.src_dict = src_dict
+        for i, model in enumerate(self.models):
+            model.prepare_for_onnx_export_()
+            self._modules[f'model_{i}'] = model
+        self.enable_precompute_reduced_weights = False
+
+    def forward(self, src_tokens, src_lengths, char_inds, word_lengths):
+        outputs = []
+        output_names = []
+        states = []
+        src_tokens_seq_first = src_tokens.t()
+        futures = []
+        for model in self.models:
+            model.eval()
+            futures.append(torch.jit._fork(model.encoder, src_tokens_seq_first, src_lengths, char_inds, word_lengths))
+        vocab_reduction_module = self.models[0].decoder.vocab_reduction_module
+        possible_translation_tokens = None
+        if vocab_reduction_module is not None:
+            possible_translation_tokens = vocab_reduction_module(src_tokens=src_tokens, decoder_input_tokens=None)
+        reduced_weights = {}
+        for i, model in enumerate(self.models):
+            if self.enable_precompute_reduced_weights and hasattr(model.decoder, '_precompute_reduced_weights') and possible_translation_tokens is not None:
+                reduced_weights[i] = torch.jit._fork(model.decoder._precompute_reduced_weights, possible_translation_tokens)
+        for i, (model, future) in enumerate(zip(self.models, futures)):
+            encoder_out = torch.jit._wait(future)
+            encoder_outputs = encoder_out[0]
+            outputs.append(encoder_outputs)
+            output_names.append(f'encoder_output_{i}')
+            if hasattr(model.decoder, '_init_prev_states'):
+                states.extend(model.decoder._init_prev_states(encoder_out))
+            if self.enable_precompute_reduced_weights and hasattr(model.decoder, '_precompute_reduced_weights') and possible_translation_tokens is not None:
+                states.extend(torch.jit._wait(reduced_weights[i]))
+        if possible_translation_tokens is not None:
+            outputs.append(possible_translation_tokens)
+            output_names.append('possible_translation_tokens')
+        for i, state in enumerate(states):
+            outputs.append(state)
+            output_names.append(f'initial_state_{i}')
+        self.output_names = output_names
+        return tuple(outputs)
+
+    @classmethod
+    def build_from_checkpoints(cls, checkpoint_filenames, src_dict_filename, dst_dict_filename, lexical_dict_paths=None):
+        models, src_dict, _ = load_models_from_checkpoints(checkpoint_filenames, src_dict_filename, dst_dict_filename, lexical_dict_paths)
+        return cls(models, src_dict=src_dict)
 
 
 class BeamSearch(torch.jit.ScriptModule):
@@ -1343,182 +1995,6 @@ class KnownOutputDecoderStepEnsemble(nn.Module):
         return tuple(outputs)
 
 
-class CharSourceEncoderEnsemble(nn.Module):
-
-    def __init__(self, models, src_dict=None):
-        super().__init__()
-        self.models = models
-        self.src_dict = src_dict
-        for i, model in enumerate(self.models):
-            model.prepare_for_onnx_export_()
-            self._modules[f'model_{i}'] = model
-        self.enable_precompute_reduced_weights = False
-
-    def forward(self, src_tokens, src_lengths, char_inds, word_lengths):
-        outputs = []
-        output_names = []
-        states = []
-        src_tokens_seq_first = src_tokens.t()
-        futures = []
-        for model in self.models:
-            model.eval()
-            futures.append(torch.jit._fork(model.encoder, src_tokens_seq_first, src_lengths, char_inds, word_lengths))
-        vocab_reduction_module = self.models[0].decoder.vocab_reduction_module
-        possible_translation_tokens = None
-        if vocab_reduction_module is not None:
-            possible_translation_tokens = vocab_reduction_module(src_tokens=src_tokens, decoder_input_tokens=None)
-        reduced_weights = {}
-        for i, model in enumerate(self.models):
-            if self.enable_precompute_reduced_weights and hasattr(model.decoder, '_precompute_reduced_weights') and possible_translation_tokens is not None:
-                reduced_weights[i] = torch.jit._fork(model.decoder._precompute_reduced_weights, possible_translation_tokens)
-        for i, (model, future) in enumerate(zip(self.models, futures)):
-            encoder_out = torch.jit._wait(future)
-            encoder_outputs = encoder_out[0]
-            outputs.append(encoder_outputs)
-            output_names.append(f'encoder_output_{i}')
-            if hasattr(model.decoder, '_init_prev_states'):
-                states.extend(model.decoder._init_prev_states(encoder_out))
-            if self.enable_precompute_reduced_weights and hasattr(model.decoder, '_precompute_reduced_weights') and possible_translation_tokens is not None:
-                states.extend(torch.jit._wait(reduced_weights[i]))
-        if possible_translation_tokens is not None:
-            outputs.append(possible_translation_tokens)
-            output_names.append('possible_translation_tokens')
-        for i, state in enumerate(states):
-            outputs.append(state)
-            output_names.append(f'initial_state_{i}')
-        self.output_names = output_names
-        return tuple(outputs)
-
-    @classmethod
-    def build_from_checkpoints(cls, checkpoint_filenames, src_dict_filename, dst_dict_filename, lexical_dict_paths=None):
-        models, src_dict, _ = load_models_from_checkpoints(checkpoint_filenames, src_dict_filename, dst_dict_filename, lexical_dict_paths)
-        return cls(models, src_dict=src_dict)
-
-
-class BeamDecode(torch.jit.ScriptModule):
-    """
-    Decodes the output of Beam Search to get the top hypotheses
-    """
-
-    def __init__(self, eos_token_id, length_penalty, nbest, beam_size, stop_at_eos):
-        super().__init__()
-        self.eos_token_id = torch.jit.Attribute(eos_token_id, int)
-        self.length_penalty = torch.jit.Attribute(length_penalty, float)
-        self.nbest = torch.jit.Attribute(nbest, int)
-        self.beam_size = torch.jit.Attribute(beam_size, int)
-        self.stop_at_eos = torch.jit.Attribute(int(stop_at_eos), int)
-
-    @torch.jit.script_method
-    @torch.no_grad()
-    def forward(self, beam_tokens: Tensor, beam_scores: Tensor, token_weights: Tensor, beam_prev_indices: Tensor, num_steps: int) ->List[Tuple[Tensor, float, List[float], Tensor, Tensor]]:
-        self._check_dimensions(beam_tokens, beam_scores, token_weights, beam_prev_indices, num_steps)
-        end_states = self._get_all_end_states(beam_tokens, beam_scores, beam_prev_indices, num_steps)
-        outputs = torch.jit.annotate(List[Tuple[Tensor, float, List[float], Tensor, Tensor]], [])
-        for state_idx in range(len(end_states)):
-            state = end_states[state_idx]
-            hypothesis_score = float(state[0])
-            beam_indices = self._get_output_steps_to_beam_indices(state, beam_prev_indices)
-            beam_output = torch.jit.annotate(List[Tensor], [])
-            token_level_scores = torch.jit.annotate(List[float], [])
-            position = int(state[1])
-            hyp_index = int(state[2])
-            best_indices = torch.tensor([position, hyp_index])
-            back_alignment_weights = []
-            assert position + 1 == len(beam_indices)
-            pos = 1
-            prev_beam_index = -1
-            while pos < len(beam_indices):
-                beam_index = beam_indices[pos]
-                beam_output.append(beam_tokens[pos][beam_index])
-                if pos == 1:
-                    token_level_scores.append(float(beam_scores[pos][beam_index]))
-                else:
-                    token_level_scores.append(float(beam_scores[pos][beam_index]) - float(beam_scores[pos - 1][prev_beam_index]))
-                back_alignment_weights.append(token_weights[pos][beam_index].detach())
-                prev_beam_index = beam_index
-                pos += 1
-            outputs.append((torch.stack(beam_output), hypothesis_score, token_level_scores, torch.stack(back_alignment_weights, dim=1), best_indices))
-        return outputs
-
-    @torch.jit.script_method
-    def _get_output_steps_to_beam_indices(self, end_state: Tensor, beam_prev_indices: Tensor) ->List[int]:
-        """
-        Returns a mapping from each output position and the beam index that was
-        picked from the beam search results.
-        """
-        present_position = int(end_state[1])
-        beam_index = int(end_state[2])
-        beam_indices = torch.jit.annotate(List[int], [])
-        while present_position >= 0:
-            beam_indices.insert(0, beam_index)
-            beam_index = int(beam_prev_indices[present_position][beam_index])
-            present_position = present_position - 1
-        return beam_indices
-
-    @torch.jit.script_method
-    def _add_to_end_states(self, end_states: List[Tensor], min_score: float, state: Tensor, min_index: int) ->Tuple[List[Tensor], float, int]:
-        """
-        Maintains a list of atmost `nbest` highest end states
-        """
-        if len(end_states) < self.nbest:
-            end_states.append(state)
-            if float(state[0]) <= min_score:
-                min_score = float(state[0])
-                min_index = len(end_states) - 1
-        elif bool(state[0] > min_score):
-            end_states[min_index] = state
-            min_index = -1
-            min_score = float('inf')
-            for idx in range(len(end_states)):
-                s = end_states[idx]
-                if bool(float(s[0]) <= min_score):
-                    min_index = idx
-                    min_score = float(s[0])
-        return end_states, min_score, min_index
-
-    @torch.jit.script_method
-    def _get_all_end_states(self, beam_tokens: Tensor, beam_scores: Tensor, beam_prev_indices: Tensor, num_steps: int) ->Tensor:
-        """
-        Return all end states and hypothesis scores for those end states.
-        """
-        min_score = float('inf')
-        min_index = -1
-        end_states = torch.jit.annotate(List[Tensor], [])
-        prev_hypo_is_finished = torch.zeros(self.beam_size).byte()
-        position = 1
-        while bool(position <= num_steps):
-            hypo_is_finished = torch.zeros(self.beam_size).byte()
-            for hyp_index in range(self.beam_size):
-                prev_pos = beam_prev_indices[position][hyp_index]
-                hypo_is_finished[hyp_index] = prev_hypo_is_finished[prev_pos]
-                if bool(hypo_is_finished[hyp_index] == 0):
-                    if bool(beam_tokens[position][hyp_index] == self.eos_token_id) or bool(position == num_steps):
-                        if bool(self.stop_at_eos):
-                            hypo_is_finished[hyp_index] = 1
-                        hypo_score = float(beam_scores[position][hyp_index])
-                        if bool(self.length_penalty != 0):
-                            hypo_score = hypo_score / float(position) ** float(self.length_penalty)
-                        end_states, min_score, min_index = self._add_to_end_states(end_states, min_score, torch.tensor([hypo_score, float(position), float(hyp_index)]), min_index)
-            prev_hypo_is_finished = hypo_is_finished
-            position = position + 1
-        end_states = torch.stack(end_states)
-        _, sorted_end_state_indices = end_states[:, (0)].sort(dim=0, descending=True)
-        end_states = end_states[(sorted_end_state_indices), :]
-        return end_states
-
-    @torch.jit.script_method
-    def _check_dimensions(self, beam_tokens: Tensor, beam_scores: Tensor, token_weights: Tensor, beam_prev_indices: Tensor, num_steps: int) ->None:
-        assert beam_tokens.size(1) == self.beam_size, 'Dimension of beam_tokens : {} and beam size : {} are not consistent'.format(beam_tokens.size(), self.beam_size)
-        assert beam_scores.size(1) == self.beam_size, 'Dimension of beam_scores : {} and beam size : {} are not consistent'.format(beam_scores.size(), self.beam_size)
-        assert token_weights.size(1) == self.beam_size, 'Dimension of token_weights : {} and beam size : {} are not consistent'.format(token_weights.size(), self.beam_size)
-        assert beam_prev_indices.size(1) == self.beam_size, 'Dimension of beam_prev_indices : {} and beam size : {} '
-        """are not consistent""".format(beam_prev_indices.size(), self.beam_size)
-        assert beam_tokens.size(0) <= num_steps + 1, 'Dimension of beam_tokens : {} and num_steps : {} are not consistent'.format(beam_tokens.size(), num_steps)
-        assert beam_scores.size(0) <= num_steps + 1, 'Dimension of beam_scores : {} and num_steps : {} are not consistent'.format(beam_scores.size(), num_steps)
-        assert token_weights.size(0) <= num_steps + 1, 'Dimension of token_weights : {} and num_steps : {} are not consistent'.format(token_weights.size(), num_steps)
-        assert beam_prev_indices.size(0) <= num_steps + 1, 'Dimension of beam_prev_indices : {} and num_steps : {} are not consistent'.format(beam_prev_indices.size(), num_steps)
-
-
 class BeamSearchAndDecode(torch.jit.ScriptModule):
     """
     Combines the functionality of BeamSearch and BeamDecode
@@ -1562,42 +2038,6 @@ class BeamSearchAndDecode(torch.jit.ScriptModule):
         self.apply(unpack)
 
 
-class IterativeRefinementGenerateAndDecode(torch.jit.ScriptModule):
-
-    def __init__(self, models, tgt_dict, max_iter=1, quantize=True, check_trace=True):
-        super().__init__()
-        src_tokens = torch.tensor([[4, 2]])
-        src_lengths = torch.tensor([2])
-        self.models = models
-        generator = IterativeRefinementGenerator(self.models, tgt_dict, max_iter=max_iter)
-        if quantize:
-            generator = torch.quantization.quantize_dynamic(generator, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
-        enc_inputs = src_tokens, src_lengths
-        self.generator = torch.jit.trace(generator, enc_inputs, _force_outplace=True, check_trace=check_trace)
-
-    @torch.jit.script_method
-    def forward(self, src_tokens: torch.Tensor, src_lengths: torch.Tensor) ->List[Tuple[Tensor, float, Tensor]]:
-        return [(x.long(), float(y), at) for x, y, at in list(self.generator(src_tokens.t(), src_lengths))]
-
-    def save_to_pytorch(self, output_path):
-
-        def pack(s):
-            if hasattr(s, '_pack'):
-                s._pack()
-
-        def unpack(s):
-            if hasattr(s, '_unpack'):
-                s._unpack()
-        self.apply(pack)
-        torch.jit.save(self, output_path)
-        self.apply(unpack)
-
-    @classmethod
-    def build_from_checkpoints(cls, checkpoint_filenames, src_dict_filename, tgt_dict_filename, lexical_dict_paths=None, max_iter=1):
-        models, _, tgt_dict = load_models_from_checkpoints(checkpoint_filenames, src_dict_filename, tgt_dict_filename, lexical_dict_paths)
-        return cls(models, tgt_dict=tgt_dict, max_iter=max_iter)
-
-
 @torch.jit.script
 def finalize_hypos_loop_attns(finalized_attns_list: List[Tensor], finalized_alignments_list: List[Tensor], finalized_idxs, pad_idx: int, finalized_tokens, finalized_scores, finalized_attn):
     for i in range(finalized_idxs.size(0)):
@@ -1631,12 +2071,12 @@ def finalize_hypos_loop_tokens(finalized_tokens_list: List[Tensor], finalized_id
 def is_a_loop(pad_idx: int, x, y, s, a):
     b, l_x, l_y = x.size(0), x.size(1), y.size(1)
     if l_x > l_y:
-        y = torch.cat([y, torch.zeros([b, l_x - l_y]).to(y).fill_(pad_idx)], 1)
-        s = torch.cat([s, torch.zeros([b, l_x - l_y]).to(s)], 1)
+        y = torch.cat([y, torch.zeros([b, l_x - l_y]).fill_(pad_idx)], 1)
+        s = torch.cat([s, torch.zeros([b, l_x - l_y])], 1)
         if a.size()[0] > 0:
-            a = torch.cat([a, torch.zeros([b, l_x - l_y, a.size(2)]).to(a)], 1)
+            a = torch.cat([a, torch.zeros([b, l_x - l_y, a.size(2)])], 1)
     elif l_x < l_y:
-        x = torch.cat([x, torch.zeros([b, l_y - l_x]).to(x).fill_(pad_idx)], 1)
+        x = torch.cat([x, torch.zeros([b, l_y - l_x]).fill_(pad_idx)], 1)
     return (x == y).all(1), y, s, a
 
 
@@ -1715,6 +2155,42 @@ class IterativeRefinementGenerator(nn.Module):
         return finalized_tokens_list, finalized_scores_list, finalized_attns_list, finalized_alignments_list
 
 
+class IterativeRefinementGenerateAndDecode(torch.jit.ScriptModule):
+
+    def __init__(self, models, tgt_dict, max_iter=1, quantize=True, check_trace=True):
+        super().__init__()
+        src_tokens = torch.tensor([[4, 2]])
+        src_lengths = torch.tensor([2])
+        self.models = models
+        generator = IterativeRefinementGenerator(self.models, tgt_dict, max_iter=max_iter)
+        if quantize:
+            generator = torch.quantization.quantize_dynamic(generator, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
+        enc_inputs = src_tokens, src_lengths
+        self.generator = torch.jit.trace(generator, enc_inputs, _force_outplace=True, check_trace=check_trace)
+
+    @torch.jit.script_method
+    def forward(self, src_tokens: torch.Tensor, src_lengths: torch.Tensor) ->List[Tuple[Tensor, float, Tensor]]:
+        return [(x.long(), float(y), at) for x, y, at in list(self.generator(src_tokens.t(), src_lengths))]
+
+    def save_to_pytorch(self, output_path):
+
+        def pack(s):
+            if hasattr(s, '_pack'):
+                s._pack()
+
+        def unpack(s):
+            if hasattr(s, '_unpack'):
+                s._unpack()
+        self.apply(pack)
+        torch.jit.save(self, output_path)
+        self.apply(unpack)
+
+    @classmethod
+    def build_from_checkpoints(cls, checkpoint_filenames, src_dict_filename, tgt_dict_filename, lexical_dict_paths=None, max_iter=1):
+        models, _, tgt_dict = load_models_from_checkpoints(checkpoint_filenames, src_dict_filename, tgt_dict_filename, lexical_dict_paths)
+        return cls(models, tgt_dict=tgt_dict, max_iter=max_iter)
+
+
 class MultiDecoderCombinationStrategy(nn.Module):
     """Strategy for combining decoder networks.
 
@@ -1752,141 +2228,284 @@ class MultiDecoderCombinationStrategy(nn.Module):
         raise NotImplementedError()
 
 
-def combine_heads(X):
+def average_tensors(tensor_list, norm_fn=None, weights=None):
+    """Averages a list of tensors.
+
+    Average the elements in tensor_list as follows:
+      w1*norm_fn(t1) + w2*norm_fn(t2) + ...
+    The default behavior corresponds to a [weighted] mean. You can set norm_fn
+    to F.softmax or F.log_softmax to average in probability or logprob space.
+
+    Note: This implementation favours memory efficiency over numerical
+    stability, and iterates through `tensor_list` in a Python for-loop rather
+    than stacking it to a PyTorch tensor.
+
+    Arguments:
+        tensor_list (list): Python list of tensors of the same size and same type
+        norm_fn (function): If set, apply norm_fn() to elements in `tensor_list`
+            before averaging. If list of functions, apply n-th function to
+            n-th tensor.
+        weights (list): List of tensors or floats to use to weight models. Must
+            be of the same length as `tensor_list`. If none, use uniform weights.
+
+    Returns:
+        Average of the tensors in `tensor_list`
     """
-    Combine heads (the inverse of split heads):
-    1) Transpose X from (batch size, nheads, sequence length, d_head) to
-        (batch size, sequence length, nheads, d_head)
-    2) Combine (reshape) last 2 dimensions (nheads, d_head) into 1 (d_model)
+    n_tensors = len(tensor_list)
+    if weights is None:
+        weights = [1.0 / float(n_tensors)] * n_tensors
+    if not isinstance(norm_fn, list):
+        norm_fn = [norm_fn] * n_tensors
+    assert n_tensors == len(weights)
+    assert n_tensors == len(norm_fn)
 
-    Inputs:
-      X : [batch size * nheads, sequence length, d_head]
-      nheads : integer
-      d_head : integer
-
-    Outputs:
-      [batch_size, seq_len, d_model]
-
-    """
-    X = X.transpose(1, 2)
-    nheads, d_head = X.shape[-2:]
-    return X.contiguous().view(list(X.shape[:-2]) + [nheads * d_head])
+    def id_fn(x, dim):
+        return x
+    norm_fn = [(id_fn if f is None else f) for f in norm_fn]
+    acc = torch.zeros_like(tensor_list[0])
+    for f, w, t in zip(norm_fn, weights, tensor_list):
+        acc += w * f(t, dim=-1)
+    return acc
 
 
-def create_src_lengths_mask(batch_size, src_lengths):
-    max_srclen = src_lengths.max()
-    src_indices = torch.arange(0, max_srclen).unsqueeze(0).type_as(src_lengths)
-    src_indices = src_indices.expand(batch_size, max_srclen)
-    src_lengths = src_lengths.unsqueeze(dim=1).expand(batch_size, max_srclen)
-    return (src_indices < src_lengths).int().detach()
+class UniformStrategy(MultiDecoderCombinationStrategy):
+    """Uniform averaging of model predictions."""
+
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None, norm_fn=None, to_log=False):
+        super().__init__(out_embed_dims, vocab_size)
+        assert vocab_reduction_module is None
+        self.output_projections = nn.ModuleList([OutputProjection(dim, vocab_size) for dim in out_embed_dims])
+        self.to_log = to_log
+        self.norm_fn = norm_fn
+
+    def forward(self, unprojected_outs, src_tokens=None, input_tokens=None, possible_translation_tokens=None, select_single=None):
+        assert possible_translation_tokens is None
+        if select_single is not None:
+            return self.output_projections[select_single](unprojected_outs[select_single])
+        logits = [p(o)[0] for p, o in zip(self.output_projections, unprojected_outs)]
+        avg = average_tensors(logits, norm_fn=self.norm_fn)
+        if self.to_log:
+            avg.log_()
+        return avg, None
 
 
-def apply_masks(scores, batch_size, unseen_mask, src_lengths):
-    seq_len = scores.shape[-1]
-    sequence_mask = torch.ones(seq_len, seq_len).unsqueeze(0).int()
-    if unseen_mask:
-        sequence_mask = torch.tril(torch.ones(seq_len, seq_len), diagonal=0).unsqueeze(0).int()
-    if src_lengths is not None:
-        src_lengths_mask = create_src_lengths_mask(batch_size=batch_size, src_lengths=src_lengths).unsqueeze(-2)
-        sequence_mask = sequence_mask & src_lengths_mask
-    sequence_mask = sequence_mask.unsqueeze(1)
-    scores = scores.masked_fill(sequence_mask == 0, -np.inf)
-    return scores
+class UnprojectedStrategy(MultiDecoderCombinationStrategy):
+    """Average decoder outputs, share output projection layer."""
+
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None):
+        super().__init__(out_embed_dims, vocab_size, vocab_reduction_module)
+        out_embed_dim = out_embed_dims[0]
+        assert all(d == out_embed_dim for d in out_embed_dims)
+        self.output_projection = OutputProjection(out_embed_dim, vocab_size, vocab_reduction_module)
+
+    def forward(self, unprojected_outs, src_tokens=None, input_tokens=None, possible_translation_tokens=None, select_single=None):
+        return self.output_projection(average_tensors(unprojected_outs) if select_single is None else unprojected_outs[select_single], src_tokens, input_tokens, possible_translation_tokens)
 
 
-def scaled_dot_prod_attn(query, key, value, unseen_mask=False, src_lengths=None):
-    """
-    Scaled Dot Product Attention
+class MaxUnprojectedStrategy(MultiDecoderCombinationStrategy):
+    """Element-wise max of decoder outputs, share output projection layer."""
 
-    Implements equation:
-    Attention(Q, K, V) = softmax(QK^T/\\sqrt{d_k})V
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None):
+        out_embed_dim = out_embed_dims[0]
+        assert all(d == out_embed_dim for d in out_embed_dims)
+        super().__init__(out_embed_dims, vocab_size, vocab_reduction_module)
+        self.output_projection = OutputProjection(out_embed_dim, vocab_size, vocab_reduction_module)
 
-    Inputs:
-      query : [batch size, nheads, sequence length, d_k]
-      key : [batch size, nheads, sequence length, d_k]
-      value : [batch size, nheads, sequence length, d_v]
-      unseen_mask: if True, only attend to previous sequence positions
-      src_lengths_mask: if True, mask padding based on src_lengths
-
-    Outputs:
-      attn: [batch size, sequence length, d_v]
-
-    Note that in this implementation d_q = d_k = d_v = dim
-    """
-    d_k = query.shape[-1]
-    scores = torch.matmul(query, key.transpose(2, 3)) / math.sqrt(d_k)
-    if unseen_mask or src_lengths is not None:
-        scores = apply_masks(scores=scores, batch_size=query.shape[0], unseen_mask=unseen_mask, src_lengths=src_lengths)
-    p_attn = F.softmax(scores, dim=-1)
-    return torch.matmul(p_attn, value), p_attn
+    def forward(self, unprojected_outs, src_tokens=None, input_tokens=None, possible_translation_tokens=None, select_single=None):
+        if select_single is None:
+            proj_input, _ = torch.max(torch.stack(unprojected_outs), dim=0)
+        else:
+            proj_input = unprojected_outs[select_single]
+        return self.output_projection(proj_input, src_tokens, input_tokens, possible_translation_tokens)
 
 
-def split_heads(X, nheads):
-    """
-    Split heads:
-    1) Split (reshape) last dimension (size d_model) into nheads, d_head
-    2) Transpose X from (batch size, sequence length, nheads, d_head) to
-        (batch size, nheads, sequence length, d_head)
+class MultiplicativeUnprojectedStrategy(MultiDecoderCombinationStrategy):
+    """Element-wise product of decoder out, share output projection layer."""
 
-    Inputs:
-      X : [batch size, sequence length, nheads * d_head]
-      nheads : integer
-    Outputs:
-      [batch size,  nheads, sequence length, d_head]
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None):
+        super().__init__(out_embed_dims, vocab_size, vocab_reduction_module)
+        out_embed_dim = out_embed_dims[0]
+        assert all(d == out_embed_dim for d in out_embed_dims)
+        self.output_projection = OutputProjection(out_embed_dim, vocab_size, vocab_reduction_module)
+        self.activation = nn.ReLU()
 
-    """
-    last_dim = X.shape[-1]
-    assert last_dim % nheads == 0
-    X_last_dim_split = X.view(list(X.shape[:-1]) + [nheads, last_dim // nheads])
-    return X_last_dim_split.transpose(1, 2)
+    def forward(self, unprojected_outs, src_tokens=None, input_tokens=None, possible_translation_tokens=None, select_single=None):
+        stacked = torch.stack(unprojected_outs) if select_single is None else torch.unsqueeze(unprojected_outs[select_single], 0)
+        return self.output_projection(torch.prod(self.activation(stacked), dim=0), src_tokens, input_tokens, possible_translation_tokens)
 
 
-class MultiheadAttention(nn.Module):
-    """
-    Multiheaded Scaled Dot Product Attention
+class DeepFusionStrategy(MultiDecoderCombinationStrategy):
+    """Deep fusion following https://arxiv.org/pdf/1503.03535.pdf.
 
-    Implements equation:
-    MultiHead(Q, K, V) = Concat(head_1,...,head_h)W^O
-        where head_i = Attention(QW_i^Q, KW_i^K, VW_i^V)
-
-    Similarly to the above, d_k = d_v = d_model / h
-
-    Inputs
-      init:
-        nheads : integer # of attention heads
-        d_model : model dimensionality
-        d_head : dimensionality of a single head
-
-      forward:
-        query : [batch size, sequence length, d_model]
-        key: [batch size, sequence length, d_model]
-        value: [batch size, sequence length, d_model]
-      unseen_mask: if True, only attend to previous sequence positions
-      src_lengths_mask: if True, mask padding based on src_lengths
-
-    Output
-      result : [batch_size, sequence length, d_model]
+    The first decoder is assumed to be the language model.
     """
 
-    def __init__(self, nheads, d_model):
-        """Take in model size and number of heads."""
-        super(MultiheadAttention, self).__init__()
-        assert d_model % nheads == 0
-        self.d_head = d_model // nheads
-        self.nheads = nheads
-        self.Q_fc = nn.Linear(d_model, d_model, bias=False)
-        self.K_fc = nn.Linear(d_model, d_model, bias=False)
-        self.V_fc = nn.Linear(d_model, d_model, bias=False)
-        self.output_fc = nn.Linear(d_model, d_model, bias=False)
-        self.attn = None
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None):
+        super().__init__(out_embed_dims, vocab_size, vocab_reduction_module)
+        self.gating_network = NonlinearLayer(out_embed_dims[0], 1, bias=True, activation_fn=nn.Sigmoid)
+        self.output_projection = OutputProjection(sum(out_embed_dims), vocab_size, vocab_reduction_module)
 
-    def forward(self, query, key, value, unseen_mask=False, src_lengths=None):
-        query = split_heads(self.Q_fc(query), self.nheads)
-        key = split_heads(self.K_fc(key), self.nheads)
-        value = split_heads(self.V_fc(value), self.nheads)
-        x, self.attn = scaled_dot_prod_attn(query=query, key=key, value=value, unseen_mask=unseen_mask, src_lengths=src_lengths)
-        x = combine_heads(x)
-        return self.output_fc(x)
+    def forward(self, unprojected_outs, src_tokens=None, input_tokens=None, possible_translation_tokens=None, select_single=None):
+        assert select_single is None
+        g = self.gating_network(unprojected_outs[0])
+        unprojected_outs[0] = g * unprojected_outs[0]
+        return self.output_projection(torch.cat(unprojected_outs, 2), src_tokens, input_tokens, possible_translation_tokens)
+
+
+class ColdFusionStrategy(MultiDecoderCombinationStrategy):
+    """Cold fusion following https://arxiv.org/pdf/1708.06426.pdf.
+
+    The first decoder is assumed to be the language model.
+    """
+
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None, hidden_layer_size=256):
+        super().__init__(out_embed_dims, vocab_size, vocab_reduction_module)
+        self.hidden_layer = NonlinearLayer(vocab_size, hidden_layer_size, bias=False, activation_fn=nn.ReLU)
+        trans_dim = sum(out_embed_dims[1:])
+        self.gating_network = NonlinearLayer(hidden_layer_size + trans_dim, hidden_layer_size, bias=True, activation_fn=nn.Sigmoid)
+        self.output_projections = nn.ModuleList([OutputProjection(out_embed_dims[0], vocab_size), OutputProjection(hidden_layer_size + trans_dim, vocab_size, vocab_reduction_module)])
+        self.pre_softmax_activation = nn.ReLU()
+
+    def forward(self, unprojected_outs, src_tokens=None, input_tokens=None, possible_translation_tokens=None, select_single=None):
+        assert select_single is None
+        l_lm, _ = self.output_projections[0](unprojected_outs[0], src_tokens, input_tokens, possible_translation_tokens)
+        l_lm_max, _ = torch.max(l_lm, dim=2, keepdim=True)
+        l_lm = l_lm - l_lm_max
+        h_lm = self.hidden_layer(l_lm)
+        s = torch.cat(unprojected_outs[1:], 2)
+        g = self.gating_network(torch.cat([s, h_lm], 2))
+        s_cf = torch.cat([s, g * h_lm], 2)
+        logits, possible_translation_tokens = self.output_projections[1](s_cf)
+        logits = self.pre_softmax_activation(logits)
+        return logits, possible_translation_tokens
+
+
+class ConcatStrategy(MultiDecoderCombinationStrategy):
+    """Concatenates decoder outputs."""
+
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None):
+        super().__init__(out_embed_dims, vocab_size, vocab_reduction_module)
+        self.output_projection = OutputProjection(sum(out_embed_dims), vocab_size, vocab_reduction_module)
+
+    def forward(self, unprojected_outs, src_tokens=None, input_tokens=None, possible_translation_tokens=None, select_single=None):
+        assert select_single is None
+        return self.output_projection(torch.cat(unprojected_outs, 2), src_tokens, input_tokens, possible_translation_tokens)
+
+
+class BottleneckStrategy(MultiDecoderCombinationStrategy):
+    """Concatenation of decoder outputs followed by a bottleneck layer."""
+
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None):
+        super().__init__(out_embed_dims, vocab_size, vocab_reduction_module)
+        dim = out_embed_dims[0]
+        self.bottleneck = Linear(sum(out_embed_dims), dim)
+        self.output_projection = OutputProjection(dim, vocab_size, vocab_reduction_module)
+
+    def forward(self, unprojected_outs, src_tokens=None, input_tokens=None, possible_translation_tokens=None, select_single=None):
+        assert select_single is None
+        return self.output_projection(self.bottleneck(torch.cat(unprojected_outs, 2)), src_tokens, input_tokens, possible_translation_tokens)
+
+
+class DeepBottleneckStrategy(MultiDecoderCombinationStrategy):
+    """Bottleneck strategy with an additional non-linear layer."""
+
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None, activation_fn=torch.nn.ReLU):
+        super().__init__(out_embed_dims, vocab_size, vocab_reduction_module)
+        dim = out_embed_dims[0]
+        self.bottleneck = nn.Sequential(Linear(sum(out_embed_dims), dim, bias=True), activation_fn(), Linear(dim, dim, bias=True))
+        self.output_projection = OutputProjection(dim, vocab_size, vocab_reduction_module)
+
+    def forward(self, unprojected_outs, src_tokens=None, input_tokens=None, possible_translation_tokens=None, select_single=None):
+        assert select_single is None
+        return self.output_projection(self.bottleneck(torch.cat(unprojected_outs, 2)), src_tokens, input_tokens, possible_translation_tokens)
+
+
+class BaseWeightedStrategy(MultiDecoderCombinationStrategy):
+    """Base class for strategies with explicitly learned weights."""
+
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None, fixed_weights=None, hidden_layer_size=32, activation_fn=torch.nn.ReLU, logit_fn=torch.exp):
+        """Initializes a combination strategy with explicit weights.
+
+        Args:
+            out_embed_dims (list): List of output dimensionalities of the
+                decoders.
+            vocab_size (int): Size of the output projection.
+            vocab_reduction_module: For vocabulary reduction
+            fixed_weights (list): If not None, use these fixed weights rather
+                than a gating network.
+            hidden_layer_size (int): Size of the hidden layer of the gating
+                network.
+            activation_fn: Non-linearity at the hidden layer.
+            norm_fn: Function to use for normalization (exp or sigmoid).
+        """
+        super().__init__(out_embed_dims, vocab_size, vocab_reduction_module)
+        if fixed_weights is None:
+            self.fixed_weights = None
+            self.gating_network = nn.Sequential(Linear(sum(out_embed_dims), hidden_layer_size, bias=True), activation_fn(), Linear(hidden_layer_size, len(out_embed_dims), bias=True))
+            self.logit_fn = logit_fn
+        else:
+            assert len(fixed_weights) == len(out_embed_dims)
+            self.fixed_weights = maybe_cuda(torch.Tensor(fixed_weights).view(1, 1, -1))
+
+    def compute_weights(self, unprojected_outs, select_single=None):
+        """Derive interpolation weights from unprojected decoder outputs.
+
+        Args:
+            unprojected_outs: List of [batch_size, seq_len, out_embed_dim]
+                tensors with unprojected decoder outputs.
+            select_single: If not None, put all weighton n-th model.
+
+        Returns:
+            A [batch_size, seq_len, num_decoders] float32 tensor with
+            normalized decoder interpolation weights.
+        """
+        if select_single is not None:
+            sz = unprojected_outs[0].size()
+            ret = maybe_cuda(torch.zeros((sz[0], sz[1], len(unprojected_outs))))
+            ret[:, :, (select_single)] = 1.0
+            return ret
+        if self.fixed_weights is not None:
+            return self.fixed_weights
+        logits = self.logit_fn(self.gating_network(torch.cat(unprojected_outs, 2)))
+        return torch.clamp(logits / torch.sum(logits, dim=2, keepdim=True), 0.0, 1.0)
+
+
+class WeightedStrategy(BaseWeightedStrategy):
+    """Weighted average of full logits."""
+
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None, norm_fn=None, to_log=False, fixed_weights=None):
+        super().__init__(out_embed_dims, vocab_size, fixed_weights=fixed_weights)
+        assert vocab_reduction_module is None
+        self.output_projections = nn.ModuleList([OutputProjection(dim, vocab_size) for dim in out_embed_dims])
+        self.norm_fn = norm_fn
+        self.n_systems = len(out_embed_dims)
+        self.to_log = to_log
+
+    def forward(self, unprojected_outs, src_tokens=None, input_tokens=None, possible_translation_tokens=None, select_single=None):
+        assert possible_translation_tokens is None
+        weights = self.compute_weights(unprojected_outs, select_single)
+        weights = [weights[:, :, i:i + 1] for i in range(self.n_systems)]
+        logits = [p(o)[0] for p, o in zip(self.output_projections, unprojected_outs)]
+        avg = average_tensors(logits, weights=weights, norm_fn=self.norm_fn)
+        if self.to_log:
+            avg.log_()
+        return avg, None
+
+
+class WeightedUnprojectedStrategy(BaseWeightedStrategy):
+    """Weighted average of decoder outputs, shared projection layer."""
+
+    def __init__(self, out_embed_dims, vocab_size, vocab_reduction_module=None):
+        super().__init__(out_embed_dims, vocab_size, vocab_reduction_module)
+        out_embed_dim = out_embed_dims[0]
+        assert all(d == out_embed_dim for d in out_embed_dims)
+        self.output_projection = OutputProjection(out_embed_dim, vocab_size, vocab_reduction_module)
+
+    def forward(self, unprojected_outs, src_tokens=None, input_tokens=None, possible_translation_tokens=None, select_single=None):
+        weights = self.compute_weights(unprojected_outs, select_single)
+        weights = [weights[:, :, i:i + 1] for i in range(self.n_systems)]
+        averaged_unprojected = average_tensors(unprojected_outs, weights=weights)
+        return self.output_projections[0](averaged_unprojected, src_tokens, input_tokens, possible_translation_tokens)
 
 
 def LayerNorm(embedding_dim):
@@ -2577,6 +3196,37 @@ class AANDecoderLayer(nn.Module):
         self.need_attn = need_attn
 
 
+class FeedForwardNetwork(nn.Module):
+
+    def __init__(self, input_size, hidden_size=None, output_size=None, num_layers=2, dropout=0.0):
+        super().__init__()
+        self.input_size = input_size
+        self.output_size = self.input_size if output_size is None else output_size
+        self.hidden_size = self.output_size if hidden_size is None else hidden_size
+        self.num_layers = num_layers
+        self.activation_type = 'relu'
+        self.dropout = dropout
+        self.layers = nn.ModuleList()
+        if num_layers == 1:
+            self.layers.append(Linear(self.input_size, self.output_size))
+        else:
+            self.layers.append(Linear(self.input_size, self.hidden_size))
+            for _ in range(1, num_layers - 1):
+                self.layers.append(Linear(self.hidden_size, self.hidden_size))
+            self.layers.append(Linear(self.hidden_size, self.output_size))
+
+    def forward(self, x):
+        x = self.layers[0](x)
+        for layer in self.layers[1:]:
+            x = F.relu(x)
+            x = F.dropout(x, p=self.dropout, training=self.training)
+            x = layer(x)
+        return x
+
+    def extra_repr(self):
+        return 'activation_type={}, dropout={}'.format(self.activation_type, self.dropout)
+
+
 class TransformerAANDecoderLayer(nn.Module):
     """Decoder layer block.
     In the original paper each operation (multi-head attention, encoder
@@ -2697,37 +3347,6 @@ class TransformerAANDecoderLayer(nn.Module):
 
     def extra_repr(self):
         return 'dropout={}, more_dropouts={}'.format(self.dropout, self.more_dropouts)
-
-
-class FeedForwardNetwork(nn.Module):
-
-    def __init__(self, input_size, hidden_size=None, output_size=None, num_layers=2, dropout=0.0):
-        super().__init__()
-        self.input_size = input_size
-        self.output_size = self.input_size if output_size is None else output_size
-        self.hidden_size = self.output_size if hidden_size is None else hidden_size
-        self.num_layers = num_layers
-        self.activation_type = 'relu'
-        self.dropout = dropout
-        self.layers = nn.ModuleList()
-        if num_layers == 1:
-            self.layers.append(Linear(self.input_size, self.output_size))
-        else:
-            self.layers.append(Linear(self.input_size, self.hidden_size))
-            for _ in range(1, num_layers - 1):
-                self.layers.append(Linear(self.hidden_size, self.hidden_size))
-            self.layers.append(Linear(self.hidden_size, self.output_size))
-
-    def forward(self, x):
-        x = self.layers[0](x)
-        for layer in self.layers[1:]:
-            x = F.relu(x)
-            x = F.dropout(x, p=self.dropout, training=self.training)
-            x = layer(x)
-        return x
-
-    def extra_repr(self):
-        return 'activation_type={}, dropout={}'.format(self.activation_type, self.dropout)
 
 
 logger = logging.getLogger(__name__)
@@ -2934,9 +3553,21 @@ TESTCASES = [
      lambda: ([], {'nheads': 4, 'd_model': 4}),
      lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
      False),
+    (NoAttention,
+     lambda: ([], {'decoder_hidden_state_dim': 4, 'context_dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (OutputProjection,
      lambda: ([], {'out_embed_dim': 4, 'vocab_size': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (UniformStrategy,
+     lambda: ([], {'out_embed_dims': [4, 4], 'vocab_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (UnprojectedStrategy,
+     lambda: ([], {'out_embed_dims': [4, 4], 'vocab_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (WordPredictor,
      lambda: ([], {'encoder_output_dim': 4, 'hidden_dim': 4, 'output_dim': 4}),
@@ -2965,4 +3596,13 @@ class Test_pytorch_translate(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

@@ -39,15 +39,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -73,6 +74,12 @@ from torch.nn.utils import clip_grad_norm_
 import math
 
 
+from collections import defaultdict
+
+
+from collections import OrderedDict
+
+
 from enum import Enum
 
 
@@ -88,13 +95,16 @@ from torch.nn.utils.rnn import pad_packed_sequence
 from torch.nn.utils.rnn import pack_padded_sequence
 
 
+from torch.autograd.function import Function
+
+
+from torch.autograd.function import once_differentiable
+
+
 from torch.nn import functional as F
 
 
 from torch.nn.parameter import Parameter
-
-
-from collections import OrderedDict
 
 
 import collections
@@ -104,6 +114,802 @@ from itertools import repeat
 
 
 from torch._six import inf
+
+
+from torch.optim.optimizer import Optimizer
+
+
+class BiLinear(nn.Module):
+    """
+    Bi-linear layer
+    """
+
+    def __init__(self, left_features, right_features, out_features, bias=True):
+        """
+
+        Args:
+            left_features: size of left input
+            right_features: size of right input
+            out_features: size of output
+            bias: If set to False, the layer will not learn an additive bias.
+                Default: True
+        """
+        super(BiLinear, self).__init__()
+        self.left_features = left_features
+        self.right_features = right_features
+        self.out_features = out_features
+        self.U = Parameter(torch.Tensor(self.out_features, self.left_features, self.right_features))
+        self.weight_left = Parameter(torch.Tensor(self.out_features, self.left_features))
+        self.weight_right = Parameter(torch.Tensor(self.out_features, self.right_features))
+        if bias:
+            self.bias = Parameter(torch.Tensor(out_features))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight_left)
+        nn.init.xavier_uniform_(self.weight_right)
+        nn.init.constant_(self.bias, 0.0)
+        nn.init.xavier_uniform_(self.U)
+
+    def forward(self, input_left, input_right):
+        """
+
+        Args:
+            input_left: Tensor
+                the left input tensor with shape = [batch1, batch2, ..., left_features]
+            input_right: Tensor
+                the right input tensor with shape = [batch1, batch2, ..., right_features]
+
+        Returns:
+
+        """
+        batch_size = input_left.size()[:-1]
+        batch = int(np.prod(batch_size))
+        input_left = input_left.view(batch, self.left_features)
+        input_right = input_right.view(batch, self.right_features)
+        output = F.bilinear(input_left, input_right, self.U, self.bias)
+        output = output + F.linear(input_left, self.weight_left, None) + F.linear(input_right, self.weight_right, None)
+        return output.view(batch_size + (self.out_features,))
+
+    def __repr__(self):
+        return self.__class__.__name__ + ' (' + 'left_features=' + str(self.left_features) + ', right_features=' + str(self.right_features) + ', out_features=' + str(self.out_features) + ')'
+
+
+class CharCNN(nn.Module):
+    """
+    CNN layers for characters
+    """
+
+    def __init__(self, num_layers, in_channels, out_channels, hidden_channels=None, activation='elu'):
+        super(CharCNN, self).__init__()
+        assert activation in ['elu', 'tanh']
+        if activation == 'elu':
+            ACT = nn.ELU
+        else:
+            ACT = nn.Tanh
+        layers = list()
+        for i in range(num_layers - 1):
+            layers.append(('conv{}'.format(i), nn.Conv1d(in_channels, hidden_channels, kernel_size=3, padding=1)))
+            layers.append(('act{}'.format(i), ACT()))
+            in_channels = hidden_channels
+        layers.append(('conv_top', nn.Conv1d(in_channels, out_channels, kernel_size=3, padding=1)))
+        layers.append(('act_top', ACT()))
+        self.act = ACT
+        self.net = nn.Sequential(OrderedDict(layers))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for layer in self.net:
+            if isinstance(layer, nn.Conv1d):
+                nn.init.xavier_uniform_(layer.weight)
+                nn.init.constant_(layer.bias, 0.0)
+            else:
+                assert isinstance(layer, self.act)
+
+    def forward(self, char):
+        """
+
+        Args:
+            char: Tensor
+                the input tensor of character [batch, sent_length, char_length, in_channels]
+
+        Returns: Tensor
+            output character encoding with shape [batch, sent_length, in_channels]
+
+        """
+        char_size = char.size()
+        char = char.view(-1, char_size[2], char_size[3]).transpose(1, 2)
+        char = self.net(char).max(dim=2)[0]
+        return char.view(char_size[0], char_size[1], -1)
+
+
+class VarRNNCellBase(nn.Module):
+
+    def __repr__(self):
+        s = '{name}({model_dim}, {hidden_size}'
+        if 'bias' in self.__dict__ and self.bias is not True:
+            s += ', bias={bias}'
+        if 'nonlinearity' in self.__dict__ and self.nonlinearity != 'tanh':
+            s += ', nonlinearity={nonlinearity}'
+        s += ')'
+        return s.format(name=self.__class__.__name__, **self.__dict__)
+
+    def reset_noise(self, batch_size):
+        """
+        Should be overriden by all subclasses.
+        Args:
+            batch_size: (int) batch size of input.
+        """
+        raise NotImplementedError
+
+
+class VarFastLSTMCell(VarRNNCellBase):
+    """
+    A long short-term memory (LSTM) cell with variational dropout.
+
+    .. math::
+
+        egin{array}{ll}
+        i = \\mathrm{sigmoid}(W_{ii} x + b_{ii} + W_{hi} h + b_{hi}) \\
+        f = \\mathrm{sigmoid}(W_{if} x + b_{if} + W_{hf} h + b_{hf}) \\
+        g = 	anh(W_{ig} x + b_{ig} + W_{hc} h + b_{hg}) \\
+        o = \\mathrm{sigmoid}(W_{io} x + b_{io} + W_{ho} h + b_{ho}) \\
+        c' = f * c + i * g \\
+        h' = o * 	anh(c') \\
+        \\end{array}
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        bias: If `False`, then the layer does not use bias weights `b_ih` and
+            `b_hh`. Default: True
+        p: (p_in, p_hidden) (tuple, optional): the drop probability for input and hidden. Default: (0.5, 0.5)
+
+    Inputs: input, (h_0, c_0)
+        - **input** (batch, model_dim): tensor containing input features
+        - **h_0** (batch, hidden_size): tensor containing the initial hidden
+          state for each element in the batch.
+        - **c_0** (batch. hidden_size): tensor containing the initial cell state
+          for each element in the batch.
+
+    Outputs: h_1, c_1
+        - **h_1** (batch, hidden_size): tensor containing the next hidden state
+          for each element in the batch
+        - **c_1** (batch, hidden_size): tensor containing the next cell state
+          for each element in the batch
+
+    Attributes:
+        weight_ih: the learnable input-hidden weights, of shape
+            `(4*hidden_size x model_dim)`
+        weight_hh: the learnable hidden-hidden weights, of shape
+            `(4*hidden_size x hidden_size)`
+        bias_ih: the learnable input-hidden bias, of shape `(4*hidden_size)`
+        bias_hh: the learnable hidden-hidden bias, of shape `(4*hidden_size)`
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, p=(0.5, 0.5)):
+        super(VarFastLSTMCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.weight_ih = Parameter(torch.Tensor(4 * hidden_size, input_size))
+        self.weight_hh = Parameter(torch.Tensor(4 * hidden_size, hidden_size))
+        if bias:
+            self.bias_ih = Parameter(torch.Tensor(4 * hidden_size))
+            self.bias_hh = Parameter(torch.Tensor(4 * hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        self.reset_parameters()
+        p_in, p_hidden = p
+        if p_in < 0 or p_in > 1:
+            raise ValueError('input dropout probability has to be between 0 and 1, but got {}'.format(p_in))
+        if p_hidden < 0 or p_hidden > 1:
+            raise ValueError('hidden state dropout probability has to be between 0 and 1, but got {}'.format(p_hidden))
+        self.p_in = p_in
+        self.p_hidden = p_hidden
+        self.noise_in = None
+        self.noise_hidden = None
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.xavier_uniform_(self.weight_ih)
+        if self.bias:
+            nn.init.constant_(self.bias_hh, 0.0)
+            nn.init.constant_(self.bias_ih, 0.0)
+
+    def reset_noise(self, batch_size):
+        if self.training:
+            if self.p_in:
+                noise = self.weight_ih.new_empty(batch_size, self.input_size)
+                self.noise_in = noise.bernoulli_(1.0 - self.p_in) / (1.0 - self.p_in)
+            else:
+                self.noise_in = None
+            if self.p_hidden:
+                noise = self.weight_hh.new_empty(batch_size, self.hidden_size)
+                self.noise_hidden = noise.bernoulli_(1.0 - self.p_hidden) / (1.0 - self.p_hidden)
+            else:
+                self.noise_hidden = None
+        else:
+            self.noise_in = None
+            self.noise_hidden = None
+
+    def forward(self, input, hx):
+        return rnn_F.VarFastLSTMCell(input, hx, self.weight_ih, self.weight_hh, self.bias_ih, self.bias_hh, self.noise_in, self.noise_hidden)
+
+
+class VarRNNBase(nn.Module):
+
+    def __init__(self, Cell, input_size, hidden_size, num_layers=1, bias=True, batch_first=False, dropout=(0, 0), bidirectional=False, **kwargs):
+        super(VarRNNBase, self).__init__()
+        self.Cell = Cell
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.bias = bias
+        self.batch_first = batch_first
+        self.bidirectional = bidirectional
+        self.lstm = False
+        num_directions = 2 if bidirectional else 1
+        self.all_cells = []
+        for layer in range(num_layers):
+            for direction in range(num_directions):
+                layer_input_size = input_size if layer == 0 else hidden_size * num_directions
+                cell = self.Cell(layer_input_size, hidden_size, self.bias, p=dropout, **kwargs)
+                self.all_cells.append(cell)
+                self.add_module('cell%d' % (layer * num_directions + direction), cell)
+
+    def reset_parameters(self):
+        for cell in self.all_cells:
+            cell.reset_parameters()
+
+    def reset_noise(self, batch_size):
+        for cell in self.all_cells:
+            cell.reset_noise(batch_size)
+
+    def forward(self, input, mask=None, hx=None):
+        batch_size = input.size(0) if self.batch_first else input.size(1)
+        if hx is None:
+            num_directions = 2 if self.bidirectional else 1
+            hx = input.new_zeros(self.num_layers * num_directions, batch_size, self.hidden_size)
+            if self.lstm:
+                hx = hx, hx
+        func = rnn_F.AutogradVarRNN(num_layers=self.num_layers, batch_first=self.batch_first, bidirectional=self.bidirectional, lstm=self.lstm)
+        self.reset_noise(batch_size)
+        output, hidden = func(input, self.all_cells, hx, None if mask is None else mask.view(mask.size() + (1,)))
+        return output, hidden
+
+    def step(self, input, hx=None, mask=None):
+        """
+        execute one step forward (only for one-directional RNN).
+        Args:
+            input (batch, model_dim): input tensor of this step.
+            hx (num_layers, batch, hidden_size): the hidden state of last step.
+            mask (batch): the mask tensor of this step.
+
+        Returns:
+            output (batch, hidden_size): tensor containing the output of this step from the last layer of RNN.
+            hn (num_layers, batch, hidden_size): tensor containing the hidden state of this step
+        """
+        assert not self.bidirectional, 'step only cannot be applied to bidirectional RNN.'
+        batch_size = input.size(0)
+        if hx is None:
+            hx = input.new_zeros(self.num_layers, batch_size, self.hidden_size)
+            if self.lstm:
+                hx = hx, hx
+        func = rnn_F.AutogradVarRNNStep(num_layers=self.num_layers, lstm=self.lstm)
+        output, hidden = func(input, self.all_cells, hx, mask)
+        return output, hidden
+
+
+class VarFastLSTM(VarRNNBase):
+    """Applies a multi-layer long short-term memory (LSTM) RNN to an input
+    sequence.
+
+
+    For each element in the input sequence, each layer computes the following
+    function:
+
+    .. math::
+
+            \\begin{array}{ll}
+            i_t = \\mathrm{sigmoid}(W_{ii} x_t + b_{ii} + W_{hi} h_{(t-1)} + b_{hi}) \\\\
+            f_t = \\mathrm{sigmoid}(W_{if} x_t + b_{if} + W_{hf} h_{(t-1)} + b_{hf}) \\\\
+            g_t = \\tanh(W_{ig} x_t + b_{ig} + W_{hc} h_{(t-1)} + b_{hg}) \\\\
+            o_t = \\mathrm{sigmoid}(W_{io} x_t + b_{io} + W_{ho} h_{(t-1)} + b_{ho}) \\\\
+            c_t = f_t * c_{(t-1)} + i_t * g_t \\\\
+            h_t = o_t * \\tanh(c_t)
+            \\end{array}
+
+    where :math:`h_t` is the hidden state at time `t`, :math:`c_t` is the cell
+    state at time `t`, :math:`x_t` is the hidden state of the previous layer at
+    time `t` or :math:`input_t` for the first layer, and :math:`i_t`,
+    :math:`f_t`, :math:`g_t`, :math:`o_t` are the input, forget, cell,
+    and out gates, respectively.
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        num_layers: Number of recurrent layers.
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        batch_first: If True, then the input and output tensors are provided
+            as (batch, seq, feature)
+        dropout: (dropout_in, dropout_hidden) tuple.
+            If non-zero, introduces a dropout layer on the input and hidden of the each
+            RNN layer with dropout rate dropout_in and dropout_hidden, resp.
+        bidirectional: If True, becomes a bidirectional RNN. Default: False
+
+    Inputs: input, mask, (h_0, c_0)
+        - **input** (seq_len, batch, model_dim): tensor containing the features
+          of the input sequence.
+          **mask** (seq_len, batch): 0-1 tensor containing the mask of the input sequence.
+        - **h_0** (num_layers \\* num_directions, batch, hidden_size): tensor
+          containing the initial hidden state for each element in the batch.
+        - **c_0** (num_layers \\* num_directions, batch, hidden_size): tensor
+          containing the initial cell state for each element in the batch.
+
+
+    Outputs: output, (h_n, c_n)
+        - **output** (seq_len, batch, hidden_size * num_directions): tensor
+          containing the output features `(h_t)` from the last layer of the RNN,
+          for each t. If a :class:`torch.nn.utils.rnn.PackedSequence` has been
+          given as the input, the output will also be a packed sequence.
+        - **h_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the hidden state for t=seq_len
+        - **c_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the cell state for t=seq_len
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(VarFastLSTM, self).__init__(VarFastLSTMCell, *args, **kwargs)
+        self.lstm = True
+
+
+class VarGRUCell(VarRNNCellBase):
+    """A gated recurrent unit (GRU) cell with variational dropout.
+
+    .. math::
+
+        egin{array}{ll}
+        r = \\mathrm{sigmoid}(W_{ir} x + b_{ir} + W_{hr} h + b_{hr}) \\
+        z = \\mathrm{sigmoid}(W_{iz} x + b_{iz} + W_{hz} h + b_{hz}) \\
+        n = 	anh(W_{in} x + b_{in} + r * (W_{hn} h + b_{hn})) \\
+        h' = (1 - z) * n + z * h
+        \\end{array}
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        bias: If `False`, then the layer does not use bias weights `b_ih` and
+            `b_hh`. Default: `True`
+        p: (p_in, p_hidden) (tuple, optional): the drop probability for input and hidden. Default: (0.5, 0.5)
+
+    Inputs: input, hidden
+        - **input** (batch, model_dim): tensor containing input features
+        - **hidden** (batch, hidden_size): tensor containing the initial hidden
+          state for each element in the batch.
+
+    Outputs: h'
+        - **h'**: (batch, hidden_size): tensor containing the next hidden state
+          for each element in the batch
+
+    Attributes:
+        weight_ih: the learnable input-hidden weights, of shape
+            `(3 x model_dim x hidden_size)`
+        weight_hh: the learnable hidden-hidden weights, of shape
+            `(3x hidden_size x hidden_size)`
+        bias_ih: the learnable input-hidden bias, of shape `(3 x hidden_size)`
+        bias_hh: the learnable hidden-hidden bias, of shape `(3 x hidden_size)`
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, p=(0.5, 0.5)):
+        super(VarGRUCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.weight_ih = Parameter(torch.Tensor(3, input_size, hidden_size))
+        self.weight_hh = Parameter(torch.Tensor(3, hidden_size, hidden_size))
+        if bias:
+            self.bias_ih = Parameter(torch.Tensor(3, hidden_size))
+            self.bias_hh = Parameter(torch.Tensor(3, hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        self.reset_parameters()
+        p_in, p_hidden = p
+        if p_in < 0 or p_in > 1:
+            raise ValueError('input dropout probability has to be between 0 and 1, but got {}'.format(p_in))
+        if p_hidden < 0 or p_hidden > 1:
+            raise ValueError('hidden state dropout probability has to be between 0 and 1, but got {}'.format(p_hidden))
+        self.p_in = p_in
+        self.p_hidden = p_hidden
+        self.noise_in = None
+        self.noise_hidden = None
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.xavier_uniform_(self.weight_ih)
+        if self.bias:
+            nn.init.constant_(self.bias_hh, 0.0)
+            nn.init.constant_(self.bias_ih, 0.0)
+
+    def reset_noise(self, batch_size):
+        if self.training:
+            if self.p_in:
+                noise = self.weight_ih.new_empty(3, batch_size, self.input_size)
+                self.noise_in = noise.bernoulli_(1.0 - self.p_in) / (1.0 - self.p_in)
+            else:
+                self.noise_in = None
+            if self.p_hidden:
+                noise = self.weight_hh.new_empty(3, batch_size, self.hidden_size)
+                self.noise_hidden = noise.bernoulli_(1.0 - self.p_hidden) / (1.0 - self.p_hidden)
+            else:
+                self.noise_hidden = None
+        else:
+            self.noise_in = None
+            self.noise_hidden = None
+
+    def forward(self, input, hx):
+        return rnn_F.VarGRUCell(input, hx, self.weight_ih, self.weight_hh, self.bias_ih, self.bias_hh, self.noise_in, self.noise_hidden)
+
+
+class VarGRU(VarRNNBase):
+    """Applies a multi-layer gated recurrent unit (GRU) RNN to an input sequence.
+
+
+    For each element in the input sequence, each layer computes the following
+    function:
+
+    .. math::
+
+            \\begin{array}{ll}
+            r_t = \\mathrm{sigmoid}(W_{ir} x_t + b_{ir} + W_{hr} h_{(t-1)} + b_{hr}) \\\\
+            z_t = \\mathrm{sigmoid}(W_{iz} x_t + b_{iz} + W_{hz} h_{(t-1)} + b_{hz}) \\\\
+            n_t = \\tanh(W_{in} x_t + b_{in} + r_t * (W_{hn} h_{(t-1)}+ b_{hn})) \\\\
+            h_t = (1 - z_t) * n_t + z_t * h_{(t-1)} \\\\
+            \\end{array}
+
+    where :math:`h_t` is the hidden state at time `t`, :math:`x_t` is the hidden
+    state of the previous layer at time `t` or :math:`input_t` for the first
+    layer, and :math:`r_t`, :math:`z_t`, :math:`n_t` are the reset, input,
+    and new gates, respectively.
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        num_layers: Number of recurrent layers.
+        nonlinearity: The non-linearity to use ['tanh'|'relu']. Default: 'tanh'
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        batch_first: If True, then the input and output tensors are provided
+            as (batch, seq, feature)
+        dropout: (dropout_in, dropout_hidden) tuple.
+            If non-zero, introduces a dropout layer on the input and hidden of the each
+            RNN layer with dropout rate dropout_in and dropout_hidden, resp.
+        bidirectional: If True, becomes a bidirectional RNN. Default: False
+
+    Inputs: input, mask, h_0
+        - **input** (seq_len, batch, model_dim): tensor containing the features
+          of the input sequence.
+          **mask** (seq_len, batch): 0-1 tensor containing the mask of the input sequence.
+        - **h_0** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the initial hidden state for each element in the batch.
+
+    Outputs: output, h_n
+        - **output** (seq_len, batch, hidden_size * num_directions): tensor
+          containing the output features (h_k) from the last layer of the RNN,
+          for each k.  If a :class:`torch.nn.utils.rnn.PackedSequence` has
+          been given as the input, the output will also be a packed sequence.
+        - **h_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the hidden state for k=seq_len.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(VarGRU, self).__init__(VarGRUCell, *args, **kwargs)
+
+
+class VarLSTMCell(VarRNNCellBase):
+    """
+    A long short-term memory (LSTM) cell with variational dropout.
+
+    .. math::
+
+        egin{array}{ll}
+        i = \\mathrm{sigmoid}(W_{ii} x + b_{ii} + W_{hi} h + b_{hi}) \\
+        f = \\mathrm{sigmoid}(W_{if} x + b_{if} + W_{hf} h + b_{hf}) \\
+        g = 	anh(W_{ig} x + b_{ig} + W_{hc} h + b_{hg}) \\
+        o = \\mathrm{sigmoid}(W_{io} x + b_{io} + W_{ho} h + b_{ho}) \\
+        c' = f * c + i * g \\
+        h' = o * 	anh(c') \\
+        \\end{array}
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        bias: If `False`, then the layer does not use bias weights `b_ih` and
+            `b_hh`. Default: True
+        p: (p_in, p_hidden) (tuple, optional): the drop probability for input and hidden. Default: (0.5, 0.5)
+
+    Inputs: input, (h_0, c_0)
+        - **input** (batch, model_dim): tensor containing input features
+        - **h_0** (batch, hidden_size): tensor containing the initial hidden
+          state for each element in the batch.
+        - **c_0** (batch. hidden_size): tensor containing the initial cell state
+          for each element in the batch.
+
+    Outputs: h_1, c_1
+        - **h_1** (batch, hidden_size): tensor containing the next hidden state
+          for each element in the batch
+        - **c_1** (batch, hidden_size): tensor containing the next cell state
+          for each element in the batch
+
+    Attributes:
+        weight_ih: the learnable input-hidden weights, of shape
+            `(4 x model_dim x hidden_size)`
+        weight_hh: the learnable hidden-hidden weights, of shape
+            `(4 x hidden_size x hidden_size)`
+        bias_ih: the learnable input-hidden bias, of shape `(4 x hidden_size)`
+        bias_hh: the learnable hidden-hidden bias, of shape `(4 x hidden_size)`
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, p=(0.5, 0.5)):
+        super(VarLSTMCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.weight_ih = Parameter(torch.Tensor(4, input_size, hidden_size))
+        self.weight_hh = Parameter(torch.Tensor(4, hidden_size, hidden_size))
+        if bias:
+            self.bias_ih = Parameter(torch.Tensor(4, hidden_size))
+            self.bias_hh = Parameter(torch.Tensor(4, hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        self.reset_parameters()
+        p_in, p_hidden = p
+        if p_in < 0 or p_in > 1:
+            raise ValueError('input dropout probability has to be between 0 and 1, but got {}'.format(p_in))
+        if p_hidden < 0 or p_hidden > 1:
+            raise ValueError('hidden state dropout probability has to be between 0 and 1, but got {}'.format(p_hidden))
+        self.p_in = p_in
+        self.p_hidden = p_hidden
+        self.noise_in = None
+        self.noise_hidden = None
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.xavier_uniform_(self.weight_ih)
+        if self.bias:
+            nn.init.constant_(self.bias_hh, 0.0)
+            nn.init.constant_(self.bias_ih, 0.0)
+
+    def reset_noise(self, batch_size):
+        if self.training:
+            if self.p_in:
+                noise = self.weight_ih.new_empty(4, batch_size, self.input_size)
+                self.noise_in = noise.bernoulli_(1.0 - self.p_in) / (1.0 - self.p_in)
+            else:
+                self.noise_in = None
+            if self.p_hidden:
+                noise = self.weight_hh.new_empty(4, batch_size, self.hidden_size)
+                self.noise_hidden = noise.bernoulli_(1.0 - self.p_hidden) / (1.0 - self.p_hidden)
+            else:
+                self.noise_hidden = None
+        else:
+            self.noise_in = None
+            self.noise_hidden = None
+
+    def forward(self, input, hx):
+        return rnn_F.VarLSTMCell(input, hx, self.weight_ih, self.weight_hh, self.bias_ih, self.bias_hh, self.noise_in, self.noise_hidden)
+
+
+class VarLSTM(VarRNNBase):
+    """Applies a multi-layer long short-term memory (LSTM) RNN to an input
+    sequence.
+
+
+    For each element in the input sequence, each layer computes the following
+    function:
+
+    .. math::
+
+            \\begin{array}{ll}
+            i_t = \\mathrm{sigmoid}(W_{ii} x_t + b_{ii} + W_{hi} h_{(t-1)} + b_{hi}) \\\\
+            f_t = \\mathrm{sigmoid}(W_{if} x_t + b_{if} + W_{hf} h_{(t-1)} + b_{hf}) \\\\
+            g_t = \\tanh(W_{ig} x_t + b_{ig} + W_{hc} h_{(t-1)} + b_{hg}) \\\\
+            o_t = \\mathrm{sigmoid}(W_{io} x_t + b_{io} + W_{ho} h_{(t-1)} + b_{ho}) \\\\
+            c_t = f_t * c_{(t-1)} + i_t * g_t \\\\
+            h_t = o_t * \\tanh(c_t)
+            \\end{array}
+
+    where :math:`h_t` is the hidden state at time `t`, :math:`c_t` is the cell
+    state at time `t`, :math:`x_t` is the hidden state of the previous layer at
+    time `t` or :math:`input_t` for the first layer, and :math:`i_t`,
+    :math:`f_t`, :math:`g_t`, :math:`o_t` are the input, forget, cell,
+    and out gates, respectively.
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        num_layers: Number of recurrent layers.
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        batch_first: If True, then the input and output tensors are provided
+            as (batch, seq, feature)
+        dropout: (dropout_in, dropout_hidden) tuple.
+            If non-zero, introduces a dropout layer on the input and hidden of the each
+            RNN layer with dropout rate dropout_in and dropout_hidden, resp.
+        bidirectional: If True, becomes a bidirectional RNN. Default: False
+
+    Inputs: input, mask, (h_0, c_0)
+        - **input** (seq_len, batch, model_dim): tensor containing the features
+          of the input sequence.
+          **mask** (seq_len, batch): 0-1 tensor containing the mask of the input sequence.
+        - **h_0** (num_layers \\* num_directions, batch, hidden_size): tensor
+          containing the initial hidden state for each element in the batch.
+        - **c_0** (num_layers \\* num_directions, batch, hidden_size): tensor
+          containing the initial cell state for each element in the batch.
+
+    Outputs: output, (h_n, c_n)
+        - **output** (seq_len, batch, hidden_size * num_directions): tensor
+          containing the output features `(h_t)` from the last layer of the RNN,
+          for each t. If a :class:`torch.nn.utils.rnn.PackedSequence` has been
+          given as the input, the output will also be a packed sequence.
+        - **h_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the hidden state for t=seq_len
+        - **c_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the cell state for t=seq_len
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(VarLSTM, self).__init__(VarLSTMCell, *args, **kwargs)
+        self.lstm = True
+
+
+class VarRNNCell(VarRNNCellBase):
+    """An Elman RNN cell with tanh non-linearity and variational dropout.
+
+    .. math::
+
+        h' = \\tanh(w_{ih} * x + b_{ih}  +  w_{hh} * (h * \\gamma) + b_{hh})
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        nonlinearity: The non-linearity to use ['tanh'|'relu']. Default: 'tanh'
+        p: (p_in, p_hidden) (tuple, optional): the drop probability for input and hidden. Default: (0.5, 0.5)
+
+    Inputs: input, hidden
+        - **input** (batch, model_dim): tensor containing input features
+        - **hidden** (batch, hidden_size): tensor containing the initial hidden
+          state for each element in the batch.
+
+    Outputs: h'
+        - **h'** (batch, hidden_size): tensor containing the next hidden state
+          for each element in the batch
+
+    Attributes:
+        weight_ih: the learnable input-hidden weights, of shape
+            `(model_dim x hidden_size)`
+        weight_hh: the learnable hidden-hidden weights, of shape
+            `(hidden_size x hidden_size)`
+        bias_ih: the learnable input-hidden bias, of shape `(hidden_size)`
+        bias_hh: the learnable hidden-hidden bias, of shape `(hidden_size)`
+
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, nonlinearity='tanh', p=(0.5, 0.5)):
+        super(VarRNNCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.nonlinearity = nonlinearity
+        self.weight_ih = Parameter(torch.Tensor(hidden_size, input_size))
+        self.weight_hh = Parameter(torch.Tensor(hidden_size, hidden_size))
+        if bias:
+            self.bias_ih = Parameter(torch.Tensor(hidden_size))
+            self.bias_hh = Parameter(torch.Tensor(hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        self.reset_parameters()
+        p_in, p_hidden = p
+        if p_in < 0 or p_in > 1:
+            raise ValueError('input dropout probability has to be between 0 and 1, but got {}'.format(p_in))
+        if p_hidden < 0 or p_hidden > 1:
+            raise ValueError('hidden state dropout probability has to be between 0 and 1, but got {}'.format(p_hidden))
+        self.p_in = p_in
+        self.p_hidden = p_hidden
+        self.noise_in = None
+        self.noise_hidden = None
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.xavier_uniform_(self.weight_ih)
+        if self.bias:
+            nn.init.constant_(self.bias_hh, 0.0)
+            nn.init.constant_(self.bias_ih, 0.0)
+
+    def reset_noise(self, batch_size):
+        if self.training:
+            if self.p_in:
+                noise = self.weight_ih.new_empty(batch_size, self.input_size)
+                self.noise_in = noise.bernoulli_(1.0 - self.p_in) / (1.0 - self.p_in)
+            else:
+                self.noise_in = None
+            if self.p_hidden:
+                noise = self.weight_hh.new_empty(batch_size, self.hidden_size)
+                self.noise_hidden = noise.bernoulli_(1.0 - self.p_hidden) / (1.0 - self.p_hidden)
+            else:
+                self.noise_hidden = None
+        else:
+            self.noise_in = None
+            self.noise_hidden = None
+
+    def forward(self, input, hx):
+        if self.nonlinearity == 'tanh':
+            func = rnn_F.VarRNNTanhCell
+        elif self.nonlinearity == 'relu':
+            func = rnn_F.VarRNNReLUCell
+        else:
+            raise RuntimeError('Unknown nonlinearity: {}'.format(self.nonlinearity))
+        return func(input, hx, self.weight_ih, self.weight_hh, self.bias_ih, self.bias_hh, self.noise_in, self.noise_hidden)
+
+
+class VarRNN(VarRNNBase):
+    """Applies a multi-layer Elman RNN with costomized non-linearity to an
+    input sequence.
+
+
+    For each element in the input sequence, each layer computes the following
+    function:
+
+    .. math::
+
+        h_t = \\tanh(w_{ih} * x_t + b_{ih}  +  w_{hh} * h_{(t-1)} + b_{hh})
+
+    where :math:`h_t` is the hidden state at time `t`, and :math:`x_t` is
+    the hidden state of the previous layer at time `t` or :math:`input_t`
+    for the first layer. If nonlinearity='relu', then `ReLU` is used instead
+    of `tanh`.
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        num_layers: Number of recurrent layers.
+        nonlinearity: The non-linearity to use ['tanh'|'relu']. Default: 'tanh'
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        batch_first: If True, then the input and output tensors are provided
+            as (batch, seq, feature)
+        dropout: (dropout_in, dropout_hidden) tuple.
+            If non-zero, introduces a dropout layer on the input and hidden of the each
+            RNN layer with dropout rate dropout_in and dropout_hidden, resp.
+        bidirectional: If True, becomes a bidirectional RNN. Default: False
+
+    Inputs: input, mask, h_0
+        - **input** (seq_len, batch, model_dim): tensor containing the features
+          of the input sequence.
+          **mask** (seq_len, batch): 0-1 tensor containing the mask of the input sequence.
+        - **h_0** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the initial hidden state for each element in the batch.
+
+    Outputs: output, h_n
+        - **output** (seq_len, batch, hidden_size * num_directions): tensor
+          containing the output features (h_k) from the last layer of the RNN,
+          for each k.  If a :class:`torch.nn.utils.rnn.PackedSequence` has
+          been given as the input, the output will also be a packed sequence.
+        - **h_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the hidden state for k=seq_len.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(VarRNN, self).__init__(VarRNNCell, *args, **kwargs)
 
 
 class DeepBiAffine(nn.Module):
@@ -269,6 +1075,89 @@ class DeepBiAffine(nn.Module):
         energy = loss_arc.unsqueeze(1) + loss_type
         length = mask.sum(dim=1).long().cpu().numpy()
         return parser.decode_MST(energy.cpu().numpy(), length, leading_symbolic=leading_symbolic, labeled=True)
+
+
+class TreeCRF(nn.Module):
+    """
+    Tree CRF layer.
+    """
+
+    def __init__(self, model_dim):
+        """
+
+        Args:
+            model_dim: int
+                the dimension of the input.
+
+        """
+        super(TreeCRF, self).__init__()
+        self.model_dim = model_dim
+        self.energy = BiAffine(model_dim, model_dim)
+
+    def forward(self, heads, children, mask=None):
+        """
+
+        Args:
+            heads: Tensor
+                the head input tensor with shape = [batch, length, model_dim]
+            children: Tensor
+                the child input tensor with shape = [batch, length, model_dim]
+            mask: Tensor or None
+                the mask tensor with shape = [batch, length]
+            lengths: Tensor or None
+                the length tensor with shape = [batch]
+
+        Returns: Tensor
+            the energy tensor with shape = [batch, length, length]
+
+        """
+        batch, length, _ = heads.size()
+        output = self.energy(heads, children, mask_query=mask, mask_key=mask)
+        return output
+
+    def loss(self, heads, children, target_heads, mask=None):
+        """
+
+        Args:
+            heads: Tensor
+                the head input tensor with shape = [batch, length, model_dim]
+            children: Tensor
+                the child input tensor with shape = [batch, length, model_dim]
+            target_heads: Tensor
+                the tensor of target labels with shape [batch, length]
+            mask:Tensor or None
+                the mask tensor with shape = [batch, length]
+
+        Returns: Tensor
+                A 1D tensor for minus log likelihood loss
+        """
+        batch, length, _ = heads.size()
+        energy = self(heads, children, mask=mask).double()
+        A = torch.exp(energy)
+        if mask is not None:
+            mask = mask.double()
+            A = A * mask.unsqueeze(2) * mask.unsqueeze(1)
+        diag_mask = 1.0 - torch.eye(length).unsqueeze(0).type_as(energy)
+        A = A * diag_mask
+        energy = energy * diag_mask
+        D = A.sum(dim=1)
+        rtol = 0.0001
+        atol = 1e-06
+        D += atol
+        if mask is not None:
+            D = D * mask
+        D = torch.diag_embed(D)
+        L = D - A
+        if mask is not None:
+            L = L + torch.diag_embed(1.0 - mask)
+        L = L[:, 1:, 1:]
+        z = torch.logdet(L)
+        index = torch.arange(0, length).view(length, 1).expand(length, batch)
+        index = index.type_as(energy).long()
+        batch_index = torch.arange(0, batch).type_as(index)
+        tgt_energy = energy[batch_index, target_heads.t(), index][1:]
+        tgt_energy = tgt_energy.sum(dim=0)
+        return (z - tgt_energy).float()
 
 
 class PriorOrder(Enum):
@@ -769,195 +1658,6 @@ class ChainCRF(nn.Module):
         return back_pointer.transpose(0, 1) + leading_symbolic
 
 
-class TreeCRF(nn.Module):
-    """
-    Tree CRF layer.
-    """
-
-    def __init__(self, model_dim):
-        """
-
-        Args:
-            model_dim: int
-                the dimension of the input.
-
-        """
-        super(TreeCRF, self).__init__()
-        self.model_dim = model_dim
-        self.energy = BiAffine(model_dim, model_dim)
-
-    def forward(self, heads, children, mask=None):
-        """
-
-        Args:
-            heads: Tensor
-                the head input tensor with shape = [batch, length, model_dim]
-            children: Tensor
-                the child input tensor with shape = [batch, length, model_dim]
-            mask: Tensor or None
-                the mask tensor with shape = [batch, length]
-            lengths: Tensor or None
-                the length tensor with shape = [batch]
-
-        Returns: Tensor
-            the energy tensor with shape = [batch, length, length]
-
-        """
-        batch, length, _ = heads.size()
-        output = self.energy(heads, children, mask_query=mask, mask_key=mask)
-        return output
-
-    def loss(self, heads, children, target_heads, mask=None):
-        """
-
-        Args:
-            heads: Tensor
-                the head input tensor with shape = [batch, length, model_dim]
-            children: Tensor
-                the child input tensor with shape = [batch, length, model_dim]
-            target_heads: Tensor
-                the tensor of target labels with shape [batch, length]
-            mask:Tensor or None
-                the mask tensor with shape = [batch, length]
-
-        Returns: Tensor
-                A 1D tensor for minus log likelihood loss
-        """
-        batch, length, _ = heads.size()
-        energy = self(heads, children, mask=mask).double()
-        A = torch.exp(energy)
-        if mask is not None:
-            mask = mask.double()
-            A = A * mask.unsqueeze(2) * mask.unsqueeze(1)
-        diag_mask = 1.0 - torch.eye(length).unsqueeze(0).type_as(energy)
-        A = A * diag_mask
-        energy = energy * diag_mask
-        D = A.sum(dim=1)
-        rtol = 0.0001
-        atol = 1e-06
-        D += atol
-        if mask is not None:
-            D = D * mask
-        D = torch.diag_embed(D)
-        L = D - A
-        if mask is not None:
-            L = L + torch.diag_embed(1.0 - mask)
-        L = L[:, 1:, 1:]
-        z = torch.logdet(L)
-        index = torch.arange(0, length).view(length, 1).expand(length, batch)
-        index = index.type_as(energy).long()
-        batch_index = torch.arange(0, batch).type_as(index)
-        tgt_energy = energy[batch_index, target_heads.t(), index][1:]
-        tgt_energy = tgt_energy.sum(dim=0)
-        return (z - tgt_energy).float()
-
-
-class BiLinear(nn.Module):
-    """
-    Bi-linear layer
-    """
-
-    def __init__(self, left_features, right_features, out_features, bias=True):
-        """
-
-        Args:
-            left_features: size of left input
-            right_features: size of right input
-            out_features: size of output
-            bias: If set to False, the layer will not learn an additive bias.
-                Default: True
-        """
-        super(BiLinear, self).__init__()
-        self.left_features = left_features
-        self.right_features = right_features
-        self.out_features = out_features
-        self.U = Parameter(torch.Tensor(self.out_features, self.left_features, self.right_features))
-        self.weight_left = Parameter(torch.Tensor(self.out_features, self.left_features))
-        self.weight_right = Parameter(torch.Tensor(self.out_features, self.right_features))
-        if bias:
-            self.bias = Parameter(torch.Tensor(out_features))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        nn.init.xavier_uniform_(self.weight_left)
-        nn.init.xavier_uniform_(self.weight_right)
-        nn.init.constant_(self.bias, 0.0)
-        nn.init.xavier_uniform_(self.U)
-
-    def forward(self, input_left, input_right):
-        """
-
-        Args:
-            input_left: Tensor
-                the left input tensor with shape = [batch1, batch2, ..., left_features]
-            input_right: Tensor
-                the right input tensor with shape = [batch1, batch2, ..., right_features]
-
-        Returns:
-
-        """
-        batch_size = input_left.size()[:-1]
-        batch = int(np.prod(batch_size))
-        input_left = input_left.view(batch, self.left_features)
-        input_right = input_right.view(batch, self.right_features)
-        output = F.bilinear(input_left, input_right, self.U, self.bias)
-        output = output + F.linear(input_left, self.weight_left, None) + F.linear(input_right, self.weight_right, None)
-        return output.view(batch_size + (self.out_features,))
-
-    def __repr__(self):
-        return self.__class__.__name__ + ' (' + 'left_features=' + str(self.left_features) + ', right_features=' + str(self.right_features) + ', out_features=' + str(self.out_features) + ')'
-
-
-class CharCNN(nn.Module):
-    """
-    CNN layers for characters
-    """
-
-    def __init__(self, num_layers, in_channels, out_channels, hidden_channels=None, activation='elu'):
-        super(CharCNN, self).__init__()
-        assert activation in ['elu', 'tanh']
-        if activation == 'elu':
-            ACT = nn.ELU
-        else:
-            ACT = nn.Tanh
-        layers = list()
-        for i in range(num_layers - 1):
-            layers.append(('conv{}'.format(i), nn.Conv1d(in_channels, hidden_channels, kernel_size=3, padding=1)))
-            layers.append(('act{}'.format(i), ACT()))
-            in_channels = hidden_channels
-        layers.append(('conv_top', nn.Conv1d(in_channels, out_channels, kernel_size=3, padding=1)))
-        layers.append(('act_top', ACT()))
-        self.act = ACT
-        self.net = nn.Sequential(OrderedDict(layers))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        for layer in self.net:
-            if isinstance(layer, nn.Conv1d):
-                nn.init.xavier_uniform_(layer.weight)
-                nn.init.constant_(layer.bias, 0.0)
-            else:
-                assert isinstance(layer, self.act)
-
-    def forward(self, char):
-        """
-
-        Args:
-            char: Tensor
-                the input tensor of character [batch, sent_length, char_length, in_channels]
-
-        Returns: Tensor
-            output character encoding with shape [batch, sent_length, in_channels]
-
-        """
-        char_size = char.size()
-        char = char.view(-1, char_size[2], char_size[3]).transpose(1, 2)
-        char = self.net(char).max(dim=2)[0]
-        return char.view(char_size[0], char_size[1], -1)
-
-
 class VarSkipRNNBase(nn.Module):
 
     def __init__(self, Cell, input_size, hidden_size, num_layers=1, bias=True, batch_first=False, dropout=(0, 0), bidirectional=False, **kwargs):
@@ -1025,88 +1725,907 @@ class VarSkipRNNBase(nn.Module):
         return output, hidden
 
 
-class VarRNNBase(nn.Module):
+class SkipConnectRNNCell(VarRNNCellBase):
+    """An Elman RNN cell with tanh non-linearity and variational dropout.
 
-    def __init__(self, Cell, input_size, hidden_size, num_layers=1, bias=True, batch_first=False, dropout=(0, 0), bidirectional=False, **kwargs):
-        super(VarRNNBase, self).__init__()
-        self.Cell = Cell
+    .. math::
+
+        h' = \\tanh(w_{ih} * x + b_{ih}  +  w_{hh} * (h * \\gamma) + b_{hh})
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        nonlinearity: The non-linearity to use ['tanh'|'relu']. Default: 'tanh'
+        p: (p_in, p_hidden) (tuple, optional): the drop probability for input and hidden. Default: (0.5, 0.5)
+
+    Inputs: input, hidden, h_s
+        - **input** (batch, model_dim): tensor containing input features
+        - **hidden** (batch, hidden_size): tensor containing the initial hidden
+          state for each element in the batch.
+        - **h_s** (batch. hidden_size): tensor containing the skip connection state
+          for each element in the batch.
+
+    Outputs: h'
+        - **h'** (batch, hidden_size): tensor containing the next hidden state
+          for each element in the batch
+
+    Attributes:
+        weight_ih: the learnable input-hidden weights, of shape
+            `(model_dim x hidden_size)`
+        weight_hh: the learnable hidden-hidden weights, of shape
+            `(hidden_size x 2*hidden_size)`
+        bias_ih: the learnable input-hidden bias, of shape `(hidden_size)`
+        bias_hh: the learnable hidden-hidden bias, of shape `(hidden_size)`
+
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, nonlinearity='tanh', p=(0.5, 0.5)):
+        super(SkipConnectRNNCell, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
-        self.num_layers = num_layers
         self.bias = bias
-        self.batch_first = batch_first
-        self.bidirectional = bidirectional
-        self.lstm = False
-        num_directions = 2 if bidirectional else 1
-        self.all_cells = []
-        for layer in range(num_layers):
-            for direction in range(num_directions):
-                layer_input_size = input_size if layer == 0 else hidden_size * num_directions
-                cell = self.Cell(layer_input_size, hidden_size, self.bias, p=dropout, **kwargs)
-                self.all_cells.append(cell)
-                self.add_module('cell%d' % (layer * num_directions + direction), cell)
+        self.nonlinearity = nonlinearity
+        self.weight_ih = Parameter(torch.Tensor(hidden_size, input_size))
+        self.weight_hh = Parameter(torch.Tensor(hidden_size, hidden_size * 2))
+        if bias:
+            self.bias_ih = Parameter(torch.Tensor(hidden_size))
+            self.bias_hh = Parameter(torch.Tensor(hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        self.reset_parameters()
+        p_in, p_hidden = p
+        if p_in < 0 or p_in > 1:
+            raise ValueError('input dropout probability has to be between 0 and 1, but got {}'.format(p_in))
+        if p_hidden < 0 or p_hidden > 1:
+            raise ValueError('hidden state dropout probability has to be between 0 and 1, but got {}'.format(p_hidden))
+        self.p_in = p_in
+        self.p_hidden = p_hidden
+        self.noise_in = None
+        self.noise_hidden = None
 
     def reset_parameters(self):
-        for cell in self.all_cells:
-            cell.reset_parameters()
+        nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.xavier_uniform_(self.weight_ih)
+        if self.bias:
+            nn.init.constant_(self.bias_hh, 0.0)
+            nn.init.constant_(self.bias_ih, 0.0)
 
     def reset_noise(self, batch_size):
-        for cell in self.all_cells:
-            cell.reset_noise(batch_size)
+        if self.training:
+            if self.p_in:
+                noise = self.weight_ih.new_empty(batch_size, self.input_size)
+                self.noise_in = noise.bernoulli_(1.0 - self.p_in) / (1.0 - self.p_in)
+            else:
+                self.noise_in = None
+            if self.p_hidden:
+                noise = self.weight_hh.new_empty(batch_size, self.hidden_size * 2)
+                self.noise_hidden = noise.bernoulli_(1.0 - self.p_hidden) / (1.0 - self.p_hidden)
+            else:
+                self.noise_hidden = None
+        else:
+            self.noise_in = None
+            self.noise_hidden = None
 
-    def forward(self, input, mask=None, hx=None):
-        batch_size = input.size(0) if self.batch_first else input.size(1)
-        if hx is None:
-            num_directions = 2 if self.bidirectional else 1
-            hx = input.new_zeros(self.num_layers * num_directions, batch_size, self.hidden_size)
-            if self.lstm:
-                hx = hx, hx
-        func = rnn_F.AutogradVarRNN(num_layers=self.num_layers, batch_first=self.batch_first, bidirectional=self.bidirectional, lstm=self.lstm)
-        self.reset_noise(batch_size)
-        output, hidden = func(input, self.all_cells, hx, None if mask is None else mask.view(mask.size() + (1,)))
-        return output, hidden
-
-    def step(self, input, hx=None, mask=None):
-        """
-        execute one step forward (only for one-directional RNN).
-        Args:
-            input (batch, model_dim): input tensor of this step.
-            hx (num_layers, batch, hidden_size): the hidden state of last step.
-            mask (batch): the mask tensor of this step.
-
-        Returns:
-            output (batch, hidden_size): tensor containing the output of this step from the last layer of RNN.
-            hn (num_layers, batch, hidden_size): tensor containing the hidden state of this step
-        """
-        assert not self.bidirectional, 'step only cannot be applied to bidirectional RNN.'
-        batch_size = input.size(0)
-        if hx is None:
-            hx = input.new_zeros(self.num_layers, batch_size, self.hidden_size)
-            if self.lstm:
-                hx = hx, hx
-        func = rnn_F.AutogradVarRNNStep(num_layers=self.num_layers, lstm=self.lstm)
-        output, hidden = func(input, self.all_cells, hx, mask)
-        return output, hidden
+    def forward(self, input, hx, hs):
+        if self.nonlinearity == 'tanh':
+            func = rnn_F.SkipConnectRNNTanhCell
+        elif self.nonlinearity == 'relu':
+            func = rnn_F.SkipConnectRNNReLUCell
+        else:
+            raise RuntimeError('Unknown nonlinearity: {}'.format(self.nonlinearity))
+        return func(input, hx, hs, self.weight_ih, self.weight_hh, self.bias_ih, self.bias_hh, self.noise_in, self.noise_hidden)
 
 
-class VarRNNCellBase(nn.Module):
+class VarSkipRNN(VarSkipRNNBase):
+    """Applies a multi-layer Elman RNN with costomized non-linearity to an
+    input sequence.
 
-    def __repr__(self):
-        s = '{name}({model_dim}, {hidden_size}'
-        if 'bias' in self.__dict__ and self.bias is not True:
-            s += ', bias={bias}'
-        if 'nonlinearity' in self.__dict__ and self.nonlinearity != 'tanh':
-            s += ', nonlinearity={nonlinearity}'
-        s += ')'
-        return s.format(name=self.__class__.__name__, **self.__dict__)
+
+    For each element in the input sequence, each layer computes the following
+    function:
+
+    .. math::
+
+        h_t = \\tanh(w_{ih} * x_t + b_{ih}  +  w_{hh} * h_{(t-1)} + b_{hh})
+
+    where :math:`h_t` is the hidden state at time `t`, and :math:`x_t` is
+    the hidden state of the previous layer at time `t` or :math:`input_t`
+    for the first layer. If nonlinearity='relu', then `ReLU` is used instead
+    of `tanh`.
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        num_layers: Number of recurrent layers.
+        nonlinearity: The non-linearity to use ['tanh'|'relu']. Default: 'tanh'
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        batch_first: If True, then the input and output tensors are provided
+            as (batch, seq, feature)
+        dropout: (dropout_in, dropout_hidden) tuple.
+            If non-zero, introduces a dropout layer on the input and hidden of the each
+            RNN layer with dropout rate dropout_in and dropout_hidden, resp.
+        bidirectional: If True, becomes a bidirectional RNN. Default: False
+
+    Inputs: input, skip_connect, mask, h_0
+        - **input** (seq_len, batch, model_dim): tensor containing the features
+          of the input sequence.
+        - **skip_connect** (seq_len, batch): long tensor containing the index of skip connections for each step.
+          **mask** (seq_len, batch): 0-1 tensor containing the mask of the input sequence.
+        - **h_0** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the initial hidden state for each element in the batch.
+
+    Outputs: output, h_n
+        - **output** (seq_len, batch, hidden_size * num_directions): tensor
+          containing the output features (h_k) from the last layer of the RNN,
+          for each k.  If a :class:`torch.nn.utils.rnn.PackedSequence` has
+          been given as the input, the output will also be a packed sequence.
+        - **h_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the hidden state for k=seq_len.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(VarSkipRNN, self).__init__(SkipConnectRNNCell, *args, **kwargs)
+
+
+class SkipConnectFastLSTMCell(VarRNNCellBase):
+    """
+    A long short-term memory (LSTM) cell with skip connections and variational dropout.
+
+    .. math::
+
+        egin{array}{ll}
+        i = \\mathrm{sigmoid}(W_{ii} x + b_{ii} + W_{hi} h + b_{hi}) \\
+        f = \\mathrm{sigmoid}(W_{if} x + b_{if} + W_{hf} h + b_{hf}) \\
+        g = 	anh(W_{ig} x + b_{ig} + W_{hc} h + b_{hg}) \\
+        o = \\mathrm{sigmoid}(W_{io} x + b_{io} + W_{ho} h + b_{ho}) \\
+        c' = f * c + i * g \\
+        h' = o * 	anh(c') \\
+        \\end{array}
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        bias: If `False`, then the layer does not use bias weights `b_ih` and
+            `b_hh`. Default: True
+        p: (p_in, p_hidden) (tuple, optional): the drop probability for input and hidden. Default: (0.5, 0.5)
+
+    Inputs: input, (h_0, c_0), h_s
+        - **input** (batch, model_dim): tensor containing input features
+        - **h_0** (batch, hidden_size): tensor containing the initial hidden
+          state for each element in the batch.
+        - **c_0** (batch. hidden_size): tensor containing the initial cell state
+          for each element in the batch.
+        - **h_s** (batch. hidden_size): tensor containing the skip connection state
+          for each element in the batch.
+
+    Outputs: h_1, c_1
+        - **h_1** (batch, hidden_size): tensor containing the next hidden state
+          for each element in the batch
+        - **c_1** (batch, hidden_size): tensor containing the next cell state
+          for each element in the batch
+
+    Attributes:
+        weight_ih: the learnable input-hidden weights, of shape
+            `(4*hidden_size x model_dim)`
+        weight_hh: the learnable hidden-hidden weights, of shape
+            `(4*hidden_size x 2*hidden_size)`
+        bias_ih: the learnable input-hidden bias, of shape `(4*hidden_size)`
+        bias_hh: the learnable hidden-hidden bias, of shape `(4*hidden_size)`
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, p=(0.5, 0.5)):
+        super(SkipConnectFastLSTMCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.weight_ih = Parameter(torch.Tensor(4 * hidden_size, input_size))
+        self.weight_hh = Parameter(torch.Tensor(4 * hidden_size, 2 * hidden_size))
+        if bias:
+            self.bias_ih = Parameter(torch.Tensor(4 * hidden_size))
+            self.bias_hh = Parameter(torch.Tensor(4 * hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        self.reset_parameters()
+        p_in, p_hidden = p
+        if p_in < 0 or p_in > 1:
+            raise ValueError('input dropout probability has to be between 0 and 1, but got {}'.format(p_in))
+        if p_hidden < 0 or p_hidden > 1:
+            raise ValueError('hidden state dropout probability has to be between 0 and 1, but got {}'.format(p_hidden))
+        self.p_in = p_in
+        self.p_hidden = p_hidden
+        self.noise_in = None
+        self.noise_hidden = None
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.xavier_uniform_(self.weight_ih)
+        if self.bias:
+            nn.init.constant_(self.bias_hh, 0.0)
+            nn.init.constant_(self.bias_ih, 0.0)
 
     def reset_noise(self, batch_size):
-        """
-        Should be overriden by all subclasses.
-        Args:
-            batch_size: (int) batch size of input.
-        """
-        raise NotImplementedError
+        if self.training:
+            if self.p_in:
+                noise = self.weight_ih.new_empty(batch_size, self.input_size)
+                self.noise_in = noise.bernoulli_(1.0 - self.p_in) / (1.0 - self.p_in)
+            else:
+                self.noise_in = None
+            if self.p_hidden:
+                noise = self.weight_hh.new_empty(batch_size, self.hidden_size * 2)
+                self.noise_hidden = noise.bernoulli_(1.0 - self.p_hidden) / (1.0 - self.p_hidden)
+            else:
+                self.noise_hidden = None
+        else:
+            self.noise_in = None
+            self.noise_hidden = None
+
+    def forward(self, input, hx, hs):
+        return rnn_F.SkipConnectFastLSTMCell(input, hx, hs, self.weight_ih, self.weight_hh, self.bias_ih, self.bias_hh, self.noise_in, self.noise_hidden)
+
+
+class VarSkipFastLSTM(VarSkipRNNBase):
+    """Applies a multi-layer long short-term memory (LSTM) RNN to an input
+    sequence.
+
+
+    For each element in the input sequence, each layer computes the following
+    function:
+
+    .. math::
+
+            \\begin{array}{ll}
+            i_t = \\mathrm{sigmoid}(W_{ii} x_t + b_{ii} + W_{hi} h_{(t-1)} + b_{hi}) \\\\
+            f_t = \\mathrm{sigmoid}(W_{if} x_t + b_{if} + W_{hf} h_{(t-1)} + b_{hf}) \\\\
+            g_t = \\tanh(W_{ig} x_t + b_{ig} + W_{hc} h_{(t-1)} + b_{hg}) \\\\
+            o_t = \\mathrm{sigmoid}(W_{io} x_t + b_{io} + W_{ho} h_{(t-1)} + b_{ho}) \\\\
+            c_t = f_t * c_{(t-1)} + i_t * g_t \\\\
+            h_t = o_t * \\tanh(c_t)
+            \\end{array}
+
+    where :math:`h_t` is the hidden state at time `t`, :math:`c_t` is the cell
+    state at time `t`, :math:`x_t` is the hidden state of the previous layer at
+    time `t` or :math:`input_t` for the first layer, and :math:`i_t`,
+    :math:`f_t`, :math:`g_t`, :math:`o_t` are the input, forget, cell,
+    and out gates, respectively.
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        num_layers: Number of recurrent layers.
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        batch_first: If True, then the input and output tensors are provided
+            as (batch, seq, feature)
+        dropout: (dropout_in, dropout_hidden) tuple.
+            If non-zero, introduces a dropout layer on the input and hidden of the each
+            RNN layer with dropout rate dropout_in and dropout_hidden, resp.
+        bidirectional: If True, becomes a bidirectional RNN. Default: False
+
+    Inputs: input, skip_connect, mask, (h_0, c_0)
+        - **input** (seq_len, batch, model_dim): tensor containing the features
+          of the input sequence.
+        - **skip_connect** (seq_len, batch): long tensor containing the index of skip connections for each step.
+        - **mask** (seq_len, batch): 0-1 tensor containing the mask of the input sequence.
+        - **h_0** (num_layers \\* num_directions, batch, hidden_size): tensor
+          containing the initial hidden state for each element in the batch.
+        - **c_0** (num_layers \\* num_directions, batch, hidden_size): tensor
+          containing the initial cell state for each element in the batch.
+
+    Outputs: output, (h_n, c_n)
+        - **output** (seq_len, batch, hidden_size * num_directions): tensor
+          containing the output features `(h_t)` from the last layer of the RNN,
+          for each t. If a :class:`torch.nn.utils.rnn.PackedSequence` has been
+          given as the input, the output will also be a packed sequence.
+        - **h_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the hidden state for t=seq_len
+        - **c_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the cell state for t=seq_len
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(VarSkipFastLSTM, self).__init__(SkipConnectFastLSTMCell, *args, **kwargs)
+        self.lstm = True
+
+
+class SkipConnectLSTMCell(VarRNNCellBase):
+    """
+    A long short-term memory (LSTM) cell with skip connections and variational dropout.
+
+    .. math::
+
+        egin{array}{ll}
+        i = \\mathrm{sigmoid}(W_{ii} x + b_{ii} + W_{hi} h + b_{hi}) \\
+        f = \\mathrm{sigmoid}(W_{if} x + b_{if} + W_{hf} h + b_{hf}) \\
+        g = 	anh(W_{ig} x + b_{ig} + W_{hc} h + b_{hg}) \\
+        o = \\mathrm{sigmoid}(W_{io} x + b_{io} + W_{ho} h + b_{ho}) \\
+        c' = f * c + i * g \\
+        h' = o * 	anh(c') \\
+        \\end{array}
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        bias: If `False`, then the layer does not use bias weights `b_ih` and
+            `b_hh`. Default: True
+        p: (p_in, p_hidden) (tuple, optional): the drop probability for input and hidden. Default: (0.5, 0.5)
+
+    Inputs: input, (h_0, c_0), h_s
+        - **input** (batch, model_dim): tensor containing input features
+        - **h_0** (batch, hidden_size): tensor containing the initial hidden
+          state for each element in the batch.
+        - **c_0** (batch. hidden_size): tensor containing the initial cell state
+          for each element in the batch.
+           **h_s** (batch. hidden_size): tensor containing the skip connection state
+          for each element in the batch.
+
+    Outputs: h_1, c_1
+        - **h_1** (batch, hidden_size): tensor containing the next hidden state
+          for each element in the batch
+        - **c_1** (batch, hidden_size): tensor containing the next cell state
+          for each element in the batch
+
+    Attributes:
+        weight_ih: the learnable input-hidden weights, of shape
+            `(4 x model_dim x hidden_size)`
+        weight_hh: the learnable hidden-hidden weights, of shape
+            `(4 x 2*hidden_size x hidden_size)`
+        bias_ih: the learnable input-hidden bias, of shape `(4 x hidden_size)`
+        bias_hh: the learnable hidden-hidden bias, of shape `(4 x hidden_size)`
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, p=(0.5, 0.5)):
+        super(SkipConnectLSTMCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.weight_ih = Parameter(torch.Tensor(4, input_size, hidden_size))
+        self.weight_hh = Parameter(torch.Tensor(4, 2 * hidden_size, hidden_size))
+        if bias:
+            self.bias_ih = Parameter(torch.Tensor(4, hidden_size))
+            self.bias_hh = Parameter(torch.Tensor(4, hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        self.reset_parameters()
+        p_in, p_hidden = p
+        if p_in < 0 or p_in > 1:
+            raise ValueError('input dropout probability has to be between 0 and 1, but got {}'.format(p_in))
+        if p_hidden < 0 or p_hidden > 1:
+            raise ValueError('hidden state dropout probability has to be between 0 and 1, but got {}'.format(p_hidden))
+        self.p_in = p_in
+        self.p_hidden = p_hidden
+        self.noise_in = None
+        self.noise_hidden = None
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.xavier_uniform_(self.weight_ih)
+        if self.bias:
+            nn.init.constant_(self.bias_hh, 0.0)
+            nn.init.constant_(self.bias_ih, 0.0)
+
+    def reset_noise(self, batch_size):
+        if self.training:
+            if self.p_in:
+                noise = self.weight_ih.new_empty(4, batch_size, self.input_size)
+                self.noise_in = noise.bernoulli_(1.0 - self.p_in) / (1.0 - self.p_in)
+            else:
+                self.noise_in = None
+            if self.p_hidden:
+                noise = self.weight_hh.new_empty(4, batch_size, self.hidden_size * 2)
+                self.noise_hidden = noise.bernoulli_(1.0 - self.p_hidden) / (1.0 - self.p_hidden)
+            else:
+                self.noise_hidden = None
+        else:
+            self.noise_in = None
+            self.noise_hidden = None
+
+    def forward(self, input, hx, hs):
+        return rnn_F.SkipConnectLSTMCell(input, hx, hs, self.weight_ih, self.weight_hh, self.bias_ih, self.bias_hh, self.noise_in, self.noise_hidden)
+
+
+class VarSkipLSTM(VarSkipRNNBase):
+    """Applies a multi-layer long short-term memory (LSTM) RNN to an input
+    sequence.
+
+
+    For each element in the input sequence, each layer computes the following
+    function:
+
+    .. math::
+
+            \\begin{array}{ll}
+            i_t = \\mathrm{sigmoid}(W_{ii} x_t + b_{ii} + W_{hi} h_{(t-1)} + b_{hi}) \\\\
+            f_t = \\mathrm{sigmoid}(W_{if} x_t + b_{if} + W_{hf} h_{(t-1)} + b_{hf}) \\\\
+            g_t = \\tanh(W_{ig} x_t + b_{ig} + W_{hc} h_{(t-1)} + b_{hg}) \\\\
+            o_t = \\mathrm{sigmoid}(W_{io} x_t + b_{io} + W_{ho} h_{(t-1)} + b_{ho}) \\\\
+            c_t = f_t * c_{(t-1)} + i_t * g_t \\\\
+            h_t = o_t * \\tanh(c_t)
+            \\end{array}
+
+    where :math:`h_t` is the hidden state at time `t`, :math:`c_t` is the cell
+    state at time `t`, :math:`x_t` is the hidden state of the previous layer at
+    time `t` or :math:`input_t` for the first layer, and :math:`i_t`,
+    :math:`f_t`, :math:`g_t`, :math:`o_t` are the input, forget, cell,
+    and out gates, respectively.
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        num_layers: Number of recurrent layers.
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        batch_first: If True, then the input and output tensors are provided
+            as (batch, seq, feature)
+        dropout: (dropout_in, dropout_hidden) tuple.
+            If non-zero, introduces a dropout layer on the input and hidden of the each
+            RNN layer with dropout rate dropout_in and dropout_hidden, resp.
+        bidirectional: If True, becomes a bidirectional RNN. Default: False
+
+    Inputs: input, skip_connect, mask, (h_0, c_0)
+        - **input** (seq_len, batch, model_dim): tensor containing the features
+          of the input sequence.
+        - **skip_connect** (seq_len, batch): long tensor containing the index of skip connections for each step.
+        - **mask** (seq_len, batch): 0-1 tensor containing the mask of the input sequence.
+        - **h_0** (num_layers \\* num_directions, batch, hidden_size): tensor
+          containing the initial hidden state for each element in the batch.
+        - **c_0** (num_layers \\* num_directions, batch, hidden_size): tensor
+          containing the initial cell state for each element in the batch.
+
+    Outputs: output, (h_n, c_n)
+        - **output** (seq_len, batch, hidden_size * num_directions): tensor
+          containing the output features `(h_t)` from the last layer of the RNN,
+          for each t. If a :class:`torch.nn.utils.rnn.PackedSequence` has been
+          given as the input, the output will also be a packed sequence.
+        - **h_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the hidden state for t=seq_len
+        - **c_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the cell state for t=seq_len
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(VarSkipLSTM, self).__init__(SkipConnectLSTMCell, *args, **kwargs)
+        self.lstm = True
+
+
+class SkipConnectFastGRUCell(VarRNNCellBase):
+    """A gated recurrent unit (GRU) cell with skip connections and variational dropout.
+
+    .. math::
+
+        egin{array}{ll}
+        r = \\mathrm{sigmoid}(W_{ir} x + b_{ir} + W_{hr} h + b_{hr}) \\
+        z = \\mathrm{sigmoid}(W_{iz} x + b_{iz} + W_{hz} h + b_{hz}) \\
+        n = 	anh(W_{in} x + b_{in} + r * (W_{hn} h + b_{hn})) \\
+        h' = (1 - z) * n + z * h
+        \\end{array}
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        bias: If `False`, then the layer does not use bias weights `b_ih` and
+            `b_hh`. Default: True
+        p: (p_in, p_hidden) (tuple, optional): the drop probability for input and hidden. Default: (0.5, 0.5)
+
+    Inputs: input, hidden, h_s
+        - **input** (batch, model_dim): tensor containing input features
+        - **hidden** (batch, hidden_size): tensor containing the initial hidden
+          state for each element in the batch.
+        - **h_s** (batch. hidden_size): tensor containing the skip connection state
+          for each element in the batch.
+
+    Outputs: h'
+        - **h'**: (batch, hidden_size): tensor containing the next hidden state
+          for each element in the batch
+
+    Attributes:
+        weight_ih: the learnable input-hidden weights, of shape
+            `(3*hidden_size x model_dim)`
+        weight_hh: the learnable hidden-hidden weights, of shape
+            `(3*hidden_size x 2*hidden_size)`
+        bias_ih: the learnable input-hidden bias, of shape `(3*hidden_size)`
+        bias_hh: the learnable hidden-hidden bias, of shape `(3*hidden_size)`
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, p=(0.5, 0.5)):
+        super(SkipConnectFastGRUCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.weight_ih = Parameter(torch.Tensor(3 * hidden_size, input_size))
+        self.weight_hh = Parameter(torch.Tensor(3 * hidden_size, hidden_size * 2))
+        if bias:
+            self.bias_ih = Parameter(torch.Tensor(3 * hidden_size))
+            self.bias_hh = Parameter(torch.Tensor(3 * hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        self.reset_parameters()
+        p_in, p_hidden = p
+        if p_in < 0 or p_in > 1:
+            raise ValueError('input dropout probability has to be between 0 and 1, but got {}'.format(p_in))
+        if p_hidden < 0 or p_hidden > 1:
+            raise ValueError('hidden state dropout probability has to be between 0 and 1, but got {}'.format(p_hidden))
+        self.p_in = p_in
+        self.p_hidden = p_hidden
+        self.noise_in = None
+        self.noise_hidden = None
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.xavier_uniform_(self.weight_ih)
+        if self.bias:
+            nn.init.constant_(self.bias_hh, 0.0)
+            nn.init.constant_(self.bias_ih, 0.0)
+
+    def reset_noise(self, batch_size):
+        if self.training:
+            if self.p_in:
+                noise = self.weight_ih.new_empty(batch_size, self.input_size)
+                self.noise_in = noise.bernoulli_(1.0 - self.p_in) / (1.0 - self.p_in)
+            else:
+                self.noise_in = None
+            if self.p_hidden:
+                noise = self.weight_hh.new_empty(batch_size, self.hidden_size * 2)
+                self.noise_hidden = noise.bernoulli_(1.0 - self.p_hidden) / (1.0 - self.p_hidden)
+            else:
+                self.noise_hidden = None
+        else:
+            self.noise_in = None
+            self.noise_hidden = None
+
+    def forward(self, input, hx, hs):
+        return rnn_F.SkipConnectFastGRUCell(input, hx, hs, self.weight_ih, self.weight_hh, self.bias_ih, self.bias_hh, self.noise_in, self.noise_hidden)
+
+
+class VarSkipFastGRU(VarSkipRNNBase):
+    """Applies a multi-layer gated recurrent unit (GRU) RNN to an input sequence.
+
+
+    For each element in the input sequence, each layer computes the following
+    function:
+
+    .. math::
+
+            \\begin{array}{ll}
+            r_t = \\mathrm{sigmoid}(W_{ir} x_t + b_{ir} + W_{hr} h_{(t-1)} + b_{hr}) \\\\
+            z_t = \\mathrm{sigmoid}(W_{iz} x_t + b_{iz} + W_{hz} h_{(t-1)} + b_{hz}) \\\\
+            n_t = \\tanh(W_{in} x_t + b_{in} + r_t * (W_{hn} h_{(t-1)}+ b_{hn})) \\\\
+            h_t = (1 - z_t) * n_t + z_t * h_{(t-1)} \\\\
+            \\end{array}
+
+    where :math:`h_t` is the hidden state at time `t`, :math:`x_t` is the hidden
+    state of the previous layer at time `t` or :math:`input_t` for the first
+    layer, and :math:`r_t`, :math:`z_t`, :math:`n_t` are the reset, input,
+    and new gates, respectively.
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        num_layers: Number of recurrent layers.
+        nonlinearity: The non-linearity to use ['tanh'|'relu']. Default: 'tanh'
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        batch_first: If True, then the input and output tensors are provided
+            as (batch, seq, feature)
+        dropout: (dropout_in, dropout_hidden) tuple.
+            If non-zero, introduces a dropout layer on the input and hidden of the each
+            RNN layer with dropout rate dropout_in and dropout_hidden, resp.
+        bidirectional: If True, becomes a bidirectional RNN. Default: False
+
+    Inputs: input, skip_connect, mask, h_0
+        - **input** (seq_len, batch, model_dim): tensor containing the features
+          of the input sequence.
+        - **skip_connect** (seq_len, batch): long tensor containing the index of skip connections for each step.
+          **mask** (seq_len, batch): 0-1 tensor containing the mask of the input sequence.
+        - **h_0** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the initial hidden state for each element in the batch.
+
+    Outputs: output, h_n
+        - **output** (seq_len, batch, hidden_size * num_directions): tensor
+          containing the output features (h_k) from the last layer of the RNN,
+          for each k.  If a :class:`torch.nn.utils.rnn.PackedSequence` has
+          been given as the input, the output will also be a packed sequence.
+        - **h_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the hidden state for k=seq_len.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(VarSkipFastGRU, self).__init__(SkipConnectFastGRUCell, *args, **kwargs)
+
+
+class SkipConnectGRUCell(VarRNNCellBase):
+    """A gated recurrent unit (GRU) cell with skip connections and variational dropout.
+
+    .. math::
+
+        egin{array}{ll}
+        r = \\mathrm{sigmoid}(W_{ir} x + b_{ir} + W_{hr} h + b_{hr}) \\
+        z = \\mathrm{sigmoid}(W_{iz} x + b_{iz} + W_{hz} h + b_{hz}) \\
+        n = 	anh(W_{in} x + b_{in} + r * (W_{hn} h + b_{hn})) \\
+        h' = (1 - z) * n + z * h
+        \\end{array}
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        bias: If `False`, then the layer does not use bias weights `b_ih` and
+            `b_hh`. Default: `True`
+        p: (p_in, p_hidden) (tuple, optional): the drop probability for input and hidden. Default: (0.5, 0.5)
+
+    Inputs: input, hidden, h_s
+        - **input** (batch, model_dim): tensor containing input features
+        - **hidden** (batch, hidden_size): tensor containing the initial hidden
+          state for each element in the batch.
+        - **h_s** (batch. hidden_size): tensor containing the skip connection state
+          for each element in the batch.
+
+    Outputs: h'
+        - **h'**: (batch, hidden_size): tensor containing the next hidden state
+          for each element in the batch
+
+    Attributes:
+        weight_ih: the learnable input-hidden weights, of shape
+            `(3 x model_dim x hidden_size)`
+        weight_hh: the learnable hidden-hidden weights, of shape
+            `(3x 2*hidden_size x hidden_size)`
+        bias_ih: the learnable input-hidden bias, of shape `(3 x hidden_size)`
+        bias_hh: the learnable hidden-hidden bias, of shape `(3 x hidden_size)`
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, p=(0.5, 0.5)):
+        super(SkipConnectGRUCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.weight_ih = Parameter(torch.Tensor(3, input_size, hidden_size))
+        self.weight_hh = Parameter(torch.Tensor(3, hidden_size * 2, hidden_size))
+        if bias:
+            self.bias_ih = Parameter(torch.Tensor(3, hidden_size))
+            self.bias_hh = Parameter(torch.Tensor(3, hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        self.reset_parameters()
+        p_in, p_hidden = p
+        if p_in < 0 or p_in > 1:
+            raise ValueError('input dropout probability has to be between 0 and 1, but got {}'.format(p_in))
+        if p_hidden < 0 or p_hidden > 1:
+            raise ValueError('hidden state dropout probability has to be between 0 and 1, but got {}'.format(p_hidden))
+        self.p_in = p_in
+        self.p_hidden = p_hidden
+        self.noise_in = None
+        self.noise_hidden = None
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.xavier_uniform_(self.weight_ih)
+        if self.bias:
+            nn.init.constant_(self.bias_hh, 0.0)
+            nn.init.constant_(self.bias_ih, 0.0)
+
+    def reset_noise(self, batch_size):
+        if self.training:
+            if self.p_in:
+                noise = self.weight_ih.new_empty(3, batch_size, self.input_size)
+                self.noise_in = noise.bernoulli_(1.0 - self.p_in) / (1.0 - self.p_in)
+            else:
+                self.noise_in = None
+            if self.p_hidden:
+                noise = self.weight_hh.new_empty(3, batch_size, self.hidden_size * 2)
+                self.noise_hidden = noise.bernoulli_(1.0 - self.p_hidden) / (1.0 - self.p_hidden)
+            else:
+                self.noise_hidden = None
+        else:
+            self.noise_in = None
+            self.noise_hidden = None
+
+    def forward(self, input, hx, hs):
+        return rnn_F.SkipConnectGRUCell(input, hx, hs, self.weight_ih, self.weight_hh, self.bias_ih, self.bias_hh, self.noise_in, self.noise_hidden)
+
+
+class VarSkipGRU(VarSkipRNNBase):
+    """Applies a multi-layer gated recurrent unit (GRU) RNN to an input sequence.
+
+
+    For each element in the input sequence, each layer computes the following
+    function:
+
+    .. math::
+
+            \\begin{array}{ll}
+            r_t = \\mathrm{sigmoid}(W_{ir} x_t + b_{ir} + W_{hr} h_{(t-1)} + b_{hr}) \\\\
+            z_t = \\mathrm{sigmoid}(W_{iz} x_t + b_{iz} + W_{hz} h_{(t-1)} + b_{hz}) \\\\
+            n_t = \\tanh(W_{in} x_t + b_{in} + r_t * (W_{hn} h_{(t-1)}+ b_{hn})) \\\\
+            h_t = (1 - z_t) * n_t + z_t * h_{(t-1)} \\\\
+            \\end{array}
+
+    where :math:`h_t` is the hidden state at time `t`, :math:`x_t` is the hidden
+    state of the previous layer at time `t` or :math:`input_t` for the first
+    layer, and :math:`r_t`, :math:`z_t`, :math:`n_t` are the reset, input,
+    and new gates, respectively.
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        num_layers: Number of recurrent layers.
+        nonlinearity: The non-linearity to use ['tanh'|'relu']. Default: 'tanh'
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        batch_first: If True, then the input and output tensors are provided
+            as (batch, seq, feature)
+        dropout: (dropout_in, dropout_hidden) tuple.
+            If non-zero, introduces a dropout layer on the input and hidden of the each
+            RNN layer with dropout rate dropout_in and dropout_hidden, resp.
+        bidirectional: If True, becomes a bidirectional RNN. Default: False
+
+    Inputs: input, skip_connect, mask, h_0
+        - **input** (seq_len, batch, model_dim): tensor containing the features
+          of the input sequence.
+        - **skip_connect** (seq_len, batch): long tensor containing the index of skip connections for each step.
+          **mask** (seq_len, batch): 0-1 tensor containing the mask of the input sequence.
+        - **h_0** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the initial hidden state for each element in the batch.
+
+    Outputs: output, h_n
+        - **output** (seq_len, batch, hidden_size * num_directions): tensor
+          containing the output features (h_k) from the last layer of the RNN,
+          for each k.  If a :class:`torch.nn.utils.rnn.PackedSequence` has
+          been given as the input, the output will also be a packed sequence.
+        - **h_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the hidden state for k=seq_len.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(VarSkipGRU, self).__init__(SkipConnectGRUCell, *args, **kwargs)
+
+
+class VarFastGRUCell(VarRNNCellBase):
+    """A gated recurrent unit (GRU) cell with variational dropout.
+
+    .. math::
+
+        egin{array}{ll}
+        r = \\mathrm{sigmoid}(W_{ir} x + b_{ir} + W_{hr} h + b_{hr}) \\
+        z = \\mathrm{sigmoid}(W_{iz} x + b_{iz} + W_{hz} h + b_{hz}) \\
+        n = 	anh(W_{in} x + b_{in} + r * (W_{hn} h + b_{hn})) \\
+        h' = (1 - z) * n + z * h
+        \\end{array}
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        bias: If `False`, then the layer does not use bias weights `b_ih` and
+            `b_hh`. Default: True
+        p: (p_in, p_hidden) (tuple, optional): the drop probability for input and hidden. Default: (0.5, 0.5)
+
+    Inputs: input, hidden
+        - **input** (batch, model_dim): tensor containing input features
+        - **hidden** (batch, hidden_size): tensor containing the initial hidden
+          state for each element in the batch.
+
+    Outputs: h'
+        - **h'**: (batch, hidden_size): tensor containing the next hidden state
+          for each element in the batch
+
+    Attributes:
+        weight_ih: the learnable input-hidden weights, of shape
+            `(3*hidden_size x model_dim)`
+        weight_hh: the learnable hidden-hidden weights, of shape
+            `(3*hidden_size x hidden_size)`
+        bias_ih: the learnable input-hidden bias, of shape `(3*hidden_size)`
+        bias_hh: the learnable hidden-hidden bias, of shape `(3*hidden_size)`
+    """
+
+    def __init__(self, input_size, hidden_size, bias=True, p=(0.5, 0.5)):
+        super(VarFastGRUCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.bias = bias
+        self.weight_ih = Parameter(torch.Tensor(3 * hidden_size, input_size))
+        self.weight_hh = Parameter(torch.Tensor(3 * hidden_size, hidden_size))
+        if bias:
+            self.bias_ih = Parameter(torch.Tensor(3 * hidden_size))
+            self.bias_hh = Parameter(torch.Tensor(3 * hidden_size))
+        else:
+            self.register_parameter('bias_ih', None)
+            self.register_parameter('bias_hh', None)
+        self.reset_parameters()
+        p_in, p_hidden = p
+        if p_in < 0 or p_in > 1:
+            raise ValueError('input dropout probability has to be between 0 and 1, but got {}'.format(p_in))
+        if p_hidden < 0 or p_hidden > 1:
+            raise ValueError('hidden state dropout probability has to be between 0 and 1, but got {}'.format(p_hidden))
+        self.p_in = p_in
+        self.p_hidden = p_hidden
+        self.noise_in = None
+        self.noise_hidden = None
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.weight_hh)
+        nn.init.xavier_uniform_(self.weight_ih)
+        if self.bias:
+            nn.init.constant_(self.bias_hh, 0.0)
+            nn.init.constant_(self.bias_ih, 0.0)
+
+    def reset_noise(self, batch_size):
+        if self.training:
+            if self.p_in:
+                noise = self.weight_ih.new_empty(batch_size, self.input_size)
+                self.noise_in = noise.bernoulli_(1.0 - self.p_in) / (1.0 - self.p_in)
+            else:
+                self.noise_in = None
+            if self.p_hidden:
+                noise = self.weight_hh.new_empty(batch_size, self.hidden_size)
+                self.noise_hidden = noise.bernoulli_(1.0 - self.p_hidden) / (1.0 - self.p_hidden)
+            else:
+                self.noise_hidden = None
+        else:
+            self.noise_in = None
+            self.noise_hidden = None
+
+    def forward(self, input, hx):
+        return rnn_F.VarFastGRUCell(input, hx, self.weight_ih, self.weight_hh, self.bias_ih, self.bias_hh, self.noise_in, self.noise_hidden)
+
+
+class VarFastGRU(VarRNNBase):
+    """Applies a multi-layer gated recurrent unit (GRU) RNN to an input sequence.
+
+
+    For each element in the input sequence, each layer computes the following
+    function:
+
+    .. math::
+
+            \\begin{array}{ll}
+            r_t = \\mathrm{sigmoid}(W_{ir} x_t + b_{ir} + W_{hr} h_{(t-1)} + b_{hr}) \\\\
+            z_t = \\mathrm{sigmoid}(W_{iz} x_t + b_{iz} + W_{hz} h_{(t-1)} + b_{hz}) \\\\
+            n_t = \\tanh(W_{in} x_t + b_{in} + r_t * (W_{hn} h_{(t-1)}+ b_{hn})) \\\\
+            h_t = (1 - z_t) * n_t + z_t * h_{(t-1)} \\\\
+            \\end{array}
+
+    where :math:`h_t` is the hidden state at time `t`, :math:`x_t` is the hidden
+    state of the previous layer at time `t` or :math:`input_t` for the first
+    layer, and :math:`r_t`, :math:`z_t`, :math:`n_t` are the reset, input,
+    and new gates, respectively.
+
+    Args:
+        input_size: The number of expected features in the input x
+        hidden_size: The number of features in the hidden state h
+        num_layers: Number of recurrent layers.
+        nonlinearity: The non-linearity to use ['tanh'|'relu']. Default: 'tanh'
+        bias: If False, then the layer does not use bias weights b_ih and b_hh.
+            Default: True
+        batch_first: If True, then the input and output tensors are provided
+            as (batch, seq, feature)
+        dropout: (dropout_in, dropout_hidden) tuple.
+            If non-zero, introduces a dropout layer on the input and hidden of the each
+            RNN layer with dropout rate dropout_in and dropout_hidden, resp.
+        bidirectional: If True, becomes a bidirectional RNN. Default: False
+
+    Inputs: input, mask, h_0
+        - **input** (seq_len, batch, model_dim): tensor containing the features
+          of the input sequence.
+          **mask** (seq_len, batch): 0-1 tensor containing the mask of the input sequence.
+        - **h_0** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the initial hidden state for each element in the batch.
+
+    Outputs: output, h_n
+        - **output** (seq_len, batch, hidden_size * num_directions): tensor
+          containing the output features (h_k) from the last layer of the RNN,
+          for each k.  If a :class:`torch.nn.utils.rnn.PackedSequence` has
+          been given as the input, the output will also be a packed sequence.
+        - **h_n** (num_layers * num_directions, batch, hidden_size): tensor
+          containing the hidden state for k=seq_len.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super(VarFastGRU, self).__init__(VarFastGRUCell, *args, **kwargs)
 
 
 import torch

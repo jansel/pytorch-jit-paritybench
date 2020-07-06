@@ -46,15 +46,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -62,7 +63,34 @@ __version__ = '1.0.0'
 import torch
 
 
+import numpy as np
+
+
+import copy
+
+
+import torch.distributed as dist
+
+
+import torch._six
+
+
+from collections import defaultdict
+
+
 import torch.nn.functional as F
+
+
+import math
+
+
+import torch.utils.data
+
+
+import torchvision
+
+
+import collections
 
 
 import torch.nn as nn
@@ -92,9 +120,6 @@ from torchvision.models.detection.transform import GeneralizedRCNNTransform
 from torchvision.models.detection.backbone_utils import resnet_fpn_backbone
 
 
-import math
-
-
 import re
 
 
@@ -107,10 +132,16 @@ from torchvision.models.utils import load_state_dict_from_url
 from torch import nn
 
 
+from torchvision.models.detection.roi_heads import RoIHeads
+
+
 from torchvision.models.detection.rpn import RegionProposalNetwork
 
 
 from torchvision.models.detection.rpn import concat_box_prediction_layers
+
+
+import random
 
 
 class ObjectDetectionEnsembleModel(torch.nn.Module):

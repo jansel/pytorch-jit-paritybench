@@ -15,17 +15,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils.data import Dataset
 
 
 import numpy as np
@@ -34,10 +38,46 @@ import numpy as np
 import torch
 
 
+import math
+
+
+from functools import reduce
+
+
+from torch.autograd import Variable
+
+
+from functools import partial
+
+
 from torch import nn
 
 
 from torch.nn import functional as F
+
+
+import time
+
+
+from torch.optim import Adam
+
+
+from torch.optim.lr_scheduler import LambdaLR
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data.sampler import RandomSampler
+
+
+from collections import OrderedDict
+
+
+import inspect
+
+
+from torch.autograd import grad
 
 
 class PGConv2d(nn.Module):
@@ -171,6 +211,23 @@ class DBlock(nn.Module):
         return x
 
 
+def Tstdeps(val):
+    return torch.sqrt(((val - val.mean()) ** 2).mean() + 1e-08)
+
+
+class MinibatchStddev(nn.Module):
+
+    def __init__(self):
+        super(MinibatchStddev, self).__init__()
+        self.eps = 1.0
+
+    def forward(self, x):
+        stddev_mean = Tstdeps(x)
+        new_channel = stddev_mean.expand(x.size(0), 1, x.size(2), x.size(3))
+        h = torch.cat((x, new_channel), dim=1)
+        return h
+
+
 class DLastBlock(nn.Module):
 
     def __init__(self, ch_in, ch_out, num_channels, **layer_settings):
@@ -187,23 +244,6 @@ class DLastBlock(nn.Module):
         x = self.c1(x)
         x = self.c2(x)
         return x
-
-
-def Tstdeps(val):
-    return torch.sqrt(((val - val.mean()) ** 2).mean() + 1e-08)
-
-
-class MinibatchStddev(nn.Module):
-
-    def __init__(self):
-        super(MinibatchStddev, self).__init__()
-        self.eps = 1.0
-
-    def forward(self, x):
-        stddev_mean = Tstdeps(x)
-        new_channel = stddev_mean.expand(x.size(0), 1, x.size(2), x.size(3))
-        h = torch.cat((x, new_channel), dim=1)
-        return h
 
 
 class Discriminator(nn.Module):

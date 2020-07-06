@@ -12,26 +12,48 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+import torch
+
+
+import torch.utils
+
+
+import torch.utils.data
+
+
+from sklearn import preprocessing
+
+
+import torch.utils.data as data
+
+
+import sklearn.svm
+
+
+import sklearn.model_selection
 
 
 import torch.nn as nn
 
 
 import torch.nn.functional as F
-
-
-import torch
 
 
 import torch.optim as optim
@@ -43,7 +65,22 @@ from torch.nn import init
 import math
 
 
-import numpy as np
+import random
+
+
+from sklearn.metrics import confusion_matrix
+
+
+import itertools
+
+
+from scipy import io
+
+
+from scipy import misc
+
+
+import re
 
 
 class Baseline(nn.Module):
@@ -690,10 +727,6 @@ TESTCASES = [
      lambda: ([], {'input_channels': 4, 'n_classes': 4}),
      lambda: ([torch.rand([4, 4])], {}),
      True),
-    (HamidaEtAl,
-     lambda: ([], {'input_channels': 4, 'n_classes': 4}),
-     lambda: ([torch.rand([4, 1, 64, 64, 64])], {}),
-     True),
     (HuEtAl,
      lambda: ([], {'input_channels': 4, 'n_classes': 4}),
      lambda: ([torch.rand([4, 4])], {}),
@@ -723,7 +756,4 @@ class Test_eecn_Hyperspectral_Classification(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
 

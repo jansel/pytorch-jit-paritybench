@@ -21,15 +21,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -41,6 +42,9 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+from torch.utils import cpp_extension
 
 
 class AffinityFieldLoss(nn.Module):
@@ -513,7 +517,7 @@ class MishV3(nn.Module):
 def pc_softmax_func(logits, lb_proportion):
     assert logits.size(1) == len(lb_proportion)
     shape = [1, -1] + [(1) for _ in range(len(logits.size()) - 2)]
-    W = torch.tensor(lb_proportion).view(*shape).to(logits.device).detach()
+    W = torch.tensor(lb_proportion).view(*shape).detach()
     logits = logits - logits.max(dim=1, keepdim=True)[0]
     exp = torch.exp(logits)
     pc_softmax = exp.div_((W * exp).sum(dim=1, keepdim=True))
@@ -557,7 +561,7 @@ class PCSoftmaxCrossEntropyFunction(torch.autograd.Function):
         label[ignore] = 0
         lb_one_hot = torch.zeros_like(logits).scatter_(1, label.unsqueeze(1), 1).detach()
         shape = [1, -1] + [(1) for _ in range(len(logits.size()) - 2)]
-        W = torch.tensor(lb_proportion).view(*shape).to(logits.device).detach()
+        W = torch.tensor(lb_proportion).view(*shape).detach()
         logits = logits - logits.max(dim=1, keepdim=True)[0]
         exp_wsum = torch.exp(logits).mul_(W).sum(dim=1, keepdim=True)
         ignore = ignore.nonzero()

@@ -14,15 +14,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -43,6 +44,12 @@ from torch.utils.data import DataLoader
 
 
 from torch.utils.checkpoint import checkpoint_sequential
+
+
+from torchvision import transforms
+
+
+from torch.utils.data import Dataset
 
 
 class InvertedResidual(nn.Module):
@@ -118,12 +125,6 @@ class ASPP_plus(nn.Module):
         return self.concate_conv(concate)
 
 
-LOG = lambda x: print('\x1b[0;31;2m' + x + '\x1b[0m')
-
-
-WARNING = lambda x: print('\x1b[1;31;2mWARNING: ' + x + '\x1b[0m')
-
-
 class bar(object):
 
     def __init__(self):
@@ -144,12 +145,12 @@ class bar(object):
             self.time = time.time() - self.start_time
             self.iter_per_sec = 1 / self.time
             perc = current_idx * total_length // max_idx
-            print('\r|' + '=' * perc + '>' + ' ' * (total_length - 1 - perc) + '| %d/%d (%.2f iter/s)' % (current_idx + 1, max_idx, self.iter_per_sec), end='')
+            None
             self.start_time = time.time()
 
     def close(self):
         self.__init__()
-        print('')
+        None
 
 
 def logits2trainId(logits):
@@ -350,7 +351,7 @@ class MobileNetv2_DeepLabv3(nn.Module):
         Test network on test set
         """
         None
-        torch.empty_cache()
+        torch.cuda.empty_cache()
         self.network.eval()
         test_loader = DataLoader(self.datasets['test'], batch_size=self.params.test_batch, shuffle=False, num_workers=self.params.dataloader_workers)
         test_size = len(self.datasets['test'])

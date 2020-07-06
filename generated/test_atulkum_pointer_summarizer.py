@@ -18,20 +18,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 import torch
+
+
+from torch.autograd import Variable
+
+
+import tensorflow as tf
 
 
 import torch.nn as nn
@@ -49,13 +59,13 @@ from torch.nn.utils.rnn import pad_packed_sequence
 from numpy import random
 
 
-import time
-
-
 from torch.nn.utils import clip_grad_norm_
 
 
 from torch.optim import Adagrad
+
+
+import numpy as np
 
 
 import logging
@@ -64,58 +74,104 @@ import logging
 import math
 
 
-_global_config['rand_unif_init_mag'] = 4
+class AffineLayer(nn.Module):
+
+    def __init__(self, dropout, d_model, d_ff):
+        super(AffineLayer, self).__init__()
+        self.w_1 = nn.Linear(d_model, d_ff)
+        self.w_2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        return self.w_2(self.dropout(F.relu(self.w_1(x))))
 
 
-def init_lstm_wt(lstm):
-    for names in lstm._all_weights:
-        for name in names:
-            if name.startswith('weight_'):
-                wt = getattr(lstm, name)
-                wt.data.uniform_(-config.rand_unif_init_mag, config.rand_unif_init_mag)
-            elif name.startswith('bias_'):
-                bias = getattr(lstm, name)
-                n = bias.size(0)
-                start, end = n // 4, n // 2
-                bias.data.fill_(0.0)
-                bias.data[start:end].fill_(1.0)
+class MultiHeadedAttention(nn.Module):
+
+    def __init__(self, num_head, d_model, dropout=0.1):
+        super(MultiHeadedAttention, self).__init__()
+        assert d_model % num_head == 0
+        self.d_k = d_model // num_head
+        self.h = num_head
+        self.linear_key = nn.Linear(d_model, d_model)
+        self.linear_value = nn.Linear(d_model, d_model)
+        self.linear_query = nn.Linear(d_model, d_model)
+        self.linear_out = nn.Linear(d_model, d_model)
+        self.dropout = nn.Dropout(p=dropout)
+
+    def attention(self, query, key, value, mask, dropout=None):
+        d_k = query.size(-1)
+        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
+        scores = scores.masked_fill(mask == 0, -1000000000.0)
+        p_attn = F.softmax(scores, dim=-1)
+        if dropout is not None:
+            p_attn = dropout(p_attn)
+        return torch.matmul(p_attn, value), p_attn
+
+    def forward(self, query, key, value, mask):
+        nbatches = query.size(0)
+        query = self.linear_query(query).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
+        key = self.linear_key(key).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
+        value = self.linear_value(value).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
+        mask = mask.unsqueeze(1)
+        x, attn = self.attention(query, key, value, mask, dropout=self.dropout)
+        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
+        return self.linear_out(x)
 
 
-_global_config['trunc_norm_init_std'] = 4
+class EncoderLayer(nn.Module):
+
+    def __init__(self, num_head, dropout, d_model, d_ff):
+        super(EncoderLayer, self).__init__()
+        self.att_layer = MultiHeadedAttention(num_head, d_model, dropout)
+        self.norm_att = nn.LayerNorm(d_model)
+        self.dropout_att = nn.Dropout(dropout)
+        self.affine_layer = AffineLayer(dropout, d_model, d_ff)
+        self.norm_affine = nn.LayerNorm(d_model)
+        self.dropout_affine = nn.Dropout(dropout)
+
+    def forward(self, x, mask):
+        x_att = self.norm_att(x * mask)
+        x_att = self.att_layer(x_att, x_att, x_att, mask)
+        x = x + self.dropout_att(x_att)
+        x_affine = self.norm_affine(x * mask)
+        x_affine = self.affine_layer(x_affine)
+        return x + self.dropout_affine(x_affine)
 
 
-def init_wt_normal(wt):
-    wt.data.normal_(std=config.trunc_norm_init_std)
+class PositionalEncoding(nn.Module):
 
+    def __init__(self, d_model, dropout, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len).float().unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
 
-_global_config['hidden_dim'] = 4
-
-
-_global_config['emb_dim'] = 4
-
-
-_global_config['vocab_size'] = 4
+    def forward(self, x):
+        x = x + self.pe[:, :x.size(1)]
+        return self.dropout(x)
 
 
 class Encoder(nn.Module):
 
-    def __init__(self):
+    def __init__(self, N, num_head, dropout, d_model, d_ff):
         super(Encoder, self).__init__()
-        self.embedding = nn.Embedding(config.vocab_size, config.emb_dim)
-        init_wt_normal(self.embedding.weight)
-        self.lstm = nn.LSTM(config.emb_dim, config.hidden_dim, num_layers=1, batch_first=True, bidirectional=True)
-        init_lstm_wt(self.lstm)
-        self.W_h = nn.Linear(config.hidden_dim * 2, config.hidden_dim * 2, bias=False)
+        self.position = PositionalEncoding(d_model, dropout)
+        self.layers = nn.ModuleList()
+        for _ in range(N):
+            self.layers.append(EncoderLayer(num_head, dropout, d_model, d_ff))
+        self.norm = nn.LayerNorm(d_model)
 
-    def forward(self, input, seq_lens):
-        embedded = self.embedding(input)
-        packed = pack_padded_sequence(embedded, seq_lens, batch_first=True)
-        output, hidden = self.lstm(packed)
-        encoder_outputs, _ = pad_packed_sequence(output, batch_first=True)
-        encoder_outputs = encoder_outputs.contiguous()
-        encoder_feature = encoder_outputs.view(-1, 2 * config.hidden_dim)
-        encoder_feature = self.W_h(encoder_feature)
-        return encoder_outputs, encoder_feature, hidden
+    def forward(self, word_embed, mask):
+        x = self.position(word_embed)
+        for layer in self.layers:
+            x = layer(x, mask)
+        return self.norm(x * mask)
 
 
 def init_linear_wt(linear):
@@ -140,9 +196,6 @@ class ReduceState(nn.Module):
         c_in = c.transpose(0, 1).contiguous().view(-1, config.hidden_dim * 2)
         hidden_reduced_c = F.relu(self.reduce_c(c_in))
         return hidden_reduced_h.unsqueeze(0), hidden_reduced_c.unsqueeze(0)
-
-
-_global_config['is_coverage'] = 4
 
 
 class Attention(nn.Module):
@@ -180,7 +233,22 @@ class Attention(nn.Module):
         return c_t, attn_dist, coverage
 
 
-_global_config['pointer_gen'] = 4
+def init_lstm_wt(lstm):
+    for names in lstm._all_weights:
+        for name in names:
+            if name.startswith('weight_'):
+                wt = getattr(lstm, name)
+                wt.data.uniform_(-config.rand_unif_init_mag, config.rand_unif_init_mag)
+            elif name.startswith('bias_'):
+                bias = getattr(lstm, name)
+                n = bias.size(0)
+                start, end = n // 4, n // 2
+                bias.data.fill_(0.0)
+                bias.data[start:end].fill_(1.0)
+
+
+def init_wt_normal(wt):
+    wt.data.normal_(std=config.trunc_norm_init_std)
 
 
 class Decoder(nn.Module):
@@ -231,106 +299,6 @@ class Decoder(nn.Module):
         else:
             final_dist = vocab_dist
         return final_dist, s_t, c_t, attn_dist, p_gen, coverage
-
-
-class PositionalEncoding(nn.Module):
-
-    def __init__(self, d_model, dropout, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len).float().unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
-
-    def forward(self, x):
-        x = x + self.pe[:, :x.size(1)]
-        return self.dropout(x)
-
-
-class MultiHeadedAttention(nn.Module):
-
-    def __init__(self, num_head, d_model, dropout=0.1):
-        super(MultiHeadedAttention, self).__init__()
-        assert d_model % num_head == 0
-        self.d_k = d_model // num_head
-        self.h = num_head
-        self.linear_key = nn.Linear(d_model, d_model)
-        self.linear_value = nn.Linear(d_model, d_model)
-        self.linear_query = nn.Linear(d_model, d_model)
-        self.linear_out = nn.Linear(d_model, d_model)
-        self.dropout = nn.Dropout(p=dropout)
-
-    def attention(self, query, key, value, mask, dropout=None):
-        d_k = query.size(-1)
-        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
-        scores = scores.masked_fill(mask == 0, -1000000000.0)
-        p_attn = F.softmax(scores, dim=-1)
-        if dropout is not None:
-            p_attn = dropout(p_attn)
-        return torch.matmul(p_attn, value), p_attn
-
-    def forward(self, query, key, value, mask):
-        nbatches = query.size(0)
-        query = self.linear_query(query).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-        key = self.linear_key(key).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-        value = self.linear_value(value).view(nbatches, -1, self.h, self.d_k).transpose(1, 2)
-        mask = mask.unsqueeze(1)
-        x, attn = self.attention(query, key, value, mask, dropout=self.dropout)
-        x = x.transpose(1, 2).contiguous().view(nbatches, -1, self.h * self.d_k)
-        return self.linear_out(x)
-
-
-class AffineLayer(nn.Module):
-
-    def __init__(self, dropout, d_model, d_ff):
-        super(AffineLayer, self).__init__()
-        self.w_1 = nn.Linear(d_model, d_ff)
-        self.w_2 = nn.Linear(d_ff, d_model)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x):
-        return self.w_2(self.dropout(F.relu(self.w_1(x))))
-
-
-class EncoderLayer(nn.Module):
-
-    def __init__(self, num_head, dropout, d_model, d_ff):
-        super(EncoderLayer, self).__init__()
-        self.att_layer = MultiHeadedAttention(num_head, d_model, dropout)
-        self.norm_att = nn.LayerNorm(d_model)
-        self.dropout_att = nn.Dropout(dropout)
-        self.affine_layer = AffineLayer(dropout, d_model, d_ff)
-        self.norm_affine = nn.LayerNorm(d_model)
-        self.dropout_affine = nn.Dropout(dropout)
-
-    def forward(self, x, mask):
-        x_att = self.norm_att(x * mask)
-        x_att = self.att_layer(x_att, x_att, x_att, mask)
-        x = x + self.dropout_att(x_att)
-        x_affine = self.norm_affine(x * mask)
-        x_affine = self.affine_layer(x_affine)
-        return x + self.dropout_affine(x_affine)
-
-
-class Encoder(nn.Module):
-
-    def __init__(self, N, num_head, dropout, d_model, d_ff):
-        super(Encoder, self).__init__()
-        self.position = PositionalEncoding(d_model, dropout)
-        self.layers = nn.ModuleList()
-        for _ in range(N):
-            self.layers.append(EncoderLayer(num_head, dropout, d_model, d_ff))
-        self.norm = nn.LayerNorm(d_model)
-
-    def forward(self, word_embed, mask):
-        x = self.position(word_embed)
-        for layer in self.layers:
-            x = layer(x, mask)
-        return self.norm(x * mask)
 
 
 import torch

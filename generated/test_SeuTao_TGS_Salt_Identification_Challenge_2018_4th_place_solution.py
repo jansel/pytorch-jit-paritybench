@@ -26,23 +26,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import numpy as np
-
-
 import torch
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+import random
+
+
+import numpy as np
 
 
 import torch.optim as optim
@@ -57,10 +67,13 @@ import torch.nn as nn
 from functools import partial
 
 
-import torch.nn.functional as F
-
-
 import math
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+import torch.nn.functional as F
 
 
 from torch.nn import init
@@ -76,6 +89,18 @@ from torch.utils import model_zoo
 
 
 import time
+
+
+import logging
+
+
+from itertools import chain
+
+
+from collections import Iterable
+
+
+from math import isnan
 
 
 class DiceLoss(nn.Module):
@@ -120,33 +145,8 @@ class IBN(nn.Module):
 
 class Bottleneck(nn.Module):
     """
-    RexNeXt bottleneck type C
+    Base class for bottlenecks that implements `forward()` method.
     """
-    expansion = 4
-
-    def __init__(self, inplanes, planes, baseWidth, cardinality, stride=1, downsample=None, ibn=False):
-        """ Constructor
-        Args:
-            inplanes: input channel dimensionality
-            planes: output channel dimensionality
-            baseWidth: base width.
-            cardinality: num of convolution groups.
-            stride: conv stride. Replaces pooling layer.
-        """
-        super(Bottleneck, self).__init__()
-        D = int(math.floor(planes * (baseWidth / 64)))
-        C = cardinality
-        self.conv1 = nn.Conv2d(inplanes, D * C, kernel_size=1, stride=1, padding=0, bias=False)
-        if ibn:
-            self.bn1 = IBN(D * C)
-        else:
-            self.bn1 = nn.BatchNorm2d(D * C)
-        self.conv2 = nn.Conv2d(D * C, D * C, kernel_size=3, stride=stride, padding=1, groups=C, bias=False)
-        self.bn2 = nn.BatchNorm2d(D * C)
-        self.conv3 = nn.Conv2d(D * C, planes * 4, kernel_size=1, stride=1, padding=0, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
 
     def forward(self, x):
         residual = x
@@ -160,7 +160,7 @@ class Bottleneck(nn.Module):
         out = self.bn3(out)
         if self.downsample is not None:
             residual = self.downsample(x)
-        out += residual
+        out = self.se_module(out) + residual
         out = self.relu(out)
         return out
 
@@ -370,39 +370,6 @@ class Decoder(nn.Module):
         return x
 
 
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, outplanes):
-        super(Bottleneck, self).__init__()
-        planes = inplanes // 4
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, outplanes, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(outplanes)
-        self.relu = nn.ReLU(inplace=True)
-        self.is_skip = True
-        if inplanes != outplanes:
-            self.is_skip = False
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.is_skip:
-            out += residual
-        out = self.relu(out)
-        return out
-
-
 class Decoder_bottleneck(nn.Module):
 
     def __init__(self, in_channels, channels, out_channels):
@@ -467,6 +434,121 @@ class model34_DeepSupervion(nn.Module):
         hypercol_add_center = torch.cat((hypercol, F.upsample(center_64, scale_factor=128, mode='bilinear')), 1)
         x_final = self.logits_final(hypercol_add_center)
         return center_fc, x_no_empty, x_final
+
+
+class SENet(nn.Module):
+
+    def __init__(self, block, layers, groups, reduction, dropout_p=0.2, inplanes=128, input_3x3=True, downsample_kernel_size=3, downsample_padding=1, num_classes=1000):
+        """
+        Parameters
+        ----------
+        block (nn.Module): Bottleneck class.
+            - For SENet154: SEBottleneck
+            - For SE-ResNet models: SEResNetBottleneck
+            - For SE-ResNeXt models:  SEResNeXtBottleneck
+        layers (list of ints): Number of residual blocks for 4 layers of the
+            network (layer1...layer4).
+        groups (int): Number of groups for the 3x3 convolution in each
+            bottleneck block.
+            - For SENet154: 64
+            - For SE-ResNet models: 1
+            - For SE-ResNeXt models:  32
+        reduction (int): Reduction ratio for Squeeze-and-Excitation modules.
+            - For all models: 16
+        dropout_p (float or None): Drop probability for the Dropout layer.
+            If `None` the Dropout layer is not used.
+            - For SENet154: 0.2
+            - For SE-ResNet models: None
+            - For SE-ResNeXt models: None
+        inplanes (int):  Number of input channels for layer1.
+            - For SENet154: 128
+            - For SE-ResNet models: 64
+            - For SE-ResNeXt models: 64
+        input_3x3 (bool): If `True`, use three 3x3 convolutions instead of
+            a single 7x7 convolution in layer0.
+            - For SENet154: True
+            - For SE-ResNet models: False
+            - For SE-ResNeXt models: False
+        downsample_kernel_size (int): Kernel size for downsampling convolutions
+            in layer2, layer3 and layer4.
+            - For SENet154: 3
+            - For SE-ResNet models: 1
+            - For SE-ResNeXt models: 1
+        downsample_padding (int): Padding for downsampling convolutions in
+            layer2, layer3 and layer4.
+            - For SENet154: 1
+            - For SE-ResNet models: 0
+            - For SE-ResNeXt models: 0
+        num_classes (int): Number of outputs in `last_linear` layer.
+            - For all models: 1000
+        """
+        super(SENet, self).__init__()
+        self.inplanes = inplanes
+        if input_3x3:
+            layer0_modules = [('conv1', nn.Conv2d(3, 64, 3, stride=2, padding=1, bias=False)), ('bn1', nn.BatchNorm2d(64)), ('relu1', nn.ReLU(inplace=True)), ('conv2', nn.Conv2d(64, 64, 3, stride=1, padding=1, bias=False)), ('bn2', nn.BatchNorm2d(64)), ('relu2', nn.ReLU(inplace=True)), ('conv3', nn.Conv2d(64, inplanes, 3, stride=1, padding=1, bias=False)), ('bn3', nn.BatchNorm2d(inplanes)), ('relu3', nn.ReLU(inplace=True))]
+        else:
+            layer0_modules = [('conv1', nn.Conv2d(3, inplanes, kernel_size=7, stride=2, padding=3, bias=False)), ('bn1', nn.BatchNorm2d(inplanes)), ('relu1', nn.ReLU(inplace=True))]
+        layer0_modules.append(('pool', nn.MaxPool2d(3, stride=2, ceil_mode=True)))
+        self.layer0 = nn.Sequential(OrderedDict(layer0_modules))
+        self.layer1 = self._make_layer(block, planes=64, blocks=layers[0], groups=groups, reduction=reduction, downsample_kernel_size=1, downsample_padding=0)
+        self.layer2 = self._make_layer(block, planes=128, blocks=layers[1], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
+        self.layer3 = self._make_layer(block, planes=256, blocks=layers[2], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
+        self.layer4 = self._make_layer(block, planes=512, blocks=layers[3], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
+        self.avg_pool = nn.AvgPool2d(7, stride=1)
+        self.dropout = nn.Dropout(dropout_p) if dropout_p is not None else None
+        self.last_linear = nn.Linear(512 * block.expansion, num_classes)
+
+    def _make_layer(self, block, planes, blocks, groups, reduction, stride=1, downsample_kernel_size=1, downsample_padding=0):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=downsample_kernel_size, stride=stride, padding=downsample_padding, bias=False), nn.BatchNorm2d(planes * block.expansion))
+        layers = []
+        layers.append(block(self.inplanes, planes, groups, reduction, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, groups, reduction))
+        return nn.Sequential(*layers)
+
+    def features(self, x):
+        x = self.layer0(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        return x
+
+    def logits(self, x):
+        x = self.avg_pool(x)
+        if self.dropout is not None:
+            x = self.dropout(x)
+        x = x.view(x.size(0), -1)
+        x = self.last_linear(x)
+        return x
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.logits(x)
+        return x
+
+
+class SEModule(nn.Module):
+
+    def __init__(self, channels, reduction):
+        super(SEModule, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1, padding=0)
+        self.relu = nn.ReLU(inplace=True)
+        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1, padding=0)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        module_input = x
+        x = self.avg_pool(x)
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        x = self.sigmoid(x)
+        return module_input * x
 
 
 class SEResNeXtBottleneck(Bottleneck):
@@ -621,9 +703,9 @@ def state_dict_remove_moudle(moudle_state_dict, model):
     state_dict = model.state_dict()
     keys = list(moudle_state_dict.keys())
     for key in keys:
-        print(key + ' loaded')
+        None
         new_key = key.replace('module.', '')
-        print(new_key)
+        None
         state_dict[new_key] = moudle_state_dict[key]
     return state_dict
 
@@ -920,208 +1002,4 @@ class model154_DeepSupervion(nn.Module):
         hypercol_add_center = torch.cat((hypercol, F.upsample(center_64, scale_factor=hypercol.shape[2], mode='bilinear')), 1)
         x_final = self.logits_final(hypercol_add_center)
         return center_fc, x_no_empty, x_final
-
-
-class SEModule(nn.Module):
-
-    def __init__(self, channels, reduction):
-        super(SEModule, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1, padding=0)
-        self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1, padding=0)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        module_input = x
-        x = self.avg_pool(x)
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        x = self.sigmoid(x)
-        return module_input * x
-
-
-class Bottleneck(nn.Module):
-    """
-    Base class for bottlenecks that implements `forward()` method.
-    """
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = self.se_module(out) + residual
-        out = self.relu(out)
-        return out
-
-
-class SENet(nn.Module):
-
-    def __init__(self, block, layers, groups, reduction, dropout_p=0.2, inplanes=128, input_3x3=True, downsample_kernel_size=3, downsample_padding=1, num_classes=1000):
-        """
-        Parameters
-        ----------
-        block (nn.Module): Bottleneck class.
-            - For SENet154: SEBottleneck
-            - For SE-ResNet models: SEResNetBottleneck
-            - For SE-ResNeXt models:  SEResNeXtBottleneck
-        layers (list of ints): Number of residual blocks for 4 layers of the
-            network (layer1...layer4).
-        groups (int): Number of groups for the 3x3 convolution in each
-            bottleneck block.
-            - For SENet154: 64
-            - For SE-ResNet models: 1
-            - For SE-ResNeXt models:  32
-        reduction (int): Reduction ratio for Squeeze-and-Excitation modules.
-            - For all models: 16
-        dropout_p (float or None): Drop probability for the Dropout layer.
-            If `None` the Dropout layer is not used.
-            - For SENet154: 0.2
-            - For SE-ResNet models: None
-            - For SE-ResNeXt models: None
-        inplanes (int):  Number of input channels for layer1.
-            - For SENet154: 128
-            - For SE-ResNet models: 64
-            - For SE-ResNeXt models: 64
-        input_3x3 (bool): If `True`, use three 3x3 convolutions instead of
-            a single 7x7 convolution in layer0.
-            - For SENet154: True
-            - For SE-ResNet models: False
-            - For SE-ResNeXt models: False
-        downsample_kernel_size (int): Kernel size for downsampling convolutions
-            in layer2, layer3 and layer4.
-            - For SENet154: 3
-            - For SE-ResNet models: 1
-            - For SE-ResNeXt models: 1
-        downsample_padding (int): Padding for downsampling convolutions in
-            layer2, layer3 and layer4.
-            - For SENet154: 1
-            - For SE-ResNet models: 0
-            - For SE-ResNeXt models: 0
-        num_classes (int): Number of outputs in `last_linear` layer.
-            - For all models: 1000
-        """
-        super(SENet, self).__init__()
-        self.inplanes = inplanes
-        if input_3x3:
-            layer0_modules = [('conv1', nn.Conv2d(3, 64, 3, stride=2, padding=1, bias=False)), ('bn1', nn.BatchNorm2d(64)), ('relu1', nn.ReLU(inplace=True)), ('conv2', nn.Conv2d(64, 64, 3, stride=1, padding=1, bias=False)), ('bn2', nn.BatchNorm2d(64)), ('relu2', nn.ReLU(inplace=True)), ('conv3', nn.Conv2d(64, inplanes, 3, stride=1, padding=1, bias=False)), ('bn3', nn.BatchNorm2d(inplanes)), ('relu3', nn.ReLU(inplace=True))]
-        else:
-            layer0_modules = [('conv1', nn.Conv2d(3, inplanes, kernel_size=7, stride=2, padding=3, bias=False)), ('bn1', nn.BatchNorm2d(inplanes)), ('relu1', nn.ReLU(inplace=True))]
-        layer0_modules.append(('pool', nn.MaxPool2d(3, stride=2, ceil_mode=True)))
-        self.layer0 = nn.Sequential(OrderedDict(layer0_modules))
-        self.layer1 = self._make_layer(block, planes=64, blocks=layers[0], groups=groups, reduction=reduction, downsample_kernel_size=1, downsample_padding=0)
-        self.layer2 = self._make_layer(block, planes=128, blocks=layers[1], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
-        self.layer3 = self._make_layer(block, planes=256, blocks=layers[2], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
-        self.layer4 = self._make_layer(block, planes=512, blocks=layers[3], stride=2, groups=groups, reduction=reduction, downsample_kernel_size=downsample_kernel_size, downsample_padding=downsample_padding)
-        self.avg_pool = nn.AvgPool2d(7, stride=1)
-        self.dropout = nn.Dropout(dropout_p) if dropout_p is not None else None
-        self.last_linear = nn.Linear(512 * block.expansion, num_classes)
-
-    def _make_layer(self, block, planes, blocks, groups, reduction, stride=1, downsample_kernel_size=1, downsample_padding=0):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=downsample_kernel_size, stride=stride, padding=downsample_padding, bias=False), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, groups, reduction, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups, reduction))
-        return nn.Sequential(*layers)
-
-    def features(self, x):
-        x = self.layer0(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        return x
-
-    def logits(self, x):
-        x = self.avg_pool(x)
-        if self.dropout is not None:
-            x = self.dropout(x)
-        x = x.view(x.size(0), -1)
-        x = self.last_linear(x)
-        return x
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.logits(x)
-        return x
-
-
-import torch
-from torch.nn import MSELoss, ReLU
-from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
-
-
-TESTCASES = [
-    # (nn.Module, init_args, forward_args, jit_compiles)
-    (Decoder,
-     lambda: ([], {'in_channels': 4, 'channels': 4, 'out_channels': 16}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (DiceLoss,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (IBN,
-     lambda: ([], {'planes': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (SCSEBlock,
-     lambda: ([], {'channel': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     True),
-    (SELayer,
-     lambda: ([], {'channel': 16}),
-     lambda: ([torch.rand([4, 16, 4, 16])], {}),
-     True),
-    (SEModule,
-     lambda: ([], {'channels': 4, 'reduction': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (StableBCELoss,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (model34_DeepSupervion,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 3, 128, 128])], {}),
-     False),
-]
-
-class Test_SeuTao_TGS_Salt_Identification_Challenge_2018_4th_place_solution(_paritybench_base):
-    def test_000(self):
-        self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
 

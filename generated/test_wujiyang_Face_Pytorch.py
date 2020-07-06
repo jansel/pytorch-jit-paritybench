@@ -45,15 +45,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -79,13 +80,16 @@ import time
 import math
 
 
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
 import scipy.io
 
 
 import torch.utils.data
-
-
-import torchvision.transforms as transforms
 
 
 from torch.nn import DataParallel
@@ -116,6 +120,7 @@ class Flatten(nn.Module):
 
 
 class SEModule(nn.Module):
+    """Squeeze and Excitation Module"""
 
     def __init__(self, channels, reduction):
         super(SEModule, self).__init__()
@@ -136,39 +141,73 @@ class SEModule(nn.Module):
 
 
 class BottleNeck_IR(nn.Module):
+    """Improved Residual Bottlenecks"""
 
-    def __init__(self, in_channel, out_channel, stride):
+    def __init__(self, in_channel, out_channel, stride, dim_match):
         super(BottleNeck_IR, self).__init__()
-        if in_channel == out_channel:
-            self.shortcut_layer = nn.MaxPool2d(1, stride)
+        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel))
+        if dim_match:
+            self.shortcut_layer = None
         else:
             self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=(1, 1), stride=stride, bias=False), nn.BatchNorm2d(out_channel))
-        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel))
 
     def forward(self, x):
-        shortcut = self.shortcut_layer(x)
+        shortcut = x
         res = self.res_layer(x)
+        if self.shortcut_layer is not None:
+            shortcut = self.shortcut_layer(x)
         return shortcut + res
 
 
 class BottleNeck_IR_SE(nn.Module):
+    """Improved Residual Bottlenecks with Squeeze and Excitation Module"""
 
-    def __init__(self, in_channel, out_channel, stride):
+    def __init__(self, in_channel, out_channel, stride, dim_match):
         super(BottleNeck_IR_SE, self).__init__()
-        if in_channel == out_channel:
-            self.shortcut_layer = nn.MaxPool2d(1, stride)
+        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel), SEModule(out_channel, 16))
+        if dim_match:
+            self.shortcut_layer = None
         else:
             self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=(1, 1), stride=stride, bias=False), nn.BatchNorm2d(out_channel))
-        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel), SEModule(out_channel, 16))
 
     def forward(self, x):
-        shortcut = self.shortcut_layer(x)
+        shortcut = x
         res = self.res_layer(x)
+        if self.shortcut_layer is not None:
+            shortcut = self.shortcut_layer(x)
         return shortcut + res
 
 
-class Bottleneck(namedtuple('Block', ['in_channel', 'out_channel', 'stride'])):
-    """A named tuple describing a ResNet block."""
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, stride=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        identity = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            identity = self.downsample(x)
+        out += identity
+        out = self.relu(out)
+        return out
 
 
 def get_block(in_channel, out_channel, num_units, stride=2):
@@ -209,12 +248,6 @@ class SEResNet_IR(nn.Module):
         x = self.body(x)
         x = self.output_layer(x)
         return x
-
-
-class Flatten(nn.Module):
-
-    def forward(self, input):
-        return input.view(input.size(0), -1)
 
 
 class ResidualBlock(nn.Module):
@@ -413,33 +446,6 @@ class ResidualAttentionNet_92(nn.Module):
         return out
 
 
-class Flatten(nn.Module):
-
-    def forward(self, input):
-        return input.view(input.size(0), -1)
-
-
-class SEModule(nn.Module):
-    """Squeeze and Excitation Module"""
-
-    def __init__(self, channels, reduction):
-        super(SEModule, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Conv2d(channels, channels // reduction, kernel_size=1, padding=0, bias=False)
-        self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv2d(channels // reduction, channels, kernel_size=1, padding=0, bias=False)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        input = x
-        x = self.avg_pool(x)
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        x = self.sigmoid(x)
-        return input * x
-
-
 class CAModule(nn.Module):
     """Channel Attention Module"""
 
@@ -475,44 +481,6 @@ class SAModule(nn.Module):
         x = self.conv(x)
         x = self.sigmoid(x)
         return input * x
-
-
-class BottleNeck_IR(nn.Module):
-    """Improved Residual Bottlenecks"""
-
-    def __init__(self, in_channel, out_channel, stride, dim_match):
-        super(BottleNeck_IR, self).__init__()
-        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel))
-        if dim_match:
-            self.shortcut_layer = None
-        else:
-            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=(1, 1), stride=stride, bias=False), nn.BatchNorm2d(out_channel))
-
-    def forward(self, x):
-        shortcut = x
-        res = self.res_layer(x)
-        if self.shortcut_layer is not None:
-            shortcut = self.shortcut_layer(x)
-        return shortcut + res
-
-
-class BottleNeck_IR_SE(nn.Module):
-    """Improved Residual Bottlenecks with Squeeze and Excitation Module"""
-
-    def __init__(self, in_channel, out_channel, stride, dim_match):
-        super(BottleNeck_IR_SE, self).__init__()
-        self.res_layer = nn.Sequential(nn.BatchNorm2d(in_channel), nn.Conv2d(in_channel, out_channel, (3, 3), 1, 1, bias=False), nn.BatchNorm2d(out_channel), nn.PReLU(out_channel), nn.Conv2d(out_channel, out_channel, (3, 3), stride, 1, bias=False), nn.BatchNorm2d(out_channel), SEModule(out_channel, 16))
-        if dim_match:
-            self.shortcut_layer = None
-        else:
-            self.shortcut_layer = nn.Sequential(nn.Conv2d(in_channel, out_channel, kernel_size=(1, 1), stride=stride, bias=False), nn.BatchNorm2d(out_channel))
-
-    def forward(self, x):
-        shortcut = x
-        res = self.res_layer(x)
-        if self.shortcut_layer is not None:
-            shortcut = self.shortcut_layer(x)
-        return shortcut + res
 
 
 class BottleNeck_IR_CAM(nn.Module):
@@ -689,44 +657,6 @@ class BasicBlock(nn.Module):
         return out
 
 
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, stride=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu(out)
-        return out
-
-
-class Flatten(nn.Module):
-
-    def forward(self, input):
-        return input.view(input.size(0), -1)
-
-
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
@@ -895,7 +825,7 @@ class CenterLoss(nn.Module):
         batch_size = x.size(0)
         distmat = torch.pow(x, 2).sum(dim=1, keepdim=True).expand(batch_size, self.num_classes) + torch.pow(self.centers, 2).sum(dim=1, keepdim=True).expand(self.num_classes, batch_size).t()
         distmat.addmm_(1, -2, x, self.centers.t())
-        device = torch.device('cuda' if torch.is_available() else 'cpu')
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         classes = torch.arange(self.num_classes).long()
         labels = labels.unsqueeze(1).expand(batch_size, self.num_classes)
         mask = labels.eq(classes.expand(batch_size, self.num_classes))
@@ -1047,10 +977,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (AgentCenterLoss,
-     lambda: ([], {'num_classes': 4, 'feat_dim': 4, 'scale': 1.0}),
-     lambda: ([torch.rand([4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
-     True),
     (ArcMarginProduct,
      lambda: ([], {}),
      lambda: ([torch.rand([128, 128]), torch.zeros([4], dtype=torch.int64)], {}),
@@ -1172,7 +1098,4 @@ class Test_wujiyang_Face_Pytorch(_paritybench_base):
 
     def test_016(self):
         self._check(*TESTCASES[16])
-
-    def test_017(self):
-        self._check(*TESTCASES[17])
 

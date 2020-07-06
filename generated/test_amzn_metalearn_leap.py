@@ -23,15 +23,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -45,16 +46,43 @@ import torch
 import torch.nn as nn
 
 
+import math
+
+
+from torch import optim as _optim
+
+
 import numpy as np
 
 
 import random
 
 
-from abc import abstractmethod
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data.sampler import Sampler
+
+
+from torchvision.datasets.omniglot import Omniglot as _Omniglot
+
+
+from torchvision.datasets.utils import list_dir
+
+
+from torchvision.datasets.utils import list_files
+
+
+from torchvision import transforms
+
+
+import time
 
 
 from torch import nn
+
+
+from abc import abstractmethod
 
 
 from torch import optim
@@ -72,7 +100,7 @@ def build_iterator(tensors, inner_bsz, outer_bsz, inner_steps, outer_steps, cuda
         for i in range(start, stop, size):
             out = tuple(t[i:i + size] for t in tensors)
             if cuda:
-                out = tuple(t.cuda(device) for t in out)
+                out = tuple(t for t in out)
             yield out
     return iterator(0, inner_size, inner_bsz), iterator(inner_size, tsz, outer_bsz)
 
@@ -261,8 +289,8 @@ def maml_task(data_inner, data_outer, model, optimizer, criterion, create_graph)
     device = next(model.parameters()).device
     train_res = Res()
     for i, (input, output) in enumerate(data_inner):
-        input = input.to(device, non_blocking=True)
-        output = output.to(device, non_blocking=True)
+        input = input
+        output = output
         loss, prediction, new_params = maml_inner_step(input, output, model, optimizer, criterion, create_graph)
         train_res.log(loss.item(), prediction, output)
         if create_graph:
@@ -272,8 +300,8 @@ def maml_task(data_inner, data_outer, model, optimizer, criterion, create_graph)
     val_res = Res()
     predictions = []
     for i, (input, output) in enumerate(data_outer):
-        input = input.to(device, non_blocking=True)
-        output = output.to(device, non_blocking=True)
+        input = input
+        output = output
         prediction = model(input)
         predictions.append(prediction)
         batch_loss = criterion(prediction, output)

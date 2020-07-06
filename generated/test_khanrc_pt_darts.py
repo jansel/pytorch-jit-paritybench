@@ -21,17 +21,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import copy
 
 
 import torch
@@ -41,6 +45,9 @@ import torch.nn as nn
 
 
 import numpy as np
+
+
+from functools import partial
 
 
 from collections import namedtuple
@@ -58,10 +65,10 @@ import logging
 import torchvision.transforms as transforms
 
 
-import copy
-
-
 import time
+
+
+import torchvision.datasets as dset
 
 
 class AugmentCell(nn.Module):
@@ -174,7 +181,7 @@ class AugmentCNN(nn.Module):
 def drop_path_(x, drop_prob, training):
     if training and drop_prob > 0.0:
         keep_prob = 1.0 - drop_prob
-        mask = torch.cuda.FloatTensor(x.size(0), 1, 1, 1).bernoulli_(keep_prob)
+        mask = torch.FloatTensor(x.size(0), 1, 1, 1).bernoulli_(keep_prob)
         x.div_(keep_prob).mul_(mask)
     return x
 
@@ -444,7 +451,7 @@ class SearchCNNController(nn.Module):
         self.n_nodes = n_nodes
         self.criterion = criterion
         if device_ids is None:
-            device_ids = list(range(torch.device_count()))
+            device_ids = list(range(torch.cuda.device_count()))
         self.device_ids = device_ids
         n_ops = len(gt.PRIMITIVES)
         self.alpha_normal = nn.ParameterList()

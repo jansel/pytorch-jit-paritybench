@@ -21,27 +21,37 @@ clevr = _module
 builder = _module
 dataset = _module
 coco = _module
+dataset = _module
 masked_builder = _module
 masked_dataset = _module
 conceptual_captions = _module
+dataset = _module
 hateful_memes = _module
 dataset = _module
 mmimdb = _module
+dataset = _module
 nlvr2 = _module
+dataset = _module
 ocrvqa = _module
 sbu_captions = _module
 stvqa = _module
 textcaps = _module
 textvqa = _module
+dataset = _module
 visual_dialog = _module
 database = _module
+dataset = _module
 original = _module
 build_imdb = _module
 extract_vocabulary = _module
 visual_entailment = _module
+dataset = _module
 visual_genome = _module
+dataset = _module
 vizwiz = _module
+dataset = _module
 vqa2 = _module
+dataset = _module
 masked_q_vqa2_builder = _module
 masked_q_vqa2_dataset = _module
 ocr_builder = _module
@@ -60,6 +70,7 @@ multi_dataset_loader = _module
 processors = _module
 bert_processors = _module
 image_processors = _module
+processors = _module
 models = _module
 ban = _module
 base_model = _module
@@ -94,6 +105,7 @@ utils = _module
 build = _module
 checkpoint = _module
 configuration = _module
+dataset = _module
 distributed = _module
 download = _module
 early_stopping = _module
@@ -159,32 +171,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import copy
+from collections import defaultdict
 
 
-import numpy as np
+from collections import deque
 
 
 import torch
-
-
-from torchvision import transforms
-
-
-from torch import nn
 
 
 import collections
@@ -193,10 +200,76 @@ import collections
 import warnings
 
 
-from copy import deepcopy
+from collections import OrderedDict
+
+
+from typing import Any
+
+
+from typing import Dict
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data.distributed import DistributedSampler
+
+
+from typing import Optional
+
+
+from typing import Tuple
+
+
+from typing import Type
+
+
+from torch.utils.data.dataset import Dataset
+
+
+import numpy as np
+
+
+import copy
+
+
+from torchvision import transforms
+
+
+from torch.autograd import Variable
+
+
+from torch.utils.data import ConcatDataset
 
 
 import functools
+
+
+import types
+
+
+import torchvision
+
+
+import torchvision.datasets.folder as tv_helpers
+
+
+import random
+
+
+import re
+
+
+from collections import Counter
+
+
+from torch import nn
+
+
+from copy import deepcopy
 
 
 import math
@@ -214,28 +287,37 @@ from torch.nn.utils.weight_norm import weight_norm
 from functools import lru_cache
 
 
-import torchvision
-
-
 import torch.nn as nn
 
 
 from torch.nn.utils.rnn import pack_padded_sequence
 
 
+from sklearn.metrics import average_precision_score
+
+
+from sklearn.metrics import f1_score
+
+
+from sklearn.metrics import roc_auc_score
+
+
+from torch.optim.lr_scheduler import LambdaLR
+
+
 import time
 
 
-import re
+from torch import distributed as dist
 
 
-from collections import Counter
+import logging
 
 
 from itertools import chain
 
 
-from collections import defaultdict
+from typing import List
 
 
 from torchtext import vocab
@@ -247,7 +329,503 @@ import torchvision.models as models
 import torchvision.transforms as transforms
 
 
-from torch.autograd import Variable
+class Registry:
+    """Class for registry object which acts as central source of truth
+    for MMF
+    """
+    mapping = {'builder_name_mapping': {}, 'trainer_name_mapping': {}, 'model_name_mapping': {}, 'metric_name_mapping': {}, 'loss_name_mapping': {}, 'fusion_name_mapping': {}, 'optimizer_name_mapping': {}, 'scheduler_name_mapping': {}, 'processor_name_mapping': {}, 'decoder_name_mapping': {}, 'state': {}}
+
+    @classmethod
+    def register_trainer(cls, name):
+        """Register a trainer to registry with key 'name'
+
+        Args:
+            name: Key with which the trainer will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.trainers.custom_trainer import CustomTrainer
+
+
+            @registry.register_trainer("custom_trainer")
+            class CustomTrainer():
+                ...
+
+        """
+
+        def wrap(trainer_cls):
+            cls.mapping['trainer_name_mapping'][name] = trainer_cls
+            return trainer_cls
+        return wrap
+
+    @classmethod
+    def register_builder(cls, name):
+        """Register a dataset builder to registry with key 'name'
+
+        Args:
+            name: Key with which the metric will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.datasets.base_dataset_builder import BaseDatasetBuilder
+
+
+            @registry.register_builder("vqa2")
+            class VQA2Builder(BaseDatasetBuilder):
+                ...
+
+        """
+
+        def wrap(builder_cls):
+            assert issubclass(builder_cls, BaseDatasetBuilder), 'All builders must inherit BaseDatasetBuilder class'
+            cls.mapping['builder_name_mapping'][name] = builder_cls
+            return builder_cls
+        return wrap
+
+    @classmethod
+    def register_metric(cls, name):
+        """Register a metric to registry with key 'name'
+
+        Args:
+            name: Key with which the metric will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.modules.metrics import BaseMetric
+
+
+            @registry.register_metric("r@1")
+            class RecallAt1(BaseMetric):
+                ...
+
+        """
+
+        def wrap(func):
+            assert issubclass(func, BaseMetric), 'All Metric must inherit BaseMetric class'
+            cls.mapping['metric_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_loss(cls, name):
+        """Register a loss to registry with key 'name'
+
+        Args:
+            name: Key with which the loss will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from torch import nn
+
+            @registry.register_task("logit_bce")
+            class LogitBCE(nn.Module):
+                ...
+
+        """
+
+        def wrap(func):
+            from torch import nn
+            assert issubclass(func, nn.Module), 'All loss must inherit torch.nn.Module class'
+            cls.mapping['loss_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_fusion(cls, name):
+        """Register a fusion technique to registry with key 'name'
+
+        Args:
+            name: Key with which the fusion technique will be registered
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from torch import nn
+
+            @registry.register_fusion("linear_sum")
+            class LinearSum():
+                ...
+        """
+
+        def wrap(func):
+            from torch import nn
+            assert issubclass(func, nn.Module), 'All Fusion must inherit torch.nn.Module class'
+            cls.mapping['fusion_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_model(cls, name):
+        """Register a model to registry with key 'name'
+
+        Args:
+            name: Key with which the model will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.models.base_model import BaseModel
+
+            @registry.register_task("pythia")
+            class Pythia(BaseModel):
+                ...
+        """
+
+        def wrap(func):
+            assert issubclass(func, BaseModel), 'All models must inherit BaseModel class'
+            cls.mapping['model_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_processor(cls, name):
+        """Register a processor to registry with key 'name'
+
+        Args:
+            name: Key with which the processor will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.datasets.processors import BaseProcessor
+
+            @registry.register_task("glove")
+            class GloVe(BaseProcessor):
+                ...
+
+        """
+
+        def wrap(func):
+            assert issubclass(func, BaseProcessor), 'All Processor classes must inherit BaseProcessor class'
+            cls.mapping['processor_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_optimizer(cls, name):
+
+        def wrap(func):
+            cls.mapping['optimizer_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_scheduler(cls, name):
+
+        def wrap(func):
+            cls.mapping['scheduler_name_mapping'][name] = func
+            return func
+        return wrap
+
+    @classmethod
+    def register_decoder(cls, name):
+        """Register a decoder to registry with key 'name'
+
+        Args:
+            name: Key with which the decoder will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+            from mmf.utils.text import TextDecoder
+
+
+            @registry.register_decoder("nucleus_sampling")
+            class NucleusSampling(TextDecoder):
+                ...
+
+        """
+
+        def wrap(decoder_cls):
+            assert issubclass(decoder_cls, TextDecoder), 'All decoders must inherit TextDecoder class'
+            cls.mapping['decoder_name_mapping'][name] = decoder_cls
+            return decoder_cls
+        return wrap
+
+    @classmethod
+    def register(cls, name, obj):
+        """Register an item to registry with key 'name'
+
+        Args:
+            name: Key with which the item will be registered.
+
+        Usage::
+
+            from mmf.common.registry import registry
+
+            registry.register("config", {})
+        """
+        path = name.split('.')
+        current = cls.mapping['state']
+        for part in path[:-1]:
+            if part not in current:
+                current[part] = {}
+            current = current[part]
+        current[path[-1]] = obj
+
+    @classmethod
+    def get_trainer_class(cls, name):
+        return cls.mapping['trainer_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_builder_class(cls, name):
+        return cls.mapping['builder_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_model_class(cls, name):
+        return cls.mapping['model_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_processor_class(cls, name):
+        return cls.mapping['processor_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_metric_class(cls, name):
+        return cls.mapping['metric_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_loss_class(cls, name):
+        return cls.mapping['loss_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_optimizer_class(cls, name):
+        return cls.mapping['optimizer_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_scheduler_class(cls, name):
+        return cls.mapping['scheduler_name_mapping'].get(name, None)
+
+    @classmethod
+    def get_decoder_class(cls, name):
+        return cls.mapping['decoder_name_mapping'].get(name, None)
+
+    @classmethod
+    def get(cls, name, default=None, no_warning=False):
+        """Get an item from registry with key 'name'
+
+        Args:
+            name (string): Key whose value needs to be retrieved.
+            default: If passed and key is not in registry, default value will
+                     be returned with a warning. Default: None
+            no_warning (bool): If passed as True, warning when key doesn't exist
+                               will not be generated. Useful for MMF's
+                               internal operations. Default: False
+        Usage::
+
+            from mmf.common.registry import registry
+
+            config = registry.get("config")
+        """
+        original_name = name
+        name = name.split('.')
+        value = cls.mapping['state']
+        for subname in name:
+            value = value.get(subname, default)
+            if value is default:
+                break
+        if 'writer' in cls.mapping['state'] and value == default and no_warning is False:
+            cls.mapping['state']['writer'].write('Key {} is not present in registry, returning default value of {}'.format(original_name, default))
+        return value
+
+    @classmethod
+    def unregister(cls, name):
+        """Remove an item from registry with key 'name'
+
+        Args:
+            name: Key which needs to be removed.
+        Usage::
+
+            from mmf.common.registry import registry
+
+            config = registry.unregister("config")
+        """
+        return cls.mapping['state'].pop(name, None)
+
+
+registry = Registry()
+
+
+class MMFLoss(nn.Module):
+    """Internal MMF helper and wrapper class for all Loss classes.
+    It makes sure that the value returned from a Loss class is a dict and
+    contain proper dataset type in keys, so that it is easy to figure out
+    which one is the val loss and which one is train loss.
+
+    For example: it will return ``{"val/vqa2/logit_bce": 27.4}``, in case
+    `logit_bce` is used and SampleList is from `val` set of dataset `vqa2`.
+
+    Args:
+        params (type): Description of parameter `params`.
+
+    .. note::
+
+        Since, ``MMFLoss`` is used by the ``Losses`` class, end user
+        doesn't need to worry about it.
+    """
+
+    def __init__(self, params=None):
+        super().__init__()
+        if params is None:
+            params = {}
+        self.writer = registry.get('writer')
+        is_mapping = isinstance(params, collections.abc.MutableMapping)
+        if is_mapping:
+            if 'type' not in params:
+                raise ValueError("Parameters to loss must have 'type' field tospecify type of loss to instantiate")
+            else:
+                loss_name = params['type']
+        else:
+            assert isinstance(params, str), "loss must be a string or dictionary with 'type' key"
+            loss_name = params
+        self.name = loss_name
+        loss_class = registry.get_loss_class(loss_name)
+        if loss_class is None:
+            raise ValueError(f'No loss named {loss_name} is registered to registry')
+        if loss_name == 'multi':
+            assert is_mapping
+            self.loss_criterion = loss_class(params)
+        else:
+            if is_mapping:
+                loss_params = params.get('params', {})
+            else:
+                loss_params = {}
+            self.loss_criterion = loss_class(**loss_params)
+
+    def forward(self, sample_list, model_output, *args, **kwargs):
+        loss = self.loss_criterion(sample_list, model_output, *args, **kwargs)
+        if not isinstance(loss, torch.Tensor):
+            loss = torch.tensor(loss, dtype=torch.float)
+        if loss.dim() == 0:
+            loss = loss.view(1)
+        key = '{}/{}/{}'.format(sample_list.dataset_type, sample_list.dataset_name, self.name)
+        return {key: loss}
+
+
+class Losses(nn.Module):
+    """``Losses`` acts as an abstraction for instantiating and calculating
+    losses. ``BaseModel`` instantiates this class based on the `losses`
+    attribute in the model's configuration `model_config`. ``loss_list``
+    needs to be a list for each separate loss containing `type` and `params`
+    attributes.
+
+    Args:
+        loss_list (ListConfig): Description of parameter `loss_list`.
+
+    Example::
+
+        # losses:
+        # - type: logit_bce
+        # Can also contain `params` to specify that particular loss's init params
+        # - type: combined
+        config = [{"type": "logit_bce"}, {"type": "combined"}]
+        losses = Losses(config)
+
+    .. note::
+
+        Since, ``Losses`` is instantiated in the ``BaseModel``, normal end user
+        mostly doesn't need to use this class.
+
+    Attributes:
+        losses: List containing instanttions of each loss
+                                   passed in config
+    """
+
+    def __init__(self, loss_list):
+        super().__init__()
+        self.losses = []
+        self._evaluation_predict = registry.get('config').evaluation.predict
+        for loss in loss_list:
+            self.losses.append(MMFLoss(loss))
+
+    def forward(self, sample_list, model_output, *args, **kwargs):
+        """Takes in the original ``SampleList`` returned from DataLoader
+        and `model_output` returned from the model and returned a Dict containing
+        loss for each of the losses in `losses`.
+
+        Args:
+            sample_list (SampleList): SampleList given be the dataloader.
+            model_output (Dict): Dict returned from model as output.
+
+        Returns:
+            Dict: Dictionary containing loss value for each of the loss.
+
+        """
+        output = {}
+        if not hasattr(sample_list, 'targets'):
+            if not self._evaluation_predict:
+                warnings.warn("Sample list has not field 'targets', are you sure that your ImDB has labels? you may have wanted to run with evaluation.predict=true")
+            return output
+        for loss in self.losses:
+            output.update(loss(sample_list, model_output, *args, **kwargs))
+        registry_loss_key = '{}.{}.{}'.format('losses', sample_list.dataset_name, sample_list.dataset_type)
+        registry.register(registry_loss_key, output)
+        return output
+
+
+class PathManager:
+    """
+    Wrapper for insulating OSS I/O (using Python builtin operations) from
+    fvcore's PathManager abstraction (for transparently handling various
+    internal backends). This is adapted from
+    `fairseq <https://github.com/pytorch/fairseq/blob/master/fairseq/file_io.py>`.
+    """
+
+    @staticmethod
+    def open(path: str, mode: str='r', buffering: int=-1, encoding: Optional[str]=None, errors: Optional[str]=None, newline: Optional[str]=None):
+        if FVCorePathManager:
+            return FVCorePathManager.open(path=path, mode=mode, buffering=buffering, encoding=encoding, errors=errors, newline=newline)
+        return open(path, mode=mode, buffering=buffering, encoding=encoding, errors=errors, newline=newline)
+
+    @staticmethod
+    def copy(src_path: str, dst_path: str, overwrite: bool=False) ->bool:
+        if FVCorePathManager:
+            return FVCorePathManager.copy(src_path=src_path, dst_path=dst_path, overwrite=overwrite)
+        return shutil.copyfile(src_path, dst_path)
+
+    @staticmethod
+    def get_local_path(path: str, **kwargs) ->str:
+        if FVCorePathManager:
+            return FVCorePathManager.get_local_path(path, **kwargs)
+        return path
+
+    @staticmethod
+    def exists(path: str) ->bool:
+        if FVCorePathManager:
+            return FVCorePathManager.exists(path)
+        return os.path.exists(path)
+
+    @staticmethod
+    def isfile(path: str) ->bool:
+        if FVCorePathManager:
+            return FVCorePathManager.isfile(path)
+        return os.path.isfile(path)
+
+    @staticmethod
+    def ls(path: str) ->List[str]:
+        if FVCorePathManager:
+            return FVCorePathManager.ls(path)
+        return os.listdir(path)
+
+    @staticmethod
+    def mkdirs(path: str) ->None:
+        if FVCorePathManager:
+            return FVCorePathManager.mkdirs(path)
+        os.makedirs(path, exist_ok=True)
+
+    @staticmethod
+    def rm(path: str) ->None:
+        if FVCorePathManager:
+            return FVCorePathManager.rm(path)
+        os.remove(path)
+
+    @staticmethod
+    def register_handler(handler) ->None:
+        if FVCorePathManager:
+            return FVCorePathManager.register_handler(handler=handler)
 
 
 def built(path, version_string=None):
@@ -284,7 +862,7 @@ def decompress(path, fname, delete_original=True):
         delete_original (bool, optional): If true, the archive will be deleted
                                           after extraction. Default to True.
     """
-    print('Unpacking ' + fname)
+    None
     fullpath = os.path.join(path, fname)
     shutil.unpack_archive(fullpath, path)
     if delete_original:
@@ -330,7 +908,7 @@ def download(url, path, fname, redownload=True):
     pbar = None
     if download:
         check_header(url)
-        print('[ Downloading: ' + url + ' to ' + outfile + ' ]')
+        None
         pbar = tqdm.tqdm(unit='B', unit_scale=True, desc=f'Downloading {fname}')
     while download and retry >= 0:
         resume_file = outfile + '.part'
@@ -369,10 +947,10 @@ def download(url, path, fname, redownload=True):
                 retry -= 1
                 pbar.clear()
                 if retry >= 0:
-                    print('Connection error, retrying. (%d retries left)' % retry)
+                    None
                     time.sleep(exp_backoff[retry])
                 else:
-                    print('Retried too many times, stopped retrying.')
+                    None
             finally:
                 if response:
                     response.close()
@@ -484,20 +1062,20 @@ class DownloadableFile:
             download_path (string): path to the downloaded file.
         """
         if self._hashcode is None:
-            print(f'[ Checksum not provided, skipping for {self._file_name}]')
+            None
             return
         sha256_hash = hashlib.sha256()
         destination = os.path.join(download_path, self._file_name)
         if not PathManager.isfile(destination):
             return
         with PathManager.open(destination, 'rb') as f:
-            print(f'[ Starting checksum for {self._file_name}]')
+            None
             for byte_block in iter(lambda : f.read(65536), b''):
                 sha256_hash.update(byte_block)
             if sha256_hash.hexdigest() != self._hashcode:
                 raise AssertionError(f'[ Checksum for {self._file_name} from \n{self._url}\ndoes not match the expected checksum. Please try again. ]')
             else:
-                print(f'[ Checksum successful for {self._file_name}]')
+                None
 
     def download_file(self, download_path):
         downloaded = False
@@ -505,7 +1083,7 @@ class DownloadableFile:
         try:
             self.checksum(download_path)
         except AssertionError:
-            print('[ Checksum changed for {}. Redownloading')
+            None
             redownload = True
         if self._from_google:
             downloaded = download_from_google_drive(self._url, os.path.join(download_path, self._file_name), redownload=redownload)
@@ -564,7 +1142,6 @@ def download_resources(resources, download_path, version):
 
 
 def get_mmf_root():
-    from mmf.common.registry import registry
     mmf_root = registry.get('mmf_root', no_warning=True)
     if mmf_root is None:
         mmf_root = os.path.dirname(os.path.abspath(__file__))
@@ -578,7 +1155,6 @@ def get_absolute_path(paths):
         if os.path.isabs(paths):
             return paths
         possible_paths = [paths]
-        from mmf.utils.configuration import get_mmf_env
         user_dir = get_mmf_env(key='user_dir')
         if user_dir:
             possible_paths.append(os.path.join(user_dir, paths))
@@ -622,9 +1198,6 @@ def synchronize():
 
 
 def download_pretrained_model(model_name, *args, **kwargs):
-    import omegaconf
-    from omegaconf import OmegaConf
-    from mmf.utils.configuration import load_yaml, get_mmf_env
     model_zoo = load_yaml(get_mmf_env(key='model_zoo'))
     OmegaConf.set_struct(model_zoo, True)
     OmegaConf.set_readonly(model_zoo, True)
@@ -634,14 +1207,14 @@ def download_pretrained_model(model_name, *args, **kwargs):
     try:
         model_config = OmegaConf.select(model_zoo, model_name)
     except omegaconf.errors.OmegaConfBaseException as e:
-        print(f'No such model name {model_name} defined in mmf zoo')
+        None
         raise e
     if 'version' not in model_config or 'resources' not in model_config:
         try:
             model_config = model_config.defaults
             download_path = os.path.join(model_data_dir, model_name + '.defaults')
         except omegaconf.errors.OmegaConfBaseException as e:
-            print(f"Model name {model_name} doesn't specify 'resources' and 'version' while no defaults have been provided")
+            None
             raise e
     if 'zoo_requirements' in model_config:
         requirements = model_config.zoo_requirements
@@ -718,331 +1291,6 @@ def load_pretrained_model(model_name_or_path, *args, **kwargs):
     ckpt = ckpt.get('model', ckpt)
     model_config = model_config.get(model_name.split(os.path.sep)[-1].split('.')[0])
     return {'config': model_config, 'checkpoint': ckpt, 'full_config': config}
-
-
-class Registry:
-    """Class for registry object which acts as central source of truth
-    for MMF
-    """
-    mapping = {'builder_name_mapping': {}, 'trainer_name_mapping': {}, 'model_name_mapping': {}, 'metric_name_mapping': {}, 'loss_name_mapping': {}, 'fusion_name_mapping': {}, 'optimizer_name_mapping': {}, 'scheduler_name_mapping': {}, 'processor_name_mapping': {}, 'decoder_name_mapping': {}, 'state': {}}
-
-    @classmethod
-    def register_trainer(cls, name):
-        """Register a trainer to registry with key 'name'
-
-        Args:
-            name: Key with which the trainer will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.trainers.custom_trainer import CustomTrainer
-
-
-            @registry.register_trainer("custom_trainer")
-            class CustomTrainer():
-                ...
-
-        """
-
-        def wrap(trainer_cls):
-            cls.mapping['trainer_name_mapping'][name] = trainer_cls
-            return trainer_cls
-        return wrap
-
-    @classmethod
-    def register_builder(cls, name):
-        """Register a dataset builder to registry with key 'name'
-
-        Args:
-            name: Key with which the metric will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.datasets.base_dataset_builder import BaseDatasetBuilder
-
-
-            @registry.register_builder("vqa2")
-            class VQA2Builder(BaseDatasetBuilder):
-                ...
-
-        """
-
-        def wrap(builder_cls):
-            from mmf.datasets.base_dataset_builder import BaseDatasetBuilder
-            assert issubclass(builder_cls, BaseDatasetBuilder), 'All builders must inherit BaseDatasetBuilder class'
-            cls.mapping['builder_name_mapping'][name] = builder_cls
-            return builder_cls
-        return wrap
-
-    @classmethod
-    def register_metric(cls, name):
-        """Register a metric to registry with key 'name'
-
-        Args:
-            name: Key with which the metric will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.modules.metrics import BaseMetric
-
-
-            @registry.register_metric("r@1")
-            class RecallAt1(BaseMetric):
-                ...
-
-        """
-
-        def wrap(func):
-            from mmf.modules.metrics import BaseMetric
-            assert issubclass(func, BaseMetric), 'All Metric must inherit BaseMetric class'
-            cls.mapping['metric_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_loss(cls, name):
-        """Register a loss to registry with key 'name'
-
-        Args:
-            name: Key with which the loss will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from torch import nn
-
-            @registry.register_task("logit_bce")
-            class LogitBCE(nn.Module):
-                ...
-
-        """
-
-        def wrap(func):
-            from torch import nn
-            assert issubclass(func, nn.Module), 'All loss must inherit torch.nn.Module class'
-            cls.mapping['loss_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_fusion(cls, name):
-        """Register a fusion technique to registry with key 'name'
-
-        Args:
-            name: Key with which the fusion technique will be registered
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from torch import nn
-
-            @registry.register_fusion("linear_sum")
-            class LinearSum():
-                ...
-        """
-
-        def wrap(func):
-            from torch import nn
-            assert issubclass(func, nn.Module), 'All Fusion must inherit torch.nn.Module class'
-            cls.mapping['fusion_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_model(cls, name):
-        """Register a model to registry with key 'name'
-
-        Args:
-            name: Key with which the model will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.models.base_model import BaseModel
-
-            @registry.register_task("pythia")
-            class Pythia(BaseModel):
-                ...
-        """
-
-        def wrap(func):
-            from mmf.models.base_model import BaseModel
-            assert issubclass(func, BaseModel), 'All models must inherit BaseModel class'
-            cls.mapping['model_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_processor(cls, name):
-        """Register a processor to registry with key 'name'
-
-        Args:
-            name: Key with which the processor will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.datasets.processors import BaseProcessor
-
-            @registry.register_task("glove")
-            class GloVe(BaseProcessor):
-                ...
-
-        """
-
-        def wrap(func):
-            from mmf.datasets.processors.processors import BaseProcessor
-            assert issubclass(func, BaseProcessor), 'All Processor classes must inherit BaseProcessor class'
-            cls.mapping['processor_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_optimizer(cls, name):
-
-        def wrap(func):
-            cls.mapping['optimizer_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_scheduler(cls, name):
-
-        def wrap(func):
-            cls.mapping['scheduler_name_mapping'][name] = func
-            return func
-        return wrap
-
-    @classmethod
-    def register_decoder(cls, name):
-        """Register a decoder to registry with key 'name'
-
-        Args:
-            name: Key with which the decoder will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-            from mmf.utils.text import TextDecoder
-
-
-            @registry.register_decoder("nucleus_sampling")
-            class NucleusSampling(TextDecoder):
-                ...
-
-        """
-
-        def wrap(decoder_cls):
-            from mmf.utils.text import TextDecoder
-            assert issubclass(decoder_cls, TextDecoder), 'All decoders must inherit TextDecoder class'
-            cls.mapping['decoder_name_mapping'][name] = decoder_cls
-            return decoder_cls
-        return wrap
-
-    @classmethod
-    def register(cls, name, obj):
-        """Register an item to registry with key 'name'
-
-        Args:
-            name: Key with which the item will be registered.
-
-        Usage::
-
-            from mmf.common.registry import registry
-
-            registry.register("config", {})
-        """
-        path = name.split('.')
-        current = cls.mapping['state']
-        for part in path[:-1]:
-            if part not in current:
-                current[part] = {}
-            current = current[part]
-        current[path[-1]] = obj
-
-    @classmethod
-    def get_trainer_class(cls, name):
-        return cls.mapping['trainer_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_builder_class(cls, name):
-        return cls.mapping['builder_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_model_class(cls, name):
-        return cls.mapping['model_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_processor_class(cls, name):
-        return cls.mapping['processor_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_metric_class(cls, name):
-        return cls.mapping['metric_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_loss_class(cls, name):
-        return cls.mapping['loss_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_optimizer_class(cls, name):
-        return cls.mapping['optimizer_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_scheduler_class(cls, name):
-        return cls.mapping['scheduler_name_mapping'].get(name, None)
-
-    @classmethod
-    def get_decoder_class(cls, name):
-        return cls.mapping['decoder_name_mapping'].get(name, None)
-
-    @classmethod
-    def get(cls, name, default=None, no_warning=False):
-        """Get an item from registry with key 'name'
-
-        Args:
-            name (string): Key whose value needs to be retrieved.
-            default: If passed and key is not in registry, default value will
-                     be returned with a warning. Default: None
-            no_warning (bool): If passed as True, warning when key doesn't exist
-                               will not be generated. Useful for MMF's
-                               internal operations. Default: False
-        Usage::
-
-            from mmf.common.registry import registry
-
-            config = registry.get("config")
-        """
-        original_name = name
-        name = name.split('.')
-        value = cls.mapping['state']
-        for subname in name:
-            value = value.get(subname, default)
-            if value is default:
-                break
-        if 'writer' in cls.mapping['state'] and value == default and no_warning is False:
-            cls.mapping['state']['writer'].write('Key {} is not present in registry, returning default value of {}'.format(original_name, default))
-        return value
-
-    @classmethod
-    def unregister(cls, name):
-        """Remove an item from registry with key 'name'
-
-        Args:
-            name: Key which needs to be removed.
-        Usage::
-
-            from mmf.common.registry import registry
-
-            config = registry.unregister("config")
-        """
-        return cls.mapping['state'].pop(name, None)
-
-
-registry = Registry()
 
 
 class BaseModel(nn.Module):
@@ -1173,34 +1421,916 @@ class BaseModel(nn.Module):
         return instance
 
 
-class OcrPtrNet(nn.Module):
+class BertClassifierHead(nn.Module):
 
-    def __init__(self, hidden_size, query_key_size=None):
+    def __init__(self, in_dim=768, out_dim=2, config=None, *args, **kwargs):
         super().__init__()
-        if query_key_size is None:
-            query_key_size = hidden_size
-        self.hidden_size = hidden_size
-        self.query_key_size = query_key_size
-        self.query = nn.Linear(hidden_size, query_key_size)
-        self.key = nn.Linear(hidden_size, query_key_size)
+        if config is None:
+            config = BertConfig.from_pretrained('bert-base-uncased')
+        assert config.hidden_size == in_dim
+        self.module = nn.Sequential(nn.Dropout(config.hidden_dropout_prob), BertPredictionHeadTransform(config), nn.Linear(in_dim, out_dim))
 
-    def forward(self, query_inputs, key_inputs, attention_mask):
-        extended_attention_mask = (1.0 - attention_mask) * -10000.0
-        assert extended_attention_mask.dim() == 2
-        extended_attention_mask = extended_attention_mask.unsqueeze(1)
-        query_layer = self.query(query_inputs)
-        if query_layer.dim() == 2:
-            query_layer = query_layer.unsqueeze(1)
-            squeeze_result = True
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+
+class LanguageDecoder(nn.Module):
+
+    def __init__(self, in_dim, out_dim, **kwargs):
+        super().__init__()
+        self.language_lstm = nn.LSTMCell(in_dim + kwargs['hidden_dim'], kwargs['hidden_dim'], bias=True)
+        self.fc = weight_norm(nn.Linear(kwargs['hidden_dim'], out_dim))
+        self.dropout = nn.Dropout(p=kwargs['dropout'])
+        self.init_weights(kwargs['fc_bias_init'])
+
+    def init_weights(self, fc_bias_init):
+        self.fc.bias.data.fill_(fc_bias_init)
+        self.fc.weight.data.uniform_(-0.1, 0.1)
+
+    def forward(self, weighted_attn):
+        state = registry.get(f'{weighted_attn.device}_lstm_state')
+        h1, c1 = state['td_hidden']
+        h2, c2 = state['lm_hidden']
+        h2, c2 = self.language_lstm(torch.cat([weighted_attn, h1], dim=1), (h2, c2))
+        predictions = self.fc(self.dropout(h2))
+        state['lm_hidden'] = h2, c2
+        return predictions
+
+
+class ReLUWithWeightNormFC(nn.Module):
+
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        layers = []
+        layers.append(weight_norm(nn.Linear(in_dim, out_dim), dim=None))
+        layers.append(nn.ReLU())
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.layers(x)
+
+
+class LogitClassifier(nn.Module):
+
+    def __init__(self, in_dim, out_dim, **kwargs):
+        super().__init__()
+        input_dim = in_dim
+        num_ans_candidates = out_dim
+        text_non_linear_dim = kwargs['text_hidden_dim']
+        image_non_linear_dim = kwargs['img_hidden_dim']
+        self.f_o_text = ReLUWithWeightNormFC(input_dim, text_non_linear_dim)
+        self.f_o_image = ReLUWithWeightNormFC(input_dim, image_non_linear_dim)
+        self.linear_text = nn.Linear(text_non_linear_dim, num_ans_candidates)
+        self.linear_image = nn.Linear(image_non_linear_dim, num_ans_candidates)
+        if 'pretrained_image' in kwargs and kwargs['pretrained_text'] is not None:
+            self.linear_text.weight.data.copy_(torch.from_numpy(kwargs['pretrained_text']))
+        if 'pretrained_image' in kwargs and kwargs['pretrained_image'] is not None:
+            self.linear_image.weight.data.copy_(torch.from_numpy(kwargs['pretrained_image']))
+
+    def forward(self, joint_embedding):
+        text_val = self.linear_text(self.f_o_text(joint_embedding))
+        image_val = self.linear_image(self.f_o_image(joint_embedding))
+        logit_value = text_val + image_val
+        return logit_value
+
+
+class MLPClassifer(nn.Module):
+
+    def __init__(self, in_dim, out_dim, hidden_dim=None, num_layers=0, dropout=0.5, hidden_act='relu', batch_norm=True, **kwargs):
+        super().__init__()
+        activation = ACT2FN[hidden_act]
+        self.layers = nn.ModuleList()
+        if hidden_dim is None:
+            hidden_dim = in_dim
+        for _ in range(num_layers):
+            self.layers.append(nn.Linear(in_dim, hidden_dim))
+            if batch_norm:
+                self.layers.append(nn.BatchNorm1d(hidden_dim))
+            self.layers.append(activation())
+            self.layers.append(nn.Dropout(dropout))
+            in_dim = hidden_dim
+        self.layers.append(nn.Linear(in_dim, out_dim))
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+
+class WeightNormClassifier(nn.Module):
+
+    def __init__(self, in_dim, out_dim, hidden_dim, dropout):
+        super().__init__()
+        layers = [weight_norm(nn.Linear(in_dim, hidden_dim), dim=None), nn.ReLU(), nn.Dropout(dropout, inplace=True), weight_norm(nn.Linear(hidden_dim, out_dim), dim=None)]
+        self.main = nn.Sequential(*layers)
+
+    def forward(self, x):
+        logits = self.main(x)
+        return logits
+
+
+class ClassifierLayer(nn.Module):
+
+    def __init__(self, classifier_type, in_dim, out_dim, **kwargs):
+        super().__init__()
+        if classifier_type == 'weight_norm':
+            self.module = WeightNormClassifier(in_dim, out_dim, **kwargs)
+        elif classifier_type == 'logit':
+            self.module = LogitClassifier(in_dim, out_dim, **kwargs)
+        elif classifier_type == 'language_decoder':
+            self.module = LanguageDecoder(in_dim, out_dim, **kwargs)
+        elif classifier_type == 'bert':
+            self.module = BertClassifierHead(in_dim, out_dim, kwargs.get('config', None)).module
+        elif classifier_type == 'mlp':
+            self.module = MLPClassifer(in_dim, out_dim, **kwargs)
+        elif classifier_type == 'linear':
+            self.module = nn.Linear(in_dim, out_dim)
         else:
-            squeeze_result = False
-        key_layer = self.key(key_inputs)
-        scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
-        scores = scores / math.sqrt(self.query_key_size)
-        scores = scores + extended_attention_mask
-        if squeeze_result:
-            scores = scores.squeeze(1)
-        return scores
+            raise NotImplementedError('Unknown classifier type: %s' % classifier_type)
+
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+
+class ConvNet(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, padding_size='same', pool_stride=2, batch_norm=True):
+        super().__init__()
+        if padding_size == 'same':
+            padding_size = kernel_size // 2
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding_size)
+        self.max_pool2d = nn.MaxPool2d(pool_stride, stride=pool_stride)
+        self.batch_norm = batch_norm
+        if self.batch_norm:
+            self.batch_norm_2d = nn.BatchNorm2d(out_channels)
+
+    def forward(self, x):
+        x = self.max_pool2d(nn.functional.leaky_relu(self.conv(x)))
+        if self.batch_norm:
+            x = self.batch_norm_2d(x)
+        return x
+
+
+class Flatten(nn.Module):
+
+    def forward(self, input):
+        if input.dim() > 1:
+            input = input.view(input.size(0), -1)
+        return input
+
+
+_CONSTANTS = {'hidden_state_warning': 'hidden state (final) should have 1st dim as 2'}
+
+
+_TEMPLATES = {'question_vocab_size': '{}_text_vocab_size', 'number_of_answers': '{}_num_final_outputs'}
+
+
+class CNNLSTM(BaseModel):
+    """CNNLSTM is a simple model for vision and language tasks. CNNLSTM is supposed
+    to acts as a baseline to test out your stuff without any complex functionality.
+    Passes image through a CNN, and text through an LSTM and fuses them using
+    concatenation. Then, it finally passes the fused representation from a MLP to
+    generate scores for each of the possible answers.
+
+    Args:
+        config (DictConfig): Configuration node containing all of the necessary
+                             config required to initialize CNNLSTM.
+
+    Inputs: sample_list (SampleList)
+        - **sample_list** should contain image attribute for image, text for
+          question split into word indices, targets for answer scores
+    """
+
+    def __init__(self, config):
+        super().__init__(config)
+        self._global_config = registry.get('config')
+        self._datasets = self._global_config.datasets.split(',')
+
+    @classmethod
+    def config_path(cls):
+        return 'configs/models/cnn_lstm/defaults.yaml'
+
+    def build(self):
+        assert len(self._datasets) > 0
+        num_question_choices = registry.get(_TEMPLATES['question_vocab_size'].format(self._datasets[0]))
+        num_answer_choices = registry.get(_TEMPLATES['number_of_answers'].format(self._datasets[0]))
+        self.text_embedding = nn.Embedding(num_question_choices, self.config.text_embedding.embedding_dim)
+        self.lstm = nn.LSTM(**self.config.lstm)
+        layers_config = self.config.cnn.layers
+        conv_layers = []
+        for i in range(len(layers_config.input_dims)):
+            conv_layers.append(ConvNet(layers_config.input_dims[i], layers_config.output_dims[i], kernel_size=layers_config.kernel_sizes[i]))
+        conv_layers.append(Flatten())
+        self.cnn = nn.Sequential(*conv_layers)
+        classifier_config = deepcopy(self.config.classifier)
+        classifier_config.params.out_dim = num_answer_choices
+        self.classifier = ClassifierLayer(classifier_config.type, **classifier_config.params)
+
+    def forward(self, sample_list):
+        self.lstm.flatten_parameters()
+        question = sample_list.text
+        image = sample_list.image
+        _, hidden = self.lstm(self.text_embedding(question))
+        hidden = hidden[0].transpose(0, 1)
+        assert hidden.size(1) == 2, _CONSTANTS['hidden_state_warning']
+        hidden = torch.cat([hidden[:, (0), :], hidden[:, (1), :]], dim=-1)
+        image = self.cnn(image)
+        fused = torch.cat([hidden, image], dim=-1)
+        scores = self.classifier(fused)
+        return {'scores': scores}
+
+
+def build_image_encoder(config, direct_features=False, **kwargs):
+    if direct_features:
+        module = ImageFeatureEncoder(config.type, **config.params)
+    else:
+        module = ImageEncoder(config)
+    return module.module
+
+
+def build_text_encoder(config, *args, **kwargs):
+    text_encoder = TextEncoder(config, *args, **kwargs)
+    return text_encoder.module
+
+
+class MultiModalEncoderBase(nn.Module):
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__()
+        self.config = config
+        self._modal_encoder_config = self.config.get('modal_encoder', None)
+        self._is_direct_features_input = self.config.get('direct_features_input', False)
+        self.build()
+        self.modal_hidden_size = self.config.get('modal_hidden_size', None)
+        self.text_hidden_size = self.config.get('text_hidden_size', None)
+
+    def build(self):
+        encoders = self._build_encoders(self.config)
+        self.text_encoder, self.modal_encoder = encoders[0], encoders[1]
+        self._encoder_config = None
+        if self.text_encoder:
+            self._encoder_config = self.text_encoder.config
+
+    @property
+    def encoder_config(self):
+        return self._encoder_config
+
+    def _build_encoders(self, config):
+        text_encoder = None
+        if config.get('text_encoder', None):
+            text_encoder = build_text_encoder(config.text_encoder)
+        modal_encoder = None
+        if config.get('modal_encoder', None):
+            modal_encoder = self._build_modal_encoder(config.modal_encoder)
+        return text_encoder, modal_encoder
+
+    def _build_modal_encoder(self, config):
+        return build_image_encoder(config, direct_features=self._is_direct_features_input)
+
+
+class FusionBase(MultiModalEncoderBase):
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config, *args, **kwargs)
+
+    def build(self):
+        encoders = self._build_encoders(self.config)
+        text_encoder, modal_encoder = encoders[0], encoders[1]
+        self._modal_encoder_config = self.config.modal_encoder
+        self._is_direct_features_input = self.config.direct_features_input
+        self._encoder_config = getattr(text_encoder, 'config', None)
+        self.text = text_encoder
+        self.modal = modal_encoder
+
+    def forward(self, text, modal, text_args=None, modal_args=None, text_kwargs=None, modal_kwargs=None):
+        if text_args is None:
+            text_args = []
+        if modal_args is None:
+            modal_args = []
+        if text_kwargs is None:
+            text_kwargs = {}
+        if modal_kwargs is None:
+            modal_kwargs = {}
+        text = self.text(text, *text_args, **text_kwargs)
+        if len(text) == 2:
+            text = text[1]
+        modal = self.modal(modal, *modal_args, **modal_kwargs)
+        modal = torch.flatten(modal, start_dim=1)
+        text = torch.flatten(text, start_dim=1)
+        return text, modal
+
+
+def build_classifier_layer(config, *args, **kwargs):
+    classifier = ClassifierLayer(config.type, *args, **config.params, **kwargs)
+    return classifier.module
+
+
+def get_bert_configured_parameters(module, lr=None):
+    param_optimizer = list(module.named_parameters())
+    no_decay = ['bias', 'LayerNorm.bias', 'LayerNorm.weight']
+    optimizer_grouped_parameters = [{'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01}, {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}]
+    if lr is not None:
+        for p in optimizer_grouped_parameters:
+            p['lr'] = lr
+    return optimizer_grouped_parameters
+
+
+class ConcatBERT(BaseModel):
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config)
+        self._is_direct_features_input = config.direct_features_input
+
+    @classmethod
+    def config_path(cls):
+        return 'configs/models/fusions/concat_bert.yaml'
+
+    def build(self):
+        self.base = FusionBase(self.config)
+        num_features = self.config.num_features
+        if not self._is_direct_features_input:
+            num_features = self.config.modal_encoder.params.num_output_features
+        classifier_config = deepcopy(self.config.classifier)
+        classifier_config.params.in_dim = num_features * self.config.modal_hidden_size
+        classifier_config.params.in_dim += self.config.text_hidden_size
+        self.classifier = build_classifier_layer(classifier_config)
+        if self.config.freeze_text or self.config.freeze_complete_base:
+            for p in self.base.text.parameters():
+                p.requires_grad = False
+        if self.config.freeze_modal or self.config.freeze_complete_base:
+            for p in self.base.modal.parameters():
+                p.requires_grad = False
+
+    def get_optimizer_parameters(self, config):
+        lr = config.optimizer.params.lr
+        model_config = getattr(config.model_config, config.model, {})
+        finetune_lr_multiplier = getattr(model_config, 'finetune_lr_multiplier', 1)
+        parameters = get_bert_configured_parameters(self.base, lr * finetune_lr_multiplier)
+        parameters += get_bert_configured_parameters(self.classifier, lr)
+        return parameters
+
+    def forward(self, sample_list):
+        text = sample_list.input_ids
+        mask = sample_list.input_mask
+        segment = sample_list.segment_ids
+        if self._is_direct_features_input:
+            modal = sample_list.image_features_0
+        else:
+            modal = sample_list.image
+        text_embedding, modal_embedding = self.base(text, modal, [mask, segment])
+        embedding = torch.cat([text_embedding, modal_embedding], dim=-1)
+        output = {}
+        output['scores'] = self.classifier(embedding)
+        return output
+
+
+class ConcatBoW(BaseModel):
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config)
+        self._is_direct_features_input = config.direct_features_input
+
+    @classmethod
+    def config_path(cls):
+        return 'configs/models/fusions/concat_bow.yaml'
+
+    def build(self):
+        self.base = FusionBase(self.config)
+        num_features = self.config.num_features
+        if not self._is_direct_features_input:
+            num_features = self.config.modal_encoder.params.num_output_features
+        classifier_config = deepcopy(self.config.classifier)
+        classifier_config.params.in_dim = num_features * self.config.modal_hidden_size
+        classifier_config.params.in_dim += self.config.text_hidden_size
+        self.classifier = build_classifier_layer(classifier_config)
+
+    def forward(self, sample_list):
+        text = sample_list.text
+        if self._is_direct_features_input:
+            modal = sample_list.image_feature_0
+        else:
+            modal = sample_list.image
+        text_embedding, modal_embedding = self.base(text, modal)
+        embedding = torch.cat([text_embedding, modal_embedding], dim=-1)
+        output = {}
+        output['scores'] = self.classifier(embedding)
+        return output
+
+
+class LateFusion(BaseModel):
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config)
+        self._is_direct_features_input = config.direct_features_input
+
+    @classmethod
+    def config_path(cls):
+        return 'configs/models/fusions/late_fusion.yaml'
+
+    def build(self):
+        self.base = FusionBase(self.config)
+        num_features = self.config.num_features
+        if not self._is_direct_features_input:
+            num_features = self.config.modal_encoder.params.num_output_features
+        modal_classifier_config = deepcopy(self.config.modal_classifier)
+        modal_classifier_config.params.in_dim = num_features * self.config.modal_hidden_size
+        self.modal_classifier = build_classifier_layer(modal_classifier_config)
+        text_classifier_config = deepcopy(self.config.text_classifier)
+        text_classifier_config.params.in_dim = self.config.text_hidden_size
+        self.text_classifier = build_classifier_layer(text_classifier_config)
+
+    def forward(self, sample_list):
+        text = sample_list.input_ids
+        mask = sample_list.input_mask
+        segment = sample_list.segment_ids
+        if self._is_direct_features_input:
+            modal = sample_list.image_feature_0
+        else:
+            modal = sample_list.image
+        text_embedding, modal_embedding = self.base(text, modal, [mask, segment])
+        text = self.text_classifier(text_embedding)
+        modal = self.modal_classifier(modal_embedding)
+        output = {}
+        output['scores'] = (text + modal) / 2
+        return output
+
+
+class FinetuneFasterRcnnFpnFc7(nn.Module):
+
+    def __init__(self, in_dim, weights_file, bias_file, model_data_dir, *args, **kwargs):
+        super().__init__()
+        model_data_dir = get_absolute_path(model_data_dir)
+        if not os.path.isabs(weights_file):
+            weights_file = os.path.join(model_data_dir, weights_file)
+        if not os.path.isabs(bias_file):
+            bias_file = os.path.join(model_data_dir, bias_file)
+        if not PathManager.exists(bias_file) or not PathManager.exists(weights_file):
+            download_path = download_pretrained_model('detectron')
+            weights_file = get_absolute_path(os.path.join(download_path, 'fc7_w.pkl'))
+            bias_file = get_absolute_path(os.path.join(download_path, 'fc7_b.pkl'))
+        with PathManager.open(weights_file, 'rb') as w:
+            weights = pickle.load(w)
+        with PathManager.open(bias_file, 'rb') as b:
+            bias = pickle.load(b)
+        out_dim = bias.shape[0]
+        self.lc = nn.Linear(in_dim, out_dim)
+        self.lc.weight.data.copy_(torch.from_numpy(weights))
+        self.lc.bias.data.copy_(torch.from_numpy(bias))
+        self.out_dim = out_dim
+
+    def forward(self, image):
+        i2 = self.lc(image)
+        i3 = nn.functional.relu(i2)
+        return i3
+
+
+class Identity(nn.Module):
+
+    def __init__(self, **kwargs):
+        super().__init__()
+
+    def forward(self, x):
+        return x
+
+
+class ProjectionEmbedding(nn.Module):
+
+    def __init__(self, module, in_dim, out_dim, **kwargs):
+        super().__init__()
+        if module == 'linear':
+            self.layers = nn.Linear(in_dim, out_dim)
+            self.out_dim = out_dim
+        elif module == 'conv':
+            last_out_channels = in_dim
+            layers = []
+            for conv in kwargs['convs']:
+                layers.append(nn.Conv1d(in_channels=last_out_channels, **conv))
+                last_out_channels = conv['out_channels']
+            self.layers = nn.ModuleList(*layers)
+            self.out_dim = last_out_channels
+        else:
+            raise TypeError("Unknown module type for 'ProjectionEmbedding',use either 'linear' or 'conv'")
+
+    def forward(self, x):
+        return self.layers(x)
+
+
+class ImageFeatureEncoder(nn.Module):
+
+    def __init__(self, encoder_type, in_dim, **kwargs):
+        super().__init__()
+        if encoder_type == 'default':
+            self.module = Identity()
+            self.module.in_dim = in_dim
+            self.module.out_dim = in_dim
+        elif encoder_type == 'projection':
+            module_type = kwargs.pop('module', 'linear')
+            self.module = ProjectionEmbedding(module_type, in_dim, **kwargs)
+        elif encoder_type == 'finetune_faster_rcnn_fpn_fc7':
+            self.module = FinetuneFasterRcnnFpnFc7(in_dim, **kwargs)
+        else:
+            raise NotImplementedError('Unknown Image Encoder: %s' % encoder_type)
+        self.out_dim = self.module.out_dim
+
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+
+class BertBiAttention(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        if config.bi_hidden_size % config.bi_num_attention_heads != 0:
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.bi_hidden_size, config.bi_num_attention_heads))
+        self.visualization = config.visualization
+        self.num_attention_heads = config.bi_num_attention_heads
+        self.attention_head_size = int(config.bi_hidden_size / config.bi_num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
+        self.query1 = nn.Linear(config.v_hidden_size, self.all_head_size)
+        self.key1 = nn.Linear(config.v_hidden_size, self.all_head_size)
+        self.value1 = nn.Linear(config.v_hidden_size, self.all_head_size)
+        self.dropout1 = nn.Dropout(config.v_attention_probs_dropout_prob)
+        self.query2 = nn.Linear(config.hidden_size, self.all_head_size)
+        self.key2 = nn.Linear(config.hidden_size, self.all_head_size)
+        self.value2 = nn.Linear(config.hidden_size, self.all_head_size)
+        self.dropout2 = nn.Dropout(config.attention_probs_dropout_prob)
+
+    def transpose_for_scores(self, x):
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+        x = x.view(*new_x_shape)
+        return x.permute(0, 2, 1, 3)
+
+    def forward(self, input_tensor1, attention_mask1, input_tensor2, attention_mask2, co_attention_mask=None, use_co_attention_mask=False):
+        mixed_query_layer1 = self.query1(input_tensor1)
+        mixed_key_layer1 = self.key1(input_tensor1)
+        mixed_value_layer1 = self.value1(input_tensor1)
+        query_layer1 = self.transpose_for_scores(mixed_query_layer1)
+        key_layer1 = self.transpose_for_scores(mixed_key_layer1)
+        value_layer1 = self.transpose_for_scores(mixed_value_layer1)
+        mixed_query_layer2 = self.query2(input_tensor2)
+        mixed_key_layer2 = self.key2(input_tensor2)
+        mixed_value_layer2 = self.value2(input_tensor2)
+        query_layer2 = self.transpose_for_scores(mixed_query_layer2)
+        key_layer2 = self.transpose_for_scores(mixed_key_layer2)
+        value_layer2 = self.transpose_for_scores(mixed_value_layer2)
+        attention_scores1 = torch.matmul(query_layer2, key_layer1.transpose(-1, -2))
+        attention_scores1 = attention_scores1 / math.sqrt(self.attention_head_size)
+        attention_scores1 = attention_scores1 + attention_mask1
+        attention_probs1 = nn.Softmax(dim=-1)(attention_scores1)
+        attention_probs1 = self.dropout1(attention_probs1)
+        context_layer1 = torch.matmul(attention_probs1, value_layer1)
+        context_layer1 = context_layer1.permute(0, 2, 1, 3).contiguous()
+        new_context_layer_shape1 = context_layer1.size()[:-2] + (self.all_head_size,)
+        context_layer1 = context_layer1.view(*new_context_layer_shape1)
+        attention_scores2 = torch.matmul(query_layer1, key_layer2.transpose(-1, -2))
+        attention_scores2 = attention_scores2 / math.sqrt(self.attention_head_size)
+        attention_scores2 = attention_scores2 + attention_mask2
+        attention_probs2 = nn.Softmax(dim=-1)(attention_scores2)
+        attention_probs2 = self.dropout2(attention_probs2)
+        context_layer2 = torch.matmul(attention_probs2, value_layer2)
+        context_layer2 = context_layer2.permute(0, 2, 1, 3).contiguous()
+        new_context_layer_shape2 = context_layer2.size()[:-2] + (self.all_head_size,)
+        context_layer2 = context_layer2.view(*new_context_layer_shape2)
+        attn_data = None
+        if self.visualization:
+            attn_data = {'attn1': attention_probs1, 'queries1': query_layer2, 'keys1': key_layer1, 'attn2': attention_probs2, 'querues2': query_layer1, 'keys2': key_layer2}
+        return context_layer1, context_layer2, attn_data
+
+
+class BertBiOutput(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.dense1 = nn.Linear(config.bi_hidden_size, config.v_hidden_size)
+        self.LayerNorm1 = BertLayerNorm(config.v_hidden_size, eps=1e-12)
+        self.dropout1 = nn.Dropout(config.v_hidden_dropout_prob)
+        self.q_dense1 = nn.Linear(config.bi_hidden_size, config.v_hidden_size)
+        self.q_dropout1 = nn.Dropout(config.v_hidden_dropout_prob)
+        self.dense2 = nn.Linear(config.bi_hidden_size, config.hidden_size)
+        self.LayerNorm2 = BertLayerNorm(config.hidden_size, eps=1e-12)
+        self.dropout2 = nn.Dropout(config.hidden_dropout_prob)
+        self.q_dense2 = nn.Linear(config.bi_hidden_size, config.hidden_size)
+        self.q_dropout2 = nn.Dropout(config.hidden_dropout_prob)
+
+    def forward(self, hidden_states1, input_tensor1, hidden_states2, input_tensor2):
+        context_state1 = self.dense1(hidden_states1)
+        context_state1 = self.dropout1(context_state1)
+        context_state2 = self.dense2(hidden_states2)
+        context_state2 = self.dropout2(context_state2)
+        hidden_states1 = self.LayerNorm1(context_state1 + input_tensor1)
+        hidden_states2 = self.LayerNorm2(context_state2 + input_tensor2)
+        return hidden_states1, hidden_states2
+
+
+ACT2FN = {'relu': nn.ReLU, 'sigmoid': nn.Sigmoid, 'tanh': nn.Tanh, 'leaky_relu': nn.LeakyReLU}
+
+
+class BertImageIntermediate(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.v_hidden_size, config.v_intermediate_size)
+        if isinstance(config.v_hidden_act, str):
+            self.intermediate_act_fn = ACT2FN[config.v_hidden_act]
+        else:
+            self.intermediate_act_fn = config.v_hidden_act
+
+    def forward(self, hidden_states):
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.intermediate_act_fn(hidden_states)
+        return hidden_states
+
+
+class BertImageOutput(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.v_intermediate_size, config.v_hidden_size)
+        self.LayerNorm = BertLayerNorm(config.v_hidden_size, eps=1e-12)
+        self.dropout = nn.Dropout(config.v_hidden_dropout_prob)
+
+    def forward(self, hidden_states, input_tensor):
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+        return hidden_states
+
+
+class BertConnectionLayer(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.biattention = BertBiAttention(config)
+        self.biOutput = BertBiOutput(config)
+        self.v_intermediate = BertImageIntermediate(config)
+        self.v_output = BertImageOutput(config)
+        self.t_intermediate = BertIntermediate(config)
+        self.t_output = BertOutput(config)
+
+    def forward(self, input_tensor1, attention_mask1, input_tensor2, attention_mask2, co_attention_mask=None, use_co_attention_mask=False):
+        bi_output1, bi_output2, co_attention_probs = self.biattention(input_tensor1, attention_mask1, input_tensor2, attention_mask2, co_attention_mask, use_co_attention_mask)
+        attention_output1, attention_output2 = self.biOutput(bi_output2, input_tensor1, bi_output1, input_tensor2)
+        intermediate_output1 = self.v_intermediate(attention_output1)
+        layer_output1 = self.v_output(intermediate_output1, attention_output1)
+        intermediate_output2 = self.t_intermediate(attention_output2)
+        layer_output2 = self.t_output(intermediate_output2, attention_output2)
+        return layer_output1, layer_output2, co_attention_probs
+
+
+class BertImageSelfAttention(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        if config.v_hidden_size % config.v_num_attention_heads != 0:
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.v_hidden_size, config.v_num_attention_heads))
+        self.dynamic_attention = config.dynamic_attention
+        self.num_attention_heads = config.v_num_attention_heads
+        self.attention_head_size = int(config.v_hidden_size / config.v_num_attention_heads)
+        self.visualization = config.visualization
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
+        self.query = nn.Linear(config.v_hidden_size, self.all_head_size)
+        self.key = nn.Linear(config.v_hidden_size, self.all_head_size)
+        self.value = nn.Linear(config.v_hidden_size, self.all_head_size)
+        if self.dynamic_attention:
+            self.dyLinear_q = nn.Linear(config.hidden_size, self.all_head_size)
+            self.dyLinear_k = nn.Linear(config.hidden_size, self.all_head_size)
+        self.dropout = nn.Dropout(config.v_attention_probs_dropout_prob)
+
+    def transpose_for_scores(self, x):
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+        x = x.view(*new_x_shape)
+        return x.permute(0, 2, 1, 3)
+
+    def forward(self, hidden_states, attention_mask, txt_embedding, txt_attention_mask):
+        mixed_query_layer = self.query(hidden_states)
+        mixed_key_layer = self.key(hidden_states)
+        mixed_value_layer = self.value(hidden_states)
+        if self.dynamic_attention:
+            pool_embedding = (txt_embedding * txt_attention_mask).sum(1)
+            pool_embedding = pool_embedding / txt_attention_mask.sum(1)
+            gate_q = 1 + torch.sigmoid(self.dyLinear_q(pool_embedding))
+            gate_k = 1 + torch.sigmoid(self.dyLinear_k(pool_embedding))
+            mixed_query_layer = mixed_query_layer * gate_q.unsqueeze(1)
+            mixed_key_layer = mixed_key_layer * gate_k.unsqueeze(1)
+        query_layer = self.transpose_for_scores(mixed_query_layer)
+        key_layer = self.transpose_for_scores(mixed_key_layer)
+        value_layer = self.transpose_for_scores(mixed_value_layer)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+        attention_scores = attention_scores + attention_mask
+        attention_probs = nn.Softmax(dim=-1)(attention_scores)
+        attention_probs = self.dropout(attention_probs)
+        context_layer = torch.matmul(attention_probs, value_layer)
+        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+        context_layer = context_layer.view(*new_context_layer_shape)
+        if self.visualization:
+            attn_data = {'attn': attention_probs, 'queries': query_layer, 'keys': key_layer}
+        else:
+            attn_data = None
+        return context_layer, attn_data
+
+
+class BertImageSelfOutput(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.dense = nn.Linear(config.v_hidden_size, config.v_hidden_size)
+        self.LayerNorm = BertLayerNorm(config.v_hidden_size, eps=1e-12)
+        self.dropout = nn.Dropout(config.v_hidden_dropout_prob)
+
+    def forward(self, hidden_states, input_tensor):
+        hidden_states = self.dense(hidden_states)
+        hidden_states = self.dropout(hidden_states)
+        hidden_states = self.LayerNorm(hidden_states + input_tensor)
+        return hidden_states
+
+
+class BertImageAttention(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.self = BertImageSelfAttention(config)
+        self.output = BertImageSelfOutput(config)
+
+    def forward(self, input_tensor, attention_mask, txt_embedding, txt_attention_mask):
+        self_output, attention_probs = self.self(input_tensor, attention_mask, txt_embedding, txt_attention_mask)
+        attention_output = self.output(self_output, input_tensor)
+        return attention_output, attention_probs
+
+
+class BertImageLayer(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.attention = BertImageAttention(config)
+        self.intermediate = BertImageIntermediate(config)
+        self.output = BertImageOutput(config)
+
+    def forward(self, hidden_states, attention_mask, txt_embedding, txt_attention_mask):
+        attention_output, attention_probs = self.attention(hidden_states, attention_mask, txt_embedding, txt_attention_mask)
+        intermediate_output = self.intermediate(attention_output)
+        layer_output = self.output(intermediate_output, attention_output)
+        return layer_output, attention_probs
+
+
+class BertSelfAttention(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        if config.hidden_size % config.num_attention_heads != 0:
+            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
+        self.num_attention_heads = config.num_attention_heads
+        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
+        self.all_head_size = self.num_attention_heads * self.attention_head_size
+        self.visualization = config.visualization
+        self.query = nn.Linear(config.hidden_size, self.all_head_size)
+        self.key = nn.Linear(config.hidden_size, self.all_head_size)
+        self.value = nn.Linear(config.hidden_size, self.all_head_size)
+        self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
+
+    def transpose_for_scores(self, x):
+        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
+        x = x.view(*new_x_shape)
+        return x.permute(0, 2, 1, 3)
+
+    def forward(self, hidden_states, attention_mask):
+        mixed_query_layer = self.query(hidden_states)
+        mixed_key_layer = self.key(hidden_states)
+        mixed_value_layer = self.value(hidden_states)
+        query_layer = self.transpose_for_scores(mixed_query_layer)
+        key_layer = self.transpose_for_scores(mixed_key_layer)
+        value_layer = self.transpose_for_scores(mixed_value_layer)
+        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
+        attention_scores = attention_scores + attention_mask
+        attention_probs = nn.Softmax(dim=-1)(attention_scores)
+        attention_probs = self.dropout(attention_probs)
+        context_layer = torch.matmul(attention_probs, value_layer)
+        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+        context_layer = context_layer.view(*new_context_layer_shape)
+        if self.visualization:
+            attn_data = {'attn': attention_probs, 'queries': query_layer, 'keys': key_layer}
+        else:
+            attn_data = None
+        return context_layer, attn_data
+
+
+class BertAttention(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.self = BertSelfAttention(config)
+        self.output = BertSelfOutput(config)
+
+    def forward(self, input_tensor, attention_mask):
+        self_output, attention_probs = self.self(input_tensor, attention_mask)
+        attention_output = self.output(self_output, input_tensor)
+        return attention_output, attention_probs
+
+
+class BertLayer(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.attention = BertAttention(config)
+        self.intermediate = BertIntermediate(config)
+        self.output = BertOutput(config)
+
+    def forward(self, hidden_states, attention_mask):
+        attention_output, attention_probs = self.attention(hidden_states, attention_mask)
+        intermediate_output = self.intermediate(attention_output)
+        layer_output = self.output(intermediate_output, attention_output)
+        return layer_output, attention_probs
+
+
+class BertEncoder(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.FAST_MODE = config.fast_mode
+        self.with_coattention = config.with_coattention
+        self.v_biattention_id = config.v_biattention_id
+        self.t_biattention_id = config.t_biattention_id
+        self.in_batch_pairs = config.in_batch_pairs
+        self.fixed_t_layer = config.fixed_t_layer
+        self.fixed_v_layer = config.fixed_v_layer
+        layer = BertLayer(config)
+        v_layer = BertImageLayer(config)
+        connect_layer = BertConnectionLayer(config)
+        self.layer = nn.ModuleList([deepcopy(layer) for _ in range(config.num_hidden_layers)])
+        self.v_layer = nn.ModuleList([deepcopy(v_layer) for _ in range(config.v_num_hidden_layers)])
+        self.c_layer = nn.ModuleList([deepcopy(connect_layer) for _ in range(len(config.v_biattention_id))])
+
+    def forward(self, txt_embedding, image_embedding, txt_attention_mask, txt_attention_mask2, image_attention_mask, co_attention_mask=None, output_all_encoded_layers=True, output_all_attention_masks=False):
+        v_start = 0
+        t_start = 0
+        count = 0
+        all_encoder_layers_t = []
+        all_encoder_layers_v = []
+        all_attention_mask_t = []
+        all_attnetion_mask_v = []
+        all_attention_mask_c = []
+        batch_size, num_words, t_hidden_size = txt_embedding.size()
+        _, num_regions, v_hidden_size = image_embedding.size()
+        use_co_attention_mask = False
+        for v_layer_id, t_layer_id in zip(self.v_biattention_id, self.t_biattention_id):
+            v_end = v_layer_id
+            t_end = t_layer_id
+            assert self.fixed_t_layer <= t_end
+            assert self.fixed_v_layer <= v_end
+            for idx in range(t_start, self.fixed_t_layer):
+                with torch.no_grad():
+                    txt_embedding, txt_attention_probs = self.layer[idx](txt_embedding, txt_attention_mask)
+                    t_start = self.fixed_t_layer
+                    if output_all_attention_masks:
+                        all_attention_mask_t.append(txt_attention_probs)
+            for idx in range(t_start, t_end):
+                txt_embedding, txt_attention_probs = self.layer[idx](txt_embedding, txt_attention_mask)
+                if output_all_attention_masks:
+                    all_attention_mask_t.append(txt_attention_probs)
+            for idx in range(v_start, self.fixed_v_layer):
+                with torch.no_grad():
+                    image_embedding, image_attention_probs = self.v_layer[idx](image_embedding, image_attention_mask, txt_embedding, txt_attention_mask2)
+                    v_start = self.fixed_v_layer
+                    if output_all_attention_masks:
+                        all_attnetion_mask_v.append(image_attention_probs)
+            for idx in range(v_start, v_end):
+                image_embedding, image_attention_probs = self.v_layer[idx](image_embedding, image_attention_mask, txt_embedding, txt_attention_mask2)
+                if output_all_attention_masks:
+                    all_attnetion_mask_v.append(image_attention_probs)
+            if count == 0 and self.in_batch_pairs:
+                image_embedding = image_embedding.unsqueeze(0).expand(batch_size, batch_size, num_regions, v_hidden_size).contiguous().view(batch_size * batch_size, num_regions, v_hidden_size)
+                image_attention_mask = image_attention_mask.unsqueeze(0).expand(batch_size, batch_size, 1, 1, num_regions).contiguous().view(batch_size * batch_size, 1, 1, num_regions)
+                txt_embedding = txt_embedding.unsqueeze(1).expand(batch_size, batch_size, num_words, t_hidden_size).contiguous().view(batch_size * batch_size, num_words, t_hidden_size)
+                txt_attention_mask = txt_attention_mask.unsqueeze(1).expand(batch_size, batch_size, 1, 1, num_words).contiguous().view(batch_size * batch_size, 1, 1, num_words)
+                co_attention_mask = co_attention_mask.unsqueeze(1).expand(batch_size, batch_size, 1, num_regions, num_words).contiguous().view(batch_size * batch_size, 1, num_regions, num_words)
+            if count == 0 and self.FAST_MODE:
+                txt_embedding = txt_embedding.expand(image_embedding.size(0), txt_embedding.size(1), txt_embedding.size(2))
+                txt_attention_mask = txt_attention_mask.expand(image_embedding.size(0), txt_attention_mask.size(1), txt_attention_mask.size(2), txt_attention_mask.size(3))
+            if self.with_coattention:
+                image_embedding, txt_embedding, co_attention_probs = self.c_layer[count](image_embedding, image_attention_mask, txt_embedding, txt_attention_mask, co_attention_mask, use_co_attention_mask)
+                if output_all_attention_masks:
+                    all_attention_mask_c.append(co_attention_probs)
+            v_start = v_end
+            t_start = t_end
+            count += 1
+            if output_all_encoded_layers:
+                all_encoder_layers_t.append(txt_embedding)
+                all_encoder_layers_v.append(image_embedding)
+        for idx in range(v_start, len(self.v_layer)):
+            image_embedding, image_attention_probs = self.v_layer[idx](image_embedding, image_attention_mask, txt_embedding, txt_attention_mask2)
+            if output_all_attention_masks:
+                all_attnetion_mask_v.append(image_attention_probs)
+        for idx in range(t_start, len(self.layer)):
+            txt_embedding, txt_attention_probs = self.layer[idx](txt_embedding, txt_attention_mask)
+            if output_all_attention_masks:
+                all_attention_mask_t.append(txt_attention_probs)
+        if not output_all_encoded_layers:
+            all_encoder_layers_t.append(txt_embedding)
+            all_encoder_layers_v.append(image_embedding)
+        return all_encoder_layers_t, all_encoder_layers_v, (all_attention_mask_t, all_attnetion_mask_v, all_attention_mask_c)
 
 
 def _batch_gather(x, inds):
@@ -1254,6 +2384,227 @@ class PrevPredEmbeddings(nn.Module):
         embeddings = self.emb_dropout(embeddings)
         dec_emb = raw_dec_emb + embeddings
         return dec_emb
+
+
+@functools.lru_cache(maxsize=32)
+def _get_causal_mask(seq_length, device):
+    mask = torch.zeros(seq_length, seq_length, device=device)
+    for i in range(seq_length):
+        for j in range(i + 1):
+            mask[i, j] = 1.0
+    return mask
+
+
+class OcrPtrNet(nn.Module):
+
+    def __init__(self, hidden_size, query_key_size=None):
+        super().__init__()
+        if query_key_size is None:
+            query_key_size = hidden_size
+        self.hidden_size = hidden_size
+        self.query_key_size = query_key_size
+        self.query = nn.Linear(hidden_size, query_key_size)
+        self.key = nn.Linear(hidden_size, query_key_size)
+
+    def forward(self, query_inputs, key_inputs, attention_mask):
+        extended_attention_mask = (1.0 - attention_mask) * -10000.0
+        assert extended_attention_mask.dim() == 2
+        extended_attention_mask = extended_attention_mask.unsqueeze(1)
+        query_layer = self.query(query_inputs)
+        if query_layer.dim() == 2:
+            query_layer = query_layer.unsqueeze(1)
+            squeeze_result = True
+        else:
+            squeeze_result = False
+        key_layer = self.key(key_inputs)
+        scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
+        scores = scores / math.sqrt(self.query_key_size)
+        scores = scores + extended_attention_mask
+        if squeeze_result:
+            scores = scores.squeeze(1)
+        return scores
+
+
+def _get_mask(nums, max_num):
+    batch_size = nums.size(0)
+    arange = torch.arange(0, max_num).unsqueeze(0).expand(batch_size, -1)
+    non_pad_mask = arange.lt(nums.unsqueeze(-1))
+    non_pad_mask = non_pad_mask.type(torch.float32)
+    return non_pad_mask
+
+
+class M4C(BaseModel):
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.mmt_config = BertConfig(**self.config.mmt)
+        self._datasets = registry.get('config').datasets.split(',')
+
+    @classmethod
+    def config_path(cls):
+        return 'configs/models/m4c/defaults.yaml'
+
+    def build(self):
+        self.finetune_modules = []
+        self._build_txt_encoding()
+        self._build_obj_encoding()
+        self._build_ocr_encoding()
+        self._build_mmt()
+        self._build_output()
+
+    def _build_txt_encoding(self):
+        TEXT_BERT_HIDDEN_SIZE = 768
+        self.text_bert_config = BertConfig(**self.config.text_bert)
+        if self.config.text_bert_init_from_bert_base:
+            self.text_bert = TextBert.from_pretrained('bert-base-uncased', config=self.text_bert_config)
+            self.finetune_modules.append({'module': self.text_bert, 'lr_scale': self.config.lr_scale_text_bert})
+        else:
+            self.writer.write('NOT initializing text_bert from BERT_BASE')
+            self.text_bert = TextBert(self.text_bert_config)
+        if self.mmt_config.hidden_size != TEXT_BERT_HIDDEN_SIZE:
+            self.writer.write('Projecting text_bert output to {} dim'.format(self.mmt_config.hidden_size))
+            self.text_bert_out_linear = nn.Linear(TEXT_BERT_HIDDEN_SIZE, self.mmt_config.hidden_size)
+        else:
+            self.text_bert_out_linear = nn.Identity()
+
+    def _build_obj_encoding(self):
+        self.obj_faster_rcnn_fc7 = ImageFeatureEncoder(encoder_type='finetune_faster_rcnn_fpn_fc7', in_dim=2048, weights_file='models/detectron.defaults/fc7_w.pkl', bias_file='models/detectron.defaults/fc7_b.pkl', model_data_dir=self.config.model_data_dir)
+        self.finetune_modules.append({'module': self.obj_faster_rcnn_fc7, 'lr_scale': self.config.lr_scale_frcn})
+        self.linear_obj_feat_to_mmt_in = nn.Linear(self.config.obj.mmt_in_dim, self.mmt_config.hidden_size)
+        self.linear_obj_bbox_to_mmt_in = nn.Linear(4, self.mmt_config.hidden_size)
+        self.obj_feat_layer_norm = BertLayerNorm(self.mmt_config.hidden_size)
+        self.obj_bbox_layer_norm = BertLayerNorm(self.mmt_config.hidden_size)
+        self.obj_drop = nn.Dropout(self.config.obj.dropout_prob)
+
+    def _build_ocr_encoding(self):
+        self.remove_ocr_fasttext = getattr(self.config.ocr, 'remove_ocr_fasttext', False)
+        self.remove_ocr_phoc = getattr(self.config.ocr, 'remove_ocr_phoc', False)
+        self.remove_ocr_frcn = getattr(self.config.ocr, 'remove_ocr_frcn', False)
+        self.remove_ocr_semantics = getattr(self.config.ocr, 'remove_ocr_semantics', False)
+        self.remove_ocr_bbox = getattr(self.config.ocr, 'remove_ocr_bbox', False)
+        self.ocr_faster_rcnn_fc7 = ImageFeatureEncoder(encoder_type='finetune_faster_rcnn_fpn_fc7', in_dim=2048, weights_file='models/detectron.defaults/fc7_w.pkl', bias_file='models/detectron.defaults/fc7_b.pkl', model_data_dir=self.config.model_data_dir)
+        self.finetune_modules.append({'module': self.ocr_faster_rcnn_fc7, 'lr_scale': self.config.lr_scale_frcn})
+        self.linear_ocr_feat_to_mmt_in = nn.Linear(self.config.ocr.mmt_in_dim, self.mmt_config.hidden_size)
+        self.linear_ocr_bbox_to_mmt_in = nn.Linear(4, self.mmt_config.hidden_size)
+        self.ocr_feat_layer_norm = BertLayerNorm(self.mmt_config.hidden_size)
+        self.ocr_bbox_layer_norm = BertLayerNorm(self.mmt_config.hidden_size)
+        self.ocr_drop = nn.Dropout(self.config.ocr.dropout_prob)
+
+    def _build_mmt(self):
+        self.mmt = MMT(self.mmt_config)
+        self.finetune_modules.append({'module': self.mmt, 'lr_scale': self.config.lr_scale_mmt})
+
+    def _build_output(self):
+        self.ocr_ptr_net = OcrPtrNet(**self.config.classifier.ocr_ptr_net)
+        num_choices = registry.get(self._datasets[0] + '_num_final_outputs')
+        num_choices -= self.config.classifier.ocr_max_num
+        self.classifier = ClassifierLayer(self.config.classifier.type, in_dim=self.mmt_config.hidden_size, out_dim=num_choices, **self.config.classifier.params)
+        self.answer_processor = registry.get(self._datasets[0] + '_answer_processor')
+
+    def forward(self, sample_list):
+        fwd_results = {}
+        self._forward_txt_encoding(sample_list, fwd_results)
+        self._forward_obj_encoding(sample_list, fwd_results)
+        self._forward_ocr_encoding(sample_list, fwd_results)
+        self._forward_mmt_and_output(sample_list, fwd_results)
+        results = {'scores': fwd_results['scores']}
+        return results
+
+    def _forward_txt_encoding(self, sample_list, fwd_results):
+        fwd_results['txt_inds'] = sample_list.text
+        fwd_results['txt_mask'] = _get_mask(sample_list.text_len, sample_list.text.size(1))
+
+    def _forward_obj_encoding(self, sample_list, fwd_results):
+        obj_fc6 = sample_list.image_feature_0
+        obj_fc7 = self.obj_faster_rcnn_fc7(obj_fc6)
+        obj_fc7 = F.normalize(obj_fc7, dim=-1)
+        obj_feat = obj_fc7
+        obj_bbox = sample_list.obj_bbox_coordinates
+        obj_mmt_in = self.obj_feat_layer_norm(self.linear_obj_feat_to_mmt_in(obj_feat)) + self.obj_bbox_layer_norm(self.linear_obj_bbox_to_mmt_in(obj_bbox))
+        obj_mmt_in = self.obj_drop(obj_mmt_in)
+        fwd_results['obj_mmt_in'] = obj_mmt_in
+        obj_nums = sample_list.image_info_0.max_features
+        fwd_results['obj_mask'] = _get_mask(obj_nums, obj_mmt_in.size(1))
+
+    def _forward_ocr_encoding(self, sample_list, fwd_results):
+        ocr_fasttext = sample_list.context_feature_0
+        ocr_fasttext = F.normalize(ocr_fasttext, dim=-1)
+        assert ocr_fasttext.size(-1) == 300
+        ocr_phoc = sample_list.context_feature_1
+        ocr_phoc = F.normalize(ocr_phoc, dim=-1)
+        assert ocr_phoc.size(-1) == 604
+        ocr_fc6 = sample_list.image_feature_1[:, :ocr_fasttext.size(1), :]
+        ocr_fc7 = self.ocr_faster_rcnn_fc7(ocr_fc6)
+        ocr_fc7 = F.normalize(ocr_fc7, dim=-1)
+        ocr_order_vectors = torch.zeros_like(sample_list.order_vectors)
+        if self.remove_ocr_fasttext:
+            ocr_fasttext = torch.zeros_like(ocr_fasttext)
+        if self.remove_ocr_phoc:
+            ocr_phoc = torch.zeros_like(ocr_phoc)
+        if self.remove_ocr_frcn:
+            ocr_fc7 = torch.zeros_like(ocr_fc7)
+        ocr_feat = torch.cat([ocr_fasttext, ocr_phoc, ocr_fc7, ocr_order_vectors], dim=-1)
+        ocr_bbox = sample_list.ocr_bbox_coordinates
+        if self.remove_ocr_semantics:
+            ocr_feat = torch.zeros_like(ocr_feat)
+        if self.remove_ocr_bbox:
+            ocr_bbox = torch.zeros_like(ocr_bbox)
+        ocr_mmt_in = self.ocr_feat_layer_norm(self.linear_ocr_feat_to_mmt_in(ocr_feat)) + self.ocr_bbox_layer_norm(self.linear_ocr_bbox_to_mmt_in(ocr_bbox))
+        ocr_mmt_in = self.ocr_drop(ocr_mmt_in)
+        fwd_results['ocr_mmt_in'] = ocr_mmt_in
+        ocr_nums = sample_list.context_info_0.max_features
+        fwd_results['ocr_mask'] = _get_mask(ocr_nums, ocr_mmt_in.size(1))
+
+    def _forward_mmt(self, sample_list, fwd_results):
+        text_bert_out = self.text_bert(txt_inds=fwd_results['txt_inds'], txt_mask=fwd_results['txt_mask'])
+        fwd_results['txt_emb'] = self.text_bert_out_linear(text_bert_out)
+        mmt_results = self.mmt(txt_emb=fwd_results['txt_emb'], txt_mask=fwd_results['txt_mask'], obj_emb=fwd_results['obj_mmt_in'], obj_mask=fwd_results['obj_mask'], ocr_emb=fwd_results['ocr_mmt_in'], ocr_mask=fwd_results['ocr_mask'], fixed_ans_emb=self.classifier.module.weight, prev_inds=fwd_results['prev_inds'])
+        fwd_results.update(mmt_results)
+
+    def _forward_output(self, sample_list, fwd_results):
+        mmt_dec_output = fwd_results['mmt_dec_output']
+        mmt_ocr_output = fwd_results['mmt_ocr_output']
+        ocr_mask = fwd_results['ocr_mask']
+        fixed_scores = self.classifier(mmt_dec_output)
+        dynamic_ocr_scores = self.ocr_ptr_net(mmt_dec_output, mmt_ocr_output, ocr_mask)
+        scores = torch.cat([fixed_scores, dynamic_ocr_scores], dim=-1)
+        fwd_results['scores'] = scores
+
+    def _forward_mmt_and_output(self, sample_list, fwd_results):
+        if self.training:
+            fwd_results['prev_inds'] = sample_list.train_prev_inds.clone()
+            self._forward_mmt(sample_list, fwd_results)
+            self._forward_output(sample_list, fwd_results)
+        else:
+            dec_step_num = sample_list.train_prev_inds.size(1)
+            fwd_results['prev_inds'] = torch.zeros_like(sample_list.train_prev_inds)
+            fwd_results['prev_inds'][:, (0)] = self.answer_processor.BOS_IDX
+            for _ in range(dec_step_num):
+                self._forward_mmt(sample_list, fwd_results)
+                self._forward_output(sample_list, fwd_results)
+                argmax_inds = fwd_results['scores'].argmax(dim=-1)
+                fwd_results['prev_inds'][:, 1:] = argmax_inds[:, :-1]
+
+    def get_optimizer_parameters(self, config):
+        optimizer_param_groups = []
+        base_lr = config.optimizer.params.lr
+        finetune_params_set = set()
+        for m in self.finetune_modules:
+            optimizer_param_groups.append({'params': list(m['module'].parameters()), 'lr': base_lr * m['lr_scale']})
+            finetune_params_set.update(list(m['module'].parameters()))
+        remaining_params = [p for p in self.parameters() if p not in finetune_params_set]
+        optimizer_param_groups.insert(0, {'params': remaining_params})
+        return optimizer_param_groups
+
+    @classmethod
+    def update_registry_for_pretrained(cls, config, checkpoint, full_output):
+        datasets = full_output['full_config'].datasets
+        dataset = datasets.split(',')[0]
+        config_mock = OmegaConf.create({'datasets': datasets})
+        registry.register('config', config_mock)
+        registry.register(f'{dataset}_num_final_outputs', checkpoint['classifier.module.weight'].size(0) + config.classifier.ocr_max_num)
+        answer_processor = OmegaConf.create({'BOS_IDX': 1})
+        registry.register(f'{dataset}_answer_processor', answer_processor)
 
 
 class ModalEmbeddings(nn.Module):
@@ -1421,6 +2772,33 @@ class MMBTConfig:
             self.num_labels = num_labels
 
 
+class MMBTBase(MultiModalEncoderBase):
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config, *args, **kwargs)
+
+    def build(self):
+        encoders = self._build_encoders(self.config)
+        text_encoder, modal_encoder = encoders[0], encoders[1]
+        self._encoder_config = text_encoder.config
+        self._mmbt_config = MMBTConfig(self._encoder_config, num_labels=self.config.num_labels, modal_hidden_size=self.config.modal_hidden_size)
+        self.mmbt = MMBTModel(self._mmbt_config, text_encoder, modal_encoder)
+
+    def forward(self, sample_list):
+        if self._is_direct_features_input:
+            input_modal = sample_list.image_feature_0
+        else:
+            input_modal = sample_list.image
+        modal_start_token = None
+        if self.config.use_modal_start_token:
+            modal_start_token = sample_list.input_ids[:, (0)].clone().detach()
+        modal_end_token = None
+        if self.config.use_modal_end_token:
+            modal_end_token = sample_list.input_ids[:, (-1)].clone().detach()
+        output = self.mmbt(input_modal, input_ids=sample_list.input_ids, modal_start_tokens=modal_start_token, modal_end_tokens=modal_end_token, attention_mask=sample_list.input_mask, token_type_ids=sample_list.segment_ids, modal_token_type_ids=None, position_ids=None, modal_position_ids=None, head_mask=None, inputs_embeds=None, encoder_hidden_states=None, encoder_attention_mask=None)
+        return output
+
+
 def get_default_config_path():
     directory = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(directory, '..', 'configs', 'defaults.yaml')
@@ -1443,7 +2821,7 @@ def import_user_module(user_dir: str, no_print: bool=False):
         if module_name not in sys.modules:
             sys.path.insert(0, module_parent)
             if not no_print:
-                print(f'Importing user_dir from {user_dir}')
+                None
             importlib.import_module(module_name)
             sys.path.pop(0)
 
@@ -1478,7 +2856,6 @@ class Configuration:
     def __init__(self, args=None, default_only=False):
         self.config = {}
         if not args:
-            import argparse
             args = argparse.Namespace(opts=[])
             default_only = True
         self.args = args
@@ -1625,12 +3002,12 @@ class Configuration:
                 elif isinstance(current[stripped_field], collections.abc.Sequence) and array_index != -1:
                     current_value = current[stripped_field][array_index]
                     if not isinstance(current_value, (collections.abc.Mapping, collections.abc.Sequence)):
-                        print(f'Overriding option {opt} to {value}')
+                        None
                         current[stripped_field][array_index] = self._decode_value(value)
                     else:
                         current = current_value
                 elif idx == len(splits) - 1:
-                    print(f'Overriding option {opt} to {value}')
+                    None
                     current[stripped_field] = self._decode_value(value)
                 else:
                     raise AttributeError('While updating configuration', 'option {} is not present after field {}'.format(opt, stripped_field))
@@ -1794,401 +3171,1303 @@ class MMBTForClassification(nn.Module):
         return output
 
 
-class BertSelfAttention(nn.Module):
+def get_optimizer_parameters_for_bert(module, config):
+    if module.config.training_head_type == 'pretraining':
+        return get_bert_configured_parameters(module)
+    lr = config.optimizer.params.lr
+    model_config = getattr(config.model_config, config.model, {})
+    finetune_lr_multiplier = getattr(model_config, 'finetune_lr_multiplier', 1)
+    parameters = get_bert_configured_parameters(module.bert, lr * finetune_lr_multiplier)
+    parameters += get_bert_configured_parameters(module.classifier, lr)
+    return parameters
+
+
+class MMBT(BaseModel):
 
     def __init__(self, config):
-        super().__init__()
-        if config.hidden_size % config.num_attention_heads != 0:
-            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.hidden_size, config.num_attention_heads))
-        self.num_attention_heads = config.num_attention_heads
-        self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
-        self.all_head_size = self.num_attention_heads * self.attention_head_size
-        self.visualization = config.visualization
-        self.query = nn.Linear(config.hidden_size, self.all_head_size)
-        self.key = nn.Linear(config.hidden_size, self.all_head_size)
-        self.value = nn.Linear(config.hidden_size, self.all_head_size)
-        self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
+        super().__init__(config)
 
-    def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
-        x = x.view(*new_x_shape)
-        return x.permute(0, 2, 1, 3)
-
-    def forward(self, hidden_states, attention_mask):
-        mixed_query_layer = self.query(hidden_states)
-        mixed_key_layer = self.key(hidden_states)
-        mixed_value_layer = self.value(hidden_states)
-        query_layer = self.transpose_for_scores(mixed_query_layer)
-        key_layer = self.transpose_for_scores(mixed_key_layer)
-        value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
-        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-        attention_scores = attention_scores + attention_mask
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
-        attention_probs = self.dropout(attention_probs)
-        context_layer = torch.matmul(attention_probs, value_layer)
-        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
-        context_layer = context_layer.view(*new_context_layer_shape)
-        if self.visualization:
-            attn_data = {'attn': attention_probs, 'queries': query_layer, 'keys': key_layer}
+    def build(self):
+        if self.config.training_head_type == 'pretraining':
+            self.model = MMBTForPreTraining(self.config)
         else:
-            attn_data = None
-        return context_layer, attn_data
+            self.model = MMBTForClassification(self.config)
+        if self.config.freeze_complete_base or self.config.freeze_text:
+            for p in self.model.bert.mmbt.transformer.parameters():
+                p.requires_grad = False
+        if self.config.freeze_complete_base or self.config.freeze_modal:
+            for p in self.model.bert.mmbt.modal_encoder.parameters():
+                p.requires_grad = False
+
+    @classmethod
+    def format_state_key(cls, key):
+        return key.replace('base.bert', 'model.bert').replace('base.cls', 'model.cls').replace('base.classifier', 'model.classifier')
+
+    @classmethod
+    def config_path(cls):
+        return 'configs/models/mmbt/pretrain.yaml'
+
+    def forward(self, sample_list):
+        return self.model(sample_list)
+
+    def get_optimizer_parameters(self, config):
+        return get_optimizer_parameters_for_bert(self.model, config)
 
 
-class BertAttention(nn.Module):
+class MfbExpand(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, img_feat_dim, txt_emb_dim, hidden_dim, dropout):
         super().__init__()
-        self.self = BertSelfAttention(config)
-        self.output = BertSelfOutput(config)
+        self.lc_image = nn.Linear(in_features=img_feat_dim, out_features=hidden_dim)
+        self.lc_ques = nn.Linear(in_features=txt_emb_dim, out_features=hidden_dim)
+        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, input_tensor, attention_mask):
-        self_output, attention_probs = self.self(input_tensor, attention_mask)
-        attention_output = self.output(self_output, input_tensor)
-        return attention_output, attention_probs
-
-
-class BertLayer(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.attention = BertAttention(config)
-        self.intermediate = BertIntermediate(config)
-        self.output = BertOutput(config)
-
-    def forward(self, hidden_states, attention_mask):
-        attention_output, attention_probs = self.attention(hidden_states, attention_mask)
-        intermediate_output = self.intermediate(attention_output)
-        layer_output = self.output(intermediate_output, attention_output)
-        return layer_output, attention_probs
-
-
-class BertImageSelfAttention(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        if config.v_hidden_size % config.v_num_attention_heads != 0:
-            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.v_hidden_size, config.v_num_attention_heads))
-        self.dynamic_attention = config.dynamic_attention
-        self.num_attention_heads = config.v_num_attention_heads
-        self.attention_head_size = int(config.v_hidden_size / config.v_num_attention_heads)
-        self.visualization = config.visualization
-        self.all_head_size = self.num_attention_heads * self.attention_head_size
-        self.query = nn.Linear(config.v_hidden_size, self.all_head_size)
-        self.key = nn.Linear(config.v_hidden_size, self.all_head_size)
-        self.value = nn.Linear(config.v_hidden_size, self.all_head_size)
-        if self.dynamic_attention:
-            self.dyLinear_q = nn.Linear(config.hidden_size, self.all_head_size)
-            self.dyLinear_k = nn.Linear(config.hidden_size, self.all_head_size)
-        self.dropout = nn.Dropout(config.v_attention_probs_dropout_prob)
-
-    def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
-        x = x.view(*new_x_shape)
-        return x.permute(0, 2, 1, 3)
-
-    def forward(self, hidden_states, attention_mask, txt_embedding, txt_attention_mask):
-        mixed_query_layer = self.query(hidden_states)
-        mixed_key_layer = self.key(hidden_states)
-        mixed_value_layer = self.value(hidden_states)
-        if self.dynamic_attention:
-            pool_embedding = (txt_embedding * txt_attention_mask).sum(1)
-            pool_embedding = pool_embedding / txt_attention_mask.sum(1)
-            gate_q = 1 + torch.sigmoid(self.dyLinear_q(pool_embedding))
-            gate_k = 1 + torch.sigmoid(self.dyLinear_k(pool_embedding))
-            mixed_query_layer = mixed_query_layer * gate_q.unsqueeze(1)
-            mixed_key_layer = mixed_key_layer * gate_k.unsqueeze(1)
-        query_layer = self.transpose_for_scores(mixed_query_layer)
-        key_layer = self.transpose_for_scores(mixed_key_layer)
-        value_layer = self.transpose_for_scores(mixed_value_layer)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
-        attention_scores = attention_scores / math.sqrt(self.attention_head_size)
-        attention_scores = attention_scores + attention_mask
-        attention_probs = nn.Softmax(dim=-1)(attention_scores)
-        attention_probs = self.dropout(attention_probs)
-        context_layer = torch.matmul(attention_probs, value_layer)
-        context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
-        context_layer = context_layer.view(*new_context_layer_shape)
-        if self.visualization:
-            attn_data = {'attn': attention_probs, 'queries': query_layer, 'keys': key_layer}
+    def forward(self, image_feat, question_embed):
+        image1 = self.lc_image(image_feat)
+        ques1 = self.lc_ques(question_embed)
+        if len(image_feat.data.shape) == 3:
+            num_location = image_feat.data.size(1)
+            ques1_expand = torch.unsqueeze(ques1, 1).expand(-1, num_location, -1)
         else:
-            attn_data = None
-        return context_layer, attn_data
+            ques1_expand = ques1
+        joint_feature = image1 * ques1_expand
+        joint_feature = self.dropout(joint_feature)
+        return joint_feature
 
 
-class BertImageSelfOutput(nn.Module):
+class MFH(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, image_feat_dim, ques_emb_dim, **kwargs):
         super().__init__()
-        self.dense = nn.Linear(config.v_hidden_size, config.v_hidden_size)
-        self.LayerNorm = BertLayerNorm(config.v_hidden_size, eps=1e-12)
-        self.dropout = nn.Dropout(config.v_hidden_dropout_prob)
+        self.mfb_expand_list = nn.ModuleList()
+        self.mfb_sqz_list = nn.ModuleList()
+        self.relu = nn.ReLU()
+        hidden_sizes = kwargs['hidden_sizes']
+        self.out_dim = int(sum(hidden_sizes) / kwargs['pool_size'])
+        self.order = kwargs['order']
+        self.pool_size = kwargs['pool_size']
+        for i in range(self.order):
+            mfb_exp_i = MfbExpand(img_feat_dim=image_feat_dim, txt_emb_dim=ques_emb_dim, hidden_dim=hidden_sizes[i], dropout=kwargs['dropout'])
+            self.mfb_expand_list.append(mfb_exp_i)
+            self.mfb_sqz_list.append(self.mfb_squeeze)
 
-    def forward(self, hidden_states, input_tensor):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
-        return hidden_states
+    def forward(self, image_feat, question_embedding):
+        feature_list = []
+        prev_mfb_exp = 1
+        for i in range(self.order):
+            mfb_exp = self.mfb_expand_list[i]
+            mfb_sqz = self.mfb_sqz_list[i]
+            z_exp_i = mfb_exp(image_feat, question_embedding)
+            if i > 0:
+                z_exp_i = prev_mfb_exp * z_exp_i
+            prev_mfb_exp = z_exp_i
+            z = mfb_sqz(z_exp_i)
+            feature_list.append(z)
+        cat_dim = len(feature_list[0].size()) - 1
+        feature = torch.cat(feature_list, dim=cat_dim)
+        return feature
+
+    def mfb_squeeze(self, joint_feature):
+        orig_feature_size = len(joint_feature.size())
+        if orig_feature_size == 2:
+            joint_feature = torch.unsqueeze(joint_feature, dim=1)
+        batch_size, num_loc, dim = joint_feature.size()
+        if dim % self.pool_size != 0:
+            exit('the dim %d is not multiply of              pool_size %d' % (dim, self.pool_size))
+        joint_feature_reshape = joint_feature.view(batch_size, num_loc, int(dim / self.pool_size), self.pool_size)
+        iatt_iq_sumpool = torch.sum(joint_feature_reshape, 3)
+        iatt_iq_sqrt = torch.sqrt(self.relu(iatt_iq_sumpool)) - torch.sqrt(self.relu(-iatt_iq_sumpool))
+        iatt_iq_sqrt = iatt_iq_sqrt.view(batch_size, -1)
+        iatt_iq_l2 = nn.functional.normalize(iatt_iq_sqrt)
+        iatt_iq_l2 = iatt_iq_l2.view(batch_size, num_loc, int(dim / self.pool_size))
+        if orig_feature_size == 2:
+            iatt_iq_l2 = torch.squeeze(iatt_iq_l2, dim=1)
+        return iatt_iq_l2
 
 
-class BertImageAttention(nn.Module):
+class NonLinearElementMultiply(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, image_feat_dim, ques_emb_dim, **kwargs):
         super().__init__()
-        self.self = BertImageSelfAttention(config)
-        self.output = BertImageSelfOutput(config)
+        self.fa_image = ReLUWithWeightNormFC(image_feat_dim, kwargs['hidden_dim'])
+        self.fa_txt = ReLUWithWeightNormFC(ques_emb_dim, kwargs['hidden_dim'])
+        context_dim = kwargs.get('context_dim', None)
+        if context_dim is not None:
+            self.fa_context = ReLUWithWeightNormFC(context_dim, kwargs['hidden_dim'])
+        self.dropout = nn.Dropout(kwargs['dropout'])
+        self.out_dim = kwargs['hidden_dim']
 
-    def forward(self, input_tensor, attention_mask, txt_embedding, txt_attention_mask):
-        self_output, attention_probs = self.self(input_tensor, attention_mask, txt_embedding, txt_attention_mask)
-        attention_output = self.output(self_output, input_tensor)
-        return attention_output, attention_probs
-
-
-ACT2FN = {'relu': nn.ReLU, 'sigmoid': nn.Sigmoid, 'tanh': nn.Tanh, 'leaky_relu': nn.LeakyReLU}
-
-
-class BertImageIntermediate(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.dense = nn.Linear(config.v_hidden_size, config.v_intermediate_size)
-        if isinstance(config.v_hidden_act, str):
-            self.intermediate_act_fn = ACT2FN[config.v_hidden_act]
+    def forward(self, image_feat, question_embedding, context_embedding=None):
+        image_fa = self.fa_image(image_feat)
+        question_fa = self.fa_txt(question_embedding)
+        if len(image_feat.size()) == 3 and len(question_fa.size()) != 3:
+            question_fa_expand = question_fa.unsqueeze(1)
         else:
-            self.intermediate_act_fn = config.v_hidden_act
+            question_fa_expand = question_fa
+        joint_feature = image_fa * question_fa_expand
+        if context_embedding is not None:
+            context_fa = self.fa_context(context_embedding)
+            context_text_joint_feaure = context_fa * question_fa_expand
+            joint_feature = torch.cat([joint_feature, context_text_joint_feaure], dim=1)
+        joint_feature = self.dropout(joint_feature)
+        return joint_feature
 
-    def forward(self, hidden_states):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.intermediate_act_fn(hidden_states)
-        return hidden_states
+
+class TopDownAttentionLSTM(nn.Module):
+
+    def __init__(self, image_feat_dim, embed_dim, **kwargs):
+        super().__init__()
+        self.fa_image = weight_norm(nn.Linear(image_feat_dim, kwargs['attention_dim']))
+        self.fa_hidden = weight_norm(nn.Linear(kwargs['hidden_dim'], kwargs['attention_dim']))
+        self.top_down_lstm = nn.LSTMCell(embed_dim + image_feat_dim + kwargs['hidden_dim'], kwargs['hidden_dim'], bias=True)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(kwargs['dropout'])
+        self.out_dim = kwargs['attention_dim']
+
+    def forward(self, image_feat, embedding):
+        image_feat_mean = image_feat.mean(1)
+        state = registry.get(f'{image_feat.device}_lstm_state')
+        h1, c1 = state['td_hidden']
+        h2, c2 = state['lm_hidden']
+        h1, c1 = self.top_down_lstm(torch.cat([h2, image_feat_mean, embedding], dim=1), (h1, c1))
+        state['td_hidden'] = h1, c1
+        image_fa = self.fa_image(image_feat)
+        hidden_fa = self.fa_hidden(h1)
+        joint_feature = self.relu(image_fa + hidden_fa.unsqueeze(1))
+        joint_feature = self.dropout(joint_feature)
+        return joint_feature
 
 
-class BertImageOutput(nn.Module):
+class TwoLayerElementMultiply(nn.Module):
+
+    def __init__(self, image_feat_dim, ques_emb_dim, **kwargs):
+        super().__init__()
+        self.fa_image1 = ReLUWithWeightNormFC(image_feat_dim, kwargs['hidden_dim'])
+        self.fa_image2 = ReLUWithWeightNormFC(kwargs['hidden_dim'], kwargs['hidden_dim'])
+        self.fa_txt1 = ReLUWithWeightNormFC(ques_emb_dim, kwargs['hidden_dim'])
+        self.fa_txt2 = ReLUWithWeightNormFC(kwargs['hidden_dim'], kwargs['hidden_dim'])
+        self.dropout = nn.Dropout(kwargs['dropout'])
+        self.out_dim = kwargs['hidden_dim']
+
+    def forward(self, image_feat, question_embedding):
+        image_fa = self.fa_image2(self.fa_image1(image_feat))
+        question_fa = self.fa_txt2(self.fa_txt1(question_embedding))
+        if len(image_feat.size()) == 3:
+            num_location = image_feat.size(1)
+            question_fa_expand = torch.unsqueeze(question_fa, 1).expand(-1, num_location, -1)
+        else:
+            question_fa_expand = question_fa
+        joint_feature = image_fa * question_fa_expand
+        joint_feature = self.dropout(joint_feature)
+        return joint_feature
+
+
+class ModalCombineLayer(nn.Module):
+
+    def __init__(self, combine_type, img_feat_dim, txt_emb_dim, **kwargs):
+        super().__init__()
+        if combine_type == 'MFH':
+            self.module = MFH(img_feat_dim, txt_emb_dim, **kwargs)
+        elif combine_type == 'non_linear_element_multiply':
+            self.module = NonLinearElementMultiply(img_feat_dim, txt_emb_dim, **kwargs)
+        elif combine_type == 'two_layer_element_multiply':
+            self.module = TwoLayerElementMultiply(img_feat_dim, txt_emb_dim, **kwargs)
+        elif combine_type == 'top_down_attention_lstm':
+            self.module = TopDownAttentionLSTM(img_feat_dim, txt_emb_dim, **kwargs)
+        else:
+            raise NotImplementedError('Not implemented combine type: %s' % combine_type)
+        self.out_dim = self.module.out_dim
+
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+
+class TopDownAttention(nn.Module):
+    EPS = 1e-08
+
+    def __init__(self, combination_layer, transform_module, normalization):
+        super().__init__()
+        self.combination_layer = combination_layer
+        self.normalization = normalization
+        self.transform = transform_module
+        self.out_dim = self.transform.out_dim
+
+    @staticmethod
+    def _mask_attentions(attention, image_locs):
+        batch_size, num_loc, n_att = attention.size()
+        tmp1 = attention.new_zeros(num_loc)
+        tmp1[:num_loc] = torch.arange(0, num_loc, dtype=attention.dtype).unsqueeze(dim=0)
+        tmp1 = tmp1.expand(batch_size, num_loc)
+        tmp2 = image_locs.type(tmp1.type())
+        tmp2 = tmp2.unsqueeze(dim=1).expand(batch_size, num_loc)
+        mask = torch.ge(tmp1, tmp2)
+        mask = mask.unsqueeze(dim=2).expand_as(attention)
+        attention = attention.masked_fill(mask, 0)
+        return attention
+
+    def forward(self, image_feat, question_embedding, image_locs=None):
+        joint_feature = self.combination_layer(image_feat, question_embedding)
+        raw_attn = self.transform(joint_feature)
+        if self.normalization.lower() == 'softmax':
+            attention = nn.functional.softmax(raw_attn, dim=1)
+            if image_locs is not None:
+                masked_attention = self._mask_attentions(attention, image_locs)
+                masked_attention_sum = torch.sum(masked_attention, dim=1, keepdim=True)
+                masked_attention_sum += masked_attention_sum.eq(0).float() + self.EPS
+                masked_attention = masked_attention / masked_attention_sum
+            else:
+                masked_attention = attention
+        elif self.normalization.lower() == 'sigmoid':
+            attention = torch.sigmoid(raw_attn)
+            masked_attention = attention
+            if image_locs is not None:
+                masked_attention = self._mask_attentions(attention, image_locs)
+        return masked_attention
+
+
+class ConvTransform(nn.Module):
+
+    def __init__(self, in_dim, out_dim, hidden_dim):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels=in_dim, out_channels=hidden_dim, kernel_size=1)
+        self.conv2 = nn.Conv2d(in_channels=hidden_dim, out_channels=out_dim, kernel_size=1)
+        self.out_dim = out_dim
+
+    def forward(self, x):
+        if len(x.size()) == 3:
+            x_reshape = torch.unsqueeze(x.permute(0, 2, 1), 3)
+        elif len(x.size()) == 2:
+            x_reshape = torch.unsqueeze(torch.unsqueeze(x, 2), 3)
+        iatt_conv1 = self.conv1(x_reshape)
+        iatt_relu = nn.functional.relu(iatt_conv1)
+        iatt_conv2 = self.conv2(iatt_relu)
+        if len(x.size()) == 3:
+            iatt_conv3 = torch.squeeze(iatt_conv2, 3).permute(0, 2, 1)
+        elif len(x.size()) == 2:
+            iatt_conv3 = torch.squeeze(torch.squeeze(iatt_conv2, 3), 2)
+        return iatt_conv3
+
+
+class LinearTransform(nn.Module):
+
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.lc = weight_norm(nn.Linear(in_features=in_dim, out_features=out_dim), dim=None)
+        self.out_dim = out_dim
+
+    def forward(self, x):
+        return self.lc(x)
+
+
+class TransformLayer(nn.Module):
+
+    def __init__(self, transform_type, in_dim, out_dim, hidden_dim=None):
+        super().__init__()
+        if transform_type == 'linear':
+            self.module = LinearTransform(in_dim, out_dim)
+        elif transform_type == 'conv':
+            self.module = ConvTransform(in_dim, out_dim, hidden_dim)
+        else:
+            raise NotImplementedError('Unknown post combine transform type: %s' % transform_type)
+        self.out_dim = self.module.out_dim
+
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+
+class AttentionLayer(nn.Module):
+
+    def __init__(self, image_dim, question_dim, **kwargs):
+        super().__init__()
+        combine_type = kwargs['modal_combine']['type']
+        combine_params = kwargs['modal_combine']['params']
+        modal_combine_layer = ModalCombineLayer(combine_type, image_dim, question_dim, **combine_params)
+        transform_type = kwargs['transform']['type']
+        transform_params = kwargs['transform']['params']
+        transform_layer = TransformLayer(transform_type, modal_combine_layer.out_dim, **transform_params)
+        normalization = kwargs['normalization']
+        self.module = TopDownAttention(modal_combine_layer, transform_layer, normalization)
+        if hasattr(self.module, 'out_dim'):
+            self.out_dim = self.module.out_dim
+
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+
+class ImageFeatureEmbedding(nn.Module):
+    """
+    parameters:
+
+    input:
+    image_feat_variable: [batch_size, num_location, image_feat_dim]
+    or a list of [num_location, image_feat_dim]
+    when using adaptive number of objects
+    question_embedding:[batch_size, txt_embeding_dim]
+
+    output:
+    image_embedding:[batch_size, image_feat_dim]
+
+
+    """
+
+    def __init__(self, img_dim, question_dim, **kwargs):
+        super().__init__()
+        self.image_attention_model = AttentionLayer(img_dim, question_dim, **kwargs)
+        self.out_dim = self.image_attention_model.out_dim
+
+    def forward(self, image_feat_variable, question_embedding, image_dims, extra=None):
+        if extra is None:
+            extra = {}
+        attention = self.image_attention_model(image_feat_variable, question_embedding, image_dims)
+        att_reshape = attention.permute(0, 2, 1)
+        order_vectors = getattr(extra, 'order_vectors', None)
+        if order_vectors is not None:
+            image_feat_variable = torch.cat([image_feat_variable, order_vectors], dim=-1)
+        tmp_embedding = torch.bmm(att_reshape, image_feat_variable)
+        batch_size = att_reshape.size(0)
+        image_embedding = tmp_embedding.view(batch_size, -1)
+        return image_embedding, attention
+
+
+class PreExtractedEmbedding(nn.Module):
+
+    def __init__(self, out_dim, base_path):
+        super().__init__()
+        self.text_out_dim = out_dim
+        self.base_path = base_path
+        self.cache = {}
+
+    def forward(self, qids):
+        embeddings = []
+        for qid in qids:
+            embeddings.append(self.get_item(qid))
+        return torch.stack(embeddings, dim=0)
+
+    @lru_cache(maxsize=5000)
+    def get_item(self, qid):
+        return np.load(os.path.join(self.base_path, str(qid.item()) + '.npy'))
+
+
+class AttentionTextEmbedding(nn.Module):
+
+    def __init__(self, hidden_dim, embedding_dim, num_layers, dropout, **kwargs):
+        super().__init__()
+        self.text_out_dim = hidden_dim * kwargs['conv2_out']
+        bidirectional = kwargs.get('bidirectional', False)
+        self.recurrent_unit = nn.LSTM(input_size=embedding_dim, hidden_size=hidden_dim // 2 if bidirectional else hidden_dim, num_layers=num_layers, batch_first=True, bidirectional=bidirectional)
+        self.dropout = nn.Dropout(p=dropout)
+        conv1_out = kwargs['conv1_out']
+        conv2_out = kwargs['conv2_out']
+        kernel_size = kwargs['kernel_size']
+        padding = kwargs['padding']
+        self.conv1 = nn.Conv1d(in_channels=hidden_dim, out_channels=conv1_out, kernel_size=kernel_size, padding=padding)
+        self.conv2 = nn.Conv1d(in_channels=conv1_out, out_channels=conv2_out, kernel_size=kernel_size, padding=padding)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        batch_size = x.size(0)
+        self.recurrent_unit.flatten_parameters()
+        lstm_out, _ = self.recurrent_unit(x)
+        lstm_drop = self.dropout(lstm_out)
+        lstm_reshape = lstm_drop.permute(0, 2, 1)
+        qatt_conv1 = self.conv1(lstm_reshape)
+        qatt_relu = self.relu(qatt_conv1)
+        qatt_conv2 = self.conv2(qatt_relu)
+        qtt_softmax = nn.functional.softmax(qatt_conv2, dim=2)
+        qtt_feature = torch.bmm(qtt_softmax, lstm_drop)
+        qtt_feature_concat = qtt_feature.view(batch_size, -1)
+        return qtt_feature_concat
+
+
+class BiLSTMTextEmbedding(nn.Module):
+
+    def __init__(self, hidden_dim, embedding_dim, num_layers, dropout, bidirectional=False, rnn_type='GRU'):
+        super().__init__()
+        self.text_out_dim = hidden_dim
+        self.bidirectional = bidirectional
+        if rnn_type == 'LSTM':
+            rnn_cls = nn.LSTM
+        elif rnn_type == 'GRU':
+            rnn_cls = nn.GRU
+        self.recurrent_encoder = rnn_cls(input_size=embedding_dim, hidden_size=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional, batch_first=True)
+
+    def forward(self, x):
+        out, _ = self.recurrent_encoder(x)
+        if self.bidirectional:
+            return out[:, (-1)]
+        forward_ = out[:, (-1), :self.num_hid]
+        backward = out[:, (0), self.num_hid:]
+        return torch.cat((forward_, backward), dim=1)
+
+    def forward_all(self, x):
+        output, _ = self.recurrent_encoder(x)
+        return output
+
+
+class BaseVocab:
+    PAD_TOKEN = '<pad>'
+    SOS_TOKEN = '<s>'
+    EOS_TOKEN = '</s>'
+    UNK_TOKEN = '<unk>'
+    PAD_INDEX = 0
+    SOS_INDEX = 1
+    EOS_INDEX = 2
+    UNK_INDEX = 3
+
+    def __init__(self, vocab_file=None, embedding_dim=300, data_dir=None, *args, **kwargs):
+        """Vocab class to be used when you want to train word embeddings from
+        scratch based on a custom vocab. This will initialize the random
+        vectors for the vocabulary you pass. Get the vectors using
+        `get_vectors` function. This will also create random embeddings for
+        some predefined words like PAD - <pad>, SOS - <s>, EOS - </s>,
+        UNK - <unk>.
+
+        Parameters
+        ----------
+        vocab_file : str
+            Path of the vocabulary file containing one word per line
+        embedding_dim : int
+            Size of the embedding
+
+        """
+        self.type = 'base'
+        self.word_dict = {}
+        self.itos = {}
+        self.itos[self.PAD_INDEX] = self.PAD_TOKEN
+        self.itos[self.SOS_INDEX] = self.SOS_TOKEN
+        self.itos[self.EOS_INDEX] = self.EOS_TOKEN
+        self.itos[self.UNK_INDEX] = self.UNK_TOKEN
+        self.word_dict[self.SOS_TOKEN] = self.SOS_INDEX
+        self.word_dict[self.EOS_TOKEN] = self.EOS_INDEX
+        self.word_dict[self.PAD_TOKEN] = self.PAD_INDEX
+        self.word_dict[self.UNK_TOKEN] = self.UNK_INDEX
+        index = len(self.itos.keys())
+        self.total_predefined = len(self.itos.keys())
+        if vocab_file is not None:
+            if not os.path.isabs(vocab_file) and data_dir is not None:
+                mmf_root = get_mmf_root()
+                vocab_file = os.path.join(mmf_root, data_dir, vocab_file)
+            if not PathManager.exists(vocab_file):
+                raise RuntimeError('Vocab not found at ' + vocab_file)
+            with PathManager.open(vocab_file, 'r') as f:
+                for line in f:
+                    self.itos[index] = line.strip()
+                    self.word_dict[line.strip()] = index
+                    index += 1
+        self.word_dict[self.SOS_TOKEN] = self.SOS_INDEX
+        self.word_dict[self.EOS_TOKEN] = self.EOS_INDEX
+        self.word_dict[self.PAD_TOKEN] = self.PAD_INDEX
+        self.word_dict[self.UNK_TOKEN] = self.UNK_INDEX
+        self.stoi = defaultdict(self.get_unk_index)
+        self.stoi.update(self.word_dict)
+        self.vectors = torch.FloatTensor(self.get_size(), embedding_dim)
+
+    def get_itos(self):
+        return self.itos
+
+    def get_stoi(self):
+        return self.stoi
+
+    def get_size(self):
+        return len(self.itos)
+
+    def get_pad_index(self):
+        return self.PAD_INDEX
+
+    def get_pad_token(self):
+        return self.PAD_TOKEN
+
+    def get_start_index(self):
+        return self.SOS_INDEX
+
+    def get_start_token(self):
+        return self.SOS_TOKEN
+
+    def get_end_index(self):
+        return self.EOS_INDEX
+
+    def get_end_token(self):
+        return self.EOS_TOKEN
+
+    def get_unk_index(self):
+        return self.UNK_INDEX
+
+    def get_unk_token(self):
+        return self.UNK_TOKEN
+
+    def get_vectors(self):
+        return getattr(self, 'vectors', None)
+
+    def get_embedding(self, cls, **embedding_kwargs):
+        vector_dim = len(self.vectors[0])
+        embedding_kwargs['vocab_size'] = self.get_size()
+        embedding_dim = embedding_kwargs['embedding_dim']
+        embedding_kwargs['embedding_dim'] = vector_dim
+        embedding = None
+        if cls == torch.nn.Embedding:
+            embedding = torch.nn.Embedding(self.get_size(), vector_dim)
+        else:
+            embedding = cls(**embedding_kwargs)
+        if hasattr(embedding, 'embedding'):
+            embedding.embedding = torch.nn.Embedding.from_pretrained(self.vectors, freeze=False)
+        else:
+            embedding = torch.nn.Embedding.from_pretrained(self.vectors, freeze=False)
+        if vector_dim == embedding_dim:
+            return embedding
+        else:
+            return torch.nn.Sequential([embedding, torch.nn.Linear(vector_dim, embedding_dim)])
+
+
+class CustomVocab(BaseVocab):
+
+    def __init__(self, vocab_file, embedding_file, data_dir=None, *args, **kwargs):
+        """Use this vocab class when you have a custom vocab as well as a
+        custom embeddings file.
+
+        This will inherit vocab class, so you will get predefined tokens with
+        this one.
+
+        IMPORTANT: To init your embedding, get your vectors from this class's
+        object by calling `get_vectors` function
+
+        Parameters
+        ----------
+        vocab_file : str
+            Path of custom vocabulary
+        embedding_file : str
+            Path to custom embedding inititalization file
+        data_dir : str
+            Path to data directory if embedding file is not an absolute path.
+            Default: None
+        """
+        super().__init__(vocab_file)
+        self.type = 'custom'
+        if not os.path.isabs(embedding_file) and data_dir is not None:
+            mmf_root = get_mmf_root()
+            embedding_file = os.path.join(mmf_root, data_dir, embedding_file)
+        if not PathManager.exists(embedding_file):
+            writer = registry.get('writer')
+            error = "Embedding file path %s doesn't exist" % embedding_file
+            if writer is not None:
+                writer.write(error, 'error')
+            raise RuntimeError(error)
+        embedding_vectors = torch.from_numpy(np.load(embedding_file))
+        self.vectors = torch.FloatTensor(self.get_size(), len(embedding_vectors[0]))
+        for i in range(0, 4):
+            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
+        for i in range(4, self.get_size()):
+            self.vectors[i] = embedding_vectors[i - 4]
+
+
+class ExtractedVocab(BaseVocab):
+
+    def __init__(self, base_path, emb_dim, *args, **kwargs):
+        """Special vocab which is not really vocabulary but instead a class
+        which returns embedding pre-extracted from files. Can be used load
+        word embeddings from popular models like ELMo and BERT
+
+
+        Parameters
+        ----------
+        base_path: str
+            path containing saved files with embeddings one file per txt item
+        """
+        super().__init__(*args, **kwargs)
+        self.type = 'extracted'
+        self.emb_dim = emb_dim
+        self.base_path = base_path
+
+    def get_dim(self):
+        return self.emb_dim
+
+
+EMBEDDING_NAME_CLASS_MAPPING = {'glove': 'GloVe', 'fasttext': 'FastText'}
+
+
+class IntersectedVocab(BaseVocab):
+
+    def __init__(self, vocab_file, embedding_name, *args, **kwargs):
+        """Use this vocab class when you have a custom vocabulary class but you
+        want to use pretrained embedding vectos for it. This will only load
+        the vectors which intersect with your vocabulary. Use the
+        embedding_name specified in torchtext's pretrained aliases:
+        ['charngram.100d', 'fasttext.en.300d', 'fasttext.simple.300d',
+         'glove.42B.300d', 'glove.840B.300d', 'glove.twitter.27B.25d',
+         'glove.twitter.27B.50d', 'glove.twitter.27B.100d',
+         'glove.twitter.27B.200d', 'glove.6B.50d', 'glove.6B.100d',
+         'glove.6B.200d', 'glove.6B.300d']
+
+        Parameters
+        ----------
+        vocab_file : str
+            Vocabulary file containing list of words with one word per line
+            which will be used to collect vectors
+        embedding_name : str
+            Embedding name picked up from the list of the pretrained aliases
+            mentioned above
+        """
+        super().__init__(vocab_file, *args, **kwargs)
+        self.type = 'intersected'
+        name = embedding_name.split('.')[0]
+        dim = embedding_name.split('.')[2][:-1]
+        middle = embedding_name.split('.')[1]
+        class_name = EMBEDDING_NAME_CLASS_MAPPING[name]
+        if not hasattr(vocab, class_name):
+            writer = registry.get('writer')
+            error = 'Unknown embedding type: %s' % name, 'error'
+            if writer is not None:
+                writer.write(error, 'error')
+            raise RuntimeError(error)
+        params = [middle]
+        if name == 'glove':
+            params.append(int(dim))
+        vector_cache = get_mmf_cache_dir()
+        if is_master():
+            vocab.pretrained_aliases[embedding_name](cache=vector_cache)
+        synchronize()
+        embedding = getattr(vocab, class_name)(*params, cache=vector_cache)
+        self.vectors = torch.empty((self.get_size(), len(embedding.vectors[0])), dtype=torch.float)
+        self.embedding_dim = len(embedding.vectors[0])
+        for i in range(0, 4):
+            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
+        for i in range(4, self.get_size()):
+            word = self.itos[i]
+            embedding_index = embedding.stoi.get(word, None)
+            if embedding_index is None:
+                self.vectors[i] = self.vectors[self.UNK_INDEX]
+            else:
+                self.vectors[i] = embedding.vectors[embedding_index]
+
+    def get_embedding_dim(self):
+        return self.embedding_dim
+
+
+class WordToVectorDict:
+
+    def __init__(self, model):
+        self.model = model
+
+    def __getitem__(self, word):
+        return np.mean([self.model.get_word_vector(w) for w in word.split(' ')], axis=0)
+
+
+class ModelVocab(BaseVocab):
+
+    def __init__(self, name, model_file, *args, **kwargs):
+        """Special vocab which is not really vocabulary but instead a model
+        which returns embedding directly instead of vocabulary. This is just
+        an abstraction over a model which generates embeddings directly.
+        For e.g. for fasttext model we encapsulate it inside this and provide
+        it as a vocab so that the API of the vocab remains same.
+
+        NOTE: stoi's functionality will remain same but it is actually calling
+        a function to get word vectors. Currently, only fasttext is supported.
+
+        Parameters
+        ----------
+        name : str
+            Name of the embedding model which this vocab currently is loading
+        model_file : str
+            File from which model will be loaded. This API might need to be
+            changed in future.
+        """
+        super().__init__(*args, **kwargs)
+        self.type = 'model'
+        if name != 'fasttext':
+            raise ValueError('Model vocab only supports fasttext as of now')
+        else:
+            self._load_fasttext_model(model_file)
+
+    def _load_fasttext_model(self, model_file):
+        model_file = os.path.join(get_mmf_cache_dir(), model_file)
+        registry.get('writer').write('Loading fasttext model now from %s' % model_file)
+        self.model = load_model(model_file)
+        self.stoi = WordToVectorDict(self.model)
+
+    def get_embedding_dim(self):
+        return self.model.get_dimension()
+
+
+class PretrainedVocab(BaseVocab):
+
+    def __init__(self, embedding_name, *args, **kwargs):
+        """Use this if you want to use pretrained embedding. See description
+        of IntersectedVocab to get a list of the embedding available from
+        torchtext
+
+        Parameters
+        ----------
+        embedding_name : str
+            Name of the pretrained alias for the embedding to used
+        """
+        self.type = 'pretrained'
+        if embedding_name not in vocab.pretrained_aliases:
+            writer = registry.get('writer')
+            error = 'Unknown embedding type: %s' % embedding_name, 'error'
+            if writer is not None:
+                writer.write(error, 'error')
+            raise RuntimeError(error)
+        vector_cache = get_mmf_cache_dir()
+        if is_master():
+            vocab.pretrained_aliases[embedding_name](cache=vector_cache)
+        synchronize()
+        embedding = vocab.pretrained_aliases[embedding_name](cache=vector_cache)
+        self.UNK_INDEX = 3
+        self.stoi = defaultdict(lambda : self.UNK_INDEX)
+        self.itos = {}
+        self.itos[self.PAD_INDEX] = self.PAD_TOKEN
+        self.itos[self.SOS_INDEX] = self.SOS_TOKEN
+        self.itos[self.EOS_INDEX] = self.EOS_TOKEN
+        self.itos[self.UNK_INDEX] = self.UNK_TOKEN
+        self.stoi[self.SOS_TOKEN] = self.SOS_INDEX
+        self.stoi[self.EOS_TOKEN] = self.EOS_INDEX
+        self.stoi[self.PAD_TOKEN] = self.PAD_INDEX
+        self.stoi[self.UNK_TOKEN] = self.UNK_INDEX
+        self.vectors = torch.FloatTensor(len(self.itos.keys()) + len(embedding.itos), len(embedding.vectors[0]))
+        for i in range(4):
+            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
+        index = 4
+        for word in embedding.stoi:
+            self.itos[index] = word
+            self.stoi[word] = index
+            actual_index = embedding.stoi[word]
+            self.vectors[index] = embedding.vectors[actual_index]
+            index += 1
+
+
+class Vocab:
+
+    def __init__(self, *args, **params):
+        vocab_type = params.get('type', 'pretrained')
+        if vocab_type == 'random':
+            if params['vocab_file'] is None:
+                raise ValueError('No vocab path passed for vocab')
+            self.vocab = BaseVocab(*args, **params)
+        elif vocab_type == 'custom':
+            if params['vocab_file'] is None or params['embedding_file'] is None:
+                raise ValueError('No vocab path or embedding_file passed for vocab')
+            self.vocab = CustomVocab(*args, **params)
+        elif vocab_type == 'pretrained':
+            self.vocab = PretrainedVocab(*args, **params)
+        elif vocab_type == 'intersected':
+            if params['vocab_file'] is None or params['embedding_name'] is None:
+                raise ValueError('No vocab path or embedding_name passed for vocab')
+            self.vocab = IntersectedVocab(*args, **params)
+        elif vocab_type == 'extracted':
+            if params['base_path'] is None or params['embedding_dim'] is None:
+                raise ValueError('No base_path or embedding_dim passed for vocab')
+            self.vocab = ExtractedVocab(*args, **params)
+        elif vocab_type == 'model':
+            if params['name'] is None or params['model_file'] is None:
+                raise ValueError('No name or model_file passed for vocab')
+            if params['name'] == 'fasttext':
+                self.vocab = ModelVocab(*args, **params)
+        else:
+            raise ValueError('Unknown vocab type: %s' % vocab_type)
+        self._dir_representation = dir(self)
+
+    def __call__(self, *args, **kwargs):
+        return self.vocab(*args, **kwargs)
+
+    def __getattr__(self, name):
+        if '_dir_representation' in self.__dict__ and name in self._dir_representation:
+            return getattr(self, name)
+        elif 'vocab' in self.__dict__ and hasattr(self.vocab, name):
+            return getattr(self.vocab, name)
+        else:
+            type_vocab = 'Vocab'
+            if 'vocab' in self.__dict__:
+                type_vocab = type(self.vocab)
+            raise AttributeError(f'{type_vocab} vocab type has no attribute {name}.')
+
+
+class VocabEmbedding(nn.Module):
+
+    def __init__(self, embedding_dim, **vocab_params):
+        super().__init__()
+        self.vocab = Vocab(**vocab_params)
+        self.module = self.vocab.get_embedding(nn.Embedding, embedding_dim=embedding_dim)
+
+    def forward(self, x):
+        return self.module(x)
+
+
+class TextEmbedding(nn.Module):
+
+    def __init__(self, emb_type, **kwargs):
+        super().__init__()
+        self.model_data_dir = kwargs.get('model_data_dir', None)
+        self.embedding_dim = kwargs.get('embedding_dim', None)
+        if emb_type == 'identity':
+            self.module = Identity()
+            self.module.text_out_dim = self.embedding_dim
+        elif emb_type == 'vocab':
+            self.module = VocabEmbedding(**kwargs)
+            self.module.text_out_dim = self.embedding_dim
+        elif emb_type == 'projection':
+            self.module = ProjectionEmbedding(**kwargs)
+            self.module.text_out_dim = self.module.out_dim
+        elif emb_type == 'preextracted':
+            self.module = PreExtractedEmbedding(**kwargs)
+        elif emb_type == 'bilstm':
+            self.module = BiLSTMTextEmbedding(**kwargs)
+        elif emb_type == 'attention':
+            self.module = AttentionTextEmbedding(**kwargs)
+        elif emb_type == 'torch':
+            vocab_size = kwargs['vocab_size']
+            embedding_dim = kwargs['embedding_dim']
+            self.module = nn.Embedding(vocab_size, embedding_dim)
+            self.module.text_out_dim = self.embedding_dim
+        else:
+            raise NotImplementedError("Unknown question embedding '%s'" % emb_type)
+        self.text_out_dim = self.module.text_out_dim
+
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
+
+
+class Pythia(BaseModel):
 
     def __init__(self, config):
-        super().__init__()
-        self.dense = nn.Linear(config.v_intermediate_size, config.v_hidden_size)
-        self.LayerNorm = BertLayerNorm(config.v_hidden_size, eps=1e-12)
-        self.dropout = nn.Dropout(config.v_hidden_dropout_prob)
+        super().__init__(config)
+        self.config = config
+        self._global_config = registry.get('config')
+        self._datasets = self._global_config.datasets.split(',')
 
-    def forward(self, hidden_states, input_tensor):
-        hidden_states = self.dense(hidden_states)
-        hidden_states = self.dropout(hidden_states)
-        hidden_states = self.LayerNorm(hidden_states + input_tensor)
-        return hidden_states
+    @classmethod
+    def config_path(cls):
+        return 'configs/models/pythia/defaults.yaml'
+
+    @classmethod
+    def format_state_key(cls, key):
+        return key.replace('fa_history', 'fa_context')
+
+    def build(self):
+        self._build_word_embedding()
+        self._init_text_embeddings('text')
+        self._init_feature_encoders('image')
+        self._init_feature_embeddings('image')
+        self._init_combine_layer('image', 'text')
+        self._init_classifier(self._get_classifier_input_dim())
+        self._init_extras()
+
+    def _build_word_embedding(self):
+        assert len(self._datasets) > 0
+        text_processor = registry.get(self._datasets[0] + '_text_processor')
+        vocab = text_processor.vocab
+        self.word_embedding = vocab.get_embedding(torch.nn.Embedding, embedding_dim=300)
+
+    def _init_text_embeddings(self, attr='text'):
+        if 'embeddings' not in attr:
+            attr += '_embeddings'
+        text_embeddings = []
+        text_embeddings_list_config = self.config[attr]
+        embeddings_out_dim = 0
+        for text_embedding in text_embeddings_list_config:
+            embedding_type = text_embedding.type
+            embedding_kwargs = copy.deepcopy(text_embedding.params)
+            self._update_text_embedding_args(embedding_kwargs)
+            embedding = TextEmbedding(embedding_type, **embedding_kwargs)
+            text_embeddings.append(embedding)
+            embeddings_out_dim += embedding.text_out_dim
+        setattr(self, attr + '_out_dim', embeddings_out_dim)
+        setattr(self, attr, nn.ModuleList(text_embeddings))
+
+    def _update_text_embedding_args(self, args):
+        args.model_data_dir = self.config.model_data_dir
+
+    def _init_feature_encoders(self, attr):
+        feat_encoders = []
+        feat_encoders_list_config = self.config[attr + '_feature_encodings']
+        feature_dim = self.config[attr + '_feature_dim']
+        setattr(self, attr + '_feature_dim', feature_dim)
+        for feat_encoder in feat_encoders_list_config:
+            encoder_type = feat_encoder.type
+            encoder_kwargs = copy.deepcopy(feat_encoder.params)
+            encoder_kwargs.model_data_dir = self.config.model_data_dir
+            feat_model = ImageFeatureEncoder(encoder_type, feature_dim, **encoder_kwargs)
+            feat_encoders.append(feat_model)
+            setattr(self, attr + '_feature_dim', feat_model.out_dim)
+        setattr(self, attr + '_feature_encoders', nn.ModuleList(feat_encoders))
+
+    def _init_feature_embeddings(self, attr):
+        feature_embeddings_list = []
+        num_feature_feat = len(getattr(self.config, f'{attr}_feature_encodings'))
+        self.feature_embeddings_out_dim = 0
+        for _ in range(num_feature_feat):
+            feature_embeddings = []
+            feature_attn_model_list = self.config[attr + '_feature_embeddings']
+            for feature_attn_model_params in feature_attn_model_list:
+                feature_embedding = ImageFeatureEmbedding(getattr(self, attr + '_feature_dim'), self.text_embeddings_out_dim, **feature_attn_model_params)
+                feature_embeddings.append(feature_embedding)
+                self.feature_embeddings_out_dim += feature_embedding.out_dim
+            feature_embeddings = nn.ModuleList(feature_embeddings)
+            feature_embeddings_list.append(feature_embeddings)
+        self.feature_embeddings_out_dim *= getattr(self, attr + '_feature_dim')
+        setattr(self, attr + '_feature_embeddings_out_dim', self.feature_embeddings_out_dim)
+        del self.feature_embeddings_out_dim
+        setattr(self, attr + '_feature_embeddings_list', nn.ModuleList(feature_embeddings_list))
+
+    def _get_embeddings_attr(self, attr):
+        embedding_attr1 = attr
+        if hasattr(self, attr + '_embeddings_out_dim'):
+            embedding_attr1 = attr + '_embeddings_out_dim'
+        else:
+            embedding_attr1 = attr + '_feature_embeddings_out_dim'
+        return embedding_attr1
+
+    def _init_combine_layer(self, attr1, attr2):
+        config_attr = attr1 + '_' + attr2 + '_modal_combine'
+        multi_modal_combine_layer = ModalCombineLayer(self.config[config_attr].type, getattr(self, self._get_embeddings_attr(attr1)), getattr(self, self._get_embeddings_attr(attr2)), **self.config[config_attr].params)
+        setattr(self, attr1 + '_' + attr2 + '_multi_modal_combine_layer', multi_modal_combine_layer)
+
+    def _init_classifier(self, combined_embedding_dim):
+        num_choices = registry.get(self._datasets[0] + '_num_final_outputs')
+        self.classifier = ClassifierLayer(self.config.classifier.type, in_dim=combined_embedding_dim, out_dim=num_choices, **self.config.classifier.params)
+
+    def _init_extras(self):
+        self.inter_model = None
+
+    def get_optimizer_parameters(self, config):
+        combine_layer = self.image_text_multi_modal_combine_layer
+        params = [{'params': self.word_embedding.parameters()}, {'params': self.image_feature_embeddings_list.parameters()}, {'params': self.text_embeddings.parameters()}, {'params': combine_layer.parameters()}, {'params': self.classifier.parameters()}, {'params': self.image_feature_encoders.parameters(), 'lr': config.optimizer.params.lr * 0.1}]
+        return params
+
+    def _get_classifier_input_dim(self):
+        return self.image_text_multi_modal_combine_layer.out_dim
+
+    def process_text_embedding(self, sample_list, embedding_attr='text_embeddings', info=None):
+        text_embeddings = []
+        texts = getattr(sample_list, embedding_attr.split('_')[0])
+        text_embedding_models = getattr(self, embedding_attr)
+        for text_embedding_model in text_embedding_models:
+            if isinstance(text_embedding_model, PreExtractedEmbedding):
+                embedding = text_embedding_model(sample_list.question_id)
+            else:
+                embedding = text_embedding_model(texts)
+            text_embeddings.append(embedding)
+        text_embeddding_total = torch.cat(text_embeddings, dim=1)
+        return text_embeddding_total
+
+    def process_feature_embedding(self, attr, sample_list, text_embedding_total, extra=None, batch_size_t=None):
+        if extra is None:
+            extra = []
+        feature_embeddings = []
+        feature_attentions = []
+        features = []
+        batch_size_t = sample_list.get_batch_size() if batch_size_t is None else batch_size_t
+        extra = sample_list.get_fields(extra)
+        feature_idx = 0
+        while True:
+            feature = getattr(sample_list, f'{attr}_feature_{feature_idx:d}', None)
+            if feature is None:
+                break
+            feature_idx += 1
+            feature = feature[:batch_size_t]
+            features.append(feature)
+        feature_encoders = getattr(self, attr + '_feature_encoders')
+        assert len(features) == len(feature_encoders), 'Number of feature encoders, {} are not equal to number of features, {}.'.format(len(feature_encoders), len(features))
+        for i, feature in enumerate(features):
+            feature_info = getattr(sample_list, f'{attr}_info_{i:d}', {})
+            feature_dim = getattr(feature_info, 'max_features', None)
+            if feature_dim is not None:
+                feature_dim = feature_dim[:batch_size_t]
+            encoders_attr = attr + '_feature_encoders'
+            feature_encoder = getattr(self, encoders_attr)[i]
+            encoded_feature = feature_encoder(feature)
+            list_attr = attr + '_feature_embeddings_list'
+            feature_embedding_models = getattr(self, list_attr)[i]
+            for feature_embedding_model in feature_embedding_models:
+                inp = encoded_feature, text_embedding_total, feature_dim, extra
+                embedding, attention = feature_embedding_model(*inp)
+                feature_embeddings.append(embedding)
+                feature_attentions.append(attention.squeeze(-1))
+        feature_embedding_total = torch.cat(feature_embeddings, dim=1)
+        return feature_embedding_total, feature_attentions
+
+    def combine_embeddings(self, *args):
+        feature_names = args[0]
+        feature_embeddings = args[1]
+        layer = '_'.join(feature_names) + '_multi_modal_combine_layer'
+        return getattr(self, layer)(*feature_embeddings)
+
+    def calculate_logits(self, joint_embedding, **kwargs):
+        return self.classifier(joint_embedding)
+
+    def forward(self, sample_list):
+        sample_list.text = self.word_embedding(sample_list.text)
+        text_embedding_total = self.process_text_embedding(sample_list)
+        image_embedding_total, _ = self.process_feature_embedding('image', sample_list, text_embedding_total)
+        if self.inter_model is not None:
+            image_embedding_total = self.inter_model(image_embedding_total)
+        joint_embedding = self.combine_embeddings(['image', 'text'], [image_embedding_total, text_embedding_total])
+        model_output = {'scores': self.calculate_logits(joint_embedding)}
+        return model_output
 
 
-class BertImageLayer(nn.Module):
+class PythiaQuestionOnly(Pythia):
 
     def __init__(self, config):
-        super().__init__()
-        self.attention = BertImageAttention(config)
-        self.intermediate = BertImageIntermediate(config)
-        self.output = BertImageOutput(config)
+        super().__init__(config)
 
-    def forward(self, hidden_states, attention_mask, txt_embedding, txt_attention_mask):
-        attention_output, attention_probs = self.attention(hidden_states, attention_mask, txt_embedding, txt_attention_mask)
-        intermediate_output = self.intermediate(attention_output)
-        layer_output = self.output(intermediate_output, attention_output)
-        return layer_output, attention_probs
-
-
-class BertBiAttention(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        if config.bi_hidden_size % config.bi_num_attention_heads != 0:
-            raise ValueError('The hidden size (%d) is not a multiple of the number of attention heads (%d)' % (config.bi_hidden_size, config.bi_num_attention_heads))
-        self.visualization = config.visualization
-        self.num_attention_heads = config.bi_num_attention_heads
-        self.attention_head_size = int(config.bi_hidden_size / config.bi_num_attention_heads)
-        self.all_head_size = self.num_attention_heads * self.attention_head_size
-        self.query1 = nn.Linear(config.v_hidden_size, self.all_head_size)
-        self.key1 = nn.Linear(config.v_hidden_size, self.all_head_size)
-        self.value1 = nn.Linear(config.v_hidden_size, self.all_head_size)
-        self.dropout1 = nn.Dropout(config.v_attention_probs_dropout_prob)
-        self.query2 = nn.Linear(config.hidden_size, self.all_head_size)
-        self.key2 = nn.Linear(config.hidden_size, self.all_head_size)
-        self.value2 = nn.Linear(config.hidden_size, self.all_head_size)
-        self.dropout2 = nn.Dropout(config.attention_probs_dropout_prob)
-
-    def transpose_for_scores(self, x):
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
-        x = x.view(*new_x_shape)
-        return x.permute(0, 2, 1, 3)
-
-    def forward(self, input_tensor1, attention_mask1, input_tensor2, attention_mask2, co_attention_mask=None, use_co_attention_mask=False):
-        mixed_query_layer1 = self.query1(input_tensor1)
-        mixed_key_layer1 = self.key1(input_tensor1)
-        mixed_value_layer1 = self.value1(input_tensor1)
-        query_layer1 = self.transpose_for_scores(mixed_query_layer1)
-        key_layer1 = self.transpose_for_scores(mixed_key_layer1)
-        value_layer1 = self.transpose_for_scores(mixed_value_layer1)
-        mixed_query_layer2 = self.query2(input_tensor2)
-        mixed_key_layer2 = self.key2(input_tensor2)
-        mixed_value_layer2 = self.value2(input_tensor2)
-        query_layer2 = self.transpose_for_scores(mixed_query_layer2)
-        key_layer2 = self.transpose_for_scores(mixed_key_layer2)
-        value_layer2 = self.transpose_for_scores(mixed_value_layer2)
-        attention_scores1 = torch.matmul(query_layer2, key_layer1.transpose(-1, -2))
-        attention_scores1 = attention_scores1 / math.sqrt(self.attention_head_size)
-        attention_scores1 = attention_scores1 + attention_mask1
-        attention_probs1 = nn.Softmax(dim=-1)(attention_scores1)
-        attention_probs1 = self.dropout1(attention_probs1)
-        context_layer1 = torch.matmul(attention_probs1, value_layer1)
-        context_layer1 = context_layer1.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape1 = context_layer1.size()[:-2] + (self.all_head_size,)
-        context_layer1 = context_layer1.view(*new_context_layer_shape1)
-        attention_scores2 = torch.matmul(query_layer1, key_layer2.transpose(-1, -2))
-        attention_scores2 = attention_scores2 / math.sqrt(self.attention_head_size)
-        attention_scores2 = attention_scores2 + attention_mask2
-        attention_probs2 = nn.Softmax(dim=-1)(attention_scores2)
-        attention_probs2 = self.dropout2(attention_probs2)
-        context_layer2 = torch.matmul(attention_probs2, value_layer2)
-        context_layer2 = context_layer2.permute(0, 2, 1, 3).contiguous()
-        new_context_layer_shape2 = context_layer2.size()[:-2] + (self.all_head_size,)
-        context_layer2 = context_layer2.view(*new_context_layer_shape2)
-        attn_data = None
-        if self.visualization:
-            attn_data = {'attn1': attention_probs1, 'queries1': query_layer2, 'keys1': key_layer1, 'attn2': attention_probs2, 'querues2': query_layer1, 'keys2': key_layer2}
-        return context_layer1, context_layer2, attn_data
+    def forward(self, sample_list):
+        text_embedding_total = self.process_text_embedding(sample_list)
+        text_embedding_total = text_embedding_total.new_zeros(text_embedding_total.size())
+        fa_txt = self.image_text_multi_modal_combine_layer.module.fa_txt
+        dropout = self.image_text_multi_modal_combine_layer.module.dropout
+        joint_embedding = dropout(fa_txt(text_embedding_total))
+        linear_text = self.classifier.module.linear_text
+        f_o_text = self.classifier.module.f_o_text
+        scores = linear_text(f_o_text(joint_embedding))
+        model_output = {'scores': scores}
+        return model_output
 
 
-class BertBiOutput(nn.Module):
+class PythiaImageOnly(Pythia):
 
     def __init__(self, config):
+        super().__init__(config)
+
+    def forward(self, sample_list):
+        text_embedding_total = self.process_text_embedding(sample_list)
+        text_embedding_total = text_embedding_total.new_zeros(text_embedding_total.size())
+        image_embedding_total, _ = self.process_feature_embedding('image', sample_list, text_embedding_total)
+        if self.inter_model is not None:
+            image_embedding_total = self.inter_model(image_embedding_total)
+        fa_image = self.image_text_multi_modal_combine_layer.module.fa_image
+        dropout = self.image_text_multi_modal_combine_layer.module.dropout
+        joint_embedding = dropout(fa_image(image_embedding_total))
+        model_output = {'scores': self.calculate_logits(joint_embedding)}
+        return model_output
+
+
+class MultiHeadImageFeatureEmbedding(nn.Module):
+
+    def __init__(self, img_dim, question_dim, **kwargs):
         super().__init__()
-        self.dense1 = nn.Linear(config.bi_hidden_size, config.v_hidden_size)
-        self.LayerNorm1 = BertLayerNorm(config.v_hidden_size, eps=1e-12)
-        self.dropout1 = nn.Dropout(config.v_hidden_dropout_prob)
-        self.q_dense1 = nn.Linear(config.bi_hidden_size, config.v_hidden_size)
-        self.q_dropout1 = nn.Dropout(config.v_hidden_dropout_prob)
-        self.dense2 = nn.Linear(config.bi_hidden_size, config.hidden_size)
-        self.LayerNorm2 = BertLayerNorm(config.hidden_size, eps=1e-12)
-        self.dropout2 = nn.Dropout(config.hidden_dropout_prob)
-        self.q_dense2 = nn.Linear(config.bi_hidden_size, config.hidden_size)
-        self.q_dropout2 = nn.Dropout(config.hidden_dropout_prob)
+        self.module = nn.MultiheadAttention(embed_dim=question_dim, kdim=img_dim, vdim=img_dim, **kwargs)
+        self.out_dim = question_dim
 
-    def forward(self, hidden_states1, input_tensor1, hidden_states2, input_tensor2):
-        context_state1 = self.dense1(hidden_states1)
-        context_state1 = self.dropout1(context_state1)
-        context_state2 = self.dense2(hidden_states2)
-        context_state2 = self.dropout2(context_state2)
-        hidden_states1 = self.LayerNorm1(context_state1 + input_tensor1)
-        hidden_states2 = self.LayerNorm2(context_state2 + input_tensor2)
-        return hidden_states1, hidden_states2
+    def forward(self, image_feat_variable, question_embedding, image_dims, extra=None):
+        if extra is None:
+            extra = {}
+        image_feat_variable = image_feat_variable.transpose(0, 1)
+        question_embedding = question_embedding.unsqueeze(1).transpose(0, 1)
+        output, weights = self.module(question_embedding, image_feat_variable, image_feat_variable)
+        output = output.transpose(0, 1)
+        return output.squeeze(), weights
 
 
-class BertConnectionLayer(nn.Module):
+class PythiaMultiHead(Pythia):
 
     def __init__(self, config):
+        super().__init__(config)
+
+    @classmethod
+    def config_path(cls):
+        return None
+
+    def build(self):
+        self._build_word_embedding()
+        self._init_text_embeddings('text')
+        self._init_feature_encoders('image')
+        self._init_feature_projectors('image')
+        self._init_feature_embeddings('image')
+        self._init_combine_layer('image', 'text')
+        self._init_classifier(self._get_classifier_input_dim())
+        self._init_extras()
+
+    def _init_feature_projectors(self, attr):
+        feature_projectors = []
+        feat_encoders_list_config = self.config[attr + '_feature_projections']
+        feat_dim = getattr(self, attr + '_feature_dim')
+        for feat_encoder in feat_encoders_list_config:
+            encoder_type = feat_encoder.type
+            encoder_kwargs = feat_encoder.params
+            feat_model = ImageFeatureEncoder(encoder_type, feat_dim, **encoder_kwargs)
+            feature_projectors.append(feat_model)
+            setattr(self, attr + '_feature_dim', feat_model.out_dim)
+        setattr(self, attr + '_feature_projectors', nn.ModuleList(feature_projectors))
+
+    def _init_feature_embeddings(self, attr):
+        feature_embeddings_list = []
+        num_feature_feat = len(getattr(self.config, f'{attr}_feature_encodings'))
+        self.feature_embeddings_out_dim = 0
+        for _ in range(num_feature_feat):
+            feature_embeddings = []
+            feature_attn_model_list = self.config[attr + '_feature_embeddings']
+            for feature_attn_model_params in feature_attn_model_list:
+                feature_embedding = MultiHeadImageFeatureEmbedding(getattr(self, attr + '_feature_dim'), self.text_embeddings_out_dim, **feature_attn_model_params)
+                feature_embeddings.append(feature_embedding)
+                self.feature_embeddings_out_dim += feature_embedding.out_dim
+            feature_embeddings = nn.ModuleList(feature_embeddings)
+            feature_embeddings_list.append(feature_embeddings)
+        setattr(self, attr + '_feature_embeddings_out_dim', self.feature_embeddings_out_dim)
+        del self.feature_embeddings_out_dim
+        setattr(self, attr + '_feature_embeddings_list', nn.ModuleList(feature_embeddings_list))
+
+    def process_feature_embedding(self, attr, sample_list, text_embedding_total, extra=None, batch_size_t=None):
+        if extra is None:
+            extra = []
+        feature_embeddings = []
+        feature_attentions = []
+        features = []
+        batch_size_t = sample_list.get_batch_size() if batch_size_t is None else batch_size_t
+        extra = sample_list.get_fields(extra)
+        feature_idx = 0
+        while True:
+            feature = getattr(sample_list, f'{attr}_feature_{feature_idx:d}', None)
+            if feature is None:
+                break
+            feature_idx += 1
+            feature = feature[:batch_size_t]
+            features.append(feature)
+        feature_encoders = getattr(self, attr + '_feature_encoders')
+        assert len(features) == len(feature_encoders), 'Number of feature encoders, {} are not equal to number of features, {}.'.format(len(feature_encoders), len(features))
+        for i, feature in enumerate(features):
+            feature_info = getattr(sample_list, f'{attr}_info_{i:d}', {})
+            feature_dim = getattr(feature_info, 'max_features', None)
+            if feature_dim is not None:
+                feature_dim = feature_dim[:batch_size_t]
+            encoders_attr = attr + '_feature_encoders'
+            feature_encoder = getattr(self, encoders_attr)[i]
+            encoded_feature = feature_encoder(feature)
+            projector_attr = attr + '_feature_projectors'
+            feature_projector = getattr(self, projector_attr)[i]
+            encoded_feature = feature_projector(encoded_feature)
+            list_attr = attr + '_feature_embeddings_list'
+            feature_embedding_models = getattr(self, list_attr)[i]
+            for feature_embedding_model in feature_embedding_models:
+                inp = encoded_feature, text_embedding_total, feature_dim, extra
+                embedding, attention = feature_embedding_model(*inp)
+                feature_embeddings.append(embedding)
+                feature_attentions.append(attention.squeeze(-1))
+        feature_embedding_total = torch.cat(feature_embeddings, dim=1)
+        return feature_embedding_total, feature_attentions
+
+
+class TopDownBottomUp(BaseModel):
+
+    def __init__(self, image_attention_model, text_embedding_models, classifier):
         super().__init__()
-        self.biattention = BertBiAttention(config)
-        self.biOutput = BertBiOutput(config)
-        self.v_intermediate = BertImageIntermediate(config)
-        self.v_output = BertImageOutput(config)
-        self.t_intermediate = BertIntermediate(config)
-        self.t_output = BertOutput(config)
+        self.image_attention_model = image_attention_model
+        self.text_embedding_models = text_embedding_models
+        self.classifier = classifier
+        text_lstm_dim = sum([q.text_out_dim for q in text_embedding_models])
+        joint_embedding_out_dim = classifier.input_dim
+        image_feat_dim = image_attention_model.image_feat_dim
+        self.non_linear_text = ReLUWithWeightNormFC(text_lstm_dim, joint_embedding_out_dim)
+        self.non_linear_image = ReLUWithWeightNormFC(image_feat_dim, joint_embedding_out_dim)
 
-    def forward(self, input_tensor1, attention_mask1, input_tensor2, attention_mask2, co_attention_mask=None, use_co_attention_mask=False):
-        bi_output1, bi_output2, co_attention_probs = self.biattention(input_tensor1, attention_mask1, input_tensor2, attention_mask2, co_attention_mask, use_co_attention_mask)
-        attention_output1, attention_output2 = self.biOutput(bi_output2, input_tensor1, bi_output1, input_tensor2)
-        intermediate_output1 = self.v_intermediate(attention_output1)
-        layer_output1 = self.v_output(intermediate_output1, attention_output1)
-        intermediate_output2 = self.t_intermediate(attention_output2)
-        layer_output2 = self.t_output(intermediate_output2, attention_output2)
-        return layer_output1, layer_output2, co_attention_probs
+    @classmethod
+    def config_path(self):
+        return None
+
+    def build(self):
+        return
+
+    def forward(self, image_feat_variable, input_text_variable, input_answers=None, **kwargs):
+        text_embeddings = []
+        for q_model in self.text_embedding_models:
+            q_embedding = q_model(input_text_variable)
+            text_embeddings.append(q_embedding)
+        text_embedding = torch.cat(text_embeddings, dim=1)
+        if isinstance(image_feat_variable, list):
+            image_embeddings = []
+            for idx, image_feat in enumerate(image_feat_variable):
+                ques_embedding_each = torch.unsqueeze(text_embedding[(idx), :], 0)
+                image_feat_each = torch.unsqueeze(image_feat, dim=0)
+                attention_each = self.image_attention_model(image_feat_each, ques_embedding_each)
+                image_embedding_each = torch.sum(attention_each * image_feat, dim=1)
+                image_embeddings.append(image_embedding_each)
+            image_embedding = torch.cat(image_embeddings, dim=0)
+        else:
+            attention = self.image_attention_model(image_feat_variable, text_embedding)
+            image_embedding = torch.sum(attention * image_feat_variable, dim=1)
+        joint_embedding = self.non_linear_text(text_embedding) * self.non_linear_image(image_embedding)
+        logit_res = self.classifier(joint_embedding)
+        return logit_res
 
 
-class BertEncoder(nn.Module):
+class UnimodalBase(MultiModalEncoderBase):
 
-    def __init__(self, config):
-        super().__init__()
-        self.FAST_MODE = config.fast_mode
-        self.with_coattention = config.with_coattention
-        self.v_biattention_id = config.v_biattention_id
-        self.t_biattention_id = config.t_biattention_id
-        self.in_batch_pairs = config.in_batch_pairs
-        self.fixed_t_layer = config.fixed_t_layer
-        self.fixed_v_layer = config.fixed_v_layer
-        layer = BertLayer(config)
-        v_layer = BertImageLayer(config)
-        connect_layer = BertConnectionLayer(config)
-        self.layer = nn.ModuleList([deepcopy(layer) for _ in range(config.num_hidden_layers)])
-        self.v_layer = nn.ModuleList([deepcopy(v_layer) for _ in range(config.v_num_hidden_layers)])
-        self.c_layer = nn.ModuleList([deepcopy(connect_layer) for _ in range(len(config.v_biattention_id))])
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config, *args, **kwargs)
 
-    def forward(self, txt_embedding, image_embedding, txt_attention_mask, txt_attention_mask2, image_attention_mask, co_attention_mask=None, output_all_encoded_layers=True, output_all_attention_masks=False):
-        v_start = 0
-        t_start = 0
-        count = 0
-        all_encoder_layers_t = []
-        all_encoder_layers_v = []
-        all_attention_mask_t = []
-        all_attnetion_mask_v = []
-        all_attention_mask_c = []
-        batch_size, num_words, t_hidden_size = txt_embedding.size()
-        _, num_regions, v_hidden_size = image_embedding.size()
-        use_co_attention_mask = False
-        for v_layer_id, t_layer_id in zip(self.v_biattention_id, self.t_biattention_id):
-            v_end = v_layer_id
-            t_end = t_layer_id
-            assert self.fixed_t_layer <= t_end
-            assert self.fixed_v_layer <= v_end
-            for idx in range(t_start, self.fixed_t_layer):
-                with torch.no_grad():
-                    txt_embedding, txt_attention_probs = self.layer[idx](txt_embedding, txt_attention_mask)
-                    t_start = self.fixed_t_layer
-                    if output_all_attention_masks:
-                        all_attention_mask_t.append(txt_attention_probs)
-            for idx in range(t_start, t_end):
-                txt_embedding, txt_attention_probs = self.layer[idx](txt_embedding, txt_attention_mask)
-                if output_all_attention_masks:
-                    all_attention_mask_t.append(txt_attention_probs)
-            for idx in range(v_start, self.fixed_v_layer):
-                with torch.no_grad():
-                    image_embedding, image_attention_probs = self.v_layer[idx](image_embedding, image_attention_mask, txt_embedding, txt_attention_mask2)
-                    v_start = self.fixed_v_layer
-                    if output_all_attention_masks:
-                        all_attnetion_mask_v.append(image_attention_probs)
-            for idx in range(v_start, v_end):
-                image_embedding, image_attention_probs = self.v_layer[idx](image_embedding, image_attention_mask, txt_embedding, txt_attention_mask2)
-                if output_all_attention_masks:
-                    all_attnetion_mask_v.append(image_attention_probs)
-            if count == 0 and self.in_batch_pairs:
-                image_embedding = image_embedding.unsqueeze(0).expand(batch_size, batch_size, num_regions, v_hidden_size).contiguous().view(batch_size * batch_size, num_regions, v_hidden_size)
-                image_attention_mask = image_attention_mask.unsqueeze(0).expand(batch_size, batch_size, 1, 1, num_regions).contiguous().view(batch_size * batch_size, 1, 1, num_regions)
-                txt_embedding = txt_embedding.unsqueeze(1).expand(batch_size, batch_size, num_words, t_hidden_size).contiguous().view(batch_size * batch_size, num_words, t_hidden_size)
-                txt_attention_mask = txt_attention_mask.unsqueeze(1).expand(batch_size, batch_size, 1, 1, num_words).contiguous().view(batch_size * batch_size, 1, 1, num_words)
-                co_attention_mask = co_attention_mask.unsqueeze(1).expand(batch_size, batch_size, 1, num_regions, num_words).contiguous().view(batch_size * batch_size, 1, num_regions, num_words)
-            if count == 0 and self.FAST_MODE:
-                txt_embedding = txt_embedding.expand(image_embedding.size(0), txt_embedding.size(1), txt_embedding.size(2))
-                txt_attention_mask = txt_attention_mask.expand(image_embedding.size(0), txt_attention_mask.size(1), txt_attention_mask.size(2), txt_attention_mask.size(3))
-            if self.with_coattention:
-                image_embedding, txt_embedding, co_attention_probs = self.c_layer[count](image_embedding, image_attention_mask, txt_embedding, txt_attention_mask, co_attention_mask, use_co_attention_mask)
-                if output_all_attention_masks:
-                    all_attention_mask_c.append(co_attention_probs)
-            v_start = v_end
-            t_start = t_end
-            count += 1
-            if output_all_encoded_layers:
-                all_encoder_layers_t.append(txt_embedding)
-                all_encoder_layers_v.append(image_embedding)
-        for idx in range(v_start, len(self.v_layer)):
-            image_embedding, image_attention_probs = self.v_layer[idx](image_embedding, image_attention_mask, txt_embedding, txt_attention_mask2)
-            if output_all_attention_masks:
-                all_attnetion_mask_v.append(image_attention_probs)
-        for idx in range(t_start, len(self.layer)):
-            txt_embedding, txt_attention_probs = self.layer[idx](txt_embedding, txt_attention_mask)
-            if output_all_attention_masks:
-                all_attention_mask_t.append(txt_attention_probs)
-        if not output_all_encoded_layers:
-            all_encoder_layers_t.append(txt_embedding)
-            all_encoder_layers_v.append(image_embedding)
-        return all_encoder_layers_t, all_encoder_layers_v, (all_attention_mask_t, all_attnetion_mask_v, all_attention_mask_c)
+    def build(self):
+        encoders = self._build_encoders(self.config)
+        if 'modal_encoder' not in self.config:
+            self.encoder = encoders[0]
+        elif 'text_encoder' not in self.config:
+            self.encoder = encoders[1]
+        else:
+            raise RuntimeError("Unimodal Encoder can't have both text and modal encoder")
+
+    def forward(self, x, *args, **kwargs):
+        x = self.encoder(x, *args, **kwargs)
+        if len(x) == 2:
+            x = x[1]
+        x = torch.flatten(x, start_dim=1)
+        return x
+
+
+class UnimodalText(BaseModel):
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config)
+
+    @classmethod
+    def config_path(cls):
+        return 'configs/models/unimodal/text.yaml'
+
+    def build(self):
+        self.base = UnimodalBase(self.config)
+        classifier_config = deepcopy(self.config.classifier)
+        classifier_config.params.in_dim = self.config.text_hidden_size
+        self.classifier = build_classifier_layer(classifier_config)
+
+    def forward(self, sample_list):
+        args = []
+        if 'input_ids' in sample_list:
+            text = sample_list.input_ids
+            args.append(sample_list.input_mask)
+            args.append(sample_list.segment_ids)
+        else:
+            text = sample_list.text
+        embedding = self.base(text, *args)
+        output = {}
+        output['scores'] = self.classifier(embedding)
+        return output
+
+
+class UnimodalModal(BaseModel):
+
+    def __init__(self, config, *args, **kwargs):
+        super().__init__(config)
+
+    @classmethod
+    def config_path(cls):
+        return 'configs/models/unimodal/image.yaml'
+
+    def build(self):
+        self.base = UnimodalBase(self.config)
+        self._is_direct_features_input = self.config.direct_features_input
+        num_features = self.config.modal_encoder.params.num_output_features
+        classifier_config = deepcopy(self.config.classifier)
+        classifier_config.params.in_dim = num_features * self.config.modal_hidden_size
+        self.classifier = build_classifier_layer(classifier_config)
+
+    def forward(self, sample_list):
+        args = []
+        if self._is_direct_features_input:
+            modal = sample_list.image_feature_0
+            modal = torch.mean(modal, dim=1)
+        else:
+            modal = sample_list.image
+        embedding = self.base(modal, *args)
+        output = {}
+        output['scores'] = self.classifier(embedding)
+        return output
 
 
 class BertTextPooler(nn.Module):
@@ -2412,6 +4691,119 @@ class ViLBERTForClassification(nn.Module):
         return output
 
 
+class ViLBERT(BaseModel):
+
+    def __init__(self, config):
+        super().__init__(config)
+
+    @classmethod
+    def config_path(cls):
+        return 'configs/models/vilbert/pretrain.yaml'
+
+    @classmethod
+    def format_state_key(cls, key):
+        return key.replace('bert.bert', 'model.bert').replace('bert.cls', 'model.cls').replace('bert.classifier', 'model.classifier')
+
+    def build(self):
+        if self.config.training_head_type == 'pretraining':
+            self.model = ViLBERTForPretraining(self.config)
+        else:
+            self.model = ViLBERTForClassification(self.config)
+        if getattr(self.config, 'freeze_base', False):
+            for p in self.model.bert.parameters():
+                p.requires_grad = False
+
+    def get_image_and_text_features(self, sample_list):
+        bert_input_ids = sample_list.input_ids
+        bert_input_mask = sample_list.input_mask
+        bert_input_type_ids = sample_list.segment_ids
+        if sample_list.dataset_name == 'nlvr2':
+            bert_input_ids = torch.cat([bert_input_ids, bert_input_ids])
+            bert_input_mask = torch.cat([bert_input_mask, bert_input_mask])
+            bert_input_type_ids = torch.cat([bert_input_type_ids, bert_input_type_ids])
+            img0 = getattr(sample_list, 'img0', {})
+            image_info = getattr(img0, 'image_info_0', {})
+            image_dim_variable_0 = getattr(image_info, 'max_features', None)
+            image_feature_variable_0 = getattr(img0, 'image_feature_0', None)
+            bbox = np.array(getattr(image_info, 'bbox', None), dtype=np.float32)
+            image_w = np.array(getattr(image_info, 'image_width', None), dtype=np.float32)
+            image_h = np.array(getattr(image_info, 'image_height', None), dtype=np.float32)
+            image_location = np.zeros((bbox.shape[0], bbox.shape[1], 5), dtype=np.float32)
+            image_location[:, :, :4] = bbox
+            image_location[:, :, (4)] = (image_location[:, :, (3)] - image_location[:, :, (1)]) * (image_location[:, :, (2)] - image_location[:, :, (0)]) / (image_w * image_h)[:, (None)]
+            image_location[:, :, (0)] = image_location[:, :, (0)] / image_w[:, (None)]
+            image_location[:, :, (1)] = image_location[:, :, (1)] / image_h[:, (None)]
+            image_location[:, :, (2)] = image_location[:, :, (2)] / image_w[:, (None)]
+            image_location[:, :, (3)] = image_location[:, :, (3)] / image_h[:, (None)]
+            image_location_variable_0 = torch.tensor(image_location, dtype=torch.float)
+            img1 = getattr(sample_list, 'img1', {})
+            image_info = getattr(img1, 'image_info_0', {})
+            image_dim_variable_1 = getattr(image_info, 'max_features', None)
+            image_feature_variable_1 = getattr(img1, 'image_feature_0', None)
+            bbox = np.array(getattr(image_info, 'bbox', None), dtype=np.float32)
+            image_w = np.array(getattr(image_info, 'image_width', None), dtype=np.float32)
+            image_h = np.array(getattr(image_info, 'image_height', None), dtype=np.float32)
+            image_location = np.zeros((bbox.shape[0], bbox.shape[1], 5), dtype=np.float32)
+            image_location[:, :, :4] = bbox
+            image_location[:, :, (4)] = (image_location[:, :, (3)] - image_location[:, :, (1)]) * (image_location[:, :, (2)] - image_location[:, :, (0)]) / (image_w * image_h)[:, (None)]
+            image_location[:, :, (0)] = image_location[:, :, (0)] / image_w[:, (None)]
+            image_location[:, :, (1)] = image_location[:, :, (1)] / image_h[:, (None)]
+            image_location[:, :, (2)] = image_location[:, :, (2)] / image_w[:, (None)]
+            image_location[:, :, (3)] = image_location[:, :, (3)] / image_h[:, (None)]
+            image_location_variable_1 = torch.tensor(image_location, dtype=torch.float)
+            image_feature_variable = torch.cat([image_feature_variable_0, image_feature_variable_1])
+            image_location_variable = torch.cat([image_location_variable_0, image_location_variable_1])
+            image_dim_variable = torch.cat([image_dim_variable_0, image_dim_variable_1])
+            image_label_variable = None
+            image_target_variable = None
+        else:
+            image_info = getattr(sample_list, 'image_info_0', {})
+            image_dim_variable = getattr(image_info, 'max_features', None)
+            image_feature_variable = getattr(sample_list, 'image_feature_0', None)
+            image_label_variable = getattr(sample_list, 'image_labels', None)
+            if image_label_variable is not None:
+                image_label_variable = torch.tensor(image_label_variable, dtype=torch.long)
+            bbox = np.array(getattr(image_info, 'bbox', None), dtype=np.float32)
+            image_w = np.array(getattr(image_info, 'image_width', None), dtype=np.float32)
+            image_h = np.array(getattr(image_info, 'image_height', None), dtype=np.float32)
+            image_location = np.zeros((bbox.shape[0], bbox.shape[1], 5), dtype=np.float32)
+            image_location[:, :, :4] = bbox
+            image_location[:, :, (4)] = (image_location[:, :, (3)] - image_location[:, :, (1)]) * (image_location[:, :, (2)] - image_location[:, :, (0)]) / (image_w * image_h)[:, (None)]
+            image_location[:, :, (0)] = image_location[:, :, (0)] / image_w[:, (None)]
+            image_location[:, :, (1)] = image_location[:, :, (1)] / image_h[:, (None)]
+            image_location[:, :, (2)] = image_location[:, :, (2)] / image_w[:, (None)]
+            image_location[:, :, (3)] = image_location[:, :, (3)] / image_h[:, (None)]
+            image_location_variable = torch.tensor(image_location, dtype=torch.float)
+            cls_prob = getattr(image_info, 'cls_prob', None)
+            image_target = np.array(cls_prob, dtype=np.float32)
+            image_target_variable = torch.tensor(image_target, dtype=torch.float)
+        return {'input_ids': bert_input_ids, 'attention_mask': bert_input_mask, 'token_type_ids': bert_input_type_ids, 'image_dim': image_dim_variable, 'image_feature': image_feature_variable, 'image_location': image_location_variable, 'image_target': image_target_variable, 'image_label': image_label_variable}
+
+    def get_optimizer_parameters(self, config):
+        return get_optimizer_parameters_for_bert(self.model, config)
+
+    def forward(self, sample_list):
+        params = self.get_image_and_text_features(sample_list)
+        params['masked_lm_labels'] = getattr(sample_list, 'lm_label_ids', None)
+        if params['image_feature'] is not None and params['image_dim'] is not None:
+            image_mask = torch.arange(params['image_feature'].size(-2)).expand(*params['image_feature'].size()[:-1])
+            if len(params['image_dim'].size()) < len(image_mask.size()):
+                params['image_dim'] = params['image_dim'].unsqueeze(-1)
+                assert len(params['image_dim'].size()) == len(image_mask.size())
+            image_mask = image_mask < params['image_dim']
+            params['image_attention_mask'] = image_mask.long()
+        else:
+            params['image_attention_mask'] = None
+        params.pop('image_dim')
+        output_dict = self.model(params['input_ids'], params['image_feature'], params['image_location'], params['token_type_ids'], params['attention_mask'], params['image_attention_mask'], params['masked_lm_labels'], params['image_label'], params['image_target'])
+        if self.config.training_head_type == 'pretraining':
+            loss_key = '{}/{}'.format(sample_list.dataset_name, sample_list.dataset_type)
+            output_dict['losses'] = {}
+            output_dict['losses'][loss_key + '/masked_lm_loss'] = output_dict.pop('masked_lm_loss')
+            output_dict['losses'][loss_key + '/masked_img_loss'] = output_dict.pop('masked_img_loss')
+        return output_dict
+
+
 class VisualBERTForPretraining(nn.Module):
 
     def __init__(self, config):
@@ -2510,23 +4902,168 @@ class VisualBERTForClassification(nn.Module):
         return output_dict
 
 
-class AttentionLayer(nn.Module):
+def transform_to_batch_sequence(tensor):
+    if tensor is not None:
+        if len(tensor.size()) == 2:
+            return tensor
+        else:
+            assert len(tensor.size()) == 3
+            return tensor.contiguous().view(-1, tensor.size(-1))
+    else:
+        return None
 
-    def __init__(self, image_dim, question_dim, **kwargs):
+
+def transform_to_batch_sequence_dim(tensor):
+    if tensor is not None:
+        if len(tensor.size()) == 3:
+            return tensor
+        else:
+            assert len(tensor.size()) == 4
+            return tensor.contiguous().view(-1, tensor.size(-2), tensor.size(-1))
+    else:
+        return None
+
+
+class VisualBERT(BaseModel):
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.config = config
+
+    @classmethod
+    def config_path(cls):
+        return 'configs/models/visual_bert/pretrain.yaml'
+
+    def build(self):
+        if self.config.training_head_type == 'pretraining':
+            self.model = VisualBERTForPretraining(self.config)
+        else:
+            self.model = VisualBERTForClassification(self.config)
+        if self.config.special_visual_initialize:
+            self.model.bert.embeddings.initialize_visual_from_pretrained()
+        if getattr(self.config, 'freeze_base', False):
+            for p in self.model.bert.parameters():
+                p.requires_grad = False
+
+    def flatten(self, sample_list, to_be_flattened=None, to_be_flattened_dim=None):
+        if to_be_flattened is None:
+            to_be_flattened = {}
+        if to_be_flattened_dim is None:
+            to_be_flattened_dim = {}
+        for key in to_be_flattened:
+            sample_list[key] = getattr(sample_list, key, None)
+            sample_list[key] = transform_to_batch_sequence(sample_list[key])
+        for key in to_be_flattened_dim:
+            sample_list[key] = getattr(sample_list, key, None)
+            sample_list[key] = transform_to_batch_sequence_dim(sample_list[key])
+        if sample_list.visual_embeddings_type is None:
+            if sample_list.image_mask is not None:
+                sample_list.visual_embeddings_type = torch.zeros_like(sample_list.image_mask, dtype=torch.long)
+        if sample_list.image_mask is not None:
+            attention_mask = torch.cat((sample_list.input_mask, sample_list.image_mask), dim=-1)
+            if sample_list.masked_lm_labels is not None:
+                assert sample_list.masked_lm_labels.size(-1) == sample_list.input_mask.size(-1)
+                new_lm_labels = torch.ones_like(attention_mask) * -1
+                size_masked_lm_labels = sample_list.masked_lm_labels.size()
+                assert len(size_masked_lm_labels) == 2
+                new_lm_labels[:size_masked_lm_labels[0], :size_masked_lm_labels[1]] = sample_list.masked_lm_labels
+                sample_list.masked_lm_labels = new_lm_labels
+        else:
+            attention_mask = sample_list.input_mask
+        sample_list.attention_mask = attention_mask
+        return sample_list
+
+    def get_optimizer_parameters(self, config):
+        return get_optimizer_parameters_for_bert(self.model, config)
+
+    def flatten_for_bert(self, sample_list, **kwargs):
+        to_be_flattened = ['input_ids', 'token_type_ids', 'input_mask', 'image_mask', 'masked_lm_labels', 'position_embeddings_visual', 'visual_embeddings_type']
+        to_be_flattened_dim = ['image_text_alignment', 'visual_embeddings']
+        flattened = self.flatten(sample_list, to_be_flattened, to_be_flattened_dim)
+        return flattened
+
+    def update_sample_list_based_on_head(self, sample_list):
+        bert_input_ids = sample_list.input_ids
+        bert_input_mask = sample_list.input_mask
+        bert_input_type_ids = sample_list.segment_ids
+        if self.config.training_head_type == 'nlvr2':
+            bert_input_ids = torch.cat([bert_input_ids, bert_input_ids])
+            bert_input_mask = torch.cat([bert_input_mask, bert_input_mask])
+            bert_input_type_ids = torch.cat([bert_input_type_ids, bert_input_type_ids])
+            img0 = getattr(sample_list, 'img0', {})
+            image_info = getattr(img0, 'image_info_0', {})
+            image_dim_variable_0 = getattr(image_info, 'max_features', None)
+            image_feat_variable_0 = getattr(img0, 'image_feature_0', None)
+            img1 = getattr(sample_list, 'img1', {})
+            image_info = getattr(img1, 'image_info_0', {})
+            image_dim_variable_1 = getattr(image_info, 'max_features', None)
+            image_feat_variable_1 = getattr(img1, 'image_feature_0', None)
+            image_feat_variable = torch.cat([image_feat_variable_0, image_feat_variable_1])
+            image_dim_variable = torch.cat([image_dim_variable_0, image_dim_variable_1])
+        else:
+            image_info = getattr(sample_list, 'image_info_0', {})
+            image_dim_variable = getattr(image_info, 'max_features', None)
+            image_feat_variable = getattr(sample_list, 'image_feature_0', None)
+        sample_list.visual_embeddings = image_feat_variable
+        sample_list.image_dim = image_dim_variable
+        sample_list.input_ids = bert_input_ids
+        sample_list.input_mask = bert_input_mask
+        sample_list.token_type_ids = bert_input_type_ids
+        return sample_list
+
+    def add_custom_params(self, sample_list):
+        visual_embeddings = getattr(sample_list, 'visual_embeddings', None)
+        image_dim = getattr(sample_list, 'image_dim', None)
+        sample_list.masked_lm_labels = getattr(sample_list, 'lm_label_ids', None)
+        if visual_embeddings is not None and image_dim is not None:
+            image_mask = torch.arange(visual_embeddings.size(-2)).expand(*visual_embeddings.size()[:-1])
+            if len(image_dim.size()) < len(image_mask.size()):
+                image_dim = image_dim.unsqueeze(-1)
+                assert len(image_dim.size()) == len(image_mask.size())
+            image_mask = image_mask < image_dim
+            sample_list.image_mask = image_mask.long()
+        else:
+            sample_list.image_mask = None
+        sample_list.position_embeddings_visual = None
+        return sample_list
+
+    @classmethod
+    def format_state_key(cls, key):
+        return key.replace('bert.bert', 'model.bert').replace('bert.cls', 'model.cls').replace('bert.classifier', 'model.classifier')
+
+    def forward(self, sample_list):
+        sample_list = self.update_sample_list_based_on_head(sample_list)
+        sample_list = self.add_custom_params(sample_list)
+        sample_list = self.flatten_for_bert(sample_list)
+        output_dict = self.model(sample_list.input_ids, sample_list.attention_mask, sample_list.token_type_ids, sample_list.visual_embeddings, sample_list.position_embeddings_visual, sample_list.visual_embeddings_type, sample_list.image_text_alignment, sample_list.masked_lm_labels)
+        if 'pretraining' in self.config.training_head_type:
+            loss_key = '{}/{}'.format(sample_list.dataset_name, sample_list.dataset_type)
+            output_dict['losses'] = {}
+            output_dict['losses'][loss_key + '/masked_lm_loss'] = output_dict.pop('masked_lm_loss')
+        return output_dict
+
+
+class GatedTanh(nn.Module):
+    """
+    From: https://arxiv.org/pdf/1707.07998.pdf
+    nonlinear_layer (f_a) : x\\in R^m => y \\in R^n
+    	ilda{y} = tanh(Wx + b)
+    g = sigmoid(W'x + b')
+    y = 	ilda(y) \\circ g
+    input: (N, *, in_dim)
+    output: (N, *, out_dim)
+    """
+
+    def __init__(self, in_dim, out_dim):
         super().__init__()
-        combine_type = kwargs['modal_combine']['type']
-        combine_params = kwargs['modal_combine']['params']
-        modal_combine_layer = ModalCombineLayer(combine_type, image_dim, question_dim, **combine_params)
-        transform_type = kwargs['transform']['type']
-        transform_params = kwargs['transform']['params']
-        transform_layer = TransformLayer(transform_type, modal_combine_layer.out_dim, **transform_params)
-        normalization = kwargs['normalization']
-        self.module = TopDownAttention(modal_combine_layer, transform_layer, normalization)
-        if hasattr(self.module, 'out_dim'):
-            self.out_dim = self.module.out_dim
+        self.fc = nn.Linear(in_dim, out_dim)
+        self.gate_fc = nn.Linear(in_dim, out_dim)
 
-    def forward(self, *args, **kwargs):
-        return self.module(*args, **kwargs)
+    def forward(self, x):
+        y_tilda = torch.tanh(self.fc(x))
+        gated = torch.sigmoid(self.gate_fc(x))
+        y = y_tilda * gated
+        return y
 
 
 class ConcatenationAttention(nn.Module):
@@ -2594,49 +5131,6 @@ class DoubleProjectAttention(nn.Module):
         return attention_weights
 
 
-class TopDownAttention(nn.Module):
-    EPS = 1e-08
-
-    def __init__(self, combination_layer, transform_module, normalization):
-        super().__init__()
-        self.combination_layer = combination_layer
-        self.normalization = normalization
-        self.transform = transform_module
-        self.out_dim = self.transform.out_dim
-
-    @staticmethod
-    def _mask_attentions(attention, image_locs):
-        batch_size, num_loc, n_att = attention.size()
-        tmp1 = attention.new_zeros(num_loc)
-        tmp1[:num_loc] = torch.arange(0, num_loc, dtype=attention.dtype).unsqueeze(dim=0)
-        tmp1 = tmp1.expand(batch_size, num_loc)
-        tmp2 = image_locs.type(tmp1.type())
-        tmp2 = tmp2.unsqueeze(dim=1).expand(batch_size, num_loc)
-        mask = torch.ge(tmp1, tmp2)
-        mask = mask.unsqueeze(dim=2).expand_as(attention)
-        attention = attention.masked_fill(mask, 0)
-        return attention
-
-    def forward(self, image_feat, question_embedding, image_locs=None):
-        joint_feature = self.combination_layer(image_feat, question_embedding)
-        raw_attn = self.transform(joint_feature)
-        if self.normalization.lower() == 'softmax':
-            attention = nn.functional.softmax(raw_attn, dim=1)
-            if image_locs is not None:
-                masked_attention = self._mask_attentions(attention, image_locs)
-                masked_attention_sum = torch.sum(masked_attention, dim=1, keepdim=True)
-                masked_attention_sum += masked_attention_sum.eq(0).float() + self.EPS
-                masked_attention = masked_attention / masked_attention_sum
-            else:
-                masked_attention = attention
-        elif self.normalization.lower() == 'sigmoid':
-            attention = torch.sigmoid(raw_attn)
-            masked_attention = attention
-            if image_locs is not None:
-                masked_attention = self._mask_attentions(attention, image_locs)
-        return masked_attention
-
-
 class VisDialDiscriminator(nn.Module):
 
     def __init__(self, config, embedding):
@@ -2662,605 +5156,6 @@ class VisDialDiscriminator(nn.Module):
         return scores
 
 
-class LanguageDecoder(nn.Module):
-
-    def __init__(self, in_dim, out_dim, **kwargs):
-        super().__init__()
-        self.language_lstm = nn.LSTMCell(in_dim + kwargs['hidden_dim'], kwargs['hidden_dim'], bias=True)
-        self.fc = weight_norm(nn.Linear(kwargs['hidden_dim'], out_dim))
-        self.dropout = nn.Dropout(p=kwargs['dropout'])
-        self.init_weights(kwargs['fc_bias_init'])
-
-    def init_weights(self, fc_bias_init):
-        self.fc.bias.data.fill_(fc_bias_init)
-        self.fc.weight.data.uniform_(-0.1, 0.1)
-
-    def forward(self, weighted_attn):
-        state = registry.get(f'{weighted_attn.device}_lstm_state')
-        h1, c1 = state['td_hidden']
-        h2, c2 = state['lm_hidden']
-        h2, c2 = self.language_lstm(torch.cat([weighted_attn, h1], dim=1), (h2, c2))
-        predictions = self.fc(self.dropout(h2))
-        state['lm_hidden'] = h2, c2
-        return predictions
-
-
-class TextEmbedding(nn.Module):
-
-    def __init__(self, emb_type, **kwargs):
-        super().__init__()
-        self.model_data_dir = kwargs.get('model_data_dir', None)
-        self.embedding_dim = kwargs.get('embedding_dim', None)
-        if emb_type == 'identity':
-            self.module = Identity()
-            self.module.text_out_dim = self.embedding_dim
-        elif emb_type == 'vocab':
-            self.module = VocabEmbedding(**kwargs)
-            self.module.text_out_dim = self.embedding_dim
-        elif emb_type == 'projection':
-            self.module = ProjectionEmbedding(**kwargs)
-            self.module.text_out_dim = self.module.out_dim
-        elif emb_type == 'preextracted':
-            self.module = PreExtractedEmbedding(**kwargs)
-        elif emb_type == 'bilstm':
-            self.module = BiLSTMTextEmbedding(**kwargs)
-        elif emb_type == 'attention':
-            self.module = AttentionTextEmbedding(**kwargs)
-        elif emb_type == 'torch':
-            vocab_size = kwargs['vocab_size']
-            embedding_dim = kwargs['embedding_dim']
-            self.module = nn.Embedding(vocab_size, embedding_dim)
-            self.module.text_out_dim = self.embedding_dim
-        else:
-            raise NotImplementedError("Unknown question embedding '%s'" % emb_type)
-        self.text_out_dim = self.module.text_out_dim
-
-    def forward(self, *args, **kwargs):
-        return self.module(*args, **kwargs)
-
-
-class BaseVocab:
-    PAD_TOKEN = '<pad>'
-    SOS_TOKEN = '<s>'
-    EOS_TOKEN = '</s>'
-    UNK_TOKEN = '<unk>'
-    PAD_INDEX = 0
-    SOS_INDEX = 1
-    EOS_INDEX = 2
-    UNK_INDEX = 3
-
-    def __init__(self, vocab_file=None, embedding_dim=300, data_dir=None, *args, **kwargs):
-        """Vocab class to be used when you want to train word embeddings from
-        scratch based on a custom vocab. This will initialize the random
-        vectors for the vocabulary you pass. Get the vectors using
-        `get_vectors` function. This will also create random embeddings for
-        some predefined words like PAD - <pad>, SOS - <s>, EOS - </s>,
-        UNK - <unk>.
-
-        Parameters
-        ----------
-        vocab_file : str
-            Path of the vocabulary file containing one word per line
-        embedding_dim : int
-            Size of the embedding
-
-        """
-        self.type = 'base'
-        self.word_dict = {}
-        self.itos = {}
-        self.itos[self.PAD_INDEX] = self.PAD_TOKEN
-        self.itos[self.SOS_INDEX] = self.SOS_TOKEN
-        self.itos[self.EOS_INDEX] = self.EOS_TOKEN
-        self.itos[self.UNK_INDEX] = self.UNK_TOKEN
-        self.word_dict[self.SOS_TOKEN] = self.SOS_INDEX
-        self.word_dict[self.EOS_TOKEN] = self.EOS_INDEX
-        self.word_dict[self.PAD_TOKEN] = self.PAD_INDEX
-        self.word_dict[self.UNK_TOKEN] = self.UNK_INDEX
-        index = len(self.itos.keys())
-        self.total_predefined = len(self.itos.keys())
-        if vocab_file is not None:
-            if not os.path.isabs(vocab_file) and data_dir is not None:
-                mmf_root = get_mmf_root()
-                vocab_file = os.path.join(mmf_root, data_dir, vocab_file)
-            if not PathManager.exists(vocab_file):
-                raise RuntimeError('Vocab not found at ' + vocab_file)
-            with PathManager.open(vocab_file, 'r') as f:
-                for line in f:
-                    self.itos[index] = line.strip()
-                    self.word_dict[line.strip()] = index
-                    index += 1
-        self.word_dict[self.SOS_TOKEN] = self.SOS_INDEX
-        self.word_dict[self.EOS_TOKEN] = self.EOS_INDEX
-        self.word_dict[self.PAD_TOKEN] = self.PAD_INDEX
-        self.word_dict[self.UNK_TOKEN] = self.UNK_INDEX
-        self.stoi = defaultdict(self.get_unk_index)
-        self.stoi.update(self.word_dict)
-        self.vectors = torch.FloatTensor(self.get_size(), embedding_dim)
-
-    def get_itos(self):
-        return self.itos
-
-    def get_stoi(self):
-        return self.stoi
-
-    def get_size(self):
-        return len(self.itos)
-
-    def get_pad_index(self):
-        return self.PAD_INDEX
-
-    def get_pad_token(self):
-        return self.PAD_TOKEN
-
-    def get_start_index(self):
-        return self.SOS_INDEX
-
-    def get_start_token(self):
-        return self.SOS_TOKEN
-
-    def get_end_index(self):
-        return self.EOS_INDEX
-
-    def get_end_token(self):
-        return self.EOS_TOKEN
-
-    def get_unk_index(self):
-        return self.UNK_INDEX
-
-    def get_unk_token(self):
-        return self.UNK_TOKEN
-
-    def get_vectors(self):
-        return getattr(self, 'vectors', None)
-
-    def get_embedding(self, cls, **embedding_kwargs):
-        vector_dim = len(self.vectors[0])
-        embedding_kwargs['vocab_size'] = self.get_size()
-        embedding_dim = embedding_kwargs['embedding_dim']
-        embedding_kwargs['embedding_dim'] = vector_dim
-        embedding = None
-        if cls == torch.nn.Embedding:
-            embedding = torch.nn.Embedding(self.get_size(), vector_dim)
-        else:
-            embedding = cls(**embedding_kwargs)
-        if hasattr(embedding, 'embedding'):
-            embedding.embedding = torch.nn.Embedding.from_pretrained(self.vectors, freeze=False)
-        else:
-            embedding = torch.nn.Embedding.from_pretrained(self.vectors, freeze=False)
-        if vector_dim == embedding_dim:
-            return embedding
-        else:
-            return torch.nn.Sequential([embedding, torch.nn.Linear(vector_dim, embedding_dim)])
-
-
-class CustomVocab(BaseVocab):
-
-    def __init__(self, vocab_file, embedding_file, data_dir=None, *args, **kwargs):
-        """Use this vocab class when you have a custom vocab as well as a
-        custom embeddings file.
-
-        This will inherit vocab class, so you will get predefined tokens with
-        this one.
-
-        IMPORTANT: To init your embedding, get your vectors from this class's
-        object by calling `get_vectors` function
-
-        Parameters
-        ----------
-        vocab_file : str
-            Path of custom vocabulary
-        embedding_file : str
-            Path to custom embedding inititalization file
-        data_dir : str
-            Path to data directory if embedding file is not an absolute path.
-            Default: None
-        """
-        super().__init__(vocab_file)
-        self.type = 'custom'
-        if not os.path.isabs(embedding_file) and data_dir is not None:
-            mmf_root = get_mmf_root()
-            embedding_file = os.path.join(mmf_root, data_dir, embedding_file)
-        if not PathManager.exists(embedding_file):
-            from mmf.common.registry import registry
-            writer = registry.get('writer')
-            error = "Embedding file path %s doesn't exist" % embedding_file
-            if writer is not None:
-                writer.write(error, 'error')
-            raise RuntimeError(error)
-        embedding_vectors = torch.from_numpy(np.load(embedding_file))
-        self.vectors = torch.FloatTensor(self.get_size(), len(embedding_vectors[0]))
-        for i in range(0, 4):
-            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
-        for i in range(4, self.get_size()):
-            self.vectors[i] = embedding_vectors[i - 4]
-
-
-class ExtractedVocab(BaseVocab):
-
-    def __init__(self, base_path, emb_dim, *args, **kwargs):
-        """Special vocab which is not really vocabulary but instead a class
-        which returns embedding pre-extracted from files. Can be used load
-        word embeddings from popular models like ELMo and BERT
-
-
-        Parameters
-        ----------
-        base_path: str
-            path containing saved files with embeddings one file per txt item
-        """
-        super().__init__(*args, **kwargs)
-        self.type = 'extracted'
-        self.emb_dim = emb_dim
-        self.base_path = base_path
-
-    def get_dim(self):
-        return self.emb_dim
-
-
-EMBEDDING_NAME_CLASS_MAPPING = {'glove': 'GloVe', 'fasttext': 'FastText'}
-
-
-class IntersectedVocab(BaseVocab):
-
-    def __init__(self, vocab_file, embedding_name, *args, **kwargs):
-        """Use this vocab class when you have a custom vocabulary class but you
-        want to use pretrained embedding vectos for it. This will only load
-        the vectors which intersect with your vocabulary. Use the
-        embedding_name specified in torchtext's pretrained aliases:
-        ['charngram.100d', 'fasttext.en.300d', 'fasttext.simple.300d',
-         'glove.42B.300d', 'glove.840B.300d', 'glove.twitter.27B.25d',
-         'glove.twitter.27B.50d', 'glove.twitter.27B.100d',
-         'glove.twitter.27B.200d', 'glove.6B.50d', 'glove.6B.100d',
-         'glove.6B.200d', 'glove.6B.300d']
-
-        Parameters
-        ----------
-        vocab_file : str
-            Vocabulary file containing list of words with one word per line
-            which will be used to collect vectors
-        embedding_name : str
-            Embedding name picked up from the list of the pretrained aliases
-            mentioned above
-        """
-        super().__init__(vocab_file, *args, **kwargs)
-        self.type = 'intersected'
-        name = embedding_name.split('.')[0]
-        dim = embedding_name.split('.')[2][:-1]
-        middle = embedding_name.split('.')[1]
-        class_name = EMBEDDING_NAME_CLASS_MAPPING[name]
-        if not hasattr(vocab, class_name):
-            from mmf.common.registry import registry
-            writer = registry.get('writer')
-            error = 'Unknown embedding type: %s' % name, 'error'
-            if writer is not None:
-                writer.write(error, 'error')
-            raise RuntimeError(error)
-        params = [middle]
-        if name == 'glove':
-            params.append(int(dim))
-        vector_cache = get_mmf_cache_dir()
-        if is_master():
-            vocab.pretrained_aliases[embedding_name](cache=vector_cache)
-        synchronize()
-        embedding = getattr(vocab, class_name)(*params, cache=vector_cache)
-        self.vectors = torch.empty((self.get_size(), len(embedding.vectors[0])), dtype=torch.float)
-        self.embedding_dim = len(embedding.vectors[0])
-        for i in range(0, 4):
-            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
-        for i in range(4, self.get_size()):
-            word = self.itos[i]
-            embedding_index = embedding.stoi.get(word, None)
-            if embedding_index is None:
-                self.vectors[i] = self.vectors[self.UNK_INDEX]
-            else:
-                self.vectors[i] = embedding.vectors[embedding_index]
-
-    def get_embedding_dim(self):
-        return self.embedding_dim
-
-
-class WordToVectorDict:
-
-    def __init__(self, model):
-        self.model = model
-
-    def __getitem__(self, word):
-        return np.mean([self.model.get_word_vector(w) for w in word.split(' ')], axis=0)
-
-
-class ModelVocab(BaseVocab):
-
-    def __init__(self, name, model_file, *args, **kwargs):
-        """Special vocab which is not really vocabulary but instead a model
-        which returns embedding directly instead of vocabulary. This is just
-        an abstraction over a model which generates embeddings directly.
-        For e.g. for fasttext model we encapsulate it inside this and provide
-        it as a vocab so that the API of the vocab remains same.
-
-        NOTE: stoi's functionality will remain same but it is actually calling
-        a function to get word vectors. Currently, only fasttext is supported.
-
-        Parameters
-        ----------
-        name : str
-            Name of the embedding model which this vocab currently is loading
-        model_file : str
-            File from which model will be loaded. This API might need to be
-            changed in future.
-        """
-        super().__init__(*args, **kwargs)
-        self.type = 'model'
-        if name != 'fasttext':
-            raise ValueError('Model vocab only supports fasttext as of now')
-        else:
-            self._load_fasttext_model(model_file)
-
-    def _load_fasttext_model(self, model_file):
-        from fastText import load_model
-        from mmf.common.registry import registry
-        model_file = os.path.join(get_mmf_cache_dir(), model_file)
-        registry.get('writer').write('Loading fasttext model now from %s' % model_file)
-        self.model = load_model(model_file)
-        self.stoi = WordToVectorDict(self.model)
-
-    def get_embedding_dim(self):
-        return self.model.get_dimension()
-
-
-class PretrainedVocab(BaseVocab):
-
-    def __init__(self, embedding_name, *args, **kwargs):
-        """Use this if you want to use pretrained embedding. See description
-        of IntersectedVocab to get a list of the embedding available from
-        torchtext
-
-        Parameters
-        ----------
-        embedding_name : str
-            Name of the pretrained alias for the embedding to used
-        """
-        self.type = 'pretrained'
-        if embedding_name not in vocab.pretrained_aliases:
-            from mmf.common.registry import registry
-            writer = registry.get('writer')
-            error = 'Unknown embedding type: %s' % embedding_name, 'error'
-            if writer is not None:
-                writer.write(error, 'error')
-            raise RuntimeError(error)
-        vector_cache = get_mmf_cache_dir()
-        if is_master():
-            vocab.pretrained_aliases[embedding_name](cache=vector_cache)
-        synchronize()
-        embedding = vocab.pretrained_aliases[embedding_name](cache=vector_cache)
-        self.UNK_INDEX = 3
-        self.stoi = defaultdict(lambda : self.UNK_INDEX)
-        self.itos = {}
-        self.itos[self.PAD_INDEX] = self.PAD_TOKEN
-        self.itos[self.SOS_INDEX] = self.SOS_TOKEN
-        self.itos[self.EOS_INDEX] = self.EOS_TOKEN
-        self.itos[self.UNK_INDEX] = self.UNK_TOKEN
-        self.stoi[self.SOS_TOKEN] = self.SOS_INDEX
-        self.stoi[self.EOS_TOKEN] = self.EOS_INDEX
-        self.stoi[self.PAD_TOKEN] = self.PAD_INDEX
-        self.stoi[self.UNK_TOKEN] = self.UNK_INDEX
-        self.vectors = torch.FloatTensor(len(self.itos.keys()) + len(embedding.itos), len(embedding.vectors[0]))
-        for i in range(4):
-            self.vectors[i] = torch.ones_like(self.vectors[i]) * 0.1 * i
-        index = 4
-        for word in embedding.stoi:
-            self.itos[index] = word
-            self.stoi[word] = index
-            actual_index = embedding.stoi[word]
-            self.vectors[index] = embedding.vectors[actual_index]
-            index += 1
-
-
-class Vocab:
-
-    def __init__(self, *args, **params):
-        vocab_type = params.get('type', 'pretrained')
-        if vocab_type == 'random':
-            if params['vocab_file'] is None:
-                raise ValueError('No vocab path passed for vocab')
-            self.vocab = BaseVocab(*args, **params)
-        elif vocab_type == 'custom':
-            if params['vocab_file'] is None or params['embedding_file'] is None:
-                raise ValueError('No vocab path or embedding_file passed for vocab')
-            self.vocab = CustomVocab(*args, **params)
-        elif vocab_type == 'pretrained':
-            self.vocab = PretrainedVocab(*args, **params)
-        elif vocab_type == 'intersected':
-            if params['vocab_file'] is None or params['embedding_name'] is None:
-                raise ValueError('No vocab path or embedding_name passed for vocab')
-            self.vocab = IntersectedVocab(*args, **params)
-        elif vocab_type == 'extracted':
-            if params['base_path'] is None or params['embedding_dim'] is None:
-                raise ValueError('No base_path or embedding_dim passed for vocab')
-            self.vocab = ExtractedVocab(*args, **params)
-        elif vocab_type == 'model':
-            if params['name'] is None or params['model_file'] is None:
-                raise ValueError('No name or model_file passed for vocab')
-            if params['name'] == 'fasttext':
-                self.vocab = ModelVocab(*args, **params)
-        else:
-            raise ValueError('Unknown vocab type: %s' % vocab_type)
-        self._dir_representation = dir(self)
-
-    def __call__(self, *args, **kwargs):
-        return self.vocab(*args, **kwargs)
-
-    def __getattr__(self, name):
-        if '_dir_representation' in self.__dict__ and name in self._dir_representation:
-            return getattr(self, name)
-        elif 'vocab' in self.__dict__ and hasattr(self.vocab, name):
-            return getattr(self.vocab, name)
-        else:
-            type_vocab = 'Vocab'
-            if 'vocab' in self.__dict__:
-                type_vocab = type(self.vocab)
-            raise AttributeError(f'{type_vocab} vocab type has no attribute {name}.')
-
-
-class VocabEmbedding(nn.Module):
-
-    def __init__(self, embedding_dim, **vocab_params):
-        super().__init__()
-        self.vocab = Vocab(**vocab_params)
-        self.module = self.vocab.get_embedding(nn.Embedding, embedding_dim=embedding_dim)
-
-    def forward(self, x):
-        return self.module(x)
-
-
-class BiLSTMTextEmbedding(nn.Module):
-
-    def __init__(self, hidden_dim, embedding_dim, num_layers, dropout, bidirectional=False, rnn_type='GRU'):
-        super().__init__()
-        self.text_out_dim = hidden_dim
-        self.bidirectional = bidirectional
-        if rnn_type == 'LSTM':
-            rnn_cls = nn.LSTM
-        elif rnn_type == 'GRU':
-            rnn_cls = nn.GRU
-        self.recurrent_encoder = rnn_cls(input_size=embedding_dim, hidden_size=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional, batch_first=True)
-
-    def forward(self, x):
-        out, _ = self.recurrent_encoder(x)
-        if self.bidirectional:
-            return out[:, (-1)]
-        forward_ = out[:, (-1), :self.num_hid]
-        backward = out[:, (0), self.num_hid:]
-        return torch.cat((forward_, backward), dim=1)
-
-    def forward_all(self, x):
-        output, _ = self.recurrent_encoder(x)
-        return output
-
-
-class PreExtractedEmbedding(nn.Module):
-
-    def __init__(self, out_dim, base_path):
-        super().__init__()
-        self.text_out_dim = out_dim
-        self.base_path = base_path
-        self.cache = {}
-
-    def forward(self, qids):
-        embeddings = []
-        for qid in qids:
-            embeddings.append(self.get_item(qid))
-        return torch.stack(embeddings, dim=0)
-
-    @lru_cache(maxsize=5000)
-    def get_item(self, qid):
-        return np.load(os.path.join(self.base_path, str(qid.item()) + '.npy'))
-
-
-class AttentionTextEmbedding(nn.Module):
-
-    def __init__(self, hidden_dim, embedding_dim, num_layers, dropout, **kwargs):
-        super().__init__()
-        self.text_out_dim = hidden_dim * kwargs['conv2_out']
-        bidirectional = kwargs.get('bidirectional', False)
-        self.recurrent_unit = nn.LSTM(input_size=embedding_dim, hidden_size=hidden_dim // 2 if bidirectional else hidden_dim, num_layers=num_layers, batch_first=True, bidirectional=bidirectional)
-        self.dropout = nn.Dropout(p=dropout)
-        conv1_out = kwargs['conv1_out']
-        conv2_out = kwargs['conv2_out']
-        kernel_size = kwargs['kernel_size']
-        padding = kwargs['padding']
-        self.conv1 = nn.Conv1d(in_channels=hidden_dim, out_channels=conv1_out, kernel_size=kernel_size, padding=padding)
-        self.conv2 = nn.Conv1d(in_channels=conv1_out, out_channels=conv2_out, kernel_size=kernel_size, padding=padding)
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        batch_size = x.size(0)
-        self.recurrent_unit.flatten_parameters()
-        lstm_out, _ = self.recurrent_unit(x)
-        lstm_drop = self.dropout(lstm_out)
-        lstm_reshape = lstm_drop.permute(0, 2, 1)
-        qatt_conv1 = self.conv1(lstm_reshape)
-        qatt_relu = self.relu(qatt_conv1)
-        qatt_conv2 = self.conv2(qatt_relu)
-        qtt_softmax = nn.functional.softmax(qatt_conv2, dim=2)
-        qtt_feature = torch.bmm(qtt_softmax, lstm_drop)
-        qtt_feature_concat = qtt_feature.view(batch_size, -1)
-        return qtt_feature_concat
-
-
-class ProjectionEmbedding(nn.Module):
-
-    def __init__(self, module, in_dim, out_dim, **kwargs):
-        super().__init__()
-        if module == 'linear':
-            self.layers = nn.Linear(in_dim, out_dim)
-            self.out_dim = out_dim
-        elif module == 'conv':
-            last_out_channels = in_dim
-            layers = []
-            for conv in kwargs['convs']:
-                layers.append(nn.Conv1d(in_channels=last_out_channels, **conv))
-                last_out_channels = conv['out_channels']
-            self.layers = nn.ModuleList(*layers)
-            self.out_dim = last_out_channels
-        else:
-            raise TypeError("Unknown module type for 'ProjectionEmbedding',use either 'linear' or 'conv'")
-
-    def forward(self, x):
-        return self.layers(x)
-
-
-class ImageFeatureEmbedding(nn.Module):
-    """
-    parameters:
-
-    input:
-    image_feat_variable: [batch_size, num_location, image_feat_dim]
-    or a list of [num_location, image_feat_dim]
-    when using adaptive number of objects
-    question_embedding:[batch_size, txt_embeding_dim]
-
-    output:
-    image_embedding:[batch_size, image_feat_dim]
-
-
-    """
-
-    def __init__(self, img_dim, question_dim, **kwargs):
-        super().__init__()
-        self.image_attention_model = AttentionLayer(img_dim, question_dim, **kwargs)
-        self.out_dim = self.image_attention_model.out_dim
-
-    def forward(self, image_feat_variable, question_embedding, image_dims, extra=None):
-        if extra is None:
-            extra = {}
-        attention = self.image_attention_model(image_feat_variable, question_embedding, image_dims)
-        att_reshape = attention.permute(0, 2, 1)
-        order_vectors = getattr(extra, 'order_vectors', None)
-        if order_vectors is not None:
-            image_feat_variable = torch.cat([image_feat_variable, order_vectors], dim=-1)
-        tmp_embedding = torch.bmm(att_reshape, image_feat_variable)
-        batch_size = att_reshape.size(0)
-        image_embedding = tmp_embedding.view(batch_size, -1)
-        return image_embedding, attention
-
-
-class MultiHeadImageFeatureEmbedding(nn.Module):
-
-    def __init__(self, img_dim, question_dim, **kwargs):
-        super().__init__()
-        self.module = nn.MultiheadAttention(embed_dim=question_dim, kdim=img_dim, vdim=img_dim, **kwargs)
-        self.out_dim = question_dim
-
-    def forward(self, image_feat_variable, question_embedding, image_dims, extra=None):
-        if extra is None:
-            extra = {}
-        image_feat_variable = image_feat_variable.transpose(0, 1)
-        question_embedding = question_embedding.unsqueeze(1).transpose(0, 1)
-        output, weights = self.module(question_embedding, image_feat_variable, image_feat_variable)
-        output = output.transpose(0, 1)
-        return output.squeeze(), weights
-
-
 class ImageFinetune(nn.Module):
 
     def __init__(self, in_dim, weights_file, bias_file):
@@ -3279,78 +5174,6 @@ class ImageFinetune(nn.Module):
         i2 = self.lc(image)
         i3 = nn.functional.relu(i2)
         return i3
-
-
-class ImageFeatureEncoder(nn.Module):
-
-    def __init__(self, encoder_type, in_dim, **kwargs):
-        super().__init__()
-        if encoder_type == 'default':
-            self.module = Identity()
-            self.module.in_dim = in_dim
-            self.module.out_dim = in_dim
-        elif encoder_type == 'projection':
-            module_type = kwargs.pop('module', 'linear')
-            self.module = ProjectionEmbedding(module_type, in_dim, **kwargs)
-        elif encoder_type == 'finetune_faster_rcnn_fpn_fc7':
-            self.module = FinetuneFasterRcnnFpnFc7(in_dim, **kwargs)
-        else:
-            raise NotImplementedError('Unknown Image Encoder: %s' % encoder_type)
-        self.out_dim = self.module.out_dim
-
-    def forward(self, *args, **kwargs):
-        return self.module(*args, **kwargs)
-
-
-class FinetuneFasterRcnnFpnFc7(nn.Module):
-
-    def __init__(self, in_dim, weights_file, bias_file, model_data_dir, *args, **kwargs):
-        super().__init__()
-        model_data_dir = get_absolute_path(model_data_dir)
-        if not os.path.isabs(weights_file):
-            weights_file = os.path.join(model_data_dir, weights_file)
-        if not os.path.isabs(bias_file):
-            bias_file = os.path.join(model_data_dir, bias_file)
-        if not PathManager.exists(bias_file) or not PathManager.exists(weights_file):
-            download_path = download_pretrained_model('detectron')
-            weights_file = get_absolute_path(os.path.join(download_path, 'fc7_w.pkl'))
-            bias_file = get_absolute_path(os.path.join(download_path, 'fc7_b.pkl'))
-        with PathManager.open(weights_file, 'rb') as w:
-            weights = pickle.load(w)
-        with PathManager.open(bias_file, 'rb') as b:
-            bias = pickle.load(b)
-        out_dim = bias.shape[0]
-        self.lc = nn.Linear(in_dim, out_dim)
-        self.lc.weight.data.copy_(torch.from_numpy(weights))
-        self.lc.bias.data.copy_(torch.from_numpy(bias))
-        self.out_dim = out_dim
-
-    def forward(self, image):
-        i2 = self.lc(image)
-        i3 = nn.functional.relu(i2)
-        return i3
-
-
-class ImageEncoder(nn.Module):
-
-    def __init__(self, config, *args, **kwargs):
-        super().__init__()
-        self._type = config.type
-        params = config.params
-        if self._type == 'default':
-            self.module = nn.Identity()
-            self.module.out_dim = params.in_dim
-        elif self._type == 'resnet152':
-            self.module = ResNet152ImageEncoder(params)
-        else:
-            raise NotImplementedError('Unknown Image Encoder: %s' % self._type)
-
-    @property
-    def out_dim(self):
-        return self.module.out_dim
-
-    def forward(self, image):
-        return self.module(image)
 
 
 class ResNet152ImageEncoder(nn.Module):
@@ -3383,23 +5206,26 @@ class ResNet152ImageEncoder(nn.Module):
         return out
 
 
-class TextEncoder(nn.Module):
+class ImageEncoder(nn.Module):
 
     def __init__(self, config, *args, **kwargs):
         super().__init__()
         self._type = config.type
-        if self._type == 'identity':
+        params = config.params
+        if self._type == 'default':
             self.module = nn.Identity()
-        elif self._type == 'transformer':
-            self._module = TransformerEncoder(config.params)
-            self.module = self._module.module
-        elif self._type == 'embedding':
-            self.module = TextEmbeddingEncoder(config.params)
+            self.module.out_dim = params.in_dim
+        elif self._type == 'resnet152':
+            self.module = ResNet152ImageEncoder(params)
         else:
-            raise NotImplementedError(f'Unknown Text Encoder {self._type}')
+            raise NotImplementedError('Unknown Image Encoder: %s' % self._type)
 
-    def forward(self, *args, **kwargs):
-        return self.module(*args, **kwargs)
+    @property
+    def out_dim(self):
+        return self.module.out_dim
+
+    def forward(self, image):
+        return self.module(image)
 
 
 class TextEmbeddingEncoder(nn.Module):
@@ -3437,54 +5263,23 @@ class TransformerEncoder(nn.Module):
         return self.module(*args, **kwargs)[1]
 
 
-def build_image_encoder(config, direct_features=False, **kwargs):
-    from mmf.modules.encoders import ImageFeatureEncoder, ImageEncoder
-    if direct_features:
-        module = ImageFeatureEncoder(config.type, **config.params)
-    else:
-        module = ImageEncoder(config)
-    return module.module
-
-
-def build_text_encoder(config, *args, **kwargs):
-    from mmf.modules.encoders import TextEncoder
-    text_encoder = TextEncoder(config, *args, **kwargs)
-    return text_encoder.module
-
-
-class MultiModalEncoderBase(nn.Module):
+class TextEncoder(nn.Module):
 
     def __init__(self, config, *args, **kwargs):
         super().__init__()
-        self.config = config
-        self._modal_encoder_config = self.config.get('modal_encoder', None)
-        self._is_direct_features_input = self.config.get('direct_features_input', False)
-        self.build()
-        self.modal_hidden_size = self.config.get('modal_hidden_size', None)
-        self.text_hidden_size = self.config.get('text_hidden_size', None)
+        self._type = config.type
+        if self._type == 'identity':
+            self.module = nn.Identity()
+        elif self._type == 'transformer':
+            self._module = TransformerEncoder(config.params)
+            self.module = self._module.module
+        elif self._type == 'embedding':
+            self.module = TextEmbeddingEncoder(config.params)
+        else:
+            raise NotImplementedError(f'Unknown Text Encoder {self._type}')
 
-    def build(self):
-        encoders = self._build_encoders(self.config)
-        self.text_encoder, self.modal_encoder = encoders[0], encoders[1]
-        self._encoder_config = None
-        if self.text_encoder:
-            self._encoder_config = self.text_encoder.config
-
-    @property
-    def encoder_config(self):
-        return self._encoder_config
-
-    def _build_encoders(self, config):
-        text_encoder = None
-        if config.get('text_encoder', None):
-            text_encoder = build_text_encoder(config.text_encoder)
-        modal_encoder = None
-        if config.get('modal_encoder', None):
-            modal_encoder = self._build_modal_encoder(config.modal_encoder)
-        return text_encoder, modal_encoder
-
-    def _build_modal_encoder(self, config):
-        return build_image_encoder(config, direct_features=self._is_direct_features_input)
+    def forward(self, *args, **kwargs):
+        return self.module(*args, **kwargs)
 
 
 class CompactBilinearPooling(nn.Module):
@@ -3561,7 +5356,6 @@ def get_sizes_list(dim, chunks):
     return sizes_list
 
 
-@registry.register_fusion('block')
 class Block(nn.Module):
 
     def __init__(self, input_dims, output_dim, mm_dim=1600, chunks=20, rank=15, shared=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0, pos_norm='before_cat'):
@@ -3629,7 +5423,6 @@ class Block(nn.Module):
         return z
 
 
-@registry.register_fusion('block_tucker')
 class BlockTucker(nn.Module):
 
     def __init__(self, input_dims, output_dim, mm_dim=1600, chunks=20, shared=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0, pos_norm='before_cat'):
@@ -3686,7 +5479,6 @@ class BlockTucker(nn.Module):
         return z
 
 
-@registry.register_fusion('mutan')
 class Mutan(nn.Module):
 
     def __init__(self, input_dims, output_dim, mm_dim=1600, rank=15, shared=False, normalize=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0):
@@ -3733,7 +5525,6 @@ class Mutan(nn.Module):
         return z
 
 
-@registry.register_fusion('tucker')
 class Tucker(nn.Module):
 
     def __init__(self, input_dims, output_dim, mm_dim=1600, shared=False, normalize=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0):
@@ -3774,7 +5565,6 @@ class Tucker(nn.Module):
         return z
 
 
-@registry.register_fusion('mlb')
 class MLB(nn.Module):
 
     def __init__(self, input_dims, output_dim, mm_dim=1200, activ_input='relu', activ_output='relu', normalize=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0):
@@ -3816,7 +5606,6 @@ class MLB(nn.Module):
         return z
 
 
-@registry.register_fusion('mfb')
 class MFB(nn.Module):
 
     def __init__(self, input_dims, output_dim, mm_dim=1200, factor=2, activ_input='relu', activ_output='relu', normalize=False, dropout_input=0.0, dropout_pre_norm=0.0, dropout_output=0.0):
@@ -3861,72 +5650,6 @@ class MFB(nn.Module):
         return z
 
 
-@registry.register_fusion('mfh')
-class MFH(nn.Module):
-
-    def __init__(self, input_dims, output_dim, mm_dim=1200, factor=2, activ_input='relu', activ_output='relu', normalize=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0):
-        super().__init__()
-        self.input_dims = input_dims
-        self.output_dim = output_dim
-        self.mm_dim = mm_dim
-        self.factor = factor
-        self.activ_input = activ_input
-        self.activ_output = activ_output
-        self.normalize = normalize
-        self.dropout_input = dropout_input
-        self.dropout_pre_lin = dropout_pre_lin
-        self.dropout_output = dropout_output
-        self.linear0_0 = nn.Linear(input_dims[0], mm_dim * factor)
-        self.linear1_0 = nn.Linear(input_dims[1], mm_dim * factor)
-        self.linear0_1 = nn.Linear(input_dims[0], mm_dim * factor)
-        self.linear1_1 = nn.Linear(input_dims[1], mm_dim * factor)
-        self.linear_out = nn.Linear(mm_dim * 2, output_dim)
-        self.n_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-    def forward(self, x):
-        x0 = self.linear0_0(x[0])
-        x1 = self.linear1_0(x[1])
-        if self.activ_input:
-            x0 = getattr(F, self.activ_input)(x0)
-            x1 = getattr(F, self.activ_input)(x1)
-        if self.dropout_input > 0:
-            x0 = F.dropout(x0, p=self.dropout_input, training=self.training)
-            x1 = F.dropout(x1, p=self.dropout_input, training=self.training)
-        z_0_skip = x0 * x1
-        if self.dropout_pre_lin:
-            z_0_skip = F.dropout(z_0_skip, p=self.dropout_pre_lin, training=self.training)
-        z_0 = z_0_skip.view(z_0_skip.size(0), self.mm_dim, self.factor)
-        z_0 = z_0.sum(2)
-        if self.normalize:
-            z_0 = torch.sqrt(F.relu(z_0)) - torch.sqrt(F.relu(-z_0))
-            z_0 = F.normalize(z_0, p=2)
-        x0 = self.linear0_1(x[0])
-        x1 = self.linear1_1(x[1])
-        if self.activ_input:
-            x0 = getattr(F, self.activ_input)(x0)
-            x1 = getattr(F, self.activ_input)(x1)
-        if self.dropout_input > 0:
-            x0 = F.dropout(x0, p=self.dropout_input, training=self.training)
-            x1 = F.dropout(x1, p=self.dropout_input, training=self.training)
-        z_1 = x0 * x1 * z_0_skip
-        if self.dropout_pre_lin > 0:
-            z_1 = F.dropout(z_1, p=self.dropout_pre_lin, training=self.training)
-        z_1 = z_1.view(z_1.size(0), self.mm_dim, self.factor)
-        z_1 = z_1.sum(2)
-        if self.normalize:
-            z_1 = torch.sqrt(F.relu(z_1)) - torch.sqrt(F.relu(-z_1))
-            z_1 = F.normalize(z_1, p=2)
-        cat_dim = z_0.dim() - 1
-        z = torch.cat([z_0, z_1], cat_dim)
-        z = self.linear_out(z)
-        if self.activ_output:
-            z = getattr(F, self.activ_output)(z)
-        if self.dropout_output > 0:
-            z = F.dropout(z, p=self.dropout_output, training=self.training)
-        return z
-
-
-@registry.register_fusion('mcb')
 class MCB(nn.Module):
 
     def __init__(self, input_dims, output_dim, mm_dim=16000, activ_output='relu', dropout_output=0.0):
@@ -3950,7 +5673,6 @@ class MCB(nn.Module):
         return z
 
 
-@registry.register_fusion('linear_sum')
 class LinearSum(nn.Module):
 
     def __init__(self, input_dims, output_dim, mm_dim=1200, activ_input='relu', activ_output='relu', normalize=False, dropout_input=0.0, dropout_pre_lin=0.0, dropout_output=0.0):
@@ -3992,7 +5714,6 @@ class LinearSum(nn.Module):
         return z
 
 
-@registry.register_fusion('concat_mlp')
 class ConcatMLP(nn.Module):
 
     def __init__(self, input_dims, output_dim, dimensions=None, activation='relu', dropout=0.0):
@@ -4018,33 +5739,6 @@ class ConcatMLP(nn.Module):
         return z
 
 
-class ConvNet(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding_size='same', pool_stride=2, batch_norm=True):
-        super().__init__()
-        if padding_size == 'same':
-            padding_size = kernel_size // 2
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=padding_size)
-        self.max_pool2d = nn.MaxPool2d(pool_stride, stride=pool_stride)
-        self.batch_norm = batch_norm
-        if self.batch_norm:
-            self.batch_norm_2d = nn.BatchNorm2d(out_channels)
-
-    def forward(self, x):
-        x = self.max_pool2d(nn.functional.leaky_relu(self.conv(x)))
-        if self.batch_norm:
-            x = self.batch_norm_2d(x)
-        return x
-
-
-class Flatten(nn.Module):
-
-    def forward(self, input):
-        if input.dim() > 1:
-            input = input.view(input.size(0), -1)
-        return input
-
-
 class UnFlatten(nn.Module):
 
     def forward(self, input, sizes=None):
@@ -4053,362 +5747,31 @@ class UnFlatten(nn.Module):
         return input.view(input.size(0), *sizes)
 
 
-class GatedTanh(nn.Module):
+class FCNet(nn.Module):
     """
-    From: https://arxiv.org/pdf/1707.07998.pdf
-    nonlinear_layer (f_a) : x\\in R^m => y \\in R^n
-    	ilda{y} = tanh(Wx + b)
-    g = sigmoid(W'x + b')
-    y = 	ilda(y) \\circ g
-    input: (N, *, in_dim)
-    output: (N, *, out_dim)
+    Simple class for non-linear fully connect network
     """
 
-    def __init__(self, in_dim, out_dim):
-        super().__init__()
-        self.fc = nn.Linear(in_dim, out_dim)
-        self.gate_fc = nn.Linear(in_dim, out_dim)
-
-    def forward(self, x):
-        y_tilda = torch.tanh(self.fc(x))
-        gated = torch.sigmoid(self.gate_fc(x))
-        y = y_tilda * gated
-        return y
-
-
-class ReLUWithWeightNormFC(nn.Module):
-
-    def __init__(self, in_dim, out_dim):
+    def __init__(self, dims, act='ReLU', dropout=0):
         super().__init__()
         layers = []
-        layers.append(weight_norm(nn.Linear(in_dim, out_dim), dim=None))
-        layers.append(nn.ReLU())
-        self.layers = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.layers(x)
-
-
-class ClassifierLayer(nn.Module):
-
-    def __init__(self, classifier_type, in_dim, out_dim, **kwargs):
-        super().__init__()
-        if classifier_type == 'weight_norm':
-            self.module = WeightNormClassifier(in_dim, out_dim, **kwargs)
-        elif classifier_type == 'logit':
-            self.module = LogitClassifier(in_dim, out_dim, **kwargs)
-        elif classifier_type == 'language_decoder':
-            self.module = LanguageDecoder(in_dim, out_dim, **kwargs)
-        elif classifier_type == 'bert':
-            self.module = BertClassifierHead(in_dim, out_dim, kwargs.get('config', None)).module
-        elif classifier_type == 'mlp':
-            self.module = MLPClassifer(in_dim, out_dim, **kwargs)
-        elif classifier_type == 'linear':
-            self.module = nn.Linear(in_dim, out_dim)
-        else:
-            raise NotImplementedError('Unknown classifier type: %s' % classifier_type)
-
-    def forward(self, *args, **kwargs):
-        return self.module(*args, **kwargs)
-
-
-class BertClassifierHead(nn.Module):
-
-    def __init__(self, in_dim=768, out_dim=2, config=None, *args, **kwargs):
-        super().__init__()
-        if config is None:
-            config = BertConfig.from_pretrained('bert-base-uncased')
-        assert config.hidden_size == in_dim
-        self.module = nn.Sequential(nn.Dropout(config.hidden_dropout_prob), BertPredictionHeadTransform(config), nn.Linear(in_dim, out_dim))
-
-    def forward(self, *args, **kwargs):
-        return self.module(*args, **kwargs)
-
-
-class MLPClassifer(nn.Module):
-
-    def __init__(self, in_dim, out_dim, hidden_dim=None, num_layers=0, dropout=0.5, hidden_act='relu', batch_norm=True, **kwargs):
-        super().__init__()
-        activation = ACT2FN[hidden_act]
-        self.layers = nn.ModuleList()
-        if hidden_dim is None:
-            hidden_dim = in_dim
-        for _ in range(num_layers):
-            self.layers.append(nn.Linear(in_dim, hidden_dim))
-            if batch_norm:
-                self.layers.append(nn.BatchNorm1d(hidden_dim))
-            self.layers.append(activation())
-            self.layers.append(nn.Dropout(dropout))
-            in_dim = hidden_dim
-        self.layers.append(nn.Linear(in_dim, out_dim))
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return x
-
-
-class LogitClassifier(nn.Module):
-
-    def __init__(self, in_dim, out_dim, **kwargs):
-        super().__init__()
-        input_dim = in_dim
-        num_ans_candidates = out_dim
-        text_non_linear_dim = kwargs['text_hidden_dim']
-        image_non_linear_dim = kwargs['img_hidden_dim']
-        self.f_o_text = ReLUWithWeightNormFC(input_dim, text_non_linear_dim)
-        self.f_o_image = ReLUWithWeightNormFC(input_dim, image_non_linear_dim)
-        self.linear_text = nn.Linear(text_non_linear_dim, num_ans_candidates)
-        self.linear_image = nn.Linear(image_non_linear_dim, num_ans_candidates)
-        if 'pretrained_image' in kwargs and kwargs['pretrained_text'] is not None:
-            self.linear_text.weight.data.copy_(torch.from_numpy(kwargs['pretrained_text']))
-        if 'pretrained_image' in kwargs and kwargs['pretrained_image'] is not None:
-            self.linear_image.weight.data.copy_(torch.from_numpy(kwargs['pretrained_image']))
-
-    def forward(self, joint_embedding):
-        text_val = self.linear_text(self.f_o_text(joint_embedding))
-        image_val = self.linear_image(self.f_o_image(joint_embedding))
-        logit_value = text_val + image_val
-        return logit_value
-
-
-class WeightNormClassifier(nn.Module):
-
-    def __init__(self, in_dim, out_dim, hidden_dim, dropout):
-        super().__init__()
-        layers = [weight_norm(nn.Linear(in_dim, hidden_dim), dim=None), nn.ReLU(), nn.Dropout(dropout, inplace=True), weight_norm(nn.Linear(hidden_dim, out_dim), dim=None)]
+        for i in range(len(dims) - 2):
+            in_dim = dims[i]
+            out_dim = dims[i + 1]
+            if dropout > 0:
+                layers.append(nn.Dropout(dropout))
+            layers.append(weight_norm(nn.Linear(in_dim, out_dim), dim=None))
+            if act is not None:
+                layers.append(getattr(nn, act)())
+        if dropout > 0:
+            layers.append(nn.Dropout(dropout))
+        layers.append(weight_norm(nn.Linear(dims[-2], dims[-1]), dim=None))
+        if act is not None:
+            layers.append(getattr(nn, act)())
         self.main = nn.Sequential(*layers)
 
     def forward(self, x):
-        logits = self.main(x)
-        return logits
-
-
-class Identity(nn.Module):
-
-    def __init__(self, **kwargs):
-        super().__init__()
-
-    def forward(self, x):
-        return x
-
-
-class ModalCombineLayer(nn.Module):
-
-    def __init__(self, combine_type, img_feat_dim, txt_emb_dim, **kwargs):
-        super().__init__()
-        if combine_type == 'MFH':
-            self.module = MFH(img_feat_dim, txt_emb_dim, **kwargs)
-        elif combine_type == 'non_linear_element_multiply':
-            self.module = NonLinearElementMultiply(img_feat_dim, txt_emb_dim, **kwargs)
-        elif combine_type == 'two_layer_element_multiply':
-            self.module = TwoLayerElementMultiply(img_feat_dim, txt_emb_dim, **kwargs)
-        elif combine_type == 'top_down_attention_lstm':
-            self.module = TopDownAttentionLSTM(img_feat_dim, txt_emb_dim, **kwargs)
-        else:
-            raise NotImplementedError('Not implemented combine type: %s' % combine_type)
-        self.out_dim = self.module.out_dim
-
-    def forward(self, *args, **kwargs):
-        return self.module(*args, **kwargs)
-
-
-class MfbExpand(nn.Module):
-
-    def __init__(self, img_feat_dim, txt_emb_dim, hidden_dim, dropout):
-        super().__init__()
-        self.lc_image = nn.Linear(in_features=img_feat_dim, out_features=hidden_dim)
-        self.lc_ques = nn.Linear(in_features=txt_emb_dim, out_features=hidden_dim)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, image_feat, question_embed):
-        image1 = self.lc_image(image_feat)
-        ques1 = self.lc_ques(question_embed)
-        if len(image_feat.data.shape) == 3:
-            num_location = image_feat.data.size(1)
-            ques1_expand = torch.unsqueeze(ques1, 1).expand(-1, num_location, -1)
-        else:
-            ques1_expand = ques1
-        joint_feature = image1 * ques1_expand
-        joint_feature = self.dropout(joint_feature)
-        return joint_feature
-
-
-class MFH(nn.Module):
-
-    def __init__(self, image_feat_dim, ques_emb_dim, **kwargs):
-        super().__init__()
-        self.mfb_expand_list = nn.ModuleList()
-        self.mfb_sqz_list = nn.ModuleList()
-        self.relu = nn.ReLU()
-        hidden_sizes = kwargs['hidden_sizes']
-        self.out_dim = int(sum(hidden_sizes) / kwargs['pool_size'])
-        self.order = kwargs['order']
-        self.pool_size = kwargs['pool_size']
-        for i in range(self.order):
-            mfb_exp_i = MfbExpand(img_feat_dim=image_feat_dim, txt_emb_dim=ques_emb_dim, hidden_dim=hidden_sizes[i], dropout=kwargs['dropout'])
-            self.mfb_expand_list.append(mfb_exp_i)
-            self.mfb_sqz_list.append(self.mfb_squeeze)
-
-    def forward(self, image_feat, question_embedding):
-        feature_list = []
-        prev_mfb_exp = 1
-        for i in range(self.order):
-            mfb_exp = self.mfb_expand_list[i]
-            mfb_sqz = self.mfb_sqz_list[i]
-            z_exp_i = mfb_exp(image_feat, question_embedding)
-            if i > 0:
-                z_exp_i = prev_mfb_exp * z_exp_i
-            prev_mfb_exp = z_exp_i
-            z = mfb_sqz(z_exp_i)
-            feature_list.append(z)
-        cat_dim = len(feature_list[0].size()) - 1
-        feature = torch.cat(feature_list, dim=cat_dim)
-        return feature
-
-    def mfb_squeeze(self, joint_feature):
-        orig_feature_size = len(joint_feature.size())
-        if orig_feature_size == 2:
-            joint_feature = torch.unsqueeze(joint_feature, dim=1)
-        batch_size, num_loc, dim = joint_feature.size()
-        if dim % self.pool_size != 0:
-            exit('the dim %d is not multiply of              pool_size %d' % (dim, self.pool_size))
-        joint_feature_reshape = joint_feature.view(batch_size, num_loc, int(dim / self.pool_size), self.pool_size)
-        iatt_iq_sumpool = torch.sum(joint_feature_reshape, 3)
-        iatt_iq_sqrt = torch.sqrt(self.relu(iatt_iq_sumpool)) - torch.sqrt(self.relu(-iatt_iq_sumpool))
-        iatt_iq_sqrt = iatt_iq_sqrt.view(batch_size, -1)
-        iatt_iq_l2 = nn.functional.normalize(iatt_iq_sqrt)
-        iatt_iq_l2 = iatt_iq_l2.view(batch_size, num_loc, int(dim / self.pool_size))
-        if orig_feature_size == 2:
-            iatt_iq_l2 = torch.squeeze(iatt_iq_l2, dim=1)
-        return iatt_iq_l2
-
-
-class NonLinearElementMultiply(nn.Module):
-
-    def __init__(self, image_feat_dim, ques_emb_dim, **kwargs):
-        super().__init__()
-        self.fa_image = ReLUWithWeightNormFC(image_feat_dim, kwargs['hidden_dim'])
-        self.fa_txt = ReLUWithWeightNormFC(ques_emb_dim, kwargs['hidden_dim'])
-        context_dim = kwargs.get('context_dim', None)
-        if context_dim is not None:
-            self.fa_context = ReLUWithWeightNormFC(context_dim, kwargs['hidden_dim'])
-        self.dropout = nn.Dropout(kwargs['dropout'])
-        self.out_dim = kwargs['hidden_dim']
-
-    def forward(self, image_feat, question_embedding, context_embedding=None):
-        image_fa = self.fa_image(image_feat)
-        question_fa = self.fa_txt(question_embedding)
-        if len(image_feat.size()) == 3 and len(question_fa.size()) != 3:
-            question_fa_expand = question_fa.unsqueeze(1)
-        else:
-            question_fa_expand = question_fa
-        joint_feature = image_fa * question_fa_expand
-        if context_embedding is not None:
-            context_fa = self.fa_context(context_embedding)
-            context_text_joint_feaure = context_fa * question_fa_expand
-            joint_feature = torch.cat([joint_feature, context_text_joint_feaure], dim=1)
-        joint_feature = self.dropout(joint_feature)
-        return joint_feature
-
-
-class TopDownAttentionLSTM(nn.Module):
-
-    def __init__(self, image_feat_dim, embed_dim, **kwargs):
-        super().__init__()
-        self.fa_image = weight_norm(nn.Linear(image_feat_dim, kwargs['attention_dim']))
-        self.fa_hidden = weight_norm(nn.Linear(kwargs['hidden_dim'], kwargs['attention_dim']))
-        self.top_down_lstm = nn.LSTMCell(embed_dim + image_feat_dim + kwargs['hidden_dim'], kwargs['hidden_dim'], bias=True)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(kwargs['dropout'])
-        self.out_dim = kwargs['attention_dim']
-
-    def forward(self, image_feat, embedding):
-        image_feat_mean = image_feat.mean(1)
-        state = registry.get(f'{image_feat.device}_lstm_state')
-        h1, c1 = state['td_hidden']
-        h2, c2 = state['lm_hidden']
-        h1, c1 = self.top_down_lstm(torch.cat([h2, image_feat_mean, embedding], dim=1), (h1, c1))
-        state['td_hidden'] = h1, c1
-        image_fa = self.fa_image(image_feat)
-        hidden_fa = self.fa_hidden(h1)
-        joint_feature = self.relu(image_fa + hidden_fa.unsqueeze(1))
-        joint_feature = self.dropout(joint_feature)
-        return joint_feature
-
-
-class TwoLayerElementMultiply(nn.Module):
-
-    def __init__(self, image_feat_dim, ques_emb_dim, **kwargs):
-        super().__init__()
-        self.fa_image1 = ReLUWithWeightNormFC(image_feat_dim, kwargs['hidden_dim'])
-        self.fa_image2 = ReLUWithWeightNormFC(kwargs['hidden_dim'], kwargs['hidden_dim'])
-        self.fa_txt1 = ReLUWithWeightNormFC(ques_emb_dim, kwargs['hidden_dim'])
-        self.fa_txt2 = ReLUWithWeightNormFC(kwargs['hidden_dim'], kwargs['hidden_dim'])
-        self.dropout = nn.Dropout(kwargs['dropout'])
-        self.out_dim = kwargs['hidden_dim']
-
-    def forward(self, image_feat, question_embedding):
-        image_fa = self.fa_image2(self.fa_image1(image_feat))
-        question_fa = self.fa_txt2(self.fa_txt1(question_embedding))
-        if len(image_feat.size()) == 3:
-            num_location = image_feat.size(1)
-            question_fa_expand = torch.unsqueeze(question_fa, 1).expand(-1, num_location, -1)
-        else:
-            question_fa_expand = question_fa
-        joint_feature = image_fa * question_fa_expand
-        joint_feature = self.dropout(joint_feature)
-        return joint_feature
-
-
-class TransformLayer(nn.Module):
-
-    def __init__(self, transform_type, in_dim, out_dim, hidden_dim=None):
-        super().__init__()
-        if transform_type == 'linear':
-            self.module = LinearTransform(in_dim, out_dim)
-        elif transform_type == 'conv':
-            self.module = ConvTransform(in_dim, out_dim, hidden_dim)
-        else:
-            raise NotImplementedError('Unknown post combine transform type: %s' % transform_type)
-        self.out_dim = self.module.out_dim
-
-    def forward(self, *args, **kwargs):
-        return self.module(*args, **kwargs)
-
-
-class LinearTransform(nn.Module):
-
-    def __init__(self, in_dim, out_dim):
-        super().__init__()
-        self.lc = weight_norm(nn.Linear(in_features=in_dim, out_features=out_dim), dim=None)
-        self.out_dim = out_dim
-
-    def forward(self, x):
-        return self.lc(x)
-
-
-class ConvTransform(nn.Module):
-
-    def __init__(self, in_dim, out_dim, hidden_dim):
-        super().__init__()
-        self.conv1 = nn.Conv2d(in_channels=in_dim, out_channels=hidden_dim, kernel_size=1)
-        self.conv2 = nn.Conv2d(in_channels=hidden_dim, out_channels=out_dim, kernel_size=1)
-        self.out_dim = out_dim
-
-    def forward(self, x):
-        if len(x.size()) == 3:
-            x_reshape = torch.unsqueeze(x.permute(0, 2, 1), 3)
-        elif len(x.size()) == 2:
-            x_reshape = torch.unsqueeze(torch.unsqueeze(x, 2), 3)
-        iatt_conv1 = self.conv1(x_reshape)
-        iatt_relu = nn.functional.relu(iatt_conv1)
-        iatt_conv2 = self.conv2(iatt_relu)
-        if len(x.size()) == 3:
-            iatt_conv3 = torch.squeeze(iatt_conv2, 3).permute(0, 2, 1)
-        elif len(x.size()) == 2:
-            iatt_conv3 = torch.squeeze(torch.squeeze(iatt_conv2, 3), 2)
-        return iatt_conv3
+        return self.main(x)
 
 
 class BCNet(nn.Module):
@@ -4471,33 +5834,6 @@ class BCNet(nn.Module):
         return logits
 
 
-class FCNet(nn.Module):
-    """
-    Simple class for non-linear fully connect network
-    """
-
-    def __init__(self, dims, act='ReLU', dropout=0):
-        super().__init__()
-        layers = []
-        for i in range(len(dims) - 2):
-            in_dim = dims[i]
-            out_dim = dims[i + 1]
-            if dropout > 0:
-                layers.append(nn.Dropout(dropout))
-            layers.append(weight_norm(nn.Linear(in_dim, out_dim), dim=None))
-            if act is not None:
-                layers.append(getattr(nn, act)())
-        if dropout > 0:
-            layers.append(nn.Dropout(dropout))
-        layers.append(weight_norm(nn.Linear(dims[-2], dims[-1]), dim=None))
-        if act is not None:
-            layers.append(getattr(nn, act)())
-        self.main = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.main(x)
-
-
 class BiAttention(nn.Module):
 
     def __init__(self, x_dim, y_dim, z_dim, glimpse, dropout=None):
@@ -4525,124 +5861,6 @@ class BiAttention(nn.Module):
         return p.view(-1, self.glimpse, v_num, q_num), logits
 
 
-class Losses(nn.Module):
-    """``Losses`` acts as an abstraction for instantiating and calculating
-    losses. ``BaseModel`` instantiates this class based on the `losses`
-    attribute in the model's configuration `model_config`. ``loss_list``
-    needs to be a list for each separate loss containing `type` and `params`
-    attributes.
-
-    Args:
-        loss_list (ListConfig): Description of parameter `loss_list`.
-
-    Example::
-
-        # losses:
-        # - type: logit_bce
-        # Can also contain `params` to specify that particular loss's init params
-        # - type: combined
-        config = [{"type": "logit_bce"}, {"type": "combined"}]
-        losses = Losses(config)
-
-    .. note::
-
-        Since, ``Losses`` is instantiated in the ``BaseModel``, normal end user
-        mostly doesn't need to use this class.
-
-    Attributes:
-        losses: List containing instanttions of each loss
-                                   passed in config
-    """
-
-    def __init__(self, loss_list):
-        super().__init__()
-        self.losses = []
-        self._evaluation_predict = registry.get('config').evaluation.predict
-        for loss in loss_list:
-            self.losses.append(MMFLoss(loss))
-
-    def forward(self, sample_list, model_output, *args, **kwargs):
-        """Takes in the original ``SampleList`` returned from DataLoader
-        and `model_output` returned from the model and returned a Dict containing
-        loss for each of the losses in `losses`.
-
-        Args:
-            sample_list (SampleList): SampleList given be the dataloader.
-            model_output (Dict): Dict returned from model as output.
-
-        Returns:
-            Dict: Dictionary containing loss value for each of the loss.
-
-        """
-        output = {}
-        if not hasattr(sample_list, 'targets'):
-            if not self._evaluation_predict:
-                warnings.warn("Sample list has not field 'targets', are you sure that your ImDB has labels? you may have wanted to run with evaluation.predict=true")
-            return output
-        for loss in self.losses:
-            output.update(loss(sample_list, model_output, *args, **kwargs))
-        registry_loss_key = '{}.{}.{}'.format('losses', sample_list.dataset_name, sample_list.dataset_type)
-        registry.register(registry_loss_key, output)
-        return output
-
-
-class MMFLoss(nn.Module):
-    """Internal MMF helper and wrapper class for all Loss classes.
-    It makes sure that the value returned from a Loss class is a dict and
-    contain proper dataset type in keys, so that it is easy to figure out
-    which one is the val loss and which one is train loss.
-
-    For example: it will return ``{"val/vqa2/logit_bce": 27.4}``, in case
-    `logit_bce` is used and SampleList is from `val` set of dataset `vqa2`.
-
-    Args:
-        params (type): Description of parameter `params`.
-
-    .. note::
-
-        Since, ``MMFLoss`` is used by the ``Losses`` class, end user
-        doesn't need to worry about it.
-    """
-
-    def __init__(self, params=None):
-        super().__init__()
-        if params is None:
-            params = {}
-        self.writer = registry.get('writer')
-        is_mapping = isinstance(params, collections.abc.MutableMapping)
-        if is_mapping:
-            if 'type' not in params:
-                raise ValueError("Parameters to loss must have 'type' field tospecify type of loss to instantiate")
-            else:
-                loss_name = params['type']
-        else:
-            assert isinstance(params, str), "loss must be a string or dictionary with 'type' key"
-            loss_name = params
-        self.name = loss_name
-        loss_class = registry.get_loss_class(loss_name)
-        if loss_class is None:
-            raise ValueError(f'No loss named {loss_name} is registered to registry')
-        if loss_name == 'multi':
-            assert is_mapping
-            self.loss_criterion = loss_class(params)
-        else:
-            if is_mapping:
-                loss_params = params.get('params', {})
-            else:
-                loss_params = {}
-            self.loss_criterion = loss_class(**loss_params)
-
-    def forward(self, sample_list, model_output, *args, **kwargs):
-        loss = self.loss_criterion(sample_list, model_output, *args, **kwargs)
-        if not isinstance(loss, torch.Tensor):
-            loss = torch.tensor(loss, dtype=torch.float)
-        if loss.dim() == 0:
-            loss = loss.view(1)
-        key = '{}/{}/{}'.format(sample_list.dataset_type, sample_list.dataset_name, self.name)
-        return {key: loss}
-
-
-@registry.register_loss('logit_bce')
 class LogitBinaryCrossEntropy(nn.Module):
     """Returns Binary Cross Entropy for logits.
 
@@ -4670,7 +5888,6 @@ class LogitBinaryCrossEntropy(nn.Module):
         return loss * targets.size(1)
 
 
-@registry.register_loss('bce')
 class BinaryCrossEntropyLoss(nn.Module):
 
     def __init__(self):
@@ -4693,7 +5910,6 @@ class BinaryCrossEntropyLoss(nn.Module):
         return loss * targets.size(1)
 
 
-@registry.register_loss('caption_cross_entropy')
 class CaptionCrossEntropyLoss(nn.Module):
 
     def __init__(self):
@@ -4727,7 +5943,6 @@ class CaptionCrossEntropyLoss(nn.Module):
         return loss
 
 
-@registry.register_loss('nll_loss')
 class NLLLoss(nn.Module):
     """Negative log likelikehood loss.
     """
@@ -4753,7 +5968,6 @@ class NLLLoss(nn.Module):
         return loss * targets.size(1)
 
 
-@registry.register_loss('multi')
 class MultiLoss(nn.Module):
     """A loss for combining multiple losses with weights.
 
@@ -4809,7 +6023,6 @@ class MultiLoss(nn.Module):
         return loss
 
 
-@registry.register_loss('attention_supervision')
 class AttentionSupervisionLoss(nn.Module):
     """Loss for attention supervision. Used in case you want to make attentions
     similar to some particular values.
@@ -4845,7 +6058,6 @@ def kl_div(log_x, y):
     return torch.sum(res, dim=1, keepdim=True)
 
 
-@registry.register_loss('weighted_softmax')
 class WeightedSoftmaxLoss(nn.Module):
 
     def __init__(self):
@@ -4865,7 +6077,6 @@ class WeightedSoftmaxLoss(nn.Module):
         return loss
 
 
-@registry.register_loss('softmax_kldiv')
 class SoftmaxKlDivLoss(nn.Module):
 
     def __init__(self):
@@ -4884,7 +6095,6 @@ class SoftmaxKlDivLoss(nn.Module):
         return loss
 
 
-@registry.register_loss('wrong')
 class WrongLoss(nn.Module):
 
     def __init__(self):
@@ -4903,7 +6113,6 @@ class WrongLoss(nn.Module):
         return loss
 
 
-@registry.register_loss('bce_kl_combined')
 class CombinedLoss(nn.Module):
 
     def __init__(self, weight_softmax):
@@ -4926,7 +6135,6 @@ class CombinedLoss(nn.Module):
         return loss
 
 
-@registry.register_loss('m4c_decoding_bce_with_mask')
 class M4CDecodingBCEWithMaskLoss(nn.Module):
 
     def __init__(self):
@@ -4945,7 +6153,6 @@ class M4CDecodingBCEWithMaskLoss(nn.Module):
         return loss
 
 
-@registry.register_loss('cross_entropy')
 class CrossEntropyLoss(nn.Module):
 
     def __init__(self, params=None):
@@ -4956,6 +6163,19 @@ class CrossEntropyLoss(nn.Module):
 
     def forward(self, sample_list, model_output):
         return self.loss_fn(model_output['scores'], sample_list.targets)
+
+
+class SimpleModule(BaseModel):
+
+    def __init__(self, config={}):
+        super().__init__(config)
+        self.base = torch.nn.Sequential(torch.nn.Linear(5, 4), torch.nn.Tanh(), torch.nn.Linear(4, 5))
+        self.classifier = torch.nn.Sequential(torch.nn.Linear(5, 4), torch.nn.Tanh(), torch.nn.Linear(4, 5))
+        self.loss = torch.nn.CrossEntropyLoss()
+
+    def forward(self, x, target):
+        x = self.classifier(self.base(x))
+        return {'losses': {'total_loss': self.loss(x, target)}}
 
 
 class OnlyBase(torch.nn.Module):

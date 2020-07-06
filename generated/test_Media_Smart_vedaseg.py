@@ -13,22 +13,27 @@ test = _module
 trainval = _module
 vedaseg = _module
 assembler = _module
+assembler = _module
 criteria = _module
 builder = _module
 registry = _module
 seg_wrapper = _module
 dataloaders = _module
+builder = _module
 steel = _module
 datasets = _module
 base = _module
 coil = _module
 dummy = _module
+steel = _module
 transforms = _module
 transforms = _module
 voc = _module
 loggers = _module
 lr_schedulers = _module
+base = _module
 poly_lr = _module
+registry = _module
 models = _module
 builder = _module
 decoders = _module
@@ -53,6 +58,7 @@ norm = _module
 upsample = _module
 weight_init = _module
 optims = _module
+builder = _module
 runner = _module
 runner = _module
 checkpoint = _module
@@ -67,17 +73,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+from torch import nn
 
 
 import torch.nn as nn
@@ -86,25 +99,43 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-import random
+import torch.utils.data as torch_data
 
 
 import numpy as np
 
 
-import torch
+from torch.utils.data import Dataset
+
+
+from sklearn.model_selection import train_test_split
+
+
+import logging
+
+
+import random
 
 
 import torchvision.transforms as tt
+
+
+from functools import wraps
+
+
+import warnings
+
+
+from torch.optim import Optimizer
+
+
+from torch.optim import lr_scheduler
 
 
 import math
 
 
 import copy
-
-
-import logging
 
 
 from torchvision.models.resnet import model_urls
@@ -116,7 +147,7 @@ from functools import partial
 from torch.nn.parameter import Parameter
 
 
-import warnings
+import torch.optim as torch_optim
 
 
 from collections.abc import Iterable
@@ -271,7 +302,6 @@ def build_module(cfg, default_args=None):
     return util
 
 
-@BRICKS.register_module
 class JunctionBlock(nn.Module):
     """JunctionBlock
 
@@ -330,7 +360,249 @@ class JunctionBlock(nn.Module):
         return feat
 
 
-@BRICKS.register_module
+class TLU(nn.Module):
+
+    def __init__(self, num_features):
+        super(TLU, self).__init__()
+        self.num_features = num_features
+        self.tau = Parameter(torch.Tensor(1, num_features, 1, 1), requires_grad=True)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.zeros_(self.tau)
+
+    def forward(self, x):
+        return torch.max(x, self.tau)
+
+    def extra_repr(self):
+        return '{num_features}'.format(**self.__dict__)
+
+
+act_cfg = {'Relu': ('relu', nn.ReLU), 'Tlu': ('tlu', TLU)}
+
+
+def build_act_layer(cfg, num_features, postfix='', layer_only=False):
+    """ Build activate layer
+
+    Args:
+        cfg (dict): cfg should contain:
+            type (str): identify activate layer type.
+            layer args: args needed to instantiate a activate layer.
+            requires_grad (bool): [optional] whether stop gradient updates
+        num_features (int): number of channels from input.
+        postfix (int, str): appended into act abbreviation to
+            create named layer.
+
+    Returns:
+        name (str): abbreviation + postfix
+        layer (nn.Module): created act layer
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in act_cfg:
+        raise KeyError('Unrecognized activate type {}'.format(layer_type))
+    else:
+        abbr, act_layer = act_cfg[layer_type]
+        if act_layer is None:
+            raise NotImplementedError
+    assert isinstance(postfix, (int, str))
+    name = abbr + str(postfix)
+    requires_grad = cfg_.pop('requires_grad', True)
+    if layer_type != 'Tlu':
+        layer = act_layer(**cfg_)
+    else:
+        layer = act_layer(num_features, **cfg_)
+    for param in layer.parameters():
+        param.requires_grad = requires_grad
+    if layer_only:
+        return layer
+    else:
+        return name, layer
+
+
+conv_cfg = {'Conv': nn.Conv2d}
+
+
+def build_conv_layer(cfg, *args, **kwargs):
+    """ Build convolution layer
+
+    Args:
+        cfg (None or dict): cfg should contain:
+            type (str): identify conv layer type.
+            layer args: args needed to instantiate a conv layer.
+
+    Returns:
+        layer (nn.Module): created conv layer
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in conv_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        conv_layer = conv_cfg[layer_type]
+    layer = conv_layer(*args, **kwargs, **cfg_)
+    return layer
+
+
+class FRN(nn.Module):
+
+    def __init__(self, num_features, eps=1e-06):
+        super(FRN, self).__init__()
+        self.num_features = num_features
+        self.gamma = Parameter(torch.Tensor(1, num_features, 1, 1), requires_grad=True)
+        self.beta = Parameter(torch.Tensor(1, num_features, 1, 1), requires_grad=True)
+        self.register_buffer('eps', torch.Tensor([eps]))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.ones_(self.gamma)
+        nn.init.zeros_(self.beta)
+
+    def forward(self, x):
+        nu2 = torch.mean(x.pow(2), dim=[2, 3], keepdim=True)
+        x = x * torch.rsqrt(nu2 + self.eps.abs())
+        x = self.gamma * x + self.beta
+        return x
+
+    def extra_repr(self):
+        return '{num_features}, eps={eps}'.format(**self.__dict__)
+
+
+norm_cfg = {'FRN': ('frn', FRN), 'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm), 'GN': ('gn', nn.GroupNorm)}
+
+
+def build_norm_layer(cfg, num_features, postfix='', layer_only=False):
+    """ Build normalization layer
+
+    Args:
+        cfg (dict): cfg should contain:
+            type (str): identify norm layer type.
+            layer args: args needed to instantiate a norm layer.
+            requires_grad (bool): [optional] whether stop gradient updates
+        num_features (int): number of channels from input.
+        postfix (int, str): appended into norm abbreviation to
+            create named layer.
+
+    Returns:
+        name (str): abbreviation + postfix
+        layer (nn.Module): created norm layer
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in norm_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        abbr, norm_layer = norm_cfg[layer_type]
+        if norm_layer is None:
+            raise NotImplementedError
+    assert isinstance(postfix, (int, str))
+    name = abbr + str(postfix)
+    requires_grad = cfg_.pop('requires_grad', True)
+    if layer_type != 'GN':
+        layer = norm_layer(num_features, **cfg_)
+        if layer_type == 'SyncBN':
+            layer._specify_ddp_gpu_num(1)
+    else:
+        assert 'num_groups' in cfg_
+        layer = norm_layer(num_channels=num_features, **cfg_)
+    for param in layer.parameters():
+        param.requires_grad = requires_grad
+    if layer_only:
+        return layer
+    return name, layer
+
+
+class ConvModule(nn.Module):
+    """A conv block that contains conv/norm/activation layers.
+
+    Args:
+        in_channels (int): Same as nn.Conv2d.
+        out_channels (int): Same as nn.Conv2d.
+        kernel_size (int or tuple[int]): Same as nn.Conv2d.
+        stride (int or tuple[int]): Same as nn.Conv2d.
+        padding (int or tuple[int]): Same as nn.Conv2d.
+        dilation (int or tuple[int]): Same as nn.Conv2d.
+        groups (int): Same as nn.Conv2d.
+        bias (bool or str): If specified as `auto`, it will be decided by the
+            norm_cfg. Bias will be set as True if norm_cfg is None, otherwise
+            False.
+        conv_cfg (dict): Config dict for convolution layer.
+        norm_cfg (dict): Config dict for normalization layer.
+        act_cfg (str or None): Config dict for activation layer.
+        order (tuple[str]): The order of conv/norm/activation layers. It is a
+            sequence of "conv", "norm" and "act". Examples are
+            ("conv", "norm", "act") and ("act", "conv", "norm").
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias='auto', conv_cfg=dict(type='Conv'), norm_cfg=None, act_cfg=dict(type='Relu', inplace=True), order=('conv', 'norm', 'act'), dropout=None):
+        super(ConvModule, self).__init__()
+        assert isinstance(conv_cfg, dict)
+        assert norm_cfg is None or isinstance(norm_cfg, dict)
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.act_cfg = act_cfg
+        self.order = order
+        assert isinstance(self.order, tuple) and len(self.order) == 3
+        assert set(order) == set(['conv', 'norm', 'act'])
+        self.with_norm = norm_cfg is not None
+        self.with_act = act_cfg is not None
+        self.with_dropout = dropout is not None
+        if bias == 'auto':
+            bias = False if self.with_norm else True
+        self.with_bias = bias
+        if self.with_norm and self.with_bias:
+            warnings.warn('ConvModule has norm and bias at the same time')
+        self.conv = build_conv_layer(conv_cfg, in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.in_channels = self.conv.in_channels
+        self.out_channels = self.conv.out_channels
+        self.kernel_size = self.conv.kernel_size
+        self.stride = self.conv.stride
+        self.padding = self.conv.padding
+        self.dilation = self.conv.dilation
+        self.transposed = self.conv.transposed
+        self.output_padding = self.conv.output_padding
+        self.groups = self.conv.groups
+        if self.with_norm:
+            if order.index('norm') > order.index('conv'):
+                norm_channels = out_channels
+            else:
+                norm_channels = in_channels
+            self.norm_name, norm = build_norm_layer(norm_cfg, norm_channels)
+            self.add_module(self.norm_name, norm)
+        if self.with_act:
+            if order.index('act') > order.index('conv'):
+                act_channels = out_channels
+            else:
+                act_channels = in_channels
+            self.act_name, act = build_act_layer(act_cfg, act_channels)
+            self.add_module(self.act_name, act)
+        if self.with_dropout:
+            self.dropout = nn.Dropout2d(p=dropout)
+
+    @property
+    def norm(self):
+        return getattr(self, self.norm_name)
+
+    @property
+    def activate(self):
+        return getattr(self, self.act_name)
+
+    def forward(self, x, activate=True, norm=True):
+        for layer in self.order:
+            if layer == 'conv':
+                x = self.conv(x)
+            elif layer == 'norm' and norm and self.with_norm:
+                x = self.norm(x)
+            elif layer == 'act' and activate and self.with_act:
+                x = self.activate(x)
+        if self.with_dropout:
+            x = self.dropout(x)
+        return x
+
+
 class FusionBlock(nn.Module):
     """FusionBlock
 
@@ -373,7 +645,6 @@ class FusionBlock(nn.Module):
         return res
 
 
-@BRICKS.register_module
 class CollectBlock(nn.Module):
     """FusionBlock
 
@@ -434,7 +705,6 @@ def init_weights(modules):
 logger = logging.getLogger()
 
 
-@DECODERS.register_module
 class GFPN(nn.Module):
     """GFPN
 
@@ -553,88 +823,6 @@ class Bottleneck(nn.Module):
         return out
 
 
-def build_act_layer(cfg, num_features, postfix='', layer_only=False):
-    """ Build activate layer
-
-    Args:
-        cfg (dict): cfg should contain:
-            type (str): identify activate layer type.
-            layer args: args needed to instantiate a activate layer.
-            requires_grad (bool): [optional] whether stop gradient updates
-        num_features (int): number of channels from input.
-        postfix (int, str): appended into act abbreviation to
-            create named layer.
-
-    Returns:
-        name (str): abbreviation + postfix
-        layer (nn.Module): created act layer
-    """
-    assert isinstance(cfg, dict) and 'type' in cfg
-    cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in act_cfg:
-        raise KeyError('Unrecognized activate type {}'.format(layer_type))
-    else:
-        abbr, act_layer = act_cfg[layer_type]
-        if act_layer is None:
-            raise NotImplementedError
-    assert isinstance(postfix, (int, str))
-    name = abbr + str(postfix)
-    requires_grad = cfg_.pop('requires_grad', True)
-    if layer_type != 'Tlu':
-        layer = act_layer(**cfg_)
-    else:
-        layer = act_layer(num_features, **cfg_)
-    for param in layer.parameters():
-        param.requires_grad = requires_grad
-    if layer_only:
-        return layer
-    else:
-        return name, layer
-
-
-def build_norm_layer(cfg, num_features, postfix='', layer_only=False):
-    """ Build normalization layer
-
-    Args:
-        cfg (dict): cfg should contain:
-            type (str): identify norm layer type.
-            layer args: args needed to instantiate a norm layer.
-            requires_grad (bool): [optional] whether stop gradient updates
-        num_features (int): number of channels from input.
-        postfix (int, str): appended into norm abbreviation to
-            create named layer.
-
-    Returns:
-        name (str): abbreviation + postfix
-        layer (nn.Module): created norm layer
-    """
-    assert isinstance(cfg, dict) and 'type' in cfg
-    cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in norm_cfg:
-        raise KeyError('Unrecognized norm type {}'.format(layer_type))
-    else:
-        abbr, norm_layer = norm_cfg[layer_type]
-        if norm_layer is None:
-            raise NotImplementedError
-    assert isinstance(postfix, (int, str))
-    name = abbr + str(postfix)
-    requires_grad = cfg_.pop('requires_grad', True)
-    if layer_type != 'GN':
-        layer = norm_layer(num_features, **cfg_)
-        if layer_type == 'SyncBN':
-            layer._specify_ddp_gpu_num(1)
-    else:
-        assert 'num_groups' in cfg_
-        layer = norm_layer(num_channels=num_features, **cfg_)
-    for param in layer.parameters():
-        param.requires_grad = requires_grad
-    if layer_only:
-        return layer
-    return name, layer
-
-
 class ResNetCls(nn.Module):
 
     def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, replace_stride_with_dilation=None, multi_grid=None, norm_cfg=None, act_cfg=None):
@@ -712,6 +900,49 @@ class ResNetCls(nn.Module):
         return x
 
 
+BACKBONES = Registry('backbone')
+
+
+MODEL_CFGS = {'resnet101': {'block': Bottleneck, 'layer': [3, 4, 23, 3], 'weights_url': model_urls['resnet101']}, 'resnet50': {'block': Bottleneck, 'layer': [3, 4, 6, 3], 'weights_url': model_urls['resnet50']}, 'resnet18': {'block': BasicBlock, 'layer': [2, 2, 2, 2], 'weights_url': model_urls['resnet18']}}
+
+
+class ResNet(ResNetCls):
+    """ResNetEncoder
+
+    Args:
+        pretrain(bool)
+    """
+
+    def __init__(self, arch, replace_stride_with_dilation=None, multi_grid=None, pretrain=True, norm_cfg=None, act_cfg=None):
+        cfg = MODEL_CFGS[arch]
+        super().__init__(cfg['block'], cfg['layer'], replace_stride_with_dilation=replace_stride_with_dilation, multi_grid=multi_grid, norm_cfg=norm_cfg, act_cfg=act_cfg)
+        if pretrain:
+            logger.info('ResNet init weights from pretreain')
+            state_dict = load_state_dict_from_url(cfg['weights_url'])
+            self.load_state_dict(state_dict, strict=False)
+        else:
+            logger.info('ResNet init weights')
+            init_weights(self.modules())
+        del self.fc, self.avgpool
+
+    def forward(self, x):
+        feats = {}
+        x0 = self.conv1(x)
+        x0 = self.bn1(x0)
+        x0 = self.relu1(x0)
+        feats['c1'] = x0
+        x1 = self.maxpool(x0)
+        x1 = self.layer1(x1)
+        feats['c2'] = x1
+        x2 = self.layer2(x1)
+        feats['c3'] = x2
+        x3 = self.layer3(x2)
+        feats['c4'] = x3
+        x4 = self.layer4(x3)
+        feats['c5'] = x4
+        return feats
+
+
 class ASPPConv(nn.Sequential):
 
     def __init__(self, in_channels, out_channels, dilation, norm_layer, act_layer):
@@ -733,7 +964,6 @@ class ASPPPooling(nn.Sequential):
 ENHANCE_MODULES = Registry('enhance_module')
 
 
-@ENHANCE_MODULES.register_module
 class ASPP(nn.Module):
 
     def __init__(self, in_channels, out_channels, atrous_rates, from_layer, to_layer, dropout=None, norm_cfg=None, act_cfg=None):
@@ -775,7 +1005,6 @@ class ASPP(nn.Module):
         return feats_
 
 
-@ENHANCE_MODULES.register_module
 class PPM(nn.Module):
 
     def __init__(self, in_channels, out_channels, bins, from_layer, to_layer, norm_cfg=None, act_cfg=None):
@@ -805,167 +1034,6 @@ class PPM(nn.Module):
         return feats_
 
 
-HEADS = Registry('head')
-
-
-@HEADS.register_module
-class Head(nn.Module):
-    """Head
-
-    Args:
-    """
-
-    def __init__(self, in_channels, out_channels, inter_channels=None, conv_cfg=dict(type='Conv'), norm_cfg=dict(type='BN'), act_cfg=dict(type='Relu', inplace=True), num_convs=0, upsample=None, dropouts=None):
-        super().__init__()
-        if num_convs > 0:
-            layers = [ConvModules(in_channels, inter_channels, 3, padding=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg, act_cfg=act_cfg, num_convs=num_convs, dropouts=dropouts), nn.Conv2d(inter_channels, out_channels, 1)]
-        else:
-            layers = [nn.Conv2d(in_channels, out_channels, 1)]
-        if upsample:
-            upsample_layer = build_module(upsample)
-            layers.append(upsample_layer)
-        self.block = nn.Sequential(*layers)
-        logger.info('Head init weights')
-        init_weights(self.modules())
-
-    def forward(self, x):
-        feat = self.block(x)
-        return feat
-
-
-class TLU(nn.Module):
-
-    def __init__(self, num_features):
-        super(TLU, self).__init__()
-        self.num_features = num_features
-        self.tau = Parameter(torch.Tensor(1, num_features, 1, 1), requires_grad=True)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        nn.init.zeros_(self.tau)
-
-    def forward(self, x):
-        return torch.max(x, self.tau)
-
-    def extra_repr(self):
-        return '{num_features}'.format(**self.__dict__)
-
-
-conv_cfg = {'Conv': nn.Conv2d}
-
-
-def build_conv_layer(cfg, *args, **kwargs):
-    """ Build convolution layer
-
-    Args:
-        cfg (None or dict): cfg should contain:
-            type (str): identify conv layer type.
-            layer args: args needed to instantiate a conv layer.
-
-    Returns:
-        layer (nn.Module): created conv layer
-    """
-    assert isinstance(cfg, dict) and 'type' in cfg
-    cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in conv_cfg:
-        raise KeyError('Unrecognized norm type {}'.format(layer_type))
-    else:
-        conv_layer = conv_cfg[layer_type]
-    layer = conv_layer(*args, **kwargs, **cfg_)
-    return layer
-
-
-@UTILS.register_module
-class ConvModule(nn.Module):
-    """A conv block that contains conv/norm/activation layers.
-
-    Args:
-        in_channels (int): Same as nn.Conv2d.
-        out_channels (int): Same as nn.Conv2d.
-        kernel_size (int or tuple[int]): Same as nn.Conv2d.
-        stride (int or tuple[int]): Same as nn.Conv2d.
-        padding (int or tuple[int]): Same as nn.Conv2d.
-        dilation (int or tuple[int]): Same as nn.Conv2d.
-        groups (int): Same as nn.Conv2d.
-        bias (bool or str): If specified as `auto`, it will be decided by the
-            norm_cfg. Bias will be set as True if norm_cfg is None, otherwise
-            False.
-        conv_cfg (dict): Config dict for convolution layer.
-        norm_cfg (dict): Config dict for normalization layer.
-        act_cfg (str or None): Config dict for activation layer.
-        order (tuple[str]): The order of conv/norm/activation layers. It is a
-            sequence of "conv", "norm" and "act". Examples are
-            ("conv", "norm", "act") and ("act", "conv", "norm").
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias='auto', conv_cfg=dict(type='Conv'), norm_cfg=None, act_cfg=dict(type='Relu', inplace=True), order=('conv', 'norm', 'act'), dropout=None):
-        super(ConvModule, self).__init__()
-        assert isinstance(conv_cfg, dict)
-        assert norm_cfg is None or isinstance(norm_cfg, dict)
-        self.conv_cfg = conv_cfg
-        self.norm_cfg = norm_cfg
-        self.act_cfg = act_cfg
-        self.order = order
-        assert isinstance(self.order, tuple) and len(self.order) == 3
-        assert set(order) == set(['conv', 'norm', 'act'])
-        self.with_norm = norm_cfg is not None
-        self.with_act = act_cfg is not None
-        self.with_dropout = dropout is not None
-        if bias == 'auto':
-            bias = False if self.with_norm else True
-        self.with_bias = bias
-        if self.with_norm and self.with_bias:
-            warnings.warn('ConvModule has norm and bias at the same time')
-        self.conv = build_conv_layer(conv_cfg, in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.in_channels = self.conv.in_channels
-        self.out_channels = self.conv.out_channels
-        self.kernel_size = self.conv.kernel_size
-        self.stride = self.conv.stride
-        self.padding = self.conv.padding
-        self.dilation = self.conv.dilation
-        self.transposed = self.conv.transposed
-        self.output_padding = self.conv.output_padding
-        self.groups = self.conv.groups
-        if self.with_norm:
-            if order.index('norm') > order.index('conv'):
-                norm_channels = out_channels
-            else:
-                norm_channels = in_channels
-            self.norm_name, norm = build_norm_layer(norm_cfg, norm_channels)
-            self.add_module(self.norm_name, norm)
-        if self.with_act:
-            if order.index('act') > order.index('conv'):
-                act_channels = out_channels
-            else:
-                act_channels = in_channels
-            self.act_name, act = build_act_layer(act_cfg, act_channels)
-            self.add_module(self.act_name, act)
-        if self.with_dropout:
-            self.dropout = nn.Dropout2d(p=dropout)
-
-    @property
-    def norm(self):
-        return getattr(self, self.norm_name)
-
-    @property
-    def activate(self):
-        return getattr(self, self.act_name)
-
-    def forward(self, x, activate=True, norm=True):
-        for layer in self.order:
-            if layer == 'conv':
-                x = self.conv(x)
-            elif layer == 'norm' and norm and self.with_norm:
-                x = self.norm(x)
-            elif layer == 'act' and activate and self.with_act:
-                x = self.activate(x)
-        if self.with_dropout:
-            x = self.dropout(x)
-        return x
-
-
-@UTILS.register_module
 class ConvModules(nn.Module):
     """Head
 
@@ -993,31 +1061,33 @@ class ConvModules(nn.Module):
         return feat
 
 
-class FRN(nn.Module):
+HEADS = Registry('head')
 
-    def __init__(self, num_features, eps=1e-06):
-        super(FRN, self).__init__()
-        self.num_features = num_features
-        self.gamma = Parameter(torch.Tensor(1, num_features, 1, 1), requires_grad=True)
-        self.beta = Parameter(torch.Tensor(1, num_features, 1, 1), requires_grad=True)
-        self.register_buffer('eps', torch.Tensor([eps]))
-        self.reset_parameters()
 
-    def reset_parameters(self):
-        nn.init.ones_(self.gamma)
-        nn.init.zeros_(self.beta)
+class Head(nn.Module):
+    """Head
+
+    Args:
+    """
+
+    def __init__(self, in_channels, out_channels, inter_channels=None, conv_cfg=dict(type='Conv'), norm_cfg=dict(type='BN'), act_cfg=dict(type='Relu', inplace=True), num_convs=0, upsample=None, dropouts=None):
+        super().__init__()
+        if num_convs > 0:
+            layers = [ConvModules(in_channels, inter_channels, 3, padding=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg, act_cfg=act_cfg, num_convs=num_convs, dropouts=dropouts), nn.Conv2d(inter_channels, out_channels, 1)]
+        else:
+            layers = [nn.Conv2d(in_channels, out_channels, 1)]
+        if upsample:
+            upsample_layer = build_module(upsample)
+            layers.append(upsample_layer)
+        self.block = nn.Sequential(*layers)
+        logger.info('Head init weights')
+        init_weights(self.modules())
 
     def forward(self, x):
-        nu2 = torch.mean(x.pow(2), dim=[2, 3], keepdim=True)
-        x = x * torch.rsqrt(nu2 + self.eps.abs())
-        x = self.gamma * x + self.beta
-        return x
-
-    def extra_repr(self):
-        return '{num_features}, eps={eps}'.format(**self.__dict__)
+        feat = self.block(x)
+        return feat
 
 
-@UTILS.register_module
 class Upsample(nn.Module):
     __constants__ = ['size', 'scale_factor', 'scale_bias', 'mode', 'align_corners', 'name']
 
@@ -1073,10 +1143,22 @@ TESTCASES = [
      lambda: ([], {'from_layer': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ConvModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvModules,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (FRN,
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (FusionBlock,
+     lambda: ([], {'method': 'add', 'from_layers': [4, 4], 'feat_strides': [4, 4], 'in_channels_list': [4, 4], 'out_channels_list': [4, 4], 'upsample': 4}),
+     lambda: ([torch.rand([5, 4, 4, 64, 64])], {}),
+     False),
     (Head,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1108,4 +1190,13 @@ class Test_Media_Smart_vedaseg(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

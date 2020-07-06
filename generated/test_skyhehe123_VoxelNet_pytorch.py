@@ -20,17 +20,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch.utils.data as data
+
+
+import numpy as np
 
 
 import torch
@@ -40,12 +47,6 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
-
-
-import torch.utils.data as data
-
-
-import numpy as np
 
 
 import torch.backends.cudnn
@@ -142,9 +143,6 @@ class FCN(nn.Module):
         return x.view(kk, t, -1)
 
 
-_global_config['T'] = 4
-
-
 class VFE(nn.Module):
 
     def __init__(self, cin, cout):
@@ -194,9 +192,6 @@ class CML(nn.Module):
         return x
 
 
-_global_config['anchors_per_position'] = 4
-
-
 class RPN(nn.Module):
 
     def __init__(self):
@@ -227,18 +222,6 @@ class RPN(nn.Module):
         x_2 = self.deconv_3(x_skip_1)
         x = torch.cat((x_0, x_1, x_2), 1)
         return self.score_head(x), self.reg_head(x)
-
-
-_global_config['W'] = 4
-
-
-_global_config['H'] = 4
-
-
-_global_config['D'] = 4
-
-
-_global_config['N'] = 4
 
 
 class VoxelNet(nn.Module):
@@ -282,14 +265,6 @@ TESTCASES = [
      lambda: ([], {'cin': 4, 'cout': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      True),
-    (RPN,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 128, 64, 64])], {}),
-     True),
-    (VFE,
-     lambda: ([], {'cin': 4, 'cout': 4}),
-     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
-     False),
 ]
 
 class Test_skyhehe123_VoxelNet_pytorch(_paritybench_base):
@@ -301,10 +276,4 @@ class Test_skyhehe123_VoxelNet_pytorch(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
-
-    def test_004(self):
-        self._check(*TESTCASES[4])
 

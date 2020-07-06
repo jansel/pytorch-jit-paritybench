@@ -4,6 +4,7 @@ del sys
 setup = _module
 torchfusion = _module
 datasets = _module
+datasets = _module
 fp16_utils = _module
 fp16_optimizer = _module
 fp16util = _module
@@ -24,6 +25,7 @@ learners = _module
 metrics = _module
 metrics = _module
 transforms = _module
+transforms = _module
 utils = _module
 logger = _module
 utils = _module
@@ -32,26 +34,48 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils.data import Dataset
+
+
+import torchvision.transforms.transforms as transformations
+
+
+import numpy as np
 
 
 import torch
 
 
-from torch import nn
+from torchvision.datasets import *
+
+
+from torchvision.datasets.folder import default_loader
+
+
+from torch.utils.data import DataLoader
 
 
 from torch.autograd import Variable
+
+
+import random
+
+
+from torch import nn
 
 
 from torch.nn.parameter import Parameter
@@ -67,6 +91,9 @@ import torch.nn as nn
 
 
 from math import floor
+
+
+import torch.distributions as distibutions
 
 
 import torch.nn.functional as F
@@ -91,12 +118,6 @@ from torchvision import utils as vutils
 
 
 from time import time
-
-
-import numpy as np
-
-
-from torch.utils.data import DataLoader
 
 
 import torch.distributions as distribution
@@ -141,9 +162,6 @@ from torch.optim.lr_scheduler import StepLR
 import torch.backends.cudnn as cudnn
 
 
-import random
-
-
 import torchvision.transforms as transforms
 
 
@@ -162,6 +180,223 @@ class tofp16(nn.Module):
         return (input.half() for input in inputs)
 
 
+class BatchNorm(_BatchNorm):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, weight_init=None, bias_init=None):
+        """
+
+        :param num_features:
+        :param eps:
+        :param momentum:
+        :param affine:
+        :param track_running_stats:
+        :param weight_init:
+        :param bias_init:
+        """
+        super(BatchNorm, self).__init__(num_features, eps, momentum, affine, track_running_stats)
+        if weight_init is not None:
+            weight_init(self.weight.data)
+        if bias_init is not None:
+            bias_init(self.bias.data)
+
+
+class BatchNorm2d(BatchNorm):
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+
+
+class Kaiming_Normal(object):
+
+    def __init__(self, neg_slope=0, mode='fan_in', non_linearity='leaky_relu'):
+        """
+
+        :param neg_slope:
+        :param mode:
+        :param non_linearity:
+        """
+        self.neg_slope = neg_slope
+        self.mode = mode
+        self.non_linearity = non_linearity
+
+    def __call__(self, tensor):
+        return kaiming_normal_(tensor, self.neg_slope, self.mode, self.non_linearity)
+
+
+class Constant(object):
+
+    def __init__(self, value):
+        """
+
+        :param value:
+        """
+        self.value = value
+
+    def __call__(self, tensor):
+        return constant_(tensor, self.value)
+
+
+class Zeros(Constant):
+
+    def __init__(self):
+        super(Zeros, self).__init__(0)
+
+
+class Conv2d(nn.Conv2d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, weight_init=Kaiming_Normal(), bias_init=Zeros()):
+        super(Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+        if weight_init is not None:
+            weight_init(self.weight.data)
+        if bias and bias_init is not None:
+            bias_init(self.bias.data)
+
+
+class Embedding(nn.Embedding):
+
+    def __init__(self, num_embeddings, embedding_dim, padding_idx=None, max_norm=None, norm_type=2, scale_grad_by_freq=False, sparse=False, _weight=None, weight_init=None):
+        """
+
+        :param num_embeddings:
+        :param embedding_dim:
+        :param padding_idx:
+        :param max_norm:
+        :param norm_type:
+        :param scale_grad_by_freq:
+        :param sparse:
+        :param _weight:
+        :param weight_init:
+        """
+        super(Embedding, self).__init__(num_embeddings, embedding_dim, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse, _weight)
+        if weight_init is not None:
+            weight_init(self.weight.data)
+
+
+class ConditionalBatchNorm2d(nn.Module):
+
+    def __init__(self, num_features, num_class, eps=1e-05, momentum=0.1, track_running_stats=True):
+        """
+
+        :param num_features:
+        :param num_class:
+        :param eps:
+        :param momentum:
+        :param track_running_stats:
+        """
+        super(ConditionalBatchNorm2d, self).__init__()
+        self.bn = BatchNorm2d(num_features=num_features, eps=eps, momentum=momentum, track_running_stats=track_running_stats, affine=False)
+        self.gamma_embed = Embedding(num_class, num_features)
+        self.beta_embed = Embedding(num_class, num_features)
+        self.gamma_embed.weight.data = torch.ones(self.gamma_embed.weight.size())
+        self.beta_embed.weight.data = torch.zeros(self.gamma_embed.weight.size())
+
+    def forward(self, input, class_id):
+        input = input.float()
+        class_id = class_id.long()
+        out = self.bn(input)
+        gamma = self.gamma_embed(class_id).squeeze(1).unsqueeze(2).unsqueeze(3)
+        beta = self.beta_embed(class_id).squeeze(1).unsqueeze(2).unsqueeze(3)
+        out = gamma * out.type(gamma.dtype) + beta
+        return out
+
+
+class Xavier_Uniform(object):
+
+    def __init__(self, gain=1):
+        """
+
+        :param gain:
+        """
+        self.gain = gain
+
+    def __call__(self, tensor):
+        return xavier_uniform_(tensor, self.gain)
+
+
+class GeneratorResBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, num_classes=0, upsample_size=1, kernel_size=3, activation=nn.ReLU(), conv_groups=1, dropout_ratio=0):
+        """
+
+        :param in_channels:
+        :param out_channels:
+        :param num_classes:
+        :param upsample_size:
+        :param kernel_size:
+        :param activation:
+        :param conv_groups:
+        :param dropout_ratio:
+        """
+        super(GeneratorResBlock, self).__init__()
+        padding = floor(kernel_size / 2)
+        self.activation = activation
+        self.num_classes = num_classes
+        self.upsample_size = upsample_size
+        self.dropout = nn.Dropout(dropout_ratio)
+        self.conv1 = spectral_norm(Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, weight_init=Xavier_Uniform(sqrt(2)), groups=conv_groups))
+        self.conv2 = spectral_norm(Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, weight_init=Xavier_Uniform(sqrt(2)), groups=conv_groups))
+        if num_classes > 0:
+            self.bn1 = ConditionalBatchNorm2d(in_channels, num_classes)
+            self.bn2 = ConditionalBatchNorm2d(out_channels, num_classes)
+        else:
+            self.bn1 = BatchNorm2d(in_channels)
+            self.bn2 = BatchNorm2d(out_channels)
+        self.res_upsample = nn.Sequential()
+        if in_channels != out_channels or upsample_size > 1:
+            self.res_upsample = Conv2d(in_channels, out_channels, kernel_size=1, weight_init=Xavier_Uniform())
+
+    def forward(self, inputs, labels=None):
+        res = inputs
+        if labels is not None:
+            inputs = self.bn1(inputs, labels)
+        else:
+            inputs = self.bn1(inputs)
+        inputs = self.dropout(self.conv1(self.activation(inputs)))
+        if self.upsample_size > 1:
+            inputs = F.interpolate(inputs, scale_factor=self.upsample_size)
+        if labels is not None:
+            inputs = self.bn2(inputs, labels)
+        else:
+            inputs = self.bn2(inputs)
+        inputs = self.conv2(self.activation(inputs))
+        if self.upsample_size > 1:
+            return inputs + F.interpolate(self.res_upsample(res), scale_factor=self.upsample_size)
+        else:
+            return inputs + self.res_upsample(res)
+
+
+class Xavier_Normal(object):
+
+    def __init__(self, gain=1):
+        """
+
+        :param gain:
+        """
+        self.gain = gain
+
+    def __call__(self, tensor):
+        return xavier_normal_(tensor, self.gain)
+
+
+class Linear(nn.Linear):
+
+    def __init__(self, in_features, out_features, bias=True, weight_init=Xavier_Normal(), bias_init=Zeros()):
+        """
+
+        :param in_features:
+        :param out_features:
+        :param bias:
+        :param weight_init:
+        :param bias_init:
+        """
+        super(Linear, self).__init__(in_features, out_features, bias)
+        if weight_init is not None:
+            weight_init(self.weight.data)
+        if bias and bias_init is not None:
+            bias_init(self.bias.data)
+
+
 class Normal(object):
 
     def __init__(self, mean=0, std=1):
@@ -177,17 +412,32 @@ class Normal(object):
         return normal_(tensor, self.mean, self.std)
 
 
-class Xavier_Uniform(object):
+class SelfAttention(nn.Module):
 
-    def __init__(self, gain=1):
+    def __init__(self, in_channels, weight_init=Kaiming_Normal(), bias_init=Zeros(), use_bias=False):
         """
 
-        :param gain:
+        :param in_channels:
+        :param weight_init:
+        :param bias_init:
+        :param use_bias:
         """
-        self.gain = gain
+        super(SelfAttention, self).__init__()
+        self.q = Conv2d(in_channels, in_channels // 8, kernel_size=1, weight_init=weight_init, bias_init=bias_init, bias=use_bias)
+        self.k = Conv2d(in_channels, in_channels // 8, kernel_size=1, weight_init=weight_init, bias_init=bias_init, bias=use_bias)
+        self.v = Conv2d(in_channels, in_channels, kernel_size=1, weight_init=weight_init, bias_init=bias_init, bias=use_bias)
+        self.softmax = nn.Softmax(dim=-1)
+        self.atten_weight = nn.Parameter(torch.tensor([0.0]))
 
-    def __call__(self, tensor):
-        return xavier_uniform_(tensor, self.gain)
+    def forward(self, input):
+        batch_size, channels, width, height = input.size()
+        res = input
+        queries = self.q(input).view(batch_size, -1, width * height).permute(0, 2, 1)
+        keys = self.k(input).view(batch_size, -1, width * height)
+        values = self.v(input).view(batch_size, -1, width * height)
+        atten_ = self.softmax(torch.bmm(queries, keys)).permute(0, 2, 1)
+        atten_values = torch.bmm(values, atten_).view(batch_size, channels, width, height)
+        return self.atten_weight * atten_values + res
 
 
 class ResGenerator(nn.Module):
@@ -220,6 +470,49 @@ class ResGenerator(nn.Module):
         return self.net(outputs)
 
 
+class ConvTranspose2d(nn.ConvTranspose2d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=True, dilation=1, weight_init=Kaiming_Normal(), bias_init=Zeros()):
+        super(ConvTranspose2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, output_padding, groups, bias, dilation)
+        if weight_init is not None:
+            weight_init(self.weight.data)
+        if bias and bias_init is not None:
+            bias_init(self.bias.data)
+
+
+class StandardGeneratorBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, padding, stride, num_classes=0, activation=nn.LeakyReLU(0.2), conv_groups=1):
+        """
+
+        :param in_channels:
+        :param out_channels:
+        :param kernel_size:
+        :param padding:
+        :param stride:
+        :param num_classes:
+        :param activation:
+        :param conv_groups:
+        """
+        super(StandardGeneratorBlock, self).__init__()
+        self.activation = activation
+        self.num_classes = num_classes
+        self.conv = spectral_norm(ConvTranspose2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=stride, weight_init=Xavier_Uniform(), groups=conv_groups))
+        if num_classes > 0:
+            self.bn = ConditionalBatchNorm2d(out_channels, num_classes)
+        else:
+            self.bn = BatchNorm2d(out_channels)
+
+    def forward(self, inputs, labels=None):
+        inputs = self.conv(inputs)
+        if labels is not None:
+            inputs = self.bn(inputs, labels)
+        else:
+            inputs = self.bn(inputs)
+        inputs = self.activation(inputs)
+        return inputs
+
+
 class StandardGenerator(nn.Module):
 
     def __init__(self, output_size, num_classes=0, latent_size=100, activation=nn.LeakyReLU(0.2), conv_groups=1, attention=False, dropout_ratio=0):
@@ -250,6 +543,86 @@ class StandardGenerator(nn.Module):
             else:
                 outputs = layer(outputs)
         return torch.tanh(self.final_conv(outputs))
+
+
+class DiscriminatorResBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, downsample_size=1, kernel_size=3, activation=nn.ReLU(), initial_activation=True, conv_groups=1, dropout_ratio=0):
+        """
+
+        :param in_channels:
+        :param out_channels:
+        :param downsample_size:
+        :param kernel_size:
+        :param activation:
+        :param initial_activation:
+        :param conv_groups:
+        """
+        super(DiscriminatorResBlock, self).__init__()
+        padding = floor(kernel_size / 2)
+        self.activation = activation
+        self.initial_activation = initial_activation
+        self.dropout = nn.Dropout(dropout_ratio)
+        self.conv1 = spectral_norm(Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, weight_init=Xavier_Uniform(), groups=conv_groups))
+        self.conv2 = spectral_norm(Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, weight_init=Xavier_Uniform(), groups=conv_groups))
+        self.downsample = nn.Sequential()
+        if downsample_size > 1:
+            self.downsample = nn.AvgPool2d(kernel_size=downsample_size)
+        self.res_downsample = nn.Sequential()
+        if in_channels != out_channels or downsample_size > 1:
+            self.res_downsample = nn.Sequential(Conv2d(in_channels, out_channels, kernel_size=1, weight_init=Xavier_Uniform(sqrt(2))), nn.AvgPool2d(kernel_size=downsample_size))
+
+    def forward(self, inputs):
+        res = inputs
+        if self.initial_activation:
+            inputs = self.activation(inputs)
+        inputs = self.conv1(inputs)
+        inputs = self.dropout(self.activation(inputs))
+        inputs = self.conv2(inputs)
+        inputs = self.downsample(inputs)
+        return inputs + self.res_downsample(res)
+
+
+class _GlobalPoolNd(nn.Module):
+
+    def __init__(self, flatten=True):
+        """
+
+        :param flatten:
+        """
+        super(_GlobalPoolNd, self).__init__()
+        self.flatten = flatten
+
+    def pool(self, input):
+        """
+
+        :param input:
+        :return:
+        """
+        raise NotImplementedError()
+
+    def forward(self, input):
+        """
+
+        :param input:
+        :return:
+        """
+        input = self.pool(input)
+        size_0 = input.size(1)
+        return input.view(-1, size_0) if self.flatten else input
+
+
+class GlobalAvgPool2d(_GlobalPoolNd):
+
+    def __init__(self, flatten=True):
+        """
+
+        :param flatten:
+        """
+        super(GlobalAvgPool2d, self).__init__(flatten)
+
+    def pool(self, input):
+        return F.adaptive_avg_pool2d(input, 1)
 
 
 class ResProjectionDiscriminator(nn.Module):
@@ -286,6 +659,50 @@ class ResProjectionDiscriminator(nn.Module):
             return torch.sigmoid(linear_out + dot) if self.apply_sigmoid else linear_out + dot
         else:
             return torch.sigmoid(linear_out) if self.apply_sigmoid else linear_out
+
+
+class Flatten(nn.Module):
+
+    def __init__(self, batch_first=True):
+        """
+
+        :param batch_first:
+        """
+        super(Flatten, self).__init__()
+        self.batch_first = batch_first
+
+    def forward(self, inputs):
+        if self.batch_first:
+            size = torch.prod(torch.LongTensor(list(inputs.size())[1:])).item()
+            return inputs.view(-1, size)
+        else:
+            size = torch.prod(torch.LongTensor(list(inputs.size())[:len(inputs.size()) - 1])).item()
+            return inputs.view(size, -1)
+
+
+class StandardDiscriminatorBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, padding, stride, activation=nn.LeakyReLU(0.2), use_bn=False, conv_groups=1):
+        """
+
+        :param in_channels:
+        :param out_channels:
+        :param kernel_size:
+        :param padding:
+        :param stride:
+        :param activation:
+        :param use_bn:
+        :param conv_groups:
+        """
+        super(StandardDiscriminatorBlock, self).__init__()
+        self.activation = activation
+        self.conv = spectral_norm(Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=stride, weight_init=Xavier_Uniform(), groups=conv_groups))
+        self.bn = nn.Sequential()
+        if use_bn:
+            self.bn = BatchNorm2d(out_channels, weight_init=Normal(1.0, 0.02))
+
+    def forward(self, inputs):
+        return self.activation(self.bn(self.conv(inputs)))
 
 
 class StandardProjectionDiscriminator(nn.Module):
@@ -535,246 +952,6 @@ class WMLPDiscriminator(nn.Module):
         return output.view(-1, 1)
 
 
-class ConditionalBatchNorm2d(nn.Module):
-
-    def __init__(self, num_features, num_class, eps=1e-05, momentum=0.1, track_running_stats=True):
-        """
-
-        :param num_features:
-        :param num_class:
-        :param eps:
-        :param momentum:
-        :param track_running_stats:
-        """
-        super(ConditionalBatchNorm2d, self).__init__()
-        self.bn = BatchNorm2d(num_features=num_features, eps=eps, momentum=momentum, track_running_stats=track_running_stats, affine=False)
-        self.gamma_embed = Embedding(num_class, num_features)
-        self.beta_embed = Embedding(num_class, num_features)
-        self.gamma_embed.weight.data = torch.ones(self.gamma_embed.weight.size())
-        self.beta_embed.weight.data = torch.zeros(self.gamma_embed.weight.size())
-
-    def forward(self, input, class_id):
-        input = input.float()
-        class_id = class_id.long()
-        out = self.bn(input)
-        gamma = self.gamma_embed(class_id).squeeze(1).unsqueeze(2).unsqueeze(3)
-        beta = self.beta_embed(class_id).squeeze(1).unsqueeze(2).unsqueeze(3)
-        out = gamma * out.type(gamma.dtype) + beta
-        return out
-
-
-class Kaiming_Normal(object):
-
-    def __init__(self, neg_slope=0, mode='fan_in', non_linearity='leaky_relu'):
-        """
-
-        :param neg_slope:
-        :param mode:
-        :param non_linearity:
-        """
-        self.neg_slope = neg_slope
-        self.mode = mode
-        self.non_linearity = non_linearity
-
-    def __call__(self, tensor):
-        return kaiming_normal_(tensor, self.neg_slope, self.mode, self.non_linearity)
-
-
-class Constant(object):
-
-    def __init__(self, value):
-        """
-
-        :param value:
-        """
-        self.value = value
-
-    def __call__(self, tensor):
-        return constant_(tensor, self.value)
-
-
-class Zeros(Constant):
-
-    def __init__(self):
-        super(Zeros, self).__init__(0)
-
-
-class SelfAttention(nn.Module):
-
-    def __init__(self, in_channels, weight_init=Kaiming_Normal(), bias_init=Zeros(), use_bias=False):
-        """
-
-        :param in_channels:
-        :param weight_init:
-        :param bias_init:
-        :param use_bias:
-        """
-        super(SelfAttention, self).__init__()
-        self.q = Conv2d(in_channels, in_channels // 8, kernel_size=1, weight_init=weight_init, bias_init=bias_init, bias=use_bias)
-        self.k = Conv2d(in_channels, in_channels // 8, kernel_size=1, weight_init=weight_init, bias_init=bias_init, bias=use_bias)
-        self.v = Conv2d(in_channels, in_channels, kernel_size=1, weight_init=weight_init, bias_init=bias_init, bias=use_bias)
-        self.softmax = nn.Softmax(dim=-1)
-        self.atten_weight = nn.Parameter(torch.tensor([0.0]))
-
-    def forward(self, input):
-        batch_size, channels, width, height = input.size()
-        res = input
-        queries = self.q(input).view(batch_size, -1, width * height).permute(0, 2, 1)
-        keys = self.k(input).view(batch_size, -1, width * height)
-        values = self.v(input).view(batch_size, -1, width * height)
-        atten_ = self.softmax(torch.bmm(queries, keys)).permute(0, 2, 1)
-        atten_values = torch.bmm(values, atten_).view(batch_size, channels, width, height)
-        return self.atten_weight * atten_values + res
-
-
-class GeneratorResBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, num_classes=0, upsample_size=1, kernel_size=3, activation=nn.ReLU(), conv_groups=1, dropout_ratio=0):
-        """
-
-        :param in_channels:
-        :param out_channels:
-        :param num_classes:
-        :param upsample_size:
-        :param kernel_size:
-        :param activation:
-        :param conv_groups:
-        :param dropout_ratio:
-        """
-        super(GeneratorResBlock, self).__init__()
-        padding = floor(kernel_size / 2)
-        self.activation = activation
-        self.num_classes = num_classes
-        self.upsample_size = upsample_size
-        self.dropout = nn.Dropout(dropout_ratio)
-        self.conv1 = spectral_norm(Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, weight_init=Xavier_Uniform(sqrt(2)), groups=conv_groups))
-        self.conv2 = spectral_norm(Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, weight_init=Xavier_Uniform(sqrt(2)), groups=conv_groups))
-        if num_classes > 0:
-            self.bn1 = ConditionalBatchNorm2d(in_channels, num_classes)
-            self.bn2 = ConditionalBatchNorm2d(out_channels, num_classes)
-        else:
-            self.bn1 = BatchNorm2d(in_channels)
-            self.bn2 = BatchNorm2d(out_channels)
-        self.res_upsample = nn.Sequential()
-        if in_channels != out_channels or upsample_size > 1:
-            self.res_upsample = Conv2d(in_channels, out_channels, kernel_size=1, weight_init=Xavier_Uniform())
-
-    def forward(self, inputs, labels=None):
-        res = inputs
-        if labels is not None:
-            inputs = self.bn1(inputs, labels)
-        else:
-            inputs = self.bn1(inputs)
-        inputs = self.dropout(self.conv1(self.activation(inputs)))
-        if self.upsample_size > 1:
-            inputs = F.interpolate(inputs, scale_factor=self.upsample_size)
-        if labels is not None:
-            inputs = self.bn2(inputs, labels)
-        else:
-            inputs = self.bn2(inputs)
-        inputs = self.conv2(self.activation(inputs))
-        if self.upsample_size > 1:
-            return inputs + F.interpolate(self.res_upsample(res), scale_factor=self.upsample_size)
-        else:
-            return inputs + self.res_upsample(res)
-
-
-class StandardGeneratorBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding, stride, num_classes=0, activation=nn.LeakyReLU(0.2), conv_groups=1):
-        """
-
-        :param in_channels:
-        :param out_channels:
-        :param kernel_size:
-        :param padding:
-        :param stride:
-        :param num_classes:
-        :param activation:
-        :param conv_groups:
-        """
-        super(StandardGeneratorBlock, self).__init__()
-        self.activation = activation
-        self.num_classes = num_classes
-        self.conv = spectral_norm(ConvTranspose2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=stride, weight_init=Xavier_Uniform(), groups=conv_groups))
-        if num_classes > 0:
-            self.bn = ConditionalBatchNorm2d(out_channels, num_classes)
-        else:
-            self.bn = BatchNorm2d(out_channels)
-
-    def forward(self, inputs, labels=None):
-        inputs = self.conv(inputs)
-        if labels is not None:
-            inputs = self.bn(inputs, labels)
-        else:
-            inputs = self.bn(inputs)
-        inputs = self.activation(inputs)
-        return inputs
-
-
-class DiscriminatorResBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, downsample_size=1, kernel_size=3, activation=nn.ReLU(), initial_activation=True, conv_groups=1, dropout_ratio=0):
-        """
-
-        :param in_channels:
-        :param out_channels:
-        :param downsample_size:
-        :param kernel_size:
-        :param activation:
-        :param initial_activation:
-        :param conv_groups:
-        """
-        super(DiscriminatorResBlock, self).__init__()
-        padding = floor(kernel_size / 2)
-        self.activation = activation
-        self.initial_activation = initial_activation
-        self.dropout = nn.Dropout(dropout_ratio)
-        self.conv1 = spectral_norm(Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, weight_init=Xavier_Uniform(), groups=conv_groups))
-        self.conv2 = spectral_norm(Conv2d(out_channels, out_channels, kernel_size=kernel_size, padding=padding, weight_init=Xavier_Uniform(), groups=conv_groups))
-        self.downsample = nn.Sequential()
-        if downsample_size > 1:
-            self.downsample = nn.AvgPool2d(kernel_size=downsample_size)
-        self.res_downsample = nn.Sequential()
-        if in_channels != out_channels or downsample_size > 1:
-            self.res_downsample = nn.Sequential(Conv2d(in_channels, out_channels, kernel_size=1, weight_init=Xavier_Uniform(sqrt(2))), nn.AvgPool2d(kernel_size=downsample_size))
-
-    def forward(self, inputs):
-        res = inputs
-        if self.initial_activation:
-            inputs = self.activation(inputs)
-        inputs = self.conv1(inputs)
-        inputs = self.dropout(self.activation(inputs))
-        inputs = self.conv2(inputs)
-        inputs = self.downsample(inputs)
-        return inputs + self.res_downsample(res)
-
-
-class StandardDiscriminatorBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding, stride, activation=nn.LeakyReLU(0.2), use_bn=False, conv_groups=1):
-        """
-
-        :param in_channels:
-        :param out_channels:
-        :param kernel_size:
-        :param padding:
-        :param stride:
-        :param activation:
-        :param use_bn:
-        :param conv_groups:
-        """
-        super(StandardDiscriminatorBlock, self).__init__()
-        self.activation = activation
-        self.conv = spectral_norm(Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding, stride=stride, weight_init=Xavier_Uniform(), groups=conv_groups))
-        self.bn = nn.Sequential()
-        if use_bn:
-            self.bn = BatchNorm2d(out_channels, weight_init=Normal(1.0, 0.02))
-
-    def forward(self, inputs):
-        return self.activation(self.bn(self.conv(inputs)))
-
-
 class MultiSequential(nn.Sequential):
 
     def __init__(self, *args):
@@ -790,16 +967,6 @@ class Conv1d(nn.Conv1d):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, weight_init=Kaiming_Normal(), bias_init=Zeros()):
         super(Conv1d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
-        if weight_init is not None:
-            weight_init(self.weight.data)
-        if bias and bias_init is not None:
-            bias_init(self.bias.data)
-
-
-class Conv2d(nn.Conv2d):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, weight_init=Kaiming_Normal(), bias_init=Zeros()):
-        super(Conv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
         if weight_init is not None:
             weight_init(self.weight.data)
         if bias and bias_init is not None:
@@ -856,16 +1023,6 @@ class ConvTranspose1d(nn.ConvTranspose1d):
             bias_init(self.bias.data)
 
 
-class ConvTranspose2d(nn.ConvTranspose2d):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=True, dilation=1, weight_init=Kaiming_Normal(), bias_init=Zeros()):
-        super(ConvTranspose2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, output_padding, groups, bias, dilation)
-        if weight_init is not None:
-            weight_init(self.weight.data)
-        if bias and bias_init is not None:
-            bias_init(self.bias.data)
-
-
 class ConvTranspose3d(nn.ConvTranspose3d):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=True, dilation=1, weight_init=Kaiming_Normal(), bias_init=Zeros()):
@@ -906,56 +1063,6 @@ class DepthwiseConvTranspose3d(nn.ConvTranspose3d):
             bias_init(self.bias.data)
 
 
-class Xavier_Normal(object):
-
-    def __init__(self, gain=1):
-        """
-
-        :param gain:
-        """
-        self.gain = gain
-
-    def __call__(self, tensor):
-        return xavier_normal_(tensor, self.gain)
-
-
-class Linear(nn.Linear):
-
-    def __init__(self, in_features, out_features, bias=True, weight_init=Xavier_Normal(), bias_init=Zeros()):
-        """
-
-        :param in_features:
-        :param out_features:
-        :param bias:
-        :param weight_init:
-        :param bias_init:
-        """
-        super(Linear, self).__init__(in_features, out_features, bias)
-        if weight_init is not None:
-            weight_init(self.weight.data)
-        if bias and bias_init is not None:
-            bias_init(self.bias.data)
-
-
-class Flatten(nn.Module):
-
-    def __init__(self, batch_first=True):
-        """
-
-        :param batch_first:
-        """
-        super(Flatten, self).__init__()
-        self.batch_first = batch_first
-
-    def forward(self, inputs):
-        if self.batch_first:
-            size = torch.prod(torch.LongTensor(list(inputs.size())[1:])).item()
-            return inputs.view(-1, size)
-        else:
-            size = torch.prod(torch.LongTensor(list(inputs.size())[:len(inputs.size()) - 1])).item()
-            return inputs.view(size, -1)
-
-
 class Reshape(nn.Module):
 
     def __init__(self, output_shape, batch_first=True):
@@ -989,33 +1096,69 @@ class Reshape(nn.Module):
         return outputs
 
 
-class _GlobalPoolNd(nn.Module):
+class GlobalAvgPool1d(_GlobalPoolNd):
 
     def __init__(self, flatten=True):
         """
 
         :param flatten:
         """
-        super(_GlobalPoolNd, self).__init__()
-        self.flatten = flatten
+        super(GlobalAvgPool1d, self).__init__(flatten)
 
     def pool(self, input):
+        return F.adaptive_avg_pool1d(input, 1)
+
+
+class GlobalAvgPool3d(_GlobalPoolNd):
+
+    def __init__(self, flatten=True):
         """
 
-        :param input:
-        :return:
+        :param flatten:
         """
-        raise NotImplementedError()
+        super(GlobalAvgPool3d, self).__init__(flatten)
 
-    def forward(self, input):
+    def pool(self, input):
+        return F.adaptive_avg_pool3d(input, 1)
+
+
+class GlobalMaxPool1d(_GlobalPoolNd):
+
+    def __init__(self, flatten=True):
         """
 
-        :param input:
-        :return:
+        :param flatten:
         """
-        input = self.pool(input)
-        size_0 = input.size(1)
-        return input.view(-1, size_0) if self.flatten else input
+        super(GlobalMaxPool1d, self).__init__(flatten)
+
+    def pool(self, input):
+        return F.adaptive_max_pool1d(input, 1)
+
+
+class GlobalMaxPool2d(_GlobalPoolNd):
+
+    def __init__(self, flatten=True):
+        """
+
+        :param flatten:
+        """
+        super(GlobalMaxPool2d, self).__init__(flatten)
+
+    def pool(self, input):
+        return F.adaptive_max_pool2d(input, 1)
+
+
+class GlobalMaxPool3d(_GlobalPoolNd):
+
+    def __init__(self, flatten=True):
+        """
+
+        :param flatten:
+        """
+        super(GlobalMaxPool3d, self).__init__(flatten)
+
+    def pool(self, input):
+        return F.adaptive_max_pool3d(input, 1)
 
 
 class RNNBase(nn.RNNBase):
@@ -1037,6 +1180,49 @@ class RNNBase(nn.RNNBase):
         if weight_init is not None:
             for weight in super(RNNBase, self).parameters():
                 weight_init(weight)
+
+
+class RNN(RNNBase):
+
+    def __init__(self, *args, **kwargs):
+        """
+
+        :param args:
+        :param kwargs:
+        """
+        if 'nonlinearity' in kwargs:
+            if kwargs['nonlinearity'] == 'tanh':
+                mode = 'RNN_TANH'
+            elif kwargs['nonlinearity'] == 'relu':
+                mode = 'RNN_RELU'
+            else:
+                raise ValueError("Unknown nonlinearity '{}'".format(kwargs['nonlinearity']))
+            del kwargs['nonlinearity']
+        else:
+            mode = 'RNN_TANH'
+        super(RNN, self).__init__(mode, *args, **kwargs)
+
+
+class GRU(RNNBase):
+
+    def __init__(self, *args, **kwargs):
+        """
+
+        :param args:
+        :param kwargs:
+        """
+        super(GRU, self).__init__('GRU', *args, **kwargs)
+
+
+class LSTM(RNNBase):
+
+    def __init__(self, *args, **kwargs):
+        """
+
+        :param args:
+        :param kwargs:
+        """
+        super(LSTM, self).__init__('LSTM', *args, **kwargs)
 
 
 class Swish(nn.Module):
@@ -1080,44 +1266,18 @@ class LayerNorm(nn.LayerNorm):
             bias_init(self.bias.data)
 
 
-class Embedding(nn.Embedding):
+class BatchNorm1d(BatchNorm):
 
-    def __init__(self, num_embeddings, embedding_dim, padding_idx=None, max_norm=None, norm_type=2, scale_grad_by_freq=False, sparse=False, _weight=None, weight_init=None):
-        """
-
-        :param num_embeddings:
-        :param embedding_dim:
-        :param padding_idx:
-        :param max_norm:
-        :param norm_type:
-        :param scale_grad_by_freq:
-        :param sparse:
-        :param _weight:
-        :param weight_init:
-        """
-        super(Embedding, self).__init__(num_embeddings, embedding_dim, padding_idx, max_norm, norm_type, scale_grad_by_freq, sparse, _weight)
-        if weight_init is not None:
-            weight_init(self.weight.data)
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
 
 
-class BatchNorm(_BatchNorm):
+class BatchNorm3d(BatchNorm):
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, weight_init=None, bias_init=None):
-        """
-
-        :param num_features:
-        :param eps:
-        :param momentum:
-        :param affine:
-        :param track_running_stats:
-        :param weight_init:
-        :param bias_init:
-        """
-        super(BatchNorm, self).__init__(num_features, eps, momentum, affine, track_running_stats)
-        if weight_init is not None:
-            weight_init(self.weight.data)
-        if bias_init is not None:
-            bias_init(self.bias.data)
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)')
 
 
 import torch
@@ -1127,6 +1287,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (BatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (BatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (ConditionalBatchNorm2d,
+     lambda: ([], {'num_features': 4, 'num_class': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Conv1d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 64])], {}),
@@ -1179,6 +1351,34 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (GeneratorResBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (GlobalAvgPool1d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool3d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalMaxPool1d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (GlobalMaxPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalMaxPool3d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (Linear,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1195,6 +1395,18 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([], {}),
      False),
+    (RNN,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (ResGenerator,
+     lambda: ([], {'output_size': [4, 4]}),
+     lambda: ([torch.rand([100, 100])], {}),
+     False),
+    (ResProjectionDiscriminator,
+     lambda: ([], {'input_size': [4, 4]}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Reshape,
      lambda: ([], {'output_shape': 4}),
      lambda: ([torch.rand([4, 4])], {}),
@@ -1207,6 +1419,14 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (StandardGenerator,
+     lambda: ([], {'output_size': [4, 4]}),
+     lambda: ([torch.rand([4, 100, 1, 1])], {}),
+     False),
+    (StandardGeneratorBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4, 'padding': 4, 'stride': 1}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
     (StandardProjectionDiscriminator,
      lambda: ([], {'input_size': [4, 4]}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1297,4 +1517,49 @@ class Test_johnolafenwa_TorchFusion(_paritybench_base):
 
     def test_023(self):
         self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
+
+    def test_025(self):
+        self._check(*TESTCASES[25])
+
+    def test_026(self):
+        self._check(*TESTCASES[26])
+
+    def test_027(self):
+        self._check(*TESTCASES[27])
+
+    def test_028(self):
+        self._check(*TESTCASES[28])
+
+    def test_029(self):
+        self._check(*TESTCASES[29])
+
+    def test_030(self):
+        self._check(*TESTCASES[30])
+
+    def test_031(self):
+        self._check(*TESTCASES[31])
+
+    def test_032(self):
+        self._check(*TESTCASES[32])
+
+    def test_033(self):
+        self._check(*TESTCASES[33])
+
+    def test_034(self):
+        self._check(*TESTCASES[34])
+
+    def test_035(self):
+        self._check(*TESTCASES[35])
+
+    def test_036(self):
+        self._check(*TESTCASES[36])
+
+    def test_037(self):
+        self._check(*TESTCASES[37])
+
+    def test_038(self):
+        self._check(*TESTCASES[38])
 

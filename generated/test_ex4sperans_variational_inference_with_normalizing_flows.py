@@ -12,15 +12,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -37,20 +38,10 @@ from torch.nn import functional as F
 from torch.autograd import Variable
 
 
-class NormalizingFlow(nn.Module):
+from torch import optim
 
-    def __init__(self, dim, flow_length):
-        super().__init__()
-        self.transforms = nn.Sequential(*(PlanarFlow(dim) for _ in range(flow_length)))
-        self.log_jacobians = nn.Sequential(*(PlanarFlowLogDetJacobian(t) for t in self.transforms))
 
-    def forward(self, z):
-        log_jacobians = []
-        for transform, log_jacobian in zip(self.transforms, self.log_jacobians):
-            log_jacobians.append(log_jacobian(z))
-            z = transform(z)
-        zk = z
-        return zk, log_jacobians
+import numpy as np
 
 
 class PlanarFlow(nn.Module):
@@ -93,6 +84,22 @@ class PlanarFlowLogDetJacobian(nn.Module):
         psi = (1 - self.tanh(activation) ** 2) * self.weight
         det_grad = 1 + torch.mm(psi, self.scale.t())
         return safe_log(det_grad.abs())
+
+
+class NormalizingFlow(nn.Module):
+
+    def __init__(self, dim, flow_length):
+        super().__init__()
+        self.transforms = nn.Sequential(*(PlanarFlow(dim) for _ in range(flow_length)))
+        self.log_jacobians = nn.Sequential(*(PlanarFlowLogDetJacobian(t) for t in self.transforms))
+
+    def forward(self, z):
+        log_jacobians = []
+        for transform, log_jacobian in zip(self.transforms, self.log_jacobians):
+            log_jacobians.append(log_jacobian(z))
+            z = transform(z)
+        zk = z
+        return zk, log_jacobians
 
 
 class FreeEnergyBound(nn.Module):

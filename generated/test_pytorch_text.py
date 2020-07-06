@@ -51,32 +51,51 @@ metrics = _module
 pipeline = _module
 utils = _module
 datasets = _module
+babi = _module
 text_classification = _module
 unsupervised_learning = _module
 experimental = _module
+language_modeling = _module
 raw = _module
+text_classification = _module
+text_classification = _module
+functional = _module
+vocab = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import BuildExtension as TorchBuildExtension
+
+
+import torch
+
+
+import torchtext
 
 
 import logging
 
 
-import torch
+from torchtext.datasets import text_classification
 
 
 import time
@@ -97,19 +116,124 @@ from torchtext.utils import unicode_csv_reader
 import torch.nn as nn
 
 
-from torchtext.datasets import text_classification
+from torchtext.utils import download_from_url
+
+
+from torchtext.utils import extract_archive
+
+
+from torchtext.datasets.text_classification import URLS
+
+
+from torchtext.data.functional import generate_sp_model
+
+
+from torchtext.data.functional import load_sp_model
+
+
+from torchtext.data.functional import sentencepiece_numericalizer
 
 
 from torch.utils.data.dataset import random_split
 
 
+from torchtext.vocab import build_vocab_from_iterator
+
+
+import torchtext.data as data
+
+
+from torchtext.datasets import AG_NEWS
+
+
+from torch.testing import assert_allclose
+
+
 from collections import Counter
+
+
+from numpy.testing import assert_allclose
+
+
+from torchtext.data.functional import sentencepiece_tokenizer
+
+
+from torchtext.data.functional import custom_replace
+
+
+from torchtext.data.functional import simple_space_split
+
+
+from torchtext.data.metrics import bleu_score
+
+
+from torchtext.datasets import SNLI
+
+
+from torchtext.datasets import MultiNLI
+
+
+from torchtext.datasets import XNLI
+
+
+from torchtext.datasets.nli import ParsedTextField
+
+
+from torchtext.datasets.nli import ShiftReduceField
+
+
+from torchtext.data import Field
+
+
+from torchtext.data import LabelField
+
+
+from torchtext.data import Iterator
 
 
 import numpy as np
 
 
 import torchtext.data
+
+
+from torchtext import vocab
+
+
+from functools import partial
+
+
+import torch.utils.data
+
+
+from collections import OrderedDict
+
+
+from itertools import chain
+
+
+import re
+
+
+import math
+
+
+import random
+
+
+import collections
+
+
+from copy import deepcopy
+
+
+from torchtext.vocab import Vocab
+
+
+from torchtext.data.functional import numericalize_tokens_from_iterator
+
+
+from collections import defaultdict
 
 
 class TextSentiment(nn.Module):
@@ -135,4 +259,23 @@ class TextSentiment(nn.Module):
 
         """
         return self.fc(self.embedding(text, offsets))
+
+
+class ScriptableSP(torch.jit.ScriptModule):
+
+    def __init__(self, model_path):
+        super().__init__()
+        self.spm = load_sp_model(model_path)
+
+    @torch.jit.script_method
+    def encode(self, input: str):
+        return self.spm.Encode(input)
+
+    @torch.jit.script_method
+    def encode_as_ids(self, input: str):
+        return self.spm.EncodeAsIds(input)
+
+    @torch.jit.script_method
+    def encode_as_pieces(self, input: str):
+        return self.spm.EncodeAsPieces(input)
 

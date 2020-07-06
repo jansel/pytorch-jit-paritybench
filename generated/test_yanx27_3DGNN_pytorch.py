@@ -12,20 +12,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+from torch.utils.data import Dataset
+
+
+import numpy as np
+
+
 import torch
+
+
+from torch.autograd import Variable
 
 
 import torch.nn as nn
@@ -40,13 +50,7 @@ from torch.nn.modules.utils import _pair
 from torch.nn.modules.utils import _quadruple
 
 
-from torch.autograd import Variable
-
-
 import time
-
-
-import numpy as np
 
 
 import logging
@@ -364,18 +368,6 @@ class EnetGnn(nn.Module):
         h = h.view(N, H, W, C).permute(0, 3, 1, 2).contiguous()
         output = self.output_conv(torch.cat((cnn_encoder_output, h), 1))
         return output
-
-
-_global_config['DECODER_PARAMS'] = 4
-
-
-DECODER_PARAMS = config.DECODER_PARAMS
-
-
-_global_config['ENCODER_PARAMS'] = 4
-
-
-ENCODER_PARAMS = config.ENCODER_PARAMS
 
 
 class Model(nn.Module):

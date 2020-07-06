@@ -24,14 +24,17 @@ vid_eval = _module
 voc = _module
 voc_eval = _module
 list_dataset = _module
+vid = _module
 vid_dff = _module
 vid_fgfa = _module
 vid_mega = _module
 vid_rdn = _module
+voc = _module
 samplers = _module
 distributed = _module
 grouped_batch_sampler = _module
 iteration_based_batch_sampler = _module
+transforms = _module
 transforms = _module
 engine = _module
 bbox_aug = _module
@@ -52,6 +55,7 @@ roi_pool = _module
 sigmoid_focal_loss = _module
 smooth_l1_loss = _module
 modeling = _module
+backbone = _module
 backbone = _module
 embednet = _module
 fbnet = _module
@@ -98,11 +102,14 @@ anchor_generator = _module
 inference = _module
 loss = _module
 retinanet = _module
+inference = _module
 loss = _module
 retinanet = _module
 rpn = _module
 utils = _module
+utils = _module
 solver = _module
+build = _module
 lr_scheduler = _module
 structures = _module
 bounding_box = _module
@@ -146,29 +153,75 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import math
+import copy
+
+
+import logging
+
+
+import torch.utils.data
 
 
 import torch
+
+
+import numpy as np
+
+
+import torchvision
+
+
+from torch.utils.data.dataset import ConcatDataset as _ConcatDataset
+
+
+from collections import OrderedDict
+
+
+from copy import deepcopy
+
+
+from collections import defaultdict
+
+
+import math
 
 
 import torch.distributed as dist
 
 
 from torch.utils.data.sampler import Sampler
+
+
+import itertools
+
+
+from torch.utils.data.sampler import BatchSampler
+
+
+import random
+
+
+from torchvision.transforms import functional as F
+
+
+import torchvision.transforms as TT
+
+
+import time
 
 
 from torch import nn
@@ -189,16 +242,7 @@ import torch.nn as nn
 from torch.nn.modules.utils import _ntuple
 
 
-from collections import OrderedDict
-
-
 import torch.nn.functional as F
-
-
-import copy
-
-
-import logging
 
 
 from collections import namedtuple
@@ -207,13 +251,25 @@ from collections import namedtuple
 from collections import deque
 
 
-import time
-
-
 from torch.nn import functional as F
 
 
-import numpy as np
+from torch.utils.collect_env import get_pretty_env_info
+
+
+from torch.utils.cpp_extension import CUDA_HOME
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from torch.utils.data.sampler import SequentialSampler
+
+
+from torch.utils.data.sampler import RandomSampler
 
 
 class FrozenBatchNorm2d(nn.Module):
@@ -240,6 +296,23 @@ class FrozenBatchNorm2d(nn.Module):
         scale = scale.reshape(1, -1, 1, 1)
         bias = bias.reshape(1, -1, 1, 1)
         return x * scale + bias
+
+
+def _load_C_extensions():
+    this_dir = os.path.dirname(os.path.abspath(__file__))
+    this_dir = os.path.dirname(this_dir)
+    this_dir = os.path.join(this_dir, 'csrc')
+    main_file = glob.glob(os.path.join(this_dir, '*.cpp'))
+    source_cpu = glob.glob(os.path.join(this_dir, 'cpu', '*.cpp'))
+    source_cuda = glob.glob(os.path.join(this_dir, 'cuda', '*.cu'))
+    source = main_file + source_cpu
+    extra_cflags = []
+    if torch.cuda.is_available() and CUDA_HOME is not None:
+        source.extend(source_cuda)
+        extra_cflags = ['-DWITH_CUDA']
+    source = [os.path.join(this_dir, s) for s in source]
+    extra_include_paths = [this_dir]
+    return load_ext('torchvision', source, extra_cflags=extra_cflags, extra_include_paths=extra_include_paths)
 
 
 class DeformConvFunction(Function):
@@ -422,6 +495,25 @@ class ModulatedDeformConv(nn.Module):
         return ''.join(['{}('.format(self.__class__.__name__), 'in_channels={}, '.format(self.in_channels), 'out_channels={}, '.format(self.out_channels), 'kernel_size={}, '.format(self.kernel_size), 'stride={}, '.format(self.stride), 'dilation={}, '.format(self.dilation), 'padding={}, '.format(self.padding), 'groups={}, '.format(self.groups), 'deformable_groups={}, '.format(self.deformable_groups), 'bias={})'.format(self.with_bias)])
 
 
+class ModulatedDeformConvPack(ModulatedDeformConv):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, bias=True):
+        super(ModulatedDeformConvPack, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, deformable_groups, bias)
+        self.conv_offset_mask = nn.Conv2d(self.in_channels // self.groups, self.deformable_groups * 3 * self.kernel_size[0] * self.kernel_size[1], kernel_size=self.kernel_size, stride=_pair(self.stride), padding=_pair(self.padding), bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset_mask.weight.data.zero_()
+        self.conv_offset_mask.bias.data.zero_()
+
+    def forward(self, input):
+        out = self.conv_offset_mask(input)
+        o1, o2, mask = torch.chunk(out, 3, dim=1)
+        offset = torch.cat((o1, o2), dim=1)
+        mask = torch.sigmoid(mask)
+        return modulated_deform_conv(input, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
+
+
 class DeformRoIPoolingFunction(Function):
 
     @staticmethod
@@ -480,6 +572,59 @@ class DeformRoIPooling(nn.Module):
         if self.no_trans:
             offset = data.new_empty(0)
         return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+
+
+class DeformRoIPoolingPack(DeformRoIPooling):
+
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, deform_fc_channels=1024):
+        super(DeformRoIPoolingPack, self).__init__(spatial_scale, out_size, out_channels, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.deform_fc_channels = deform_fc_channels
+        if not no_trans:
+            self.offset_fc = nn.Sequential(nn.Linear(self.out_size * self.out_size * self.out_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.out_size * self.out_size * 2))
+            self.offset_fc[-1].weight.data.zero_()
+            self.offset_fc[-1].bias.data.zero_()
+
+    def forward(self, data, rois):
+        assert data.size(1) == self.out_channels
+        if self.no_trans:
+            offset = data.new_empty(0)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+        else:
+            n = rois.shape[0]
+            offset = data.new_empty(0)
+            x = deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset = self.offset_fc(x.view(n, -1))
+            offset = offset.view(n, 2, self.out_size, self.out_size)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+
+
+class ModulatedDeformRoIPoolingPack(DeformRoIPooling):
+
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, deform_fc_channels=1024):
+        super(ModulatedDeformRoIPoolingPack, self).__init__(spatial_scale, out_size, out_channels, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.deform_fc_channels = deform_fc_channels
+        if not no_trans:
+            self.offset_fc = nn.Sequential(nn.Linear(self.out_size * self.out_size * self.out_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.out_size * self.out_size * 2))
+            self.offset_fc[-1].weight.data.zero_()
+            self.offset_fc[-1].bias.data.zero_()
+            self.mask_fc = nn.Sequential(nn.Linear(self.out_size * self.out_size * self.out_channels, self.deform_fc_channels), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_channels, self.out_size * self.out_size * 1), nn.Sigmoid())
+            self.mask_fc[2].weight.data.zero_()
+            self.mask_fc[2].bias.data.zero_()
+
+    def forward(self, data, rois):
+        assert data.size(1) == self.out_channels
+        if self.no_trans:
+            offset = data.new_empty(0)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+        else:
+            n = rois.shape[0]
+            offset = data.new_empty(0)
+            x = deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset = self.offset_fc(x.view(n, -1))
+            offset = offset.view(n, 2, self.out_size, self.out_size)
+            mask = self.mask_fc(x.view(n, -1))
+            mask = mask.view(n, 1, self.out_size, self.out_size)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std) * mask
 
 
 class _NewEmptyTensorOp(torch.autograd.Function):
@@ -798,6 +943,35 @@ class FBNetROIHead(nn.Module):
         return x
 
 
+class ConvBNRelu(nn.Sequential):
+
+    def __init__(self, input_depth, output_depth, kernel, stride, pad, no_bias, use_relu, bn_type, group=1, *args, **kwargs):
+        super(ConvBNRelu, self).__init__()
+        assert use_relu in ['relu', None]
+        if isinstance(bn_type, (list, tuple)):
+            assert len(bn_type) == 2
+            assert bn_type[0] == 'gn'
+            gn_group = bn_type[1]
+            bn_type = bn_type[0]
+        assert bn_type in ['bn', 'af', 'gn', None]
+        assert stride in [1, 2, 4]
+        op = Conv2d(input_depth, output_depth, *args, kernel_size=kernel, stride=stride, padding=pad, bias=not no_bias, groups=group, **kwargs)
+        nn.init.kaiming_normal_(op.weight, mode='fan_out', nonlinearity='relu')
+        if op.bias is not None:
+            nn.init.constant_(op.bias, 0.0)
+        self.add_module('conv', op)
+        if bn_type == 'bn':
+            bn_op = BatchNorm2d(output_depth)
+        elif bn_type == 'gn':
+            bn_op = nn.GroupNorm(num_groups=gn_group, num_channels=output_depth)
+        elif bn_type == 'af':
+            bn_op = FrozenBatchNorm2d(output_depth)
+        if bn_type is not None:
+            self.add_module('bn', bn_op)
+        if use_relu == 'relu':
+            self.add_module('relu', nn.ReLU(inplace=True))
+
+
 class Identity(nn.Module):
 
     def __init__(self, C_in, C_out, stride):
@@ -899,35 +1073,6 @@ class ChannelShuffle(nn.Module):
         g = self.groups
         assert C % g == 0, 'Incompatible group size {} for input channel {}'.format(g, C)
         return x.view(N, g, int(C / g), H, W).permute(0, 2, 1, 3, 4).contiguous().view(N, C, H, W)
-
-
-class ConvBNRelu(nn.Sequential):
-
-    def __init__(self, input_depth, output_depth, kernel, stride, pad, no_bias, use_relu, bn_type, group=1, *args, **kwargs):
-        super(ConvBNRelu, self).__init__()
-        assert use_relu in ['relu', None]
-        if isinstance(bn_type, (list, tuple)):
-            assert len(bn_type) == 2
-            assert bn_type[0] == 'gn'
-            gn_group = bn_type[1]
-            bn_type = bn_type[0]
-        assert bn_type in ['bn', 'af', 'gn', None]
-        assert stride in [1, 2, 4]
-        op = Conv2d(input_depth, output_depth, *args, kernel_size=kernel, stride=stride, padding=pad, bias=not no_bias, groups=group, **kwargs)
-        nn.init.kaiming_normal_(op.weight, mode='fan_out', nonlinearity='relu')
-        if op.bias is not None:
-            nn.init.constant_(op.bias, 0.0)
-        self.add_module('conv', op)
-        if bn_type == 'bn':
-            bn_op = BatchNorm2d(output_depth)
-        elif bn_type == 'gn':
-            bn_op = nn.GroupNorm(num_groups=gn_group, num_channels=output_depth)
-        elif bn_type == 'af':
-            bn_op = FrozenBatchNorm2d(output_depth)
-        if bn_type is not None:
-            self.add_module('bn', bn_op)
-        if use_relu == 'relu':
-            self.add_module('relu', nn.ReLU(inplace=True))
 
 
 class SEModule(nn.Module):
@@ -1131,6 +1276,33 @@ class FlowNetS(nn.Module):
             return Convolution5 * 2.5
 
 
+class LastLevelMaxPool(nn.Module):
+
+    def forward(self, x):
+        return [F.max_pool2d(x, 1, 2, 0)]
+
+
+class LastLevelP6P7(nn.Module):
+    """
+    This module is used in RetinaNet to generate extra layers, P6 and P7.
+    """
+
+    def __init__(self, in_channels, out_channels):
+        super(LastLevelP6P7, self).__init__()
+        self.p6 = nn.Conv2d(in_channels, out_channels, 3, 2, 1)
+        self.p7 = nn.Conv2d(out_channels, out_channels, 3, 2, 1)
+        for module in [self.p6, self.p7]:
+            nn.init.kaiming_uniform_(module.weight, a=1)
+            nn.init.constant_(module.bias, 0)
+        self.use_P5 = in_channels == out_channels
+
+    def forward(self, c5, p5):
+        x = p5 if self.use_P5 else c5
+        p6 = self.p6(x)
+        p7 = self.p7(F.relu(p6))
+        return [p6, p7]
+
+
 class FPN(nn.Module):
     """
     Module that adds FPN on top of a list of feature maps.
@@ -1189,33 +1361,6 @@ class FPN(nn.Module):
             last_results = self.top_blocks(results[-1])
             results.extend(last_results)
         return tuple(results)
-
-
-class LastLevelMaxPool(nn.Module):
-
-    def forward(self, x):
-        return [F.max_pool2d(x, 1, 2, 0)]
-
-
-class LastLevelP6P7(nn.Module):
-    """
-    This module is used in RetinaNet to generate extra layers, P6 and P7.
-    """
-
-    def __init__(self, in_channels, out_channels):
-        super(LastLevelP6P7, self).__init__()
-        self.p6 = nn.Conv2d(in_channels, out_channels, 3, 2, 1)
-        self.p7 = nn.Conv2d(out_channels, out_channels, 3, 2, 1)
-        for module in [self.p6, self.p7]:
-            nn.init.kaiming_uniform_(module.weight, a=1)
-            nn.init.constant_(module.bias, 0)
-        self.use_P5 = in_channels == out_channels
-
-    def forward(self, c5, p5):
-        x = p5 if self.use_P5 else c5
-        p6 = self.p6(x)
-        p7 = self.p7(F.relu(p6))
-        return [p6, p7]
 
 
 def _register_generic(module_dict, module_name, module):
@@ -1287,6 +1432,30 @@ ResNet50StagesTo5 = tuple(StageSpec(index=i, block_count=c, return_features=r) f
 _STAGE_SPECS = Registry({'R-50-C4': ResNet50StagesTo4, 'R-50-C5': ResNet50StagesTo5, 'R-101-C4': ResNet101StagesTo4, 'R-101-C5': ResNet101StagesTo5, 'R-50-FPN': ResNet50FPNStagesTo5, 'R-50-FPN-RETINANET': ResNet50FPNStagesTo5, 'R-101-FPN': ResNet101FPNStagesTo5, 'R-101-FPN-RETINANET': ResNet101FPNStagesTo5, 'R-152-FPN': ResNet152FPNStagesTo5})
 
 
+class BaseStem(nn.Module):
+
+    def __init__(self, cfg, norm_func):
+        super(BaseStem, self).__init__()
+        out_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
+        self.conv1 = Conv2d(3, out_channels, kernel_size=7, stride=2, padding=3, bias=False)
+        self.bn1 = norm_func(out_channels)
+        for l in [self.conv1]:
+            nn.init.kaiming_uniform_(l.weight, a=1)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = F.relu_(x)
+        x = F.max_pool2d(x, kernel_size=3, stride=2, padding=1)
+        return x
+
+
+class StemWithFixedBatchNorm(BaseStem):
+
+    def __init__(self, cfg):
+        super(StemWithFixedBatchNorm, self).__init__(cfg, norm_func=FrozenBatchNorm2d)
+
+
 def get_group_gn(dim, dim_per_gp, num_groups):
     """get number of groups used by GroupNorm, based on number of channels."""
     assert dim_per_gp == -1 or num_groups == -1, 'GroupNorm: can only specify G or C/G.'
@@ -1299,15 +1468,84 @@ def get_group_gn(dim, dim_per_gp, num_groups):
     return group_gn
 
 
-_global_config['MODEL'] = 4
-
-
 def group_norm(out_channels, affine=True, divisor=1):
     out_channels = out_channels // divisor
     dim_per_gp = cfg.MODEL.GROUP_NORM.DIM_PER_GP // divisor
     num_groups = cfg.MODEL.GROUP_NORM.NUM_GROUPS // divisor
     eps = cfg.MODEL.GROUP_NORM.EPSILON
     return torch.nn.GroupNorm(get_group_gn(out_channels, dim_per_gp, num_groups), out_channels, eps, affine)
+
+
+class StemWithGN(BaseStem):
+
+    def __init__(self, cfg):
+        super(StemWithGN, self).__init__(cfg, norm_func=group_norm)
+
+
+_STEM_MODULES = Registry({'StemWithFixedBatchNorm': StemWithFixedBatchNorm, 'StemWithGN': StemWithGN})
+
+
+class Bottleneck(nn.Module):
+
+    def __init__(self, in_channels, bottleneck_channels, out_channels, num_groups, stride_in_1x1, stride, dilation, norm_func, dcn_config):
+        super(Bottleneck, self).__init__()
+        self.downsample = None
+        if in_channels != out_channels:
+            down_stride = stride if dilation == 1 else 1
+            self.downsample = nn.Sequential(Conv2d(in_channels, out_channels, kernel_size=1, stride=down_stride, bias=False), norm_func(out_channels))
+            for modules in [self.downsample]:
+                for l in modules.modules():
+                    if isinstance(l, Conv2d):
+                        nn.init.kaiming_uniform_(l.weight, a=1)
+        if dilation > 1:
+            stride = 1
+        stride_1x1, stride_3x3 = (stride, 1) if stride_in_1x1 else (1, stride)
+        self.conv1 = Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=stride_1x1, bias=False)
+        self.bn1 = norm_func(bottleneck_channels)
+        with_dcn = dcn_config.get('stage_with_dcn', False)
+        if with_dcn:
+            deformable_groups = dcn_config.get('deformable_groups', 1)
+            with_modulated_dcn = dcn_config.get('with_modulated_dcn', False)
+            self.conv2 = DFConv2d(bottleneck_channels, bottleneck_channels, with_modulated_dcn=with_modulated_dcn, kernel_size=3, stride=stride_3x3, groups=num_groups, dilation=dilation, deformable_groups=deformable_groups, bias=False)
+        else:
+            self.conv2 = Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride_3x3, padding=dilation, bias=False, groups=num_groups, dilation=dilation)
+            nn.init.kaiming_uniform_(self.conv2.weight, a=1)
+        self.bn2 = norm_func(bottleneck_channels)
+        self.conv3 = Conv2d(bottleneck_channels, out_channels, kernel_size=1, bias=False)
+        self.bn3 = norm_func(out_channels)
+        for l in [self.conv1, self.conv3]:
+            nn.init.kaiming_uniform_(l.weight, a=1)
+
+    def forward(self, x):
+        identity = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = F.relu_(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = F.relu_(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            identity = self.downsample(x)
+        out += identity
+        out = F.relu_(out)
+        return out
+
+
+class BottleneckWithFixedBatchNorm(Bottleneck):
+
+    def __init__(self, in_channels, bottleneck_channels, out_channels, num_groups=1, stride_in_1x1=True, stride=1, dilation=1, dcn_config={}):
+        super(BottleneckWithFixedBatchNorm, self).__init__(in_channels=in_channels, bottleneck_channels=bottleneck_channels, out_channels=out_channels, num_groups=num_groups, stride_in_1x1=stride_in_1x1, stride=stride, dilation=dilation, norm_func=FrozenBatchNorm2d, dcn_config=dcn_config)
+
+
+class BottleneckWithGN(Bottleneck):
+
+    def __init__(self, in_channels, bottleneck_channels, out_channels, num_groups=1, stride_in_1x1=True, stride=1, dilation=1, dcn_config={}):
+        super(BottleneckWithGN, self).__init__(in_channels=in_channels, bottleneck_channels=bottleneck_channels, out_channels=out_channels, num_groups=num_groups, stride_in_1x1=stride_in_1x1, stride=stride, dilation=dilation, norm_func=group_norm, dcn_config=dcn_config)
+
+
+_TRANSFORMATION_MODULES = Registry({'BottleneckWithFixedBatchNorm': BottleneckWithFixedBatchNorm, 'BottleneckWithGN': BottleneckWithGN})
 
 
 def _make_stage(transformation_module, in_channels, bottleneck_channels, out_channels, block_count, num_groups, stride_in_1x1, first_stride, dilation=1, dcn_config={}):
@@ -1397,110 +1635,99 @@ class ResNetHead(nn.Module):
         return x
 
 
-class Bottleneck(nn.Module):
-
-    def __init__(self, in_channels, bottleneck_channels, out_channels, num_groups, stride_in_1x1, stride, dilation, norm_func, dcn_config):
-        super(Bottleneck, self).__init__()
-        self.downsample = None
-        if in_channels != out_channels:
-            down_stride = stride if dilation == 1 else 1
-            self.downsample = nn.Sequential(Conv2d(in_channels, out_channels, kernel_size=1, stride=down_stride, bias=False), norm_func(out_channels))
-            for modules in [self.downsample]:
-                for l in modules.modules():
-                    if isinstance(l, Conv2d):
-                        nn.init.kaiming_uniform_(l.weight, a=1)
-        if dilation > 1:
-            stride = 1
-        stride_1x1, stride_3x3 = (stride, 1) if stride_in_1x1 else (1, stride)
-        self.conv1 = Conv2d(in_channels, bottleneck_channels, kernel_size=1, stride=stride_1x1, bias=False)
-        self.bn1 = norm_func(bottleneck_channels)
-        with_dcn = dcn_config.get('stage_with_dcn', False)
-        if with_dcn:
-            deformable_groups = dcn_config.get('deformable_groups', 1)
-            with_modulated_dcn = dcn_config.get('with_modulated_dcn', False)
-            self.conv2 = DFConv2d(bottleneck_channels, bottleneck_channels, with_modulated_dcn=with_modulated_dcn, kernel_size=3, stride=stride_3x3, groups=num_groups, dilation=dilation, deformable_groups=deformable_groups, bias=False)
-        else:
-            self.conv2 = Conv2d(bottleneck_channels, bottleneck_channels, kernel_size=3, stride=stride_3x3, padding=dilation, bias=False, groups=num_groups, dilation=dilation)
-            nn.init.kaiming_uniform_(self.conv2.weight, a=1)
-        self.bn2 = norm_func(bottleneck_channels)
-        self.conv3 = Conv2d(bottleneck_channels, out_channels, kernel_size=1, bias=False)
-        self.bn3 = norm_func(out_channels)
-        for l in [self.conv1, self.conv3]:
-            nn.init.kaiming_uniform_(l.weight, a=1)
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = F.relu_(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = F.relu_(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = F.relu_(out)
-        return out
-
-
-class BaseStem(nn.Module):
-
-    def __init__(self, cfg, norm_func):
-        super(BaseStem, self).__init__()
-        out_channels = cfg.MODEL.RESNETS.STEM_OUT_CHANNELS
-        self.conv1 = Conv2d(3, out_channels, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = norm_func(out_channels)
-        for l in [self.conv1]:
-            nn.init.kaiming_uniform_(l.weight, a=1)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = F.relu_(x)
-        x = F.max_pool2d(x, kernel_size=3, stride=2, padding=1)
-        return x
-
-
 def build_backbone(cfg):
     assert cfg.MODEL.BACKBONE.CONV_BODY in registry.BACKBONES, 'cfg.MODEL.BACKBONE.CONV_BODY: {} are not registered in registry'.format(cfg.MODEL.BACKBONE.CONV_BODY)
     return registry.BACKBONES[cfg.MODEL.BACKBONE.CONV_BODY](cfg)
 
 
-def build_roi_box_head(cfg, in_channels):
+class CombinedROIHeads(torch.nn.ModuleDict):
     """
-    Constructs a new box head.
-    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
-    and make it a parameter in the config
+    Combines a set of individual heads (for box prediction or masks) into a single
+    head.
     """
-    if cfg.MODEL.VID.ENABLE:
-        if cfg.MODEL.VID.METHOD in ('rdn', 'mega'):
-            return ROIAttentionBoxHead(cfg, in_channels)
-    return ROIBoxHead(cfg, in_channels)
+
+    def __init__(self, cfg, heads):
+        super(CombinedROIHeads, self).__init__(heads)
+        self.cfg = cfg.clone()
+        if cfg.MODEL.MASK_ON and cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+            self.mask.feature_extractor = self.box.feature_extractor
+        if cfg.MODEL.KEYPOINT_ON and cfg.MODEL.ROI_KEYPOINT_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+            self.keypoint.feature_extractor = self.box.feature_extractor
+
+    def forward(self, features, proposals, targets=None):
+        losses = {}
+        x, detections, loss_box = self.box(features, proposals, targets)
+        losses.update(loss_box)
+        if self.cfg.MODEL.MASK_ON:
+            mask_features = features
+            if self.training and self.cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+                mask_features = x
+            x, detections, loss_mask = self.mask(mask_features, detections, targets)
+            losses.update(loss_mask)
+        if self.cfg.MODEL.KEYPOINT_ON:
+            keypoint_features = features
+            if self.training and self.cfg.MODEL.ROI_KEYPOINT_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+                keypoint_features = x
+            x, detections, loss_keypoint = self.keypoint(keypoint_features, detections, targets)
+            losses.update(loss_keypoint)
+        return x, detections, losses
 
 
-def build_roi_keypoint_head(cfg, in_channels):
-    return ROIKeypointHead(cfg, in_channels)
+def make_roi_box_feature_extractor(cfg, in_channels):
+    func = registry.ROI_BOX_FEATURE_EXTRACTORS[cfg.MODEL.ROI_BOX_HEAD.FEATURE_EXTRACTOR]
+    return func(cfg, in_channels)
 
 
-def build_roi_mask_head(cfg, in_channels):
-    return ROIMaskHead(cfg, in_channels)
+class BalancedPositiveNegativeSampler(object):
+    """
+    This class samples batches, ensuring that they contain a fixed proportion of positives
+    """
 
+    def __init__(self, batch_size_per_image, positive_fraction):
+        """
+        Arguments:
+            batch_size_per_image (int): number of elements to be selected per image
+            positive_fraction (float): percentage of positive elements per batch
+        """
+        self.batch_size_per_image = batch_size_per_image
+        self.positive_fraction = positive_fraction
 
-def build_roi_heads(cfg, in_channels):
-    roi_heads = []
-    if cfg.MODEL.RETINANET_ON:
-        return []
-    if not cfg.MODEL.RPN_ONLY:
-        roi_heads.append(('box', build_roi_box_head(cfg, in_channels)))
-    if cfg.MODEL.MASK_ON:
-        roi_heads.append(('mask', build_roi_mask_head(cfg, in_channels)))
-    if cfg.MODEL.KEYPOINT_ON:
-        roi_heads.append(('keypoint', build_roi_keypoint_head(cfg, in_channels)))
-    if roi_heads:
-        roi_heads = CombinedROIHeads(cfg, roi_heads)
-    return roi_heads
+    def __call__(self, matched_idxs):
+        """
+        Arguments:
+            matched idxs: list of tensors containing -1, 0 or positive values.
+                Each tensor corresponds to a specific image.
+                -1 values are ignored, 0 are considered as negatives and > 0 as
+                positives.
+
+        Returns:
+            pos_idx (list[tensor])
+            neg_idx (list[tensor])
+
+        Returns two lists of binary masks for each image.
+        The first list contains the positive elements that were selected,
+        and the second list the negative example.
+        """
+        pos_idx = []
+        neg_idx = []
+        for matched_idxs_per_image in matched_idxs:
+            positive = torch.nonzero(matched_idxs_per_image >= 1).squeeze(1)
+            negative = torch.nonzero(matched_idxs_per_image == 0).squeeze(1)
+            num_pos = int(self.batch_size_per_image * self.positive_fraction)
+            num_pos = min(positive.numel(), num_pos)
+            num_neg = self.batch_size_per_image - num_pos
+            num_neg = min(negative.numel(), num_neg)
+            perm1 = torch.randperm(positive.numel(), device=positive.device)[:num_pos]
+            perm2 = torch.randperm(negative.numel(), device=negative.device)[:num_neg]
+            pos_idx_per_image = positive[perm1]
+            neg_idx_per_image = negative[perm2]
+            pos_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image, dtype=torch.bool)
+            neg_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image, dtype=torch.bool)
+            pos_idx_per_image_mask[pos_idx_per_image] = 1
+            neg_idx_per_image_mask[neg_idx_per_image] = 1
+            pos_idx.append(pos_idx_per_image_mask)
+            neg_idx.append(neg_idx_per_image_mask)
+        return pos_idx, neg_idx
 
 
 class BoxCoder(object):
@@ -1553,7 +1780,7 @@ class BoxCoder(object):
             rel_codes (Tensor): encoded boxes
             boxes (Tensor): reference boxes.
         """
-        boxes = boxes.to(rel_codes.dtype)
+        boxes = boxes
         TO_REMOVE = 1
         widths = boxes[:, (2)] - boxes[:, (0)] + TO_REMOVE
         heights = boxes[:, (3)] - boxes[:, (1)] + TO_REMOVE
@@ -1578,6 +1805,1813 @@ class BoxCoder(object):
         return pred_boxes
 
 
+class Matcher(object):
+    """
+    This class assigns to each predicted "element" (e.g., a box) a ground-truth
+    element. Each predicted element will have exactly zero or one matches; each
+    ground-truth element may be assigned to zero or more predicted elements.
+
+    Matching is based on the MxN match_quality_matrix, that characterizes how well
+    each (ground-truth, predicted)-pair match. For example, if the elements are
+    boxes, the matrix may contain box IoU overlap values.
+
+    The matcher returns a tensor of size N containing the index of the ground-truth
+    element m that matches to prediction n. If there is no match, a negative value
+    is returned.
+    """
+    BELOW_LOW_THRESHOLD = -1
+    BETWEEN_THRESHOLDS = -2
+
+    def __init__(self, high_threshold, low_threshold, allow_low_quality_matches=False):
+        """
+        Args:
+            high_threshold (float): quality values greater than or equal to
+                this value are candidate matches.
+            low_threshold (float): a lower quality threshold used to stratify
+                matches into three levels:
+                1) matches >= high_threshold
+                2) BETWEEN_THRESHOLDS matches in [low_threshold, high_threshold)
+                3) BELOW_LOW_THRESHOLD matches in [0, low_threshold)
+            allow_low_quality_matches (bool): if True, produce additional matches
+                for predictions that have only low-quality match candidates. See
+                set_low_quality_matches_ for more details.
+        """
+        assert low_threshold <= high_threshold
+        self.high_threshold = high_threshold
+        self.low_threshold = low_threshold
+        self.allow_low_quality_matches = allow_low_quality_matches
+
+    def __call__(self, match_quality_matrix):
+        """
+        Args:
+            match_quality_matrix (Tensor[float]): an MxN tensor, containing the
+            pairwise quality between M ground-truth elements and N predicted elements.
+
+        Returns:
+            matches (Tensor[int64]): an N tensor where N[i] is a matched gt in
+            [0, M - 1] or a negative value indicating that prediction i could not
+            be matched.
+        """
+        if match_quality_matrix.numel() == 0:
+            if match_quality_matrix.shape[0] == 0:
+                raise ValueError('No ground-truth boxes available for one of the images during training')
+            else:
+                raise ValueError('No proposal boxes available for one of the images during training')
+        matched_vals, matches = match_quality_matrix.max(dim=0)
+        if self.allow_low_quality_matches:
+            all_matches = matches.clone()
+        below_low_threshold = matched_vals < self.low_threshold
+        between_thresholds = (matched_vals >= self.low_threshold) & (matched_vals < self.high_threshold)
+        matches[below_low_threshold] = Matcher.BELOW_LOW_THRESHOLD
+        matches[between_thresholds] = Matcher.BETWEEN_THRESHOLDS
+        if self.allow_low_quality_matches:
+            self.set_low_quality_matches_(matches, all_matches, match_quality_matrix)
+        return matches
+
+    def set_low_quality_matches_(self, matches, all_matches, match_quality_matrix):
+        """
+        Produce additional matches for predictions that have only low-quality matches.
+        Specifically, for each ground-truth find the set of predictions that have
+        maximum overlap with it (including ties); for each prediction in that set, if
+        it is unmatched, then match it to the ground-truth with which it has the highest
+        quality value.
+        """
+        highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
+        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, (None)])
+        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
+        matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
+
+
+def boxlist_iou(boxlist1, boxlist2):
+    """Compute the intersection over union of two set of boxes.
+    The box order must be (xmin, ymin, xmax, ymax).
+
+    Arguments:
+      box1: (BoxList) bounding boxes, sized [N,4].
+      box2: (BoxList) bounding boxes, sized [M,4].
+
+    Returns:
+      (tensor) iou, sized [N,M].
+
+    Reference:
+      https://github.com/chainer/chainercv/blob/master/chainercv/utils/bbox/bbox_iou.py
+    """
+    if boxlist1.size != boxlist2.size:
+        raise RuntimeError('boxlists should have same image size, got {}, {}'.format(boxlist1, boxlist2))
+    boxlist1 = boxlist1.convert('xyxy')
+    boxlist2 = boxlist2.convert('xyxy')
+    N = len(boxlist1)
+    M = len(boxlist2)
+    area1 = boxlist1.area()
+    area2 = boxlist2.area()
+    box1, box2 = boxlist1.bbox, boxlist2.bbox
+    lt = torch.max(box1[:, (None), :2], box2[:, :2])
+    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
+    TO_REMOVE = 1
+    wh = (rb - lt + TO_REMOVE).clamp(min=0)
+    inter = wh[:, :, (0)] * wh[:, :, (1)]
+    iou = inter / (area1[:, (None)] + area2 - inter)
+    return iou
+
+
+def cat(tensors, dim=0):
+    """
+    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
+    """
+    assert isinstance(tensors, (list, tuple))
+    if len(tensors) == 1:
+        return tensors[0]
+    return torch.cat(tensors, dim)
+
+
+def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
+    """
+    very similar to the smooth_l1_loss from pytorch, but with
+    the extra beta parameter
+    """
+    n = torch.abs(input - target)
+    cond = n < beta
+    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
+    if size_average:
+        return loss.mean()
+    return loss.sum()
+
+
+class FastRCNNLossComputation(object):
+    """
+    Computes the loss for Faster R-CNN.
+    Also supports FPN
+    """
+
+    def __init__(self, proposal_matcher, fg_bg_sampler, box_coder, cls_agnostic_bbox_reg=False):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            fg_bg_sampler (BalancedPositiveNegativeSampler)
+            box_coder (BoxCoder)
+        """
+        self.proposal_matcher = proposal_matcher
+        self.fg_bg_sampler = fg_bg_sampler
+        self.box_coder = box_coder
+        self.cls_agnostic_bbox_reg = cls_agnostic_bbox_reg
+
+    def match_targets_to_proposals(self, proposal, target):
+        match_quality_matrix = boxlist_iou(target, proposal)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields('labels')
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, proposals, targets):
+        labels = []
+        regression_targets = []
+        for proposals_per_image, targets_per_image in zip(proposals, targets):
+            matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = matched_targets.get_field('labels')
+            labels_per_image = labels_per_image
+            bg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[bg_inds] = 0
+            ignore_inds = matched_idxs == Matcher.BETWEEN_THRESHOLDS
+            labels_per_image[ignore_inds] = -1
+            regression_targets_per_image = self.box_coder.encode(matched_targets.bbox, proposals_per_image.bbox)
+            labels.append(labels_per_image)
+            regression_targets.append(regression_targets_per_image)
+        return labels, regression_targets
+
+    def subsample(self, proposals, targets):
+        """
+        This method performs the positive/negative sampling, and return
+        the sampled proposals.
+        Note: this function keeps a state.
+
+        Arguments:
+            proposals (list[BoxList])
+            targets (list[BoxList])
+        """
+        labels, regression_targets = self.prepare_targets(proposals, targets)
+        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
+        proposals = list(proposals)
+        for labels_per_image, regression_targets_per_image, proposals_per_image in zip(labels, regression_targets, proposals):
+            proposals_per_image.add_field('labels', labels_per_image)
+            proposals_per_image.add_field('regression_targets', regression_targets_per_image)
+        for img_idx, (pos_inds_img, neg_inds_img) in enumerate(zip(sampled_pos_inds, sampled_neg_inds)):
+            img_sampled_inds = torch.nonzero(pos_inds_img | neg_inds_img).squeeze(1)
+            proposals_per_image = proposals[img_idx][img_sampled_inds]
+            proposals[img_idx] = proposals_per_image
+        self._proposals = proposals
+        return proposals
+
+    def __call__(self, class_logits, box_regression):
+        """
+        Computes the loss for Faster R-CNN.
+        This requires that the subsample method has been called beforehand.
+
+        Arguments:
+            class_logits (list[Tensor])
+            box_regression (list[Tensor])
+
+        Returns:
+            classification_loss (Tensor)
+            box_loss (Tensor)
+        """
+        class_logits = cat(class_logits, dim=0)
+        box_regression = cat(box_regression, dim=0)
+        device = class_logits.device
+        if not hasattr(self, '_proposals'):
+            raise RuntimeError('subsample needs to be called before')
+        proposals = self._proposals
+        labels = cat([proposal.get_field('labels') for proposal in proposals], dim=0)
+        regression_targets = cat([proposal.get_field('regression_targets') for proposal in proposals], dim=0)
+        classification_loss = F.cross_entropy(class_logits, labels)
+        sampled_pos_inds_subset = torch.nonzero(labels > 0).squeeze(1)
+        labels_pos = labels[sampled_pos_inds_subset]
+        if self.cls_agnostic_bbox_reg:
+            map_inds = torch.tensor([4, 5, 6, 7], device=device)
+        else:
+            map_inds = 4 * labels_pos[:, (None)] + torch.tensor([0, 1, 2, 3], device=device)
+        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds_subset[:, (None)], map_inds], regression_targets[sampled_pos_inds_subset], size_average=False, beta=1)
+        box_loss = box_loss / labels.numel()
+        return classification_loss, box_loss
+
+
+def make_roi_box_loss_evaluator(cfg):
+    matcher = Matcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
+    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    box_coder = BoxCoder(weights=bbox_reg_weights)
+    fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE, cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION)
+    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
+    loss_evaluator = FastRCNNLossComputation(matcher, fg_bg_sampler, box_coder, cls_agnostic_bbox_reg)
+    return loss_evaluator
+
+
+FLIP_LEFT_RIGHT = 0
+
+
+FLIP_TOP_BOTTOM = 1
+
+
+class BoxList(object):
+    """
+    This class represents a set of bounding boxes.
+    The bounding boxes are represented as a Nx4 Tensor.
+    In order to uniquely determine the bounding boxes with respect
+    to an image, we also store the corresponding image dimensions.
+    They can contain extra information that is specific to each bounding box, such as
+    labels.
+    """
+
+    def __init__(self, bbox, image_size, mode='xyxy'):
+        device = bbox.device if isinstance(bbox, torch.Tensor) else torch.device('cpu')
+        bbox = torch.as_tensor(bbox, dtype=torch.float32, device=device)
+        if bbox.ndimension() != 2:
+            raise ValueError('bbox should have 2 dimensions, got {}'.format(bbox.ndimension()))
+        if bbox.size(-1) != 4:
+            raise ValueError('last dimension of bbox should have a size of 4, got {}'.format(bbox.size(-1)))
+        if mode not in ('xyxy', 'xywh'):
+            raise ValueError("mode should be 'xyxy' or 'xywh'")
+        self.bbox = bbox
+        self.size = image_size
+        self.mode = mode
+        self.extra_fields = {}
+
+    def add_field(self, field, field_data):
+        self.extra_fields[field] = field_data
+
+    def get_field(self, field):
+        return self.extra_fields[field]
+
+    def has_field(self, field):
+        return field in self.extra_fields
+
+    def fields(self):
+        return list(self.extra_fields.keys())
+
+    def _copy_extra_fields(self, bbox):
+        for k, v in bbox.extra_fields.items():
+            self.extra_fields[k] = v
+
+    def convert(self, mode):
+        if mode not in ('xyxy', 'xywh'):
+            raise ValueError("mode should be 'xyxy' or 'xywh'")
+        if mode == self.mode:
+            return self
+        xmin, ymin, xmax, ymax = self._split_into_xyxy()
+        if mode == 'xyxy':
+            bbox = torch.cat((xmin, ymin, xmax, ymax), dim=-1)
+            bbox = BoxList(bbox, self.size, mode=mode)
+        else:
+            TO_REMOVE = 1
+            bbox = torch.cat((xmin, ymin, xmax - xmin + TO_REMOVE, ymax - ymin + TO_REMOVE), dim=-1)
+            bbox = BoxList(bbox, self.size, mode=mode)
+        bbox._copy_extra_fields(self)
+        return bbox
+
+    def _split_into_xyxy(self):
+        if self.mode == 'xyxy':
+            xmin, ymin, xmax, ymax = self.bbox.split(1, dim=-1)
+            return xmin, ymin, xmax, ymax
+        elif self.mode == 'xywh':
+            TO_REMOVE = 1
+            xmin, ymin, w, h = self.bbox.split(1, dim=-1)
+            return xmin, ymin, xmin + (w - TO_REMOVE).clamp(min=0), ymin + (h - TO_REMOVE).clamp(min=0)
+        else:
+            raise RuntimeError('Should not be here')
+
+    def resize(self, size, *args, **kwargs):
+        """
+        Returns a resized copy of this bounding box
+
+        :param size: The requested size in pixels, as a 2-tuple:
+            (width, height).
+        """
+        ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(size, self.size))
+        if ratios[0] == ratios[1]:
+            ratio = ratios[0]
+            scaled_box = self.bbox * ratio
+            bbox = BoxList(scaled_box, size, mode=self.mode)
+            for k, v in self.extra_fields.items():
+                if not isinstance(v, torch.Tensor):
+                    v = v.resize(size, *args, **kwargs)
+                bbox.add_field(k, v)
+            return bbox
+        ratio_width, ratio_height = ratios
+        xmin, ymin, xmax, ymax = self._split_into_xyxy()
+        scaled_xmin = xmin * ratio_width
+        scaled_xmax = xmax * ratio_width
+        scaled_ymin = ymin * ratio_height
+        scaled_ymax = ymax * ratio_height
+        scaled_box = torch.cat((scaled_xmin, scaled_ymin, scaled_xmax, scaled_ymax), dim=-1)
+        bbox = BoxList(scaled_box, size, mode='xyxy')
+        for k, v in self.extra_fields.items():
+            if not isinstance(v, torch.Tensor):
+                v = v.resize(size, *args, **kwargs)
+            bbox.add_field(k, v)
+        return bbox.convert(self.mode)
+
+    def transpose(self, method):
+        """
+        Transpose bounding box (flip or rotate in 90 degree steps)
+        :param method: One of :py:attr:`PIL.Image.FLIP_LEFT_RIGHT`,
+          :py:attr:`PIL.Image.FLIP_TOP_BOTTOM`, :py:attr:`PIL.Image.ROTATE_90`,
+          :py:attr:`PIL.Image.ROTATE_180`, :py:attr:`PIL.Image.ROTATE_270`,
+          :py:attr:`PIL.Image.TRANSPOSE` or :py:attr:`PIL.Image.TRANSVERSE`.
+        """
+        if method not in (FLIP_LEFT_RIGHT, FLIP_TOP_BOTTOM):
+            raise NotImplementedError('Only FLIP_LEFT_RIGHT and FLIP_TOP_BOTTOM implemented')
+        image_width, image_height = self.size
+        xmin, ymin, xmax, ymax = self._split_into_xyxy()
+        if method == FLIP_LEFT_RIGHT:
+            TO_REMOVE = 1
+            transposed_xmin = image_width - xmax - TO_REMOVE
+            transposed_xmax = image_width - xmin - TO_REMOVE
+            transposed_ymin = ymin
+            transposed_ymax = ymax
+        elif method == FLIP_TOP_BOTTOM:
+            transposed_xmin = xmin
+            transposed_xmax = xmax
+            transposed_ymin = image_height - ymax
+            transposed_ymax = image_height - ymin
+        transposed_boxes = torch.cat((transposed_xmin, transposed_ymin, transposed_xmax, transposed_ymax), dim=-1)
+        bbox = BoxList(transposed_boxes, self.size, mode='xyxy')
+        for k, v in self.extra_fields.items():
+            if not isinstance(v, torch.Tensor):
+                v = v.transpose(method)
+            bbox.add_field(k, v)
+        return bbox.convert(self.mode)
+
+    def crop(self, box):
+        """
+        Crops a rectangular region from this bounding box. The box is a
+        4-tuple defining the left, upper, right, and lower pixel
+        coordinate.
+        """
+        xmin, ymin, xmax, ymax = self._split_into_xyxy()
+        w, h = box[2] - box[0], box[3] - box[1]
+        cropped_xmin = (xmin - box[0]).clamp(min=0, max=w)
+        cropped_ymin = (ymin - box[1]).clamp(min=0, max=h)
+        cropped_xmax = (xmax - box[0]).clamp(min=0, max=w)
+        cropped_ymax = (ymax - box[1]).clamp(min=0, max=h)
+        if False:
+            is_empty = (cropped_xmin == cropped_xmax) | (cropped_ymin == cropped_ymax)
+        cropped_box = torch.cat((cropped_xmin, cropped_ymin, cropped_xmax, cropped_ymax), dim=-1)
+        bbox = BoxList(cropped_box, (w, h), mode='xyxy')
+        for k, v in self.extra_fields.items():
+            if not isinstance(v, torch.Tensor):
+                v = v.crop(box)
+            bbox.add_field(k, v)
+        return bbox.convert(self.mode)
+
+    def to(self, device):
+        bbox = BoxList(self.bbox, self.size, self.mode)
+        for k, v in self.extra_fields.items():
+            if hasattr(v, 'to'):
+                v = v
+            bbox.add_field(k, v)
+        return bbox
+
+    def __getitem__(self, item):
+        bbox = BoxList(self.bbox[item], self.size, self.mode)
+        for k, v in self.extra_fields.items():
+            bbox.add_field(k, v[item])
+        return bbox
+
+    def __len__(self):
+        return self.bbox.shape[0]
+
+    def clip_to_image(self, remove_empty=True):
+        TO_REMOVE = 1
+        self.bbox[:, (0)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
+        self.bbox[:, (1)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        self.bbox[:, (2)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
+        self.bbox[:, (3)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
+        if remove_empty:
+            box = self.bbox
+            keep = (box[:, (3)] > box[:, (1)]) & (box[:, (2)] > box[:, (0)])
+            return self[keep]
+        return self
+
+    def area(self):
+        box = self.bbox
+        if self.mode == 'xyxy':
+            TO_REMOVE = 1
+            area = (box[:, (2)] - box[:, (0)] + TO_REMOVE) * (box[:, (3)] - box[:, (1)] + TO_REMOVE)
+        elif self.mode == 'xywh':
+            area = box[:, (2)] * box[:, (3)]
+        else:
+            raise RuntimeError('Should not be here')
+        return area
+
+    def copy_with_fields(self, fields, skip_missing=False):
+        bbox = BoxList(self.bbox, self.size, self.mode)
+        if not isinstance(fields, (list, tuple)):
+            fields = [fields]
+        for field in fields:
+            if self.has_field(field):
+                bbox.add_field(field, self.get_field(field))
+            elif not skip_missing:
+                raise KeyError("Field '{}' not found in {}".format(field, self))
+        return bbox
+
+    def __repr__(self):
+        s = self.__class__.__name__ + '('
+        s += 'num_boxes={}, '.format(len(self))
+        s += 'image_width={}, '.format(self.size[0])
+        s += 'image_height={}, '.format(self.size[1])
+        s += 'mode={})'.format(self.mode)
+        return s
+
+
+def boxlist_nms(boxlist, nms_thresh, max_proposals=-1, score_field='scores'):
+    """
+    Performs non-maximum suppression on a boxlist, with scores specified
+    in a boxlist field via score_field.
+
+    Arguments:
+        boxlist(BoxList)
+        nms_thresh (float)
+        max_proposals (int): if > 0, then only the top max_proposals are kept
+            after non-maximum suppression
+        score_field (str)
+    """
+    if nms_thresh <= 0:
+        return boxlist
+    mode = boxlist.mode
+    boxlist = boxlist.convert('xyxy')
+    boxes = boxlist.bbox
+    score = boxlist.get_field(score_field)
+    keep = _box_nms(boxes, score, nms_thresh)
+    if max_proposals > 0:
+        keep = keep[:max_proposals]
+    boxlist = boxlist[keep]
+    return boxlist.convert(mode)
+
+
+def _cat(tensors, dim=0):
+    """
+    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
+    """
+    assert isinstance(tensors, (list, tuple))
+    if len(tensors) == 1:
+        return tensors[0]
+    return torch.cat(tensors, dim)
+
+
+def cat_boxlist(bboxes, ignore_field=False):
+    """
+    Concatenates a list of BoxList (having the same image size) into a
+    single BoxList
+
+    Arguments:
+        bboxes (list[BoxList])
+    """
+    assert isinstance(bboxes, (list, tuple))
+    assert all(isinstance(bbox, BoxList) for bbox in bboxes)
+    size = bboxes[0].size
+    assert all(bbox.size == size for bbox in bboxes)
+    mode = bboxes[0].mode
+    assert all(bbox.mode == mode for bbox in bboxes)
+    fields = set(bboxes[0].fields())
+    if not ignore_field:
+        assert all(set(bbox.fields()) == fields for bbox in bboxes)
+    cat_boxes = BoxList(_cat([bbox.bbox for bbox in bboxes], dim=0), size, mode)
+    if ignore_field:
+        return cat_boxes
+    for field in fields:
+        data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
+        cat_boxes.add_field(field, data)
+    return cat_boxes
+
+
+class PostProcessor(nn.Module):
+    """
+    From a set of classification scores, box regression and proposals,
+    computes the post-processed boxes, and applies NMS to obtain the
+    final results
+    """
+
+    def __init__(self, score_thresh=0.05, nms=0.5, detections_per_img=100, box_coder=None, cls_agnostic_bbox_reg=False, bbox_aug_enabled=False):
+        """
+        Arguments:
+            score_thresh (float)
+            nms (float)
+            detections_per_img (int)
+            box_coder (BoxCoder)
+        """
+        super(PostProcessor, self).__init__()
+        self.score_thresh = score_thresh
+        self.nms = nms
+        self.detections_per_img = detections_per_img
+        if box_coder is None:
+            box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
+        self.box_coder = box_coder
+        self.cls_agnostic_bbox_reg = cls_agnostic_bbox_reg
+        self.bbox_aug_enabled = bbox_aug_enabled
+
+    def forward(self, x, boxes):
+        """
+        Arguments:
+            x (tuple[tensor, tensor]): x contains the class logits
+                and the box_regression from the model.
+            boxes (list[BoxList]): bounding boxes that are used as
+                reference, one for each image
+
+        Returns:
+            results (list[BoxList]): one BoxList for each image, containing
+                the extra fields labels and scores
+        """
+        class_logits, box_regression = x
+        class_prob = F.softmax(class_logits, -1)
+        image_shapes = [box.size for box in boxes]
+        boxes_per_image = [len(box) for box in boxes]
+        concat_boxes = torch.cat([a.bbox for a in boxes], dim=0)
+        if self.cls_agnostic_bbox_reg:
+            box_regression = box_regression[:, -4:]
+        proposals = self.box_coder.decode(box_regression.view(sum(boxes_per_image), -1), concat_boxes)
+        if self.cls_agnostic_bbox_reg:
+            proposals = proposals.repeat(1, class_prob.shape[1])
+        num_classes = class_prob.shape[1]
+        proposals = proposals.split(boxes_per_image, dim=0)
+        class_prob = class_prob.split(boxes_per_image, dim=0)
+        results = []
+        for prob, boxes_per_img, image_shape in zip(class_prob, proposals, image_shapes):
+            boxlist = self.prepare_boxlist(boxes_per_img, prob, image_shape)
+            boxlist = boxlist.clip_to_image(remove_empty=False)
+            if not self.bbox_aug_enabled:
+                boxlist = self.filter_results(boxlist, num_classes)
+            results.append(boxlist)
+        return results
+
+    def prepare_boxlist(self, boxes, scores, image_shape):
+        """
+        Returns BoxList from `boxes` and adds probability scores information
+        as an extra field
+        `boxes` has shape (#detections, 4 * #classes), where each row represents
+        a list of predicted bounding boxes for each of the object classes in the
+        dataset (including the background class). The detections in each row
+        originate from the same object proposal.
+        `scores` has shape (#detection, #classes), where each row represents a list
+        of object detection confidence scores for each of the object classes in the
+        dataset (including the background class). `scores[i, j]`` corresponds to the
+        box at `boxes[i, j * 4:(j + 1) * 4]`.
+        """
+        boxes = boxes.reshape(-1, 4)
+        scores = scores.reshape(-1)
+        boxlist = BoxList(boxes, image_shape, mode='xyxy')
+        boxlist.add_field('scores', scores)
+        return boxlist
+
+    def filter_results(self, boxlist, num_classes):
+        """Returns bounding-box detection results by thresholding on scores and
+        applying non-maximum suppression (NMS).
+        """
+        boxes = boxlist.bbox.reshape(-1, num_classes * 4)
+        scores = boxlist.get_field('scores').reshape(-1, num_classes)
+        device = scores.device
+        result = []
+        inds_all = scores > self.score_thresh
+        for j in range(1, num_classes):
+            inds = inds_all[:, (j)].nonzero().squeeze(1)
+            scores_j = scores[inds, j]
+            boxes_j = boxes[(inds), j * 4:(j + 1) * 4]
+            boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
+            boxlist_for_class.add_field('scores', scores_j)
+            boxlist_for_class = boxlist_nms(boxlist_for_class, self.nms)
+            num_labels = len(boxlist_for_class)
+            boxlist_for_class.add_field('labels', torch.full((num_labels,), j, dtype=torch.int64, device=device))
+            result.append(boxlist_for_class)
+        result = cat_boxlist(result)
+        number_of_detections = len(result)
+        if number_of_detections > self.detections_per_img > 0:
+            cls_scores = result.get_field('scores')
+            image_thresh, _ = torch.kthvalue(cls_scores.cpu(), number_of_detections - self.detections_per_img + 1)
+            keep = cls_scores >= image_thresh.item()
+            keep = torch.nonzero(keep).squeeze(1)
+            result = result[keep]
+        return result
+
+
+def make_roi_box_post_processor(cfg):
+    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
+    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
+    box_coder = BoxCoder(weights=bbox_reg_weights)
+    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
+    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
+    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
+    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
+    bbox_aug_enabled = cfg.TEST.BBOX_AUG.ENABLED
+    postprocessor = PostProcessor(score_thresh, nms_thresh, detections_per_img, box_coder, cls_agnostic_bbox_reg, bbox_aug_enabled)
+    return postprocessor
+
+
+def make_roi_box_predictor(cfg, in_channels):
+    func = registry.ROI_BOX_PREDICTOR[cfg.MODEL.ROI_BOX_HEAD.PREDICTOR]
+    return func(cfg, in_channels)
+
+
+class ROIBoxHead(torch.nn.Module):
+    """
+    Generic Box Head class.
+    """
+
+    def __init__(self, cfg, in_channels):
+        super(ROIBoxHead, self).__init__()
+        self.feature_extractor = make_roi_box_feature_extractor(cfg, in_channels)
+        self.predictor = make_roi_box_predictor(cfg, self.feature_extractor.out_channels)
+        self.post_processor = make_roi_box_post_processor(cfg)
+        self.loss_evaluator = make_roi_box_loss_evaluator(cfg)
+
+    def forward(self, features, proposals, targets=None):
+        """
+        Arguments:
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
+
+        Returns:
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the subsampled proposals
+                are returned. During testing, the predicted boxlists are returned
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
+        """
+        if self.training:
+            with torch.no_grad():
+                proposals = self.loss_evaluator.subsample(proposals, targets)
+        x = self.feature_extractor(features, proposals)
+        class_logits, box_regression = self.predictor(x)
+        if not self.training:
+            result = self.post_processor((class_logits, box_regression), proposals)
+            return x, result, {}
+        loss_classifier, loss_box_reg = self.loss_evaluator([class_logits], [box_regression])
+        return x, proposals, dict(loss_classifier=loss_classifier, loss_box_reg=loss_box_reg)
+
+
+class ROIAttentionBoxHead(ROIBoxHead):
+    """
+    Generic Box Head class.
+    """
+
+    def __init__(self, cfg, in_channels):
+        super(ROIAttentionBoxHead, self).__init__(cfg, in_channels)
+
+    def forward(self, features, proposals, targets=None):
+        """
+        Arguments:
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
+
+        Returns:
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the subsampled proposals
+                are returned. During testing, the predicted boxlists are returned
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
+        """
+        if self.training:
+            with torch.no_grad():
+                proposals[0] = self.loss_evaluator.subsample(proposals[0], targets)
+        x = self.feature_extractor(features, proposals)
+        class_logits, box_regression = self.predictor(x)
+        if not self.training:
+            result = self.post_processor((class_logits, box_regression), proposals[0])
+            return x, result, {}
+        loss_classifier, loss_box_reg = self.loss_evaluator([class_logits], [box_regression])
+        return x, proposals[0], dict(loss_classifier=loss_classifier, loss_box_reg=loss_box_reg)
+
+
+def build_roi_box_head(cfg, in_channels):
+    """
+    Constructs a new box head.
+    By default, uses ROIBoxHead, but if it turns out not to be enough, just register a new class
+    and make it a parameter in the config
+    """
+    if cfg.MODEL.VID.ENABLE:
+        if cfg.MODEL.VID.METHOD in ('rdn', 'mega'):
+            return ROIAttentionBoxHead(cfg, in_channels)
+    return ROIBoxHead(cfg, in_channels)
+
+
+def make_roi_keypoint_feature_extractor(cfg, in_channels):
+    func = registry.ROI_KEYPOINT_FEATURE_EXTRACTORS[cfg.MODEL.ROI_KEYPOINT_HEAD.FEATURE_EXTRACTOR]
+    return func(cfg, in_channels)
+
+
+def _within_box(points, boxes):
+    """Validate which keypoints are contained inside a given box.
+    points: NxKx2
+    boxes: Nx4
+    output: NxK
+    """
+    x_within = (points[..., 0] >= boxes[:, (0), (None)]) & (points[..., 0] <= boxes[:, (2), (None)])
+    y_within = (points[..., 1] >= boxes[:, (1), (None)]) & (points[..., 1] <= boxes[:, (3), (None)])
+    return x_within & y_within
+
+
+def keypoints_to_heat_map(keypoints, rois, heatmap_size):
+    if rois.numel() == 0:
+        return rois.new().long(), rois.new().long()
+    offset_x = rois[:, (0)]
+    offset_y = rois[:, (1)]
+    scale_x = heatmap_size / (rois[:, (2)] - rois[:, (0)])
+    scale_y = heatmap_size / (rois[:, (3)] - rois[:, (1)])
+    offset_x = offset_x[:, (None)]
+    offset_y = offset_y[:, (None)]
+    scale_x = scale_x[:, (None)]
+    scale_y = scale_y[:, (None)]
+    x = keypoints[..., 0]
+    y = keypoints[..., 1]
+    x_boundary_inds = x == rois[:, (2)][:, (None)]
+    y_boundary_inds = y == rois[:, (3)][:, (None)]
+    x = (x - offset_x) * scale_x
+    x = x.floor().long()
+    y = (y - offset_y) * scale_y
+    y = y.floor().long()
+    x[x_boundary_inds] = heatmap_size - 1
+    y[y_boundary_inds] = heatmap_size - 1
+    valid_loc = (x >= 0) & (y >= 0) & (x < heatmap_size) & (y < heatmap_size)
+    vis = keypoints[..., 2] > 0
+    valid = (valid_loc & vis).long()
+    lin_ind = y * heatmap_size + x
+    heatmaps = lin_ind * valid
+    return heatmaps, valid
+
+
+def project_keypoints_to_heatmap(keypoints, proposals, discretization_size):
+    proposals = proposals.convert('xyxy')
+    return keypoints_to_heat_map(keypoints.keypoints, proposals.bbox, discretization_size)
+
+
+class KeypointRCNNLossComputation(object):
+
+    def __init__(self, proposal_matcher, fg_bg_sampler, discretization_size):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            fg_bg_sampler (BalancedPositiveNegativeSampler)
+            discretization_size (int)
+        """
+        self.proposal_matcher = proposal_matcher
+        self.fg_bg_sampler = fg_bg_sampler
+        self.discretization_size = discretization_size
+
+    def match_targets_to_proposals(self, proposal, target):
+        match_quality_matrix = boxlist_iou(target, proposal)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields(['labels', 'keypoints'])
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, proposals, targets):
+        labels = []
+        keypoints = []
+        for proposals_per_image, targets_per_image in zip(proposals, targets):
+            matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = matched_targets.get_field('labels')
+            labels_per_image = labels_per_image
+            neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[neg_inds] = 0
+            keypoints_per_image = matched_targets.get_field('keypoints')
+            within_box = _within_box(keypoints_per_image.keypoints, matched_targets.bbox)
+            vis_kp = keypoints_per_image.keypoints[..., 2] > 0
+            is_visible = (within_box & vis_kp).sum(1) > 0
+            labels_per_image[~is_visible] = -1
+            labels.append(labels_per_image)
+            keypoints.append(keypoints_per_image)
+        return labels, keypoints
+
+    def subsample(self, proposals, targets):
+        """
+        This method performs the positive/negative sampling, and return
+        the sampled proposals.
+        Note: this function keeps a state.
+
+        Arguments:
+            proposals (list[BoxList])
+            targets (list[BoxList])
+        """
+        labels, keypoints = self.prepare_targets(proposals, targets)
+        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
+        proposals = list(proposals)
+        for labels_per_image, keypoints_per_image, proposals_per_image in zip(labels, keypoints, proposals):
+            proposals_per_image.add_field('labels', labels_per_image)
+            proposals_per_image.add_field('keypoints', keypoints_per_image)
+        for img_idx, (pos_inds_img, neg_inds_img) in enumerate(zip(sampled_pos_inds, sampled_neg_inds)):
+            img_sampled_inds = torch.nonzero(pos_inds_img).squeeze(1)
+            proposals_per_image = proposals[img_idx][img_sampled_inds]
+            proposals[img_idx] = proposals_per_image
+        self._proposals = proposals
+        return proposals
+
+    def __call__(self, proposals, keypoint_logits):
+        heatmaps = []
+        valid = []
+        for proposals_per_image in proposals:
+            kp = proposals_per_image.get_field('keypoints')
+            heatmaps_per_image, valid_per_image = project_keypoints_to_heatmap(kp, proposals_per_image, self.discretization_size)
+            heatmaps.append(heatmaps_per_image.view(-1))
+            valid.append(valid_per_image.view(-1))
+        keypoint_targets = cat(heatmaps, dim=0)
+        valid = cat(valid, dim=0)
+        valid = torch.nonzero(valid).squeeze(1)
+        if keypoint_targets.numel() == 0 or len(valid) == 0:
+            return keypoint_logits.sum() * 0
+        N, K, H, W = keypoint_logits.shape
+        keypoint_logits = keypoint_logits.view(N * K, H * W)
+        keypoint_loss = F.cross_entropy(keypoint_logits[valid], keypoint_targets[valid])
+        return keypoint_loss
+
+
+def make_roi_keypoint_loss_evaluator(cfg):
+    matcher = Matcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
+    fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE, cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION)
+    resolution = cfg.MODEL.ROI_KEYPOINT_HEAD.RESOLUTION
+    loss_evaluator = KeypointRCNNLossComputation(matcher, fg_bg_sampler, resolution)
+    return loss_evaluator
+
+
+class Keypoints(object):
+
+    def __init__(self, keypoints, size, mode=None):
+        device = keypoints.device if isinstance(keypoints, torch.Tensor) else torch.device('cpu')
+        keypoints = torch.as_tensor(keypoints, dtype=torch.float32, device=device)
+        num_keypoints = keypoints.shape[0]
+        if num_keypoints:
+            keypoints = keypoints.view(num_keypoints, -1, 3)
+        self.keypoints = keypoints
+        self.size = size
+        self.mode = mode
+        self.extra_fields = {}
+
+    def crop(self, box):
+        raise NotImplementedError()
+
+    def resize(self, size, *args, **kwargs):
+        ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(size, self.size))
+        ratio_w, ratio_h = ratios
+        resized_data = self.keypoints.clone()
+        resized_data[..., 0] *= ratio_w
+        resized_data[..., 1] *= ratio_h
+        keypoints = type(self)(resized_data, size, self.mode)
+        for k, v in self.extra_fields.items():
+            keypoints.add_field(k, v)
+        return keypoints
+
+    def transpose(self, method):
+        if method not in (FLIP_LEFT_RIGHT,):
+            raise NotImplementedError('Only FLIP_LEFT_RIGHT implemented')
+        flip_inds = type(self).FLIP_INDS
+        flipped_data = self.keypoints[:, (flip_inds)]
+        width = self.size[0]
+        TO_REMOVE = 1
+        flipped_data[..., 0] = width - flipped_data[..., 0] - TO_REMOVE
+        inds = flipped_data[..., 2] == 0
+        flipped_data[inds] = 0
+        keypoints = type(self)(flipped_data, self.size, self.mode)
+        for k, v in self.extra_fields.items():
+            keypoints.add_field(k, v)
+        return keypoints
+
+    def to(self, *args, **kwargs):
+        keypoints = type(self)(self.keypoints, self.size, self.mode)
+        for k, v in self.extra_fields.items():
+            if hasattr(v, 'to'):
+                v = v
+            keypoints.add_field(k, v)
+        return keypoints
+
+    def __getitem__(self, item):
+        keypoints = type(self)(self.keypoints[item], self.size, self.mode)
+        for k, v in self.extra_fields.items():
+            keypoints.add_field(k, v[item])
+        return keypoints
+
+    def add_field(self, field, field_data):
+        self.extra_fields[field] = field_data
+
+    def get_field(self, field):
+        return self.extra_fields[field]
+
+    def __repr__(self):
+        s = self.__class__.__name__ + '('
+        s += 'num_instances={}, '.format(len(self.keypoints))
+        s += 'image_width={}, '.format(self.size[0])
+        s += 'image_height={})'.format(self.size[1])
+        return s
+
+
+class PersonKeypoints(Keypoints):
+    NAMES = ['nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear', 'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist', 'left_hip', 'right_hip', 'left_knee', 'right_knee', 'left_ankle', 'right_ankle']
+    FLIP_MAP = {'left_eye': 'right_eye', 'left_ear': 'right_ear', 'left_shoulder': 'right_shoulder', 'left_elbow': 'right_elbow', 'left_wrist': 'right_wrist', 'left_hip': 'right_hip', 'left_knee': 'right_knee', 'left_ankle': 'right_ankle'}
+
+
+class KeypointPostProcessor(nn.Module):
+
+    def __init__(self, keypointer=None):
+        super(KeypointPostProcessor, self).__init__()
+        self.keypointer = keypointer
+
+    def forward(self, x, boxes):
+        mask_prob = x
+        scores = None
+        if self.keypointer:
+            mask_prob, scores = self.keypointer(x, boxes)
+        assert len(boxes) == 1, 'Only non-batched inference supported for now'
+        boxes_per_image = [box.bbox.size(0) for box in boxes]
+        mask_prob = mask_prob.split(boxes_per_image, dim=0)
+        scores = scores.split(boxes_per_image, dim=0)
+        results = []
+        for prob, box, score in zip(mask_prob, boxes, scores):
+            bbox = BoxList(box.bbox, box.size, mode='xyxy')
+            for field in box.fields():
+                bbox.add_field(field, box.get_field(field))
+            prob = PersonKeypoints(prob, box.size)
+            prob.add_field('logits', score)
+            bbox.add_field('keypoints', prob)
+            results.append(bbox)
+        return results
+
+
+def heatmaps_to_keypoints(maps, rois):
+    """Extract predicted keypoint locations from heatmaps. Output has shape
+    (#rois, 4, #keypoints) with the 4 rows corresponding to (x, y, logit, prob)
+    for each keypoint.
+    """
+    offset_x = rois[:, (0)]
+    offset_y = rois[:, (1)]
+    widths = rois[:, (2)] - rois[:, (0)]
+    heights = rois[:, (3)] - rois[:, (1)]
+    widths = np.maximum(widths, 1)
+    heights = np.maximum(heights, 1)
+    widths_ceil = np.ceil(widths)
+    heights_ceil = np.ceil(heights)
+    maps = np.transpose(maps, [0, 2, 3, 1])
+    min_size = 0
+    num_keypoints = maps.shape[3]
+    xy_preds = np.zeros((len(rois), 3, num_keypoints), dtype=np.float32)
+    end_scores = np.zeros((len(rois), num_keypoints), dtype=np.float32)
+    for i in range(len(rois)):
+        if min_size > 0:
+            roi_map_width = int(np.maximum(widths_ceil[i], min_size))
+            roi_map_height = int(np.maximum(heights_ceil[i], min_size))
+        else:
+            roi_map_width = widths_ceil[i]
+            roi_map_height = heights_ceil[i]
+        width_correction = widths[i] / roi_map_width
+        height_correction = heights[i] / roi_map_height
+        roi_map = cv2.resize(maps[i], (roi_map_width, roi_map_height), interpolation=cv2.INTER_CUBIC)
+        roi_map = np.transpose(roi_map, [2, 0, 1])
+        w = roi_map.shape[2]
+        pos = roi_map.reshape(num_keypoints, -1).argmax(axis=1)
+        x_int = pos % w
+        y_int = (pos - x_int) // w
+        x = (x_int + 0.5) * width_correction
+        y = (y_int + 0.5) * height_correction
+        xy_preds[(i), (0), :] = x + offset_x[i]
+        xy_preds[(i), (1), :] = y + offset_y[i]
+        xy_preds[(i), (2), :] = 1
+        end_scores[(i), :] = roi_map[np.arange(num_keypoints), y_int, x_int]
+    return np.transpose(xy_preds, [0, 2, 1]), end_scores
+
+
+class Keypointer(object):
+    """
+    Projects a set of masks in an image on the locations
+    specified by the bounding boxes
+    """
+
+    def __init__(self, padding=0):
+        self.padding = padding
+
+    def __call__(self, masks, boxes):
+        if isinstance(boxes, BoxList):
+            boxes = [boxes]
+        assert len(boxes) == 1
+        result, scores = heatmaps_to_keypoints(masks.detach().cpu().numpy(), boxes[0].bbox.cpu().numpy())
+        return torch.from_numpy(result), torch.as_tensor(scores, device=masks.device)
+
+
+def make_roi_keypoint_post_processor(cfg):
+    keypointer = Keypointer()
+    keypoint_post_processor = KeypointPostProcessor(keypointer)
+    return keypoint_post_processor
+
+
+def make_roi_keypoint_predictor(cfg, in_channels):
+    func = registry.ROI_KEYPOINT_PREDICTOR[cfg.MODEL.ROI_KEYPOINT_HEAD.PREDICTOR]
+    return func(cfg, in_channels)
+
+
+class ROIKeypointHead(torch.nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(ROIKeypointHead, self).__init__()
+        self.cfg = cfg.clone()
+        self.feature_extractor = make_roi_keypoint_feature_extractor(cfg, in_channels)
+        self.predictor = make_roi_keypoint_predictor(cfg, self.feature_extractor.out_channels)
+        self.post_processor = make_roi_keypoint_post_processor(cfg)
+        self.loss_evaluator = make_roi_keypoint_loss_evaluator(cfg)
+
+    def forward(self, features, proposals, targets=None):
+        """
+        Arguments:
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
+
+        Returns:
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the original proposals
+                are returned. During testing, the predicted boxlists are returned
+                with the `mask` field set
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
+        """
+        if self.training:
+            with torch.no_grad():
+                proposals = self.loss_evaluator.subsample(proposals, targets)
+        x = self.feature_extractor(features, proposals)
+        kp_logits = self.predictor(x)
+        if not self.training:
+            result = self.post_processor(kp_logits, proposals)
+            return x, result, {}
+        loss_kp = self.loss_evaluator(proposals, kp_logits)
+        return x, proposals, dict(loss_kp=loss_kp)
+
+
+def build_roi_keypoint_head(cfg, in_channels):
+    return ROIKeypointHead(cfg, in_channels)
+
+
+def keep_only_positive_boxes(boxes):
+    """
+    Given a set of BoxList containing the `labels` field,
+    return a set of BoxList for which `labels > 0`.
+
+    Arguments:
+        boxes (list of BoxList)
+    """
+    assert isinstance(boxes, (list, tuple))
+    assert isinstance(boxes[0], BoxList)
+    assert boxes[0].has_field('labels')
+    positive_boxes = []
+    positive_inds = []
+    num_boxes = 0
+    for boxes_per_image in boxes:
+        labels = boxes_per_image.get_field('labels')
+        inds_mask = labels > 0
+        inds = inds_mask.nonzero().squeeze(1)
+        positive_boxes.append(boxes_per_image[inds])
+        positive_inds.append(inds_mask)
+    return positive_boxes, positive_inds
+
+
+def make_roi_mask_feature_extractor(cfg, in_channels):
+    func = registry.ROI_MASK_FEATURE_EXTRACTORS[cfg.MODEL.ROI_MASK_HEAD.FEATURE_EXTRACTOR]
+    return func(cfg, in_channels)
+
+
+def project_masks_on_boxes(segmentation_masks, proposals, discretization_size):
+    """
+    Given segmentation masks and the bounding boxes corresponding
+    to the location of the masks in the image, this function
+    crops and resizes the masks in the position defined by the
+    boxes. This prepares the masks for them to be fed to the
+    loss computation as the targets.
+
+    Arguments:
+        segmentation_masks: an instance of SegmentationMask
+        proposals: an instance of BoxList
+    """
+    masks = []
+    M = discretization_size
+    device = proposals.bbox.device
+    proposals = proposals.convert('xyxy')
+    assert segmentation_masks.size == proposals.size, '{}, {}'.format(segmentation_masks, proposals)
+    proposals = proposals.bbox
+    for segmentation_mask, proposal in zip(segmentation_masks, proposals):
+        cropped_mask = segmentation_mask.crop(proposal)
+        scaled_mask = cropped_mask.resize((M, M))
+        mask = scaled_mask.get_mask_tensor()
+        masks.append(mask)
+    if len(masks) == 0:
+        return torch.empty(0, dtype=torch.float32, device=device)
+    return torch.stack(masks, dim=0)
+
+
+class MaskRCNNLossComputation(object):
+
+    def __init__(self, proposal_matcher, discretization_size):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            discretization_size (int)
+        """
+        self.proposal_matcher = proposal_matcher
+        self.discretization_size = discretization_size
+
+    def match_targets_to_proposals(self, proposal, target):
+        match_quality_matrix = boxlist_iou(target, proposal)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields(['labels', 'masks'])
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, proposals, targets):
+        labels = []
+        masks = []
+        for proposals_per_image, targets_per_image in zip(proposals, targets):
+            matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = matched_targets.get_field('labels')
+            labels_per_image = labels_per_image
+            neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[neg_inds] = 0
+            positive_inds = torch.nonzero(labels_per_image > 0).squeeze(1)
+            segmentation_masks = matched_targets.get_field('masks')
+            segmentation_masks = segmentation_masks[positive_inds]
+            positive_proposals = proposals_per_image[positive_inds]
+            masks_per_image = project_masks_on_boxes(segmentation_masks, positive_proposals, self.discretization_size)
+            labels.append(labels_per_image)
+            masks.append(masks_per_image)
+        return labels, masks
+
+    def __call__(self, proposals, mask_logits, targets):
+        """
+        Arguments:
+            proposals (list[BoxList])
+            mask_logits (Tensor)
+            targets (list[BoxList])
+
+        Return:
+            mask_loss (Tensor): scalar tensor containing the loss
+        """
+        labels, mask_targets = self.prepare_targets(proposals, targets)
+        labels = cat(labels, dim=0)
+        mask_targets = cat(mask_targets, dim=0)
+        positive_inds = torch.nonzero(labels > 0).squeeze(1)
+        labels_pos = labels[positive_inds]
+        if mask_targets.numel() == 0:
+            return mask_logits.sum() * 0
+        mask_loss = F.binary_cross_entropy_with_logits(mask_logits[positive_inds, labels_pos], mask_targets)
+        return mask_loss
+
+
+def make_roi_mask_loss_evaluator(cfg):
+    matcher = Matcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
+    loss_evaluator = MaskRCNNLossComputation(matcher, cfg.MODEL.ROI_MASK_HEAD.RESOLUTION)
+    return loss_evaluator
+
+
+class MaskPostProcessor(nn.Module):
+    """
+    From the results of the CNN, post process the masks
+    by taking the mask corresponding to the class with max
+    probability (which are of fixed size and directly output
+    by the CNN) and return the masks in the mask field of the BoxList.
+
+    If a masker object is passed, it will additionally
+    project the masks in the image according to the locations in boxes,
+    """
+
+    def __init__(self, masker=None):
+        super(MaskPostProcessor, self).__init__()
+        self.masker = masker
+
+    def forward(self, x, boxes):
+        """
+        Arguments:
+            x (Tensor): the mask logits
+            boxes (list[BoxList]): bounding boxes that are used as
+                reference, one for each image
+
+        Returns:
+            results (list[BoxList]): one BoxList for each image, containing
+                the extra field mask
+        """
+        mask_prob = x.sigmoid()
+        num_masks = x.shape[0]
+        labels = [bbox.get_field('labels') for bbox in boxes]
+        labels = torch.cat(labels)
+        index = torch.arange(num_masks, device=labels.device)
+        mask_prob = mask_prob[index, labels][:, (None)]
+        boxes_per_image = [len(box) for box in boxes]
+        mask_prob = mask_prob.split(boxes_per_image, dim=0)
+        if self.masker:
+            mask_prob = self.masker(mask_prob, boxes)
+        results = []
+        for prob, box in zip(mask_prob, boxes):
+            bbox = BoxList(box.bbox, box.size, mode='xyxy')
+            for field in box.fields():
+                bbox.add_field(field, box.get_field(field))
+            bbox.add_field('mask', prob)
+            results.append(bbox)
+        return results
+
+
+def expand_boxes(boxes, scale):
+    w_half = (boxes[:, (2)] - boxes[:, (0)]) * 0.5
+    h_half = (boxes[:, (3)] - boxes[:, (1)]) * 0.5
+    x_c = (boxes[:, (2)] + boxes[:, (0)]) * 0.5
+    y_c = (boxes[:, (3)] + boxes[:, (1)]) * 0.5
+    w_half *= scale
+    h_half *= scale
+    boxes_exp = torch.zeros_like(boxes)
+    boxes_exp[:, (0)] = x_c - w_half
+    boxes_exp[:, (2)] = x_c + w_half
+    boxes_exp[:, (1)] = y_c - h_half
+    boxes_exp[:, (3)] = y_c + h_half
+    return boxes_exp
+
+
+def expand_masks(mask, padding):
+    N = mask.shape[0]
+    M = mask.shape[-1]
+    pad2 = 2 * padding
+    scale = float(M + pad2) / M
+    padded_mask = mask.new_zeros((N, 1, M + pad2, M + pad2))
+    padded_mask[:, :, padding:-padding, padding:-padding] = mask
+    return padded_mask, scale
+
+
+def paste_mask_in_image(mask, box, im_h, im_w, thresh=0.5, padding=1):
+    mask = mask.float()
+    box = box.float()
+    padded_mask, scale = expand_masks(mask[None], padding=padding)
+    mask = padded_mask[0, 0]
+    box = expand_boxes(box[None], scale)[0]
+    box = box
+    TO_REMOVE = 1
+    w = int(box[2] - box[0] + TO_REMOVE)
+    h = int(box[3] - box[1] + TO_REMOVE)
+    w = max(w, 1)
+    h = max(h, 1)
+    mask = mask.expand((1, 1, -1, -1))
+    mask = mask
+    mask = interpolate(mask, size=(h, w), mode='bilinear', align_corners=False)
+    mask = mask[0][0]
+    if thresh >= 0:
+        mask = mask > thresh
+    else:
+        mask = mask * 255
+    im_mask = torch.zeros((im_h, im_w), dtype=torch.bool)
+    x_0 = max(box[0], 0)
+    x_1 = min(box[2] + 1, im_w)
+    y_0 = max(box[1], 0)
+    y_1 = min(box[3] + 1, im_h)
+    im_mask[y_0:y_1, x_0:x_1] = mask[y_0 - box[1]:y_1 - box[1], x_0 - box[0]:x_1 - box[0]]
+    return im_mask
+
+
+class Masker(object):
+    """
+    Projects a set of masks in an image on the locations
+    specified by the bounding boxes
+    """
+
+    def __init__(self, threshold=0.5, padding=1):
+        self.threshold = threshold
+        self.padding = padding
+
+    def forward_single_image(self, masks, boxes):
+        boxes = boxes.convert('xyxy')
+        im_w, im_h = boxes.size
+        res = [paste_mask_in_image(mask[0], box, im_h, im_w, self.threshold, self.padding) for mask, box in zip(masks, boxes.bbox)]
+        if len(res) > 0:
+            res = torch.stack(res, dim=0)[:, (None)]
+        else:
+            res = masks.new_empty((0, 1, masks.shape[-2], masks.shape[-1]))
+        return res
+
+    def __call__(self, masks, boxes):
+        if isinstance(boxes, BoxList):
+            boxes = [boxes]
+        assert len(boxes) == len(masks), 'Masks and boxes should have the same length.'
+        results = []
+        for mask, box in zip(masks, boxes):
+            assert mask.shape[0] == len(box), 'Number of objects should be the same.'
+            result = self.forward_single_image(mask, box)
+            results.append(result)
+        return results
+
+
+def make_roi_mask_post_processor(cfg):
+    if cfg.MODEL.ROI_MASK_HEAD.POSTPROCESS_MASKS:
+        mask_threshold = cfg.MODEL.ROI_MASK_HEAD.POSTPROCESS_MASKS_THRESHOLD
+        masker = Masker(threshold=mask_threshold, padding=1)
+    else:
+        masker = None
+    mask_post_processor = MaskPostProcessor(masker)
+    return mask_post_processor
+
+
+def make_roi_mask_predictor(cfg, in_channels):
+    func = registry.ROI_MASK_PREDICTOR[cfg.MODEL.ROI_MASK_HEAD.PREDICTOR]
+    return func(cfg, in_channels)
+
+
+class ROIMaskHead(torch.nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(ROIMaskHead, self).__init__()
+        self.cfg = cfg.clone()
+        self.feature_extractor = make_roi_mask_feature_extractor(cfg, in_channels)
+        self.predictor = make_roi_mask_predictor(cfg, self.feature_extractor.out_channels)
+        self.post_processor = make_roi_mask_post_processor(cfg)
+        self.loss_evaluator = make_roi_mask_loss_evaluator(cfg)
+
+    def forward(self, features, proposals, targets=None):
+        """
+        Arguments:
+            features (list[Tensor]): feature-maps from possibly several levels
+            proposals (list[BoxList]): proposal boxes
+            targets (list[BoxList], optional): the ground-truth targets.
+
+        Returns:
+            x (Tensor): the result of the feature extractor
+            proposals (list[BoxList]): during training, the original proposals
+                are returned. During testing, the predicted boxlists are returned
+                with the `mask` field set
+            losses (dict[Tensor]): During training, returns the losses for the
+                head. During testing, returns an empty dict.
+        """
+        if self.training:
+            all_proposals = proposals
+            proposals, positive_inds = keep_only_positive_boxes(proposals)
+        if self.training and self.cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
+            x = features
+            x = x[torch.cat(positive_inds, dim=0)]
+        else:
+            x = self.feature_extractor(features, proposals)
+        mask_logits = self.predictor(x)
+        if not self.training:
+            result = self.post_processor(mask_logits, proposals)
+            return x, result, {}
+        loss_mask = self.loss_evaluator(proposals, mask_logits, targets)
+        return x, all_proposals, dict(loss_mask=loss_mask)
+
+
+def build_roi_mask_head(cfg, in_channels):
+    return ROIMaskHead(cfg, in_channels)
+
+
+def build_roi_heads(cfg, in_channels):
+    roi_heads = []
+    if cfg.MODEL.RETINANET_ON:
+        return []
+    if not cfg.MODEL.RPN_ONLY:
+        roi_heads.append(('box', build_roi_box_head(cfg, in_channels)))
+    if cfg.MODEL.MASK_ON:
+        roi_heads.append(('mask', build_roi_mask_head(cfg, in_channels)))
+    if cfg.MODEL.KEYPOINT_ON:
+        roi_heads.append(('keypoint', build_roi_keypoint_head(cfg, in_channels)))
+    if roi_heads:
+        roi_heads = CombinedROIHeads(cfg, roi_heads)
+    return roi_heads
+
+
+class BufferList(nn.Module):
+    """
+    Similar to nn.ParameterList, but for buffers
+    """
+
+    def __init__(self, buffers=None):
+        super(BufferList, self).__init__()
+        if buffers is not None:
+            self.extend(buffers)
+
+    def extend(self, buffers):
+        offset = len(self)
+        for i, buffer in enumerate(buffers):
+            self.register_buffer(str(offset + i), buffer)
+        return self
+
+    def __len__(self):
+        return len(self._buffers)
+
+    def __iter__(self):
+        return iter(self._buffers.values())
+
+
+def _mkanchors(ws, hs, x_ctr, y_ctr):
+    """Given a vector of widths (ws) and heights (hs) around a center
+    (x_ctr, y_ctr), output a set of anchors (windows).
+    """
+    ws = ws[:, (np.newaxis)]
+    hs = hs[:, (np.newaxis)]
+    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
+    return anchors
+
+
+def _whctrs(anchor):
+    """Return width, height, x center, and y center for an anchor (window)."""
+    w = anchor[2] - anchor[0] + 1
+    h = anchor[3] - anchor[1] + 1
+    x_ctr = anchor[0] + 0.5 * (w - 1)
+    y_ctr = anchor[1] + 0.5 * (h - 1)
+    return w, h, x_ctr, y_ctr
+
+
+def _ratio_enum(anchor, ratios):
+    """Enumerate a set of anchors for each aspect ratio wrt an anchor."""
+    w, h, x_ctr, y_ctr = _whctrs(anchor)
+    size = w * h
+    size_ratios = size / ratios
+    ws = np.round(np.sqrt(size_ratios))
+    hs = np.round(ws * ratios)
+    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
+    return anchors
+
+
+def _scale_enum(anchor, scales):
+    """Enumerate a set of anchors for each scale wrt an anchor."""
+    w, h, x_ctr, y_ctr = _whctrs(anchor)
+    ws = w * scales
+    hs = h * scales
+    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
+    return anchors
+
+
+def _generate_anchors(base_size, scales, aspect_ratios):
+    """Generate anchor (reference) windows by enumerating aspect ratios X
+    scales wrt a reference (0, 0, base_size - 1, base_size - 1) window.
+    """
+    anchor = np.array([1, 1, base_size, base_size], dtype=np.float) - 1
+    anchors = _ratio_enum(anchor, aspect_ratios)
+    anchors = np.vstack([_scale_enum(anchors[(i), :], scales) for i in range(anchors.shape[0])])
+    return torch.from_numpy(anchors)
+
+
+def generate_anchors(stride=16, sizes=(32, 64, 128, 256, 512), aspect_ratios=(0.5, 1, 2)):
+    """Generates a matrix of anchor boxes in (x1, y1, x2, y2) format. Anchors
+    are centered on stride / 2, have (approximate) sqrt areas of the specified
+    sizes, and aspect ratios as given.
+    """
+    return _generate_anchors(stride, np.array(sizes, dtype=np.float) / stride, np.array(aspect_ratios, dtype=np.float))
+
+
+class AnchorGenerator(nn.Module):
+    """
+    For a set of image sizes and feature maps, computes a set
+    of anchors
+    """
+
+    def __init__(self, sizes=(128, 256, 512), aspect_ratios=(0.5, 1.0, 2.0), anchor_strides=(8, 16, 32), straddle_thresh=0):
+        super(AnchorGenerator, self).__init__()
+        if len(anchor_strides) == 1:
+            anchor_stride = anchor_strides[0]
+            cell_anchors = [generate_anchors(anchor_stride, sizes, aspect_ratios).float()]
+        else:
+            if len(anchor_strides) != len(sizes):
+                raise RuntimeError('FPN should have #anchor_strides == #sizes')
+            cell_anchors = [generate_anchors(anchor_stride, size if isinstance(size, (tuple, list)) else (size,), aspect_ratios).float() for anchor_stride, size in zip(anchor_strides, sizes)]
+        self.strides = anchor_strides
+        self.cell_anchors = BufferList(cell_anchors)
+        self.straddle_thresh = straddle_thresh
+
+    def num_anchors_per_location(self):
+        return [len(cell_anchors) for cell_anchors in self.cell_anchors]
+
+    def grid_anchors(self, grid_sizes):
+        anchors = []
+        for size, stride, base_anchors in zip(grid_sizes, self.strides, self.cell_anchors):
+            grid_height, grid_width = size
+            device = base_anchors.device
+            shifts_x = torch.arange(0, grid_width * stride, step=stride, dtype=torch.float32, device=device)
+            shifts_y = torch.arange(0, grid_height * stride, step=stride, dtype=torch.float32, device=device)
+            shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
+            shift_x = shift_x.reshape(-1)
+            shift_y = shift_y.reshape(-1)
+            shifts = torch.stack((shift_x, shift_y, shift_x, shift_y), dim=1)
+            anchors.append((shifts.view(-1, 1, 4) + base_anchors.view(1, -1, 4)).reshape(-1, 4))
+        return anchors
+
+    def add_visibility_to(self, boxlist):
+        image_width, image_height = boxlist.size
+        anchors = boxlist.bbox
+        if self.straddle_thresh >= 0:
+            inds_inside = (anchors[..., 0] >= -self.straddle_thresh) & (anchors[..., 1] >= -self.straddle_thresh) & (anchors[..., 2] < image_width + self.straddle_thresh) & (anchors[..., 3] < image_height + self.straddle_thresh)
+        else:
+            device = anchors.device
+            inds_inside = torch.ones(anchors.shape[0], dtype=torch.bool, device=device)
+        boxlist.add_field('visibility', inds_inside)
+
+    def forward(self, image_list, feature_maps):
+        grid_sizes = [feature_map.shape[-2:] for feature_map in feature_maps]
+        anchors_over_all_feature_maps = self.grid_anchors(grid_sizes)
+        anchors = []
+        for i, (image_height, image_width) in enumerate(image_list.image_sizes):
+            anchors_in_image = []
+            for anchors_per_feature_map in anchors_over_all_feature_maps:
+                boxlist = BoxList(anchors_per_feature_map, (image_width, image_height), mode='xyxy')
+                self.add_visibility_to(boxlist)
+                anchors_in_image.append(boxlist)
+            anchors.append(anchors_in_image)
+        return anchors
+
+
+def make_anchor_generator(config):
+    anchor_sizes = config.MODEL.RPN.ANCHOR_SIZES
+    aspect_ratios = config.MODEL.RPN.ASPECT_RATIOS
+    anchor_stride = config.MODEL.RPN.ANCHOR_STRIDE
+    straddle_thresh = config.MODEL.RPN.STRADDLE_THRESH
+    if config.MODEL.RPN.USE_FPN:
+        assert len(anchor_stride) == len(anchor_sizes), 'FPN should have len(ANCHOR_STRIDE) == len(ANCHOR_SIZES)'
+    else:
+        assert len(anchor_stride) == 1, 'Non-FPN should have a single ANCHOR_STRIDE'
+    anchor_generator = AnchorGenerator(anchor_sizes, aspect_ratios, anchor_stride, straddle_thresh)
+    return anchor_generator
+
+
+def permute_and_flatten(layer, N, A, C, H, W):
+    layer = layer.view(N, -1, C, H, W)
+    layer = layer.permute(0, 3, 4, 1, 2)
+    layer = layer.reshape(N, -1, C)
+    return layer
+
+
+def concat_box_prediction_layers(box_cls, box_regression):
+    box_cls_flattened = []
+    box_regression_flattened = []
+    for box_cls_per_level, box_regression_per_level in zip(box_cls, box_regression):
+        N, AxC, H, W = box_cls_per_level.shape
+        Ax4 = box_regression_per_level.shape[1]
+        A = Ax4 // 4
+        C = AxC // A
+        box_cls_per_level = permute_and_flatten(box_cls_per_level, N, A, C, H, W)
+        box_cls_flattened.append(box_cls_per_level)
+        box_regression_per_level = permute_and_flatten(box_regression_per_level, N, A, 4, H, W)
+        box_regression_flattened.append(box_regression_per_level)
+    box_cls = cat(box_cls_flattened, dim=1).reshape(-1, C)
+    box_regression = cat(box_regression_flattened, dim=1).reshape(-1, 4)
+    return box_cls, box_regression
+
+
+class RPNLossComputation(object):
+    """
+    This class computes the RPN loss.
+    """
+
+    def __init__(self, proposal_matcher, fg_bg_sampler, box_coder, generate_labels_func):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            fg_bg_sampler (BalancedPositiveNegativeSampler)
+            box_coder (BoxCoder)
+        """
+        self.proposal_matcher = proposal_matcher
+        self.fg_bg_sampler = fg_bg_sampler
+        self.box_coder = box_coder
+        self.copied_fields = []
+        self.generate_labels_func = generate_labels_func
+        self.discard_cases = ['not_visibility', 'between_thresholds']
+
+    def match_targets_to_anchors(self, anchor, target, copied_fields=[]):
+        match_quality_matrix = boxlist_iou(target, anchor)
+        matched_idxs = self.proposal_matcher(match_quality_matrix)
+        target = target.copy_with_fields(copied_fields)
+        matched_targets = target[matched_idxs.clamp(min=0)]
+        matched_targets.add_field('matched_idxs', matched_idxs)
+        return matched_targets
+
+    def prepare_targets(self, anchors, targets):
+        labels = []
+        regression_targets = []
+        for anchors_per_image, targets_per_image in zip(anchors, targets):
+            matched_targets = self.match_targets_to_anchors(anchors_per_image, targets_per_image, self.copied_fields)
+            matched_idxs = matched_targets.get_field('matched_idxs')
+            labels_per_image = self.generate_labels_func(matched_targets)
+            labels_per_image = labels_per_image
+            bg_indices = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
+            labels_per_image[bg_indices] = 0
+            if 'not_visibility' in self.discard_cases:
+                labels_per_image[~anchors_per_image.get_field('visibility')] = -1
+            if 'between_thresholds' in self.discard_cases:
+                inds_to_discard = matched_idxs == Matcher.BETWEEN_THRESHOLDS
+                labels_per_image[inds_to_discard] = -1
+            regression_targets_per_image = self.box_coder.encode(matched_targets.bbox, anchors_per_image.bbox)
+            labels.append(labels_per_image)
+            regression_targets.append(regression_targets_per_image)
+        return labels, regression_targets
+
+    def __call__(self, anchors, objectness, box_regression, targets):
+        """
+        Arguments:
+            anchors (list[list[BoxList]])
+            objectness (list[Tensor])
+            box_regression (list[Tensor])
+            targets (list[BoxList])
+
+        Returns:
+            objectness_loss (Tensor)
+            box_loss (Tensor)
+        """
+        anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in anchors]
+        labels, regression_targets = self.prepare_targets(anchors, targets)
+        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
+        sampled_pos_inds = torch.nonzero(torch.cat(sampled_pos_inds, dim=0)).squeeze(1)
+        sampled_neg_inds = torch.nonzero(torch.cat(sampled_neg_inds, dim=0)).squeeze(1)
+        sampled_inds = torch.cat([sampled_pos_inds, sampled_neg_inds], dim=0)
+        objectness, box_regression = concat_box_prediction_layers(objectness, box_regression)
+        objectness = objectness.squeeze()
+        labels = torch.cat(labels, dim=0)
+        regression_targets = torch.cat(regression_targets, dim=0)
+        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds], regression_targets[sampled_pos_inds], beta=1.0 / 9, size_average=False) / sampled_inds.numel()
+        objectness_loss = F.binary_cross_entropy_with_logits(objectness[sampled_inds], labels[sampled_inds])
+        return objectness_loss, box_loss
+
+
+def generate_rpn_labels(matched_targets):
+    matched_idxs = matched_targets.get_field('matched_idxs')
+    labels_per_image = matched_idxs >= 0
+    return labels_per_image
+
+
+def make_rpn_loss_evaluator(cfg, box_coder):
+    matcher = Matcher(cfg.MODEL.RPN.FG_IOU_THRESHOLD, cfg.MODEL.RPN.BG_IOU_THRESHOLD, allow_low_quality_matches=True)
+    fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.RPN.BATCH_SIZE_PER_IMAGE, cfg.MODEL.RPN.POSITIVE_FRACTION)
+    loss_evaluator = RPNLossComputation(matcher, fg_bg_sampler, box_coder, generate_rpn_labels)
+    return loss_evaluator
+
+
+def remove_small_boxes(boxlist, min_size):
+    """
+    Only keep boxes with both sides >= min_size
+
+    Arguments:
+        boxlist (Boxlist)
+        min_size (int)
+    """
+    xywh_boxes = boxlist.convert('xywh').bbox
+    _, _, ws, hs = xywh_boxes.unbind(dim=1)
+    keep = ((ws >= min_size) & (hs >= min_size)).nonzero().squeeze(1)
+    return boxlist[keep]
+
+
+class RPNPostProcessor(torch.nn.Module):
+    """
+    Performs post-processing on the outputs of the RPN boxes, before feeding the
+    proposals to the heads
+    """
+
+    def __init__(self, pre_nms_top_n, post_nms_top_n, nms_thresh, min_size, box_coder=None, fpn_post_nms_top_n=None, fpn_post_nms_per_batch=True):
+        """
+        Arguments:
+            pre_nms_top_n (int)
+            post_nms_top_n (int)
+            nms_thresh (float)
+            min_size (int)
+            box_coder (BoxCoder)
+            fpn_post_nms_top_n (int)
+        """
+        super(RPNPostProcessor, self).__init__()
+        self.pre_nms_top_n = pre_nms_top_n
+        self.post_nms_top_n = post_nms_top_n
+        self.nms_thresh = nms_thresh
+        self.min_size = min_size
+        if box_coder is None:
+            box_coder = BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
+        self.box_coder = box_coder
+        if fpn_post_nms_top_n is None:
+            fpn_post_nms_top_n = post_nms_top_n
+        self.fpn_post_nms_top_n = fpn_post_nms_top_n
+        self.fpn_post_nms_per_batch = fpn_post_nms_per_batch
+
+    def add_gt_proposals(self, proposals, targets):
+        """
+        Arguments:
+            proposals: list[BoxList]
+            targets: list[BoxList]
+        """
+        device = proposals[0].bbox.device
+        gt_boxes = [target.copy_with_fields([]) for target in targets]
+        for gt_box in gt_boxes:
+            gt_box.add_field('objectness', torch.ones(len(gt_box), device=device))
+        proposals = [cat_boxlist((proposal, gt_box)) for proposal, gt_box in zip(proposals, gt_boxes)]
+        return proposals
+
+    def forward_for_single_feature_map(self, anchors, objectness, box_regression):
+        """
+        Arguments:
+            anchors: list[BoxList]
+            objectness: tensor of size N, A, H, W
+            box_regression: tensor of size N, A * 4, H, W
+        """
+        device = objectness.device
+        N, A, H, W = objectness.shape
+        objectness = permute_and_flatten(objectness, N, A, 1, H, W).view(N, -1)
+        objectness = objectness.sigmoid()
+        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
+        num_anchors = A * H * W
+        pre_nms_top_n = min(self.pre_nms_top_n, num_anchors)
+        objectness, topk_idx = objectness.topk(pre_nms_top_n, dim=1, sorted=True)
+        batch_idx = torch.arange(N, device=device)[:, (None)]
+        box_regression = box_regression[batch_idx, topk_idx]
+        image_shapes = [box.size for box in anchors]
+        concat_anchors = torch.cat([a.bbox for a in anchors], dim=0)
+        concat_anchors = concat_anchors.reshape(N, -1, 4)[batch_idx, topk_idx]
+        proposals = self.box_coder.decode(box_regression.view(-1, 4), concat_anchors.view(-1, 4))
+        proposals = proposals.view(N, -1, 4)
+        result = []
+        for proposal, score, im_shape in zip(proposals, objectness, image_shapes):
+            boxlist = BoxList(proposal, im_shape, mode='xyxy')
+            boxlist.add_field('objectness', score)
+            boxlist = boxlist.clip_to_image(remove_empty=False)
+            boxlist = remove_small_boxes(boxlist, self.min_size)
+            boxlist = boxlist_nms(boxlist, self.nms_thresh, max_proposals=self.post_nms_top_n, score_field='objectness')
+            result.append(boxlist)
+        return result
+
+    def forward(self, anchors, objectness, box_regression, targets=None):
+        """
+        Arguments:
+            anchors: list[list[BoxList]]
+            objectness: list[tensor]
+            box_regression: list[tensor]
+
+        Returns:
+            boxlists (list[BoxList]): the post-processed anchors, after
+                applying box decoding and NMS
+        """
+        sampled_boxes = []
+        num_levels = len(objectness)
+        anchors = list(zip(*anchors))
+        for a, o, b in zip(anchors, objectness, box_regression):
+            sampled_boxes.append(self.forward_for_single_feature_map(a, o, b))
+        boxlists = list(zip(*sampled_boxes))
+        boxlists = [cat_boxlist(boxlist) for boxlist in boxlists]
+        if num_levels > 1:
+            boxlists = self.select_over_all_levels(boxlists)
+        if self.training and targets is not None:
+            boxlists = self.add_gt_proposals(boxlists, targets)
+        return boxlists
+
+    def select_over_all_levels(self, boxlists):
+        num_images = len(boxlists)
+        if self.training and self.fpn_post_nms_per_batch:
+            objectness = torch.cat([boxlist.get_field('objectness') for boxlist in boxlists], dim=0)
+            box_sizes = [len(boxlist) for boxlist in boxlists]
+            post_nms_top_n = min(self.fpn_post_nms_top_n, len(objectness))
+            _, inds_sorted = torch.topk(objectness, post_nms_top_n, dim=0, sorted=True)
+            inds_mask = torch.zeros_like(objectness, dtype=torch.bool)
+            inds_mask[inds_sorted] = 1
+            inds_mask = inds_mask.split(box_sizes)
+            for i in range(num_images):
+                boxlists[i] = boxlists[i][inds_mask[i]]
+        else:
+            for i in range(num_images):
+                objectness = boxlists[i].get_field('objectness')
+                post_nms_top_n = min(self.fpn_post_nms_top_n, len(objectness))
+                _, inds_sorted = torch.topk(objectness, post_nms_top_n, dim=0, sorted=True)
+                boxlists[i] = boxlists[i][inds_sorted]
+        return boxlists
+
+
 def make_rpn_postprocessor(config, rpn_box_coder, is_train, version='key'):
     fpn_post_nms_top_n = config.MODEL.RPN.FPN_POST_NMS_TOP_N_TRAIN
     if not is_train:
@@ -1596,6 +3630,392 @@ def make_rpn_postprocessor(config, rpn_box_coder, is_train, version='key'):
     min_size = config.MODEL.RPN.MIN_SIZE
     box_selector = RPNPostProcessor(pre_nms_top_n=pre_nms_top_n, post_nms_top_n=post_nms_top_n, nms_thresh=nms_thresh, min_size=min_size, box_coder=rpn_box_coder, fpn_post_nms_top_n=fpn_post_nms_top_n, fpn_post_nms_per_batch=fpn_post_nms_per_batch)
     return box_selector
+
+
+class RPNModule(torch.nn.Module):
+    """
+    Module for RPN computation. Takes feature maps from the backbone and outputs 
+    RPN proposals and losses. Works for both FPN and non-FPN.
+    """
+
+    def __init__(self, cfg, in_channels):
+        super(RPNModule, self).__init__()
+        self.cfg = cfg.clone()
+        anchor_generator = make_anchor_generator(cfg)
+        rpn_head = registry.RPN_HEADS[cfg.MODEL.RPN.RPN_HEAD]
+        head = rpn_head(cfg, in_channels, anchor_generator.num_anchors_per_location()[0])
+        rpn_box_coder = BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
+        box_selector_train = make_rpn_postprocessor(cfg, rpn_box_coder, is_train=True)
+        box_selector_test = make_rpn_postprocessor(cfg, rpn_box_coder, is_train=False)
+        loss_evaluator = make_rpn_loss_evaluator(cfg, rpn_box_coder)
+        self.anchor_generator = anchor_generator
+        self.head = head
+        self.box_selector_train = box_selector_train
+        self.box_selector_test = box_selector_test
+        self.loss_evaluator = loss_evaluator
+
+    def forward(self, images, features, targets=None):
+        """
+        Arguments:
+            images (ImageList): images for which we want to compute the predictions
+            features (list[Tensor]): features computed from the images that are
+                used for computing the predictions. Each tensor in the list
+                correspond to different feature levels
+            targets (list[BoxList): ground-truth boxes present in the image (optional)
+
+        Returns:
+            boxes (list[BoxList]): the predicted boxes from the RPN, one BoxList per
+                image.
+            losses (dict[Tensor]): the losses for the model during training. During
+                testing, it is an empty dict.
+        """
+        objectness, rpn_box_regression = self.head(features)
+        anchors = self.anchor_generator(images, features)
+        if self.training:
+            return self._forward_train(anchors, objectness, rpn_box_regression, targets)
+        else:
+            return self._forward_test(anchors, objectness, rpn_box_regression)
+
+    def _forward_train(self, anchors, objectness, rpn_box_regression, targets):
+        if self.cfg.MODEL.RPN_ONLY:
+            boxes = anchors
+        else:
+            with torch.no_grad():
+                boxes = self.box_selector_train(anchors, objectness, rpn_box_regression, targets)
+        loss_objectness, loss_rpn_box_reg = self.loss_evaluator(anchors, objectness, rpn_box_regression, targets)
+        losses = {'loss_objectness': loss_objectness, 'loss_rpn_box_reg': loss_rpn_box_reg}
+        return boxes, losses
+
+    def _forward_test(self, anchors, objectness, rpn_box_regression):
+        boxes = self.box_selector_test(anchors, objectness, rpn_box_regression)
+        if self.cfg.MODEL.RPN_ONLY:
+            inds = [box.get_field('objectness').sort(descending=True)[1] for box in boxes]
+            boxes = [box[ind] for box, ind in zip(boxes, inds)]
+        return boxes, {}
+
+
+class RPNWithRefModule(RPNModule):
+    """
+    Module for RPN computation. Takes feature maps from the backbone and outputs
+    RPN proposals and losses. Works for both FPN and non-FPN.
+    """
+
+    def __init__(self, cfg, in_channels):
+        super(RPNWithRefModule, self).__init__(cfg, in_channels)
+        rpn_box_coder = BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
+        box_selector_ref = make_rpn_postprocessor(cfg, rpn_box_coder, is_train=True, version='ref')
+        self.box_selector_ref = box_selector_ref
+
+    def forward(self, images, features, targets=None, version='key'):
+        """
+        Arguments:
+            images (ImageList): images for which we want to compute the predictions
+            features (list[Tensor]): features computed from the images that are
+                used for computing the predictions. Each tensor in the list
+                correspond to different feature levels
+            targets (list[BoxList): ground-truth boxes present in the image (optional)
+            version (str): whether the current image is key frame or reference frame
+
+        Returns:
+            boxes (list[BoxList]): the predicted boxes from the RPN, one BoxList per
+                image.
+            losses (dict[Tensor]): the losses for the model during training. During
+                testing, it is an empty dict.
+        """
+        objectness, rpn_box_regression = self.head(features)
+        anchors = self.anchor_generator(images, features)
+        if version == 'key':
+            if self.training:
+                return self._forward_train(anchors, objectness, rpn_box_regression, targets)
+            else:
+                return self._forward_test(anchors, objectness, rpn_box_regression)
+        else:
+            return self._forward_ref(anchors, objectness, rpn_box_regression)
+
+    def _forward_ref(self, anchors, objectness, rpn_box_regression):
+        with torch.no_grad():
+            boxes = self.box_selector_ref(anchors, objectness, rpn_box_regression)
+        return boxes
+
+
+class RetinaNetHead(torch.nn.Module):
+    """
+    Adds a RetinNet head with classification and regression heads
+    """
+
+    def __init__(self, cfg, in_channels):
+        """
+        Arguments:
+            in_channels (int): number of channels of the input feature
+            num_anchors (int): number of anchors to be predicted
+        """
+        super(RetinaNetHead, self).__init__()
+        num_classes = cfg.MODEL.RETINANET.NUM_CLASSES - 1
+        num_anchors = len(cfg.MODEL.RETINANET.ASPECT_RATIOS) * cfg.MODEL.RETINANET.SCALES_PER_OCTAVE
+        cls_tower = []
+        bbox_tower = []
+        for i in range(cfg.MODEL.RETINANET.NUM_CONVS):
+            cls_tower.append(nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1))
+            cls_tower.append(nn.ReLU())
+            bbox_tower.append(nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1))
+            bbox_tower.append(nn.ReLU())
+        self.add_module('cls_tower', nn.Sequential(*cls_tower))
+        self.add_module('bbox_tower', nn.Sequential(*bbox_tower))
+        self.cls_logits = nn.Conv2d(in_channels, num_anchors * num_classes, kernel_size=3, stride=1, padding=1)
+        self.bbox_pred = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=3, stride=1, padding=1)
+        for modules in [self.cls_tower, self.bbox_tower, self.cls_logits, self.bbox_pred]:
+            for l in modules.modules():
+                if isinstance(l, nn.Conv2d):
+                    torch.nn.init.normal_(l.weight, std=0.01)
+                    torch.nn.init.constant_(l.bias, 0)
+        prior_prob = cfg.MODEL.RETINANET.PRIOR_PROB
+        bias_value = -math.log((1 - prior_prob) / prior_prob)
+        torch.nn.init.constant_(self.cls_logits.bias, bias_value)
+
+    def forward(self, x):
+        logits = []
+        bbox_reg = []
+        for feature in x:
+            logits.append(self.cls_logits(self.cls_tower(feature)))
+            bbox_reg.append(self.bbox_pred(self.bbox_tower(feature)))
+        return logits, bbox_reg
+
+
+def make_anchor_generator_retinanet(config):
+    anchor_sizes = config.MODEL.RETINANET.ANCHOR_SIZES
+    aspect_ratios = config.MODEL.RETINANET.ASPECT_RATIOS
+    anchor_strides = config.MODEL.RETINANET.ANCHOR_STRIDES
+    straddle_thresh = config.MODEL.RETINANET.STRADDLE_THRESH
+    octave = config.MODEL.RETINANET.OCTAVE
+    scales_per_octave = config.MODEL.RETINANET.SCALES_PER_OCTAVE
+    assert len(anchor_strides) == len(anchor_sizes), 'Only support FPN now'
+    new_anchor_sizes = []
+    for size in anchor_sizes:
+        per_layer_anchor_sizes = []
+        for scale_per_octave in range(scales_per_octave):
+            octave_scale = octave ** (scale_per_octave / float(scales_per_octave))
+            per_layer_anchor_sizes.append(octave_scale * size)
+        new_anchor_sizes.append(tuple(per_layer_anchor_sizes))
+    anchor_generator = AnchorGenerator(tuple(new_anchor_sizes), aspect_ratios, anchor_strides, straddle_thresh)
+    return anchor_generator
+
+
+class RetinaNetLossComputation(RPNLossComputation):
+    """
+    This class computes the RetinaNet loss.
+    """
+
+    def __init__(self, proposal_matcher, box_coder, generate_labels_func, sigmoid_focal_loss, bbox_reg_beta=0.11, regress_norm=1.0):
+        """
+        Arguments:
+            proposal_matcher (Matcher)
+            box_coder (BoxCoder)
+        """
+        self.proposal_matcher = proposal_matcher
+        self.box_coder = box_coder
+        self.box_cls_loss_func = sigmoid_focal_loss
+        self.bbox_reg_beta = bbox_reg_beta
+        self.copied_fields = ['labels']
+        self.generate_labels_func = generate_labels_func
+        self.discard_cases = ['between_thresholds']
+        self.regress_norm = regress_norm
+
+    def __call__(self, anchors, box_cls, box_regression, targets):
+        """
+        Arguments:
+            anchors (list[BoxList])
+            box_cls (list[Tensor])
+            box_regression (list[Tensor])
+            targets (list[BoxList])
+
+        Returns:
+            retinanet_cls_loss (Tensor)
+            retinanet_regression_loss (Tensor
+        """
+        anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in anchors]
+        labels, regression_targets = self.prepare_targets(anchors, targets)
+        N = len(labels)
+        box_cls, box_regression = concat_box_prediction_layers(box_cls, box_regression)
+        labels = torch.cat(labels, dim=0)
+        regression_targets = torch.cat(regression_targets, dim=0)
+        pos_inds = torch.nonzero(labels > 0).squeeze(1)
+        retinanet_regression_loss = smooth_l1_loss(box_regression[pos_inds], regression_targets[pos_inds], beta=self.bbox_reg_beta, size_average=False) / max(1, pos_inds.numel() * self.regress_norm)
+        labels = labels.int()
+        retinanet_cls_loss = self.box_cls_loss_func(box_cls, labels) / (pos_inds.numel() + N)
+        return retinanet_cls_loss, retinanet_regression_loss
+
+
+def generate_retinanet_labels(matched_targets):
+    labels_per_image = matched_targets.get_field('labels')
+    return labels_per_image
+
+
+def make_retinanet_loss_evaluator(cfg, box_coder):
+    matcher = Matcher(cfg.MODEL.RETINANET.FG_IOU_THRESHOLD, cfg.MODEL.RETINANET.BG_IOU_THRESHOLD, allow_low_quality_matches=True)
+    sigmoid_focal_loss = SigmoidFocalLoss(cfg.MODEL.RETINANET.LOSS_GAMMA, cfg.MODEL.RETINANET.LOSS_ALPHA)
+    loss_evaluator = RetinaNetLossComputation(matcher, box_coder, generate_retinanet_labels, sigmoid_focal_loss, bbox_reg_beta=cfg.MODEL.RETINANET.BBOX_REG_BETA, regress_norm=cfg.MODEL.RETINANET.BBOX_REG_WEIGHT)
+    return loss_evaluator
+
+
+class RetinaNetPostProcessor(RPNPostProcessor):
+    """
+    Performs post-processing on the outputs of the RetinaNet boxes.
+    This is only used in the testing.
+    """
+
+    def __init__(self, pre_nms_thresh, pre_nms_top_n, nms_thresh, fpn_post_nms_top_n, min_size, num_classes, box_coder=None):
+        """
+        Arguments:
+            pre_nms_thresh (float)
+            pre_nms_top_n (int)
+            nms_thresh (float)
+            fpn_post_nms_top_n (int)
+            min_size (int)
+            num_classes (int)
+            box_coder (BoxCoder)
+        """
+        super(RetinaNetPostProcessor, self).__init__(pre_nms_thresh, 0, nms_thresh, min_size)
+        self.pre_nms_thresh = pre_nms_thresh
+        self.pre_nms_top_n = pre_nms_top_n
+        self.nms_thresh = nms_thresh
+        self.fpn_post_nms_top_n = fpn_post_nms_top_n
+        self.min_size = min_size
+        self.num_classes = num_classes
+        if box_coder is None:
+            box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
+        self.box_coder = box_coder
+
+    def add_gt_proposals(self, proposals, targets):
+        """
+        This function is not used in RetinaNet
+        """
+        pass
+
+    def forward_for_single_feature_map(self, anchors, box_cls, box_regression):
+        """
+        Arguments:
+            anchors: list[BoxList]
+            box_cls: tensor of size N, A * C, H, W
+            box_regression: tensor of size N, A * 4, H, W
+        """
+        device = box_cls.device
+        N, _, H, W = box_cls.shape
+        A = box_regression.size(1) // 4
+        C = box_cls.size(1) // A
+        box_cls = permute_and_flatten(box_cls, N, A, C, H, W)
+        box_cls = box_cls.sigmoid()
+        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
+        num_anchors = A * H * W
+        candidate_inds = box_cls > self.pre_nms_thresh
+        pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
+        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)
+        results = []
+        for per_box_cls, per_box_regression, per_pre_nms_top_n, per_candidate_inds, per_anchors in zip(box_cls, box_regression, pre_nms_top_n, candidate_inds, anchors):
+            per_box_cls = per_box_cls[per_candidate_inds]
+            per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n, sorted=False)
+            per_candidate_nonzeros = per_candidate_inds.nonzero()[(top_k_indices), :]
+            per_box_loc = per_candidate_nonzeros[:, (0)]
+            per_class = per_candidate_nonzeros[:, (1)]
+            per_class += 1
+            detections = self.box_coder.decode(per_box_regression[(per_box_loc), :].view(-1, 4), per_anchors.bbox[(per_box_loc), :].view(-1, 4))
+            boxlist = BoxList(detections, per_anchors.size, mode='xyxy')
+            boxlist.add_field('labels', per_class)
+            boxlist.add_field('scores', per_box_cls)
+            boxlist = boxlist.clip_to_image(remove_empty=False)
+            boxlist = remove_small_boxes(boxlist, self.min_size)
+            results.append(boxlist)
+        return results
+
+    def select_over_all_levels(self, boxlists):
+        num_images = len(boxlists)
+        results = []
+        for i in range(num_images):
+            scores = boxlists[i].get_field('scores')
+            labels = boxlists[i].get_field('labels')
+            boxes = boxlists[i].bbox
+            boxlist = boxlists[i]
+            result = []
+            for j in range(1, self.num_classes):
+                inds = (labels == j).nonzero().view(-1)
+                scores_j = scores[inds]
+                boxes_j = boxes[(inds), :].view(-1, 4)
+                boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
+                boxlist_for_class.add_field('scores', scores_j)
+                boxlist_for_class = boxlist_nms(boxlist_for_class, self.nms_thresh, score_field='scores')
+                num_labels = len(boxlist_for_class)
+                boxlist_for_class.add_field('labels', torch.full((num_labels,), j, dtype=torch.int64, device=scores.device))
+                result.append(boxlist_for_class)
+            result = cat_boxlist(result)
+            number_of_detections = len(result)
+            if number_of_detections > self.fpn_post_nms_top_n > 0:
+                cls_scores = result.get_field('scores')
+                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), number_of_detections - self.fpn_post_nms_top_n + 1)
+                keep = cls_scores >= image_thresh.item()
+                keep = torch.nonzero(keep).squeeze(1)
+                result = result[keep]
+            results.append(result)
+        return results
+
+
+def make_retinanet_postprocessor(config, rpn_box_coder, is_train):
+    pre_nms_thresh = config.MODEL.RETINANET.INFERENCE_TH
+    pre_nms_top_n = config.MODEL.RETINANET.PRE_NMS_TOP_N
+    nms_thresh = config.MODEL.RETINANET.NMS_TH
+    fpn_post_nms_top_n = config.TEST.DETECTIONS_PER_IMG
+    min_size = 0
+    box_selector = RetinaNetPostProcessor(pre_nms_thresh=pre_nms_thresh, pre_nms_top_n=pre_nms_top_n, nms_thresh=nms_thresh, fpn_post_nms_top_n=fpn_post_nms_top_n, min_size=min_size, num_classes=config.MODEL.RETINANET.NUM_CLASSES, box_coder=rpn_box_coder)
+    return box_selector
+
+
+class RetinaNetModule(torch.nn.Module):
+    """
+    Module for RetinaNet computation. Takes feature maps from the backbone and
+    RetinaNet outputs and losses. Only Test on FPN now.
+    """
+
+    def __init__(self, cfg, in_channels):
+        super(RetinaNetModule, self).__init__()
+        self.cfg = cfg.clone()
+        anchor_generator = make_anchor_generator_retinanet(cfg)
+        head = RetinaNetHead(cfg, in_channels)
+        box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
+        box_selector_test = make_retinanet_postprocessor(cfg, box_coder, is_train=False)
+        loss_evaluator = make_retinanet_loss_evaluator(cfg, box_coder)
+        self.anchor_generator = anchor_generator
+        self.head = head
+        self.box_selector_test = box_selector_test
+        self.loss_evaluator = loss_evaluator
+
+    def forward(self, images, features, targets=None):
+        """
+        Arguments:
+            images (ImageList): images for which we want to compute the predictions
+            features (list[Tensor]): features computed from the images that are
+                used for computing the predictions. Each tensor in the list
+                correspond to different feature levels
+            targets (list[BoxList): ground-truth boxes present in the image (optional)
+
+        Returns:
+            boxes (list[BoxList]): the predicted boxes from the RPN, one BoxList per
+                image.
+            losses (dict[Tensor]): the losses for the model during training. During
+                testing, it is an empty dict.
+        """
+        box_cls, box_regression = self.head(features)
+        anchors = self.anchor_generator(images, features)
+        if self.training:
+            return self._forward_train(anchors, box_cls, box_regression, targets)
+        else:
+            return self._forward_test(anchors, box_cls, box_regression)
+
+    def _forward_train(self, anchors, box_cls, box_regression, targets):
+        loss_box_cls, loss_box_reg = self.loss_evaluator(anchors, box_cls, box_regression, targets)
+        losses = {'loss_retina_cls': loss_box_cls, 'loss_retina_reg': loss_box_reg}
+        return anchors, losses
+
+    def _forward_test(self, anchors, box_cls, box_regression):
+        boxes = self.box_selector_test(anchors, box_cls, box_regression)
+        return boxes, {}
 
 
 def build_retinanet(cfg, in_channels):
@@ -1633,7 +4053,7 @@ class ImageList(object):
         self.image_sizes = image_sizes
 
     def to(self, *args, **kwargs):
-        cast_tensor = self.tensors.to(*args, **kwargs)
+        cast_tensor = self.tensors
         return ImageList(cast_tensor, self.image_sizes)
 
 
@@ -1987,259 +4407,6 @@ class GeneralizedRCNNFGFA(nn.Module):
         return result
 
 
-FLIP_LEFT_RIGHT = 0
-
-
-FLIP_TOP_BOTTOM = 1
-
-
-class BoxList(object):
-    """
-    This class represents a set of bounding boxes.
-    The bounding boxes are represented as a Nx4 Tensor.
-    In order to uniquely determine the bounding boxes with respect
-    to an image, we also store the corresponding image dimensions.
-    They can contain extra information that is specific to each bounding box, such as
-    labels.
-    """
-
-    def __init__(self, bbox, image_size, mode='xyxy'):
-        device = bbox.device if isinstance(bbox, torch.Tensor) else torch.device('cpu')
-        bbox = torch.as_tensor(bbox, dtype=torch.float32, device=device)
-        if bbox.ndimension() != 2:
-            raise ValueError('bbox should have 2 dimensions, got {}'.format(bbox.ndimension()))
-        if bbox.size(-1) != 4:
-            raise ValueError('last dimension of bbox should have a size of 4, got {}'.format(bbox.size(-1)))
-        if mode not in ('xyxy', 'xywh'):
-            raise ValueError("mode should be 'xyxy' or 'xywh'")
-        self.bbox = bbox
-        self.size = image_size
-        self.mode = mode
-        self.extra_fields = {}
-
-    def add_field(self, field, field_data):
-        self.extra_fields[field] = field_data
-
-    def get_field(self, field):
-        return self.extra_fields[field]
-
-    def has_field(self, field):
-        return field in self.extra_fields
-
-    def fields(self):
-        return list(self.extra_fields.keys())
-
-    def _copy_extra_fields(self, bbox):
-        for k, v in bbox.extra_fields.items():
-            self.extra_fields[k] = v
-
-    def convert(self, mode):
-        if mode not in ('xyxy', 'xywh'):
-            raise ValueError("mode should be 'xyxy' or 'xywh'")
-        if mode == self.mode:
-            return self
-        xmin, ymin, xmax, ymax = self._split_into_xyxy()
-        if mode == 'xyxy':
-            bbox = torch.cat((xmin, ymin, xmax, ymax), dim=-1)
-            bbox = BoxList(bbox, self.size, mode=mode)
-        else:
-            TO_REMOVE = 1
-            bbox = torch.cat((xmin, ymin, xmax - xmin + TO_REMOVE, ymax - ymin + TO_REMOVE), dim=-1)
-            bbox = BoxList(bbox, self.size, mode=mode)
-        bbox._copy_extra_fields(self)
-        return bbox
-
-    def _split_into_xyxy(self):
-        if self.mode == 'xyxy':
-            xmin, ymin, xmax, ymax = self.bbox.split(1, dim=-1)
-            return xmin, ymin, xmax, ymax
-        elif self.mode == 'xywh':
-            TO_REMOVE = 1
-            xmin, ymin, w, h = self.bbox.split(1, dim=-1)
-            return xmin, ymin, xmin + (w - TO_REMOVE).clamp(min=0), ymin + (h - TO_REMOVE).clamp(min=0)
-        else:
-            raise RuntimeError('Should not be here')
-
-    def resize(self, size, *args, **kwargs):
-        """
-        Returns a resized copy of this bounding box
-
-        :param size: The requested size in pixels, as a 2-tuple:
-            (width, height).
-        """
-        ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(size, self.size))
-        if ratios[0] == ratios[1]:
-            ratio = ratios[0]
-            scaled_box = self.bbox * ratio
-            bbox = BoxList(scaled_box, size, mode=self.mode)
-            for k, v in self.extra_fields.items():
-                if not isinstance(v, torch.Tensor):
-                    v = v.resize(size, *args, **kwargs)
-                bbox.add_field(k, v)
-            return bbox
-        ratio_width, ratio_height = ratios
-        xmin, ymin, xmax, ymax = self._split_into_xyxy()
-        scaled_xmin = xmin * ratio_width
-        scaled_xmax = xmax * ratio_width
-        scaled_ymin = ymin * ratio_height
-        scaled_ymax = ymax * ratio_height
-        scaled_box = torch.cat((scaled_xmin, scaled_ymin, scaled_xmax, scaled_ymax), dim=-1)
-        bbox = BoxList(scaled_box, size, mode='xyxy')
-        for k, v in self.extra_fields.items():
-            if not isinstance(v, torch.Tensor):
-                v = v.resize(size, *args, **kwargs)
-            bbox.add_field(k, v)
-        return bbox.convert(self.mode)
-
-    def transpose(self, method):
-        """
-        Transpose bounding box (flip or rotate in 90 degree steps)
-        :param method: One of :py:attr:`PIL.Image.FLIP_LEFT_RIGHT`,
-          :py:attr:`PIL.Image.FLIP_TOP_BOTTOM`, :py:attr:`PIL.Image.ROTATE_90`,
-          :py:attr:`PIL.Image.ROTATE_180`, :py:attr:`PIL.Image.ROTATE_270`,
-          :py:attr:`PIL.Image.TRANSPOSE` or :py:attr:`PIL.Image.TRANSVERSE`.
-        """
-        if method not in (FLIP_LEFT_RIGHT, FLIP_TOP_BOTTOM):
-            raise NotImplementedError('Only FLIP_LEFT_RIGHT and FLIP_TOP_BOTTOM implemented')
-        image_width, image_height = self.size
-        xmin, ymin, xmax, ymax = self._split_into_xyxy()
-        if method == FLIP_LEFT_RIGHT:
-            TO_REMOVE = 1
-            transposed_xmin = image_width - xmax - TO_REMOVE
-            transposed_xmax = image_width - xmin - TO_REMOVE
-            transposed_ymin = ymin
-            transposed_ymax = ymax
-        elif method == FLIP_TOP_BOTTOM:
-            transposed_xmin = xmin
-            transposed_xmax = xmax
-            transposed_ymin = image_height - ymax
-            transposed_ymax = image_height - ymin
-        transposed_boxes = torch.cat((transposed_xmin, transposed_ymin, transposed_xmax, transposed_ymax), dim=-1)
-        bbox = BoxList(transposed_boxes, self.size, mode='xyxy')
-        for k, v in self.extra_fields.items():
-            if not isinstance(v, torch.Tensor):
-                v = v.transpose(method)
-            bbox.add_field(k, v)
-        return bbox.convert(self.mode)
-
-    def crop(self, box):
-        """
-        Crops a rectangular region from this bounding box. The box is a
-        4-tuple defining the left, upper, right, and lower pixel
-        coordinate.
-        """
-        xmin, ymin, xmax, ymax = self._split_into_xyxy()
-        w, h = box[2] - box[0], box[3] - box[1]
-        cropped_xmin = (xmin - box[0]).clamp(min=0, max=w)
-        cropped_ymin = (ymin - box[1]).clamp(min=0, max=h)
-        cropped_xmax = (xmax - box[0]).clamp(min=0, max=w)
-        cropped_ymax = (ymax - box[1]).clamp(min=0, max=h)
-        if False:
-            is_empty = (cropped_xmin == cropped_xmax) | (cropped_ymin == cropped_ymax)
-        cropped_box = torch.cat((cropped_xmin, cropped_ymin, cropped_xmax, cropped_ymax), dim=-1)
-        bbox = BoxList(cropped_box, (w, h), mode='xyxy')
-        for k, v in self.extra_fields.items():
-            if not isinstance(v, torch.Tensor):
-                v = v.crop(box)
-            bbox.add_field(k, v)
-        return bbox.convert(self.mode)
-
-    def to(self, device):
-        bbox = BoxList(self.bbox.to(device), self.size, self.mode)
-        for k, v in self.extra_fields.items():
-            if hasattr(v, 'to'):
-                v = v.to(device)
-            bbox.add_field(k, v)
-        return bbox
-
-    def __getitem__(self, item):
-        bbox = BoxList(self.bbox[item], self.size, self.mode)
-        for k, v in self.extra_fields.items():
-            bbox.add_field(k, v[item])
-        return bbox
-
-    def __len__(self):
-        return self.bbox.shape[0]
-
-    def clip_to_image(self, remove_empty=True):
-        TO_REMOVE = 1
-        self.bbox[:, (0)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, (1)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
-        self.bbox[:, (2)].clamp_(min=0, max=self.size[0] - TO_REMOVE)
-        self.bbox[:, (3)].clamp_(min=0, max=self.size[1] - TO_REMOVE)
-        if remove_empty:
-            box = self.bbox
-            keep = (box[:, (3)] > box[:, (1)]) & (box[:, (2)] > box[:, (0)])
-            return self[keep]
-        return self
-
-    def area(self):
-        box = self.bbox
-        if self.mode == 'xyxy':
-            TO_REMOVE = 1
-            area = (box[:, (2)] - box[:, (0)] + TO_REMOVE) * (box[:, (3)] - box[:, (1)] + TO_REMOVE)
-        elif self.mode == 'xywh':
-            area = box[:, (2)] * box[:, (3)]
-        else:
-            raise RuntimeError('Should not be here')
-        return area
-
-    def copy_with_fields(self, fields, skip_missing=False):
-        bbox = BoxList(self.bbox, self.size, self.mode)
-        if not isinstance(fields, (list, tuple)):
-            fields = [fields]
-        for field in fields:
-            if self.has_field(field):
-                bbox.add_field(field, self.get_field(field))
-            elif not skip_missing:
-                raise KeyError("Field '{}' not found in {}".format(field, self))
-        return bbox
-
-    def __repr__(self):
-        s = self.__class__.__name__ + '('
-        s += 'num_boxes={}, '.format(len(self))
-        s += 'image_width={}, '.format(self.size[0])
-        s += 'image_height={}, '.format(self.size[1])
-        s += 'mode={})'.format(self.mode)
-        return s
-
-
-def _cat(tensors, dim=0):
-    """
-    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
-    """
-    assert isinstance(tensors, (list, tuple))
-    if len(tensors) == 1:
-        return tensors[0]
-    return torch.cat(tensors, dim)
-
-
-def cat_boxlist(bboxes, ignore_field=False):
-    """
-    Concatenates a list of BoxList (having the same image size) into a
-    single BoxList
-
-    Arguments:
-        bboxes (list[BoxList])
-    """
-    assert isinstance(bboxes, (list, tuple))
-    assert all(isinstance(bbox, BoxList) for bbox in bboxes)
-    size = bboxes[0].size
-    assert all(bbox.size == size for bbox in bboxes)
-    mode = bboxes[0].mode
-    assert all(bbox.mode == mode for bbox in bboxes)
-    fields = set(bboxes[0].fields())
-    if not ignore_field:
-        assert all(set(bbox.fields()) == fields for bbox in bboxes)
-    cat_boxes = BoxList(_cat([bbox.bbox for bbox in bboxes], dim=0), size, mode)
-    if ignore_field:
-        return cat_boxes
-    for field in fields:
-        data = _cat([bbox.get_field(field) for bbox in bboxes], dim=0)
-        cat_boxes.add_field(field, data)
-    return cat_boxes
-
-
 class GeneralizedRCNNMEGA(nn.Module):
     """
     Main class for Generalized R-CNN. Currently supports boxes and masks.
@@ -2525,16 +4692,6 @@ class GeneralizedRCNNRDN(nn.Module):
         return result
 
 
-def cat(tensors, dim=0):
-    """
-    Efficient version of torch.cat that avoids a copy if there is only a single element in a list
-    """
-    assert isinstance(tensors, (list, tuple))
-    if len(tensors) == 1:
-        return tensors[0]
-    return torch.cat(tensors, dim)
-
-
 class LevelMapper(object):
     """Determine which FPN level each RoI in a set of RoIs should map to based
     on the heuristic in the FPN paper.
@@ -2563,7 +4720,7 @@ class LevelMapper(object):
         s = torch.sqrt(cat([boxlist.area() for boxlist in boxlists]))
         target_lvls = torch.floor(self.lvl0 + torch.log2(s / self.s0 + self.eps))
         target_lvls = torch.clamp(target_lvls, min=self.k_min, max=self.k_max)
-        return target_lvls.to(torch.int64) - self.k_min
+        return target_lvls - self.k_min
 
 
 class Pooler(nn.Module):
@@ -2625,481 +4782,24 @@ class Pooler(nn.Module):
         return result
 
 
-def make_roi_box_feature_extractor(cfg, in_channels):
-    func = registry.ROI_BOX_FEATURE_EXTRACTORS[cfg.MODEL.ROI_BOX_HEAD.FEATURE_EXTRACTOR]
-    return func(cfg, in_channels)
+class ResNet50Conv5ROIFeatureExtractor(nn.Module):
 
+    def __init__(self, config, in_channels):
+        super(ResNet50Conv5ROIFeatureExtractor, self).__init__()
+        resolution = config.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        scales = config.MODEL.ROI_BOX_HEAD.POOLER_SCALES
+        sampling_ratio = config.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        stage = resnet.StageSpec(index=4, block_count=3, return_features=False)
+        head = resnet.ResNetHead(block_module=config.MODEL.RESNETS.TRANS_FUNC, stages=(stage,), num_groups=config.MODEL.RESNETS.NUM_GROUPS, width_per_group=config.MODEL.RESNETS.WIDTH_PER_GROUP, stride_in_1x1=config.MODEL.RESNETS.STRIDE_IN_1X1, stride_init=None, res2_out_channels=config.MODEL.RESNETS.RES2_OUT_CHANNELS, dilation=config.MODEL.RESNETS.RES5_DILATION)
+        self.pooler = pooler
+        self.head = head
+        self.out_channels = head.out_channels
 
-class BalancedPositiveNegativeSampler(object):
-    """
-    This class samples batches, ensuring that they contain a fixed proportion of positives
-    """
-
-    def __init__(self, batch_size_per_image, positive_fraction):
-        """
-        Arguments:
-            batch_size_per_image (int): number of elements to be selected per image
-            positive_fraction (float): percentage of positive elements per batch
-        """
-        self.batch_size_per_image = batch_size_per_image
-        self.positive_fraction = positive_fraction
-
-    def __call__(self, matched_idxs):
-        """
-        Arguments:
-            matched idxs: list of tensors containing -1, 0 or positive values.
-                Each tensor corresponds to a specific image.
-                -1 values are ignored, 0 are considered as negatives and > 0 as
-                positives.
-
-        Returns:
-            pos_idx (list[tensor])
-            neg_idx (list[tensor])
-
-        Returns two lists of binary masks for each image.
-        The first list contains the positive elements that were selected,
-        and the second list the negative example.
-        """
-        pos_idx = []
-        neg_idx = []
-        for matched_idxs_per_image in matched_idxs:
-            positive = torch.nonzero(matched_idxs_per_image >= 1).squeeze(1)
-            negative = torch.nonzero(matched_idxs_per_image == 0).squeeze(1)
-            num_pos = int(self.batch_size_per_image * self.positive_fraction)
-            num_pos = min(positive.numel(), num_pos)
-            num_neg = self.batch_size_per_image - num_pos
-            num_neg = min(negative.numel(), num_neg)
-            perm1 = torch.randperm(positive.numel(), device=positive.device)[:num_pos]
-            perm2 = torch.randperm(negative.numel(), device=negative.device)[:num_neg]
-            pos_idx_per_image = positive[perm1]
-            neg_idx_per_image = negative[perm2]
-            pos_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image, dtype=torch.bool)
-            neg_idx_per_image_mask = torch.zeros_like(matched_idxs_per_image, dtype=torch.bool)
-            pos_idx_per_image_mask[pos_idx_per_image] = 1
-            neg_idx_per_image_mask[neg_idx_per_image] = 1
-            pos_idx.append(pos_idx_per_image_mask)
-            neg_idx.append(neg_idx_per_image_mask)
-        return pos_idx, neg_idx
-
-
-class Matcher(object):
-    """
-    This class assigns to each predicted "element" (e.g., a box) a ground-truth
-    element. Each predicted element will have exactly zero or one matches; each
-    ground-truth element may be assigned to zero or more predicted elements.
-
-    Matching is based on the MxN match_quality_matrix, that characterizes how well
-    each (ground-truth, predicted)-pair match. For example, if the elements are
-    boxes, the matrix may contain box IoU overlap values.
-
-    The matcher returns a tensor of size N containing the index of the ground-truth
-    element m that matches to prediction n. If there is no match, a negative value
-    is returned.
-    """
-    BELOW_LOW_THRESHOLD = -1
-    BETWEEN_THRESHOLDS = -2
-
-    def __init__(self, high_threshold, low_threshold, allow_low_quality_matches=False):
-        """
-        Args:
-            high_threshold (float): quality values greater than or equal to
-                this value are candidate matches.
-            low_threshold (float): a lower quality threshold used to stratify
-                matches into three levels:
-                1) matches >= high_threshold
-                2) BETWEEN_THRESHOLDS matches in [low_threshold, high_threshold)
-                3) BELOW_LOW_THRESHOLD matches in [0, low_threshold)
-            allow_low_quality_matches (bool): if True, produce additional matches
-                for predictions that have only low-quality match candidates. See
-                set_low_quality_matches_ for more details.
-        """
-        assert low_threshold <= high_threshold
-        self.high_threshold = high_threshold
-        self.low_threshold = low_threshold
-        self.allow_low_quality_matches = allow_low_quality_matches
-
-    def __call__(self, match_quality_matrix):
-        """
-        Args:
-            match_quality_matrix (Tensor[float]): an MxN tensor, containing the
-            pairwise quality between M ground-truth elements and N predicted elements.
-
-        Returns:
-            matches (Tensor[int64]): an N tensor where N[i] is a matched gt in
-            [0, M - 1] or a negative value indicating that prediction i could not
-            be matched.
-        """
-        if match_quality_matrix.numel() == 0:
-            if match_quality_matrix.shape[0] == 0:
-                raise ValueError('No ground-truth boxes available for one of the images during training')
-            else:
-                raise ValueError('No proposal boxes available for one of the images during training')
-        matched_vals, matches = match_quality_matrix.max(dim=0)
-        if self.allow_low_quality_matches:
-            all_matches = matches.clone()
-        below_low_threshold = matched_vals < self.low_threshold
-        between_thresholds = (matched_vals >= self.low_threshold) & (matched_vals < self.high_threshold)
-        matches[below_low_threshold] = Matcher.BELOW_LOW_THRESHOLD
-        matches[between_thresholds] = Matcher.BETWEEN_THRESHOLDS
-        if self.allow_low_quality_matches:
-            self.set_low_quality_matches_(matches, all_matches, match_quality_matrix)
-        return matches
-
-    def set_low_quality_matches_(self, matches, all_matches, match_quality_matrix):
-        """
-        Produce additional matches for predictions that have only low-quality matches.
-        Specifically, for each ground-truth find the set of predictions that have
-        maximum overlap with it (including ties); for each prediction in that set, if
-        it is unmatched, then match it to the ground-truth with which it has the highest
-        quality value.
-        """
-        highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
-        gt_pred_pairs_of_highest_quality = torch.nonzero(match_quality_matrix == highest_quality_foreach_gt[:, (None)])
-        pred_inds_to_update = gt_pred_pairs_of_highest_quality[:, (1)]
-        matches[pred_inds_to_update] = all_matches[pred_inds_to_update]
-
-
-def boxlist_iou(boxlist1, boxlist2):
-    """Compute the intersection over union of two set of boxes.
-    The box order must be (xmin, ymin, xmax, ymax).
-
-    Arguments:
-      box1: (BoxList) bounding boxes, sized [N,4].
-      box2: (BoxList) bounding boxes, sized [M,4].
-
-    Returns:
-      (tensor) iou, sized [N,M].
-
-    Reference:
-      https://github.com/chainer/chainercv/blob/master/chainercv/utils/bbox/bbox_iou.py
-    """
-    if boxlist1.size != boxlist2.size:
-        raise RuntimeError('boxlists should have same image size, got {}, {}'.format(boxlist1, boxlist2))
-    boxlist1 = boxlist1.convert('xyxy')
-    boxlist2 = boxlist2.convert('xyxy')
-    N = len(boxlist1)
-    M = len(boxlist2)
-    area1 = boxlist1.area()
-    area2 = boxlist2.area()
-    box1, box2 = boxlist1.bbox, boxlist2.bbox
-    lt = torch.max(box1[:, (None), :2], box2[:, :2])
-    rb = torch.min(box1[:, (None), 2:], box2[:, 2:])
-    TO_REMOVE = 1
-    wh = (rb - lt + TO_REMOVE).clamp(min=0)
-    inter = wh[:, :, (0)] * wh[:, :, (1)]
-    iou = inter / (area1[:, (None)] + area2 - inter)
-    return iou
-
-
-def smooth_l1_loss(input, target, beta=1.0 / 9, size_average=True):
-    """
-    very similar to the smooth_l1_loss from pytorch, but with
-    the extra beta parameter
-    """
-    n = torch.abs(input - target)
-    cond = n < beta
-    loss = torch.where(cond, 0.5 * n ** 2 / beta, n - 0.5 * beta)
-    if size_average:
-        return loss.mean()
-    return loss.sum()
-
-
-class FastRCNNLossComputation(object):
-    """
-    Computes the loss for Faster R-CNN.
-    Also supports FPN
-    """
-
-    def __init__(self, proposal_matcher, fg_bg_sampler, box_coder, cls_agnostic_bbox_reg=False):
-        """
-        Arguments:
-            proposal_matcher (Matcher)
-            fg_bg_sampler (BalancedPositiveNegativeSampler)
-            box_coder (BoxCoder)
-        """
-        self.proposal_matcher = proposal_matcher
-        self.fg_bg_sampler = fg_bg_sampler
-        self.box_coder = box_coder
-        self.cls_agnostic_bbox_reg = cls_agnostic_bbox_reg
-
-    def match_targets_to_proposals(self, proposal, target):
-        match_quality_matrix = boxlist_iou(target, proposal)
-        matched_idxs = self.proposal_matcher(match_quality_matrix)
-        target = target.copy_with_fields('labels')
-        matched_targets = target[matched_idxs.clamp(min=0)]
-        matched_targets.add_field('matched_idxs', matched_idxs)
-        return matched_targets
-
-    def prepare_targets(self, proposals, targets):
-        labels = []
-        regression_targets = []
-        for proposals_per_image, targets_per_image in zip(proposals, targets):
-            matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
-            matched_idxs = matched_targets.get_field('matched_idxs')
-            labels_per_image = matched_targets.get_field('labels')
-            labels_per_image = labels_per_image.to(dtype=torch.int64)
-            bg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
-            labels_per_image[bg_inds] = 0
-            ignore_inds = matched_idxs == Matcher.BETWEEN_THRESHOLDS
-            labels_per_image[ignore_inds] = -1
-            regression_targets_per_image = self.box_coder.encode(matched_targets.bbox, proposals_per_image.bbox)
-            labels.append(labels_per_image)
-            regression_targets.append(regression_targets_per_image)
-        return labels, regression_targets
-
-    def subsample(self, proposals, targets):
-        """
-        This method performs the positive/negative sampling, and return
-        the sampled proposals.
-        Note: this function keeps a state.
-
-        Arguments:
-            proposals (list[BoxList])
-            targets (list[BoxList])
-        """
-        labels, regression_targets = self.prepare_targets(proposals, targets)
-        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
-        proposals = list(proposals)
-        for labels_per_image, regression_targets_per_image, proposals_per_image in zip(labels, regression_targets, proposals):
-            proposals_per_image.add_field('labels', labels_per_image)
-            proposals_per_image.add_field('regression_targets', regression_targets_per_image)
-        for img_idx, (pos_inds_img, neg_inds_img) in enumerate(zip(sampled_pos_inds, sampled_neg_inds)):
-            img_sampled_inds = torch.nonzero(pos_inds_img | neg_inds_img).squeeze(1)
-            proposals_per_image = proposals[img_idx][img_sampled_inds]
-            proposals[img_idx] = proposals_per_image
-        self._proposals = proposals
-        return proposals
-
-    def __call__(self, class_logits, box_regression):
-        """
-        Computes the loss for Faster R-CNN.
-        This requires that the subsample method has been called beforehand.
-
-        Arguments:
-            class_logits (list[Tensor])
-            box_regression (list[Tensor])
-
-        Returns:
-            classification_loss (Tensor)
-            box_loss (Tensor)
-        """
-        class_logits = cat(class_logits, dim=0)
-        box_regression = cat(box_regression, dim=0)
-        device = class_logits.device
-        if not hasattr(self, '_proposals'):
-            raise RuntimeError('subsample needs to be called before')
-        proposals = self._proposals
-        labels = cat([proposal.get_field('labels') for proposal in proposals], dim=0)
-        regression_targets = cat([proposal.get_field('regression_targets') for proposal in proposals], dim=0)
-        classification_loss = F.cross_entropy(class_logits, labels)
-        sampled_pos_inds_subset = torch.nonzero(labels > 0).squeeze(1)
-        labels_pos = labels[sampled_pos_inds_subset]
-        if self.cls_agnostic_bbox_reg:
-            map_inds = torch.tensor([4, 5, 6, 7], device=device)
-        else:
-            map_inds = 4 * labels_pos[:, (None)] + torch.tensor([0, 1, 2, 3], device=device)
-        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds_subset[:, (None)], map_inds], regression_targets[sampled_pos_inds_subset], size_average=False, beta=1)
-        box_loss = box_loss / labels.numel()
-        return classification_loss, box_loss
-
-
-def make_roi_box_loss_evaluator(cfg):
-    matcher = Matcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
-    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
-    box_coder = BoxCoder(weights=bbox_reg_weights)
-    fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE, cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION)
-    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
-    loss_evaluator = FastRCNNLossComputation(matcher, fg_bg_sampler, box_coder, cls_agnostic_bbox_reg)
-    return loss_evaluator
-
-
-def make_roi_box_post_processor(cfg):
-    use_fpn = cfg.MODEL.ROI_HEADS.USE_FPN
-    bbox_reg_weights = cfg.MODEL.ROI_HEADS.BBOX_REG_WEIGHTS
-    box_coder = BoxCoder(weights=bbox_reg_weights)
-    score_thresh = cfg.MODEL.ROI_HEADS.SCORE_THRESH
-    nms_thresh = cfg.MODEL.ROI_HEADS.NMS
-    detections_per_img = cfg.MODEL.ROI_HEADS.DETECTIONS_PER_IMG
-    cls_agnostic_bbox_reg = cfg.MODEL.CLS_AGNOSTIC_BBOX_REG
-    bbox_aug_enabled = cfg.TEST.BBOX_AUG.ENABLED
-    postprocessor = PostProcessor(score_thresh, nms_thresh, detections_per_img, box_coder, cls_agnostic_bbox_reg, bbox_aug_enabled)
-    return postprocessor
-
-
-def make_roi_box_predictor(cfg, in_channels):
-    func = registry.ROI_BOX_PREDICTOR[cfg.MODEL.ROI_BOX_HEAD.PREDICTOR]
-    return func(cfg, in_channels)
-
-
-class ROIBoxHead(torch.nn.Module):
-    """
-    Generic Box Head class.
-    """
-
-    def __init__(self, cfg, in_channels):
-        super(ROIBoxHead, self).__init__()
-        self.feature_extractor = make_roi_box_feature_extractor(cfg, in_channels)
-        self.predictor = make_roi_box_predictor(cfg, self.feature_extractor.out_channels)
-        self.post_processor = make_roi_box_post_processor(cfg)
-        self.loss_evaluator = make_roi_box_loss_evaluator(cfg)
-
-    def forward(self, features, proposals, targets=None):
-        """
-        Arguments:
-            features (list[Tensor]): feature-maps from possibly several levels
-            proposals (list[BoxList]): proposal boxes
-            targets (list[BoxList], optional): the ground-truth targets.
-
-        Returns:
-            x (Tensor): the result of the feature extractor
-            proposals (list[BoxList]): during training, the subsampled proposals
-                are returned. During testing, the predicted boxlists are returned
-            losses (dict[Tensor]): During training, returns the losses for the
-                head. During testing, returns an empty dict.
-        """
-        if self.training:
-            with torch.no_grad():
-                proposals = self.loss_evaluator.subsample(proposals, targets)
-        x = self.feature_extractor(features, proposals)
-        class_logits, box_regression = self.predictor(x)
-        if not self.training:
-            result = self.post_processor((class_logits, box_regression), proposals)
-            return x, result, {}
-        loss_classifier, loss_box_reg = self.loss_evaluator([class_logits], [box_regression])
-        return x, proposals, dict(loss_classifier=loss_classifier, loss_box_reg=loss_box_reg)
-
-
-def boxlist_nms(boxlist, nms_thresh, max_proposals=-1, score_field='scores'):
-    """
-    Performs non-maximum suppression on a boxlist, with scores specified
-    in a boxlist field via score_field.
-
-    Arguments:
-        boxlist(BoxList)
-        nms_thresh (float)
-        max_proposals (int): if > 0, then only the top max_proposals are kept
-            after non-maximum suppression
-        score_field (str)
-    """
-    if nms_thresh <= 0:
-        return boxlist
-    mode = boxlist.mode
-    boxlist = boxlist.convert('xyxy')
-    boxes = boxlist.bbox
-    score = boxlist.get_field(score_field)
-    keep = _box_nms(boxes, score, nms_thresh)
-    if max_proposals > 0:
-        keep = keep[:max_proposals]
-    boxlist = boxlist[keep]
-    return boxlist.convert(mode)
-
-
-class PostProcessor(nn.Module):
-    """
-    From a set of classification scores, box regression and proposals,
-    computes the post-processed boxes, and applies NMS to obtain the
-    final results
-    """
-
-    def __init__(self, score_thresh=0.05, nms=0.5, detections_per_img=100, box_coder=None, cls_agnostic_bbox_reg=False, bbox_aug_enabled=False):
-        """
-        Arguments:
-            score_thresh (float)
-            nms (float)
-            detections_per_img (int)
-            box_coder (BoxCoder)
-        """
-        super(PostProcessor, self).__init__()
-        self.score_thresh = score_thresh
-        self.nms = nms
-        self.detections_per_img = detections_per_img
-        if box_coder is None:
-            box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
-        self.box_coder = box_coder
-        self.cls_agnostic_bbox_reg = cls_agnostic_bbox_reg
-        self.bbox_aug_enabled = bbox_aug_enabled
-
-    def forward(self, x, boxes):
-        """
-        Arguments:
-            x (tuple[tensor, tensor]): x contains the class logits
-                and the box_regression from the model.
-            boxes (list[BoxList]): bounding boxes that are used as
-                reference, one for each image
-
-        Returns:
-            results (list[BoxList]): one BoxList for each image, containing
-                the extra fields labels and scores
-        """
-        class_logits, box_regression = x
-        class_prob = F.softmax(class_logits, -1)
-        image_shapes = [box.size for box in boxes]
-        boxes_per_image = [len(box) for box in boxes]
-        concat_boxes = torch.cat([a.bbox for a in boxes], dim=0)
-        if self.cls_agnostic_bbox_reg:
-            box_regression = box_regression[:, -4:]
-        proposals = self.box_coder.decode(box_regression.view(sum(boxes_per_image), -1), concat_boxes)
-        if self.cls_agnostic_bbox_reg:
-            proposals = proposals.repeat(1, class_prob.shape[1])
-        num_classes = class_prob.shape[1]
-        proposals = proposals.split(boxes_per_image, dim=0)
-        class_prob = class_prob.split(boxes_per_image, dim=0)
-        results = []
-        for prob, boxes_per_img, image_shape in zip(class_prob, proposals, image_shapes):
-            boxlist = self.prepare_boxlist(boxes_per_img, prob, image_shape)
-            boxlist = boxlist.clip_to_image(remove_empty=False)
-            if not self.bbox_aug_enabled:
-                boxlist = self.filter_results(boxlist, num_classes)
-            results.append(boxlist)
-        return results
-
-    def prepare_boxlist(self, boxes, scores, image_shape):
-        """
-        Returns BoxList from `boxes` and adds probability scores information
-        as an extra field
-        `boxes` has shape (#detections, 4 * #classes), where each row represents
-        a list of predicted bounding boxes for each of the object classes in the
-        dataset (including the background class). The detections in each row
-        originate from the same object proposal.
-        `scores` has shape (#detection, #classes), where each row represents a list
-        of object detection confidence scores for each of the object classes in the
-        dataset (including the background class). `scores[i, j]`` corresponds to the
-        box at `boxes[i, j * 4:(j + 1) * 4]`.
-        """
-        boxes = boxes.reshape(-1, 4)
-        scores = scores.reshape(-1)
-        boxlist = BoxList(boxes, image_shape, mode='xyxy')
-        boxlist.add_field('scores', scores)
-        return boxlist
-
-    def filter_results(self, boxlist, num_classes):
-        """Returns bounding-box detection results by thresholding on scores and
-        applying non-maximum suppression (NMS).
-        """
-        boxes = boxlist.bbox.reshape(-1, num_classes * 4)
-        scores = boxlist.get_field('scores').reshape(-1, num_classes)
-        device = scores.device
-        result = []
-        inds_all = scores > self.score_thresh
-        for j in range(1, num_classes):
-            inds = inds_all[:, (j)].nonzero().squeeze(1)
-            scores_j = scores[inds, j]
-            boxes_j = boxes[(inds), j * 4:(j + 1) * 4]
-            boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
-            boxlist_for_class.add_field('scores', scores_j)
-            boxlist_for_class = boxlist_nms(boxlist_for_class, self.nms)
-            num_labels = len(boxlist_for_class)
-            boxlist_for_class.add_field('labels', torch.full((num_labels,), j, dtype=torch.int64, device=device))
-            result.append(boxlist_for_class)
-        result = cat_boxlist(result)
-        number_of_detections = len(result)
-        if number_of_detections > self.detections_per_img > 0:
-            cls_scores = result.get_field('scores')
-            image_thresh, _ = torch.kthvalue(cls_scores.cpu(), number_of_detections - self.detections_per_img + 1)
-            keep = cls_scores >= image_thresh.item()
-            keep = torch.nonzero(keep).squeeze(1)
-            result = result[keep]
-        return result
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        x = self.head(x)
+        return x
 
 
 def make_fc(dim_in, hidden_dim, use_gn=False):
@@ -3115,6 +4815,51 @@ def make_fc(dim_in, hidden_dim, use_gn=False):
     nn.init.kaiming_uniform_(fc.weight, a=1)
     nn.init.constant_(fc.bias, 0)
     return fc
+
+
+class ResNetConv52MLPFeatureExtractor(nn.Module):
+    """
+    Heads for Faster R-CNN MSRA version for classification
+    """
+
+    def __init__(self, cfg, in_channels):
+        super(ResNetConv52MLPFeatureExtractor, self).__init__()
+        stage = resnet.StageSpec(index=4, block_count=3, return_features=False)
+        head = resnet.ResNetHead(block_module=cfg.MODEL.RESNETS.TRANS_FUNC, stages=(stage,), num_groups=cfg.MODEL.RESNETS.NUM_GROUPS, width_per_group=cfg.MODEL.RESNETS.WIDTH_PER_GROUP, stride_in_1x1=cfg.MODEL.RESNETS.STRIDE_IN_1X1, stride_init=1, res2_out_channels=cfg.MODEL.RESNETS.RES2_OUT_CHANNELS, dilation=cfg.MODEL.RESNETS.RES5_DILATION)
+        in_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS * 2 ** (stage.index - 1)
+        if cfg.MODEL.VID.ROI_BOX_HEAD.REDUCE_CHANNEL:
+            new_conv = nn.Conv2d(in_channels, 256, kernel_size=1, stride=1)
+            nn.init.kaiming_uniform_(new_conv.weight, a=1)
+            nn.init.constant_(new_conv.bias, 0)
+            output_channel = 256
+        else:
+            new_conv = None
+            output_channel = in_channels
+        resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_BOX_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        self.head = head
+        self.conv = new_conv
+        self.pooler = pooler
+        input_size = output_channel * resolution ** 2
+        representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
+        use_gn = cfg.MODEL.ROI_BOX_HEAD.USE_GN
+        self.fc6 = make_fc(input_size, representation_size, use_gn)
+        self.fc7 = make_fc(representation_size, representation_size, use_gn)
+        self.out_channels = representation_size
+
+    def forward(self, x, proposals):
+        if self.conv is not None:
+            x = self.head(x[0])
+            x = F.relu(self.conv(x)),
+        else:
+            x = self.head(x[0]),
+        x = self.pooler(x, proposals)
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc6(x))
+        x = F.relu(self.fc7(x))
+        return x
 
 
 class AttentionExtractor(nn.Module):
@@ -3204,662 +4949,667 @@ class AttentionExtractor(nn.Module):
         return position_embedding
 
 
-class Keypoints(object):
-
-    def __init__(self, keypoints, size, mode=None):
-        device = keypoints.device if isinstance(keypoints, torch.Tensor) else torch.device('cpu')
-        keypoints = torch.as_tensor(keypoints, dtype=torch.float32, device=device)
-        num_keypoints = keypoints.shape[0]
-        if num_keypoints:
-            keypoints = keypoints.view(num_keypoints, -1, 3)
-        self.keypoints = keypoints
-        self.size = size
-        self.mode = mode
-        self.extra_fields = {}
-
-    def crop(self, box):
-        raise NotImplementedError()
-
-    def resize(self, size, *args, **kwargs):
-        ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(size, self.size))
-        ratio_w, ratio_h = ratios
-        resized_data = self.keypoints.clone()
-        resized_data[..., 0] *= ratio_w
-        resized_data[..., 1] *= ratio_h
-        keypoints = type(self)(resized_data, size, self.mode)
-        for k, v in self.extra_fields.items():
-            keypoints.add_field(k, v)
-        return keypoints
-
-    def transpose(self, method):
-        if method not in (FLIP_LEFT_RIGHT,):
-            raise NotImplementedError('Only FLIP_LEFT_RIGHT implemented')
-        flip_inds = type(self).FLIP_INDS
-        flipped_data = self.keypoints[:, (flip_inds)]
-        width = self.size[0]
-        TO_REMOVE = 1
-        flipped_data[..., 0] = width - flipped_data[..., 0] - TO_REMOVE
-        inds = flipped_data[..., 2] == 0
-        flipped_data[inds] = 0
-        keypoints = type(self)(flipped_data, self.size, self.mode)
-        for k, v in self.extra_fields.items():
-            keypoints.add_field(k, v)
-        return keypoints
-
-    def to(self, *args, **kwargs):
-        keypoints = type(self)(self.keypoints.to(*args, **kwargs), self.size, self.mode)
-        for k, v in self.extra_fields.items():
-            if hasattr(v, 'to'):
-                v = v.to(*args, **kwargs)
-            keypoints.add_field(k, v)
-        return keypoints
-
-    def __getitem__(self, item):
-        keypoints = type(self)(self.keypoints[item], self.size, self.mode)
-        for k, v in self.extra_fields.items():
-            keypoints.add_field(k, v[item])
-        return keypoints
-
-    def add_field(self, field, field_data):
-        self.extra_fields[field] = field_data
-
-    def get_field(self, field):
-        return self.extra_fields[field]
-
-    def __repr__(self):
-        s = self.__class__.__name__ + '('
-        s += 'num_instances={}, '.format(len(self.keypoints))
-        s += 'image_width={}, '.format(self.size[0])
-        s += 'image_height={})'.format(self.size[1])
-        return s
-
-
-class PersonKeypoints(Keypoints):
-    NAMES = ['nose', 'left_eye', 'right_eye', 'left_ear', 'right_ear', 'left_shoulder', 'right_shoulder', 'left_elbow', 'right_elbow', 'left_wrist', 'right_wrist', 'left_hip', 'right_hip', 'left_knee', 'right_knee', 'left_ankle', 'right_ankle']
-    FLIP_MAP = {'left_eye': 'right_eye', 'left_ear': 'right_ear', 'left_shoulder': 'right_shoulder', 'left_elbow': 'right_elbow', 'left_wrist': 'right_wrist', 'left_hip': 'right_hip', 'left_knee': 'right_knee', 'left_ankle': 'right_ankle'}
-
-
-class KeypointPostProcessor(nn.Module):
-
-    def __init__(self, keypointer=None):
-        super(KeypointPostProcessor, self).__init__()
-        self.keypointer = keypointer
-
-    def forward(self, x, boxes):
-        mask_prob = x
-        scores = None
-        if self.keypointer:
-            mask_prob, scores = self.keypointer(x, boxes)
-        assert len(boxes) == 1, 'Only non-batched inference supported for now'
-        boxes_per_image = [box.bbox.size(0) for box in boxes]
-        mask_prob = mask_prob.split(boxes_per_image, dim=0)
-        scores = scores.split(boxes_per_image, dim=0)
-        results = []
-        for prob, box, score in zip(mask_prob, boxes, scores):
-            bbox = BoxList(box.bbox, box.size, mode='xyxy')
-            for field in box.fields():
-                bbox.add_field(field, box.get_field(field))
-            prob = PersonKeypoints(prob, box.size)
-            prob.add_field('logits', score)
-            bbox.add_field('keypoints', prob)
-            results.append(bbox)
-        return results
-
-
-def make_roi_keypoint_feature_extractor(cfg, in_channels):
-    func = registry.ROI_KEYPOINT_FEATURE_EXTRACTORS[cfg.MODEL.ROI_KEYPOINT_HEAD.FEATURE_EXTRACTOR]
-    return func(cfg, in_channels)
-
-
-def _within_box(points, boxes):
-    """Validate which keypoints are contained inside a given box.
-    points: NxKx2
-    boxes: Nx4
-    output: NxK
+class RDNFeatureExtractor(AttentionExtractor):
     """
-    x_within = (points[..., 0] >= boxes[:, (0), (None)]) & (points[..., 0] <= boxes[:, (2), (None)])
-    y_within = (points[..., 1] >= boxes[:, (1), (None)]) & (points[..., 1] <= boxes[:, (3), (None)])
-    return x_within & y_within
-
-
-def keypoints_to_heat_map(keypoints, rois, heatmap_size):
-    if rois.numel() == 0:
-        return rois.new().long(), rois.new().long()
-    offset_x = rois[:, (0)]
-    offset_y = rois[:, (1)]
-    scale_x = heatmap_size / (rois[:, (2)] - rois[:, (0)])
-    scale_y = heatmap_size / (rois[:, (3)] - rois[:, (1)])
-    offset_x = offset_x[:, (None)]
-    offset_y = offset_y[:, (None)]
-    scale_x = scale_x[:, (None)]
-    scale_y = scale_y[:, (None)]
-    x = keypoints[..., 0]
-    y = keypoints[..., 1]
-    x_boundary_inds = x == rois[:, (2)][:, (None)]
-    y_boundary_inds = y == rois[:, (3)][:, (None)]
-    x = (x - offset_x) * scale_x
-    x = x.floor().long()
-    y = (y - offset_y) * scale_y
-    y = y.floor().long()
-    x[x_boundary_inds] = heatmap_size - 1
-    y[y_boundary_inds] = heatmap_size - 1
-    valid_loc = (x >= 0) & (y >= 0) & (x < heatmap_size) & (y < heatmap_size)
-    vis = keypoints[..., 2] > 0
-    valid = (valid_loc & vis).long()
-    lin_ind = y * heatmap_size + x
-    heatmaps = lin_ind * valid
-    return heatmaps, valid
-
-
-def project_keypoints_to_heatmap(keypoints, proposals, discretization_size):
-    proposals = proposals.convert('xyxy')
-    return keypoints_to_heat_map(keypoints.keypoints, proposals.bbox, discretization_size)
-
-
-class KeypointRCNNLossComputation(object):
-
-    def __init__(self, proposal_matcher, fg_bg_sampler, discretization_size):
-        """
-        Arguments:
-            proposal_matcher (Matcher)
-            fg_bg_sampler (BalancedPositiveNegativeSampler)
-            discretization_size (int)
-        """
-        self.proposal_matcher = proposal_matcher
-        self.fg_bg_sampler = fg_bg_sampler
-        self.discretization_size = discretization_size
-
-    def match_targets_to_proposals(self, proposal, target):
-        match_quality_matrix = boxlist_iou(target, proposal)
-        matched_idxs = self.proposal_matcher(match_quality_matrix)
-        target = target.copy_with_fields(['labels', 'keypoints'])
-        matched_targets = target[matched_idxs.clamp(min=0)]
-        matched_targets.add_field('matched_idxs', matched_idxs)
-        return matched_targets
-
-    def prepare_targets(self, proposals, targets):
-        labels = []
-        keypoints = []
-        for proposals_per_image, targets_per_image in zip(proposals, targets):
-            matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
-            matched_idxs = matched_targets.get_field('matched_idxs')
-            labels_per_image = matched_targets.get_field('labels')
-            labels_per_image = labels_per_image.to(dtype=torch.int64)
-            neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
-            labels_per_image[neg_inds] = 0
-            keypoints_per_image = matched_targets.get_field('keypoints')
-            within_box = _within_box(keypoints_per_image.keypoints, matched_targets.bbox)
-            vis_kp = keypoints_per_image.keypoints[..., 2] > 0
-            is_visible = (within_box & vis_kp).sum(1) > 0
-            labels_per_image[~is_visible] = -1
-            labels.append(labels_per_image)
-            keypoints.append(keypoints_per_image)
-        return labels, keypoints
-
-    def subsample(self, proposals, targets):
-        """
-        This method performs the positive/negative sampling, and return
-        the sampled proposals.
-        Note: this function keeps a state.
-
-        Arguments:
-            proposals (list[BoxList])
-            targets (list[BoxList])
-        """
-        labels, keypoints = self.prepare_targets(proposals, targets)
-        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
-        proposals = list(proposals)
-        for labels_per_image, keypoints_per_image, proposals_per_image in zip(labels, keypoints, proposals):
-            proposals_per_image.add_field('labels', labels_per_image)
-            proposals_per_image.add_field('keypoints', keypoints_per_image)
-        for img_idx, (pos_inds_img, neg_inds_img) in enumerate(zip(sampled_pos_inds, sampled_neg_inds)):
-            img_sampled_inds = torch.nonzero(pos_inds_img).squeeze(1)
-            proposals_per_image = proposals[img_idx][img_sampled_inds]
-            proposals[img_idx] = proposals_per_image
-        self._proposals = proposals
-        return proposals
-
-    def __call__(self, proposals, keypoint_logits):
-        heatmaps = []
-        valid = []
-        for proposals_per_image in proposals:
-            kp = proposals_per_image.get_field('keypoints')
-            heatmaps_per_image, valid_per_image = project_keypoints_to_heatmap(kp, proposals_per_image, self.discretization_size)
-            heatmaps.append(heatmaps_per_image.view(-1))
-            valid.append(valid_per_image.view(-1))
-        keypoint_targets = cat(heatmaps, dim=0)
-        valid = cat(valid, dim=0).to(dtype=torch.bool)
-        valid = torch.nonzero(valid).squeeze(1)
-        if keypoint_targets.numel() == 0 or len(valid) == 0:
-            return keypoint_logits.sum() * 0
-        N, K, H, W = keypoint_logits.shape
-        keypoint_logits = keypoint_logits.view(N * K, H * W)
-        keypoint_loss = F.cross_entropy(keypoint_logits[valid], keypoint_targets[valid])
-        return keypoint_loss
-
-
-def make_roi_keypoint_loss_evaluator(cfg):
-    matcher = Matcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
-    fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE, cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION)
-    resolution = cfg.MODEL.ROI_KEYPOINT_HEAD.RESOLUTION
-    loss_evaluator = KeypointRCNNLossComputation(matcher, fg_bg_sampler, resolution)
-    return loss_evaluator
-
-
-def heatmaps_to_keypoints(maps, rois):
-    """Extract predicted keypoint locations from heatmaps. Output has shape
-    (#rois, 4, #keypoints) with the 4 rows corresponding to (x, y, logit, prob)
-    for each keypoint.
+    Heads for Faster R-CNN MSRA version for classification
     """
-    offset_x = rois[:, (0)]
-    offset_y = rois[:, (1)]
-    widths = rois[:, (2)] - rois[:, (0)]
-    heights = rois[:, (3)] - rois[:, (1)]
-    widths = np.maximum(widths, 1)
-    heights = np.maximum(heights, 1)
-    widths_ceil = np.ceil(widths)
-    heights_ceil = np.ceil(heights)
-    maps = np.transpose(maps, [0, 2, 3, 1])
-    min_size = 0
-    num_keypoints = maps.shape[3]
-    xy_preds = np.zeros((len(rois), 3, num_keypoints), dtype=np.float32)
-    end_scores = np.zeros((len(rois), num_keypoints), dtype=np.float32)
-    for i in range(len(rois)):
-        if min_size > 0:
-            roi_map_width = int(np.maximum(widths_ceil[i], min_size))
-            roi_map_height = int(np.maximum(heights_ceil[i], min_size))
-        else:
-            roi_map_width = widths_ceil[i]
-            roi_map_height = heights_ceil[i]
-        width_correction = widths[i] / roi_map_width
-        height_correction = heights[i] / roi_map_height
-        roi_map = cv2.resize(maps[i], (roi_map_width, roi_map_height), interpolation=cv2.INTER_CUBIC)
-        roi_map = np.transpose(roi_map, [2, 0, 1])
-        w = roi_map.shape[2]
-        pos = roi_map.reshape(num_keypoints, -1).argmax(axis=1)
-        x_int = pos % w
-        y_int = (pos - x_int) // w
-        x = (x_int + 0.5) * width_correction
-        y = (y_int + 0.5) * height_correction
-        xy_preds[(i), (0), :] = x + offset_x[i]
-        xy_preds[(i), (1), :] = y + offset_y[i]
-        xy_preds[(i), (2), :] = 1
-        end_scores[(i), :] = roi_map[np.arange(num_keypoints), y_int, x_int]
-    return np.transpose(xy_preds, [0, 2, 1]), end_scores
-
-
-class Keypointer(object):
-    """
-    Projects a set of masks in an image on the locations
-    specified by the bounding boxes
-    """
-
-    def __init__(self, padding=0):
-        self.padding = padding
-
-    def __call__(self, masks, boxes):
-        if isinstance(boxes, BoxList):
-            boxes = [boxes]
-        assert len(boxes) == 1
-        result, scores = heatmaps_to_keypoints(masks.detach().cpu().numpy(), boxes[0].bbox.cpu().numpy())
-        return torch.from_numpy(result).to(masks.device), torch.as_tensor(scores, device=masks.device)
-
-
-def make_roi_keypoint_post_processor(cfg):
-    keypointer = Keypointer()
-    keypoint_post_processor = KeypointPostProcessor(keypointer)
-    return keypoint_post_processor
-
-
-def make_roi_keypoint_predictor(cfg, in_channels):
-    func = registry.ROI_KEYPOINT_PREDICTOR[cfg.MODEL.ROI_KEYPOINT_HEAD.PREDICTOR]
-    return func(cfg, in_channels)
-
-
-class ROIKeypointHead(torch.nn.Module):
 
     def __init__(self, cfg, in_channels):
-        super(ROIKeypointHead, self).__init__()
-        self.cfg = cfg.clone()
-        self.feature_extractor = make_roi_keypoint_feature_extractor(cfg, in_channels)
-        self.predictor = make_roi_keypoint_predictor(cfg, self.feature_extractor.out_channels)
-        self.post_processor = make_roi_keypoint_post_processor(cfg)
-        self.loss_evaluator = make_roi_keypoint_loss_evaluator(cfg)
+        super(RDNFeatureExtractor, self).__init__(cfg, in_channels)
+        stage = resnet.StageSpec(index=4, block_count=3, return_features=False)
+        head = resnet.ResNetHead(block_module=cfg.MODEL.RESNETS.TRANS_FUNC, stages=(stage,), num_groups=cfg.MODEL.RESNETS.NUM_GROUPS, width_per_group=cfg.MODEL.RESNETS.WIDTH_PER_GROUP, stride_in_1x1=cfg.MODEL.RESNETS.STRIDE_IN_1X1, stride_init=1, res2_out_channels=cfg.MODEL.RESNETS.RES2_OUT_CHANNELS, dilation=cfg.MODEL.RESNETS.RES5_DILATION)
+        in_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS * 2 ** (stage.index - 1)
+        if cfg.MODEL.VID.ROI_BOX_HEAD.REDUCE_CHANNEL:
+            new_conv = nn.Conv2d(in_channels, 256, kernel_size=1, stride=1)
+            nn.init.kaiming_uniform_(new_conv.weight, a=1)
+            nn.init.constant_(new_conv.bias, 0)
+            output_channel = 256
+        else:
+            new_conv = None
+            output_channel = in_channels
+        resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_BOX_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        self.head = head
+        self.conv = new_conv
+        self.pooler = pooler
+        input_size = output_channel * resolution ** 2
+        representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
+        use_gn = cfg.MODEL.ROI_BOX_HEAD.USE_GN
+        if cfg.MODEL.VID.ROI_BOX_HEAD.ATTENTION.ENABLE:
+            self.embed_dim = cfg.MODEL.VID.ROI_BOX_HEAD.ATTENTION.EMBED_DIM
+            self.groups = cfg.MODEL.VID.ROI_BOX_HEAD.ATTENTION.GROUP
+            self.feat_dim = representation_size
+            self.base_stage = cfg.MODEL.VID.ROI_BOX_HEAD.ATTENTION.STAGE
+            self.advanced_stage = cfg.MODEL.VID.ROI_BOX_HEAD.ATTENTION.ADVANCED_STAGE
+            self.base_num = cfg.MODEL.VID.RPN.REF_POST_NMS_TOP_N
+            self.advanced_num = int(self.base_num * cfg.MODEL.VID.RDN.RATIO)
+            fcs, Wgs, Wqs, Wks, Wvs = [], [], [], [], []
+            for i in range(self.base_stage + self.advanced_stage + 1):
+                r_size = input_size if i == 0 else representation_size
+                if i == self.base_stage and self.advanced_stage == 0:
+                    break
+                if i != self.base_stage + self.advanced_stage:
+                    fcs.append(make_fc(r_size, representation_size, use_gn))
+                Wgs.append(Conv2d(self.embed_dim, self.groups, kernel_size=1, stride=1, padding=0))
+                Wqs.append(make_fc(self.feat_dim, self.feat_dim))
+                Wks.append(make_fc(self.feat_dim, self.feat_dim))
+                Wvs.append(Conv2d(self.feat_dim * self.groups, self.feat_dim, kernel_size=1, stride=1, padding=0, groups=self.groups))
+                for l in [Wgs[i], Wvs[i]]:
+                    torch.nn.init.normal_(l.weight, std=0.01)
+                    torch.nn.init.constant_(l.bias, 0)
+            self.fcs = nn.ModuleList(fcs)
+            self.Wgs = nn.ModuleList(Wgs)
+            self.Wqs = nn.ModuleList(Wqs)
+            self.Wks = nn.ModuleList(Wks)
+            self.Wvs = nn.ModuleList(Wvs)
+        self.out_channels = representation_size
 
-    def forward(self, features, proposals, targets=None):
-        """
-        Arguments:
-            features (list[Tensor]): feature-maps from possibly several levels
-            proposals (list[BoxList]): proposal boxes
-            targets (list[BoxList], optional): the ground-truth targets.
-
-        Returns:
-            x (Tensor): the result of the feature extractor
-            proposals (list[BoxList]): during training, the original proposals
-                are returned. During testing, the predicted boxlists are returned
-                with the `mask` field set
-            losses (dict[Tensor]): During training, returns the losses for the
-                head. During testing, returns an empty dict.
-        """
+    def forward(self, x, proposals, pre_calculate=False):
+        if pre_calculate:
+            return self._forward_ref(x, proposals)
         if self.training:
+            return self._forward_train(x, proposals)
+        else:
+            return self._forward_test(x, proposals)
+
+    def _forward_train(self, x, proposals):
+        num_refs = len(x) - 1
+        x = self.head(torch.cat(x, dim=0))
+        if self.conv is not None:
+            x = F.relu(self.conv(x))
+        x, x_refs = torch.split(x, [1, num_refs], dim=0)
+        proposals, proposals_cur, proposals_refs = proposals[0][0], proposals[1], proposals[2:]
+        x, x_cur = torch.split(self.pooler((x,), [cat_boxlist([proposals, proposals_cur], ignore_field=True)]), [len(proposals), len(proposals_cur)], dim=0)
+        x, x_cur = x.flatten(start_dim=1), x_cur.flatten(start_dim=1)
+        if proposals_refs:
+            x_refs = self.pooler((x_refs,), proposals_refs)
+            x_refs = x_refs.flatten(start_dim=1)
+            x_refs = torch.cat([x_cur, x_refs], dim=0)
+        else:
+            x_refs = x_cur
+        rois_cur = proposals.bbox
+        rois_ref = cat_boxlist([proposals_cur, *proposals_refs]).bbox
+        position_embedding = self.cal_position_embedding(rois_cur, rois_ref)
+        x_refs = F.relu(self.fcs[0](x_refs))
+        for i in range(self.base_stage):
+            x = F.relu(self.fcs[i](x))
+            attention = self.attention_module_multi_head(x, x_refs, position_embedding, feat_dim=1024, group=16, dim=(1024, 1024, 1024), index=i)
+            x = x + attention
+        if self.advanced_stage > 0:
+            x_refs_adv = torch.cat([x[:self.advanced_num] for x in torch.split(x_refs, self.base_num, dim=0)], dim=0)
+            rois_ref_adv = torch.cat([x[:self.advanced_num] for x in torch.split(rois_ref, self.base_num, dim=0)], dim=0)
+            position_embedding_adv = torch.cat([x[(...), :self.advanced_num] for x in torch.split(position_embedding, self.base_num, dim=-1)], dim=-1)
+            position_embedding = self.cal_position_embedding(rois_ref_adv, rois_ref)
+            for i in range(self.advanced_stage):
+                attention = self.attention_module_multi_head(x_refs_adv, x_refs, position_embedding, feat_dim=1024, group=16, dim=(1024, 1024, 1024), index=i + self.base_stage)
+                x_refs_adv = x_refs_adv + attention
+                x_refs_adv = F.relu(self.fcs[i + self.base_stage](x_refs_adv))
+            attention = self.attention_module_multi_head(x, x_refs_adv, position_embedding_adv, feat_dim=1024, group=16, dim=(1024, 1024, 1024), index=self.base_stage + self.advanced_stage)
+            x = x + attention
+        return x
+
+    def _forward_ref(self, x, proposals):
+        if self.conv is not None:
+            x = self.head(x)
+            x = F.relu(self.conv(x)),
+        else:
+            x = self.head(x),
+        x = self.pooler(x, proposals)
+        x = x.flatten(start_dim=1)
+        x = F.relu(self.fcs[0](x))
+        return x
+
+    def _forward_test(self, x, proposals):
+        proposals, proposals_ref, x_refs = proposals
+        rois_cur = cat_boxlist(proposals).bbox
+        rois_ref = proposals_ref.bbox
+        if self.conv is not None:
+            x = self.head(x)
+            x = F.relu(self.conv(x)),
+        else:
+            x = self.head(x),
+        x = self.pooler(x, proposals)
+        x = x.flatten(start_dim=1)
+        position_embedding = self.cal_position_embedding(rois_cur, rois_ref)
+        for i in range(self.base_stage):
+            x = F.relu(self.fcs[i](x))
+            attention = self.attention_module_multi_head(x, x_refs, position_embedding, feat_dim=1024, group=16, dim=(1024, 1024, 1024), index=i)
+            x = x + attention
+        if self.advanced_stage > 0:
+            x_refs_adv = torch.cat([x[:self.advanced_num] for x in torch.split(x_refs, self.base_num, dim=0)], dim=0)
+            rois_ref_adv = torch.cat([x[:self.advanced_num] for x in torch.split(rois_ref, self.base_num, dim=0)], dim=0)
+            position_embedding_adv = torch.cat([x[(...), :self.advanced_num] for x in torch.split(position_embedding, self.base_num, dim=-1)], dim=-1)
+            position_embedding = self.cal_position_embedding(rois_ref_adv, rois_ref)
+            for i in range(self.advanced_stage):
+                attention = self.attention_module_multi_head(x_refs_adv, x_refs, position_embedding, feat_dim=1024, group=16, dim=(1024, 1024, 1024), index=i + self.base_stage)
+                x_refs_adv = x_refs_adv + attention
+                x_refs_adv = F.relu(self.fcs[i + self.base_stage](x_refs_adv))
+            attention = self.attention_module_multi_head(x, x_refs_adv, position_embedding_adv, feat_dim=1024, group=16, dim=(1024, 1024, 1024), index=self.base_stage + self.advanced_stage)
+            x = x + attention
+        return x
+
+
+class MEGAFeatureExtractor(AttentionExtractor):
+
+    def __init__(self, cfg, in_channels):
+        super(MEGAFeatureExtractor, self).__init__(cfg, in_channels)
+        stage = resnet.StageSpec(index=4, block_count=3, return_features=False)
+        head = resnet.ResNetHead(block_module=cfg.MODEL.RESNETS.TRANS_FUNC, stages=(stage,), num_groups=cfg.MODEL.RESNETS.NUM_GROUPS, width_per_group=cfg.MODEL.RESNETS.WIDTH_PER_GROUP, stride_in_1x1=cfg.MODEL.RESNETS.STRIDE_IN_1X1, stride_init=1, res2_out_channels=cfg.MODEL.RESNETS.RES2_OUT_CHANNELS, dilation=cfg.MODEL.RESNETS.RES5_DILATION)
+        in_channels = cfg.MODEL.RESNETS.RES2_OUT_CHANNELS * 2 ** (stage.index - 1)
+        if cfg.MODEL.VID.ROI_BOX_HEAD.REDUCE_CHANNEL:
+            new_conv = nn.Conv2d(in_channels, 256, kernel_size=1, stride=1)
+            nn.init.kaiming_uniform_(new_conv.weight, a=1)
+            nn.init.constant_(new_conv.bias, 0)
+            output_channel = 256
+        else:
+            new_conv = None
+            output_channel = in_channels
+        resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_BOX_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        self.head = head
+        self.conv = new_conv
+        self.pooler = pooler
+        input_size = output_channel * resolution ** 2
+        representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
+        use_gn = cfg.MODEL.ROI_BOX_HEAD.USE_GN
+        self.all_frame_interval = cfg.MODEL.VID.MEGA.ALL_FRAME_INTERVAL
+        if cfg.MODEL.VID.ROI_BOX_HEAD.ATTENTION.ENABLE:
+            self.embed_dim = cfg.MODEL.VID.ROI_BOX_HEAD.ATTENTION.EMBED_DIM
+            self.groups = cfg.MODEL.VID.ROI_BOX_HEAD.ATTENTION.GROUP
+            self.feat_dim = representation_size
+            self.stage = cfg.MODEL.VID.ROI_BOX_HEAD.ATTENTION.STAGE
+            self.base_num = cfg.MODEL.VID.RPN.REF_POST_NMS_TOP_N
+            self.advanced_num = int(self.base_num * cfg.MODEL.VID.MEGA.RATIO)
+            fcs, Wgs, Wqs, Wks, Wvs, us = [], [], [], [], [], []
+            for i in range(self.stage):
+                r_size = input_size if i == 0 else representation_size
+                fcs.append(make_fc(r_size, representation_size, use_gn))
+                Wgs.append(Conv2d(self.embed_dim, self.groups, kernel_size=1, stride=1, padding=0))
+                Wqs.append(make_fc(self.feat_dim, self.feat_dim))
+                Wks.append(make_fc(self.feat_dim, self.feat_dim))
+                Wvs.append(Conv2d(self.feat_dim * self.groups, self.feat_dim, kernel_size=1, stride=1, padding=0, groups=self.groups))
+                us.append(nn.Parameter(torch.Tensor(self.groups, 1, self.embed_dim)))
+                for l in [Wgs[i], Wvs[i]]:
+                    torch.nn.init.normal_(l.weight, std=0.01)
+                    torch.nn.init.constant_(l.bias, 0)
+                for weight in [us[i]]:
+                    torch.nn.init.normal_(weight, std=0.01)
+                self.l_fcs = nn.ModuleList(fcs)
+                self.l_Wgs = nn.ModuleList(Wgs)
+                self.l_Wqs = nn.ModuleList(Wqs)
+                self.l_Wks = nn.ModuleList(Wks)
+                self.l_Wvs = nn.ModuleList(Wvs)
+                self.l_us = nn.ParameterList(us)
+        self.memory_enable = cfg.MODEL.VID.MEGA.MEMORY.ENABLE
+        if self.memory_enable:
+            self.memory_size = cfg.MODEL.VID.MEGA.MEMORY.SIZE
+        self.global_enable = cfg.MODEL.VID.MEGA.GLOBAL.ENABLE
+        if self.global_enable:
+            self.global_size = cfg.MODEL.VID.MEGA.GLOBAL.SIZE
+            self.global_res_stage = cfg.MODEL.VID.MEGA.GLOBAL.RES_STAGE
+            Wqs, Wks, Wvs, us = [], [], [], []
+            for i in range(self.global_res_stage + 1):
+                Wqs.append(make_fc(self.feat_dim, self.feat_dim))
+                Wks.append(make_fc(self.feat_dim, self.feat_dim))
+                Wvs.append(Conv2d(self.feat_dim * self.groups, self.feat_dim, kernel_size=1, stride=1, padding=0, groups=self.groups))
+                us.append(nn.Parameter(torch.Tensor(self.groups, 1, self.embed_dim)))
+                for l in [Wvs[i]]:
+                    torch.nn.init.normal_(l.weight, std=0.01)
+                    torch.nn.init.constant_(l.bias, 0)
+                for weight in [us[i]]:
+                    torch.nn.init.normal_(weight, std=0.01)
+            self.g_Wqs = nn.ModuleList(Wqs)
+            self.g_Wks = nn.ModuleList(Wks)
+            self.g_Wvs = nn.ModuleList(Wvs)
+            self.g_us = nn.ParameterList(us)
+        self.out_channels = representation_size
+
+    def attention_module_multi_head(self, roi_feat, ref_feat, position_embedding, feat_dim=1024, dim=(1024, 1024, 1024), group=16, index=0, ver='local'):
+        """
+
+        :param roi_feat: [num_rois, feat_dim]
+        :param position_embedding: [1, emb_dim, num_rois, num_nongt_rois]
+        :param relative_pe: [1, demb_dim, num_rois, num_nongt_rois]
+        :param non_gt_index:
+        :param fc_dim: same as group
+        :param feat_dim: should be same as dim[2]
+        :param dim: a 3-tuple of (query, key, output)
+        :param group:
+        :return:
+        """
+        if ver in ('local', 'memory'):
+            Wgs, Wqs, Wks, Wvs, us = self.l_Wgs, self.l_Wqs, self.l_Wks, self.l_Wvs, self.l_us
+        else:
+            assert position_embedding is None
+            Wqs, Wks, Wvs, us = self.g_Wqs, self.g_Wks, self.g_Wvs, self.g_us
+        dim_group = dim[0] / group, dim[1] / group, dim[2] / group
+        if position_embedding is not None:
+            position_feat_1 = F.relu(Wgs[index](position_embedding))
+            aff_weight = position_feat_1.permute(2, 1, 3, 0)
+            aff_weight = aff_weight.squeeze(3)
+        assert dim[0] == dim[1]
+        q_data = Wqs[index](roi_feat)
+        q_data_batch = q_data.reshape(-1, group, int(dim_group[0]))
+        q_data_batch = q_data_batch.permute(1, 0, 2)
+        k_data = Wks[index](ref_feat)
+        k_data_batch = k_data.reshape(-1, group, int(dim_group[1]))
+        k_data_batch = k_data_batch.permute(1, 0, 2)
+        v_data = ref_feat
+        aff_a = torch.bmm(q_data_batch, k_data_batch.transpose(1, 2))
+        aff_c = torch.bmm(us[index], k_data_batch.transpose(1, 2))
+        aff = aff_a + aff_c
+        aff_scale = 1.0 / math.sqrt(float(dim_group[1])) * aff
+        aff_scale = aff_scale.permute(1, 0, 2)
+        if position_embedding is not None:
+            weighted_aff = (aff_weight + 1e-06).log() + aff_scale
+        else:
+            weighted_aff = aff_scale
+        aff_softmax = F.softmax(weighted_aff, dim=2)
+        aff_softmax_reshape = aff_softmax.reshape(aff_softmax.shape[0] * aff_softmax.shape[1], aff_softmax.shape[2])
+        output_t = torch.matmul(aff_softmax_reshape, v_data)
+        output_t = output_t.reshape(-1, group * feat_dim, 1, 1)
+        linear_out = Wvs[index](output_t)
+        output = linear_out.squeeze(3).squeeze(2)
+        return output
+
+    def forward(self, x, proposals, pre_calculate=False):
+        if pre_calculate:
+            return self._forward_ref(x, proposals)
+        if self.training:
+            return self._forward_train(x, proposals)
+        else:
+            return self._forward_test(x, proposals)
+
+    def init_memory(self):
+        self.mem_queue_list = []
+        self.mem = []
+        for i in range(self.stage):
+            queue = {'rois': deque(maxlen=self.all_frame_interval), 'feats': deque(maxlen=self.all_frame_interval)}
+            self.mem_queue_list.append(queue)
+            self.mem.append(dict())
+
+    def init_global(self):
+        self.global_queue_list = []
+        self.global_cache = []
+        queue = {'feats': deque(maxlen=self.global_size)}
+        self.global_queue_list.append(queue)
+        self.global_cache.append(dict())
+
+    def update_global(self, feats):
+        self.global_queue_list[0]['feats'].append(feats)
+        self.global_cache[0]['feats'] = torch.cat(list(self.global_queue_list[0]['feats']), dim=0)
+
+    def update_memory(self, i, cache):
+        number_to_push = self.base_num if i == 0 else self.advanced_num
+        rois = cache['rois_ref'][:number_to_push]
+        feats = cache['feats_ref'][:number_to_push]
+        self.mem_queue_list[i]['rois'].append(rois)
+        self.mem_queue_list[i]['feats'].append(feats)
+        self.mem[i] = {'rois': torch.cat(list(self.mem_queue_list[i]['rois']), dim=0), 'feats': torch.cat(list(self.mem_queue_list[i]['feats']), dim=0)}
+
+    def update_lm(self, feats, i=0):
+        feats_ref = self.global_cache[-1]['feats']
+        attention = self.attention_module_multi_head(feats, feats_ref, None, feat_dim=1024, group=16, dim=(1024, 1024, 1024), index=i, ver='global')
+        feats = feats + attention
+        return feats
+
+    def generate_feats(self, x, proposals, proposals_key=None, ver='local'):
+        x = self.head(torch.cat(x, dim=0))
+        if self.conv is not None:
+            x = F.relu(self.conv(x))
+        if proposals_key is not None:
+            assert ver == 'local'
+            x_key = self.pooler((x[0:1, (...)],), proposals_key)
+            x_key = x_key.flatten(start_dim=1)
+        if proposals:
+            x = self.pooler((x,), proposals)
+            x = x.flatten(start_dim=1)
+        rois = cat_boxlist(proposals).bbox
+        if ver == 'local':
+            x_key = F.relu(self.l_fcs[0](x_key))
+        x = F.relu(self.l_fcs[0](x))
+        if self.global_cache:
+            if ver == 'local':
+                rois_key = proposals_key[0].bbox
+                x_key = self.update_lm(x_key)
+            x = self.update_lm(x)
+        if ver in ('local', 'memory'):
+            x_dis = torch.cat([x[:self.advanced_num] for x in torch.split(x, self.base_num, dim=0)], dim=0)
+            rois_dis = torch.cat([x[:self.advanced_num] for x in torch.split(rois, self.base_num, dim=0)], dim=0)
+        if ver == 'memory':
+            self.memory_cache.append({'rois_cur': rois_dis, 'rois_ref': rois, 'feats_cur': x_dis, 'feats_ref': x})
+            for _ in range(self.stage - 1):
+                self.memory_cache.append({'rois_cur': rois_dis, 'rois_ref': rois_dis})
+        elif ver == 'local':
+            self.local_cache.append({'rois_cur': torch.cat([rois_key, rois_dis], dim=0), 'rois_ref': rois, 'feats_cur': torch.cat([x_key, x_dis], dim=0), 'feats_ref': x})
+            for _ in range(self.stage - 2):
+                self.local_cache.append({'rois_cur': torch.cat([rois_key, rois_dis], dim=0), 'rois_ref': rois_dis})
+            self.local_cache.append({'rois_cur': rois_key, 'rois_ref': rois_dis})
+        elif ver == 'global':
+            self.global_cache.append({'feats': x})
+
+    def generate_feats_test(self, x, proposals):
+        proposals, proposals_ref, proposals_ref_dis, x_ref, x_ref_dis = proposals
+        if self.global_enable and self.global_cache:
+            x = self.update_lm(x)
+            x_ref = self.update_lm(x_ref)
+            x_ref_dis = self.update_lm(x_ref_dis)
+        rois_key = proposals[0].bbox
+        rois = proposals_ref.bbox
+        rois_dis = proposals_ref_dis.bbox
+        self.local_cache.append({'rois_cur': torch.cat([rois_key, rois_dis], dim=0), 'rois_ref': rois, 'feats_cur': torch.cat([x, x_ref_dis], dim=0), 'feats_ref': x_ref})
+        for _ in range(self.stage - 2):
+            self.local_cache.append({'rois_cur': torch.cat([rois_key, rois_dis], dim=0), 'rois_ref': rois_dis})
+        self.local_cache.append({'rois_cur': rois_key, 'rois_ref': rois_dis})
+
+    def _forward_train_single(self, i, cache, memory=None, ver='memory'):
+        rois_cur = cache.pop('rois_cur')
+        rois_ref = cache.pop('rois_ref')
+        feats_cur = cache.pop('feats_cur')
+        feats_ref = cache.pop('feats_ref')
+        if memory is not None:
+            rois_ref = torch.cat([rois_ref, memory['rois']], dim=0)
+            feats_ref = torch.cat([feats_ref, memory['feats']], dim=0)
+        if ver == 'memory':
+            self.mem.append({'rois': rois_ref, 'feats': feats_ref})
+            if i == self.stage - 1:
+                return
+        if rois_cur is not None:
+            position_embedding = self.cal_position_embedding(rois_cur, rois_ref)
+        else:
+            position_embedding = None
+        attention = self.attention_module_multi_head(feats_cur, feats_ref, position_embedding, feat_dim=1024, group=16, dim=(1024, 1024, 1024), index=i, ver=ver)
+        feats_cur = feats_cur + attention
+        if i != self.stage - 1:
+            feats_cur = F.relu(self.l_fcs[i + 1](feats_cur))
+        return feats_cur
+
+    def _forward_test_single(self, i, cache, memory):
+        rois_cur = cache.pop('rois_cur')
+        rois_ref = cache.pop('rois_ref')
+        feats_cur = cache.pop('feats_cur')
+        feats_ref = cache.pop('feats_ref')
+        if memory is not None:
+            rois_ref = torch.cat([rois_ref, memory['rois']], dim=0)
+            feats_ref = torch.cat([feats_ref, memory['feats']], dim=0)
+        if rois_cur is not None:
+            position_embedding = self.cal_position_embedding(rois_cur, rois_ref)
+        else:
+            position_embedding = None
+        attention = self.attention_module_multi_head(feats_cur, feats_ref, position_embedding, feat_dim=1024, group=16, dim=(1024, 1024, 1024), index=i)
+        feats_cur = feats_cur + attention
+        if i != self.stage - 1:
+            feats_cur = F.relu(self.l_fcs[i + 1](feats_cur))
+        return feats_cur
+
+    def _forward_train(self, x, proposals):
+        proposals, proposals_l, proposals_m, proposals_g = proposals
+        x_l, x_m, x_g = x
+        self.global_cache = []
+        self.memory_cache = []
+        self.local_cache = []
+        if proposals_g:
+            self.generate_feats(x_g, proposals_g, ver='global')
+        if proposals_m:
             with torch.no_grad():
-                proposals = self.loss_evaluator.subsample(proposals, targets)
-        x = self.feature_extractor(features, proposals)
-        kp_logits = self.predictor(x)
-        if not self.training:
-            result = self.post_processor(kp_logits, proposals)
-            return x, result, {}
-        loss_kp = self.loss_evaluator(proposals, kp_logits)
-        return x, proposals, dict(loss_kp=loss_kp)
+                self.generate_feats(x_m, proposals_m, ver='memory')
+        self.generate_feats(x_l, proposals_l, proposals, ver='local')
+        with torch.no_grad():
+            if self.memory_cache:
+                self.mem = []
+                for i in range(self.stage):
+                    feats = self._forward_train_single(i, self.memory_cache[i], None, ver='memory')
+                    if i == self.stage - 1:
+                        break
+                    self.memory_cache[i + 1]['feats_cur'] = feats
+                    self.memory_cache[i + 1]['feats_ref'] = feats
+            else:
+                self.mem = None
+        for i in range(self.stage):
+            if self.mem is not None:
+                memory = self.mem[i]
+            else:
+                memory = None
+            feats = self._forward_train_single(i, self.local_cache[i], memory, ver='local')
+            if i == self.stage - 1:
+                x = feats
+            elif i == self.stage - 2:
+                self.local_cache[i + 1]['feats_cur'] = feats[:len(proposals[0])]
+                self.local_cache[i + 1]['feats_ref'] = feats[len(proposals[0]):]
+            else:
+                self.local_cache[i + 1]['feats_cur'] = feats
+                self.local_cache[i + 1]['feats_ref'] = feats[len(proposals[0]):]
+        for i in range(self.global_res_stage):
+            x = self.update_lm(x, i + 1)
+        return x
 
-
-class MaskPostProcessor(nn.Module):
-    """
-    From the results of the CNN, post process the masks
-    by taking the mask corresponding to the class with max
-    probability (which are of fixed size and directly output
-    by the CNN) and return the masks in the mask field of the BoxList.
-
-    If a masker object is passed, it will additionally
-    project the masks in the image according to the locations in boxes,
-    """
-
-    def __init__(self, masker=None):
-        super(MaskPostProcessor, self).__init__()
-        self.masker = masker
-
-    def forward(self, x, boxes):
-        """
-        Arguments:
-            x (Tensor): the mask logits
-            boxes (list[BoxList]): bounding boxes that are used as
-                reference, one for each image
-
-        Returns:
-            results (list[BoxList]): one BoxList for each image, containing
-                the extra field mask
-        """
-        mask_prob = x.sigmoid()
-        num_masks = x.shape[0]
-        labels = [bbox.get_field('labels') for bbox in boxes]
-        labels = torch.cat(labels)
-        index = torch.arange(num_masks, device=labels.device)
-        mask_prob = mask_prob[index, labels][:, (None)]
-        boxes_per_image = [len(box) for box in boxes]
-        mask_prob = mask_prob.split(boxes_per_image, dim=0)
-        if self.masker:
-            mask_prob = self.masker(mask_prob, boxes)
-        results = []
-        for prob, box in zip(mask_prob, boxes):
-            bbox = BoxList(box.bbox, box.size, mode='xyxy')
-            for field in box.fields():
-                bbox.add_field(field, box.get_field(field))
-            bbox.add_field('mask', prob)
-            results.append(bbox)
-        return results
-
-
-def keep_only_positive_boxes(boxes):
-    """
-    Given a set of BoxList containing the `labels` field,
-    return a set of BoxList for which `labels > 0`.
-
-    Arguments:
-        boxes (list of BoxList)
-    """
-    assert isinstance(boxes, (list, tuple))
-    assert isinstance(boxes[0], BoxList)
-    assert boxes[0].has_field('labels')
-    positive_boxes = []
-    positive_inds = []
-    num_boxes = 0
-    for boxes_per_image in boxes:
-        labels = boxes_per_image.get_field('labels')
-        inds_mask = labels > 0
-        inds = inds_mask.nonzero().squeeze(1)
-        positive_boxes.append(boxes_per_image[inds])
-        positive_inds.append(inds_mask)
-    return positive_boxes, positive_inds
-
-
-def make_roi_mask_feature_extractor(cfg, in_channels):
-    func = registry.ROI_MASK_FEATURE_EXTRACTORS[cfg.MODEL.ROI_MASK_HEAD.FEATURE_EXTRACTOR]
-    return func(cfg, in_channels)
-
-
-def project_masks_on_boxes(segmentation_masks, proposals, discretization_size):
-    """
-    Given segmentation masks and the bounding boxes corresponding
-    to the location of the masks in the image, this function
-    crops and resizes the masks in the position defined by the
-    boxes. This prepares the masks for them to be fed to the
-    loss computation as the targets.
-
-    Arguments:
-        segmentation_masks: an instance of SegmentationMask
-        proposals: an instance of BoxList
-    """
-    masks = []
-    M = discretization_size
-    device = proposals.bbox.device
-    proposals = proposals.convert('xyxy')
-    assert segmentation_masks.size == proposals.size, '{}, {}'.format(segmentation_masks, proposals)
-    proposals = proposals.bbox.to(torch.device('cpu'))
-    for segmentation_mask, proposal in zip(segmentation_masks, proposals):
-        cropped_mask = segmentation_mask.crop(proposal)
-        scaled_mask = cropped_mask.resize((M, M))
-        mask = scaled_mask.get_mask_tensor()
-        masks.append(mask)
-    if len(masks) == 0:
-        return torch.empty(0, dtype=torch.float32, device=device)
-    return torch.stack(masks, dim=0).to(device, dtype=torch.float32)
-
-
-class MaskRCNNLossComputation(object):
-
-    def __init__(self, proposal_matcher, discretization_size):
-        """
-        Arguments:
-            proposal_matcher (Matcher)
-            discretization_size (int)
-        """
-        self.proposal_matcher = proposal_matcher
-        self.discretization_size = discretization_size
-
-    def match_targets_to_proposals(self, proposal, target):
-        match_quality_matrix = boxlist_iou(target, proposal)
-        matched_idxs = self.proposal_matcher(match_quality_matrix)
-        target = target.copy_with_fields(['labels', 'masks'])
-        matched_targets = target[matched_idxs.clamp(min=0)]
-        matched_targets.add_field('matched_idxs', matched_idxs)
-        return matched_targets
-
-    def prepare_targets(self, proposals, targets):
-        labels = []
-        masks = []
-        for proposals_per_image, targets_per_image in zip(proposals, targets):
-            matched_targets = self.match_targets_to_proposals(proposals_per_image, targets_per_image)
-            matched_idxs = matched_targets.get_field('matched_idxs')
-            labels_per_image = matched_targets.get_field('labels')
-            labels_per_image = labels_per_image.to(dtype=torch.int64)
-            neg_inds = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
-            labels_per_image[neg_inds] = 0
-            positive_inds = torch.nonzero(labels_per_image > 0).squeeze(1)
-            segmentation_masks = matched_targets.get_field('masks')
-            segmentation_masks = segmentation_masks[positive_inds]
-            positive_proposals = proposals_per_image[positive_inds]
-            masks_per_image = project_masks_on_boxes(segmentation_masks, positive_proposals, self.discretization_size)
-            labels.append(labels_per_image)
-            masks.append(masks_per_image)
-        return labels, masks
-
-    def __call__(self, proposals, mask_logits, targets):
-        """
-        Arguments:
-            proposals (list[BoxList])
-            mask_logits (Tensor)
-            targets (list[BoxList])
-
-        Return:
-            mask_loss (Tensor): scalar tensor containing the loss
-        """
-        labels, mask_targets = self.prepare_targets(proposals, targets)
-        labels = cat(labels, dim=0)
-        mask_targets = cat(mask_targets, dim=0)
-        positive_inds = torch.nonzero(labels > 0).squeeze(1)
-        labels_pos = labels[positive_inds]
-        if mask_targets.numel() == 0:
-            return mask_logits.sum() * 0
-        mask_loss = F.binary_cross_entropy_with_logits(mask_logits[positive_inds, labels_pos], mask_targets)
-        return mask_loss
-
-
-def make_roi_mask_loss_evaluator(cfg):
-    matcher = Matcher(cfg.MODEL.ROI_HEADS.FG_IOU_THRESHOLD, cfg.MODEL.ROI_HEADS.BG_IOU_THRESHOLD, allow_low_quality_matches=False)
-    loss_evaluator = MaskRCNNLossComputation(matcher, cfg.MODEL.ROI_MASK_HEAD.RESOLUTION)
-    return loss_evaluator
-
-
-def expand_boxes(boxes, scale):
-    w_half = (boxes[:, (2)] - boxes[:, (0)]) * 0.5
-    h_half = (boxes[:, (3)] - boxes[:, (1)]) * 0.5
-    x_c = (boxes[:, (2)] + boxes[:, (0)]) * 0.5
-    y_c = (boxes[:, (3)] + boxes[:, (1)]) * 0.5
-    w_half *= scale
-    h_half *= scale
-    boxes_exp = torch.zeros_like(boxes)
-    boxes_exp[:, (0)] = x_c - w_half
-    boxes_exp[:, (2)] = x_c + w_half
-    boxes_exp[:, (1)] = y_c - h_half
-    boxes_exp[:, (3)] = y_c + h_half
-    return boxes_exp
-
-
-def expand_masks(mask, padding):
-    N = mask.shape[0]
-    M = mask.shape[-1]
-    pad2 = 2 * padding
-    scale = float(M + pad2) / M
-    padded_mask = mask.new_zeros((N, 1, M + pad2, M + pad2))
-    padded_mask[:, :, padding:-padding, padding:-padding] = mask
-    return padded_mask, scale
-
-
-def paste_mask_in_image(mask, box, im_h, im_w, thresh=0.5, padding=1):
-    mask = mask.float()
-    box = box.float()
-    padded_mask, scale = expand_masks(mask[None], padding=padding)
-    mask = padded_mask[0, 0]
-    box = expand_boxes(box[None], scale)[0]
-    box = box.to(dtype=torch.int32)
-    TO_REMOVE = 1
-    w = int(box[2] - box[0] + TO_REMOVE)
-    h = int(box[3] - box[1] + TO_REMOVE)
-    w = max(w, 1)
-    h = max(h, 1)
-    mask = mask.expand((1, 1, -1, -1))
-    mask = mask.to(torch.float32)
-    mask = interpolate(mask, size=(h, w), mode='bilinear', align_corners=False)
-    mask = mask[0][0]
-    if thresh >= 0:
-        mask = mask > thresh
-    else:
-        mask = (mask * 255).to(torch.bool)
-    im_mask = torch.zeros((im_h, im_w), dtype=torch.bool)
-    x_0 = max(box[0], 0)
-    x_1 = min(box[2] + 1, im_w)
-    y_0 = max(box[1], 0)
-    y_1 = min(box[3] + 1, im_h)
-    im_mask[y_0:y_1, x_0:x_1] = mask[y_0 - box[1]:y_1 - box[1], x_0 - box[0]:x_1 - box[0]]
-    return im_mask
-
-
-class Masker(object):
-    """
-    Projects a set of masks in an image on the locations
-    specified by the bounding boxes
-    """
-
-    def __init__(self, threshold=0.5, padding=1):
-        self.threshold = threshold
-        self.padding = padding
-
-    def forward_single_image(self, masks, boxes):
-        boxes = boxes.convert('xyxy')
-        im_w, im_h = boxes.size
-        res = [paste_mask_in_image(mask[0], box, im_h, im_w, self.threshold, self.padding) for mask, box in zip(masks, boxes.bbox)]
-        if len(res) > 0:
-            res = torch.stack(res, dim=0)[:, (None)]
+    def _forward_ref(self, x, proposals):
+        if self.conv is not None:
+            x = self.head(x)
+            x = F.relu(self.conv(x)),
         else:
-            res = masks.new_empty((0, 1, masks.shape[-2], masks.shape[-1]))
-        return res
+            x = self.head(x),
+        x = self.pooler(x, proposals)
+        x = x.flatten(start_dim=1)
+        x = F.relu(self.l_fcs[0](x))
+        return x
 
-    def __call__(self, masks, boxes):
-        if isinstance(boxes, BoxList):
-            boxes = [boxes]
-        assert len(boxes) == len(masks), 'Masks and boxes should have the same length.'
-        results = []
-        for mask, box in zip(masks, boxes):
-            assert mask.shape[0] == len(box), 'Number of objects should be the same.'
-            result = self.forward_single_image(mask, box)
-            results.append(result)
-        return results
+    def _forward_test(self, x, proposals):
+        if self.conv is not None:
+            x = self.head(x)
+            x = F.relu(self.conv(x)),
+        else:
+            x = self.head(x),
+        x = self.pooler(x, proposals[0])
+        x = x.flatten(start_dim=1)
+        x = F.relu(self.l_fcs[0](x))
+        self.local_cache = []
+        self.generate_feats_test(x, proposals)
+        for i in range(self.stage):
+            memory = self.mem[i] if self.mem[i] else None
+            if self.memory_enable:
+                self.update_memory(i, self.local_cache[i])
+            feat_cur = self._forward_test_single(i, self.local_cache[i], memory)
+            if i == self.stage - 1:
+                x = feat_cur
+            elif i == self.stage - 2:
+                self.local_cache[i + 1]['feats_cur'] = feat_cur[:len(proposals[0][0])]
+                self.local_cache[i + 1]['feats_ref'] = feat_cur[len(proposals[0][0]):]
+            else:
+                self.local_cache[i + 1]['feats_cur'] = feat_cur
+                self.local_cache[i + 1]['feats_ref'] = feat_cur[len(proposals[0][0]):]
+        for i in range(self.global_res_stage):
+            x = self.update_lm(x, i + 1)
+        return x
 
 
-def make_roi_mask_post_processor(cfg):
-    if cfg.MODEL.ROI_MASK_HEAD.POSTPROCESS_MASKS:
-        mask_threshold = cfg.MODEL.ROI_MASK_HEAD.POSTPROCESS_MASKS_THRESHOLD
-        masker = Masker(threshold=mask_threshold, padding=1)
-    else:
-        masker = None
-    mask_post_processor = MaskPostProcessor(masker)
-    return mask_post_processor
-
-
-def make_roi_mask_predictor(cfg, in_channels):
-    func = registry.ROI_MASK_PREDICTOR[cfg.MODEL.ROI_MASK_HEAD.PREDICTOR]
-    return func(cfg, in_channels)
-
-
-class ROIMaskHead(torch.nn.Module):
+class FPN2MLPFeatureExtractor(nn.Module):
+    """
+    Heads for FPN for classification
+    """
 
     def __init__(self, cfg, in_channels):
-        super(ROIMaskHead, self).__init__()
-        self.cfg = cfg.clone()
-        self.feature_extractor = make_roi_mask_feature_extractor(cfg, in_channels)
-        self.predictor = make_roi_mask_predictor(cfg, self.feature_extractor.out_channels)
-        self.post_processor = make_roi_mask_post_processor(cfg)
-        self.loss_evaluator = make_roi_mask_loss_evaluator(cfg)
+        super(FPN2MLPFeatureExtractor, self).__init__()
+        resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_BOX_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        input_size = in_channels * resolution ** 2
+        representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
+        use_gn = cfg.MODEL.ROI_BOX_HEAD.USE_GN
+        self.pooler = pooler
+        self.fc6 = make_fc(input_size, representation_size, use_gn)
+        self.fc7 = make_fc(representation_size, representation_size, use_gn)
+        self.out_channels = representation_size
 
-    def forward(self, features, proposals, targets=None):
-        """
-        Arguments:
-            features (list[Tensor]): feature-maps from possibly several levels
-            proposals (list[BoxList]): proposal boxes
-            targets (list[BoxList], optional): the ground-truth targets.
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc6(x))
+        x = F.relu(self.fc7(x))
+        return x
 
-        Returns:
-            x (Tensor): the result of the feature extractor
-            proposals (list[BoxList]): during training, the original proposals
-                are returned. During testing, the predicted boxlists are returned
-                with the `mask` field set
-            losses (dict[Tensor]): During training, returns the losses for the
-                head. During testing, returns an empty dict.
-        """
-        if self.training:
-            all_proposals = proposals
-            proposals, positive_inds = keep_only_positive_boxes(proposals)
-        if self.training and self.cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-            x = features
-            x = x[torch.cat(positive_inds, dim=0)]
-        else:
-            x = self.feature_extractor(features, proposals)
-        mask_logits = self.predictor(x)
-        if not self.training:
-            result = self.post_processor(mask_logits, proposals)
-            return x, result, {}
-        loss_mask = self.loss_evaluator(proposals, mask_logits, targets)
-        return x, all_proposals, dict(loss_mask=loss_mask)
+
+class FPNXconv1fcFeatureExtractor(nn.Module):
+    """
+    Heads for FPN for classification
+    """
+
+    def __init__(self, cfg, in_channels):
+        super(FPNXconv1fcFeatureExtractor, self).__init__()
+        resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_BOX_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        self.pooler = pooler
+        use_gn = cfg.MODEL.ROI_BOX_HEAD.USE_GN
+        conv_head_dim = cfg.MODEL.ROI_BOX_HEAD.CONV_HEAD_DIM
+        num_stacked_convs = cfg.MODEL.ROI_BOX_HEAD.NUM_STACKED_CONVS
+        dilation = cfg.MODEL.ROI_BOX_HEAD.DILATION
+        xconvs = []
+        for ix in range(num_stacked_convs):
+            xconvs.append(nn.Conv2d(in_channels, conv_head_dim, kernel_size=3, stride=1, padding=dilation, dilation=dilation, bias=False if use_gn else True))
+            in_channels = conv_head_dim
+            if use_gn:
+                xconvs.append(group_norm(in_channels))
+            xconvs.append(nn.ReLU(inplace=True))
+        self.add_module('xconvs', nn.Sequential(*xconvs))
+        for modules in [self.xconvs]:
+            for l in modules.modules():
+                if isinstance(l, nn.Conv2d):
+                    torch.nn.init.normal_(l.weight, std=0.01)
+                    if not use_gn:
+                        torch.nn.init.constant_(l.bias, 0)
+        input_size = conv_head_dim * resolution ** 2
+        representation_size = cfg.MODEL.ROI_BOX_HEAD.MLP_HEAD_DIM
+        self.fc6 = make_fc(input_size, representation_size, use_gn=False)
+        self.out_channels = representation_size
+
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        x = self.xconvs(x)
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc6(x))
+        return x
+
+
+class FastRCNNPredictor(nn.Module):
+
+    def __init__(self, config, in_channels):
+        super(FastRCNNPredictor, self).__init__()
+        assert in_channels is not None
+        num_inputs = in_channels
+        num_classes = config.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.cls_score = nn.Linear(num_inputs, num_classes)
+        num_bbox_reg_classes = 2 if config.MODEL.CLS_AGNOSTIC_BBOX_REG else num_classes
+        self.bbox_pred = nn.Linear(num_inputs, num_bbox_reg_classes * 4)
+        nn.init.normal_(self.cls_score.weight, mean=0, std=0.01)
+        nn.init.constant_(self.cls_score.bias, 0)
+        nn.init.normal_(self.bbox_pred.weight, mean=0, std=0.001)
+        nn.init.constant_(self.bbox_pred.bias, 0)
+
+    def forward(self, x):
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        cls_logit = self.cls_score(x)
+        bbox_pred = self.bbox_pred(x)
+        return cls_logit, bbox_pred
+
+
+class FPNPredictor(nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(FPNPredictor, self).__init__()
+        num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+        representation_size = in_channels
+        self.cls_score = nn.Linear(representation_size, num_classes)
+        num_bbox_reg_classes = 2 if cfg.MODEL.CLS_AGNOSTIC_BBOX_REG else num_classes
+        self.bbox_pred = nn.Linear(representation_size, num_bbox_reg_classes * 4)
+        nn.init.normal_(self.cls_score.weight, std=0.01)
+        nn.init.normal_(self.bbox_pred.weight, std=0.001)
+        for l in [self.cls_score, self.bbox_pred]:
+            nn.init.constant_(l.bias, 0)
+
+    def forward(self, x):
+        if x.ndimension() == 4:
+            assert list(x.shape[2:]) == [1, 1]
+            x = x.view(x.size(0), -1)
+        scores = self.cls_score(x)
+        bbox_deltas = self.bbox_pred(x)
+        return scores, bbox_deltas
+
+
+class KeypointRCNNFeatureExtractor(nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(KeypointRCNNFeatureExtractor, self).__init__()
+        resolution = cfg.MODEL.ROI_KEYPOINT_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_KEYPOINT_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_KEYPOINT_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        self.pooler = pooler
+        input_features = in_channels
+        layers = cfg.MODEL.ROI_KEYPOINT_HEAD.CONV_LAYERS
+        next_feature = input_features
+        self.blocks = []
+        for layer_idx, layer_features in enumerate(layers, 1):
+            layer_name = 'conv_fcn{}'.format(layer_idx)
+            module = Conv2d(next_feature, layer_features, 3, stride=1, padding=1)
+            nn.init.kaiming_normal_(module.weight, mode='fan_out', nonlinearity='relu')
+            nn.init.constant_(module.bias, 0)
+            self.add_module(layer_name, module)
+            next_feature = layer_features
+            self.blocks.append(layer_name)
+        self.out_channels = layer_features
+
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        for layer_name in self.blocks:
+            x = F.relu(getattr(self, layer_name)(x))
+        return x
+
+
+class KeypointRCNNPredictor(nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(KeypointRCNNPredictor, self).__init__()
+        input_features = in_channels
+        num_keypoints = cfg.MODEL.ROI_KEYPOINT_HEAD.NUM_CLASSES
+        deconv_kernel = 4
+        self.kps_score_lowres = layers.ConvTranspose2d(input_features, num_keypoints, deconv_kernel, stride=2, padding=deconv_kernel // 2 - 1)
+        nn.init.kaiming_normal_(self.kps_score_lowres.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.constant_(self.kps_score_lowres.bias, 0)
+        self.up_scale = 2
+        self.out_channels = num_keypoints
+
+    def forward(self, x):
+        x = self.kps_score_lowres(x)
+        x = layers.interpolate(x, scale_factor=self.up_scale, mode='bilinear', align_corners=False)
+        return x
+
+
+class MaskPostProcessorCOCOFormat(MaskPostProcessor):
+    """
+    From the results of the CNN, post process the results
+    so that the masks are pasted in the image, and
+    additionally convert the results to COCO format.
+    """
+
+    def forward(self, x, boxes):
+        import numpy as np
+        results = super(MaskPostProcessorCOCOFormat, self).forward(x, boxes)
+        for result in results:
+            masks = result.get_field('mask').cpu()
+            rles = [mask_util.encode(np.array(mask[(0), :, :, (np.newaxis)], order='F'))[0] for mask in masks]
+            for rle in rles:
+                rle['counts'] = rle['counts'].decode('utf-8')
+            result.add_field('mask', rles)
+        return results
 
 
 def make_conv3x3(in_channels, out_channels, dilation=1, stride=1, use_gn=False, use_relu=False, kaiming_init=True):
@@ -3880,688 +5630,80 @@ def make_conv3x3(in_channels, out_channels, dilation=1, stride=1, use_gn=False, 
     return conv
 
 
-class CombinedROIHeads(torch.nn.ModuleDict):
+class MaskRCNNFPNFeatureExtractor(nn.Module):
     """
-    Combines a set of individual heads (for box prediction or masks) into a single
-    head.
-    """
-
-    def __init__(self, cfg, heads):
-        super(CombinedROIHeads, self).__init__(heads)
-        self.cfg = cfg.clone()
-        if cfg.MODEL.MASK_ON and cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-            self.mask.feature_extractor = self.box.feature_extractor
-        if cfg.MODEL.KEYPOINT_ON and cfg.MODEL.ROI_KEYPOINT_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-            self.keypoint.feature_extractor = self.box.feature_extractor
-
-    def forward(self, features, proposals, targets=None):
-        losses = {}
-        x, detections, loss_box = self.box(features, proposals, targets)
-        losses.update(loss_box)
-        if self.cfg.MODEL.MASK_ON:
-            mask_features = features
-            if self.training and self.cfg.MODEL.ROI_MASK_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-                mask_features = x
-            x, detections, loss_mask = self.mask(mask_features, detections, targets)
-            losses.update(loss_mask)
-        if self.cfg.MODEL.KEYPOINT_ON:
-            keypoint_features = features
-            if self.training and self.cfg.MODEL.ROI_KEYPOINT_HEAD.SHARE_BOX_FEATURE_EXTRACTOR:
-                keypoint_features = x
-            x, detections, loss_keypoint = self.keypoint(keypoint_features, detections, targets)
-            losses.update(loss_keypoint)
-        return x, detections, losses
-
-
-class BufferList(nn.Module):
-    """
-    Similar to nn.ParameterList, but for buffers
-    """
-
-    def __init__(self, buffers=None):
-        super(BufferList, self).__init__()
-        if buffers is not None:
-            self.extend(buffers)
-
-    def extend(self, buffers):
-        offset = len(self)
-        for i, buffer in enumerate(buffers):
-            self.register_buffer(str(offset + i), buffer)
-        return self
-
-    def __len__(self):
-        return len(self._buffers)
-
-    def __iter__(self):
-        return iter(self._buffers.values())
-
-
-def _mkanchors(ws, hs, x_ctr, y_ctr):
-    """Given a vector of widths (ws) and heights (hs) around a center
-    (x_ctr, y_ctr), output a set of anchors (windows).
-    """
-    ws = ws[:, (np.newaxis)]
-    hs = hs[:, (np.newaxis)]
-    anchors = np.hstack((x_ctr - 0.5 * (ws - 1), y_ctr - 0.5 * (hs - 1), x_ctr + 0.5 * (ws - 1), y_ctr + 0.5 * (hs - 1)))
-    return anchors
-
-
-def _whctrs(anchor):
-    """Return width, height, x center, and y center for an anchor (window)."""
-    w = anchor[2] - anchor[0] + 1
-    h = anchor[3] - anchor[1] + 1
-    x_ctr = anchor[0] + 0.5 * (w - 1)
-    y_ctr = anchor[1] + 0.5 * (h - 1)
-    return w, h, x_ctr, y_ctr
-
-
-def _ratio_enum(anchor, ratios):
-    """Enumerate a set of anchors for each aspect ratio wrt an anchor."""
-    w, h, x_ctr, y_ctr = _whctrs(anchor)
-    size = w * h
-    size_ratios = size / ratios
-    ws = np.round(np.sqrt(size_ratios))
-    hs = np.round(ws * ratios)
-    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
-
-
-def _scale_enum(anchor, scales):
-    """Enumerate a set of anchors for each scale wrt an anchor."""
-    w, h, x_ctr, y_ctr = _whctrs(anchor)
-    ws = w * scales
-    hs = h * scales
-    anchors = _mkanchors(ws, hs, x_ctr, y_ctr)
-    return anchors
-
-
-def _generate_anchors(base_size, scales, aspect_ratios):
-    """Generate anchor (reference) windows by enumerating aspect ratios X
-    scales wrt a reference (0, 0, base_size - 1, base_size - 1) window.
-    """
-    anchor = np.array([1, 1, base_size, base_size], dtype=np.float) - 1
-    anchors = _ratio_enum(anchor, aspect_ratios)
-    anchors = np.vstack([_scale_enum(anchors[(i), :], scales) for i in range(anchors.shape[0])])
-    return torch.from_numpy(anchors)
-
-
-def generate_anchors(stride=16, sizes=(32, 64, 128, 256, 512), aspect_ratios=(0.5, 1, 2)):
-    """Generates a matrix of anchor boxes in (x1, y1, x2, y2) format. Anchors
-    are centered on stride / 2, have (approximate) sqrt areas of the specified
-    sizes, and aspect ratios as given.
-    """
-    return _generate_anchors(stride, np.array(sizes, dtype=np.float) / stride, np.array(aspect_ratios, dtype=np.float))
-
-
-class AnchorGenerator(nn.Module):
-    """
-    For a set of image sizes and feature maps, computes a set
-    of anchors
-    """
-
-    def __init__(self, sizes=(128, 256, 512), aspect_ratios=(0.5, 1.0, 2.0), anchor_strides=(8, 16, 32), straddle_thresh=0):
-        super(AnchorGenerator, self).__init__()
-        if len(anchor_strides) == 1:
-            anchor_stride = anchor_strides[0]
-            cell_anchors = [generate_anchors(anchor_stride, sizes, aspect_ratios).float()]
-        else:
-            if len(anchor_strides) != len(sizes):
-                raise RuntimeError('FPN should have #anchor_strides == #sizes')
-            cell_anchors = [generate_anchors(anchor_stride, size if isinstance(size, (tuple, list)) else (size,), aspect_ratios).float() for anchor_stride, size in zip(anchor_strides, sizes)]
-        self.strides = anchor_strides
-        self.cell_anchors = BufferList(cell_anchors)
-        self.straddle_thresh = straddle_thresh
-
-    def num_anchors_per_location(self):
-        return [len(cell_anchors) for cell_anchors in self.cell_anchors]
-
-    def grid_anchors(self, grid_sizes):
-        anchors = []
-        for size, stride, base_anchors in zip(grid_sizes, self.strides, self.cell_anchors):
-            grid_height, grid_width = size
-            device = base_anchors.device
-            shifts_x = torch.arange(0, grid_width * stride, step=stride, dtype=torch.float32, device=device)
-            shifts_y = torch.arange(0, grid_height * stride, step=stride, dtype=torch.float32, device=device)
-            shift_y, shift_x = torch.meshgrid(shifts_y, shifts_x)
-            shift_x = shift_x.reshape(-1)
-            shift_y = shift_y.reshape(-1)
-            shifts = torch.stack((shift_x, shift_y, shift_x, shift_y), dim=1)
-            anchors.append((shifts.view(-1, 1, 4) + base_anchors.view(1, -1, 4)).reshape(-1, 4))
-        return anchors
-
-    def add_visibility_to(self, boxlist):
-        image_width, image_height = boxlist.size
-        anchors = boxlist.bbox
-        if self.straddle_thresh >= 0:
-            inds_inside = (anchors[..., 0] >= -self.straddle_thresh) & (anchors[..., 1] >= -self.straddle_thresh) & (anchors[..., 2] < image_width + self.straddle_thresh) & (anchors[..., 3] < image_height + self.straddle_thresh)
-        else:
-            device = anchors.device
-            inds_inside = torch.ones(anchors.shape[0], dtype=torch.bool, device=device)
-        boxlist.add_field('visibility', inds_inside)
-
-    def forward(self, image_list, feature_maps):
-        grid_sizes = [feature_map.shape[-2:] for feature_map in feature_maps]
-        anchors_over_all_feature_maps = self.grid_anchors(grid_sizes)
-        anchors = []
-        for i, (image_height, image_width) in enumerate(image_list.image_sizes):
-            anchors_in_image = []
-            for anchors_per_feature_map in anchors_over_all_feature_maps:
-                boxlist = BoxList(anchors_per_feature_map, (image_width, image_height), mode='xyxy')
-                self.add_visibility_to(boxlist)
-                anchors_in_image.append(boxlist)
-            anchors.append(anchors_in_image)
-        return anchors
-
-
-def permute_and_flatten(layer, N, A, C, H, W):
-    layer = layer.view(N, -1, C, H, W)
-    layer = layer.permute(0, 3, 4, 1, 2)
-    layer = layer.reshape(N, -1, C)
-    return layer
-
-
-def remove_small_boxes(boxlist, min_size):
-    """
-    Only keep boxes with both sides >= min_size
-
-    Arguments:
-        boxlist (Boxlist)
-        min_size (int)
-    """
-    xywh_boxes = boxlist.convert('xywh').bbox
-    _, _, ws, hs = xywh_boxes.unbind(dim=1)
-    keep = ((ws >= min_size) & (hs >= min_size)).nonzero().squeeze(1)
-    return boxlist[keep]
-
-
-class RPNPostProcessor(torch.nn.Module):
-    """
-    Performs post-processing on the outputs of the RPN boxes, before feeding the
-    proposals to the heads
-    """
-
-    def __init__(self, pre_nms_top_n, post_nms_top_n, nms_thresh, min_size, box_coder=None, fpn_post_nms_top_n=None, fpn_post_nms_per_batch=True):
-        """
-        Arguments:
-            pre_nms_top_n (int)
-            post_nms_top_n (int)
-            nms_thresh (float)
-            min_size (int)
-            box_coder (BoxCoder)
-            fpn_post_nms_top_n (int)
-        """
-        super(RPNPostProcessor, self).__init__()
-        self.pre_nms_top_n = pre_nms_top_n
-        self.post_nms_top_n = post_nms_top_n
-        self.nms_thresh = nms_thresh
-        self.min_size = min_size
-        if box_coder is None:
-            box_coder = BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
-        self.box_coder = box_coder
-        if fpn_post_nms_top_n is None:
-            fpn_post_nms_top_n = post_nms_top_n
-        self.fpn_post_nms_top_n = fpn_post_nms_top_n
-        self.fpn_post_nms_per_batch = fpn_post_nms_per_batch
-
-    def add_gt_proposals(self, proposals, targets):
-        """
-        Arguments:
-            proposals: list[BoxList]
-            targets: list[BoxList]
-        """
-        device = proposals[0].bbox.device
-        gt_boxes = [target.copy_with_fields([]) for target in targets]
-        for gt_box in gt_boxes:
-            gt_box.add_field('objectness', torch.ones(len(gt_box), device=device))
-        proposals = [cat_boxlist((proposal, gt_box)) for proposal, gt_box in zip(proposals, gt_boxes)]
-        return proposals
-
-    def forward_for_single_feature_map(self, anchors, objectness, box_regression):
-        """
-        Arguments:
-            anchors: list[BoxList]
-            objectness: tensor of size N, A, H, W
-            box_regression: tensor of size N, A * 4, H, W
-        """
-        device = objectness.device
-        N, A, H, W = objectness.shape
-        objectness = permute_and_flatten(objectness, N, A, 1, H, W).view(N, -1)
-        objectness = objectness.sigmoid()
-        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
-        num_anchors = A * H * W
-        pre_nms_top_n = min(self.pre_nms_top_n, num_anchors)
-        objectness, topk_idx = objectness.topk(pre_nms_top_n, dim=1, sorted=True)
-        batch_idx = torch.arange(N, device=device)[:, (None)]
-        box_regression = box_regression[batch_idx, topk_idx]
-        image_shapes = [box.size for box in anchors]
-        concat_anchors = torch.cat([a.bbox for a in anchors], dim=0)
-        concat_anchors = concat_anchors.reshape(N, -1, 4)[batch_idx, topk_idx]
-        proposals = self.box_coder.decode(box_regression.view(-1, 4), concat_anchors.view(-1, 4))
-        proposals = proposals.view(N, -1, 4)
-        result = []
-        for proposal, score, im_shape in zip(proposals, objectness, image_shapes):
-            boxlist = BoxList(proposal, im_shape, mode='xyxy')
-            boxlist.add_field('objectness', score)
-            boxlist = boxlist.clip_to_image(remove_empty=False)
-            boxlist = remove_small_boxes(boxlist, self.min_size)
-            boxlist = boxlist_nms(boxlist, self.nms_thresh, max_proposals=self.post_nms_top_n, score_field='objectness')
-            result.append(boxlist)
-        return result
-
-    def forward(self, anchors, objectness, box_regression, targets=None):
-        """
-        Arguments:
-            anchors: list[list[BoxList]]
-            objectness: list[tensor]
-            box_regression: list[tensor]
-
-        Returns:
-            boxlists (list[BoxList]): the post-processed anchors, after
-                applying box decoding and NMS
-        """
-        sampled_boxes = []
-        num_levels = len(objectness)
-        anchors = list(zip(*anchors))
-        for a, o, b in zip(anchors, objectness, box_regression):
-            sampled_boxes.append(self.forward_for_single_feature_map(a, o, b))
-        boxlists = list(zip(*sampled_boxes))
-        boxlists = [cat_boxlist(boxlist) for boxlist in boxlists]
-        if num_levels > 1:
-            boxlists = self.select_over_all_levels(boxlists)
-        if self.training and targets is not None:
-            boxlists = self.add_gt_proposals(boxlists, targets)
-        return boxlists
-
-    def select_over_all_levels(self, boxlists):
-        num_images = len(boxlists)
-        if self.training and self.fpn_post_nms_per_batch:
-            objectness = torch.cat([boxlist.get_field('objectness') for boxlist in boxlists], dim=0)
-            box_sizes = [len(boxlist) for boxlist in boxlists]
-            post_nms_top_n = min(self.fpn_post_nms_top_n, len(objectness))
-            _, inds_sorted = torch.topk(objectness, post_nms_top_n, dim=0, sorted=True)
-            inds_mask = torch.zeros_like(objectness, dtype=torch.bool)
-            inds_mask[inds_sorted] = 1
-            inds_mask = inds_mask.split(box_sizes)
-            for i in range(num_images):
-                boxlists[i] = boxlists[i][inds_mask[i]]
-        else:
-            for i in range(num_images):
-                objectness = boxlists[i].get_field('objectness')
-                post_nms_top_n = min(self.fpn_post_nms_top_n, len(objectness))
-                _, inds_sorted = torch.topk(objectness, post_nms_top_n, dim=0, sorted=True)
-                boxlists[i] = boxlists[i][inds_sorted]
-        return boxlists
-
-
-class RetinaNetHead(torch.nn.Module):
-    """
-    Adds a RetinNet head with classification and regression heads
+    Heads for FPN for classification
     """
 
     def __init__(self, cfg, in_channels):
         """
         Arguments:
-            in_channels (int): number of channels of the input feature
-            num_anchors (int): number of anchors to be predicted
+            num_classes (int): number of output classes
+            input_size (int): number of channels of the input once it's flattened
+            representation_size (int): size of the intermediate representation
         """
-        super(RetinaNetHead, self).__init__()
-        num_classes = cfg.MODEL.RETINANET.NUM_CLASSES - 1
-        num_anchors = len(cfg.MODEL.RETINANET.ASPECT_RATIOS) * cfg.MODEL.RETINANET.SCALES_PER_OCTAVE
-        cls_tower = []
-        bbox_tower = []
-        for i in range(cfg.MODEL.RETINANET.NUM_CONVS):
-            cls_tower.append(nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1))
-            cls_tower.append(nn.ReLU())
-            bbox_tower.append(nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1))
-            bbox_tower.append(nn.ReLU())
-        self.add_module('cls_tower', nn.Sequential(*cls_tower))
-        self.add_module('bbox_tower', nn.Sequential(*bbox_tower))
-        self.cls_logits = nn.Conv2d(in_channels, num_anchors * num_classes, kernel_size=3, stride=1, padding=1)
-        self.bbox_pred = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=3, stride=1, padding=1)
-        for modules in [self.cls_tower, self.bbox_tower, self.cls_logits, self.bbox_pred]:
-            for l in modules.modules():
-                if isinstance(l, nn.Conv2d):
-                    torch.nn.init.normal_(l.weight, std=0.01)
-                    torch.nn.init.constant_(l.bias, 0)
-        prior_prob = cfg.MODEL.RETINANET.PRIOR_PROB
-        bias_value = -math.log((1 - prior_prob) / prior_prob)
-        torch.nn.init.constant_(self.cls_logits.bias, bias_value)
+        super(MaskRCNNFPNFeatureExtractor, self).__init__()
+        resolution = cfg.MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION
+        scales = cfg.MODEL.ROI_MASK_HEAD.POOLER_SCALES
+        sampling_ratio = cfg.MODEL.ROI_MASK_HEAD.POOLER_SAMPLING_RATIO
+        pooler = Pooler(output_size=(resolution, resolution), scales=scales, sampling_ratio=sampling_ratio)
+        input_size = in_channels
+        self.pooler = pooler
+        use_gn = cfg.MODEL.ROI_MASK_HEAD.USE_GN
+        layers = cfg.MODEL.ROI_MASK_HEAD.CONV_LAYERS
+        dilation = cfg.MODEL.ROI_MASK_HEAD.DILATION
+        next_feature = input_size
+        self.blocks = []
+        for layer_idx, layer_features in enumerate(layers, 1):
+            layer_name = 'mask_fcn{}'.format(layer_idx)
+            module = make_conv3x3(next_feature, layer_features, dilation=dilation, stride=1, use_gn=use_gn)
+            self.add_module(layer_name, module)
+            next_feature = layer_features
+            self.blocks.append(layer_name)
+        self.out_channels = layer_features
+
+    def forward(self, x, proposals):
+        x = self.pooler(x, proposals)
+        for layer_name in self.blocks:
+            x = F.relu(getattr(self, layer_name)(x))
+        return x
+
+
+class MaskRCNNC4Predictor(nn.Module):
+
+    def __init__(self, cfg, in_channels):
+        super(MaskRCNNC4Predictor, self).__init__()
+        num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+        dim_reduced = cfg.MODEL.ROI_MASK_HEAD.CONV_LAYERS[-1]
+        num_inputs = in_channels
+        self.conv5_mask = ConvTranspose2d(num_inputs, dim_reduced, 2, 2, 0)
+        self.mask_fcn_logits = Conv2d(dim_reduced, num_classes, 1, 1, 0)
+        for name, param in self.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param, 0)
+            elif 'weight' in name:
+                nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
 
     def forward(self, x):
-        logits = []
-        bbox_reg = []
-        for feature in x:
-            logits.append(self.cls_logits(self.cls_tower(feature)))
-            bbox_reg.append(self.bbox_pred(self.bbox_tower(feature)))
-        return logits, bbox_reg
+        x = F.relu(self.conv5_mask(x))
+        return self.mask_fcn_logits(x)
 
 
-def make_anchor_generator_retinanet(config):
-    anchor_sizes = config.MODEL.RETINANET.ANCHOR_SIZES
-    aspect_ratios = config.MODEL.RETINANET.ASPECT_RATIOS
-    anchor_strides = config.MODEL.RETINANET.ANCHOR_STRIDES
-    straddle_thresh = config.MODEL.RETINANET.STRADDLE_THRESH
-    octave = config.MODEL.RETINANET.OCTAVE
-    scales_per_octave = config.MODEL.RETINANET.SCALES_PER_OCTAVE
-    assert len(anchor_strides) == len(anchor_sizes), 'Only support FPN now'
-    new_anchor_sizes = []
-    for size in anchor_sizes:
-        per_layer_anchor_sizes = []
-        for scale_per_octave in range(scales_per_octave):
-            octave_scale = octave ** (scale_per_octave / float(scales_per_octave))
-            per_layer_anchor_sizes.append(octave_scale * size)
-        new_anchor_sizes.append(tuple(per_layer_anchor_sizes))
-    anchor_generator = AnchorGenerator(tuple(new_anchor_sizes), aspect_ratios, anchor_strides, straddle_thresh)
-    return anchor_generator
-
-
-def concat_box_prediction_layers(box_cls, box_regression):
-    box_cls_flattened = []
-    box_regression_flattened = []
-    for box_cls_per_level, box_regression_per_level in zip(box_cls, box_regression):
-        N, AxC, H, W = box_cls_per_level.shape
-        Ax4 = box_regression_per_level.shape[1]
-        A = Ax4 // 4
-        C = AxC // A
-        box_cls_per_level = permute_and_flatten(box_cls_per_level, N, A, C, H, W)
-        box_cls_flattened.append(box_cls_per_level)
-        box_regression_per_level = permute_and_flatten(box_regression_per_level, N, A, 4, H, W)
-        box_regression_flattened.append(box_regression_per_level)
-    box_cls = cat(box_cls_flattened, dim=1).reshape(-1, C)
-    box_regression = cat(box_regression_flattened, dim=1).reshape(-1, 4)
-    return box_cls, box_regression
-
-
-class RPNLossComputation(object):
-    """
-    This class computes the RPN loss.
-    """
-
-    def __init__(self, proposal_matcher, fg_bg_sampler, box_coder, generate_labels_func):
-        """
-        Arguments:
-            proposal_matcher (Matcher)
-            fg_bg_sampler (BalancedPositiveNegativeSampler)
-            box_coder (BoxCoder)
-        """
-        self.proposal_matcher = proposal_matcher
-        self.fg_bg_sampler = fg_bg_sampler
-        self.box_coder = box_coder
-        self.copied_fields = []
-        self.generate_labels_func = generate_labels_func
-        self.discard_cases = ['not_visibility', 'between_thresholds']
-
-    def match_targets_to_anchors(self, anchor, target, copied_fields=[]):
-        match_quality_matrix = boxlist_iou(target, anchor)
-        matched_idxs = self.proposal_matcher(match_quality_matrix)
-        target = target.copy_with_fields(copied_fields)
-        matched_targets = target[matched_idxs.clamp(min=0)]
-        matched_targets.add_field('matched_idxs', matched_idxs)
-        return matched_targets
-
-    def prepare_targets(self, anchors, targets):
-        labels = []
-        regression_targets = []
-        for anchors_per_image, targets_per_image in zip(anchors, targets):
-            matched_targets = self.match_targets_to_anchors(anchors_per_image, targets_per_image, self.copied_fields)
-            matched_idxs = matched_targets.get_field('matched_idxs')
-            labels_per_image = self.generate_labels_func(matched_targets)
-            labels_per_image = labels_per_image.to(dtype=torch.float32)
-            bg_indices = matched_idxs == Matcher.BELOW_LOW_THRESHOLD
-            labels_per_image[bg_indices] = 0
-            if 'not_visibility' in self.discard_cases:
-                labels_per_image[~anchors_per_image.get_field('visibility')] = -1
-            if 'between_thresholds' in self.discard_cases:
-                inds_to_discard = matched_idxs == Matcher.BETWEEN_THRESHOLDS
-                labels_per_image[inds_to_discard] = -1
-            regression_targets_per_image = self.box_coder.encode(matched_targets.bbox, anchors_per_image.bbox)
-            labels.append(labels_per_image)
-            regression_targets.append(regression_targets_per_image)
-        return labels, regression_targets
-
-    def __call__(self, anchors, objectness, box_regression, targets):
-        """
-        Arguments:
-            anchors (list[list[BoxList]])
-            objectness (list[Tensor])
-            box_regression (list[Tensor])
-            targets (list[BoxList])
-
-        Returns:
-            objectness_loss (Tensor)
-            box_loss (Tensor)
-        """
-        anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in anchors]
-        labels, regression_targets = self.prepare_targets(anchors, targets)
-        sampled_pos_inds, sampled_neg_inds = self.fg_bg_sampler(labels)
-        sampled_pos_inds = torch.nonzero(torch.cat(sampled_pos_inds, dim=0)).squeeze(1)
-        sampled_neg_inds = torch.nonzero(torch.cat(sampled_neg_inds, dim=0)).squeeze(1)
-        sampled_inds = torch.cat([sampled_pos_inds, sampled_neg_inds], dim=0)
-        objectness, box_regression = concat_box_prediction_layers(objectness, box_regression)
-        objectness = objectness.squeeze()
-        labels = torch.cat(labels, dim=0)
-        regression_targets = torch.cat(regression_targets, dim=0)
-        box_loss = smooth_l1_loss(box_regression[sampled_pos_inds], regression_targets[sampled_pos_inds], beta=1.0 / 9, size_average=False) / sampled_inds.numel()
-        objectness_loss = F.binary_cross_entropy_with_logits(objectness[sampled_inds], labels[sampled_inds])
-        return objectness_loss, box_loss
-
-
-class RetinaNetLossComputation(RPNLossComputation):
-    """
-    This class computes the RetinaNet loss.
-    """
-
-    def __init__(self, proposal_matcher, box_coder, generate_labels_func, sigmoid_focal_loss, bbox_reg_beta=0.11, regress_norm=1.0):
-        """
-        Arguments:
-            proposal_matcher (Matcher)
-            box_coder (BoxCoder)
-        """
-        self.proposal_matcher = proposal_matcher
-        self.box_coder = box_coder
-        self.box_cls_loss_func = sigmoid_focal_loss
-        self.bbox_reg_beta = bbox_reg_beta
-        self.copied_fields = ['labels']
-        self.generate_labels_func = generate_labels_func
-        self.discard_cases = ['between_thresholds']
-        self.regress_norm = regress_norm
-
-    def __call__(self, anchors, box_cls, box_regression, targets):
-        """
-        Arguments:
-            anchors (list[BoxList])
-            box_cls (list[Tensor])
-            box_regression (list[Tensor])
-            targets (list[BoxList])
-
-        Returns:
-            retinanet_cls_loss (Tensor)
-            retinanet_regression_loss (Tensor
-        """
-        anchors = [cat_boxlist(anchors_per_image) for anchors_per_image in anchors]
-        labels, regression_targets = self.prepare_targets(anchors, targets)
-        N = len(labels)
-        box_cls, box_regression = concat_box_prediction_layers(box_cls, box_regression)
-        labels = torch.cat(labels, dim=0)
-        regression_targets = torch.cat(regression_targets, dim=0)
-        pos_inds = torch.nonzero(labels > 0).squeeze(1)
-        retinanet_regression_loss = smooth_l1_loss(box_regression[pos_inds], regression_targets[pos_inds], beta=self.bbox_reg_beta, size_average=False) / max(1, pos_inds.numel() * self.regress_norm)
-        labels = labels.int()
-        retinanet_cls_loss = self.box_cls_loss_func(box_cls, labels) / (pos_inds.numel() + N)
-        return retinanet_cls_loss, retinanet_regression_loss
-
-
-def generate_retinanet_labels(matched_targets):
-    labels_per_image = matched_targets.get_field('labels')
-    return labels_per_image
-
-
-def make_retinanet_loss_evaluator(cfg, box_coder):
-    matcher = Matcher(cfg.MODEL.RETINANET.FG_IOU_THRESHOLD, cfg.MODEL.RETINANET.BG_IOU_THRESHOLD, allow_low_quality_matches=True)
-    sigmoid_focal_loss = SigmoidFocalLoss(cfg.MODEL.RETINANET.LOSS_GAMMA, cfg.MODEL.RETINANET.LOSS_ALPHA)
-    loss_evaluator = RetinaNetLossComputation(matcher, box_coder, generate_retinanet_labels, sigmoid_focal_loss, bbox_reg_beta=cfg.MODEL.RETINANET.BBOX_REG_BETA, regress_norm=cfg.MODEL.RETINANET.BBOX_REG_WEIGHT)
-    return loss_evaluator
-
-
-class RetinaNetPostProcessor(RPNPostProcessor):
-    """
-    Performs post-processing on the outputs of the RetinaNet boxes.
-    This is only used in the testing.
-    """
-
-    def __init__(self, pre_nms_thresh, pre_nms_top_n, nms_thresh, fpn_post_nms_top_n, min_size, num_classes, box_coder=None):
-        """
-        Arguments:
-            pre_nms_thresh (float)
-            pre_nms_top_n (int)
-            nms_thresh (float)
-            fpn_post_nms_top_n (int)
-            min_size (int)
-            num_classes (int)
-            box_coder (BoxCoder)
-        """
-        super(RetinaNetPostProcessor, self).__init__(pre_nms_thresh, 0, nms_thresh, min_size)
-        self.pre_nms_thresh = pre_nms_thresh
-        self.pre_nms_top_n = pre_nms_top_n
-        self.nms_thresh = nms_thresh
-        self.fpn_post_nms_top_n = fpn_post_nms_top_n
-        self.min_size = min_size
-        self.num_classes = num_classes
-        if box_coder is None:
-            box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
-        self.box_coder = box_coder
-
-    def add_gt_proposals(self, proposals, targets):
-        """
-        This function is not used in RetinaNet
-        """
-        pass
-
-    def forward_for_single_feature_map(self, anchors, box_cls, box_regression):
-        """
-        Arguments:
-            anchors: list[BoxList]
-            box_cls: tensor of size N, A * C, H, W
-            box_regression: tensor of size N, A * 4, H, W
-        """
-        device = box_cls.device
-        N, _, H, W = box_cls.shape
-        A = box_regression.size(1) // 4
-        C = box_cls.size(1) // A
-        box_cls = permute_and_flatten(box_cls, N, A, C, H, W)
-        box_cls = box_cls.sigmoid()
-        box_regression = permute_and_flatten(box_regression, N, A, 4, H, W)
-        num_anchors = A * H * W
-        candidate_inds = box_cls > self.pre_nms_thresh
-        pre_nms_top_n = candidate_inds.view(N, -1).sum(1)
-        pre_nms_top_n = pre_nms_top_n.clamp(max=self.pre_nms_top_n)
-        results = []
-        for per_box_cls, per_box_regression, per_pre_nms_top_n, per_candidate_inds, per_anchors in zip(box_cls, box_regression, pre_nms_top_n, candidate_inds, anchors):
-            per_box_cls = per_box_cls[per_candidate_inds]
-            per_box_cls, top_k_indices = per_box_cls.topk(per_pre_nms_top_n, sorted=False)
-            per_candidate_nonzeros = per_candidate_inds.nonzero()[(top_k_indices), :]
-            per_box_loc = per_candidate_nonzeros[:, (0)]
-            per_class = per_candidate_nonzeros[:, (1)]
-            per_class += 1
-            detections = self.box_coder.decode(per_box_regression[(per_box_loc), :].view(-1, 4), per_anchors.bbox[(per_box_loc), :].view(-1, 4))
-            boxlist = BoxList(detections, per_anchors.size, mode='xyxy')
-            boxlist.add_field('labels', per_class)
-            boxlist.add_field('scores', per_box_cls)
-            boxlist = boxlist.clip_to_image(remove_empty=False)
-            boxlist = remove_small_boxes(boxlist, self.min_size)
-            results.append(boxlist)
-        return results
-
-    def select_over_all_levels(self, boxlists):
-        num_images = len(boxlists)
-        results = []
-        for i in range(num_images):
-            scores = boxlists[i].get_field('scores')
-            labels = boxlists[i].get_field('labels')
-            boxes = boxlists[i].bbox
-            boxlist = boxlists[i]
-            result = []
-            for j in range(1, self.num_classes):
-                inds = (labels == j).nonzero().view(-1)
-                scores_j = scores[inds]
-                boxes_j = boxes[(inds), :].view(-1, 4)
-                boxlist_for_class = BoxList(boxes_j, boxlist.size, mode='xyxy')
-                boxlist_for_class.add_field('scores', scores_j)
-                boxlist_for_class = boxlist_nms(boxlist_for_class, self.nms_thresh, score_field='scores')
-                num_labels = len(boxlist_for_class)
-                boxlist_for_class.add_field('labels', torch.full((num_labels,), j, dtype=torch.int64, device=scores.device))
-                result.append(boxlist_for_class)
-            result = cat_boxlist(result)
-            number_of_detections = len(result)
-            if number_of_detections > self.fpn_post_nms_top_n > 0:
-                cls_scores = result.get_field('scores')
-                image_thresh, _ = torch.kthvalue(cls_scores.cpu(), number_of_detections - self.fpn_post_nms_top_n + 1)
-                keep = cls_scores >= image_thresh.item()
-                keep = torch.nonzero(keep).squeeze(1)
-                result = result[keep]
-            results.append(result)
-        return results
-
-
-def make_retinanet_postprocessor(config, rpn_box_coder, is_train):
-    pre_nms_thresh = config.MODEL.RETINANET.INFERENCE_TH
-    pre_nms_top_n = config.MODEL.RETINANET.PRE_NMS_TOP_N
-    nms_thresh = config.MODEL.RETINANET.NMS_TH
-    fpn_post_nms_top_n = config.TEST.DETECTIONS_PER_IMG
-    min_size = 0
-    box_selector = RetinaNetPostProcessor(pre_nms_thresh=pre_nms_thresh, pre_nms_top_n=pre_nms_top_n, nms_thresh=nms_thresh, fpn_post_nms_top_n=fpn_post_nms_top_n, min_size=min_size, num_classes=config.MODEL.RETINANET.NUM_CLASSES, box_coder=rpn_box_coder)
-    return box_selector
-
-
-class RetinaNetModule(torch.nn.Module):
-    """
-    Module for RetinaNet computation. Takes feature maps from the backbone and
-    RetinaNet outputs and losses. Only Test on FPN now.
-    """
+class MaskRCNNConv1x1Predictor(nn.Module):
 
     def __init__(self, cfg, in_channels):
-        super(RetinaNetModule, self).__init__()
-        self.cfg = cfg.clone()
-        anchor_generator = make_anchor_generator_retinanet(cfg)
-        head = RetinaNetHead(cfg, in_channels)
-        box_coder = BoxCoder(weights=(10.0, 10.0, 5.0, 5.0))
-        box_selector_test = make_retinanet_postprocessor(cfg, box_coder, is_train=False)
-        loss_evaluator = make_retinanet_loss_evaluator(cfg, box_coder)
-        self.anchor_generator = anchor_generator
-        self.head = head
-        self.box_selector_test = box_selector_test
-        self.loss_evaluator = loss_evaluator
+        super(MaskRCNNConv1x1Predictor, self).__init__()
+        num_classes = cfg.MODEL.ROI_BOX_HEAD.NUM_CLASSES
+        num_inputs = in_channels
+        self.mask_fcn_logits = Conv2d(num_inputs, num_classes, 1, 1, 0)
+        for name, param in self.named_parameters():
+            if 'bias' in name:
+                nn.init.constant_(param, 0)
+            elif 'weight' in name:
+                nn.init.kaiming_normal_(param, mode='fan_out', nonlinearity='relu')
 
-    def forward(self, images, features, targets=None):
-        """
-        Arguments:
-            images (ImageList): images for which we want to compute the predictions
-            features (list[Tensor]): features computed from the images that are
-                used for computing the predictions. Each tensor in the list
-                correspond to different feature levels
-            targets (list[BoxList): ground-truth boxes present in the image (optional)
-
-        Returns:
-            boxes (list[BoxList]): the predicted boxes from the RPN, one BoxList per
-                image.
-            losses (dict[Tensor]): the losses for the model during training. During
-                testing, it is an empty dict.
-        """
-        box_cls, box_regression = self.head(features)
-        anchors = self.anchor_generator(images, features)
-        if self.training:
-            return self._forward_train(anchors, box_cls, box_regression, targets)
-        else:
-            return self._forward_test(anchors, box_cls, box_regression)
-
-    def _forward_train(self, anchors, box_cls, box_regression, targets):
-        loss_box_cls, loss_box_reg = self.loss_evaluator(anchors, box_cls, box_regression, targets)
-        losses = {'loss_retina_cls': loss_box_cls, 'loss_retina_reg': loss_box_reg}
-        return anchors, losses
-
-    def _forward_test(self, anchors, box_cls, box_regression):
-        boxes = self.box_selector_test(anchors, box_cls, box_regression)
-        return boxes, {}
+    def forward(self, x):
+        return self.mask_fcn_logits(x)
 
 
 class RPNHeadConvRegressor(nn.Module):
@@ -4614,92 +5756,34 @@ class RPNHeadFeatureSingleConv(nn.Module):
         return x
 
 
-def make_anchor_generator(config):
-    anchor_sizes = config.MODEL.RPN.ANCHOR_SIZES
-    aspect_ratios = config.MODEL.RPN.ASPECT_RATIOS
-    anchor_stride = config.MODEL.RPN.ANCHOR_STRIDE
-    straddle_thresh = config.MODEL.RPN.STRADDLE_THRESH
-    if config.MODEL.RPN.USE_FPN:
-        assert len(anchor_stride) == len(anchor_sizes), 'FPN should have len(ANCHOR_STRIDE) == len(ANCHOR_SIZES)'
-    else:
-        assert len(anchor_stride) == 1, 'Non-FPN should have a single ANCHOR_STRIDE'
-    anchor_generator = AnchorGenerator(anchor_sizes, aspect_ratios, anchor_stride, straddle_thresh)
-    return anchor_generator
-
-
-def generate_rpn_labels(matched_targets):
-    matched_idxs = matched_targets.get_field('matched_idxs')
-    labels_per_image = matched_idxs >= 0
-    return labels_per_image
-
-
-def make_rpn_loss_evaluator(cfg, box_coder):
-    matcher = Matcher(cfg.MODEL.RPN.FG_IOU_THRESHOLD, cfg.MODEL.RPN.BG_IOU_THRESHOLD, allow_low_quality_matches=True)
-    fg_bg_sampler = BalancedPositiveNegativeSampler(cfg.MODEL.RPN.BATCH_SIZE_PER_IMAGE, cfg.MODEL.RPN.POSITIVE_FRACTION)
-    loss_evaluator = RPNLossComputation(matcher, fg_bg_sampler, box_coder, generate_rpn_labels)
-    return loss_evaluator
-
-
-class RPNModule(torch.nn.Module):
+class RPNHead(nn.Module):
     """
-    Module for RPN computation. Takes feature maps from the backbone and outputs 
-    RPN proposals and losses. Works for both FPN and non-FPN.
+    Adds a simple RPN Head with classification and regression heads
     """
 
-    def __init__(self, cfg, in_channels):
-        super(RPNModule, self).__init__()
-        self.cfg = cfg.clone()
-        anchor_generator = make_anchor_generator(cfg)
-        rpn_head = registry.RPN_HEADS[cfg.MODEL.RPN.RPN_HEAD]
-        head = rpn_head(cfg, in_channels, anchor_generator.num_anchors_per_location()[0])
-        rpn_box_coder = BoxCoder(weights=(1.0, 1.0, 1.0, 1.0))
-        box_selector_train = make_rpn_postprocessor(cfg, rpn_box_coder, is_train=True)
-        box_selector_test = make_rpn_postprocessor(cfg, rpn_box_coder, is_train=False)
-        loss_evaluator = make_rpn_loss_evaluator(cfg, rpn_box_coder)
-        self.anchor_generator = anchor_generator
-        self.head = head
-        self.box_selector_train = box_selector_train
-        self.box_selector_test = box_selector_test
-        self.loss_evaluator = loss_evaluator
-
-    def forward(self, images, features, targets=None):
+    def __init__(self, cfg, in_channels, num_anchors):
         """
         Arguments:
-            images (ImageList): images for which we want to compute the predictions
-            features (list[Tensor]): features computed from the images that are
-                used for computing the predictions. Each tensor in the list
-                correspond to different feature levels
-            targets (list[BoxList): ground-truth boxes present in the image (optional)
-
-        Returns:
-            boxes (list[BoxList]): the predicted boxes from the RPN, one BoxList per
-                image.
-            losses (dict[Tensor]): the losses for the model during training. During
-                testing, it is an empty dict.
+            cfg              : config
+            in_channels (int): number of channels of the input feature
+            num_anchors (int): number of anchors to be predicted
         """
-        objectness, rpn_box_regression = self.head(features)
-        anchors = self.anchor_generator(images, features)
-        if self.training:
-            return self._forward_train(anchors, objectness, rpn_box_regression, targets)
-        else:
-            return self._forward_test(anchors, objectness, rpn_box_regression)
+        super(RPNHead, self).__init__()
+        self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
+        self.cls_logits = nn.Conv2d(in_channels, num_anchors, kernel_size=1, stride=1)
+        self.bbox_pred = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=1, stride=1)
+        for l in [self.conv, self.cls_logits, self.bbox_pred]:
+            torch.nn.init.normal_(l.weight, std=0.01)
+            torch.nn.init.constant_(l.bias, 0)
 
-    def _forward_train(self, anchors, objectness, rpn_box_regression, targets):
-        if self.cfg.MODEL.RPN_ONLY:
-            boxes = anchors
-        else:
-            with torch.no_grad():
-                boxes = self.box_selector_train(anchors, objectness, rpn_box_regression, targets)
-        loss_objectness, loss_rpn_box_reg = self.loss_evaluator(anchors, objectness, rpn_box_regression, targets)
-        losses = {'loss_objectness': loss_objectness, 'loss_rpn_box_reg': loss_rpn_box_reg}
-        return boxes, losses
-
-    def _forward_test(self, anchors, objectness, rpn_box_regression):
-        boxes = self.box_selector_test(anchors, objectness, rpn_box_regression)
-        if self.cfg.MODEL.RPN_ONLY:
-            inds = [box.get_field('objectness').sort(descending=True)[1] for box in boxes]
-            boxes = [box[ind] for box, ind in zip(boxes, inds)]
-        return boxes, {}
+    def forward(self, x):
+        logits = []
+        bbox_reg = []
+        for feature in x:
+            t = F.relu(self.conv(feature))
+            logits.append(self.cls_logits(t))
+            bbox_reg.append(self.bbox_pred(t))
+        return logits, bbox_reg
 
 
 import torch
@@ -4711,6 +5795,10 @@ TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
     (BatchNorm2d,
      lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BottleneckWithFixedBatchNorm,
+     lambda: ([], {'in_channels': 4, 'bottleneck_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (CascadeConv3x3,
@@ -4756,6 +5844,10 @@ TESTCASES = [
     (LastLevelP6P7,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (RPNHead,
+     lambda: ([], {'cfg': _mock_config(), 'in_channels': 4, 'num_anchors': 4}),
+     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
      True),
     (SEModule,
      lambda: ([], {'C': 4}),
@@ -4823,4 +5915,10 @@ class Test_Scalsol_mega_pytorch(_paritybench_base):
 
     def test_015(self):
         self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
 

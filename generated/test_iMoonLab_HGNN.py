@@ -15,15 +15,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -55,21 +56,6 @@ import copy
 import torch.optim as optim
 
 
-class HGNN(nn.Module):
-
-    def __init__(self, in_ch, n_class, n_hid, dropout=0.5):
-        super(HGNN, self).__init__()
-        self.dropout = dropout
-        self.hgc1 = HGNN_conv(in_ch, n_hid)
-        self.hgc2 = HGNN_conv(n_hid, n_class)
-
-    def forward(self, x, G):
-        x = F.relu(self.hgc1(x, G))
-        x = F.dropout(x, self.dropout)
-        x = self.hgc2(x, G)
-        return x
-
-
 class HGNN_conv(nn.Module):
 
     def __init__(self, in_ft, out_ft, bias=True):
@@ -92,6 +78,21 @@ class HGNN_conv(nn.Module):
         if self.bias is not None:
             x = x + self.bias
         x = G.matmul(x)
+        return x
+
+
+class HGNN(nn.Module):
+
+    def __init__(self, in_ch, n_class, n_hid, dropout=0.5):
+        super(HGNN, self).__init__()
+        self.dropout = dropout
+        self.hgc1 = HGNN_conv(in_ch, n_hid)
+        self.hgc2 = HGNN_conv(n_hid, n_class)
+
+    def forward(self, x, G):
+        x = F.relu(self.hgc1(x, G))
+        x = F.dropout(x, self.dropout)
+        x = self.hgc2(x, G)
         return x
 
 

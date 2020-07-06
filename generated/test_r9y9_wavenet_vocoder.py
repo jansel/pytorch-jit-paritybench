@@ -32,15 +32,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -94,7 +95,7 @@ def sequence_mask(sequence_length, max_len=None):
     seq_range = torch.arange(0, max_len).long()
     seq_range_expand = seq_range.unsqueeze(0).expand(batch_size, max_len)
     if sequence_length.is_cuda:
-        seq_range_expand = seq_range_expand.cuda()
+        seq_range_expand = seq_range_expand
     seq_length_expand = sequence_length.unsqueeze(1).expand_as(seq_range_expand)
     return (seq_range_expand < seq_length_expand).float()
 
@@ -797,55 +798,12 @@ class MixtureGaussianLoss(nn.Module):
         return (losses * mask_).sum() / mask_.sum()
 
 
-class Conv1d(nn.Conv1d):
-    """Extended nn.Conv1d for incremental dilated convolutions
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.clear_buffer()
-        self._linearized_weight = None
-        self.register_backward_hook(self._clear_linearized_weight)
-
-    def incremental_forward(self, input):
-        if self.training:
-            raise RuntimeError('incremental_forward only supports eval mode')
-        for hook in self._forward_pre_hooks.values():
-            hook(self, input)
-        weight = self._get_linearized_weight()
-        kw = self.kernel_size[0]
-        dilation = self.dilation[0]
-        bsz = input.size(0)
-        if kw > 1:
-            input = input.data
-            if self.input_buffer is None:
-                self.input_buffer = input.new(bsz, kw + (kw - 1) * (dilation - 1), input.size(2))
-                self.input_buffer.zero_()
-            else:
-                self.input_buffer[:, :-1, :] = self.input_buffer[:, 1:, :].clone()
-            self.input_buffer[:, (-1), :] = input[:, (-1), :]
-            input = self.input_buffer
-            if dilation > 1:
-                input = input[:, 0::dilation, :].contiguous()
-        output = F.linear(input.view(bsz, -1), weight, self.bias)
-        return output.view(bsz, 1, -1)
-
-    def clear_buffer(self):
-        self.input_buffer = None
-
-    def _get_linearized_weight(self):
-        if self._linearized_weight is None:
-            kw = self.kernel_size[0]
-            if self.weight.size() == (self.out_channels, self.in_channels, kw):
-                weight = self.weight.transpose(1, 2).contiguous()
-            else:
-                weight = self.weight.transpose(2, 1).transpose(1, 0).contiguous()
-            assert weight.size() == (self.out_channels, kw, self.in_channels)
-            self._linearized_weight = weight.view(self.out_channels, -1)
-        return self._linearized_weight
-
-    def _clear_linearized_weight(self, *args):
-        self._linearized_weight = None
+def Conv1d(in_channels, out_channels, kernel_size, dropout=0, **kwargs):
+    m = conv.Conv1d(in_channels, out_channels, kernel_size, **kwargs)
+    nn.init.kaiming_normal_(m.weight, nonlinearity='relu')
+    if m.bias is not None:
+        nn.init.constant_(m.bias, 0)
+    return nn.utils.weight_norm(m)
 
 
 def Conv1d1x1(in_channels, out_channels, bias=True):
@@ -1074,7 +1032,7 @@ def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda 
 def to_one_hot(tensor, n, fill_with=1.0):
     one_hot = torch.FloatTensor(tensor.size() + (n,)).zero_()
     if tensor.is_cuda:
-        one_hot = one_hot.cuda()
+        one_hot = one_hot
     one_hot.scatter_(len(tensor.size()), tensor.unsqueeze(-1), fill_with)
     return one_hot
 
@@ -1386,34 +1344,13 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (Conv1d,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
-     True),
-    (ResidualConv1dGLU,
-     lambda: ([], {'residual_channels': 4, 'gate_channels': 4, 'kernel_size': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
-     False),
     (Stretch2d,
      lambda: ([], {'x_scale': 1.0, 'y_scale': 1.0}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
-    (WaveNet,
-     lambda: ([], {}),
-     lambda: ([torch.rand([4, 256, 64])], {}),
-     False),
 ]
 
 class Test_r9y9_wavenet_vocoder(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
-
-    def test_002(self):
-        self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

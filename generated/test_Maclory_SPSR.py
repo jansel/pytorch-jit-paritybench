@@ -20,7 +20,9 @@ test = _module
 train = _module
 utils = _module
 progress_bar = _module
+util = _module
 LPIPS = _module
+base_model = _module
 dist_model = _module
 networks_basic = _module
 pretrained_networks = _module
@@ -34,26 +36,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import random
+
+
+import numpy as np
+
+
+import torch
+
+
+import torch.utils.data as data
 
 
 import logging
 
 
+import torch.utils.data
+
+
+import math
+
+
 from collections import OrderedDict
-
-
-import torch
 
 
 import torch.nn as nn
@@ -63,9 +81,6 @@ from torch.optim import lr_scheduler
 
 
 import torch.nn.functional as F
-
-
-import math
 
 
 import torchvision
@@ -86,7 +101,10 @@ import functools
 from torch.nn import init
 
 
-import numpy as np
+import time
+
+
+from torchvision.utils import make_grid
 
 
 from torch.autograd import Variable
@@ -110,6 +128,9 @@ from collections import namedtuple
 from torchvision import models as tv
 
 
+from logging import handlers
+
+
 class Get_gradient(nn.Module):
 
     def __init__(self):
@@ -131,34 +152,6 @@ class Get_gradient(nn.Module):
         x1_h = F.conv2d(x1.unsqueeze(1), self.weight_h, padding=2)
         x2_v = F.conv2d(x2.unsqueeze(1), self.weight_v, padding=2)
         x2_h = F.conv2d(x2.unsqueeze(1), self.weight_h, padding=2)
-        x0 = torch.sqrt(torch.pow(x0_v, 2) + torch.pow(x0_h, 2) + 1e-06)
-        x1 = torch.sqrt(torch.pow(x1_v, 2) + torch.pow(x1_h, 2) + 1e-06)
-        x2 = torch.sqrt(torch.pow(x2_v, 2) + torch.pow(x2_h, 2) + 1e-06)
-        x = torch.cat([x0, x1, x2], dim=1)
-        return x
-
-
-class Get_gradient_nopadding(nn.Module):
-
-    def __init__(self):
-        super(Get_gradient_nopadding, self).__init__()
-        kernel_v = [[0, -1, 0], [0, 0, 0], [0, 1, 0]]
-        kernel_h = [[0, 0, 0], [-1, 0, 1], [0, 0, 0]]
-        kernel_h = torch.FloatTensor(kernel_h).unsqueeze(0).unsqueeze(0)
-        kernel_v = torch.FloatTensor(kernel_v).unsqueeze(0).unsqueeze(0)
-        self.weight_h = nn.Parameter(data=kernel_h, requires_grad=False)
-        self.weight_v = nn.Parameter(data=kernel_v, requires_grad=False)
-
-    def forward(self, x):
-        x0 = x[:, (0)]
-        x1 = x[:, (1)]
-        x2 = x[:, (2)]
-        x0_v = F.conv2d(x0.unsqueeze(1), self.weight_v, padding=1)
-        x0_h = F.conv2d(x0.unsqueeze(1), self.weight_h, padding=1)
-        x1_v = F.conv2d(x1.unsqueeze(1), self.weight_v, padding=1)
-        x1_h = F.conv2d(x1.unsqueeze(1), self.weight_h, padding=1)
-        x2_v = F.conv2d(x2.unsqueeze(1), self.weight_v, padding=1)
-        x2_h = F.conv2d(x2.unsqueeze(1), self.weight_h, padding=1)
         x0 = torch.sqrt(torch.pow(x0_v, 2) + torch.pow(x0_h, 2) + 1e-06)
         x1 = torch.sqrt(torch.pow(x1_v, 2) + torch.pow(x1_h, 2) + 1e-06)
         x2 = torch.sqrt(torch.pow(x2_v, 2) + torch.pow(x2_h, 2) + 1e-06)
@@ -325,8 +318,10 @@ class Discriminator_VGG_96(nn.Module):
         conv5 = B.conv_block(base_nf * 4, base_nf * 4, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
         conv6 = B.conv_block(base_nf * 4, base_nf * 8, kernel_size=3, stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
         conv7 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
-        self.features = B.sequential(conv0, conv1, conv2, conv3, conv4, conv5, conv6, conv7)
-        self.classifier = nn.Sequential(nn.Linear(512 * 6 * 6, 100), nn.LeakyReLU(0.2, True), nn.Linear(100, 1))
+        conv8 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=3, stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
+        conv9 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
+        self.features = B.sequential(conv0, conv1, conv2, conv3, conv4, conv5, conv6, conv7, conv8, conv9)
+        self.classifier = nn.Sequential(nn.Linear(512 * 3 * 3, 100), nn.LeakyReLU(0.2, True), nn.Linear(100, 1))
 
     def forward(self, x):
         x = self.features(x)
@@ -427,30 +422,6 @@ class Discriminator_VGG_128_SN(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.lrelu(self.linear0(x))
         x = self.linear1(x)
-        return x
-
-
-class Discriminator_VGG_96(nn.Module):
-
-    def __init__(self, in_nc, base_nf, norm_type='batch', act_type='leakyrelu', mode='CNA'):
-        super(Discriminator_VGG_96, self).__init__()
-        conv0 = B.conv_block(in_nc, base_nf, kernel_size=3, norm_type=None, act_type=act_type, mode=mode)
-        conv1 = B.conv_block(base_nf, base_nf, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv2 = B.conv_block(base_nf, base_nf * 2, kernel_size=3, stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv3 = B.conv_block(base_nf * 2, base_nf * 2, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv4 = B.conv_block(base_nf * 2, base_nf * 4, kernel_size=3, stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv5 = B.conv_block(base_nf * 4, base_nf * 4, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv6 = B.conv_block(base_nf * 4, base_nf * 8, kernel_size=3, stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv7 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv8 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=3, stride=1, norm_type=norm_type, act_type=act_type, mode=mode)
-        conv9 = B.conv_block(base_nf * 8, base_nf * 8, kernel_size=4, stride=2, norm_type=norm_type, act_type=act_type, mode=mode)
-        self.features = B.sequential(conv0, conv1, conv2, conv3, conv4, conv5, conv6, conv7, conv8, conv9)
-        self.classifier = nn.Sequential(nn.Linear(512 * 3 * 3, 100), nn.LeakyReLU(0.2, True), nn.Linear(100, 1))
-
-    def forward(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), -1)
-        x = self.classifier(x)
         return x
 
 
@@ -849,6 +820,27 @@ class PerceptualLoss(torch.nn.Module):
         return self.model.forward(target, pred)
 
 
+class NetLinLayer(nn.Module):
+    """ A single linear layer which does a 1x1 conv """
+
+    def __init__(self, chn_in, chn_out=1, use_dropout=False):
+        super(NetLinLayer, self).__init__()
+        layers = [nn.Dropout()] if use_dropout else []
+        layers += [nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, bias=False)]
+        self.model = nn.Sequential(*layers)
+
+
+class ScalingLayer(nn.Module):
+
+    def __init__(self):
+        super(ScalingLayer, self).__init__()
+        self.register_buffer('shift', torch.Tensor([-0.03, -0.088, -0.188])[(None), :, (None), (None)])
+        self.register_buffer('scale', torch.Tensor([0.458, 0.448, 0.45])[(None), :, (None), (None)])
+
+    def forward(self, inp):
+        return (inp - self.shift) / self.scale
+
+
 def spatial_average(in_tens, keepdim=True):
     return in_tens.mean([2, 3], keepdim=keepdim)
 
@@ -918,27 +910,6 @@ class PNetLin(nn.Module):
             return val
 
 
-class ScalingLayer(nn.Module):
-
-    def __init__(self):
-        super(ScalingLayer, self).__init__()
-        self.register_buffer('shift', torch.Tensor([-0.03, -0.088, -0.188])[(None), :, (None), (None)])
-        self.register_buffer('scale', torch.Tensor([0.458, 0.448, 0.45])[(None), :, (None), (None)])
-
-    def forward(self, inp):
-        return (inp - self.shift) / self.scale
-
-
-class NetLinLayer(nn.Module):
-    """ A single linear layer which does a 1x1 conv """
-
-    def __init__(self, chn_in, chn_out=1, use_dropout=False):
-        super(NetLinLayer, self).__init__()
-        layers = [nn.Dropout()] if use_dropout else []
-        layers += [nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, bias=False)]
-        self.model = nn.Sequential(*layers)
-
-
 class Dist2LogitLayer(nn.Module):
     """ takes 2 distances, puts through fc layers, spits out value between [0,1] (if use_sigmoid is True) """
 
@@ -976,6 +947,36 @@ class FakeNet(nn.Module):
         super(FakeNet, self).__init__()
         self.use_gpu = use_gpu
         self.colorspace = colorspace
+
+
+class L2(FakeNet):
+
+    def forward(self, in0, in1, retPerLayer=None):
+        assert in0.size()[0] == 1
+        if self.colorspace == 'RGB':
+            N, C, X, Y = in0.size()
+            value = torch.mean(torch.mean(torch.mean((in0 - in1) ** 2, dim=1).view(N, 1, X, Y), dim=2).view(N, 1, 1, Y), dim=3).view(N)
+            return value
+        elif self.colorspace == 'Lab':
+            value = util.l2(util.tensor2np(util.tensor2tensorlab(in0.data, to_norm=False)), util.tensor2np(util.tensor2tensorlab(in1.data, to_norm=False)), range=100.0).astype('float')
+            ret_var = Variable(torch.Tensor((value,)))
+            if self.use_gpu:
+                ret_var = ret_var
+            return ret_var
+
+
+class DSSIM(FakeNet):
+
+    def forward(self, in0, in1, retPerLayer=None):
+        assert in0.size()[0] == 1
+        if self.colorspace == 'RGB':
+            value = util.dssim(1.0 * util.tensor2im(in0.data), 1.0 * util.tensor2im(in1.data), range=255.0).astype('float')
+        elif self.colorspace == 'Lab':
+            value = util.dssim(util.tensor2np(util.tensor2tensorlab(in0.data, to_norm=False)), util.tensor2np(util.tensor2tensorlab(in1.data, to_norm=False)), range=100.0).astype('float')
+        ret_var = Variable(torch.Tensor((value,)))
+        if self.use_gpu:
+            ret_var = ret_var
+        return ret_var
 
 
 class squeezenet(torch.nn.Module):

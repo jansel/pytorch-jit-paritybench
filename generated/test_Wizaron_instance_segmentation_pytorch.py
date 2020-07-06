@@ -34,15 +34,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -68,16 +69,25 @@ from torch.nn import functional as F
 import torchvision.models as models
 
 
+from torch.utils.data import Dataset
+
+
+import random
+
+
+import numpy as np
+
+
 from torch.nn.modules.loss import _Loss
 
 
 from torch.nn.modules.loss import _WeightedLoss
 
 
-import numpy as np
-
-
 import time
+
+
+from sklearn.manifold import TSNE
 
 
 import torch.optim as optim
@@ -89,133 +99,16 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.backends.cudnn as cudnn
 
 
-class InstanceCounter(nn.Module):
-    """Instance Counter Module. Basically, it is a convolutional network
-    to count instances for a given feature map.
-
-    Args:
-        input_n_filters (int): Number of channels in the input image
-        use_coordinates (bool, optional): If `True`, adds coordinate
-            information to input image and hidden state. Default: `False`
-        usegpu (bool, optional): If `True`, runs operations on GPU
-            Default: `True`
-
-    Shape:
-        - Input: `(N, C_{in}, H_{in}, W_{in})`
-        - Output: `(N, 1)`
-
-    Examples:
-        >>> ins_cnt = InstanceCounter(3, True, False)
-        >>> input = torch.randn(8, 3, 64, 64)
-        >>> output = ins_cnt(input)
-
-        >>> ins_cnt = InstanceCounter(3, True, True).cuda()
-        >>> input = torch.randn(8, 3, 64, 64).cuda()
-        >>> output = ins_cnt(input)
-    """
-
-    def __init__(self, input_n_filters, use_coordinates=False, usegpu=True):
-        super(InstanceCounter, self).__init__()
-        self.input_n_filters = input_n_filters
-        self.n_filters = 32
-        self.use_coordinates = use_coordinates
-        self.usegpu = usegpu
-        self.__generate_cnn()
-        self.output = nn.Sequential()
-        self.output.add_module('linear', nn.Linear(self.n_filters, 1))
-        self.output.add_module('sigmoid', nn.Sigmoid())
-
-    def __generate_cnn(self):
-        self.cnn = nn.Sequential()
-        self.cnn.add_module('pool1', nn.MaxPool2d(2, stride=2))
-        self.cnn.add_module('conv1', nn.Conv2d(self.input_n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
-        self.cnn.add_module('relu1', nn.ReLU())
-        self.cnn.add_module('conv2', nn.Conv2d(self.n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
-        self.cnn.add_module('relu2', nn.ReLU())
-        self.cnn.add_module('pool2', nn.MaxPool2d(2, stride=2))
-        self.cnn.add_module('conv3', nn.Conv2d(self.n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
-        self.cnn.add_module('relu3', nn.ReLU())
-        self.cnn.add_module('conv4', nn.Conv2d(self.n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
-        self.cnn.add_module('relu4', nn.ReLU())
-        self.cnn.add_module('pool3', nn.AdaptiveAvgPool2d((1, 1)))
-        if self.use_coordinates:
-            self.cnn = CoordConvNet(self.cnn, with_r=True, usegpu=self.usegpu)
-
-    def forward(self, x):
-        x = self.cnn(x)
-        if self.use_coordinates:
-            x = x[-1]
-        x = x.squeeze(3).squeeze(2)
-        x = self.output(x)
-        return x
+from sklearn.cluster import KMeans
 
 
-class ConvGRUCell(nn.Module):
-    """Convolutional GRU Module as defined in 'Delving Deeper into
-    Convolutional Networks for Learning Video Representations'
-    (https://arxiv.org/pdf/1511.06432.pdf).
+import math
 
-    Args:
-        input_size (int): Number of channels in the input image
-        hidden_size (int): Number of channels produced by the ConvGRU
-        kernel_size (int or tuple): Size of the convolving kernel
-        use_coordinates (bool, optional): If `True`, adds coordinate
-            information to input image and hidden state. Default: `False`
-        usegpu (bool, optional): If `True`, runs operations on GPU
-            Default: `True`
 
-    Shape:
-        - Input:
-            - `x` : `(N, C_{in}, H_{in}, W_{in})`
-            - `hidden` : `(N, C_{out}, H_{in}, W_{in})` or `None`
-        - Output: `next_hidden` : `(N, C_{out}, H_{in}, W_{in})`
+import numbers
 
-    Examples:
-        >>> n_hidden = 16
-        >>> conv_gru = ConvGRUCell(3, n_hidden, 3, True, False)
-        >>> input = torch.randn(8, 3, 64, 64)
-        >>> hidden = torch.rand(8, n_hidden, 64, 64)
-        >>> output = conv_gru(input, None)
-        >>> output = conv_gru(input, hidden)
 
-        >>> n_hidden = 16
-        >>> conv_gru = ConvGRUCell(3, n_hidden, 3, True, True).cuda()
-        >>> input = torch.randn(8, 3, 64, 64).cuda()
-        >>> hidden = torch.rand(8, n_hidden, 64, 64).cuda()
-        >>> output = conv_gru(input, None)
-        >>> output = conv_gru(input, hidden)
-    """
-
-    def __init__(self, input_size, hidden_size, kernel_size, use_coordinates=False, usegpu=True):
-        super(ConvGRUCell, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.kernel_size = kernel_size
-        self.use_coordinates = use_coordinates
-        self.usegpu = usegpu
-        _n_inputs = self.input_size + self.hidden_size
-        if self.use_coordinates:
-            self.conv_gates = CoordConv(_n_inputs, 2 * self.hidden_size, self.kernel_size, padding=self.kernel_size // 2, with_r=True, usegpu=self.usegpu)
-            self.conv_ct = CoordConv(_n_inputs, self.hidden_size, self.kernel_size, padding=self.kernel_size // 2, with_r=True, usegpu=self.usegpu)
-        else:
-            self.conv_gates = nn.Conv2d(_n_inputs, 2 * self.hidden_size, self.kernel_size, padding=self.kernel_size // 2)
-            self.conv_ct = nn.Conv2d(_n_inputs, self.hidden_size, self.kernel_size, padding=self.kernel_size // 2)
-
-    def forward(self, x, hidden):
-        batch_size, _, height, width = x.size()
-        if hidden is None:
-            size_h = [batch_size, self.hidden_size, height, width]
-            hidden = Variable(torch.zeros(size_h))
-            if self.usegpu:
-                hidden = hidden
-        c1 = self.conv_gates(torch.cat((x, hidden), dim=1))
-        rt, ut = c1.chunk(2, 1)
-        reset_gate = F.sigmoid(rt)
-        update_gate = F.sigmoid(ut)
-        gated_hidden = torch.mul(reset_gate, hidden)
-        ct = F.tanh(self.conv_ct(torch.cat((x, gated_hidden), dim=1)))
-        next_h = torch.mul(update_gate, hidden) + (1 - update_gate) * ct
-        return next_h
+import collections
 
 
 class AddCoordinates(object):
@@ -267,91 +160,9 @@ class AddCoordinates(object):
         coords = torch.unsqueeze(coords, dim=0).repeat(batch_size, 1, 1, 1)
         coords = Variable(coords)
         if self.usegpu:
-            coords = coords.cuda()
+            coords = coords
         image = torch.cat((coords, image), dim=1)
         return image
-
-
-class CoordConv(nn.Module):
-    """2D Convolution Module Using Extra Coordinate Information as defined
-    in 'An Intriguing Failing of Convolutional Neural Networks and the
-    CoordConv Solution' (https://arxiv.org/pdf/1807.03247.pdf).
-
-    Args:
-        Same as `torch.nn.Conv2d` with two additional arguments
-        with_r (bool, optional): If `True`, adds radius (`r`) coordinate
-            information to input image. Default: `False`
-        usegpu (bool, optional): If `True`, runs operations on GPU
-            Default: `True`
-
-    Shape:
-        - Input: `(N, C_{in}, H_{in}, W_{in})`
-        - Output: `(N, C_{out}, H_{out}, W_{out})`
-
-    Examples:
-        >>> coord_conv = CoordConv(3, 16, 3, with_r=True, usegpu=False)
-        >>> input = torch.randn(8, 3, 64, 64)
-        >>> output = coord_conv(input)
-
-        >>> coord_conv = CoordConv(3, 16, 3, with_r=True, usegpu=True).cuda()
-        >>> input = torch.randn(8, 3, 64, 64).cuda()
-        >>> output = coord_conv(input)
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, with_r=False, usegpu=True):
-        super(CoordConv, self).__init__()
-        in_channels += 2
-        if with_r:
-            in_channels += 1
-        self.conv_layer = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.coord_adder = AddCoordinates(with_r, usegpu)
-
-    def forward(self, x):
-        x = self.coord_adder(x)
-        x = self.conv_layer(x)
-        return x
-
-
-class CoordConvTranspose(nn.Module):
-    """2D Transposed Convolution Module Using Extra Coordinate Information
-    as defined in 'An Intriguing Failing of Convolutional Neural Networks and
-    the CoordConv Solution' (https://arxiv.org/pdf/1807.03247.pdf).
-
-    Args:
-        Same as `torch.nn.ConvTranspose2d` with two additional arguments
-        with_r (bool, optional): If `True`, adds radius (`r`) coordinate
-            information to input image. Default: `False`
-        usegpu (bool, optional): If `True`, runs operations on GPU
-            Default: `True`
-
-    Shape:
-        - Input: `(N, C_{in}, H_{in}, W_{in})`
-        - Output: `(N, C_{out}, H_{out}, W_{out})`
-
-    Examples:
-        >>> coord_conv_tr = CoordConvTranspose(3, 16, 3, with_r=True,
-        >>>                                    usegpu=False)
-        >>> input = torch.randn(8, 3, 64, 64)
-        >>> output = coord_conv_tr(input)
-
-        >>> coord_conv_tr = CoordConvTranspose(3, 16, 3, with_r=True,
-        >>>                                    usegpu=True).cuda()
-        >>> input = torch.randn(8, 3, 64, 64).cuda()
-        >>> output = coord_conv_tr(input)
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=True, dilation=1, with_r=False, usegpu=True):
-        super(CoordConvTranspose, self).__init__()
-        in_channels += 2
-        if with_r:
-            in_channels += 1
-        self.conv_tr_layer = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
-        self.coord_adder = AddCoordinates(with_r, usegpu)
-
-    def forward(self, x):
-        x = self.coord_adder(x)
-        x = self.conv_tr_layer(x)
-        return x
 
 
 class CoordConvNet(nn.Module):
@@ -430,6 +241,241 @@ class CoordConvNet(nn.Module):
 
     def forward(self, x):
         return self.__get_outputs(x)
+
+
+class InstanceCounter(nn.Module):
+    """Instance Counter Module. Basically, it is a convolutional network
+    to count instances for a given feature map.
+
+    Args:
+        input_n_filters (int): Number of channels in the input image
+        use_coordinates (bool, optional): If `True`, adds coordinate
+            information to input image and hidden state. Default: `False`
+        usegpu (bool, optional): If `True`, runs operations on GPU
+            Default: `True`
+
+    Shape:
+        - Input: `(N, C_{in}, H_{in}, W_{in})`
+        - Output: `(N, 1)`
+
+    Examples:
+        >>> ins_cnt = InstanceCounter(3, True, False)
+        >>> input = torch.randn(8, 3, 64, 64)
+        >>> output = ins_cnt(input)
+
+        >>> ins_cnt = InstanceCounter(3, True, True).cuda()
+        >>> input = torch.randn(8, 3, 64, 64).cuda()
+        >>> output = ins_cnt(input)
+    """
+
+    def __init__(self, input_n_filters, use_coordinates=False, usegpu=True):
+        super(InstanceCounter, self).__init__()
+        self.input_n_filters = input_n_filters
+        self.n_filters = 32
+        self.use_coordinates = use_coordinates
+        self.usegpu = usegpu
+        self.__generate_cnn()
+        self.output = nn.Sequential()
+        self.output.add_module('linear', nn.Linear(self.n_filters, 1))
+        self.output.add_module('sigmoid', nn.Sigmoid())
+
+    def __generate_cnn(self):
+        self.cnn = nn.Sequential()
+        self.cnn.add_module('pool1', nn.MaxPool2d(2, stride=2))
+        self.cnn.add_module('conv1', nn.Conv2d(self.input_n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.cnn.add_module('relu1', nn.ReLU())
+        self.cnn.add_module('conv2', nn.Conv2d(self.n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.cnn.add_module('relu2', nn.ReLU())
+        self.cnn.add_module('pool2', nn.MaxPool2d(2, stride=2))
+        self.cnn.add_module('conv3', nn.Conv2d(self.n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.cnn.add_module('relu3', nn.ReLU())
+        self.cnn.add_module('conv4', nn.Conv2d(self.n_filters, self.n_filters, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1)))
+        self.cnn.add_module('relu4', nn.ReLU())
+        self.cnn.add_module('pool3', nn.AdaptiveAvgPool2d((1, 1)))
+        if self.use_coordinates:
+            self.cnn = CoordConvNet(self.cnn, with_r=True, usegpu=self.usegpu)
+
+    def forward(self, x):
+        x = self.cnn(x)
+        if self.use_coordinates:
+            x = x[-1]
+        x = x.squeeze(3).squeeze(2)
+        x = self.output(x)
+        return x
+
+
+class CoordConv(nn.Module):
+    """2D Convolution Module Using Extra Coordinate Information as defined
+    in 'An Intriguing Failing of Convolutional Neural Networks and the
+    CoordConv Solution' (https://arxiv.org/pdf/1807.03247.pdf).
+
+    Args:
+        Same as `torch.nn.Conv2d` with two additional arguments
+        with_r (bool, optional): If `True`, adds radius (`r`) coordinate
+            information to input image. Default: `False`
+        usegpu (bool, optional): If `True`, runs operations on GPU
+            Default: `True`
+
+    Shape:
+        - Input: `(N, C_{in}, H_{in}, W_{in})`
+        - Output: `(N, C_{out}, H_{out}, W_{out})`
+
+    Examples:
+        >>> coord_conv = CoordConv(3, 16, 3, with_r=True, usegpu=False)
+        >>> input = torch.randn(8, 3, 64, 64)
+        >>> output = coord_conv(input)
+
+        >>> coord_conv = CoordConv(3, 16, 3, with_r=True, usegpu=True).cuda()
+        >>> input = torch.randn(8, 3, 64, 64).cuda()
+        >>> output = coord_conv(input)
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, with_r=False, usegpu=True):
+        super(CoordConv, self).__init__()
+        in_channels += 2
+        if with_r:
+            in_channels += 1
+        self.conv_layer = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.coord_adder = AddCoordinates(with_r, usegpu)
+
+    def forward(self, x):
+        x = self.coord_adder(x)
+        x = self.conv_layer(x)
+        return x
+
+
+class ConvGRUCell(nn.Module):
+    """Convolutional GRU Module as defined in 'Delving Deeper into
+    Convolutional Networks for Learning Video Representations'
+    (https://arxiv.org/pdf/1511.06432.pdf).
+
+    Args:
+        input_size (int): Number of channels in the input image
+        hidden_size (int): Number of channels produced by the ConvGRU
+        kernel_size (int or tuple): Size of the convolving kernel
+        use_coordinates (bool, optional): If `True`, adds coordinate
+            information to input image and hidden state. Default: `False`
+        usegpu (bool, optional): If `True`, runs operations on GPU
+            Default: `True`
+
+    Shape:
+        - Input:
+            - `x` : `(N, C_{in}, H_{in}, W_{in})`
+            - `hidden` : `(N, C_{out}, H_{in}, W_{in})` or `None`
+        - Output: `next_hidden` : `(N, C_{out}, H_{in}, W_{in})`
+
+    Examples:
+        >>> n_hidden = 16
+        >>> conv_gru = ConvGRUCell(3, n_hidden, 3, True, False)
+        >>> input = torch.randn(8, 3, 64, 64)
+        >>> hidden = torch.rand(8, n_hidden, 64, 64)
+        >>> output = conv_gru(input, None)
+        >>> output = conv_gru(input, hidden)
+
+        >>> n_hidden = 16
+        >>> conv_gru = ConvGRUCell(3, n_hidden, 3, True, True).cuda()
+        >>> input = torch.randn(8, 3, 64, 64).cuda()
+        >>> hidden = torch.rand(8, n_hidden, 64, 64).cuda()
+        >>> output = conv_gru(input, None)
+        >>> output = conv_gru(input, hidden)
+    """
+
+    def __init__(self, input_size, hidden_size, kernel_size, use_coordinates=False, usegpu=True):
+        super(ConvGRUCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.kernel_size = kernel_size
+        self.use_coordinates = use_coordinates
+        self.usegpu = usegpu
+        _n_inputs = self.input_size + self.hidden_size
+        if self.use_coordinates:
+            self.conv_gates = CoordConv(_n_inputs, 2 * self.hidden_size, self.kernel_size, padding=self.kernel_size // 2, with_r=True, usegpu=self.usegpu)
+            self.conv_ct = CoordConv(_n_inputs, self.hidden_size, self.kernel_size, padding=self.kernel_size // 2, with_r=True, usegpu=self.usegpu)
+        else:
+            self.conv_gates = nn.Conv2d(_n_inputs, 2 * self.hidden_size, self.kernel_size, padding=self.kernel_size // 2)
+            self.conv_ct = nn.Conv2d(_n_inputs, self.hidden_size, self.kernel_size, padding=self.kernel_size // 2)
+
+    def forward(self, x, hidden):
+        batch_size, _, height, width = x.size()
+        if hidden is None:
+            size_h = [batch_size, self.hidden_size, height, width]
+            hidden = Variable(torch.zeros(size_h))
+            if self.usegpu:
+                hidden = hidden
+        c1 = self.conv_gates(torch.cat((x, hidden), dim=1))
+        rt, ut = c1.chunk(2, 1)
+        reset_gate = F.sigmoid(rt)
+        update_gate = F.sigmoid(ut)
+        gated_hidden = torch.mul(reset_gate, hidden)
+        ct = F.tanh(self.conv_ct(torch.cat((x, gated_hidden), dim=1)))
+        next_h = torch.mul(update_gate, hidden) + (1 - update_gate) * ct
+        return next_h
+
+
+class CoordConvTranspose(nn.Module):
+    """2D Transposed Convolution Module Using Extra Coordinate Information
+    as defined in 'An Intriguing Failing of Convolutional Neural Networks and
+    the CoordConv Solution' (https://arxiv.org/pdf/1807.03247.pdf).
+
+    Args:
+        Same as `torch.nn.ConvTranspose2d` with two additional arguments
+        with_r (bool, optional): If `True`, adds radius (`r`) coordinate
+            information to input image. Default: `False`
+        usegpu (bool, optional): If `True`, runs operations on GPU
+            Default: `True`
+
+    Shape:
+        - Input: `(N, C_{in}, H_{in}, W_{in})`
+        - Output: `(N, C_{out}, H_{out}, W_{out})`
+
+    Examples:
+        >>> coord_conv_tr = CoordConvTranspose(3, 16, 3, with_r=True,
+        >>>                                    usegpu=False)
+        >>> input = torch.randn(8, 3, 64, 64)
+        >>> output = coord_conv_tr(input)
+
+        >>> coord_conv_tr = CoordConvTranspose(3, 16, 3, with_r=True,
+        >>>                                    usegpu=True).cuda()
+        >>> input = torch.randn(8, 3, 64, 64).cuda()
+        >>> output = coord_conv_tr(input)
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, groups=1, bias=True, dilation=1, with_r=False, usegpu=True):
+        super(CoordConvTranspose, self).__init__()
+        in_channels += 2
+        if with_r:
+            in_channels += 1
+        self.conv_tr_layer = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=stride, padding=padding, output_padding=output_padding, groups=groups, bias=bias, dilation=dilation)
+        self.coord_adder = AddCoordinates(with_r, usegpu)
+
+    def forward(self, x):
+        x = self.coord_adder(x)
+        x = self.conv_tr_layer(x)
+        return x
+
+
+class ListModule(nn.Module):
+
+    def __init__(self, *args):
+        super(ListModule, self).__init__()
+        idx = 0
+        for module in args:
+            self.add_module(str(idx), module)
+            idx += 1
+
+    def __getitem__(self, idx):
+        if idx < 0 or idx >= len(self._modules):
+            raise IndexError('index {} is out of range'.format(idx))
+        it = iter(self._modules.values())
+        for i in range(idx):
+            next(it)
+        return next(it)
+
+    def __iter__(self):
+        return iter(self._modules.values())
+
+    def __len__(self):
+        return len(self._modules)
 
 
 class RecurrentHourglass(nn.Module):
@@ -626,30 +672,6 @@ class ReNet(nn.Module):
         x = self.rnn_forward(x, 'hor')
         x = self.rnn_forward(x, 'ver')
         return x
-
-
-class ListModule(nn.Module):
-
-    def __init__(self, *args):
-        super(ListModule, self).__init__()
-        idx = 0
-        for module in args:
-            self.add_module(str(idx), module)
-            idx += 1
-
-    def __getitem__(self, idx):
-        if idx < 0 or idx >= len(self._modules):
-            raise IndexError('index {} is out of range'.format(idx))
-        it = iter(self._modules.values())
-        for i in range(idx):
-            next(it)
-        return next(it)
-
-    def __iter__(self):
-        return iter(self._modules.values())
-
-    def __len__(self):
-        return len(self._modules)
 
 
 class VGG16(nn.Module):
@@ -1049,7 +1071,7 @@ def calculate_distance_term(means, n_objects, delta_d, norm=2, usegpu=True):
         _norm = torch.norm(diff, norm, 2)
         margin = 2 * delta_d * (1.0 - torch.eye(_n_objects_sample))
         if usegpu:
-            margin = margin.cuda()
+            margin = margin
         margin = Variable(margin)
         _dist_term_sample = torch.sum(torch.clamp(margin - _norm, min=0.0) ** 2)
         _dist_term_sample = _dist_term_sample / (_n_objects_sample * (_n_objects_sample - 1))
@@ -1076,7 +1098,7 @@ def calculate_means(pred, gt, n_objects, max_n_objects, usegpu):
             n_fill_objects = int(max_n_objects - _n_objects_sample)
             _fill_sample = torch.zeros(n_fill_objects, n_filters)
             if usegpu:
-                _fill_sample = _fill_sample.cuda()
+                _fill_sample = _fill_sample
             _fill_sample = Variable(_fill_sample)
             _mean_sample = torch.cat((_mean_sample, _fill_sample), dim=0)
         means.append(_mean_sample)

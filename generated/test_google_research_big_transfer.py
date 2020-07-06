@@ -21,23 +21,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-from collections import OrderedDict
+from collections import *
+
+
+from functools import *
+
+
+import random
 
 
 import torch
+
+
+import torchvision as tv
+
+
+from collections import OrderedDict
 
 
 import torch.nn as nn
@@ -50,9 +63,6 @@ import time
 
 
 import numpy as np
-
-
-import torchvision as tv
 
 
 def standardize(x, axis, eps):
@@ -259,10 +269,6 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
-    (ResNetV2,
-     lambda: ([], {'block_units': [4, 4, 4, 4], 'width_factor': 4}),
-     lambda: ([torch.rand([4, 3, 64, 64])], {}),
-     False),
     (StdConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -272,7 +278,4 @@ TESTCASES = [
 class Test_google_research_big_transfer(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
-
-    def test_001(self):
-        self._check(*TESTCASES[1])
 

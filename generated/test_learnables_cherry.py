@@ -94,23 +94,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-from torch.nn import functional as F
+import inspect
+
+
+import random
+
+
+import numpy as np
 
 
 import torch as th
+
+
+from torch.nn import functional as F
 
 
 from torch import autograd
@@ -140,10 +150,16 @@ from torch import nn
 from torch.distributions import Bernoulli
 
 
-import numpy as np
+import torch.distributed as dist
 
 
-import random
+from torch.optim.optimizer import Optimizer
+
+
+from torch.optim.optimizer import required
+
+
+import math
 
 
 from itertools import count
@@ -153,9 +169,6 @@ import torch.nn.functional as F
 
 
 import torch.optim as optim
-
-
-import torch.distributed as dist
 
 
 import copy
@@ -176,7 +189,13 @@ from torch import optim
 import time
 
 
+import re
+
+
 from collections import deque
+
+
+import logging
 
 
 class Reparameterization(object):
@@ -413,6 +432,39 @@ class NatureCritic(nn.Linear):
         atari_init_(self, gain=1.0)
 
 
+class RoboticsLinear(nn.Linear):
+    """
+    [[Source]](https://github.com/seba-1511/cherry/blob/master/cherry/nn/robotics_layers.py)
+
+    **Description**
+
+    Akin to `nn.Linear`, but with proper initialization for robotic control.
+
+    **Credit**
+
+    Adapted from Ilya Kostrikov's implementation.
+
+    **Arguments**
+
+
+    * **gain** (float, *optional*) - Gain factor passed to `robotics_init_` initialization.
+    * This class extends `nn.Linear` and supports all of its arguments.
+
+    **Example**
+
+    ~~~python
+    linear = ch.nn.Linear(23, 5, bias=True)
+    action_mean = linear(state)
+    ~~~
+
+    """
+
+    def __init__(self, *args, **kwargs):
+        gain = kwargs.pop('gain', None)
+        super(RoboticsLinear, self).__init__(*args, **kwargs)
+        ch.nn.init.robotics_init_(self, gain=gain)
+
+
 class RoboticsMLP(nn.Module):
     """
     [[Source]](https://github.com/seba-1511/cherry/blob/master/cherry/models/robotics.py)
@@ -457,6 +509,50 @@ class RoboticsMLP(nn.Module):
 
     def forward(self, x):
         return self.layers(x)
+
+
+class RoboticsActor(RoboticsMLP):
+    """
+    [[Source]](https://github.com/seba-1511/cherry/blob/master/cherry/models/robotics.py)
+
+    **Description**
+
+    A multi-layer perceptron with initialization designed for choosing
+    actions in continuous robotic environments.
+
+    **Credit**
+
+    Adapted from Ilya Kostrikov's implementation.
+
+    **Arguments**
+
+    * **inputs_size** (int) - Size of input.
+    * **output_size** (int) - Size of action size.
+    * **layer_sizes** (list, *optional*, default=None) - A list of ints,
+      each indicating the size of a hidden layer.
+      (Defaults to two hidden layers of 64 units.)
+
+    **Example**
+    ~~~python
+    policy_mean = ch.models.robotics.Actor(28,
+                                          8,
+                                          layer_sizes=[64, 32, 16])
+    ~~~
+    """
+
+    def __init__(self, input_size, output_size, layer_sizes=None):
+        super(RoboticsMLP, self).__init__()
+        if layer_sizes is None:
+            layer_sizes = [64, 64]
+        if len(layer_sizes) > 0:
+            layers = [RoboticsLinear(input_size, layer_sizes[0]), nn.Tanh()]
+            for in_, out_ in zip(layer_sizes[:-1], layer_sizes[1:]):
+                layers.append(RoboticsLinear(in_, out_))
+                layers.append(nn.Tanh())
+            layers.append(RoboticsLinear(layer_sizes[-1], output_size, gain=1.0))
+        else:
+            layers = [RoboticsLinear(input_size, output_size, gain=1.0)]
+        self.layers = nn.Sequential(*layers)
 
 
 class LinearValue(nn.Module):
@@ -696,74 +792,23 @@ class EpsilonGreedy(nn.Module):
         return ret
 
 
-class RoboticsLinear(nn.Linear):
-    """
-    [[Source]](https://github.com/seba-1511/cherry/blob/master/cherry/nn/robotics_layers.py)
-
-    **Description**
-
-    Akin to `nn.Linear`, but with proper initialization for robotic control.
-
-    **Credit**
-
-    Adapted from Ilya Kostrikov's implementation.
-
-    **Arguments**
-
-
-    * **gain** (float, *optional*) - Gain factor passed to `robotics_init_` initialization.
-    * This class extends `nn.Linear` and supports all of its arguments.
-
-    **Example**
-
-    ~~~python
-    linear = ch.nn.Linear(23, 5, bias=True)
-    action_mean = linear(state)
-    ~~~
-
-    """
-
-    def __init__(self, *args, **kwargs):
-        gain = kwargs.pop('gain', None)
-        super(RoboticsLinear, self).__init__(*args, **kwargs)
-        ch.nn.init.robotics_init_(self, gain=gain)
-
-
 class ActorCriticNet(nn.Module):
 
     def __init__(self, env):
         super(ActorCriticNet, self).__init__()
-        self.affine1 = nn.Linear(env.state_size, 128)
+        self.affine = nn.Linear(env.state_size, 128)
         self.action_head = nn.Linear(128, env.action_size)
         self.value_head = nn.Linear(128, 1)
         self.distribution = distributions.ActionDistribution(env, use_probs=True)
 
     def forward(self, x):
-        x = F.relu(self.affine1(x))
+        x = F.relu(self.affine(x))
         action_scores = self.action_head(x)
         action_mass = self.distribution(F.softmax(action_scores, dim=1))
         value = self.value_head(x)
         return action_mass, value
 
 
-class ActorCriticNet(nn.Module):
-
-    def __init__(self, env):
-        super(ActorCriticNet, self).__init__()
-        self.affine1 = nn.Linear(env.state_size['image'], 128)
-        self.action_head = nn.Linear(128, env.action_size)
-        self.value_head = nn.Linear(128, 1)
-        self.distribution = distributions.ActionDistribution(env)
-
-    def forward(self, x):
-        x = x.view(-1)
-        x = F.relu(self.affine1(x))
-        action_scores = self.action_head(x)
-        action_mass = self.distribution(F.log_softmax(action_scores, dim=0))
-        value = self.value_head(x)
-        return action_mass, value
-
-
 class NatureCNN(nn.Module):
 
     def __init__(self, env, hidden_size=512):
@@ -781,291 +826,6 @@ class NatureCNN(nn.Module):
         density = self.actor(features)
         mass = self.action_dist(density)
         return mass, value
-
-
-class NatureCNN(nn.Module):
-
-    def __init__(self, env, hidden_size=512):
-        super(NatureCNN, self).__init__()
-        self.input_size = 4
-        self.features = atari.NatureFeatures(self.input_size, hidden_size)
-        self.critic = atari.NatureCritic(hidden_size)
-        self.actor = atari.NatureActor(hidden_size, env.action_size)
-        self.action_dist = distributions.ActionDistribution(env, use_probs=False)
-
-    def forward(self, x):
-        x = x.view(-1, self.input_size, 84, 84).mul(1 / 255.0)
-        features = self.features(x)
-        value = self.critic(features)
-        density = self.actor(features)
-        mass = self.action_dist(density)
-        return mass, value
-
-
-class NatureCNN(nn.Module):
-
-    def __init__(self, env, hidden_size=512):
-        super(NatureCNN, self).__init__()
-        self.input_size = 4
-        self.features = atari.NatureFeatures(self.input_size, hidden_size)
-        self.critic = atari.NatureCritic(hidden_size)
-        self.actor = atari.NatureActor(hidden_size, env.action_size)
-        self.action_dist = distributions.ActionDistribution(env, use_probs=False)
-
-    def forward(self, x):
-        x = x.view(-1, self.input_size, 84, 84).mul(1 / 255.0)
-        features = self.features(x)
-        value = self.critic(features)
-        density = self.actor(features)
-        mass = self.action_dist(density)
-        return mass, value
-
-
-class DQN(nn.Module):
-
-    def __init__(self, env, hidden_size=512):
-        super(DQN, self).__init__()
-        self.input_size = 4
-        self.features = atari.NatureFeatures(self.input_size, hidden_size)
-        self.q = atari.NatureActor(hidden_size, env.action_size)
-
-    def forward(self, x):
-        x = x.view(-1, self.input_size, 84, 84).mul(1 / 255.0)
-        features = self.features(x)
-        q_values = self.q(features)
-        return q_values
-
-
-class NatureCNN(nn.Module):
-
-    def __init__(self, env, hidden_size=512):
-        super(NatureCNN, self).__init__()
-        self.input_size = 4
-        self.features = atari.NatureFeatures(self.input_size, hidden_size)
-        self.critic = atari.NatureCritic(hidden_size)
-        self.actor = atari.NatureActor(hidden_size, env.action_size)
-        self.action_dist = distributions.ActionDistribution(env, use_probs=False)
-
-    def forward(self, x):
-        x = x.view(-1, self.input_size, 84, 84).mul(1 / 255.0)
-        features = self.features(x)
-        value = self.critic(features)
-        density = self.actor(features)
-        mass = self.action_dist(density)
-        return mass, value
-
-
-class Policy(nn.Module):
-
-    def __init__(self, env):
-        super(Policy, self).__init__()
-        self.layer1 = nn.Linear(env.state_size, 128)
-        self.relu = nn.ReLU()
-        self.layer2 = nn.Linear(128, env.action_size)
-        self.dist = ch.distributions.ActionDistribution(env)
-
-    def density(self, state):
-        x = self.layer1(state)
-        x = self.relu(x)
-        x = self.layer2(x)
-        return self.dist(x)
-
-    def log_prob(self, state, action):
-        density = self.density(state)
-        return density.log_prob(action)
-
-    def forward(self, state):
-        density = self.density(state)
-        return density.sample().detach()
-
-
-class Actor(nn.Module):
-
-    def __init__(self, hidden_size, stochastic=True, layer_norm=False):
-        super().__init__()
-        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.policy = nn.Sequential(*layers)
-        if stochastic:
-            self.policy_log_std = nn.Parameter(torch.tensor([[0.0]]))
-
-    def forward(self, state):
-        policy = self.policy(state)
-        return policy
-
-
-class Critic(nn.Module):
-
-    def __init__(self, hidden_size, state_action=False, layer_norm=False):
-        super().__init__()
-        self.state_action = state_action
-        layers = [nn.Linear(3 + (1 if state_action else 0), hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.value = nn.Sequential(*layers)
-
-    def forward(self, state, action=None):
-        if self.state_action:
-            value = self.value(torch.cat([state, action], dim=1))
-        else:
-            value = self.value(state)
-        return value.squeeze(dim=1)
-
-
-class ActorCritic(nn.Module):
-
-    def __init__(self, hidden_size):
-        super().__init__()
-        self.actor = Actor(hidden_size, stochastic=True)
-        self.critic = Critic(hidden_size)
-
-    def forward(self, state):
-        policy = Normal(self.actor(state), self.actor.policy_log_std.exp())
-        value = self.critic(state)
-        action = policy.sample()
-        log_prob = policy.log_prob(action)
-        return action, {'mass': policy, 'log_prob': log_prob, 'value': value}
-
-
-class MLP(nn.Module):
-
-    def __init__(self, input_size, output_size, layer_sizes=None, init_w=0.003):
-        super(MLP, self).__init__()
-        if layer_sizes is None:
-            layer_sizes = [300, 300]
-        self.layers = nn.ModuleList()
-        in_size = input_size
-        for next_size in layer_sizes:
-            fc = nn.Linear(in_size, next_size)
-            self.layers.append(fc)
-            in_size = next_size
-        self.last_fc = nn.Linear(in_size, output_size)
-        self.last_fc.weight.data.uniform_(-init_w, init_w)
-        self.last_fc.bias.data.uniform_(-init_w, init_w)
-
-    def forward(self, *args, **kwargs):
-        h = th.cat(args, dim=1)
-        for fc in self.layers:
-            h = F.relu(fc(h))
-        output = self.last_fc(h)
-        return output
-
-
-class ActorCriticNet(nn.Module):
-
-    def __init__(self, env):
-        super(ActorCriticNet, self).__init__()
-        self.actor = models.robotics.Actor(env.state_size, env.action_size, layer_sizes=[64, 64])
-        self.critic = models.robotics.RoboticsMLP(env.state_size, 1)
-        self.action_dist = distributions.ActionDistribution(env, use_probs=False, reparam=False)
-
-    def forward(self, x):
-        action_scores = self.actor(x)
-        action_density = self.action_dist(action_scores)
-        value = self.critic(x)
-        return action_density, value
-
-
-class ActorCriticNet(nn.Module):
-
-    def __init__(self, env):
-        super(ActorCriticNet, self).__init__()
-        self.actor = models.robotics.RoboticsActor(env.state_size, env.action_size, layer_sizes=[64, 64])
-        self.critic = models.robotics.RoboticsMLP(env.state_size, 1)
-        self.action_dist = dist.ActionDistribution(env, use_probs=False, reparam=False)
-
-    def forward(self, x):
-        action_scores = self.actor(x)
-        action_density = self.action_dist(action_scores)
-        value = self.critic(x)
-        return action_density, value
-
-
-class MLP(nn.Module):
-
-    def __init__(self, input_size, output_size, layer_sizes=None, init_w=0.003):
-        super(MLP, self).__init__()
-        if layer_sizes is None:
-            layer_sizes = [300, 300]
-        self.layers = nn.ModuleList()
-        in_size = input_size
-        for next_size in layer_sizes:
-            fc = nn.Linear(in_size, next_size)
-            self.layers.append(fc)
-            in_size = next_size
-        self.last_fc = nn.Linear(in_size, output_size)
-        self.last_fc.weight.data.uniform_(-init_w, init_w)
-        self.last_fc.bias.data.uniform_(-init_w, init_w)
-
-    def forward(self, *args, **kwargs):
-        h = th.cat(args, dim=1)
-        for fc in self.layers:
-            h = F.relu(fc(h))
-        output = self.last_fc(h)
-        return output
-
-
-class PolicyNet(nn.Module):
-
-    def __init__(self):
-        super(PolicyNet, self).__init__()
-        self.affine1 = nn.Linear(4, 128)
-        self.affine2 = nn.Linear(128, 2)
-
-    def forward(self, x):
-        x = F.relu(self.affine1(x))
-        action_scores = self.affine2(x)
-        return F.softmax(action_scores, dim=1)
-
-
-class MLP(nn.Module):
-
-    def __init__(self, input_size, output_size, hidden=128):
-        super(MLP, self).__init__()
-        self.linear1 = nn.Linear(input_size, hidden, bias=False)
-        self.linear2 = nn.Linear(hidden, output_size, bias=False)
-
-    def forward(self, x):
-        x = self.linear1(x)
-        x = th.tanh(x)
-        x = self.linear2(x)
-        x = th.tanh(x)
-        return x
-
-
-class Actor(nn.Module):
-
-    def __init__(self, hidden_size, stochastic=True, layer_norm=False):
-        super().__init__()
-        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.policy = nn.Sequential(*layers)
-        if stochastic:
-            self.policy_log_std = nn.Parameter(torch.tensor([[0.0]]))
-
-    def forward(self, state):
-        policy = self.policy(state)
-        return policy
-
-
-class Critic(nn.Module):
-
-    def __init__(self, hidden_size, state_action=False, layer_norm=False):
-        super().__init__()
-        self.state_action = state_action
-        layers = [nn.Linear(3 + (1 if state_action else 0), hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.value = nn.Sequential(*layers)
-
-    def forward(self, state, action=None):
-        if self.state_action:
-            value = self.value(torch.cat([state, action], dim=1))
-        else:
-            value = self.value(state)
-        return value.squeeze(dim=1)
 
 
 EPSILON = 0.05
@@ -1085,6 +845,41 @@ class DQN(nn.Module):
         return action, values
 
 
+class MLP(nn.Module):
+
+    def __init__(self, input_size, output_size, hidden=128):
+        super(MLP, self).__init__()
+        self.linear1 = nn.Linear(input_size, hidden, bias=False)
+        self.linear2 = nn.Linear(hidden, output_size, bias=False)
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = th.tanh(x)
+        x = self.linear2(x)
+        x = th.tanh(x)
+        return x
+
+
+class Policy(MLP):
+
+    def __init__(self, input_size, output_size, layer_sizes=None, init_w=0.001):
+        super(Policy, self).__init__(input_size=input_size, output_size=output_size, layer_sizes=layer_sizes, init_w=init_w)
+        features_size = self.layers[-1].weight.size(0)
+        self.log_std = nn.Linear(features_size, output_size)
+        self.log_std.weight.data.uniform_(-init_w, init_w)
+        self.log_std.bias.data.uniform_(-init_w, init_w)
+
+    def forward(self, state):
+        h = state
+        for fc in self.layers:
+            h = F.relu(fc(h))
+        mean = self.last_fc(h)
+        log_std = self.log_std(h).clamp(-20.0, 2.0)
+        std = log_std.exp()
+        density = distributions.TanhNormal(mean, std)
+        return density
+
+
 class Actor(nn.Module):
 
     def __init__(self, hidden_size, stochastic=True, layer_norm=False):
@@ -1129,9 +924,20 @@ class ActorCritic(nn.Module):
     def forward(self, state):
         policy = Normal(self.actor(state), self.actor.policy_log_std.exp())
         value = self.critic(state)
-        action = policy.sample()
-        log_prob = policy.log_prob(action)
-        return action, {'mass': policy, 'log_prob': log_prob, 'value': value}
+        return policy, value
+
+
+class PolicyNet(nn.Module):
+
+    def __init__(self):
+        super(PolicyNet, self).__init__()
+        self.affine1 = nn.Linear(4, 128)
+        self.affine2 = nn.Linear(128, 2)
+
+    def forward(self, x):
+        x = F.relu(self.affine1(x))
+        action_scores = self.affine2(x)
+        return F.softmax(action_scores, dim=1)
 
 
 class TanhNormal(Distribution):
@@ -1170,73 +976,6 @@ class SoftActor(nn.Module):
         return policy
 
 
-class Critic(nn.Module):
-
-    def __init__(self, hidden_size, state_action=False, layer_norm=False):
-        super().__init__()
-        self.state_action = state_action
-        layers = [nn.Linear(3 + (1 if state_action else 0), hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.value = nn.Sequential(*layers)
-
-    def forward(self, state, action=None):
-        if self.state_action:
-            value = self.value(torch.cat([state, action], dim=1))
-        else:
-            value = self.value(state)
-        return value.squeeze(dim=1)
-
-
-class Actor(nn.Module):
-
-    def __init__(self, hidden_size, stochastic=True, layer_norm=False):
-        super().__init__()
-        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.policy = nn.Sequential(*layers)
-        if stochastic:
-            self.policy_log_std = nn.Parameter(torch.tensor([[0.0]]))
-
-    def forward(self, state):
-        policy = self.policy(state)
-        return policy
-
-
-class Critic(nn.Module):
-
-    def __init__(self, hidden_size, state_action=False, layer_norm=False):
-        super().__init__()
-        self.state_action = state_action
-        layers = [nn.Linear(3 + (1 if state_action else 0), hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.value = nn.Sequential(*layers)
-
-    def forward(self, state, action=None):
-        if self.state_action:
-            value = self.value(torch.cat([state, action], dim=1))
-        else:
-            value = self.value(state)
-        return value.squeeze(dim=1)
-
-
-class ActorCritic(nn.Module):
-
-    def __init__(self, hidden_size):
-        super().__init__()
-        self.actor = Actor(hidden_size, stochastic=True)
-        self.critic = Critic(hidden_size)
-
-    def forward(self, state):
-        policy = Normal(self.actor(state), self.actor.policy_log_std.exp())
-        value = self.critic(state)
-        action = policy.sample()
-        log_prob = policy.log_prob(action)
-        return action, {'log_prob': log_prob, 'value': value}
-
-
 class Agent(nn.Module):
 
     def __init__(self, env):
@@ -1251,200 +990,6 @@ class Agent(nn.Module):
         action = self.e_greedy(q_values)
         info = {'q_action': q_values[:, (action)]}
         return action, info
-
-
-class Agent(nn.Module):
-
-    def __init__(self, env):
-        super(Agent, self).__init__()
-        self.env = env
-        self.qf = ActionValueFunction(env.state_size, env.action_size)
-        self.e_greedy = ch.nn.EpsilonGreedy(0.1)
-
-    def forward(self, x):
-        x = ch.onehot(x, self.env.state_size)
-        q_values = self.qf(x)
-        action = self.e_greedy(q_values)
-        info = {'q_action': q_values[:, (action)]}
-        return action, info
-
-
-class ActorCriticNet(nn.Module):
-
-    def __init__(self, env):
-        super(ActorCriticNet, self).__init__()
-        self.affine = nn.Linear(env.state_size, 128)
-        self.action_head = nn.Linear(128, env.action_size)
-        self.value_head = nn.Linear(128, 1)
-        self.distribution = distributions.ActionDistribution(env, use_probs=True)
-
-    def forward(self, x):
-        x = F.relu(self.affine(x))
-        action_scores = self.action_head(x)
-        action_mass = self.distribution(F.softmax(action_scores, dim=1))
-        value = self.value_head(x)
-        return action_mass, value
-
-
-class Actor(nn.Module):
-
-    def __init__(self, hidden_size, stochastic=True, layer_norm=False):
-        super().__init__()
-        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.policy = nn.Sequential(*layers)
-        if stochastic:
-            self.policy_log_std = nn.Parameter(torch.tensor([[0.0]]))
-
-    def forward(self, state):
-        policy = self.policy(state)
-        return policy
-
-
-class Critic(nn.Module):
-
-    def __init__(self, hidden_size, state_action=False, layer_norm=False):
-        super().__init__()
-        self.state_action = state_action
-        layers = [nn.Linear(3 + (1 if state_action else 0), hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.value = nn.Sequential(*layers)
-
-    def forward(self, state, action=None):
-        if self.state_action:
-            value = self.value(torch.cat([state, action], dim=1))
-        else:
-            value = self.value(state)
-        return value.squeeze(dim=1)
-
-
-class Actor(nn.Module):
-
-    def __init__(self, hidden_size, stochastic=True, layer_norm=False):
-        super().__init__()
-        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.policy = nn.Sequential(*layers)
-        if stochastic:
-            self.policy_log_std = nn.Parameter(torch.tensor([[0.0]]))
-
-    def forward(self, state):
-        policy = self.policy(state)
-        return policy
-
-
-class Critic(nn.Module):
-
-    def __init__(self, hidden_size, state_action=False, layer_norm=False):
-        super().__init__()
-        self.state_action = state_action
-        layers = [nn.Linear(3 + (1 if state_action else 0), hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.value = nn.Sequential(*layers)
-
-    def forward(self, state, action=None):
-        if self.state_action:
-            value = self.value(torch.cat([state, action], dim=1))
-        else:
-            value = self.value(state)
-        return value.squeeze(dim=1)
-
-
-class ActorCritic(nn.Module):
-
-    def __init__(self, hidden_size):
-        super().__init__()
-        self.actor = Actor(hidden_size, stochastic=True)
-        self.critic = Critic(hidden_size)
-
-    def forward(self, state):
-        policy = Normal(self.actor(state), self.actor.policy_log_std.exp())
-        value = self.critic(state)
-        return policy, value
-
-
-class SoftActor(nn.Module):
-
-    def __init__(self, hidden_size):
-        super().__init__()
-        self.log_std_min, self.log_std_max = -20, 2
-        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 2)]
-        self.policy = nn.Sequential(*layers)
-
-    def forward(self, state):
-        policy_mean, policy_log_std = self.policy(state).chunk(2, dim=1)
-        policy_log_std = torch.clamp(policy_log_std, min=self.log_std_min, max=self.log_std_max)
-        policy = TanhNormal(policy_mean, policy_log_std.exp())
-        return policy
-
-
-class Critic(nn.Module):
-
-    def __init__(self, hidden_size, state_action=False, layer_norm=False):
-        super().__init__()
-        self.state_action = state_action
-        layers = [nn.Linear(3 + (1 if state_action else 0), hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.value = nn.Sequential(*layers)
-
-    def forward(self, state, action=None):
-        if self.state_action:
-            value = self.value(torch.cat([state, action], dim=1))
-        else:
-            value = self.value(state)
-        return value.squeeze(dim=1)
-
-
-class Actor(nn.Module):
-
-    def __init__(self, hidden_size, stochastic=True, layer_norm=False):
-        super().__init__()
-        layers = [nn.Linear(3, hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.policy = nn.Sequential(*layers)
-        if stochastic:
-            self.policy_log_std = nn.Parameter(torch.tensor([[0.0]]))
-
-    def forward(self, state):
-        policy = self.policy(state)
-        return policy
-
-
-class Critic(nn.Module):
-
-    def __init__(self, hidden_size, state_action=False, layer_norm=False):
-        super().__init__()
-        self.state_action = state_action
-        layers = [nn.Linear(3 + (1 if state_action else 0), hidden_size), nn.Tanh(), nn.Linear(hidden_size, hidden_size), nn.Tanh(), nn.Linear(hidden_size, 1)]
-        if layer_norm:
-            layers = layers[:1] + [nn.LayerNorm(hidden_size)] + layers[1:3] + [nn.LayerNorm(hidden_size)] + layers[3:]
-        self.value = nn.Sequential(*layers)
-
-    def forward(self, state, action=None):
-        if self.state_action:
-            value = self.value(torch.cat([state, action], dim=1))
-        else:
-            value = self.value(state)
-        return value.squeeze(dim=1)
-
-
-class ActorCritic(nn.Module):
-
-    def __init__(self, hidden_size):
-        super().__init__()
-        self.actor = Actor(hidden_size, stochastic=True)
-        self.critic = Critic(hidden_size)
-
-    def forward(self, state):
-        policy = Normal(self.actor(state), self.actor.policy_log_std.exp())
-        value = self.critic(state)
-        return policy, value
 
 
 import torch

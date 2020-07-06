@@ -16,17 +16,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import random
+
+
+import numpy as np
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
 
 
 import torch
@@ -47,16 +60,10 @@ import torch.nn.functional as F
 import time
 
 
-import numpy as np
-
-
 from collections import OrderedDict
 
 
 from torch.autograd import Variable
-
-
-import random
 
 
 import scipy.misc as misc
@@ -66,69 +73,6 @@ import torch.optim as optim
 
 
 from torch.utils.data import DataLoader
-
-
-class Block(nn.Module):
-
-    def __init__(self, in_channels, out_channels, group=1):
-        super(Block, self).__init__()
-        self.b1 = ops.ResidualBlock(64, 64)
-        self.b2 = ops.ResidualBlock(64, 64)
-        self.b3 = ops.ResidualBlock(64, 64)
-        self.c1 = ops.BasicBlock(64 * 2, 64, 1, 1, 0)
-        self.c2 = ops.BasicBlock(64 * 3, 64, 1, 1, 0)
-        self.c3 = ops.BasicBlock(64 * 4, 64, 1, 1, 0)
-
-    def forward(self, x):
-        c0 = o0 = x
-        b1 = self.b1(o0)
-        c1 = torch.cat([c0, b1], dim=1)
-        o1 = self.c1(c1)
-        b2 = self.b2(o1)
-        c2 = torch.cat([c1, b2], dim=1)
-        o2 = self.c2(c2)
-        b3 = self.b3(o2)
-        c3 = torch.cat([c2, b3], dim=1)
-        o3 = self.c3(c3)
-        return o3
-
-
-class Net(nn.Module):
-
-    def __init__(self, **kwargs):
-        super(Net, self).__init__()
-        scale = kwargs.get('scale')
-        multi_scale = kwargs.get('multi_scale')
-        group = kwargs.get('group', 1)
-        self.sub_mean = ops.MeanShift((0.4488, 0.4371, 0.404), sub=True)
-        self.add_mean = ops.MeanShift((0.4488, 0.4371, 0.404), sub=False)
-        self.entry = nn.Conv2d(3, 64, 3, 1, 1)
-        self.b1 = Block(64, 64)
-        self.b2 = Block(64, 64)
-        self.b3 = Block(64, 64)
-        self.c1 = ops.BasicBlock(64 * 2, 64, 1, 1, 0)
-        self.c2 = ops.BasicBlock(64 * 3, 64, 1, 1, 0)
-        self.c3 = ops.BasicBlock(64 * 4, 64, 1, 1, 0)
-        self.upsample = ops.UpsampleBlock(64, scale=scale, multi_scale=multi_scale, group=group)
-        self.exit = nn.Conv2d(64, 3, 3, 1, 1)
-
-    def forward(self, x, scale):
-        x = self.sub_mean(x)
-        x = self.entry(x)
-        c0 = o0 = x
-        b1 = self.b1(o0)
-        c1 = torch.cat([c0, b1], dim=1)
-        o1 = self.c1(c1)
-        b2 = self.b2(o1)
-        c2 = torch.cat([c1, b2], dim=1)
-        o2 = self.c2(c2)
-        b3 = self.b3(o2)
-        c3 = torch.cat([c2, b3], dim=1)
-        o3 = self.c3(c3)
-        out = self.upsample(o3, scale=scale)
-        out = self.exit(out)
-        out = self.add_mean(out)
-        return out
 
 
 class Block(nn.Module):
@@ -253,6 +197,26 @@ class EResidualBlock(nn.Module):
         return out
 
 
+class _UpsampleBlock(nn.Module):
+
+    def __init__(self, n_channels, scale, group=1):
+        super(_UpsampleBlock, self).__init__()
+        modules = []
+        if scale == 2 or scale == 4 or scale == 8:
+            for _ in range(int(math.log(scale, 2))):
+                modules += [nn.Conv2d(n_channels, 4 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
+                modules += [nn.PixelShuffle(2)]
+        elif scale == 3:
+            modules += [nn.Conv2d(n_channels, 9 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
+            modules += [nn.PixelShuffle(3)]
+        self.body = nn.Sequential(*modules)
+        init_weights(self.modules)
+
+    def forward(self, x):
+        out = self.body(x)
+        return out
+
+
 class UpsampleBlock(nn.Module):
 
     def __init__(self, n_channels, scale, multi_scale, group=1):
@@ -275,26 +239,6 @@ class UpsampleBlock(nn.Module):
                 return self.up4(x)
         else:
             return self.up(x)
-
-
-class _UpsampleBlock(nn.Module):
-
-    def __init__(self, n_channels, scale, group=1):
-        super(_UpsampleBlock, self).__init__()
-        modules = []
-        if scale == 2 or scale == 4 or scale == 8:
-            for _ in range(int(math.log(scale, 2))):
-                modules += [nn.Conv2d(n_channels, 4 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
-                modules += [nn.PixelShuffle(2)]
-        elif scale == 3:
-            modules += [nn.Conv2d(n_channels, 9 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
-            modules += [nn.PixelShuffle(3)]
-        self.body = nn.Sequential(*modules)
-        init_weights(self.modules)
-
-    def forward(self, x):
-        out = self.body(x)
-        return out
 
 
 import torch
@@ -328,6 +272,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (UpsampleBlock,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0, 'multi_scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4]), 0], {}),
+     False),
     (_UpsampleBlock,
      lambda: ([], {'n_channels': 4, 'scale': 1.0}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -355,4 +303,7 @@ class Test_nmhkahn_CARN_pytorch(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

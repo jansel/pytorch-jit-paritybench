@@ -44,17 +44,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from collections import defaultdict
+
+
+import numpy as np
 
 
 import torch
@@ -81,19 +88,19 @@ import torch.nn as nn
 import math
 
 
-import numpy as np
-
-
-import copy
-
-
 import logging
 
 
-from collections import defaultdict
+from torch.utils.data import Dataset
 
 
 import time
+
+
+import random
+
+
+import copy
 
 
 import warnings
@@ -125,6 +132,31 @@ class ResNet50(nn.Module):
         if self.loss == {'xent'}:
             return y
         return y, f
+
+
+class Linear(nn.Module):
+
+    def __init__(self, linear_size, p_dropout=0.5):
+        super(Linear, self).__init__()
+        self.l_size = linear_size
+        self.relu = nn.ReLU(inplace=True)
+        self.dropout = nn.Dropout(p_dropout)
+        self.w1 = nn.Linear(self.l_size, self.l_size)
+        self.batch_norm1 = nn.BatchNorm1d(self.l_size)
+        self.w2 = nn.Linear(self.l_size, self.l_size)
+        self.batch_norm2 = nn.BatchNorm1d(self.l_size)
+
+    def forward(self, x):
+        y = self.w1(x)
+        y = self.batch_norm1(y)
+        y = self.relu(y)
+        y = self.dropout(y)
+        y = self.w2(y)
+        y = self.batch_norm2(y)
+        y = self.relu(y)
+        y = self.dropout(y)
+        out = x + y
+        return out
 
 
 class LinearModel(nn.Module):
@@ -159,31 +191,6 @@ class LinearModel(nn.Module):
             y = self.linear_stages[i](y)
         y = self.w2(y)
         return y
-
-
-class Linear(nn.Module):
-
-    def __init__(self, linear_size, p_dropout=0.5):
-        super(Linear, self).__init__()
-        self.l_size = linear_size
-        self.relu = nn.ReLU(inplace=True)
-        self.dropout = nn.Dropout(p_dropout)
-        self.w1 = nn.Linear(self.l_size, self.l_size)
-        self.batch_norm1 = nn.BatchNorm1d(self.l_size)
-        self.w2 = nn.Linear(self.l_size, self.l_size)
-        self.batch_norm2 = nn.BatchNorm1d(self.l_size)
-
-    def forward(self, x):
-        y = self.w1(x)
-        y = self.batch_norm1(y)
-        y = self.relu(y)
-        y = self.dropout(y)
-        y = self.w2(y)
-        y = self.batch_norm2(y)
-        y = self.relu(y)
-        y = self.dropout(y)
-        out = x + y
-        return out
 
 
 class CustomL1Loss(torch.nn.Module):

@@ -17,20 +17,18 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-from torch import nn
 
 
 import torch
@@ -39,7 +37,19 @@ import torch
 import numpy as np
 
 
+import torch.utils.data
+
+
+from torch import nn
+
+
 from torch.nn import DataParallel
+
+
+import copy
+
+
+import torch.backends.cudnn as cudnn
 
 
 class Conv(nn.Module):
@@ -145,6 +155,20 @@ class Merge(nn.Module):
         return self.conv(x)
 
 
+class HeatmapLoss(torch.nn.Module):
+    """
+    loss for detection heatmap
+    """
+
+    def __init__(self):
+        super(HeatmapLoss, self).__init__()
+
+    def forward(self, pred, gt):
+        l = (pred - gt) ** 2
+        l = l.mean(dim=3).mean(dim=2).mean(dim=1)
+        return l
+
+
 class PoseNet(nn.Module):
 
     def __init__(self, nstack, inp_dim, oup_dim, bn=False, increase=0, **kwargs):
@@ -178,20 +202,6 @@ class PoseNet(nn.Module):
             combined_loss.append(self.heatmapLoss(combined_hm_preds[0][:, (i)], heatmaps))
         combined_loss = torch.stack(combined_loss, dim=1)
         return combined_loss
-
-
-class HeatmapLoss(torch.nn.Module):
-    """
-    loss for detection heatmap
-    """
-
-    def __init__(self):
-        super(HeatmapLoss, self).__init__()
-
-    def forward(self, pred, gt):
-        l = (pred - gt) ** 2
-        l = l.mean(dim=3).mean(dim=2).mean(dim=1)
-        return l
 
 
 class Trainer(nn.Module):

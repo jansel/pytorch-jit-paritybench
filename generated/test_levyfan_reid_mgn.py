@@ -13,23 +13,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from collections import defaultdict
 
 
 import numpy as np
 
 
+import torch
+
+
+from sklearn.metrics import average_precision_score
+
+
 from scipy.spatial.distance import cdist
+
+
+from sklearn.preprocessing import normalize
 
 
 from torch import nn
@@ -50,10 +63,25 @@ from torchvision.models import resnet50
 from torchvision.transforms import functional
 
 
+import collections
+
+
+import random
+
+
+import re
+
+
+from torch.utils.data import dataset
+
+
+from torch.utils.data import sampler
+
+
+from torchvision.datasets.folder import default_loader
+
+
 import copy
-
-
-import torch
 
 
 from torch.utils.data import dataloader
@@ -63,6 +91,9 @@ from torchvision.models.resnet import resnet50
 
 
 from torchvision.models.resnet import Bottleneck
+
+
+from torchvision.transforms import ToTensor
 
 
 from torch.nn import functional as F
@@ -91,9 +122,6 @@ class IDE(nn.Module):
         x = x.squeeze()
         y = self.classifier(x)
         return x, y
-
-
-_global_config['model'] = 4
 
 
 class MGN(nn.Module):

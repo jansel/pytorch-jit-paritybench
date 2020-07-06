@@ -26,6 +26,7 @@ vgg_net = _module
 opt = _module
 config = _module
 configTrain = _module
+test = _module
 utils = _module
 affine_util = _module
 metric = _module
@@ -35,26 +36,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
 
 
 import torch
 
 
-from collections import OrderedDict
+import torch.utils.data
 
 
 import random
+
+
+import copy
+
+
+import torch as th
+
+
+from collections import OrderedDict
 
 
 import logging
@@ -78,9 +92,6 @@ import torch.utils.model_zoo as model_zoo
 import torch.nn.utils.weight_norm as weight_norm
 
 
-import torch as th
-
-
 from torch import nn
 
 
@@ -97,6 +108,24 @@ from torch.nn import Parameter
 
 
 from torchvision.models import vgg16
+
+
+import time
+
+
+import scipy.misc as m
+
+
+import torchvision.utils as vutils
+
+
+import inspect
+
+
+import re
+
+
+import collections
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -129,6 +158,20 @@ class BasicBlock(nn.Module):
         out += residual
         out = self.relu(out)
         return out
+
+
+class SEBlock(nn.Module):
+
+    def __init__(self, channel, reduction=16):
+        super(SEBlock, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction), nn.PReLU(), nn.Linear(channel // reduction, channel), nn.Sigmoid())
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y
 
 
 class IRBlock(nn.Module):
@@ -195,20 +238,6 @@ class Bottleneck(nn.Module):
         out += residual
         out = self.relu(out)
         return out
-
-
-class SEBlock(nn.Module):
-
-    def __init__(self, channel, reduction=16):
-        super(SEBlock, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction), nn.PReLU(), nn.Linear(channel // reduction, channel), nn.Sigmoid())
-
-    def forward(self, x):
-        b, c, _, _ = x.size()
-        y = self.avg_pool(x).view(b, c)
-        y = self.fc(y).view(b, c, 1, 1)
-        return x * y
 
 
 class ResNetFace(nn.Module):
@@ -641,114 +670,6 @@ class faceIDNet(nn.Module):
         faceIDFeat = self.feat(x)
         id_loss = loss_func(faceIDFeat, targetIdFeat256)
         return id_loss
-
-
-class BasicSPADE(nn.Module):
-
-    def __init__(self, norm_layer, input_nc, planes):
-        super(BasicSPADE, self).__init__()
-        self.conv_weight = nn.Conv2d(input_nc, planes, kernel_size=3, stride=1, padding=1)
-        self.conv_bias = nn.Conv2d(input_nc, planes, kernel_size=3, stride=1, padding=1)
-        self.norm = norm_layer(planes, affine=False)
-
-    def forward(self, x, bound):
-        out = self.norm(x)
-        weight_norm = self.conv_weight(bound)
-        bias_norm = self.conv_bias(bound)
-        out = out * weight_norm + bias_norm
-        return out
-
-
-class ResBlkSPADE(nn.Module):
-
-    def __init__(self, norm_layer, input_nc, planes, conv_kernel_size=1, padding=0):
-        super(ResBlkSPADE, self).__init__()
-        self.spade1 = BasicSPADE(norm_layer=norm_layer, input_nc=input_nc, planes=planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(planes, planes, kernel_size=conv_kernel_size, stride=1, padding=padding)
-        self.spade2 = BasicSPADE(norm_layer=norm_layer, input_nc=input_nc, planes=planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=conv_kernel_size, stride=1, padding=padding)
-        self.spade_res = BasicSPADE(norm_layer=norm_layer, input_nc=input_nc, planes=planes)
-        self.conv_res = nn.Conv2d(planes, planes, kernel_size=conv_kernel_size, stride=1, padding=padding)
-
-    def forward(self, x, bound):
-        out = self.spade1(x, bound)
-        out = self.relu(out)
-        out = self.conv1(out)
-        out = self.spade2(out, bound)
-        out = self.relu(out)
-        out = self.conv2(out)
-        residual = x
-        residual = self.spade_res(residual, bound)
-        residual = self.relu(residual)
-        residual = self.conv_res(residual)
-        out = out + residual
-        return out
-
-
-class SPADEGenerator(nn.Module):
-
-    def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.InstanceNorm2d, latent_chl=1024, up_mode='NF'):
-        super(SPADEGenerator, self).__init__()
-        layers = []
-        self.up_mode = up_mode
-        self.up1 = nn.ConvTranspose2d(in_channels=latent_chl, out_channels=512, kernel_size=4, stride=2, padding=1)
-        self.up2 = nn.ConvTranspose2d(in_channels=512, out_channels=512, kernel_size=4, stride=2, padding=1)
-        if self.up_mode == 'convT':
-            self.up3 = nn.ConvTranspose2d(in_channels=512, out_channels=512, kernel_size=4, stride=2, padding=1)
-            self.up4 = nn.ConvTranspose2d(in_channels=512, out_channels=512, kernel_size=4, stride=2, padding=1)
-            self.up5 = nn.ConvTranspose2d(in_channels=256, out_channels=256, kernel_size=4, stride=2, padding=1)
-            self.up6 = nn.ConvTranspose2d(in_channels=128, out_channels=128, kernel_size=4, stride=2, padding=1)
-            self.up7 = nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1)
-            self.up8 = nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1)
-        elif self.up_mode == 'NF':
-            self.up3 = nn.Upsample(scale_factor=2, mode='nearest')
-            self.up4 = nn.Upsample(scale_factor=2, mode='nearest')
-            self.up5 = nn.Upsample(scale_factor=2, mode='nearest')
-            self.up6 = nn.Upsample(scale_factor=2, mode='nearest')
-            self.up7 = nn.Upsample(scale_factor=2, mode='nearest')
-            self.up8 = nn.Upsample(scale_factor=2, mode='nearest')
-        self.spade_blc3 = ResBlkSPADE(norm_layer=norm_layer, input_nc=input_nc, planes=512)
-        self.spade_blc4 = ResBlkSPADE(norm_layer=norm_layer, input_nc=input_nc, planes=512)
-        self.spade_blc5 = ResBlkSPADE(norm_layer=norm_layer, input_nc=input_nc, planes=1024 + 512)
-        self.spade_blc6 = ResBlkSPADE(norm_layer=norm_layer, input_nc=input_nc, planes=512 + 256)
-        self.spade_blc7 = ResBlkSPADE(norm_layer=norm_layer, input_nc=input_nc, planes=256 + 128)
-        self.spade_blc8 = ResBlkSPADE(norm_layer=norm_layer, input_nc=input_nc, planes=128 + 64)
-        self.conv5 = nn.Conv2d(in_channels=1024 + 512, out_channels=256, kernel_size=1, stride=1, padding=0)
-        self.conv6 = nn.Conv2d(in_channels=512 + 256, out_channels=128, kernel_size=1, stride=1, padding=0)
-        self.conv7 = nn.Conv2d(in_channels=256 + 128, out_channels=64, kernel_size=1, stride=1, padding=0)
-        self.conv8 = nn.Conv2d(in_channels=128 + 64, out_channels=64, kernel_size=1, stride=1, padding=0)
-        self.same = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1)
-        self.tanh = nn.Tanh()
-
-    def forward(self, input, latent_z, decoder_result):
-        bound128 = F.interpolate(input, scale_factor=0.5)
-        bound64 = F.interpolate(bound128, scale_factor=0.5)
-        bound32 = F.interpolate(bound64, scale_factor=0.5)
-        bound16 = F.interpolate(bound32, scale_factor=0.5)
-        bound8 = F.interpolate(bound16, scale_factor=0.5)
-        bound4 = F.interpolate(bound8, scale_factor=0.5)
-        x_up1 = self.up1(latent_z)
-        x_up2 = self.up2(x_up1)
-        x_up3 = self.spade_blc3(x_up2, bound4)
-        x_up3 = self.up3(x_up3)
-        x_up4 = self.spade_blc4(x_up3, bound8)
-        x_up4 = self.up4(x_up4)
-        x_up5 = self.spade_blc5(torch.cat([x_up4, decoder_result[0]], 1), bound16)
-        x_up5 = self.conv5(x_up5)
-        x_up5 = self.up5(x_up5)
-        x_up6 = self.spade_blc6(torch.cat([x_up5, decoder_result[1]], 1), bound32)
-        x_up6 = self.conv6(x_up6)
-        x_up6 = self.up6(x_up6)
-        x_up7 = self.spade_blc7(torch.cat([x_up6, decoder_result[2]], 1), bound64)
-        x_up7 = self.conv7(x_up7)
-        x_up7 = self.up7(x_up7)
-        x_up8 = self.spade_blc8(torch.cat([x_up7, decoder_result[3]], 1), bound128)
-        x_up8 = self.conv8(x_up8)
-        x_up8 = self.up8(x_up8)
-        x_out = self.same(x_up8)
-        x_out = self.tanh(x_out)
-        return x_out
 
 
 class BasicSPADE(nn.Module):

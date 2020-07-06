@@ -5,6 +5,7 @@ airlab = _module
 loss = _module
 pairwise = _module
 registration = _module
+registration = _module
 regulariser = _module
 demons = _module
 displacement = _module

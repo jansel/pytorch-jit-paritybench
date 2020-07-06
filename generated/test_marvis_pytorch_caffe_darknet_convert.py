@@ -26,15 +26,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -55,6 +56,15 @@ from collections import OrderedDict
 
 
 from torch.autograd import Variable
+
+
+import random
+
+
+from torch.utils.data import Dataset
+
+
+import torch.optim as optim
 
 
 import time
@@ -87,6 +97,12 @@ import torchvision
 import math
 
 
+from torchvision import datasets
+
+
+from torchvision import transforms
+
+
 class FCView(nn.Module):
 
     def __init__(self):
@@ -117,9 +133,19 @@ class Eltwise(nn.Module):
         return x
 
 
+class MaxPoolStride1(nn.Module):
+
+    def __init__(self):
+        super(MaxPoolStride1, self).__init__()
+
+    def forward(self, x):
+        x = F.max_pool2d(F.pad(x, (0, 1, 0, 1), mode='replicate'), 2, stride=1)
+        return x
+
+
 def parse_caffemodel(caffemodel):
     model = caffe_pb2.NetParameter()
-    print('Loading caffemodel: ', caffemodel)
+    None
     with open(caffemodel, 'rb') as fp:
         model.ParseFromString(fp.read())
     return model
@@ -216,25 +242,25 @@ def print_prototxt(net_info):
 
     def print_block(block_info, prefix, indent):
         blanks = ''.join([' '] * indent)
-        print('%s%s {' % (blanks, prefix))
+        None
         for key, value in list(block_info.items()):
             if type(value) == OrderedDict:
                 print_block(value, key, indent + 4)
             elif type(value) == list:
                 for v in value:
-                    print('%s    %s: %s' % (blanks, key, format_value(v)))
+                    None
             else:
-                print('%s    %s: %s' % (blanks, key, format_value(value)))
-        print('%s}' % blanks)
+                None
+        None
     props = net_info['props']
     layers = net_info['layers']
-    print('name: "%s"' % props['name'])
-    print('input: "%s"' % props['input'])
-    print('input_dim: %s' % props['input_dim'][0])
-    print('input_dim: %s' % props['input_dim'][1])
-    print('input_dim: %s' % props['input_dim'][2])
-    print('input_dim: %s' % props['input_dim'][3])
-    print('')
+    None
+    None
+    None
+    None
+    None
+    None
+    None
     for layer in layers:
         print_block(layer, 'layer', 0)
 
@@ -496,30 +522,6 @@ class CaffeNet(nn.Module):
         return models
 
 
-class FCView(nn.Module):
-
-    def __init__(self):
-        super(FCView, self).__init__()
-
-    def forward(self, x):
-        nB = x.data.size(0)
-        x = x.view(nB, -1)
-        return x
-
-    def __repr__(self):
-        return 'view(nB, -1)'
-
-
-class MaxPoolStride1(nn.Module):
-
-    def __init__(self):
-        super(MaxPoolStride1, self).__init__()
-
-    def forward(self, x):
-        x = F.max_pool2d(F.pad(x, (0, 1, 0, 1), mode='replicate'), 2, stride=1)
-        return x
-
-
 class Reorg(nn.Module):
 
     def __init__(self, stride=2):
@@ -642,11 +644,11 @@ def parse_cfg(cfgfile):
 
 def print_cfg(blocks):
     for block in blocks:
-        print('[%s]' % block['type'])
+        None
         for key, value in block.items():
             if key != 'type':
-                print('%s=%s' % (key, value))
-        print('')
+                None
+        None
 
 
 def save_cfg(blocks, cfgfile):

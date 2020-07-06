@@ -40,17 +40,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import copy
+
+
+import itertools
+
+
+import logging
+
+
+import numpy as np
+
+
+from collections import OrderedDict
 
 
 import torch
@@ -63,9 +79,6 @@ import torch.nn.functional as F
 
 
 from torch.nn import BatchNorm2d
-
-
-from collections import OrderedDict
 
 
 import torch.nn as nn
@@ -86,13 +99,7 @@ from typing import Tuple
 from typing import Union
 
 
-import numpy as np
-
-
 from torch.nn import functional as F
-
-
-import copy
 
 
 import math
@@ -101,7 +108,10 @@ import math
 from torchvision.ops import RoIPool
 
 
-import logging
+import torch.distributed as dist
+
+
+from collections import deque
 
 
 from torch.nn.parallel import DistributedDataParallel
@@ -512,76 +522,6 @@ def add_ground_truth_to_proposals(targets, proposals):
     return [add_ground_truth_to_proposals_single_image(tagets_i, proposals_i) for tagets_i, proposals_i in zip(targets, proposals)]
 
 
-def keypoint_rcnn_inference(pred_keypoint_logits, pred_instances):
-    """
-    Post process each predicted keypoint heatmap in `pred_keypoint_logits` into (x, y, score)
-        and add it to the `pred_instances` as a `pred_keypoints` field.
-
-    Args:
-        pred_keypoint_logits (Tensor): A tensor of shape (R, K, S, S) where R is the total number
-           of instances in the batch, K is the number of keypoints, and S is the side length of
-           the keypoint heatmap. The values are spatial logits.
-        pred_instances (list[Instances]): A list of N Instances, where N is the number of images.
-
-    Returns:
-        None. Each element in pred_instances will contain an extra "pred_keypoints" field.
-            The field is a tensor of shape (#instance, K, 3) where the last
-            dimension corresponds to (x, y, score).
-            The scores are larger than 0.
-    """
-    bboxes_flat = cat([b.pred_boxes.tensor for b in pred_instances], dim=0)
-    keypoint_results = heatmaps_to_keypoints(pred_keypoint_logits.detach(), bboxes_flat.detach())
-    num_instances_per_image = [len(i) for i in pred_instances]
-    keypoint_results = keypoint_results[:, :, ([0, 1, 3])].split(num_instances_per_image, dim=0)
-    for keypoint_results_per_image, instances_per_image in zip(keypoint_results, pred_instances):
-        instances_per_image.pred_keypoints = keypoint_results_per_image
-
-
-def keypoint_rcnn_loss(pred_keypoint_logits, instances, normalizer):
-    """
-    Arguments:
-        pred_keypoint_logits (Tensor): A tensor of shape (N, K, S, S) where N is the total number
-            of instances in the batch, K is the number of keypoints, and S is the side length
-            of the keypoint heatmap. The values are spatial logits.
-        instances (list[Instances]): A list of M Instances, where M is the batch size.
-            These instances are predictions from the model
-            that are in 1:1 correspondence with pred_keypoint_logits.
-            Each Instances should contain a `gt_keypoints` field containing a `structures.Keypoint`
-            instance.
-        normalizer (float): Normalize the loss by this amount.
-            If not specified, we normalize by the number of visible keypoints in the minibatch.
-
-    Returns a scalar tensor containing the loss.
-    """
-    heatmaps = []
-    valid = []
-    keypoint_side_len = pred_keypoint_logits.shape[2]
-    for instances_per_image in instances:
-        if len(instances_per_image) == 0:
-            continue
-        keypoints = instances_per_image.gt_keypoints
-        heatmaps_per_image, valid_per_image = keypoints.to_heatmap(instances_per_image.proposal_boxes.tensor, keypoint_side_len)
-        heatmaps.append(heatmaps_per_image.view(-1))
-        valid.append(valid_per_image.view(-1))
-    if len(heatmaps):
-        keypoint_targets = cat(heatmaps, dim=0)
-        valid = cat(valid, dim=0).to(dtype=torch.uint8)
-        valid = torch.nonzero(valid).squeeze(1)
-    if len(heatmaps) == 0 or valid.numel() == 0:
-        global _TOTAL_SKIPPED
-        _TOTAL_SKIPPED += 1
-        storage = get_event_storage()
-        storage.put_scalar('kpts_num_skipped_batches', _TOTAL_SKIPPED, smoothing_hint=False)
-        return pred_keypoint_logits.sum() * 0
-    N, K, H, W = pred_keypoint_logits.shape
-    pred_keypoint_logits = pred_keypoint_logits.view(N * K, H * W)
-    keypoint_loss = F.cross_entropy(pred_keypoint_logits[valid], keypoint_targets[valid], reduction='sum')
-    if normalizer is None:
-        normalizer = valid.numel()
-    keypoint_loss /= normalizer
-    return keypoint_loss
-
-
 def assign_boxes_to_levels(box_lists, min_level, max_level, canonical_box_size, canonical_level):
     """
     Map each box in `box_lists` to a feature map level index and return the assignment
@@ -608,7 +548,7 @@ def assign_boxes_to_levels(box_lists, min_level, max_level, canonical_box_size, 
     box_sizes = torch.sqrt(cat([boxes.area() for boxes in box_lists]))
     level_assignments = torch.floor(canonical_level + torch.log2(box_sizes / canonical_box_size + eps))
     level_assignments = torch.clamp(level_assignments, min=min_level, max=max_level)
-    return level_assignments.to(torch.int64) - min_level
+    return level_assignments - min_level
 
 
 def _img_area(instance):
@@ -647,7 +587,7 @@ def assign_boxes_to_levels_by_ratio(instances, min_level, max_level, is_train=Fa
     img_areas = cat([_img_area(instance_i) for instance_i in instances])
     level_assignments = torch.ceil(max_level - torch.log2(img_areas / box_areas + eps))
     level_assignments = torch.clamp(level_assignments, min=min_level, max=max_level)
-    return level_assignments.to(torch.int64) - min_level
+    return level_assignments - min_level
 
 
 def convert_boxes_to_pooler_format(box_lists):
@@ -784,6 +724,313 @@ class ROIPooler(nn.Module):
             pooler_fmt_boxes_level = pooler_fmt_boxes[inds]
             output[inds] = pooler(x_level, pooler_fmt_boxes_level)
         return output
+
+
+def build_keypoint_head(cfg, input_shape):
+    """
+    Build a keypoint head from `cfg.MODEL.ROI_KEYPOINT_HEAD.NAME`.
+    """
+    name = cfg.MODEL.ROI_KEYPOINT_HEAD.NAME
+    return ROI_KEYPOINT_HEAD_REGISTRY.get(name)(cfg, input_shape)
+
+
+def build_mask_head(cfg, input_shape):
+    """
+    Build a mask head defined by `cfg.MODEL.ROI_MASK_HEAD.NAME`.
+    """
+    name = cfg.MODEL.ROI_MASK_HEAD.NAME
+    return ROI_MASK_HEAD_REGISTRY.get(name)(cfg, input_shape)
+
+
+def build_maskiou_head(cfg, input_shape):
+    """
+    Build a mask iou head defined by `cfg.MODEL.ROI_MASKIOU_HEAD.NAME`.
+    """
+    name = cfg.MODEL.ROI_MASKIOU_HEAD.NAME
+    return ROI_MASKIOU_HEAD_REGISTRY.get(name)(cfg, input_shape)
+
+
+def mask_iou_inference(pred_instances, pred_maskiou):
+    labels = cat([i.pred_classes for i in pred_instances])
+    num_masks = pred_maskiou.shape[0]
+    index = torch.arange(num_masks, device=labels.device)
+    num_boxes_per_image = [len(i) for i in pred_instances]
+    maskious = pred_maskiou[index, labels].split(num_boxes_per_image, dim=0)
+    for maskiou, box in zip(maskious, pred_instances):
+        box.mask_scores = box.scores * maskiou
+
+
+def mask_iou_loss(labels, pred_maskiou, gt_maskiou, loss_weight):
+    """
+    Compute the maskiou loss.
+
+    Args:
+        labels (Tensor): Given mask labels (num of instance,)
+        pred_maskiou (Tensor):  A tensor of shape (num of instance, C)
+        gt_maskiou (Tensor): Ground Truth IOU generated in mask head (num of instance,)
+    """
+
+    def l2_loss(input, target):
+        """
+        very similar to the smooth_l1_loss from pytorch, but with
+        the extra beta parameter
+        """
+        pos_inds = torch.nonzero(target > 0.0).squeeze(1)
+        if pos_inds.shape[0] > 0:
+            cond = torch.abs(input[pos_inds] - target[pos_inds])
+            loss = 0.5 * cond ** 2 / pos_inds.shape[0]
+        else:
+            loss = input * 0.0
+        return loss.sum()
+    if labels.numel() == 0:
+        return pred_maskiou.sum() * 0
+    index = torch.arange(pred_maskiou.shape[0])
+    maskiou_loss = l2_loss(pred_maskiou[index, labels], gt_maskiou)
+    maskiou_loss = loss_weight * maskiou_loss
+    return maskiou_loss
+
+
+def mask_rcnn_inference(pred_mask_logits, pred_instances):
+    """
+    Convert pred_mask_logits to estimated foreground probability masks while also
+    extracting only the masks for the predicted classes in pred_instances. For each
+    predicted box, the mask of the same class is attached to the instance by adding a
+    new "pred_masks" field to pred_instances.
+
+    Args:
+        pred_mask_logits (Tensor): A tensor of shape (B, C, Hmask, Wmask) or (B, 1, Hmask, Wmask)
+            for class-specific or class-agnostic, where B is the total number of predicted masks
+            in all images, C is the number of foreground classes, and Hmask, Wmask are the height
+            and width of the mask predictions. The values are logits.
+        pred_instances (list[Instances]): A list of N Instances, where N is the number of images
+            in the batch. Each Instances must have field "pred_classes".
+
+    Returns:
+        None. pred_instances will contain an extra "pred_masks" field storing a mask of size (Hmask,
+            Wmask) for predicted class. Note that the masks are returned as a soft (non-quantized)
+            masks the resolution predicted by the network; post-processing steps, such as resizing
+            the predicted masks to the original image resolution and/or binarizing them, is left
+            to the caller.
+    """
+    cls_agnostic_mask = pred_mask_logits.size(1) == 1
+    if cls_agnostic_mask:
+        mask_probs_pred = pred_mask_logits.sigmoid()
+    else:
+        num_masks = pred_mask_logits.shape[0]
+        class_pred = cat([i.pred_classes for i in pred_instances])
+        indices = torch.arange(num_masks, device=class_pred.device)
+        mask_probs_pred = pred_mask_logits[indices, class_pred][:, (None)].sigmoid()
+    num_boxes_per_image = [len(i) for i in pred_instances]
+    mask_probs_pred = mask_probs_pred.split(num_boxes_per_image, dim=0)
+    for prob, instances in zip(mask_probs_pred, pred_instances):
+        instances.pred_masks = prob
+
+
+def _crop(polygons: np.ndarray, box: np.ndarray) ->List[np.ndarray]:
+    w, h = box[2] - box[0], box[3] - box[1]
+    polygons = copy.deepcopy(polygons)
+    for p in polygons:
+        p[0::2] = p[0::2] - box[0]
+        p[1::2] = p[1::2] - box[1]
+    return polygons
+
+
+def crop(polygons: List[List[np.ndarray]], boxes: torch.Tensor) ->'PolygonMasks':
+    boxes = boxes.numpy()
+    results = [_crop(polygon, box) for polygon, box in zip(polygons, boxes)]
+    return PolygonMasks(results)
+
+
+def mask_rcnn_loss(pred_mask_logits, instances, maskiou_on):
+    """
+    Compute the mask prediction loss defined in the Mask R-CNN paper.
+
+    Args:
+        pred_mask_logits (Tensor): A tensor of shape (B, C, Hmask, Wmask) or (B, 1, Hmask, Wmask)
+            for class-specific or class-agnostic, where B is the total number of predicted masks
+            in all images, C is the number of foreground classes, and Hmask, Wmask are the height
+            and width of the mask predictions. The values are logits.
+        instances (list[Instances]): A list of N Instances, where N is the number of images
+            in the batch. These instances are in 1:1
+            correspondence with the pred_mask_logits. The ground-truth labels (class, box, mask,
+            ...) associated with each instance are stored in fields.
+
+    Returns:
+        mask_loss (Tensor): A scalar tensor containing the loss.
+    """
+    cls_agnostic_mask = pred_mask_logits.size(1) == 1
+    total_num_masks = pred_mask_logits.size(0)
+    mask_side_len = pred_mask_logits.size(2)
+    assert pred_mask_logits.size(2) == pred_mask_logits.size(3), 'Mask prediction must be square!'
+    gt_classes = []
+    gt_masks = []
+    mask_ratios = []
+    for instances_per_image in instances:
+        if len(instances_per_image) == 0:
+            continue
+        if not cls_agnostic_mask:
+            gt_classes_per_image = instances_per_image.gt_classes
+            gt_classes.append(gt_classes_per_image)
+        if maskiou_on:
+            cropped_mask = crop(instances_per_image.gt_masks.polygons, instances_per_image.proposal_boxes.tensor)
+            cropped_mask = torch.tensor([mask_utils.area(mask_utils.frPyObjects([p for p in obj], box[3] - box[1], box[2] - box[0])).sum().astype(float) for obj, box in zip(cropped_mask.polygons, instances_per_image.proposal_boxes.tensor)])
+            mask_ratios.append((cropped_mask / instances_per_image.gt_masks.area()).clamp(min=0.0, max=1.0))
+        gt_masks_per_image = instances_per_image.gt_masks.crop_and_resize(instances_per_image.proposal_boxes.tensor, mask_side_len)
+        gt_masks.append(gt_masks_per_image)
+    if len(gt_masks) == 0:
+        gt_classes = torch.LongTensor(gt_classes)
+        if maskiou_on:
+            selected_index = torch.arange(pred_mask_logits.shape[0], device=pred_mask_logits.device)
+            if cls_agnostic_mask:
+                selected_mask = pred_mask_logits[:, (0)]
+            else:
+                selected_mask = pred_mask_logits[selected_index, gt_classes]
+            mask_num, mask_h, mask_w = selected_mask.shape
+            selected_mask = selected_mask.reshape(mask_num, 1, mask_h, mask_w)
+            return pred_mask_logits.sum() * 0, selected_mask, gt_classes, None
+        else:
+            return pred_mask_logits.sum() * 0
+    gt_masks = cat(gt_masks, dim=0)
+    if cls_agnostic_mask:
+        pred_mask_logits = pred_mask_logits[:, (0)]
+        gt_classes = torch.zeros(total_num_masks, dtype=torch.int64)
+    else:
+        indices = torch.arange(total_num_masks)
+        gt_classes = cat(gt_classes, dim=0)
+        pred_mask_logits = pred_mask_logits[indices, gt_classes]
+    if gt_masks.dtype == torch.bool:
+        gt_masks_bool = gt_masks
+    else:
+        gt_masks_bool = gt_masks > 0.5
+    mask_incorrect = (pred_mask_logits > 0.0) != gt_masks_bool
+    mask_accuracy = 1 - mask_incorrect.sum().item() / max(mask_incorrect.numel(), 1.0)
+    num_positive = gt_masks_bool.sum().item()
+    false_positive = (mask_incorrect & ~gt_masks_bool).sum().item() / max(gt_masks_bool.numel() - num_positive, 1.0)
+    false_negative = (mask_incorrect & gt_masks_bool).sum().item() / max(num_positive, 1.0)
+    storage = get_event_storage()
+    storage.put_scalar('mask_rcnn/accuracy', mask_accuracy)
+    storage.put_scalar('mask_rcnn/false_positive', false_positive)
+    storage.put_scalar('mask_rcnn/false_negative', false_negative)
+    mask_loss = F.binary_cross_entropy_with_logits(pred_mask_logits, gt_masks, reduction='mean')
+    if maskiou_on:
+        mask_ratios = cat(mask_ratios, dim=0)
+        value_eps = 1e-10 * torch.ones(gt_masks.shape[0], device=gt_masks.device)
+        mask_ratios = torch.max(mask_ratios, value_eps)
+        pred_masks = pred_mask_logits > 0
+        mask_targets_full_area = gt_masks.sum(dim=[1, 2]) / mask_ratios
+        mask_ovr_area = (pred_masks * gt_masks).sum(dim=[1, 2]).float()
+        mask_union_area = pred_masks.sum(dim=[1, 2]) + mask_targets_full_area - mask_ovr_area
+        value_1 = torch.ones(pred_masks.shape[0], device=gt_masks.device)
+        value_0 = torch.zeros(pred_masks.shape[0], device=gt_masks.device)
+        mask_union_area = torch.max(mask_union_area, value_1)
+        mask_ovr_area = torch.max(mask_ovr_area, value_0)
+        maskiou_targets = mask_ovr_area / mask_union_area
+        mask_num, mask_h, mask_w = pred_mask_logits.shape
+        selected_mask = pred_mask_logits.reshape(mask_num, 1, mask_h, mask_w)
+        selected_mask = selected_mask.sigmoid()
+        return mask_loss, selected_mask, gt_classes, maskiou_targets.detach()
+    else:
+        return mask_loss
+
+
+def select_foreground_proposals(proposals, bg_label):
+    """
+    Given a list of N Instances (for N images), each containing a `gt_classes` field,
+    return a list of Instances that contain only instances with `gt_classes != -1 &&
+    gt_classes != bg_label`.
+
+    Args:
+        proposals (list[Instances]): A list of N Instances, where N is the number of
+            images in the batch.
+        bg_label: label index of background class.
+
+    Returns:
+        list[Instances]: N Instances, each contains only the selected foreground instances.
+        list[Tensor]: N boolean vector, correspond to the selection mask of
+            each Instances object. True for selected instances.
+    """
+    assert isinstance(proposals, (list, tuple))
+    assert isinstance(proposals[0], Instances)
+    assert proposals[0].has('gt_classes')
+    fg_proposals = []
+    fg_selection_masks = []
+    for proposals_per_image in proposals:
+        gt_classes = proposals_per_image.gt_classes
+        fg_selection_mask = (gt_classes != -1) & (gt_classes != bg_label)
+        fg_idxs = fg_selection_mask.nonzero().squeeze(1)
+        fg_proposals.append(proposals_per_image[fg_idxs])
+        fg_selection_masks.append(fg_selection_mask)
+    return fg_proposals, fg_selection_masks
+
+
+def keypoint_rcnn_inference(pred_keypoint_logits, pred_instances):
+    """
+    Post process each predicted keypoint heatmap in `pred_keypoint_logits` into (x, y, score)
+        and add it to the `pred_instances` as a `pred_keypoints` field.
+
+    Args:
+        pred_keypoint_logits (Tensor): A tensor of shape (R, K, S, S) where R is the total number
+           of instances in the batch, K is the number of keypoints, and S is the side length of
+           the keypoint heatmap. The values are spatial logits.
+        pred_instances (list[Instances]): A list of N Instances, where N is the number of images.
+
+    Returns:
+        None. Each element in pred_instances will contain an extra "pred_keypoints" field.
+            The field is a tensor of shape (#instance, K, 3) where the last
+            dimension corresponds to (x, y, score).
+            The scores are larger than 0.
+    """
+    bboxes_flat = cat([b.pred_boxes.tensor for b in pred_instances], dim=0)
+    keypoint_results = heatmaps_to_keypoints(pred_keypoint_logits.detach(), bboxes_flat.detach())
+    num_instances_per_image = [len(i) for i in pred_instances]
+    keypoint_results = keypoint_results[:, :, ([0, 1, 3])].split(num_instances_per_image, dim=0)
+    for keypoint_results_per_image, instances_per_image in zip(keypoint_results, pred_instances):
+        instances_per_image.pred_keypoints = keypoint_results_per_image
+
+
+def keypoint_rcnn_loss(pred_keypoint_logits, instances, normalizer):
+    """
+    Arguments:
+        pred_keypoint_logits (Tensor): A tensor of shape (N, K, S, S) where N is the total number
+            of instances in the batch, K is the number of keypoints, and S is the side length
+            of the keypoint heatmap. The values are spatial logits.
+        instances (list[Instances]): A list of M Instances, where M is the batch size.
+            These instances are predictions from the model
+            that are in 1:1 correspondence with pred_keypoint_logits.
+            Each Instances should contain a `gt_keypoints` field containing a `structures.Keypoint`
+            instance.
+        normalizer (float): Normalize the loss by this amount.
+            If not specified, we normalize by the number of visible keypoints in the minibatch.
+
+    Returns a scalar tensor containing the loss.
+    """
+    heatmaps = []
+    valid = []
+    keypoint_side_len = pred_keypoint_logits.shape[2]
+    for instances_per_image in instances:
+        if len(instances_per_image) == 0:
+            continue
+        keypoints = instances_per_image.gt_keypoints
+        heatmaps_per_image, valid_per_image = keypoints.to_heatmap(instances_per_image.proposal_boxes.tensor, keypoint_side_len)
+        heatmaps.append(heatmaps_per_image.view(-1))
+        valid.append(valid_per_image.view(-1))
+    if len(heatmaps):
+        keypoint_targets = cat(heatmaps, dim=0)
+        valid = cat(valid, dim=0)
+        valid = torch.nonzero(valid).squeeze(1)
+    if len(heatmaps) == 0 or valid.numel() == 0:
+        global _TOTAL_SKIPPED
+        _TOTAL_SKIPPED += 1
+        storage = get_event_storage()
+        storage.put_scalar('kpts_num_skipped_batches', _TOTAL_SKIPPED, smoothing_hint=False)
+        return pred_keypoint_logits.sum() * 0
+    N, K, H, W = pred_keypoint_logits.shape
+    pred_keypoint_logits = pred_keypoint_logits.view(N * K, H * W)
+    keypoint_loss = F.cross_entropy(pred_keypoint_logits[valid], keypoint_targets[valid], reduction='sum')
+    if normalizer is None:
+        normalizer = valid.numel()
+    keypoint_loss /= normalizer
+    return keypoint_loss
 
 
 def Max(x):

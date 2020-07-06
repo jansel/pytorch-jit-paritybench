@@ -33,17 +33,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+import warnings
+
+
+from torch.utils.data import Dataset
 
 
 import torch
@@ -59,9 +69,6 @@ import torch.utils.data
 
 
 from torch.autograd import Variable
-
-
-import numpy as np
 
 
 import torch.nn.functional as F
@@ -195,416 +202,6 @@ class PointNetEncoder(nn.Module):
 
 class get_model(nn.Module):
 
-    def __init__(self, num_class, normal_channel=True):
-        super(get_model, self).__init__()
-        in_channel = 3 if normal_channel else 0
-        self.normal_channel = normal_channel
-        self.sa1 = PointNetSetAbstractionMsg(512, [0.1, 0.2, 0.4], [16, 32, 128], in_channel, [[32, 32, 64], [64, 64, 128], [64, 96, 128]])
-        self.sa2 = PointNetSetAbstractionMsg(128, [0.2, 0.4, 0.8], [32, 64, 128], 320, [[64, 64, 128], [128, 128, 256], [128, 128, 256]])
-        self.sa3 = PointNetSetAbstraction(None, None, None, 640 + 3, [256, 512, 1024], True)
-        self.fc1 = nn.Linear(1024, 512)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.drop1 = nn.Dropout(0.4)
-        self.fc2 = nn.Linear(512, 256)
-        self.bn2 = nn.BatchNorm1d(256)
-        self.drop2 = nn.Dropout(0.5)
-        self.fc3 = nn.Linear(256, num_class)
-
-    def forward(self, xyz):
-        B, _, _ = xyz.shape
-        if self.normal_channel:
-            norm = xyz[:, 3:, :]
-            xyz = xyz[:, :3, :]
-        else:
-            norm = None
-        l1_xyz, l1_points = self.sa1(xyz, norm)
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-        x = l3_points.view(B, 1024)
-        x = self.drop1(F.relu(self.bn1(self.fc1(x))))
-        x = self.drop2(F.relu(self.bn2(self.fc2(x))))
-        x = self.fc3(x)
-        x = F.log_softmax(x, -1)
-        return x, l3_points
-
-
-class get_loss(nn.Module):
-
-    def __init__(self):
-        super(get_loss, self).__init__()
-
-    def forward(self, pred, target, trans_feat):
-        total_loss = F.nll_loss(pred, target)
-        return total_loss
-
-
-class get_model(nn.Module):
-
-    def __init__(self, num_class, normal_channel=True):
-        super(get_model, self).__init__()
-        in_channel = 6 if normal_channel else 3
-        self.normal_channel = normal_channel
-        self.sa1 = PointNetSetAbstraction(npoint=512, radius=0.2, nsample=32, in_channel=in_channel, mlp=[64, 64, 128], group_all=False)
-        self.sa2 = PointNetSetAbstraction(npoint=128, radius=0.4, nsample=64, in_channel=128 + 3, mlp=[128, 128, 256], group_all=False)
-        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=256 + 3, mlp=[256, 512, 1024], group_all=True)
-        self.fc1 = nn.Linear(1024, 512)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.drop1 = nn.Dropout(0.4)
-        self.fc2 = nn.Linear(512, 256)
-        self.bn2 = nn.BatchNorm1d(256)
-        self.drop2 = nn.Dropout(0.4)
-        self.fc3 = nn.Linear(256, num_class)
-
-    def forward(self, xyz):
-        B, _, _ = xyz.shape
-        if self.normal_channel:
-            norm = xyz[:, 3:, :]
-            xyz = xyz[:, :3, :]
-        else:
-            norm = None
-        l1_xyz, l1_points = self.sa1(xyz, norm)
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-        x = l3_points.view(B, 1024)
-        x = self.drop1(F.relu(self.bn1(self.fc1(x))))
-        x = self.drop2(F.relu(self.bn2(self.fc2(x))))
-        x = self.fc3(x)
-        x = F.log_softmax(x, -1)
-        return x, l3_points
-
-
-class get_loss(nn.Module):
-
-    def __init__(self):
-        super(get_loss, self).__init__()
-
-    def forward(self, pred, target, trans_feat):
-        total_loss = F.nll_loss(pred, target)
-        return total_loss
-
-
-class get_model(nn.Module):
-
-    def __init__(self, num_classes, normal_channel=False):
-        super(get_model, self).__init__()
-        if normal_channel:
-            additional_channel = 3
-        else:
-            additional_channel = 0
-        self.normal_channel = normal_channel
-        self.sa1 = PointNetSetAbstractionMsg(512, [0.1, 0.2, 0.4], [32, 64, 128], 3 + additional_channel, [[32, 32, 64], [64, 64, 128], [64, 96, 128]])
-        self.sa2 = PointNetSetAbstractionMsg(128, [0.4, 0.8], [64, 128], 128 + 128 + 64, [[128, 128, 256], [128, 196, 256]])
-        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=512 + 3, mlp=[256, 512, 1024], group_all=True)
-        self.fp3 = PointNetFeaturePropagation(in_channel=1536, mlp=[256, 256])
-        self.fp2 = PointNetFeaturePropagation(in_channel=576, mlp=[256, 128])
-        self.fp1 = PointNetFeaturePropagation(in_channel=150 + additional_channel, mlp=[128, 128])
-        self.conv1 = nn.Conv1d(128, 128, 1)
-        self.bn1 = nn.BatchNorm1d(128)
-        self.drop1 = nn.Dropout(0.5)
-        self.conv2 = nn.Conv1d(128, num_classes, 1)
-
-    def forward(self, xyz, cls_label):
-        B, C, N = xyz.shape
-        if self.normal_channel:
-            l0_points = xyz
-            l0_xyz = xyz[:, :3, :]
-        else:
-            l0_points = xyz
-            l0_xyz = xyz
-        l1_xyz, l1_points = self.sa1(l0_xyz, l0_points)
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)
-        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)
-        cls_label_one_hot = cls_label.view(B, 16, 1).repeat(1, 1, N)
-        l0_points = self.fp1(l0_xyz, l1_xyz, torch.cat([cls_label_one_hot, l0_xyz, l0_points], 1), l1_points)
-        feat = F.relu(self.bn1(self.conv1(l0_points)))
-        x = self.drop1(feat)
-        x = self.conv2(x)
-        x = F.log_softmax(x, dim=1)
-        x = x.permute(0, 2, 1)
-        return x, l3_points
-
-
-class get_loss(nn.Module):
-
-    def __init__(self):
-        super(get_loss, self).__init__()
-
-    def forward(self, pred, target, trans_feat):
-        total_loss = F.nll_loss(pred, target)
-        return total_loss
-
-
-class get_model(nn.Module):
-
-    def __init__(self, num_classes, normal_channel=False):
-        super(get_model, self).__init__()
-        if normal_channel:
-            additional_channel = 3
-        else:
-            additional_channel = 0
-        self.normal_channel = normal_channel
-        self.sa1 = PointNetSetAbstraction(npoint=512, radius=0.2, nsample=32, in_channel=6 + additional_channel, mlp=[64, 64, 128], group_all=False)
-        self.sa2 = PointNetSetAbstraction(npoint=128, radius=0.4, nsample=64, in_channel=128 + 3, mlp=[128, 128, 256], group_all=False)
-        self.sa3 = PointNetSetAbstraction(npoint=None, radius=None, nsample=None, in_channel=256 + 3, mlp=[256, 512, 1024], group_all=True)
-        self.fp3 = PointNetFeaturePropagation(in_channel=1280, mlp=[256, 256])
-        self.fp2 = PointNetFeaturePropagation(in_channel=384, mlp=[256, 128])
-        self.fp1 = PointNetFeaturePropagation(in_channel=128 + 16 + 6 + additional_channel, mlp=[128, 128, 128])
-        self.conv1 = nn.Conv1d(128, 128, 1)
-        self.bn1 = nn.BatchNorm1d(128)
-        self.drop1 = nn.Dropout(0.5)
-        self.conv2 = nn.Conv1d(128, num_classes, 1)
-
-    def forward(self, xyz, cls_label):
-        B, C, N = xyz.shape
-        if self.normal_channel:
-            l0_points = xyz
-            l0_xyz = xyz[:, :3, :]
-        else:
-            l0_points = xyz
-            l0_xyz = xyz
-        l1_xyz, l1_points = self.sa1(l0_xyz, l0_points)
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)
-        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)
-        cls_label_one_hot = cls_label.view(B, 16, 1).repeat(1, 1, N)
-        l0_points = self.fp1(l0_xyz, l1_xyz, torch.cat([cls_label_one_hot, l0_xyz, l0_points], 1), l1_points)
-        feat = F.relu(self.bn1(self.conv1(l0_points)))
-        x = self.drop1(feat)
-        x = self.conv2(x)
-        x = F.log_softmax(x, dim=1)
-        x = x.permute(0, 2, 1)
-        return x, l3_points
-
-
-class get_loss(nn.Module):
-
-    def __init__(self):
-        super(get_loss, self).__init__()
-
-    def forward(self, pred, target, trans_feat):
-        total_loss = F.nll_loss(pred, target)
-        return total_loss
-
-
-class get_model(nn.Module):
-
-    def __init__(self, num_classes):
-        super(get_model, self).__init__()
-        self.sa1 = PointNetSetAbstraction(1024, 0.1, 32, 9 + 3, [32, 32, 64], False)
-        self.sa2 = PointNetSetAbstraction(256, 0.2, 32, 64 + 3, [64, 64, 128], False)
-        self.sa3 = PointNetSetAbstraction(64, 0.4, 32, 128 + 3, [128, 128, 256], False)
-        self.sa4 = PointNetSetAbstraction(16, 0.8, 32, 256 + 3, [256, 256, 512], False)
-        self.fp4 = PointNetFeaturePropagation(768, [256, 256])
-        self.fp3 = PointNetFeaturePropagation(384, [256, 256])
-        self.fp2 = PointNetFeaturePropagation(320, [256, 128])
-        self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128])
-        self.conv1 = nn.Conv1d(128, 128, 1)
-        self.bn1 = nn.BatchNorm1d(128)
-        self.drop1 = nn.Dropout(0.5)
-        self.conv2 = nn.Conv1d(128, num_classes, 1)
-
-    def forward(self, xyz):
-        l0_points = xyz
-        l0_xyz = xyz[:, :3, :]
-        l1_xyz, l1_points = self.sa1(l0_xyz, l0_points)
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-        l4_xyz, l4_points = self.sa4(l3_xyz, l3_points)
-        l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points)
-        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)
-        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)
-        l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points)
-        x = self.drop1(F.relu(self.bn1(self.conv1(l0_points))))
-        x = self.conv2(x)
-        x = F.log_softmax(x, dim=1)
-        x = x.permute(0, 2, 1)
-        return x, l4_points
-
-
-class get_loss(nn.Module):
-
-    def __init__(self):
-        super(get_loss, self).__init__()
-
-    def forward(self, pred, target, trans_feat, weight):
-        total_loss = F.nll_loss(pred, target, weight=weight)
-        return total_loss
-
-
-class get_model(nn.Module):
-
-    def __init__(self, num_classes):
-        super(get_model, self).__init__()
-        self.sa1 = PointNetSetAbstractionMsg(1024, [0.05, 0.1], [16, 32], 9, [[16, 16, 32], [32, 32, 64]])
-        self.sa2 = PointNetSetAbstractionMsg(256, [0.1, 0.2], [16, 32], 32 + 64, [[64, 64, 128], [64, 96, 128]])
-        self.sa3 = PointNetSetAbstractionMsg(64, [0.2, 0.4], [16, 32], 128 + 128, [[128, 196, 256], [128, 196, 256]])
-        self.sa4 = PointNetSetAbstractionMsg(16, [0.4, 0.8], [16, 32], 256 + 256, [[256, 256, 512], [256, 384, 512]])
-        self.fp4 = PointNetFeaturePropagation(512 + 512 + 256 + 256, [256, 256])
-        self.fp3 = PointNetFeaturePropagation(128 + 128 + 256, [256, 256])
-        self.fp2 = PointNetFeaturePropagation(32 + 64 + 256, [256, 128])
-        self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128])
-        self.conv1 = nn.Conv1d(128, 128, 1)
-        self.bn1 = nn.BatchNorm1d(128)
-        self.drop1 = nn.Dropout(0.5)
-        self.conv2 = nn.Conv1d(128, num_classes, 1)
-
-    def forward(self, xyz):
-        l0_points = xyz
-        l0_xyz = xyz[:, :3, :]
-        l1_xyz, l1_points = self.sa1(l0_xyz, l0_points)
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
-        l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
-        l4_xyz, l4_points = self.sa4(l3_xyz, l3_points)
-        l3_points = self.fp4(l3_xyz, l4_xyz, l3_points, l4_points)
-        l2_points = self.fp3(l2_xyz, l3_xyz, l2_points, l3_points)
-        l1_points = self.fp2(l1_xyz, l2_xyz, l1_points, l2_points)
-        l0_points = self.fp1(l0_xyz, l1_xyz, None, l1_points)
-        x = self.drop1(F.relu(self.bn1(self.conv1(l0_points))))
-        x = self.conv2(x)
-        x = F.log_softmax(x, dim=1)
-        x = x.permute(0, 2, 1)
-        return x, l4_points
-
-
-class get_loss(nn.Module):
-
-    def __init__(self):
-        super(get_loss, self).__init__()
-
-    def forward(self, pred, target, trans_feat, weight):
-        total_loss = F.nll_loss(pred, target, weight=weight)
-        return total_loss
-
-
-class get_model(nn.Module):
-
-    def __init__(self, k=40, normal_channel=True):
-        super(get_model, self).__init__()
-        if normal_channel:
-            channel = 6
-        else:
-            channel = 3
-        self.feat = PointNetEncoder(global_feat=True, feature_transform=True, channel=channel)
-        self.fc1 = nn.Linear(1024, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, k)
-        self.dropout = nn.Dropout(p=0.4)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(256)
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        x, trans, trans_feat = self.feat(x)
-        x = F.relu(self.bn1(self.fc1(x)))
-        x = F.relu(self.bn2(self.dropout(self.fc2(x))))
-        x = self.fc3(x)
-        x = F.log_softmax(x, dim=1)
-        return x, trans_feat
-
-
-def feature_transform_reguliarzer(trans):
-    d = trans.size()[1]
-    I = torch.eye(d)[(None), :, :]
-    if trans.is_cuda:
-        I = I.cuda()
-    loss = torch.mean(torch.norm(torch.bmm(trans, trans.transpose(2, 1) - I), dim=(1, 2)))
-    return loss
-
-
-class get_loss(torch.nn.Module):
-
-    def __init__(self, mat_diff_loss_scale=0.001):
-        super(get_loss, self).__init__()
-        self.mat_diff_loss_scale = mat_diff_loss_scale
-
-    def forward(self, pred, target, trans_feat):
-        loss = F.nll_loss(pred, target)
-        mat_diff_loss = feature_transform_reguliarzer(trans_feat)
-        total_loss = loss + mat_diff_loss * self.mat_diff_loss_scale
-        return total_loss
-
-
-class get_model(nn.Module):
-
-    def __init__(self, part_num=50, normal_channel=True):
-        super(get_model, self).__init__()
-        if normal_channel:
-            channel = 6
-        else:
-            channel = 3
-        self.part_num = part_num
-        self.stn = STN3d(channel)
-        self.conv1 = torch.nn.Conv1d(channel, 64, 1)
-        self.conv2 = torch.nn.Conv1d(64, 128, 1)
-        self.conv3 = torch.nn.Conv1d(128, 128, 1)
-        self.conv4 = torch.nn.Conv1d(128, 512, 1)
-        self.conv5 = torch.nn.Conv1d(512, 2048, 1)
-        self.bn1 = nn.BatchNorm1d(64)
-        self.bn2 = nn.BatchNorm1d(128)
-        self.bn3 = nn.BatchNorm1d(128)
-        self.bn4 = nn.BatchNorm1d(512)
-        self.bn5 = nn.BatchNorm1d(2048)
-        self.fstn = STNkd(k=128)
-        self.convs1 = torch.nn.Conv1d(4944, 256, 1)
-        self.convs2 = torch.nn.Conv1d(256, 256, 1)
-        self.convs3 = torch.nn.Conv1d(256, 128, 1)
-        self.convs4 = torch.nn.Conv1d(128, part_num, 1)
-        self.bns1 = nn.BatchNorm1d(256)
-        self.bns2 = nn.BatchNorm1d(256)
-        self.bns3 = nn.BatchNorm1d(128)
-
-    def forward(self, point_cloud, label):
-        B, D, N = point_cloud.size()
-        trans = self.stn(point_cloud)
-        point_cloud = point_cloud.transpose(2, 1)
-        if D > 3:
-            point_cloud, feature = point_cloud.split(3, dim=2)
-        point_cloud = torch.bmm(point_cloud, trans)
-        if D > 3:
-            point_cloud = torch.cat([point_cloud, feature], dim=2)
-        point_cloud = point_cloud.transpose(2, 1)
-        out1 = F.relu(self.bn1(self.conv1(point_cloud)))
-        out2 = F.relu(self.bn2(self.conv2(out1)))
-        out3 = F.relu(self.bn3(self.conv3(out2)))
-        trans_feat = self.fstn(out3)
-        x = out3.transpose(2, 1)
-        net_transformed = torch.bmm(x, trans_feat)
-        net_transformed = net_transformed.transpose(2, 1)
-        out4 = F.relu(self.bn4(self.conv4(net_transformed)))
-        out5 = self.bn5(self.conv5(out4))
-        out_max = torch.max(out5, 2, keepdim=True)[0]
-        out_max = out_max.view(-1, 2048)
-        out_max = torch.cat([out_max, label.squeeze(1)], 1)
-        expand = out_max.view(-1, 2048 + 16, 1).repeat(1, 1, N)
-        concat = torch.cat([expand, out1, out2, out3, out4, out5], 1)
-        net = F.relu(self.bns1(self.convs1(concat)))
-        net = F.relu(self.bns2(self.convs2(net)))
-        net = F.relu(self.bns3(self.convs3(net)))
-        net = self.convs4(net)
-        net = net.transpose(2, 1).contiguous()
-        net = F.log_softmax(net.view(-1, self.part_num), dim=-1)
-        net = net.view(B, N, self.part_num)
-        return net, trans_feat
-
-
-class get_loss(torch.nn.Module):
-
-    def __init__(self, mat_diff_loss_scale=0.001):
-        super(get_loss, self).__init__()
-        self.mat_diff_loss_scale = mat_diff_loss_scale
-
-    def forward(self, pred, target, trans_feat):
-        loss = F.nll_loss(pred, target)
-        mat_diff_loss = feature_transform_reguliarzer(trans_feat)
-        total_loss = loss + mat_diff_loss * self.mat_diff_loss_scale
-        return total_loss
-
-
-class get_model(nn.Module):
-
     def __init__(self, num_class, with_rgb=True):
         super(get_model, self).__init__()
         if with_rgb:
@@ -635,6 +232,15 @@ class get_model(nn.Module):
         return x, trans_feat
 
 
+def feature_transform_reguliarzer(trans):
+    d = trans.size()[1]
+    I = torch.eye(d)[(None), :, :]
+    if trans.is_cuda:
+        I = I
+    loss = torch.mean(torch.norm(torch.bmm(trans, trans.transpose(2, 1) - I), dim=(1, 2)))
+    return loss
+
+
 class get_loss(torch.nn.Module):
 
     def __init__(self, mat_diff_loss_scale=0.001):
@@ -658,10 +264,10 @@ def farthest_point_sample(xyz, npoint):
     """
     device = xyz.device
     B, N, C = xyz.shape
-    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
-    distance = torch.ones(B, N).to(device) * 10000000000.0
-    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
-    batch_indices = torch.arange(B, dtype=torch.long).to(device)
+    centroids = torch.zeros(B, npoint, dtype=torch.long)
+    distance = torch.ones(B, N) * 10000000000.0
+    farthest = torch.randint(0, N, (B,), dtype=torch.long)
+    batch_indices = torch.arange(B, dtype=torch.long)
     for i in range(npoint):
         centroids[:, (i)] = farthest
         centroid = xyz[(batch_indices), (farthest), :].view(B, 1, 3)
@@ -687,7 +293,7 @@ def index_points(points, idx):
     view_shape[1:] = [1] * (len(view_shape) - 1)
     repeat_shape = list(idx.shape)
     repeat_shape[0] = 1
-    batch_indices = torch.arange(B, dtype=torch.long).to(device).view(view_shape).repeat(repeat_shape)
+    batch_indices = torch.arange(B, dtype=torch.long).view(view_shape).repeat(repeat_shape)
     new_points = points[(batch_indices), (idx), :]
     return new_points
 
@@ -729,7 +335,7 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     device = xyz.device
     B, N, C = xyz.shape
     _, S, _ = new_xyz.shape
-    group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
+    group_idx = torch.arange(N, dtype=torch.long).view(1, 1, N).repeat([B, S, 1])
     sqrdists = square_distance(new_xyz, xyz)
     group_idx[sqrdists > radius ** 2] = N
     group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
@@ -785,7 +391,7 @@ def sample_and_group_all(xyz, points):
     """
     device = xyz.device
     B, N, C = xyz.shape
-    new_xyz = torch.zeros(B, 1, C).to(device)
+    new_xyz = torch.zeros(B, 1, C)
     grouped_xyz = xyz.view(B, 1, N, C)
     if points is not None:
         new_points = torch.cat([grouped_xyz, points.view(B, 1, N, -1)], dim=-1)

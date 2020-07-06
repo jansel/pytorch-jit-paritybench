@@ -11,15 +11,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -27,25 +28,31 @@ __version__ = '1.0.0'
 import torch
 
 
-import torch.autograd as autograd
+import time
 
 
 from torch.autograd import Variable
+
+
+import re
+
+
+import string
+
+
+import random
+
+
+import numpy as np
+
+
+import torch.autograd as autograd
 
 
 import itertools
 
 
 from collections import OrderedDict
-
-
-import time
-
-
-import re
-
-
-import numpy as np
 
 
 import torch.nn as nn
@@ -124,7 +131,7 @@ def char_mapping(sentences):
     dico = create_dico(chars)
     dico['<PAD>'] = 10000000
     char_to_id, id_to_char = create_mapping(dico)
-    print('Found %i unique characters' % len(dico))
+    None
     return dico, char_to_id, id_to_char
 
 
@@ -138,7 +145,7 @@ def augment_with_pretrained(dictionary, ext_emb_path, words):
     to the dictionary, otherwise, we only add the words that are given by
     `words` (typically the words in the development and test sets.)
     """
-    print('Loading pretrained embeddings from %s...' % ext_emb_path)
+    None
     assert os.path.isfile(ext_emb_path)
     pretrained = set([line.rstrip().split()[0].strip() for line in codecs.open(ext_emb_path, 'r', 'utf-8') if len(ext_emb_path) > 0])
     if words is None:
@@ -163,7 +170,7 @@ def word_mapping(sentences, lower):
     dico['<UNK>'] = 10000000
     dico = {k: v for k, v in dico.items() if v >= 3}
     word_to_id, id_to_word = create_mapping(dico)
-    print('Found %i unique words (%i in total)' % (len(dico), sum(len(x) for x in words)))
+    None
     return dico, word_to_id, id_to_word
 
 
@@ -176,7 +183,7 @@ def tag_mapping(sentences):
     dico[model.START_TAG] = -1
     dico[model.STOP_TAG] = -2
     tag_to_id, id_to_tag = create_mapping(dico)
-    print('Found %i unique named entity tags' % len(dico))
+    None
     return dico, tag_to_id, id_to_tag
 
 
@@ -216,7 +223,7 @@ def eval(model, datas, maxl=1):
         dwords = Variable(torch.LongTensor(data['words']))
         dcaps = Variable(torch.LongTensor(caps))
         if use_gpu:
-            val, out = model(dwords.cuda(), chars2_mask.cuda(), dcaps.cuda(), chars2_length, d)
+            val, out = model(dwords, chars2_mask, dcaps, chars2_length, d)
         else:
             val, out = model(dwords, chars2_mask, dcaps, chars2_length, d)
         predicted_id = out
@@ -232,10 +239,10 @@ def eval(model, datas, maxl=1):
     os.system('%s < %s > %s' % (eval_script, predf, scoref))
     with open(scoref, 'rb') as f:
         for l in f.readlines():
-            print(l.strip())
-    print(('{: >2}{: >7}{: >7}%s{: >9}' % ('{: >7}' * confusion_matrix.size(0))).format('ID', 'NE', 'Total', *([id_to_tag[i] for i in range(confusion_matrix.size(0))] + ['Percent'])))
+            None
+    None
     for i in range(confusion_matrix.size(0)):
-        print(('{: >2}{: >7}{: >7}%s{: >9}' % ('{: >7}' * confusion_matrix.size(0))).format(str(i), id_to_tag[i], str(confusion_matrix[i].sum()), *([confusion_matrix[i][j] for j in range(confusion_matrix.size(0))] + ['%.3f' % (confusion_matrix[i][i] * 100.0 / max(1, confusion_matrix[i].sum()))])))
+        None
 
 
 def init_lstm(input_lstm):

@@ -22,15 +22,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -57,6 +58,12 @@ from torch.nn.modules.utils import _pair
 
 
 from scipy.special import binom
+
+
+import torchvision
+
+
+import torchvision.transforms as transforms
 
 
 import time
@@ -112,6 +119,157 @@ class CurveModule(Module):
             if w_t[i] is not None:
                 self.l2 += torch.sum(w_t[i] ** 2)
         return w_t
+
+
+class Linear(CurveModule):
+
+    def __init__(self, in_features, out_features, fix_points, bias=True):
+        super(Linear, self).__init__(fix_points, ('weight', 'bias'))
+        self.in_features = in_features
+        self.out_features = out_features
+        self.l2 = 0.0
+        for i, fixed in enumerate(self.fix_points):
+            self.register_parameter('weight_%d' % i, Parameter(torch.Tensor(out_features, in_features), requires_grad=not fixed))
+        for i, fixed in enumerate(self.fix_points):
+            if bias:
+                self.register_parameter('bias_%d' % i, Parameter(torch.Tensor(out_features), requires_grad=not fixed))
+            else:
+                self.register_parameter('bias_%d' % i, None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        stdv = 1.0 / math.sqrt(self.in_features)
+        for i in range(self.num_bends):
+            getattr(self, 'weight_%d' % i).data.uniform_(-stdv, stdv)
+            bias = getattr(self, 'bias_%d' % i)
+            if bias is not None:
+                bias.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, coeffs_t):
+        weight_t, bias_t = self.compute_weights_t(coeffs_t)
+        return F.linear(input, weight_t, bias_t)
+
+
+class Conv2d(CurveModule):
+
+    def __init__(self, in_channels, out_channels, kernel_size, fix_points, stride=1, padding=0, dilation=1, groups=1, bias=True):
+        super(Conv2d, self).__init__(fix_points, ('weight', 'bias'))
+        if in_channels % groups != 0:
+            raise ValueError('in_channels must be divisible by groups')
+        if out_channels % groups != 0:
+            raise ValueError('out_channels must be divisible by groups')
+        kernel_size = _pair(kernel_size)
+        stride = _pair(stride)
+        padding = _pair(padding)
+        dilation = _pair(dilation)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.groups = groups
+        for i, fixed in enumerate(self.fix_points):
+            self.register_parameter('weight_%d' % i, Parameter(torch.Tensor(out_channels, in_channels // groups, *kernel_size), requires_grad=not fixed))
+        for i, fixed in enumerate(self.fix_points):
+            if bias:
+                self.register_parameter('bias_%d' % i, Parameter(torch.Tensor(out_channels), requires_grad=not fixed))
+            else:
+                self.register_parameter('bias_%d' % i, None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        n = self.in_channels
+        for k in self.kernel_size:
+            n *= k
+        stdv = 1.0 / math.sqrt(n)
+        for i in range(self.num_bends):
+            getattr(self, 'weight_%d' % i).data.uniform_(-stdv, stdv)
+            bias = getattr(self, 'bias_%d' % i)
+            if bias is not None:
+                bias.data.uniform_(-stdv, stdv)
+
+    def forward(self, input, coeffs_t):
+        weight_t, bias_t = self.compute_weights_t(coeffs_t)
+        return F.conv2d(input, weight_t, bias_t, self.stride, self.padding, self.dilation, self.groups)
+
+
+class _BatchNorm(CurveModule):
+    _version = 2
+
+    def __init__(self, num_features, fix_points, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
+        super(_BatchNorm, self).__init__(fix_points, ('weight', 'bias'))
+        self.num_features = num_features
+        self.eps = eps
+        self.momentum = momentum
+        self.affine = affine
+        self.track_running_stats = track_running_stats
+        self.l2 = 0.0
+        for i, fixed in enumerate(self.fix_points):
+            if self.affine:
+                self.register_parameter('weight_%d' % i, Parameter(torch.Tensor(num_features), requires_grad=not fixed))
+            else:
+                self.register_parameter('weight_%d' % i, None)
+        for i, fixed in enumerate(self.fix_points):
+            if self.affine:
+                self.register_parameter('bias_%d' % i, Parameter(torch.Tensor(num_features), requires_grad=not fixed))
+            else:
+                self.register_parameter('bias_%d' % i, None)
+        if self.track_running_stats:
+            self.register_buffer('running_mean', torch.zeros(num_features))
+            self.register_buffer('running_var', torch.ones(num_features))
+            self.register_buffer('num_batches_tracked', torch.tensor(0, dtype=torch.long))
+        else:
+            self.register_parameter('running_mean', None)
+            self.register_parameter('running_var', None)
+            self.register_parameter('num_batches_tracked', None)
+        self.reset_parameters()
+
+    def reset_running_stats(self):
+        if self.track_running_stats:
+            self.running_mean.zero_()
+            self.running_var.fill_(1)
+            self.num_batches_tracked.zero_()
+
+    def reset_parameters(self):
+        self.reset_running_stats()
+        if self.affine:
+            for i in range(self.num_bends):
+                getattr(self, 'weight_%d' % i).data.uniform_()
+                getattr(self, 'bias_%d' % i).data.zero_()
+
+    def _check_input_dim(self, input):
+        raise NotImplementedError
+
+    def forward(self, input, coeffs_t):
+        self._check_input_dim(input)
+        exponential_average_factor = 0.0
+        if self.training and self.track_running_stats:
+            self.num_batches_tracked += 1
+            if self.momentum is None:
+                exponential_average_factor = 1.0 / self.num_batches_tracked.item()
+            else:
+                exponential_average_factor = self.momentum
+        weight_t, bias_t = self.compute_weights_t(coeffs_t)
+        return F.batch_norm(input, self.running_mean, self.running_var, weight_t, bias_t, self.training or not self.track_running_stats, exponential_average_factor, self.eps)
+
+    def extra_repr(self):
+        return '{num_features}, eps={eps}, momentum={momentum}, affine={affine}, track_running_stats={track_running_stats}'.format(**self.__dict__)
+
+    def _load_from_state_dict(self, state_dict, prefix, metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        version = metadata.get('version', None)
+        if (version is None or version < 2) and self.track_running_stats:
+            num_batches_tracked_key = prefix + 'num_batches_tracked'
+            if num_batches_tracked_key not in state_dict:
+                state_dict[num_batches_tracked_key] = torch.tensor(0, dtype=torch.long)
+        super(_BatchNorm, self)._load_from_state_dict(state_dict, prefix, metadata, strict, missing_keys, unexpected_keys, error_msgs)
+
+
+class BatchNorm2d(_BatchNorm):
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
 
 
 class CurveNet(Module):

@@ -93,12 +93,17 @@ tensorflow = _module
 gloo_exec_fn = _module
 mpirun_exec_fn = _module
 task_info = _module
-torch = _module
+estimator = _module
+remote = _module
 util = _module
 compression = _module
 functions = _module
+compression = _module
+elastic = _module
+functions = _module
 mpi_lib = _module
 mpi_lib_impl = _module
+mpi_ops = _module
 optimizer = _module
 sync_batch_norm = _module
 setup = _module
@@ -136,15 +141,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -191,63 +197,49 @@ import math
 import warnings
 
 
+import logging
+
+
+import re
+
+
+import copy
+
+
+import numbers
+
+
+import time
+
+
+import torch.utils.data
+
+
+from torch.utils.tensorboard import SummaryWriter
+
+
+import collections
+
+
+from collections.abc import Iterable
+
+
 from torch.autograd.function import Function
 
 
 from torch.nn.modules.batchnorm import _BatchNorm
 
 
-import time
+from copy import deepcopy
+
+
+import itertools
 
 
 from torch.nn import functional as F
 
 
 import inspect
-
-
-import itertools
-
-
-from collections.abc import Iterable
-
-
-class Net(torch.nn.Module):
-
-    def __init__(self, mode='sq'):
-        super(Net, self).__init__()
-        if mode == 'square':
-            self.mode = 0
-            self.param = torch.nn.Parameter(torch.FloatTensor([1.0, -1.0]))
-        else:
-            self.mode = 1
-            self.param = torch.nn.Parameter(torch.FloatTensor([1.0, -1.0, 1.0]))
-
-    def forward(self, x):
-        if ~self.mode:
-            return x * x + self.param[0] * x + self.param[1]
-        else:
-            return 10 * x * x * x + self.param[0] * x * x + self.param[1] * x + self.param[2]
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x)
 
 
 class Net(nn.Module):
@@ -350,11 +342,8 @@ def _check_extension_lambda(ext_base_name, fn, fn_desc, verbose):
     """
 
     def _target_fn(ext_base_name, fn, fn_desc, queue, verbose):
-        import importlib
-        import sys
-        import traceback
         if verbose:
-            print('Checking whether extension {ext_base_name} was {fn_desc}.'.format(ext_base_name=ext_base_name, fn_desc=fn_desc))
+            None
         else:
             sys.stdout = open(os.devnull, 'w')
             sys.stderr = open(os.devnull, 'w')
@@ -365,7 +354,7 @@ def _check_extension_lambda(ext_base_name, fn, fn_desc, verbose):
             traceback.print_exc()
             result = None
         if verbose:
-            print('Extension {ext_base_name} {flag} {fn_desc}.'.format(ext_base_name=ext_base_name, flag='was' if result else 'was NOT', fn_desc=fn_desc))
+            None
         queue.put(result)
     ctx = multiprocessing.get_context('fork')
     queue = ctx.Queue()
@@ -380,19 +369,6 @@ def _check_extension_lambda(ext_base_name, fn, fn_desc, verbose):
 def gpu_available(ext_base_name, verbose=False):
     available_fn = lambda ext: ext._check_has_gpu()
     return _check_extension_lambda(ext_base_name, available_fn, 'running with GPU', verbose) or False
-
-
-EXTENSIONS = ['tensorflow', 'torch', 'mxnet']
-
-
-@_cache
-def nccl_built(verbose=False):
-    for ext_base_name in EXTENSIONS:
-        built_fn = lambda ext: ext.nccl_built()
-        result = _check_extension_lambda(ext_base_name, built_fn, 'built with NCCL', verbose)
-        if result is not None:
-            return result
-    raise RuntimeError('Failed to determine if NCCL support has been built. Run again with --verbose for more details.')
 
 
 def num_rank_is_power_2(num_rank):
@@ -524,7 +500,7 @@ class _SyncBatchNorm(Function):
         mean_all = synchronize(mean_handle)
         invstd_all = synchronize(invstd_handle)
         if _SYNC_BN_V2:
-            counts_for_bngswc = count_all.view(-1).float().to(input.device)
+            counts_for_bngswc = count_all.view(-1).float()
         else:
             counts_for_bngswc = count_all.view(-1).tolist()
         mean, invstd = torch.batch_norm_gather_stats_with_counts(input, mean_all, invstd_all, running_mean, running_var, momentum, eps, counts_for_bngswc)

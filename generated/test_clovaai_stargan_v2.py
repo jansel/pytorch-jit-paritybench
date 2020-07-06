@@ -18,29 +18,48 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+from itertools import chain
+
+
+import random
+
+
+import numpy as np
+
+
+from torch.utils import data
+
+
+from torch.utils.data.sampler import WeightedRandomSampler
+
+
+from torchvision import transforms
+
+
+from torchvision.datasets import ImageFolder
 
 
 import copy
 
 
 import math
-
-
-import numpy as np
-
-
-import torch
 
 
 import torch.nn as nn
@@ -65,6 +84,12 @@ from copy import deepcopy
 
 
 from functools import partial
+
+
+from torch.backends import cudnn
+
+
+from collections import OrderedDict
 
 
 from torchvision import models
@@ -207,7 +232,7 @@ class Generator(nn.Module):
             self.encode.append(ResBlk(dim_out, dim_out, normalize=True))
             self.decode.insert(0, AdainResBlk(dim_out, dim_out, style_dim, w_hpf=w_hpf))
         if w_hpf > 0:
-            device = torch.device('cuda' if torch.is_available() else 'cpu')
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             self.hpf = HighPass(w_hpf, device)
 
     def forward(self, x, s, masks=None):
@@ -322,7 +347,7 @@ class CheckpointIO(object):
 
     def save(self, step):
         fname = self.fname_template.format(step)
-        print('Saving checkpoint into %s...' % fname)
+        None
         outdict = {}
         for name, module in self.module_dict.items():
             outdict[name] = module.state_dict()
@@ -331,7 +356,7 @@ class CheckpointIO(object):
     def load(self, step):
         fname = self.fname_template.format(step)
         assert os.path.exists(fname), fname + ' does not exist!'
-        print('Loading checkpoint from %s...' % fname)
+        None
         if torch.cuda.is_available():
             module_dict = torch.load(fname)
         else:
@@ -379,7 +404,292 @@ class InputFetcher:
             inputs = Munch(x=x, y=y)
         else:
             raise NotImplementedError
-        return Munch({k: v.to(self.device) for k, v in inputs.items()})
+        return Munch({k: v for k, v in inputs.items()})
+
+
+class ConvBlock(nn.Module):
+
+    def __init__(self, in_planes, out_planes):
+        super(ConvBlock, self).__init__()
+        self.bn1 = nn.BatchNorm2d(in_planes)
+        conv3x3 = partial(nn.Conv2d, kernel_size=3, stride=1, padding=1, bias=False, dilation=1)
+        self.conv1 = conv3x3(in_planes, int(out_planes / 2))
+        self.bn2 = nn.BatchNorm2d(int(out_planes / 2))
+        self.conv2 = conv3x3(int(out_planes / 2), int(out_planes / 4))
+        self.bn3 = nn.BatchNorm2d(int(out_planes / 4))
+        self.conv3 = conv3x3(int(out_planes / 4), int(out_planes / 4))
+        self.downsample = None
+        if in_planes != out_planes:
+            self.downsample = nn.Sequential(nn.BatchNorm2d(in_planes), nn.ReLU(True), nn.Conv2d(in_planes, out_planes, 1, 1, bias=False))
+
+    def forward(self, x):
+        residual = x
+        out1 = self.bn1(x)
+        out1 = F.relu(out1, True)
+        out1 = self.conv1(out1)
+        out2 = self.bn2(out1)
+        out2 = F.relu(out2, True)
+        out2 = self.conv2(out2)
+        out3 = self.bn3(out2)
+        out3 = F.relu(out3, True)
+        out3 = self.conv3(out3)
+        out3 = torch.cat((out1, out2, out3), 1)
+        if self.downsample is not None:
+            residual = self.downsample(residual)
+        out3 += residual
+        return out3
+
+
+class AddCoordsTh(nn.Module):
+
+    def __init__(self, height=64, width=64, with_r=False, with_boundary=False):
+        super(AddCoordsTh, self).__init__()
+        self.with_r = with_r
+        self.with_boundary = with_boundary
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        with torch.no_grad():
+            x_coords = torch.arange(height).unsqueeze(1).expand(height, width).float()
+            y_coords = torch.arange(width).unsqueeze(0).expand(height, width).float()
+            x_coords = x_coords / (height - 1) * 2 - 1
+            y_coords = y_coords / (width - 1) * 2 - 1
+            coords = torch.stack([x_coords, y_coords], dim=0)
+            if self.with_r:
+                rr = torch.sqrt(torch.pow(x_coords, 2) + torch.pow(y_coords, 2))
+                rr = (rr / torch.max(rr)).unsqueeze(0)
+                coords = torch.cat([coords, rr], dim=0)
+            self.coords = coords.unsqueeze(0)
+            self.x_coords = x_coords
+            self.y_coords = y_coords
+
+    def forward(self, x, heatmap=None):
+        """
+        x: (batch, c, x_dim, y_dim)
+        """
+        coords = self.coords.repeat(x.size(0), 1, 1, 1)
+        if self.with_boundary and heatmap is not None:
+            boundary_channel = torch.clamp(heatmap[:, -1:, :, :], 0.0, 1.0)
+            zero_tensor = torch.zeros_like(self.x_coords)
+            xx_boundary_channel = torch.where(boundary_channel > 0.05, self.x_coords, zero_tensor)
+            yy_boundary_channel = torch.where(boundary_channel > 0.05, self.y_coords, zero_tensor)
+            coords = torch.cat([coords, xx_boundary_channel, yy_boundary_channel], dim=1)
+        x_and_coords = torch.cat([x, coords], dim=1)
+        return x_and_coords
+
+
+class CoordConvTh(nn.Module):
+    """CoordConv layer as in the paper."""
+
+    def __init__(self, height, width, with_r, with_boundary, in_channels, first_one=False, *args, **kwargs):
+        super(CoordConvTh, self).__init__()
+        self.addcoords = AddCoordsTh(height, width, with_r, with_boundary)
+        in_channels += 2
+        if with_r:
+            in_channels += 1
+        if with_boundary and not first_one:
+            in_channels += 2
+        self.conv = nn.Conv2d(*args, in_channels=in_channels, **kwargs)
+
+    def forward(self, input_tensor, heatmap=None):
+        ret = self.addcoords(input_tensor, heatmap)
+        last_channel = ret[:, -2:, :, :]
+        ret = self.conv(ret)
+        return ret, last_channel
+
+
+class HourGlass(nn.Module):
+
+    def __init__(self, num_modules, depth, num_features, first_one=False):
+        super(HourGlass, self).__init__()
+        self.num_modules = num_modules
+        self.depth = depth
+        self.features = num_features
+        self.coordconv = CoordConvTh(64, 64, True, True, 256, first_one, out_channels=256, kernel_size=1, stride=1, padding=0)
+        self._generate_network(self.depth)
+
+    def _generate_network(self, level):
+        self.add_module('b1_' + str(level), ConvBlock(256, 256))
+        self.add_module('b2_' + str(level), ConvBlock(256, 256))
+        if level > 1:
+            self._generate_network(level - 1)
+        else:
+            self.add_module('b2_plus_' + str(level), ConvBlock(256, 256))
+        self.add_module('b3_' + str(level), ConvBlock(256, 256))
+
+    def _forward(self, level, inp):
+        up1 = inp
+        up1 = self._modules['b1_' + str(level)](up1)
+        low1 = F.avg_pool2d(inp, 2, stride=2)
+        low1 = self._modules['b2_' + str(level)](low1)
+        if level > 1:
+            low2 = self._forward(level - 1, low1)
+        else:
+            low2 = low1
+            low2 = self._modules['b2_plus_' + str(level)](low2)
+        low3 = low2
+        low3 = self._modules['b3_' + str(level)](low3)
+        up2 = F.interpolate(low3, scale_factor=2, mode='nearest')
+        return up1 + up2
+
+    def forward(self, x, heatmap):
+        x, last_channel = self.coordconv(x, heatmap)
+        return self._forward(self.depth, x), last_channel
+
+
+def get_preds_fromhm(hm):
+    max, idx = torch.max(hm.view(hm.size(0), hm.size(1), hm.size(2) * hm.size(3)), 2)
+    idx += 1
+    preds = idx.view(idx.size(0), idx.size(1), 1).repeat(1, 1, 2).float()
+    preds[..., 0].apply_(lambda x: (x - 1) % hm.size(3) + 1)
+    preds[..., 1].add_(-1).div_(hm.size(2)).floor_().add_(1)
+    for i in range(preds.size(0)):
+        for j in range(preds.size(1)):
+            hm_ = hm[(i), (j), :]
+            pX, pY = int(preds[i, j, 0]) - 1, int(preds[i, j, 1]) - 1
+            if pX > 0 and pX < 63 and pY > 0 and pY < 63:
+                diff = torch.FloatTensor([hm_[pY, pX + 1] - hm_[pY, pX - 1], hm_[pY + 1, pX] - hm_[pY - 1, pX]])
+                preds[i, j].add_(diff.sign_().mul_(0.25))
+    preds.add_(-0.5)
+    return preds
+
+
+OPPAIR = namedtuple('OPPAIR', 'shift resize')
+
+
+IDXPAIR = namedtuple('IDXPAIR', 'start end')
+
+
+def normalize(x, eps=1e-10):
+    return x * torch.rsqrt(torch.sum(x ** 2, dim=1, keepdim=True) + eps)
+
+
+def resize(x, p=2):
+    """Resize heatmaps."""
+    return x ** p
+
+
+def shift(x, N):
+    """Shift N pixels up or down."""
+    up = N >= 0
+    N = abs(N)
+    _, _, H, W = x.size()
+    head = torch.arange(N)
+    tail = torch.arange(H - N)
+    if up:
+        head = torch.arange(H - N) + N
+        tail = torch.arange(N)
+    else:
+        head = torch.arange(N) + (H - N)
+        tail = torch.arange(H - N)
+    perm = torch.cat([head, tail])
+    out = x[:, :, (perm), :]
+    return out
+
+
+def truncate(x, thres=0.1):
+    """Remove small values in heatmaps."""
+    return torch.where(x < thres, torch.zeros_like(x), x)
+
+
+def preprocess(x):
+    """Preprocess 98-dimensional heatmaps."""
+    N, C, H, W = x.size()
+    x = truncate(x)
+    x = normalize(x)
+    sw = H // 256
+    operations = Munch(chin=OPPAIR(0, 3), eyebrows=OPPAIR(-7 * sw, 2), nostrils=OPPAIR(8 * sw, 4), lipupper=OPPAIR(-8 * sw, 4), liplower=OPPAIR(8 * sw, 4), lipinner=OPPAIR(-2 * sw, 3))
+    for part, ops in operations.items():
+        start, end = index_map[part]
+        x[:, start:end] = resize(shift(x[:, start:end], ops.shift), ops.resize)
+    zero_out = torch.cat([torch.arange(0, index_map.chin.start), torch.arange(index_map.chin.end, 33), torch.LongTensor([index_map.eyebrowsedges.start, index_map.eyebrowsedges.end, index_map.lipedges.start, index_map.lipedges.end])])
+    x[:, (zero_out)] = 0
+    start, end = index_map.nose
+    x[:, start + 1:end] = shift(x[:, start + 1:end], 4 * sw)
+    x[:, start:end] = resize(x[:, start:end], 1)
+    start, end = index_map.eyes
+    x[:, start:end] = resize(x[:, start:end], 1)
+    x[:, start:end] = resize(shift(x[:, start:end], -8), 3) + shift(x[:, start:end], -24)
+    x2 = deepcopy(x)
+    x2[:, index_map.chin.start:index_map.chin.end] = 0
+    x2[:, index_map.lipedges.start:index_map.lipinner.end] = 0
+    x2[:, index_map.eyebrows.start:index_map.eyebrows.end] = 0
+    x = torch.sum(x, dim=1, keepdim=True)
+    x2 = torch.sum(x2, dim=1, keepdim=True)
+    x[x != x] = 0
+    x2[x != x] = 0
+    return x.clamp_(0, 1), x2.clamp_(0, 1)
+
+
+class FAN(nn.Module):
+
+    def __init__(self, num_modules=1, end_relu=False, num_landmarks=98, fname_pretrained=None):
+        super(FAN, self).__init__()
+        self.num_modules = num_modules
+        self.end_relu = end_relu
+        self.conv1 = CoordConvTh(256, 256, True, False, in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.conv2 = ConvBlock(64, 128)
+        self.conv3 = ConvBlock(128, 128)
+        self.conv4 = ConvBlock(128, 256)
+        self.add_module('m0', HourGlass(1, 4, 256, first_one=True))
+        self.add_module('top_m_0', ConvBlock(256, 256))
+        self.add_module('conv_last0', nn.Conv2d(256, 256, 1, 1, 0))
+        self.add_module('bn_end0', nn.BatchNorm2d(256))
+        self.add_module('l0', nn.Conv2d(256, num_landmarks + 1, 1, 1, 0))
+        if fname_pretrained is not None:
+            self.load_pretrained_weights(fname_pretrained)
+
+    def load_pretrained_weights(self, fname):
+        if torch.cuda.is_available():
+            checkpoint = torch.load(fname)
+        else:
+            checkpoint = torch.load(fname, map_location=torch.device('cpu'))
+        model_weights = self.state_dict()
+        model_weights.update({k: v for k, v in checkpoint['state_dict'].items() if k in model_weights})
+        self.load_state_dict(model_weights)
+
+    def forward(self, x):
+        x, _ = self.conv1(x)
+        x = F.relu(self.bn1(x), True)
+        x = F.avg_pool2d(self.conv2(x), 2, stride=2)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        outputs = []
+        boundary_channels = []
+        tmp_out = None
+        ll, boundary_channel = self._modules['m0'](x, tmp_out)
+        ll = self._modules['top_m_0'](ll)
+        ll = F.relu(self._modules['bn_end0'](self._modules['conv_last0'](ll)), True)
+        tmp_out = self._modules['l0'](ll)
+        if self.end_relu:
+            tmp_out = F.relu(tmp_out)
+        outputs.append(tmp_out)
+        boundary_channels.append(boundary_channel)
+        return outputs, boundary_channels
+
+    @torch.no_grad()
+    def get_heatmap(self, x, b_preprocess=True):
+        """ outputs 0-1 normalized heatmap """
+        x = F.interpolate(x, size=256, mode='bilinear')
+        x_01 = x * 0.5 + 0.5
+        outputs, _ = self(x_01)
+        heatmaps = outputs[-1][:, :-1, :, :]
+        scale_factor = x.size(2) // heatmaps.size(2)
+        if b_preprocess:
+            heatmaps = F.interpolate(heatmaps, scale_factor=scale_factor, mode='bilinear', align_corners=True)
+            heatmaps = preprocess(heatmaps)
+        return heatmaps
+
+    @torch.no_grad()
+    def get_landmark(self, x):
+        """ outputs landmarks of x.shape """
+        heatmaps = self.get_heatmap(x, b_preprocess=False)
+        landmarks = []
+        for i in range(x.size(0)):
+            pred_landmarks = get_preds_fromhm(heatmaps[i].cpu().unsqueeze(0))
+            landmarks.append(pred_landmarks)
+        scale_factor = x.size(2) // heatmaps.size(2)
+        landmarks = torch.cat(landmarks) * scale_factor
+        return landmarks
 
 
 def build_model(args):
@@ -399,6 +709,24 @@ def build_model(args):
     return nets, nets_ema
 
 
+class InceptionV3(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        inception = models.inception_v3(pretrained=True)
+        self.block1 = nn.Sequential(inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3, inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2))
+        self.block2 = nn.Sequential(inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2))
+        self.block3 = nn.Sequential(inception.Mixed_5b, inception.Mixed_5c, inception.Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception.Mixed_6c, inception.Mixed_6d, inception.Mixed_6e)
+        self.block4 = nn.Sequential(inception.Mixed_7a, inception.Mixed_7b, inception.Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1)))
+
+    def forward(self, x):
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.block3(x)
+        x = self.block4(x)
+        return x.view(x.size(0), -1)
+
+
 def frechet_distance(mu, cov, mu2, cov2):
     cc, _ = linalg.sqrtm(np.dot(cov, cov2), disp=False)
     dist = np.sum((mu - mu2) ** 2) + np.trace(cov + cov2 - 2 * cc)
@@ -410,8 +738,27 @@ def listdir(dname):
     return fnames
 
 
+class DefaultDataset(data.Dataset):
+
+    def __init__(self, root, transform=None):
+        self.samples = listdir(root)
+        self.samples.sort()
+        self.transform = transform
+        self.targets = None
+
+    def __getitem__(self, index):
+        fname = self.samples[index]
+        img = Image.open(fname).convert('RGB')
+        if self.transform is not None:
+            img = self.transform(img)
+        return img
+
+    def __len__(self):
+        return len(self.samples)
+
+
 def get_eval_loader(root, img_size=256, batch_size=32, imagenet_normalize=True, shuffle=True, num_workers=4, drop_last=False):
-    print('Preparing DataLoader for the evaluation phase...')
+    None
     if imagenet_normalize:
         height, width = 299, 299
         mean = [0.485, 0.456, 0.406]
@@ -427,15 +774,15 @@ def get_eval_loader(root, img_size=256, batch_size=32, imagenet_normalize=True, 
 
 @torch.no_grad()
 def calculate_fid_given_paths(paths, img_size=256, batch_size=50):
-    print('Calculating FID given paths %s and %s...' % (paths[0], paths[1]))
+    None
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    inception = InceptionV3().eval().to(device)
+    inception = InceptionV3().eval()
     loaders = [get_eval_loader(path, img_size, batch_size) for path in paths]
     mu, cov = [], []
     for loader in loaders:
         actvs = []
         for x in tqdm(loader, total=len(loader)):
-            actv = inception(x.to(device))
+            actv = inception(x)
             actvs.append(actv)
         actvs = torch.cat(actvs, dim=0).cpu().detach().numpy()
         mu.append(np.mean(actvs, axis=0))
@@ -445,7 +792,7 @@ def calculate_fid_given_paths(paths, img_size=256, batch_size=50):
 
 
 def calculate_fid_for_all_tasks(args, domains, step, mode):
-    print('Calculating FID for all tasks...')
+    None
     fid_values = OrderedDict()
     for trg_domain in domains:
         src_domains = [x for x in domains if x != trg_domain]
@@ -453,7 +800,7 @@ def calculate_fid_for_all_tasks(args, domains, step, mode):
             task = '%s2%s' % (src_domain, trg_domain)
             path_real = os.path.join(args.train_img_dir, trg_domain)
             path_fake = os.path.join(args.eval_dir, task)
-            print('Calculating FID for %s...' % task)
+            None
             fid_value = calculate_fid_given_paths(paths=[path_real, path_fake], img_size=args.img_size, batch_size=args.val_batch_size)
             fid_values['FID_%s/%s' % (mode, task)] = fid_value
     fid_mean = 0
@@ -464,10 +811,74 @@ def calculate_fid_for_all_tasks(args, domains, step, mode):
     utils.save_json(fid_values, filename)
 
 
+class AlexNet(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.layers = models.alexnet(pretrained=True).features
+        self.channels = []
+        for layer in self.layers:
+            if isinstance(layer, nn.Conv2d):
+                self.channels.append(layer.out_channels)
+
+    def forward(self, x):
+        fmaps = []
+        for layer in self.layers:
+            x = layer(x)
+            if isinstance(layer, nn.ReLU):
+                fmaps.append(x)
+        return fmaps
+
+
+class Conv1x1(nn.Module):
+
+    def __init__(self, in_channels, out_channels=1):
+        super().__init__()
+        self.main = nn.Sequential(nn.Dropout(0.5), nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False))
+
+    def forward(self, x):
+        return self.main(x)
+
+
+class LPIPS(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.alexnet = AlexNet()
+        self.lpips_weights = nn.ModuleList()
+        for channels in self.alexnet.channels:
+            self.lpips_weights.append(Conv1x1(channels, 1))
+        self._load_lpips_weights()
+        self.mu = torch.tensor([-0.03, -0.088, -0.188]).view(1, 3, 1, 1)
+        self.sigma = torch.tensor([0.458, 0.448, 0.45]).view(1, 3, 1, 1)
+
+    def _load_lpips_weights(self):
+        own_state_dict = self.state_dict()
+        if torch.cuda.is_available():
+            state_dict = torch.load('metrics/lpips_weights.ckpt')
+        else:
+            state_dict = torch.load('metrics/lpips_weights.ckpt', map_location=torch.device('cpu'))
+        for name, param in state_dict.items():
+            if name in own_state_dict:
+                own_state_dict[name].copy_(param)
+
+    def forward(self, x, y):
+        x = (x - self.mu) / self.sigma
+        y = (y - self.mu) / self.sigma
+        x_fmaps = self.alexnet(x)
+        y_fmaps = self.alexnet(y)
+        lpips_value = 0
+        for x_fmap, y_fmap, conv1x1 in zip(x_fmaps, y_fmaps, self.lpips_weights):
+            x_fmap = normalize(x_fmap)
+            y_fmap = normalize(y_fmap)
+            lpips_value += torch.mean(conv1x1((x_fmap - y_fmap) ** 2))
+        return lpips_value
+
+
 @torch.no_grad()
 def calculate_lpips_given_images(group_of_images):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    lpips = LPIPS().eval().to(device)
+    lpips = LPIPS().eval()
     lpips_values = []
     num_rand_outputs = len(group_of_images)
     for i in range(num_rand_outputs - 1):
@@ -479,13 +890,13 @@ def calculate_lpips_given_images(group_of_images):
 
 @torch.no_grad()
 def calculate_metrics(nets, args, step, mode):
-    print('Calculating evaluation metrics...')
+    None
     assert mode in ['latent', 'reference']
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     domains = os.listdir(args.val_img_dir)
     domains.sort()
     num_domains = len(domains)
-    print('Number of domains: %d' % num_domains)
+    None
     lpips_dict = OrderedDict()
     for trg_idx, trg_domain in enumerate(domains):
         src_domains = [x for x in domains if x != trg_domain]
@@ -500,23 +911,23 @@ def calculate_metrics(nets, args, step, mode):
             shutil.rmtree(path_fake, ignore_errors=True)
             os.makedirs(path_fake)
             lpips_values = []
-            print('Generating images and calculating LPIPS for %s...' % task)
+            None
             for i, x_src in enumerate(tqdm(loader_src, total=len(loader_src))):
                 N = x_src.size(0)
-                x_src = x_src.to(device)
-                y_trg = torch.tensor([trg_idx] * N).to(device)
+                x_src = x_src
+                y_trg = torch.tensor([trg_idx] * N)
                 masks = nets.fan.get_heatmap(x_src) if args.w_hpf > 0 else None
                 group_of_images = []
                 for j in range(args.num_outs_per_domain):
                     if mode == 'latent':
-                        z_trg = torch.randn(N, args.latent_dim).to(device)
+                        z_trg = torch.randn(N, args.latent_dim)
                         s_trg = nets.mapping_network(z_trg, y_trg)
                     else:
                         try:
-                            x_ref = next(iter_ref).to(device)
+                            x_ref = next(iter_ref)
                         except:
                             iter_ref = iter(loader_ref)
-                            x_ref = next(iter_ref).to(device)
+                            x_ref = next(iter_ref)
                         if x_ref.size(0) > N:
                             x_ref = x_ref[:N]
                         s_trg = nets.style_encoder(x_ref, y_trg)
@@ -616,7 +1027,7 @@ class Solver(nn.Module):
     def __init__(self, args):
         super().__init__()
         self.args = args
-        self.device = torch.device('cuda' if torch.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.nets, self.nets_ema = build_model(args)
         for name, module in self.nets.items():
             utils.print_network(module, name)
@@ -737,373 +1148,6 @@ class Solver(nn.Module):
         calculate_metrics(nets_ema, args, step=resume_iter, mode='reference')
 
 
-class HourGlass(nn.Module):
-
-    def __init__(self, num_modules, depth, num_features, first_one=False):
-        super(HourGlass, self).__init__()
-        self.num_modules = num_modules
-        self.depth = depth
-        self.features = num_features
-        self.coordconv = CoordConvTh(64, 64, True, True, 256, first_one, out_channels=256, kernel_size=1, stride=1, padding=0)
-        self._generate_network(self.depth)
-
-    def _generate_network(self, level):
-        self.add_module('b1_' + str(level), ConvBlock(256, 256))
-        self.add_module('b2_' + str(level), ConvBlock(256, 256))
-        if level > 1:
-            self._generate_network(level - 1)
-        else:
-            self.add_module('b2_plus_' + str(level), ConvBlock(256, 256))
-        self.add_module('b3_' + str(level), ConvBlock(256, 256))
-
-    def _forward(self, level, inp):
-        up1 = inp
-        up1 = self._modules['b1_' + str(level)](up1)
-        low1 = F.avg_pool2d(inp, 2, stride=2)
-        low1 = self._modules['b2_' + str(level)](low1)
-        if level > 1:
-            low2 = self._forward(level - 1, low1)
-        else:
-            low2 = low1
-            low2 = self._modules['b2_plus_' + str(level)](low2)
-        low3 = low2
-        low3 = self._modules['b3_' + str(level)](low3)
-        up2 = F.interpolate(low3, scale_factor=2, mode='nearest')
-        return up1 + up2
-
-    def forward(self, x, heatmap):
-        x, last_channel = self.coordconv(x, heatmap)
-        return self._forward(self.depth, x), last_channel
-
-
-class AddCoordsTh(nn.Module):
-
-    def __init__(self, height=64, width=64, with_r=False, with_boundary=False):
-        super(AddCoordsTh, self).__init__()
-        self.with_r = with_r
-        self.with_boundary = with_boundary
-        device = torch.device('cuda' if torch.is_available() else 'cpu')
-        with torch.no_grad():
-            x_coords = torch.arange(height).unsqueeze(1).expand(height, width).float()
-            y_coords = torch.arange(width).unsqueeze(0).expand(height, width).float()
-            x_coords = x_coords / (height - 1) * 2 - 1
-            y_coords = y_coords / (width - 1) * 2 - 1
-            coords = torch.stack([x_coords, y_coords], dim=0)
-            if self.with_r:
-                rr = torch.sqrt(torch.pow(x_coords, 2) + torch.pow(y_coords, 2))
-                rr = (rr / torch.max(rr)).unsqueeze(0)
-                coords = torch.cat([coords, rr], dim=0)
-            self.coords = coords.unsqueeze(0)
-            self.x_coords = x_coords
-            self.y_coords = y_coords
-
-    def forward(self, x, heatmap=None):
-        """
-        x: (batch, c, x_dim, y_dim)
-        """
-        coords = self.coords.repeat(x.size(0), 1, 1, 1)
-        if self.with_boundary and heatmap is not None:
-            boundary_channel = torch.clamp(heatmap[:, -1:, :, :], 0.0, 1.0)
-            zero_tensor = torch.zeros_like(self.x_coords)
-            xx_boundary_channel = torch.where(boundary_channel > 0.05, self.x_coords, zero_tensor)
-            yy_boundary_channel = torch.where(boundary_channel > 0.05, self.y_coords, zero_tensor)
-            coords = torch.cat([coords, xx_boundary_channel, yy_boundary_channel], dim=1)
-        x_and_coords = torch.cat([x, coords], dim=1)
-        return x_and_coords
-
-
-class CoordConvTh(nn.Module):
-    """CoordConv layer as in the paper."""
-
-    def __init__(self, height, width, with_r, with_boundary, in_channels, first_one=False, *args, **kwargs):
-        super(CoordConvTh, self).__init__()
-        self.addcoords = AddCoordsTh(height, width, with_r, with_boundary)
-        in_channels += 2
-        if with_r:
-            in_channels += 1
-        if with_boundary and not first_one:
-            in_channels += 2
-        self.conv = nn.Conv2d(*args, in_channels=in_channels, **kwargs)
-
-    def forward(self, input_tensor, heatmap=None):
-        ret = self.addcoords(input_tensor, heatmap)
-        last_channel = ret[:, -2:, :, :]
-        ret = self.conv(ret)
-        return ret, last_channel
-
-
-class ConvBlock(nn.Module):
-
-    def __init__(self, in_planes, out_planes):
-        super(ConvBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        conv3x3 = partial(nn.Conv2d, kernel_size=3, stride=1, padding=1, bias=False, dilation=1)
-        self.conv1 = conv3x3(in_planes, int(out_planes / 2))
-        self.bn2 = nn.BatchNorm2d(int(out_planes / 2))
-        self.conv2 = conv3x3(int(out_planes / 2), int(out_planes / 4))
-        self.bn3 = nn.BatchNorm2d(int(out_planes / 4))
-        self.conv3 = conv3x3(int(out_planes / 4), int(out_planes / 4))
-        self.downsample = None
-        if in_planes != out_planes:
-            self.downsample = nn.Sequential(nn.BatchNorm2d(in_planes), nn.ReLU(True), nn.Conv2d(in_planes, out_planes, 1, 1, bias=False))
-
-    def forward(self, x):
-        residual = x
-        out1 = self.bn1(x)
-        out1 = F.relu(out1, True)
-        out1 = self.conv1(out1)
-        out2 = self.bn2(out1)
-        out2 = F.relu(out2, True)
-        out2 = self.conv2(out2)
-        out3 = self.bn3(out2)
-        out3 = F.relu(out3, True)
-        out3 = self.conv3(out3)
-        out3 = torch.cat((out1, out2, out3), 1)
-        if self.downsample is not None:
-            residual = self.downsample(residual)
-        out3 += residual
-        return out3
-
-
-def get_preds_fromhm(hm):
-    max, idx = torch.max(hm.view(hm.size(0), hm.size(1), hm.size(2) * hm.size(3)), 2)
-    idx += 1
-    preds = idx.view(idx.size(0), idx.size(1), 1).repeat(1, 1, 2).float()
-    preds[..., 0].apply_(lambda x: (x - 1) % hm.size(3) + 1)
-    preds[..., 1].add_(-1).div_(hm.size(2)).floor_().add_(1)
-    for i in range(preds.size(0)):
-        for j in range(preds.size(1)):
-            hm_ = hm[(i), (j), :]
-            pX, pY = int(preds[i, j, 0]) - 1, int(preds[i, j, 1]) - 1
-            if pX > 0 and pX < 63 and pY > 0 and pY < 63:
-                diff = torch.FloatTensor([hm_[pY, pX + 1] - hm_[pY, pX - 1], hm_[pY + 1, pX] - hm_[pY - 1, pX]])
-                preds[i, j].add_(diff.sign_().mul_(0.25))
-    preds.add_(-0.5)
-    return preds
-
-
-OPPAIR = namedtuple('OPPAIR', 'shift resize')
-
-
-IDXPAIR = namedtuple('IDXPAIR', 'start end')
-
-
-def normalize(x, eps=1e-10):
-    return x * torch.rsqrt(torch.sum(x ** 2, dim=1, keepdim=True) + eps)
-
-
-def resize(x, p=2):
-    """Resize heatmaps."""
-    return x ** p
-
-
-def shift(x, N):
-    """Shift N pixels up or down."""
-    up = N >= 0
-    N = abs(N)
-    _, _, H, W = x.size()
-    head = torch.arange(N)
-    tail = torch.arange(H - N)
-    if up:
-        head = torch.arange(H - N) + N
-        tail = torch.arange(N)
-    else:
-        head = torch.arange(N) + (H - N)
-        tail = torch.arange(H - N)
-    perm = torch.cat([head, tail]).to(x.device)
-    out = x[:, :, (perm), :]
-    return out
-
-
-def truncate(x, thres=0.1):
-    """Remove small values in heatmaps."""
-    return torch.where(x < thres, torch.zeros_like(x), x)
-
-
-def preprocess(x):
-    """Preprocess 98-dimensional heatmaps."""
-    N, C, H, W = x.size()
-    x = truncate(x)
-    x = normalize(x)
-    sw = H // 256
-    operations = Munch(chin=OPPAIR(0, 3), eyebrows=OPPAIR(-7 * sw, 2), nostrils=OPPAIR(8 * sw, 4), lipupper=OPPAIR(-8 * sw, 4), liplower=OPPAIR(8 * sw, 4), lipinner=OPPAIR(-2 * sw, 3))
-    for part, ops in operations.items():
-        start, end = index_map[part]
-        x[:, start:end] = resize(shift(x[:, start:end], ops.shift), ops.resize)
-    zero_out = torch.cat([torch.arange(0, index_map.chin.start), torch.arange(index_map.chin.end, 33), torch.LongTensor([index_map.eyebrowsedges.start, index_map.eyebrowsedges.end, index_map.lipedges.start, index_map.lipedges.end])])
-    x[:, (zero_out)] = 0
-    start, end = index_map.nose
-    x[:, start + 1:end] = shift(x[:, start + 1:end], 4 * sw)
-    x[:, start:end] = resize(x[:, start:end], 1)
-    start, end = index_map.eyes
-    x[:, start:end] = resize(x[:, start:end], 1)
-    x[:, start:end] = resize(shift(x[:, start:end], -8), 3) + shift(x[:, start:end], -24)
-    x2 = deepcopy(x)
-    x2[:, index_map.chin.start:index_map.chin.end] = 0
-    x2[:, index_map.lipedges.start:index_map.lipinner.end] = 0
-    x2[:, index_map.eyebrows.start:index_map.eyebrows.end] = 0
-    x = torch.sum(x, dim=1, keepdim=True)
-    x2 = torch.sum(x2, dim=1, keepdim=True)
-    x[x != x] = 0
-    x2[x != x] = 0
-    return x.clamp_(0, 1), x2.clamp_(0, 1)
-
-
-class FAN(nn.Module):
-
-    def __init__(self, num_modules=1, end_relu=False, num_landmarks=98, fname_pretrained=None):
-        super(FAN, self).__init__()
-        self.num_modules = num_modules
-        self.end_relu = end_relu
-        self.conv1 = CoordConvTh(256, 256, True, False, in_channels=3, out_channels=64, kernel_size=7, stride=2, padding=3)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.conv2 = ConvBlock(64, 128)
-        self.conv3 = ConvBlock(128, 128)
-        self.conv4 = ConvBlock(128, 256)
-        self.add_module('m0', HourGlass(1, 4, 256, first_one=True))
-        self.add_module('top_m_0', ConvBlock(256, 256))
-        self.add_module('conv_last0', nn.Conv2d(256, 256, 1, 1, 0))
-        self.add_module('bn_end0', nn.BatchNorm2d(256))
-        self.add_module('l0', nn.Conv2d(256, num_landmarks + 1, 1, 1, 0))
-        if fname_pretrained is not None:
-            self.load_pretrained_weights(fname_pretrained)
-
-    def load_pretrained_weights(self, fname):
-        if torch.is_available():
-            checkpoint = torch.load(fname)
-        else:
-            checkpoint = torch.load(fname, map_location=torch.device('cpu'))
-        model_weights = self.state_dict()
-        model_weights.update({k: v for k, v in checkpoint['state_dict'].items() if k in model_weights})
-        self.load_state_dict(model_weights)
-
-    def forward(self, x):
-        x, _ = self.conv1(x)
-        x = F.relu(self.bn1(x), True)
-        x = F.avg_pool2d(self.conv2(x), 2, stride=2)
-        x = self.conv3(x)
-        x = self.conv4(x)
-        outputs = []
-        boundary_channels = []
-        tmp_out = None
-        ll, boundary_channel = self._modules['m0'](x, tmp_out)
-        ll = self._modules['top_m_0'](ll)
-        ll = F.relu(self._modules['bn_end0'](self._modules['conv_last0'](ll)), True)
-        tmp_out = self._modules['l0'](ll)
-        if self.end_relu:
-            tmp_out = F.relu(tmp_out)
-        outputs.append(tmp_out)
-        boundary_channels.append(boundary_channel)
-        return outputs, boundary_channels
-
-    @torch.no_grad()
-    def get_heatmap(self, x, b_preprocess=True):
-        """ outputs 0-1 normalized heatmap """
-        x = F.interpolate(x, size=256, mode='bilinear')
-        x_01 = x * 0.5 + 0.5
-        outputs, _ = self(x_01)
-        heatmaps = outputs[-1][:, :-1, :, :]
-        scale_factor = x.size(2) // heatmaps.size(2)
-        if b_preprocess:
-            heatmaps = F.interpolate(heatmaps, scale_factor=scale_factor, mode='bilinear', align_corners=True)
-            heatmaps = preprocess(heatmaps)
-        return heatmaps
-
-    @torch.no_grad()
-    def get_landmark(self, x):
-        """ outputs landmarks of x.shape """
-        heatmaps = self.get_heatmap(x, b_preprocess=False)
-        landmarks = []
-        for i in range(x.size(0)):
-            pred_landmarks = get_preds_fromhm(heatmaps[i].cpu().unsqueeze(0))
-            landmarks.append(pred_landmarks)
-        scale_factor = x.size(2) // heatmaps.size(2)
-        landmarks = torch.cat(landmarks) * scale_factor
-        return landmarks
-
-
-class InceptionV3(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        inception = models.inception_v3(pretrained=True)
-        self.block1 = nn.Sequential(inception.Conv2d_1a_3x3, inception.Conv2d_2a_3x3, inception.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2))
-        self.block2 = nn.Sequential(inception.Conv2d_3b_1x1, inception.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2))
-        self.block3 = nn.Sequential(inception.Mixed_5b, inception.Mixed_5c, inception.Mixed_5d, inception.Mixed_6a, inception.Mixed_6b, inception.Mixed_6c, inception.Mixed_6d, inception.Mixed_6e)
-        self.block4 = nn.Sequential(inception.Mixed_7a, inception.Mixed_7b, inception.Mixed_7c, nn.AdaptiveAvgPool2d(output_size=(1, 1)))
-
-    def forward(self, x):
-        x = self.block1(x)
-        x = self.block2(x)
-        x = self.block3(x)
-        x = self.block4(x)
-        return x.view(x.size(0), -1)
-
-
-class AlexNet(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.layers = models.alexnet(pretrained=True).features
-        self.channels = []
-        for layer in self.layers:
-            if isinstance(layer, nn.Conv2d):
-                self.channels.append(layer.out_channels)
-
-    def forward(self, x):
-        fmaps = []
-        for layer in self.layers:
-            x = layer(x)
-            if isinstance(layer, nn.ReLU):
-                fmaps.append(x)
-        return fmaps
-
-
-class Conv1x1(nn.Module):
-
-    def __init__(self, in_channels, out_channels=1):
-        super().__init__()
-        self.main = nn.Sequential(nn.Dropout(0.5), nn.Conv2d(in_channels, out_channels, 1, 1, 0, bias=False))
-
-    def forward(self, x):
-        return self.main(x)
-
-
-class LPIPS(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.alexnet = AlexNet()
-        self.lpips_weights = nn.ModuleList()
-        for channels in self.alexnet.channels:
-            self.lpips_weights.append(Conv1x1(channels, 1))
-        self._load_lpips_weights()
-        self.mu = torch.tensor([-0.03, -0.088, -0.188]).view(1, 3, 1, 1)
-        self.sigma = torch.tensor([0.458, 0.448, 0.45]).view(1, 3, 1, 1)
-
-    def _load_lpips_weights(self):
-        own_state_dict = self.state_dict()
-        if torch.is_available():
-            state_dict = torch.load('metrics/lpips_weights.ckpt')
-        else:
-            state_dict = torch.load('metrics/lpips_weights.ckpt', map_location=torch.device('cpu'))
-        for name, param in state_dict.items():
-            if name in own_state_dict:
-                own_state_dict[name].copy_(param)
-
-    def forward(self, x, y):
-        x = (x - self.mu) / self.sigma
-        y = (y - self.mu) / self.sigma
-        x_fmaps = self.alexnet(x)
-        y_fmaps = self.alexnet(y)
-        lpips_value = 0
-        for x_fmap, y_fmap, conv1x1 in zip(x_fmaps, y_fmaps, self.lpips_weights):
-            x_fmap = normalize(x_fmap)
-            y_fmap = normalize(y_fmap)
-            lpips_value += torch.mean(conv1x1((x_fmap - y_fmap) ** 2))
-        return lpips_value
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1111,6 +1155,18 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (AdaIN,
+     lambda: ([], {'style_dim': 4, 'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4])], {}),
+     True),
+    (AdainResBlk,
+     lambda: ([], {'dim_in': 4, 'dim_out': 4}),
+     lambda: ([torch.rand([64, 4, 4, 4]), torch.rand([64, 64])], {}),
+     False),
+    (AddCoordsTh,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
     (AlexNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -1123,13 +1179,33 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'out_planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (CoordConvTh,
+     lambda: ([], {'height': 4, 'width': 4, 'with_r': 4, 'with_boundary': 4, 'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 6, 4, 4])], {}),
+     False),
     (Discriminator,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 256, 256]), torch.zeros([4], dtype=torch.int64)], {}),
      False),
+    (FAN,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     False),
+    (Generator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([64, 3, 64, 64]), torch.rand([64, 64])], {}),
+     False),
     (HighPass,
      lambda: ([], {'w_hpf': 4, 'device': 0}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (HourGlass,
+     lambda: ([], {'num_modules': _mock_layer(), 'depth': 1, 'num_features': 4}),
+     lambda: ([torch.rand([4, 256, 64, 64]), torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (InceptionV3,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 128, 128])], {}),
      True),
     (MappingNetwork,
      lambda: ([], {}),
@@ -1169,4 +1245,28 @@ class Test_clovaai_stargan_v2(_paritybench_base):
 
     def test_007(self):
         self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
 

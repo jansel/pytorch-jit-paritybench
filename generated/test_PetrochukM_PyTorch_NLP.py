@@ -130,15 +130,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -176,13 +177,31 @@ from torch.utils.data.sampler import SequentialSampler
 import torch.optim as optim
 
 
+import random
+
+
 from numpy.testing import assert_almost_equal
 
 
 import numpy
 
 
+from torch.utils.data.sampler import BatchSampler
+
+
 from collections import namedtuple
+
+
+from torch.utils.data.sampler import Sampler
+
+
+from torch._six import int_classes as _int_classes
+
+
+from collections import Counter
+
+
+from collections.abc import Iterable
 
 
 from torch.nn import Conv1d
@@ -197,6 +216,12 @@ from torch.nn import ReLU
 from torch.nn import Parameter
 
 
+import functools
+
+
+from torch.utils.data.sampler import SubsetRandomSampler
+
+
 import logging
 
 
@@ -204,6 +229,97 @@ import inspect
 
 
 import collections
+
+
+class LockedDropout(nn.Module):
+    """ LockedDropout applies the same dropout mask to every time step.
+
+    **Thank you** to Sales Force for their initial implementation of :class:`WeightDrop`. Here is
+    their `License
+    <https://github.com/salesforce/awd-lstm-lm/blob/master/LICENSE>`__.
+
+    Args:
+        p (float): Probability of an element in the dropout mask to be zeroed.
+    """
+
+    def __init__(self, p=0.5):
+        self.p = p
+        super().__init__()
+
+    def forward(self, x):
+        """
+        Args:
+            x (:class:`torch.FloatTensor` [sequence length, batch size, rnn hidden size]): Input to
+                apply dropout too.
+        """
+        if not self.training or not self.p:
+            return x
+        x = x.clone()
+        mask = x.new_empty(1, x.size(1), x.size(2), requires_grad=False).bernoulli_(1 - self.p)
+        mask = mask.div_(1 - self.p)
+        mask = mask.expand_as(x)
+        return x * mask
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + 'p=' + str(self.p) + ')'
+
+
+def _weight_drop(module, weights, dropout):
+    """
+    Helper for `WeightDrop`.
+    """
+    for name_w in weights:
+        w = getattr(module, name_w)
+        del module._parameters[name_w]
+        module.register_parameter(name_w + '_raw', Parameter(w))
+    original_module_forward = module.forward
+
+    def forward(*args, **kwargs):
+        for name_w in weights:
+            raw_w = getattr(module, name_w + '_raw')
+            w = torch.nn.functional.dropout(raw_w, p=dropout, training=module.training)
+            setattr(module, name_w, w)
+        return original_module_forward(*args, **kwargs)
+    setattr(module, 'forward', forward)
+
+
+class WeightDrop(torch.nn.Module):
+    """
+    The weight-dropped module applies recurrent regularization through a DropConnect mask on the
+    hidden-to-hidden recurrent weights.
+
+    **Thank you** to Sales Force for their initial implementation of :class:`WeightDrop`. Here is
+    their `License
+    <https://github.com/salesforce/awd-lstm-lm/blob/master/LICENSE>`__.
+
+    Args:
+        module (:class:`torch.nn.Module`): Containing module.
+        weights (:class:`list` of :class:`str`): Names of the module weight parameters to apply a
+          dropout too.
+        dropout (float): The probability a weight will be dropped.
+
+    Example:
+
+        >>> from torchnlp.nn import WeightDrop
+        >>> import torch
+        >>>
+        >>> torch.manual_seed(123)
+        <torch._C.Generator object ...
+        >>>
+        >>> gru = torch.nn.GRUCell(2, 2)
+        >>> weights = ['weight_hh']
+        >>> weight_drop_gru = WeightDrop(gru, weights, dropout=0.9)
+        >>>
+        >>> input_ = torch.randn(3, 2)
+        >>> hidden_state = torch.randn(3, 2)
+        >>> weight_drop_gru(input_, hidden_state)
+        tensor(... grad_fn=<AddBackward0>)
+    """
+
+    def __init__(self, module, weights, dropout=0.0):
+        super(WeightDrop, self).__init__()
+        _weight_drop(module, weights, dropout)
+        self.forward = module.forward
 
 
 class RNNModel(nn.Module):
@@ -453,6 +569,218 @@ class SNLIClassifier(nn.Module):
         return scores
 
 
+DEFAULT_UNKNOWN_TOKEN = '<unk>'
+
+
+DEFAULT_RESERVED = [DEFAULT_UNKNOWN_TOKEN]
+
+
+class LabelEncoder(Encoder):
+    """ Encodes an label via a dictionary.
+
+    Args:
+        sample (list of strings): Sample of data used to build encoding dictionary.
+        min_occurrences (int, optional): Minimum number of occurrences for a label to be added to
+          the encoding dictionary.
+        reserved_labels (list, optional): List of reserved labels inserted in the beginning of the
+          dictionary.
+        unknown_index (int, optional): The unknown label is used to encode unseen labels. This is
+          the index that label resides at.
+        **kwargs: Keyword arguments passed onto ``Encoder``.
+
+    Example:
+
+        >>> samples = ['label_a', 'label_b']
+        >>> encoder = LabelEncoder(samples, reserved_labels=['unknown'], unknown_index=0)
+        >>> encoder.encode('label_a')
+        tensor(1)
+        >>> encoder.decode(encoder.encode('label_a'))
+        'label_a'
+        >>> encoder.encode('label_c')
+        tensor(0)
+        >>> encoder.decode(encoder.encode('label_c'))
+        'unknown'
+        >>> encoder.vocab
+        ['unknown', 'label_a', 'label_b']
+    """
+
+    def __init__(self, sample, min_occurrences=1, reserved_labels=DEFAULT_RESERVED, unknown_index=DEFAULT_RESERVED.index(DEFAULT_UNKNOWN_TOKEN), **kwargs):
+        super().__init__(**kwargs)
+        if unknown_index and unknown_index >= len(reserved_labels):
+            raise ValueError('The `unknown_index` if provided must be also `reserved`.')
+        self.unknown_index = unknown_index
+        self.tokens = Counter(sample)
+        self.index_to_token = reserved_labels.copy()
+        self.token_to_index = {token: index for index, token in enumerate(reserved_labels)}
+        for token, count in self.tokens.items():
+            if count >= min_occurrences:
+                self.index_to_token.append(token)
+                self.token_to_index[token] = len(self.index_to_token) - 1
+
+    @property
+    def vocab(self):
+        """
+        Returns:
+            list: List of labels in the dictionary.
+        """
+        return self.index_to_token
+
+    @property
+    def vocab_size(self):
+        """
+        Returns:
+            int: Number of labels in the dictionary.
+        """
+        return len(self.vocab)
+
+    def encode(self, label):
+        """ Encodes a ``label``.
+
+        Args:
+            label (object): Label to encode.
+
+        Returns:
+            torch.Tensor: Encoding of the label.
+        """
+        label = super().encode(label)
+        return torch.tensor(self.token_to_index.get(label, self.unknown_index), dtype=torch.long)
+
+    def batch_encode(self, iterator, *args, dim=0, **kwargs):
+        """
+        Args:
+            iterator (iterator): Batch of labels to encode.
+            *args: Arguments passed to ``Encoder.batch_encode``.
+            dim (int, optional): Dimension along which to concatenate tensors.
+            **kwargs: Keyword arguments passed to ``Encoder.batch_encode``.
+
+        Returns:
+            torch.Tensor: Tensor of encoded labels.
+        """
+        return torch.stack(super().batch_encode(iterator, *args, **kwargs), dim=dim)
+
+    def decode(self, encoded):
+        """ Decodes ``encoded`` label.
+
+        Args:
+            encoded (torch.Tensor): Encoded label.
+
+        Returns:
+            object: Label decoded from ``encoded``.
+        """
+        encoded = super().decode(encoded)
+        if encoded.numel() > 1:
+            raise ValueError('``decode`` decodes one label at a time, use ``batch_decode`` instead.')
+        return self.index_to_token[encoded.squeeze().item()]
+
+    def batch_decode(self, tensor, *args, dim=0, **kwargs):
+        """
+        Args:
+            tensor (torch.Tensor): Batch of tensors.
+            *args: Arguments passed to ``Encoder.batch_decode``.
+            dim (int, optional): Dimension along which to split tensors.
+            **kwargs: Keyword arguments passed to ``Encoder.batch_decode``.
+
+        Returns:
+            list: Batch of decoded labels.
+        """
+        return super().batch_decode([t.squeeze(0) for t in tensor.split(1, dim=dim)])
+
+
+BatchedSequences = namedtuple('BatchedSequences', ['tensor', 'lengths'])
+
+
+DEFAULT_PADDING_INDEX = 0
+
+
+def pad_tensor(tensor, length, padding_index=DEFAULT_PADDING_INDEX):
+    """ Pad a ``tensor`` to ``length`` with ``padding_index``.
+
+    Args:
+        tensor (torch.Tensor [n, ...]): Tensor to pad.
+        length (int): Pad the ``tensor`` up to ``length``.
+        padding_index (int, optional): Index to pad tensor with.
+
+    Returns
+        (torch.Tensor [length, ...]) Padded Tensor.
+    """
+    n_padding = length - tensor.shape[0]
+    assert n_padding >= 0
+    if n_padding == 0:
+        return tensor
+    padding = tensor.new(n_padding, *tensor.shape[1:]).fill_(padding_index)
+    return torch.cat((tensor, padding), dim=0)
+
+
+def stack_and_pad_tensors(batch, padding_index=DEFAULT_PADDING_INDEX, dim=0):
+    """ Pad a :class:`list` of ``tensors`` (``batch``) with ``padding_index``.
+
+    Args:
+        batch (:class:`list` of :class:`torch.Tensor`): Batch of tensors to pad.
+        padding_index (int, optional): Index to pad tensors with.
+        dim (int, optional): Dimension on to which to concatenate the batch of tensors.
+
+    Returns
+        BatchedSequences(torch.Tensor, torch.Tensor): Padded tensors and original lengths of
+            tensors.
+    """
+    lengths = [tensor.shape[0] for tensor in batch]
+    max_len = max(lengths)
+    padded = [pad_tensor(tensor, max_len, padding_index) for tensor in batch]
+    lengths = torch.tensor(lengths, dtype=torch.long)
+    padded = torch.stack(padded, dim=dim).contiguous()
+    for _ in range(dim):
+        lengths = lengths.unsqueeze(0)
+    return BatchedSequences(padded, lengths)
+
+
+class TextEncoder(Encoder):
+
+    def decode(self, encoded):
+        """ Decodes an object.
+
+        Args:
+            object_ (object): Encoded object.
+
+        Returns:
+            object: Object decoded.
+        """
+        if self.enforce_reversible:
+            self.enforce_reversible = False
+            decoded_encoded = self.encode(self.decode(encoded))
+            self.enforce_reversible = True
+            if not torch.equal(decoded_encoded, encoded):
+                raise ValueError('Decoding is not reversible for "%s"' % encoded)
+        return encoded
+
+    def batch_encode(self, iterator, *args, dim=0, **kwargs):
+        """
+        Args:
+            iterator (iterator): Batch of text to encode.
+            *args: Arguments passed onto ``Encoder.__init__``.
+            dim (int, optional): Dimension along which to concatenate tensors.
+            **kwargs: Keyword arguments passed onto ``Encoder.__init__``.
+
+        Returns
+            torch.Tensor, torch.Tensor: Encoded and padded batch of sequences; Original lengths of
+                sequences.
+        """
+        return stack_and_pad_tensors(super().batch_encode(iterator), padding_index=self.padding_index, dim=dim)
+
+    def batch_decode(self, tensor, lengths, dim=0, *args, **kwargs):
+        """
+        Args:
+            batch (list of :class:`torch.Tensor`): Batch of encoded sequences.
+            lengths (torch.Tensor): Original lengths of sequences.
+            dim (int, optional): Dimension along which to split tensors.
+            *args: Arguments passed to ``decode``.
+            **kwargs: Key word arguments passed to ``decode``.
+
+        Returns:
+            list: Batch of decoded sequences.
+        """
+        return super().batch_decode([t.squeeze(0)[:l] for t, l in zip(tensor.split(1, dim=dim), lengths)])
+
+
 class Attention(nn.Module):
     """ Applies attention mechanism on the `context` using the `query`.
 
@@ -606,97 +934,6 @@ class CNNEncoder(torch.nn.Module):
         else:
             result = maxpool_output
         return result
-
-
-class LockedDropout(nn.Module):
-    """ LockedDropout applies the same dropout mask to every time step.
-
-    **Thank you** to Sales Force for their initial implementation of :class:`WeightDrop`. Here is
-    their `License
-    <https://github.com/salesforce/awd-lstm-lm/blob/master/LICENSE>`__.
-
-    Args:
-        p (float): Probability of an element in the dropout mask to be zeroed.
-    """
-
-    def __init__(self, p=0.5):
-        self.p = p
-        super().__init__()
-
-    def forward(self, x):
-        """
-        Args:
-            x (:class:`torch.FloatTensor` [sequence length, batch size, rnn hidden size]): Input to
-                apply dropout too.
-        """
-        if not self.training or not self.p:
-            return x
-        x = x.clone()
-        mask = x.new_empty(1, x.size(1), x.size(2), requires_grad=False).bernoulli_(1 - self.p)
-        mask = mask.div_(1 - self.p)
-        mask = mask.expand_as(x)
-        return x * mask
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + 'p=' + str(self.p) + ')'
-
-
-def _weight_drop(module, weights, dropout):
-    """
-    Helper for `WeightDrop`.
-    """
-    for name_w in weights:
-        w = getattr(module, name_w)
-        del module._parameters[name_w]
-        module.register_parameter(name_w + '_raw', Parameter(w))
-    original_module_forward = module.forward
-
-    def forward(*args, **kwargs):
-        for name_w in weights:
-            raw_w = getattr(module, name_w + '_raw')
-            w = torch.nn.functional.dropout(raw_w, p=dropout, training=module.training)
-            setattr(module, name_w, w)
-        return original_module_forward(*args, **kwargs)
-    setattr(module, 'forward', forward)
-
-
-class WeightDrop(torch.nn.Module):
-    """
-    The weight-dropped module applies recurrent regularization through a DropConnect mask on the
-    hidden-to-hidden recurrent weights.
-
-    **Thank you** to Sales Force for their initial implementation of :class:`WeightDrop`. Here is
-    their `License
-    <https://github.com/salesforce/awd-lstm-lm/blob/master/LICENSE>`__.
-
-    Args:
-        module (:class:`torch.nn.Module`): Containing module.
-        weights (:class:`list` of :class:`str`): Names of the module weight parameters to apply a
-          dropout too.
-        dropout (float): The probability a weight will be dropped.
-
-    Example:
-
-        >>> from torchnlp.nn import WeightDrop
-        >>> import torch
-        >>>
-        >>> torch.manual_seed(123)
-        <torch._C.Generator object ...
-        >>>
-        >>> gru = torch.nn.GRUCell(2, 2)
-        >>> weights = ['weight_hh']
-        >>> weight_drop_gru = WeightDrop(gru, weights, dropout=0.9)
-        >>>
-        >>> input_ = torch.randn(3, 2)
-        >>> hidden_state = torch.randn(3, 2)
-        >>> weight_drop_gru(input_, hidden_state)
-        tensor(... grad_fn=<AddBackward0>)
-    """
-
-    def __init__(self, module, weights, dropout=0.0):
-        super(WeightDrop, self).__init__()
-        _weight_drop(module, weights, dropout)
-        self.forward = module.forward
 
 
 class WeightDropLSTM(torch.nn.LSTM):

@@ -15,23 +15,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import logging
+
+
+import numpy as np
 
 
 from collections import OrderedDict
 
 
+from scipy.io import loadmat
+
+
 import torch
+
+
+from scipy import ndimage
+
+
+import scipy.io as scio
+
+
+import time
+
+
+from scipy.signal import convolve2d
 
 
 import torch.nn as nn
@@ -40,19 +62,79 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-import numpy as np
-
-
 import scipy
+
+
+from scipy import fftpack
+
+
+from math import cos
+
+
+from math import sin
+
+
+from numpy import zeros
+
+
+from numpy import ones
+
+
+from numpy import prod
+
+
+from numpy import array
+
+
+from numpy import pi
+
+
+from numpy import log
+
+
+from numpy import min
+
+
+from numpy import mod
+
+
+from numpy import arange
+
+
+from numpy import sum
+
+
+from numpy import mgrid
+
+
+from numpy import exp
+
+
+from numpy import pad
+
+
+from numpy import round
+
+
+from numpy.random import randn
+
+
+from numpy.random import rand
+
+
+import random
+
+
+import math
+
+
+from torchvision.utils import make_grid
 
 
 import scipy.stats as ss
 
 
 import scipy.io as io
-
-
-from scipy import ndimage
 
 
 from scipy.interpolate import interp2d

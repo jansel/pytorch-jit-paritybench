@@ -28,15 +28,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -47,13 +48,22 @@ import numpy as np
 import torch
 
 
+from sklearn.preprocessing import normalize
+
+
+from torch.utils.data import Dataset
+
+
 from torch.autograd import Variable
 
 
-import torch.nn.functional as F
-
-
 from torch.utils.data import DataLoader
+
+
+from sklearn.metrics.pairwise import pairwise_distances
+
+
+import torch.nn.functional as F
 
 
 import random
@@ -84,6 +94,101 @@ class Agent(nn.Module):
 
     def __init__(self):
         super(Agent, self).__init__()
+
+
+class Answerer(Agent):
+
+    def __init__(self, encoderParam, decoderParam, verbose=1):
+        """
+            A-Bot Model
+
+            Uses an encoder network for input sequences (questions, answers and
+            history) and a decoder network for generating a response (answer).
+        """
+        super(Answerer, self).__init__()
+        self.encType = encoderParam['type']
+        self.decType = decoderParam['type']
+        if verbose:
+            None
+            None
+        if 'hre' in self.encType:
+            self.encoder = hre_enc.Encoder(**encoderParam)
+        else:
+            raise Exception('Unknown encoder {}'.format(self.encType))
+        if 'gen' == self.decType:
+            self.decoder = gen_dec.Decoder(**decoderParam)
+        else:
+            raise Exception('Unkown decoder {}'.format(self.decType))
+        self.decoder.wordEmbed = self.encoder.wordEmbed
+        utils.initializeWeights(self.encoder)
+        utils.initializeWeights(self.decoder)
+        self.reset()
+
+    def reset(self):
+        """Delete dialog history."""
+        self.caption = None
+        self.answers = []
+        self.encoder.reset()
+
+    def observe(self, round, ans=None, caption=None, **kwargs):
+        """
+        Update Q-Bot percepts. See self.encoder.observe() in the corresponding
+        encoder class definition (hre).
+        """
+        if caption is not None:
+            assert round == -1, 'Round number should be -1 when observing caption, got %d instead'
+            self.caption = caption
+        if ans is not None:
+            assert round == len(self.answers), 'Round number does not match number of answers observed'
+            self.answers.append(ans)
+        self.encoder.observe(round, ans=ans, caption=caption, **kwargs)
+
+    def forward(self):
+        """
+        Forward pass the last observed answer to compute its log
+        likelihood under the current decoder RNN state.
+        """
+        encStates = self.encoder()
+        if len(self.answers) > 0:
+            decIn = self.answers[-1]
+        elif self.caption is not None:
+            decIn = self.caption
+        else:
+            raise Exception('Must provide an input sequence')
+        logProbs = self.decoder(encStates, inputSeq=decIn)
+        return logProbs
+
+    def forwardDecode(self, inference='sample', beamSize=1, maxSeqLen=20):
+        """
+        Decode a sequence (answer) using either sampling or greedy inference.
+        An answer is decoded given the current state (dialog history). This
+        can be called at every round after a question is observed.
+
+        Arguments:
+            inference : Inference method for decoding
+                'sample' - Sample each word from its softmax distribution
+                'greedy' - Always choose the word with highest probability
+                           if beam size is 1, otherwise use beam search.
+            beamSize  : Beam search width
+            maxSeqLen : Maximum length of token sequence to generate
+        """
+        encStates = self.encoder()
+        answers, ansLens = self.decoder.forwardDecode(encStates, maxSeqLen=maxSeqLen, inference=inference, beamSize=beamSize)
+        return answers, ansLens
+
+    def evalOptions(self, options, optionLens, scoringFunction):
+        """
+        Given the current state (question and conversation history), evaluate
+        a set of candidate answers to the question.
+
+        Output:
+            Log probabilities of candidate options.
+        """
+        states = self.encoder()
+        return self.decoder.evalOptions(states, options, optionLens, scoringFunction)
+
+    def reinforce(self, reward):
+        return self.decoder.reinforce(reward)
 
 
 class Decoder(nn.Module):
@@ -154,7 +259,7 @@ class Decoder(nn.Module):
         if inference == 'greedy' and beamSize > 1:
             return self.beamSearchDecoder(encStates, beamSize, maxSeqLen)
         if self.wordEmbed.weight.is_cuda:
-            th = torch
+            th = torch.cuda
         else:
             th = torch
         self.samples = []
@@ -260,7 +365,7 @@ class Decoder(nn.Module):
         """
         assert self.training == False
         if self.wordEmbed.weight.is_cuda:
-            th = torch
+            th = torch.cuda
         else:
             th = torch
         LENGTH_NORM = True
@@ -574,4 +679,107 @@ class Encoder(nn.Module):
             H_link = factRNNstates[0][:-1]
             H_link = torch.cat([H_link, dialogHidden.unsqueeze(0)], 0)
         return H_link, C_link
+
+
+class Questioner(Agent):
+
+    def __init__(self, encoderParam, decoderParam, imgFeatureSize=0, verbose=1):
+        """
+            Q-Bot Model
+
+            Uses an encoder network for input sequences (questions, answers and
+            history) and a decoder network for generating a response (question).
+        """
+        super(Questioner, self).__init__()
+        self.encType = encoderParam['type']
+        self.decType = decoderParam['type']
+        self.dropout = encoderParam['dropout']
+        self.rnnHiddenSize = encoderParam['rnnHiddenSize']
+        self.imgFeatureSize = imgFeatureSize
+        encoderParam = encoderParam.copy()
+        encoderParam['isAnswerer'] = False
+        if verbose:
+            None
+            None
+        if 'hre' in self.encType:
+            self.encoder = hre_enc.Encoder(**encoderParam)
+        else:
+            raise Exception('Unknown encoder {}'.format(self.encType))
+        if 'gen' == self.decType:
+            self.decoder = gen_dec.Decoder(**decoderParam)
+        else:
+            raise Exception('Unkown decoder {}'.format(self.decType))
+        self.decoder.wordEmbed = self.encoder.wordEmbed
+        if self.imgFeatureSize:
+            self.featureNet = nn.Linear(self.rnnHiddenSize, self.imgFeatureSize)
+            self.featureNetInputDropout = nn.Dropout(0.5)
+        utils.initializeWeights(self.encoder)
+        utils.initializeWeights(self.decoder)
+        self.reset()
+
+    def reset(self):
+        """Delete dialog history."""
+        self.questions = []
+        self.encoder.reset()
+
+    def freezeFeatNet(self):
+        nets = [self.featureNet]
+        for net in nets:
+            for param in net.parameters():
+                param.requires_grad = False
+
+    def observe(self, round, ques=None, **kwargs):
+        """
+        Update Q-Bot percepts. See self.encoder.observe() in the corresponding
+        encoder class definition (hre).
+        """
+        assert 'image' not in kwargs, 'Q-Bot does not see image'
+        if ques is not None:
+            assert round == len(self.questions), 'Round number does not match number of questions observed'
+            self.questions.append(ques)
+        self.encoder.observe(round, ques=ques, **kwargs)
+
+    def forward(self):
+        """
+        Forward pass the last observed question to compute its log
+        likelihood under the current decoder RNN state.
+        """
+        encStates = self.encoder()
+        if len(self.questions) == 0:
+            raise Exception('Must provide question if not sampling one.')
+        decIn = self.questions[-1]
+        logProbs = self.decoder(encStates, inputSeq=decIn)
+        return logProbs
+
+    def forwardDecode(self, inference='sample', beamSize=1, maxSeqLen=20):
+        """
+        Decode a sequence (question) using either sampling or greedy inference.
+        A question is decoded given current state (dialog history). This can
+        be called at round 0 after the caption is observed, and at end of every
+        round (after a response from A-Bot is observed).
+
+        Arguments:
+            inference : Inference method for decoding
+                'sample' - Sample each word from its softmax distribution
+                'greedy' - Always choose the word with highest probability
+                           if beam size is 1, otherwise use beam search.
+            beamSize  : Beam search width
+            maxSeqLen : Maximum length of token sequence to generate
+        """
+        encStates = self.encoder()
+        questions, quesLens = self.decoder.forwardDecode(encStates, maxSeqLen=maxSeqLen, inference=inference, beamSize=beamSize)
+        return questions, quesLens
+
+    def predictImage(self):
+        """
+        Predict/guess an fc7 vector given the current conversation history. This can
+        be called at round 0 after the caption is observed, and at end of every round
+        (after a response from A-Bot is observed).
+        """
+        encState = self.encoder()
+        h, c = encState
+        return self.featureNet(self.featureNetInputDropout(h[-1]))
+
+    def reinforce(self, reward):
+        return self.decoder.reinforce(reward)
 

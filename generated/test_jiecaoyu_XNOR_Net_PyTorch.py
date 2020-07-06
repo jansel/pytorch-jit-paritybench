@@ -21,20 +21,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import numpy
+
+
+import torchvision.transforms as transforms
 
 
 import torch.nn as nn
@@ -49,7 +56,25 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 
 
-import numpy
+import torch.utils.data as data
+
+
+import math
+
+
+import random
+
+
+import numpy as np
+
+
+import numbers
+
+
+import types
+
+
+import collections
 
 
 import time
@@ -103,96 +128,6 @@ class BinActive(torch.autograd.Function):
 
 class BinConv2d(nn.Module):
 
-    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, dropout=0):
-        super(BinConv2d, self).__init__()
-        self.layer_type = 'BinConv2d'
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = padding
-        self.dropout_ratio = dropout
-        self.bn = nn.BatchNorm2d(input_channels, eps=0.0001, momentum=0.1, affine=True)
-        self.bn.weight.data = self.bn.weight.data.zero_().add(1.0)
-        if dropout != 0:
-            self.dropout = nn.Dropout(dropout)
-        self.conv = nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.bn(x)
-        x, mean = BinActive()(x)
-        if self.dropout_ratio != 0:
-            x = self.dropout(x)
-        x = self.conv(x)
-        x = self.relu(x)
-        return x
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.xnor = nn.Sequential(nn.Conv2d(3, 192, kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(192, eps=0.0001, momentum=0.1, affine=False), nn.ReLU(inplace=True), BinConv2d(192, 160, kernel_size=1, stride=1, padding=0), BinConv2d(160, 96, kernel_size=1, stride=1, padding=0), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), BinConv2d(96, 192, kernel_size=5, stride=1, padding=2, dropout=0.5), BinConv2d(192, 192, kernel_size=1, stride=1, padding=0), BinConv2d(192, 192, kernel_size=1, stride=1, padding=0), nn.AvgPool2d(kernel_size=3, stride=2, padding=1), BinConv2d(192, 192, kernel_size=3, stride=1, padding=1, dropout=0.5), BinConv2d(192, 192, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(192, eps=0.0001, momentum=0.1, affine=False), nn.Conv2d(192, 10, kernel_size=1, stride=1, padding=0), nn.ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
-
-    def forward(self, x):
-        for m in self.modules():
-            if isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
-                if hasattr(m.weight, 'data'):
-                    m.weight.data.clamp_(min=0.01)
-        x = self.xnor(x)
-        x = x.view(x.size(0), 10)
-        return x
-
-
-class BinConv2d(nn.Module):
-
-    def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, groups=1, dropout=0, Linear=False):
-        super(BinConv2d, self).__init__()
-        self.layer_type = 'BinConv2d'
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = padding
-        self.dropout_ratio = dropout
-        if dropout != 0:
-            self.dropout = nn.Dropout(dropout)
-        self.Linear = Linear
-        if not self.Linear:
-            self.bn = nn.BatchNorm2d(input_channels, eps=0.0001, momentum=0.1, affine=True)
-            self.conv = nn.Conv2d(input_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, groups=groups)
-        else:
-            self.bn = nn.BatchNorm1d(input_channels, eps=0.0001, momentum=0.1, affine=True)
-            self.linear = nn.Linear(input_channels, output_channels)
-        self.relu = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        x = self.bn(x)
-        x = BinActive()(x)
-        if self.dropout_ratio != 0:
-            x = self.dropout(x)
-        if not self.Linear:
-            x = self.conv(x)
-        else:
-            x = self.linear(x)
-        x = self.relu(x)
-        return x
-
-
-class AlexNet(nn.Module):
-
-    def __init__(self, num_classes=1000):
-        super(AlexNet, self).__init__()
-        self.num_classes = num_classes
-        self.features = nn.Sequential(nn.Conv2d(3, 96, kernel_size=11, stride=4, padding=0), nn.BatchNorm2d(96, eps=0.0001, momentum=0.1, affine=True), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), BinConv2d(96, 256, kernel_size=5, stride=1, padding=2, groups=1), nn.MaxPool2d(kernel_size=3, stride=2), BinConv2d(256, 384, kernel_size=3, stride=1, padding=1), BinConv2d(384, 384, kernel_size=3, stride=1, padding=1, groups=1), BinConv2d(384, 256, kernel_size=3, stride=1, padding=1, groups=1), nn.MaxPool2d(kernel_size=3, stride=2))
-        self.classifier = nn.Sequential(BinConv2d(256 * 6 * 6, 4096, Linear=True), BinConv2d(4096, 4096, dropout=0.5, Linear=True), nn.BatchNorm1d(4096, eps=0.001, momentum=0.1, affine=True), nn.Dropout(), nn.Linear(4096, num_classes))
-
-    def forward(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), 256 * 6 * 6)
-        x = self.classifier(x)
-        return x
-
-
-class BinConv2d(nn.Module):
-
     def __init__(self, input_channels, output_channels, kernel_size=-1, stride=-1, padding=-1, groups=1, dropout=0, Linear=False, previous_conv=False, size=0):
         super(BinConv2d, self).__init__()
         self.input_channels = input_channels
@@ -228,6 +163,37 @@ class BinConv2d(nn.Module):
                 x = x.view(x.size(0), self.input_channels)
             x = self.linear(x)
         x = self.relu(x)
+        return x
+
+
+class Net(nn.Module):
+
+    def __init__(self):
+        super(Net, self).__init__()
+        self.xnor = nn.Sequential(nn.Conv2d(3, 192, kernel_size=5, stride=1, padding=2), nn.BatchNorm2d(192, eps=0.0001, momentum=0.1, affine=False), nn.ReLU(inplace=True), BinConv2d(192, 160, kernel_size=1, stride=1, padding=0), BinConv2d(160, 96, kernel_size=1, stride=1, padding=0), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), BinConv2d(96, 192, kernel_size=5, stride=1, padding=2, dropout=0.5), BinConv2d(192, 192, kernel_size=1, stride=1, padding=0), BinConv2d(192, 192, kernel_size=1, stride=1, padding=0), nn.AvgPool2d(kernel_size=3, stride=2, padding=1), BinConv2d(192, 192, kernel_size=3, stride=1, padding=1, dropout=0.5), BinConv2d(192, 192, kernel_size=1, stride=1, padding=0), nn.BatchNorm2d(192, eps=0.0001, momentum=0.1, affine=False), nn.Conv2d(192, 10, kernel_size=1, stride=1, padding=0), nn.ReLU(inplace=True), nn.AvgPool2d(kernel_size=8, stride=1, padding=0))
+
+    def forward(self, x):
+        for m in self.modules():
+            if isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
+                if hasattr(m.weight, 'data'):
+                    m.weight.data.clamp_(min=0.01)
+        x = self.xnor(x)
+        x = x.view(x.size(0), 10)
+        return x
+
+
+class AlexNet(nn.Module):
+
+    def __init__(self, num_classes=1000):
+        super(AlexNet, self).__init__()
+        self.num_classes = num_classes
+        self.features = nn.Sequential(nn.Conv2d(3, 96, kernel_size=11, stride=4, padding=0), nn.BatchNorm2d(96, eps=0.0001, momentum=0.1, affine=True), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2), BinConv2d(96, 256, kernel_size=5, stride=1, padding=2, groups=1), nn.MaxPool2d(kernel_size=3, stride=2), BinConv2d(256, 384, kernel_size=3, stride=1, padding=1), BinConv2d(384, 384, kernel_size=3, stride=1, padding=1, groups=1), BinConv2d(384, 256, kernel_size=3, stride=1, padding=1, groups=1), nn.MaxPool2d(kernel_size=3, stride=2))
+        self.classifier = nn.Sequential(BinConv2d(256 * 6 * 6, 4096, Linear=True), BinConv2d(4096, 4096, dropout=0.5, Linear=True), nn.BatchNorm1d(4096, eps=0.001, momentum=0.1, affine=True), nn.Dropout(), nn.Linear(4096, num_classes))
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.view(x.size(0), 256 * 6 * 6)
+        x = self.classifier(x)
         return x
 
 

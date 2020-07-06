@@ -11,15 +11,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -54,44 +55,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-class TransformerNet(torch.nn.Module):
-
-    def __init__(self):
-        super(TransformerNet, self).__init__()
-        self.conv1 = ConvLayer(3, 32, kernel_size=9, stride=1)
-        self.in1 = InstanceNormalization(32)
-        self.conv2 = ConvLayer(32, 64, kernel_size=3, stride=2)
-        self.in2 = InstanceNormalization(64)
-        self.conv3 = ConvLayer(64, 128, kernel_size=3, stride=2)
-        self.in3 = InstanceNormalization(128)
-        self.res1 = ResidualBlock(128)
-        self.res2 = ResidualBlock(128)
-        self.res3 = ResidualBlock(128)
-        self.res4 = ResidualBlock(128)
-        self.res5 = ResidualBlock(128)
-        self.deconv1 = UpsampleConvLayer(128, 64, kernel_size=3, stride=1, upsample=2)
-        self.in4 = InstanceNormalization(64)
-        self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3, stride=1, upsample=2)
-        self.in5 = InstanceNormalization(32)
-        self.deconv3 = ConvLayer(32, 3, kernel_size=9, stride=1)
-        self.relu = nn.ReLU()
-
-    def forward(self, X):
-        in_X = X
-        y = self.relu(self.in1(self.conv1(in_X)))
-        y = self.relu(self.in2(self.conv2(y)))
-        y = self.relu(self.in3(self.conv3(y)))
-        y = self.res1(y)
-        y = self.res2(y)
-        y = self.res3(y)
-        y = self.res4(y)
-        y = self.res5(y)
-        y = self.relu(self.in4(self.deconv1(y)))
-        y = self.relu(self.in5(self.deconv2(y)))
-        y = self.deconv3(y)
-        return y
-
-
 class ConvLayer(torch.nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride):
@@ -103,6 +66,37 @@ class ConvLayer(torch.nn.Module):
     def forward(self, x):
         out = self.reflection_pad(x)
         out = self.conv2d(out)
+        return out
+
+
+class InstanceNormalization(torch.nn.Module):
+    """InstanceNormalization
+    Improves convergence of neural-style.
+    ref: https://arxiv.org/pdf/1607.08022.pdf
+    """
+
+    def __init__(self, dim, eps=1e-09):
+        super(InstanceNormalization, self).__init__()
+        self.scale = nn.Parameter(torch.FloatTensor(dim))
+        self.shift = nn.Parameter(torch.FloatTensor(dim))
+        self.eps = eps
+        self._reset_parameters()
+
+    def _reset_parameters(self):
+        self.scale.data.uniform_()
+        self.shift.data.zero_()
+
+    def forward(self, x):
+        n = x.size(2) * x.size(3)
+        t = x.view(x.size(0), x.size(1), n)
+        mean = torch.mean(t, 2).unsqueeze(2).unsqueeze(3).expand_as(x)
+        var = torch.var(t, 2).unsqueeze(2).unsqueeze(3).expand_as(x) * ((n - 1) / float(n))
+        scale_broadcast = self.scale.unsqueeze(1).unsqueeze(1).unsqueeze(0)
+        scale_broadcast = scale_broadcast.expand_as(x)
+        shift_broadcast = self.shift.unsqueeze(1).unsqueeze(1).unsqueeze(0)
+        shift_broadcast = shift_broadcast.expand_as(x)
+        out = (x - mean) / torch.sqrt(var + self.eps)
+        out = out * scale_broadcast + shift_broadcast
         return out
 
 
@@ -153,35 +147,42 @@ class UpsampleConvLayer(torch.nn.Module):
         return out
 
 
-class InstanceNormalization(torch.nn.Module):
-    """InstanceNormalization
-    Improves convergence of neural-style.
-    ref: https://arxiv.org/pdf/1607.08022.pdf
-    """
+class TransformerNet(torch.nn.Module):
 
-    def __init__(self, dim, eps=1e-09):
-        super(InstanceNormalization, self).__init__()
-        self.scale = nn.Parameter(torch.FloatTensor(dim))
-        self.shift = nn.Parameter(torch.FloatTensor(dim))
-        self.eps = eps
-        self._reset_parameters()
+    def __init__(self):
+        super(TransformerNet, self).__init__()
+        self.conv1 = ConvLayer(3, 32, kernel_size=9, stride=1)
+        self.in1 = InstanceNormalization(32)
+        self.conv2 = ConvLayer(32, 64, kernel_size=3, stride=2)
+        self.in2 = InstanceNormalization(64)
+        self.conv3 = ConvLayer(64, 128, kernel_size=3, stride=2)
+        self.in3 = InstanceNormalization(128)
+        self.res1 = ResidualBlock(128)
+        self.res2 = ResidualBlock(128)
+        self.res3 = ResidualBlock(128)
+        self.res4 = ResidualBlock(128)
+        self.res5 = ResidualBlock(128)
+        self.deconv1 = UpsampleConvLayer(128, 64, kernel_size=3, stride=1, upsample=2)
+        self.in4 = InstanceNormalization(64)
+        self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3, stride=1, upsample=2)
+        self.in5 = InstanceNormalization(32)
+        self.deconv3 = ConvLayer(32, 3, kernel_size=9, stride=1)
+        self.relu = nn.ReLU()
 
-    def _reset_parameters(self):
-        self.scale.data.uniform_()
-        self.shift.data.zero_()
-
-    def forward(self, x):
-        n = x.size(2) * x.size(3)
-        t = x.view(x.size(0), x.size(1), n)
-        mean = torch.mean(t, 2).unsqueeze(2).unsqueeze(3).expand_as(x)
-        var = torch.var(t, 2).unsqueeze(2).unsqueeze(3).expand_as(x) * ((n - 1) / float(n))
-        scale_broadcast = self.scale.unsqueeze(1).unsqueeze(1).unsqueeze(0)
-        scale_broadcast = scale_broadcast.expand_as(x)
-        shift_broadcast = self.shift.unsqueeze(1).unsqueeze(1).unsqueeze(0)
-        shift_broadcast = shift_broadcast.expand_as(x)
-        out = (x - mean) / torch.sqrt(var + self.eps)
-        out = out * scale_broadcast + shift_broadcast
-        return out
+    def forward(self, X):
+        in_X = X
+        y = self.relu(self.in1(self.conv1(in_X)))
+        y = self.relu(self.in2(self.conv2(y)))
+        y = self.relu(self.in3(self.conv3(y)))
+        y = self.res1(y)
+        y = self.res2(y)
+        y = self.res3(y)
+        y = self.res4(y)
+        y = self.res5(y)
+        y = self.relu(self.in4(self.deconv1(y)))
+        y = self.relu(self.in5(self.deconv2(y)))
+        y = self.deconv3(y)
+        return y
 
 
 class Vgg16(torch.nn.Module):

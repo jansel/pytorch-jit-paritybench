@@ -18,23 +18,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import numpy as np
-
-
 import torch
+
+
+from collections import Counter
+
+
+import numpy as np
 
 
 import time
@@ -70,6 +74,47 @@ class LockedDropout(nn.Module):
         mask = Variable(m, requires_grad=False) / (1 - dropout)
         mask = mask.expand_as(x)
         return mask * x
+
+
+class WeightDrop(torch.nn.Module):
+
+    def __init__(self, module, weights, dropout=0, variational=False):
+        super(WeightDrop, self).__init__()
+        self.module = module
+        self.weights = weights
+        self.dropout = dropout
+        self.variational = variational
+        self._setup()
+
+    def widget_demagnetizer_y2k_edition(*args, **kwargs):
+        return
+
+    def _setup(self):
+        if issubclass(type(self.module), torch.nn.RNNBase):
+            self.module.flatten_parameters = self.widget_demagnetizer_y2k_edition
+        for name_w in self.weights:
+            None
+            w = getattr(self.module, name_w)
+            del self.module._parameters[name_w]
+            self.module.register_parameter(name_w + '_raw', Parameter(w.data))
+
+    def _setweights(self):
+        for name_w in self.weights:
+            raw_w = getattr(self.module, name_w + '_raw')
+            w = None
+            if self.variational:
+                mask = torch.autograd.Variable(torch.ones(raw_w.size(0), 1))
+                if raw_w.is_cuda:
+                    mask = mask
+                mask = torch.nn.functional.dropout(mask, p=self.dropout, training=True)
+                w = mask.expand_as(raw_w) * raw_w
+            else:
+                w = torch.nn.functional.dropout(raw_w, p=self.dropout, training=self.training)
+            setattr(self.module, name_w, w)
+
+    def forward(self, *args):
+        self._setweights()
+        return self.module.forward(*args)
 
 
 def embedded_dropout(embed, words, dropout=0.1, scale=None):
@@ -271,47 +316,6 @@ class SplitCrossEntropyLoss(nn.Module):
             running_offset += len(split_hiddens[idx])
             total_loss = entropy.float().sum() if total_loss is None else total_loss + entropy.float().sum()
         return (total_loss / len(targets)).type_as(weight)
-
-
-class WeightDrop(torch.nn.Module):
-
-    def __init__(self, module, weights, dropout=0, variational=False):
-        super(WeightDrop, self).__init__()
-        self.module = module
-        self.weights = weights
-        self.dropout = dropout
-        self.variational = variational
-        self._setup()
-
-    def widget_demagnetizer_y2k_edition(*args, **kwargs):
-        return
-
-    def _setup(self):
-        if issubclass(type(self.module), torch.nn.RNNBase):
-            self.module.flatten_parameters = self.widget_demagnetizer_y2k_edition
-        for name_w in self.weights:
-            None
-            w = getattr(self.module, name_w)
-            del self.module._parameters[name_w]
-            self.module.register_parameter(name_w + '_raw', Parameter(w.data))
-
-    def _setweights(self):
-        for name_w in self.weights:
-            raw_w = getattr(self.module, name_w + '_raw')
-            w = None
-            if self.variational:
-                mask = torch.autograd.Variable(torch.ones(raw_w.size(0), 1))
-                if raw_w.is_cuda:
-                    mask = mask
-                mask = torch.nn.functional.dropout(mask, p=self.dropout, training=True)
-                w = mask.expand_as(raw_w) * raw_w
-            else:
-                w = torch.nn.functional.dropout(raw_w, p=self.dropout, training=self.training)
-            setattr(self.module, name_w, w)
-
-    def forward(self, *args):
-        self._setweights()
-        return self.module.forward(*args)
 
 
 import torch

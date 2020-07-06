@@ -8,6 +8,7 @@ pointnet = _module
 pointnet2 = _module
 pvcnne = _module
 s3dis = _module
+pointnet = _module
 area5 = _module
 pvcnn = _module
 c0p125 = _module
@@ -16,11 +17,16 @@ c1 = _module
 pvcnn2 = _module
 c0p5 = _module
 shapenet = _module
+pointnet = _module
 pointnet2msg = _module
 pointnet2ssg = _module
+pvcnn = _module
 prepare_data = _module
 datasets = _module
 attributes = _module
+frustum = _module
+s3dis = _module
+shapenet = _module
 evaluate = _module
 eval = _module
 utils = _module
@@ -29,6 +35,9 @@ iou = _module
 eval = _module
 eval = _module
 meters = _module
+frustum = _module
+s3dis = _module
+shapenet = _module
 models = _module
 box_estimation = _module
 pointnet = _module
@@ -50,6 +59,7 @@ ball_query = _module
 frustum = _module
 functional = _module
 backend = _module
+ball_query = _module
 devoxelization = _module
 grouping = _module
 interpolatation = _module
@@ -72,26 +82,18 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import torch.nn as nn
-
-
-import torch.optim as optim
-
-
-import random
 
 
 import numpy as np
@@ -100,10 +102,55 @@ import numpy as np
 import torch
 
 
+import torch.optim as optim
+
+
+import torch.nn as nn
+
+
+from torch.utils.data import Dataset
+
+
+import random
+
+
 import functools
 
 
 import torch.nn.functional as F
+
+
+from torch.utils.cpp_extension import load
+
+
+from torch.autograd import Function
+
+
+class SharedMLP(nn.Module):
+
+    def __init__(self, in_channels, out_channels, dim=1):
+        super().__init__()
+        if dim == 1:
+            conv = nn.Conv1d
+            bn = nn.BatchNorm1d
+        elif dim == 2:
+            conv = nn.Conv2d
+            bn = nn.BatchNorm2d
+        else:
+            raise ValueError
+        if not isinstance(out_channels, (list, tuple)):
+            out_channels = [out_channels]
+        layers = []
+        for oc in out_channels:
+            layers.extend([conv(in_channels, oc, 1), bn(oc), nn.ReLU(True)])
+            in_channels = oc
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, inputs):
+        if isinstance(inputs, (list, tuple)):
+            return self.layers(inputs[0]), *inputs[1:]
+        else:
+            return self.layers(inputs)
 
 
 def _linear_bn_relu(in_channels, out_channels):
@@ -140,6 +187,63 @@ def create_mlp_components(in_channels, out_channels, classifier=False, dim=2, wi
     return layers, out_channels[-1] if classifier else int(r * out_channels[-1])
 
 
+class SE3d(nn.Module):
+
+    def __init__(self, channel, reduction=8):
+        super().__init__()
+        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction, bias=False), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel, bias=False), nn.Sigmoid())
+
+    def forward(self, inputs):
+        return inputs * self.fc(inputs.mean(-1).mean(-1).mean(-1)).view(inputs.shape[0], inputs.shape[1], 1, 1, 1)
+
+
+class Voxelization(nn.Module):
+
+    def __init__(self, resolution, normalize=True, eps=0):
+        super().__init__()
+        self.r = int(resolution)
+        self.normalize = normalize
+        self.eps = eps
+
+    def forward(self, features, coords):
+        coords = coords.detach()
+        norm_coords = coords - coords.mean(2, keepdim=True)
+        if self.normalize:
+            norm_coords = norm_coords / (norm_coords.norm(dim=1, keepdim=True).max(dim=2, keepdim=True).values * 2.0 + self.eps) + 0.5
+        else:
+            norm_coords = (norm_coords + 1) / 2.0
+        norm_coords = torch.clamp(norm_coords * self.r, 0, self.r - 1)
+        vox_coords = torch.round(norm_coords)
+        return F.avg_voxelize(features, vox_coords, self.r), norm_coords
+
+    def extra_repr(self):
+        return 'resolution={}{}'.format(self.r, ', normalized eps = {}'.format(self.eps) if self.normalize else '')
+
+
+class PVConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, resolution, with_se=False, normalize=True, eps=0):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.resolution = resolution
+        self.voxelization = Voxelization(resolution, normalize=normalize, eps=eps)
+        voxel_layers = [nn.Conv3d(in_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2), nn.BatchNorm3d(out_channels, eps=0.0001), nn.LeakyReLU(0.1, True), nn.Conv3d(out_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2), nn.BatchNorm3d(out_channels, eps=0.0001), nn.LeakyReLU(0.1, True)]
+        if with_se:
+            voxel_layers.append(SE3d(out_channels))
+        self.voxel_layers = nn.Sequential(*voxel_layers)
+        self.point_features = SharedMLP(in_channels, out_channels)
+
+    def forward(self, inputs):
+        features, coords = inputs
+        voxel_features, voxel_coords = self.voxelization(features, coords)
+        voxel_features = self.voxel_layers(voxel_features)
+        voxel_features = F.trilinear_devoxelize(voxel_features, voxel_coords, self.resolution, self.training)
+        fused_features = voxel_features + self.point_features(features)
+        return fused_features, coords
+
+
 def create_pointnet_components(blocks, in_channels, with_se=False, normalize=True, eps=0, width_multiplier=1, voxel_resolution_multiplier=1):
     r, vr = width_multiplier, voxel_resolution_multiplier
     layers, concat_channels = [], 0
@@ -174,6 +278,114 @@ class BoxEstimationNet(nn.Module):
         features, _ = self.features((coords, coords))
         features = features.max(dim=-1, keepdim=False).values
         return self.classifier(torch.cat([features, one_hot_vectors], dim=1))
+
+
+class BoxEstimationPointNet(BoxEstimationNet):
+    blocks = (128, 2, None), (256, 1, None), (512, 1, None)
+
+    def __init__(self, num_classes=3, num_heading_angle_bins=12, num_size_templates=8, width_multiplier=1):
+        super().__init__(num_classes=num_classes, blocks=self.blocks, num_heading_angle_bins=num_heading_angle_bins, num_size_templates=num_size_templates, width_multiplier=width_multiplier)
+
+
+class PointNetAModule(nn.Module):
+
+    def __init__(self, in_channels, out_channels, include_coordinates=True):
+        super().__init__()
+        if not isinstance(out_channels, (list, tuple)):
+            out_channels = [[out_channels]]
+        elif not isinstance(out_channels[0], (list, tuple)):
+            out_channels = [out_channels]
+        mlps = []
+        total_out_channels = 0
+        for _out_channels in out_channels:
+            mlps.append(SharedMLP(in_channels=in_channels + (3 if include_coordinates else 0), out_channels=_out_channels, dim=1))
+            total_out_channels += _out_channels[-1]
+        self.include_coordinates = include_coordinates
+        self.out_channels = total_out_channels
+        self.mlps = nn.ModuleList(mlps)
+
+    def forward(self, inputs):
+        features, coords = inputs
+        if self.include_coordinates:
+            features = torch.cat([features, coords], dim=1)
+        coords = torch.zeros((coords.size(0), 3, 1), device=coords.device)
+        if len(self.mlps) > 1:
+            features_list = []
+            for mlp in self.mlps:
+                features_list.append(mlp(features).max(dim=-1, keepdim=True).values)
+            return torch.cat(features_list, dim=1), coords
+        else:
+            return self.mlps[0](features).max(dim=-1, keepdim=True).values, coords
+
+    def extra_repr(self):
+        return f'out_channels={self.out_channels}, include_coordinates={self.include_coordinates}'
+
+
+class BallQuery(nn.Module):
+
+    def __init__(self, radius, num_neighbors, include_coordinates=True):
+        super().__init__()
+        self.radius = radius
+        self.num_neighbors = num_neighbors
+        self.include_coordinates = include_coordinates
+
+    def forward(self, points_coords, centers_coords, points_features=None):
+        points_coords = points_coords.contiguous()
+        centers_coords = centers_coords.contiguous()
+        neighbor_indices = F.ball_query(centers_coords, points_coords, self.radius, self.num_neighbors)
+        neighbor_coordinates = F.grouping(points_coords, neighbor_indices)
+        neighbor_coordinates = neighbor_coordinates - centers_coords.unsqueeze(-1)
+        if points_features is None:
+            assert self.include_coordinates, 'No Features For Grouping'
+            neighbor_features = neighbor_coordinates
+        else:
+            neighbor_features = F.grouping(points_features, neighbor_indices)
+            if self.include_coordinates:
+                neighbor_features = torch.cat([neighbor_coordinates, neighbor_features], dim=1)
+        return neighbor_features
+
+    def extra_repr(self):
+        return 'radius={}, num_neighbors={}{}'.format(self.radius, self.num_neighbors, ', include coordinates' if self.include_coordinates else '')
+
+
+class PointNetSAModule(nn.Module):
+
+    def __init__(self, num_centers, radius, num_neighbors, in_channels, out_channels, include_coordinates=True):
+        super().__init__()
+        if not isinstance(radius, (list, tuple)):
+            radius = [radius]
+        if not isinstance(num_neighbors, (list, tuple)):
+            num_neighbors = [num_neighbors] * len(radius)
+        assert len(radius) == len(num_neighbors)
+        if not isinstance(out_channels, (list, tuple)):
+            out_channels = [[out_channels]] * len(radius)
+        elif not isinstance(out_channels[0], (list, tuple)):
+            out_channels = [out_channels] * len(radius)
+        assert len(radius) == len(out_channels)
+        groupers, mlps = [], []
+        total_out_channels = 0
+        for _radius, _out_channels, _num_neighbors in zip(radius, out_channels, num_neighbors):
+            groupers.append(BallQuery(radius=_radius, num_neighbors=_num_neighbors, include_coordinates=include_coordinates))
+            mlps.append(SharedMLP(in_channels=in_channels + (3 if include_coordinates else 0), out_channels=_out_channels, dim=2))
+            total_out_channels += _out_channels[-1]
+        self.num_centers = num_centers
+        self.out_channels = total_out_channels
+        self.groupers = nn.ModuleList(groupers)
+        self.mlps = nn.ModuleList(mlps)
+
+    def forward(self, inputs):
+        features, coords = inputs
+        centers_coords = F.furthest_point_sample(coords, self.num_centers)
+        features_list = []
+        for grouper, mlp in zip(self.groupers, self.mlps):
+            features_list.append(mlp(grouper(coords, centers_coords, features)).max(dim=-1).values)
+        if len(features_list) > 1:
+            return torch.cat(features_list, dim=1), centers_coords
+        else:
+            return features_list[0], centers_coords
+
+    def extra_repr(self):
+        return f'num_centers={self.num_centers}, out_channels={self.out_channels}'
 
 
 def create_pointnet2_sa_components(sa_blocks, extra_feature_channels, with_se=False, normalize=True, eps=0, width_multiplier=1, voxel_resolution_multiplier=1):
@@ -233,6 +445,13 @@ class BoxEstimationNet2(nn.Module):
         features, _ = self.features((None, coords))
         features = features.view(features.size(0), -1)
         return self.classifier(torch.cat([features, one_hot_vectors], dim=1))
+
+
+class BoxEstimationPointNet2(BoxEstimationNet2):
+    sa_blocks = [(None, (128, 0.2, 64, (64, 64, 128))), (None, (32, 0.4, 64, (128, 128, 256))), (None, (None, None, None, (256, 256, 512)))]
+
+    def __init__(self, num_classes=3, num_heading_angle_bins=12, num_size_templates=8, width_multiplier=1):
+        super().__init__(num_classes=num_classes, sa_blocks=self.sa_blocks, num_heading_angle_bins=num_heading_angle_bins, num_size_templates=num_size_templates, width_multiplier=width_multiplier)
 
 
 class CenterRegressionNet(nn.Module):
@@ -320,6 +539,38 @@ class InstanceSegmentationNet(nn.Module):
         return self.classifier(torch.cat([one_hot_vectors, point_features, cloud_features], dim=1))
 
 
+class InstanceSegmentationPointNet(InstanceSegmentationNet):
+    point_blocks = (64, 3, None),
+    cloud_blocks = (128, 1, None), (1024, 1, None)
+
+    def __init__(self, num_classes=3, extra_feature_channels=1, width_multiplier=1):
+        super().__init__(num_classes=num_classes, point_blocks=self.point_blocks, cloud_blocks=self.cloud_blocks, extra_feature_channels=extra_feature_channels, width_multiplier=width_multiplier)
+
+
+class FrustumPointNet(FrustumNet):
+
+    def __init__(self, num_classes, num_heading_angle_bins, num_size_templates, num_points_per_object, size_templates, extra_feature_channels=1, width_multiplier=1):
+        super().__init__(num_classes=num_classes, instance_segmentation_net=InstanceSegmentationPointNet, box_estimation_net=BoxEstimationPointNet, num_heading_angle_bins=num_heading_angle_bins, num_size_templates=num_size_templates, num_points_per_object=num_points_per_object, size_templates=size_templates, extra_feature_channels=extra_feature_channels, width_multiplier=width_multiplier)
+
+
+class PointNetFPModule(nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.mlp = SharedMLP(in_channels=in_channels, out_channels=out_channels, dim=1)
+
+    def forward(self, inputs):
+        if len(inputs) == 3:
+            points_coords, centers_coords, centers_features = inputs
+            points_features = None
+        else:
+            points_coords, centers_coords, centers_features, points_features = inputs
+        interpolated_features = F.nearest_neighbor_interpolate(points_coords, centers_coords, centers_features)
+        if points_features is not None:
+            interpolated_features = torch.cat([interpolated_features, points_features], dim=1)
+        return self.mlp(interpolated_features), points_coords
+
+
 def create_pointnet2_fp_modules(fp_blocks, in_channels, sa_in_channels, with_se=False, normalize=True, eps=0, width_multiplier=1, voxel_resolution_multiplier=1):
     r, vr = width_multiplier, voxel_resolution_multiplier
     fp_layers = []
@@ -376,82 +627,33 @@ class InstanceSegmentationNet2(nn.Module):
         return self.classifier(features)
 
 
-class PointNet(nn.Module):
-    blocks = (64, 3, None), (128, 1, None), (1024, 1, None)
+class InstanceSegmentationPointNet2(InstanceSegmentationNet2):
+    sa_blocks = [(None, (128, [0.2, 0.4, 0.8], [32, 64, 128], [(32, 32, 64), (64, 64, 128), (64, 96, 128)])), (None, (32, [0.4, 0.8, 1.6], [64, 64, 128], [(64, 64, 128), (128, 128, 256), (128, 128, 256)])), (None, (None, None, None, (128, 256, 1024)))]
+    fp_blocks = [((128, 128), None), ((128, 128), None), ((128, 128), None)]
 
-    def __init__(self, num_classes, extra_feature_channels=6, width_multiplier=1):
-        super().__init__()
-        self.in_channels = extra_feature_channels + 3
-        layers, channels_point, _ = create_pointnet_components(blocks=self.blocks, in_channels=self.in_channels, width_multiplier=width_multiplier)
-        self.point_features = nn.Sequential(*layers)
-        layers, channels_cloud = create_mlp_components(in_channels=channels_point, out_channels=[256, 128], classifier=False, dim=1, width_multiplier=width_multiplier)
-        self.cloud_features = nn.Sequential(*layers)
-        layers, _ = create_mlp_components(in_channels=channels_point + channels_cloud, out_channels=[512, 256, 0.3, num_classes], classifier=True, dim=2, width_multiplier=width_multiplier)
-        self.classifier = nn.Sequential(*layers)
-
-    def forward(self, inputs):
-        if isinstance(inputs, dict):
-            inputs = inputs['features']
-        point_features = self.point_features(inputs)
-        cloud_features = self.cloud_features(point_features.max(dim=-1, keepdim=False).values)
-        features = torch.cat([point_features, cloud_features.unsqueeze(-1).repeat([1, 1, inputs.size(-1)])], dim=1)
-        return self.classifier(features)
+    def __init__(self, num_classes=3, extra_feature_channels=1, width_multiplier=1):
+        super().__init__(num_classes=num_classes, sa_blocks=self.sa_blocks, fp_blocks=self.fp_blocks, extra_feature_channels=extra_feature_channels, width_multiplier=width_multiplier)
 
 
-class PVCNN(nn.Module):
-    blocks = (64, 1, 32), (64, 2, 16), (128, 1, 16), (1024, 1, None)
+class FrustumPointNet2(FrustumNet):
 
-    def __init__(self, num_classes, extra_feature_channels=6, width_multiplier=1, voxel_resolution_multiplier=1):
-        super().__init__()
-        self.in_channels = extra_feature_channels + 3
-        layers, channels_point, concat_channels_point = create_pointnet_components(blocks=self.blocks, in_channels=self.in_channels, with_se=False, width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier)
-        self.point_features = nn.ModuleList(layers)
-        layers, channels_cloud = create_mlp_components(in_channels=channels_point, out_channels=[256, 128], classifier=False, dim=1, width_multiplier=width_multiplier)
-        self.cloud_features = nn.Sequential(*layers)
-        layers, _ = create_mlp_components(in_channels=concat_channels_point + channels_cloud, out_channels=[512, 0.3, 256, 0.3, num_classes], classifier=True, dim=2, width_multiplier=width_multiplier)
-        self.classifier = nn.Sequential(*layers)
-
-    def forward(self, inputs):
-        if isinstance(inputs, dict):
-            inputs = inputs['features']
-        coords = inputs[:, :3, :]
-        out_features_list = []
-        for i in range(len(self.point_features)):
-            inputs, _ = self.point_features[i]((inputs, coords))
-            out_features_list.append(inputs)
-        inputs = self.cloud_features(inputs.max(dim=-1, keepdim=False).values)
-        out_features_list.append(inputs.unsqueeze(-1).repeat([1, 1, coords.size(-1)]))
-        return self.classifier(torch.cat(out_features_list, dim=1))
+    def __init__(self, num_classes, num_heading_angle_bins, num_size_templates, num_points_per_object, size_templates, extra_feature_channels=1, width_multiplier=1):
+        super().__init__(num_classes=num_classes, instance_segmentation_net=InstanceSegmentationPointNet2, box_estimation_net=BoxEstimationPointNet2, num_heading_angle_bins=num_heading_angle_bins, num_size_templates=num_size_templates, num_points_per_object=num_points_per_object, size_templates=size_templates, extra_feature_channels=extra_feature_channels, width_multiplier=width_multiplier)
 
 
-class PVCNN2(nn.Module):
-    sa_blocks = [((32, 2, 32), (1024, 0.1, 32, (32, 64))), ((64, 3, 16), (256, 0.2, 32, (64, 128))), ((128, 3, 8), (64, 0.4, 32, (128, 256))), (None, (16, 0.8, 32, (256, 256, 512)))]
-    fp_blocks = [((256, 256), (256, 1, 8)), ((256, 256), (256, 1, 8)), ((256, 128), (128, 2, 16)), ((128, 128, 64), (64, 1, 32))]
+class InstanceSegmentationPVCNN(InstanceSegmentationNet):
+    point_blocks = (64, 2, 16), (64, 1, 12), (128, 1, 12), (1024, 1, None)
+    cloud_blocks = ()
 
-    def __init__(self, num_classes, extra_feature_channels=6, width_multiplier=1, voxel_resolution_multiplier=1):
-        super().__init__()
-        self.in_channels = extra_feature_channels + 3
-        sa_layers, sa_in_channels, channels_sa_features, _ = create_pointnet2_sa_components(sa_blocks=self.sa_blocks, extra_feature_channels=extra_feature_channels, with_se=True, width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier)
-        self.sa_layers = nn.ModuleList(sa_layers)
-        sa_in_channels[0] = extra_feature_channels
-        fp_layers, channels_fp_features = create_pointnet2_fp_modules(fp_blocks=self.fp_blocks, in_channels=channels_sa_features, sa_in_channels=sa_in_channels, with_se=True, width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier)
-        self.fp_layers = nn.ModuleList(fp_layers)
-        layers, _ = create_mlp_components(in_channels=channels_fp_features, out_channels=[128, 0.5, num_classes], classifier=True, dim=2, width_multiplier=width_multiplier)
-        self.classifier = nn.Sequential(*layers)
+    def __init__(self, num_classes=3, extra_feature_channels=1, width_multiplier=1, voxel_resolution_multiplier=1):
+        super().__init__(num_classes=num_classes, point_blocks=self.point_blocks, cloud_blocks=self.cloud_blocks, extra_feature_channels=extra_feature_channels, width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier)
 
-    def forward(self, inputs):
-        if isinstance(inputs, dict):
-            inputs = inputs['features']
-        coords, features = inputs[:, :3, :].contiguous(), inputs
-        coords_list, in_features_list = [], []
-        for sa_blocks in self.sa_layers:
-            in_features_list.append(features)
-            coords_list.append(coords)
-            features, coords = sa_blocks((features, coords))
-        in_features_list[0] = inputs[:, 3:, :].contiguous()
-        for fp_idx, fp_blocks in enumerate(self.fp_layers):
-            features, coords = fp_blocks((coords_list[-1 - fp_idx], coords, features, in_features_list[-1 - fp_idx]))
-        return self.classifier(features)
+
+class FrustumPVCNNE(FrustumNet):
+
+    def __init__(self, num_classes, num_heading_angle_bins, num_size_templates, num_points_per_object, size_templates, extra_feature_channels=1, width_multiplier=1, voxel_resolution_multiplier=1):
+        instance_segmentation_net = functools.partial(InstanceSegmentationPVCNN, voxel_resolution_multiplier=voxel_resolution_multiplier)
+        super().__init__(num_classes=num_classes, instance_segmentation_net=instance_segmentation_net, box_estimation_net=BoxEstimationPointNet, num_heading_angle_bins=num_heading_angle_bins, num_size_templates=num_size_templates, num_points_per_object=num_points_per_object, size_templates=size_templates, extra_feature_channels=extra_feature_channels, width_multiplier=width_multiplier)
 
 
 class Transformer(nn.Module):
@@ -507,6 +709,62 @@ class PointNet(nn.Module):
         return self.classifier(torch.cat(out_features_list, dim=1))
 
 
+class PVCNN(nn.Module):
+    blocks = (64, 1, 32), (128, 2, 16), (512, 1, None), (2048, 1, None)
+
+    def __init__(self, num_classes, num_shapes, extra_feature_channels=3, width_multiplier=1, voxel_resolution_multiplier=1):
+        super().__init__()
+        assert extra_feature_channels >= 0
+        self.in_channels = extra_feature_channels + 3
+        self.num_shapes = num_shapes
+        layers, channels_point, concat_channels_point = create_pointnet_components(blocks=self.blocks, in_channels=self.in_channels, with_se=True, normalize=False, width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier)
+        self.point_features = nn.ModuleList(layers)
+        layers, _ = create_mlp_components(in_channels=num_shapes + channels_point + concat_channels_point, out_channels=[256, 0.2, 256, 0.2, 128, num_classes], classifier=True, dim=2, width_multiplier=width_multiplier)
+        self.classifier = nn.Sequential(*layers)
+
+    def forward(self, inputs):
+        features = inputs[:, :self.in_channels, :]
+        one_hot_vectors = inputs[:, -self.num_shapes:, :]
+        num_points = features.size(-1)
+        coords = features[:, :3, :]
+        out_features_list = [one_hot_vectors]
+        for i in range(len(self.point_features)):
+            features, _ = self.point_features[i]((features, coords))
+            out_features_list.append(features)
+        out_features_list.append(features.max(dim=-1, keepdim=True).values.repeat([1, 1, num_points]))
+        return self.classifier(torch.cat(out_features_list, dim=1))
+
+
+class PVCNN2(nn.Module):
+    sa_blocks = [((32, 2, 32), (1024, 0.1, 32, (32, 64))), ((64, 3, 16), (256, 0.2, 32, (64, 128))), ((128, 3, 8), (64, 0.4, 32, (128, 256))), (None, (16, 0.8, 32, (256, 256, 512)))]
+    fp_blocks = [((256, 256), (256, 1, 8)), ((256, 256), (256, 1, 8)), ((256, 128), (128, 2, 16)), ((128, 128, 64), (64, 1, 32))]
+
+    def __init__(self, num_classes, extra_feature_channels=6, width_multiplier=1, voxel_resolution_multiplier=1):
+        super().__init__()
+        self.in_channels = extra_feature_channels + 3
+        sa_layers, sa_in_channels, channels_sa_features, _ = create_pointnet2_sa_components(sa_blocks=self.sa_blocks, extra_feature_channels=extra_feature_channels, with_se=True, width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier)
+        self.sa_layers = nn.ModuleList(sa_layers)
+        sa_in_channels[0] = extra_feature_channels
+        fp_layers, channels_fp_features = create_pointnet2_fp_modules(fp_blocks=self.fp_blocks, in_channels=channels_sa_features, sa_in_channels=sa_in_channels, with_se=True, width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier)
+        self.fp_layers = nn.ModuleList(fp_layers)
+        layers, _ = create_mlp_components(in_channels=channels_fp_features, out_channels=[128, 0.5, num_classes], classifier=True, dim=2, width_multiplier=width_multiplier)
+        self.classifier = nn.Sequential(*layers)
+
+    def forward(self, inputs):
+        if isinstance(inputs, dict):
+            inputs = inputs['features']
+        coords, features = inputs[:, :3, :].contiguous(), inputs
+        coords_list, in_features_list = [], []
+        for sa_blocks in self.sa_layers:
+            in_features_list.append(features)
+            coords_list.append(coords)
+            features, coords = sa_blocks((features, coords))
+        in_features_list[0] = inputs[:, 3:, :].contiguous()
+        for fp_idx, fp_blocks in enumerate(self.fp_layers):
+            features, coords = fp_blocks((coords_list[-1 - fp_idx], coords, features, in_features_list[-1 - fp_idx]))
+        return self.classifier(features)
+
+
 class PointNet2(nn.Module):
 
     def __init__(self, num_classes, num_shapes, sa_blocks, fp_blocks, with_one_hot_shape_id=True, extra_feature_channels=3, width_multiplier=1, voxel_resolution_multiplier=1):
@@ -542,57 +800,20 @@ class PointNet2(nn.Module):
         return self.classifier(features)
 
 
-class PVCNN(nn.Module):
-    blocks = (64, 1, 32), (128, 2, 16), (512, 1, None), (2048, 1, None)
+class PointNet2SSG(PointNet2):
+    sa_blocks = [(None, (512, 0.2, 64, (64, 64, 128))), (None, (128, 0.4, 64, (128, 128, 256))), (None, (None, None, None, (256, 512, 1024)))]
+    fp_blocks = [((256, 256), None), ((256, 128), None), ((128, 128, 128), None)]
 
     def __init__(self, num_classes, num_shapes, extra_feature_channels=3, width_multiplier=1, voxel_resolution_multiplier=1):
-        super().__init__()
-        assert extra_feature_channels >= 0
-        self.in_channels = extra_feature_channels + 3
-        self.num_shapes = num_shapes
-        layers, channels_point, concat_channels_point = create_pointnet_components(blocks=self.blocks, in_channels=self.in_channels, with_se=True, normalize=False, width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier)
-        self.point_features = nn.ModuleList(layers)
-        layers, _ = create_mlp_components(in_channels=num_shapes + channels_point + concat_channels_point, out_channels=[256, 0.2, 256, 0.2, 128, num_classes], classifier=True, dim=2, width_multiplier=width_multiplier)
-        self.classifier = nn.Sequential(*layers)
-
-    def forward(self, inputs):
-        features = inputs[:, :self.in_channels, :]
-        one_hot_vectors = inputs[:, -self.num_shapes:, :]
-        num_points = features.size(-1)
-        coords = features[:, :3, :]
-        out_features_list = [one_hot_vectors]
-        for i in range(len(self.point_features)):
-            features, _ = self.point_features[i]((features, coords))
-            out_features_list.append(features)
-        out_features_list.append(features.max(dim=-1, keepdim=True).values.repeat([1, 1, num_points]))
-        return self.classifier(torch.cat(out_features_list, dim=1))
+        super().__init__(num_classes=num_classes, num_shapes=num_shapes, sa_blocks=self.sa_blocks, fp_blocks=self.fp_blocks, with_one_hot_shape_id=False, extra_feature_channels=extra_feature_channels, width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier)
 
 
-class BallQuery(nn.Module):
+class PointNet2MSG(PointNet2):
+    sa_blocks = [(None, (512, [0.1, 0.2, 0.4], [32, 64, 128], [(32, 32, 64), (64, 64, 128), (64, 96, 128)])), (None, (128, [0.4, 0.8], [64, 128], [(128, 128, 256), (128, 196, 256)])), (None, (None, None, None, (256, 512, 1024)))]
+    fp_blocks = [((256, 256), None), ((256, 128), None), ((128, 128, 128), None)]
 
-    def __init__(self, radius, num_neighbors, include_coordinates=True):
-        super().__init__()
-        self.radius = radius
-        self.num_neighbors = num_neighbors
-        self.include_coordinates = include_coordinates
-
-    def forward(self, points_coords, centers_coords, points_features=None):
-        points_coords = points_coords.contiguous()
-        centers_coords = centers_coords.contiguous()
-        neighbor_indices = F.ball_query(centers_coords, points_coords, self.radius, self.num_neighbors)
-        neighbor_coordinates = F.grouping(points_coords, neighbor_indices)
-        neighbor_coordinates = neighbor_coordinates - centers_coords.unsqueeze(-1)
-        if points_features is None:
-            assert self.include_coordinates, 'No Features For Grouping'
-            neighbor_features = neighbor_coordinates
-        else:
-            neighbor_features = F.grouping(points_features, neighbor_indices)
-            if self.include_coordinates:
-                neighbor_features = torch.cat([neighbor_coordinates, neighbor_features], dim=1)
-        return neighbor_features
-
-    def extra_repr(self):
-        return 'radius={}, num_neighbors={}{}'.format(self.radius, self.num_neighbors, ', include coordinates' if self.include_coordinates else '')
+    def __init__(self, num_classes, num_shapes, extra_feature_channels=3, width_multiplier=1, voxel_resolution_multiplier=1):
+        super().__init__(num_classes=num_classes, num_shapes=num_shapes, sa_blocks=self.sa_blocks, fp_blocks=self.fp_blocks, with_one_hot_shape_id=True, extra_feature_channels=extra_feature_channels, width_multiplier=width_multiplier, voxel_resolution_multiplier=voxel_resolution_multiplier)
 
 
 def get_box_corners_3d(centers, headings, sizes, with_flip=False):
@@ -685,182 +906,6 @@ class KLLoss(nn.Module):
 
     def forward(self, x, y):
         return F.kl_loss(x, y)
-
-
-class PointNetAModule(nn.Module):
-
-    def __init__(self, in_channels, out_channels, include_coordinates=True):
-        super().__init__()
-        if not isinstance(out_channels, (list, tuple)):
-            out_channels = [[out_channels]]
-        elif not isinstance(out_channels[0], (list, tuple)):
-            out_channels = [out_channels]
-        mlps = []
-        total_out_channels = 0
-        for _out_channels in out_channels:
-            mlps.append(SharedMLP(in_channels=in_channels + (3 if include_coordinates else 0), out_channels=_out_channels, dim=1))
-            total_out_channels += _out_channels[-1]
-        self.include_coordinates = include_coordinates
-        self.out_channels = total_out_channels
-        self.mlps = nn.ModuleList(mlps)
-
-    def forward(self, inputs):
-        features, coords = inputs
-        if self.include_coordinates:
-            features = torch.cat([features, coords], dim=1)
-        coords = torch.zeros((coords.size(0), 3, 1), device=coords.device)
-        if len(self.mlps) > 1:
-            features_list = []
-            for mlp in self.mlps:
-                features_list.append(mlp(features).max(dim=-1, keepdim=True).values)
-            return torch.cat(features_list, dim=1), coords
-        else:
-            return self.mlps[0](features).max(dim=-1, keepdim=True).values, coords
-
-    def extra_repr(self):
-        return f'out_channels={self.out_channels}, include_coordinates={self.include_coordinates}'
-
-
-class PointNetSAModule(nn.Module):
-
-    def __init__(self, num_centers, radius, num_neighbors, in_channels, out_channels, include_coordinates=True):
-        super().__init__()
-        if not isinstance(radius, (list, tuple)):
-            radius = [radius]
-        if not isinstance(num_neighbors, (list, tuple)):
-            num_neighbors = [num_neighbors] * len(radius)
-        assert len(radius) == len(num_neighbors)
-        if not isinstance(out_channels, (list, tuple)):
-            out_channels = [[out_channels]] * len(radius)
-        elif not isinstance(out_channels[0], (list, tuple)):
-            out_channels = [out_channels] * len(radius)
-        assert len(radius) == len(out_channels)
-        groupers, mlps = [], []
-        total_out_channels = 0
-        for _radius, _out_channels, _num_neighbors in zip(radius, out_channels, num_neighbors):
-            groupers.append(BallQuery(radius=_radius, num_neighbors=_num_neighbors, include_coordinates=include_coordinates))
-            mlps.append(SharedMLP(in_channels=in_channels + (3 if include_coordinates else 0), out_channels=_out_channels, dim=2))
-            total_out_channels += _out_channels[-1]
-        self.num_centers = num_centers
-        self.out_channels = total_out_channels
-        self.groupers = nn.ModuleList(groupers)
-        self.mlps = nn.ModuleList(mlps)
-
-    def forward(self, inputs):
-        features, coords = inputs
-        centers_coords = F.furthest_point_sample(coords, self.num_centers)
-        features_list = []
-        for grouper, mlp in zip(self.groupers, self.mlps):
-            features_list.append(mlp(grouper(coords, centers_coords, features)).max(dim=-1).values)
-        if len(features_list) > 1:
-            return torch.cat(features_list, dim=1), centers_coords
-        else:
-            return features_list[0], centers_coords
-
-    def extra_repr(self):
-        return f'num_centers={self.num_centers}, out_channels={self.out_channels}'
-
-
-class PointNetFPModule(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.mlp = SharedMLP(in_channels=in_channels, out_channels=out_channels, dim=1)
-
-    def forward(self, inputs):
-        if len(inputs) == 3:
-            points_coords, centers_coords, centers_features = inputs
-            points_features = None
-        else:
-            points_coords, centers_coords, centers_features, points_features = inputs
-        interpolated_features = F.nearest_neighbor_interpolate(points_coords, centers_coords, centers_features)
-        if points_features is not None:
-            interpolated_features = torch.cat([interpolated_features, points_features], dim=1)
-        return self.mlp(interpolated_features), points_coords
-
-
-class PVConv(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, resolution, with_se=False, normalize=True, eps=0):
-        super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = kernel_size
-        self.resolution = resolution
-        self.voxelization = Voxelization(resolution, normalize=normalize, eps=eps)
-        voxel_layers = [nn.Conv3d(in_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2), nn.BatchNorm3d(out_channels, eps=0.0001), nn.LeakyReLU(0.1, True), nn.Conv3d(out_channels, out_channels, kernel_size, stride=1, padding=kernel_size // 2), nn.BatchNorm3d(out_channels, eps=0.0001), nn.LeakyReLU(0.1, True)]
-        if with_se:
-            voxel_layers.append(SE3d(out_channels))
-        self.voxel_layers = nn.Sequential(*voxel_layers)
-        self.point_features = SharedMLP(in_channels, out_channels)
-
-    def forward(self, inputs):
-        features, coords = inputs
-        voxel_features, voxel_coords = self.voxelization(features, coords)
-        voxel_features = self.voxel_layers(voxel_features)
-        voxel_features = F.trilinear_devoxelize(voxel_features, voxel_coords, self.resolution, self.training)
-        fused_features = voxel_features + self.point_features(features)
-        return fused_features, coords
-
-
-class SE3d(nn.Module):
-
-    def __init__(self, channel, reduction=8):
-        super().__init__()
-        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction, bias=False), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel, bias=False), nn.Sigmoid())
-
-    def forward(self, inputs):
-        return inputs * self.fc(inputs.mean(-1).mean(-1).mean(-1)).view(inputs.shape[0], inputs.shape[1], 1, 1, 1)
-
-
-class SharedMLP(nn.Module):
-
-    def __init__(self, in_channels, out_channels, dim=1):
-        super().__init__()
-        if dim == 1:
-            conv = nn.Conv1d
-            bn = nn.BatchNorm1d
-        elif dim == 2:
-            conv = nn.Conv2d
-            bn = nn.BatchNorm2d
-        else:
-            raise ValueError
-        if not isinstance(out_channels, (list, tuple)):
-            out_channels = [out_channels]
-        layers = []
-        for oc in out_channels:
-            layers.extend([conv(in_channels, oc, 1), bn(oc), nn.ReLU(True)])
-            in_channels = oc
-        self.layers = nn.Sequential(*layers)
-
-    def forward(self, inputs):
-        if isinstance(inputs, (list, tuple)):
-            return self.layers(inputs[0]), *inputs[1:]
-        else:
-            return self.layers(inputs)
-
-
-class Voxelization(nn.Module):
-
-    def __init__(self, resolution, normalize=True, eps=0):
-        super().__init__()
-        self.r = int(resolution)
-        self.normalize = normalize
-        self.eps = eps
-
-    def forward(self, features, coords):
-        coords = coords.detach()
-        norm_coords = coords - coords.mean(2, keepdim=True)
-        if self.normalize:
-            norm_coords = norm_coords / (norm_coords.norm(dim=1, keepdim=True).max(dim=2, keepdim=True).values * 2.0 + self.eps) + 0.5
-        else:
-            norm_coords = (norm_coords + 1) / 2.0
-        norm_coords = torch.clamp(norm_coords * self.r, 0, self.r - 1)
-        vox_coords = torch.round(norm_coords)
-        return F.avg_voxelize(features, vox_coords, self.r), norm_coords
-
-    def extra_repr(self):
-        return 'resolution={}{}'.format(self.r, ', normalized eps = {}'.format(self.eps) if self.normalize else '')
 
 
 import torch

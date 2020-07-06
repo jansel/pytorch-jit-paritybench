@@ -27,15 +27,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -67,10 +68,16 @@ import torchvision.models as models
 from torch.utils.data import Dataset
 
 
-from torchvision import models
-
-
 from torch.utils.data import DataLoader
+
+
+import torchvision.transforms.functional as TF
+
+
+import numpy as np
+
+
+from torchvision import models
 
 
 import torchvision.transforms as transforms
@@ -79,10 +86,13 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 
-import numpy as np
-
-
 from torchvision.utils import make_grid
+
+
+from torch.utils.data.sampler import WeightedRandomSampler
+
+
+from torch.utils.data.dataloader import DataLoader
 
 
 class LocallyConnected2d(nn.Module):
@@ -179,101 +189,6 @@ class MyBatchNorm2d(nn.BatchNorm2d):
 
 class MyModel(nn.Module):
 
-    def __init__(self, window=16):
-        super(MyModel, self).__init__()
-        self.conv_model = nn.Sequential(nn.Conv3d(in_channels=3, out_channels=6, kernel_size=3, stride=1, padding=1), nn.MaxPool3d((1, 2, 2)), nn.ReLU())
-        self.rnn = nn.RNN(input_size=6 * 16 * 12 * 12, hidden_size=1, num_layers=1, batch_first=True)
-        self.hidden = torch.zeros(1, 1, 1)
-        self.window = window
-
-    def forward(self, x):
-        self.hidden = torch.zeros(1, 1, 1)
-        activations = []
-        for idx in range(0, x.size(2), self.window):
-            x_ = x[:, :, idx:idx + self.window]
-            x_ = self.conv_model(x_)
-            x_ = x_.view(x_.size(0), 1, -1)
-            activations.append(x_)
-        x = torch.cat(activations, 1)
-        out, hidden = self.rnn(x, self.hidden)
-        return out, hidden
-
-
-class MyModel(nn.Module):
-
-    def __init__(self):
-        super(MyModel, self).__init__()
-        self.conv1 = nn.Conv2d(1, 3, 3, 1, 1)
-        self.pool1 = nn.MaxPool2d(2)
-        self.conv2 = nn.Conv2d(3, 6, 3, 1, 1)
-        self.pool2 = nn.MaxPool2d(2)
-        self.conv_trans1 = nn.ConvTranspose2d(6, 3, 4, 2, 1)
-        self.conv_trans2 = nn.ConvTranspose2d(3, 1, 4, 2, 1)
-
-    def forward(self, x):
-        x = F.relu(self.pool1(self.conv1(x)))
-        x = F.relu(self.pool2(self.conv2(x)))
-        x = F.relu(self.conv_trans1(x))
-        x = self.conv_trans2(x)
-        return x
-
-
-class MyModel(nn.Module):
-
-    def __init__(self):
-        super(MyModel, self).__init__()
-        self.act = nn.ReLU()
-        self.conv1 = nn.Conv2d(1, 4, 3, 1, 1)
-        self.pool1 = nn.MaxPool2d(2)
-        self.conv2 = nn.Conv2d(4, 8, 3, 1, 1)
-        self.pool2 = nn.MaxPool2d(2)
-        self.fc1 = nn.Linear(7 * 7 * 8, 10)
-
-    def forward(self, x):
-        x = self.act(self.conv1(x))
-        x = self.pool1(x)
-        x = self.act(self.conv2(x))
-        x = self.pool2(x)
-        x = x.view(x.size(0), -1)
-        x = F.log_softmax(self.fc1(x), dim=1)
-        return x
-
-
-class SubModule(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super(SubModule, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, 1, 1)
-
-    def forward(self, x):
-        None
-        x = self.conv1(x)
-        return x
-
-
-class MyModel(nn.Module):
-
-    def __init__(self, split_gpus, parallel):
-        super(MyModel, self).__init__()
-        self.module1 = SubModule(3, 6)
-        self.module2 = SubModule(6, 1)
-        self.split_gpus = split_gpus
-        self.parallel = parallel
-        if self.split_gpus and self.parallel:
-            self.module1 = nn.DataParallel(self.module1, device_ids=[0, 1])
-            self.module2 = nn.DataParallel(self.module2, device_ids=[2, 3])
-
-    def forward(self, x):
-        None
-        x = self.module1(x)
-        None
-        x = self.module2(x)
-        None
-        return x
-
-
-class MyModel(nn.Module):
-
     def __init__(self):
         super(MyModel, self).__init__()
         self.enc = nn.Linear(64, 10)
@@ -290,6 +205,18 @@ class MyModel(nn.Module):
             x = self.dec2(x)
         else:
             None
+        return x
+
+
+class SubModule(nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super(SubModule, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, 1, 1)
+
+    def forward(self, x):
+        None
+        x = self.conv1(x)
         return x
 
 
@@ -386,6 +313,10 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (MyModel,
+     lambda: ([], {}),
+     lambda: ([torch.rand([64, 64]), 0], {}),
+     True),
     (SubModule,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -417,4 +348,7 @@ class Test_ptrblck_pytorch_misc(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

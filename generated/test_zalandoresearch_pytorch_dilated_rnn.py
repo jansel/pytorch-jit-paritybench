@@ -8,6 +8,7 @@ utils = _module
 classify = _module
 copymem_test = _module
 model = _module
+utils = _module
 drnn = _module
 lm = _module
 tests = _module
@@ -16,15 +17,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -47,6 +49,9 @@ import warnings
 from torch import nn
 
 
+from collections import Counter
+
+
 import torch
 
 
@@ -63,58 +68,6 @@ import numpy as np
 
 
 from torch.autograd import Variable
-
-
-class DRNN_Char(nn.Module):
-
-    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout=0.2, emb_dropout=0.2):
-        super(DRNN_Char, self).__init__()
-        self.encoder = nn.Embedding(output_size, input_size)
-        self.drnn = DRNN(cell_type='QRNN', dropout=dropout, n_hidden=hidden_size, n_input=input_size, n_layers=num_layers, batch_first=True)
-        self.decoder = nn.Linear(hidden_size, output_size)
-        self.drop = nn.Dropout(emb_dropout)
-        self.init_weights()
-
-    def init_weights(self):
-        initrange = 0.1
-        self.encoder.weight.data.uniform_(-initrange, initrange)
-        self.decoder.bias.data.fill_(0)
-        self.decoder.weight.data.uniform_(-initrange, initrange)
-
-    def forward(self, x):
-        emb = self.drop(self.encoder(x))
-        y, _ = self.drnn(emb)
-        o = self.decoder(y)
-        return o.contiguous()
-
-
-class Classifier(nn.Module):
-
-    def __init__(self, n_inputs, n_hidden, n_layers, n_classes, cell_type='GRU'):
-        super(Classifier, self).__init__()
-        self.drnn = drnn.DRNN(n_inputs, n_hidden, n_layers, dropout=0, cell_type=cell_type)
-        self.linear = nn.Linear(n_hidden, n_classes)
-
-    def forward(self, inputs):
-        layer_outputs, _ = self.drnn(inputs)
-        pred = self.linear(layer_outputs[-1])
-        return pred
-
-
-class DRNN_Copy(nn.Module):
-
-    def __init__(self, input_size, hidden_size, num_layers, dropout, output_size):
-        super(DRNN_Copy, self).__init__()
-        self.drnn = DRNN(cell_type='GRU', dropout=dropout, n_hidden=hidden_size, n_input=input_size, n_layers=num_layers, batch_first=True)
-        self.linear = nn.Linear(hidden_size, output_size)
-        self.init_weights()
-
-    def init_weights(self):
-        self.linear.weight.data.normal_(0, 0.01)
-
-    def forward(self, x):
-        y1, _ = self.drnn(x)
-        return self.linear(y1)
 
 
 use_cuda = torch.cuda.is_available()
@@ -220,6 +173,58 @@ class DRNN(nn.Module):
             return hidden, memory
         else:
             return hidden
+
+
+class DRNN_Char(nn.Module):
+
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout=0.2, emb_dropout=0.2):
+        super(DRNN_Char, self).__init__()
+        self.encoder = nn.Embedding(output_size, input_size)
+        self.drnn = DRNN(cell_type='QRNN', dropout=dropout, n_hidden=hidden_size, n_input=input_size, n_layers=num_layers, batch_first=True)
+        self.decoder = nn.Linear(hidden_size, output_size)
+        self.drop = nn.Dropout(emb_dropout)
+        self.init_weights()
+
+    def init_weights(self):
+        initrange = 0.1
+        self.encoder.weight.data.uniform_(-initrange, initrange)
+        self.decoder.bias.data.fill_(0)
+        self.decoder.weight.data.uniform_(-initrange, initrange)
+
+    def forward(self, x):
+        emb = self.drop(self.encoder(x))
+        y, _ = self.drnn(emb)
+        o = self.decoder(y)
+        return o.contiguous()
+
+
+class Classifier(nn.Module):
+
+    def __init__(self, n_inputs, n_hidden, n_layers, n_classes, cell_type='GRU'):
+        super(Classifier, self).__init__()
+        self.drnn = drnn.DRNN(n_inputs, n_hidden, n_layers, dropout=0, cell_type=cell_type)
+        self.linear = nn.Linear(n_hidden, n_classes)
+
+    def forward(self, inputs):
+        layer_outputs, _ = self.drnn(inputs)
+        pred = self.linear(layer_outputs[-1])
+        return pred
+
+
+class DRNN_Copy(nn.Module):
+
+    def __init__(self, input_size, hidden_size, num_layers, dropout, output_size):
+        super(DRNN_Copy, self).__init__()
+        self.drnn = DRNN(cell_type='GRU', dropout=dropout, n_hidden=hidden_size, n_input=input_size, n_layers=num_layers, batch_first=True)
+        self.linear = nn.Linear(hidden_size, output_size)
+        self.init_weights()
+
+    def init_weights(self):
+        self.linear.weight.data.normal_(0, 0.01)
+
+    def forward(self, x):
+        y1, _ = self.drnn(x)
+        return self.linear(y1)
 
 
 class RNNModel(nn.Module):

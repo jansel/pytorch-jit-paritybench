@@ -41,23 +41,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import numpy as np
-
-
 import torch
+
+
+import numpy as np
 
 
 import torch.nn as nn
@@ -539,310 +540,6 @@ class DownsamplingShuffle(nn.Module):
 
 class NET(nn.Module):
 
-    def __init__(self, sr_n_resblocks=6, dm_n_resblock=6, sr_n_feats=64, dm_n_feats=64, scale=2, denoise=True, bias=True, norm_type=False, act_type='relu', block_type='rrdb'):
-        super(NET, self).__init__()
-        if denoise:
-            m_sr_head = [common.ConvBlock(5, sr_n_feats, 5, act_type=act_type, bias=True)]
-        else:
-            m_sr_head = [common.ConvBlock(4, sr_n_feats, 5, act_type=act_type, bias=True)]
-        if block_type.lower() == 'rrdb':
-            m_sr_resblock = [common.RRDB(sr_n_feats, sr_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
-        elif block_type.lower() == 'dudb':
-            m_sr_resblock = [common.DUDB(sr_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
-        elif block_type.lower() == 'res':
-            m_sr_resblock = [common.ResBlock(sr_n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(sr_n_resblocks)]
-        else:
-            raise RuntimeError('block_type is not supported')
-        m_sr_resblock += [common.ConvBlock(sr_n_feats, sr_n_feats, 3, bias=bias)]
-        m_sr_up = [common.Upsampler(scale, sr_n_feats, norm_type, act_type, bias=bias), common.ConvBlock(sr_n_feats, 4, 3, bias=True)]
-        m_sr_tail = [nn.PixelShuffle(2)]
-        m_dm_head = [common.ConvBlock(4, dm_n_feats, 5, act_type=act_type, bias=True)]
-        if block_type.lower() == 'rrdb':
-            m_dm_resblock = [common.RRDB(dm_n_feats, dm_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(dm_n_resblock)]
-        elif block_type.lower() == 'dudb':
-            m_dm_resblock = [common.DUDB(dm_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(dm_n_resblock)]
-        elif block_type.lower() == 'res':
-            m_dm_resblock = [common.ResBlock(dm_n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(dm_n_resblock)]
-        else:
-            raise RuntimeError('block_type is not supported')
-        m_dm_resblock += [common.ConvBlock(dm_n_feats, dm_n_feats, 3, bias=bias)]
-        m_dm_up = [common.Upsampler(2, dm_n_feats, norm_type, act_type, bias=bias), common.ConvBlock(dm_n_feats, 3, 3, bias=True)]
-        self.model_sr = nn.Sequential(*m_sr_head, common.ShortcutBlock(nn.Sequential(*m_sr_resblock)), *m_sr_up)
-        self.sr_output = nn.Sequential(*m_sr_tail)
-        self.model_dm = nn.Sequential(*m_dm_head, common.ShortcutBlock(nn.Sequential(*m_dm_resblock)), *m_dm_up)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.xavier_normal_(m.weight)
-                m.weight.requires_grad = True
-                if m.bias is not None:
-                    m.bias.data.zero_()
-                    m.bias.requires_grad = True
-
-    def forward(self, x):
-        x = self.model_sr(x)
-        sr_raw = self.sr_output(x)
-        x = self.model_dm(x)
-        return sr_raw, x
-
-
-class NET(nn.Module):
-
-    def __init__(self, opt):
-        super(NET, self).__init__()
-        denoise = opt.denoise
-        block_type = opt.block_type
-        n_feats = opt.channels
-        act_type = opt.act_type
-        bias = opt.bias
-        norm_type = opt.norm_type
-        n_resblocks = opt.n_resblocks
-        if denoise:
-            dm_head = [common.ConvBlock(5, n_feats, 5, act_type=act_type, bias=True)]
-        else:
-            dm_head = [common.ConvBlock(4, n_feats, 5, act_type=act_type, bias=True)]
-        if block_type.lower() == 'rrdb':
-            dm_resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(n_resblocks)]
-        elif block_type.lower() == 'res':
-            dm_resblock = [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblocks)]
-        else:
-            raise RuntimeError('block_type is not supported')
-        dm_resblock += [common.ConvBlock(n_feats, n_feats, 3, bias=True)]
-        m_dm_up = [common.Upsampler(2, n_feats, norm_type, act_type, bias=bias), common.ConvBlock(n_feats, 3, 3, bias=True)]
-        self.model_dm = nn.Sequential(*dm_head, common.ShortcutBlock(nn.Sequential(*dm_resblock)), *m_dm_up)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.xavier_normal_(m.weight)
-                m.weight.requires_grad = True
-                if m.bias is not None:
-                    m.bias.data.zero_()
-                    m.bias.requires_grad = True
-
-    def forward(self, x):
-        x = self.model_dm(x)
-        return x
-
-
-class NET(nn.Module):
-
-    def __init__(self, opt):
-        super(NET, self).__init__()
-        n_resblocks = opt.n_resblocks
-        n_feats = opt.channels
-        bias = opt.bias
-        norm_type = opt.norm_type
-        act_type = opt.act_type
-        block_type = opt.block_type
-        head = [common.ConvBlock(5, n_feats, 5, act_type=act_type, bias=True)]
-        if block_type.lower() == 'rrdb':
-            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(n_resblocks)]
-        elif block_type.lower() == 'res':
-            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblocks)]
-        else:
-            raise RuntimeError('block_type is not supported')
-        resblock += [common.ConvBlock(n_feats, n_feats, 3, bias=True)]
-        tail = [common.Upsampler(2, n_feats, norm_type, act_type, bias=bias), common.ConvBlock(n_feats, 1, 3, bias=True)]
-        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.Sequential(*resblock)), *tail)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.xavier_normal_(m.weight)
-                m.weight.requires_grad = True
-                if m.bias is not None:
-                    m.bias.data.zero_()
-                    m.bias.requires_grad = True
-
-    def forward(self, x):
-        x = self.model(x)
-        return x
-
-
-class NET(nn.Module):
-
-    def __init__(self, opt):
-        super(NET, self).__init__()
-        n_resblocks = opt.n_resblocks
-        n_feats = opt.channels
-        bias = opt.bias
-        norm_type = opt.norm_type
-        act_type = opt.act_type
-        block_type = opt.block_type
-        head = [common.ConvBlock(4, n_feats, 5, act_type=act_type, bias=True)]
-        if block_type.lower() == 'rrdb':
-            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(n_resblocks)]
-        elif block_type.lower() == 'res':
-            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblocks)]
-        else:
-            raise RuntimeError('block_type is not supported')
-        resblock += [common.ConvBlock(n_feats, n_feats, 3, bias=True)]
-        tail = [common.ConvBlock(n_feats, 3, 3, bias=True)]
-        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.Sequential(*resblock)), *tail)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.xavier_normal_(m.weight)
-                m.weight.requires_grad = True
-                if m.bias is not None:
-                    m.bias.data.zero_()
-                    m.bias.requires_grad = True
-
-    def forward(self, x):
-        x = self.model(x)
-        return x
-
-
-class NET(nn.Module):
-
-    def __init__(self, n_resblock=24, n_feats=256, scale=2, bias=True, norm_type=False, act_type='prelu'):
-        super(NET, self).__init__()
-        self.scale = scale
-        m = [common.default_conv(1, n_feats, 3, stride=2)]
-        m += [nn.PixelShuffle(2), common.ConvBlock(n_feats // 4, n_feats, bias=True, act_type=act_type)]
-        m += [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblock)]
-        for _ in range(int(math.log(scale, 2))):
-            m += [nn.PixelShuffle(2), common.ConvBlock(n_feats // 4, n_feats, bias=True, act_type=act_type)]
-        m += [common.default_conv(n_feats, 3, 3)]
-        self.model = nn.Sequential(*m)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.xavier_normal_(m.weight)
-                m.weight.requires_grad = True
-                if m.bias is not None:
-                    m.bias.data.zero_()
-                    m.bias.requires_grad = True
-
-    def forward(self, x):
-        return self.model(x)
-
-
-class NET(nn.Module):
-
-    def __init__(self, opt):
-        super(NET, self).__init__()
-        n_resblocks = opt.n_resblocks
-        n_feats = opt.channels
-        bias = opt.bias
-        norm_type = opt.norm_type
-        act_type = opt.act_type
-        block_type = opt.block_type
-        denoise = opt.denoise
-        scale = opt.scale
-        if denoise:
-            head = [common.ConvBlock(5, n_feats, 5, act_type=act_type, bias=True)]
-        else:
-            head = [common.ConvBlock(4, n_feats, 5, act_type=act_type, bias=True)]
-        if block_type.lower() == 'rrdb':
-            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(n_resblocks)]
-        elif block_type.lower() == 'res':
-            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblocks)]
-        else:
-            raise RuntimeError('block_type is not supported')
-        resblock += [common.ConvBlock(n_feats, n_feats, 3, bias=True)]
-        up = [common.Upsampler(scale * 2, n_feats, norm_type, act_type, bias=bias), common.ConvBlock(n_feats, 1, 3, bias=True)]
-        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.Sequential(*resblock)), *up)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.xavier_normal_(m.weight)
-                m.weight.requires_grad = True
-                if m.bias is not None:
-                    m.bias.data.zero_()
-                    m.bias.requires_grad = True
-
-    def forward(self, x):
-        x = self.model(x)
-        return x
-
-
-class NET(nn.Module):
-
-    def __init__(self, opt):
-        super(NET, self).__init__()
-        n_resblocks = opt.n_resblocks
-        n_feats = opt.channels
-        bias = opt.bias
-        norm_type = opt.norm_type
-        act_type = opt.act_type
-        block_type = opt.block_type
-        denoise = opt.denoise
-        scale = opt.scale
-        if denoise:
-            head = [common.ConvBlock(4, n_feats, 5, act_type=act_type, bias=True)]
-        else:
-            head = [common.ConvBlock(3, n_feats, 5, act_type=act_type, bias=True)]
-        if block_type.lower() == 'rrdb':
-            resblock = [common.RRDB(n_feats, n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(n_resblocks)]
-        elif block_type.lower() == 'res':
-            resblock = [common.ResBlock(n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(n_resblocks)]
-        else:
-            raise RuntimeError('block_type is not supported')
-        resblock += [common.ConvBlock(n_feats, n_feats, 3, bias=True)]
-        up = [common.Upsampler(scale, n_feats, norm_type, act_type, bias=bias), common.ConvBlock(n_feats, 3, 3, bias=True)]
-        self.model = nn.Sequential(*head, common.ShortcutBlock(nn.Sequential(*resblock)), *up)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.xavier_normal_(m.weight)
-                m.weight.requires_grad = True
-                if m.bias is not None:
-                    m.bias.data.zero_()
-                    m.bias.requires_grad = True
-
-    def forward(self, x):
-        x = self.model(x)
-        return x
-
-
-class NET(nn.Module):
-
-    def __init__(self, opt):
-        super(NET, self).__init__()
-        sr_n_resblocks = opt.sr_n_resblocks
-        dm_n_resblocks = opt.dm_n_resblocks
-        sr_n_feats = opt.channels
-        dm_n_feats = opt.channels
-        scale = opt.scale
-        denoise = opt.denoise
-        block_type = opt.block_type
-        act_type = opt.act_type
-        bias = opt.bias
-        norm_type = opt.norm_type
-        if denoise:
-            m_sr_head = [common.ConvBlock(5, sr_n_feats, 5, act_type=act_type, bias=True)]
-        else:
-            m_sr_head = [common.ConvBlock(4, sr_n_feats, 5, act_type=act_type, bias=True)]
-        if block_type.lower() == 'rrdb':
-            m_sr_resblock = [common.RRDB(sr_n_feats, sr_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
-        elif block_type.lower() == 'dudb':
-            m_sr_resblock = [common.DUDB(sr_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(sr_n_resblocks)]
-        elif block_type.lower() == 'res':
-            m_sr_resblock = [common.ResBlock(sr_n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(sr_n_resblocks)]
-        else:
-            raise RuntimeError('block_type is not supported')
-        m_sr_resblock += [common.ConvBlock(sr_n_feats, sr_n_feats, 3, bias=bias)]
-        m_sr_up = [common.Upsampler(scale, sr_n_feats, norm_type, act_type, bias=bias), common.ConvBlock(sr_n_feats, sr_n_feats, 3, bias=True)]
-        m_dm_head = [common.ConvBlock(sr_n_feats, dm_n_feats, 5, act_type=act_type, bias=True)]
-        if block_type.lower() == 'rrdb':
-            m_dm_resblock = [common.RRDB(dm_n_feats, dm_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(dm_n_resblocks)]
-        elif block_type.lower() == 'dudb':
-            m_dm_resblock = [common.DUDB(dm_n_feats, 3, 1, bias, norm_type, act_type, 0.2) for _ in range(dm_n_resblocks)]
-        elif block_type.lower() == 'res':
-            m_dm_resblock = [common.ResBlock(dm_n_feats, 3, norm_type, act_type, res_scale=1, bias=bias) for _ in range(dm_n_resblocks)]
-        else:
-            raise RuntimeError('block_type is not supported')
-        m_dm_resblock += [common.ConvBlock(dm_n_feats, dm_n_feats, 3, bias=bias)]
-        m_dm_up = [common.Upsampler(2, dm_n_feats, norm_type, act_type, bias=bias), common.ConvBlock(dm_n_feats, 3, 3, bias=True)]
-        self.model_sr = nn.Sequential(*m_sr_head, common.ShortcutBlock(nn.Sequential(*m_sr_resblock)), *m_sr_up)
-        self.model_dm = nn.Sequential(*m_dm_head, common.ShortcutBlock(nn.Sequential(*m_dm_resblock)), *m_dm_up)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.xavier_normal_(m.weight)
-                m.weight.requires_grad = True
-                if m.bias is not None:
-                    m.bias.data.zero_()
-                    m.bias.requires_grad = True
-
-    def forward(self, x):
-        return self.model_dm(self.model_sr(x))
-
-
-class NET(nn.Module):
-
     def __init__(self, opt):
         super(NET, self).__init__()
         sr_n_resblocks = opt.sr_n_resblocks
@@ -950,10 +647,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (VGG,
-     lambda: ([], {'features': _mock_layer()}),
-     lambda: ([torch.rand([25088, 25088])], {}),
-     True),
 ]
 
 class Test_guochengqian_TENet(_paritybench_base):
@@ -989,7 +682,4 @@ class Test_guochengqian_TENet(_paritybench_base):
 
     def test_010(self):
         self._check(*TESTCASES[10])
-
-    def test_011(self):
-        self._check(*TESTCASES[11])
 

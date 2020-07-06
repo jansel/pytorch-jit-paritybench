@@ -45,10 +45,13 @@ convolutional_trainer = _module
 device_configuration = _module
 evaluator = _module
 experiment = _module
+experiments = _module
 pipeline_factory = _module
 flow_wavenet = _module
+data = _module
 model = _module
 modules = _module
+synthesize = _module
 train = _module
 main = _module
 models = _module
@@ -81,20 +84,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import numpy as np
+
+
 import torch
+
+
+import random
+
+
+from torch.utils.data import Dataset
+
+
+import math
+
+
+from torch.distributions.normal import Normal
 
 
 import torch.nn as nn
@@ -103,28 +122,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-import numpy as np
-
-
-import math
-
-
-from torch import optim
-
-
-from torch.utils.data import Dataset
+import time
 
 
 from torch.utils.data import DataLoader
 
 
-from torch.distributions.normal import Normal
-
-
-import time
+from torch import optim
 
 
 from torch import nn
+
+
+import scipy
+
+
+import torch.optim as optim
 
 
 from math import log
@@ -144,16 +157,13 @@ from torch.nn import functional as F
 
 class Conv(nn.Module):
 
-    def __init__(self, in_channels, out_channels, kernel_size, dilation=1, causal=False, mode='SAME'):
+    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, causal=True):
         super(Conv, self).__init__()
         self.causal = causal
-        self.mode = mode
-        if self.causal and self.mode == 'SAME':
+        if self.causal:
             self.padding = dilation * (kernel_size - 1)
-        elif self.mode == 'SAME':
-            self.padding = dilation * (kernel_size - 1) // 2
         else:
-            self.padding = 0
+            self.padding = dilation * (kernel_size - 1) // 2
         self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, dilation=dilation, padding=self.padding)
         self.conv = nn.utils.weight_norm(self.conv)
         nn.init.kaiming_normal_(self.conv.weight)
@@ -167,20 +177,21 @@ class Conv(nn.Module):
 
 class ResBlock(nn.Module):
 
-    def __init__(self, in_channels, out_channels, skip_channels, kernel_size, dilation, cin_channels=None, local_conditioning=True, causal=False, mode='SAME'):
+    def __init__(self, in_channels, out_channels, skip_channels, kernel_size, dilation, cin_channels=None, local_conditioning=True, causal=False):
         super(ResBlock, self).__init__()
         self.causal = causal
         self.local_conditioning = local_conditioning
         self.cin_channels = cin_channels
-        self.mode = mode
-        self.filter_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal, mode)
-        self.gate_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal, mode)
+        self.skip = True if skip_channels is not None else False
+        self.filter_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal)
+        self.gate_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal)
         self.res_conv = nn.Conv1d(out_channels, in_channels, kernel_size=1)
-        self.skip_conv = nn.Conv1d(out_channels, skip_channels, kernel_size=1)
         self.res_conv = nn.utils.weight_norm(self.res_conv)
-        self.skip_conv = nn.utils.weight_norm(self.skip_conv)
         nn.init.kaiming_normal_(self.res_conv.weight)
-        nn.init.kaiming_normal_(self.skip_conv.weight)
+        if self.skip:
+            self.skip_conv = nn.Conv1d(out_channels, skip_channels, kernel_size=1)
+            self.skip_conv = nn.utils.weight_norm(self.skip_conv)
+            nn.init.kaiming_normal_(self.skip_conv.weight)
         if self.local_conditioning:
             self.filter_conv_c = nn.Conv1d(cin_channels, out_channels, kernel_size=1)
             self.gate_conv_c = nn.Conv1d(cin_channels, out_channels, kernel_size=1)
@@ -195,13 +206,10 @@ class ResBlock(nn.Module):
         if self.local_conditioning:
             h_filter += self.filter_conv_c(c)
             h_gate += self.gate_conv_c(c)
-        out = F.tanh(h_filter) * F.sigmoid(h_gate)
+        out = torch.tanh(h_filter) * torch.sigmoid(h_gate)
         res = self.res_conv(out)
-        skip = self.skip_conv(out)
-        if self.mode == 'SAME':
-            return (tensor + res) * math.sqrt(0.5), skip
-        else:
-            return (tensor[:, :, 1:] + res) * math.sqrt(0.5), skip
+        skip = self.skip_conv(out) if self.skip else None
+        return (tensor + res) * math.sqrt(0.5), skip
 
 
 def gaussian_loss(y_hat, y, log_std_min=-7.0):
@@ -287,129 +295,48 @@ class STFT(torch.nn.Module):
         return inverse_transform
 
 
-def sample_from_gaussian(y_hat, log_std_min=-7.0, scale_factor=1.0):
-    assert y_hat.size(1) == 2
-    y_hat = y_hat.transpose(1, 2)
-    mean = y_hat[:, :, :1]
-    log_std = torch.clamp(y_hat[:, :, 1:], min=log_std_min)
-    dist = Normal(mean, torch.exp(log_std))
-    sample = dist.sample()
-    sample = torch.clamp(torch.clamp(sample, min=-scale_factor), max=scale_factor)
-    del dist
-    return sample
+class ZeroConv1d(nn.Module):
+
+    def __init__(self, in_channel, out_channel):
+        super().__init__()
+        self.conv = nn.Conv1d(in_channel, out_channel, 1, padding=0)
+        self.conv.weight.data.zero_()
+        self.conv.bias.data.zero_()
+        self.scale = nn.Parameter(torch.zeros(1, out_channel, 1))
+
+    def forward(self, x):
+        out = self.conv(x)
+        out = out * torch.exp(self.scale * 3)
+        return out
 
 
 class Wavenet(nn.Module):
 
-    def __init__(self, out_channels=1, num_blocks=3, num_layers=10, residual_channels=512, gate_channels=512, skip_channels=512, kernel_size=2, cin_channels=128, upsample_scales=None, causal=True):
+    def __init__(self, in_channels=1, out_channels=2, num_blocks=1, num_layers=6, residual_channels=256, gate_channels=256, skip_channels=256, kernel_size=3, cin_channels=80, causal=True):
         super(Wavenet, self).__init__()
-        self.causal = causal
-        self.num_blocks = num_blocks
-        self.num_layers = num_layers
-        self.out_channels = out_channels
-        self.gate_channels = gate_channels
-        self.residual_channels = residual_channels
-        self.skip_channels = skip_channels
-        self.cin_channels = cin_channels
-        self.kernel_size = kernel_size
-        self.front_channels = 32
-        self.front_conv = nn.Sequential(Conv(1, self.residual_channels, self.front_channels, causal=self.causal), nn.ReLU())
+        self.skip = True if skip_channels is not None else False
+        self.front_conv = nn.Sequential(Conv(in_channels, residual_channels, 3, causal=causal), nn.ReLU())
         self.res_blocks = nn.ModuleList()
-        for b in range(self.num_blocks):
-            for n in range(self.num_layers):
-                self.res_blocks.append(ResBlock(self.residual_channels, self.gate_channels, self.skip_channels, self.kernel_size, dilation=self.kernel_size ** n, cin_channels=self.cin_channels, local_conditioning=True, causal=self.causal, mode='SAME'))
-        self.final_conv = nn.Sequential(nn.ReLU(), Conv(self.skip_channels, self.skip_channels, 1, causal=self.causal), nn.ReLU(), Conv(self.skip_channels, self.out_channels, 1, causal=self.causal))
-        self.upsample_conv = nn.ModuleList()
-        for s in upsample_scales:
-            convt = nn.ConvTranspose2d(1, 1, (3, 2 * s), padding=(1, s // 2), stride=(1, s))
-            convt = nn.utils.weight_norm(convt)
-            nn.init.kaiming_normal_(convt.weight)
-            self.upsample_conv.append(convt)
-            self.upsample_conv.append(nn.LeakyReLU(0.4))
+        for b in range(num_blocks):
+            for n in range(num_layers):
+                self.res_blocks.append(ResBlock(residual_channels, gate_channels, skip_channels, kernel_size, dilation=2 ** n, cin_channels=cin_channels, local_conditioning=True, causal=causal))
+        last_channels = skip_channels if self.skip else residual_channels
+        self.final_conv = nn.Sequential(nn.ReLU(), Conv(last_channels, last_channels, 1, causal=causal), nn.ReLU(), ZeroConv1d(last_channels, out_channels))
 
-    def forward(self, x, c):
-        c = self.upsample(c)
-        out = self.wavenet(x, c)
-        return out
-
-    def generate(self, num_samples, c=None):
-        x = torch.zeros(1, 1, num_samples + 1)
-        c = self.upsample(c)
-        for i in range(num_samples):
-            if i % 100 == 0:
-                None
-            if i >= self.receptive_field_size():
-                start_idx = i - self.receptive_field_size() + 1
-            else:
-                start_idx = 0
-            x_in = x[:, :, start_idx:i + 1]
-            if c is not None:
-                cond = c[:, :, start_idx:i + 1]
-            else:
-                cond = None
-            out = self.wavenet(x_in, cond)
-            x[:, :, (i + 1)] = sample_from_gaussian(out[:, :, -1:])
-            del out, x_in, cond
-        return x[:, :, 1:]
-
-    def upsample(self, c):
-        if self.upsample_conv is not None:
-            c = c.unsqueeze(1)
-            for f in self.upsample_conv:
-                c = f(c)
-            c = c.squeeze(1)
-        return c
-
-    def wavenet(self, tensor, c=None):
-        h = self.front_conv(tensor)
+    def forward(self, x, c=None):
+        h = self.front_conv(x)
         skip = 0
         for i, f in enumerate(self.res_blocks):
-            h, s = f(h, c)
-            skip += s
-        out = self.final_conv(skip)
+            if self.skip:
+                h, s = f(h, c)
+                skip += s
+            else:
+                h, _ = f(h, c)
+        if self.skip:
+            out = self.final_conv(skip)
+        else:
+            out = self.final_conv(h)
         return out
-
-    def receptive_field_size(self):
-        num_dir = 1 if self.causal else 2
-        dilations = [(2 ** (i % self.num_layers)) for i in range(self.num_layers * self.num_blocks)]
-        return num_dir * (self.kernel_size - 1) * sum(dilations) + self.front_channels
-
-
-class Wavenet_Student(nn.Module):
-
-    def __init__(self, num_blocks_student=[1, 1, 1, 4], num_layers=6, front_channels=32, residual_channels=128, gate_channels=256, skip_channels=128, kernel_size=3, cin_channels=80, causal=True):
-        super(Wavenet_Student, self).__init__()
-        self.num_blocks = num_blocks_student
-        self.num_flow = len(self.num_blocks)
-        self.num_layers = num_layers
-        self.iafs = nn.ModuleList()
-        for i in range(self.num_flow):
-            self.iafs.append(Wavenet_Flow(out_channels=2, num_blocks=self.num_blocks[i], num_layers=self.num_layers, front_channels=front_channels, residual_channels=residual_channels, gate_channels=gate_channels, skip_channels=skip_channels, kernel_size=kernel_size, cin_channels=cin_channels, causal=causal))
-
-    def forward(self, z, c):
-        return self.iaf(z, c)
-
-    def iaf(self, z, c_up):
-        mu_tot, logs_tot = 0.0, 0.0
-        for i, iaf in enumerate(self.iafs):
-            mu_logs = iaf(z, c_up)
-            mu = mu_logs[:, 0:1, :-1]
-            logs = mu_logs[:, 1:, :-1]
-            mu_tot = mu_tot * torch.exp(logs) + mu
-            logs_tot = logs_tot + logs
-            z = z[:, :, 1:] * torch.exp(logs) + mu
-            z = F.pad(z, pad=(1, 0), mode='constant', value=0)
-        return z, mu_tot, logs_tot
-
-    def receptive_field(self):
-        receptive_field = 1
-        for iaf in self.iafs:
-            receptive_field += iaf.receptive_field_size() - 1
-        return receptive_field
-
-    def generate(self, z, c_up):
-        x, _, _ = self.iaf(z, c_up)
-        return x
 
 
 class Wavenet_Flow(nn.Module):
@@ -450,6 +377,43 @@ class Wavenet_Flow(nn.Module):
         num_dir = 1 if self.causal else 2
         dilations = [(2 ** (i % self.num_layers)) for i in range(self.num_layers * self.num_blocks)]
         return num_dir * (self.kernel_size - 1) * sum(dilations) + 1 + (self.front_channels - 1)
+
+
+class Wavenet_Student(nn.Module):
+
+    def __init__(self, num_blocks_student=[1, 1, 1, 4], num_layers=6, front_channels=32, residual_channels=128, gate_channels=256, skip_channels=128, kernel_size=3, cin_channels=80, causal=True):
+        super(Wavenet_Student, self).__init__()
+        self.num_blocks = num_blocks_student
+        self.num_flow = len(self.num_blocks)
+        self.num_layers = num_layers
+        self.iafs = nn.ModuleList()
+        for i in range(self.num_flow):
+            self.iafs.append(Wavenet_Flow(out_channels=2, num_blocks=self.num_blocks[i], num_layers=self.num_layers, front_channels=front_channels, residual_channels=residual_channels, gate_channels=gate_channels, skip_channels=skip_channels, kernel_size=kernel_size, cin_channels=cin_channels, causal=causal))
+
+    def forward(self, z, c):
+        return self.iaf(z, c)
+
+    def iaf(self, z, c_up):
+        mu_tot, logs_tot = 0.0, 0.0
+        for i, iaf in enumerate(self.iafs):
+            mu_logs = iaf(z, c_up)
+            mu = mu_logs[:, 0:1, :-1]
+            logs = mu_logs[:, 1:, :-1]
+            mu_tot = mu_tot * torch.exp(logs) + mu
+            logs_tot = logs_tot + logs
+            z = z[:, :, 1:] * torch.exp(logs) + mu
+            z = F.pad(z, pad=(1, 0), mode='constant', value=0)
+        return z, mu_tot, logs_tot
+
+    def receptive_field(self):
+        receptive_field = 1
+        for iaf in self.iafs:
+            receptive_field += iaf.receptive_field_size() - 1
+        return receptive_field
+
+    def generate(self, z, c_up):
+        x, _, _ = self.iaf(z, c_up)
+        return x
 
 
 logabs = lambda x: torch.log(torch.abs(x))
@@ -669,107 +633,6 @@ class Flowavenet(nn.Module):
         return c
 
 
-class Conv(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, causal=True):
-        super(Conv, self).__init__()
-        self.causal = causal
-        if self.causal:
-            self.padding = dilation * (kernel_size - 1)
-        else:
-            self.padding = dilation * (kernel_size - 1) // 2
-        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, dilation=dilation, padding=self.padding)
-        self.conv = nn.utils.weight_norm(self.conv)
-        nn.init.kaiming_normal_(self.conv.weight)
-
-    def forward(self, tensor):
-        out = self.conv(tensor)
-        if self.causal and self.padding is not 0:
-            out = out[:, :, :-self.padding]
-        return out
-
-
-class ZeroConv1d(nn.Module):
-
-    def __init__(self, in_channel, out_channel):
-        super().__init__()
-        self.conv = nn.Conv1d(in_channel, out_channel, 1, padding=0)
-        self.conv.weight.data.zero_()
-        self.conv.bias.data.zero_()
-        self.scale = nn.Parameter(torch.zeros(1, out_channel, 1))
-
-    def forward(self, x):
-        out = self.conv(x)
-        out = out * torch.exp(self.scale * 3)
-        return out
-
-
-class ResBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, skip_channels, kernel_size, dilation, cin_channels=None, local_conditioning=True, causal=False):
-        super(ResBlock, self).__init__()
-        self.causal = causal
-        self.local_conditioning = local_conditioning
-        self.cin_channels = cin_channels
-        self.skip = True if skip_channels is not None else False
-        self.filter_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal)
-        self.gate_conv = Conv(in_channels, out_channels, kernel_size, dilation, causal)
-        self.res_conv = nn.Conv1d(out_channels, in_channels, kernel_size=1)
-        self.res_conv = nn.utils.weight_norm(self.res_conv)
-        nn.init.kaiming_normal_(self.res_conv.weight)
-        if self.skip:
-            self.skip_conv = nn.Conv1d(out_channels, skip_channels, kernel_size=1)
-            self.skip_conv = nn.utils.weight_norm(self.skip_conv)
-            nn.init.kaiming_normal_(self.skip_conv.weight)
-        if self.local_conditioning:
-            self.filter_conv_c = nn.Conv1d(cin_channels, out_channels, kernel_size=1)
-            self.gate_conv_c = nn.Conv1d(cin_channels, out_channels, kernel_size=1)
-            self.filter_conv_c = nn.utils.weight_norm(self.filter_conv_c)
-            self.gate_conv_c = nn.utils.weight_norm(self.gate_conv_c)
-            nn.init.kaiming_normal_(self.filter_conv_c.weight)
-            nn.init.kaiming_normal_(self.gate_conv_c.weight)
-
-    def forward(self, tensor, c=None):
-        h_filter = self.filter_conv(tensor)
-        h_gate = self.gate_conv(tensor)
-        if self.local_conditioning:
-            h_filter += self.filter_conv_c(c)
-            h_gate += self.gate_conv_c(c)
-        out = torch.tanh(h_filter) * torch.sigmoid(h_gate)
-        res = self.res_conv(out)
-        skip = self.skip_conv(out) if self.skip else None
-        return (tensor + res) * math.sqrt(0.5), skip
-
-
-class Wavenet(nn.Module):
-
-    def __init__(self, in_channels=1, out_channels=2, num_blocks=1, num_layers=6, residual_channels=256, gate_channels=256, skip_channels=256, kernel_size=3, cin_channels=80, causal=True):
-        super(Wavenet, self).__init__()
-        self.skip = True if skip_channels is not None else False
-        self.front_conv = nn.Sequential(Conv(in_channels, residual_channels, 3, causal=causal), nn.ReLU())
-        self.res_blocks = nn.ModuleList()
-        for b in range(num_blocks):
-            for n in range(num_layers):
-                self.res_blocks.append(ResBlock(residual_channels, gate_channels, skip_channels, kernel_size, dilation=2 ** n, cin_channels=cin_channels, local_conditioning=True, causal=causal))
-        last_channels = skip_channels if self.skip else residual_channels
-        self.final_conv = nn.Sequential(nn.ReLU(), Conv(last_channels, last_channels, 1, causal=causal), nn.ReLU(), ZeroConv1d(last_channels, out_channels))
-
-    def forward(self, x, c=None):
-        h = self.front_conv(x)
-        skip = 0
-        for i, f in enumerate(self.res_blocks):
-            if self.skip:
-                h, s = f(h, c)
-                skip += s
-            else:
-                h, _ = f(h, c)
-        if self.skip:
-            out = self.final_conv(skip)
-        else:
-            out = self.final_conv(h)
-        return out
-
-
 class ColorPrint(object):
     """ Colored printing functions for strings that use universal ANSI escape sequences.
 
@@ -809,14 +672,14 @@ class ConsoleLogger(object):
     @staticmethod
     def status(message):
         if os.name == 'nt':
-            print('[~] {message}'.format(message=message))
+            None
         else:
             ColorPrint.print_info('[~] {message}'.format(message=message))
 
     @staticmethod
     def success(message):
         if os.name == 'nt':
-            print('[+] {message}'.format(message=message))
+            None
         else:
             ColorPrint.print_pass('[+] {message}'.format(message=message))
 
@@ -828,14 +691,14 @@ class ConsoleLogger(object):
         else:
             error_message = '[-] {message}'.format(message=message)
         if os.name == 'nt':
-            print(error_message)
+            None
         else:
             ColorPrint.print_fail(error_message)
 
     @staticmethod
     def warn(message):
         if os.name == 'nt':
-            print('[-] {message}'.format(message=message))
+            None
         else:
             ColorPrint.print_warn('[-] {message}'.format(message=message))
 
@@ -847,7 +710,7 @@ class ConsoleLogger(object):
         else:
             error_message = '[!] {message}'.format(message=message)
         if os.name == 'nt':
-            print(error_message)
+            None
         else:
             ColorPrint.print_major_fail(error_message)
 
@@ -861,6 +724,39 @@ class Conv1DBuilder(object):
             conv = nn.utils.weight_norm(conv)
             nn.init.kaiming_normal_(conv.weight)
         return conv
+
+
+class Residual(nn.Module):
+
+    def __init__(self, in_channels, num_hiddens, num_residual_hiddens, use_kaiming_normal):
+        super(Residual, self).__init__()
+        relu_1 = nn.ReLU(True)
+        conv_1 = nn.Conv1d(in_channels=in_channels, out_channels=num_residual_hiddens, kernel_size=3, stride=1, padding=1, bias=False)
+        if use_kaiming_normal:
+            conv_1 = nn.utils.weight_norm(conv_1)
+            nn.init.kaiming_normal_(conv_1.weight)
+        relu_2 = nn.ReLU(True)
+        conv_2 = nn.Conv1d(in_channels=num_residual_hiddens, out_channels=num_hiddens, kernel_size=1, stride=1, bias=False)
+        if use_kaiming_normal:
+            conv_2 = nn.utils.weight_norm(conv_2)
+            nn.init.kaiming_normal_(conv_2.weight)
+        self._block = nn.Sequential(relu_1, conv_1, relu_2, conv_2)
+
+    def forward(self, x):
+        return x + self._block(x)
+
+
+class ResidualStack(nn.Module):
+
+    def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, use_kaiming_normal):
+        super(ResidualStack, self).__init__()
+        self._num_residual_layers = num_residual_layers
+        self._layers = nn.ModuleList([Residual(in_channels, num_hiddens, num_residual_hiddens, use_kaiming_normal)] * self._num_residual_layers)
+
+    def forward(self, x):
+        for i in range(self._num_residual_layers):
+            x = self._layers[i](x)
+        return F.relu(x)
 
 
 class ConvolutionalEncoder(nn.Module):
@@ -919,56 +815,6 @@ class ConvolutionalEncoder(nn.Module):
         return x
 
 
-class ConvolutionalVQVAE(nn.Module):
-
-    def __init__(self, configuration, device):
-        super(ConvolutionalVQVAE, self).__init__()
-        self._output_features_filters = configuration['output_features_filters'] * 3 if configuration['augment_output_features'] else configuration['output_features_filters']
-        self._output_features_dim = configuration['output_features_dim']
-        self._verbose = configuration['verbose']
-        self._encoder = ConvolutionalEncoder(in_channels=configuration['input_features_dim'], num_hiddens=configuration['num_hiddens'], num_residual_layers=configuration['num_residual_layers'], num_residual_hiddens=configuration['num_hiddens'], use_kaiming_normal=configuration['use_kaiming_normal'], input_features_type=configuration['input_features_type'], features_filters=configuration['input_features_filters'] * 3 if configuration['augment_input_features'] else configuration['input_features_filters'], sampling_rate=configuration['sampling_rate'], device=device, verbose=self._verbose)
-        self._pre_vq_conv = nn.Conv1d(in_channels=configuration['num_hiddens'], out_channels=configuration['embedding_dim'], kernel_size=3, padding=1)
-        if configuration['decay'] > 0.0:
-            self._vq = VectorQuantizerEMA(num_embeddings=configuration['num_embeddings'], embedding_dim=configuration['embedding_dim'], commitment_cost=configuration['commitment_cost'], decay=configuration['decay'], device=device)
-        else:
-            self._vq = VectorQuantizer(num_embeddings=configuration['num_embeddings'], embedding_dim=configuration['embedding_dim'], commitment_cost=configuration['commitment_cost'], device=device)
-        self._decoder = DeconvolutionalDecoder(in_channels=configuration['embedding_dim'], out_channels=self._output_features_filters, num_hiddens=configuration['num_hiddens'], num_residual_layers=configuration['num_residual_layers'], num_residual_hiddens=configuration['residual_channels'], use_kaiming_normal=configuration['use_kaiming_normal'], use_jitter=configuration['use_jitter'], jitter_probability=configuration['jitter_probability'], use_speaker_conditioning=configuration['use_speaker_conditioning'], device=device, verbose=self._verbose)
-        self._device = device
-        self._record_codebook_stats = configuration['record_codebook_stats']
-
-    @property
-    def vq(self):
-        return self._vq
-
-    @property
-    def pre_vq_conv(self):
-        return self._pre_vq_conv
-
-    @property
-    def encoder(self):
-        return self._encoder
-
-    @property
-    def decoder(self):
-        return self._decoder
-
-    def forward(self, x, speaker_dic, speaker_id):
-        x = x.permute(0, 2, 1).contiguous().float()
-        z = self._encoder(x)
-        if self._verbose:
-            ConsoleLogger.status('[ConvVQVAE] _encoder output size: {}'.format(z.size()))
-        z = self._pre_vq_conv(z)
-        if self._verbose:
-            ConsoleLogger.status('[ConvVQVAE] _pre_vq_conv output size: {}'.format(z.size()))
-        vq_loss, quantized, perplexity, _, _, encoding_indices, losses, _, _, _, concatenated_quantized = self._vq(z, record_codebook_stats=self._record_codebook_stats)
-        reconstructed_x = self._decoder(quantized, speaker_dic, speaker_id)
-        input_features_size = x.size(2)
-        output_features_size = reconstructed_x.size(2)
-        reconstructed_x = reconstructed_x.view(-1, self._output_features_filters, output_features_size)
-        reconstructed_x = reconstructed_x[:, :, :-(output_features_size - input_features_size)]
-        return reconstructed_x, vq_loss, losses, perplexity, encoding_indices, concatenated_quantized
-
-
 class ConvTranspose1DBuilder(object):
 
     @staticmethod
@@ -984,7 +830,7 @@ class GlobalConditioning(object):
 
     @staticmethod
     def compute(speaker_dic, speaker_ids, x_one_hot, device, gin_channels=128, expand=True):
-        speakers_embedding = GlobalConditioning._Embedding(len(speaker_dic), gin_channels, padding_idx=None, std=0.1).to(device)
+        speakers_embedding = GlobalConditioning._Embedding(len(speaker_dic), gin_channels, padding_idx=None, std=0.1)
         B, _, T = x_one_hot.size()
         global_conditioning = speakers_embedding(speaker_ids.view(B, -1).long())
         global_conditioning = global_conditioning.transpose(1, 2)
@@ -1027,6 +873,46 @@ class GlobalConditioning(object):
         else:
             g_btc = g.expand(B, -1, T).transpose(1, 2)
             return g_btc.contiguous()
+
+
+class Jitter(nn.Module):
+    """
+    Jitter implementation from [Chorowski et al., 2019].
+    During training, each latent vector can replace either one or both of
+    its neighbors. As in dropout, this prevents the model from
+    relying on consistency across groups of tokens. Additionally,
+    this regularization also promotes latent representation stability
+    over time: a latent vector extracted at time step t must strive
+    to also be useful at time steps t − 1 or t + 1.
+    """
+
+    def __init__(self, probability=0.12):
+        super(Jitter, self).__init__()
+        self._probability = probability
+
+    def forward(self, quantized):
+        original_quantized = quantized.detach().clone()
+        length = original_quantized.size(2)
+        for i in range(length):
+            """
+            Each latent vector is replace with either of its neighbors with a certain probability
+            (0.12 from the paper).
+            """
+            replace = [True, False][np.random.choice([1, 0], p=[self._probability, 1 - self._probability])]
+            if replace:
+                if i == 0:
+                    neighbor_index = i + 1
+                elif i == length - 1:
+                    neighbor_index = i - 1
+                else:
+                    """
+                    "We independently sample whether it is to
+                    be replaced with the token right after
+                    or before it."
+                    """
+                    neighbor_index = i + np.random.choice([-1, 1], p=[0.5, 0.5])
+                quantized[:, :, (i)] = original_quantized[:, :, (neighbor_index)]
+        return quantized
 
 
 class DeconvolutionalDecoder(nn.Module):
@@ -1289,41 +1175,20 @@ class VectorQuantizerEMA(nn.Module):
         return self._embedding
 
 
-class WaveNetDecoder(nn.Module):
+class ConvolutionalVQVAE(nn.Module):
 
-    def __init__(self, configuration, speaker_dic, device):
-        super(WaveNetDecoder, self).__init__()
-        self._use_jitter = configuration['use_jitter']
-        if self._use_jitter:
-            self._jitter = Jitter(configuration['jitter_probability'])
-        """
-        The jittered latent sequence is passed through a single
-        convolutional layer with filter length 3 and 128 hidden
-        units to mix information across neighboring timesteps.
-        """
-        self._conv_1 = Conv1DBuilder.build(in_channels=64, out_channels=768, kernel_size=2, use_kaiming_normal=configuration['use_kaiming_normal'])
-        self._wavenet = WaveNet(configuration['quantize'], configuration['n_layers'], configuration['n_loop'], configuration['residual_channels'], configuration['gate_channels'], configuration['skip_out_channels'], configuration['filter_size'], cin_channels=configuration['local_condition_dim'], gin_channels=configuration['global_condition_dim'], n_speakers=len(speaker_dic), upsample_conditional_features=True, upsample_scales=[2, 2, 2, 2, 2, 12])
-        self._device = device
-
-    def forward(self, y, local_condition, global_condition):
-        if self._use_jitter and self.training:
-            local_condition = self._jitter(local_condition)
-        local_condition = self._conv_1(local_condition)
-        x = self._wavenet(y, local_condition, global_condition)
-        return x
-
-
-class WaveNetVQVAE(nn.Module):
-
-    def __init__(self, configuration, speaker_dic, device):
-        super(WaveNetVQVAE, self).__init__()
-        self._encoder = ConvolutionalEncoder(in_channels=configuration['input_features_dim'], num_hiddens=configuration['num_hiddens'], num_residual_layers=configuration['num_residual_layers'], num_residual_hiddens=configuration['residual_channels'], use_kaiming_normal=configuration['use_kaiming_normal'], input_features_type=configuration['input_features_type'], features_filters=configuration['input_features_filters'] * 3 if configuration['augment_input_features'] else configuration['input_features_filters'], sampling_rate=configuration['sampling_rate'], device=device)
-        self._pre_vq_conv = nn.Conv1d(in_channels=configuration['num_hiddens'], out_channels=configuration['embedding_dim'], kernel_size=1, stride=1, padding=1)
+    def __init__(self, configuration, device):
+        super(ConvolutionalVQVAE, self).__init__()
+        self._output_features_filters = configuration['output_features_filters'] * 3 if configuration['augment_output_features'] else configuration['output_features_filters']
+        self._output_features_dim = configuration['output_features_dim']
+        self._verbose = configuration['verbose']
+        self._encoder = ConvolutionalEncoder(in_channels=configuration['input_features_dim'], num_hiddens=configuration['num_hiddens'], num_residual_layers=configuration['num_residual_layers'], num_residual_hiddens=configuration['num_hiddens'], use_kaiming_normal=configuration['use_kaiming_normal'], input_features_type=configuration['input_features_type'], features_filters=configuration['input_features_filters'] * 3 if configuration['augment_input_features'] else configuration['input_features_filters'], sampling_rate=configuration['sampling_rate'], device=device, verbose=self._verbose)
+        self._pre_vq_conv = nn.Conv1d(in_channels=configuration['num_hiddens'], out_channels=configuration['embedding_dim'], kernel_size=3, padding=1)
         if configuration['decay'] > 0.0:
             self._vq = VectorQuantizerEMA(num_embeddings=configuration['num_embeddings'], embedding_dim=configuration['embedding_dim'], commitment_cost=configuration['commitment_cost'], decay=configuration['decay'], device=device)
         else:
             self._vq = VectorQuantizer(num_embeddings=configuration['num_embeddings'], embedding_dim=configuration['embedding_dim'], commitment_cost=configuration['commitment_cost'], device=device)
-        self._decoder = WaveNetDecoder(configuration, speaker_dic, device)
+        self._decoder = DeconvolutionalDecoder(in_channels=configuration['embedding_dim'], out_channels=self._output_features_filters, num_hiddens=configuration['num_hiddens'], num_residual_layers=configuration['num_residual_layers'], num_residual_hiddens=configuration['residual_channels'], use_kaiming_normal=configuration['use_kaiming_normal'], use_jitter=configuration['use_jitter'], jitter_probability=configuration['jitter_probability'], use_speaker_conditioning=configuration['use_speaker_conditioning'], device=device, verbose=self._verbose)
         self._device = device
         self._record_codebook_stats = configuration['record_codebook_stats']
 
@@ -1343,150 +1208,29 @@ class WaveNetVQVAE(nn.Module):
     def decoder(self):
         return self._decoder
 
-    def forward(self, x_enc, x_dec, global_condition):
-        z = self._encoder(x_enc)
+    def forward(self, x, speaker_dic, speaker_id):
+        x = x.permute(0, 2, 1).contiguous().float()
+        z = self._encoder(x)
+        if self._verbose:
+            ConsoleLogger.status('[ConvVQVAE] _encoder output size: {}'.format(z.size()))
         z = self._pre_vq_conv(z)
+        if self._verbose:
+            ConsoleLogger.status('[ConvVQVAE] _pre_vq_conv output size: {}'.format(z.size()))
         vq_loss, quantized, perplexity, _, _, encoding_indices, losses, _, _, _, concatenated_quantized = self._vq(z, record_codebook_stats=self._record_codebook_stats)
-        local_condition = quantized
-        local_condition = local_condition.squeeze(-1)
-        x_dec = x_dec.squeeze(-1)
-        reconstructed_x = self._decoder(x_dec, local_condition, global_condition)
-        reconstructed_x = reconstructed_x.unsqueeze(-1)
-        x_dec = x_dec.unsqueeze(-1)
-        return reconstructed_x, x_dec, vq_loss, losses, perplexity, encoding_indices, concatenated_quantized
-
-    def save(self, path):
-        torch.save(self.state_dict(), path)
-
-    @staticmethod
-    def load(path, configuration, speaker_dic, device):
-        model = WaveNetVQVAE(configuration, speaker_dic, device)
-        model.load_state_dict(torch.load(path, map_location=device))
-        return model
+        reconstructed_x = self._decoder(quantized, speaker_dic, speaker_id)
+        input_features_size = x.size(2)
+        output_features_size = reconstructed_x.size(2)
+        reconstructed_x = reconstructed_x.view(-1, self._output_features_filters, output_features_size)
+        reconstructed_x = reconstructed_x[:, :, :-(output_features_size - input_features_size)]
+        return reconstructed_x, vq_loss, losses, perplexity, encoding_indices, concatenated_quantized
 
 
-class Jitter(nn.Module):
-    """
-    Jitter implementation from [Chorowski et al., 2019].
-    During training, each latent vector can replace either one or both of
-    its neighbors. As in dropout, this prevents the model from
-    relying on consistency across groups of tokens. Additionally,
-    this regularization also promotes latent representation stability
-    over time: a latent vector extracted at time step t must strive
-    to also be useful at time steps t − 1 or t + 1.
-    """
-
-    def __init__(self, probability=0.12):
-        super(Jitter, self).__init__()
-        self._probability = probability
-
-    def forward(self, quantized):
-        original_quantized = quantized.detach().clone()
-        length = original_quantized.size(2)
-        for i in range(length):
-            """
-            Each latent vector is replace with either of its neighbors with a certain probability
-            (0.12 from the paper).
-            """
-            replace = [True, False][np.random.choice([1, 0], p=[self._probability, 1 - self._probability])]
-            if replace:
-                if i == 0:
-                    neighbor_index = i + 1
-                elif i == length - 1:
-                    neighbor_index = i - 1
-                else:
-                    """
-                    "We independently sample whether it is to
-                    be replaced with the token right after
-                    or before it."
-                    """
-                    neighbor_index = i + np.random.choice([-1, 1], p=[0.5, 0.5])
-                quantized[:, :, (i)] = original_quantized[:, :, (neighbor_index)]
-        return quantized
-
-
-class Residual(nn.Module):
-
-    def __init__(self, in_channels, num_hiddens, num_residual_hiddens, use_kaiming_normal):
-        super(Residual, self).__init__()
-        relu_1 = nn.ReLU(True)
-        conv_1 = nn.Conv1d(in_channels=in_channels, out_channels=num_residual_hiddens, kernel_size=3, stride=1, padding=1, bias=False)
-        if use_kaiming_normal:
-            conv_1 = nn.utils.weight_norm(conv_1)
-            nn.init.kaiming_normal_(conv_1.weight)
-        relu_2 = nn.ReLU(True)
-        conv_2 = nn.Conv1d(in_channels=num_residual_hiddens, out_channels=num_hiddens, kernel_size=1, stride=1, bias=False)
-        if use_kaiming_normal:
-            conv_2 = nn.utils.weight_norm(conv_2)
-            nn.init.kaiming_normal_(conv_2.weight)
-        self._block = nn.Sequential(relu_1, conv_1, relu_2, conv_2)
-
-    def forward(self, x):
-        return x + self._block(x)
-
-
-class ResidualStack(nn.Module):
-
-    def __init__(self, in_channels, num_hiddens, num_residual_layers, num_residual_hiddens, use_kaiming_normal):
-        super(ResidualStack, self).__init__()
-        self._num_residual_layers = num_residual_layers
-        self._layers = nn.ModuleList([Residual(in_channels, num_hiddens, num_residual_hiddens, use_kaiming_normal)] * self._num_residual_layers)
-
-    def forward(self, x):
-        for i in range(self._num_residual_layers):
-            x = self._layers[i](x)
-        return F.relu(x)
-
-
-class Conv1d(nn.Conv1d):
-    """Extended nn.Conv1d for incremental dilated convolutions
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.clear_buffer()
-        self._linearized_weight = None
-        self.register_backward_hook(self._clear_linearized_weight)
-
-    def incremental_forward(self, input):
-        if self.training:
-            raise RuntimeError('incremental_forward only supports eval mode')
-        for hook in self._forward_pre_hooks.values():
-            hook(self, input)
-        weight = self._get_linearized_weight()
-        kw = self.kernel_size[0]
-        dilation = self.dilation[0]
-        bsz = input.size(0)
-        if kw > 1:
-            input = input.data
-            if self.input_buffer is None:
-                self.input_buffer = input.new(bsz, kw + (kw - 1) * (dilation - 1), input.size(2))
-                self.input_buffer.zero_()
-            else:
-                self.input_buffer[:, :-1, :] = self.input_buffer[:, 1:, :].clone()
-            self.input_buffer[:, (-1), :] = input[:, (-1), :]
-            input = self.input_buffer
-            if dilation > 1:
-                input = input[:, 0::dilation, :].contiguous()
-        output = F.linear(input.view(bsz, -1), weight, self.bias)
-        return output.view(bsz, 1, -1)
-
-    def clear_buffer(self):
-        self.input_buffer = None
-
-    def _get_linearized_weight(self):
-        if self._linearized_weight is None:
-            kw = self.kernel_size[0]
-            if self.weight.size() == (self.out_channels, self.in_channels, kw):
-                weight = self.weight.transpose(1, 2).contiguous()
-            else:
-                weight = self.weight.transpose(2, 1).transpose(1, 0).contiguous()
-            assert weight.size() == (self.out_channels, kw, self.in_channels)
-            self._linearized_weight = weight.view(self.out_channels, -1)
-        return self._linearized_weight
-
-    def _clear_linearized_weight(self, *args):
-        self._linearized_weight = None
+def Conv1d(in_channels, out_channels, kernel_size, dropout=0, std_mul=4.0, **kwargs):
+    m = conv.Conv1d(in_channels, out_channels, kernel_size, **kwargs)
+    std = math.sqrt(std_mul * (1.0 - dropout) / (m.kernel_size[0] * in_channels))
+    m.weight.data.normal_(mean=0, std=std)
+    m.bias.data.zero_()
+    return nn.utils.weight_norm(m)
 
 
 def Conv1d1x1(in_channels, out_channels, bias=True, weight_normalization=True):
@@ -1497,6 +1241,23 @@ def Conv1d1x1(in_channels, out_channels, bias=True, weight_normalization=True):
         return Conv1d(in_channels, out_channels, kernel_size=1, padding=0, dilation=1, bias=bias, std_mul=1.0)
     else:
         return conv.Conv1d(in_channels, out_channels, kernel_size=1, padding=0, dilation=1, bias=bias)
+
+
+def ConvTranspose2d(in_channels, out_channels, kernel_size, weight_normalization=True, **kwargs):
+    freq_axis_kernel_size = kernel_size[0]
+    m = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, **kwargs)
+    m.weight.data.fill_(1.0 / freq_axis_kernel_size)
+    m.bias.data.zero_()
+    if weight_normalization:
+        return nn.utils.weight_norm(m)
+    else:
+        return m
+
+
+def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
+    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
+    m.weight.data.normal_(0, std)
+    return m
 
 
 def _conv1x1_forward(conv, x, is_incremental):
@@ -1608,23 +1369,6 @@ class ResidualConv1dGLU(nn.Module):
                 c.clear_buffer()
 
 
-def ConvTranspose2d(in_channels, out_channels, kernel_size, weight_normalization=True, **kwargs):
-    freq_axis_kernel_size = kernel_size[0]
-    m = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, **kwargs)
-    m.weight.data.fill_(1.0 / freq_axis_kernel_size)
-    m.bias.data.zero_()
-    if weight_normalization:
-        return nn.utils.weight_norm(m)
-    else:
-        return m
-
-
-def Embedding(num_embeddings, embedding_dim, padding_idx, std=0.01):
-    m = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
-    m.weight.data.normal_(0, std)
-    return m
-
-
 def _expand_global_features(B, T, g, bct=True):
     """Expand global conditioning features to all time steps
 
@@ -1671,7 +1415,7 @@ def receptive_field_size(total_layers, num_cycles, kernel_size, dilation=lambda 
 def to_one_hot(tensor, n, fill_with=1.0):
     one_hot = torch.FloatTensor(tensor.size() + (n,)).zero_()
     if tensor.is_cuda:
-        one_hot = one_hot.cuda()
+        one_hot = one_hot
     one_hot.scatter_(len(tensor.size()), tensor.unsqueeze(-1), fill_with)
     return one_hot
 
@@ -1949,6 +1693,82 @@ class WaveNet(nn.Module):
         self.apply(remove_weight_norm)
 
 
+class WaveNetDecoder(nn.Module):
+
+    def __init__(self, configuration, speaker_dic, device):
+        super(WaveNetDecoder, self).__init__()
+        self._use_jitter = configuration['use_jitter']
+        if self._use_jitter:
+            self._jitter = Jitter(configuration['jitter_probability'])
+        """
+        The jittered latent sequence is passed through a single
+        convolutional layer with filter length 3 and 128 hidden
+        units to mix information across neighboring timesteps.
+        """
+        self._conv_1 = Conv1DBuilder.build(in_channels=64, out_channels=768, kernel_size=2, use_kaiming_normal=configuration['use_kaiming_normal'])
+        self._wavenet = WaveNet(configuration['quantize'], configuration['n_layers'], configuration['n_loop'], configuration['residual_channels'], configuration['gate_channels'], configuration['skip_out_channels'], configuration['filter_size'], cin_channels=configuration['local_condition_dim'], gin_channels=configuration['global_condition_dim'], n_speakers=len(speaker_dic), upsample_conditional_features=True, upsample_scales=[2, 2, 2, 2, 2, 12])
+        self._device = device
+
+    def forward(self, y, local_condition, global_condition):
+        if self._use_jitter and self.training:
+            local_condition = self._jitter(local_condition)
+        local_condition = self._conv_1(local_condition)
+        x = self._wavenet(y, local_condition, global_condition)
+        return x
+
+
+class WaveNetVQVAE(nn.Module):
+
+    def __init__(self, configuration, speaker_dic, device):
+        super(WaveNetVQVAE, self).__init__()
+        self._encoder = ConvolutionalEncoder(in_channels=configuration['input_features_dim'], num_hiddens=configuration['num_hiddens'], num_residual_layers=configuration['num_residual_layers'], num_residual_hiddens=configuration['residual_channels'], use_kaiming_normal=configuration['use_kaiming_normal'], input_features_type=configuration['input_features_type'], features_filters=configuration['input_features_filters'] * 3 if configuration['augment_input_features'] else configuration['input_features_filters'], sampling_rate=configuration['sampling_rate'], device=device)
+        self._pre_vq_conv = nn.Conv1d(in_channels=configuration['num_hiddens'], out_channels=configuration['embedding_dim'], kernel_size=1, stride=1, padding=1)
+        if configuration['decay'] > 0.0:
+            self._vq = VectorQuantizerEMA(num_embeddings=configuration['num_embeddings'], embedding_dim=configuration['embedding_dim'], commitment_cost=configuration['commitment_cost'], decay=configuration['decay'], device=device)
+        else:
+            self._vq = VectorQuantizer(num_embeddings=configuration['num_embeddings'], embedding_dim=configuration['embedding_dim'], commitment_cost=configuration['commitment_cost'], device=device)
+        self._decoder = WaveNetDecoder(configuration, speaker_dic, device)
+        self._device = device
+        self._record_codebook_stats = configuration['record_codebook_stats']
+
+    @property
+    def vq(self):
+        return self._vq
+
+    @property
+    def pre_vq_conv(self):
+        return self._pre_vq_conv
+
+    @property
+    def encoder(self):
+        return self._encoder
+
+    @property
+    def decoder(self):
+        return self._decoder
+
+    def forward(self, x_enc, x_dec, global_condition):
+        z = self._encoder(x_enc)
+        z = self._pre_vq_conv(z)
+        vq_loss, quantized, perplexity, _, _, encoding_indices, losses, _, _, _, concatenated_quantized = self._vq(z, record_codebook_stats=self._record_codebook_stats)
+        local_condition = quantized
+        local_condition = local_condition.squeeze(-1)
+        x_dec = x_dec.squeeze(-1)
+        reconstructed_x = self._decoder(x_dec, local_condition, global_condition)
+        reconstructed_x = reconstructed_x.unsqueeze(-1)
+        x_dec = x_dec.unsqueeze(-1)
+        return reconstructed_x, x_dec, vq_loss, losses, perplexity, encoding_indices, concatenated_quantized
+
+    def save(self, path):
+        torch.save(self.state_dict(), path)
+
+    @staticmethod
+    def load(path, configuration, speaker_dic, device):
+        model = WaveNetVQVAE(configuration, speaker_dic, device)
+        model.load_state_dict(torch.load(path, map_location=device))
+        return model
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1966,10 +1786,6 @@ TESTCASES = [
      False),
     (Conv,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 64])], {}),
-     True),
-    (Conv1d,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 64])], {}),
      True),
     (ConvolutionalEncoder,
@@ -2046,7 +1862,4 @@ class Test_swasun_VQ_VAE_Speech(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
-
-    def test_012(self):
-        self._check(*TESTCASES[12])
 

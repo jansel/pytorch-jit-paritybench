@@ -28,6 +28,7 @@ eval = _module
 predict = _module
 train = _module
 trainer = _module
+trainer = _module
 utils = _module
 cal_recall = _module
 rrc_evaluation_funcs = _module
@@ -50,20 +51,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import copy
+
+
+from torch.utils.data import Dataset
+
+
 import torch
+
+
+import numpy as np
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
+
+
+import scipy.io as sio
 
 
 from torch import nn
@@ -84,196 +104,10 @@ import torch.utils.model_zoo as model_zoo
 from torchvision.models.utils import load_state_dict_from_url
 
 
-class DBLoss(nn.Module):
-
-    def __init__(self, alpha=1.0, beta=10, ohem_ratio=3, reduction='mean', eps=1e-06):
-        """
-        Implement PSE Loss.
-        :param alpha: binary_map loss 前面的系数
-        :param beta: threshold_map loss 前面的系数
-        :param ohem_ratio: OHEM的比例
-        :param reduction: 'mean' or 'sum'对 batch里的loss 算均值或求和
-        """
-        super().__init__()
-        assert reduction in ['mean', 'sum'], " reduction must in ['mean','sum']"
-        self.alpha = alpha
-        self.beta = beta
-        self.bce_loss = BalanceCrossEntropyLoss(negative_ratio=ohem_ratio)
-        self.dice_loss = DiceLoss(eps=eps)
-        self.l1_loss = MaskL1Loss(eps=eps)
-        self.ohem_ratio = ohem_ratio
-        self.reduction = reduction
-
-    def forward(self, pred, batch):
-        shrink_maps = pred[:, (0), :, :]
-        threshold_maps = pred[:, (1), :, :]
-        binary_maps = pred[:, (2), :, :]
-        loss_shrink_maps = self.bce_loss(shrink_maps, batch['shrink_map'], batch['shrink_mask'])
-        loss_threshold_maps = self.l1_loss(threshold_maps, batch['threshold_map'], batch['threshold_mask'])
-        metrics = dict(loss_shrink_maps=loss_shrink_maps, loss_threshold_maps=loss_threshold_maps)
-        if pred.size()[1] > 2:
-            loss_binary_maps = self.dice_loss(binary_maps, batch['shrink_map'], batch['shrink_mask'])
-            metrics['loss_binary_maps'] = loss_binary_maps
-            loss_all = self.alpha * loss_shrink_maps + self.beta * loss_threshold_maps + loss_binary_maps
-            metrics['loss'] = loss_all
-        else:
-            metrics['loss'] = loss_shrink_maps
-        return metrics
+import time
 
 
-model_urls = {'shufflenetv2_x0.5': 'https://download.pytorch.org/models/shufflenetv2_x0.5-f707e7126e.pth', 'shufflenetv2_x1.0': 'https://download.pytorch.org/models/shufflenetv2_x1-5666bf0f80.pth', 'shufflenetv2_x1.5': None, 'shufflenetv2_x2.0': None}
-
-
-def deformable_resnet18(pretrained=True, **kwargs):
-    """Constructs a ResNet-18 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(BasicBlock, [2, 2, 2, 2], dcn=dict(deformable_groups=1))
-    if pretrained:
-        print('load from imagenet')
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']), strict=False)
-    return model
-
-
-def deformable_resnet50(pretrained=True, **kwargs):
-    """Constructs a ResNet-50 model with deformable conv.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 6, 3], dcn=dict(deformable_groups=1), **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']), strict=False)
-    return model
-
-
-def resnet101(pretrained=True, **kwargs):
-    """Constructs a ResNet-101 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']), strict=False)
-    return model
-
-
-def resnet152(pretrained=True, **kwargs):
-    """Constructs a ResNet-152 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet152']), strict=False)
-    return model
-
-
-def resnet18(pretrained=True, **kwargs):
-    """Constructs a ResNet-18 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
-    if pretrained:
-        print('load from imagenet')
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']), strict=False)
-    return model
-
-
-def resnet34(pretrained=True, **kwargs):
-    """Constructs a ResNet-34 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet34']), strict=False)
-    return model
-
-
-def resnet50(pretrained=True, **kwargs):
-    """Constructs a ResNet-50 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']), strict=False)
-    return model
-
-
-def _shufflenetv2(arch, pretrained, progress, *args, **kwargs):
-    model = ShuffleNetV2(*args, **kwargs)
-    if pretrained:
-        model_url = model_urls[arch]
-        if model_url is None:
-            raise NotImplementedError('pretrained {} is not supported as of now'.format(arch))
-        else:
-            state_dict = load_state_dict_from_url(model_url, progress=progress)
-            model.load_state_dict(state_dict, strict=False)
-    return model
-
-
-def shufflenet_v2_x1_0(pretrained=False, progress=True, **kwargs):
-    """
-    Constructs a ShuffleNetV2 with 1.0x output channels, as described in
-    `"ShuffleNet V2: Practical Guidelines for Efficient CNN Architecture Design"
-    <https://arxiv.org/abs/1807.11164>`_.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    return _shufflenetv2('shufflenetv2_x1.0', pretrained, progress, [4, 8, 4], [24, 116, 232, 464, 1024], **kwargs)
-
-
-backbone_dict = {'resnet18': {'models': resnet18, 'out': [64, 128, 256, 512]}, 'deformable_resnet18': {'models': deformable_resnet18, 'out': [64, 128, 256, 512]}, 'resnet34': {'models': resnet34, 'out': [64, 128, 256, 512]}, 'resnet50': {'models': resnet50, 'out': [256, 512, 1024, 2048]}, 'deformable_resnet50': {'models': deformable_resnet50, 'out': [256, 512, 1024, 2048]}, 'resnet101': {'models': resnet101, 'out': [256, 512, 1024, 2048]}, 'resnet152': {'models': resnet152, 'out': [256, 512, 1024, 2048]}, 'shufflenetv2': {'models': shufflenet_v2_x1_0, 'out': [24, 116, 232, 464]}}
-
-
-class DBModel(nn.Module):
-
-    def __init__(self, model_config: dict):
-        """
-        PANnet
-        :param model_config: 模型配置
-        """
-        super().__init__()
-        backbone = model_config['backbone']
-        pretrained = model_config['pretrained']
-        segmentation_body = model_config['segmentation_body']['type']
-        segmentation_head = model_config['segmentation_head']['type']
-        assert backbone in backbone_dict, 'backbone must in: {}'.format(backbone_dict)
-        assert segmentation_body in segmentation_body, 'segmentation_head must in: {}'.format(segmentation_body)
-        assert segmentation_head in segmentation_head_dict, 'segmentation_head must in: {}'.format(segmentation_head_dict)
-        backbone_model, backbone_out = backbone_dict[backbone]['models'], backbone_dict[backbone]['out']
-        self.backbone = backbone_model(pretrained=pretrained)
-        self.segmentation_body = segmentation_body_dict[segmentation_body](backbone_out, **model_config['segmentation_body']['args'])
-        self.segmentation_head = segmentation_head_dict[segmentation_head](self.segmentation_body.out_channels, **model_config['segmentation_head']['args'])
-        self.name = '{}_{}_{}'.format(backbone, segmentation_body, segmentation_head)
-
-    def forward(self, x):
-        _, _, H, W = x.size()
-        backbone_out = self.backbone(x)
-        segmentation_body_out = self.segmentation_body(backbone_out)
-        y = self.segmentation_head(segmentation_body_out)
-        y = F.interpolate(y, size=(H, W), mode='bilinear', align_corners=True)
-        return y
-
-
-class ConvBnRelu(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', inplace=True):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode)
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=inplace)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        return x
+import torchvision.utils as vutils
 
 
 class BalanceCrossEntropyLoss(nn.Module):
@@ -366,6 +200,43 @@ class MaskL1Loss(nn.Module):
     def forward(self, pred: torch.Tensor, gt, mask):
         loss = (torch.abs(pred - gt) * mask).sum() / (mask.sum() + self.eps)
         return loss
+
+
+class DBLoss(nn.Module):
+
+    def __init__(self, alpha=1.0, beta=10, ohem_ratio=3, reduction='mean', eps=1e-06):
+        """
+        Implement PSE Loss.
+        :param alpha: binary_map loss 前面的系数
+        :param beta: threshold_map loss 前面的系数
+        :param ohem_ratio: OHEM的比例
+        :param reduction: 'mean' or 'sum'对 batch里的loss 算均值或求和
+        """
+        super().__init__()
+        assert reduction in ['mean', 'sum'], " reduction must in ['mean','sum']"
+        self.alpha = alpha
+        self.beta = beta
+        self.bce_loss = BalanceCrossEntropyLoss(negative_ratio=ohem_ratio)
+        self.dice_loss = DiceLoss(eps=eps)
+        self.l1_loss = MaskL1Loss(eps=eps)
+        self.ohem_ratio = ohem_ratio
+        self.reduction = reduction
+
+    def forward(self, pred, batch):
+        shrink_maps = pred[:, (0), :, :]
+        threshold_maps = pred[:, (1), :, :]
+        binary_maps = pred[:, (2), :, :]
+        loss_shrink_maps = self.bce_loss(shrink_maps, batch['shrink_map'], batch['shrink_mask'])
+        loss_threshold_maps = self.l1_loss(threshold_maps, batch['threshold_map'], batch['threshold_mask'])
+        metrics = dict(loss_shrink_maps=loss_shrink_maps, loss_threshold_maps=loss_threshold_maps)
+        if pred.size()[1] > 2:
+            loss_binary_maps = self.dice_loss(binary_maps, batch['shrink_map'], batch['shrink_mask'])
+            metrics['loss_binary_maps'] = loss_binary_maps
+            loss_all = self.alpha * loss_shrink_maps + self.beta * loss_threshold_maps + loss_binary_maps
+            metrics['loss'] = loss_all
+        else:
+            metrics['loss'] = loss_shrink_maps
+        return metrics
 
 
 BatchNorm2d = nn.BatchNorm2d
@@ -522,195 +393,86 @@ class ResNet(nn.Module):
         return x2, x3, x4, x5
 
 
-class FPN(nn.Module):
-
-    def __init__(self, backbone_out_channels, inner_channels=256):
-        """
-        :param backbone_out_channels: 基础网络输出的维度
-        :param kwargs:
-        """
-        super().__init__()
-        inplace = True
-        self.conv_out = inner_channels
-        inner_channels = inner_channels // 4
-        self.reduce_conv_c2 = ConvBnRelu(backbone_out_channels[0], inner_channels, kernel_size=1, inplace=inplace)
-        self.reduce_conv_c3 = ConvBnRelu(backbone_out_channels[1], inner_channels, kernel_size=1, inplace=inplace)
-        self.reduce_conv_c4 = ConvBnRelu(backbone_out_channels[2], inner_channels, kernel_size=1, inplace=inplace)
-        self.reduce_conv_c5 = ConvBnRelu(backbone_out_channels[3], inner_channels, kernel_size=1, inplace=inplace)
-        self.smooth_p4 = ConvBnRelu(inner_channels, inner_channels, kernel_size=3, padding=1, inplace=inplace)
-        self.smooth_p3 = ConvBnRelu(inner_channels, inner_channels, kernel_size=3, padding=1, inplace=inplace)
-        self.smooth_p2 = ConvBnRelu(inner_channels, inner_channels, kernel_size=3, padding=1, inplace=inplace)
-        self.conv = nn.Sequential(nn.Conv2d(self.conv_out, self.conv_out, kernel_size=3, padding=1, stride=1), nn.BatchNorm2d(self.conv_out), nn.ReLU(inplace=inplace))
-        self.out_channels = self.conv_out
-
-    def forward(self, x):
-        c2, c3, c4, c5 = x
-        p5 = self.reduce_conv_c5(c5)
-        p4 = self._upsample_add(p5, self.reduce_conv_c4(c4))
-        p4 = self.smooth_p4(p4)
-        p3 = self._upsample_add(p4, self.reduce_conv_c3(c3))
-        p3 = self.smooth_p3(p3)
-        p2 = self._upsample_add(p3, self.reduce_conv_c2(c2))
-        p2 = self.smooth_p2(p2)
-        x = self._upsample_cat(p2, p3, p4, p5)
-        x = self.conv(x)
-        return x
-
-    def _upsample_add(self, x, y):
-        return F.interpolate(x, size=y.size()[2:], mode='bilinear') + y
-
-    def _upsample_cat(self, p2, p3, p4, p5):
-        h, w = p2.size()[2:]
-        p3 = F.interpolate(p3, size=(h, w), mode='bilinear')
-        p4 = F.interpolate(p4, size=(h, w), mode='bilinear')
-        p5 = F.interpolate(p5, size=(h, w), mode='bilinear')
-        return torch.cat([p2, p3, p4, p5], dim=1)
+model_urls = {'shufflenetv2_x0.5': 'https://download.pytorch.org/models/shufflenetv2_x0.5-f707e7126e.pth', 'shufflenetv2_x1.0': 'https://download.pytorch.org/models/shufflenetv2_x1-5666bf0f80.pth', 'shufflenetv2_x1.5': None, 'shufflenetv2_x2.0': None}
 
 
-class FPEM_FFM(nn.Module):
-
-    def __init__(self, backbone_out_channels, inner_channels=128, fpem_repeat=2):
-        """
-        PANnet
-        :param backbone_out_channels: 基础网络输出的维度
-        """
-        super().__init__()
-        self.conv_out = inner_channels
-        inplace = True
-        self.reduce_conv_c2 = ConvBnRelu(backbone_out_channels[0], inner_channels, kernel_size=1, inplace=inplace)
-        self.reduce_conv_c3 = ConvBnRelu(backbone_out_channels[1], inner_channels, kernel_size=1, inplace=inplace)
-        self.reduce_conv_c4 = ConvBnRelu(backbone_out_channels[2], inner_channels, kernel_size=1, inplace=inplace)
-        self.reduce_conv_c5 = ConvBnRelu(backbone_out_channels[3], inner_channels, kernel_size=1, inplace=inplace)
-        self.fpems = nn.ModuleList()
-        for i in range(fpem_repeat):
-            self.fpems.append(FPEM(self.conv_out))
-        self.out_channels = self.conv_out * 4
-
-    def forward(self, x):
-        c2, c3, c4, c5 = x
-        c2 = self.reduce_conv_c2(c2)
-        c3 = self.reduce_conv_c3(c3)
-        c4 = self.reduce_conv_c4(c4)
-        c5 = self.reduce_conv_c5(c5)
-        for i, fpem in enumerate(self.fpems):
-            c2, c3, c4, c5 = fpem(c2, c3, c4, c5)
-            if i == 0:
-                c2_ffm = c2
-                c3_ffm = c3
-                c4_ffm = c4
-                c5_ffm = c5
-            else:
-                c2_ffm += c2
-                c3_ffm += c3
-                c4_ffm += c4
-                c5_ffm += c5
-        c5 = F.interpolate(c5_ffm, c2_ffm.size()[-2:], mode='bilinear')
-        c4 = F.interpolate(c4_ffm, c2_ffm.size()[-2:], mode='bilinear')
-        c3 = F.interpolate(c3_ffm, c2_ffm.size()[-2:], mode='bilinear')
-        Fy = torch.cat([c2_ffm, c3, c4, c5], dim=1)
-        return Fy
+def deformable_resnet18(pretrained=True, **kwargs):
+    """Constructs a ResNet-18 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(BasicBlock, [2, 2, 2, 2], dcn=dict(deformable_groups=1))
+    if pretrained:
+        None
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']), strict=False)
+    return model
 
 
-class FPEM(nn.Module):
-
-    def __init__(self, in_channels=128):
-        super().__init__()
-        self.up_add1 = SeparableConv2d(in_channels, in_channels, 1)
-        self.up_add2 = SeparableConv2d(in_channels, in_channels, 1)
-        self.up_add3 = SeparableConv2d(in_channels, in_channels, 1)
-        self.down_add1 = SeparableConv2d(in_channels, in_channels, 2)
-        self.down_add2 = SeparableConv2d(in_channels, in_channels, 2)
-        self.down_add3 = SeparableConv2d(in_channels, in_channels, 2)
-
-    def forward(self, c2, c3, c4, c5):
-        c4 = self.up_add1(self._upsample_add(c5, c4))
-        c3 = self.up_add2(self._upsample_add(c4, c3))
-        c2 = self.up_add3(self._upsample_add(c3, c2))
-        c3 = self.down_add1(self._upsample_add(c3, c2))
-        c4 = self.down_add2(self._upsample_add(c4, c3))
-        c5 = self.down_add3(self._upsample_add(c5, c4))
-        return c2, c3, c4, c5
-
-    def _upsample_add(self, x, y):
-        return F.interpolate(x, size=y.size()[2:], mode='bilinear') + y
+def deformable_resnet50(pretrained=True, **kwargs):
+    """Constructs a ResNet-50 model with deformable conv.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 6, 3], dcn=dict(deformable_groups=1), **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']), strict=False)
+    return model
 
 
-class SeparableConv2d(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride=1):
-        super(SeparableConv2d, self).__init__()
-        self.depthwise_conv = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, padding=1, stride=stride, groups=in_channels)
-        self.pointwise_conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1)
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        x = self.depthwise_conv(x)
-        x = self.pointwise_conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        return x
+def resnet101(pretrained=True, **kwargs):
+    """Constructs a ResNet-101 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet101']), strict=False)
+    return model
 
 
-class ConvHead(nn.Module):
+def resnet152(pretrained=True, **kwargs):
+    """Constructs a ResNet-152 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet152']), strict=False)
+    return model
 
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1), nn.Sigmoid())
 
-    def forward(self, x):
-        return self.conv(x)
+def resnet18(pretrained=True, **kwargs):
+    """Constructs a ResNet-18 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(BasicBlock, [2, 2, 2, 2], **kwargs)
+    if pretrained:
+        None
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet18']), strict=False)
+    return model
 
 
-class DBHead(nn.Module):
+def resnet34(pretrained=True, **kwargs):
+    """Constructs a ResNet-34 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(BasicBlock, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet34']), strict=False)
+    return model
 
-    def __init__(self, in_channels, out_channels, k=50):
-        super().__init__()
-        self.k = k
-        self.binarize = nn.Sequential(nn.Conv2d(in_channels, in_channels // 4, 3, padding=1), nn.BatchNorm2d(in_channels // 4), nn.ReLU(inplace=True), nn.ConvTranspose2d(in_channels // 4, in_channels // 4, 2, 2), nn.BatchNorm2d(in_channels // 4), nn.ReLU(inplace=True), nn.ConvTranspose2d(in_channels // 4, 1, 2, 2), nn.Sigmoid())
-        self.binarize.apply(self.weights_init)
-        self.thresh = self._init_thresh(in_channels)
-        self.thresh.apply(self.weights_init)
 
-    def forward(self, x):
-        shrink_maps = self.binarize(x)
-        threshold_maps = self.thresh(x)
-        if self.training:
-            binary_maps = self.step_function(shrink_maps, threshold_maps)
-            y = torch.cat((shrink_maps, threshold_maps, binary_maps), dim=1)
-        else:
-            y = torch.cat((shrink_maps, threshold_maps), dim=1)
-        return y
-
-    def weights_init(self, m):
-        classname = m.__class__.__name__
-        if classname.find('Conv') != -1:
-            nn.init.kaiming_normal_(m.weight.data)
-        elif classname.find('BatchNorm') != -1:
-            m.weight.data.fill_(1.0)
-            m.bias.data.fill_(0.0001)
-
-    def _init_thresh(self, inner_channels, serial=False, smooth=False, bias=False):
-        in_channels = inner_channels
-        if serial:
-            in_channels += 1
-        self.thresh = nn.Sequential(nn.Conv2d(in_channels, inner_channels // 4, 3, padding=1, bias=bias), nn.BatchNorm2d(inner_channels // 4), nn.ReLU(inplace=True), self._init_upsample(inner_channels // 4, inner_channels // 4, smooth=smooth, bias=bias), nn.BatchNorm2d(inner_channels // 4), nn.ReLU(inplace=True), self._init_upsample(inner_channels // 4, 1, smooth=smooth, bias=bias), nn.Sigmoid())
-        return self.thresh
-
-    def _init_upsample(self, in_channels, out_channels, smooth=False, bias=False):
-        if smooth:
-            inter_out_channels = out_channels
-            if out_channels == 1:
-                inter_out_channels = in_channels
-            module_list = [nn.Upsample(scale_factor=2, mode='nearest'), nn.Conv2d(in_channels, inter_out_channels, 3, 1, 1, bias=bias)]
-            if out_channels == 1:
-                module_list.append(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=1, bias=True))
-            return nn.Sequential(module_list)
-        else:
-            return nn.ConvTranspose2d(in_channels, out_channels, 2, 2)
-
-    def step_function(self, x, y):
-        return torch.reciprocal(1 + torch.exp(-self.k * (x - y)))
+def resnet50(pretrained=True, **kwargs):
+    """Constructs a ResNet-50 model.
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+    """
+    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(model_zoo.load_url(model_urls['resnet50']), strict=False)
+    return model
 
 
 def channel_shuffle(x, groups):
@@ -780,6 +542,276 @@ class ShuffleNetV2(nn.Module):
         c4 = self.stage3(c3)
         c5 = self.stage4(c4)
         return c2, c3, c4, c5
+
+
+def _shufflenetv2(arch, pretrained, progress, *args, **kwargs):
+    model = ShuffleNetV2(*args, **kwargs)
+    if pretrained:
+        model_url = model_urls[arch]
+        if model_url is None:
+            raise NotImplementedError('pretrained {} is not supported as of now'.format(arch))
+        else:
+            state_dict = load_state_dict_from_url(model_url, progress=progress)
+            model.load_state_dict(state_dict, strict=False)
+    return model
+
+
+def shufflenet_v2_x1_0(pretrained=False, progress=True, **kwargs):
+    """
+    Constructs a ShuffleNetV2 with 1.0x output channels, as described in
+    `"ShuffleNet V2: Practical Guidelines for Efficient CNN Architecture Design"
+    <https://arxiv.org/abs/1807.11164>`_.
+
+    Args:
+        pretrained (bool): If True, returns a model pre-trained on ImageNet
+        progress (bool): If True, displays a progress bar of the download to stderr
+    """
+    return _shufflenetv2('shufflenetv2_x1.0', pretrained, progress, [4, 8, 4], [24, 116, 232, 464, 1024], **kwargs)
+
+
+backbone_dict = {'resnet18': {'models': resnet18, 'out': [64, 128, 256, 512]}, 'deformable_resnet18': {'models': deformable_resnet18, 'out': [64, 128, 256, 512]}, 'resnet34': {'models': resnet34, 'out': [64, 128, 256, 512]}, 'resnet50': {'models': resnet50, 'out': [256, 512, 1024, 2048]}, 'deformable_resnet50': {'models': deformable_resnet50, 'out': [256, 512, 1024, 2048]}, 'resnet101': {'models': resnet101, 'out': [256, 512, 1024, 2048]}, 'resnet152': {'models': resnet152, 'out': [256, 512, 1024, 2048]}, 'shufflenetv2': {'models': shufflenet_v2_x1_0, 'out': [24, 116, 232, 464]}}
+
+
+class ConvBnRelu(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, padding_mode='zeros', inplace=True):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias, padding_mode=padding_mode)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=inplace)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        return x
+
+
+class SeparableConv2d(nn.Module):
+
+    def __init__(self, in_channels, out_channels, stride=1):
+        super(SeparableConv2d, self).__init__()
+        self.depthwise_conv = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, padding=1, stride=stride, groups=in_channels)
+        self.pointwise_conv = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.depthwise_conv(x)
+        x = self.pointwise_conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        return x
+
+
+class FPEM(nn.Module):
+
+    def __init__(self, in_channels=128):
+        super().__init__()
+        self.up_add1 = SeparableConv2d(in_channels, in_channels, 1)
+        self.up_add2 = SeparableConv2d(in_channels, in_channels, 1)
+        self.up_add3 = SeparableConv2d(in_channels, in_channels, 1)
+        self.down_add1 = SeparableConv2d(in_channels, in_channels, 2)
+        self.down_add2 = SeparableConv2d(in_channels, in_channels, 2)
+        self.down_add3 = SeparableConv2d(in_channels, in_channels, 2)
+
+    def forward(self, c2, c3, c4, c5):
+        c4 = self.up_add1(self._upsample_add(c5, c4))
+        c3 = self.up_add2(self._upsample_add(c4, c3))
+        c2 = self.up_add3(self._upsample_add(c3, c2))
+        c3 = self.down_add1(self._upsample_add(c3, c2))
+        c4 = self.down_add2(self._upsample_add(c4, c3))
+        c5 = self.down_add3(self._upsample_add(c5, c4))
+        return c2, c3, c4, c5
+
+    def _upsample_add(self, x, y):
+        return F.interpolate(x, size=y.size()[2:], mode='bilinear') + y
+
+
+class FPEM_FFM(nn.Module):
+
+    def __init__(self, backbone_out_channels, inner_channels=128, fpem_repeat=2):
+        """
+        PANnet
+        :param backbone_out_channels: 基础网络输出的维度
+        """
+        super().__init__()
+        self.conv_out = inner_channels
+        inplace = True
+        self.reduce_conv_c2 = ConvBnRelu(backbone_out_channels[0], inner_channels, kernel_size=1, inplace=inplace)
+        self.reduce_conv_c3 = ConvBnRelu(backbone_out_channels[1], inner_channels, kernel_size=1, inplace=inplace)
+        self.reduce_conv_c4 = ConvBnRelu(backbone_out_channels[2], inner_channels, kernel_size=1, inplace=inplace)
+        self.reduce_conv_c5 = ConvBnRelu(backbone_out_channels[3], inner_channels, kernel_size=1, inplace=inplace)
+        self.fpems = nn.ModuleList()
+        for i in range(fpem_repeat):
+            self.fpems.append(FPEM(self.conv_out))
+        self.out_channels = self.conv_out * 4
+
+    def forward(self, x):
+        c2, c3, c4, c5 = x
+        c2 = self.reduce_conv_c2(c2)
+        c3 = self.reduce_conv_c3(c3)
+        c4 = self.reduce_conv_c4(c4)
+        c5 = self.reduce_conv_c5(c5)
+        for i, fpem in enumerate(self.fpems):
+            c2, c3, c4, c5 = fpem(c2, c3, c4, c5)
+            if i == 0:
+                c2_ffm = c2
+                c3_ffm = c3
+                c4_ffm = c4
+                c5_ffm = c5
+            else:
+                c2_ffm += c2
+                c3_ffm += c3
+                c4_ffm += c4
+                c5_ffm += c5
+        c5 = F.interpolate(c5_ffm, c2_ffm.size()[-2:], mode='bilinear')
+        c4 = F.interpolate(c4_ffm, c2_ffm.size()[-2:], mode='bilinear')
+        c3 = F.interpolate(c3_ffm, c2_ffm.size()[-2:], mode='bilinear')
+        Fy = torch.cat([c2_ffm, c3, c4, c5], dim=1)
+        return Fy
+
+
+class FPN(nn.Module):
+
+    def __init__(self, backbone_out_channels, inner_channels=256):
+        """
+        :param backbone_out_channels: 基础网络输出的维度
+        :param kwargs:
+        """
+        super().__init__()
+        inplace = True
+        self.conv_out = inner_channels
+        inner_channels = inner_channels // 4
+        self.reduce_conv_c2 = ConvBnRelu(backbone_out_channels[0], inner_channels, kernel_size=1, inplace=inplace)
+        self.reduce_conv_c3 = ConvBnRelu(backbone_out_channels[1], inner_channels, kernel_size=1, inplace=inplace)
+        self.reduce_conv_c4 = ConvBnRelu(backbone_out_channels[2], inner_channels, kernel_size=1, inplace=inplace)
+        self.reduce_conv_c5 = ConvBnRelu(backbone_out_channels[3], inner_channels, kernel_size=1, inplace=inplace)
+        self.smooth_p4 = ConvBnRelu(inner_channels, inner_channels, kernel_size=3, padding=1, inplace=inplace)
+        self.smooth_p3 = ConvBnRelu(inner_channels, inner_channels, kernel_size=3, padding=1, inplace=inplace)
+        self.smooth_p2 = ConvBnRelu(inner_channels, inner_channels, kernel_size=3, padding=1, inplace=inplace)
+        self.conv = nn.Sequential(nn.Conv2d(self.conv_out, self.conv_out, kernel_size=3, padding=1, stride=1), nn.BatchNorm2d(self.conv_out), nn.ReLU(inplace=inplace))
+        self.out_channels = self.conv_out
+
+    def forward(self, x):
+        c2, c3, c4, c5 = x
+        p5 = self.reduce_conv_c5(c5)
+        p4 = self._upsample_add(p5, self.reduce_conv_c4(c4))
+        p4 = self.smooth_p4(p4)
+        p3 = self._upsample_add(p4, self.reduce_conv_c3(c3))
+        p3 = self.smooth_p3(p3)
+        p2 = self._upsample_add(p3, self.reduce_conv_c2(c2))
+        p2 = self.smooth_p2(p2)
+        x = self._upsample_cat(p2, p3, p4, p5)
+        x = self.conv(x)
+        return x
+
+    def _upsample_add(self, x, y):
+        return F.interpolate(x, size=y.size()[2:], mode='bilinear') + y
+
+    def _upsample_cat(self, p2, p3, p4, p5):
+        h, w = p2.size()[2:]
+        p3 = F.interpolate(p3, size=(h, w), mode='bilinear')
+        p4 = F.interpolate(p4, size=(h, w), mode='bilinear')
+        p5 = F.interpolate(p5, size=(h, w), mode='bilinear')
+        return torch.cat([p2, p3, p4, p5], dim=1)
+
+
+segmentation_body_dict = {'FPN': FPN, 'FPEM_FFM': FPEM_FFM}
+
+
+class ConvHead(nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.conv = nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1), nn.Sigmoid())
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class DBHead(nn.Module):
+
+    def __init__(self, in_channels, out_channels, k=50):
+        super().__init__()
+        self.k = k
+        self.binarize = nn.Sequential(nn.Conv2d(in_channels, in_channels // 4, 3, padding=1), nn.BatchNorm2d(in_channels // 4), nn.ReLU(inplace=True), nn.ConvTranspose2d(in_channels // 4, in_channels // 4, 2, 2), nn.BatchNorm2d(in_channels // 4), nn.ReLU(inplace=True), nn.ConvTranspose2d(in_channels // 4, 1, 2, 2), nn.Sigmoid())
+        self.binarize.apply(self.weights_init)
+        self.thresh = self._init_thresh(in_channels)
+        self.thresh.apply(self.weights_init)
+
+    def forward(self, x):
+        shrink_maps = self.binarize(x)
+        threshold_maps = self.thresh(x)
+        if self.training:
+            binary_maps = self.step_function(shrink_maps, threshold_maps)
+            y = torch.cat((shrink_maps, threshold_maps, binary_maps), dim=1)
+        else:
+            y = torch.cat((shrink_maps, threshold_maps), dim=1)
+        return y
+
+    def weights_init(self, m):
+        classname = m.__class__.__name__
+        if classname.find('Conv') != -1:
+            nn.init.kaiming_normal_(m.weight.data)
+        elif classname.find('BatchNorm') != -1:
+            m.weight.data.fill_(1.0)
+            m.bias.data.fill_(0.0001)
+
+    def _init_thresh(self, inner_channels, serial=False, smooth=False, bias=False):
+        in_channels = inner_channels
+        if serial:
+            in_channels += 1
+        self.thresh = nn.Sequential(nn.Conv2d(in_channels, inner_channels // 4, 3, padding=1, bias=bias), nn.BatchNorm2d(inner_channels // 4), nn.ReLU(inplace=True), self._init_upsample(inner_channels // 4, inner_channels // 4, smooth=smooth, bias=bias), nn.BatchNorm2d(inner_channels // 4), nn.ReLU(inplace=True), self._init_upsample(inner_channels // 4, 1, smooth=smooth, bias=bias), nn.Sigmoid())
+        return self.thresh
+
+    def _init_upsample(self, in_channels, out_channels, smooth=False, bias=False):
+        if smooth:
+            inter_out_channels = out_channels
+            if out_channels == 1:
+                inter_out_channels = in_channels
+            module_list = [nn.Upsample(scale_factor=2, mode='nearest'), nn.Conv2d(in_channels, inter_out_channels, 3, 1, 1, bias=bias)]
+            if out_channels == 1:
+                module_list.append(nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=1, bias=True))
+            return nn.Sequential(module_list)
+        else:
+            return nn.ConvTranspose2d(in_channels, out_channels, 2, 2)
+
+    def step_function(self, x, y):
+        return torch.reciprocal(1 + torch.exp(-self.k * (x - y)))
+
+
+segmentation_head_dict = {'conv': ConvHead, 'DBHead': DBHead}
+
+
+class DBModel(nn.Module):
+
+    def __init__(self, model_config: dict):
+        """
+        PANnet
+        :param model_config: 模型配置
+        """
+        super().__init__()
+        backbone = model_config['backbone']
+        pretrained = model_config['pretrained']
+        segmentation_body = model_config['segmentation_body']['type']
+        segmentation_head = model_config['segmentation_head']['type']
+        assert backbone in backbone_dict, 'backbone must in: {}'.format(backbone_dict)
+        assert segmentation_body in segmentation_body, 'segmentation_head must in: {}'.format(segmentation_body)
+        assert segmentation_head in segmentation_head_dict, 'segmentation_head must in: {}'.format(segmentation_head_dict)
+        backbone_model, backbone_out = backbone_dict[backbone]['models'], backbone_dict[backbone]['out']
+        self.backbone = backbone_model(pretrained=pretrained)
+        self.segmentation_body = segmentation_body_dict[segmentation_body](backbone_out, **model_config['segmentation_body']['args'])
+        self.segmentation_head = segmentation_head_dict[segmentation_head](self.segmentation_body.out_channels, **model_config['segmentation_head']['args'])
+        self.name = '{}_{}_{}'.format(backbone, segmentation_body, segmentation_head)
+
+    def forward(self, x):
+        _, _, H, W = x.size()
+        backbone_out = self.backbone(x)
+        segmentation_body_out = self.segmentation_body(backbone_out)
+        y = self.segmentation_head(segmentation_body_out)
+        y = F.interpolate(y, size=(H, W), mode='bilinear', align_corners=True)
+        return y
 
 
 import torch

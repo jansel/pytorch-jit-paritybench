@@ -24,15 +24,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -64,7 +65,16 @@ import time
 from functools import partial
 
 
+import numpy as np
+
+
 import torchvision.transforms as T
+
+
+from torch.utils.data import Dataset
+
+
+from sklearn.datasets import make_moons
 
 
 from torchvision.utils import save_image
@@ -79,52 +89,27 @@ from torch.utils.checkpoint import checkpoint
 from torchvision.datasets import MNIST
 
 
-import numpy as np
-
-
 import copy
 
 
-from torch.utils.data import Dataset
+class MaskedLinear(nn.Linear):
+    """ MADE building block layer """
 
+    def __init__(self, input_size, n_outputs, mask, cond_label_size=None):
+        super().__init__(input_size, n_outputs)
+        self.register_buffer('mask', mask)
+        self.cond_label_size = cond_label_size
+        if cond_label_size is not None:
+            self.cond_weight = nn.Parameter(torch.rand(n_outputs, cond_label_size) / math.sqrt(cond_label_size))
 
-class MaskedLinear(nn.Module):
-
-    def __init__(self, in_features, out_features, data_dim):
-        super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.data_dim = data_dim
-        weight = torch.zeros(out_features, in_features)
-        mask_d = torch.zeros_like(weight)
-        mask_o = torch.zeros_like(weight)
-        for i in range(data_dim):
-            h = slice(i * out_features // data_dim, (i + 1) * out_features // data_dim)
-            w = slice(i * in_features // data_dim, (i + 1) * in_features // data_dim)
-            w_row = slice(0, (i + 1) * in_features // data_dim)
-            nn.init.kaiming_uniform_(weight[h, w_row], a=math.sqrt(5))
-            mask_d[h, w] = 1
-            mask_o[h, w_row] = 1
-        mask_o = mask_o - mask_d
-        self.weight = nn.Parameter(weight)
-        self.logg = nn.Parameter(torch.rand(out_features, 1).log())
-        self.bias = nn.Parameter(nn.init.uniform_(torch.rand(out_features), -1 / math.sqrt(in_features), 1 / math.sqrt(in_features)))
-        self.register_buffer('mask_d', mask_d)
-        self.register_buffer('mask_o', mask_o)
-
-    def forward(self, x, sum_logdets):
-        v = self.weight.exp() * self.mask_d + self.weight * self.mask_o
-        v_norm = v.norm(p=2, dim=1, keepdim=True)
-        w = self.logg.exp() * v / v_norm
-        out = F.linear(x, w, self.bias)
-        logdet = self.logg + self.weight - 0.5 * v_norm.pow(2).log()
-        logdet = logdet[self.mask_d.byte()]
-        logdet = logdet.view(1, self.data_dim, out.shape[1] // self.data_dim, x.shape[1] // self.data_dim).expand(x.shape[0], -1, -1, -1)
-        sum_logdets = torch.logsumexp(sum_logdets.transpose(2, 3) + logdet, dim=-1, keepdim=True)
-        return out, sum_logdets
+    def forward(self, x, y=None):
+        out = F.linear(x, self.weight * self.mask, self.bias)
+        if y is not None:
+            out = out + F.linear(y, self.cond_weight)
+        return out
 
     def extra_repr(self):
-        return 'in_features={}, out_features={}, bias={}'.format(self.in_features, self.out_features, self.bias is not None)
+        return 'in_features={}, out_features={}, bias={}'.format(self.in_features, self.out_features, self.bias is not None) + (self.cond_label_size != None) * ', cond_features={}'.format(self.cond_label_size)
 
 
 class Tanh(nn.Module):
@@ -141,11 +126,19 @@ class Tanh(nn.Module):
 class FlowSequential(nn.Sequential):
     """ Container for layers of a normalizing flow """
 
-    def forward(self, x):
-        sum_logdets = torch.zeros(1, x.shape[1], 1, 1, device=x.device)
+    def forward(self, x, y):
+        sum_log_abs_det_jacobians = 0
         for module in self:
-            x, sum_logdets = module(x, sum_logdets)
-        return x, sum_logdets.squeeze()
+            x, log_abs_det_jacobian = module(x, y)
+            sum_log_abs_det_jacobians = sum_log_abs_det_jacobians + log_abs_det_jacobian
+        return x, sum_log_abs_det_jacobians
+
+    def inverse(self, u, y):
+        sum_log_abs_det_jacobians = 0
+        for module in reversed(self):
+            u, log_abs_det_jacobian = module.inverse(u, y)
+            sum_log_abs_det_jacobians = sum_log_abs_det_jacobians + log_abs_det_jacobian
+        return u, sum_log_abs_det_jacobians
 
 
 class BNAF(nn.Module):
@@ -299,27 +292,6 @@ class Squeeze(nn.Module):
         return x
 
 
-class Split(nn.Module):
-    """ Split layer; cf Glow figure 2 / RealNVP figure 4b
-    Based on RealNVP multi-scale architecture: splits an input in half along the channel dim; half the vars are
-    directly modeled as Gaussians while the other half undergo further transformations (cf RealNVP figure 4b).
-    """
-
-    def __init__(self, n_channels):
-        super().__init__()
-        self.gaussianize = Gaussianize(n_channels // 2)
-
-    def forward(self, x):
-        x1, x2 = x.chunk(2, dim=1)
-        z2, logdet = self.gaussianize(x1, x2)
-        return x1, z2, logdet
-
-    def inverse(self, x1, z2):
-        x2, logdet = self.gaussianize.inverse(x1, z2)
-        x = torch.cat([x1, x2], dim=1)
-        return x, logdet
-
-
 class Gaussianize(nn.Module):
     """ Gaussianization per ReanNVP sec 3.6 / fig 4b -- at each step half the variables are directly modeled as Gaussians.
     Model as Gaussians:
@@ -351,6 +323,27 @@ class Gaussianize(nn.Module):
         return x2, logdet
 
 
+class Split(nn.Module):
+    """ Split layer; cf Glow figure 2 / RealNVP figure 4b
+    Based on RealNVP multi-scale architecture: splits an input in half along the channel dim; half the vars are
+    directly modeled as Gaussians while the other half undergo further transformations (cf RealNVP figure 4b).
+    """
+
+    def __init__(self, n_channels):
+        super().__init__()
+        self.gaussianize = Gaussianize(n_channels // 2)
+
+    def forward(self, x):
+        x1, x2 = x.chunk(2, dim=1)
+        z2, logdet = self.gaussianize(x1, x2)
+        return x1, z2, logdet
+
+    def inverse(self, x1, z2):
+        x2, logdet = self.gaussianize.inverse(x1, z2)
+        x = torch.cat([x1, x2], dim=1)
+        return x, logdet
+
+
 class Preprocess(nn.Module):
 
     def __init__(self):
@@ -363,28 +356,6 @@ class Preprocess(nn.Module):
     def inverse(self, x):
         logdet = math.log(256) * x[0].numel()
         return x + 0.5, logdet
-
-
-class FlowSequential(nn.Sequential):
-    """ Container for layers of a normalizing flow """
-
-    def __init__(self, *args, **kwargs):
-        self.checkpoint_grads = kwargs.pop('checkpoint_grads', None)
-        super().__init__(*args, **kwargs)
-
-    def forward(self, x):
-        sum_logdets = 0.0
-        for module in self:
-            x, logdet = module(x) if not self.checkpoint_grads else checkpoint(module, x)
-            sum_logdets = sum_logdets + logdet
-        return x, sum_logdets
-
-    def inverse(self, z):
-        sum_logdets = 0.0
-        for module in reversed(self):
-            z, logdet = module.inverse(z)
-            sum_logdets = sum_logdets + logdet
-        return z, sum_logdets
 
 
 class FlowStep(FlowSequential):
@@ -478,26 +449,6 @@ class Glow(nn.Module):
         return log_prob
 
 
-class MaskedLinear(nn.Linear):
-    """ MADE building block layer """
-
-    def __init__(self, input_size, n_outputs, mask, cond_label_size=None):
-        super().__init__(input_size, n_outputs)
-        self.register_buffer('mask', mask)
-        self.cond_label_size = cond_label_size
-        if cond_label_size is not None:
-            self.cond_weight = nn.Parameter(torch.rand(n_outputs, cond_label_size) / math.sqrt(cond_label_size))
-
-    def forward(self, x, y=None):
-        out = F.linear(x, self.weight * self.mask, self.bias)
-        if y is not None:
-            out = out + F.linear(y, self.cond_weight)
-        return out
-
-    def extra_repr(self):
-        return 'in_features={}, out_features={}, bias={}'.format(self.in_features, self.out_features, self.bias is not None) + (self.cond_label_size != None) * ', cond_features={}'.format(self.cond_label_size)
-
-
 class LinearMaskedCoupling(nn.Module):
     """ Modified RealNVP Coupling Layers per the MAF paper """
 
@@ -570,24 +521,6 @@ class BatchNorm(nn.Module):
         x = x_hat * torch.sqrt(var + self.eps) + mean
         log_abs_det_jacobian = 0.5 * torch.log(var + self.eps) - self.log_gamma
         return x, log_abs_det_jacobian.expand_as(x)
-
-
-class FlowSequential(nn.Sequential):
-    """ Container for layers of a normalizing flow """
-
-    def forward(self, x, y):
-        sum_log_abs_det_jacobians = 0
-        for module in self:
-            x, log_abs_det_jacobian = module(x, y)
-            sum_log_abs_det_jacobians = sum_log_abs_det_jacobians + log_abs_det_jacobian
-        return x, sum_log_abs_det_jacobians
-
-    def inverse(self, u, y):
-        sum_log_abs_det_jacobians = 0
-        for module in reversed(self):
-            u, log_abs_det_jacobian = module.inverse(u, y)
-            sum_log_abs_det_jacobians = sum_log_abs_det_jacobians + log_abs_det_jacobian
-        return u, sum_log_abs_det_jacobians
 
 
 def create_masks(input_size, hidden_size, n_hidden, input_order='sequential', input_degrees=None):
@@ -884,10 +817,6 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
-    (FlowStep,
-     lambda: ([], {'n_channels': 4, 'width': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
     (Gaussianize,
      lambda: ([], {'n_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -979,7 +908,4 @@ class Test_kamenbliznashki_normalizing_flows(_paritybench_base):
 
     def test_014(self):
         self._check(*TESTCASES[14])
-
-    def test_015(self):
-        self._check(*TESTCASES[15])
 

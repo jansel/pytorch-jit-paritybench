@@ -24,17 +24,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+import torch.utils.data as data
 
 
 import torch
@@ -44,6 +51,15 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+from sklearn.cluster import MeanShift
+
+
+import torch.optim as optim
+
+
+from collections import defaultdict
 
 
 class DiscriminativeLoss(nn.Module):
@@ -148,27 +164,6 @@ class NLLLoss(nn.Module):
         return loss
 
 
-class MTPNet(nn.Module):
-
-    def __init__(self, input_channels, num_classes, embedding_size):
-        super(MTPNet, self).__init__()
-        self.num_classes = num_classes
-        self.embedding_size = embedding_size
-        self.input_channels = input_channels
-        self.net = PointNet(self.input_channels)
-        self.fc1 = nn.Conv1d(128, self.num_classes, 1)
-        self.fc2 = nn.Conv1d(128, self.embedding_size, 1)
-
-    def forward(self, x):
-        x = self.net(x)
-        logits = self.fc1(x)
-        logits = logits.transpose(2, 1)
-        logits = torch.log_softmax(logits, dim=-1)
-        embedded = self.fc2(x)
-        embedded = embedded.transpose(2, 1)
-        return logits, embedded
-
-
 class STN3D(nn.Module):
 
     def __init__(self, input_channels=3):
@@ -215,6 +210,27 @@ class PointNet(nn.Module):
         x = torch.cat([x, f], 1)
         x = self.mlp3(x)
         return x
+
+
+class MTPNet(nn.Module):
+
+    def __init__(self, input_channels, num_classes, embedding_size):
+        super(MTPNet, self).__init__()
+        self.num_classes = num_classes
+        self.embedding_size = embedding_size
+        self.input_channels = input_channels
+        self.net = PointNet(self.input_channels)
+        self.fc1 = nn.Conv1d(128, self.num_classes, 1)
+        self.fc2 = nn.Conv1d(128, self.embedding_size, 1)
+
+    def forward(self, x):
+        x = self.net(x)
+        logits = self.fc1(x)
+        logits = logits.transpose(2, 1)
+        logits = torch.log_softmax(logits, dim=-1)
+        embedded = self.fc2(x)
+        embedded = embedded.transpose(2, 1)
+        return logits, embedded
 
 
 import torch

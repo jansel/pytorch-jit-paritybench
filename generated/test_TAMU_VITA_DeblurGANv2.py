@@ -30,15 +30,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -47,6 +48,30 @@ import torch
 
 
 import copy
+
+
+from copy import deepcopy
+
+
+from functools import partial
+
+
+from typing import Callable
+
+
+from typing import Iterable
+
+
+from typing import Optional
+
+
+from typing import Tuple
+
+
+import numpy as np
+
+
+from torch.utils.data import Dataset
 
 
 import torch.nn as nn
@@ -77,9 +102,6 @@ from torch.autograd import Variable
 
 
 import math
-
-
-import numpy as np
 
 
 from torch.nn import init
@@ -115,6 +137,30 @@ import torchvision
 from torch.nn import functional as F
 
 
+from torch.optim import lr_scheduler
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import models
+
+
+from torchvision import transforms
+
+
+import logging
+
+
+import torch.optim as optim
+
+
+import random
+
+
+from collections import deque
+
+
 from math import exp
 
 
@@ -129,6 +175,133 @@ class FPNSegHead(nn.Module):
         x = nn.functional.relu(self.block0(x), inplace=True)
         x = nn.functional.relu(self.block1(x), inplace=True)
         return x
+
+
+class InvertedResidual(nn.Module):
+
+    def __init__(self, inp, oup, stride, expand_ratio):
+        super(InvertedResidual, self).__init__()
+        self.stride = stride
+        assert stride in [1, 2]
+        hidden_dim = round(inp * expand_ratio)
+        self.use_res_connect = self.stride == 1 and inp == oup
+        if expand_ratio == 1:
+            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+        else:
+            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+
+    def forward(self, x):
+        if self.use_res_connect:
+            return x + self.conv(x)
+        else:
+            return self.conv(x)
+
+
+def conv_1x1_bn(inp, oup):
+    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
+
+
+def conv_bn(inp, oup, stride):
+    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
+
+
+class MobileNetV2(nn.Module):
+
+    def __init__(self, n_class=1000, input_size=224, width_mult=1.0):
+        super(MobileNetV2, self).__init__()
+        block = InvertedResidual
+        input_channel = 32
+        last_channel = 1280
+        interverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 320, 1, 1]]
+        assert input_size % 32 == 0
+        input_channel = int(input_channel * width_mult)
+        self.last_channel = int(last_channel * width_mult) if width_mult > 1.0 else last_channel
+        self.features = [conv_bn(3, input_channel, 2)]
+        for t, c, n, s in interverted_residual_setting:
+            output_channel = int(c * width_mult)
+            for i in range(n):
+                if i == 0:
+                    self.features.append(block(input_channel, output_channel, s, expand_ratio=t))
+                else:
+                    self.features.append(block(input_channel, output_channel, 1, expand_ratio=t))
+                input_channel = output_channel
+        self.features.append(conv_1x1_bn(input_channel, self.last_channel))
+        self.features = nn.Sequential(*self.features)
+        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(self.last_channel, n_class))
+        self._initialize_weights()
+
+    def forward(self, x):
+        x = self.features(x)
+        x = x.mean(3).mean(2)
+        x = self.classifier(x)
+        return x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                n = m.weight.size(1)
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
+
+
+class FPN(nn.Module):
+
+    def __init__(self, norm_layer, num_filters=128, pretrained=True):
+        """Creates an `FPN` instance for feature extraction.
+        Args:
+          num_filters: the number of filters in each output pyramid level
+          pretrained: use ImageNet pre-trained backbone feature extractor
+        """
+        super().__init__()
+        net = MobileNetV2(n_class=1000)
+        if pretrained:
+            state_dict = torch.load('mobilenetv2.pth.tar')
+            net.load_state_dict(state_dict)
+        self.features = net.features
+        self.enc0 = nn.Sequential(*self.features[0:2])
+        self.enc1 = nn.Sequential(*self.features[2:4])
+        self.enc2 = nn.Sequential(*self.features[4:7])
+        self.enc3 = nn.Sequential(*self.features[7:11])
+        self.enc4 = nn.Sequential(*self.features[11:16])
+        self.td1 = nn.Sequential(nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1), norm_layer(num_filters), nn.ReLU(inplace=True))
+        self.td2 = nn.Sequential(nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1), norm_layer(num_filters), nn.ReLU(inplace=True))
+        self.td3 = nn.Sequential(nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1), norm_layer(num_filters), nn.ReLU(inplace=True))
+        self.lateral4 = nn.Conv2d(160, num_filters, kernel_size=1, bias=False)
+        self.lateral3 = nn.Conv2d(64, num_filters, kernel_size=1, bias=False)
+        self.lateral2 = nn.Conv2d(32, num_filters, kernel_size=1, bias=False)
+        self.lateral1 = nn.Conv2d(24, num_filters, kernel_size=1, bias=False)
+        self.lateral0 = nn.Conv2d(16, num_filters // 2, kernel_size=1, bias=False)
+        for param in self.features.parameters():
+            param.requires_grad = False
+
+    def unfreeze(self):
+        for param in self.features.parameters():
+            param.requires_grad = True
+
+    def forward(self, x):
+        enc0 = self.enc0(x)
+        enc1 = self.enc1(enc0)
+        enc2 = self.enc2(enc1)
+        enc3 = self.enc3(enc2)
+        enc4 = self.enc4(enc3)
+        lateral4 = self.lateral4(enc4)
+        lateral3 = self.lateral3(enc3)
+        lateral2 = self.lateral2(enc2)
+        lateral1 = self.lateral1(enc1)
+        lateral0 = self.lateral0(enc0)
+        map4 = lateral4
+        map3 = self.td1(lateral3 + nn.functional.upsample(map4, scale_factor=2, mode='nearest'))
+        map2 = self.td2(lateral2 + nn.functional.upsample(map3, scale_factor=2, mode='nearest'))
+        map1 = self.td3(lateral1 + nn.functional.upsample(map2, scale_factor=2, mode='nearest'))
+        return lateral0, map1, map2, map3, map4
 
 
 class FPNDense(nn.Module):
@@ -156,55 +329,6 @@ class FPNDense(nn.Module):
         smoothed = nn.functional.upsample(smoothed, scale_factor=2, mode='nearest')
         final = self.final(smoothed)
         nn.Tanh(final)
-
-
-class FPN(nn.Module):
-
-    def __init__(self, num_filters=256, pretrained=True):
-        """Creates an `FPN` instance for feature extraction.
-        Args:
-          num_filters: the number of filters in each output pyramid level
-          pretrained: use ImageNet pre-trained backbone feature extractor
-        """
-        super().__init__()
-        self.features = densenet121(pretrained=pretrained).features
-        self.enc0 = nn.Sequential(self.features.conv0, self.features.norm0, self.features.relu0)
-        self.pool0 = self.features.pool0
-        self.enc1 = self.features.denseblock1
-        self.enc2 = self.features.denseblock2
-        self.enc3 = self.features.denseblock3
-        self.enc4 = self.features.denseblock4
-        self.norm = self.features.norm5
-        self.tr1 = self.features.transition1
-        self.tr2 = self.features.transition2
-        self.tr3 = self.features.transition3
-        self.lateral4 = nn.Conv2d(1024, num_filters, kernel_size=1, bias=False)
-        self.lateral3 = nn.Conv2d(1024, num_filters, kernel_size=1, bias=False)
-        self.lateral2 = nn.Conv2d(512, num_filters, kernel_size=1, bias=False)
-        self.lateral1 = nn.Conv2d(256, num_filters, kernel_size=1, bias=False)
-        self.lateral0 = nn.Conv2d(64, num_filters // 2, kernel_size=1, bias=False)
-
-    def forward(self, x):
-        enc0 = self.enc0(x)
-        pooled = self.pool0(enc0)
-        enc1 = self.enc1(pooled)
-        tr1 = self.tr1(enc1)
-        enc2 = self.enc2(tr1)
-        tr2 = self.tr2(enc2)
-        enc3 = self.enc3(tr2)
-        tr3 = self.tr3(enc3)
-        enc4 = self.enc4(tr3)
-        enc4 = self.norm(enc4)
-        lateral4 = self.lateral4(enc4)
-        lateral3 = self.lateral3(enc3)
-        lateral2 = self.lateral2(enc2)
-        lateral1 = self.lateral1(enc1)
-        lateral0 = self.lateral0(enc0)
-        map4 = lateral4
-        map3 = lateral3 + nn.functional.upsample(map4, scale_factor=2, mode='nearest')
-        map2 = lateral2 + nn.functional.upsample(map3, scale_factor=2, mode='nearest')
-        map1 = lateral1 + nn.functional.upsample(map2, scale_factor=2, mode='nearest')
-        return lateral0, map1, map2, map3, map4
 
 
 class FPNHead(nn.Module):
@@ -262,81 +386,6 @@ class FPNInception(nn.Module):
         return torch.clamp(res, min=-1, max=1)
 
 
-class FPN(nn.Module):
-
-    def __init__(self, norm_layer, num_filters=256):
-        """Creates an `FPN` instance for feature extraction.
-        Args:
-          num_filters: the number of filters in each output pyramid level
-          pretrained: use ImageNet pre-trained backbone feature extractor
-        """
-        super().__init__()
-        self.inception = inceptionresnetv2(num_classes=1000, pretrained='imagenet')
-        self.enc0 = self.inception.conv2d_1a
-        self.enc1 = nn.Sequential(self.inception.conv2d_2a, self.inception.conv2d_2b, self.inception.maxpool_3a)
-        self.enc2 = nn.Sequential(self.inception.conv2d_3b, self.inception.conv2d_4a, self.inception.maxpool_5a)
-        self.enc3 = nn.Sequential(self.inception.mixed_5b, self.inception.repeat, self.inception.mixed_6a)
-        self.enc4 = nn.Sequential(self.inception.repeat_1, self.inception.mixed_7a)
-        self.td1 = nn.Sequential(nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1), norm_layer(num_filters), nn.ReLU(inplace=True))
-        self.td2 = nn.Sequential(nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1), norm_layer(num_filters), nn.ReLU(inplace=True))
-        self.td3 = nn.Sequential(nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1), norm_layer(num_filters), nn.ReLU(inplace=True))
-        self.pad = nn.ReflectionPad2d(1)
-        self.lateral4 = nn.Conv2d(2080, num_filters, kernel_size=1, bias=False)
-        self.lateral3 = nn.Conv2d(1088, num_filters, kernel_size=1, bias=False)
-        self.lateral2 = nn.Conv2d(192, num_filters, kernel_size=1, bias=False)
-        self.lateral1 = nn.Conv2d(64, num_filters, kernel_size=1, bias=False)
-        self.lateral0 = nn.Conv2d(32, num_filters // 2, kernel_size=1, bias=False)
-        for param in self.inception.parameters():
-            param.requires_grad = False
-
-    def unfreeze(self):
-        for param in self.inception.parameters():
-            param.requires_grad = True
-
-    def forward(self, x):
-        enc0 = self.enc0(x)
-        enc1 = self.enc1(enc0)
-        enc2 = self.enc2(enc1)
-        enc3 = self.enc3(enc2)
-        enc4 = self.enc4(enc3)
-        lateral4 = self.pad(self.lateral4(enc4))
-        lateral3 = self.pad(self.lateral3(enc3))
-        lateral2 = self.lateral2(enc2)
-        lateral1 = self.pad(self.lateral1(enc1))
-        lateral0 = self.lateral0(enc0)
-        pad = 1, 2, 1, 2
-        pad1 = 0, 1, 0, 1
-        map4 = lateral4
-        map3 = self.td1(lateral3 + nn.functional.upsample(map4, scale_factor=2, mode='nearest'))
-        map2 = self.td2(F.pad(lateral2, pad, 'reflect') + nn.functional.upsample(map3, scale_factor=2, mode='nearest'))
-        map1 = self.td3(lateral1 + nn.functional.upsample(map2, scale_factor=2, mode='nearest'))
-        return F.pad(lateral0, pad1, 'reflect'), map1, map2, map3, map4
-
-
-class FPNHead(nn.Module):
-
-    def __init__(self, num_in, num_mid, num_out):
-        super().__init__()
-        self.block0 = nn.Conv2d(num_in, num_mid, kernel_size=3, padding=1, bias=False)
-        self.block1 = nn.Conv2d(num_mid, num_out, kernel_size=3, padding=1, bias=False)
-
-    def forward(self, x):
-        x = nn.functional.relu(self.block0(x), inplace=True)
-        x = nn.functional.relu(self.block1(x), inplace=True)
-        return x
-
-
-class ConvBlock(nn.Module):
-
-    def __init__(self, num_in, num_out, norm_layer):
-        super().__init__()
-        self.block = nn.Sequential(nn.Conv2d(num_in, num_out, kernel_size=3, padding=1), norm_layer(num_out), nn.ReLU(inplace=True))
-
-    def forward(self, x):
-        x = self.block(x)
-        return x
-
-
 class FPNInceptionSimple(nn.Module):
 
     def __init__(self, norm_layer, output_ch=3, num_filters=128, num_filters_fpn=256):
@@ -368,67 +417,6 @@ class FPNInceptionSimple(nn.Module):
         return torch.clamp(res, min=-1, max=1)
 
 
-class FPN(nn.Module):
-
-    def __init__(self, norm_layer, num_filters=256):
-        """Creates an `FPN` instance for feature extraction.
-        Args:
-          num_filters: the number of filters in each output pyramid level
-          pretrained: use ImageNet pre-trained backbone feature extractor
-        """
-        super().__init__()
-        self.inception = inceptionresnetv2(num_classes=1000, pretrained='imagenet')
-        self.enc0 = self.inception.conv2d_1a
-        self.enc1 = nn.Sequential(self.inception.conv2d_2a, self.inception.conv2d_2b, self.inception.maxpool_3a)
-        self.enc2 = nn.Sequential(self.inception.conv2d_3b, self.inception.conv2d_4a, self.inception.maxpool_5a)
-        self.enc3 = nn.Sequential(self.inception.mixed_5b, self.inception.repeat, self.inception.mixed_6a)
-        self.enc4 = nn.Sequential(self.inception.repeat_1, self.inception.mixed_7a)
-        self.pad = nn.ReflectionPad2d(1)
-        self.lateral4 = nn.Conv2d(2080, num_filters, kernel_size=1, bias=False)
-        self.lateral3 = nn.Conv2d(1088, num_filters, kernel_size=1, bias=False)
-        self.lateral2 = nn.Conv2d(192, num_filters, kernel_size=1, bias=False)
-        self.lateral1 = nn.Conv2d(64, num_filters, kernel_size=1, bias=False)
-        self.lateral0 = nn.Conv2d(32, num_filters // 2, kernel_size=1, bias=False)
-        for param in self.inception.parameters():
-            param.requires_grad = False
-
-    def unfreeze(self):
-        for param in self.inception.parameters():
-            param.requires_grad = True
-
-    def forward(self, x):
-        enc0 = self.enc0(x)
-        enc1 = self.enc1(enc0)
-        enc2 = self.enc2(enc1)
-        enc3 = self.enc3(enc2)
-        enc4 = self.enc4(enc3)
-        lateral4 = self.pad(self.lateral4(enc4))
-        lateral3 = self.pad(self.lateral3(enc3))
-        lateral2 = self.lateral2(enc2)
-        lateral1 = self.pad(self.lateral1(enc1))
-        lateral0 = self.lateral0(enc0)
-        pad = 1, 2, 1, 2
-        pad1 = 0, 1, 0, 1
-        map4 = lateral4
-        map3 = lateral3 + nn.functional.upsample(map4, scale_factor=2, mode='nearest')
-        map2 = F.pad(lateral2, pad, 'reflect') + nn.functional.upsample(map3, scale_factor=2, mode='nearest')
-        map1 = lateral1 + nn.functional.upsample(map2, scale_factor=2, mode='nearest')
-        return F.pad(lateral0, pad1, 'reflect'), map1, map2, map3, map4
-
-
-class FPNHead(nn.Module):
-
-    def __init__(self, num_in, num_mid, num_out):
-        super().__init__()
-        self.block0 = nn.Conv2d(num_in, num_mid, kernel_size=3, padding=1, bias=False)
-        self.block1 = nn.Conv2d(num_mid, num_out, kernel_size=3, padding=1, bias=False)
-
-    def forward(self, x):
-        x = nn.functional.relu(self.block0(x), inplace=True)
-        x = nn.functional.relu(self.block1(x), inplace=True)
-        return x
-
-
 class FPNMobileNet(nn.Module):
 
     def __init__(self, norm_layer, output_ch=3, num_filters=64, num_filters_fpn=128, pretrained=True):
@@ -458,58 +446,6 @@ class FPNMobileNet(nn.Module):
         final = self.final(smoothed)
         res = torch.tanh(final) + x
         return torch.clamp(res, min=-1, max=1)
-
-
-class FPN(nn.Module):
-
-    def __init__(self, norm_layer, num_filters=128, pretrained=True):
-        """Creates an `FPN` instance for feature extraction.
-        Args:
-          num_filters: the number of filters in each output pyramid level
-          pretrained: use ImageNet pre-trained backbone feature extractor
-        """
-        super().__init__()
-        net = MobileNetV2(n_class=1000)
-        if pretrained:
-            state_dict = torch.load('mobilenetv2.pth.tar')
-            net.load_state_dict(state_dict)
-        self.features = net.features
-        self.enc0 = nn.Sequential(*self.features[0:2])
-        self.enc1 = nn.Sequential(*self.features[2:4])
-        self.enc2 = nn.Sequential(*self.features[4:7])
-        self.enc3 = nn.Sequential(*self.features[7:11])
-        self.enc4 = nn.Sequential(*self.features[11:16])
-        self.td1 = nn.Sequential(nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1), norm_layer(num_filters), nn.ReLU(inplace=True))
-        self.td2 = nn.Sequential(nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1), norm_layer(num_filters), nn.ReLU(inplace=True))
-        self.td3 = nn.Sequential(nn.Conv2d(num_filters, num_filters, kernel_size=3, padding=1), norm_layer(num_filters), nn.ReLU(inplace=True))
-        self.lateral4 = nn.Conv2d(160, num_filters, kernel_size=1, bias=False)
-        self.lateral3 = nn.Conv2d(64, num_filters, kernel_size=1, bias=False)
-        self.lateral2 = nn.Conv2d(32, num_filters, kernel_size=1, bias=False)
-        self.lateral1 = nn.Conv2d(24, num_filters, kernel_size=1, bias=False)
-        self.lateral0 = nn.Conv2d(16, num_filters // 2, kernel_size=1, bias=False)
-        for param in self.features.parameters():
-            param.requires_grad = False
-
-    def unfreeze(self):
-        for param in self.features.parameters():
-            param.requires_grad = True
-
-    def forward(self, x):
-        enc0 = self.enc0(x)
-        enc1 = self.enc1(enc0)
-        enc2 = self.enc2(enc1)
-        enc3 = self.enc3(enc2)
-        enc4 = self.enc4(enc3)
-        lateral4 = self.lateral4(enc4)
-        lateral3 = self.lateral3(enc3)
-        lateral2 = self.lateral2(enc2)
-        lateral1 = self.lateral1(enc1)
-        lateral0 = self.lateral0(enc0)
-        map4 = lateral4
-        map3 = self.td1(lateral3 + nn.functional.upsample(map4, scale_factor=2, mode='nearest'))
-        map2 = self.td2(lateral2 + nn.functional.upsample(map3, scale_factor=2, mode='nearest'))
-        map1 = self.td3(lateral1 + nn.functional.upsample(map2, scale_factor=2, mode='nearest'))
-        return lateral0, map1, map2, map3, map4
 
 
 class GANLoss(nn.Module):
@@ -663,79 +599,55 @@ class RelativisticDiscLossLS(nn.Module):
         return self.get_loss(net, fakeB, realB)
 
 
-class InvertedResidual(nn.Module):
+class DiscLossLS(DiscLoss):
 
-    def __init__(self, inp, oup, stride, expand_ratio):
-        super(InvertedResidual, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        hidden_dim = round(inp * expand_ratio)
-        self.use_res_connect = self.stride == 1 and inp == oup
-        if expand_ratio == 1:
-            self.conv = nn.Sequential(nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
-        else:
-            self.conv = nn.Sequential(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, hidden_dim, 3, stride, 1, groups=hidden_dim, bias=False), nn.BatchNorm2d(hidden_dim), nn.ReLU6(inplace=True), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup))
+    def name(self):
+        return 'DiscLossLS'
 
-    def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
+    def __init__(self):
+        super(DiscLossLS, self).__init__()
+        self.criterionGAN = GANLoss(use_l1=True)
+
+    def get_g_loss(self, net, fakeB, realB):
+        return DiscLoss.get_g_loss(self, net, fakeB)
+
+    def get_loss(self, net, fakeB, realB):
+        return DiscLoss.get_loss(self, net, fakeB, realB)
 
 
-def conv_1x1_bn(inp, oup):
-    return nn.Sequential(nn.Conv2d(inp, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
+class DiscLossWGANGP(DiscLossLS):
 
+    def name(self):
+        return 'DiscLossWGAN-GP'
 
-def conv_bn(inp, oup, stride):
-    return nn.Sequential(nn.Conv2d(inp, oup, 3, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.ReLU6(inplace=True))
+    def __init__(self):
+        super(DiscLossWGANGP, self).__init__()
+        self.LAMBDA = 10
 
+    def get_g_loss(self, net, fakeB, realB):
+        self.D_fake = net.forward(fakeB)
+        return -self.D_fake.mean()
 
-class MobileNetV2(nn.Module):
+    def calc_gradient_penalty(self, netD, real_data, fake_data):
+        alpha = torch.rand(1, 1)
+        alpha = alpha.expand(real_data.size())
+        alpha = alpha
+        interpolates = alpha * real_data + (1 - alpha) * fake_data
+        interpolates = interpolates
+        interpolates = Variable(interpolates, requires_grad=True)
+        disc_interpolates = netD.forward(interpolates)
+        gradients = autograd.grad(outputs=disc_interpolates, inputs=interpolates, grad_outputs=torch.ones(disc_interpolates.size()), create_graph=True, retain_graph=True, only_inputs=True)[0]
+        gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * self.LAMBDA
+        return gradient_penalty
 
-    def __init__(self, n_class=1000, input_size=224, width_mult=1.0):
-        super(MobileNetV2, self).__init__()
-        block = InvertedResidual
-        input_channel = 32
-        last_channel = 1280
-        interverted_residual_setting = [[1, 16, 1, 1], [6, 24, 2, 2], [6, 32, 3, 2], [6, 64, 4, 2], [6, 96, 3, 1], [6, 160, 3, 2], [6, 320, 1, 1]]
-        assert input_size % 32 == 0
-        input_channel = int(input_channel * width_mult)
-        self.last_channel = int(last_channel * width_mult) if width_mult > 1.0 else last_channel
-        self.features = [conv_bn(3, input_channel, 2)]
-        for t, c, n, s in interverted_residual_setting:
-            output_channel = int(c * width_mult)
-            for i in range(n):
-                if i == 0:
-                    self.features.append(block(input_channel, output_channel, s, expand_ratio=t))
-                else:
-                    self.features.append(block(input_channel, output_channel, 1, expand_ratio=t))
-                input_channel = output_channel
-        self.features.append(conv_1x1_bn(input_channel, self.last_channel))
-        self.features = nn.Sequential(*self.features)
-        self.classifier = nn.Sequential(nn.Dropout(0.2), nn.Linear(self.last_channel, n_class))
-        self._initialize_weights()
-
-    def forward(self, x):
-        x = self.features(x)
-        x = x.mean(3).mean(2)
-        x = self.classifier(x)
-        return x
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                n = m.weight.size(1)
-                m.weight.data.normal_(0, 0.01)
-                m.bias.data.zero_()
+    def get_loss(self, net, fakeB, realB):
+        self.D_fake = net.forward(fakeB.detach())
+        self.D_fake = self.D_fake.mean()
+        self.D_real = net.forward(realB)
+        self.D_real = self.D_real.mean()
+        self.loss_D = self.D_fake - self.D_real
+        gradient_penalty = self.calc_gradient_penalty(net, realB.data, fakeB.data)
+        return self.loss_D + gradient_penalty
 
 
 def PSNR(img1, img2):
@@ -763,7 +675,7 @@ def SSIM(img1, img2):
     window_size = 11
     window = create_window(window_size, channel)
     if img1.is_cuda:
-        window = window.cuda(img1.get_device())
+        window = window
     window = window.type_as(img1)
     mu1 = F.conv2d(img1, window, padding=window_size // 2, groups=channel)
     mu2 = F.conv2d(img2, window, padding=window_size // 2, groups=channel)
@@ -806,6 +718,43 @@ class DeblurModel(nn.Module):
         return psnr, ssim, vis_img
 
 
+class ResnetBlock(nn.Module):
+
+    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+        super(ResnetBlock, self).__init__()
+        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
+
+    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+        conv_block = []
+        p = 0
+        if padding_type == 'reflect':
+            conv_block += [nn.ReflectionPad2d(1)]
+        elif padding_type == 'replicate':
+            conv_block += [nn.ReplicationPad2d(1)]
+        elif padding_type == 'zero':
+            p = 1
+        else:
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
+        if use_dropout:
+            conv_block += [nn.Dropout(0.5)]
+        p = 0
+        if padding_type == 'reflect':
+            conv_block += [nn.ReflectionPad2d(1)]
+        elif padding_type == 'replicate':
+            conv_block += [nn.ReplicationPad2d(1)]
+        elif padding_type == 'zero':
+            p = 1
+        else:
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
+        return nn.Sequential(*conv_block)
+
+    def forward(self, x):
+        out = x + self.conv_block(x)
+        return out
+
+
 class ResnetGenerator(nn.Module):
 
     def __init__(self, input_nc=3, output_nc=3, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, use_parallel=True, learn_residual=True, padding_type='reflect'):
@@ -842,43 +791,6 @@ class ResnetGenerator(nn.Module):
             output = input + output
             output = torch.clamp(output, min=-1, max=1)
         return output
-
-
-class ResnetBlock(nn.Module):
-
-    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-        super(ResnetBlock, self).__init__()
-        self.conv_block = self.build_conv_block(dim, padding_type, norm_layer, use_dropout, use_bias)
-
-    def build_conv_block(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-        conv_block = []
-        p = 0
-        if padding_type == 'reflect':
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == 'replicate':
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == 'zero':
-            p = 1
-        else:
-            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim), nn.ReLU(True)]
-        if use_dropout:
-            conv_block += [nn.Dropout(0.5)]
-        p = 0
-        if padding_type == 'reflect':
-            conv_block += [nn.ReflectionPad2d(1)]
-        elif padding_type == 'replicate':
-            conv_block += [nn.ReplicationPad2d(1)]
-        elif padding_type == 'zero':
-            p = 1
-        else:
-            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        conv_block += [nn.Conv2d(dim, dim, kernel_size=3, padding=p, bias=use_bias), norm_layer(dim)]
-        return nn.Sequential(*conv_block)
-
-    def forward(self, x):
-        out = x + self.conv_block(x)
-        return out
 
 
 class DicsriminatorTail(nn.Module):
@@ -1010,6 +922,69 @@ class Bottleneck(nn.Module):
         return out
 
 
+class SEBottleneck(Bottleneck):
+    """
+    Bottleneck for SENet154.
+    """
+    expansion = 4
+
+    def __init__(self, inplanes, planes, groups, reduction, stride=1, downsample=None):
+        super(SEBottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes * 2, kernel_size=1)
+        self.bn1 = nn.InstanceNorm2d(planes * 2, affine=False)
+        self.conv2 = nn.Conv2d(planes * 2, planes * 4, kernel_size=3, stride=stride, padding=1, groups=groups)
+        self.bn2 = nn.InstanceNorm2d(planes * 4, affine=False)
+        self.conv3 = nn.Conv2d(planes * 4, planes * 4, kernel_size=1)
+        self.bn3 = nn.InstanceNorm2d(planes * 4, affine=False)
+        self.relu = nn.ReLU(inplace=True)
+        self.se_module = SEModule(planes * 4, reduction=reduction)
+        self.downsample = downsample
+        self.stride = stride
+
+
+class SEResNetBottleneck(Bottleneck):
+    """
+    ResNet bottleneck with a Squeeze-and-Excitation module. It follows Caffe
+    implementation and uses `stride=stride` in `conv1` and not in `conv2`
+    (the latter is used in the torchvision implementation of ResNet).
+    """
+    expansion = 4
+
+    def __init__(self, inplanes, planes, groups, reduction, stride=1, downsample=None):
+        super(SEResNetBottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=stride)
+        self.bn1 = nn.InstanceNorm2d(planes, affine=False)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, padding=1, groups=groups)
+        self.bn2 = nn.InstanceNorm2d(planes, affine=False)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1)
+        self.bn3 = nn.InstanceNorm2d(planes * 4, affine=False)
+        self.relu = nn.ReLU(inplace=True)
+        self.se_module = SEModule(planes * 4, reduction=reduction)
+        self.downsample = downsample
+        self.stride = stride
+
+
+class SEResNeXtBottleneck(Bottleneck):
+    """
+    ResNeXt bottleneck type C with a Squeeze-and-Excitation module.
+    """
+    expansion = 4
+
+    def __init__(self, inplanes, planes, groups, reduction, stride=1, downsample=None, base_width=4):
+        super(SEResNeXtBottleneck, self).__init__()
+        width = math.floor(planes * (base_width / 64)) * groups
+        self.conv1 = nn.Conv2d(inplanes, width, kernel_size=1, stride=1)
+        self.bn1 = nn.InstanceNorm2d(width, affine=False)
+        self.conv2 = nn.Conv2d(width, width, kernel_size=3, stride=stride, padding=1, groups=groups)
+        self.bn2 = nn.InstanceNorm2d(width, affine=False)
+        self.conv3 = nn.Conv2d(width, planes * 4, kernel_size=1)
+        self.bn3 = nn.InstanceNorm2d(planes * 4, affine=False)
+        self.relu = nn.ReLU(inplace=True)
+        self.se_module = SEModule(planes * 4, reduction=reduction)
+        self.downsample = downsample
+        self.stride = stride
+
+
 class SENet(nn.Module):
 
     def __init__(self, block, layers, groups, reduction, dropout_p=0.2, inplanes=128, input_3x3=True, downsample_kernel_size=3, downsample_padding=1, num_classes=1000):
@@ -1122,25 +1097,36 @@ class ConvRelu(nn.Module):
         return x
 
 
-class SEResNeXtBottleneck(Bottleneck):
-    """
-    ResNeXt bottleneck type C with a Squeeze-and-Excitation module.
-    """
-    expansion = 4
+class DecoderBlockV(nn.Module):
 
-    def __init__(self, inplanes, planes, groups, reduction, stride=1, downsample=None, base_width=4):
-        super(SEResNeXtBottleneck, self).__init__()
-        width = math.floor(planes * (base_width / 64)) * groups
-        self.conv1 = nn.Conv2d(inplanes, width, kernel_size=1, stride=1)
-        self.bn1 = nn.InstanceNorm2d(width, affine=False)
-        self.conv2 = nn.Conv2d(width, width, kernel_size=3, stride=stride, padding=1, groups=groups)
-        self.bn2 = nn.InstanceNorm2d(width, affine=False)
-        self.conv3 = nn.Conv2d(width, planes * 4, kernel_size=1)
-        self.bn3 = nn.InstanceNorm2d(planes * 4, affine=False)
-        self.relu = nn.ReLU(inplace=True)
-        self.se_module = SEModule(planes * 4, reduction=reduction)
-        self.downsample = downsample
-        self.stride = stride
+    def __init__(self, in_channels, middle_channels, out_channels, is_deconv=True):
+        super(DecoderBlockV, self).__init__()
+        self.in_channels = in_channels
+        if is_deconv:
+            self.block = nn.Sequential(ConvRelu(in_channels, middle_channels), nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=4, stride=2, padding=1), nn.InstanceNorm2d(out_channels, affine=False), nn.ReLU(inplace=True))
+        else:
+            self.block = nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear'), ConvRelu(in_channels, middle_channels), ConvRelu(middle_channels, out_channels))
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class DecoderCenter(nn.Module):
+
+    def __init__(self, in_channels, middle_channels, out_channels, is_deconv=True):
+        super(DecoderCenter, self).__init__()
+        self.in_channels = in_channels
+        if is_deconv:
+            """
+                Paramaters for Deconvolution were chosen to avoid artifacts, following
+                link https://distill.pub/2016/deconv-checkerboard/
+            """
+            self.block = nn.Sequential(ConvRelu(in_channels, middle_channels), nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=4, stride=2, padding=1), nn.InstanceNorm2d(out_channels, affine=False), nn.ReLU(inplace=True))
+        else:
+            self.block = nn.Sequential(ConvRelu(in_channels, middle_channels), ConvRelu(middle_channels, out_channels))
+
+    def forward(self, x):
+        return self.block(x)
 
 
 def se_resnext50_32x4d(num_classes=1000, pretrained='imagenet'):
@@ -1185,38 +1171,6 @@ class UNetSEResNext(nn.Module):
         f = torch.cat((dec1, F.upsample(dec2, scale_factor=2, mode='bilinear', align_corners=False), F.upsample(dec3, scale_factor=4, mode='bilinear', align_corners=False), F.upsample(dec4, scale_factor=8, mode='bilinear', align_corners=False), F.upsample(dec5, scale_factor=16, mode='bilinear', align_corners=False)), 1)
         dec0 = self.dec0(f)
         return self.final(dec0)
-
-
-class DecoderBlockV(nn.Module):
-
-    def __init__(self, in_channels, middle_channels, out_channels, is_deconv=True):
-        super(DecoderBlockV, self).__init__()
-        self.in_channels = in_channels
-        if is_deconv:
-            self.block = nn.Sequential(ConvRelu(in_channels, middle_channels), nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=4, stride=2, padding=1), nn.InstanceNorm2d(out_channels, affine=False), nn.ReLU(inplace=True))
-        else:
-            self.block = nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear'), ConvRelu(in_channels, middle_channels), ConvRelu(middle_channels, out_channels))
-
-    def forward(self, x):
-        return self.block(x)
-
-
-class DecoderCenter(nn.Module):
-
-    def __init__(self, in_channels, middle_channels, out_channels, is_deconv=True):
-        super(DecoderCenter, self).__init__()
-        self.in_channels = in_channels
-        if is_deconv:
-            """
-                Paramaters for Deconvolution were chosen to avoid artifacts, following
-                link https://distill.pub/2016/deconv-checkerboard/
-            """
-            self.block = nn.Sequential(ConvRelu(in_channels, middle_channels), nn.ConvTranspose2d(middle_channels, out_channels, kernel_size=4, stride=2, padding=1), nn.InstanceNorm2d(out_channels, affine=False), nn.ReLU(inplace=True))
-        else:
-            self.block = nn.Sequential(ConvRelu(in_channels, middle_channels), ConvRelu(middle_channels, out_channels))
-
-    def forward(self, x):
-        return self.block(x)
 
 
 import torch

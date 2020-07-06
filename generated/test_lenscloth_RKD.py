@@ -25,17 +25,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import random
+
+
+from torchvision.datasets import ImageFolder
+
+
+from torch.utils.data.sampler import Sampler
 
 
 import torch
@@ -57,6 +67,15 @@ import torch.utils.model_zoo as model_zoo
 
 
 import torchvision
+
+
+import torch.optim as optim
+
+
+import torchvision.transforms as transforms
+
+
+from torch.utils.data import DataLoader
 
 
 def pdist(e, squared=False, eps=1e-12):
@@ -93,6 +112,18 @@ class _Triplet(nn.Module):
             return loss.mean()
         else:
             return loss.sum()
+
+
+class L2Triplet(_Triplet):
+
+    def __init__(self, margin=0.2, sampler=None):
+        super().__init__(p=2, margin=margin, sampler=sampler)
+
+
+class L1Triplet(_Triplet):
+
+    def __init__(self, margin=0.2, sampler=None):
+        super().__init__(p=1, margin=margin, sampler=sampler)
 
 
 class ContrastiveLoss(nn.Module):
@@ -194,6 +225,128 @@ class _Sampler(nn.Module):
         raise NotImplementedError
 
 
+def pos_neg_mask(labels):
+    pos_mask = (labels.unsqueeze(0) == labels.unsqueeze(1)) * (1 - torch.eye(labels.size(0), dtype=torch.uint8, device=labels.device))
+    neg_mask = (labels.unsqueeze(0) != labels.unsqueeze(1)) * (1 - torch.eye(labels.size(0), dtype=torch.uint8, device=labels.device))
+    return pos_mask, neg_mask
+
+
+class AllPairs(_Sampler):
+
+    def forward(self, embeddings, labels):
+        with torch.no_grad():
+            pos_mask, neg_mask = pos_neg_mask(labels)
+            pos_pair_idx = pos_mask.nonzero()
+            apns = []
+            for pair_idx in pos_pair_idx:
+                anchor_idx = pair_idx[0]
+                neg_indices = neg_mask[anchor_idx].nonzero()
+                apn = torch.cat((pair_idx.unsqueeze(0).repeat(len(neg_indices), 1), neg_indices), dim=1)
+                apns.append(apn)
+            apns = torch.cat(apns, dim=0)
+            anchor_idx = apns[:, (0)]
+            pos_idx = apns[:, (1)]
+            neg_idx = apns[:, (2)]
+        return anchor_idx, pos_idx, neg_idx
+
+
+class RandomNegative(_Sampler):
+
+    def forward(self, embeddings, labels):
+        with torch.no_grad():
+            pos_mask, neg_mask = pos_neg_mask(labels)
+            pos_pair_index = pos_mask.nonzero()
+            anchor_idx = pos_pair_index[:, (0)]
+            pos_idx = pos_pair_index[:, (1)]
+            neg_index = torch.multinomial(neg_mask.float()[anchor_idx], 1).squeeze(1)
+        return anchor_idx, pos_idx, neg_index
+
+
+BIG_NUMBER = 1000000000000.0
+
+
+class HardNegative(_Sampler):
+
+    def forward(self, embeddings, labels):
+        with torch.no_grad():
+            pos_mask, neg_mask = pos_neg_mask(labels)
+            dist = self.dist_func(embeddings)
+            pos_pair_index = pos_mask.nonzero()
+            anchor_idx = pos_pair_index[:, (0)]
+            pos_idx = pos_pair_index[:, (1)]
+            neg_dist = neg_mask.float() * dist
+            neg_dist[neg_dist <= 0] = BIG_NUMBER
+            neg_idx = neg_dist.argmin(dim=1)[anchor_idx]
+        return anchor_idx, pos_idx, neg_idx
+
+
+class SemiHardNegative(_Sampler):
+
+    def forward(self, embeddings, labels):
+        with torch.no_grad():
+            dist = self.dist_func(embeddings)
+            pos_mask, neg_mask = pos_neg_mask(labels)
+            neg_dist = dist * neg_mask.float()
+            pos_pair_idx = pos_mask.nonzero()
+            anchor_idx = pos_pair_idx[:, (0)]
+            pos_idx = pos_pair_idx[:, (1)]
+            tiled_negative = neg_dist[anchor_idx]
+            satisfied_neg = (tiled_negative > dist[pos_mask].unsqueeze(1)) * neg_mask[anchor_idx]
+            """
+            When there is no negative pair that its distance bigger than positive pair, 
+            then select negative pair with largest distance.
+            """
+            unsatisfied_neg = (satisfied_neg.sum(dim=1) == 0).unsqueeze(1) * neg_mask[anchor_idx]
+            tiled_negative = satisfied_neg.float() * tiled_negative - unsatisfied_neg.float() * tiled_negative
+            tiled_negative[tiled_negative == 0] = BIG_NUMBER
+            neg_idx = tiled_negative.argmin(dim=1)
+        return anchor_idx, pos_idx, neg_idx
+
+
+class DistanceWeighted(_Sampler):
+    cut_off = 0.5
+    nonzero_loss_cutoff = 1.4
+    """
+    Distance Weighted loss assume that embeddings are normalized py 2-norm.
+    """
+
+    def forward(self, embeddings, labels):
+        with torch.no_grad():
+            embeddings = F.normalize(embeddings, dim=1, p=2)
+            pos_mask, neg_mask = pos_neg_mask(labels)
+            pos_pair_idx = pos_mask.nonzero()
+            anchor_idx = pos_pair_idx[:, (0)]
+            pos_idx = pos_pair_idx[:, (1)]
+            d = embeddings.size(1)
+            dist = (pdist(embeddings, squared=True) + torch.eye(embeddings.size(0), device=embeddings.device, dtype=torch.float32)).sqrt()
+            dist = dist.clamp(min=self.cut_off)
+            log_weight = (2.0 - d) * dist.log() - (d - 3.0) / 2.0 * (1.0 - 0.25 * (dist * dist)).log()
+            weight = (log_weight - log_weight.max(dim=1, keepdim=True)[0]).exp()
+            weight = weight * (neg_mask * (dist < self.nonzero_loss_cutoff)).float()
+            weight = weight + ((weight.sum(dim=1, keepdim=True) == 0) * neg_mask).float()
+            weight = weight / weight.sum(dim=1, keepdim=True)
+            weight = weight[anchor_idx]
+            neg_idx = torch.multinomial(weight, 1).squeeze(1)
+        return anchor_idx, pos_idx, neg_idx
+
+
+class InceptionModule(nn.Module):
+
+    def __init__(self, inplane, outplane_a1x1, outplane_b3x3_reduce, outplane_b3x3, outplane_c5x5_reduce, outplane_c5x5, outplane_pool_proj):
+        super(InceptionModule, self).__init__()
+        a = nn.Sequential(OrderedDict([('1x1', nn.Conv2d(inplane, outplane_a1x1, (1, 1), (1, 1), (0, 0))), ('1x1_relu', nn.ReLU(True))]))
+        b = nn.Sequential(OrderedDict([('3x3_reduce', nn.Conv2d(inplane, outplane_b3x3_reduce, (1, 1), (1, 1), (0, 0))), ('3x3_relu1', nn.ReLU(True)), ('3x3', nn.Conv2d(outplane_b3x3_reduce, outplane_b3x3, (3, 3), (1, 1), (1, 1))), ('3x3_relu2', nn.ReLU(True))]))
+        c = nn.Sequential(OrderedDict([('5x5_reduce', nn.Conv2d(inplane, outplane_c5x5_reduce, (1, 1), (1, 1), (0, 0))), ('5x5_relu1', nn.ReLU(True)), ('5x5', nn.Conv2d(outplane_c5x5_reduce, outplane_c5x5, (5, 5), (1, 1), (2, 2))), ('5x5_relu2', nn.ReLU(True))]))
+        d = nn.Sequential(OrderedDict([('pool_pool', nn.MaxPool2d((3, 3), (1, 1), (1, 1))), ('pool_proj', nn.Conv2d(inplane, outplane_pool_proj, (1, 1), (1, 1), (0, 0))), ('pool_relu', nn.ReLU(True))]))
+        for container in [a, b, c, d]:
+            for name, module in container.named_children():
+                self.add_module(name, module)
+        self.branches = [a, b, c, d]
+
+    def forward(self, input):
+        return torch.cat([branch(input) for branch in self.branches], 1)
+
+
 class GoogleNet(nn.Sequential):
     output_size = 1024
     input_side = 227
@@ -214,57 +367,6 @@ class GoogleNet(nn.Sequential):
         h5_file = h5py.File(os.path.join(root, self.model_filename), 'r')
         group_key = list(h5_file.keys())[0]
         self.load_state_dict({k: torch.from_numpy(v[group_key].value) for k, v in h5_file[group_key].items()})
-
-
-class InceptionModule(nn.Module):
-
-    def __init__(self, inplane, outplane_a1x1, outplane_b3x3_reduce, outplane_b3x3, outplane_c5x5_reduce, outplane_c5x5, outplane_pool_proj):
-        super(InceptionModule, self).__init__()
-        a = nn.Sequential(OrderedDict([('1x1', nn.Conv2d(inplane, outplane_a1x1, (1, 1), (1, 1), (0, 0))), ('1x1_relu', nn.ReLU(True))]))
-        b = nn.Sequential(OrderedDict([('3x3_reduce', nn.Conv2d(inplane, outplane_b3x3_reduce, (1, 1), (1, 1), (0, 0))), ('3x3_relu1', nn.ReLU(True)), ('3x3', nn.Conv2d(outplane_b3x3_reduce, outplane_b3x3, (3, 3), (1, 1), (1, 1))), ('3x3_relu2', nn.ReLU(True))]))
-        c = nn.Sequential(OrderedDict([('5x5_reduce', nn.Conv2d(inplane, outplane_c5x5_reduce, (1, 1), (1, 1), (0, 0))), ('5x5_relu1', nn.ReLU(True)), ('5x5', nn.Conv2d(outplane_c5x5_reduce, outplane_c5x5, (5, 5), (1, 1), (2, 2))), ('5x5_relu2', nn.ReLU(True))]))
-        d = nn.Sequential(OrderedDict([('pool_pool', nn.MaxPool2d((3, 3), (1, 1), (1, 1))), ('pool_proj', nn.Conv2d(inplane, outplane_pool_proj, (1, 1), (1, 1), (0, 0))), ('pool_relu', nn.ReLU(True))]))
-        for container in [a, b, c, d]:
-            for name, module in container.named_children():
-                self.add_module(name, module)
-        self.branches = [a, b, c, d]
-
-    def forward(self, input):
-        return torch.cat([branch(input) for branch in self.branches], 1)
-
-
-pretrained_settings = {'bninception': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/bn_inception-239d2248.pth', 'input_space': 'BGR', 'input_size': [3, 224, 224], 'input_range': [0, 255], 'mean': [104, 117, 128], 'std': [1, 1, 1], 'num_classes': 1000}}}
-
-
-def bninception(num_classes=1000, pretrained='imagenet'):
-    """BNInception model architecture from <https://arxiv.org/pdf/1502.03167.pdf>`_ paper.
-    """
-    model = BNInception(num_classes=num_classes)
-    if pretrained is not None:
-        settings = pretrained_settings['bninception'][pretrained]
-        assert num_classes == settings['num_classes'], 'num_classes should be {}, but is {}'.format(settings['num_classes'], num_classes)
-        weight = model_zoo.load_url(settings['url'])
-        weight = {k: (v.squeeze(0) if v.size(0) == 1 else v) for k, v in weight.items()}
-        model.load_state_dict(weight)
-        model.input_space = settings['input_space']
-        model.input_size = settings['input_size']
-        model.input_range = settings['input_range']
-        model.mean = settings['mean']
-        model.std = settings['std']
-    return model
-
-
-class InceptionV1BN(nn.Module):
-    output_size = 1024
-
-    def __init__(self, pretrained=True):
-        super(InceptionV1BN, self).__init__()
-        self.model = bninception(num_classes=1000, pretrained='imagenet' if pretrained else None)
-
-    def forward(self, input):
-        x = self.model.features(input)
-        x = self.model.global_pool(x)
-        return x.view(x.size(0), -1)
 
 
 class BNInception(nn.Module):
@@ -738,6 +840,40 @@ class BNInception(nn.Module):
         return x
 
 
+pretrained_settings = {'bninception': {'imagenet': {'url': 'http://data.lip6.fr/cadene/pretrainedmodels/bn_inception-239d2248.pth', 'input_space': 'BGR', 'input_size': [3, 224, 224], 'input_range': [0, 255], 'mean': [104, 117, 128], 'std': [1, 1, 1], 'num_classes': 1000}}}
+
+
+def bninception(num_classes=1000, pretrained='imagenet'):
+    """BNInception model architecture from <https://arxiv.org/pdf/1502.03167.pdf>`_ paper.
+    """
+    model = BNInception(num_classes=num_classes)
+    if pretrained is not None:
+        settings = pretrained_settings['bninception'][pretrained]
+        assert num_classes == settings['num_classes'], 'num_classes should be {}, but is {}'.format(settings['num_classes'], num_classes)
+        weight = model_zoo.load_url(settings['url'])
+        weight = {k: (v.squeeze(0) if v.size(0) == 1 else v) for k, v in weight.items()}
+        model.load_state_dict(weight)
+        model.input_space = settings['input_space']
+        model.input_size = settings['input_size']
+        model.input_range = settings['input_range']
+        model.mean = settings['mean']
+        model.std = settings['std']
+    return model
+
+
+class InceptionV1BN(nn.Module):
+    output_size = 1024
+
+    def __init__(self, pretrained=True):
+        super(InceptionV1BN, self).__init__()
+        self.model = bninception(num_classes=1000, pretrained='imagenet' if pretrained else None)
+
+    def forward(self, input):
+        x = self.model.features(input)
+        x = self.model.global_pool(x)
+        return x.view(x.size(0), -1)
+
+
 class ResNet18(nn.Module):
     output_size = 512
 
@@ -809,6 +945,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (AllPairs,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (AttentionTransfer,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -818,6 +958,10 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      True),
     (HardDarkRank,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (HardNegative,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      False),
@@ -881,4 +1025,10 @@ class Test_lenscloth_RKD(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
 

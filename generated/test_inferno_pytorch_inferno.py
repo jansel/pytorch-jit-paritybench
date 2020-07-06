@@ -47,6 +47,7 @@ binary_blobs = _module
 camvid = _module
 cifar = _module
 cityscapes = _module
+base = _module
 concatenate = _module
 data_utils = _module
 zip = _module
@@ -91,6 +92,7 @@ test_activations = _module
 test_convolutional = _module
 test_device = _module
 test_reshape = _module
+categorical = _module
 test_models = _module
 test_res_unet = _module
 test_unet = _module
@@ -120,15 +122,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -181,6 +184,48 @@ import torch.nn.functional as F
 import functools
 
 
+import math
+
+
+from torch.optim import Optimizer
+
+
+import torch.utils.data as data
+
+
+from torchvision.datasets.folder import default_loader
+
+
+import torchvision
+
+
+import torchvision.transforms as transforms
+
+
+from torch.utils.data.sampler import SubsetRandomSampler
+
+
+from torch.utils.data.dataset import Dataset
+
+
+import torch.multiprocessing as mp
+
+
+import random
+
+
+import scipy
+
+
+from scipy.ndimage import zoom
+
+
+from scipy.ndimage.morphology import binary_dilation
+
+
+from scipy.ndimage.morphology import binary_erosion
+
+
 from inspect import signature
 
 
@@ -191,6 +236,15 @@ from torch.utils.data import DataLoader
 
 
 from torch.nn.parallel.data_parallel import data_parallel
+
+
+from torch.utils.data.dataset import TensorDataset
+
+
+from torch.utils.data.dataloader import DataLoader
+
+
+import torch.cuda as cuda
 
 
 import time
@@ -211,10 +265,122 @@ from torch.nn import Linear
 from torch.nn import Softmax
 
 
-from torch.utils.data.dataset import TensorDataset
+from torch.optim import Adam
 
 
-from torch.utils.data.dataloader import DataLoader
+class Initializer(object):
+    """
+    Base class for all initializers.
+    """
+    VALID_LAYERS = {'Conv1d', 'Conv2d', 'Conv3d', 'ConvTranspose1d', 'ConvTranspose2d', 'ConvTranspose3d', 'Linear', 'Bilinear', 'Embedding'}
+
+    def __call__(self, module):
+        module_class_name = module.__class__.__name__
+        if module_class_name in self.VALID_LAYERS:
+            try:
+                if hasattr(module, 'weight'):
+                    self.call_on_weight(module.weight.data)
+            except NotImplementedError:
+                pass
+            try:
+                if hasattr(module, 'bias'):
+                    self.call_on_bias(module.bias.data)
+            except NotImplementedError:
+                pass
+        return module
+
+    def call_on_bias(self, tensor):
+        return self.call_on_tensor(tensor)
+
+    def call_on_weight(self, tensor):
+        return self.call_on_tensor(tensor)
+
+    def call_on_tensor(self, tensor):
+        raise NotImplementedError
+
+    @classmethod
+    def initializes_weight(cls):
+        return 'call_on_tensor' in cls.__dict__ or 'call_on_weight' in cls.__dict__
+
+    @classmethod
+    def initializes_bias(cls):
+        return 'call_on_tensor' in cls.__dict__ or 'call_on_bias' in cls.__dict__
+
+
+class ShapeError(ValueError):
+    pass
+
+
+def assert_(condition, message='', exception_type=AssertionError):
+    """Like assert, but with arbitrary exception types."""
+    if not condition:
+        raise exception_type(message)
+
+
+class ConvActivation(nn.Module):
+    """Convolutional layer with 'SAME' padding by default followed by an activation."""
+
+    def __init__(self, in_channels, out_channels, kernel_size, dim, activation, stride=1, dilation=1, groups=None, depthwise=False, bias=True, deconv=False, initialization=None, valid_conv=False):
+        super(ConvActivation, self).__init__()
+        assert_(dim in [1, 2, 3], '`dim` must be one of [1, 2, 3], got {}.'.format(dim), ShapeError)
+        self.dim = dim
+        if depthwise:
+            out_channels = in_channels if out_channels in [None, 'auto'] else out_channel
+            assert_(in_channels == out_channels, 'For depthwise convolutions, number of input channels (given: {}) must equal the number of output channels (given {}).'.format(in_channels, out_channels), ValueError)
+            assert_(groups is None or groups == in_channels, 'For depthwise convolutions, groups (given: {}) must equal the number of channels (given: {}).'.format(groups, in_channels))
+            groups = in_channels
+        else:
+            groups = 1 if groups is None else groups
+        self.depthwise = depthwise
+        if valid_conv:
+            self.conv = getattr(nn, 'Conv{}d'.format(self.dim))(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, dilation=dilation, groups=groups, bias=bias)
+        elif not deconv:
+            padding = self.get_padding(kernel_size, dilation)
+            self.conv = getattr(nn, 'Conv{}d'.format(self.dim))(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding, stride=stride, dilation=dilation, groups=groups, bias=bias)
+        else:
+            self.conv = getattr(nn, 'ConvTranspose{}d'.format(self.dim))(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, dilation=dilation, groups=groups, bias=bias)
+        if initialization is None:
+            pass
+        elif isinstance(initialization, Initializer):
+            self.conv.apply(initialization)
+        else:
+            raise NotImplementedError
+        if isinstance(activation, str):
+            self.activation = getattr(nn, activation)()
+        elif isinstance(activation, nn.Module):
+            self.activation = activation
+        elif activation is None:
+            self.activation = None
+        else:
+            raise NotImplementedError
+
+    def forward(self, input):
+        conved = self.conv(input)
+        if self.activation is not None:
+            activated = self.activation(conved)
+        else:
+            activated = conved
+        return activated
+
+    def _pair_or_triplet(self, object_):
+        if isinstance(object_, (list, tuple)):
+            assert len(object_) == self.dim
+            return object_
+        else:
+            object_ = [object_] * self.dim
+            return object_
+
+    def _get_padding(self, _kernel_size, _dilation):
+        assert isinstance(_kernel_size, int)
+        assert isinstance(_dilation, int)
+        assert _kernel_size % 2 == 1
+        return (_kernel_size - 1) // 2 * _dilation
+
+    def get_padding(self, kernel_size, dilation):
+        kernel_size = self._pair_or_triplet(kernel_size)
+        dilation = self._pair_or_triplet(dilation)
+        padding = [self._get_padding(_kernel_size, _dilation) for _kernel_size, _dilation in zip(kernel_size, dilation)]
+        return tuple(padding)
 
 
 class CheapConv(nn.Module):
@@ -262,6 +428,335 @@ class CheapConvBlock(nn.Module):
         return x
 
 
+def max_allowed_ds_steps(shape, factor):
+    """How often can a shape be down-sampled by a given factor
+        such that non of the divisions will give non-integers.
+
+    Args:
+        shape (listlike): tensor shape
+        factor (integer): downsample factor
+
+    Returns:
+        int: maximum allowed downsample operations
+    """
+
+    def max_allowed_ds_steps_impl(size, factor):
+        current_size = float(size)
+        allowed_steps = 0
+        while True:
+            new_size = current_size / float(factor)
+            if new_size >= 1 and new_size.is_integer():
+                current_size = new_size
+                allowed_steps += 1
+            else:
+                break
+        return allowed_steps
+    min_steps = float('inf')
+    for s in shape:
+        min_steps = int(min(min_steps, max_allowed_ds_steps_impl(s, factor)))
+    return min_steps
+
+
+class UNetBase(nn.Module):
+    """ Base class for implementing UNets.
+        The depth and dimension of the UNet is flexible.
+        The deriving classes must implement
+        `conv_op_factory` and can implement
+        `upsample_op_factory` and
+        `downsample_op_factory`.
+
+    Attributes:
+        in_channels (int): Number of input channels.
+        dim (int): Spatial dimension of data (must be 2 or 3).
+        out_channels (int): Number of output channels. Set to None by default,
+            which sets the number of out channels to the number of input channels
+            to preserve symmetry of feature channels (default: None).
+        depth (int): How many down-sampling / up-sampling steps
+            shall be performed (default: 3).
+        gain (int): Multiplicative increase of channels while going down in the UNet.
+            The same factor is used to decrease the number of channels while
+            going up in the UNet (default: 2).
+        residual (bool): If residual is true, the output of the down-streams
+            are added to the up-stream results.
+            Otherwise the results are concatenated (default: False).
+    """
+
+    def __init__(self, in_channels, dim, out_channels=None, depth=3, gain=2, residual=False, upsample_mode=None, p_dropout=None):
+        super(UNetBase, self).__init__()
+        if dim not in [2, 3]:
+            raise RuntimeError('UNetBase is only implemented for 2D and 3D')
+        self.in_channels = int(in_channels)
+        self.dim = int(dim)
+        self.out_channels = self.in_channels if out_channels is None else int(out_channels)
+        self.depth = int(depth)
+        self.gain = int(gain)
+        self.residual = bool(residual)
+        self.p_dropout = p_dropout
+        self._store_conv_down = []
+        self._store_conv_bottom = False
+        self._store_conv_up = []
+        self.n_channels_per_output = []
+        self._pre_conv_down_ops = None
+        self._post_conv_down_ops = None
+        self._conv_down_ops = None
+        self._pre_conv_up_ops = None
+        self._post_conv_up_ops = None
+        self._conv_up_ops = None
+        self._upsample_ops = None
+        self._downsample_ops = None
+        self._pre_conv_bottom_ops = None
+        self._post_conv_bottom_ops = None
+        self._conv_bottom_op = None
+        self._upsample_kwargs = self._make_upsample_kwargs(upsample_mode=upsample_mode)
+        if self.p_dropout is not None:
+            self.use_dropout = True
+            if self.dim == 2:
+                self._channel_dropout_op = self.torch.nn.Dropout2d(p=float(self.p_dropout), inplace=False)
+            else:
+                self._channel_dropout_op = self.torch.nn.Dropout3d(p=float(self.p_dropout), inplace=False)
+        else:
+            self.use_dropout = False
+        self._init__downstream()
+        self._downsample_ops = nn.ModuleList([self.downsample_op_factory(i) for i in range(depth)])
+        self._upsample_ops = nn.ModuleList([self.upsample_op_factory(depth - i - 1) for i in range(depth)])
+        self._init__bottom()
+        self._init__upstream()
+        assert len(self.n_channels_per_output) == self._store_conv_down.count(True) + self._store_conv_up.count(True) + int(self._store_conv_bottom)
+
+    def _get_num_channels(self, depth):
+        assert depth > 0
+        return self.in_channels * self.gain ** depth
+
+    def _init__downstream(self):
+        conv_down_ops = []
+        self._store_conv_down = []
+        current_in_channels = self.in_channels
+        for i in range(self.depth):
+            out_channels = self._get_num_channels(i + 1)
+            op, return_op_res = self.conv_op_factory(in_channels=current_in_channels, out_channels=out_channels, part='down', index=i)
+            conv_down_ops.append(op)
+            if return_op_res:
+                self.n_channels_per_output.append(out_channels)
+                self._store_conv_down.append(True)
+            else:
+                self._store_conv_down.append(False)
+            current_in_channels = out_channels
+        self._conv_down_ops = nn.ModuleList(conv_down_ops)
+        return current_in_channels
+
+    def _init__bottom(self):
+        current_in_channels = self._get_num_channels(self.depth)
+        factory_res = self.conv_op_factory(in_channels=current_in_channels, out_channels=current_in_channels, part='bottom', index=0)
+        if isinstance(factory_res, tuple):
+            self._conv_bottom_op, self._store_conv_bottom = factory_res
+            if self._store_conv_bottom:
+                self.n_channels_per_output.append(current_in_channels)
+        else:
+            self._conv_bottom_op = factory_res
+            self._store_conv_bottom = False
+
+    def _init__upstream(self):
+        conv_up_ops = []
+        current_in_channels = self._get_num_channels(self.depth)
+        for i in range(self.depth):
+            out_channels = self.out_channels if i + 1 == self.depth else self._get_num_channels(self.depth - i - 1)
+            fac = 1 if self.residual else 2
+            op, return_op_res = self.conv_op_factory(in_channels=fac * current_in_channels, out_channels=out_channels, part='up', index=self.depth - i - 1)
+            conv_up_ops.append(op)
+            if return_op_res:
+                self.n_channels_per_output.append(out_channels)
+                self._store_conv_up.append(True)
+            else:
+                self._store_conv_up.append(False)
+            current_in_channels = out_channels
+        self._conv_up_ops = nn.ModuleList(conv_up_ops)
+        if not self._store_conv_up[-1]:
+            self._store_conv_up[-1] = True
+            self.n_channels_per_output.append(out_channels)
+
+    def _make_upsample_kwargs(self, upsample_mode):
+        """To avoid some waring from pytorch, and some missing implementations
+        for the arguments need to be handle carefully in this helper functions
+
+        Args:
+            upsample_mode (str): users choice for upsampling  interpolation style.
+        """
+        if upsample_mode is None:
+            if self.dim == 2:
+                upsample_mode = 'bilinear'
+            elif self.dim == 3:
+                upsample_mode = 'trilinear'
+        upsample_kwargs = dict(scale_factor=2, mode=upsample_mode)
+        if upsample_mode in ('bilinear', 'trilinear'):
+            upsample_kwargs['align_corners'] = False
+        return upsample_kwargs
+
+    def _forward_sanity_check(self, input):
+        if isinstance(input, tuple):
+            raise RuntimeError('tuples of tensors are not supported')
+        shape = input.shape
+        if shape[1] != self.in_channels:
+            raise RuntimeError('wrong number of channels: expected %d, got %d' % (self.in_channels, input.size(1)))
+        if input.dim() != self.dim + 2:
+            raise RuntimeError('wrong number of dim: expected %d, got %d' % (self.dim + 2, input.dim()))
+        self._check_scaling(input)
+
+    def _check_scaling(self, input):
+        shape = input.shape
+        mx = max_allowed_ds_steps(shape=shape[2:2 + self.dim], factor=2)
+        if mx < self.depth:
+            raise RuntimeError('cannot downsample %d times, with shape %s' % (self.depth, str(input.size())))
+
+    def forward(self, input):
+        self._forward_sanity_check(input=input)
+        side_out = []
+        down_res = []
+        out = input
+        for d in range(self.depth):
+            out = self._conv_down_ops[d](out)
+            down_res.append(out)
+            if self._store_conv_down[d]:
+                side_out.append(out)
+            out = self._downsample_ops[d](out)
+        out = self._conv_bottom_op(out)
+        if self._store_conv_bottom:
+            side_out.append(out)
+        down_res = list(reversed(down_res))
+        for d in range(self.depth):
+            out = self._upsample_ops[d](out)
+            a = down_res[d]
+            if self.residual:
+                out = a + out
+            else:
+                out = torch.cat([a, out], 1)
+            out = self._conv_up_ops[d](out)
+            if self._store_conv_up[d]:
+                side_out.append(out)
+        if len(side_out) == 1:
+            return side_out[0]
+        else:
+            return tuple(side_out)
+
+    def downsample_op_factory(self, index):
+        C = nn.MaxPool2d if self.dim == 2 else nn.MaxPool3d
+        return C(kernel_size=2, stride=2)
+
+    def upsample_op_factory(self, index):
+        return InfernoUpsample(**self._upsample_kwargs)
+
+    def conv_op_factory(self, in_channels, out_channels, part, index):
+        raise NotImplementedError('conv_op_factory need to be implemented by deriving class')
+
+    def _dropout(self, x):
+        if self.use_dropout:
+            return self._channel_dropout_op(x)
+        else:
+            return x
+
+
+class _ResBlockBase(nn.Module):
+
+    def __init__(self, in_channels, out_channels, dim, size=2, force_skip_op=False, activated=True):
+        super(_ResBlockBase, self).__init__()
+        self.in_channels = int(in_channels)
+        self.out_channels = int(out_channels)
+        self.size = int(size)
+        self.activated = bool(activated)
+        self.force_skip_op = bool(force_skip_op)
+        self.dim = int(dim)
+        if self.in_channels != self.out_channels or self.force_skip_op:
+            self.activated_skip_op = self.activated_skip_op_factory(in_channels=self.in_channels, out_channels=self.out_channels)
+        conv_ops = []
+        activation_ops = []
+        for i in range(self.size):
+            if i == 0:
+                op = self.nonactivated_conv_op_factory(in_channels=self.out_channels, out_channels=self.out_channels, index=i)
+            else:
+                op = self.nonactivated_conv_op_factory(in_channels=self.out_channels, out_channels=self.out_channels, index=i)
+            conv_ops.append(op)
+            if i < self.size or self.activated:
+                activation_ops.append(self.activation_op_factory(index=i))
+        self.conv_ops = nn.ModuleList(conv_ops)
+        self.activation_ops = nn.ModuleList(activation_ops)
+
+    def activated_skip_op_factory(self, in_channels, out_channels):
+        raise NotImplementedError('activated_skip_op_factory need to be implemented by deriving class')
+
+    def nonactivated_conv_op_factory(self, in_channels, out_channels, index):
+        raise NotImplementedError('conv_op_factory need to be implemented by deriving class')
+
+    def activation_op_factory(self, index):
+        return nn.ReLU()
+
+    def forward(self, input):
+        if input.size(1) != self.in_channels:
+            raise RuntimeError('wrong number of channels: expected %d, got %d' % (self.in_channels, input.size(1)))
+        if input.dim() != self.dim + 2:
+            raise RuntimeError('wrong number of dim: expected %d, got %d' % (self.dim + 2, input.dim()))
+        if self.in_channels != self.out_channels or self.force_skip_op:
+            skip_res = self.activated_skip_op(input)
+        else:
+            skip_res = input
+        assert skip_res.size(1) == self.out_channels
+        res = skip_res
+        for i in range(self.size):
+            res = self.conv_ops[i](res)
+            assert res.size(1) == self.out_channels
+            if i + 1 < self.size:
+                res = self.activation_ops[i](res)
+        non_activated = skip_res + res
+        if self.activated:
+            return self.activation_ops[-1](non_activated)
+        else:
+            return non_activated
+
+
+class _ResBlock(_ResBlockBase):
+
+    def __init__(self, in_channels, out_channels, dim, size=2, activated=True, activation='ReLU', batchnorm=True, force_skip_op=False, conv_kwargs=None):
+        if isinstance(activation, str):
+            self.activation_op = [getattr(torch.nn, activation)()]
+        elif isinstance(activation, nn.Module):
+            self.activation_op = [activation]
+        else:
+            raise RuntimeError('activation must be a striong or a torch.nn.Module')
+        if conv_kwargs is None:
+            conv_kwargs = dict(kernel_size=3, dim=dim, activation=None, stride=1, dilation=1, groups=None, depthwise=False, bias=True, deconv=False, initialization=None)
+        elif isinstance(conv_kwargs, dict):
+            conv_kwargs['activation'] = None
+        else:
+            raise RuntimeError('conv_kwargs must be either None or a dict')
+        self.conv_kwargs = conv_kwargs
+        self.dim = dim
+        self.batchnorm = batchnorm
+        self.conv_1x1_kwargs = dict(kernel_size=1, dim=dim, activation=None, stride=1, dilation=1, groups=None, depthwise=False, bias=True, deconv=False, initialization=None)
+        super(_ResBlock, self).__init__(in_channels=in_channels, out_channels=out_channels, dim=dim, size=size, force_skip_op=force_skip_op, activated=activated)
+
+    def activated_skip_op_factory(self, in_channels, out_channels):
+        conv_op = ConvActivation(in_channels=in_channels, out_channels=out_channels, **self.conv_1x1_kwargs)
+        if self.batchnorm:
+            batchnorm_op = self.batchnorm_op_factory(in_channels=out_channels)
+            return torch.nn.Sequential(conv_op, batchnorm_op, self.activation_op[0])
+        else:
+            return torch.nn.Sequential(conv_op, self.activation_op[0])
+
+    def nonactivated_conv_op_factory(self, in_channels, out_channels, index):
+        conv_op = ConvActivation(in_channels=in_channels, out_channels=out_channels, **self.conv_kwargs)
+        if self.batchnorm:
+            batchnorm_op = self.batchnorm_op_factory(in_channels=out_channels)
+            return torch.nn.Sequential(conv_op, batchnorm_op)
+        else:
+            return conv_op
+
+    def activation_op_factory(self, index):
+        return self.activation_op[0]
+
+    def batchnorm_op_factory(self, in_channels):
+        bn_cls_name = 'BatchNorm{}d'.format(int(self.dim))
+        bn_op_cls = getattr(torch.nn, bn_cls_name)
+        return bn_op_cls(in_channels)
+
+
 def require_dict_kwargs(kwargs, msg=None):
     """ Ensure arguments passed kwargs are either None or a dict.
         If arguments are neither a dict nor None a RuntimeError
@@ -285,6 +780,39 @@ def require_dict_kwargs(kwargs, msg=None):
         raise RuntimeError('value passed as keyword argument dict is neither None nor a dict')
     else:
         raise RuntimeError('%s' % str(msg))
+
+
+class ResBlockUNet(UNetBase):
+    """TODO.
+
+        ACCC
+
+    Attributes:
+        activated (TYPE): Description
+        dim (TYPE): Description
+        res_block_kwargs (TYPE): Description
+        side_out_parts (TYPE): Description
+        unet_kwargs (TYPE): Description
+    """
+
+    def __init__(self, in_channels, dim, out_channels, unet_kwargs=None, res_block_kwargs=None, activated=True, side_out_parts=None):
+        self.dim = dim
+        self.unet_kwargs = require_dict_kwargs(unet_kwargs, 'unet_kwargs must be a dict or None')
+        self.res_block_kwargs = require_dict_kwargs(res_block_kwargs, 'res_block_kwargs must be a dict or None')
+        self.activated = activated
+        if isinstance(side_out_parts, str):
+            self.side_out_parts = set([side_out_parts])
+        elif isinstance(side_out_parts, (tuple, list)):
+            self.side_out_parts = set(side_out_parts)
+        else:
+            self.side_out_parts = set()
+        super(ResBlockUNet, self).__init__(in_channels=in_channels, out_channels=out_channels, dim=dim, **self.unet_kwargs)
+
+    def conv_op_factory(self, in_channels, out_channels, part, index):
+        very_last = part == 'up' and index == 0
+        activated = not very_last or self.activated
+        use_as_output = part in self.side_out_parts
+        return _ResBlock(in_channels=in_channels, out_channels=out_channels, dim=self.dim, activated=activated, **self.res_block_kwargs), use_as_output
 
 
 class MySideLossUNet(nn.Module):
@@ -358,10 +886,104 @@ class RegularizedLinear(nn.Linear):
         return output
 
 
-def assert_(condition, message='', exception_type=AssertionError):
-    """Like assert, but with arbitrary exception types."""
-    if not condition:
-        raise exception_type(message)
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
+
+class DeviceError(ValueError):
+    pass
+
+
+def is_listlike(x):
+    return isinstance(x, (list, tuple))
+
+
+def from_iterable(x):
+    return x[0] if is_listlike(x) and len(x) == 1 else x
+
+
+class DeviceTransfer(nn.Module):
+    """Layer to transfer variables to a specified device."""
+
+    def __init__(self, target_device, device_ordinal=None, asynchronous=False):
+        """
+        Parameters
+        ----------
+        target_device : {'cpu', 'cuda'}
+            Device to transfer to.
+        device_ordinal : int
+            Device ordinal if target_device == 'cuda'.
+        asynchronous : bool
+            Whether to use asynchronous transfers.
+        """
+        super(DeviceTransfer, self).__init__()
+        assert_(target_device in ['cpu', 'cuda'], "Target device must either be 'cpu' or 'cuda'.", DeviceError)
+        if target_device == 'cpu':
+            assert_(device_ordinal is None, "'device_ordinal' must be None if target_device is 'cpu'.", DeviceError)
+        self.target_device = target_device
+        self.device_ordinal = device_ordinal
+
+    def forward(self, *inputs):
+        if self.target_device == 'cuda':
+            transferred = tuple(input_ for input_ in inputs)
+        elif self.target_device == 'cpu':
+            transferred = tuple(input_.cpu() for input_ in inputs)
+        else:
+            raise NotImplementedError
+        return from_iterable(transferred)
+
+
+def to_iterable(x):
+    return [x] if not is_listlike(x) else x
+
+
+class OnDevice(nn.Module):
+    """
+    Moves a module to a device. The advantage of using this over `torch.nn.Module.cuda` is
+    that the inputs are transferred to the same device as the module, enabling easy model
+    parallelism.
+    """
+
+    def __init__(self, module, target_device, device_ordinal=None, asynchronous=False):
+        """
+        Parameters
+        ----------
+        module : torch.nn.Module
+            Module to transfer to device.
+        target_device : {'cuda', 'cpu'}
+            The device to move `module` to. Must be either 'cuda' or 'cpu'.
+        device_ordinal : int
+            Ordinal of the GPU device if `target_device = 'cuda'`.
+        asynchronous : bool
+            Whether to use asynchronous transfers.
+        """
+        super(OnDevice, self).__init__()
+        assert_(target_device in ['cpu', 'cuda'], "Target device must either be 'cpu' or 'cuda'.", DeviceError)
+        if target_device == 'cpu':
+            assert_(device_ordinal is None, "'device_ordinal' must be None if target_device is 'cpu'.", DeviceError)
+        self.target_device = target_device
+        self.device_ordinal = device_ordinal
+        self.asynchronous = asynchronous
+        self.device_transfer = DeviceTransfer(self.target_device, device_ordinal=self.device_ordinal, asynchronous=self.asynchronous)
+        self.module = self.transfer_module(module)
+
+    def transfer_module(self, module):
+        if self.target_device == 'cuda':
+            return module
+        elif self.target_device == 'cpu':
+            return module.cpu()
+        else:
+            raise NotImplementedError
+
+    def forward(self, *inputs):
+        transferred = to_iterable(self.device_transfer(*inputs))
+        output = self.module(*transferred)
+        return output
 
 
 class Graph(nn.Module):
@@ -737,6 +1359,18 @@ class Sequential1(nn.Sequential):
         return len(self._modules.values())
 
 
+class Sequential2(Sequential1):
+    """Another sequential container.
+    Identitcal to torch.nn.Sequential, except that modules may return multiple outputs and
+    accept multiple inputs.
+    """
+
+    def forward(self, *input):
+        for module in self._modules.values():
+            input = pyu.to_iterable(module(*pyu.to_iterable(input)))
+        return pyu.from_iterable(input)
+
+
 class Criteria(nn.Module):
     """Aggregate multiple criteria to one."""
 
@@ -759,10 +1393,6 @@ class Criteria(nn.Module):
 
 
 class NotTorchModuleError(TypeError):
-    pass
-
-
-class ShapeError(ValueError):
     pass
 
 
@@ -882,6 +1512,36 @@ class RegularizedLoss(nn.Module):
                 updates['{}_{}'.format(prefix, k)] = v
             trainer.update_state_from_dictionary(updates)
         return total_loss
+
+
+class RegularizedCrossEntropyLoss(RegularizedLoss):
+
+    def __init__(self, *args, **kwargs):
+        super(RegularizedCrossEntropyLoss, self).__init__(nn.CrossEntropyLoss, *args, **kwargs)
+
+
+class RegularizedBCEWithLogitsLoss(RegularizedLoss):
+
+    def __init__(self, *args, **kwargs):
+        super(RegularizedBCEWithLogitsLoss, self).__init__(nn.BCEWithLogitsLoss, *args, **kwargs)
+
+
+class RegularizedBCELoss(RegularizedLoss):
+
+    def __init__(self, *args, **kwargs):
+        super(RegularizedBCELoss, self).__init__(nn.BCELoss, *args, **kwargs)
+
+
+class RegularizedMSELoss(RegularizedLoss):
+
+    def __init__(self, *args, **kwargs):
+        super(RegularizedMSELoss, self).__init__(nn.MSELoss, *args, **kwargs)
+
+
+class RegularizedNLLLoss(RegularizedLoss):
+
+    def __init__(self, *args, **kwargs):
+        super(RegularizedNLLLoss, self).__init__(nn.NLLLoss, *args, **kwargs)
 
 
 def flatten_samples(input_):
@@ -1052,109 +1712,110 @@ class SELU(nn.Module):
         return scale * where(x >= 0, x, alpha * F.elu(x))
 
 
-class Initializer(object):
-    """
-    Base class for all initializers.
-    """
-    VALID_LAYERS = {'Conv1d', 'Conv2d', 'Conv3d', 'ConvTranspose1d', 'ConvTranspose2d', 'ConvTranspose3d', 'Linear', 'Bilinear', 'Embedding'}
+class BatchNormND(nn.Module):
 
-    def __call__(self, module):
-        module_class_name = module.__class__.__name__
-        if module_class_name in self.VALID_LAYERS:
-            try:
-                if hasattr(module, 'weight'):
-                    self.call_on_weight(module.weight.data)
-            except NotImplementedError:
-                pass
-            try:
-                if hasattr(module, 'bias'):
-                    self.call_on_bias(module.bias.data)
-            except NotImplementedError:
-                pass
-        return module
+    def __init__(self, dim, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
+        super(BatchNormND, self).__init__()
+        assert dim in [1, 2, 3]
+        self.bn = getattr(nn, 'BatchNorm{}d'.format(dim))(num_features=num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
 
-    def call_on_bias(self, tensor):
-        return self.call_on_tensor(tensor)
+    def forward(self, x):
+        return self.bn(x)
 
-    def call_on_weight(self, tensor):
-        return self.call_on_tensor(tensor)
+
+class Constant(Initializer):
+    """Initialize with a constant."""
+
+    def __init__(self, constant):
+        self.constant = constant
 
     def call_on_tensor(self, tensor):
-        raise NotImplementedError
-
-    @classmethod
-    def initializes_weight(cls):
-        return 'call_on_tensor' in cls.__dict__ or 'call_on_weight' in cls.__dict__
-
-    @classmethod
-    def initializes_bias(cls):
-        return 'call_on_tensor' in cls.__dict__ or 'call_on_bias' in cls.__dict__
+        tensor.fill_(self.constant)
+        return tensor
 
 
-class ConvActivation(nn.Module):
-    """Convolutional layer with 'SAME' padding by default followed by an activation."""
+class BiasInitFunction(Initializer):
 
-    def __init__(self, in_channels, out_channels, kernel_size, dim, activation, stride=1, dilation=1, groups=None, depthwise=False, bias=True, deconv=False, initialization=None, valid_conv=False):
-        super(ConvActivation, self).__init__()
-        assert_(dim in [1, 2, 3], '`dim` must be one of [1, 2, 3], got {}.'.format(dim), ShapeError)
-        self.dim = dim
-        if depthwise:
-            out_channels = in_channels if out_channels in [None, 'auto'] else out_channel
-            assert_(in_channels == out_channels, 'For depthwise convolutions, number of input channels (given: {}) must equal the number of output channels (given {}).'.format(in_channels, out_channels), ValueError)
-            assert_(groups is None or groups == in_channels, 'For depthwise convolutions, groups (given: {}) must equal the number of channels (given: {}).'.format(groups, in_channels))
-            groups = in_channels
+    def __init__(self, init_function, *init_function_args, **init_function_kwargs):
+        super(BiasInitFunction, self).__init__()
+        assert callable(init_function)
+        self.init_function = init_function
+        self.init_function_args = init_function_args
+        self.init_function_kwargs = init_function_kwargs
+
+    def call_on_bias(self, tensor):
+        return self.init_function(tensor, *self.init_function_args, **self.init_function_kwargs)
+
+
+class WeightInitFunction(Initializer):
+
+    def __init__(self, init_function, *init_function_args, **init_function_kwargs):
+        super(WeightInitFunction, self).__init__()
+        assert callable(init_function)
+        self.init_function = init_function
+        self.init_function_args = init_function_args
+        self.init_function_kwargs = init_function_kwargs
+
+    def call_on_weight(self, tensor):
+        return self.init_function(tensor, *self.init_function_args, **self.init_function_kwargs)
+
+
+class Initialization(Initializer):
+
+    def __init__(self, weight_initializer=None, bias_initializer=None):
+        if weight_initializer is None:
+            self.weight_initializer = Initializer()
+        elif isinstance(weight_initializer, Initializer):
+            assert weight_initializer.initializes_weight()
+            self.weight_initializer = weight_initializer
+        elif isinstance(weight_initializer, str):
+            init_function = getattr(init, weight_initializer, None)
+            assert init_function is not None
+            self.weight_initializer = WeightInitFunction(init_function=init_function)
         else:
-            groups = 1 if groups is None else groups
-        self.depthwise = depthwise
-        if valid_conv:
-            self.conv = getattr(nn, 'Conv{}d'.format(self.dim))(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, dilation=dilation, groups=groups, bias=bias)
-        elif not deconv:
-            padding = self.get_padding(kernel_size, dilation)
-            self.conv = getattr(nn, 'Conv{}d'.format(self.dim))(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding, stride=stride, dilation=dilation, groups=groups, bias=bias)
+            assert callable(weight_initializer)
+            self.weight_initializer = WeightInitFunction(init_function=weight_initializer)
+        if bias_initializer is None:
+            self.bias_initializer = Initializer()
+        elif isinstance(bias_initializer, Initializer):
+            assert bias_initializer.initializes_bias
+            self.bias_initializer = bias_initializer
+        elif isinstance(bias_initializer, str):
+            init_function = getattr(init, bias_initializer, None)
+            assert init_function is not None
+            self.bias_initializer = BiasInitFunction(init_function=init_function)
         else:
-            self.conv = getattr(nn, 'ConvTranspose{}d'.format(self.dim))(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, dilation=dilation, groups=groups, bias=bias)
-        if initialization is None:
-            pass
-        elif isinstance(initialization, Initializer):
-            self.conv.apply(initialization)
-        else:
-            raise NotImplementedError
-        if isinstance(activation, str):
-            self.activation = getattr(nn, activation)()
-        elif isinstance(activation, nn.Module):
-            self.activation = activation
-        elif activation is None:
-            self.activation = None
-        else:
-            raise NotImplementedError
+            assert callable(bias_initializer)
+            self.bias_initializer = BiasInitFunction(init_function=bias_initializer)
+
+    def call_on_weight(self, tensor):
+        return self.weight_initializer.call_on_weight(tensor)
+
+    def call_on_bias(self, tensor):
+        return self.bias_initializer.call_on_bias(tensor)
+
+
+class KaimingNormalWeightsZeroBias(Initialization):
+
+    def __init__(self, relu_leakage=0):
+        kaiming_normal = getattr(init, 'kaiming_normal_', init.kaiming_normal)
+        super(KaimingNormalWeightsZeroBias, self).__init__(weight_initializer=partial(kaiming_normal, a=relu_leakage), bias_initializer=Constant(0.0))
+
+
+class _BNReLUSomeConv(object):
 
     def forward(self, input):
-        conved = self.conv(input)
-        if self.activation is not None:
-            activated = self.activation(conved)
-        else:
-            activated = conved
-        return activated
+        normed = self.batchnorm(input)
+        activated = self.activation(normed)
+        conved = self.conv(activated)
+        return conved
 
-    def _pair_or_triplet(self, object_):
-        if isinstance(object_, (list, tuple)):
-            assert len(object_) == self.dim
-            return object_
-        else:
-            object_ = [object_] * self.dim
-            return object_
 
-    def _get_padding(self, _kernel_size, _dilation):
-        assert isinstance(_kernel_size, int)
-        assert isinstance(_dilation, int)
-        assert _kernel_size % 2 == 1
-        return (_kernel_size - 1) // 2 * _dilation
+class BNReLUConvBaseND(_BNReLUSomeConv, ConvActivation):
 
-    def get_padding(self, kernel_size, dilation):
-        kernel_size = self._pair_or_triplet(kernel_size)
-        dilation = self._pair_or_triplet(dilation)
-        padding = [self._get_padding(_kernel_size, _dilation) for _kernel_size, _dilation in zip(kernel_size, dilation)]
-        return tuple(padding)
+    def __init__(self, in_channels, out_channels, kernel_size, dim, stride=1, dilation=1, deconv=False):
+        super(BNReLUConvBaseND, self).__init__(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, dim=dim, stride=stride, activation=nn.ReLU(inplace=True), dilation=dilation, deconv=deconv, initialization=KaimingNormalWeightsZeroBias(0))
+        self.batchnorm = BatchNormND(dim, in_channels)
 
 
 class GlobalConv2D(nn.Module):
@@ -1212,115 +1873,22 @@ class ResidualBlock(nn.Module):
         return output
 
 
-class DeviceError(ValueError):
-    pass
+class PreActSimpleResidualBlock(ResidualBlock):
 
-
-def is_listlike(x):
-    return isinstance(x, (list, tuple))
-
-
-def from_iterable(x):
-    return x[0] if is_listlike(x) and len(x) == 1 else x
-
-
-class DeviceTransfer(nn.Module):
-    """Layer to transfer variables to a specified device."""
-
-    def __init__(self, target_device, device_ordinal=None, asynchronous=False):
-        """
-        Parameters
-        ----------
-        target_device : {'cpu', 'cuda'}
-            Device to transfer to.
-        device_ordinal : int
-            Device ordinal if target_device == 'cuda'.
-        asynchronous : bool
-            Whether to use asynchronous transfers.
-        """
-        super(DeviceTransfer, self).__init__()
-        assert_(target_device in ['cpu', 'cuda'], "Target device must either be 'cpu' or 'cuda'.", DeviceError)
-        if target_device == 'cpu':
-            assert_(device_ordinal is None, "'device_ordinal' must be None if target_device is 'cpu'.", DeviceError)
-        self.target_device = target_device
-        self.device_ordinal = device_ordinal
-
-    def forward(self, *inputs):
-        if self.target_device == 'cuda':
-            transferred = tuple(input_ for input_ in inputs)
-        elif self.target_device == 'cpu':
-            transferred = tuple(input_.cpu() for input_ in inputs)
+    def __init__(self, in_channels, num_hidden_channels, upsample=False, downsample=False):
+        layers = []
+        if downsample:
+            assert_(not upsample, 'Both downsample and upsample is set to true.', ValueError)
+            layers.append(BNReLUConv2D(in_channels=in_channels, out_channels=num_hidden_channels, kernel_size=3, stride=2))
+            resample = nn.Sequential(Conv2D(in_channels=in_channels, out_channels=in_channels, kernel_size=1, stride=2), nn.BatchNorm2d(in_channels))
+        elif upsample:
+            layers.append(BNReLUDeconv2D(in_channels=in_channels, out_channels=num_hidden_channels, kernel_size=2, stride=2))
+            resample = nn.Sequential(Deconv2D(in_channels=in_channels, out_channels=in_channels, kernel_size=2, stride=2), nn.BatchNorm2d(in_channels))
         else:
-            raise NotImplementedError
-        return from_iterable(transferred)
-
-
-def to_iterable(x):
-    return [x] if not is_listlike(x) else x
-
-
-class OnDevice(nn.Module):
-    """
-    Moves a module to a device. The advantage of using this over `torch.nn.Module.cuda` is
-    that the inputs are transferred to the same device as the module, enabling easy model
-    parallelism.
-    """
-
-    def __init__(self, module, target_device, device_ordinal=None, asynchronous=False):
-        """
-        Parameters
-        ----------
-        module : torch.nn.Module
-            Module to transfer to device.
-        target_device : {'cuda', 'cpu'}
-            The device to move `module` to. Must be either 'cuda' or 'cpu'.
-        device_ordinal : int
-            Ordinal of the GPU device if `target_device = 'cuda'`.
-        asynchronous : bool
-            Whether to use asynchronous transfers.
-        """
-        super(OnDevice, self).__init__()
-        assert_(target_device in ['cpu', 'cuda'], "Target device must either be 'cpu' or 'cuda'.", DeviceError)
-        if target_device == 'cpu':
-            assert_(device_ordinal is None, "'device_ordinal' must be None if target_device is 'cpu'.", DeviceError)
-        self.target_device = target_device
-        self.device_ordinal = device_ordinal
-        self.asynchronous = asynchronous
-        self.device_transfer = DeviceTransfer(self.target_device, device_ordinal=self.device_ordinal, asynchronous=self.asynchronous)
-        self.module = self.transfer_module(module)
-
-    def transfer_module(self, module):
-        if self.target_device == 'cuda':
-            return module
-        elif self.target_device == 'cpu':
-            return module.cpu()
-        else:
-            raise NotImplementedError
-
-    def forward(self, *inputs):
-        transferred = to_iterable(self.device_transfer(*inputs))
-        output = self.module(*transferred)
-        return output
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class BatchNormND(nn.Module):
-
-    def __init__(self, dim, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
-        super(BatchNormND, self).__init__()
-        assert dim in [1, 2, 3]
-        self.bn = getattr(nn, 'BatchNorm{}d'.format(dim))(num_features=num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
-
-    def forward(self, x):
-        return self.bn(x)
+            layers.append(BNReLUConv2D(in_channels=in_channels, out_channels=num_hidden_channels, kernel_size=3))
+            resample = None
+        layers.append(BNReLUConv2D(in_channels=num_hidden_channels, out_channels=in_channels, kernel_size=3))
+        super(PreActSimpleResidualBlock, self).__init__(layers, resample)
 
 
 class View(nn.Module):
@@ -1342,6 +1910,18 @@ class View(nn.Module):
         reshaped_shape = [(_s if isinstance(_s, int) else input_shape[_n]) for _n, _s in enumerate(self.as_shape)]
         output = input.view(*reshaped_shape)
         return output
+
+
+class AsMatrix(View):
+
+    def __init__(self):
+        super(AsMatrix, self).__init__(as_shape=['x', 'x'])
+
+
+class Flatten(View):
+
+    def __init__(self):
+        super(Flatten, self).__init__(as_shape=['x', -1])
 
 
 class As3D(nn.Module):
@@ -1388,15 +1968,50 @@ class As2D(nn.Module):
             return input.view(b, c, 1, 1)
 
 
-class Concatenate(nn.Module):
-    """Concatenate input tensors along a specified dimension."""
+class Concatenate(Dataset):
+    """
+    Concatenates mutliple datasets to one. This class does not implement
+    synchronization primitives.
+    """
 
-    def __init__(self, dim=1):
-        super(Concatenate, self).__init__()
-        self.dim = dim
+    def __init__(self, *datasets, transforms=None):
+        assert all([isinstance(dataset, Dataset) for dataset in datasets])
+        assert len(datasets) >= 1
+        assert transforms is None or callable(transforms)
+        self.datasets = datasets
+        self.transforms = transforms
 
-    def forward(self, *inputs):
-        return torch.cat(inputs, dim=self.dim)
+    def map_index(self, index):
+        len_list = list(map(len, self.datasets))
+        cumulative_len_list = np.cumsum(len_list)
+        offset_cumulative_len_list = cumulative_len_list - index
+        dataset_index = np.argmax(offset_cumulative_len_list > 0)
+        if dataset_index == 0:
+            index_in_dataset = index
+        else:
+            len_up_to_dataset = cumulative_len_list[dataset_index - 1]
+            index_in_dataset = index - len_up_to_dataset
+        return dataset_index, index_in_dataset
+
+    def __getitem__(self, index):
+        assert index < len(self)
+        dataset_index, index_in_dataset = self.map_index(index)
+        fetched = self.datasets[dataset_index][index_in_dataset]
+        if self.transforms is None:
+            return fetched
+        elif callable(self.transforms):
+            return self.transforms(*pyu.to_iterable(fetched))
+        else:
+            raise NotImplementedError
+
+    def __len__(self):
+        return sum([len(dataset) for dataset in self.datasets])
+
+    def __repr__(self):
+        if len(self.datasets) < 3:
+            return 'Concatenate(' + ', '.join([dataset.__repr__() for dataset in self.datasets[:-1]]) + ', ' + self.datasets[-1].__repr__() + ')'
+        else:
+            return 'Concatenate({}xDatasets)'.format(len(self.datasets))
 
 
 class ResizeAndConcatenate(nn.Module):
@@ -1429,6 +2044,30 @@ class ResizeAndConcatenate(nn.Module):
         else:
             concatenated = resized_inputs[0]
         return concatenated
+
+
+class Cat(Concatenate):
+    """An alias for `Concatenate`. Hey, everyone knows who Cat is."""
+    pass
+
+
+class PoolCat(ResizeAndConcatenate):
+    """Alias for `ResizeAndConcatenate`, just to annoy snarky web developers."""
+    pass
+
+
+class GlobalMeanPooling(ResizeAndConcatenate):
+    """Global mean pooling layer."""
+
+    def __init__(self):
+        super(GlobalMeanPooling, self).__init__((1, 1), 'average')
+
+
+class GlobalMaxPooling(ResizeAndConcatenate):
+    """Global max pooling layer."""
+
+    def __init__(self):
+        super(GlobalMaxPooling, self).__init__((1, 1), 'max')
 
 
 class Sum(nn.Module):
@@ -1547,287 +2186,55 @@ class AnisotropicPool2D(nn.MaxPool2d):
         super(AnisotropicPool2D, self).__init__(kernel_size=(1, ds + 1), stride=(1, ds), padding=(0, 1))
 
 
-class _ResBlockBase(nn.Module):
+class UNet(UNetBase):
+    """
+    Default 2d / 3d U-Net implementation following:
+    https://arxiv.org/abs/1505.04597
+    """
 
-    def __init__(self, in_channels, out_channels, dim, size=2, force_skip_op=False, activated=True):
-        super(_ResBlockBase, self).__init__()
-        self.in_channels = int(in_channels)
+    def __init__(self, in_channels, out_channels, dim, depth=4, initial_features=64, gain=2, final_activation=None, p_dropout=None):
+        self.default_conv = ConvELU2D if dim == 2 else ConvELU3D
+        last_conv = Conv2D if dim == 2 else Conv3D
+        super(UNet, self).__init__(in_channels=initial_features, dim=dim, depth=depth, gain=gain, p_dropout=p_dropout)
+        self._initial_conv = self.default_conv(in_channels, initial_features, 3)
+        if isinstance(final_activation, str):
+            activation = getattr(nn, final_activation)()
+        elif isinstance(final_activation, nn.Module):
+            activation = final_activation
+        elif final_activation is None:
+            activation = None
+        else:
+            raise NotImplementedError('Activation of type %s is not supported' % type(final_activation))
         self.out_channels = int(out_channels)
-        self.size = int(size)
-        self.activated = bool(activated)
-        self.force_skip_op = bool(force_skip_op)
-        self.dim = int(dim)
-        if self.in_channels != self.out_channels or self.force_skip_op:
-            self.activated_skip_op = self.activated_skip_op_factory(in_channels=self.in_channels, out_channels=self.out_channels)
-        conv_ops = []
-        activation_ops = []
-        for i in range(self.size):
-            if i == 0:
-                op = self.nonactivated_conv_op_factory(in_channels=self.out_channels, out_channels=self.out_channels, index=i)
-            else:
-                op = self.nonactivated_conv_op_factory(in_channels=self.out_channels, out_channels=self.out_channels, index=i)
-            conv_ops.append(op)
-            if i < self.size or self.activated:
-                activation_ops.append(self.activation_op_factory(index=i))
-        self.conv_ops = nn.ModuleList(conv_ops)
-        self.activation_ops = nn.ModuleList(activation_ops)
-
-    def activated_skip_op_factory(self, in_channels, out_channels):
-        raise NotImplementedError('activated_skip_op_factory need to be implemented by deriving class')
-
-    def nonactivated_conv_op_factory(self, in_channels, out_channels, index):
-        raise NotImplementedError('conv_op_factory need to be implemented by deriving class')
-
-    def activation_op_factory(self, index):
-        return nn.ReLU()
+        if activation is None:
+            self._output = last_conv(initial_features, self.out_channels, 1)
+        else:
+            self._output = nn.Sequential(last_conv(initial_features, self.out_channels, 1), activation)
 
     def forward(self, input):
-        if input.size(1) != self.in_channels:
-            raise RuntimeError('wrong number of channels: expected %d, got %d' % (self.in_channels, input.size(1)))
-        if input.dim() != self.dim + 2:
-            raise RuntimeError('wrong number of dim: expected %d, got %d' % (self.dim + 2, input.dim()))
-        if self.in_channels != self.out_channels or self.force_skip_op:
-            skip_res = self.activated_skip_op(input)
-        else:
-            skip_res = input
-        assert skip_res.size(1) == self.out_channels
-        res = skip_res
-        for i in range(self.size):
-            res = self.conv_ops[i](res)
-            assert res.size(1) == self.out_channels
-            if i + 1 < self.size:
-                res = self.activation_ops[i](res)
-        non_activated = skip_res + res
-        if self.activated:
-            return self.activation_ops[-1](non_activated)
-        else:
-            return non_activated
-
-
-def max_allowed_ds_steps(shape, factor):
-    """How often can a shape be down-sampled by a given factor
-        such that non of the divisions will give non-integers.
-
-    Args:
-        shape (listlike): tensor shape
-        factor (integer): downsample factor
-
-    Returns:
-        int: maximum allowed downsample operations
-    """
-
-    def max_allowed_ds_steps_impl(size, factor):
-        current_size = float(size)
-        allowed_steps = 0
-        while True:
-            new_size = current_size / float(factor)
-            if new_size >= 1 and new_size.is_integer():
-                current_size = new_size
-                allowed_steps += 1
-            else:
-                break
-        return allowed_steps
-    min_steps = float('inf')
-    for s in shape:
-        min_steps = int(min(min_steps, max_allowed_ds_steps_impl(s, factor)))
-    return min_steps
-
-
-class UNetBase(nn.Module):
-    """ Base class for implementing UNets.
-        The depth and dimension of the UNet is flexible.
-        The deriving classes must implement
-        `conv_op_factory` and can implement
-        `upsample_op_factory` and
-        `downsample_op_factory`.
-
-    Attributes:
-        in_channels (int): Number of input channels.
-        dim (int): Spatial dimension of data (must be 2 or 3).
-        out_channels (int): Number of output channels. Set to None by default,
-            which sets the number of out channels to the number of input channels
-            to preserve symmetry of feature channels (default: None).
-        depth (int): How many down-sampling / up-sampling steps
-            shall be performed (default: 3).
-        gain (int): Multiplicative increase of channels while going down in the UNet.
-            The same factor is used to decrease the number of channels while
-            going up in the UNet (default: 2).
-        residual (bool): If residual is true, the output of the down-streams
-            are added to the up-stream results.
-            Otherwise the results are concatenated (default: False).
-    """
-
-    def __init__(self, in_channels, dim, out_channels=None, depth=3, gain=2, residual=False, upsample_mode=None, p_dropout=None):
-        super(UNetBase, self).__init__()
-        if dim not in [2, 3]:
-            raise RuntimeError('UNetBase is only implemented for 2D and 3D')
-        self.in_channels = int(in_channels)
-        self.dim = int(dim)
-        self.out_channels = self.in_channels if out_channels is None else int(out_channels)
-        self.depth = int(depth)
-        self.gain = int(gain)
-        self.residual = bool(residual)
-        self.p_dropout = p_dropout
-        self._store_conv_down = []
-        self._store_conv_bottom = False
-        self._store_conv_up = []
-        self.n_channels_per_output = []
-        self._pre_conv_down_ops = None
-        self._post_conv_down_ops = None
-        self._conv_down_ops = None
-        self._pre_conv_up_ops = None
-        self._post_conv_up_ops = None
-        self._conv_up_ops = None
-        self._upsample_ops = None
-        self._downsample_ops = None
-        self._pre_conv_bottom_ops = None
-        self._post_conv_bottom_ops = None
-        self._conv_bottom_op = None
-        self._upsample_kwargs = self._make_upsample_kwargs(upsample_mode=upsample_mode)
-        if self.p_dropout is not None:
-            self.use_dropout = True
-            if self.dim == 2:
-                self._channel_dropout_op = self.torch.nn.Dropout2d(p=float(self.p_dropout), inplace=False)
-            else:
-                self._channel_dropout_op = self.torch.nn.Dropout3d(p=float(self.p_dropout), inplace=False)
-        else:
-            self.use_dropout = False
-        self._init__downstream()
-        self._downsample_ops = nn.ModuleList([self.downsample_op_factory(i) for i in range(depth)])
-        self._upsample_ops = nn.ModuleList([self.upsample_op_factory(depth - i - 1) for i in range(depth)])
-        self._init__bottom()
-        self._init__upstream()
-        assert len(self.n_channels_per_output) == self._store_conv_down.count(True) + self._store_conv_up.count(True) + int(self._store_conv_bottom)
-
-    def _get_num_channels(self, depth):
-        assert depth > 0
-        return self.in_channels * self.gain ** depth
-
-    def _init__downstream(self):
-        conv_down_ops = []
-        self._store_conv_down = []
-        current_in_channels = self.in_channels
-        for i in range(self.depth):
-            out_channels = self._get_num_channels(i + 1)
-            op, return_op_res = self.conv_op_factory(in_channels=current_in_channels, out_channels=out_channels, part='down', index=i)
-            conv_down_ops.append(op)
-            if return_op_res:
-                self.n_channels_per_output.append(out_channels)
-                self._store_conv_down.append(True)
-            else:
-                self._store_conv_down.append(False)
-            current_in_channels = out_channels
-        self._conv_down_ops = nn.ModuleList(conv_down_ops)
-        return current_in_channels
-
-    def _init__bottom(self):
-        current_in_channels = self._get_num_channels(self.depth)
-        factory_res = self.conv_op_factory(in_channels=current_in_channels, out_channels=current_in_channels, part='bottom', index=0)
-        if isinstance(factory_res, tuple):
-            self._conv_bottom_op, self._store_conv_bottom = factory_res
-            if self._store_conv_bottom:
-                self.n_channels_per_output.append(current_in_channels)
-        else:
-            self._conv_bottom_op = factory_res
-            self._store_conv_bottom = False
-
-    def _init__upstream(self):
-        conv_up_ops = []
-        current_in_channels = self._get_num_channels(self.depth)
-        for i in range(self.depth):
-            out_channels = self.out_channels if i + 1 == self.depth else self._get_num_channels(self.depth - i - 1)
-            fac = 1 if self.residual else 2
-            op, return_op_res = self.conv_op_factory(in_channels=fac * current_in_channels, out_channels=out_channels, part='up', index=self.depth - i - 1)
-            conv_up_ops.append(op)
-            if return_op_res:
-                self.n_channels_per_output.append(out_channels)
-                self._store_conv_up.append(True)
-            else:
-                self._store_conv_up.append(False)
-            current_in_channels = out_channels
-        self._conv_up_ops = nn.ModuleList(conv_up_ops)
-        if not self._store_conv_up[-1]:
-            self._store_conv_up[-1] = True
-            self.n_channels_per_output.append(out_channels)
-
-    def _make_upsample_kwargs(self, upsample_mode):
-        """To avoid some waring from pytorch, and some missing implementations
-        for the arguments need to be handle carefully in this helper functions
-
-        Args:
-            upsample_mode (str): users choice for upsampling  interpolation style.
-        """
-        if upsample_mode is None:
-            if self.dim == 2:
-                upsample_mode = 'bilinear'
-            elif self.dim == 3:
-                upsample_mode = 'trilinear'
-        upsample_kwargs = dict(scale_factor=2, mode=upsample_mode)
-        if upsample_mode in ('bilinear', 'trilinear'):
-            upsample_kwargs['align_corners'] = False
-        return upsample_kwargs
-
-    def _forward_sanity_check(self, input):
-        if isinstance(input, tuple):
-            raise RuntimeError('tuples of tensors are not supported')
-        shape = input.shape
-        if shape[1] != self.in_channels:
-            raise RuntimeError('wrong number of channels: expected %d, got %d' % (self.in_channels, input.size(1)))
-        if input.dim() != self.dim + 2:
-            raise RuntimeError('wrong number of dim: expected %d, got %d' % (self.dim + 2, input.dim()))
-        self._check_scaling(input)
-
-    def _check_scaling(self, input):
-        shape = input.shape
-        mx = max_allowed_ds_steps(shape=shape[2:2 + self.dim], factor=2)
-        if mx < self.depth:
-            raise RuntimeError('cannot downsample %d times, with shape %s' % (self.depth, str(input.size())))
-
-    def forward(self, input):
-        self._forward_sanity_check(input=input)
-        side_out = []
-        down_res = []
-        out = input
-        for d in range(self.depth):
-            out = self._conv_down_ops[d](out)
-            down_res.append(out)
-            if self._store_conv_down[d]:
-                side_out.append(out)
-            out = self._downsample_ops[d](out)
-        out = self._conv_bottom_op(out)
-        if self._store_conv_bottom:
-            side_out.append(out)
-        down_res = list(reversed(down_res))
-        for d in range(self.depth):
-            out = self._upsample_ops[d](out)
-            a = down_res[d]
-            if self.residual:
-                out = a + out
-            else:
-                out = torch.cat([a, out], 1)
-            out = self._conv_up_ops[d](out)
-            if self._store_conv_up[d]:
-                side_out.append(out)
-        if len(side_out) == 1:
-            return side_out[0]
-        else:
-            return tuple(side_out)
-
-    def downsample_op_factory(self, index):
-        C = nn.MaxPool2d if self.dim == 2 else nn.MaxPool3d
-        return C(kernel_size=2, stride=2)
-
-    def upsample_op_factory(self, index):
-        return InfernoUpsample(**self._upsample_kwargs)
+        x = self._initial_conv(input)
+        x = super(UNet, self).forward(x)
+        return self._output(x)
 
     def conv_op_factory(self, in_channels, out_channels, part, index):
-        raise NotImplementedError('conv_op_factory need to be implemented by deriving class')
-
-    def _dropout(self, x):
-        if self.use_dropout:
-            return self._channel_dropout_op(x)
+        first = part == 'down' and index == 0
+        if first:
+            conv = self.default_conv(in_channels, out_channels, 3)
         else:
-            return x
+            conv = nn.Sequential(self.default_conv(in_channels, out_channels, 3), self.default_conv(out_channels, out_channels, 3))
+        return conv, False
+
+
+class _MultiscaleUNet(UNet):
+
+    def conv_op_factory(self, in_channels, out_channels, part, index):
+        return super(_MultiscaleUNet, self).conv_op_factory(in_channels, out_channels, part, index)[0], True
+
+    def forward(self, input):
+        x = self._initial_conv(input)
+        x = list(super(UNet, self).forward(x))
+        x[-1] = self._output(x[-1])
+        return tuple(x)
 
 
 import torch
@@ -1845,10 +2252,18 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (AsMatrix,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
     (BatchNormND,
      lambda: ([], {'dim': 1, 'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      True),
+    (Flatten,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (GeneralizedDiceLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -1857,9 +2272,21 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (RegularizedBCELoss,
+     lambda: ([], {}),
+     lambda: ([], {'input': torch.rand([4, 4]), 'target': torch.rand([4, 4])}),
+     False),
+    (RegularizedBCEWithLogitsLoss,
+     lambda: ([], {}),
+     lambda: ([], {'input': torch.rand([4, 4]), 'target': torch.rand([4, 4])}),
+     False),
     (RegularizedLinear,
      lambda: ([], {'in_features': 4, 'out_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (RegularizedMSELoss,
+     lambda: ([], {}),
+     lambda: ([], {'input': torch.rand([4, 4]), 'target': torch.rand([4, 4])}),
      False),
     (SELU,
      lambda: ([], {}),
@@ -1923,4 +2350,19 @@ class Test_inferno_pytorch_inferno(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
 

@@ -8,8 +8,10 @@ jupyter_notebook_config_py2 = _module
 jupyter_notebook_config_py3 = _module
 benchmark = _module
 mnist = _module
+benchmark = _module
 mnist = _module
 tensorboardx = _module
+benchmark = _module
 mnist = _module
 tensorboardx = _module
 mnist = _module
@@ -38,23 +40,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import time
 
 
 import torch
 
 
 import torchvision
+
+
+import numpy as np
+
+
+from torch.autograd import Variable
+
+
+import torchvision.models as models
+
+
+import torch.backends.cudnn as cudnn
 
 
 import torch.nn as nn
@@ -72,16 +90,10 @@ from torchvision import datasets
 from torchvision import transforms
 
 
-from torch.autograd import Variable
+import tensorflow as tf
 
 
 import torchvision.utils as vutils
-
-
-import numpy as np
-
-
-import torchvision.models as models
 
 
 from torch.autograd.variable import Variable
@@ -97,45 +109,6 @@ import torch as th
 
 
 from torch.autograd.function import Function
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.fc = nn.Linear(784, 1000)
-        self.fc2 = nn.Linear(1000, 10)
-
-    def forward(self, x):
-        x = F.relu(self.fc(x))
-        x = self.fc2(x)
-        return F.log_softmax(x)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.fc = nn.Linear(784, 1000)
-        self.fc2 = nn.Linear(1000, 10)
-
-    def forward(self, x):
-        x = F.relu(self.fc(x))
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.fc = nn.Linear(784, 1000)
-        self.fc2 = nn.Linear(1000, 10)
-
-    def forward(self, x):
-        x = F.relu(self.fc(x))
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
 
 
 class Net(nn.Module):

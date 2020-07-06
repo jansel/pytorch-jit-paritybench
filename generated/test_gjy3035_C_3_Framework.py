@@ -7,12 +7,19 @@ GCC = _module
 loading_data = _module
 setting = _module
 Mall = _module
+loading_data = _module
 QNRF = _module
+loading_data = _module
 SHHA = _module
+loading_data = _module
 SHHB = _module
+loading_data = _module
 UCF50 = _module
+loading_data = _module
 UCSD = _module
+loading_data = _module
 WE = _module
+loading_data = _module
 datasets = _module
 misc = _module
 cal_mean = _module
@@ -38,6 +45,47 @@ VGG = _module
 VGG_decoder = _module
 SCC_Model = _module
 models = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
+config = _module
 test = _module
 train = _module
 trainer = _module
@@ -48,20 +96,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import time
+
+
 import torch
+
+
+import numpy as np
+
+
+from scipy import io as sio
+
+
+from torch.utils import data
+
+
+import torchvision.transforms as standard_transforms
+
+
+from torch.utils.data import DataLoader
+
+
+import random
 
 
 import torch.nn as nn
@@ -71,9 +141,6 @@ import torch.nn.functional as F
 
 
 from torch.autograd import Variable
-
-
-import numpy as np
 
 
 from math import exp
@@ -88,13 +155,10 @@ from torch.nn import functional as F
 from torch.nn.modules.loss import _Loss
 
 
+import numbers
+
+
 import math
-
-
-import time
-
-
-import random
 
 
 from torch import nn
@@ -103,10 +167,16 @@ from torch import nn
 import torchvision.utils as vutils
 
 
-import torchvision.transforms as standard_transforms
-
-
 from torchvision import models
+
+
+import scipy.io as sio
+
+
+from torch import optim
+
+
+from torch.optim.lr_scheduler import StepLR
 
 
 class Conv2d(nn.Module):
@@ -296,9 +366,6 @@ class SSIM_Loss(_Loss):
         return out
 
 
-_global_config['LAMBDA_1'] = 4
-
-
 def real_init_weights(m):
     if isinstance(m, list):
         for mini_m in m:
@@ -316,7 +383,7 @@ def real_init_weights(m):
         for mini_m in m.children():
             real_init_weights(mini_m)
     else:
-        print(m)
+        None
 
 
 def initialize_weights(models):
@@ -545,6 +612,38 @@ class MCNN(nn.Module):
         return x
 
 
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
 def make_res_layer(block, planes, blocks, stride=1):
     downsample = None
     inplanes = 512
@@ -586,38 +685,6 @@ class Res101(nn.Module):
                 m.bias.data.fill_(0)
 
 
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
 class Res101_SFCN(nn.Module):
 
     def __init__(self, pretrained=True):
@@ -644,38 +711,6 @@ class Res101_SFCN(nn.Module):
         x = self.output_layer(x)
         x = F.upsample(x, scale_factor=8)
         return x
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
 
 
 class Res50(nn.Module):
@@ -705,38 +740,6 @@ class Res50(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.fill_(1)
                 m.bias.data.fill_(0)
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
 
 
 class VGG(nn.Module):

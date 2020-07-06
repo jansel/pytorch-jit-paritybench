@@ -7,15 +7,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -200,10 +201,6 @@ TESTCASES = [
      lambda: ([], {'method': 4, 'hidden_size': 4}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4, 4])], {}),
      False),
-    (BahdanauAttnDecoderRNN,
-     lambda: ([], {'hidden_size': 4, 'embed_size': 4, 'output_size': 4}),
-     lambda: ([torch.zeros([4], dtype=torch.int64), torch.rand([1, 4, 4]), torch.rand([4, 4, 4])], {}),
-     False),
     (DynamicEncoder,
      lambda: ([], {'input_size': 4, 'embed_size': 4, 'hidden_size': 4}),
      lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
@@ -223,7 +220,4 @@ class Test_AuCson_PyTorch_Batch_Attention_Seq2seq(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
-
-    def test_003(self):
-        self._check(*TESTCASES[3])
 

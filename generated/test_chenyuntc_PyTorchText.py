@@ -50,29 +50,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils import data
 
 
 import torch as t
 
 
+import numpy as np
+
+
+import random
+
+
 import time
 
 
+from torch.autograd import Variable
+
+
 import torch
-
-
-import numpy as np
 
 
 from torch import nn
@@ -84,7 +94,10 @@ from collections import OrderedDict
 import torch.nn as nn
 
 
-from torch.autograd import Variable
+from itertools import chain
+
+
+import torchvision as tv
 
 
 class BasicModule(t.nn.Module):
@@ -155,6 +168,368 @@ class Inception(nn.Module):
         return result
 
 
+class CNNText_inception(BasicModule):
+
+    def __init__(self, opt):
+        super(CNNText_inception, self).__init__()
+        incept_dim = opt.inception_dim
+        self.model_name = 'CNNText_inception'
+        self.opt = opt
+        self.encoder = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        self.title_conv = nn.Sequential(Inception(opt.embedding_dim, incept_dim), Inception(incept_dim, incept_dim), nn.MaxPool1d(opt.title_seq_len))
+        self.content_conv = nn.Sequential(Inception(opt.embedding_dim, incept_dim), Inception(incept_dim, incept_dim), nn.MaxPool1d(opt.content_seq_len))
+        self.fc = nn.Sequential(nn.Linear(incept_dim * 2, opt.linear_hidden_size), nn.BatchNorm1d(opt.linear_hidden_size), nn.ReLU(inplace=True), nn.Linear(opt.linear_hidden_size, opt.num_classes))
+        if opt.embedding_path:
+            None
+            self.encoder.weight.data.copy_(t.from_numpy(np.load(opt.embedding_path)['vector']))
+
+    def forward(self, title, content):
+        title = self.encoder(title)
+        content = self.encoder(content)
+        if self.opt.static:
+            title = title.detach()
+            content = content.detach(0)
+        title_out = self.title_conv(title.permute(0, 2, 1))
+        content_out = self.content_conv(content.permute(0, 2, 1))
+        out = torch.cat((title_out, content_out), 1).view(content_out.size(0), -1)
+        out = self.fc(out)
+        return out
+
+
+class FastText3(BasicModule):
+
+    def __init__(self, opt):
+        super(FastText3, self).__init__()
+        self.model_name = 'FastText3'
+        self.opt = opt
+        self.pre1 = nn.Sequential(nn.Linear(opt.embedding_dim, opt.embedding_dim * 2), nn.BatchNorm1d(opt.embedding_dim * 2), nn.ReLU(True))
+        self.pre2 = nn.Sequential(nn.Linear(opt.embedding_dim, opt.embedding_dim * 2), nn.BatchNorm1d(opt.embedding_dim * 2), nn.ReLU(True))
+        self.encoder = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        self.fc = nn.Sequential(nn.Linear(opt.embedding_dim * 4, opt.linear_hidden_size), nn.BatchNorm1d(opt.linear_hidden_size), nn.ReLU(inplace=True), nn.Linear(opt.linear_hidden_size, opt.num_classes))
+        if opt.embedding_path:
+            None
+            self.encoder.weight.data.copy_(t.from_numpy(np.load(opt.embedding_path)['vector']))
+
+    def forward(self, title, content):
+        title_em = self.encoder(title)
+        content_em = self.encoder(content)
+        title_size = title_em.size()
+        content_size = content_em.size()
+        title_2 = self.pre1(title_em.contiguous().view(-1, 256)).view(title_size[0], title_size[1], -1)
+        content_2 = self.pre2(content_em.contiguous().view(-1, 256)).view(content_size[0], content_size[1], -1)
+        title_ = t.mean(title_2, dim=1)
+        content_ = t.mean(content_2, dim=1)
+        inputs = t.cat((title_.squeeze(), content_.squeeze()), 1)
+        out = self.fc(inputs)
+        return out
+
+
+def kmax_pooling(x, dim, k):
+    index = x.topk(k, dim=dim)[1].sort(dim=dim)[0]
+    return x.gather(dim, index)
+
+
+class LSTMText(BasicModule):
+
+    def __init__(self, opt):
+        super(LSTMText, self).__init__()
+        self.model_name = 'LSTMText'
+        self.opt = opt
+        kernel_size = opt.kernel_size
+        self.encoder = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        self.title_lstm = nn.LSTM(input_size=opt.embedding_dim, hidden_size=opt.hidden_size, num_layers=opt.num_layers, bias=True, batch_first=False, bidirectional=True)
+        self.content_lstm = nn.LSTM(input_size=opt.embedding_dim, hidden_size=opt.hidden_size, num_layers=opt.num_layers, bias=True, batch_first=False, bidirectional=True)
+        self.fc = nn.Sequential(nn.Linear(opt.kmax_pooling * (opt.hidden_size * 2 * 2), opt.linear_hidden_size), nn.BatchNorm1d(opt.linear_hidden_size), nn.ReLU(inplace=True), nn.Linear(opt.linear_hidden_size, opt.num_classes))
+        if opt.embedding_path:
+            self.encoder.weight.data.copy_(t.from_numpy(np.load(opt.embedding_path)['vector']))
+
+    def forward(self, title, content):
+        title = self.encoder(title)
+        content = self.encoder(content)
+        if self.opt.static:
+            title = title.detach()
+            content = content.detach()
+        title_out = self.title_lstm(title.permute(1, 0, 2))[0].permute(1, 2, 0)
+        content_out = self.content_lstm(content.permute(1, 0, 2))[0].permute(1, 2, 0)
+        title_conv_out = kmax_pooling(title_out, 2, self.opt.kmax_pooling)
+        content_conv_out = kmax_pooling(content_out, 2, self.opt.kmax_pooling)
+        conv_out = t.cat((title_conv_out, content_conv_out), dim=1)
+        reshaped = conv_out.view(conv_out.size(0), -1)
+        logits = self.fc(reshaped)
+        return logits
+
+
+kernel_sizes = [1, 2, 3, 4]
+
+
+class MultiCNNTextBNDeep(BasicModule):
+
+    def __init__(self, opt):
+        super(MultiCNNTextBNDeep, self).__init__()
+        self.model_name = 'MultiCNNTextBNDeep'
+        self.opt = opt
+        self.encoder = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        title_convs = [nn.Sequential(nn.Conv1d(in_channels=opt.embedding_dim, out_channels=opt.title_dim, kernel_size=kernel_size), nn.BatchNorm1d(opt.title_dim), nn.ReLU(inplace=True), nn.Conv1d(in_channels=opt.title_dim, out_channels=opt.title_dim, kernel_size=kernel_size), nn.BatchNorm1d(opt.title_dim), nn.ReLU(inplace=True), nn.MaxPool1d(kernel_size=opt.title_seq_len - kernel_size * 2 + 2)) for kernel_size in kernel_sizes]
+        content_convs = [nn.Sequential(nn.Conv1d(in_channels=opt.embedding_dim, out_channels=opt.content_dim, kernel_size=kernel_size), nn.BatchNorm1d(opt.content_dim), nn.ReLU(inplace=True), nn.Conv1d(in_channels=opt.content_dim, out_channels=opt.content_dim, kernel_size=kernel_size), nn.BatchNorm1d(opt.content_dim), nn.ReLU(inplace=True), nn.MaxPool1d(kernel_size=opt.content_seq_len - kernel_size * 2 + 2)) for kernel_size in kernel_sizes]
+        self.title_convs = nn.ModuleList(title_convs)
+        self.content_convs = nn.ModuleList(content_convs)
+        self.fc = nn.Sequential(nn.Linear(len(kernel_sizes) * (opt.title_dim + opt.content_dim), opt.linear_hidden_size), nn.BatchNorm1d(opt.linear_hidden_size), nn.ReLU(inplace=True), nn.Linear(opt.linear_hidden_size, opt.num_classes))
+        if opt.embedding_path:
+            self.encoder.weight.data.copy_(t.from_numpy(np.load(opt.embedding_path)['vector']))
+
+    def forward(self, title, content):
+        title = self.encoder(title)
+        content = self.encoder(content)
+        if self.opt.static:
+            title.detach()
+            content.detach()
+        title_out = [title_conv(title.permute(0, 2, 1)) for title_conv in self.title_convs]
+        content_out = [content_conv(content.permute(0, 2, 1)) for content_conv in self.content_convs]
+        conv_out = t.cat(title_out + content_out, dim=1)
+        reshaped = conv_out.view(conv_out.size(0), -1)
+        logits = self.fc(reshaped)
+        return logits
+
+
+tfmt = '%m%d_%H%M%S'
+
+
+class Config(object):
+    """
+    并不是所有的配置都生效,实际运行中只根据需求获取自己需要的参数
+    """
+    loss = 'multilabelloss'
+    model = 'CNNText'
+    title_dim = 100
+    content_dim = 200
+    num_classes = 1999
+    embedding_dim = 256
+    linear_hidden_size = 2000
+    kmax_pooling = 2
+    hidden_size = 256
+    num_layers = 2
+    inception_dim = 512
+    vocab_size = 411720
+    kernel_size = 3
+    kernel_sizes = [2, 3, 4]
+    title_seq_len = 50
+    content_seq_len = 250
+    type_ = 'word'
+    all = False
+    embedding_path = '/mnt/7/zhihu/ieee_zhihu_cup/data/char_embedding.npz'
+    train_data_path = '/mnt/7/zhihu/ieee_zhihu_cup/data/train.npz'
+    labels_path = '/mnt/7/zhihu/ieee_zhihu_cup/data/labels.json'
+    test_data_path = '/mnt/7/zhihu/ieee_zhihu_cup/data/test.npz'
+    result_path = 'csv/' + time.strftime(tfmt) + '.csv'
+    shuffle = True
+    num_workers = 4
+    pin_memory = True
+    batch_size = 128
+    env = time.strftime(tfmt)
+    plot_every = 10
+    max_epoch = 100
+    lr = 0.005
+    lr2 = 0.001
+    min_lr = 1e-05
+    lr_decay = 0.99
+    weight_decay = 0
+    weight = 1
+    decay_every = 3000
+    model_path = None
+    optimizer_path = 'optimizer.pth'
+    debug_file = '/tmp/debug2'
+    debug = False
+    gpu1 = False
+    floyd = False
+    zhuge = False
+    model_names = ['MultiCNNTextBNDeep', 'CNNText_inception', 'RCNN', 'LSTMText', 'CNNText_inception']
+    model_paths = ['checkpoints/MultiCNNTextBNDeep_0.37125473788', 'checkpoints/CNNText_tmp_0.380390420742', 'checkpoints/RCNN_word_0.373609030286', 'checkpoints/LSTMText_word_0.381833388089', 'checkpoints/CNNText_tmp_0.376364647145']
+    static = False
+    val = False
+    fold = 1
+    augument = True
+    model_num = 7
+    data_root = '/data/text/zhihu/result/'
+    labels_file = '/home/a/code/pytorch/zhihu/ddd/labels.json'
+    val = '/home/a/code/pytorch/zhihu/ddd/val.npz'
+
+
+class MultiModelAll(BasicModule):
+
+    def __init__(self, opt):
+        super(MultiModelAll, self).__init__()
+        self.model_name = 'MultiModelAll'
+        self.opt = opt
+        self.models = []
+        self.word_embedding = nn.Embedding(411720, 256)
+        self.char_embedding = nn.Embedding(11973, 256)
+        if opt.embedding_path:
+            self.word_embedding.weight.data.copy_(t.from_numpy(np.load(opt.embedding_path.replace('char', 'word'))['vector']))
+            self.char_embedding.weight.data.copy_(t.from_numpy(np.load(opt.embedding_path.replace('word', 'char'))['vector']))
+        for _name, _path in zip(opt.model_names, opt.model_paths):
+            tmp_config = Config().parse(opt.state_dict(), print_=False)
+            tmp_config.embedding_path = None
+            _model = getattr(models, _name)(tmp_config)
+            if _path is not None:
+                _model.load(_path)
+            _model.encoder = self.char_embedding if _model.opt.type_ == 'char' else self.word_embedding
+            self.models.append(_model)
+        self.models = nn.ModuleList(self.models)
+        self.model_num = len(self.models)
+        self.weights = nn.Parameter(t.ones(opt.num_classes, self.model_num))
+        assert self.opt.loss == 'bceloss'
+
+    def reinit(self):
+        pass
+
+    def load(self, path, **kwargs):
+        self.load_state_dict(t.load(path)['d'])
+
+    def forward(self, char, word):
+        weights = t.nn.functional.softmax(self.weights)
+        outs = []
+        for ii, model in enumerate(self.models):
+            if model.opt.type_ == 'char':
+                out = t.sigmoid(model(*char))
+            else:
+                out = t.sigmoid(model(*word))
+            out = out * weights[:, (ii)].contiguous().view(1, -1).expand_as(out)
+            outs.append(out)
+        return sum(outs)
+
+    def get_optimizer(self, lr1=0.001, lr2=0.0003, lr3=0.0003, weight_decay=0):
+        encoders = list(self.char_embedding.parameters()) + list(self.word_embedding.parameters())
+        other_params = [param_ for model_ in self.models for name_, param_ in model_.named_parameters() if name_.find('encoder') == -1]
+        new_params = [self.weights]
+        optimizer = t.optim.Adam([dict(params=other_params, weight_decay=weight_decay, lr=lr1), dict(params=encoders, weight_decay=weight_decay, lr=lr2), dict(params=new_params, weight_decay=weight_decay, lr=lr3)])
+        return optimizer
+
+
+class MultiModelAll2(BasicModule):
+
+    def __init__(self, opt):
+        super(MultiModelAll2, self).__init__()
+        self.model_name = 'MultiModelAll2'
+        self.opt = opt
+        self.models = []
+        for _name, _path in zip(opt.model_names, opt.model_paths):
+            tmp_config = Config().parse(opt.state_dict(), print_=False)
+            tmp_config.embedding_path = None
+            _model = getattr(models, _name)(tmp_config)
+            if _path is not None:
+                _model.load(_path)
+            self.models.append(_model)
+        self.models = nn.ModuleList(self.models)
+        self.model_num = len(self.models)
+        self.weights = nn.Parameter(t.ones(opt.num_classes, self.model_num))
+        assert self.opt.loss == 'bceloss'
+        self.eval()
+
+    def reinit(self):
+        pass
+
+    def forward(self, char, word):
+        weights = t.nn.functional.softmax(self.weights)
+        outs = []
+        for ii, model in enumerate(self.models):
+            if model.opt.type_ == 'char':
+                out = t.sigmoid(model(*char))
+            else:
+                out = t.sigmoid(model(*word))
+            if self.opt.static:
+                out = out.detach()
+            out = out * weights[:, (ii)].contiguous().view(1, -1).expand_as(out)
+            outs.append(out)
+        return sum(outs)
+
+    def get_optimizer(self, lr1=0.0001, lr2=0.0001, lr3=0, weight_decay=0):
+        other_params = [param_ for model_ in self.models for name_, param_ in model_.named_parameters() if name_.find('encoder') == -1]
+        encoders = [param_ for model_ in self.models for name_, param_ in model_.named_parameters() if name_.find('encoder') != -1]
+        new_params = [self.weights]
+        optimizer = t.optim.Adam([dict(params=other_params, weight_decay=weight_decay, lr=lr1), dict(params=encoders, weight_decay=weight_decay, lr=lr2), dict(params=new_params, weight_decay=weight_decay, lr=lr3)])
+        return optimizer
+
+
+class MultiModelAll4zhihu(BasicModule):
+
+    def __init__(self, opt):
+        super(MultiModelAll4zhihu, self).__init__()
+        self.model_name = 'MultiModelAll4zhihu'
+        self.opt = opt
+        self.models = []
+        self.word_embedding = nn.Embedding(411720, 256)
+        self.char_embedding = nn.Embedding(11973, 256)
+        model_opts = t.load(opt.model_path + '.json')
+        for _name, _path, model_opt_ in zip(opt.model_names, opt.model_paths, model_opts):
+            tmp_config = Config().parse(model_opt_, print_=False)
+            tmp_config.embedding_path = None
+            _model = getattr(models, _name)(tmp_config)
+            _model.encoder = self.char_embedding if _model.opt.type_ == 'char' else self.word_embedding
+            self.models.append(_model)
+        self.models = nn.ModuleList(self.models)
+        self.model_num = len(self.models)
+        self.weights = nn.Parameter(t.ones(opt.num_classes, self.model_num))
+        self.load(opt.model_path)
+
+    def load(self, path, **kwargs):
+        self.load_state_dict(t.load(path)['d'])
+
+    def forward(self, char, word):
+        weights = t.nn.functional.softmax(self.weights)
+        outs = []
+        for ii, model in enumerate(self.models):
+            if model.opt.type_ == 'char':
+                out = t.sigmoid(model(*char))
+            else:
+                out = t.sigmoid(model(*word))
+            out = out * weights[:, (ii)].contiguous().view(1, -1).expand_as(out)
+            outs.append(out)
+        return sum(outs)
+
+    def get_optimizer(self, lr1=0.001, lr2=0.0003, lr3=0.0003, weight_decay=0):
+        encoders = list(self.char_embedding.parameters()) + list(self.word_embedding.parameters())
+        other_params = [param_ for model_ in self.models for name_, param_ in model_.named_parameters() if name_.find('encoder') == -1]
+        new_params = [self.weights]
+        optimizer = t.optim.Adam([dict(params=other_params, weight_decay=weight_decay, lr=lr1), dict(params=encoders, weight_decay=weight_decay, lr=lr2), dict(params=new_params, weight_decay=weight_decay, lr=lr3)])
+        return optimizer
+
+
+class RCNN(BasicModule):
+
+    def __init__(self, opt):
+        super(RCNN, self).__init__()
+        self.model_name = 'RCNN'
+        self.opt = opt
+        kernel_size = opt.kernel_size
+        self.encoder = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        self.title_lstm = nn.LSTM(input_size=opt.embedding_dim, hidden_size=opt.hidden_size, num_layers=opt.num_layers, bias=True, batch_first=False, bidirectional=True)
+        self.title_conv = nn.Sequential(nn.Conv1d(in_channels=opt.hidden_size * 2 + opt.embedding_dim, out_channels=opt.title_dim, kernel_size=kernel_size), nn.BatchNorm1d(opt.title_dim), nn.ReLU(inplace=True), nn.Conv1d(in_channels=opt.title_dim, out_channels=opt.title_dim, kernel_size=kernel_size), nn.BatchNorm1d(opt.title_dim), nn.ReLU(inplace=True))
+        self.content_lstm = nn.LSTM(input_size=opt.embedding_dim, hidden_size=opt.hidden_size, num_layers=opt.num_layers, bias=True, batch_first=False, bidirectional=True)
+        self.content_conv = nn.Sequential(nn.Conv1d(in_channels=opt.hidden_size * 2 + opt.embedding_dim, out_channels=opt.content_dim, kernel_size=kernel_size), nn.BatchNorm1d(opt.content_dim), nn.ReLU(inplace=True), nn.Conv1d(in_channels=opt.content_dim, out_channels=opt.content_dim, kernel_size=kernel_size), nn.BatchNorm1d(opt.content_dim), nn.ReLU(inplace=True))
+        self.fc = nn.Sequential(nn.Linear(opt.kmax_pooling * (opt.title_dim + opt.content_dim), opt.linear_hidden_size), nn.BatchNorm1d(opt.linear_hidden_size), nn.ReLU(inplace=True), nn.Linear(opt.linear_hidden_size, opt.num_classes))
+        if opt.embedding_path:
+            self.encoder.weight.data.copy_(t.from_numpy(np.load(opt.embedding_path)['vector']))
+
+    def forward(self, title, content):
+        title = self.encoder(title)
+        content = self.encoder(content)
+        if self.opt.static:
+            title.detach()
+            content.detach()
+        title_out = self.title_lstm(title.permute(1, 0, 2))[0].permute(1, 2, 0)
+        title_em = title.permute(0, 2, 1)
+        title_out = t.cat((title_out, title_em), dim=1)
+        content_out = self.content_lstm(content.permute(1, 0, 2))[0].permute(1, 2, 0)
+        content_em = content.permute(0, 2, 1)
+        content_out = t.cat((content_out, content_em), dim=1)
+        title_conv_out = kmax_pooling(self.title_conv(title_out), 2, self.opt.kmax_pooling)
+        content_conv_out = kmax_pooling(self.content_conv(content_out), 2, self.opt.kmax_pooling)
+        conv_out = t.cat((title_conv_out, content_conv_out), dim=1)
+        reshaped = conv_out.view(conv_out.size(0), -1)
+        logits = self.fc(reshaped)
+        return logits
+
+
 class AliasMethod(object):
     """
         From: https://hips.seas.harvard.edu/blog/2013/03/03/the-alias-method-efficient-sampling-with-many-discrete-outcomes/
@@ -196,6 +571,37 @@ class AliasMethod(object):
         oq = kk.mul(b.long())
         oj = alias.mul((1 - b).long())
         return oq + oj
+
+
+class IndexLinear(nn.Linear):
+    """A linear layer that only decodes the results of provided indices
+    Args:
+        input: the list of embedding
+        indices: the indices of interests.
+    Shape:
+        - Input :math:`(N, in\\_features)`
+        - Indices :math:`(N, 1+N_r)` where `max(M) <= N`
+    Return:
+        - out :math:`(N, 1+N_r)`
+    """
+
+    def forward(self, input, indices=None):
+        """
+        Shape:
+            - target_batch :math:`(N, E, 1+N_r)`where `N = length, E = embedding size, N_r = noise ratio`
+        """
+        if indices is None:
+            return super(IndexLinear, self).forward(input)
+        input = input.unsqueeze(1)
+        target_batch = self.weight.index_select(0, indices.view(-1)).view(indices.size(0), indices.size(1), -1).transpose(1, 2)
+        bias = self.bias.index_select(0, indices.view(-1)).view(indices.size(0), 1, indices.size(1))
+        out = torch.baddbmm(1, bias, 1, input, target_batch)
+        return out.squeeze()
+
+    def reset_parameters(self):
+        init_range = 0.1
+        self.bias.data.fill_(0)
+        self.weight.data.uniform_(-init_range, init_range)
 
 
 class NCELoss(nn.Module):
@@ -272,37 +678,6 @@ class NCELoss(nn.Module):
         probs = self.decoder(embedding, indices)
         probs = probs.sub(self.norm_term).exp()
         return probs[:, (0)], probs[:, 1:]
-
-
-class IndexLinear(nn.Linear):
-    """A linear layer that only decodes the results of provided indices
-    Args:
-        input: the list of embedding
-        indices: the indices of interests.
-    Shape:
-        - Input :math:`(N, in\\_features)`
-        - Indices :math:`(N, 1+N_r)` where `max(M) <= N`
-    Return:
-        - out :math:`(N, 1+N_r)`
-    """
-
-    def forward(self, input, indices=None):
-        """
-        Shape:
-            - target_batch :math:`(N, E, 1+N_r)`where `N = length, E = embedding size, N_r = noise ratio`
-        """
-        if indices is None:
-            return super(IndexLinear, self).forward(input)
-        input = input.unsqueeze(1)
-        target_batch = self.weight.index_select(0, indices.view(-1)).view(indices.size(0), indices.size(1), -1).transpose(1, 2)
-        bias = self.bias.index_select(0, indices.view(-1)).view(indices.size(0), 1, indices.size(1))
-        out = torch.baddbmm(1, bias, 1, input, target_batch)
-        return out.squeeze()
-
-    def reset_parameters(self):
-        init_range = 0.1
-        self.bias.data.fill_(0)
-        self.weight.data.uniform_(-init_range, init_range)
 
 
 import torch

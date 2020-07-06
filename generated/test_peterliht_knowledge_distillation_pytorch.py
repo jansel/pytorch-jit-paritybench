@@ -25,26 +25,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import logging
 
 
 import numpy as np
 
 
 import torch
+
+
+import logging
 
 
 import torch.nn.functional as F
@@ -68,19 +69,31 @@ from torchvision import transforms
 import time
 
 
+import random
+
+
+import torchvision
+
+
+import torchvision.transforms as transforms
+
+
+from torch.utils.data.sampler import SubsetRandomSampler
+
+
 import math
 
 
 from torch.nn import init
 
 
-import random
-
-
 from torch.optim.lr_scheduler import StepLR
 
 
 from collections import OrderedDict
+
+
+import tensorflow as tf
 
 
 import scipy.misc
@@ -105,132 +118,111 @@ class teacherNet(nn.Module):
 
 
 class Net(nn.Module):
+    """
+    This is the standard way to define your own network in PyTorch. You typically choose the components
+    (e.g. LSTMs, linear layers etc.) of your network in the __init__ function. You then apply these layers
+    on the input step-by-step in the forward function. You can use torch.nn.functional to apply functions
 
-    def __init__(self):
+    such as F.relu, F.sigmoid, F.softmax, F.max_pool2d. Be careful to ensure your dimensions are correct after each
+    step. You are encouraged to have a look at the network in pytorch/nlp/model/net.py to get a better sense of how
+    you can go about defining your own network.
+
+    The documentation for all the various components available o you is here: http://pytorch.org/docs/master/nn.html
+    """
+
+    def __init__(self, params):
+        """
+        We define an convolutional network that predicts the sign from an image. The components
+        required are:
+
+        Args:
+            params: (Params) contains num_channels
+        """
         super(Net, self).__init__()
-        self.fc1 = nn.Linear(28 * 28, 800)
-        self.fc2 = nn.Linear(800, 800)
-        self.fc3 = nn.Linear(800, 10)
+        self.num_channels = params.num_channels
+        self.conv1 = nn.Conv2d(3, self.num_channels, 3, stride=1, padding=1)
+        self.bn1 = nn.BatchNorm2d(self.num_channels)
+        self.conv2 = nn.Conv2d(self.num_channels, self.num_channels * 2, 3, stride=1, padding=1)
+        self.bn2 = nn.BatchNorm2d(self.num_channels * 2)
+        self.conv3 = nn.Conv2d(self.num_channels * 2, self.num_channels * 4, 3, stride=1, padding=1)
+        self.bn3 = nn.BatchNorm2d(self.num_channels * 4)
+        self.fc1 = nn.Linear(4 * 4 * self.num_channels * 4, self.num_channels * 4)
+        self.fcbn1 = nn.BatchNorm1d(self.num_channels * 4)
+        self.fc2 = nn.Linear(self.num_channels * 4, 10)
+        self.dropout_rate = params.dropout_rate
 
-    def forward(self, x):
-        x = x.view(-1, 28 * 28)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+    def forward(self, s):
+        """
+        This function defines how we use the components of our network to operate on an input batch.
 
+        Args:
+            s: (Variable) contains a batch of images, of dimension batch_size x 3 x 32 x 32 .
 
-class teacherNet(nn.Module):
+        Returns:
+            out: (Variable) dimension batch_size x 6 with the log probabilities for the labels of each image.
 
-    def __init__(self):
-        super(teacherNet, self).__init__()
-        self.fc1 = nn.Linear(28 * 28, 1200)
-        self.fc2 = nn.Linear(1200, 1200)
-        self.fc3 = nn.Linear(1200, 10)
-
-    def forward(self, x):
-        x = x.view(-1, 28 * 28)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, p=0.8, training=self.training)
-        x = F.relu(self.fc2(x))
-        x = F.dropout(x, p=0.8, training=self.training)
-        x = self.fc3(x)
-        return x
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.fc1 = nn.Linear(28 * 28, 800)
-        self.fc2 = nn.Linear(800, 800)
-        self.fc3 = nn.Linear(800, 10)
-
-    def forward(self, x):
-        x = x.view(-1, 28 * 28)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.fc1 = nn.Linear(28 * 28, 800)
-        self.fc2 = nn.Linear(800, 800)
-        self.fc3 = nn.Linear(800, 10)
-
-    def forward(self, x):
-        x = x.view(-1, 28 * 28)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.fc1 = nn.Linear(28 * 28, 1200)
-        self.fc2 = nn.Linear(1200, 1200)
-        self.fc3 = nn.Linear(1200, 10)
-
-    def forward(self, x):
-        x = x.view(-1, 28 * 28)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, p=0.8, training=self.training)
-        x = F.relu(self.fc2(x))
-        x = F.dropout(x, p=0.8, training=self.training)
-        x = self.fc3(x)
-        return x
+        Note: the dimensions after each step are provided
+        """
+        s = self.bn1(self.conv1(s))
+        s = F.relu(F.max_pool2d(s, 2))
+        s = self.bn2(self.conv2(s))
+        s = F.relu(F.max_pool2d(s, 2))
+        s = self.bn3(self.conv3(s))
+        s = F.relu(F.max_pool2d(s, 2))
+        s = s.view(-1, 4 * 4 * self.num_channels * 4)
+        s = F.dropout(F.relu(self.fcbn1(self.fc1(s))), p=self.dropout_rate, training=self.training)
+        s = self.fc2(s)
+        return s
 
 
 class Bottleneck(nn.Module):
+    expansion = 4
 
-    def __init__(self, inplanes, expansion=4, growthRate=12, dropRate=0):
+    def __init__(self, in_planes, planes, stride=1):
         super(Bottleneck, self).__init__()
-        planes = expansion * growthRate
-        self.bn1 = nn.BatchNorm2d(inplanes)
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, growthRate, kernel_size=3, padding=1, bias=False)
-        self.relu = nn.ReLU(inplace=True)
-        self.dropRate = dropRate
+        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(self.expansion * planes)
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion * planes:
+            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
 
     def forward(self, x):
-        out = self.bn1(x)
-        out = self.relu(out)
-        out = self.conv1(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        if self.dropRate > 0:
-            out = F.dropout(out, p=self.dropRate, training=self.training)
-        out = torch.cat((x, out), 1)
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = F.relu(self.bn2(self.conv2(out)))
+        out = self.bn3(self.conv3(out))
+        out += self.shortcut(x)
+        out = F.relu(out)
         return out
 
 
 class BasicBlock(nn.Module):
 
-    def __init__(self, inplanes, expansion=1, growthRate=12, dropRate=0):
+    def __init__(self, in_planes, out_planes, stride, dropRate=0.0):
         super(BasicBlock, self).__init__()
-        planes = expansion * growthRate
-        self.bn1 = nn.BatchNorm2d(inplanes)
-        self.conv1 = nn.Conv2d(inplanes, growthRate, kernel_size=3, padding=1, bias=False)
-        self.relu = nn.ReLU(inplace=True)
-        self.dropRate = dropRate
+        self.bn1 = nn.BatchNorm2d(in_planes)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_planes)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.droprate = dropRate
+        self.equalInOut = in_planes == out_planes
+        self.convShortcut = not self.equalInOut and nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False) or None
 
     def forward(self, x):
-        out = self.bn1(x)
-        out = self.relu(out)
-        out = self.conv1(out)
-        if self.dropRate > 0:
-            out = F.dropout(out, p=self.dropRate, training=self.training)
-        out = torch.cat((x, out), 1)
-        return out
+        if not self.equalInOut:
+            x = self.relu1(self.bn1(x))
+        else:
+            out = self.relu1(self.bn1(x))
+        out = self.relu2(self.bn2(self.conv1(out if self.equalInOut else x)))
+        if self.droprate > 0:
+            out = F.dropout(out, p=self.droprate, training=self.training)
+        out = self.conv2(out)
+        return torch.add(x if self.equalInOut else self.convShortcut(x), out)
 
 
 class Transition(nn.Module):
@@ -302,128 +294,6 @@ class DenseNet(nn.Module):
         return x
 
 
-class Net(nn.Module):
-    """
-    This is the standard way to define your own network in PyTorch. You typically choose the components
-    (e.g. LSTMs, linear layers etc.) of your network in the __init__ function. You then apply these layers
-    on the input step-by-step in the forward function. You can use torch.nn.functional to apply functions
-
-    such as F.relu, F.sigmoid, F.softmax, F.max_pool2d. Be careful to ensure your dimensions are correct after each
-    step. You are encouraged to have a look at the network in pytorch/nlp/model/net.py to get a better sense of how
-    you can go about defining your own network.
-
-    The documentation for all the various components available o you is here: http://pytorch.org/docs/master/nn.html
-    """
-
-    def __init__(self, params):
-        """
-        We define an convolutional network that predicts the sign from an image. The components
-        required are:
-
-        Args:
-            params: (Params) contains num_channels
-        """
-        super(Net, self).__init__()
-        self.num_channels = params.num_channels
-        self.conv1 = nn.Conv2d(3, self.num_channels, 3, stride=1, padding=1)
-        self.bn1 = nn.BatchNorm2d(self.num_channels)
-        self.conv2 = nn.Conv2d(self.num_channels, self.num_channels * 2, 3, stride=1, padding=1)
-        self.bn2 = nn.BatchNorm2d(self.num_channels * 2)
-        self.conv3 = nn.Conv2d(self.num_channels * 2, self.num_channels * 4, 3, stride=1, padding=1)
-        self.bn3 = nn.BatchNorm2d(self.num_channels * 4)
-        self.fc1 = nn.Linear(4 * 4 * self.num_channels * 4, self.num_channels * 4)
-        self.fcbn1 = nn.BatchNorm1d(self.num_channels * 4)
-        self.fc2 = nn.Linear(self.num_channels * 4, 10)
-        self.dropout_rate = params.dropout_rate
-
-    def forward(self, s):
-        """
-        This function defines how we use the components of our network to operate on an input batch.
-
-        Args:
-            s: (Variable) contains a batch of images, of dimension batch_size x 3 x 32 x 32 .
-
-        Returns:
-            out: (Variable) dimension batch_size x 6 with the log probabilities for the labels of each image.
-
-        Note: the dimensions after each step are provided
-        """
-        s = self.bn1(self.conv1(s))
-        s = F.relu(F.max_pool2d(s, 2))
-        s = self.bn2(self.conv2(s))
-        s = F.relu(F.max_pool2d(s, 2))
-        s = self.bn3(self.conv3(s))
-        s = F.relu(F.max_pool2d(s, 2))
-        s = s.view(-1, 4 * 4 * self.num_channels * 4)
-        s = F.dropout(F.relu(self.fcbn1(self.fc1(s))), p=self.dropout_rate, training=self.training)
-        s = self.fc2(s)
-        return s
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(inplanes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = conv3x3(planes, planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.bn1(x)
-        out = self.relu(out)
-        out = self.conv1(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.bn1 = nn.BatchNorm2d(inplanes)
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.bn1(x)
-        out = self.relu(out)
-        out = self.conv1(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn3(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        return out
-
-
 class PreResNet(nn.Module):
 
     def __init__(self, depth, num_classes=1000):
@@ -470,51 +340,6 @@ class PreResNet(nn.Module):
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(BasicBlock, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = self.bn2(self.conv2(out))
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, in_planes, planes, stride=1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, self.expansion * planes, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(self.expansion * planes)
-        self.shortcut = nn.Sequential()
-        if stride != 1 or in_planes != self.expansion * planes:
-            self.shortcut = nn.Sequential(nn.Conv2d(in_planes, self.expansion * planes, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(self.expansion * planes))
-
-    def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
-        out = self.bn3(self.conv3(out))
-        out += self.shortcut(x)
-        out = F.relu(out)
-        return out
 
 
 class ResNet(nn.Module):
@@ -653,32 +478,6 @@ class CifarResNeXt(nn.Module):
         x = F.avg_pool2d(x, 8, 1)
         x = x.view(-1, 1024)
         return self.classifier(x)
-
-
-class BasicBlock(nn.Module):
-
-    def __init__(self, in_planes, out_planes, stride, dropRate=0.0):
-        super(BasicBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.relu1 = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(out_planes)
-        self.relu2 = nn.ReLU(inplace=True)
-        self.conv2 = nn.Conv2d(out_planes, out_planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.droprate = dropRate
-        self.equalInOut = in_planes == out_planes
-        self.convShortcut = not self.equalInOut and nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, padding=0, bias=False) or None
-
-    def forward(self, x):
-        if not self.equalInOut:
-            x = self.relu1(self.bn1(x))
-        else:
-            out = self.relu1(self.bn1(x))
-        out = self.relu2(self.bn2(self.conv1(out if self.equalInOut else x)))
-        if self.droprate > 0:
-            out = F.dropout(out, p=self.droprate, training=self.training)
-        out = self.conv2(out)
-        return torch.add(x if self.equalInOut else self.convShortcut(x), out)
 
 
 class NetworkBlock(nn.Module):

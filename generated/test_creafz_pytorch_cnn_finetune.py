@@ -16,20 +16,22 @@ conftest = _module
 test_base = _module
 test_pretrained_models = _module
 test_torchvision_models = _module
+utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -55,13 +57,16 @@ from torch import nn
 from torch.utils import model_zoo
 
 
+from torchvision import models as torchvision_models
+
+
+from torch.autograd import Variable
+
+
 import torchvision
 
 
 import torchvision.transforms as transforms
-
-
-from torch.autograd import Variable
 
 
 import torch.nn as nn
@@ -70,10 +75,13 @@ import torch.nn as nn
 import torch.optim as optim
 
 
+import re
+
+
 import types
 
 
-from torchvision import models as torchvision_models
+import numpy as np
 
 
 MODEL_REGISTRY = {}
@@ -211,4 +219,356 @@ class ModelWrapperBase(nn.Module, metaclass=ModelWrapperMeta):
             x = x.view(x.size(0), -1)
         x = self.classifier(x)
         return x
+
+
+ModelInfo = namedtuple('ModelInfo', ['input_space', 'input_size', 'input_range', 'mean', 'std'])
+
+
+class PretrainedModelsWrapper(ModelWrapperBase):
+
+    def get_original_model_info(self, original_model):
+        return ModelInfo(input_space=original_model.input_space, input_size=original_model.input_size, input_range=original_model.input_range, mean=original_model.mean, std=original_model.std)
+
+    def get_original_model(self):
+        model = getattr(pretrainedmodels, self.model_name)
+        if self.pretrained:
+            model_kwargs = {'pretrained': 'imagenet', 'num_classes': 1000}
+        else:
+            model_kwargs = {'pretrained': None}
+        return model(**model_kwargs)
+
+    def get_features(self, original_model):
+        return original_model.features
+
+    def get_original_classifier(self, original_model):
+        return original_model.last_linear
+
+    def get_classifier_in_features(self, original_model):
+        return original_model.last_linear.in_features
+
+
+class ResNeXtWrapper(PretrainedModelsWrapper):
+    model_names = ['resnext101_32x4d', 'resnext101_64x4d']
+
+
+class NasNetWrapper(PretrainedModelsWrapper):
+    model_names = ['nasnetalarge']
+
+    def get_features(self, original_model):
+        features = nn.Module()
+        for name, module in list(original_model.named_children())[:-3]:
+            features.add_module(name, module)
+        return features
+
+    def features(self, x):
+        x_conv0 = self._features.conv0(x)
+        x_stem_0 = self._features.cell_stem_0(x_conv0)
+        x_stem_1 = self._features.cell_stem_1(x_conv0, x_stem_0)
+        x_cell_0 = self._features.cell_0(x_stem_1, x_stem_0)
+        x_cell_1 = self._features.cell_1(x_cell_0, x_stem_1)
+        x_cell_2 = self._features.cell_2(x_cell_1, x_cell_0)
+        x_cell_3 = self._features.cell_3(x_cell_2, x_cell_1)
+        x_cell_4 = self._features.cell_4(x_cell_3, x_cell_2)
+        x_cell_5 = self._features.cell_5(x_cell_4, x_cell_3)
+        x_reduction_cell_0 = self._features.reduction_cell_0(x_cell_5, x_cell_4)
+        x_cell_6 = self._features.cell_6(x_reduction_cell_0, x_cell_4)
+        x_cell_7 = self._features.cell_7(x_cell_6, x_reduction_cell_0)
+        x_cell_8 = self._features.cell_8(x_cell_7, x_cell_6)
+        x_cell_9 = self._features.cell_9(x_cell_8, x_cell_7)
+        x_cell_10 = self._features.cell_10(x_cell_9, x_cell_8)
+        x_cell_11 = self._features.cell_11(x_cell_10, x_cell_9)
+        x_reduction_cell_1 = self._features.reduction_cell_1(x_cell_11, x_cell_10)
+        x_cell_12 = self._features.cell_12(x_reduction_cell_1, x_cell_10)
+        x_cell_13 = self._features.cell_13(x_cell_12, x_reduction_cell_1)
+        x_cell_14 = self._features.cell_14(x_cell_13, x_cell_12)
+        x_cell_15 = self._features.cell_15(x_cell_14, x_cell_13)
+        x_cell_16 = self._features.cell_16(x_cell_15, x_cell_14)
+        x_cell_17 = self._features.cell_17(x_cell_16, x_cell_15)
+        x = self._features.relu(x_cell_17)
+        return x
+
+
+class NasNetMobileWrapper(PretrainedModelsWrapper):
+    model_names = ['nasnetamobile']
+
+    def get_features(self, original_model):
+        features = nn.Module()
+        for name, module in list(original_model.named_children())[:-3]:
+            features.add_module(name, module)
+        return features
+
+    def features(self, input):
+        x_conv0 = self._features.conv0(input)
+        x_stem_0 = self._features.cell_stem_0(x_conv0)
+        x_stem_1 = self._features.cell_stem_1(x_conv0, x_stem_0)
+        x_cell_0 = self._features.cell_0(x_stem_1, x_stem_0)
+        x_cell_1 = self._features.cell_1(x_cell_0, x_stem_1)
+        x_cell_2 = self._features.cell_2(x_cell_1, x_cell_0)
+        x_cell_3 = self._features.cell_3(x_cell_2, x_cell_1)
+        x_reduction_cell_0 = self._features.reduction_cell_0(x_cell_3, x_cell_2)
+        x_cell_6 = self._features.cell_6(x_reduction_cell_0, x_cell_3)
+        x_cell_7 = self._features.cell_7(x_cell_6, x_reduction_cell_0)
+        x_cell_8 = self._features.cell_8(x_cell_7, x_cell_6)
+        x_cell_9 = self._features.cell_9(x_cell_8, x_cell_7)
+        x_reduction_cell_1 = self._features.reduction_cell_1(x_cell_9, x_cell_8)
+        x_cell_12 = self._features.cell_12(x_reduction_cell_1, x_cell_9)
+        x_cell_13 = self._features.cell_13(x_cell_12, x_reduction_cell_1)
+        x_cell_14 = self._features.cell_14(x_cell_13, x_cell_12)
+        x_cell_15 = self._features.cell_15(x_cell_14, x_cell_13)
+        x = self._features.relu(x_cell_15)
+        return x
+
+
+class InceptionResNetV2Wrapper(PretrainedModelsWrapper):
+    model_names = ['inceptionresnetv2']
+
+    def get_features(self, original_model):
+        return nn.Sequential(*list(original_model.children())[:-2])
+
+
+class DPNWrapper(PretrainedModelsWrapper):
+    model_names = ['dpn68', 'dpn68b', 'dpn92', 'dpn98', 'dpn131', 'dpn107']
+    flatten_features_output = False
+
+    def get_original_model(self):
+        model = getattr(pretrainedmodels, self.model_name)
+        if self.pretrained:
+            if self.model_name in {'dpn68b', 'dpn92', 'dpn107'}:
+                pretrained = 'imagenet+5k'
+            else:
+                pretrained = 'imagenet'
+            model_kwargs = {'pretrained': pretrained, 'num_classes': 1000}
+        else:
+            model_kwargs = {'pretrained': None}
+        return model(**model_kwargs)
+
+    def get_classifier_in_features(self, original_model):
+        return original_model.last_linear.in_channels
+
+    def get_classifier(self, in_features, num_classes):
+        return nn.Conv2d(in_features, num_classes, kernel_size=1, bias=True)
+
+    def classifier(self, x):
+        x = self._classifier(x)
+        if not self.training:
+            x = adaptive_avgmax_pool2d(x, pool_type='avgmax')
+        return x.view(x.size(0), -1)
+
+
+class InceptionV4Wrapper(PretrainedModelsWrapper):
+    model_names = ['inception_v4']
+
+    def get_original_model(self):
+        if self.pretrained:
+            model_kwargs = {'pretrained': 'imagenet', 'num_classes': 1000}
+        else:
+            model_kwargs = {'pretrained': None}
+        return pretrainedmodels.inceptionv4(**model_kwargs)
+
+
+class XceptionWrapper(PretrainedModelsWrapper):
+    model_names = ['xception']
+
+    def get_features(self, original_model):
+        return nn.Sequential(*list(original_model.children())[:-1])
+
+
+class SenetWrapper(PretrainedModelsWrapper):
+    model_names = ['senet154', 'se_resnet50', 'se_resnet101', 'se_resnet152', 'se_resnext50_32x4d', 'se_resnext101_32x4d']
+
+    def get_features(self, original_model):
+        return nn.Sequential(original_model.layer0, original_model.layer1, original_model.layer2, original_model.layer3, original_model.layer4)
+
+
+class PNasNetWrapper(PretrainedModelsWrapper):
+    model_names = ['pnasnet5large']
+
+    def get_features(self, original_model):
+        features = nn.Module()
+        for name, module in list(original_model.named_children())[:-3]:
+            features.add_module(name, module)
+        return features
+
+    def features(self, x):
+        x_conv_0 = self._features.conv_0(x)
+        x_stem_0 = self._features.cell_stem_0(x_conv_0)
+        x_stem_1 = self._features.cell_stem_1(x_conv_0, x_stem_0)
+        x_cell_0 = self._features.cell_0(x_stem_0, x_stem_1)
+        x_cell_1 = self._features.cell_1(x_stem_1, x_cell_0)
+        x_cell_2 = self._features.cell_2(x_cell_0, x_cell_1)
+        x_cell_3 = self._features.cell_3(x_cell_1, x_cell_2)
+        x_cell_4 = self._features.cell_4(x_cell_2, x_cell_3)
+        x_cell_5 = self._features.cell_5(x_cell_3, x_cell_4)
+        x_cell_6 = self._features.cell_6(x_cell_4, x_cell_5)
+        x_cell_7 = self._features.cell_7(x_cell_5, x_cell_6)
+        x_cell_8 = self._features.cell_8(x_cell_6, x_cell_7)
+        x_cell_9 = self._features.cell_9(x_cell_7, x_cell_8)
+        x_cell_10 = self._features.cell_10(x_cell_8, x_cell_9)
+        x_cell_11 = self._features.cell_11(x_cell_9, x_cell_10)
+        x = self._features.relu(x_cell_11)
+        return x
+
+
+class PolyNetWrapper(PretrainedModelsWrapper):
+    model_names = ['polynet']
+
+    def get_features(self, original_model):
+        return nn.Sequential(*list(original_model.children())[:-3])
+
+
+class TorchvisionWrapper(ModelWrapperBase):
+
+    def get_original_model_info(self, original_model):
+        return ModelInfo(input_space='RGB', input_size=[3, 224, 224], input_range=[0, 1], mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+
+    def get_original_model(self):
+        model = getattr(torchvision_models, self.model_name)
+        return model(pretrained=self.pretrained)
+
+    def get_original_classifier(self, original_model):
+        return original_model.classifier
+
+
+class ResNetWrapper(TorchvisionWrapper):
+    model_names = ['resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152', 'resnext50_32x4d', 'resnext101_32x8d']
+
+    def get_features(self, original_model):
+        return nn.Sequential(*list(original_model.children())[:-2])
+
+    def get_classifier_in_features(self, original_model):
+        return original_model.fc.in_features
+
+    def get_original_classifier(self, original_model):
+        return original_model.fc
+
+
+class DenseNetWrapper(TorchvisionWrapper):
+    model_names = ['densenet121', 'densenet169', 'densenet201', 'densenet161']
+
+    def get_features(self, original_model):
+        return nn.Sequential(*original_model.features, nn.ReLU(inplace=True))
+
+    def get_classifier_in_features(self, original_model):
+        return original_model.classifier.in_features
+
+
+class NetWithFcClassifierWrapper(TorchvisionWrapper):
+
+    def check_args(self, model_name, pool, use_original_classifier, input_size, num_classes, pretrained, **kwargs):
+        super().check_args()
+        if input_size is None:
+            raise Exception('You must provide input_size, e.g. make_model({model_name}, num_classes={num_classes}, pretrained={pretrained}, input_size=(224, 224)'.format(model_name=model_name, num_classes=num_classes, pretrained=pretrained))
+        if use_original_classifier:
+            if pool is not None and pool is not default:
+                raise Exception("You can't use pool layer with the original classifier")
+            if input_size != (224, 224):
+                raise Exception('For the original classifier input_size value must be (224, 224)')
+
+    def get_classifier_in_features(self, original_model):
+        return self.calculate_classifier_in_features(original_model)
+
+    def get_features(self, original_model):
+        return original_model.features
+
+    def get_pool(self):
+        return None
+
+
+class AlexNetWrapper(NetWithFcClassifierWrapper):
+    model_names = ['alexnet']
+
+    def get_classifier(self, in_features, num_classes):
+        return nn.Sequential(nn.Linear(in_features, 4096), nn.ReLU(inplace=True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(inplace=True), nn.Linear(4096, num_classes))
+
+
+class VGGWrapper(NetWithFcClassifierWrapper):
+    model_names = ['vgg11', 'vgg11_bn', 'vgg13', 'vgg13_bn', 'vgg16', 'vgg16_bn', 'vgg19', 'vgg19_bn']
+
+    def get_classifier(self, in_features, num_classes):
+        return nn.Sequential(nn.Linear(in_features, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, 4096), nn.ReLU(True), nn.Dropout(), nn.Linear(4096, num_classes))
+
+
+class SqueezeNetWrapper(TorchvisionWrapper):
+    model_names = ['squeezenet1_0', 'squeezenet1_1']
+
+    def get_features(self, original_model):
+        return original_model.features
+
+    def get_pool(self):
+        return None
+
+    def get_classifier_in_features(self, original_model):
+        return self.calculate_classifier_in_features(original_model)
+
+    def get_classifier(self, in_features, num_classes):
+        classifier = nn.Sequential(nn.Conv2d(512, num_classes, kernel_size=1), nn.ReLU(inplace=True), nn.AdaptiveAvgPool2d(1))
+        return classifier
+
+    def forward(self, x):
+        x = self.features(x)
+        if self.pool is not None:
+            x = self.pool(x)
+        if self.dropout is not None:
+            x = self.dropout(x)
+        x = self.classifier(x)
+        return x.view(x.size(0), self.num_classes)
+
+
+class InceptionWrapper(ModelWrapperBase):
+
+    def get_original_model_info(self, original_model):
+        return ModelInfo(input_space='RGB', input_size=[3, 299, 299], input_range=[0, 1], mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+
+    def get_original_model(self):
+        model = getattr(torchvision_models, self.model_name)
+        return model(pretrained=self.pretrained)
+
+    def get_original_classifier(self, original_model):
+        return original_model.fc
+
+    def get_classifier_in_features(self, original_model):
+        return original_model.fc.in_features
+
+
+class InceptionV3Wrapper(InceptionWrapper):
+    model_names = ['inception_v3']
+
+    def get_features(self, original_model):
+        features = nn.Sequential(original_model.Conv2d_1a_3x3, original_model.Conv2d_2a_3x3, original_model.Conv2d_2b_3x3, nn.MaxPool2d(kernel_size=3, stride=2), original_model.Conv2d_3b_1x1, original_model.Conv2d_4a_3x3, nn.MaxPool2d(kernel_size=3, stride=2), original_model.Mixed_5b, original_model.Mixed_5c, original_model.Mixed_5d, original_model.Mixed_6a, original_model.Mixed_6b, original_model.Mixed_6c, original_model.Mixed_6d, original_model.Mixed_6e, original_model.Mixed_7a, original_model.Mixed_7b, original_model.Mixed_7c)
+        return features
+
+
+class GoogLeNetWrapper(InceptionWrapper):
+    model_names = ['googlenet']
+
+    def get_features(self, original_model):
+        features = nn.Sequential(original_model.conv1, original_model.maxpool1, original_model.conv2, original_model.conv3, original_model.maxpool2, original_model.inception3a, original_model.inception3b, original_model.maxpool3, original_model.inception4a, original_model.inception4b, original_model.inception4c, original_model.inception4d, original_model.inception4e, original_model.maxpool4, original_model.inception5a, original_model.inception5b)
+        return features
+
+
+class MobileNetV2Wrapper(TorchvisionWrapper):
+    model_names = ['mobilenet_v2']
+
+    def get_features(self, original_model):
+        return original_model.features
+
+    def get_original_classifier(self, original_model):
+        return original_model.classifier[-1]
+
+    def get_classifier_in_features(self, original_model):
+        return original_model.classifier[-1].in_features
+
+
+class ShuffleNetV2Wrapper(TorchvisionWrapper):
+    model_names = ['shufflenet_v2_x0_5', 'shufflenet_v2_x1_0']
+
+    def get_features(self, original_model):
+        features = nn.Sequential(original_model.conv1, original_model.maxpool, original_model.stage2, original_model.stage3, original_model.stage4, original_model.conv5)
+        return features
+
+    def get_original_classifier(self, original_model):
+        return original_model.fc
+
+    def get_classifier_in_features(self, original_model):
+        return original_model.fc.in_features
 

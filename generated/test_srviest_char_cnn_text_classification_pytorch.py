@@ -15,17 +15,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
+
+
+import torch.autograd as autograd
 
 
 import torch
@@ -37,9 +47,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from torch.utils.data import DataLoader
-
-
 from torch import nn
 
 
@@ -47,36 +54,6 @@ from torch.autograd import Variable
 
 
 from torch import optim
-
-
-class CharCNN(nn.Module):
-
-    def __init__(self, args):
-        super(CharCNN, self).__init__()
-        self.conv1 = nn.Sequential(nn.Conv1d(args.num_features, 256, kernel_size=7, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
-        self.conv2 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=7, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
-        self.conv3 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
-        self.conv4 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
-        self.conv5 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
-        self.conv6 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
-        self.fc1 = nn.Sequential(nn.Linear(8704, 1024), nn.ReLU(), nn.Dropout(p=args.dropout))
-        self.fc2 = nn.Sequential(nn.Linear(1024, 1024), nn.ReLU(), nn.Dropout(p=args.dropout))
-        self.fc3 = nn.Linear(1024, 4)
-        self.log_softmax = nn.LogSoftmax()
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = self.conv4(x)
-        x = self.conv5(x)
-        x = self.conv6(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc1(x)
-        x = self.fc2(x)
-        x = self.fc3(x)
-        x = self.log_softmax(x)
-        return x
 
 
 class CharCNN(nn.Module):
@@ -207,4 +184,22 @@ class CNN_Text(nn.Module):
         x = self.dropout(x)
         logit = self.fc1(x)
         return logit
+
+
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
+
+
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (CNN_Text,
+     lambda: ([], {'args': _mock_config(embed_num=4, embed_dim=4, class_num=4, kernel_num=4, kernel_sizes=[4, 4], dropout=0.5, static=4)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
+]
+
+class Test_srviest_char_cnn_text_classification_pytorch(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
 

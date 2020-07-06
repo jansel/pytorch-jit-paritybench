@@ -139,6 +139,7 @@ test_conversions = _module
 test_depth = _module
 test_dsnt = _module
 test_linalg = _module
+test_perspective = _module
 test_pinhole = _module
 test_spatial_softargmax = _module
 test_affine = _module
@@ -175,23 +176,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import numpy as np
+from itertools import product
+
+
+from typing import Dict
 
 
 import torch
+
+
+import numpy as np
 
 
 import torch.nn as nn
@@ -218,9 +226,6 @@ from typing import List
 from typing import Optional
 
 
-from typing import Dict
-
-
 from typing import cast
 
 
@@ -233,7 +238,16 @@ import random
 import math
 
 
+from torch.distributions import Uniform
+
+
 from functools import reduce
+
+
+from typing import TypeVar
+
+
+from enum import Enum
 
 
 from torch.nn.modules.utils import _pair
@@ -255,6 +269,12 @@ from torch.autograd import gradcheck
 
 
 import logging
+
+
+from time import time
+
+
+import torchvision
 
 
 from torch.utils.data import Dataset
@@ -283,15 +303,11 @@ class InvDepth(nn.Module):
 
 class MyHomography(nn.Module):
 
-    def __init__(self):
-        super(MyHomography, self).__init__()
-        self.homo = nn.Parameter(torch.Tensor(3, 3))
-        self.reset_parameters()
+    def __init__(self, init_homo: torch.Tensor) ->None:
+        super().__init__()
+        self.homo = nn.Parameter(init_homo.clone().detach())
 
-    def reset_parameters(self):
-        torch.nn.init.eye_(self.homo)
-
-    def forward(self):
+    def forward(self) ->torch.Tensor:
         return torch.unsqueeze(self.homo, dim=0)
 
 
@@ -396,6 +412,887 @@ class AugmentationBase(nn.Module):
         return output
 
 
+class RandomHorizontalFlip(AugmentationBase):
+    """Horizontally flip a tensor image or a batch of tensor images randomly with a given probability.
+    Input should be a tensor of shape (C, H, W) or a batch of tensors :math:`(B, C, H, W)`.
+    If Input is a tuple it is assumed that the first element contains the aforementioned tensors and the second,
+    the corresponding transformation matrix that has been applied to them. In this case the module
+    will Horizontally flip the tensors and concatenate the corresponding transformation matrix to the
+    previous one. This is especially useful when using this functionality as part of an ``nn.Sequential`` module.
+
+    Args:
+        p (float): probability of the image being flipped. Default value is 0.5
+        return_transform (bool): if ``True`` return the matrix describing the transformation applied to each
+                                      input tensor. If ``False`` and the input is a tuple the applied transformation
+                                      wont be concatenated
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+
+    Examples:
+        >>> input = torch.tensor([[[[0., 0., 0.],
+        ...                         [0., 0., 0.],
+        ...                         [0., 1., 1.]]]])
+        >>> seq = nn.Sequential(RandomHorizontalFlip(p=1.0, return_transform=True),
+        ...                     RandomHorizontalFlip(p=1.0, return_transform=True))
+        >>> seq(input)
+        (tensor([[[[0., 0., 0.],
+                  [0., 0., 0.],
+                  [0., 1., 1.]]]]), tensor([[[1., 0., 0.],
+                 [0., 1., 0.],
+                 [0., 0., 1.]]]))
+
+    """
+
+    def __init__(self, p: float=0.5, return_transform: bool=False, same_on_batch: bool=False, align_corners: bool=False) ->None:
+        super(RandomHorizontalFlip, self).__init__(return_transform)
+        self.p: float = p
+        self.same_on_batch = same_on_batch
+        self.align_corners = align_corners
+
+    def __repr__(self) ->str:
+        repr = f'(p={self.p}, return_transform={self.return_transform}, same_on_batch={self.same_on_batch})'
+        return self.__class__.__name__ + repr
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_prob_generator(batch_shape[0], self.p, self.same_on_batch)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_hflip_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_hflip(input, params)
+
+
+class RandomVerticalFlip(AugmentationBase):
+    """Vertically flip a tensor image or a batch of tensor images randomly with a given probability.
+    Input should be a tensor of shape (C, H, W) or a batch of tensors :math:`(B, C, H, W)`.
+    If Input is a tuple it is assumed that the first element contains the aforementioned tensors and the second,
+    the corresponding transformation matrix that has been applied to them. In this case the module
+    will Vertically flip the tensors and concatenate the corresponding transformation matrix to the
+    previous one. This is especially useful when using this functionality as part of an ``nn.Sequential`` module.
+
+    Args:
+        p (float): probability of the image being flipped. Default value is 0.5
+        return_transform (bool): if ``True`` return the matrix describing the transformation applied to each
+                                      input tensor. If ``False`` and the input is a tuple the applied transformation
+                                      wont be concatenated
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+
+    Examples:
+        >>> input = torch.tensor([[[[0., 0., 0.],
+        ...                         [0., 0., 0.],
+        ...                         [0., 1., 1.]]]])
+        >>> seq = RandomVerticalFlip(p=1.0, return_transform=True)
+        >>> seq(input)
+        (tensor([[[[0., 1., 1.],
+                  [0., 0., 0.],
+                  [0., 0., 0.]]]]), tensor([[[ 1.,  0.,  0.],
+                 [ 0., -1.,  3.],
+                 [ 0.,  0.,  1.]]]))
+
+    """
+
+    def __init__(self, p: float=0.5, return_transform: bool=False, same_on_batch: bool=False) ->None:
+        super(RandomVerticalFlip, self).__init__(return_transform)
+        self.p: float = p
+        self.same_on_batch = same_on_batch
+
+    def __repr__(self) ->str:
+        repr = f'(p={self.p}, return_transform={self.return_transform}, same_on_batch={self.same_on_batch})'
+        return self.__class__.__name__ + repr
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_prob_generator(batch_shape[0], self.p, self.same_on_batch)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_vflip_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_vflip(input, params)
+
+
+FloatUnionType = Union[torch.Tensor, float, Tuple[float, float], List[float]]
+
+
+class ColorJitter(AugmentationBase):
+    """Change the brightness, contrast, saturation and hue randomly given tensor image or a batch of tensor images.
+    Input should be a tensor of shape (C, H, W) or a batch of tensors :math:`(B, C, H, W)`.
+
+    Args:
+        brightness (float or tuple): Default value is 0
+        contrast (float or tuple): Default value is 0
+        saturation (float or tuple): Default value is 0
+        hue (float or tuple): Default value is 0
+        return_transform (bool): if ``True`` return the matrix describing the transformation applied to each
+                                      input tensor. If ``False`` and the input is a tuple the applied transformation
+                                      wont be concatenated
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+
+    Examples:
+        >>> rng = torch.manual_seed(0)
+        >>> inputs = torch.ones(1, 3, 3, 3)
+        >>> aug = ColorJitter(0.1, 0.1, 0.1, 0.1)
+        >>> aug(inputs)
+        tensor([[[[0.9993, 0.9993, 0.9993],
+                  [0.9993, 0.9993, 0.9993],
+                  [0.9993, 0.9993, 0.9993]],
+        <BLANKLINE>
+                 [[0.9993, 0.9993, 0.9993],
+                  [0.9993, 0.9993, 0.9993],
+                  [0.9993, 0.9993, 0.9993]],
+        <BLANKLINE>
+                 [[0.9993, 0.9993, 0.9993],
+                  [0.9993, 0.9993, 0.9993],
+                  [0.9993, 0.9993, 0.9993]]]])
+    """
+
+    def __init__(self, brightness: FloatUnionType=0.0, contrast: FloatUnionType=0.0, saturation: FloatUnionType=0.0, hue: FloatUnionType=0.0, return_transform: bool=False, same_on_batch: bool=False) ->None:
+        super(ColorJitter, self).__init__(return_transform)
+        self.brightness: FloatUnionType = brightness
+        self.contrast: FloatUnionType = contrast
+        self.saturation: FloatUnionType = saturation
+        self.hue: FloatUnionType = hue
+        self.same_on_batch = same_on_batch
+
+    def __repr__(self) ->str:
+        repr = f'(brightness={self.brightness}, contrast={self.contrast}, saturation={self.saturation},            hue={self.hue}, return_transform={self.return_transform}, same_on_batch={self.same_on_batch})'
+        return self.__class__.__name__ + repr
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_color_jitter_generator(batch_shape[0], self.brightness, self.contrast, self.saturation, self.hue, self.same_on_batch)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_intensity_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_color_jitter(input, params)
+
+
+class RandomGrayscale(AugmentationBase):
+    """Random Grayscale transformation according to a probability p value
+
+    Args:
+        p (float): probability of the image to be transformed to grayscale. Default value is 0.1
+        return_transform (bool): if ``True`` return the matrix describing the transformation applied to each
+                                      input tensor. If ``False`` and the input is a tuple the applied transformation
+                                      wont be concatenated
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+
+    Examples:
+        >>> rng = torch.manual_seed(0)
+        >>> inputs = torch.randn((1, 3, 3, 3))
+        >>> rec_er = RandomGrayscale(p=1.0)
+        >>> rec_er(inputs)
+        tensor([[[[-1.1344, -0.1330,  0.1517],
+                  [-0.0791,  0.6711, -0.1413],
+                  [-0.1717, -0.9023,  0.0819]],
+        <BLANKLINE>
+                 [[-1.1344, -0.1330,  0.1517],
+                  [-0.0791,  0.6711, -0.1413],
+                  [-0.1717, -0.9023,  0.0819]],
+        <BLANKLINE>
+                 [[-1.1344, -0.1330,  0.1517],
+                  [-0.0791,  0.6711, -0.1413],
+                  [-0.1717, -0.9023,  0.0819]]]])
+    """
+
+    def __init__(self, p: float=0.1, return_transform: bool=False, same_on_batch: bool=False) ->None:
+        super(RandomGrayscale, self).__init__(return_transform)
+        self.p = p
+        self.same_on_batch = same_on_batch
+
+    def __repr__(self) ->str:
+        repr = f'(p={self.p}, return_transform={self.return_transform}, same_on_batch={self.same_on_batch})'
+        return self.__class__.__name__ + repr
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_prob_generator(batch_shape[0], self.p, self.same_on_batch)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_intensity_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_grayscale(input, params)
+
+
+class RandomErasing(AugmentationBase):
+    """
+    Erases a random selected rectangle for each image in the batch, putting the value to zero.
+    The rectangle will have an area equal to the original image area multiplied by a value uniformly
+    sampled between the range [scale[0], scale[1]) and an aspect ratio sampled
+    between [ratio[0], ratio[1])
+
+    Args:
+        p (float): probability that the random erasing operation will be performed.
+        scale (Tuple[float, float]): range of proportion of erased area against input image.
+        ratio (Tuple[float, float]): range of aspect ratio of erased area.
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+
+    Examples:
+        >>> rng = torch.manual_seed(0)
+        >>> inputs = torch.ones(1, 1, 3, 3)
+        >>> rec_er = RandomErasing(1.0, (.4, .8), (.3, 1/.3))
+        >>> rec_er(inputs)
+        tensor([[[[1., 0., 0.],
+                  [1., 0., 0.],
+                  [1., 0., 0.]]]])
+    """
+
+    def __init__(self, p: float=0.5, scale: Tuple[float, float]=(0.02, 0.33), ratio: Tuple[float, float]=(0.3, 3.3), value: float=0.0, return_transform: bool=False, same_on_batch: bool=False) ->None:
+        super(RandomErasing, self).__init__(return_transform)
+        self.p = p
+        self.scale: Tuple[float, float] = scale
+        self.ratio: Tuple[float, float] = ratio
+        self.value: float = value
+        self.same_on_batch = same_on_batch
+
+    def __repr__(self) ->str:
+        repr = f'(scale={self.scale}, ratio={self.ratio}, value={self.value}, '
+        f"""return_transform={self.return_transform}, same_on_batch={self.same_on_batch})"""
+        return self.__class__.__name__ + repr
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_rectangles_params_generator(batch_shape[0], batch_shape[-2], batch_shape[-1], p=self.p, scale=self.scale, ratio=self.ratio, value=self.value, same_on_batch=self.same_on_batch)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_intensity_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_erase_rectangles(input, params)
+
+
+T = TypeVar('T', bound='Resample')
+
+
+class Resample(Enum):
+    NEAREST = 0
+    BILINEAR = 1
+    BICUBIC = 2
+
+    @classmethod
+    def get(cls, value: Union[str, int, T]) ->T:
+        if type(value) == str:
+            return cls[value.upper()]
+        if type(value) == int:
+            return cls(value)
+        if type(value) == cls:
+            return value
+        raise TypeError()
+
+
+class RandomPerspective(AugmentationBase):
+    """Performs Perspective transformation of the given torch.Tensor randomly with a given probability.
+
+    Args:
+        p (float): probability of the image being perspectively transformed. Default value is 0.5
+        distortion_scale(float): it controls the degree of distortion and ranges from 0 to 1. Default value is 0.5.
+        interpolation (int, str or kornia.Resample): Default: Resample.BILINEAR
+        return_transform (bool): if ``True`` return the matrix describing the transformation
+                                 applied to each. Default: False.
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+
+    Examples:
+        >>> rng = torch.manual_seed(0)
+        >>> inputs= torch.tensor([[[[1., 0., 0.],
+        ...                         [0., 1., 0.],
+        ...                         [0., 0., 1.]]]])
+        >>> aug = RandomPerspective(0.5, 1.0)
+        >>> aug(inputs)
+        tensor([[[[0.0000, 0.2289, 0.0000],
+                  [0.0000, 0.4800, 0.0000],
+                  [0.0000, 0.0000, 0.0000]]]])
+    """
+
+    def __init__(self, distortion_scale: float=0.5, p: float=0.5, interpolation: Union[str, int, Resample]=Resample.BILINEAR.name, return_transform: bool=False, same_on_batch: bool=False, align_corners: bool=False) ->None:
+        super(RandomPerspective, self).__init__(return_transform)
+        self.p: float = p
+        self.distortion_scale: float = distortion_scale
+        self.interpolation: Resample = Resample.get(interpolation)
+        self.same_on_batch = same_on_batch
+        self.align_corners = align_corners
+
+    def __repr__(self) ->str:
+        repr = f'(distortion_scale={self.distortion_scale}, p={self.p}, interpolation={self.interpolation.name}, '
+        f"""return_transform={self.return_transform}, same_on_batch={self.same_on_batch})"""
+        return self.__class__.__name__ + repr
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_perspective_generator(batch_shape[0], batch_shape[-2], batch_shape[-1], self.p, self.distortion_scale, self.interpolation, self.same_on_batch, self.align_corners)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_perspective_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_perspective(input, params)
+
+
+TupleFloat = Tuple[float, float]
+
+
+UnionFloat = Union[float, TupleFloat]
+
+
+class RandomAffine(AugmentationBase):
+    """Random affine transformation of the image keeping center invariant.
+
+    Args:
+        degrees (float or tuple): Range of degrees to select from.
+            If degrees is a number instead of sequence like (min, max), the range of degrees
+            will be (-degrees, +degrees). Set to 0 to deactivate rotations.
+        translate (tuple, optional): tuple of maximum absolute fraction for horizontal
+            and vertical translations. For example translate=(a, b), then horizontal shift
+            is randomly sampled in the range -img_width * a < dx < img_width * a and vertical shift is
+            randomly sampled in the range -img_height * b < dy < img_height * b. Will not translate by default.
+        scale (tuple, optional): scaling factor interval, e.g (a, b), then scale is
+            randomly sampled from the range a <= scale <= b. Will keep original scale by default.
+        shear (sequence or float, optional): Range of degrees to select from.
+            If shear is a number, a shear parallel to the x axis in the range (-shear, +shear)
+            will be apllied. Else if shear is a tuple or list of 2 values a shear parallel to the x axis in the
+            range (shear[0], shear[1]) will be applied. Else if shear is a tuple or list of 4 values,
+            a x-axis shear in (shear[0], shear[1]) and y-axis shear in (shear[2], shear[3]) will be applied.
+            Will not apply shear by default
+        resample (int, str or kornia.Resample): Default: Resample.BILINEAR
+        return_transform (bool): if ``True`` return the matrix describing the transformation
+            applied to each. Default: False.
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+
+    Examples:
+        >>> rng = torch.manual_seed(0)
+        >>> input = torch.rand(1, 1, 3, 3)
+        >>> aug = RandomAffine((-15., 20.), return_transform=True)
+        >>> aug(input)
+        (tensor([[[[0.3961, 0.7310, 0.1574],
+                  [0.1781, 0.3074, 0.5648],
+                  [0.4804, 0.8379, 0.4234]]]]), tensor([[[ 0.9923, -0.1241,  0.1319],
+                 [ 0.1241,  0.9923, -0.1164],
+                 [ 0.0000,  0.0000,  1.0000]]]))
+    """
+
+    def __init__(self, degrees: UnionFloat, translate: Optional[TupleFloat]=None, scale: Optional[TupleFloat]=None, shear: Optional[UnionFloat]=None, resample: Union[str, int, Resample]=Resample.BILINEAR.name, return_transform: bool=False, same_on_batch: bool=False, align_corners: bool=False) ->None:
+        super(RandomAffine, self).__init__(return_transform)
+        self.degrees = degrees
+        self.translate = translate
+        self.scale = scale
+        self.shear = shear
+        self.resample: Resample = Resample.get(resample)
+        self.same_on_batch = same_on_batch
+        self.align_corners = align_corners
+
+    def __repr__(self) ->str:
+        repr = f'(degrees={self.degrees}, translate={self.translate}, scale={self.scale}, shear={self.shear}, '
+        f"""resample={self.resample.name}, return_transform={self.return_transform}, same_on_batch={self.same_on_batch}"""
+        return self.__class__.__name__ + repr
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_affine_generator(batch_shape[0], batch_shape[-2], batch_shape[-1], self.degrees, self.translate, self.scale, self.shear, self.resample, self.same_on_batch, self.align_corners)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_affine_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_affine(input, params)
+
+
+class CenterCrop(AugmentationBase):
+    """Crops the given torch.Tensor at the center.
+
+    Args:
+        size (sequence or int): Desired output size of the crop. If size is an
+            int instead of sequence like (h, w), a square crop (size, size) is
+            made.
+        return_transform (bool): if ``True`` return the matrix describing the transformation
+            applied to each. Default: False.
+
+    Examples:
+        >>> rng = torch.manual_seed(0)
+        >>> inputs = torch.randn(1, 1, 3, 3)
+        >>> aug = CenterCrop(2)
+        >>> aug(inputs)
+        tensor([[[[-0.1425, -1.1266],
+                  [-0.0373, -0.6562]]]])
+    """
+
+    def __init__(self, size: Union[int, Tuple[int, int]], return_transform: bool=False) ->None:
+        super(CenterCrop, self).__init__(return_transform)
+        self.size = size
+
+    def __repr__(self) ->str:
+        repr = f'(size={self.size}, return_transform={self.return_transform}'
+        return self.__class__.__name__ + repr
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        if isinstance(self.size, tuple):
+            size_param = self.size[0], self.size[1]
+        elif isinstance(self.size, int):
+            size_param = self.size, self.size
+        else:
+            raise Exception(f'Invalid size type. Expected (int, tuple(int, int). Got: {type(self.size)}.')
+        return rg.center_crop_params_generator(batch_shape[0], batch_shape[-2], batch_shape[-1], size_param)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_crop_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_crop(input, params)
+
+
+class RandomRotation(AugmentationBase):
+    """Rotate a tensor image or a batch of tensor images a random amount of degrees.
+    Input should be a tensor of shape (C, H, W) or a batch of tensors :math:`(B, C, H, W)`.
+    If Input is a tuple it is assumed that the first element contains the aforementioned tensors and the second,
+    the corresponding transformation matrix that has been applied to them. In this case the module
+    will rotate the tensors and concatenate the corresponding transformation matrix to the
+    previous one. This is especially useful when using this functionality as part of an ``nn.Sequential`` module.
+
+    Args:
+        degrees (sequence or float or tensor): range of degrees to select from. If degrees is a number the
+        range of degrees to select from will be (-degrees, +degrees)
+        interpolation (int, str or kornia.Resample): Default: Resample.BILINEAR
+        return_transform (bool): if ``True`` return the matrix describing the transformation applied to each
+                                      input tensor. If ``False`` and the input is a tuple the applied transformation
+                                      wont be concatenated
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+
+    Examples:
+        >>> rng = torch.manual_seed(0)
+        >>> input = torch.tensor([[1., 0., 0., 2.],
+        ...                       [0., 0., 0., 0.],
+        ...                       [0., 1., 2., 0.],
+        ...                       [0., 0., 1., 2.]])
+        >>> seq = RandomRotation(degrees=45.0, return_transform=True)
+        >>> seq(input)
+        (tensor([[[[0.9824, 0.0088, 0.0000, 1.9649],
+                  [0.0000, 0.0029, 0.0000, 0.0176],
+                  [0.0029, 1.0000, 1.9883, 0.0000],
+                  [0.0000, 0.0088, 1.0117, 1.9649]]]]), tensor([[[ 1.0000, -0.0059,  0.0088],
+                 [ 0.0059,  1.0000, -0.0088],
+                 [ 0.0000,  0.0000,  1.0000]]]))
+    """
+
+    def __init__(self, degrees: FloatUnionType, interpolation: Union[str, int, Resample]=Resample.BILINEAR.name, return_transform: bool=False, same_on_batch: bool=False, align_corners: bool=False) ->None:
+        super(RandomRotation, self).__init__(return_transform)
+        self.degrees = degrees
+        self.interpolation: Resample = Resample.get(interpolation)
+        self.same_on_batch = same_on_batch
+        self.align_corners = align_corners
+
+    def __repr__(self) ->str:
+        repr = f'(degrees={self.degrees}, interpolation={self.interpolation.name}, '
+        f"""return_transform={self.return_transform}, same_on_batch={self.same_on_batch})"""
+        return self.__class__.__name__ + repr
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_rotation_generator(batch_shape[0], self.degrees, self.interpolation, self.same_on_batch, self.align_corners)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_rotate_tranformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_rotation(input, params)
+
+
+BoarderUnionType = Union[int, Tuple[int, int], Tuple[int, int, int, int]]
+
+
+class RandomCrop(AugmentationBase):
+    """Random Crop on given size.
+
+    Args:
+        size (tuple): Desired output size of the crop, like (h, w).
+        padding (int or sequence, optional): Optional padding on each border
+            of the image. Default is None, i.e no padding. If a sequence of length
+            4 is provided, it is used to pad left, top, right, bottom borders
+            respectively. If a sequence of length 2 is provided, it is used to
+            pad left/right, top/bottom borders, respectively.
+        pad_if_needed (boolean): It will pad the image if smaller than the
+            desired size to avoid raising an exception. Since cropping is done
+            after padding, the padding seems to be done at a random offset.
+        fill: Pixel fill value for constant fill. Default is 0. If a tuple of
+            length 3, it is used to fill R, G, B channels respectively.
+            This value is only used when the padding_mode is constant
+        padding_mode: Type of padding. Should be: constant, edge, reflect or symmetric. Default is constant.
+        return_transform (bool): if ``True`` return the matrix describing the transformation applied to each
+                                      input tensor. If ``False`` and the input is a tuple the applied transformation
+                                      wont be concatenated
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+
+    Examples:
+        >>> rng = torch.manual_seed(0)
+        >>> inputs = torch.randn(1, 1, 3, 3)
+        >>> aug = RandomCrop((2, 2))
+        >>> aug(inputs)
+        tensor([[[[-0.6562, -1.0009],
+                  [ 0.2223, -0.5507]]]])
+    """
+
+    def __init__(self, size: Tuple[int, int], padding: Optional[BoarderUnionType]=None, pad_if_needed: Optional[bool]=False, fill: int=0, padding_mode: str='constant', return_transform: bool=False, same_on_batch: bool=False, align_corners: bool=False) ->None:
+        super(RandomCrop, self).__init__(return_transform)
+        self.size = size
+        self.padding = padding
+        self.pad_if_needed = pad_if_needed
+        self.fill = fill
+        self.padding_mode = padding_mode
+        self.same_on_batch = same_on_batch
+        self.align_corners = align_corners
+
+    def __repr__(self) ->str:
+        repr = f'(crop_size={self.size}, padding={self.padding}, fill={self.fill}, '
+        f"""pad_if_needed={self.pad_if_needed}, padding_mode=${self.padding_mode}, """
+        f"""return_transform={self.return_transform}, same_on_batch={self.same_on_batch})"""
+        return self.__class__.__name__ + repr
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_crop_generator(batch_shape[0], (batch_shape[-2], batch_shape[-1]), self.size, same_on_batch=self.same_on_batch, align_corners=self.align_corners)
+
+    def precrop_padding(self, input: torch.Tensor) ->torch.Tensor:
+        if self.padding is not None:
+            if isinstance(self.padding, int):
+                padding = [self.padding, self.padding, self.padding, self.padding]
+            elif isinstance(self.padding, tuple) and len(self.padding) == 2:
+                padding = [self.padding[1], self.padding[1], self.padding[0], self.padding[0]]
+            elif isinstance(self.padding, tuple) and len(self.padding) == 4:
+                padding = [self.padding[3], self.padding[2], self.padding[1], self.padding[0]]
+            input = pad(input, padding, value=self.fill, mode=self.padding_mode)
+        if self.pad_if_needed and input.shape[-2] < self.size[0]:
+            padding = [0, 0, self.size[0] - input.shape[-2], self.size[0] - input.shape[-2]]
+            input = pad(input, padding, value=self.fill, mode=self.padding_mode)
+        if self.pad_if_needed and input.shape[-1] < self.size[1]:
+            padding = [self.size[1] - input.shape[-1], self.size[1] - input.shape[-1], 0, 0]
+            input = pad(input, padding, value=self.fill, mode=self.padding_mode)
+        return input
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_crop_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_crop(input, params)
+
+    def forward(self, input: UnionType, params: Optional[Dict[str, torch.Tensor]]=None, return_transform: Optional[bool]=None) ->UnionType:
+        if type(input) == tuple:
+            input = self.precrop_padding(input[0]), input[1]
+        else:
+            input = self.precrop_padding(input)
+        return super().forward(input, params, return_transform)
+
+
+class RandomResizedCrop(AugmentationBase):
+    """Random Crop on given size and resizing the cropped patch to another.
+
+    Args:
+        size (Tuple[int, int]): expected output size of each edge
+        scale: range of size of the origin size cropped
+        ratio: range of aspect ratio of the origin aspect ratio cropped
+        interpolation (int, str or kornia.Resample): Default: Resample.BILINEAR
+        return_transform (bool): if ``True`` return the matrix describing the transformation applied to each
+                                      input tensor. If ``False`` and the input is a tuple the applied transformation
+                                      wont be concatenated
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+
+    Example:
+        >>> rng = torch.manual_seed(0)
+        >>> inputs = torch.tensor([[[0., 1., 2.],
+        ...                         [3., 4., 5.],
+        ...                         [6., 7., 8.]]])
+        >>> aug = RandomResizedCrop(size=(3, 3), scale=(3., 3.), ratio=(2., 2.))
+        >>> aug(inputs)
+        tensor([[[[3.7500, 4.7500, 5.7500],
+                  [5.2500, 6.2500, 7.2500],
+                  [4.5000, 5.2500, 6.0000]]]])
+    """
+
+    def __init__(self, size: Tuple[int, int], scale: Tuple[float, float]=(0.08, 1.0), ratio: Tuple[float, float]=(3.0 / 4.0, 4.0 / 3.0), interpolation: Union[str, int, Resample]=Resample.BILINEAR.name, return_transform: bool=False, same_on_batch: bool=False, align_corners: bool=False) ->None:
+        super(RandomResizedCrop, self).__init__(return_transform)
+        self.size = size
+        self.scale = scale
+        self.ratio = ratio
+        self.interpolation: Resample = Resample.get(interpolation)
+        self.same_on_batch = same_on_batch
+        self.align_corners = align_corners
+
+    def __repr__(self) ->str:
+        repr = f'(size={self.size}, resize_to={self.scale}, resize_to={self.ratio}, '
+        f"""interpolation={self.interpolation.name}, return_transform={self.return_transform}, """
+        f"""same_on_batch={self.same_on_batch})"""
+        return self.__class__.__name__ + repr
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        target_size = rg.random_crop_size_generator(self.size, self.scale, self.ratio)
+        _target_size = int(target_size[0].data.item()), int(target_size[1].data.item())
+        return rg.random_crop_generator(batch_shape[0], (batch_shape[-2], batch_shape[-1]), _target_size, resize_to=self.size, same_on_batch=self.same_on_batch, align_corners=self.align_corners)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_crop_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_crop(input, params)
+
+
+U = TypeVar('U', bound='BorderType')
+
+
+class BorderType(Enum):
+    CONSTANT = 0
+    REFLECT = 1
+    REPLICATE = 2
+    CIRCULAR = 3
+
+    @classmethod
+    def get(cls, value: Union[str, int, U]) ->U:
+        if type(value) == str:
+            return cls[value.upper()]
+        if type(value) == int:
+            return cls(value)
+        if type(value) == cls:
+            return value
+        raise TypeError()
+
+
+class RandomMotionBlur(AugmentationBase):
+    """Blurs a tensor using the motion filter. Same transformation happens across batches.
+
+    Args:
+        kernel_size (int or Tuple[int, int]): motion kernel width and height (odd and positive).
+            If int, the kernel will have a fixed size.
+            If Tuple[int, int], it will randomly generate the value from the range.
+        angle (float or Tuple[float, float]): angle of the motion blur in degrees (anti-clockwise rotation).
+            If float, it will generate the value from (-angle, angle).
+        direction (float or Tuple[float, float]): forward/backward direction of the motion blur.
+            Lower values towards -1.0 will point the motion blur towards the back (with angle provided via angle),
+            while higher values towards 1.0 will point the motion blur forward. A value of 0.0 leads to a
+            uniformly (but still angled) motion blur.
+            If float, it will generate the value from (-direction, direction).
+            If Tuple[int, int], it will randomly generate the value from the range.
+        border_type (int, str or kornia.BorderType): the padding mode to be applied before convolving.
+            CONSTANT = 0, REFLECT = 1, REPLICATE = 2, CIRCULAR = 3. Default: BorderType.CONSTANT.
+
+    Shape:
+        - Input: :math:`(B, C, H, W)`
+        - Output: :math:`(B, C, H, W)`
+
+    Examples::
+        >>> rng = torch.manual_seed(0)
+        >>> input = torch.rand(1, 1, 5, 5)
+        >>> motion_blur = RandomMotionBlur(3, 35., 0.5)
+        >>> motion_blur(input)
+        tensor([[[[0.2761, 0.5200, 0.3753, 0.2423, 0.2193],
+                  [0.3275, 0.5502, 0.5738, 0.5400, 0.3883],
+                  [0.2132, 0.3857, 0.3056, 0.2520, 0.1890],
+                  [0.3016, 0.6172, 0.6487, 0.4331, 0.2770],
+                  [0.3865, 0.6221, 0.5538, 0.4862, 0.4206]]]])
+    """
+
+    def __init__(self, kernel_size: Union[int, Tuple[int, int]], angle: Union[float, Tuple[float, float]], direction: Union[float, Tuple[float, float]], border_type: Union[int, str, BorderType]=BorderType.CONSTANT.name, return_transform: bool=False) ->None:
+        super(RandomMotionBlur, self).__init__(return_transform)
+        self.kernel_size: Union[int, Tuple[int, int]] = kernel_size
+        self.angle: Union[float, Tuple[float, float]] = angle
+        self.direction: Union[float, Tuple[float, float]] = direction
+        self.border_type: BorderType = BorderType.get(border_type)
+
+    def __repr__(self) ->str:
+        return f"{self.__class__.__name__}(kernel_size={self.kernel_size}, angle={self.angle}, direction={self.direction}, border_type='{self.border_type.name.lower()}', return_transform={self.return_transform})"
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_motion_blur_generator(1, self.kernel_size, self.angle, self.direction, self.border_type)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_intensity_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_motion_blur(input, params)
+
+
+class RandomSolarize(AugmentationBase):
+    """ Solarize given tensor image or a batch of tensor images randomly.
+
+    Args:
+        thresholds (float or tuple): Default value is 0.1.
+            If float x, threshold will be generated from (0.5 - x, 0.5 + x).
+            If tuple (x, y), threshold will be generated from (x, y).
+        additions (float or tuple): Default value is 0.1.
+            If float x, addition will be generated from (-x, x).
+            If tuple (x, y), addition will be generated from (x, y).
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+        return_transform (bool): if ``True`` return the matrix describing the transformation applied to each
+                                      input tensor. If ``False`` and the input is a tuple the applied transformation
+                                      wont be concatenated
+    Shape:
+        - Input: :math:`(B, C, H, W)`
+        - Output: :math:`(B, C, H, W)`
+
+    Examples:
+        >>> rng = torch.manual_seed(0)
+        >>> input = torch.rand(1, 1, 5, 5)
+        >>> solarize = RandomSolarize(0.1, 0.1)
+        >>> solarize(input)
+        tensor([[[[0.4132, 0.1412, 0.1790, 0.2226, 0.3980],
+                  [0.2754, 0.4194, 0.0130, 0.4538, 0.2771],
+                  [0.4394, 0.4923, 0.1129, 0.2594, 0.3844],
+                  [0.3909, 0.2118, 0.1094, 0.2516, 0.3728],
+                  [0.2278, 0.0000, 0.4876, 0.0353, 0.5100]]]])
+    """
+
+    def __init__(self, thresholds: FloatUnionType=0.1, additions: FloatUnionType=0.1, same_on_batch: bool=False, return_transform: bool=False) ->None:
+        super(RandomSolarize, self).__init__(return_transform)
+        self.thresholds = thresholds
+        self.additions = additions
+        self.same_on_batch = same_on_batch
+
+    def __repr__(self) ->str:
+        return f'{self.__class__.__name__}(thresholds={self.thresholds}, additions={self.additions}, same_on_batch={self.same_on_batch}, return_transform={self.return_transform})'
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_solarize_generator(batch_shape[0], self.thresholds, self.additions, self.same_on_batch)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_intensity_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_solarize(input, params)
+
+
+class RandomPosterize(AugmentationBase):
+    """ Posterize given tensor image or a batch of tensor images randomly.
+
+    Args:
+        bits (int or tuple): Integer that ranged from (0, 8], in which 0 gives black image and 8 gives the original.
+            If int x, bits will be generated from (x, 8).
+            If tuple (x, y), bits will be generated from (x, y).
+            Default value is 3.
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+        return_transform (bool): if ``True`` return the matrix describing the transformation applied to each
+                                      input tensor. If ``False`` and the input is a tuple the applied transformation
+                                      wont be concatenated
+    Shape:
+        - Input: :math:`(B, C, H, W)`
+        - Output: :math:`(B, C, H, W)`
+
+    Examples::
+        >>> rng = torch.manual_seed(0)
+        >>> input = torch.rand(1, 1, 5, 5)
+        >>> posterize = RandomPosterize(3)
+        >>> posterize(input)
+        tensor([[[[0.4706, 0.7529, 0.0627, 0.1255, 0.2824],
+                  [0.6275, 0.4706, 0.8784, 0.4392, 0.6275],
+                  [0.3451, 0.3765, 0.0000, 0.1569, 0.2824],
+                  [0.5020, 0.6902, 0.7843, 0.1569, 0.2510],
+                  [0.6588, 0.9098, 0.3765, 0.8471, 0.4078]]]])
+    """
+
+    def __init__(self, bits: Union[int, Tuple[int, int], torch.Tensor]=3, same_on_batch: bool=False, return_transform: bool=False) ->None:
+        super(RandomPosterize, self).__init__(return_transform)
+        self.bits = bits
+        self.same_on_batch = same_on_batch
+
+    def __repr__(self) ->str:
+        return f'{self.__class__.__name__}(bits={self.bits}, same_on_batch={self.same_on_batch}, return_transform={self.return_transform})'
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_posterize_generator(batch_shape[0], self.bits, self.same_on_batch)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_intensity_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_posterize(input, params)
+
+
+class RandomSharpness(AugmentationBase):
+    """ Sharpen given tensor image or a batch of tensor images randomly.
+
+    Args:
+        sharpness (float or tuple): factor of sharpness strength. Must be above 0. Default value is 0.5.
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+        return_transform (bool): if ``True`` return the matrix describing the transformation applied to each
+                                      input tensor. If ``False`` and the input is a tuple the applied transformation
+                                      wont be concatenated
+    Shape:
+        - Input: :math:`(B, C, H, W)`
+        - Output: :math:`(B, C, H, W)`
+
+    Examples::
+        >>> rng = torch.manual_seed(0)
+        >>> input = torch.rand(1, 1, 5, 5)
+        >>> sharpness = RandomSharpness(1.)
+        >>> sharpness(input)
+        tensor([[[[0.4963, 0.7682, 0.0885, 0.1320, 0.3074],
+                  [0.6341, 0.7720, 0.9537, 0.7566, 0.6323],
+                  [0.3489, 0.7325, 0.5629, 0.6284, 0.2939],
+                  [0.5185, 0.8648, 0.9106, 0.6249, 0.2823],
+                  [0.6816, 0.9152, 0.3971, 0.8742, 0.4194]],
+        <BLANKLINE>
+                 [[0.4963, 0.7682, 0.0885, 0.1320, 0.3074],
+                  [0.6341, 0.7720, 0.9537, 0.7566, 0.6323],
+                  [0.3489, 0.7325, 0.5629, 0.6284, 0.2939],
+                  [0.5185, 0.8648, 0.9106, 0.6249, 0.2823],
+                  [0.6816, 0.9152, 0.3971, 0.8742, 0.4194]],
+        <BLANKLINE>
+                 [[0.4963, 0.7682, 0.0885, 0.1320, 0.3074],
+                  [0.6341, 0.7720, 0.9537, 0.7566, 0.6323],
+                  [0.3489, 0.7325, 0.5629, 0.6284, 0.2939],
+                  [0.5185, 0.8648, 0.9106, 0.6249, 0.2823],
+                  [0.6816, 0.9152, 0.3971, 0.8742, 0.4194]]]])
+    """
+
+    def __init__(self, sharpness: Union[float, Tuple[float, float], torch.Tensor]=0.5, same_on_batch: bool=False, return_transform: bool=False) ->None:
+        super(RandomSharpness, self).__init__(return_transform)
+        self.sharpness = sharpness
+        self.same_on_batch = same_on_batch
+
+    def __repr__(self) ->str:
+        return f'{self.__class__.__name__}(sharpness={self.sharpness}, return_transform={self.return_transform})'
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_sharpness_generator(batch_shape[0], self.sharpness, self.same_on_batch)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_intensity_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_sharpness(input, params)
+
+
+class RandomEqualize(AugmentationBase):
+    """ Equalize given tensor image or a batch of tensor images randomly.
+
+    Args:
+        p (float): Probability to equalize an image. Default value is 0.5
+        same_on_batch (bool): apply the same transformation across the batch. Default: False
+        return_transform (bool): if ``True`` return the matrix describing the transformation applied to each
+                                      input tensor. If ``False`` and the input is a tuple the applied transformation
+                                      wont be concatenated
+    Shape:
+        - Input: :math:`(B, C, H, W)`
+        - Output: :math:`(B, C, H, W)`
+
+    Examples::
+        >>> rng = torch.manual_seed(0)
+        >>> input = torch.rand(1, 1, 5, 5)
+        >>> equalize = RandomEqualize(1.)
+        >>> equalize(input)
+        tensor([[[[0.4963, 0.7682, 0.0885, 0.1320, 0.3074],
+                  [0.6341, 0.4901, 0.8964, 0.4556, 0.6323],
+                  [0.3489, 0.4017, 0.0223, 0.1689, 0.2939],
+                  [0.5185, 0.6977, 0.8000, 0.1610, 0.2823],
+                  [0.6816, 0.9152, 0.3971, 0.8742, 0.4194]]]])
+    """
+
+    def __init__(self, p: float=0.5, same_on_batch: bool=False, return_transform: bool=False) ->None:
+        super(RandomEqualize, self).__init__(return_transform)
+        self.p = p
+        self.same_on_batch = same_on_batch
+
+    def __repr__(self) ->str:
+        return f'{self.__class__.__name__}(p={self.p}, return_transform={self.return_transform})'
+
+    def generate_parameters(self, batch_shape: torch.Size) ->Dict[str, torch.Tensor]:
+        return rg.random_prob_generator(batch_shape[0], self.p, self.same_on_batch)
+
+    def compute_transformation(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.compute_intensity_transformation(input, params)
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor]) ->torch.Tensor:
+        return F.apply_equalize(input, params)
+
+
 def adjust_saturation_raw(input: torch.Tensor, saturation_factor: Union[float, torch.Tensor]) ->torch.Tensor:
     """Adjust color saturation of an image. Expecting input to be in hsv format already.
 
@@ -407,7 +1304,7 @@ def adjust_saturation_raw(input: torch.Tensor, saturation_factor: Union[float, t
         raise TypeError(f'The saturation_factor should be a float number or torch.Tensor.Got {type(saturation_factor)}')
     if isinstance(saturation_factor, float):
         saturation_factor = torch.tensor([saturation_factor])
-    saturation_factor = saturation_factor.to(input.device).to(input.dtype)
+    saturation_factor = saturation_factor.to(input.device)
     if (saturation_factor < 0).any():
         raise ValueError(f'Saturation factor must be non-negative. Got {saturation_factor}')
     for _ in input.shape[1:]:
@@ -436,12 +1333,12 @@ def hsv_to_rgb(image: torch.Tensor) ->torch.Tensor:
         raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(image)))
     if len(image.shape) < 3 or image.shape[-3] != 3:
         raise ValueError('Input size must have a shape of (*, 3, H, W). Got {}'.format(image.shape))
-    h: torch.Tensor = image[(...), (0), :, :] / (2 * pi.to(image.device))
+    h: torch.Tensor = image[(...), (0), :, :] / (2 * pi)
     s: torch.Tensor = image[(...), (1), :, :]
     v: torch.Tensor = image[(...), (2), :, :]
     hi: torch.Tensor = torch.floor(h * 6) % 6
     f: torch.Tensor = h * 6 % 6 - hi
-    one: torch.Tensor = torch.tensor(1.0).to(image.device)
+    one: torch.Tensor = torch.tensor(1.0)
     p: torch.Tensor = v * (one - s)
     q: torch.Tensor = v * (one - f * s)
     t: torch.Tensor = v * (one - (one - f) * s)
@@ -488,7 +1385,7 @@ def rgb_to_hsv(image: torch.Tensor) ->torch.Tensor:
     h[maxr] = bc[maxr] - gc[maxr]
     h[minc == maxc] = 0.0
     h = h / 6.0 % 1.0
-    h = 2 * pi.to(image.device) * h
+    h = 2 * pi * h
     return torch.stack([h, s, v], dim=-3)
 
 
@@ -537,7 +1434,7 @@ def adjust_hue_raw(input: torch.Tensor, hue_factor: Union[float, torch.Tensor]) 
         raise TypeError(f'The hue_factor should be a float number or torch.Tensor in the range between [-PI, PI]. Got {type(hue_factor)}')
     if isinstance(hue_factor, float):
         hue_factor = torch.tensor([hue_factor])
-    hue_factor = hue_factor.to(input.device).to(input.dtype)
+    hue_factor = hue_factor.to(input.device)
     if ((hue_factor < -pi) | (hue_factor > pi)).any():
         raise ValueError(f'Hue-factor must be in the range [-PI, PI]. Got {hue_factor}')
     for _ in input.shape[1:]:
@@ -599,8 +1496,8 @@ def adjust_gamma(input: torch.Tensor, gamma: Union[float, torch.Tensor], gain: U
         gamma = torch.tensor([gamma])
     if isinstance(gain, float):
         gain = torch.tensor([gain])
-    gamma = gamma.to(input.device).to(input.dtype)
-    gain = gain.to(input.device).to(input.dtype)
+    gamma = gamma.to(input.device)
+    gain = gain.to(input.device)
     if (gamma < 0.0).any():
         raise ValueError(f'Gamma must be non-negative. Got {gamma}')
     if (gain < 0.0).any():
@@ -649,7 +1546,7 @@ def adjust_contrast(input: torch.Tensor, contrast_factor: Union[float, torch.Ten
         raise TypeError(f'The factor should be either a float or torch.Tensor. Got {type(contrast_factor)}')
     if isinstance(contrast_factor, float):
         contrast_factor = torch.tensor([contrast_factor])
-    contrast_factor = contrast_factor.to(input.device).to(input.dtype)
+    contrast_factor = contrast_factor.to(input.device)
     if (contrast_factor < 0).any():
         raise ValueError(f'Contrast factor must be non-negative. Got {contrast_factor}')
     for _ in input.shape[1:]:
@@ -695,7 +1592,7 @@ def adjust_brightness(input: torch.Tensor, brightness_factor: Union[float, torch
         raise TypeError(f'The factor should be either a float or torch.Tensor. Got {type(brightness_factor)}')
     if isinstance(brightness_factor, float):
         brightness_factor = torch.tensor([brightness_factor])
-    brightness_factor = brightness_factor.to(input.device).to(input.dtype)
+    brightness_factor = brightness_factor.to(input.device)
     for _ in input.shape[1:]:
         brightness_factor = torch.unsqueeze(brightness_factor, dim=-1)
     x_adjust: torch.Tensor = input + brightness_factor
@@ -772,26 +1669,6 @@ class AddWeighted(nn.Module):
 
     def forward(self, src1: torch.Tensor, src2: torch.Tensor) ->torch.Tensor:
         return add_weighted(src1, self.alpha, src2, self.beta, self.gamma)
-
-
-def rgb_to_grayscale(input: torch.Tensor) ->torch.Tensor:
-    """Convert a RGB image to grayscale.
-
-    See :class:`~kornia.color.RgbToGrayscale` for details.
-
-    Args:
-        input (torch.Tensor): RGB image to be converted to grayscale.
-
-    Returns:
-        torch.Tensor: Grayscale version of the image.
-    """
-    if not isinstance(input, torch.Tensor):
-        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(input)))
-    if len(input.shape) < 3 and input.shape[-3] != 3:
-        raise ValueError('Input size must have a shape of (*, 3, H, W). Got {}'.format(input.shape))
-    r, g, b = torch.chunk(input, chunks=3, dim=-3)
-    gray: torch.Tensor = 0.299 * r + 0.587 * g + 0.114 * b
-    return gray
 
 
 class RgbToGrayscale(nn.Module):
@@ -916,7 +1793,7 @@ def hls_to_rgb(image: torch.Tensor) ->torch.Tensor:
         raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(image)))
     if len(image.shape) < 3 or image.shape[-3] != 3:
         raise ValueError('Input size must have a shape of (*, 3, H, W). Got {}'.format(image.shape))
-    h: torch.Tensor = image[(...), (0), :, :] * 360 / (2 * pi.to(image.device))
+    h: torch.Tensor = image[(...), (0), :, :] * 360 / (2 * pi)
     l: torch.Tensor = image[(...), (1), :, :]
     s: torch.Tensor = image[(...), (2), :, :]
     kr = (0 + h / 30) % 12
@@ -993,7 +1870,7 @@ def rgb_to_hls(image: torch.Tensor) ->torch.Tensor:
     hi[imax == 0] = ((g - b) / deltac % 6)[imax == 0]
     hi[imax == 1] = ((b - r) / deltac + 2)[imax == 1]
     hi[imax == 2] = ((r - g) / deltac + 4)[imax == 2]
-    h: torch.Tensor = 2.0 * pi.to(image.device) * (60.0 * hi) / 360.0
+    h: torch.Tensor = 2.0 * pi * (60.0 * hi) / 360.0
     image_hls: torch.Tensor = torch.stack([h, l, s], dim=-3)
     image_hls[torch.isnan(image_hls)] = 0.0
     return image_hls
@@ -1322,9 +2199,9 @@ def normalize(data: torch.Tensor, mean: Union[torch.Tensor, float], std: Union[t
         if std.shape[0] != data.shape[-3] and std.shape[:2] != data.shape[:2]:
             raise ValueError('std length and number of channels do not match')
     if mean.shape:
-        mean = mean[(...), :, (None), (None)].to(data.device)
+        mean = mean[(...), :, (None), (None)]
     if std.shape:
-        std = std[(...), :, (None), (None)].to(data.device)
+        std = std[(...), :, (None), (None)]
     out: torch.Tensor = (data - mean) / std
     return out
 
@@ -1397,9 +2274,9 @@ def denormalize(data: torch.Tensor, mean: Union[torch.Tensor, float], std: Union
         if std.shape[0] != data.shape[-3] and std.shape[:2] != data.shape[:2]:
             raise ValueError('std length and number of channels do not match')
     if mean.shape:
-        mean = mean[(...), :, (None), (None)].to(data.device)
+        mean = mean[(...), :, (None), (None)]
     if std.shape:
-        std = std[(...), :, (None), (None)].to(data.device)
+        std = std[(...), :, (None), (None)]
     out: torch.Tensor = data * std + mean
     return out
 
@@ -2329,6 +3206,114 @@ def _compute_zero_padding(kernel_size: int) ->int:
     return (kernel_size - 1) // 2
 
 
+def _get_pyramid_gaussian_kernel() ->torch.Tensor:
+    """Utility function that return a pre-computed gaussian kernel."""
+    return torch.tensor([[[1.0, 4.0, 6.0, 4.0, 1.0], [4.0, 16.0, 24.0, 16.0, 4.0], [6.0, 24.0, 36.0, 24.0, 6.0], [4.0, 16.0, 24.0, 16.0, 4.0], [1.0, 4.0, 6.0, 4.0, 1.0]]]) / 256.0
+
+
+def compute_padding(kernel_size: Tuple[int, int]) ->List[int]:
+    """Computes padding tuple."""
+    assert len(kernel_size) == 2, kernel_size
+    computed = [(k // 2) for k in kernel_size]
+    return [computed[1] - 1 if kernel_size[0] % 2 == 0 else computed[1], computed[1], computed[0] - 1 if kernel_size[1] % 2 == 0 else computed[0], computed[0]]
+
+
+def normalize_kernel2d(input: torch.Tensor) ->torch.Tensor:
+    """Normalizes both derivative and smoothing kernel.
+    """
+    if len(input.size()) < 2:
+        raise TypeError('input should be at least 2D tensor. Got {}'.format(input.size()))
+    norm: torch.Tensor = input.abs().sum(dim=-1).sum(dim=-1)
+    return input / norm.unsqueeze(-1).unsqueeze(-1)
+
+
+def filter2D(input: torch.Tensor, kernel: torch.Tensor, border_type: str='reflect', normalized: bool=False) ->torch.Tensor:
+    """Function that convolves a tensor with a kernel.
+
+    The function applies a given kernel to a tensor. The kernel is applied
+    independently at each depth channel of the tensor. Before applying the
+    kernel, the function applies padding according to the specified mode so
+    that the output remains in the same shape.
+
+    Args:
+        input (torch.Tensor): the input tensor with shape of
+          :math:`(B, C, H, W)`.
+        kernel (torch.Tensor): the kernel to be convolved with the input
+          tensor. The kernel shape must be :math:`(1, kH, kW)`.
+        border_type (str): the padding mode to be applied before convolving.
+          The expected modes are: ``'constant'``, ``'reflect'``,
+          ``'replicate'`` or ``'circular'``. Default: ``'reflect'``.
+        normalized (bool): If True, kernel will be L1 normalized.
+
+    Return:
+        torch.Tensor: the convolved tensor of same size and numbers of channels
+        as the input.
+    """
+    if not isinstance(input, torch.Tensor):
+        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(input)))
+    if not isinstance(kernel, torch.Tensor):
+        raise TypeError('Input kernel type is not a torch.Tensor. Got {}'.format(type(kernel)))
+    if not isinstance(border_type, str):
+        raise TypeError('Input border_type is not string. Got {}'.format(type(kernel)))
+    if not len(input.shape) == 4:
+        raise ValueError('Invalid input shape, we expect BxCxHxW. Got: {}'.format(input.shape))
+    if not len(kernel.shape) == 3:
+        raise ValueError('Invalid kernel shape, we expect 1xHxW. Got: {}'.format(kernel.shape))
+    borders_list: List[str] = ['constant', 'reflect', 'replicate', 'circular']
+    if border_type not in borders_list:
+        raise ValueError('Invalid border_type, we expect the following: {0}.Got: {1}'.format(borders_list, border_type))
+    b, c, h, w = input.shape
+    tmp_kernel: torch.Tensor = kernel.unsqueeze(0).to(input.device)
+    if normalized:
+        tmp_kernel = normalize_kernel2d(tmp_kernel)
+    height, width = tmp_kernel.shape[-2:]
+    padding_shape: List[int] = compute_padding((height, width))
+    input_pad: torch.Tensor = F.pad(input, padding_shape, mode=border_type)
+    b, c, hp, wp = input_pad.shape
+    kernel_numel: int = height * width
+    if kernel_numel > 81:
+        return F.conv2d(input_pad.reshape(b * c, 1, hp, wp), tmp_kernel, padding=0, stride=1).view(b, c, h, w)
+    return F.conv2d(input_pad, tmp_kernel.expand(c, -1, -1, -1), groups=c, padding=0, stride=1)
+
+
+class PyrDown(nn.Module):
+    """Blurs a tensor and downsamples it.
+
+    Args:
+        border_type (str): the padding mode to be applied before convolving.
+          The expected modes are: ``'constant'``, ``'reflect'``,
+          ``'replicate'`` or ``'circular'``. Default: ``'reflect'``.
+        align_corners(bool): interpolation flag. Default: False. See
+        https://pytorch.org/docs/stable/nn.functional.html#torch.nn.functional.interpolate for detail
+
+    Return:
+        torch.Tensor: the downsampled tensor.
+
+    Shape:
+        - Input: :math:`(B, C, H, W)`
+        - Output: :math:`(B, C, H / 2, W / 2)`
+
+    Examples:
+        >>> input = torch.rand(1, 2, 4, 4)
+        >>> output = kornia.transform.PyrDown()(input)  # 1x2x2x2
+    """
+
+    def __init__(self, border_type: str='reflect', align_corners: bool=False) ->None:
+        super(PyrDown, self).__init__()
+        self.border_type: str = border_type
+        self.kernel: torch.Tensor = _get_pyramid_gaussian_kernel()
+        self.align_corners: bool = align_corners
+
+    def forward(self, input: torch.Tensor) ->torch.Tensor:
+        if not torch.is_tensor(input):
+            raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(input)))
+        if not len(input.shape) == 4:
+            raise ValueError('Invalid input shape, we expect BxCxHxW. Got: {}'.format(input.shape))
+        x_blur: torch.Tensor = filter2D(input, self.kernel, self.border_type)
+        out: torch.Tensor = F.interpolate(x_blur, scale_factor=0.5, mode='bilinear', align_corners=self.align_corners)
+        return out
+
+
 def pyrdown(input: torch.Tensor, border_type: str='reflect', align_corners: bool=False) ->torch.Tensor:
     """Blurs a tensor and downsamples it.
 
@@ -2374,6 +3359,116 @@ class MaxBlurPool2d(nn.Module):
         x_max: torch.Tensor = F.max_pool2d(input, kernel_size=self.kernel_size, padding=self.padding, stride=1, ceil_mode=self.ceil_mode)
         x_down: torch.Tensor = pyrdown(x_max)
         return x_down
+
+
+def get_diff_kernel_3x3() ->torch.Tensor:
+    """Utility function that returns a sobel kernel of 3x3"""
+    return torch.tensor([[-0.0, 0.0, 0.0], [-1.0, 0.0, 1.0], [-0.0, 0.0, 0.0]])
+
+
+def get_diff_kernel2d() ->torch.Tensor:
+    kernel_x: torch.Tensor = get_diff_kernel_3x3()
+    kernel_y: torch.Tensor = kernel_x.transpose(0, 1)
+    return torch.stack([kernel_x, kernel_y])
+
+
+def get_diff_kernel2d_2nd_order() ->torch.Tensor:
+    gxx: torch.Tensor = torch.tensor([[0.0, 0.0, 0.0], [1.0, -2.0, 1.0], [0.0, 0.0, 0.0]])
+    gyy: torch.Tensor = gxx.transpose(0, 1)
+    gxy: torch.Tensor = torch.tensor([[-1.0, 0.0, 1.0], [0.0, 0.0, 0.0], [1.0, 0.0, -1.0]])
+    return torch.stack([gxx, gxy, gyy])
+
+
+def get_sobel_kernel_3x3() ->torch.Tensor:
+    """Utility function that returns a sobel kernel of 3x3"""
+    return torch.tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]])
+
+
+def get_sobel_kernel2d() ->torch.Tensor:
+    kernel_x: torch.Tensor = get_sobel_kernel_3x3()
+    kernel_y: torch.Tensor = kernel_x.transpose(0, 1)
+    return torch.stack([kernel_x, kernel_y])
+
+
+def _get_sobel_kernel_5x5_2nd_order_xy() ->torch.Tensor:
+    """Utility function that returns a 2nd order sobel kernel of 5x5"""
+    return torch.tensor([[-1.0, -2.0, 0.0, 2.0, 1.0], [-2.0, -4.0, 0.0, 4.0, 2.0], [0.0, 0.0, 0.0, 0.0, 0.0], [2.0, 4.0, 0.0, -4.0, -2.0], [1.0, 2.0, 0.0, -2.0, -1.0]])
+
+
+def get_sobel_kernel_5x5_2nd_order() ->torch.Tensor:
+    """Utility function that returns a 2nd order sobel kernel of 5x5"""
+    return torch.tensor([[-1.0, 0.0, 2.0, 0.0, -1.0], [-4.0, 0.0, 8.0, 0.0, -4.0], [-6.0, 0.0, 12.0, 0.0, -6.0], [-4.0, 0.0, 8.0, 0.0, -4.0], [-1.0, 0.0, 2.0, 0.0, -1.0]])
+
+
+def get_sobel_kernel2d_2nd_order() ->torch.Tensor:
+    gxx: torch.Tensor = get_sobel_kernel_5x5_2nd_order()
+    gyy: torch.Tensor = gxx.transpose(0, 1)
+    gxy: torch.Tensor = _get_sobel_kernel_5x5_2nd_order_xy()
+    return torch.stack([gxx, gxy, gyy])
+
+
+def get_spatial_gradient_kernel2d(mode: str, order: int) ->torch.Tensor:
+    """Function that returns kernel for 1st or 2nd order image gradients,
+    using one of the following operators: sobel, diff"""
+    if mode not in ['sobel', 'diff']:
+        raise TypeError('mode should be either sobel                         or diff. Got {}'.format(mode))
+    if order not in [1, 2]:
+        raise TypeError('order should be either 1 or 2                         Got {}'.format(order))
+    if mode == 'sobel' and order == 1:
+        kernel: torch.Tensor = get_sobel_kernel2d()
+    elif mode == 'sobel' and order == 2:
+        kernel = get_sobel_kernel2d_2nd_order()
+    elif mode == 'diff' and order == 1:
+        kernel = get_diff_kernel2d()
+    elif mode == 'diff' and order == 2:
+        kernel = get_diff_kernel2d_2nd_order()
+    else:
+        raise NotImplementedError('')
+    return kernel
+
+
+class SpatialGradient(nn.Module):
+    """Computes the first order image derivative in both x and y using a Sobel
+    operator.
+
+    Return:
+        torch.Tensor: the sobel edges of the input feature map.
+
+    Shape:
+        - Input: :math:`(B, C, H, W)`
+        - Output: :math:`(B, C, 2, H, W)`
+
+    Examples:
+        >>> input = torch.rand(1, 3, 4, 4)
+        >>> output = kornia.filters.SpatialGradient()(input)  # 1x3x2x4x4
+    """
+
+    def __init__(self, mode: str='sobel', order: int=1, normalized: bool=True) ->None:
+        super(SpatialGradient, self).__init__()
+        self.normalized: bool = normalized
+        self.order: int = order
+        self.mode: str = mode
+        self.kernel = get_spatial_gradient_kernel2d(mode, order)
+        if self.normalized:
+            self.kernel = normalize_kernel2d(self.kernel)
+        return
+
+    def __repr__(self) ->str:
+        return self.__class__.__name__ + '(order=' + str(self.order) + ', ' + 'normalized=' + str(self.normalized) + ', ' + 'mode=' + self.mode + ')'
+
+    def forward(self, input: torch.Tensor) ->torch.Tensor:
+        if not torch.is_tensor(input):
+            raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(input)))
+        if not len(input.shape) == 4:
+            raise ValueError('Invalid input shape, we expect BxCxHxW. Got: {}'.format(input.shape))
+        b, c, h, w = input.shape
+        tmp_kernel: torch.Tensor = self.kernel.to(input.device).detach()
+        kernel: torch.Tensor = tmp_kernel.unsqueeze(1).unsqueeze(1)
+        kernel_flip: torch.Tensor = kernel.flip(-3)
+        spatial_pad = [self.kernel.size(1) // 2, self.kernel.size(1) // 2, self.kernel.size(2) // 2, self.kernel.size(2) // 2]
+        out_channels: int = 3 if self.order == 2 else 2
+        padded_inp: torch.Tensor = F.pad(input.reshape(b * c, 1, h, w), spatial_pad, 'replicate')[:, :, (None)]
+        return F.conv3d(padded_inp, kernel_flip, padding=0).view(b, c, out_channels, h, w)
 
 
 def gaussian(window_size, sigma):
@@ -2575,7 +3670,7 @@ def denormalize_laf(LAF: torch.Tensor, images: torch.Tensor) ->torch.Tensor:
     wf = float(w)
     hf = float(h)
     min_size = min(hf, wf)
-    coef = torch.ones(1, 1, 2, 3).to(LAF.dtype).to(LAF.device) * min_size
+    coef = torch.ones(1, 1, 2, 3).to(LAF.dtype) * min_size
     coef[0, 0, 0, 2] = wf
     coef[0, 0, 1, 2] = hf
     return coef.expand_as(LAF) * LAF
@@ -2655,7 +3750,7 @@ def normalize_laf(LAF: torch.Tensor, images: torch.Tensor) ->torch.Tensor:
     wf: float = float(w)
     hf: float = float(h)
     min_size = min(hf, wf)
-    coef = torch.ones(1, 1, 2, 3).to(LAF.dtype).to(LAF.device) / min_size
+    coef = torch.ones(1, 1, 2, 3).to(LAF.dtype) / min_size
     coef[0, 0, 0, 2] = 1.0 / wf
     coef[0, 0, 1, 2] = 1.0 / hf
     return coef.expand_as(LAF) * LAF
@@ -2685,7 +3780,7 @@ def extract_patches_from_pyramid(img: torch.Tensor, laf: torch.Tensor, PS: int=3
     pyr_idx = (scale.log2() + 0.5).relu().long()
     cur_img = img
     cur_pyr_level = int(0)
-    out = torch.zeros(B, N, ch, PS, PS).to(nlaf.dtype).to(nlaf.device)
+    out = torch.zeros(B, N, ch, PS, PS).to(nlaf.dtype)
     while min(cur_img.size(2), cur_img.size(3)) >= PS:
         num, ch, h, w = cur_img.size()
         for i in range(B):
@@ -3018,7 +4113,7 @@ def deg2rad(tensor: torch.Tensor) ->torch.Tensor:
     """
     if not isinstance(tensor, torch.Tensor):
         raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(tensor)))
-    return tensor * pi.to(tensor.device).type(tensor.dtype) / 180.0
+    return tensor * pi.type(tensor.dtype) / 180.0
 
 
 def angle_to_rotation_matrix(angle: torch.Tensor) ->torch.Tensor:
@@ -3058,7 +4153,7 @@ def rad2deg(tensor: torch.Tensor) ->torch.Tensor:
     """
     if not isinstance(tensor, torch.Tensor):
         raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(tensor)))
-    return 180.0 * tensor / pi.to(tensor.device).type(tensor.dtype)
+    return 180.0 * tensor / pi.type(tensor.dtype)
 
 
 class LAFOrienter(nn.Module):
@@ -3102,6 +4197,48 @@ class LAFOrienter(nn.Module):
         rotmat: torch.Tensor = angle_to_rotation_matrix(rad2deg(angles_radians)).view(B * N, 2, 2)
         laf_out: torch.Tensor = torch.cat([torch.bmm(make_upright(laf).view(B * N, 2, 3)[:, :2, :2], rotmat), laf.view(B * N, 2, 3)[:, :2, 2:]], dim=2).view(B, N, 2, 3)
         return laf_out
+
+
+class GaussianBlur2d(nn.Module):
+    """Creates an operator that blurs a tensor using a Gaussian filter.
+
+    The operator smooths the given tensor with a gaussian kernel by convolving
+    it to each channel. It suports batched operation.
+
+    Arguments:
+        kernel_size (Tuple[int, int]): the size of the kernel.
+        sigma (Tuple[float, float]): the standard deviation of the kernel.
+        border_type (str): the padding mode to be applied before convolving.
+          The expected modes are: ``'constant'``, ``'reflect'``,
+          ``'replicate'`` or ``'circular'``. Default: ``'reflect'``.
+
+    Returns:
+        Tensor: the blurred tensor.
+
+    Shape:
+        - Input: :math:`(B, C, H, W)`
+        - Output: :math:`(B, C, H, W)`
+
+    Examples::
+
+        >>> input = torch.rand(2, 4, 5, 5)
+        >>> gauss = kornia.filters.GaussianBlur((3, 3), (1.5, 1.5))
+        >>> output = gauss(input)  # 2x4x5x5
+    """
+
+    def __init__(self, kernel_size: Tuple[int, int], sigma: Tuple[float, float], border_type: str='reflect') ->None:
+        super(GaussianBlur2d, self).__init__()
+        self.kernel_size: Tuple[int, int] = kernel_size
+        self.sigma: Tuple[float, float] = sigma
+        self.kernel: torch.Tensor = torch.unsqueeze(get_gaussian_kernel2d(kernel_size, sigma), dim=0)
+        assert border_type in ['constant', 'reflect', 'replicate', 'circular']
+        self.border_type = border_type
+
+    def __repr__(self) ->str:
+        return self.__class__.__name__ + '(kernel_size=' + str(self.kernel_size) + ', ' + 'sigma=' + str(self.sigma) + ', ' + 'border_type=' + self.border_type + ')'
+
+    def forward(self, x: torch.Tensor):
+        return kornia.filter2D(x, self.kernel, self.border_type)
 
 
 def gaussian_blur2d(input: torch.Tensor, kernel_size: Tuple[int, int], sigma: Tuple[float, float], border_type: str='reflect') ->torch.Tensor:
@@ -3404,6 +4541,350 @@ class BlobHessian(nn.Module):
         return hessian_response(input, self.grads_mode, sigmas)
 
 
+def _get_center_kernel3d(d: int, h: int, w: int, device: torch.device=torch.device('cpu')) ->torch.Tensor:
+    """Helper function, which generates a kernel to return center coordinates,
+       when applied with F.conv2d to 3d coordinates grid.
+
+    Args:
+         d (int): kernel depth.
+         h (int): kernel height.
+         w (int): kernel width.
+         device (torch.device): device, on which generate.
+
+    Returns:
+        conv_kernel (torch.Tensor) [3x3xdxhxw]
+    """
+    center_kernel = torch.zeros(3, 3, d, h, w, device=device)
+    if h % 2 != 0:
+        h_i1 = h // 2
+        h_i2 = h // 2 + 1
+    else:
+        h_i1 = h // 2 - 1
+        h_i2 = h // 2 + 1
+    if w % 2 != 0:
+        w_i1 = w // 2
+        w_i2 = w // 2 + 1
+    else:
+        w_i1 = w // 2 - 1
+        w_i2 = w // 2 + 1
+    if d % 2 != 0:
+        d_i1 = d // 2
+        d_i2 = d // 2 + 1
+    else:
+        d_i1 = d // 2 - 1
+        d_i2 = d // 2 + 1
+    center_num = float((h_i2 - h_i1) * (w_i2 - w_i1) * (d_i2 - d_i1))
+    center_kernel[(0, 1, 2), (0, 1, 2), d_i1:d_i2, h_i1:h_i2, w_i1:w_i2] = 1.0 / center_num
+    return center_kernel
+
+
+def create_meshgrid(height: int, width: int, normalized_coordinates: bool=True, device: Optional[torch.device]=torch.device('cpu')) ->torch.Tensor:
+    """Generates a coordinate grid for an image.
+
+    When the flag `normalized_coordinates` is set to True, the grid is
+    normalized to be in the range [-1,1] to be consistent with the pytorch
+    function grid_sample.
+    http://pytorch.org/docs/master/nn.html#torch.nn.functional.grid_sample
+
+    Args:
+        height (int): the image height (rows).
+        width (int): the image width (cols).
+        normalized_coordinates (bool): whether to normalize
+          coordinates in the range [-1, 1] in order to be consistent with the
+          PyTorch function grid_sample.
+
+    Return:
+        torch.Tensor: returns a grid tensor with shape :math:`(1, H, W, 2)`.
+    """
+    xs: Optional[torch.Tensor] = None
+    ys: Optional[torch.Tensor] = None
+    if normalized_coordinates:
+        xs = torch.linspace(-1, 1, width, device=device, dtype=torch.float)
+        ys = torch.linspace(-1, 1, height, device=device, dtype=torch.float)
+    else:
+        xs = torch.linspace(0, width - 1, width, device=device, dtype=torch.float)
+        ys = torch.linspace(0, height - 1, height, device=device, dtype=torch.float)
+    base_grid: torch.Tensor = torch.stack(torch.meshgrid([xs, ys])).transpose(1, 2)
+    return torch.unsqueeze(base_grid, dim=0).permute(0, 2, 3, 1)
+
+
+def _get_window_grid_kernel3d(d: int, h: int, w: int, device: torch.device=torch.device('cpu')) ->torch.Tensor:
+    """Helper function, which generates a kernel to return coordinates,
+       residual to window center.
+
+    Args:
+         d (int): kernel depth.
+         h (int): kernel height.
+         w (int): kernel width.
+         device (torch.device): device, on which generate.
+
+    Returns:
+        conv_kernel (torch.Tensor) [3x1xdxhxw]
+    """
+    grid2d = create_meshgrid(h, w, True, device=device)
+    if d > 1:
+        z = torch.linspace(-1, 1, d, device=device).view(d, 1, 1, 1)
+    else:
+        z = torch.zeros(1, 1, 1, 1, device=device)
+    grid3d = torch.cat([z.repeat(1, h, w, 1).contiguous(), grid2d.repeat(d, 1, 1, 1)], dim=3)
+    conv_kernel = grid3d.permute(3, 0, 1, 2).unsqueeze(1)
+    return conv_kernel
+
+
+def create_meshgrid3d(depth: int, height: int, width: int, normalized_coordinates: bool=True, device: Optional[torch.device]=torch.device('cpu')) ->torch.Tensor:
+    """Generates a coordinate grid for an image.
+
+    When the flag `normalized_coordinates` is set to True, the grid is
+    normalized to be in the range [-1,1] to be consistent with the pytorch
+    function grid_sample.
+    http://pytorch.org/docs/master/nn.html#torch.nn.functional.grid_sample
+
+    Args:
+        depth (int): the image depth (channels).
+        height (int): the image height (rows).
+        width (int): the image width (cols).
+        normalized_coordinates (bool): whether to normalize
+          coordinates in the range [-1, 1] in order to be consistent with the
+          PyTorch function grid_sample.
+
+    Return:
+        torch.Tensor: returns a grid tensor with shape :math:`(1, D, H, W, 3)`.
+    """
+    xs: Optional[torch.Tensor] = None
+    ys: Optional[torch.Tensor] = None
+    zs: Optional[torch.Tensor] = None
+    if normalized_coordinates:
+        xs = torch.linspace(-1, 1, width, device=device, dtype=torch.float)
+        ys = torch.linspace(-1, 1, height, device=device, dtype=torch.float)
+        zs = torch.linspace(-1, 1, depth, device=device, dtype=torch.float)
+    else:
+        xs = torch.linspace(0, width - 1, width, device=device, dtype=torch.float)
+        ys = torch.linspace(0, height - 1, height, device=device, dtype=torch.float)
+        zs = torch.linspace(0, depth - 1, depth, device=device, dtype=torch.float)
+    base_grid: torch.Tensor = torch.stack(torch.meshgrid([zs, xs, ys])).transpose(1, 2)
+    return base_grid.unsqueeze(0).permute(0, 3, 4, 2, 1)
+
+
+def normalize_pixel_coordinates3d(pixel_coordinates: torch.Tensor, depth: int, height: int, width: int, eps: float=1e-08) ->torch.Tensor:
+    """Normalize pixel coordinates between -1 and 1.
+
+    Normalized, -1 if on extreme left, 1 if on extreme right (x = w-1).
+
+    Args:
+        pixel_coordinates (torch.Tensor): the grid with pixel coordinates.
+          Shape can be :math:`(*, 3)`.
+        depth (int): the maximum depth in the z-axis.
+        height (int): the maximum height in the y-axis.
+        width (int): the maximum width in the x-axis.
+        eps (float): safe division by zero. (default 1e-8).
+
+    Return:
+        torch.Tensor: the normalized pixel coordinates.
+    """
+    if pixel_coordinates.shape[-1] != 3:
+        raise ValueError('Input pixel_coordinates must be of shape (*, 3). Got {}'.format(pixel_coordinates.shape))
+    dhw: torch.Tensor = torch.stack([torch.tensor(depth), torch.tensor(width), torch.tensor(height)]).to(pixel_coordinates.device)
+    factor: torch.Tensor = torch.tensor(2.0) / (dhw - 1).clamp(eps)
+    return factor * pixel_coordinates - 1
+
+
+def conv_soft_argmax3d(input: torch.Tensor, kernel_size: Tuple[int, int, int]=(3, 3, 3), stride: Tuple[int, int, int]=(1, 1, 1), padding: Tuple[int, int, int]=(1, 1, 1), temperature: Union[torch.Tensor, float]=torch.tensor(1.0), normalized_coordinates: bool=False, eps: float=1e-08, output_value: bool=True, strict_maxima_bonus: float=0.0) ->Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    """Function that computes the convolutional spatial Soft-Argmax 3D over the windows
+    of a given input heatmap. Function has two outputs: argmax coordinates and the softmaxpooled heatmap values
+    themselves.
+    On each window, the function computed is:
+
+    .. math::
+             ijk(X) = \\frac{\\sum{(i,j,k)} * exp(x / T)  \\in X} {\\sum{exp(x / T)  \\in X}}
+
+    .. math::
+             val(X) = \\frac{\\sum{x * exp(x / T)  \\in X}} {\\sum{exp(x / T)  \\in X}}
+
+    where T is temperature.
+
+    Args:
+        kernel_size (Tuple[int,int,int]):  size of the window
+        stride (Tuple[int,int,int]): stride of the window.
+        padding (Tuple[int,int,int]): input zero padding
+        temperature (torch.Tensor): factor to apply to input. Default is 1.
+        normalized_coordinates (bool): whether to return the coordinates normalized in the range of [-1, 1]. Otherwise,
+                                       it will return the coordinates in the range of the input shape. Default is False.
+        eps (float): small value to avoid zero division. Default is 1e-8.
+        output_value (bool): if True, val is outputed, if False, only ij
+        strict_maxima_bonus (float): pixels, which are strict maxima will score (1 + strict_maxima_bonus) * value.
+                                     This is needed for mimic behavior of strict NMS in classic local features
+    Shape:
+        - Input: :math:`(N, C, D_{in}, H_{in}, W_{in})`
+        - Output: :math:`(N, C, 3, D_{out}, H_{out}, W_{out})`, :math:`(N, C, D_{out}, H_{out}, W_{out})`, where
+
+         .. math::
+             D_{out} = \\left\\lfloor\\frac{D_{in}  + 2 \\times \\text{padding}[0] -
+             (\\text{kernel\\_size}[0] - 1) - 1}{\\text{stride}[0]} + 1\\right\\rfloor
+
+         .. math::
+             H_{out} = \\left\\lfloor\\frac{H_{in}  + 2 \\times \\text{padding}[1] -
+             (\\text{kernel\\_size}[1] - 1) - 1}{\\text{stride}[1]} + 1\\right\\rfloor
+
+         .. math::
+             W_{out} = \\left\\lfloor\\frac{W_{in}  + 2 \\times \\text{padding}[2] -
+             (\\text{kernel\\_size}[2] - 1) - 1}{\\text{stride}[2]} + 1\\right\\rfloor
+
+    Examples:
+        >>> input = torch.randn(20, 16, 3, 50, 32)
+        >>> nms_coords, nms_val = conv_soft_argmax2d(input, (3, 3, 3), (1, 2, 2), (0, 1, 1))
+    """
+    if not torch.is_tensor(input):
+        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(input)))
+    if not len(input.shape) == 5:
+        raise ValueError('Invalid input shape, we expect BxCxDxHxW. Got: {}'.format(input.shape))
+    if temperature <= 0:
+        raise ValueError('Temperature should be positive float or tensor. Got: {}'.format(temperature))
+    b, c, d, h, w = input.shape
+    kx, ky, kz = kernel_size
+    device: torch.device = input.device
+    dtype: torch.dtype = input.dtype
+    input = input.view(b * c, 1, d, h, w)
+    center_kernel: torch.Tensor = _get_center_kernel3d(kx, ky, kz, device)
+    window_kernel: torch.Tensor = _get_window_grid_kernel3d(kx, ky, kz, device)
+    x_max = F.adaptive_max_pool3d(input, (1, 1, 1))
+    x_exp = ((input - x_max.detach()) / temperature).exp()
+    pool_coef: float = float(kx * ky * kz)
+    den = pool_coef * F.avg_pool3d(x_exp.view_as(input), kernel_size, stride=stride, padding=padding) + eps
+    grid_global: torch.Tensor = create_meshgrid3d(d, h, w, False, device=device).permute(0, 4, 1, 2, 3)
+    grid_global_pooled = F.conv3d(grid_global, center_kernel, stride=stride, padding=padding)
+    coords_max: torch.Tensor = F.conv3d(x_exp, window_kernel, stride=stride, padding=padding)
+    coords_max = coords_max / den.expand_as(coords_max)
+    coords_max = coords_max + grid_global_pooled.expand_as(coords_max)
+    if normalized_coordinates:
+        coords_max = normalize_pixel_coordinates3d(coords_max.permute(0, 2, 3, 4, 1), d, h, w)
+        coords_max = coords_max.permute(0, 4, 1, 2, 3)
+    coords_max = coords_max.view(b, c, 3, coords_max.size(2), coords_max.size(3), coords_max.size(4))
+    if not output_value:
+        return coords_max
+    x_softmaxpool = pool_coef * F.avg_pool3d(x_exp.view(input.size()) * input, kernel_size, stride=stride, padding=padding) / den
+    if strict_maxima_bonus > 0:
+        in_levels: int = input.size(2)
+        out_levels: int = x_softmaxpool.size(2)
+        skip_levels: int = (in_levels - out_levels) // 2
+        strict_maxima: torch.Tensor = F.avg_pool3d(kornia.feature.nms3d(input, kernel_size), 1, stride, 0)
+        strict_maxima = strict_maxima[:, :, skip_levels:out_levels - skip_levels]
+        x_softmaxpool *= 1.0 + strict_maxima_bonus * strict_maxima
+    x_softmaxpool = x_softmaxpool.view(b, c, x_softmaxpool.size(2), x_softmaxpool.size(3), x_softmaxpool.size(4))
+    return coords_max, x_softmaxpool
+
+
+class ConvSoftArgmax3d(nn.Module):
+    """Module that calculates soft argmax 3d per window.
+
+    See :func:`~kornia.geometry.conv_soft_argmax3d` for details.
+    """
+
+    def __init__(self, kernel_size: Tuple[int, int, int]=(3, 3, 3), stride: Tuple[int, int, int]=(1, 1, 1), padding: Tuple[int, int, int]=(1, 1, 1), temperature: Union[torch.Tensor, float]=torch.tensor(1.0), normalized_coordinates: bool=False, eps: float=1e-08, output_value: bool=True, strict_maxima_bonus: float=0.0) ->None:
+        super(ConvSoftArgmax3d, self).__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = padding
+        self.temperature = temperature
+        self.normalized_coordinates = normalized_coordinates
+        self.eps = eps
+        self.output_value = output_value
+        self.strict_maxima_bonus = strict_maxima_bonus
+        return
+
+    def __repr__(self) ->str:
+        return self.__class__.__name__ + '(' + 'kernel_size=' + str(self.kernel_size) + ', ' + 'stride=' + str(self.stride) + ', ' + 'padding=' + str(self.padding) + ', ' + 'temperature=' + str(self.temperature) + ', ' + 'normalized_coordinates=' + str(self.normalized_coordinates) + ', ' + 'eps=' + str(self.eps) + ', ' + 'strict_maxima_bonus=' + str(self.strict_maxima_bonus) + ', ' + 'output_value=' + str(self.output_value) + ')'
+
+    def forward(self, x: torch.Tensor):
+        return conv_soft_argmax3d(x, self.kernel_size, self.stride, self.padding, self.temperature, self.normalized_coordinates, self.eps, self.output_value, self.strict_maxima_bonus)
+
+
+class ScalePyramid(nn.Module):
+    """Creates an scale pyramid of image, usually used for local feature
+    detection. Images are consequently smoothed with Gaussian blur and
+    downscaled.
+    Arguments:
+        n_levels (int): number of the levels in octave.
+        init_sigma (float): initial blur level.
+        min_size (int): the minimum size of the octave in pixels. Default is 5
+        double_image (bool): add 2x upscaled image as 1st level of pyramid. OpenCV SIFT does this. Default is False
+    Returns:
+        Tuple(List(Tensors), List(Tensors), List(Tensors)):
+        1st output: images
+        2nd output: sigmas (coefficients for scale conversion)
+        3rd output: pixelDists (coefficients for coordinate conversion)
+
+    Shape:
+        - Input: :math:`(B, C, H, W)`
+        - Output 1st: :math:`[(B, NL, C, H, W), (B, NL, C, H/2, W/2), ...]`
+        - Output 2nd: :math:`[(B, NL), (B, NL), (B, NL), ...]`
+        - Output 3rd: :math:`[(B, NL), (B, NL), (B, NL), ...]`
+
+    Examples::
+        >>> input = torch.rand(2, 4, 100, 100)
+        >>> sp, sigmas, pds = kornia.ScalePyramid(3, 15)(input)
+    """
+
+    def __init__(self, n_levels: int=3, init_sigma: float=1.6, min_size: int=5, double_image: bool=False):
+        super(ScalePyramid, self).__init__()
+        self.n_levels = n_levels
+        self.init_sigma = init_sigma
+        self.min_size = min_size
+        self.border = min_size // 2 - 1
+        self.sigma_step = 2 ** (1.0 / float(self.n_levels))
+        self.double_image = double_image
+        return
+
+    def __repr__(self) ->str:
+        return self.__class__.__name__ + '(n_levels=' + str(self.n_levels) + ', ' + 'init_sigma=' + str(self.init_sigma) + ', ' + 'min_size=' + str(self.min_size) + ', ' + 'border=' + str(self.border) + ', ' + 'sigma_step=' + str(self.sigma_step) + 'double_image=' + str(self.double_image) + ')'
+
+    def get_kernel_size(self, sigma: float):
+        ksize = int(2.0 * 4.0 * sigma + 1.0)
+        if ksize % 2 == 0:
+            ksize += 1
+        return ksize
+
+    def forward(self, x: torch.Tensor) ->Tuple[List, List, List]:
+        bs, ch, h, w = x.size()
+        pixel_distance = 1.0
+        cur_sigma = 0.5
+        if self.double_image:
+            x = F.interpolate(x, scale_factor=2.0, mode='bilinear', align_corners=False)
+            pixel_distance = 0.5
+            cur_sigma *= 2.0
+        if self.init_sigma > cur_sigma:
+            sigma = math.sqrt(self.init_sigma ** 2 - cur_sigma ** 2)
+            cur_sigma = self.init_sigma
+            ksize = self.get_kernel_size(sigma)
+            cur_level = gaussian_blur2d(x, (ksize, ksize), (sigma, sigma))
+        else:
+            cur_level = x
+        sigmas = [cur_sigma * torch.ones(bs, self.n_levels).to(x.device)]
+        pixel_dists = [pixel_distance * torch.ones(bs, self.n_levels).to(x.device)]
+        pyr = [[cur_level.unsqueeze(1)]]
+        oct_idx = 0
+        while True:
+            cur_level = pyr[-1][0].squeeze(1)
+            for level_idx in range(1, self.n_levels):
+                sigma = cur_sigma * math.sqrt(self.sigma_step ** 2 - 1.0)
+                cur_level = gaussian_blur2d(cur_level, (ksize, ksize), (sigma, sigma))
+                cur_sigma *= self.sigma_step
+                pyr[-1].append(cur_level.unsqueeze(1))
+                sigmas[-1][:, (level_idx)] = cur_sigma
+                pixel_dists[-1][:, (level_idx)] = pixel_distance
+            nextOctaveFirstLevel = F.interpolate(pyr[-1][-1].squeeze(1), scale_factor=0.5, mode='bilinear', align_corners=False)
+            pixel_distance *= 2.0
+            cur_sigma = self.init_sigma
+            if min(nextOctaveFirstLevel.size(2), nextOctaveFirstLevel.size(3)) <= self.min_size:
+                break
+            pyr.append([nextOctaveFirstLevel.unsqueeze(1)])
+            sigmas.append(cur_sigma * torch.ones(bs, self.n_levels))
+            pixel_dists.append(pixel_distance * torch.ones(bs, self.n_levels))
+            oct_idx += 1
+        for i in range(len(pyr)):
+            pyr[i] = torch.cat(pyr[i], dim=1)
+        return pyr, sigmas, pixel_dists
+
+
 def _create_octave_mask(mask: torch.Tensor, octave_shape: List[int]) ->torch.Tensor:
     """Downsamples a mask based on the given octave shape."""
     mask_shape = octave_shape[-2:]
@@ -3452,9 +4933,9 @@ def laf_to_boundary_points(LAF: torch.Tensor, n_pts: int=50) ->torch.Tensor:
     B, N, _, _ = LAF.size()
     pts = torch.cat([torch.sin(torch.linspace(0, 2 * math.pi, n_pts - 1)).unsqueeze(-1), torch.cos(torch.linspace(0, 2 * math.pi, n_pts - 1)).unsqueeze(-1), torch.ones(n_pts - 1, 1)], dim=1)
     pts = torch.cat([torch.tensor([0, 0, 1.0]).view(1, 3), pts], dim=0).unsqueeze(0).expand(B * N, n_pts, 3)
-    pts = pts.to(LAF.device).to(LAF.dtype)
+    pts = pts.to(LAF.device)
     aux = torch.tensor([0, 0, 1.0]).view(1, 1, 3).expand(B * N, 1, 3)
-    HLAF = torch.cat([LAF.view(-1, 2, 3), aux.to(LAF.device).to(LAF.dtype)], dim=1)
+    HLAF = torch.cat([LAF.view(-1, 2, 3), aux.to(LAF.device)], dim=1)
     pts_h = torch.bmm(HLAF, pts.permute(0, 2, 1)).permute(0, 2, 1)
     return kornia.convert_points_from_homogeneous(pts_h.view(B, N, n_pts, 3))
 
@@ -3476,6 +4957,109 @@ def laf_is_inside_image(laf: torch.Tensor, images: torch.Tensor) ->torch.Tensor:
     good_lafs_mask: torch.Tensor = (pts[..., 0] >= 0) * (pts[..., 0] <= w) * (pts[..., 1] >= 0) * (pts[..., 1] <= h)
     good_lafs_mask = good_lafs_mask.min(dim=2)[0]
     return good_lafs_mask
+
+
+class ScaleSpaceDetector(nn.Module):
+    """Module for differentiable local feature detection, as close as possible to classical
+     local feature detectors like Harris, Hessian-Affine or SIFT (DoG).
+     It has 5 modules inside: scale pyramid generator, response ("cornerness") function,
+     soft nms function, affine shape estimator and patch orientation estimator.
+     Each of those modules could be replaced with learned custom one, as long, as
+     they respect output shape.
+
+    Args:
+        num_features: (int) Number of features to detect. default = 500. In order to keep everything batchable,
+                      output would always have num_features outputed, even for completely homogeneous images.
+        mr_size: (float), default 6.0. Multiplier for local feature scale compared to the detection scale.
+                    6.0 is matching OpenCV 12.0 convention for SIFT.
+        scale_pyr_module: (nn.Module), which generates scale pyramid.
+                         See :class:`~kornia.geometry.ScalePyramid` for details. Default is ScalePyramid(3, 1.6, 10)
+        resp_module: (nn.Module), which calculates 'cornerness' of the pixel. Default is BlobHessian().
+        nms_module: (nn.Module), which outputs per-patch coordinates of the responce maxima.
+                    See :class:`~kornia.geometry.ConvSoftArgmax3d` for details.
+        ori_module: (nn.Module) for local feature orientation estimation.  Default is :class:`~kornia.feature.PassLAF`,
+                    which does nothing. See :class:`~kornia.feature.LAFOrienter` for details.
+        aff_module:  (nn.Module) for local feature affine shape estimation. Default is :class:`~kornia.feature.PassLAF`,
+                    which does nothing. See :class:`~kornia.feature.LAFAffineShapeEstimator` for details.
+        minima_are_also_good:  (bool) if True, then both response function minima and maxima are detected
+                                Useful for symmetric responce functions like DoG or Hessian. Default is False
+    """
+
+    def __init__(self, num_features: int=500, mr_size: float=6.0, scale_pyr_module: nn.Module=ScalePyramid(3, 1.6, 10), resp_module: nn.Module=BlobHessian(), nms_module: nn.Module=ConvSoftArgmax3d((3, 3, 3), (1, 1, 1), (1, 1, 1), normalized_coordinates=False, output_value=True), ori_module: nn.Module=PassLAF(), aff_module: nn.Module=PassLAF(), minima_are_also_good: bool=False):
+        super(ScaleSpaceDetector, self).__init__()
+        self.mr_size = mr_size
+        self.num_features = num_features
+        self.scale_pyr = scale_pyr_module
+        self.resp = resp_module
+        self.nms = nms_module
+        self.ori = ori_module
+        self.aff = aff_module
+        self.minima_are_also_good = minima_are_also_good
+        return
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(num_features=' + str(self.num_features) + ', ' + 'mr_size=' + str(self.mr_size) + ', ' + 'scale_pyr=' + self.scale_pyr.__repr__() + ', ' + 'resp=' + self.resp.__repr__() + ', ' + 'nms=' + self.nms.__repr__() + ', ' + 'ori=' + self.ori.__repr__() + ', ' + 'aff=' + self.aff.__repr__() + ')'
+
+    def detect(self, img: torch.Tensor, num_feats: int, mask: Optional[torch.Tensor]=None) ->Tuple[torch.Tensor, torch.Tensor]:
+        dev: torch.device = img.device
+        dtype: torch.dtype = img.dtype
+        sp, sigmas, pix_dists = self.scale_pyr(img)
+        all_responses = []
+        all_lafs = []
+        for oct_idx, octave in enumerate(sp):
+            sigmas_oct = sigmas[oct_idx]
+            pix_dists_oct = pix_dists[oct_idx]
+            B, L, CH, H, W = octave.size()
+            oct_resp = self.resp(octave.view(B * L, CH, H, W), sigmas_oct.view(-1))
+            oct_resp = oct_resp.view_as(octave).permute(0, 2, 1, 3, 4)
+            if mask is not None:
+                oct_mask: torch.Tensor = _create_octave_mask(mask, oct_resp.shape)
+                oct_resp = oct_mask * oct_resp
+            coord_max, response_max = self.nms(oct_resp)
+            if self.minima_are_also_good:
+                coord_min, response_min = self.nms(-oct_resp)
+                take_min_mask = response_min > response_max
+                response_max = response_min * take_min_mask + (1 - take_min_mask) * response_max
+                coord_max = coord_min * take_min_mask.unsqueeze(1) + (1 - take_min_mask.unsqueeze(1)) * coord_max
+            responses_flatten = response_max.view(response_max.size(0), -1)
+            max_coords_flatten = coord_max.view(response_max.size(0), 3, -1).permute(0, 2, 1)
+            if responses_flatten.size(1) > num_feats:
+                resp_flat_best, idxs = torch.topk(responses_flatten, k=num_feats, dim=1)
+                max_coords_best = torch.gather(max_coords_flatten, 1, idxs.unsqueeze(-1).repeat(1, 1, 3))
+            else:
+                resp_flat_best = responses_flatten
+                max_coords_best = max_coords_flatten
+            B, N = resp_flat_best.size()
+            max_coords_best = _scale_index_to_scale(max_coords_best, sigmas_oct)
+            rotmat = torch.eye(2, dtype=dtype, device=dev).view(1, 1, 2, 2)
+            current_lafs = torch.cat([self.mr_size * max_coords_best[:, :, (0)].view(B, N, 1, 1) * rotmat, max_coords_best[:, :, 1:3].view(B, N, 2, 1)], dim=3)
+            good_mask = laf_is_inside_image(current_lafs, octave[:, (0)])
+            resp_flat_best = resp_flat_best * good_mask
+            current_lafs = normalize_laf(current_lafs, octave[:, (0)])
+            all_responses.append(resp_flat_best)
+            all_lafs.append(current_lafs)
+        responses: torch.Tensor = torch.cat(all_responses, dim=1)
+        lafs: torch.Tensor = torch.cat(all_lafs, dim=1)
+        responses, idxs = torch.topk(responses, k=num_feats, dim=1)
+        lafs = torch.gather(lafs, 1, idxs.unsqueeze(-1).unsqueeze(-1).repeat(1, 1, 2, 3))
+        return responses, denormalize_laf(lafs, img)
+
+    def forward(self, img: torch.Tensor, mask: Optional[torch.Tensor]=None) ->Tuple[torch.Tensor, torch.Tensor]:
+        """Three stage local feature detection. First the location and scale of interest points are determined by
+        detect function. Then affine shape and orientation.
+
+        Args:
+            img (torch.Tensor): image to extract features with shape [BxCxHxW]
+            mask (torch.Tensor, optional): a mask with weights where to apply the
+            response function. The shae must same as the input image.
+
+        Returns:
+            lafs (torch.Tensor): shape [BxNx2x3]. Detected local affine frames.
+            responses (torch.Tensor): shape [BxNx1]. Response function values for corresponding lafs"""
+        responses, lafs = self.detect(img, self.num_features, mask)
+        lafs = self.aff(lafs, img)
+        lafs = self.ori(lafs, img)
+        return lafs, responses
 
 
 def get_sift_bin_ksize_stride_pad(patch_size: int, num_spatial_bins: int) ->Tuple:
@@ -3639,16 +5223,7 @@ def get_box_kernel2d(kernel_size: Tuple[int, int]) ->torch.Tensor:
     ky: float = float(kernel_size[1])
     scale: torch.Tensor = torch.tensor(1.0) / torch.tensor([kx * ky])
     tmp_kernel: torch.Tensor = torch.ones(1, kernel_size[0], kernel_size[1])
-    return scale.to(tmp_kernel.dtype) * tmp_kernel
-
-
-def normalize_kernel2d(input: torch.Tensor) ->torch.Tensor:
-    """Normalizes both derivative and smoothing kernel.
-    """
-    if len(input.size()) < 2:
-        raise TypeError('input should be at least 2D tensor. Got {}'.format(input.size()))
-    norm: torch.Tensor = input.abs().sum(dim=-1).sum(dim=-1)
-    return input / norm.unsqueeze(-1).unsqueeze(-1)
+    return scale * tmp_kernel
 
 
 class BoxBlur(nn.Module):
@@ -3699,48 +5274,6 @@ class BoxBlur(nn.Module):
 
     def forward(self, input: torch.Tensor):
         return kornia.filter2D(input, self.kernel, self.border_type)
-
-
-class GaussianBlur2d(nn.Module):
-    """Creates an operator that blurs a tensor using a Gaussian filter.
-
-    The operator smooths the given tensor with a gaussian kernel by convolving
-    it to each channel. It suports batched operation.
-
-    Arguments:
-        kernel_size (Tuple[int, int]): the size of the kernel.
-        sigma (Tuple[float, float]): the standard deviation of the kernel.
-        border_type (str): the padding mode to be applied before convolving.
-          The expected modes are: ``'constant'``, ``'reflect'``,
-          ``'replicate'`` or ``'circular'``. Default: ``'reflect'``.
-
-    Returns:
-        Tensor: the blurred tensor.
-
-    Shape:
-        - Input: :math:`(B, C, H, W)`
-        - Output: :math:`(B, C, H, W)`
-
-    Examples::
-
-        >>> input = torch.rand(2, 4, 5, 5)
-        >>> gauss = kornia.filters.GaussianBlur((3, 3), (1.5, 1.5))
-        >>> output = gauss(input)  # 2x4x5x5
-    """
-
-    def __init__(self, kernel_size: Tuple[int, int], sigma: Tuple[float, float], border_type: str='reflect') ->None:
-        super(GaussianBlur2d, self).__init__()
-        self.kernel_size: Tuple[int, int] = kernel_size
-        self.sigma: Tuple[float, float] = sigma
-        self.kernel: torch.Tensor = torch.unsqueeze(get_gaussian_kernel2d(kernel_size, sigma), dim=0)
-        assert border_type in ['constant', 'reflect', 'replicate', 'circular']
-        self.border_type = border_type
-
-    def __repr__(self) ->str:
-        return self.__class__.__name__ + '(kernel_size=' + str(self.kernel_size) + ', ' + 'sigma=' + str(self.sigma) + ', ' + 'border_type=' + self.border_type + ')'
-
-    def forward(self, x: torch.Tensor):
-        return kornia.filter2D(x, self.kernel, self.border_type)
 
 
 def get_laplacian_kernel2d(kernel_size: int) ->torch.Tensor:
@@ -3870,62 +5403,6 @@ class MedianBlur(nn.Module):
         return median
 
 
-def compute_padding(kernel_size: Tuple[int, int]) ->List[int]:
-    """Computes padding tuple."""
-    assert len(kernel_size) == 2, kernel_size
-    computed = [(k // 2) for k in kernel_size]
-    return [computed[1] - 1 if kernel_size[0] % 2 == 0 else computed[1], computed[1], computed[0] - 1 if kernel_size[1] % 2 == 0 else computed[0], computed[0]]
-
-
-def filter2D(input: torch.Tensor, kernel: torch.Tensor, border_type: str='reflect', normalized: bool=False) ->torch.Tensor:
-    """Function that convolves a tensor with a kernel.
-
-    The function applies a given kernel to a tensor. The kernel is applied
-    independently at each depth channel of the tensor. Before applying the
-    kernel, the function applies padding according to the specified mode so
-    that the output remains in the same shape.
-
-    Args:
-        input (torch.Tensor): the input tensor with shape of
-          :math:`(B, C, H, W)`.
-        kernel (torch.Tensor): the kernel to be convolved with the input
-          tensor. The kernel shape must be :math:`(1, kH, kW)`.
-        border_type (str): the padding mode to be applied before convolving.
-          The expected modes are: ``'constant'``, ``'reflect'``,
-          ``'replicate'`` or ``'circular'``. Default: ``'reflect'``.
-        normalized (bool): If True, kernel will be L1 normalized.
-
-    Return:
-        torch.Tensor: the convolved tensor of same size and numbers of channels
-        as the input.
-    """
-    if not isinstance(input, torch.Tensor):
-        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(input)))
-    if not isinstance(kernel, torch.Tensor):
-        raise TypeError('Input kernel type is not a torch.Tensor. Got {}'.format(type(kernel)))
-    if not isinstance(border_type, str):
-        raise TypeError('Input border_type is not string. Got {}'.format(type(kernel)))
-    if not len(input.shape) == 4:
-        raise ValueError('Invalid input shape, we expect BxCxHxW. Got: {}'.format(input.shape))
-    if not len(kernel.shape) == 3:
-        raise ValueError('Invalid kernel shape, we expect 1xHxW. Got: {}'.format(kernel.shape))
-    borders_list: List[str] = ['constant', 'reflect', 'replicate', 'circular']
-    if border_type not in borders_list:
-        raise ValueError('Invalid border_type, we expect the following: {0}.Got: {1}'.format(borders_list, border_type))
-    b, c, h, w = input.shape
-    tmp_kernel: torch.Tensor = kernel.unsqueeze(0).to(input.device).to(input.dtype)
-    if normalized:
-        tmp_kernel = normalize_kernel2d(tmp_kernel)
-    height, width = tmp_kernel.shape[-2:]
-    padding_shape: List[int] = compute_padding((height, width))
-    input_pad: torch.Tensor = F.pad(input, padding_shape, mode=border_type)
-    b, c, hp, wp = input_pad.shape
-    kernel_numel: int = height * width
-    if kernel_numel > 81:
-        return F.conv2d(input_pad.reshape(b * c, 1, hp, wp), tmp_kernel, padding=0, stride=1).view(b, c, h, w)
-    return F.conv2d(input_pad, tmp_kernel.expand(c, -1, -1, -1), groups=c, padding=0, stride=1)
-
-
 def get_rotation_matrix2d(center: torch.Tensor, angle: torch.Tensor, scale: torch.Tensor) ->torch.Tensor:
     """Calculates an affine matrix of 2D rotation.
 
@@ -3990,7 +5467,7 @@ def get_rotation_matrix2d(center: torch.Tensor, angle: torch.Tensor, scale: torc
     x: torch.Tensor = center[..., 0]
     y: torch.Tensor = center[..., 1]
     batch_size: int = center.shape[0]
-    one = torch.tensor(1.0).to(center.device)
+    one = torch.tensor(1.0)
     M: torch.Tensor = torch.zeros(batch_size, 2, 3, device=center.device, dtype=center.dtype)
     M[(...), 0:2, 0:2] = scaled_rotation
     M[..., 0, 2] = (one - alpha) * x - beta * y
@@ -4078,9 +5555,9 @@ def normalize_homography(dst_pix_trans_src_pix: torch.Tensor, dsize_src: Tuple[i
         raise ValueError('Input dst_pix_trans_src_pix must be a Bx3x3 tensor. Got {}'.format(dst_pix_trans_src_pix.shape))
     src_h, src_w = dsize_src
     dst_h, dst_w = dsize_dst
-    src_norm_trans_src_pix: torch.Tensor = normal_transform_pixel(src_h, src_w).to(dst_pix_trans_src_pix)
+    src_norm_trans_src_pix: torch.Tensor = normal_transform_pixel(src_h, src_w)
     src_pix_trans_src_norm = torch.inverse(src_norm_trans_src_pix)
-    dst_norm_trans_dst_pix: torch.Tensor = normal_transform_pixel(dst_h, dst_w).to(dst_pix_trans_src_pix)
+    dst_norm_trans_dst_pix: torch.Tensor = normal_transform_pixel(dst_h, dst_w)
     dst_norm_trans_src_norm: torch.Tensor = dst_norm_trans_dst_pix @ (dst_pix_trans_src_pix @ src_pix_trans_src_norm)
     return dst_norm_trans_src_norm
 
@@ -4278,116 +5755,6 @@ class MotionBlur(nn.Module):
         return motion_blur(x, self.kernel_size, self.angle, self.direction, self.border_type)
 
 
-def get_diff_kernel_3x3() ->torch.Tensor:
-    """Utility function that returns a sobel kernel of 3x3"""
-    return torch.tensor([[-0.0, 0.0, 0.0], [-1.0, 0.0, 1.0], [-0.0, 0.0, 0.0]])
-
-
-def get_diff_kernel2d() ->torch.Tensor:
-    kernel_x: torch.Tensor = get_diff_kernel_3x3()
-    kernel_y: torch.Tensor = kernel_x.transpose(0, 1)
-    return torch.stack([kernel_x, kernel_y])
-
-
-def get_diff_kernel2d_2nd_order() ->torch.Tensor:
-    gxx: torch.Tensor = torch.tensor([[0.0, 0.0, 0.0], [1.0, -2.0, 1.0], [0.0, 0.0, 0.0]])
-    gyy: torch.Tensor = gxx.transpose(0, 1)
-    gxy: torch.Tensor = torch.tensor([[-1.0, 0.0, 1.0], [0.0, 0.0, 0.0], [1.0, 0.0, -1.0]])
-    return torch.stack([gxx, gxy, gyy])
-
-
-def get_sobel_kernel_3x3() ->torch.Tensor:
-    """Utility function that returns a sobel kernel of 3x3"""
-    return torch.tensor([[-1.0, 0.0, 1.0], [-2.0, 0.0, 2.0], [-1.0, 0.0, 1.0]])
-
-
-def get_sobel_kernel2d() ->torch.Tensor:
-    kernel_x: torch.Tensor = get_sobel_kernel_3x3()
-    kernel_y: torch.Tensor = kernel_x.transpose(0, 1)
-    return torch.stack([kernel_x, kernel_y])
-
-
-def _get_sobel_kernel_5x5_2nd_order_xy() ->torch.Tensor:
-    """Utility function that returns a 2nd order sobel kernel of 5x5"""
-    return torch.tensor([[-1.0, -2.0, 0.0, 2.0, 1.0], [-2.0, -4.0, 0.0, 4.0, 2.0], [0.0, 0.0, 0.0, 0.0, 0.0], [2.0, 4.0, 0.0, -4.0, -2.0], [1.0, 2.0, 0.0, -2.0, -1.0]])
-
-
-def get_sobel_kernel_5x5_2nd_order() ->torch.Tensor:
-    """Utility function that returns a 2nd order sobel kernel of 5x5"""
-    return torch.tensor([[-1.0, 0.0, 2.0, 0.0, -1.0], [-4.0, 0.0, 8.0, 0.0, -4.0], [-6.0, 0.0, 12.0, 0.0, -6.0], [-4.0, 0.0, 8.0, 0.0, -4.0], [-1.0, 0.0, 2.0, 0.0, -1.0]])
-
-
-def get_sobel_kernel2d_2nd_order() ->torch.Tensor:
-    gxx: torch.Tensor = get_sobel_kernel_5x5_2nd_order()
-    gyy: torch.Tensor = gxx.transpose(0, 1)
-    gxy: torch.Tensor = _get_sobel_kernel_5x5_2nd_order_xy()
-    return torch.stack([gxx, gxy, gyy])
-
-
-def get_spatial_gradient_kernel2d(mode: str, order: int) ->torch.Tensor:
-    """Function that returns kernel for 1st or 2nd order image gradients,
-    using one of the following operators: sobel, diff"""
-    if mode not in ['sobel', 'diff']:
-        raise TypeError('mode should be either sobel                         or diff. Got {}'.format(mode))
-    if order not in [1, 2]:
-        raise TypeError('order should be either 1 or 2                         Got {}'.format(order))
-    if mode == 'sobel' and order == 1:
-        kernel: torch.Tensor = get_sobel_kernel2d()
-    elif mode == 'sobel' and order == 2:
-        kernel = get_sobel_kernel2d_2nd_order()
-    elif mode == 'diff' and order == 1:
-        kernel = get_diff_kernel2d()
-    elif mode == 'diff' and order == 2:
-        kernel = get_diff_kernel2d_2nd_order()
-    else:
-        raise NotImplementedError('')
-    return kernel
-
-
-class SpatialGradient(nn.Module):
-    """Computes the first order image derivative in both x and y using a Sobel
-    operator.
-
-    Return:
-        torch.Tensor: the sobel edges of the input feature map.
-
-    Shape:
-        - Input: :math:`(B, C, H, W)`
-        - Output: :math:`(B, C, 2, H, W)`
-
-    Examples:
-        >>> input = torch.rand(1, 3, 4, 4)
-        >>> output = kornia.filters.SpatialGradient()(input)  # 1x3x2x4x4
-    """
-
-    def __init__(self, mode: str='sobel', order: int=1, normalized: bool=True) ->None:
-        super(SpatialGradient, self).__init__()
-        self.normalized: bool = normalized
-        self.order: int = order
-        self.mode: str = mode
-        self.kernel = get_spatial_gradient_kernel2d(mode, order)
-        if self.normalized:
-            self.kernel = normalize_kernel2d(self.kernel)
-        return
-
-    def __repr__(self) ->str:
-        return self.__class__.__name__ + '(order=' + str(self.order) + ', ' + 'normalized=' + str(self.normalized) + ', ' + 'mode=' + self.mode + ')'
-
-    def forward(self, input: torch.Tensor) ->torch.Tensor:
-        if not torch.is_tensor(input):
-            raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(input)))
-        if not len(input.shape) == 4:
-            raise ValueError('Invalid input shape, we expect BxCxHxW. Got: {}'.format(input.shape))
-        b, c, h, w = input.shape
-        tmp_kernel: torch.Tensor = self.kernel.to(input.device).detach()
-        kernel: torch.Tensor = tmp_kernel.unsqueeze(1).unsqueeze(1)
-        kernel_flip: torch.Tensor = kernel.flip(-3)
-        spatial_pad = [self.kernel.size(1) // 2, self.kernel.size(1) // 2, self.kernel.size(2) // 2, self.kernel.size(2) // 2]
-        out_channels: int = 3 if self.order == 2 else 2
-        padded_inp: torch.Tensor = F.pad(input.reshape(b * c, 1, h, w), spatial_pad, 'replicate')[:, :, (None)]
-        return F.conv3d(padded_inp, kernel_flip, padding=0).view(b, c, out_channels, h, w)
-
-
 def get_diff_kernel3d(device=torch.device('cpu'), dtype=torch.float) ->torch.Tensor:
     """Utility function that returns a first order derivative kernel of 3x3x3"""
     kernel: torch.Tensor = torch.tensor([[[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], [[0.0, 0.0, 0.0], [-0.5, 0.0, 0.5], [0.0, 0.0, 0.0]], [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]], [[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], [[0.0, -0.5, 0.0], [0.0, 0.0, 0.0], [0.0, 0.5, 0.0]], [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]], [[[0.0, 0.0, 0.0], [0.0, -0.5, 0.0], [0.0, 0.0, 0.0]], [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], [[0.0, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.0, 0.0]]]], device=device, dtype=dtype)
@@ -4526,36 +5893,6 @@ def _get_center_kernel2d(h: int, w: int, device: torch.device=torch.device('cpu'
     return center_kernel
 
 
-def create_meshgrid(height: int, width: int, normalized_coordinates: bool=True, device: Optional[torch.device]=torch.device('cpu')) ->torch.Tensor:
-    """Generates a coordinate grid for an image.
-
-    When the flag `normalized_coordinates` is set to True, the grid is
-    normalized to be in the range [-1,1] to be consistent with the pytorch
-    function grid_sample.
-    http://pytorch.org/docs/master/nn.html#torch.nn.functional.grid_sample
-
-    Args:
-        height (int): the image height (rows).
-        width (int): the image width (cols).
-        normalized_coordinates (bool): whether to normalize
-          coordinates in the range [-1, 1] in order to be consistent with the
-          PyTorch function grid_sample.
-
-    Return:
-        torch.Tensor: returns a grid tensor with shape :math:`(1, H, W, 2)`.
-    """
-    xs: Optional[torch.Tensor] = None
-    ys: Optional[torch.Tensor] = None
-    if normalized_coordinates:
-        xs = torch.linspace(-1, 1, width, device=device, dtype=torch.float)
-        ys = torch.linspace(-1, 1, height, device=device, dtype=torch.float)
-    else:
-        xs = torch.linspace(0, width - 1, width, device=device, dtype=torch.float)
-        ys = torch.linspace(0, height - 1, height, device=device, dtype=torch.float)
-    base_grid: torch.Tensor = torch.stack(torch.meshgrid([xs, ys])).transpose(1, 2)
-    return torch.unsqueeze(base_grid, dim=0).permute(0, 2, 3, 1)
-
-
 def normalize_pixel_coordinates(pixel_coordinates: torch.Tensor, height: int, width: int, eps: float=1e-08) ->torch.Tensor:
     """Normalize pixel coordinates between -1 and 1.
 
@@ -4573,7 +5910,7 @@ def normalize_pixel_coordinates(pixel_coordinates: torch.Tensor, height: int, wi
     """
     if pixel_coordinates.shape[-1] != 2:
         raise ValueError('Input pixel_coordinates must be of shape (*, 2). Got {}'.format(pixel_coordinates.shape))
-    hw: torch.Tensor = torch.stack([torch.tensor(width), torch.tensor(height)]).to(pixel_coordinates.device).to(pixel_coordinates.dtype)
+    hw: torch.Tensor = torch.stack([torch.tensor(width), torch.tensor(height)]).to(pixel_coordinates.device)
     factor: torch.Tensor = torch.tensor(2.0) / (hw - 1).clamp(eps)
     return factor * pixel_coordinates - 1
 
@@ -4646,15 +5983,15 @@ def conv_soft_argmax2d(input: torch.Tensor, kernel_size: Tuple[int, int]=(3, 3),
     device: torch.device = input.device
     dtype: torch.dtype = input.dtype
     input = input.view(b * c, 1, h, w)
-    center_kernel: torch.Tensor = _get_center_kernel2d(kx, ky, device).to(dtype)
-    window_kernel: torch.Tensor = _get_window_grid_kernel2d(kx, ky, device).to(dtype)
+    center_kernel: torch.Tensor = _get_center_kernel2d(kx, ky, device)
+    window_kernel: torch.Tensor = _get_window_grid_kernel2d(kx, ky, device)
     x_max = F.adaptive_max_pool2d(input, (1, 1))
     x_exp = ((input - x_max.detach()) / temperature).exp()
     pool_coef: float = float(kx * ky)
     den = pool_coef * F.avg_pool2d(x_exp, kernel_size, stride=stride, padding=padding) + eps
     x_softmaxpool = pool_coef * F.avg_pool2d(x_exp * input, kernel_size, stride=stride, padding=padding) / den
     x_softmaxpool = x_softmaxpool.view(b, c, x_softmaxpool.size(2), x_softmaxpool.size(3))
-    grid_global: torch.Tensor = create_meshgrid(h, w, False, device).to(dtype).permute(0, 3, 1, 2)
+    grid_global: torch.Tensor = create_meshgrid(h, w, False, device).permute(0, 3, 1, 2)
     grid_global_pooled = F.conv2d(grid_global, center_kernel, stride=stride, padding=padding)
     coords_max: torch.Tensor = F.conv2d(x_exp, window_kernel, stride=stride, padding=padding)
     coords_max = coords_max / den.expand_as(coords_max)
@@ -4689,265 +6026,6 @@ class ConvSoftArgmax2d(nn.Module):
 
     def forward(self, x: torch.Tensor):
         return conv_soft_argmax2d(x, self.kernel_size, self.stride, self.padding, self.temperature, self.normalized_coordinates, self.eps, self.output_value)
-
-
-def _get_center_kernel3d(d: int, h: int, w: int, device: torch.device=torch.device('cpu')) ->torch.Tensor:
-    """Helper function, which generates a kernel to return center coordinates,
-       when applied with F.conv2d to 3d coordinates grid.
-
-    Args:
-         d (int): kernel depth.
-         h (int): kernel height.
-         w (int): kernel width.
-         device (torch.device): device, on which generate.
-
-    Returns:
-        conv_kernel (torch.Tensor) [3x3xdxhxw]
-    """
-    center_kernel = torch.zeros(3, 3, d, h, w, device=device)
-    if h % 2 != 0:
-        h_i1 = h // 2
-        h_i2 = h // 2 + 1
-    else:
-        h_i1 = h // 2 - 1
-        h_i2 = h // 2 + 1
-    if w % 2 != 0:
-        w_i1 = w // 2
-        w_i2 = w // 2 + 1
-    else:
-        w_i1 = w // 2 - 1
-        w_i2 = w // 2 + 1
-    if d % 2 != 0:
-        d_i1 = d // 2
-        d_i2 = d // 2 + 1
-    else:
-        d_i1 = d // 2 - 1
-        d_i2 = d // 2 + 1
-    center_num = float((h_i2 - h_i1) * (w_i2 - w_i1) * (d_i2 - d_i1))
-    center_kernel[(0, 1, 2), (0, 1, 2), d_i1:d_i2, h_i1:h_i2, w_i1:w_i2] = 1.0 / center_num
-    return center_kernel
-
-
-def _get_window_grid_kernel3d(d: int, h: int, w: int, device: torch.device=torch.device('cpu')) ->torch.Tensor:
-    """Helper function, which generates a kernel to return coordinates,
-       residual to window center.
-
-    Args:
-         d (int): kernel depth.
-         h (int): kernel height.
-         w (int): kernel width.
-         device (torch.device): device, on which generate.
-
-    Returns:
-        conv_kernel (torch.Tensor) [3x1xdxhxw]
-    """
-    grid2d = create_meshgrid(h, w, True, device=device)
-    if d > 1:
-        z = torch.linspace(-1, 1, d, device=device).view(d, 1, 1, 1)
-    else:
-        z = torch.zeros(1, 1, 1, 1, device=device)
-    grid3d = torch.cat([z.repeat(1, h, w, 1).contiguous(), grid2d.repeat(d, 1, 1, 1)], dim=3)
-    conv_kernel = grid3d.permute(3, 0, 1, 2).unsqueeze(1)
-    return conv_kernel
-
-
-def create_meshgrid3d(depth: int, height: int, width: int, normalized_coordinates: bool=True, device: Optional[torch.device]=torch.device('cpu')) ->torch.Tensor:
-    """Generates a coordinate grid for an image.
-
-    When the flag `normalized_coordinates` is set to True, the grid is
-    normalized to be in the range [-1,1] to be consistent with the pytorch
-    function grid_sample.
-    http://pytorch.org/docs/master/nn.html#torch.nn.functional.grid_sample
-
-    Args:
-        depth (int): the image depth (channels).
-        height (int): the image height (rows).
-        width (int): the image width (cols).
-        normalized_coordinates (bool): whether to normalize
-          coordinates in the range [-1, 1] in order to be consistent with the
-          PyTorch function grid_sample.
-
-    Return:
-        torch.Tensor: returns a grid tensor with shape :math:`(1, D, H, W, 3)`.
-    """
-    xs: Optional[torch.Tensor] = None
-    ys: Optional[torch.Tensor] = None
-    zs: Optional[torch.Tensor] = None
-    if normalized_coordinates:
-        xs = torch.linspace(-1, 1, width, device=device, dtype=torch.float)
-        ys = torch.linspace(-1, 1, height, device=device, dtype=torch.float)
-        zs = torch.linspace(-1, 1, depth, device=device, dtype=torch.float)
-    else:
-        xs = torch.linspace(0, width - 1, width, device=device, dtype=torch.float)
-        ys = torch.linspace(0, height - 1, height, device=device, dtype=torch.float)
-        zs = torch.linspace(0, depth - 1, depth, device=device, dtype=torch.float)
-    base_grid: torch.Tensor = torch.stack(torch.meshgrid([zs, xs, ys])).transpose(1, 2)
-    return base_grid.unsqueeze(0).permute(0, 3, 4, 2, 1)
-
-
-def normalize_pixel_coordinates3d(pixel_coordinates: torch.Tensor, depth: int, height: int, width: int, eps: float=1e-08) ->torch.Tensor:
-    """Normalize pixel coordinates between -1 and 1.
-
-    Normalized, -1 if on extreme left, 1 if on extreme right (x = w-1).
-
-    Args:
-        pixel_coordinates (torch.Tensor): the grid with pixel coordinates.
-          Shape can be :math:`(*, 3)`.
-        depth (int): the maximum depth in the z-axis.
-        height (int): the maximum height in the y-axis.
-        width (int): the maximum width in the x-axis.
-        eps (float): safe division by zero. (default 1e-8).
-
-    Return:
-        torch.Tensor: the normalized pixel coordinates.
-    """
-    if pixel_coordinates.shape[-1] != 3:
-        raise ValueError('Input pixel_coordinates must be of shape (*, 3). Got {}'.format(pixel_coordinates.shape))
-    dhw: torch.Tensor = torch.stack([torch.tensor(depth), torch.tensor(width), torch.tensor(height)]).to(pixel_coordinates.device).to(pixel_coordinates.dtype)
-    factor: torch.Tensor = torch.tensor(2.0) / (dhw - 1).clamp(eps)
-    return factor * pixel_coordinates - 1
-
-
-def conv_soft_argmax3d(input: torch.Tensor, kernel_size: Tuple[int, int, int]=(3, 3, 3), stride: Tuple[int, int, int]=(1, 1, 1), padding: Tuple[int, int, int]=(1, 1, 1), temperature: Union[torch.Tensor, float]=torch.tensor(1.0), normalized_coordinates: bool=False, eps: float=1e-08, output_value: bool=True, strict_maxima_bonus: float=0.0) ->Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-    """Function that computes the convolutional spatial Soft-Argmax 3D over the windows
-    of a given input heatmap. Function has two outputs: argmax coordinates and the softmaxpooled heatmap values
-    themselves.
-    On each window, the function computed is:
-
-    .. math::
-             ijk(X) = \\frac{\\sum{(i,j,k)} * exp(x / T)  \\in X} {\\sum{exp(x / T)  \\in X}}
-
-    .. math::
-             val(X) = \\frac{\\sum{x * exp(x / T)  \\in X}} {\\sum{exp(x / T)  \\in X}}
-
-    where T is temperature.
-
-    Args:
-        kernel_size (Tuple[int,int,int]):  size of the window
-        stride (Tuple[int,int,int]): stride of the window.
-        padding (Tuple[int,int,int]): input zero padding
-        temperature (torch.Tensor): factor to apply to input. Default is 1.
-        normalized_coordinates (bool): whether to return the coordinates normalized in the range of [-1, 1]. Otherwise,
-                                       it will return the coordinates in the range of the input shape. Default is False.
-        eps (float): small value to avoid zero division. Default is 1e-8.
-        output_value (bool): if True, val is outputed, if False, only ij
-        strict_maxima_bonus (float): pixels, which are strict maxima will score (1 + strict_maxima_bonus) * value.
-                                     This is needed for mimic behavior of strict NMS in classic local features
-    Shape:
-        - Input: :math:`(N, C, D_{in}, H_{in}, W_{in})`
-        - Output: :math:`(N, C, 3, D_{out}, H_{out}, W_{out})`, :math:`(N, C, D_{out}, H_{out}, W_{out})`, where
-
-         .. math::
-             D_{out} = \\left\\lfloor\\frac{D_{in}  + 2 \\times \\text{padding}[0] -
-             (\\text{kernel\\_size}[0] - 1) - 1}{\\text{stride}[0]} + 1\\right\\rfloor
-
-         .. math::
-             H_{out} = \\left\\lfloor\\frac{H_{in}  + 2 \\times \\text{padding}[1] -
-             (\\text{kernel\\_size}[1] - 1) - 1}{\\text{stride}[1]} + 1\\right\\rfloor
-
-         .. math::
-             W_{out} = \\left\\lfloor\\frac{W_{in}  + 2 \\times \\text{padding}[2] -
-             (\\text{kernel\\_size}[2] - 1) - 1}{\\text{stride}[2]} + 1\\right\\rfloor
-
-    Examples:
-        >>> input = torch.randn(20, 16, 3, 50, 32)
-        >>> nms_coords, nms_val = conv_soft_argmax2d(input, (3, 3, 3), (1, 2, 2), (0, 1, 1))
-    """
-    if not torch.is_tensor(input):
-        raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(input)))
-    if not len(input.shape) == 5:
-        raise ValueError('Invalid input shape, we expect BxCxDxHxW. Got: {}'.format(input.shape))
-    if temperature <= 0:
-        raise ValueError('Temperature should be positive float or tensor. Got: {}'.format(temperature))
-    b, c, d, h, w = input.shape
-    kx, ky, kz = kernel_size
-    device: torch.device = input.device
-    dtype: torch.dtype = input.dtype
-    input = input.view(b * c, 1, d, h, w)
-    center_kernel: torch.Tensor = _get_center_kernel3d(kx, ky, kz, device).to(dtype)
-    window_kernel: torch.Tensor = _get_window_grid_kernel3d(kx, ky, kz, device).to(dtype)
-    x_max = F.adaptive_max_pool3d(input, (1, 1, 1))
-    x_exp = ((input - x_max.detach()) / temperature).exp()
-    pool_coef: float = float(kx * ky * kz)
-    den = pool_coef * F.avg_pool3d(x_exp.view_as(input), kernel_size, stride=stride, padding=padding) + eps
-    grid_global: torch.Tensor = create_meshgrid3d(d, h, w, False, device=device).to(dtype).permute(0, 4, 1, 2, 3)
-    grid_global_pooled = F.conv3d(grid_global, center_kernel, stride=stride, padding=padding)
-    coords_max: torch.Tensor = F.conv3d(x_exp, window_kernel, stride=stride, padding=padding)
-    coords_max = coords_max / den.expand_as(coords_max)
-    coords_max = coords_max + grid_global_pooled.expand_as(coords_max)
-    if normalized_coordinates:
-        coords_max = normalize_pixel_coordinates3d(coords_max.permute(0, 2, 3, 4, 1), d, h, w)
-        coords_max = coords_max.permute(0, 4, 1, 2, 3)
-    coords_max = coords_max.view(b, c, 3, coords_max.size(2), coords_max.size(3), coords_max.size(4))
-    if not output_value:
-        return coords_max
-    x_softmaxpool = pool_coef * F.avg_pool3d(x_exp.view(input.size()) * input, kernel_size, stride=stride, padding=padding) / den
-    if strict_maxima_bonus > 0:
-        in_levels: int = input.size(2)
-        out_levels: int = x_softmaxpool.size(2)
-        skip_levels: int = (in_levels - out_levels) // 2
-        strict_maxima: torch.Tensor = F.avg_pool3d(kornia.feature.nms3d(input, kernel_size), 1, stride, 0)
-        strict_maxima = strict_maxima[:, :, skip_levels:out_levels - skip_levels]
-        x_softmaxpool *= 1.0 + strict_maxima_bonus * strict_maxima
-    x_softmaxpool = x_softmaxpool.view(b, c, x_softmaxpool.size(2), x_softmaxpool.size(3), x_softmaxpool.size(4))
-    return coords_max, x_softmaxpool
-
-
-class ConvSoftArgmax3d(nn.Module):
-    """Module that calculates soft argmax 3d per window.
-
-    See :func:`~kornia.geometry.conv_soft_argmax3d` for details.
-    """
-
-    def __init__(self, kernel_size: Tuple[int, int, int]=(3, 3, 3), stride: Tuple[int, int, int]=(1, 1, 1), padding: Tuple[int, int, int]=(1, 1, 1), temperature: Union[torch.Tensor, float]=torch.tensor(1.0), normalized_coordinates: bool=False, eps: float=1e-08, output_value: bool=True, strict_maxima_bonus: float=0.0) ->None:
-        super(ConvSoftArgmax3d, self).__init__()
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = padding
-        self.temperature = temperature
-        self.normalized_coordinates = normalized_coordinates
-        self.eps = eps
-        self.output_value = output_value
-        self.strict_maxima_bonus = strict_maxima_bonus
-        return
-
-    def __repr__(self) ->str:
-        return self.__class__.__name__ + '(' + 'kernel_size=' + str(self.kernel_size) + ', ' + 'stride=' + str(self.stride) + ', ' + 'padding=' + str(self.padding) + ', ' + 'temperature=' + str(self.temperature) + ', ' + 'normalized_coordinates=' + str(self.normalized_coordinates) + ', ' + 'eps=' + str(self.eps) + ', ' + 'strict_maxima_bonus=' + str(self.strict_maxima_bonus) + ', ' + 'output_value=' + str(self.output_value) + ')'
-
-    def forward(self, x: torch.Tensor):
-        return conv_soft_argmax3d(x, self.kernel_size, self.stride, self.padding, self.temperature, self.normalized_coordinates, self.eps, self.output_value, self.strict_maxima_bonus)
-
-
-def spatial_soft_argmax2d(input: torch.Tensor, temperature: torch.Tensor=torch.tensor(1.0), normalized_coordinates: bool=True, eps: float=1e-08) ->torch.Tensor:
-    """Function that computes the Spatial Soft-Argmax 2D
-    of a given input heatmap.
-
-    Returns the index of the maximum 2d coordinates of the give map.
-    The output order is x-coord and y-coord.
-
-    Arguments:
-        temperature (torch.Tensor): factor to apply to input. Default is 1.
-        normalized_coordinates (bool): whether to return the
-          coordinates normalized in the range of [-1, 1]. Otherwise,
-          it will return the coordinates in the range of the input shape.
-          Default is True.
-        eps (float): small value to avoid zero division. Default is 1e-8.
-
-    Shape:
-        - Input: :math:`(B, N, H, W)`
-        - Output: :math:`(B, N, 2)`
-
-    Examples:
-        >>> input = torch.tensor([[[
-            [0., 0., 0.],
-            [0., 10., 0.],
-            [0., 0., 0.]]]])
-        >>> coords = kornia.spatial_soft_argmax2d(input, False)
-        tensor([[[1.0000, 1.0000]]])
-    """
-    input_soft: torch.Tensor = dsnt.spatial_softmax2d(input, temperature)
-    output: torch.Tensor = dsnt.spatial_expectation2d(input_soft, normalized_coordinates)
-    return output
 
 
 class SpatialSoftArgmax2d(nn.Module):
@@ -5004,7 +6082,7 @@ def conv_quad_interp3d(input: torch.Tensor, strict_maxima_bonus: float=1.0, eps:
     B, CH, D, H, W = input.shape
     dev: torch.device = input.device
     grid_global: torch.Tensor = create_meshgrid3d(D, H, W, False, device=input.device).permute(0, 4, 1, 2, 3)
-    grid_global = grid_global.to(input.dtype)
+    grid_global = grid_global
     b: torch.Tensor = kornia.filters.spatial_gradient3d(input, order=1, mode='diff')
     b = b.permute(0, 1, 3, 4, 5, 2).reshape(-1, 3, 1)
     A: torch.Tensor = kornia.filters.spatial_gradient3d(input, order=2, mode='diff')
@@ -5026,7 +6104,7 @@ def conv_quad_interp3d(input: torch.Tensor, strict_maxima_bonus: float=1.0, eps:
     dy: torch.Tensor = 0.5 * torch.bmm(b.permute(0, 2, 1), dx)
     y_max = input + dy.view(B, CH, D, H, W)
     if strict_maxima_bonus > 0:
-        y_max *= 1.0 + strict_maxima_bonus * nms_mask.to(input.dtype)
+        y_max *= 1.0 + strict_maxima_bonus * nms_mask
     dx_res: torch.Tensor = dx.flip(1).reshape(B, CH, D, H, W, 3).permute(0, 1, 5, 2, 3, 4)
     coords_max: torch.Tensor = grid_global.repeat(B, 1, 1, 1, 1).unsqueeze(1)
     coords_max = coords_max + dx_res
@@ -5271,16 +6349,6 @@ class Shear(nn.Module):
 
 
 def vflip(input: torch.Tensor) ->torch.Tensor:
-    """Vertically flip a tensor image or a batch of tensor images. Input must
-    be a tensor of shape (C, H, W) or a batch of tensors :math:`(*, C, H, W)`.
-
-    Args:
-        input (torch.Tensor): input tensor
-
-    Returns:
-        torch.Tensor: The vertically flipped image tensor
-
-    """
     return torch.flip(input, [-2])
 
 
@@ -5316,16 +6384,6 @@ class Vflip(nn.Module):
 
 
 def hflip(input: torch.Tensor) ->torch.Tensor:
-    """Horizontally flip a tensor image or a batch of tensor images. Input must
-    be a tensor of shape (C, H, W) or a batch of tensors :math:`(*, C, H, W)`.
-
-    Args:
-        input (torch.Tensor): input tensor
-
-    Returns:
-        torch.Tensor: The horizontally flipped image tensor
-
-    """
     return torch.flip(input, [-1])
 
 
@@ -5361,17 +6419,6 @@ class Hflip(nn.Module):
 
 
 def rot180(input: torch.Tensor) ->torch.Tensor:
-    """Rotate a tensor image or a batch of tensor images
-    180 degrees. Input must be a tensor of shape (C, H, W)
-    or a batch of tensors :math:`(*, C, H, W)`.
-
-    Args:
-        input (torch.Tensor): input tensor
-
-    Returns:
-        torch.Tensor: The rotated image tensor
-
-    """
     return torch.flip(input, [-2, -1])
 
 
@@ -5402,49 +6449,6 @@ class Rot180(nn.Module):
 
     def __repr__(self):
         return self.__class__.__name__
-
-
-def _get_pyramid_gaussian_kernel() ->torch.Tensor:
-    """Utility function that return a pre-computed gaussian kernel."""
-    return torch.tensor([[[1.0, 4.0, 6.0, 4.0, 1.0], [4.0, 16.0, 24.0, 16.0, 4.0], [6.0, 24.0, 36.0, 24.0, 6.0], [4.0, 16.0, 24.0, 16.0, 4.0], [1.0, 4.0, 6.0, 4.0, 1.0]]]) / 256.0
-
-
-class PyrDown(nn.Module):
-    """Blurs a tensor and downsamples it.
-
-    Args:
-        border_type (str): the padding mode to be applied before convolving.
-          The expected modes are: ``'constant'``, ``'reflect'``,
-          ``'replicate'`` or ``'circular'``. Default: ``'reflect'``.
-        align_corners(bool): interpolation flag. Default: False. See
-        https://pytorch.org/docs/stable/nn.functional.html#torch.nn.functional.interpolate for detail
-
-    Return:
-        torch.Tensor: the downsampled tensor.
-
-    Shape:
-        - Input: :math:`(B, C, H, W)`
-        - Output: :math:`(B, C, H / 2, W / 2)`
-
-    Examples:
-        >>> input = torch.rand(1, 2, 4, 4)
-        >>> output = kornia.transform.PyrDown()(input)  # 1x2x2x2
-    """
-
-    def __init__(self, border_type: str='reflect', align_corners: bool=False) ->None:
-        super(PyrDown, self).__init__()
-        self.border_type: str = border_type
-        self.kernel: torch.Tensor = _get_pyramid_gaussian_kernel()
-        self.align_corners: bool = align_corners
-
-    def forward(self, input: torch.Tensor) ->torch.Tensor:
-        if not torch.is_tensor(input):
-            raise TypeError('Input type is not a torch.Tensor. Got {}'.format(type(input)))
-        if not len(input.shape) == 4:
-            raise ValueError('Invalid input shape, we expect BxCxHxW. Got: {}'.format(input.shape))
-        x_blur: torch.Tensor = filter2D(input, self.kernel, self.border_type)
-        out: torch.Tensor = F.interpolate(x_blur, scale_factor=0.5, mode='bilinear', align_corners=self.align_corners)
-        return out
 
 
 class PyrUp(nn.Module):
@@ -5484,93 +6488,6 @@ class PyrUp(nn.Module):
         x_up: torch.Tensor = F.interpolate(input, size=(height * 2, width * 2), mode='bilinear', align_corners=self.align_corners)
         x_blur: torch.Tensor = filter2D(x_up, self.kernel, self.border_type)
         return x_blur
-
-
-class ScalePyramid(nn.Module):
-    """Creates an scale pyramid of image, usually used for local feature
-    detection. Images are consequently smoothed with Gaussian blur and
-    downscaled.
-    Arguments:
-        n_levels (int): number of the levels in octave.
-        init_sigma (float): initial blur level.
-        min_size (int): the minimum size of the octave in pixels. Default is 5
-        double_image (bool): add 2x upscaled image as 1st level of pyramid. OpenCV SIFT does this. Default is False
-    Returns:
-        Tuple(List(Tensors), List(Tensors), List(Tensors)):
-        1st output: images
-        2nd output: sigmas (coefficients for scale conversion)
-        3rd output: pixelDists (coefficients for coordinate conversion)
-
-    Shape:
-        - Input: :math:`(B, C, H, W)`
-        - Output 1st: :math:`[(B, NL, C, H, W), (B, NL, C, H/2, W/2), ...]`
-        - Output 2nd: :math:`[(B, NL), (B, NL), (B, NL), ...]`
-        - Output 3rd: :math:`[(B, NL), (B, NL), (B, NL), ...]`
-
-    Examples::
-        >>> input = torch.rand(2, 4, 100, 100)
-        >>> sp, sigmas, pds = kornia.ScalePyramid(3, 15)(input)
-    """
-
-    def __init__(self, n_levels: int=3, init_sigma: float=1.6, min_size: int=5, double_image: bool=False):
-        super(ScalePyramid, self).__init__()
-        self.n_levels = n_levels
-        self.init_sigma = init_sigma
-        self.min_size = min_size
-        self.border = min_size // 2 - 1
-        self.sigma_step = 2 ** (1.0 / float(self.n_levels))
-        self.double_image = double_image
-        return
-
-    def __repr__(self) ->str:
-        return self.__class__.__name__ + '(n_levels=' + str(self.n_levels) + ', ' + 'init_sigma=' + str(self.init_sigma) + ', ' + 'min_size=' + str(self.min_size) + ', ' + 'border=' + str(self.border) + ', ' + 'sigma_step=' + str(self.sigma_step) + 'double_image=' + str(self.double_image) + ')'
-
-    def get_kernel_size(self, sigma: float):
-        ksize = int(2.0 * 4.0 * sigma + 1.0)
-        if ksize % 2 == 0:
-            ksize += 1
-        return ksize
-
-    def forward(self, x: torch.Tensor) ->Tuple[List, List, List]:
-        bs, ch, h, w = x.size()
-        pixel_distance = 1.0
-        cur_sigma = 0.5
-        if self.double_image:
-            x = F.interpolate(x, scale_factor=2.0, mode='bilinear', align_corners=False)
-            pixel_distance = 0.5
-            cur_sigma *= 2.0
-        if self.init_sigma > cur_sigma:
-            sigma = math.sqrt(self.init_sigma ** 2 - cur_sigma ** 2)
-            cur_sigma = self.init_sigma
-            ksize = self.get_kernel_size(sigma)
-            cur_level = gaussian_blur2d(x, (ksize, ksize), (sigma, sigma))
-        else:
-            cur_level = x
-        sigmas = [cur_sigma * torch.ones(bs, self.n_levels).to(x.device)]
-        pixel_dists = [pixel_distance * torch.ones(bs, self.n_levels).to(x.device)]
-        pyr = [[cur_level.unsqueeze(1)]]
-        oct_idx = 0
-        while True:
-            cur_level = pyr[-1][0].squeeze(1)
-            for level_idx in range(1, self.n_levels):
-                sigma = cur_sigma * math.sqrt(self.sigma_step ** 2 - 1.0)
-                cur_level = gaussian_blur2d(cur_level, (ksize, ksize), (sigma, sigma))
-                cur_sigma *= self.sigma_step
-                pyr[-1].append(cur_level.unsqueeze(1))
-                sigmas[-1][:, (level_idx)] = cur_sigma
-                pixel_dists[-1][:, (level_idx)] = pixel_distance
-            nextOctaveFirstLevel = F.interpolate(pyr[-1][-1].squeeze(1), scale_factor=0.5, mode='bilinear', align_corners=False)
-            pixel_distance *= 2.0
-            cur_sigma = self.init_sigma
-            if min(nextOctaveFirstLevel.size(2), nextOctaveFirstLevel.size(3)) <= self.min_size:
-                break
-            pyr.append([nextOctaveFirstLevel.unsqueeze(1)])
-            sigmas.append(cur_sigma * torch.ones(bs, self.n_levels))
-            pixel_dists.append(pixel_distance * torch.ones(bs, self.n_levels))
-            oct_idx += 1
-        for i in range(len(pyr)):
-            pyr[i] = torch.cat(pyr[i], dim=1)
-        return pyr, sigmas, pixel_dists
 
 
 class PinholeCamera:
@@ -5861,7 +6778,7 @@ def convert_points_from_homogeneous(points: torch.Tensor, eps: float=1e-08) ->to
         raise ValueError('Input must be at least a 2D tensor. Got {}'.format(points.shape))
     z_vec: torch.Tensor = points[(...), -1:]
     mask: torch.Tensor = torch.abs(z_vec) > eps
-    scale: torch.Tensor = torch.ones_like(z_vec).masked_scatter_(mask, torch.tensor(1.0).to(points.device) / z_vec[mask])
+    scale: torch.Tensor = torch.ones_like(z_vec).masked_scatter_(mask, torch.tensor(1.0) / z_vec[mask])
     return scale * points[(...), :-1]
 
 
@@ -6245,7 +7162,7 @@ def warp_grid(grid: torch.Tensor, src_homo_dst: torch.Tensor) ->torch.Tensor:
     grid = grid.expand(batch_size, -1, -1, -1)
     if len(src_homo_dst.shape) == 3:
         src_homo_dst = src_homo_dst.view(batch_size, 1, 3, 3)
-    flow: torch.Tensor = transform_points(src_homo_dst, grid.to(src_homo_dst))
+    flow: torch.Tensor = transform_points(src_homo_dst, grid)
     return flow.view(batch_size, height, width, 2)
 
 
@@ -6638,7 +7555,7 @@ def psnr_loss(input: torch.Tensor, target: torch.Tensor, max_val: float) ->torch
     if input.shape != target.shape:
         raise TypeError(f'Expected tensors of equal shapes, but got {input.shape} and {target.shape}')
     mse_val = mse_loss(input, target, reduction='mean')
-    max_val_tensor: torch.Tensor = torch.tensor(max_val).to(input.device).to(input.dtype)
+    max_val_tensor: torch.Tensor = torch.tensor(max_val).to(input.device)
     return 10 * torch.log10(max_val_tensor * max_val_tensor / mse_val)
 
 
@@ -6887,16 +7804,6 @@ class TverskyLoss(nn.Module):
 
     def forward(self, input: torch.Tensor, target: torch.Tensor) ->torch.Tensor:
         return tversky_loss(input, target, self.alpha, self.beta, self.eps)
-
-
-class MyHomography(nn.Module):
-
-    def __init__(self, init_homo: torch.Tensor) ->None:
-        super().__init__()
-        self.homo = nn.Parameter(init_homo.clone().detach())
-
-    def forward(self) ->torch.Tensor:
-        return torch.unsqueeze(self.homo, dim=0)
 
 
 class TVDenoise(torch.nn.Module):

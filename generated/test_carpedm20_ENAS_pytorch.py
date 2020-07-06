@@ -20,17 +20,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch as t
+
+
+import torchvision.datasets as datasets
+
+
+import torchvision.transforms as transforms
 
 
 import collections
@@ -51,9 +61,6 @@ from collections import defaultdict
 from collections import deque
 
 
-import torch as t
-
-
 from torch import nn
 
 
@@ -67,6 +74,9 @@ import scipy.signal
 
 
 import torch.nn.parallel
+
+
+import logging
 
 
 Node = collections.namedtuple('Node', ['id', 'name'])
@@ -240,6 +250,52 @@ class SharedModel(torch.nn.Module):
         raise NotImplementedError()
 
 
+def conv3x3(in_planes, out_planes, stride=1):
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+
+
+def conv5x5(in_planes, out_planes, stride=1):
+    return nn.Conv2d(in_planes, out_planes, kernel_size=5, stride=stride, padding=1, bias=False)
+
+
+def conv(kernel, planes):
+    if kernel == 3:
+        _conv = conv3x3
+    elif kernel == 5:
+        _conv = conv5x5
+    else:
+        raise NotImplemented(f'Unkown kernel size: {kernel}')
+    return nn.Sequential(nn.ReLU(inplace=True), _conv(planes, planes), nn.BatchNorm2d(planes))
+
+
+class CNN(SharedModel):
+
+    def __init__(self, args, images):
+        super(CNN, self).__init__()
+        self.args = args
+        self.images = images
+        self.w_c, self.w_h = defaultdict(dict), defaultdict(dict)
+        self.reset_parameters()
+        self.conv = defaultdict(dict)
+        for idx in range(args.num_blocks):
+            for jdx in range(idx + 1, args.num_blocks):
+                self.conv[idx][jdx] = conv()
+        raise NotImplemented('In progress...')
+
+    def forward(self, inputs, dag):
+        pass
+
+    def get_f(self, name):
+        name = name.lower()
+        return f
+
+    def get_num_cell_parameters(self, dag):
+        pass
+
+    def reset_parameters(self):
+        pass
+
+
 class EmbeddingDropout(torch.nn.Embedding):
     """Class for dropping out embeddings by zero'ing out parameters in the
     embedding matrix.
@@ -300,6 +356,196 @@ class LockedDropout(nn.Module):
         mask = Variable(m, requires_grad=False) / (1 - dropout)
         mask = mask.expand_as(x)
         return mask * x
+
+
+def _get_dropped_weights(w_raw, dropout_p, is_training):
+    """Drops out weights to implement DropConnect.
+
+    Args:
+        w_raw: Full, pre-dropout, weights to be dropped out.
+        dropout_p: Proportion of weights to drop out.
+        is_training: True iff _shared_ model is training.
+
+    Returns:
+        The dropped weights.
+
+    TODO(brendan): Why does torch.nn.functional.dropout() return:
+    1. `torch.autograd.Variable()` on the training loop
+    2. `torch.nn.Parameter()` on the controller or eval loop, when
+    training = False...
+
+    Even though the call to `_setweights` in the Smerity repo's
+    `weight_drop.py` does not have this behaviour, and `F.dropout` always
+    returns `torch.autograd.Variable` there, even when `training=False`?
+
+    The above TODO is the reason for the hacky check for `torch.nn.Parameter`.
+    """
+    dropped_w = F.dropout(w_raw, p=dropout_p, training=is_training)
+    if isinstance(dropped_w, torch.nn.Parameter):
+        dropped_w = dropped_w.clone()
+    return dropped_w
+
+
+class RNN(models.shared_base.SharedModel):
+    """Shared RNN model."""
+
+    def __init__(self, args, corpus):
+        models.shared_base.SharedModel.__init__(self)
+        self.args = args
+        self.corpus = corpus
+        self.decoder = nn.Linear(args.shared_hid, corpus.num_tokens)
+        self.encoder = EmbeddingDropout(corpus.num_tokens, args.shared_embed, dropout=args.shared_dropoute)
+        self.lockdrop = LockedDropout()
+        if self.args.tie_weights:
+            self.decoder.weight = self.encoder.weight
+        self.w_xc = nn.Linear(args.shared_embed, args.shared_hid)
+        self.w_xh = nn.Linear(args.shared_embed, args.shared_hid)
+        self.w_hc_raw = torch.nn.Parameter(torch.Tensor(args.shared_hid, args.shared_hid))
+        self.w_hh_raw = torch.nn.Parameter(torch.Tensor(args.shared_hid, args.shared_hid))
+        self.w_hc = None
+        self.w_hh = None
+        self.w_h = collections.defaultdict(dict)
+        self.w_c = collections.defaultdict(dict)
+        for idx in range(args.num_blocks):
+            for jdx in range(idx + 1, args.num_blocks):
+                self.w_h[idx][jdx] = nn.Linear(args.shared_hid, args.shared_hid, bias=False)
+                self.w_c[idx][jdx] = nn.Linear(args.shared_hid, args.shared_hid, bias=False)
+        self._w_h = nn.ModuleList([self.w_h[idx][jdx] for idx in self.w_h for jdx in self.w_h[idx]])
+        self._w_c = nn.ModuleList([self.w_c[idx][jdx] for idx in self.w_c for jdx in self.w_c[idx]])
+        if args.mode == 'train':
+            self.batch_norm = nn.BatchNorm1d(args.shared_hid)
+        else:
+            self.batch_norm = None
+        self.reset_parameters()
+        self.static_init_hidden = utils.keydefaultdict(self.init_hidden)
+        logger.info(f"# of parameters: {format(self.num_parameters, ',d')}")
+
+    def forward(self, inputs, dag, hidden=None, is_train=True):
+        time_steps = inputs.size(0)
+        batch_size = inputs.size(1)
+        is_train = is_train and self.args.mode in ['train']
+        self.w_hh = _get_dropped_weights(self.w_hh_raw, self.args.shared_wdrop, self.training)
+        self.w_hc = _get_dropped_weights(self.w_hc_raw, self.args.shared_wdrop, self.training)
+        if hidden is None:
+            hidden = self.static_init_hidden[batch_size]
+        embed = self.encoder(inputs)
+        if self.args.shared_dropouti > 0:
+            embed = self.lockdrop(embed, self.args.shared_dropouti if is_train else 0)
+        clipped_num = 0
+        max_clipped_norm = 0
+        h1tohT = []
+        logits = []
+        for step in range(time_steps):
+            x_t = embed[step]
+            logit, hidden = self.cell(x_t, hidden, dag)
+            hidden_norms = hidden.norm(dim=-1)
+            max_norm = 25.0
+            if hidden_norms.data.max() > max_norm:
+                hidden_norms = hidden_norms.data.cpu().numpy()
+                clipped_num += 1
+                if hidden_norms.max() > max_clipped_norm:
+                    max_clipped_norm = hidden_norms.max()
+                clip_select = hidden_norms > max_norm
+                clip_norms = hidden_norms[clip_select]
+                mask = np.ones(hidden.size())
+                normalizer = max_norm / clip_norms
+                normalizer = normalizer[:, (np.newaxis)]
+                mask[clip_select] = normalizer
+                hidden *= torch.autograd.Variable(torch.FloatTensor(mask), requires_grad=False)
+            logits.append(logit)
+            h1tohT.append(hidden)
+        if clipped_num > 0:
+            logger.info(f'clipped {clipped_num} hidden states in one forward pass. max clipped hidden state norm: {max_clipped_norm}')
+        h1tohT = torch.stack(h1tohT)
+        output = torch.stack(logits)
+        raw_output = output
+        if self.args.shared_dropout > 0:
+            output = self.lockdrop(output, self.args.shared_dropout if is_train else 0)
+        dropped_output = output
+        decoded = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
+        decoded = decoded.view(output.size(0), output.size(1), decoded.size(1))
+        extra_out = {'dropped': dropped_output, 'hiddens': h1tohT, 'raw': raw_output}
+        return decoded, hidden, extra_out
+
+    def cell(self, x, h_prev, dag):
+        """Computes a single pass through the discovered RNN cell."""
+        c = {}
+        h = {}
+        f = {}
+        f[0] = self.get_f(dag[-1][0].name)
+        c[0] = F.sigmoid(self.w_xc(x) + F.linear(h_prev, self.w_hc, None))
+        h[0] = c[0] * f[0](self.w_xh(x) + F.linear(h_prev, self.w_hh, None)) + (1 - c[0]) * h_prev
+        leaf_node_ids = []
+        q = collections.deque()
+        q.append(0)
+        while True:
+            if len(q) == 0:
+                break
+            node_id = q.popleft()
+            nodes = dag[node_id]
+            for next_node in nodes:
+                next_id = next_node.id
+                if next_id == self.args.num_blocks:
+                    leaf_node_ids.append(node_id)
+                    assert len(nodes) == 1, 'parent of leaf node should have only one child'
+                    continue
+                w_h = self.w_h[node_id][next_id]
+                w_c = self.w_c[node_id][next_id]
+                f[next_id] = self.get_f(next_node.name)
+                c[next_id] = F.sigmoid(w_c(h[node_id]))
+                h[next_id] = c[next_id] * f[next_id](w_h(h[node_id])) + (1 - c[next_id]) * h[node_id]
+                q.append(next_id)
+        leaf_nodes = [h[node_id] for node_id in leaf_node_ids]
+        output = torch.mean(torch.stack(leaf_nodes, 2), -1)
+        if self.batch_norm is not None:
+            output = self.batch_norm(output)
+        return output, h[self.args.num_blocks - 1]
+
+    def init_hidden(self, batch_size):
+        zeros = torch.zeros(batch_size, self.args.shared_hid)
+        return utils.get_variable(zeros, self.args.cuda, requires_grad=False)
+
+    def get_f(self, name):
+        name = name.lower()
+        if name == 'relu':
+            f = F.relu
+        elif name == 'tanh':
+            f = F.tanh
+        elif name == 'identity':
+            f = lambda x: x
+        elif name == 'sigmoid':
+            f = F.sigmoid
+        return f
+
+    def get_num_cell_parameters(self, dag):
+        num = 0
+        num += models.shared_base.size(self.w_xc)
+        num += models.shared_base.size(self.w_xh)
+        q = collections.deque()
+        q.append(0)
+        while True:
+            if len(q) == 0:
+                break
+            node_id = q.popleft()
+            nodes = dag[node_id]
+            for next_node in nodes:
+                next_id = next_node.id
+                if next_id == self.args.num_blocks:
+                    assert len(nodes) == 1, 'parent of leaf node should have only one child'
+                    continue
+                w_h = self.w_h[node_id][next_id]
+                w_c = self.w_c[node_id][next_id]
+                num += models.shared_base.size(w_h)
+                num += models.shared_base.size(w_c)
+                q.append(next_id)
+        logger.debug(f"# of cell parameters: {format(self.num_parameters, ',d')}")
+        return num
+
+    def reset_parameters(self):
+        init_range = 0.025 if self.args.mode == 'train' else 0.04
+        for param in self.parameters():
+            param.data.uniform_(-init_range, init_range)
+        self.decoder.bias.data.fill_(0)
 
 
 import torch

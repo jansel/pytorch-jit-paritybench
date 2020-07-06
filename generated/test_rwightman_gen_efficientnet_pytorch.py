@@ -33,26 +33,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch.utils.data as data
+
+
+import re
+
+
+import torch
+
+
+import torch.utils.data
+
+
+from torchvision import transforms
+
+
+import math
+
+
+import numpy as np
 
 
 from torch import nn as nn
 
 
 from torch.nn import functional as F
-
-
-import torch
 
 
 import torch.nn as nn
@@ -85,16 +104,10 @@ from typing import Optional
 from typing import Callable
 
 
-import numpy as np
-
-
-import math
-
-
-import re
-
-
 from copy import deepcopy
+
+
+from collections import OrderedDict
 
 
 import time
@@ -716,6 +729,35 @@ class InvertedResidual(nn.Module):
         return x
 
 
+class CondConvResidual(InvertedResidual):
+    """ Inverted residual block w/ CondConv routing"""
+
+    def __init__(self, in_chs, out_chs, dw_kernel_size=3, stride=1, pad_type='', act_layer=nn.ReLU, noskip=False, exp_ratio=1.0, exp_kernel_size=1, pw_kernel_size=1, se_ratio=0.0, se_kwargs=None, norm_layer=nn.BatchNorm2d, norm_kwargs=None, num_experts=0, drop_connect_rate=0.0):
+        self.num_experts = num_experts
+        conv_kwargs = dict(num_experts=self.num_experts)
+        super(CondConvResidual, self).__init__(in_chs, out_chs, dw_kernel_size=dw_kernel_size, stride=stride, pad_type=pad_type, act_layer=act_layer, noskip=noskip, exp_ratio=exp_ratio, exp_kernel_size=exp_kernel_size, pw_kernel_size=pw_kernel_size, se_ratio=se_ratio, se_kwargs=se_kwargs, norm_layer=norm_layer, norm_kwargs=norm_kwargs, conv_kwargs=conv_kwargs, drop_connect_rate=drop_connect_rate)
+        self.routing_fn = nn.Linear(in_chs, self.num_experts)
+
+    def forward(self, x):
+        residual = x
+        pooled_inputs = F.adaptive_avg_pool2d(x, 1).flatten(1)
+        routing_weights = torch.sigmoid(self.routing_fn(pooled_inputs))
+        x = self.conv_pw(x, routing_weights)
+        x = self.bn1(x)
+        x = self.act1(x)
+        x = self.conv_dw(x, routing_weights)
+        x = self.bn2(x)
+        x = self.act2(x)
+        x = self.se(x)
+        x = self.conv_pwl(x, routing_weights)
+        x = self.bn3(x)
+        if self.has_residual:
+            if self.drop_connect_rate > 0.0:
+                x = drop_connect(x, self.training, self.drop_connect_rate)
+            x += residual
+        return x
+
+
 class EdgeResidual(nn.Module):
     """ EdgeTPU Residual block with expansion convolution followed by pointwise-linear w/ stride"""
 
@@ -744,35 +786,6 @@ class EdgeResidual(nn.Module):
         x = self.se(x)
         x = self.conv_pwl(x)
         x = self.bn2(x)
-        if self.has_residual:
-            if self.drop_connect_rate > 0.0:
-                x = drop_connect(x, self.training, self.drop_connect_rate)
-            x += residual
-        return x
-
-
-class CondConvResidual(InvertedResidual):
-    """ Inverted residual block w/ CondConv routing"""
-
-    def __init__(self, in_chs, out_chs, dw_kernel_size=3, stride=1, pad_type='', act_layer=nn.ReLU, noskip=False, exp_ratio=1.0, exp_kernel_size=1, pw_kernel_size=1, se_ratio=0.0, se_kwargs=None, norm_layer=nn.BatchNorm2d, norm_kwargs=None, num_experts=0, drop_connect_rate=0.0):
-        self.num_experts = num_experts
-        conv_kwargs = dict(num_experts=self.num_experts)
-        super(CondConvResidual, self).__init__(in_chs, out_chs, dw_kernel_size=dw_kernel_size, stride=stride, pad_type=pad_type, act_layer=act_layer, noskip=noskip, exp_ratio=exp_ratio, exp_kernel_size=exp_kernel_size, pw_kernel_size=pw_kernel_size, se_ratio=se_ratio, se_kwargs=se_kwargs, norm_layer=norm_layer, norm_kwargs=norm_kwargs, conv_kwargs=conv_kwargs, drop_connect_rate=drop_connect_rate)
-        self.routing_fn = nn.Linear(in_chs, self.num_experts)
-
-    def forward(self, x):
-        residual = x
-        pooled_inputs = F.adaptive_avg_pool2d(x, 1).flatten(1)
-        routing_weights = torch.sigmoid(self.routing_fn(pooled_inputs))
-        x = self.conv_pw(x, routing_weights)
-        x = self.bn1(x)
-        x = self.act1(x)
-        x = self.conv_dw(x, routing_weights)
-        x = self.bn2(x)
-        x = self.act2(x)
-        x = self.se(x)
-        x = self.conv_pwl(x, routing_weights)
-        x = self.bn3(x)
         if self.has_residual:
             if self.drop_connect_rate > 0.0:
                 x = drop_connect(x, self.training, self.drop_connect_rate)

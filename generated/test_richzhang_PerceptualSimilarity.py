@@ -24,23 +24,34 @@ test_network = _module
 train = _module
 util = _module
 html = _module
+util = _module
 visualizer = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch.utils.data
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
 
 
 import numpy as np
@@ -79,6 +90,18 @@ from collections import namedtuple
 from torchvision import models as tv
 
 
+import scipy
+
+
+import scipy.misc
+
+
+import torch.backends.cudnn as cudnn
+
+
+import time
+
+
 class PerceptualLoss(torch.nn.Module):
 
     def __init__(self, model='net-lin', net='alex', colorspace='rgb', spatial=False, use_gpu=True, gpu_ids=[0], version='0.1'):
@@ -105,6 +128,27 @@ class PerceptualLoss(torch.nn.Module):
             target = 2 * target - 1
             pred = 2 * pred - 1
         return self.model.forward(target, pred)
+
+
+class NetLinLayer(nn.Module):
+    """ A single linear layer which does a 1x1 conv """
+
+    def __init__(self, chn_in, chn_out=1, use_dropout=False):
+        super(NetLinLayer, self).__init__()
+        layers = [nn.Dropout()] if use_dropout else []
+        layers += [nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, bias=False)]
+        self.model = nn.Sequential(*layers)
+
+
+class ScalingLayer(nn.Module):
+
+    def __init__(self):
+        super(ScalingLayer, self).__init__()
+        self.register_buffer('shift', torch.Tensor([-0.03, -0.088, -0.188])[(None), :, (None), (None)])
+        self.register_buffer('scale', torch.Tensor([0.458, 0.448, 0.45])[(None), :, (None), (None)])
+
+    def forward(self, inp):
+        return (inp - self.shift) / self.scale
 
 
 def spatial_average(in_tens, keepdim=True):
@@ -176,27 +220,6 @@ class PNetLin(nn.Module):
             return val
 
 
-class ScalingLayer(nn.Module):
-
-    def __init__(self):
-        super(ScalingLayer, self).__init__()
-        self.register_buffer('shift', torch.Tensor([-0.03, -0.088, -0.188])[(None), :, (None), (None)])
-        self.register_buffer('scale', torch.Tensor([0.458, 0.448, 0.45])[(None), :, (None), (None)])
-
-    def forward(self, inp):
-        return (inp - self.shift) / self.scale
-
-
-class NetLinLayer(nn.Module):
-    """ A single linear layer which does a 1x1 conv """
-
-    def __init__(self, chn_in, chn_out=1, use_dropout=False):
-        super(NetLinLayer, self).__init__()
-        layers = [nn.Dropout()] if use_dropout else []
-        layers += [nn.Conv2d(chn_in, chn_out, 1, stride=1, padding=0, bias=False)]
-        self.model = nn.Sequential(*layers)
-
-
 class Dist2LogitLayer(nn.Module):
     """ takes 2 distances, puts through fc layers, spits out value between [0,1] (if use_sigmoid is True) """
 
@@ -234,6 +257,36 @@ class FakeNet(nn.Module):
         super(FakeNet, self).__init__()
         self.use_gpu = use_gpu
         self.colorspace = colorspace
+
+
+class L2(FakeNet):
+
+    def forward(self, in0, in1, retPerLayer=None):
+        assert in0.size()[0] == 1
+        if self.colorspace == 'RGB':
+            N, C, X, Y = in0.size()
+            value = torch.mean(torch.mean(torch.mean((in0 - in1) ** 2, dim=1).view(N, 1, X, Y), dim=2).view(N, 1, 1, Y), dim=3).view(N)
+            return value
+        elif self.colorspace == 'Lab':
+            value = util.l2(util.tensor2np(util.tensor2tensorlab(in0.data, to_norm=False)), util.tensor2np(util.tensor2tensorlab(in1.data, to_norm=False)), range=100.0).astype('float')
+            ret_var = Variable(torch.Tensor((value,)))
+            if self.use_gpu:
+                ret_var = ret_var
+            return ret_var
+
+
+class DSSIM(FakeNet):
+
+    def forward(self, in0, in1, retPerLayer=None):
+        assert in0.size()[0] == 1
+        if self.colorspace == 'RGB':
+            value = util.dssim(1.0 * util.tensor2im(in0.data), 1.0 * util.tensor2im(in1.data), range=255.0).astype('float')
+        elif self.colorspace == 'Lab':
+            value = util.dssim(util.tensor2np(util.tensor2tensorlab(in0.data, to_norm=False)), util.tensor2np(util.tensor2tensorlab(in1.data, to_norm=False)), range=100.0).astype('float')
+        ret_var = Variable(torch.Tensor((value,)))
+        if self.use_gpu:
+            ret_var = ret_var
+        return ret_var
 
 
 class squeezenet(torch.nn.Module):

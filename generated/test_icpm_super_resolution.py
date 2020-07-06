@@ -27,15 +27,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -68,6 +69,148 @@ from torchvision.models.vgg import vgg16
 
 
 import torch.nn.init as init
+
+
+import torch.utils.data as data
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision.transforms import ToTensor
+
+
+import numpy as np
+
+
+class ConvBlock(torch.nn.Module):
+
+    def __init__(self, input_size, output_size, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm=None):
+        super(ConvBlock, self).__init__()
+        self.conv = torch.nn.Conv2d(input_size, output_size, kernel_size, stride, padding, bias=bias)
+        self.norm = norm
+        if self.norm == 'batch':
+            self.bn = torch.nn.BatchNorm2d(output_size)
+        elif self.norm == 'instance':
+            self.bn = torch.nn.InstanceNorm2d(output_size)
+        self.activation = activation
+        if self.activation == 'relu':
+            self.act = torch.nn.ReLU(True)
+        elif self.activation == 'prelu':
+            self.act = torch.nn.PReLU()
+        elif self.activation == 'lrelu':
+            self.act = torch.nn.LeakyReLU(0.2, True)
+        elif self.activation == 'tanh':
+            self.act = torch.nn.Tanh()
+        elif self.activation == 'sigmoid':
+            self.act = torch.nn.Sigmoid()
+
+    def forward(self, x):
+        if self.norm is not None:
+            out = self.bn(self.conv(x))
+        else:
+            out = self.conv(x)
+        if self.activation is not None:
+            return self.act(out)
+        else:
+            return out
+
+
+class DeconvBlock(torch.nn.Module):
+
+    def __init__(self, input_size, output_size, kernel_size=4, stride=2, padding=1, bias=True, activation='prelu', norm=None):
+        super(DeconvBlock, self).__init__()
+        self.deconv = torch.nn.ConvTranspose2d(input_size, output_size, kernel_size, stride, padding, bias=bias)
+        self.norm = norm
+        if self.norm == 'batch':
+            self.bn = torch.nn.BatchNorm2d(output_size)
+        elif self.norm == 'instance':
+            self.bn = torch.nn.InstanceNorm2d(output_size)
+        self.activation = activation
+        if self.activation == 'relu':
+            self.act = torch.nn.ReLU(True)
+        elif self.activation == 'prelu':
+            self.act = torch.nn.PReLU()
+        elif self.activation == 'lrelu':
+            self.act = torch.nn.LeakyReLU(0.2, True)
+        elif self.activation == 'tanh':
+            self.act = torch.nn.Tanh()
+        elif self.activation == 'sigmoid':
+            self.act = torch.nn.Sigmoid()
+
+    def forward(self, x):
+        if self.norm is not None:
+            out = self.bn(self.deconv(x))
+        else:
+            out = self.deconv(x)
+        if self.activation is not None:
+            return self.act(out)
+        else:
+            return out
+
+
+class D_DownBlock(torch.nn.Module):
+
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='prelu', norm=None):
+        super(D_DownBlock, self).__init__()
+        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation=activation, norm=None)
+        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+
+    def forward(self, x):
+        x = self.conv(x)
+        l0 = self.down_conv1(x)
+        h0 = self.down_conv2(l0)
+        l1 = self.down_conv3(h0 - x)
+        return l1 + l0
+
+
+class D_UpBlock(torch.nn.Module):
+
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='prelu', norm=None):
+        super(D_UpBlock, self).__init__()
+        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation=activation, norm=None)
+        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+
+    def forward(self, x):
+        x = self.conv(x)
+        h0 = self.up_conv1(x)
+        l0 = self.up_conv2(h0)
+        h1 = self.up_conv3(l0 - x)
+        return h1 + h0
+
+
+class DownBlock(torch.nn.Module):
+
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='prelu', norm=None):
+        super(DownBlock, self).__init__()
+        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+
+    def forward(self, x):
+        l0 = self.down_conv1(x)
+        h0 = self.down_conv2(l0)
+        l1 = self.down_conv3(h0 - x)
+        return l1 + l0
+
+
+class UpBlock(torch.nn.Module):
+
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='prelu', norm=None):
+        super(UpBlock, self).__init__()
+        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+
+    def forward(self, x):
+        h0 = self.up_conv1(x)
+        l0 = self.up_conv2(h0)
+        h1 = self.up_conv3(l0 - x)
+        return h1 + h0
 
 
 class DBPN(nn.Module):
@@ -335,124 +478,52 @@ class DenseBlock(torch.nn.Module):
             return out
 
 
-class ConvBlock(torch.nn.Module):
+class ResnetBlock(nn.Module):
 
-    def __init__(self, input_size, output_size, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm=None):
-        super(ConvBlock, self).__init__()
-        self.conv = torch.nn.Conv2d(input_size, output_size, kernel_size, stride, padding, bias=bias)
-        self.norm = norm
-        if self.norm == 'batch':
-            self.bn = torch.nn.BatchNorm2d(output_size)
-        elif self.norm == 'instance':
-            self.bn = torch.nn.InstanceNorm2d(output_size)
-        self.activation = activation
-        if self.activation == 'relu':
-            self.act = torch.nn.ReLU(True)
-        elif self.activation == 'prelu':
-            self.act = torch.nn.PReLU()
-        elif self.activation == 'lrelu':
-            self.act = torch.nn.LeakyReLU(0.2, True)
-        elif self.activation == 'tanh':
-            self.act = torch.nn.Tanh()
-        elif self.activation == 'sigmoid':
-            self.act = torch.nn.Sigmoid()
-
-    def forward(self, x):
-        if self.norm is not None:
-            out = self.bn(self.conv(x))
-        else:
-            out = self.conv(x)
-        if self.activation is not None:
-            return self.act(out)
-        else:
-            return out
-
-
-class DeconvBlock(torch.nn.Module):
-
-    def __init__(self, input_size, output_size, kernel_size=4, stride=2, padding=1, bias=True, activation='prelu', norm=None):
-        super(DeconvBlock, self).__init__()
-        self.deconv = torch.nn.ConvTranspose2d(input_size, output_size, kernel_size, stride, padding, bias=bias)
-        self.norm = norm
-        if self.norm == 'batch':
-            self.bn = torch.nn.BatchNorm2d(output_size)
-        elif self.norm == 'instance':
-            self.bn = torch.nn.InstanceNorm2d(output_size)
-        self.activation = activation
-        if self.activation == 'relu':
-            self.act = torch.nn.ReLU(True)
-        elif self.activation == 'prelu':
-            self.act = torch.nn.PReLU()
-        elif self.activation == 'lrelu':
-            self.act = torch.nn.LeakyReLU(0.2, True)
-        elif self.activation == 'tanh':
-            self.act = torch.nn.Tanh()
-        elif self.activation == 'sigmoid':
-            self.act = torch.nn.Sigmoid()
-
-    def forward(self, x):
-        if self.norm is not None:
-            out = self.bn(self.deconv(x))
-        else:
-            out = self.deconv(x)
-        if self.activation is not None:
-            return self.act(out)
-        else:
-            return out
-
-
-class ResnetBlock(torch.nn.Module):
-
-    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm='batch'):
+    def __init__(self, num_channel, kernel=3, stride=1, padding=1):
         super(ResnetBlock, self).__init__()
-        self.conv1 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
-        self.conv2 = torch.nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding, bias=bias)
-        self.norm = norm
-        if self.norm == 'batch':
-            self.bn = torch.nn.BatchNorm2d(num_filter)
-        elif norm == 'instance':
-            self.bn = torch.nn.InstanceNorm2d(num_filter)
-        self.activation = activation
-        if self.activation == 'relu':
-            self.act = torch.nn.ReLU(True)
-        elif self.activation == 'prelu':
-            self.act = torch.nn.PReLU()
-        elif self.activation == 'lrelu':
-            self.act = torch.nn.LeakyReLU(0.2, True)
-        elif self.activation == 'tanh':
-            self.act = torch.nn.Tanh()
-        elif self.activation == 'sigmoid':
-            self.act = torch.nn.Sigmoid()
+        self.conv1 = nn.Conv2d(num_channel, num_channel, kernel, stride, padding)
+        self.conv2 = nn.Conv2d(num_channel, num_channel, kernel, stride, padding)
+        self.bn = nn.BatchNorm2d(num_channel)
+        self.activation = nn.ReLU(inplace=True)
 
     def forward(self, x):
         residual = x
-        if self.norm is not None:
-            out = self.bn(self.conv1(x))
-        else:
-            out = self.conv1(x)
-        if self.activation is not None:
-            out = self.act(out)
-        if self.norm is not None:
-            out = self.bn(self.conv2(out))
-        else:
-            out = self.conv2(out)
-        out = torch.add(out, residual)
-        return out
+        x = self.bn(self.conv1(x))
+        x = self.activation(x)
+        x = self.bn(self.conv2(x))
+        x = torch.add(x, residual)
+        return x
 
 
-class UpBlock(torch.nn.Module):
+class Upsampler(torch.nn.Module):
 
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='prelu', norm=None):
-        super(UpBlock, self).__init__()
-        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
-        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
-        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
+    def __init__(self, scale, n_feat, bn=False, act='prelu', bias=True):
+        super(Upsampler, self).__init__()
+        modules = []
+        for _ in range(int(math.log(scale, 2))):
+            modules.append(ConvBlock(n_feat, 4 * n_feat, 3, 1, 1, bias, activation=None, norm=None))
+            modules.append(torch.nn.PixelShuffle(2))
+            if bn:
+                modules.append(torch.nn.BatchNorm2d(n_feat))
+        self.up = torch.nn.Sequential(*modules)
+        self.activation = act
+        if self.activation == 'relu':
+            self.act = torch.nn.ReLU(True)
+        elif self.activation == 'prelu':
+            self.act = torch.nn.PReLU()
+        elif self.activation == 'lrelu':
+            self.act = torch.nn.LeakyReLU(0.2, True)
+        elif self.activation == 'tanh':
+            self.act = torch.nn.Tanh()
+        elif self.activation == 'sigmoid':
+            self.act = torch.nn.Sigmoid()
 
     def forward(self, x):
-        h0 = self.up_conv1(x)
-        l0 = self.up_conv2(h0)
-        h1 = self.up_conv3(l0 - x)
-        return h1 + h0
+        out = self.up(x)
+        if self.activation is not None:
+            out = self.act(out)
+        return out
 
 
 class UpBlockPix(torch.nn.Module):
@@ -464,23 +535,6 @@ class UpBlockPix(torch.nn.Module):
         self.up_conv3 = Upsampler(scale, num_filter)
 
     def forward(self, x):
-        h0 = self.up_conv1(x)
-        l0 = self.up_conv2(h0)
-        h1 = self.up_conv3(l0 - x)
-        return h1 + h0
-
-
-class D_UpBlock(torch.nn.Module):
-
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='prelu', norm=None):
-        super(D_UpBlock, self).__init__()
-        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation=activation, norm=None)
-        self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
-        self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
-        self.up_conv3 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
-
-    def forward(self, x):
-        x = self.conv(x)
         h0 = self.up_conv1(x)
         l0 = self.up_conv2(h0)
         h1 = self.up_conv3(l0 - x)
@@ -504,21 +558,6 @@ class D_UpBlockPix(torch.nn.Module):
         return h1 + h0
 
 
-class DownBlock(torch.nn.Module):
-
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='prelu', norm=None):
-        super(DownBlock, self).__init__()
-        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
-        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
-        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
-
-    def forward(self, x):
-        l0 = self.down_conv1(x)
-        h0 = self.down_conv2(l0)
-        l1 = self.down_conv3(h0 - x)
-        return l1 + l0
-
-
 class DownBlockPix(torch.nn.Module):
 
     def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, scale=4, bias=True, activation='prelu', norm=None):
@@ -528,23 +567,6 @@ class DownBlockPix(torch.nn.Module):
         self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
 
     def forward(self, x):
-        l0 = self.down_conv1(x)
-        h0 = self.down_conv2(l0)
-        l1 = self.down_conv3(h0 - x)
-        return l1 + l0
-
-
-class D_DownBlock(torch.nn.Module):
-
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='prelu', norm=None):
-        super(D_DownBlock, self).__init__()
-        self.conv = ConvBlock(num_filter * num_stages, num_filter, 1, 1, 0, activation=activation, norm=None)
-        self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
-        self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
-        self.down_conv3 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
-
-    def forward(self, x):
-        x = self.conv(x)
         l0 = self.down_conv1(x)
         h0 = self.down_conv2(l0)
         l1 = self.down_conv3(h0 - x)
@@ -601,36 +623,6 @@ class PSBlock(torch.nn.Module):
         return out
 
 
-class Upsampler(torch.nn.Module):
-
-    def __init__(self, scale, n_feat, bn=False, act='prelu', bias=True):
-        super(Upsampler, self).__init__()
-        modules = []
-        for _ in range(int(math.log(scale, 2))):
-            modules.append(ConvBlock(n_feat, 4 * n_feat, 3, 1, 1, bias, activation=None, norm=None))
-            modules.append(torch.nn.PixelShuffle(2))
-            if bn:
-                modules.append(torch.nn.BatchNorm2d(n_feat))
-        self.up = torch.nn.Sequential(*modules)
-        self.activation = act
-        if self.activation == 'relu':
-            self.act = torch.nn.ReLU(True)
-        elif self.activation == 'prelu':
-            self.act = torch.nn.PReLU()
-        elif self.activation == 'lrelu':
-            self.act = torch.nn.LeakyReLU(0.2, True)
-        elif self.activation == 'tanh':
-            self.act = torch.nn.Tanh()
-        elif self.activation == 'sigmoid':
-            self.act = torch.nn.Sigmoid()
-
-    def forward(self, x):
-        out = self.up(x)
-        if self.activation is not None:
-            out = self.act(out)
-        return out
-
-
 class Upsample2xBlock(torch.nn.Module):
 
     def __init__(self, input_size, output_size, bias=True, upsample='deconv', activation='relu', norm='batch'):
@@ -668,87 +660,23 @@ def weights_init_kaiming(m):
             m.bias.data.zero_()
 
 
-class Net(torch.nn.Module):
+class Net(nn.Module):
 
-    def __init__(self, num_channels, base_channel, num_recursions, device):
+    def __init__(self, num_channels, base_channels, num_residuals):
         super(Net, self).__init__()
-        self.num_recursions = num_recursions
-        self.embedding_layer = nn.Sequential(nn.Conv2d(num_channels, base_channel, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True), nn.Conv2d(base_channel, base_channel, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True))
-        self.conv_block = nn.Sequential(nn.Conv2d(base_channel, base_channel, kernel_size=3, stride=1, padding=1), nn.ReLU(inplace=True))
-        self.reconstruction_layer = nn.Sequential(nn.Conv2d(base_channel, base_channel, kernel_size=3, stride=1, padding=1), nn.Conv2d(base_channel, num_channels, kernel_size=3, stride=1, padding=1))
-        self.w_init = torch.ones(self.num_recursions) / self.num_recursions
-        self.w = self.w_init
-
-    def forward(self, x):
-        h0 = self.embedding_layer(x)
-        h = [h0]
-        for d in range(self.num_recursions):
-            h.append(self.conv_block(h[d]))
-        y_d_ = list()
-        out_sum = 0
-        for d in range(self.num_recursions):
-            y_d_.append(self.reconstruction_layer(h[d + 1]))
-            out_sum += torch.mul(y_d_[d], self.w[d])
-        out_sum = torch.mul(out_sum, 1.0 / torch.sum(self.w))
-        final_out = torch.add(out_sum, x)
-        return y_d_, final_out
+        self.input_conv = nn.Sequential(nn.Conv2d(num_channels, base_channels, kernel_size=3, stride=1, padding=1, bias=False), nn.ReLU(inplace=True))
+        self.residual_layers = nn.Sequential(*[nn.Sequential(nn.Conv2d(base_channels, base_channels, kernel_size=3, stride=1, padding=1, bias=False), nn.ReLU(inplace=True)) for _ in range(num_residuals)])
+        self.output_conv = nn.Conv2d(base_channels, num_channels, kernel_size=3, stride=1, padding=1, bias=False)
 
     def weight_init(self):
         for m in self._modules:
             weights_init_kaiming(m)
 
-
-def normal_init(m, mean, std):
-    if isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Conv2d):
-        m.weight.data.normal_(mean, std)
-        m.bias.data.zero_()
-
-
-class Net(nn.Module):
-
-    def __init__(self, num_channels, base_channel, upscale_factor, num_residuals):
-        super(Net, self).__init__()
-        self.input_conv = nn.Conv2d(num_channels, base_channel, kernel_size=3, stride=1, padding=1)
-        resnet_blocks = []
-        for _ in range(num_residuals):
-            resnet_blocks.append(ResnetBlock(base_channel, kernel=3, stride=1, padding=1))
-        self.residual_layers = nn.Sequential(*resnet_blocks)
-        self.mid_conv = nn.Conv2d(base_channel, base_channel, kernel_size=3, stride=1, padding=1)
-        upscale = []
-        for _ in range(int(math.log2(upscale_factor))):
-            upscale.append(PixelShuffleBlock(base_channel, base_channel, upscale_factor=2))
-        self.upscale_layers = nn.Sequential(*upscale)
-        self.output_conv = nn.Conv2d(base_channel, num_channels, kernel_size=3, stride=1, padding=1)
-
-    def weight_init(self, mean=0.0, std=0.02):
-        for m in self._modules:
-            normal_init(self._modules[m], mean, std)
-
     def forward(self, x):
+        residual = x
         x = self.input_conv(x)
-        residual = x
         x = self.residual_layers(x)
-        x = self.mid_conv(x)
-        x = torch.add(x, residual)
-        x = self.upscale_layers(x)
         x = self.output_conv(x)
-        return x
-
-
-class ResnetBlock(nn.Module):
-
-    def __init__(self, num_channel, kernel=3, stride=1, padding=1):
-        super(ResnetBlock, self).__init__()
-        self.conv1 = nn.Conv2d(num_channel, num_channel, kernel, stride, padding)
-        self.conv2 = nn.Conv2d(num_channel, num_channel, kernel, stride, padding)
-        self.bn = nn.BatchNorm2d(num_channel)
-        self.activation = nn.ReLU(inplace=True)
-
-    def forward(self, x):
-        residual = x
-        x = self.bn(self.conv1(x))
-        x = self.activation(x)
-        x = self.bn(self.conv2(x))
         x = torch.add(x, residual)
         return x
 
@@ -763,53 +691,6 @@ class PixelShuffleBlock(nn.Module):
     def forward(self, x):
         x = self.ps(self.conv(x))
         return x
-
-
-class Net(torch.nn.Module):
-
-    def __init__(self, num_channels, upscale_factor, d=64, s=12, m=4):
-        super(Net, self).__init__()
-        self.first_part = nn.Sequential(nn.Conv2d(in_channels=num_channels, out_channels=d, kernel_size=5, stride=1, padding=2), nn.PReLU())
-        self.layers = []
-        self.layers.append(nn.Sequential(nn.Conv2d(in_channels=d, out_channels=s, kernel_size=1, stride=1, padding=0), nn.PReLU()))
-        for _ in range(m):
-            self.layers.append(nn.Conv2d(in_channels=s, out_channels=s, kernel_size=3, stride=1, padding=1))
-        self.layers.append(nn.PReLU())
-        self.layers.append(nn.Sequential(nn.Conv2d(in_channels=s, out_channels=d, kernel_size=1, stride=1, padding=0), nn.PReLU()))
-        self.mid_part = torch.nn.Sequential(*self.layers)
-        self.last_part = nn.ConvTranspose2d(in_channels=d, out_channels=num_channels, kernel_size=9, stride=upscale_factor, padding=3, output_padding=1)
-
-    def forward(self, x):
-        out = self.first_part(x)
-        out = self.mid_part(out)
-        out = self.last_part(out)
-        return out
-
-    def weight_init(self, mean=0.0, std=0.02):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                m.weight.data.normal_(mean, std)
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            if isinstance(m, nn.ConvTranspose2d):
-                m.weight.data.normal_(0.0, 0.0001)
-                if m.bias is not None:
-                    m.bias.data.zero_()
-
-
-class Net(torch.nn.Module):
-
-    def __init__(self, num_channels, base_filter, upscale_factor=2):
-        super(Net, self).__init__()
-        self.layers = torch.nn.Sequential(nn.Conv2d(in_channels=num_channels, out_channels=base_filter, kernel_size=9, stride=1, padding=4, bias=True), nn.ReLU(inplace=True), nn.Conv2d(in_channels=base_filter, out_channels=base_filter // 2, kernel_size=1, bias=True), nn.ReLU(inplace=True), nn.Conv2d(in_channels=base_filter // 2, out_channels=num_channels * upscale_factor ** 2, kernel_size=5, stride=1, padding=2, bias=True), nn.PixelShuffle(upscale_factor))
-
-    def forward(self, x):
-        out = self.layers(x)
-        return out
-
-    def weight_init(self, mean, std):
-        for m in self._modules:
-            normal_init(self._modules[m], mean, std)
 
 
 def swish(x):
@@ -839,6 +720,12 @@ class UpsampleBlock(nn.Module):
 
     def forward(self, x):
         return swish(self.shuffler(self.conv(x)))
+
+
+def normal_init(m, mean, std):
+    if isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Conv2d):
+        m.weight.data.normal_(mean, std)
+        m.bias.data.zero_()
 
 
 class Generator(nn.Module):
@@ -907,57 +794,6 @@ class Discriminator(nn.Module):
     def weight_init(self, mean=0.0, std=0.02):
         for m in self._modules:
             normal_init(self._modules[m], mean, std)
-
-
-class Net(nn.Module):
-
-    def __init__(self, upscale_factor):
-        super(Net, self).__init__()
-        self.relu = nn.ReLU()
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=5, stride=1, padding=2)
-        self.conv2 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
-        self.conv3 = nn.Conv2d(64, 32, kernel_size=3, stride=1, padding=1)
-        self.conv4 = nn.Conv2d(32, upscale_factor ** 2, kernel_size=3, stride=1, padding=1)
-        self.pixel_shuffle = nn.PixelShuffle(upscale_factor)
-        self._initialize_weights()
-
-    def _initialize_weights(self):
-        init.orthogonal_(self.conv1.weight, init.calculate_gain('relu'))
-        init.orthogonal_(self.conv2.weight, init.calculate_gain('relu'))
-        init.orthogonal_(self.conv3.weight, init.calculate_gain('relu'))
-        init.orthogonal_(self.conv4.weight)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.relu(x)
-        x = self.conv2(x)
-        x = self.relu(x)
-        x = self.conv3(x)
-        x = self.relu(x)
-        x = self.conv4(x)
-        x = self.pixel_shuffle(x)
-        return x
-
-
-class Net(nn.Module):
-
-    def __init__(self, num_channels, base_channels, num_residuals):
-        super(Net, self).__init__()
-        self.input_conv = nn.Sequential(nn.Conv2d(num_channels, base_channels, kernel_size=3, stride=1, padding=1, bias=False), nn.ReLU(inplace=True))
-        self.residual_layers = nn.Sequential(*[nn.Sequential(nn.Conv2d(base_channels, base_channels, kernel_size=3, stride=1, padding=1, bias=False), nn.ReLU(inplace=True)) for _ in range(num_residuals)])
-        self.output_conv = nn.Conv2d(base_channels, num_channels, kernel_size=3, stride=1, padding=1, bias=False)
-
-    def weight_init(self):
-        for m in self._modules:
-            weights_init_kaiming(m)
-
-    def forward(self, x):
-        residual = x
-        x = self.input_conv(x)
-        x = self.residual_layers(x)
-        x = self.output_conv(x)
-        x = torch.add(x, residual)
-        return x
 
 
 import torch

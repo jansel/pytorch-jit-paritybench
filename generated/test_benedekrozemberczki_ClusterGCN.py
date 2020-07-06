@@ -12,15 +12,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -35,6 +36,57 @@ import numpy as np
 
 
 from torch.autograd import Variable
+
+
+from sklearn.metrics import f1_score
+
+
+from sklearn.metrics import accuracy_score
+
+
+from sklearn.model_selection import train_test_split
+
+
+from scipy.sparse import coo_matrix
+
+
+class ListModule(torch.nn.Module):
+    """
+    Abstract list layer class.
+    """
+
+    def __init__(self, *args):
+        """
+        Module initializing.
+        """
+        super(ListModule, self).__init__()
+        idx = 0
+        for module in args:
+            self.add_module(str(idx), module)
+            idx += 1
+
+    def __getitem__(self, idx):
+        """
+        Getting the indexed layer.
+        """
+        if idx < 0 or idx >= len(self._modules):
+            raise IndexError('index {} is out of range'.format(idx))
+        it = iter(self._modules.values())
+        for i in range(idx):
+            next(it)
+        return next(it)
+
+    def __iter__(self):
+        """
+        Iterating on the layers.
+        """
+        return iter(self._modules.values())
+
+    def __len__(self):
+        """
+        Number of layers.
+        """
+        return len(self._modules)
 
 
 class StackedGCN(torch.nn.Module):
@@ -78,43 +130,4 @@ class StackedGCN(torch.nn.Module):
         features = self.layers[i + 1](features, edges)
         predictions = torch.nn.functional.log_softmax(features, dim=1)
         return predictions
-
-
-class ListModule(torch.nn.Module):
-    """
-    Abstract list layer class.
-    """
-
-    def __init__(self, *args):
-        """
-        Module initializing.
-        """
-        super(ListModule, self).__init__()
-        idx = 0
-        for module in args:
-            self.add_module(str(idx), module)
-            idx += 1
-
-    def __getitem__(self, idx):
-        """
-        Getting the indexed layer.
-        """
-        if idx < 0 or idx >= len(self._modules):
-            raise IndexError('index {} is out of range'.format(idx))
-        it = iter(self._modules.values())
-        for i in range(idx):
-            next(it)
-        return next(it)
-
-    def __iter__(self):
-        """
-        Iterating on the layers.
-        """
-        return iter(self._modules.values())
-
-    def __len__(self):
-        """
-        Number of layers.
-        """
-        return len(self._modules)
 

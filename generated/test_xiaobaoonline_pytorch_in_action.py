@@ -36,15 +36,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -65,6 +66,9 @@ import torch.nn.functional as F
 
 
 from torch.autograd import Variable
+
+
+from sklearn.datasets import load_iris
 
 
 from torch.optim import SGD
@@ -121,81 +125,49 @@ import torch.optim as optim
 from torch.nn import functional as F
 
 
+import math
+
+
+import re
+
+
+import time
+
+
+import random
+
+
 from torch.utils.data import Dataset
 
 
 from torchvision import models
 
 
-import random
+import torch.utils.data as data
 
 
 import torchtext.data as data
 
 
-class Net(torch.nn.Module):
-    """
-    定义网络
-    """
-
-    def __init__(self, n_feature, n_hidden, n_output):
-        """
-        初始化函数，接受自定义输入特征维数，隐藏层特征维数，输出层特征维数
-        """
-        super(Net, self).__init__()
-        self.hidden = torch.nn.Linear(n_feature, n_hidden)
-        self.predict = torch.nn.Linear(n_hidden, n_output)
-
-    def forward(self, x):
-        """
-        前向传播过程
-        """
-        x = F.sigmoid(self.hidden(x))
-        x = self.predict(x)
-        out = F.log_softmax(x, dim=1)
-        return out
-
-
 class Net(nn.Module):
-
-    def __init__(self, input_size, hidden_size, num_classes):
-        super(Net, self).__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(hidden_size, num_classes)
-
-    def forward(self, x):
-        out = self.fc1(x)
-        out = self.relu(out)
-        out = self.fc2(out)
-        return out
-
-
-class Net(torch.nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        self.hidden = torch.nn.Linear(1, 20)
-        self.predict = torch.nn.Linear(20, 1)
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.maxpool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 53 * 53, 1024)
+        self.fc2 = nn.Linear(1024, 512)
+        self.fc3 = nn.Linear(512, 2)
 
     def forward(self, x):
-        x = F.relu(self.hidden(x))
-        x = self.predict(x)
+        x = self.maxpool(F.relu(self.conv1(x)))
+        x = self.maxpool(F.relu(self.conv2(x)))
+        x = x.view(-1, 16 * 53 * 53)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
         return x
-
-
-class Cnn(nn.Module):
-
-    def __init__(self, in_dim, n_class):
-        super(Cnn, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(in_dim, 6, 3, stride=1, padding=1), nn.ReLU(True), nn.MaxPool2d(2, 2), nn.Conv2d(6, 16, 5, stride=1, padding=0), nn.ReLU(True), nn.MaxPool2d(2, 2))
-        self.fc = nn.Sequential(nn.Linear(400, 120), nn.Linear(120, 84), nn.Linear(84, n_class))
-
-    def forward(self, x):
-        out = self.conv(x)
-        out = out.view(out.size(0), 400)
-        out = self.fc(out)
-        return out
 
 
 class Cnn(nn.Module):
@@ -223,14 +195,6 @@ class autoencoder(nn.Module):
         x = self.encoder(x)
         x = self.decoder(x)
         return x
-
-
-class Encoder(nn.Module):
-
-    def __init__(self):
-        super(Encoder, self).__init__()
-        self.layer1 = nn.Sequential(nn.Conv2d(1, 32, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(32), nn.Conv2d(32, 32, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(32), nn.Conv2d(32, 64, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(64), nn.Conv2d(64, 64, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(64), nn.MaxPool2d(2, 2))
-        self.layer2 = nn.Sequential(nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(128), nn.Conv2d(128, 128, 3, padding=1), nn.ReLU(), nn.BatchNorm2d(128), nn.MaxPool2d(2, 2), nn.Conv2d(128, 256, 3, padding=1), nn.ReLU())
 
 
 batch_size = 4
@@ -444,27 +408,6 @@ class AttnDecoderRNN(nn.Module):
             return result
 
 
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.maxpool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 53 * 53, 1024)
-        self.fc2 = nn.Linear(1024, 512)
-        self.fc3 = nn.Linear(512, 2)
-
-    def forward(self, x):
-        x = self.maxpool(F.relu(self.conv1(x)))
-        x = self.maxpool(F.relu(self.conv2(x)))
-        x = x.view(-1, 16 * 53 * 53)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
 def _make_layers(cfg):
     layers = []
     in_channels = 1
@@ -529,6 +472,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (CNN_Text,
+     lambda: ([], {'args': _mock_config(embed_num=4, embed_dim=4, class_num=4, kernel_num=4, kernel_sizes=[4, 4], dropout=0.5)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
     (Decoder,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 256, 7, 7])], {}),
@@ -559,4 +506,7 @@ class Test_xiaobaoonline_pytorch_in_action(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

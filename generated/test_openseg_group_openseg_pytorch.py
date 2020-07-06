@@ -17,6 +17,7 @@ cityscapes_instance_generator = _module
 edge_generator = _module
 instance_edge_generator = _module
 lip = _module
+lip = _module
 mapillary_generator = _module
 pascal_context_generator = _module
 pascal_voc_generator = _module
@@ -34,6 +35,7 @@ dense_crf = _module
 dcn = _module
 deform_conv = _module
 modulated_dcn = _module
+build = _module
 build_modulated = _module
 deform_conv = _module
 modulated_dcn_func = _module
@@ -46,8 +48,10 @@ frn = _module
 frn = _module
 inplace_abn = _module
 bn = _module
+functions = _module
 inplace_abn_1 = _module
 bn = _module
+functions = _module
 misc = _module
 pacnet = _module
 pac = _module
@@ -157,23 +161,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+from torch.utils import data
 
 
 import random
 
 
-import torch
+import numpy as np
+
+
+import collections
+
+
+import torchvision
+
+
+import scipy.io as sio
 
 
 import torch.nn.functional as F
@@ -218,6 +238,12 @@ from torch.autograd import gradcheck
 import torch.nn.functional as functional
 
 
+import torch.cuda.comm as comm
+
+
+from torch.utils.cpp_extension import load
+
+
 import torch.distributed as dist
 
 
@@ -225,9 +251,6 @@ from numbers import Number
 
 
 from itertools import repeat
-
-
-import numpy as np
 
 
 from torch.autograd.function import Function
@@ -239,13 +262,13 @@ from torch.nn.parameter import Parameter
 import torch as th
 
 
+from functools import wraps
+
+
 from torch.nn.parallel._functions import _get_stream
 
 
 import functools
-
-
-import torch.cuda.comm as comm
 
 
 from torch.nn.parallel._functions import Broadcast
@@ -272,9 +295,6 @@ from torch._utils import _take_tensors
 from torch.nn.parallel._functions import Scatter as OrigScatter
 
 
-import collections
-
-
 from torch.nn.functional import batch_norm
 
 
@@ -282,9 +302,6 @@ from torch.nn.modules.batchnorm import _BatchNorm
 
 
 from torch.nn.parallel._functions import ReduceAddCoalesced
-
-
-from torch.utils.cpp_extension import load
 
 
 import torch.utils.checkpoint as cp
@@ -308,7 +325,31 @@ from torch.nn import ReLU
 from functools import partial
 
 
+from torch.hub import load_state_dict_from_url
+
+
+from torchvision.models.resnet import ResNet
+
+
+from torchvision.models.resnet import Bottleneck
+
+
 from torch.nn import functional as F
+
+
+from sklearn import svm
+
+
+from sklearn import datasets
+
+
+from sklearn.model_selection import train_test_split
+
+
+from sklearn.metrics import confusion_matrix
+
+
+import torch.backends.cudnn as cudnn
 
 
 import scipy.io as io
@@ -323,13 +364,19 @@ from scipy import ndimage
 from math import ceil
 
 
-import torch.backends.cudnn as cudnn
-
-
 from collections import Counter
 
 
 from torch.nn.parallel.scatter_gather import gather as torch_gather
+
+
+from torch.optim import SGD
+
+
+from torch.optim import Adam
+
+
+from torch.optim import lr_scheduler
 
 
 def _check_contiguous(*args):
@@ -478,9 +525,9 @@ class DeformConvFunction(Function):
             raise NotImplementedError
         else:
             if isinstance(input, torch.autograd.Variable):
-                if not isinstance(input.data, torch.cuda.FloatTensor):
+                if not isinstance(input.data, torch.FloatTensor):
                     raise NotImplementedError
-            elif not isinstance(input, torch.cuda.FloatTensor):
+            elif not isinstance(input, torch.FloatTensor):
                 raise NotImplementedError
             cur_im2col_step = min(self.im2col_step, input.shape[0])
             assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
@@ -494,9 +541,9 @@ class DeformConvFunction(Function):
             raise NotImplementedError
         else:
             if isinstance(grad_output, torch.autograd.Variable):
-                if not isinstance(grad_output.data, torch.cuda.FloatTensor):
+                if not isinstance(grad_output.data, torch.FloatTensor):
                     raise NotImplementedError
-            elif not isinstance(grad_output, torch.cuda.FloatTensor):
+            elif not isinstance(grad_output, torch.FloatTensor):
                 raise NotImplementedError
             cur_im2col_step = min(self.im2col_step, input.shape[0])
             assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
@@ -627,6 +674,26 @@ class ModulatedDeformConv(nn.Module):
         return func(input, offset, mask, self.weight, self.bias)
 
 
+class ModulatedDeformConvPack(ModulatedDeformConv):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride, padding, dilation=1, deformable_groups=1, no_bias=False):
+        super(ModulatedDeformConvPack, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, deformable_groups, no_bias)
+        self.conv_offset_mask = nn.Conv2d(self.in_channels, self.deformable_groups * 3 * self.kernel_size[0] * self.kernel_size[1], kernel_size=self.kernel_size, stride=(self.stride, self.stride), padding=(self.padding, self.padding), bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset_mask.weight.data.zero_()
+        self.conv_offset_mask.bias.data.zero_()
+
+    def forward(self, input):
+        out = self.conv_offset_mask(input)
+        o1, o2, mask = torch.chunk(out, 3, dim=1)
+        offset = torch.cat((o1, o2), dim=1)
+        mask = torch.sigmoid(mask)
+        func = ModulatedDeformConvFunction(self.stride, self.padding, self.dilation, self.deformable_groups)
+        return func(input, offset, mask, self.weight, self.bias)
+
+
 class DeformRoIPoolingFunction(Function):
 
     def __init__(self, spatial_scale, pooled_size, output_dim, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0):
@@ -663,7 +730,7 @@ class DeformRoIPoolingFunction(Function):
         grad_input = data.new(*data.size()).zero_()
         grad_offset = offset.new(*offset.size()).zero_()
         _backend.deform_psroi_pooling_cuda_backward(grad_output, data, rois, offset, output_count, grad_input, grad_offset, self.no_trans, self.spatial_scale, self.output_dim, self.group_size, self.pooled_size, self.part_size, self.sample_per_part, self.trans_std)
-        return grad_input, torch.zeros(rois.shape).cuda(), grad_offset
+        return grad_input, torch.zeros(rois.shape), grad_offset
 
     def _infer_shape(self, data, rois):
         c = data.shape[1]
@@ -688,6 +755,36 @@ class DeformRoIPooling(nn.Module):
     def forward(self, data, rois, offset):
         if self.no_trans:
             offset = data.new()
+        return self.func(data, rois, offset)
+
+
+class ModulatedDeformRoIPoolingPack(DeformRoIPooling):
+
+    def __init__(self, spatial_scale, pooled_size, output_dim, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, deform_fc_dim=1024):
+        super(ModulatedDeformRoIPoolingPack, self).__init__(spatial_scale, pooled_size, output_dim, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.deform_fc_dim = deform_fc_dim
+        if not no_trans:
+            self.func_offset = DeformRoIPoolingFunction(self.spatial_scale, self.pooled_size, self.output_dim, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            self.offset_fc = nn.Sequential(nn.Linear(self.pooled_size * self.pooled_size * self.output_dim, self.deform_fc_dim), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_dim, self.deform_fc_dim), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_dim, self.pooled_size * self.pooled_size * 2))
+            self.offset_fc[4].weight.data.zero_()
+            self.offset_fc[4].bias.data.zero_()
+            self.mask_fc = nn.Sequential(nn.Linear(self.pooled_size * self.pooled_size * self.output_dim, self.deform_fc_dim), nn.ReLU(inplace=True), nn.Linear(self.deform_fc_dim, self.pooled_size * self.pooled_size * 1), nn.Sigmoid())
+            self.mask_fc[2].weight.data.zero_()
+            self.mask_fc[2].bias.data.zero_()
+
+    def forward(self, data, rois):
+        if self.no_trans:
+            offset = data.new()
+        else:
+            n = rois.shape[0]
+            offset = data.new()
+            x = self.func_offset(data, rois, offset)
+            offset = self.offset_fc(x.view(n, -1))
+            offset = offset.view(n, 2, self.pooled_size, self.pooled_size)
+            mask = self.mask_fc(x.view(n, -1))
+            mask = mask.view(n, 1, self.pooled_size, self.pooled_size)
+            feat = self.func(data, rois, offset) * mask
+            return feat
         return self.func(data, rois, offset)
 
 
@@ -796,72 +893,148 @@ class ABN(nn.Module):
         return rep.format(name=self.__class__.__name__, **self.__dict__)
 
 
-class ABN(nn.Module):
-    """Activated Batch Normalization
+ACT_NONE = 'none'
 
-    This gathers a `BatchNorm2d` and an activation function in a single module
-    """
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates an Activated Batch Normalization module
+def _act_backward(ctx, x, dx):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _backend.leaky_relu_backward(x, dx, ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _backend.elu_backward(x, dx)
+    elif ctx.activation == ACT_NONE:
+        pass
 
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(ABN, self).__init__()
-        self.num_features = num_features
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        self.activation = activation
-        self.slope = slope
-        if self.affine:
-            self.weight = nn.Parameter(torch.ones(num_features))
-            self.bias = nn.Parameter(torch.zeros(num_features))
+
+def _act_forward(ctx, x):
+    if ctx.activation == ACT_LEAKY_RELU:
+        _backend.leaky_relu_forward(x, ctx.slope)
+    elif ctx.activation == ACT_ELU:
+        _backend.elu_forward(x)
+    elif ctx.activation == ACT_NONE:
+        pass
+
+
+def _count_samples(x):
+    count = 1
+    for i, s in enumerate(x.size()):
+        if i != 1:
+            count *= s
+    return count
+
+
+class InPlaceABN(autograd.Function):
+
+    @staticmethod
+    def forward(ctx, x, weight, bias, running_mean, running_var, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01):
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        ctx.affine = weight is not None and bias is not None
+        count = _count_samples(x)
+        x = x.contiguous()
+        weight = weight.contiguous() if ctx.affine else x.new_empty(0, dtype=torch.float32)
+        bias = bias.contiguous() if ctx.affine else x.new_empty(0, dtype=torch.float32)
+        if ctx.training:
+            mean, var = _backend.mean_var(x)
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * count / (count - 1))
+            ctx.mark_dirty(x, running_mean, running_var)
         else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
+            mean, var = running_mean.contiguous(), running_var.contiguous()
+            ctx.mark_dirty(x)
+        _backend.forward(x, mean, var, weight, bias, ctx.affine, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, var, weight, bias)
+        return x
 
-    def reset_parameters(self):
-        nn.init.constant_(self.running_mean, 0)
-        nn.init.constant_(self.running_var, 1)
-        if self.affine:
-            nn.init.constant_(self.weight, 1)
-            nn.init.constant_(self.bias, 0)
-
-    def forward(self, x):
-        x = functional.batch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
-        if self.activation == ACT_RELU:
-            return functional.relu(x, inplace=True)
-        elif self.activation == ACT_LEAKY_RELU:
-            return functional.leaky_relu(x, negative_slope=self.slope, inplace=True)
-        elif self.activation == ACT_ELU:
-            return functional.elu(x, inplace=True)
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, var, weight, bias = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.training:
+            edz, eydz = _backend.edz_eydz(z, dz, weight, bias, ctx.affine, ctx.eps)
         else:
-            return x
+            edz = dz.new_zeros(dz.size(1))
+            eydz = dz.new_zeros(dz.size(1))
+        dx = _backend.backward(z, dz, var, weight, bias, edz, eydz, ctx.affine, ctx.eps)
+        dweight = eydz if ctx.affine else None
+        if dweight is not None:
+            dweight[weight < 0] *= -1
+        dbias = edz if ctx.affine else None
+        return dx, dweight, dbias, None, None, None, None, None, None, None
 
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ', slope={slope})'
+
+class InPlaceABNSync(autograd.Function):
+
+    @classmethod
+    def forward(cls, ctx, x, weight, bias, running_mean, running_var, training=True, momentum=0.1, eps=1e-05, activation=ACT_LEAKY_RELU, slope=0.01, equal_batches=True):
+        ctx.training = training
+        ctx.momentum = momentum
+        ctx.eps = eps
+        ctx.activation = activation
+        ctx.slope = slope
+        ctx.affine = weight is not None and bias is not None
+        ctx.world_size = dist.get_world_size() if dist.is_initialized() else 1
+        batch_size = x.new_tensor([x.shape[0]], dtype=torch.long)
+        x = x.contiguous()
+        weight = weight.contiguous() if ctx.affine else x.new_empty(0, dtype=torch.float32)
+        bias = bias.contiguous() if ctx.affine else x.new_empty(0, dtype=torch.float32)
+        if ctx.training:
+            mean, var = _backend.mean_var(x)
+            if ctx.world_size > 1:
+                if equal_batches:
+                    batch_size *= ctx.world_size
+                else:
+                    dist.all_reduce(batch_size, dist.ReduceOp.SUM)
+                ctx.factor = x.shape[0] / float(batch_size.item())
+                mean_all = mean.clone() * ctx.factor
+                dist.all_reduce(mean_all, dist.ReduceOp.SUM)
+                var_all = (var + (mean - mean_all) ** 2) * ctx.factor
+                dist.all_reduce(var_all, dist.ReduceOp.SUM)
+                mean = mean_all
+                var = var_all
+            running_mean.mul_(1 - ctx.momentum).add_(ctx.momentum * mean)
+            count = batch_size.item() * x.view(x.shape[0], x.shape[1], -1).shape[-1]
+            running_var.mul_(1 - ctx.momentum).add_(ctx.momentum * var * (float(count) / (count - 1)))
+            ctx.mark_dirty(x, running_mean, running_var)
         else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
+            mean, var = running_mean.contiguous(), running_var.contiguous()
+            ctx.mark_dirty(x)
+        _backend.forward(x, mean, var, weight, bias, ctx.affine, ctx.eps)
+        _act_forward(ctx, x)
+        ctx.var = var
+        ctx.save_for_backward(x, var, weight, bias)
+        return x
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, dz):
+        z, var, weight, bias = ctx.saved_tensors
+        dz = dz.contiguous()
+        _act_backward(ctx, z, dz)
+        if ctx.training:
+            edz, eydz = _backend.edz_eydz(z, dz, weight, bias, ctx.affine, ctx.eps)
+            edz_local = edz.clone()
+            eydz_local = eydz.clone()
+            if ctx.world_size > 1:
+                edz *= ctx.factor
+                dist.all_reduce(edz, dist.ReduceOp.SUM)
+                eydz *= ctx.factor
+                dist.all_reduce(eydz, dist.ReduceOp.SUM)
+        else:
+            edz_local = edz = dz.new_zeros(dz.size(1))
+            eydz_local = eydz = dz.new_zeros(dz.size(1))
+        dx = _backend.backward(z, dz, var, weight, bias, edz, eydz, ctx.affine, ctx.eps)
+        dweight = eydz_local if ctx.affine else None
+        if dweight is not None:
+            dweight[weight < 0] *= -1
+        dbias = edz_local if ctx.affine else None
+        return dx, dweight, dbias, None, None, None, None, None, None, None
 
 
 class GlobalAvgPool2d(nn.Module):
@@ -1051,6 +1224,486 @@ class _PacConvNd(nn.Module):
         if self.shared_filters:
             s += ', shared_filters=True'
         return s.format(**self.__dict__)
+
+
+class PacConv2dFn(Function):
+
+    @staticmethod
+    def forward(ctx, input, kernel, weight, bias=None, stride=1, padding=0, dilation=1, shared_filters=False):
+        (bs, ch), in_sz = input.shape[:2], input.shape[2:]
+        if kernel.size(1) > 1:
+            raise ValueError('Non-singleton channel is not allowed for kernel.')
+        ctx.input_size = in_sz
+        ctx.in_ch = ch
+        ctx.kernel_size = tuple(weight.shape[-2:])
+        ctx.dilation = _pair(dilation)
+        ctx.padding = _pair(padding)
+        ctx.stride = _pair(stride)
+        ctx.shared_filters = shared_filters
+        ctx.save_for_backward(input if ctx.needs_input_grad[1] or ctx.needs_input_grad[2] else None, kernel if ctx.needs_input_grad[0] or ctx.needs_input_grad[2] else None, weight if ctx.needs_input_grad[0] or ctx.needs_input_grad[1] else None)
+        ctx._backend = type2backend[input.type()]
+        cols = F.unfold(input, ctx.kernel_size, ctx.dilation, ctx.padding, ctx.stride)
+        in_mul_k = cols.view(bs, ch, *kernel.shape[2:]) * kernel
+        if shared_filters:
+            output = torch.einsum('ijklmn,zykl->ijmn', (in_mul_k, weight))
+        else:
+            output = torch.einsum('ijklmn,ojkl->iomn', (in_mul_k, weight))
+        if bias is not None:
+            output += bias.view(1, -1, 1, 1)
+        return output.clone()
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        grad_input = grad_kernel = grad_weight = grad_bias = None
+        (bs, out_ch), out_sz = grad_output.shape[:2], grad_output.shape[2:]
+        in_ch = ctx.in_ch
+        input, kernel, weight = ctx.saved_tensors
+        if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
+            if ctx.shared_filters:
+                grad_in_mul_k = grad_output.view(bs, out_ch, 1, 1, out_sz[0], out_sz[1]) * weight.view(ctx.kernel_size[0], ctx.kernel_size[1], 1, 1)
+            else:
+                grad_in_mul_k = torch.einsum('iomn,ojkl->ijklmn', (grad_output, weight))
+        if ctx.needs_input_grad[1] or ctx.needs_input_grad[2]:
+            in_cols = F.unfold(input, ctx.kernel_size, ctx.dilation, ctx.padding, ctx.stride)
+            in_cols = in_cols.view(bs, in_ch, ctx.kernel_size[0], ctx.kernel_size[1], out_sz[0], out_sz[1])
+        if ctx.needs_input_grad[0]:
+            grad_input = grad_output.new()
+            grad_im2col_output = grad_in_mul_k * kernel
+            grad_im2col_output = grad_im2col_output.view(bs, -1, out_sz[0] * out_sz[1])
+            ctx._backend.Im2Col_updateGradInput(ctx._backend.library_state, grad_im2col_output, grad_input, ctx.input_size[0], ctx.input_size[1], ctx.kernel_size[0], ctx.kernel_size[1], ctx.dilation[0], ctx.dilation[1], ctx.padding[0], ctx.padding[1], ctx.stride[0], ctx.stride[1])
+        if ctx.needs_input_grad[1]:
+            grad_kernel = in_cols * grad_in_mul_k
+            grad_kernel = grad_kernel.sum(dim=1, keepdim=True)
+        if ctx.needs_input_grad[2]:
+            in_mul_k = in_cols * kernel
+            if ctx.shared_filters:
+                grad_weight = torch.einsum('ijmn,ijklmn->kl', (grad_output, in_mul_k))
+                grad_weight = grad_weight.view(1, 1, ctx.kernel_size[0], ctx.kernel_size[1]).contiguous()
+            else:
+                grad_weight = torch.einsum('iomn,ijklmn->ojkl', (grad_output, in_mul_k))
+        if ctx.needs_input_grad[3]:
+            grad_bias = torch.einsum('iomn->o', (grad_output,))
+        return grad_input, grad_kernel, grad_weight, grad_bias, None, None, None, None
+
+
+def nd2col(input_nd, kernel_size, stride=1, padding=0, output_padding=0, dilation=1, transposed=False, use_pyinn_if_possible=False):
+    """
+    Shape:
+        - Input: :math:`(N, C, L_{in})`
+        - Output: :math:`(N, C, *kernel_size, *L_{out})` where
+          :math:`L_{out} = floor((L_{in} + 2 * padding - dilation * (kernel_size - 1) - 1) / stride + 1)` for non-transposed
+          :math:`L_{out} = (L_{in} - 1) * stride - 2 * padding + dilation * (kernel_size - 1) + 1 + output_padding` for transposed
+    """
+    n_dims = len(input_nd.shape[2:])
+    kernel_size = (kernel_size,) * n_dims if isinstance(kernel_size, Number) else kernel_size
+    stride = (stride,) * n_dims if isinstance(stride, Number) else stride
+    padding = (padding,) * n_dims if isinstance(padding, Number) else padding
+    output_padding = (output_padding,) * n_dims if isinstance(output_padding, Number) else output_padding
+    dilation = (dilation,) * n_dims if isinstance(dilation, Number) else dilation
+    if transposed:
+        assert n_dims == 2, 'Only 2D is supported for fractional strides.'
+        w_one = input_nd.new_ones(1, 1, 1, 1)
+        pad = [((k - 1) * d - p) for k, d, p in zip(kernel_size, dilation, padding)]
+        input_nd = F.conv_transpose2d(input_nd, w_one, stride=stride)
+        input_nd = F.pad(input_nd, (pad[1], pad[1] + output_padding[1], pad[0], pad[0] + output_padding[0]))
+        stride = _pair(1)
+        padding = _pair(0)
+    (bs, nch), in_sz = input_nd.shape[:2], input_nd.shape[2:]
+    out_sz = tuple([((i + 2 * p - d * (k - 1) - 1) // s + 1) for i, k, d, p, s in zip(in_sz, kernel_size, dilation, padding, stride)])
+    if n_dims == 2 and dilation == 1 and has_pyinn and torch.cuda.is_available() and use_pyinn_if_possible:
+        output = P.im2col(input_nd, kernel_size, stride, padding)
+    else:
+        output = F.unfold(input_nd, kernel_size, dilation, padding, stride)
+        out_shape = (bs, nch) + tuple(kernel_size) + out_sz
+        output = output.view(*out_shape).contiguous()
+    return output
+
+
+def pacconv2d(input, kernel, weight, bias=None, stride=1, padding=0, dilation=1, shared_filters=False, native_impl=False):
+    kernel_size = tuple(weight.shape[-2:])
+    stride = _pair(stride)
+    padding = _pair(padding)
+    dilation = _pair(dilation)
+    if native_impl:
+        im_cols = nd2col(input, kernel_size, stride=stride, padding=padding, dilation=dilation)
+        if shared_filters:
+            output = torch.einsum('ijklmn,zykl->ijmn', (im_cols * kernel, weight))
+        else:
+            output = torch.einsum('ijklmn,ojkl->iomn', (im_cols * kernel, weight))
+        if bias is not None:
+            output += bias.view(1, -1, 1, 1)
+    else:
+        output = PacConv2dFn.apply(input, kernel, weight, bias, stride, padding, dilation, shared_filters)
+    return output
+
+
+class GaussKernel2dFn(Function):
+
+    @staticmethod
+    def forward(ctx, input, kernel_size, stride, padding, dilation, channel_wise):
+        ctx.kernel_size = _pair(kernel_size)
+        ctx.dilation = _pair(dilation)
+        ctx.padding = _pair(padding)
+        ctx.stride = _pair(stride)
+        bs, ch, in_h, in_w = input.shape
+        out_h = (in_h + 2 * ctx.padding[0] - ctx.dilation[0] * (ctx.kernel_size[0] - 1) - 1) // ctx.stride[0] + 1
+        out_w = (in_w + 2 * ctx.padding[1] - ctx.dilation[1] * (ctx.kernel_size[1] - 1) - 1) // ctx.stride[1] + 1
+        cols = F.unfold(input, ctx.kernel_size, ctx.dilation, ctx.padding, ctx.stride)
+        cols = cols.view(bs, ch, ctx.kernel_size[0], ctx.kernel_size[1], out_h, out_w)
+        center_y, center_x = ctx.kernel_size[0] // 2, ctx.kernel_size[1] // 2
+        feat_0 = cols.contiguous()[:, :, center_y:center_y + 1, center_x:center_x + 1, :, :]
+        diff_sq = (cols - feat_0).pow(2)
+        if not channel_wise:
+            diff_sq = diff_sq.sum(dim=1, keepdim=True)
+        output = torch.exp(-0.5 * diff_sq)
+        ctx._backend = type2backend[input.type()]
+        ctx.save_for_backward(input, output)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        input, output = ctx.saved_tensors
+        bs, ch, in_h, in_w = input.shape
+        out_h, out_w = output.shape[-2:]
+        cols = F.unfold(input, ctx.kernel_size, ctx.dilation, ctx.padding, ctx.stride)
+        cols = cols.view(bs, ch, ctx.kernel_size[0], ctx.kernel_size[1], out_h, out_w)
+        center_y, center_x = ctx.kernel_size[0] // 2, ctx.kernel_size[1] // 2
+        feat_0 = cols.contiguous()[:, :, center_y:center_y + 1, center_x:center_x + 1, :, :]
+        diff = cols - feat_0
+        grad = -0.5 * grad_output * output
+        grad_diff = grad.expand_as(cols) * (2 * diff)
+        grad_diff[:, :, center_y:center_y + 1, center_x:center_x + 1, :, :] -= grad_diff.sum(dim=2, keepdim=True).sum(dim=3, keepdim=True)
+        grad_input = grad_output.new()
+        ctx._backend.Im2Col_updateGradInput(ctx._backend.library_state, grad_diff.view(bs, ch * ctx.kernel_size[0] * ctx.kernel_size[1], -1), grad_input, in_h, in_w, ctx.kernel_size[0], ctx.kernel_size[1], ctx.dilation[0], ctx.dilation[1], ctx.padding[0], ctx.padding[1], ctx.stride[0], ctx.stride[1])
+        return grad_input, None, None, None, None, None
+
+
+def _neg_idx(idx):
+    return None if idx == 0 else -idx
+
+
+def packernel2d(input, mask=None, kernel_size=0, stride=1, padding=0, output_padding=0, dilation=1, kernel_type='gaussian', smooth_kernel_type='none', smooth_kernel=None, inv_alpha=None, inv_lambda=None, channel_wise=False, normalize_kernel=False, transposed=False, native_impl=False):
+    kernel_size = _pair(kernel_size)
+    dilation = _pair(dilation)
+    padding = _pair(padding)
+    output_padding = _pair(output_padding)
+    stride = _pair(stride)
+    output_mask = False if mask is None else True
+    norm = None
+    if mask is not None and mask.dtype != input.dtype:
+        mask = torch.tensor(mask, dtype=input.dtype, device=input.device)
+    if transposed:
+        in_sz = tuple(int((o - op - 1 - (k - 1) * d + 2 * p) // s) + 1 for o, k, s, p, op, d in zip(input.shape[-2:], kernel_size, stride, padding, output_padding, dilation))
+    else:
+        in_sz = input.shape[-2:]
+    if mask is not None or normalize_kernel:
+        mask_pattern = input.new_ones(1, 1, *in_sz)
+        mask_pattern = nd2col(mask_pattern, kernel_size, stride=stride, padding=padding, output_padding=output_padding, dilation=dilation, transposed=transposed)
+        if mask is not None:
+            mask = nd2col(mask, kernel_size, stride=stride, padding=padding, output_padding=output_padding, dilation=dilation, transposed=transposed)
+            if not normalize_kernel:
+                norm = mask.sum(dim=2, keepdim=True).sum(dim=3, keepdim=True) / mask_pattern.sum(dim=2, keepdim=True).sum(dim=3, keepdim=True)
+        else:
+            mask = mask_pattern
+    if transposed:
+        stride = _pair(1)
+        padding = tuple((k - 1) * d // 2 for k, d in zip(kernel_size, dilation))
+    if native_impl:
+        bs, k_ch, in_h, in_w = input.shape
+        x = nd2col(input, kernel_size, stride=stride, padding=padding, dilation=dilation)
+        x = x.view(bs, k_ch, -1, *x.shape[-2:]).contiguous()
+        if smooth_kernel_type == 'none':
+            self_idx = kernel_size[0] * kernel_size[1] // 2
+            feat_0 = x[:, :, self_idx:self_idx + 1, :, :]
+        else:
+            smooth_kernel_size = smooth_kernel.shape[2:]
+            smooth_padding = int(padding[0] - (kernel_size[0] - smooth_kernel_size[0]) / 2), int(padding[1] - (kernel_size[1] - smooth_kernel_size[1]) / 2)
+            crop = tuple(-1 * np.minimum(0, smooth_padding))
+            input_for_kernel_crop = input.view(-1, 1, in_h, in_w)[:, :, crop[0]:_neg_idx(crop[0]), crop[1]:_neg_idx(crop[1])]
+            smoothed = F.conv2d(input_for_kernel_crop, smooth_kernel, stride=stride, padding=tuple(np.maximum(0, smooth_padding)))
+            feat_0 = smoothed.view(bs, k_ch, 1, *x.shape[-2:])
+        x = x - feat_0
+        if kernel_type.find('_asym') >= 0:
+            x = F.relu(x, inplace=True)
+        x = x * x
+        if not channel_wise:
+            x = torch.sum(x, dim=1, keepdim=True)
+        if kernel_type == 'gaussian':
+            x = torch.exp_(x.mul_(-0.5))
+        elif kernel_type.startswith('inv_'):
+            epsilon = 0.0001
+            x = inv_alpha.view(1, -1, 1, 1, 1) + torch.pow(x + epsilon, 0.5 * inv_lambda.view(1, -1, 1, 1, 1))
+        else:
+            raise ValueError()
+        output = x.view(*(x.shape[:2] + tuple(kernel_size) + x.shape[-2:])).contiguous()
+    else:
+        assert smooth_kernel_type == 'none' and kernel_type == 'gaussian'
+        output = GaussKernel2dFn.apply(input, kernel_size, stride, padding, dilation, channel_wise)
+    if mask is not None:
+        output = output * mask
+    if normalize_kernel:
+        norm = output.sum(dim=2, keepdim=True).sum(dim=3, keepdim=True)
+    if norm is not None:
+        empty_mask = norm == 0
+        output = output / (norm + torch.tensor(empty_mask, dtype=input.dtype, device=input.device))
+        output_mask = 1 - empty_mask if output_mask else None
+    else:
+        output_mask = None
+    return output, output_mask
+
+
+class PacConv2d(_PacConvNd):
+    """
+    Args (in addition to those of Conv2d):
+        kernel_type (str): 'gaussian' | 'inv_{alpha}_{lambda}[_asym][_fixed]'. Default: 'gaussian'
+        smooth_kernel_type (str): 'none' | 'gaussian' | 'average_{sz}' | 'full_{sz}'. Default: 'none'
+        normalize_kernel (bool): Default: False
+        shared_filters (bool): Default: False
+        filler (str): 'uniform'. Default: 'uniform'
+
+    Note:
+        - kernel_size only accepts odd numbers
+        - padding should not be larger than :math:`dilation * (kernel_size - 1) / 2`
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, bias=True, kernel_type='gaussian', smooth_kernel_type='none', normalize_kernel=False, shared_filters=False, filler='uniform', native_impl=False):
+        kernel_size = _pair(kernel_size)
+        stride = _pair(stride)
+        padding = _pair(padding)
+        dilation = _pair(dilation)
+        super(PacConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, False, _pair(0), bias, False, kernel_type, smooth_kernel_type, False, normalize_kernel, shared_filters, filler)
+        self.native_impl = native_impl
+
+    def compute_kernel(self, input_for_kernel, input_mask=None):
+        return packernel2d(input_for_kernel, input_mask, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, dilation=self.dilation, kernel_type=self.kernel_type, smooth_kernel_type=self.smooth_kernel_type, smooth_kernel=self.smooth_kernel if hasattr(self, 'smooth_kernel') else None, inv_alpha=self.inv_alpha if hasattr(self, 'inv_alpha') else None, inv_lambda=self.inv_lambda if hasattr(self, 'inv_lambda') else None, channel_wise=False, normalize_kernel=self.normalize_kernel, transposed=False, native_impl=self.native_impl)
+
+    def forward(self, input_2d, input_for_kernel, kernel=None, mask=None):
+        output_mask = None
+        if kernel is None:
+            kernel, output_mask = self.compute_kernel(input_for_kernel, mask)
+        output = pacconv2d(input_2d, kernel, self.weight, self.bias, self.stride, self.padding, self.dilation, self.shared_filters, self.native_impl)
+        return output if output_mask is None else (output, output_mask)
+
+
+class PacConvTranspose2dFn(Function):
+
+    @staticmethod
+    def forward(ctx, input, kernel, weight, bias=None, stride=1, padding=0, output_padding=0, dilation=1, shared_filters=False):
+        (bs, ch), in_sz = input.shape[:2], input.shape[2:]
+        if kernel.size(1) > 1:
+            raise ValueError('Non-singleton channel is not allowed for kernel.')
+        ctx.in_ch = ch
+        ctx.kernel_size = tuple(weight.shape[-2:])
+        ctx.dilation = _pair(dilation)
+        ctx.padding = _pair(padding)
+        ctx.output_padding = _pair(output_padding)
+        ctx.stride = _pair(stride)
+        ctx.shared_filters = shared_filters
+        ctx.save_for_backward(input if ctx.needs_input_grad[1] or ctx.needs_input_grad[2] else None, kernel if ctx.needs_input_grad[0] or ctx.needs_input_grad[2] else None, weight if ctx.needs_input_grad[0] or ctx.needs_input_grad[1] else None)
+        ctx._backend = type2backend[input.type()]
+        w = input.new_ones((ch, 1, 1, 1))
+        x = F.conv_transpose2d(input, w, stride=stride, groups=ch)
+        pad = [((k - 1) * d - p) for k, d, p in zip(ctx.kernel_size, ctx.dilation, ctx.padding)]
+        x = F.pad(x, (pad[1], pad[1] + ctx.output_padding[1], pad[0], pad[0] + ctx.output_padding[0]))
+        cols = F.unfold(x, ctx.kernel_size, ctx.dilation, _pair(0), _pair(1))
+        in_mul_k = cols.view(bs, ch, *kernel.shape[2:]) * kernel
+        if shared_filters:
+            output = torch.einsum('ijklmn,jokl->iomn', (in_mul_k, weight))
+        else:
+            output = torch.einsum('ijklmn,jokl->iomn', (in_mul_k, weight))
+        if bias is not None:
+            output += bias.view(1, -1, 1, 1)
+        return output.clone()
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        grad_input = grad_kernel = grad_weight = grad_bias = None
+        (bs, out_ch), out_sz = grad_output.shape[:2], grad_output.shape[2:]
+        in_ch = ctx.in_ch
+        pad = [((k - 1) * d - p) for k, d, p in zip(ctx.kernel_size, ctx.dilation, ctx.padding)]
+        pad = [(p, p + op) for p, op in zip(pad, ctx.output_padding)]
+        input, kernel, weight = ctx.saved_tensors
+        if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
+            if ctx.shared_filters:
+                grad_in_mul_k = grad_output.view(bs, out_ch, 1, 1, out_sz[0], out_sz[1]) * weight.view(ctx.kernel_size[0], ctx.kernel_size[1], 1, 1)
+            else:
+                grad_in_mul_k = torch.einsum('iomn,jokl->ijklmn', (grad_output, weight))
+        if ctx.needs_input_grad[1] or ctx.needs_input_grad[2]:
+            w = input.new_ones((in_ch, 1, 1, 1))
+            x = F.conv_transpose2d(input, w, stride=ctx.stride, groups=in_ch)
+            x = F.pad(x, (pad[1][0], pad[1][1], pad[0][0], pad[0][1]))
+            in_cols = F.unfold(x, ctx.kernel_size, ctx.dilation, _pair(0), _pair(1))
+            in_cols = in_cols.view(bs, in_ch, ctx.kernel_size[0], ctx.kernel_size[1], out_sz[0], out_sz[1])
+        if ctx.needs_input_grad[0]:
+            grad_input = grad_output.new()
+            grad_im2col_output = grad_in_mul_k * kernel
+            grad_im2col_output = grad_im2col_output.view(bs, -1, out_sz[0] * out_sz[1])
+            im2col_input_sz = [(o + (k - 1) * d) for o, k, d in zip(out_sz, ctx.kernel_size, ctx.dilation)]
+            ctx._backend.Im2Col_updateGradInput(ctx._backend.library_state, grad_im2col_output, grad_input, im2col_input_sz[0], im2col_input_sz[1], ctx.kernel_size[0], ctx.kernel_size[1], ctx.dilation[0], ctx.dilation[1], 0, 0, 1, 1)
+            grad_input = grad_input[:, :, pad[0][0]:-pad[0][1]:ctx.stride[0], pad[1][0]:-pad[1][1]:ctx.stride[1]]
+        if ctx.needs_input_grad[1]:
+            grad_kernel = in_cols * grad_in_mul_k
+            grad_kernel = grad_kernel.sum(dim=1, keepdim=True)
+        if ctx.needs_input_grad[2]:
+            in_mul_k = in_cols * kernel
+            if ctx.shared_filters:
+                grad_weight = torch.einsum('ijmn,ijklmn->kl', (grad_output, in_mul_k))
+                grad_weight = grad_weight.view(1, 1, ctx.kernel_size[0], ctx.kernel_size[1]).contiguous()
+            else:
+                grad_weight = torch.einsum('iomn,ijklmn->jokl', (grad_output, in_mul_k))
+        if ctx.needs_input_grad[3]:
+            grad_bias = torch.einsum('iomn->o', (grad_output,))
+        return grad_input, grad_kernel, grad_weight, grad_bias, None, None, None, None, None
+
+
+def pacconv_transpose2d(input, kernel, weight, bias=None, stride=1, padding=0, output_padding=0, dilation=1, shared_filters=False, native_impl=False):
+    kernel_size = tuple(weight.shape[-2:])
+    stride = _pair(stride)
+    padding = _pair(padding)
+    output_padding = _pair(output_padding)
+    dilation = _pair(dilation)
+    if native_impl:
+        ch = input.shape[1]
+        w = input.new_ones((ch, 1, 1, 1))
+        x = F.conv_transpose2d(input, w, stride=stride, groups=ch)
+        pad = [((kernel_size[i] - 1) * dilation[i] - padding[i]) for i in range(2)]
+        x = F.pad(x, (pad[1], pad[1] + output_padding[1], pad[0], pad[0] + output_padding[0]))
+        output = pacconv2d(x, kernel, weight.permute(1, 0, 2, 3), bias, dilation=dilation, shared_filters=shared_filters, native_impl=True)
+    else:
+        output = PacConvTranspose2dFn.apply(input, kernel, weight, bias, stride, padding, output_padding, dilation, shared_filters)
+    return output
+
+
+class PacConvTranspose2d(_PacConvNd):
+    """
+    Args (in addition to those of ConvTranspose2d):
+        kernel_type (str): 'gaussian' | 'inv_{alpha}_{lambda}[_asym][_fixed]'. Default: 'gaussian'
+        smooth_kernel_type (str): 'none' | 'gaussian' | 'average_{sz}' | 'full_{sz}'. Default: 'none'
+        normalize_kernel (bool): Default: False
+        shared_filters (bool): Default: False
+        filler (str): 'uniform' | 'linear'. Default: 'uniform'
+
+    Note:
+        - kernel_size only accepts odd numbers
+        - padding should not be larger than :math:`dilation * (kernel_size - 1) / 2`
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0, dilation=1, bias=True, kernel_type='gaussian', smooth_kernel_type='none', normalize_kernel=False, shared_filters=False, filler='uniform', native_impl=False):
+        kernel_size = _pair(kernel_size)
+        stride = _pair(stride)
+        padding = _pair(padding)
+        output_padding = _pair(output_padding)
+        dilation = _pair(dilation)
+        super(PacConvTranspose2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, True, output_padding, bias, False, kernel_type, smooth_kernel_type, False, normalize_kernel, shared_filters, filler)
+        self.native_impl = native_impl
+
+    def compute_kernel(self, input_for_kernel, input_mask=None):
+        return packernel2d(input_for_kernel, input_mask, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, output_padding=self.output_padding, dilation=self.dilation, kernel_type=self.kernel_type, smooth_kernel_type=self.smooth_kernel_type, smooth_kernel=self.smooth_kernel if hasattr(self, 'smooth_kernel') else None, inv_alpha=self.inv_alpha if hasattr(self, 'inv_alpha') else None, inv_lambda=self.inv_lambda if hasattr(self, 'inv_lambda') else None, channel_wise=False, normalize_kernel=self.normalize_kernel, transposed=True, native_impl=self.native_impl)
+
+    def forward(self, input_2d, input_for_kernel, kernel=None, mask=None):
+        output_mask = None
+        if kernel is None:
+            kernel, output_mask = self.compute_kernel(input_for_kernel, mask)
+        output = pacconv_transpose2d(input_2d, kernel, self.weight, self.bias, self.stride, self.padding, self.output_padding, self.dilation, self.shared_filters, self.native_impl)
+        return output if output_mask is None else (output, output_mask)
+
+
+class PacPool2dFn(Function):
+
+    @staticmethod
+    def forward(ctx, input, kernel, kernel_size, stride=1, padding=0, dilation=1):
+        (bs, ch), in_sz = input.shape[:2], input.shape[2:]
+        if kernel.size(1) > 1 and kernel.size(1) != ch:
+            raise ValueError('Incompatible input and kernel sizes.')
+        ctx.input_size = in_sz
+        ctx.kernel_size = _pair(kernel_size)
+        ctx.kernel_ch = kernel.size(1)
+        ctx.dilation = _pair(dilation)
+        ctx.padding = _pair(padding)
+        ctx.stride = _pair(stride)
+        ctx.save_for_backward(input if ctx.needs_input_grad[1] else None, kernel if ctx.needs_input_grad[0] else None)
+        ctx._backend = type2backend[input.type()]
+        cols = F.unfold(input, ctx.kernel_size, ctx.dilation, ctx.padding, ctx.stride)
+        output = cols.view(bs, ch, *kernel.shape[2:]) * kernel
+        output = torch.einsum('ijklmn->ijmn', (output,))
+        return output.clone()
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        input, kernel = ctx.saved_tensors
+        grad_input = grad_kernel = None
+        (bs, ch), out_sz = grad_output.shape[:2], grad_output.shape[2:]
+        if ctx.needs_input_grad[0]:
+            grad_input = grad_output.new()
+            grad_im2col_output = torch.einsum('ijmn,izklmn->ijklmn', (grad_output, kernel))
+            grad_im2col_output = grad_im2col_output.view(bs, -1, out_sz[0] * out_sz[1])
+            ctx._backend.Im2Col_updateGradInput(ctx._backend.library_state, grad_im2col_output, grad_input, ctx.input_size[0], ctx.input_size[1], ctx.kernel_size[0], ctx.kernel_size[1], ctx.dilation[0], ctx.dilation[1], ctx.padding[0], ctx.padding[1], ctx.stride[0], ctx.stride[1])
+        if ctx.needs_input_grad[1]:
+            cols = F.unfold(input, ctx.kernel_size, ctx.dilation, ctx.padding, ctx.stride)
+            cols = cols.view(bs, ch, ctx.kernel_size[0], ctx.kernel_size[1], out_sz[0], out_sz[1])
+            grad_kernel = torch.einsum('ijmn,ijklmn->ijklmn', (grad_output, cols))
+            if ctx.kernel_ch == 1:
+                grad_kernel = grad_kernel.sum(dim=1, keepdim=True)
+        return grad_input, grad_kernel, None, None, None, None
+
+
+def pacpool2d(input, kernel, kernel_size, stride=1, padding=0, dilation=1, native_impl=False):
+    kernel_size = _pair(kernel_size)
+    stride = _pair(stride)
+    padding = _pair(padding)
+    dilation = _pair(dilation)
+    if native_impl:
+        bs, in_ch, in_h, in_w = input.shape
+        out_h = (in_h + 2 * padding[0] - dilation[0] * (kernel_size[0] - 1) - 1) // stride[0] + 1
+        out_w = (in_w + 2 * padding[1] - dilation[1] * (kernel_size[1] - 1) - 1) // stride[1] + 1
+        im_cols = nd2col(input, kernel_size, stride=stride, padding=padding, dilation=dilation)
+        im_cols *= kernel
+        output = im_cols.view(bs, in_ch, -1, out_h, out_w).sum(dim=2, keepdim=False)
+    else:
+        output = PacPool2dFn.apply(input, kernel, kernel_size, stride, padding, dilation)
+    return output
+
+
+class PacPool2d(_PacConvNd):
+    """
+    Args:
+        kernel_size, stride, padding, dilation
+        kernel_type (str): 'gaussian' | 'inv_{alpha}_{lambda}[_asym][_fixed]'. Default: 'gaussian'
+        smooth_kernel_type (str): 'none' | 'gaussian' | 'average_{sz}' | 'full_{sz}'. Default: 'none'
+        channel_wise (bool): Default: False
+        normalize_kernel (bool): Default: False
+        out_channels (int): needs to be specified for channel_wise 'inv_*' (non-fixed) kernels. Default: -1
+
+    Note:
+        - kernel_size only accepts odd numbers
+        - padding should not be larger than :math:`dilation * (kernel_size - 1) / 2`
+    """
+
+    def __init__(self, kernel_size, stride=1, padding=0, dilation=1, kernel_type='gaussian', smooth_kernel_type='none', channel_wise=False, normalize_kernel=False, out_channels=-1, native_impl=False):
+        kernel_size = _pair(kernel_size)
+        stride = _pair(stride)
+        padding = _pair(padding)
+        dilation = _pair(dilation)
+        super(PacPool2d, self).__init__(-1, out_channels, kernel_size, stride, padding, dilation, False, _pair(0), False, True, kernel_type, smooth_kernel_type, channel_wise, normalize_kernel, False, None)
+        self.native_impl = native_impl
+
+    def compute_kernel(self, input_for_kernel, input_mask=None):
+        return packernel2d(input_for_kernel, input_mask, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, dilation=self.dilation, kernel_type=self.kernel_type, smooth_kernel_type=self.smooth_kernel_type, smooth_kernel=self.smooth_kernel if hasattr(self, 'smooth_kernel') else None, inv_alpha=self.inv_alpha if hasattr(self, 'inv_alpha') else None, inv_lambda=self.inv_lambda if hasattr(self, 'inv_lambda') else None, channel_wise=self.channel_wise, normalize_kernel=self.normalize_kernel, transposed=False, native_impl=self.native_impl)
+
+    def forward(self, input_2d, input_for_kernel, kernel=None, mask=None):
+        output_mask = None
+        if kernel is None:
+            kernel, output_mask = self.compute_kernel(input_for_kernel, mask)
+        bs, in_ch, in_h, in_w = input_2d.shape
+        if self.channel_wise and kernel.shape[1] != in_ch:
+            raise ValueError('input and kernel must have the same number of channels when channel_wise=True')
+        assert self.out_channels <= 0 or self.out_channels == in_ch
+        output = pacpool2d(input_2d, kernel, self.kernel_size, self.stride, self.padding, self.dilation, self.native_impl)
+        return output if output_mask is None else (output, output_mask)
 
 
 def _ceil_pad_factor(sizes, factor):
@@ -1391,7 +2044,7 @@ def synchronize_stream(output, devices, streams):
                 synchronize_stream(output[i * chunk_size + j], [devices[i]], [streams[i]])
     elif isinstance(output, torch.Tensor):
         if output.numel() != 0:
-            with torch.cuda.device(devices[0]):
+            with torch.device(devices[0]):
                 main_stream = torch.cuda.current_stream()
                 main_stream.wait_stream(streams[0])
                 output.record_stream(main_stream)
@@ -1542,7 +2195,7 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices
         if device is None:
             device = get_a_var(input).get_device()
         try:
-            with torch.cuda.device(device):
+            with torch.device(device):
                 output = module(input, *target, **kwargs)
             with lock:
                 results[i] = output
@@ -1635,7 +2288,7 @@ class MMDistributedDataParallel(nn.Module):
         return scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
 
     def forward(self, *inputs, **kwargs):
-        inputs, kwargs = self.scatter(inputs, kwargs, [torch.current_device()])
+        inputs, kwargs = self.scatter(inputs, kwargs, [torch.cuda.current_device()])
         return self.module(*inputs[0], **kwargs[0])
 
 
@@ -2081,6 +2734,84 @@ class _SyncBatchNorm(_BatchNorm):
         return mean, (bias_var + self.eps) ** -0.5
 
 
+class BatchNorm1d(_SyncBatchNorm):
+    """Please see the docs in :class:`encoding.nn.BatchNorm2d`"""
+
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+        super(BatchNorm1d, self)._check_input_dim(input)
+
+
+class BatchNorm2d(_SyncBatchNorm):
+    """Cross-GPU Synchronized Batch normalization (SyncBN)
+
+    Standard BN [1]_ implementation only normalize the data within each device (GPU).
+    SyncBN normalizes the input within the whole mini-batch.
+    We follow the sync-onece implmentation described in the paper [2]_ .
+    Please see the design idea in the `notes <./notes/syncbn.html>`_.
+
+    .. note::
+        We adapt the awesome python API from another `PyTorch SyncBN Implementation
+        <https://github.com/vacancy/Synchronized-BatchNorm-PyTorch>`_ and provide
+        efficient CUDA backend.
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    The mean and standard-deviation are calculated per-channel over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape:
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Reference:
+        .. [1] Ioffe, Sergey, and Christian Szegedy. "Batch normalization: Accelerating deep network training by reducing internal covariate shift." *ICML 2015*
+        .. [2] Hang Zhang, Kristin Dana, Jianping Shi, Zhongyue Zhang, Xiaogang Wang, Ambrish Tyagi, and Amit Agrawal. "Context Encoding for Semantic Segmentation." *CVPR 2018*
+
+    Examples:
+        >>> m = BatchNorm2d(100)
+        >>> net = torch.nn.DataParallel(m)
+        >>> syncbn.parallel.patch_replication_callback(net)
+        >>> output = net(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+        super(BatchNorm2d, self)._check_input_dim(input)
+
+
+class BatchNorm3d(_SyncBatchNorm):
+    """Please see the docs in :class:`encoding.nn.BatchNorm2d`"""
+
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
+        super(BatchNorm3d, self)._check_input_dim(input)
+
+
 class WeightedFSOhemCELoss(nn.Module):
 
     def __init__(self, configer):
@@ -2250,10 +2981,8 @@ class ModuleHelper(object):
         elif bn_type == 'torchsyncbn':
             return nn.Sequential(nn.SyncBatchNorm(num_features, **kwargs), nn.ReLU())
         elif bn_type == 'syncbn':
-            from lib.extensions.syncbn.module import BatchNorm2d
             return nn.Sequential(BatchNorm2d(num_features, **kwargs), nn.ReLU())
         elif bn_type == 'sn':
-            from lib.extensions.switchablenorms.switchable_norm import SwitchNorm2d
             return nn.Sequential(SwitchNorm2d(num_features, **kwargs), nn.ReLU())
         elif bn_type == 'gn':
             return nn.Sequential(nn.GroupNorm(num_groups=8, num_channels=num_features, **kwargs), nn.ReLU())
@@ -2263,13 +2992,10 @@ class ModuleHelper(object):
         elif bn_type == 'inplace_abn':
             torch_ver = torch.__version__[:3]
             if torch_ver == '0.4':
-                from lib.extensions.inplace_abn.bn import InPlaceABNSync
                 return InPlaceABNSync(num_features, **kwargs)
             elif torch_ver == '1.0':
-                from lib.extensions.inplace_abn_1.bn import InPlaceABNSync
                 return InPlaceABNSync(num_features, **kwargs)
             elif torch_ver == '1.2':
-                from inplace_abn import InPlaceABNSync
                 return InPlaceABNSync(num_features, **kwargs)
         else:
             Log.error('Not support BN type: {}.'.format(bn_type))
@@ -2282,27 +3008,22 @@ class ModuleHelper(object):
         elif bn_type == 'torchsyncbn':
             return nn.SyncBatchNorm
         elif bn_type == 'syncbn':
-            from lib.extensions.syncbn.module import BatchNorm2d
             return BatchNorm2d
         elif bn_type == 'sn':
-            from lib.extensions.switchablenorms.switchable_norm import SwitchNorm2d
             return SwitchNorm2d
         elif bn_type == 'gn':
             return functools.partial(nn.GroupNorm, num_groups=32)
         elif bn_type == 'inplace_abn':
             torch_ver = torch.__version__[:3]
             if torch_ver == '0.4':
-                from lib.extensions.inplace_abn.bn import InPlaceABNSync
                 if ret_cls:
                     return InPlaceABNSync
                 return functools.partial(InPlaceABNSync, activation='none')
             elif torch_ver == '1.0':
-                from lib.extensions.inplace_abn_1.bn import InPlaceABNSync
                 if ret_cls:
                     return InPlaceABNSync
                 return functools.partial(InPlaceABNSync, activation='none')
             elif torch_ver == '1.2':
-                from inplace_abn import InPlaceABNSync
                 if ret_cls:
                     return InPlaceABNSync
                 return functools.partial(InPlaceABNSync, activation='identity')
@@ -2414,49 +3135,59 @@ def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, bn_type=None, bn_momentum=0.1):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, bn_type=None):
         super(BasicBlock, self).__init__()
+        if groups != 1 or base_width != 64:
+            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
+        if dilation > 1:
+            raise NotImplementedError('Dilation > 1 not supported in BasicBlock')
         self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes, momentum=bn_momentum)
+        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
         self.relu = nn.ReLU(inplace=False)
         self.relu_in = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
-        self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes, momentum=bn_momentum)
+        self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
         self.downsample = downsample
         self.stride = stride
 
     def forward(self, x):
-        residual = x
+        identity = x
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
         out = self.conv2(out)
         out = self.bn2(out)
         if self.downsample is not None:
-            residual = self.downsample(x)
-        out = out + residual
+            identity = self.downsample(x)
+        out = out + identity
         out = self.relu_in(out)
         return out
+
+
+def conv1x1(in_planes, out_planes, stride=1):
+    """1x1 convolution"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
 
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, bn_type=None, bn_momentum=0.1):
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, bn_type=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes, momentum=bn_momentum)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes, momentum=bn_momentum)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes * 4, momentum=bn_momentum)
+        width = int(planes * (base_width / 64.0)) * groups
+        self.conv1 = conv1x1(inplanes, width)
+        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(width)
+        self.conv2 = conv3x3(width, width, stride, groups, dilation)
+        self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(width)
+        self.conv3 = conv1x1(width, planes * self.expansion)
+        self.bn3 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes * self.expansion)
         self.relu = nn.ReLU(inplace=False)
         self.relu_in = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
 
     def forward(self, x):
-        residual = x
+        identity = x
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
@@ -2466,8 +3197,8 @@ class Bottleneck(nn.Module):
         out = self.conv3(out)
         out = self.bn3(out)
         if self.downsample is not None:
-            residual = self.downsample(x)
-        out = out + residual
+            identity = self.downsample(x)
+        out = out + identity
         out = self.relu_in(out)
         return out
 
@@ -2727,118 +3458,6 @@ class HighResolutionNet(nn.Module):
         return y_list
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, style='pytorch', with_cp=False, bn_type=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride, dilation)
-        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
-        self.relu = nn.ReLU(inplace=False)
-        self.relu_in = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
-        self.downsample = downsample
-        self.stride = stride
-        self.dilation = dilation
-        assert not with_cp
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = out + residual
-        out = self.relu_in(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, style='pytorch', with_cp=False, with_dcn=False, num_deformable_groups=1, dcn_offset_lr_mult=0.1, use_regular_conv_on_stride=False, use_modulated_dcn=False, bn_type=None):
-        """Bottleneck block.
-        If style is "pytorch", the stride-two layer is the 3x3 conv layer,
-        if it is "caffe", the stride-two layer is the first 1x1 conv layer.
-        """
-        super(Bottleneck, self).__init__()
-        conv1_stride = 1
-        conv2_stride = stride
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, stride=conv1_stride, bias=False)
-        self.with_dcn = with_dcn
-        self.use_modulated_dcn = use_modulated_dcn
-        if use_regular_conv_on_stride and stride > 1:
-            self.with_dcn = False
-        if self.with_dcn:
-            None
-            if use_modulated_dcn:
-                self.conv_offset_mask = nn.Conv2d(planes, num_deformable_groups * 27, kernel_size=3, stride=conv2_stride, padding=dilation, dilation=dilation)
-                self.conv_offset_mask.lr_mult = dcn_offset_lr_mult
-                self.conv_offset_mask.zero_init = True
-                self.conv2 = ModulatedDeformConv(planes, planes, 3, stride=conv2_stride, padding=dilation, dilation=dilation, deformable_groups=num_deformable_groups, no_bias=True)
-            else:
-                self.conv2_offset = nn.Conv2d(planes, num_deformable_groups * 18, kernel_size=3, stride=conv2_stride, padding=dilation, dilation=dilation)
-                self.conv2_offset.lr_mult = dcn_offset_lr_mult
-                self.conv2_offset.zero_init = True
-                self.conv2 = DeformConv(planes, planes, (3, 3), stride=conv2_stride, padding=dilation, dilation=dilation, num_deformable_groups=num_deformable_groups)
-        else:
-            self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=conv2_stride, padding=dilation, dilation=dilation, bias=False)
-        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
-        self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=False)
-        self.relu_in = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-        self.dilation = dilation
-        self.with_cp = with_cp
-
-    def forward(self, x):
-
-        def _inner_forward(x):
-            residual = x
-            out = self.conv1(x)
-            out = self.bn1(out)
-            out = self.relu(out)
-            if self.with_dcn:
-                if self.use_modulated_dcn:
-                    offset_mask = self.conv_offset_mask(out)
-                    offset1, offset2, mask_raw = torch.chunk(offset_mask, 3, dim=1)
-                    offset = torch.cat((offset1, offset2), dim=1)
-                    mask = torch.sigmoid(mask_raw)
-                    out = self.conv2(out, offset, mask)
-                else:
-                    offset = self.conv2_offset(out)
-                    dilation = self.conv2.dilation[0]
-                    bias_w = torch.FloatTensor([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]]) * (dilation - 1)
-                    bias_h = bias_w.permute(1, 0)
-                    bias_w.requires_grad = False
-                    bias_h.requires_grad = False
-                    offset += torch.cat([bias_h.reshape(-1), bias_w.reshape(-1)]).view(1, -1, 1, 1)
-                    out = self.conv2(out, offset)
-            else:
-                out = self.conv2(out)
-            out = self.bn2(out)
-            out = self.relu(out)
-            out = self.conv3(out)
-            out = self.bn3(out)
-            if self.downsample is not None:
-                residual = self.downsample(x)
-            out = out + residual
-            return out
-        if self.with_cp and x.requires_grad:
-            out = cp.checkpoint(_inner_forward, x)
-        else:
-            out = _inner_forward(x)
-        out = self.relu_in(out)
-        return out
-
-
 def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1, style='pytorch', with_cp=False, with_dcn=False, dcn_offset_lr_mult=0.1, use_regular_conv_on_stride=False, use_modulated_dcn=False, bn_type=None):
     downsample = None
     if stride != 1 or inplanes != planes * block.expansion:
@@ -2902,6 +3521,24 @@ class DropBlock2D(object):
         raise NotImplementedError
 
 
+class rSoftMax(nn.Module):
+
+    def __init__(self, radix, cardinality):
+        super().__init__()
+        self.radix = radix
+        self.cardinality = cardinality
+
+    def forward(self, x):
+        batch = x.size(0)
+        if self.radix > 1:
+            x = x.view(batch, self.cardinality, self.radix, -1).transpose(1, 2)
+            x = F.softmax(x, dim=1)
+            x = x.reshape(batch, -1)
+        else:
+            x = torch.sigmoid(x)
+        return x
+
+
 class SplAtConv2d(Module):
     """Split-Attention Conv2d
     """
@@ -2956,103 +3593,6 @@ class SplAtConv2d(Module):
         else:
             out = atten * x
         return out.contiguous()
-
-
-class rSoftMax(nn.Module):
-
-    def __init__(self, radix, cardinality):
-        super().__init__()
-        self.radix = radix
-        self.cardinality = cardinality
-
-    def forward(self, x):
-        batch = x.size(0)
-        if self.radix > 1:
-            x = x.view(batch, self.cardinality, self.radix, -1).transpose(1, 2)
-            x = F.softmax(x, dim=1)
-            x = x.reshape(batch, -1)
-        else:
-            x = torch.sigmoid(x)
-        return x
-
-
-class GlobalAvgPool2d(nn.Module):
-
-    def __init__(self):
-        """Global average pooling over the input's spatial dimensions"""
-        super(GlobalAvgPool2d, self).__init__()
-
-    def forward(self, inputs):
-        return F.adaptive_avg_pool2d(inputs, 1).view(inputs.size(0), -1)
-
-
-class Bottleneck(nn.Module):
-    """ResNet Bottleneck
-    """
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, radix=1, cardinality=1, bottleneck_width=64, avd=False, avd_first=False, dilation=1, is_first=False, rectified_conv=False, rectify_avg=False, bn_type=None, dropblock_prob=0.0, last_gamma=False):
-        super(Bottleneck, self).__init__()
-        group_width = int(planes * (bottleneck_width / 64.0)) * cardinality
-        self.conv1 = nn.Conv2d(inplanes, group_width, kernel_size=1, bias=False)
-        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(group_width)
-        self.dropblock_prob = dropblock_prob
-        self.radix = radix
-        self.avd = avd and (stride > 1 or is_first)
-        self.avd_first = avd_first
-        if self.avd:
-            self.avd_layer = nn.AvgPool2d(3, stride, padding=1)
-            stride = 1
-        if dropblock_prob > 0.0:
-            self.dropblock1 = DropBlock2D(dropblock_prob, 3)
-            if radix == 1:
-                self.dropblock2 = DropBlock2D(dropblock_prob, 3)
-            self.dropblock3 = DropBlock2D(dropblock_prob, 3)
-        if radix > 1:
-            self.conv2 = SplAtConv2d(group_width, group_width, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, groups=cardinality, bias=False, radix=radix, rectify=rectified_conv, rectify_avg=rectify_avg, bn_type=bn_type, dropblock_prob=dropblock_prob)
-        elif rectified_conv:
-            self.conv2 = RFConv2d(group_width, group_width, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, groups=cardinality, bias=False, average_mode=rectify_avg)
-            self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(group_width)
-        else:
-            self.conv2 = nn.Conv2d(group_width, group_width, kernel_size=3, stride=stride, padding=dilation, dilation=dilation, groups=cardinality, bias=False)
-            self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(group_width)
-        self.conv3 = nn.Conv2d(group_width, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes * 4)
-        if last_gamma:
-            from torch.nn.init import zeros_
-            zeros_(self.bn3.weight)
-        self.relu = nn.ReLU(inplace=False)
-        self.relu_in = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.dilation = dilation
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        if self.dropblock_prob > 0.0:
-            out = self.dropblock1(out)
-        out = self.relu(out)
-        if self.avd and self.avd_first:
-            out = self.avd_layer(out)
-        out = self.conv2(out)
-        if self.radix == 1:
-            out = self.bn2(out)
-            if self.dropblock_prob > 0.0:
-                out = self.dropblock2(out)
-            out = self.relu(out)
-        if self.avd and not self.avd_first:
-            out = self.avd_layer(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.dropblock_prob > 0.0:
-            out = self.dropblock3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = out + residual
-        out = self.relu_in(out)
-        return out
 
 
 class ResNeSt(nn.Module):
@@ -3238,186 +3778,6 @@ class DilatedResnetBackbone(nn.Module):
         return tuple_features
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, bn_type=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
-        self.relu = nn.ReLU(inplace=False)
-        self.relu_in = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = out + residual
-        out = self.relu_in(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, bn_type=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes * 4)
-        self.relu = nn.ReLU(inplace=False)
-        self.relu_in = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = out + residual
-        out = self.relu_in(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes=1000, deep_base=False, bn_type=None):
-        super(ResNet, self).__init__()
-        self.inplanes = 128 if deep_base else 64
-        if deep_base:
-            self.resinit = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 64, kernel_size=3, stride=2, padding=1, bias=False)), ('bn1', ModuleHelper.BatchNorm2d(bn_type=bn_type)(64)), ('relu1', nn.ReLU(inplace=False)), ('conv2', nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=False)), ('bn2', ModuleHelper.BatchNorm2d(bn_type=bn_type)(64)), ('relu2', nn.ReLU(inplace=False)), ('conv3', nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=False)), ('bn3', ModuleHelper.BatchNorm2d(bn_type=bn_type)(self.inplanes)), ('relu3', nn.ReLU(inplace=False))]))
-        else:
-            self.resinit = nn.Sequential(OrderedDict([('conv1', nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)), ('bn1', ModuleHelper.BatchNorm2d(bn_type=bn_type)(self.inplanes)), ('relu1', nn.ReLU(inplace=False))]))
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
-        self.layer1 = self._make_layer(block, 64, layers[0], bn_type=bn_type)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, bn_type=bn_type)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, bn_type=bn_type)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, bn_type=bn_type)
-        self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, ModuleHelper.BatchNorm2d(bn_type=bn_type, ret_cls=True)):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1, bn_type=None):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, bn_type=bn_type))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, bn_type=bn_type))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.resinit(x)
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, bn_type=None):
-        super(BasicBlock, self).__init__()
-        if groups != 1 or base_width != 64:
-            raise ValueError('BasicBlock only supports groups=1 and base_width=64')
-        if dilation > 1:
-            raise NotImplementedError('Dilation > 1 not supported in BasicBlock')
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
-        self.relu = nn.ReLU(inplace=False)
-        self.relu_in = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out = out + identity
-        out = self.relu_in(out)
-        return out
-
-
-def conv1x1(in_planes, out_planes, stride=1):
-    """1x1 convolution"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64, dilation=1, bn_type=None):
-        super(Bottleneck, self).__init__()
-        width = int(planes * (base_width / 64.0)) * groups
-        self.conv1 = conv1x1(inplanes, width)
-        self.bn1 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(width)
-        self.conv2 = conv3x3(width, width, stride, groups, dilation)
-        self.bn2 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(width)
-        self.conv3 = conv1x1(width, planes * self.expansion)
-        self.bn3 = ModuleHelper.BatchNorm2d(bn_type=bn_type)(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=False)
-        self.relu_in = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out = out + identity
-        out = self.relu_in(out)
-        return out
-
-
 class ResNet(nn.Module):
 
     def __init__(self, block, layers, num_classes=1000, zero_init_residual=False, groups=1, width_per_group=64, replace_stride_with_dilation=None, bn_type=None):
@@ -3477,17 +3837,6 @@ class ResNet(nn.Module):
         x = x.reshape(x.size(0), -1)
         x = self.fc(x)
         return x
-
-
-class GlobalAvgPool2d(nn.Module):
-
-    def __init__(self):
-        """Global average pooling over the input's spatial dimensions"""
-        super(GlobalAvgPool2d, self).__init__()
-
-    def forward(self, inputs):
-        in_size = inputs.size()
-        return inputs.view((in_size[0], in_size[1], -1)).mean(dim=2)
 
 
 class IdentityResidualBlock(nn.Module):
@@ -3618,6 +3967,81 @@ class WiderResNetA2(nn.Module):
         return tuple_features
 
 
+class SelfAttentionBlock2D(nn.Module):
+    """
+    The basic implementation for self-attention block/non-local block
+    Input:
+        N X C X H X W
+    Parameters:
+        in_channels       : the dimension of the input feature map
+        key_channels      : the dimension after the key/query transform
+        value_channels    : the dimension after the value transform
+        scale             : choose the scale to downsample the input feature maps (save memory cost)
+    Return:
+        N X C X H X W
+        position-aware context features.(w/o concate or add with the input)
+    """
+
+    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, bn_type=None):
+        super(SelfAttentionBlock2D, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.key_channels = key_channels
+        self.value_channels = value_channels
+        if out_channels == None:
+            self.out_channels = in_channels
+        self.f_key = nn.Sequential(nn.Conv2d(self.in_channels, self.key_channels, kernel_size=1, bias=False), ModuleHelper.BNReLU(self.key_channels, bn_type=bn_type), nn.Conv2d(self.key_channels, self.key_channels, kernel_size=1, bias=False), ModuleHelper.BNReLU(self.key_channels, bn_type=bn_type))
+        self.f_query = nn.Sequential(nn.Conv2d(self.in_channels, self.key_channels, kernel_size=1, bias=False), ModuleHelper.BNReLU(self.key_channels, bn_type=bn_type), nn.Conv2d(self.key_channels, self.key_channels, kernel_size=1, bias=False), ModuleHelper.BNReLU(self.key_channels, bn_type=bn_type))
+        self.f_value = nn.Conv2d(self.in_channels, self.value_channels, kernel_size=1, bias=False)
+        self.W = nn.Sequential(nn.Conv2d(self.value_channels, self.out_channels, kernel_size=1, bias=False), ModuleHelper.BNReLU(self.out_channels, bn_type=bn_type))
+
+    def forward(self, x):
+        batch_size, h, w = x.size(0), x.size(2), x.size(3)
+        value = self.f_value(x).view(batch_size, self.value_channels, -1)
+        value = value.permute(0, 2, 1)
+        query = self.f_query(x).view(batch_size, self.key_channels, -1)
+        query = query.permute(0, 2, 1)
+        key = self.f_key(x).view(batch_size, self.key_channels, -1)
+        sim_map = torch.matmul(query, key)
+        sim_map = self.key_channels ** -0.5 * sim_map
+        sim_map = F.softmax(sim_map, dim=-1)
+        context = torch.matmul(sim_map, value)
+        context = context.permute(0, 2, 1).contiguous()
+        context = context.view(batch_size, self.value_channels, h, w)
+        context = self.W(context)
+        return context
+
+
+class BaseOC_Context_Module(nn.Module):
+    """
+    Output only the context features.
+    Parameters:
+        in_features / out_features: the channels of the input / output feature maps.
+        dropout: specify the dropout ratio
+        fusion: We provide two different fusion method, "concat" or "add"
+        size: we find that directly learn the attention weights on even 1/8 feature maps is hard.
+    Return:
+        features after "concat" or "add"
+    """
+
+    def __init__(self, in_channels, out_channels, key_channels, value_channels, dropout=0, sizes=[1], bn_type=None):
+        super(BaseOC_Context_Module, self).__init__()
+        self.stages = []
+        self.stages = nn.ModuleList([self._make_stage(in_channels, out_channels, key_channels, value_channels, size, bn_type) for size in sizes])
+        self.conv_bn_dropout = nn.Sequential(ModuleHelper.BNReLU(out_channels, bn_type=bn_type), nn.Dropout2d(dropout))
+
+    def _make_stage(self, in_channels, output_channels, key_channels, value_channels, size, bn_type):
+        return SelfAttentionBlock2D(in_channels, key_channels, value_channels, output_channels, size, bn_type=bn_type)
+
+    def forward(self, feats):
+        priors = [stage(feats) for stage in self.stages]
+        context = priors[0]
+        for i in range(1, len(priors)):
+            context += priors[i]
+        output = self.conv_bn_dropout(context)
+        return output
+
+
 class ASP_OC_Module(nn.Module):
 
     def __init__(self, features, out_features=256, dilations=(12, 24, 36), bn_type=None, dropout=0.1):
@@ -3711,12 +4135,6 @@ class _SelfAttentionBlock(nn.Module):
         return context
 
 
-class SelfAttentionBlock2D(_SelfAttentionBlock):
-
-    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1, bn_type=None):
-        super(SelfAttentionBlock2D, self).__init__(in_channels, key_channels, value_channels, out_channels, scale, bn_type)
-
-
 class BaseOC_Module(nn.Module):
     """
     Implementation of the BaseOC module
@@ -3743,36 +4161,6 @@ class BaseOC_Module(nn.Module):
         for i in range(1, len(priors)):
             context += priors[i]
         output = self.conv_bn_dropout(torch.cat([context, feats], 1))
-        return output
-
-
-class BaseOC_Context_Module(nn.Module):
-    """
-    Output only the context features.
-    Parameters:
-        in_features / out_features: the channels of the input / output feature maps.
-        dropout: specify the dropout ratio
-        fusion: We provide two different fusion method, "concat" or "add"
-        size: we find that directly learn the attention weights on even 1/8 feature maps is hard.
-    Return:
-        features after "concat" or "add"
-    """
-
-    def __init__(self, in_channels, out_channels, key_channels, value_channels, dropout=0, sizes=[1], bn_type=None):
-        super(BaseOC_Context_Module, self).__init__()
-        self.stages = []
-        self.stages = nn.ModuleList([self._make_stage(in_channels, out_channels, key_channels, value_channels, size, bn_type) for size in sizes])
-        self.conv_bn_dropout = nn.Sequential(ModuleHelper.BNReLU(out_channels, bn_type=bn_type), nn.Dropout2d(dropout))
-
-    def _make_stage(self, in_channels, output_channels, key_channels, value_channels, size, bn_type):
-        return SelfAttentionBlock2D(in_channels, key_channels, value_channels, output_channels, size, bn_type=bn_type)
-
-    def forward(self, feats):
-        priors = [stage(feats) for stage in self.stages]
-        context = priors[0]
-        for i in range(1, len(priors)):
-            context += priors[i]
-        output = self.conv_bn_dropout(context)
         return output
 
 
@@ -3838,51 +4226,6 @@ class Edge_Module(nn.Module):
         edge = torch.cat([edge1, edge2, edge3], dim=1)
         edge = self.conv5(edge)
         return edge, edge_fea
-
-
-class SelfAttentionBlock2D(nn.Module):
-    """
-    The basic implementation for self-attention block/non-local block
-    Input:
-        N X C X H X W
-    Parameters:
-        in_channels       : the dimension of the input feature map
-        key_channels      : the dimension after the key/query transform
-        value_channels    : the dimension after the value transform
-        scale             : choose the scale to downsample the input feature maps (save memory cost)
-    Return:
-        N X C X H X W
-        position-aware context features.(w/o concate or add with the input)
-    """
-
-    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, bn_type=None):
-        super(SelfAttentionBlock2D, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.key_channels = key_channels
-        self.value_channels = value_channels
-        if out_channels == None:
-            self.out_channels = in_channels
-        self.f_key = nn.Sequential(nn.Conv2d(self.in_channels, self.key_channels, kernel_size=1, bias=False), ModuleHelper.BNReLU(self.key_channels, bn_type=bn_type), nn.Conv2d(self.key_channels, self.key_channels, kernel_size=1, bias=False), ModuleHelper.BNReLU(self.key_channels, bn_type=bn_type))
-        self.f_query = nn.Sequential(nn.Conv2d(self.in_channels, self.key_channels, kernel_size=1, bias=False), ModuleHelper.BNReLU(self.key_channels, bn_type=bn_type), nn.Conv2d(self.key_channels, self.key_channels, kernel_size=1, bias=False), ModuleHelper.BNReLU(self.key_channels, bn_type=bn_type))
-        self.f_value = nn.Conv2d(self.in_channels, self.value_channels, kernel_size=1, bias=False)
-        self.W = nn.Sequential(nn.Conv2d(self.value_channels, self.out_channels, kernel_size=1, bias=False), ModuleHelper.BNReLU(self.out_channels, bn_type=bn_type))
-
-    def forward(self, x):
-        batch_size, h, w = x.size(0), x.size(2), x.size(3)
-        value = self.f_value(x).view(batch_size, self.value_channels, -1)
-        value = value.permute(0, 2, 1)
-        query = self.f_query(x).view(batch_size, self.key_channels, -1)
-        query = query.permute(0, 2, 1)
-        key = self.f_key(x).view(batch_size, self.key_channels, -1)
-        sim_map = torch.matmul(query, key)
-        sim_map = self.key_channels ** -0.5 * sim_map
-        sim_map = F.softmax(sim_map, dim=-1)
-        context = torch.matmul(sim_map, value)
-        context = context.permute(0, 2, 1).contiguous()
-        context = context.view(batch_size, self.value_channels, h, w)
-        context = self.W(context)
-        return context
 
 
 class ISA_Block(nn.Module):
@@ -3987,7 +4330,7 @@ def label_to_onehot(gt, num_classes, ignore_index=-1):
     N, H, W = gt.size()
     x = gt
     x[x == ignore_index] = num_classes
-    onehot = torch.zeros(N, x.size(1), x.size(2), num_classes + 1).cuda()
+    onehot = torch.zeros(N, x.size(1), x.size(2), num_classes + 1)
     onehot = onehot.scatter_(-1, x.unsqueeze(-1), 1)
     return onehot.permute(0, 3, 1, 2)
 
@@ -4255,7 +4598,6 @@ class HRNetBackbone(object):
 
     def __call__(self):
         arch = self.configer.get('network', 'backbone')
-        from lib.models.backbones.hrnet.hrnet_config import MODEL_CONFIGS
         if arch == 'hrnet18':
             arch_net = HighResolutionNet(MODEL_CONFIGS['hrnet18'], bn_type='inplace_abn', bn_momentum=0.1)
             arch_net = ModuleHelper.load_model(arch_net, pretrained=self.configer.get('network', 'pretrained'), all_match=False, network='hrnet')
@@ -4428,7 +4770,7 @@ class ResNetModels(object):
         return model
 
 
-model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth', 'resnext50_32x4d': 'https://download.pytorch.org/models/resnext50_32x4d-7cdf4587.pth', 'resnext101_32x8d': 'https://download.pytorch.org/models/resnext101_32x8d-8ba56ff5.pth'}
+model_urls = {'resnext101_32x8d': 'https://download.pytorch.org/models/ig_resnext101_32x8-c38310e5.pth', 'resnext101_32x16d': 'https://download.pytorch.org/models/ig_resnext101_32x16-c6f796b0.pth', 'resnext101_32x32d': 'https://download.pytorch.org/models/ig_resnext101_32x32-e4b90b00.pth', 'resnext101_32x48d': 'https://download.pytorch.org/models/ig_resnext101_32x48-3e41cc8a.pth'}
 
 
 def ResNext(arch, block, layers, pretrained, progress, **kwargs):
@@ -5291,6 +5633,10 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (SwitchNorm3d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
     (rSoftMax,
      lambda: ([], {'radix': 4, 'cardinality': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -5339,4 +5685,7 @@ class Test_openseg_group_openseg_pytorch(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
 

@@ -17,17 +17,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
 
 
 import torch
@@ -57,10 +64,10 @@ import random
 import torch.backends.cudnn as cudnn
 
 
-import torchvision.transforms as transforms
-
-
 import torchvision.utils as vutils
+
+
+import numpy as np
 
 
 import time
@@ -69,24 +76,71 @@ import time
 from torch import autograd
 
 
-import numpy as np
+class Conv2dBlock(nn.Module):
 
+    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=0, conv_padding=0, dilation=1, weight_norm='none', norm='none', activation='relu', pad_type='zero', transpose=False):
+        super(Conv2dBlock, self).__init__()
+        self.use_bias = True
+        if pad_type == 'reflect':
+            self.pad = nn.ReflectionPad2d(padding)
+        elif pad_type == 'replicate':
+            self.pad = nn.ReplicationPad2d(padding)
+        elif pad_type == 'zero':
+            self.pad = nn.ZeroPad2d(padding)
+        elif pad_type == 'none':
+            self.pad = None
+        else:
+            assert 0, 'Unsupported padding type: {}'.format(pad_type)
+        norm_dim = output_dim
+        if norm == 'bn':
+            self.norm = nn.BatchNorm2d(norm_dim)
+        elif norm == 'in':
+            self.norm = nn.InstanceNorm2d(norm_dim)
+        elif norm == 'none':
+            self.norm = None
+        else:
+            assert 0, 'Unsupported normalization: {}'.format(norm)
+        if weight_norm == 'sn':
+            self.weight_norm = spectral_norm_fn
+        elif weight_norm == 'wn':
+            self.weight_norm = weight_norm_fn
+        elif weight_norm == 'none':
+            self.weight_norm = None
+        else:
+            assert 0, 'Unsupported normalization: {}'.format(weight_norm)
+        if activation == 'relu':
+            self.activation = nn.ReLU(inplace=True)
+        elif activation == 'elu':
+            self.activation = nn.ELU(inplace=True)
+        elif activation == 'lrelu':
+            self.activation = nn.LeakyReLU(0.2, inplace=True)
+        elif activation == 'prelu':
+            self.activation = nn.PReLU()
+        elif activation == 'selu':
+            self.activation = nn.SELU(inplace=True)
+        elif activation == 'tanh':
+            self.activation = nn.Tanh()
+        elif activation == 'none':
+            self.activation = None
+        else:
+            assert 0, 'Unsupported activation: {}'.format(activation)
+        if transpose:
+            self.conv = nn.ConvTranspose2d(input_dim, output_dim, kernel_size, stride, padding=conv_padding, output_padding=conv_padding, dilation=dilation, bias=self.use_bias)
+        else:
+            self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride, padding=conv_padding, dilation=dilation, bias=self.use_bias)
+        if self.weight_norm:
+            self.conv = self.weight_norm(self.conv)
 
-class Generator(nn.Module):
-
-    def __init__(self, config, use_cuda, device_ids):
-        super(Generator, self).__init__()
-        self.input_dim = config['input_dim']
-        self.cnum = config['ngf']
-        self.use_cuda = use_cuda
-        self.device_ids = device_ids
-        self.coarse_generator = CoarseGenerator(self.input_dim, self.cnum, self.use_cuda, self.device_ids)
-        self.fine_generator = FineGenerator(self.input_dim, self.cnum, self.use_cuda, self.device_ids)
-
-    def forward(self, x, mask):
-        x_stage1 = self.coarse_generator(x, mask)
-        x_stage2, offset_flow = self.fine_generator(x, x_stage1, mask)
-        return x_stage1, x_stage2, offset_flow
+    def forward(self, x):
+        if self.pad:
+            x = self.conv(self.pad(x))
+        else:
+            x = self.conv(x)
+        if self.norm:
+            x = self.norm(x)
+        if self.activation:
+            x = self.activation(x)
+        return x
 
 
 def gen_conv(input_dim, output_dim, kernel_size=3, stride=1, padding=0, rate=1, activation='elu'):
@@ -143,81 +197,6 @@ class CoarseGenerator(nn.Module):
         x = self.conv17(x)
         x_stage1 = torch.clamp(x, -1.0, 1.0)
         return x_stage1
-
-
-class FineGenerator(nn.Module):
-
-    def __init__(self, input_dim, cnum, use_cuda=True, device_ids=None):
-        super(FineGenerator, self).__init__()
-        self.use_cuda = use_cuda
-        self.device_ids = device_ids
-        self.conv1 = gen_conv(input_dim + 2, cnum, 5, 1, 2)
-        self.conv2_downsample = gen_conv(cnum, cnum, 3, 2, 1)
-        self.conv3 = gen_conv(cnum, cnum * 2, 3, 1, 1)
-        self.conv4_downsample = gen_conv(cnum * 2, cnum * 2, 3, 2, 1)
-        self.conv5 = gen_conv(cnum * 2, cnum * 4, 3, 1, 1)
-        self.conv6 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
-        self.conv7_atrous = gen_conv(cnum * 4, cnum * 4, 3, 1, 2, rate=2)
-        self.conv8_atrous = gen_conv(cnum * 4, cnum * 4, 3, 1, 4, rate=4)
-        self.conv9_atrous = gen_conv(cnum * 4, cnum * 4, 3, 1, 8, rate=8)
-        self.conv10_atrous = gen_conv(cnum * 4, cnum * 4, 3, 1, 16, rate=16)
-        self.pmconv1 = gen_conv(input_dim + 2, cnum, 5, 1, 2)
-        self.pmconv2_downsample = gen_conv(cnum, cnum, 3, 2, 1)
-        self.pmconv3 = gen_conv(cnum, cnum * 2, 3, 1, 1)
-        self.pmconv4_downsample = gen_conv(cnum * 2, cnum * 4, 3, 2, 1)
-        self.pmconv5 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
-        self.pmconv6 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1, activation='relu')
-        self.contextul_attention = ContextualAttention(ksize=3, stride=1, rate=2, fuse_k=3, softmax_scale=10, fuse=True, use_cuda=self.use_cuda, device_ids=self.device_ids)
-        self.pmconv9 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
-        self.pmconv10 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
-        self.allconv11 = gen_conv(cnum * 8, cnum * 4, 3, 1, 1)
-        self.allconv12 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
-        self.allconv13 = gen_conv(cnum * 4, cnum * 2, 3, 1, 1)
-        self.allconv14 = gen_conv(cnum * 2, cnum * 2, 3, 1, 1)
-        self.allconv15 = gen_conv(cnum * 2, cnum, 3, 1, 1)
-        self.allconv16 = gen_conv(cnum, cnum // 2, 3, 1, 1)
-        self.allconv17 = gen_conv(cnum // 2, input_dim, 3, 1, 1, activation='none')
-
-    def forward(self, xin, x_stage1, mask):
-        x1_inpaint = x_stage1 * mask + xin * (1.0 - mask)
-        ones = torch.ones(xin.size(0), 1, xin.size(2), xin.size(3))
-        if self.use_cuda:
-            ones = ones
-            mask = mask
-        xnow = torch.cat([x1_inpaint, ones, mask], dim=1)
-        x = self.conv1(xnow)
-        x = self.conv2_downsample(x)
-        x = self.conv3(x)
-        x = self.conv4_downsample(x)
-        x = self.conv5(x)
-        x = self.conv6(x)
-        x = self.conv7_atrous(x)
-        x = self.conv8_atrous(x)
-        x = self.conv9_atrous(x)
-        x = self.conv10_atrous(x)
-        x_hallu = x
-        x = self.pmconv1(xnow)
-        x = self.pmconv2_downsample(x)
-        x = self.pmconv3(x)
-        x = self.pmconv4_downsample(x)
-        x = self.pmconv5(x)
-        x = self.pmconv6(x)
-        x, offset_flow = self.contextul_attention(x, x, mask)
-        x = self.pmconv9(x)
-        x = self.pmconv10(x)
-        pm = x
-        x = torch.cat([x_hallu, pm], dim=1)
-        x = self.allconv11(x)
-        x = self.allconv12(x)
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
-        x = self.allconv13(x)
-        x = self.allconv14(x)
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
-        x = self.allconv15(x)
-        x = self.allconv16(x)
-        x = self.allconv17(x)
-        x_stage2 = torch.clamp(x, -1.0, 1.0)
-        return x_stage2, offset_flow
 
 
 def same_padding(images, ksizes, strides, rates):
@@ -484,6 +463,121 @@ class ContextualAttention(nn.Module):
         return y, flow
 
 
+class FineGenerator(nn.Module):
+
+    def __init__(self, input_dim, cnum, use_cuda=True, device_ids=None):
+        super(FineGenerator, self).__init__()
+        self.use_cuda = use_cuda
+        self.device_ids = device_ids
+        self.conv1 = gen_conv(input_dim + 2, cnum, 5, 1, 2)
+        self.conv2_downsample = gen_conv(cnum, cnum, 3, 2, 1)
+        self.conv3 = gen_conv(cnum, cnum * 2, 3, 1, 1)
+        self.conv4_downsample = gen_conv(cnum * 2, cnum * 2, 3, 2, 1)
+        self.conv5 = gen_conv(cnum * 2, cnum * 4, 3, 1, 1)
+        self.conv6 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
+        self.conv7_atrous = gen_conv(cnum * 4, cnum * 4, 3, 1, 2, rate=2)
+        self.conv8_atrous = gen_conv(cnum * 4, cnum * 4, 3, 1, 4, rate=4)
+        self.conv9_atrous = gen_conv(cnum * 4, cnum * 4, 3, 1, 8, rate=8)
+        self.conv10_atrous = gen_conv(cnum * 4, cnum * 4, 3, 1, 16, rate=16)
+        self.pmconv1 = gen_conv(input_dim + 2, cnum, 5, 1, 2)
+        self.pmconv2_downsample = gen_conv(cnum, cnum, 3, 2, 1)
+        self.pmconv3 = gen_conv(cnum, cnum * 2, 3, 1, 1)
+        self.pmconv4_downsample = gen_conv(cnum * 2, cnum * 4, 3, 2, 1)
+        self.pmconv5 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
+        self.pmconv6 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1, activation='relu')
+        self.contextul_attention = ContextualAttention(ksize=3, stride=1, rate=2, fuse_k=3, softmax_scale=10, fuse=True, use_cuda=self.use_cuda, device_ids=self.device_ids)
+        self.pmconv9 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
+        self.pmconv10 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
+        self.allconv11 = gen_conv(cnum * 8, cnum * 4, 3, 1, 1)
+        self.allconv12 = gen_conv(cnum * 4, cnum * 4, 3, 1, 1)
+        self.allconv13 = gen_conv(cnum * 4, cnum * 2, 3, 1, 1)
+        self.allconv14 = gen_conv(cnum * 2, cnum * 2, 3, 1, 1)
+        self.allconv15 = gen_conv(cnum * 2, cnum, 3, 1, 1)
+        self.allconv16 = gen_conv(cnum, cnum // 2, 3, 1, 1)
+        self.allconv17 = gen_conv(cnum // 2, input_dim, 3, 1, 1, activation='none')
+
+    def forward(self, xin, x_stage1, mask):
+        x1_inpaint = x_stage1 * mask + xin * (1.0 - mask)
+        ones = torch.ones(xin.size(0), 1, xin.size(2), xin.size(3))
+        if self.use_cuda:
+            ones = ones
+            mask = mask
+        xnow = torch.cat([x1_inpaint, ones, mask], dim=1)
+        x = self.conv1(xnow)
+        x = self.conv2_downsample(x)
+        x = self.conv3(x)
+        x = self.conv4_downsample(x)
+        x = self.conv5(x)
+        x = self.conv6(x)
+        x = self.conv7_atrous(x)
+        x = self.conv8_atrous(x)
+        x = self.conv9_atrous(x)
+        x = self.conv10_atrous(x)
+        x_hallu = x
+        x = self.pmconv1(xnow)
+        x = self.pmconv2_downsample(x)
+        x = self.pmconv3(x)
+        x = self.pmconv4_downsample(x)
+        x = self.pmconv5(x)
+        x = self.pmconv6(x)
+        x, offset_flow = self.contextul_attention(x, x, mask)
+        x = self.pmconv9(x)
+        x = self.pmconv10(x)
+        pm = x
+        x = torch.cat([x_hallu, pm], dim=1)
+        x = self.allconv11(x)
+        x = self.allconv12(x)
+        x = F.interpolate(x, scale_factor=2, mode='nearest')
+        x = self.allconv13(x)
+        x = self.allconv14(x)
+        x = F.interpolate(x, scale_factor=2, mode='nearest')
+        x = self.allconv15(x)
+        x = self.allconv16(x)
+        x = self.allconv17(x)
+        x_stage2 = torch.clamp(x, -1.0, 1.0)
+        return x_stage2, offset_flow
+
+
+class Generator(nn.Module):
+
+    def __init__(self, config, use_cuda, device_ids):
+        super(Generator, self).__init__()
+        self.input_dim = config['input_dim']
+        self.cnum = config['ngf']
+        self.use_cuda = use_cuda
+        self.device_ids = device_ids
+        self.coarse_generator = CoarseGenerator(self.input_dim, self.cnum, self.use_cuda, self.device_ids)
+        self.fine_generator = FineGenerator(self.input_dim, self.cnum, self.use_cuda, self.device_ids)
+
+    def forward(self, x, mask):
+        x_stage1 = self.coarse_generator(x, mask)
+        x_stage2, offset_flow = self.fine_generator(x, x_stage1, mask)
+        return x_stage1, x_stage2, offset_flow
+
+
+def dis_conv(input_dim, output_dim, kernel_size=5, stride=2, padding=0, rate=1, activation='lrelu'):
+    return Conv2dBlock(input_dim, output_dim, kernel_size, stride, conv_padding=padding, dilation=rate, activation=activation)
+
+
+class DisConvModule(nn.Module):
+
+    def __init__(self, input_dim, cnum, use_cuda=True, device_ids=None):
+        super(DisConvModule, self).__init__()
+        self.use_cuda = use_cuda
+        self.device_ids = device_ids
+        self.conv1 = dis_conv(input_dim, cnum, 5, 2, 2)
+        self.conv2 = dis_conv(cnum, cnum * 2, 5, 2, 2)
+        self.conv3 = dis_conv(cnum * 2, cnum * 4, 5, 2, 2)
+        self.conv4 = dis_conv(cnum * 4, cnum * 4, 5, 2, 2)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        return x
+
+
 class LocalDis(nn.Module):
 
     def __init__(self, config, use_cuda=True, device_ids=None):
@@ -517,96 +611,6 @@ class GlobalDis(nn.Module):
         x = self.dis_conv_module(x)
         x = x.view(x.size()[0], -1)
         x = self.linear(x)
-        return x
-
-
-def dis_conv(input_dim, output_dim, kernel_size=5, stride=2, padding=0, rate=1, activation='lrelu'):
-    return Conv2dBlock(input_dim, output_dim, kernel_size, stride, conv_padding=padding, dilation=rate, activation=activation)
-
-
-class DisConvModule(nn.Module):
-
-    def __init__(self, input_dim, cnum, use_cuda=True, device_ids=None):
-        super(DisConvModule, self).__init__()
-        self.use_cuda = use_cuda
-        self.device_ids = device_ids
-        self.conv1 = dis_conv(input_dim, cnum, 5, 2, 2)
-        self.conv2 = dis_conv(cnum, cnum * 2, 5, 2, 2)
-        self.conv3 = dis_conv(cnum * 2, cnum * 4, 5, 2, 2)
-        self.conv4 = dis_conv(cnum * 4, cnum * 4, 5, 2, 2)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.conv3(x)
-        x = self.conv4(x)
-        return x
-
-
-class Conv2dBlock(nn.Module):
-
-    def __init__(self, input_dim, output_dim, kernel_size, stride, padding=0, conv_padding=0, dilation=1, weight_norm='none', norm='none', activation='relu', pad_type='zero', transpose=False):
-        super(Conv2dBlock, self).__init__()
-        self.use_bias = True
-        if pad_type == 'reflect':
-            self.pad = nn.ReflectionPad2d(padding)
-        elif pad_type == 'replicate':
-            self.pad = nn.ReplicationPad2d(padding)
-        elif pad_type == 'zero':
-            self.pad = nn.ZeroPad2d(padding)
-        elif pad_type == 'none':
-            self.pad = None
-        else:
-            assert 0, 'Unsupported padding type: {}'.format(pad_type)
-        norm_dim = output_dim
-        if norm == 'bn':
-            self.norm = nn.BatchNorm2d(norm_dim)
-        elif norm == 'in':
-            self.norm = nn.InstanceNorm2d(norm_dim)
-        elif norm == 'none':
-            self.norm = None
-        else:
-            assert 0, 'Unsupported normalization: {}'.format(norm)
-        if weight_norm == 'sn':
-            self.weight_norm = spectral_norm_fn
-        elif weight_norm == 'wn':
-            self.weight_norm = weight_norm_fn
-        elif weight_norm == 'none':
-            self.weight_norm = None
-        else:
-            assert 0, 'Unsupported normalization: {}'.format(weight_norm)
-        if activation == 'relu':
-            self.activation = nn.ReLU(inplace=True)
-        elif activation == 'elu':
-            self.activation = nn.ELU(inplace=True)
-        elif activation == 'lrelu':
-            self.activation = nn.LeakyReLU(0.2, inplace=True)
-        elif activation == 'prelu':
-            self.activation = nn.PReLU()
-        elif activation == 'selu':
-            self.activation = nn.SELU(inplace=True)
-        elif activation == 'tanh':
-            self.activation = nn.Tanh()
-        elif activation == 'none':
-            self.activation = None
-        else:
-            assert 0, 'Unsupported activation: {}'.format(activation)
-        if transpose:
-            self.conv = nn.ConvTranspose2d(input_dim, output_dim, kernel_size, stride, padding=conv_padding, output_padding=conv_padding, dilation=dilation, bias=self.use_bias)
-        else:
-            self.conv = nn.Conv2d(input_dim, output_dim, kernel_size, stride, padding=conv_padding, dilation=dilation, bias=self.use_bias)
-        if self.weight_norm:
-            self.conv = self.weight_norm(self.conv)
-
-    def forward(self, x):
-        if self.pad:
-            x = self.conv(self.pad(x))
-        else:
-            x = self.conv(x)
-        if self.norm:
-            x = self.norm(x)
-        if self.activation:
-            x = self.activation(x)
         return x
 
 
@@ -699,7 +703,7 @@ def spatial_discounting_mask(config):
         mask_values = np.ones(shape)
     spatial_discounting_mask_tensor = torch.tensor(mask_values, dtype=torch.float32)
     if config['cuda']:
-        spatial_discounting_mask_tensor = spatial_discounting_mask_tensor.cuda()
+        spatial_discounting_mask_tensor = spatial_discounting_mask_tensor
     return spatial_discounting_mask_tensor
 
 

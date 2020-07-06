@@ -33,26 +33,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import abc
+
+
 import logging
+
+
+import random
 
 
 import numpy as np
 
 
 import torch
+
+
+import tensorflow as tf
+
+
+from tensorflow.python.client import device_lib
+
+
+from torch.autograd import Variable
 
 
 import torch.nn as nn
@@ -70,9 +86,6 @@ from torch.utils.data.sampler import SubsetRandomSampler
 import torch.nn.functional as F
 
 
-from torch.autograd import Variable
-
-
 class PyTorchUtils(metaclass=abc.ABCMeta):
 
     def __init__(self, seed, gpu):
@@ -80,7 +93,7 @@ class PyTorchUtils(metaclass=abc.ABCMeta):
         self.seed = seed
         if self.seed is not None:
             torch.manual_seed(self.seed)
-            torch.cuda.manual_seed(self.seed)
+            torch.manual_seed(self.seed)
         self.framework = 0
 
     @property
@@ -88,11 +101,11 @@ class PyTorchUtils(metaclass=abc.ABCMeta):
         return torch.device(f'cuda:{self.gpu}' if torch.cuda.is_available() and self.gpu is not None else 'cpu')
 
     def to_var(self, t, **kwargs):
-        t = t.to(self.device)
+        t = t
         return Variable(t, **kwargs)
 
     def to_device(self, model):
-        model.to(self.device)
+        model
 
 
 class AutoEncoderModule(nn.Module, PyTorchUtils):

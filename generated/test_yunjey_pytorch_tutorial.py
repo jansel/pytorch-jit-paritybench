@@ -27,15 +27,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -64,6 +65,9 @@ from torchvision import transforms
 from torchvision.utils import save_image
 
 
+import torch.utils.data as data
+
+
 import torchvision.models as models
 
 
@@ -78,7 +82,7 @@ import torch.nn.functional as F
 
 class NeuralNet(nn.Module):
 
-    def __init__(self, input_size, hidden_size, num_classes):
+    def __init__(self, input_size=784, hidden_size=500, num_classes=10):
         super(NeuralNet, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
         self.relu = nn.ReLU()
@@ -329,21 +333,6 @@ class VAE(nn.Module):
         return x_reconst, mu, log_var
 
 
-class NeuralNet(nn.Module):
-
-    def __init__(self, input_size=784, hidden_size=500, num_classes=10):
-        super(NeuralNet, self).__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.relu = nn.ReLU()
-        self.fc2 = nn.Linear(hidden_size, num_classes)
-
-    def forward(self, x):
-        out = self.fc1(x)
-        out = self.relu(out)
-        out = self.fc2(out)
-        return out
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -354,6 +343,10 @@ TESTCASES = [
     (BiRNN,
      lambda: ([], {'input_size': 4, 'hidden_size': 4, 'num_layers': 1, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (DecoderRNN,
+     lambda: ([], {'embed_size': 4, 'hidden_size': 4, 'vocab_size': 4, 'num_layers': 1}),
+     lambda: ([torch.rand([4, 4]), torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
      True),
     (EncoderCNN,
      lambda: ([], {'embed_size': 4}),
@@ -402,4 +395,7 @@ class Test_yunjey_pytorch_tutorial(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

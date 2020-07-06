@@ -38,6 +38,7 @@ parse = _module
 utils = _module
 trainer = _module
 logging = _module
+utils = _module
 preprocess = _module
 train = _module
 
@@ -45,20 +46,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import logging
+
+
+import time
+
+
+import random
 
 
 import numpy as np
@@ -79,9 +87,6 @@ from torch.autograd import Variable
 import torch as t
 
 
-import time
-
-
 from math import sqrt
 
 
@@ -100,6 +105,9 @@ from torch.nn.utils.rnn import pack_padded_sequence
 from torch.nn.utils.rnn import pad_packed_sequence
 
 
+from collections import Counter
+
+
 from math import log2
 
 
@@ -110,6 +118,21 @@ from torch import Tensor as T
 
 
 import itertools
+
+
+from math import pi
+
+
+from math import cos
+
+
+from math import ceil
+
+
+from torch import optim
+
+
+from torch.optim import lr_scheduler
 
 
 def to_contiguous(tensor):
@@ -269,10 +292,6 @@ class MLCriterionNLL(nn.Module):
         return logp, target_d
 
 
-def average_code(tensor, *args):
-    return tensor.mean(dim=3)
-
-
 def max_code(tensor, src_lengths=None, track=False):
     if track:
         batch_size, nchannels, _, max_len = tensor.size()
@@ -310,8 +329,67 @@ def truncated_max(tensor, src_lengths, track=False, *args):
         Pool.append(xpool.unsqueeze(0))
     result = torch.cat(Pool, dim=0)
     if track:
-        return result, torch.cat(Attention, dim=0).cuda()
+        return result, torch.cat(Attention, dim=0)
     return result
+
+
+class MaxAttention(nn.Module):
+
+    def __init__(self, params, in_channels):
+        super(MaxAttention, self).__init__()
+        self.in_channels = in_channels
+        self.attend = nn.Linear(in_channels, 1)
+        self.dropout = params['attention_dropout']
+        self.scale_ctx = params.get('scale_ctx', 1)
+        if params['nonlin'] == 'tanh':
+            self.nonlin = F.tanh
+        elif params['nonlin'] == 'relu':
+            self.nonlin = F.relu
+        else:
+            self.nonlin = lambda x: x
+        if params['first_aggregator'] == 'max':
+            self.max = max_code
+        elif params['first_aggregator'] == 'truncated-max':
+            self.max = truncated_max
+        elif params['first_aggregator'] == 'skip':
+            self.max = None
+        else:
+            raise ValueError('Unknown mode for first aggregator ', params['first_aggregator'])
+
+    def forward(self, X, src_lengths, track=False, *args):
+        if track:
+            N, d, Tt, Ts = X.size()
+            Xatt = X.permute(0, 2, 3, 1)
+            alphas = self.nonlin(self.attend(Xatt))
+            alphas = F.softmax(alphas, dim=2)
+            context = alphas.expand_as(Xatt) * Xatt
+            context = context.mean(dim=2).permute(0, 2, 1)
+            if self.scale_ctx:
+                context = math.sqrt(Ts) * context
+            if self.max is not None:
+                Xpool, tracking = self.max(X, src_lengths, track=True)
+                feat = torch.cat((Xpool, context), dim=1)
+                return feat, (alphas[(0), (-1), :, (0)].data.cpu().numpy(), *tracking[1:])
+            else:
+                return context
+        else:
+            N, d, Tt, Ts = X.size()
+            Xatt = X.permute(0, 2, 3, 1)
+            alphas = self.nonlin(self.attend(Xatt))
+            alphas = F.softmax(alphas, dim=2)
+            context = alphas.expand_as(Xatt) * Xatt
+            context = context.mean(dim=2).permute(0, 2, 1)
+            if self.scale_ctx:
+                context = math.sqrt(Ts) * context
+            if self.max is not None:
+                Xpool = self.max(X, src_lengths)
+                return torch.cat((Xpool, context), dim=1)
+            else:
+                return context
+
+
+def average_code(tensor, *args):
+    return tensor.mean(dim=3)
 
 
 def truncated_mean(tensor, src_lengths, *args):
@@ -389,135 +467,467 @@ class Aggregator(nn.Module):
             return proj, attn
 
 
+_BOS = 3
+
+
+_EOS = 2
+
+
+_PAD = 0
+
+
 class Beam(object):
-    """
-    Class for managing the internals of the beam search process.
-    Takes care of beams, back pointers, and scores.
+    """Ordered beam of candidate outputs."""
 
-    Args:
-       size (int): beam size
-       pad, bos, eos (int): indices of padding, beginning, and ending.
-       n_best (int): nbest size to use
-       cuda (bool): use gpu
-       global_scorer (:obj:`GlobalScorer`)
-    """
-
-    def __init__(self, size, pad, bos, eos, n_best=1, cuda=False, global_scorer=None, min_length=0, stepwise_penalty=False, block_ngram_repeat=0, exclusion_tokens=set()):
+    def __init__(self, size, opt, cuda=True):
+        """Initialize params."""
         self.size = size
+        self.done = False
+        self.pad = opt.get('PAD', _PAD)
+        self.bos = opt.get('BOS', _BOS)
+        self.eos = opt.get('EOS', _EOS)
+        self.norm_len = opt.get('normalize_length', 0)
         self.tt = torch.cuda if cuda else torch
         self.scores = self.tt.FloatTensor(size).zero_()
-        self.all_scores = []
-        self.prev_ks = []
-        self.next_ys = [self.tt.LongTensor(size).fill_(pad)]
-        self.next_ys[0][0] = bos
-        self._eos = eos
-        self.eos_top = False
+        self.prevKs = []
+        self.nextYs = [self.tt.LongTensor(size).fill_(self.bos)]
         self.attn = []
-        self.finished = []
-        self.n_best = n_best
-        self.global_scorer = global_scorer
-        self.global_state = {}
-        self.min_length = min_length
-        self.stepwise_penalty = stepwise_penalty
-        self.block_ngram_repeat = block_ngram_repeat
-        self.exclusion_tokens = exclusion_tokens
 
     def get_current_state(self):
-        """Get the outputs for the current timestep."""
-        return self.next_ys[-1]
+        """Get state of beam."""
+        return self.nextYs[-1]
 
     def get_current_origin(self):
-        """Get the backpointers for the current timestep."""
-        return self.prev_ks[-1]
+        """Get the backpointer to the beam at this step."""
+        return self.prevKs[-1]
 
-    def advance(self, word_probs, attn_out):
-        """
-        Given prob over words for every last beam `wordLk` and attention
-        `attn_out`: Compute and update the beam search.
-
-        Parameters:
-
-        * `word_probs`- probs of advancing from the last step (K x words)
-        * `attn_out`- attention at the last step
-
-        Returns: True if beam search is complete.
-        """
-        num_words = word_probs.size(1)
-        if self.stepwise_penalty:
-            self.global_scorer.update_score(self, attn_out)
-        cur_len = len(self.next_ys)
-        if cur_len < self.min_length:
-            for k in range(len(word_probs)):
-                word_probs[k][self._eos] = -1e+20
-        if len(self.prev_ks) > 0:
-            beam_scores = word_probs + self.scores.unsqueeze(1).expand_as(word_probs)
-            for i in range(self.next_ys[-1].size(0)):
-                if self.next_ys[-1][i] == self._eos:
-                    beam_scores[i] = -1e+20
-            if self.block_ngram_repeat > 0:
-                ngrams = []
-                le = len(self.next_ys)
-                for j in range(self.next_ys[-1].size(0)):
-                    hyp, _ = self.get_hyp(le - 1, j)
-                    ngrams = set()
-                    fail = False
-                    gram = []
-                    for i in range(le - 1):
-                        gram = (gram + [hyp[i]])[-self.block_ngram_repeat:]
-                        if set(gram) & self.exclusion_tokens:
-                            continue
-                        if tuple(gram) in ngrams:
-                            fail = True
-                        ngrams.add(tuple(gram))
-                    if fail:
-                        beam_scores[j] = -1e+21
+    def advance(self, workd_lk, t):
+        """Advance the beam."""
+        num_words = workd_lk.size(1)
+        if len(self.prevKs) > 0:
+            if self.norm_len:
+                beam_lk = (workd_lk + self.scores.unsqueeze(1).expand_as(workd_lk) * t) / (t + 1)
+            else:
+                beam_lk = workd_lk + self.scores.unsqueeze(1).expand_as(workd_lk)
         else:
-            beam_scores = word_probs[0]
-        flat_beam_scores = beam_scores.view(-1)
-        best_scores, best_scores_id = flat_beam_scores.topk(self.size, 0, True, True)
-        self.all_scores.append(self.scores)
-        self.scores = best_scores
-        prev_k = best_scores_id / num_words
-        self.prev_ks.append(prev_k)
-        self.next_ys.append(best_scores_id - prev_k * num_words)
-        self.attn.append(attn_out.index_select(0, prev_k))
-        self.global_scorer.update_global_state(self)
-        for i in range(self.next_ys[-1].size(0)):
-            if self.next_ys[-1][i] == self._eos:
-                global_scores = self.global_scorer.score(self, self.scores)
-                s = global_scores[i]
-                self.finished.append((s, len(self.next_ys) - 1, i))
-        if self.next_ys[-1][0] == self._eos:
-            self.all_scores.append(self.scores)
-            self.eos_top = True
-        return self.done()
+            beam_lk = workd_lk[0]
+        flat_beam_lk = beam_lk.view(-1)
+        bestScores, bestScoresId = flat_beam_lk.topk(self.size, 0, True, True)
+        self.scores = bestScores
+        prev_k = bestScoresId / num_words
+        self.prevKs.append(prev_k)
+        self.nextYs.append(bestScoresId - prev_k * num_words)
+        if self.nextYs[-1][0] == self.eos:
+            self.done = True
+        return self.done
 
-    def done(self):
-        return self.eos_top and len(self.finished) >= self.n_best
+    def sort_best(self):
+        """Sort the beam."""
+        return torch.sort(self.scores, 0, True)
 
-    def sort_finished(self, minimum=None):
-        if minimum is not None:
-            i = 0
-            while len(self.finished) < minimum:
-                global_scores = self.global_scorer.score(self, self.scores)
-                s = global_scores[i]
-                self.finished.append((s, len(self.next_ys) - 1, i))
-                i += 1
-        self.finished.sort(key=lambda a: -a[0])
-        scores = [sc for sc, _, _ in self.finished]
-        ks = [(t, k) for _, t, k in self.finished]
-        return scores, ks
+    def get_best(self):
+        """Get the most likely candidate."""
+        scores, ids = self.sort_best()
+        return scores[1], ids[1]
 
-    def get_hyp(self, timestep, k):
+    def get_hyp(self, k):
+        """Get hypotheses."""
+        hyp = []
+        for j in range(len(self.prevKs) - 1, -1, -1):
+            hyp.append(self.nextYs[j + 1][k])
+            k = self.prevKs[j][k]
+        return hyp[::-1]
+
+
+class LSTM(nn.LSTM):
+
+    def __init__(self, *args, **kwargs):
+        super(LSTM, self).__init__(*args, **kwargs)
+
+    def forward(self, input, hidden, ctx, src_emb):
+        if hidden[0].size(0) != 1:
+            hidden = [h.unsqueeze(0) for h in hidden]
+        output, hdec = super(LSTM, self).forward(input, hidden)
+        return output, hdec
+
+
+class AllamanisConvAttention(nn.Module):
+    """
+    Convolutional attention
+    @inproceedings{allamanis2016convolutional,
+          title={A Convolutional Attention Network for
+                 Extreme Summarization of Source Code},
+          author={Allamanis, Miltiadis and Peng, Hao and Sutton, Charles},
+          booktitle={International Conference on Machine Learning (ICML)},
+          year={2016}
+      }
+    """
+
+    def __init__(self, params, enc_params):
+        super(AllamanisConvAttention, self).__init__()
+        src_emb_dim = enc_params['input_dim']
+        dims = params['attention_channels'].split(',')
+        dim1, dim2 = [int(d) for d in dims]
+        None
+        widths = params['attention_windows'].split(',')
+        w1, w2, w3 = [int(w) for w in widths]
+        None
+        trg_dim = params['cell_dim']
+        self.normalize = params['normalize_attention']
+        self.conv1 = nn.Conv1d(src_emb_dim, dim1, w1, padding=(w1 - 1) // 2)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv1d(dim1, trg_dim, w2, padding=(w2 - 1) // 2)
+        self.conv3 = nn.Conv1d(trg_dim, 1, w3, padding=(w3 - 1) // 2)
+        self.sm = nn.Softmax(dim=2)
+        self.linear_out = nn.Linear(trg_dim + src_emb_dim, trg_dim, bias=False)
+        self.tanh = nn.Tanh()
+
+    def score(self, input, context, src_emb):
         """
-        Walk back to construct the full hypothesis.
+        input: batch x trg_dim
+        context & src_emb : batch x Tx x src_dim (resp. src_emb_dim)
+        return the alphas for comuting the weighted context
         """
-        hyp, attn = [], []
-        for j in range(len(self.prev_ks[:timestep]) - 1, -1, -1):
-            hyp.append(self.next_ys[j + 1][k])
-            attn.append(self.attn[j][k])
-            k = self.prev_ks[j][k]
-        return hyp[::-1], torch.stack(attn[::-1])
+        src_emb = src_emb.transpose(1, 2)
+        L1 = self.relu(self.conv1(src_emb))
+        L2 = self.conv2(L1)
+        L2 = L2 * input.unsqueeze(2).repeat(1, 1, L2.size(2))
+        if self.normalize:
+            norm = L2.norm(p=2, dim=1, keepdim=True)
+            L2 = L2.div(norm)
+            if len((norm == 0).nonzero()):
+                None
+        attn = self.conv3(L2)
+        attn_sm = self.sm(attn)
+        return attn_sm
+
+    def forward(self, input, context, src_emb):
+        """
+        Score the context (resp src embedding)
+        and return a new context as a combination of either
+        the source embeddings or the hidden source codes
+        """
+        attn_sm = self.score(input, context, src_emb)
+        weighted_context = torch.bmm(attn_sm, src_emb).squeeze(1)
+        h_tilde = torch.cat((weighted_context, input), 1)
+        h_tilde = self.tanh(self.linear_out(h_tilde))
+        return h_tilde, attn_sm
+
+
+class AllamanisConvAttentionBis(AllamanisConvAttention):
+    """
+    Similar to AllamanisConvAttention with the only difference at computing
+    the weighted context which takes the encoder's hidden states
+    instead of the source word embeddings
+    """
+
+    def __init__(self, params, enc_params):
+        super(AllamanisConvAttentionBis, self).__init__(params)
+        trg_dim = params['cell_dim']
+        src_dim = enc_params['cell_dim']
+        self.linear_out = nn.Linear(trg_dim + src_dim, trg_dim, bias=False)
+
+    def forward(self, input, context, src_emb):
+        attn_sm = self.score(input, context, src_emb)
+        attn_reshape = attn_sm.transpose(1, 2)
+        weighted_context = torch.bmm(context.transpose(1, 2), attn_reshape).squeeze(2)
+        h_tilde = torch.cat((weighted_context, input), 1)
+        h_tilde = self.tanh(self.linear_out(h_tilde))
+        return h_tilde, attn_sm
+
+
+class ConvAttentionHid(nn.Module):
+    """
+    Convolutional attention
+    All around similar to Allamanis attention while never
+    using the source word embeddings
+    """
+
+    def __init__(self, params, enc_params):
+        super(ConvAttentionHid, self).__init__()
+        src_dim = enc_params['cell_dim']
+        dims = params['attention_channels'].split(',')
+        dim1, dim2 = [int(d) for d in dims]
+        None
+        widths = params['attention_windows'].split(',')
+        w1, w2, w3 = [int(w) for w in widths]
+        None
+        trg_dim = params['cell_dim']
+        self.normalize = params['normalize_attention']
+        self.conv1 = nn.Conv1d(src_dim, dim1, w1, padding=(w1 - 1) // 2)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv1d(dim1, trg_dim, w2, padding=(w2 - 1) // 2)
+        self.conv3 = nn.Conv1d(trg_dim, 1, w3, padding=(w3 - 1) // 2)
+        self.sm = nn.Softmax(dim=2)
+        self.linear_out = nn.Linear(trg_dim + src_dim, trg_dim, bias=False)
+        self.tanh = nn.Tanh()
+
+    def forward(self, input, context, src_emb):
+        """Propogate input through the network.
+        input: batch x dim
+        context: batch x sourceL x dim
+        """
+        context = context.transpose(1, 2)
+        L1 = self.relu(self.conv1(context))
+        L2 = self.conv2(L1)
+        L2 = L2 * input.unsqueeze(2).repeat(1, 1, L2.size(2))
+        if self.normalize:
+            norm = L2.norm(p=2, dim=2, keepdim=True)
+            L2 = L2.div(norm)
+            if len((norm == 0).nonzero()):
+                None
+        attn = self.conv3(L2)
+        attn_sm = self.sm(attn)
+        attn_reshape = attn_sm.transpose(1, 2)
+        weighted_context = torch.bmm(context, attn_reshape).squeeze(2)
+        h_tilde = torch.cat((weighted_context, input), 1)
+        h_tilde = self.tanh(self.linear_out(h_tilde))
+        return h_tilde, attn
+
+
+class ConvAttentionHidCat(nn.Module):
+    """
+    Convolutional attention
+    Use the encoder hidden states all around, Jakob's idea
+    """
+
+    def __init__(self, params, enc_params):
+        super(ConvAttentionHidCat, self).__init__()
+        src_dim = enc_params['cell_dim']
+        trg_dim = params['cell_dim']
+        self.normalize = params['normalize_attention']
+        widths = params['attention_windows'].split(',')
+        self.num_conv_layers = len(widths)
+        dims = params['attention_channels'].split(',')
+        assert len(dims) == self.num_conv_layers - 1
+        if self.num_conv_layers == 3:
+            w1, w2, w3 = [int(w) for w in widths]
+            None
+            dim1, dim2 = [int(d) for d in dims]
+            None
+        elif self.num_conv_layers == 4:
+            w1, w2, w3, w4 = [int(w) for w in widths]
+            None
+            dim1, dim2, dim3 = [int(d) for d in dims]
+            None
+        else:
+            raise ValueError('Number of layers is either 3 or 4, still working on a general form')
+        self.conv1 = nn.Conv1d(src_dim + trg_dim, dim1, w1, padding=(w1 - 1) // 2)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv1d(dim1, dim2, w2, padding=(w2 - 1) // 2)
+        if self.num_conv_layers == 3:
+            self.conv3 = nn.Conv1d(dim2, 1, w3, padding=(w3 - 1) // 2)
+        elif self.num_conv_layers == 4:
+            self.conv3 = nn.Conv1d(dim2, dim3, w3, padding=(w3 - 1) // 2)
+            self.conv4 = nn.Conv1d(dim3, 1, w4, padding=(w4 - 1) // 2)
+        self.sm = nn.Softmax(dim=2)
+        self.linear_out = nn.Linear(trg_dim + src_dim, trg_dim, bias=False)
+        self.tanh = nn.Tanh()
+
+    def forward(self, input, context, src_emb):
+        """Propogate input through the network.
+        input: batch x dim
+        context: batch x sourceL x dim
+        """
+        context = context.transpose(1, 2)
+        input_cat = torch.cat((context, input.unsqueeze(2).repeat(1, 1, context.size(2))), 1)
+        L1 = self.relu(self.conv1(input_cat))
+        L2 = self.conv2(L1)
+        if self.normalize:
+            norm = L2.norm(p=2, dim=2, keepdim=True)
+            L2 = L2.div(norm)
+            if len((norm == 0).nonzero()):
+                None
+        if self.num_conv_layers == 3:
+            attn = self.conv3(L2)
+        else:
+            attn = self.conv4(self.conv3(L2))
+        attn_sm = self.sm(attn)
+        attn_reshape = attn_sm.transpose(1, 2)
+        weighted_context = torch.bmm(context, attn_reshape).squeeze(2)
+        h_tilde = torch.cat((weighted_context, input), 1)
+        h_tilde = self.tanh(self.linear_out(h_tilde))
+        return h_tilde, attn
+
+
+class LocalDotAttention(nn.Module):
+    """
+    Soft Dot/ local-predictive attention
+
+    Ref: http://www.aclweb.org/anthology/D15-1166
+    Effective approaches to attention based NMT (Luong et al. EMNLP 15)
+    """
+
+    def __init__(self, params):
+        super(LocalDotAttention, self).__init__()
+        dim = params['cell_dim']
+        dropout = params['attention_dropout']
+        self.window = 4
+        self.sigma = self.window / 2
+        self.linear_in = nn.Linear(dim, dim, bias=False)
+        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
+        self.linear_predict_1 = nn.Linear(dim, dim // 2, bias=False)
+        self.linear_predict_2 = nn.Linear(dim // 2, 1, bias=False)
+        self.tanh = nn.Tanh()
+        self.sm = nn.Softmax(dim=1)
+        self.dropout = nn.Dropout(dropout)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, input, context, src_emb=None):
+        """Propogate input through the network.
+        input: batch x dim
+        context: batch x sourceL x dim
+        """
+        Tx = context.size(1)
+        pt = self.tanh(self.linear_predict_1(input))
+        None
+        pt = self.linear_predict_2(pt)
+        None
+        pt = Tx * self.sigmoid(pt)
+        bl, bh = (pt - self.window).int(), (pt + self.window).int()
+        indices = torch.cat([torch.arange(i.item(), j.item()).unsqueeze(0) for i, j in zip(bl, bh)], dim=0).long()
+        None
+        target = self.linear_in(input).unsqueeze(2)
+        None
+        context_window = context.gather(0, indices)
+        None
+        attn = torch.bmm(context_window, target).squeeze(2)
+        attn = self.sm(self.dropout(attn))
+        attn3 = attn.view(attn.size(0), 1, attn.size(1))
+        weighted_context = torch.bmm(attn3, context_window).squeeze(1)
+        h_tilde = torch.cat((weighted_context, input), 1)
+        h_tilde = self.tanh(self.linear_out(h_tilde))
+        return h_tilde, attn
+
+
+class SoftDotAttention(nn.Module):
+    """Soft Dot Attention.
+
+    Ref: http://www.aclweb.org/anthology/D15-1166
+    Effective approaches to attention based NMT (Luong et al. EMNLP 15)
+    Adapted from PyTorch OPEN NMT.
+    """
+
+    def __init__(self, params):
+        super(SoftDotAttention, self).__init__()
+        dim = params['cell_dim']
+        self.linear_in = nn.Linear(dim, dim, bias=False)
+        self.sm = nn.Softmax(dim=1)
+        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
+        self.tanh = nn.Tanh()
+        self.dropout = nn.Dropout(params['attention_dropout'])
+
+    def forward(self, input, context, src_emb=None):
+        """Propogate input through the network.
+        input: batch x dim
+        context: batch x sourceL x dim
+        """
+        target = self.linear_in(input).unsqueeze(2)
+        attn = torch.bmm(context, target).squeeze(2)
+        attn = self.sm(self.dropout(attn))
+        attn3 = attn.view(attn.size(0), 1, attn.size(1))
+        weighted_context = torch.bmm(attn3, context).squeeze(1)
+        h_tilde = torch.cat((weighted_context, input), 1)
+        h_tilde = self.tanh(self.linear_out(h_tilde))
+        return h_tilde, attn
+
+
+class LSTMAttention(nn.Module):
+    """
+    A long short-term memory (LSTM) cell with attention.
+    Use SoftDotAttention
+    """
+
+    def __init__(self, params, enc_params):
+        super(LSTMAttention, self).__init__()
+        self.mode = params['attention_mode']
+        self.input_size = params['input_dim']
+        self.hidden_size = params['cell_dim']
+        self.input_weights = nn.Linear(self.input_size, 4 * self.hidden_size)
+        self.hidden_weights = nn.Linear(self.hidden_size, 4 * self.hidden_size)
+        if self.mode == 'dot':
+            self.attention_layer = SoftDotAttention(params)
+        elif self.mode == 'local-dot':
+            self.attention_layer = LocalDotAttention(params)
+        elif self.mode == 'allamanis':
+            self.attention_layer = AllamanisConvAttention(params, enc_params)
+        elif self.mode == 'allamanis-v2':
+            self.attention_layer = AllamanisConvAttentionBis(params, enc_params)
+        elif self.mode == 'conv-hid':
+            self.attention_layer = ConvAttentionHid(params, enc_params)
+        elif self.mode == 'conv-hid-cat':
+            self.attention_layer = ConvAttentionHidCat(params, enc_params)
+        else:
+            raise ValueError('Unkown attention mode %s' % self.mode)
+
+    def forward(self, input, hidden, ctx, src_emb):
+        """Propogate input through the network."""
+
+        def recurrence(input, hidden):
+            """Recurrence helper."""
+            hx, cx = hidden
+            gates = self.input_weights(input) + self.hidden_weights(hx)
+            ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+            ingate = F.sigmoid(ingate)
+            forgetgate = F.sigmoid(forgetgate)
+            cellgate = F.tanh(cellgate)
+            outgate = F.sigmoid(outgate)
+            cy = forgetgate * cx + ingate * cellgate
+            hy = outgate * F.tanh(cy)
+            h_tilde, attn = self.attention_layer(hy, ctx, src_emb)
+            return (h_tilde, cy), attn
+        input = input.transpose(0, 1)
+        output = []
+        attention = []
+        steps = list(range(input.size(0)))
+        for i in steps:
+            hidden, attn = recurrence(input[i], hidden)
+            if isinstance(hidden, tuple):
+                h = hidden[0]
+            else:
+                h = hidden
+            output.append(h)
+            attention.append(attn)
+        output = torch.cat(output, 0).view(input.size(0), *output[0].size())
+        output = output.transpose(0, 1)
+        attention = torch.cat(attention, 0)
+        return output, hidden, attention
+
+
+class LSTMAttentionV2(LSTMAttention):
+    """
+    A long short-term memory (LSTM) cell with attention.
+    Use SoftDotAttention
+    """
+
+    def __init__(self, params, enc_params):
+        super(LSTMAttentionV2, self).__init__(params, enc_params)
+
+    def forward(self, input, hidden, ctx, src_emb):
+        """Propogate input through the network."""
+
+        def recurrence(input, hidden):
+            """Recurrence helper."""
+            hx, cx = hidden
+            gates = self.input_weights(input) + self.hidden_weights(hx)
+            ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+            ingate = F.sigmoid(ingate)
+            forgetgate = F.sigmoid(forgetgate)
+            cellgate = F.tanh(cellgate)
+            outgate = F.sigmoid(outgate)
+            cy = forgetgate * cx + ingate * cellgate
+            hy = outgate * F.tanh(cy)
+            h_tilde, _ = self.attention_layer(hy, ctx, src_emb)
+            return h_tilde, (hy, cy)
+        input = input.transpose(0, 1)
+        output = []
+        steps = list(range(input.size(0)))
+        for i in steps:
+            htilde, hidden = recurrence(input[i], hidden)
+            output.append(htilde)
+        output = torch.cat(output, 0).view(input.size(0), *output[0].size())
+        output = output.transpose(0, 1)
+        return output, hidden
 
 
 class CondDecoder(nn.Module):
@@ -805,6 +1215,22 @@ class MaskedConv2d(nn.Conv2d):
         return output
 
 
+class GatedConv2d(MaskedConv2d):
+    """
+    Gated version of the masked conv2d
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, bias=False, groups=1):
+        super(GatedConv2d, self).__init__(in_channels, 2 * out_channels, kernel_size, dilation=dilation, bias=bias)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = super(GatedConv2d, self).forward(x)
+        mask, out = x.chunk(2, dim=1)
+        mask = self.sigmoid(mask)
+        return out * mask
+
+
 class _MainDenseLayer(nn.Module):
     """
     Main dense layer declined in 2 variants
@@ -843,6 +1269,135 @@ class _MainDenseLayer(nn.Module):
     def track(self, x):
         new_features = self.seq(x)
         return x, new_features
+
+
+def _setup_conv(num_input_features, kernel_size, params, first=False):
+    """
+    Common setup of convolutional layers in a dense layer
+    """
+    bn_size = params.get('bn_size', 4)
+    growth_rate = params.get('growth_rate', 32)
+    bias = params.get('bias', 0)
+    drop_rate = params.get('conv_dropout', 0.0)
+    init_weights = params.get('init_weights', 0)
+    weight_norm = params.get('weight_norm', 0)
+    gated = params.get('gated', 0)
+    depthwise = params.get('depthwise', 0)
+    CV = GatedConv2d if gated else MaskedConv2d
+    interm_features = bn_size * growth_rate
+    conv1 = nn.Conv2d(num_input_features, interm_features, kernel_size=1, bias=bias)
+    gp = growth_rate if depthwise else 1
+    conv2 = CV(interm_features, growth_rate, kernel_size=kernel_size, bias=bias, groups=gp)
+    if init_weights == 'manual':
+        if not first:
+            cst = 2 * (1 - drop_rate)
+        else:
+            cst = 1
+        std1 = sqrt(cst / num_input_features)
+        conv1.weight.data.normal_(0, std1)
+        std2 = sqrt(2 / (bn_size * growth_rate * kernel_size * (kernel_size - 1) // 2))
+        conv2.weight.data.normal_(0, std2)
+        if bias:
+            conv1.bias.data.zero_()
+            conv2.bias.data.zero_()
+    elif init_weights == 'kaiming':
+        nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity='relu')
+    if weight_norm:
+        conv1 = nn.utils.weight_norm(conv1, dim=0)
+        conv2 = nn.utils.weight_norm(conv2, dim=0)
+    return conv1, conv2
+
+
+class DenseLayer(_MainDenseLayer):
+    """
+    BN > ReLU > Conv(1) > BN > ReLU > Conv(k)
+    """
+
+    def __init__(self, num_input_features, kernel_size, params, first=False):
+        super().__init__(num_input_features, kernel_size, params)
+        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
+        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv2)
+
+
+class DenseLayer_midDP(_MainDenseLayer):
+    """
+    BN > ReLU > Conv(1) > Dropout > BN > ReLU > Conv(k)
+    """
+
+    def __init__(self, num_input_features, kernel_size, params, first=False):
+        super().__init__(num_input_features, kernel_size, params)
+        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
+        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.ReLU(inplace=True), conv1, nn.Dropout(p=self.drop_rate, inplace=True), nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv2)
+
+
+class DenseLayer_noBN(_MainDenseLayer):
+    """
+    ReLU > Conv(1) > ReLU > Conv(k)
+    #TODO: check activ' var
+    """
+
+    def __init__(self, num_input_features, kernel_size, params, first=False):
+        super().__init__(num_input_features, kernel_size, params)
+        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params, first=first)
+        self.seq = nn.Sequential(nn.ReLU(inplace=True), conv1, nn.ReLU(inplace=True), conv2)
+
+
+def _setup_conv_dilated(num_input_features, kernel_size, params, first=False):
+    """
+    Common setup of convolutional layers in a dense layer
+    """
+    bn_size = params.get('bn_size', 4)
+    growth_rate = params.get('growth_rate', 32)
+    bias = params.get('bias', 0)
+    drop_rate = params.get('conv_dropout', 0.0)
+    init_weights = params.get('init_weights', 0)
+    weight_norm = params.get('weight_norm', 0)
+    gated = params.get('gated', 0)
+    dilation = params.get('dilation', 2)
+    None
+    CV = GatedConv2d if gated else MaskedConv2d
+    interm_features = bn_size * growth_rate
+    conv1 = nn.Conv2d(num_input_features, interm_features, kernel_size=1, bias=bias)
+    conv2 = CV(interm_features, interm_features, kernel_size=kernel_size, bias=bias)
+    conv3 = CV(interm_features, growth_rate, kernel_size=kernel_size, bias=bias, dilation=dilation)
+    if init_weights == 'manual':
+        if not first:
+            cst = 2 * (1 - drop_rate)
+        else:
+            cst = 1
+        std1 = sqrt(cst / num_input_features)
+        conv1.weight.data.normal_(0, std1)
+        std2 = sqrt(2 / (interm_featires * kernel_size * (kernel_size - 1) // 2))
+        conv2.weight.data.normal_(0, std2)
+        conv3.weight.data.normal_(0, std2)
+        if bias:
+            conv1.bias.data.zero_()
+            conv2.bias.data.zero_()
+            conv3.bias.data.zero_()
+    elif init_weights == 'kaiming':
+        nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity='relu')
+        nn.init.kaiming_normal_(conv3.weight, mode='fan_out', nonlinearity='relu')
+    if weight_norm:
+        conv1 = nn.utils.weight_norm(conv1, dim=0)
+        conv2 = nn.utils.weight_norm(conv2, dim=0)
+        conv3 = nn.utils.weight_norm(conv3, dim=0)
+    return conv1, conv2, conv3
+
+
+class DenseLayer_Dil(_MainDenseLayer):
+    """
+    BN > ReLU > Conv(1)
+    > BN > ReLU > Conv(k)
+    > BN > ReLU > Conv(k, dilated)
+
+    """
+
+    def __init__(self, num_input_features, kernel_size, params, first=False):
+        super().__init__(num_input_features, kernel_size, params)
+        conv1, conv2, conv3 = _setup_conv_dilated(num_input_features, kernel_size, params)
+        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv2, nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv3)
 
 
 class DenseLayer_Asym(nn.Module):
@@ -898,151 +1453,6 @@ class DenseLayer_Asym(nn.Module):
         return x, new_features
 
 
-class GatedConv2d(MaskedConv2d):
-    """
-    Gated version of the masked conv2d
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size=3, dilation=1, bias=False, groups=1):
-        super(GatedConv2d, self).__init__(in_channels, 2 * out_channels, kernel_size, dilation=dilation, bias=bias)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        x = super(GatedConv2d, self).forward(x)
-        mask, out = x.chunk(2, dim=1)
-        mask = self.sigmoid(mask)
-        return out * mask
-
-
-def _setup_conv(num_input_features, kernel_size, params, first=False):
-    """
-    Common setup of convolutional layers in a dense layer
-    """
-    bn_size = params.get('bn_size', 4)
-    growth_rate = params.get('growth_rate', 32)
-    bias = params.get('bias', 0)
-    drop_rate = params.get('conv_dropout', 0.0)
-    init_weights = params.get('init_weights', 0)
-    weight_norm = params.get('weight_norm', 0)
-    gated = params.get('gated', 0)
-    depthwise = params.get('depthwise', 0)
-    CV = GatedConv2d if gated else MaskedConv2d
-    interm_features = bn_size * growth_rate
-    conv1 = nn.Conv2d(num_input_features, interm_features, kernel_size=1, bias=bias)
-    gp = growth_rate if depthwise else 1
-    conv2 = CV(interm_features, growth_rate, kernel_size=kernel_size, bias=bias, groups=gp)
-    if init_weights == 'manual':
-        if not first:
-            cst = 2 * (1 - drop_rate)
-        else:
-            cst = 1
-        std1 = sqrt(cst / num_input_features)
-        conv1.weight.data.normal_(0, std1)
-        std2 = sqrt(2 / (bn_size * growth_rate * kernel_size * (kernel_size - 1) // 2))
-        conv2.weight.data.normal_(0, std2)
-        if bias:
-            conv1.bias.data.zero_()
-            conv2.bias.data.zero_()
-    elif init_weights == 'kaiming':
-        nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity='relu')
-        nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity='relu')
-    if weight_norm:
-        conv1 = nn.utils.weight_norm(conv1, dim=0)
-        conv2 = nn.utils.weight_norm(conv2, dim=0)
-    return conv1, conv2
-
-
-class DenseLayer(_MainDenseLayer):
-    """
-    BN > ReLU > Conv(1) > BN > ReLU > Conv(k)
-    """
-
-    def __init__(self, num_input_features, kernel_size, params, first=False):
-        super().__init__(num_input_features, kernel_size, params)
-        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
-        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv2)
-
-
-def _setup_conv_dilated(num_input_features, kernel_size, params, first=False):
-    """
-    Common setup of convolutional layers in a dense layer
-    """
-    bn_size = params.get('bn_size', 4)
-    growth_rate = params.get('growth_rate', 32)
-    bias = params.get('bias', 0)
-    drop_rate = params.get('conv_dropout', 0.0)
-    init_weights = params.get('init_weights', 0)
-    weight_norm = params.get('weight_norm', 0)
-    gated = params.get('gated', 0)
-    dilation = params.get('dilation', 2)
-    print('Dilation: ', dilation)
-    CV = GatedConv2d if gated else MaskedConv2d
-    interm_features = bn_size * growth_rate
-    conv1 = nn.Conv2d(num_input_features, interm_features, kernel_size=1, bias=bias)
-    conv2 = CV(interm_features, interm_features, kernel_size=kernel_size, bias=bias)
-    conv3 = CV(interm_features, growth_rate, kernel_size=kernel_size, bias=bias, dilation=dilation)
-    if init_weights == 'manual':
-        if not first:
-            cst = 2 * (1 - drop_rate)
-        else:
-            cst = 1
-        std1 = sqrt(cst / num_input_features)
-        conv1.weight.data.normal_(0, std1)
-        std2 = sqrt(2 / (interm_featires * kernel_size * (kernel_size - 1) // 2))
-        conv2.weight.data.normal_(0, std2)
-        conv3.weight.data.normal_(0, std2)
-        if bias:
-            conv1.bias.data.zero_()
-            conv2.bias.data.zero_()
-            conv3.bias.data.zero_()
-    elif init_weights == 'kaiming':
-        nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity='relu')
-        nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity='relu')
-        nn.init.kaiming_normal_(conv3.weight, mode='fan_out', nonlinearity='relu')
-    if weight_norm:
-        conv1 = nn.utils.weight_norm(conv1, dim=0)
-        conv2 = nn.utils.weight_norm(conv2, dim=0)
-        conv3 = nn.utils.weight_norm(conv3, dim=0)
-    return conv1, conv2, conv3
-
-
-class DenseLayer_Dil(_MainDenseLayer):
-    """
-    BN > ReLU > Conv(1)
-    > BN > ReLU > Conv(k)
-    > BN > ReLU > Conv(k, dilated)
-
-    """
-
-    def __init__(self, num_input_features, kernel_size, params, first=False):
-        super().__init__(num_input_features, kernel_size, params)
-        conv1, conv2, conv3 = _setup_conv_dilated(num_input_features, kernel_size, params)
-        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.ReLU(inplace=True), conv1, nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv2, nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv3)
-
-
-class DenseLayer_midDP(_MainDenseLayer):
-    """
-    BN > ReLU > Conv(1) > Dropout > BN > ReLU > Conv(k)
-    """
-
-    def __init__(self, num_input_features, kernel_size, params, first=False):
-        super().__init__(num_input_features, kernel_size, params)
-        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
-        self.seq = nn.Sequential(nn.BatchNorm2d(num_input_features), nn.ReLU(inplace=True), conv1, nn.Dropout(p=self.drop_rate, inplace=True), nn.BatchNorm2d(self.bn_size * self.growth_rate), nn.ReLU(inplace=True), conv2)
-
-
-class DenseLayer_noBN(_MainDenseLayer):
-    """
-    ReLU > Conv(1) > ReLU > Conv(k)
-    #TODO: check activ' var
-    """
-
-    def __init__(self, num_input_features, kernel_size, params, first=False):
-        super().__init__(num_input_features, kernel_size, params)
-        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params, first=first)
-        self.seq = nn.Sequential(nn.ReLU(inplace=True), conv1, nn.ReLU(inplace=True), conv2)
-
-
 class DenseBlock(nn.Sequential):
 
     def __init__(self, num_layers, num_input_features, kernels, params):
@@ -1083,6 +1493,42 @@ class DenseBlock(nn.Sequential):
             activations.append(newf.data.cpu().numpy())
             x = torch.cat([x, newf], 1)
         return x, activations
+
+
+class Transition(nn.Sequential):
+    """
+    Transiton btw dense blocks:
+    BN > ReLU > Conv(k=1) to reduce the number of channels
+    """
+
+    def __init__(self, num_input_features, num_output_features, init_weights=0):
+        super(Transition, self).__init__()
+        self.add_module('norm', nn.BatchNorm2d(num_input_features))
+        self.add_module('relu', nn.ReLU(inplace=True))
+        conv = nn.Conv2d(num_input_features, num_output_features, kernel_size=1, bias=False)
+        if init_weights == 'manual':
+            std = sqrt(2 / num_input_features)
+            conv.weight.data.normal_(0, std)
+        self.add_module('conv', conv)
+
+    def forward(self, x, *args):
+        return super(Transition, self).forward(x)
+
+
+class Transition2(nn.Sequential):
+    """
+    Transiton btw dense blocks:
+    ReLU > Conv(k=1) to reduce the number of channels
+
+    """
+
+    def __init__(self, num_input_features, num_output_features):
+        super(Transition2, self).__init__()
+        self.add_module('relu', nn.ReLU(inplace=True))
+        self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, bias=False))
+
+    def forward(self, x, *args):
+        return super(Transition2, self).forward(x)
 
 
 class DenseNet(nn.Module):
@@ -1172,41 +1618,25 @@ def _bn_function_factory(norm, relu, conv, index, mode=1):
 
 class _DenseLayer(nn.Module):
 
-    def __init__(self, num_input_features, growth_rate, kernel_size=3, bn_size=4, drop_rate=0, gated=False, bias=False, init_weights=0, weight_norm=False, efficient=False):
-        super(_DenseLayer, self).__init__()
+    def __init__(self, num_input_features, kernel_size, params, index):
+        super().__init__()
         self.kernel_size = kernel_size
-        self.drop_rate = drop_rate
-        self.efficient = efficient
-        if gated:
-            CV = GatedConv2d
-        else:
-            CV = MaskedConv2d
-        conv1 = nn.Conv2d(num_input_features, bn_size * growth_rate, kernel_size=1, bias=bias)
-        conv2 = CV(bn_size * growth_rate, growth_rate, kernel_size=kernel_size, bias=bias)
-        if init_weights == 'manual':
-            std1 = sqrt(2 / num_input_features)
-            conv1.weight.data.normal_(0, std1)
-            std2 = sqrt(2 * (1 - drop_rate) / (bn_size * growth_rate * kernel_size * (kernel_size - 1) // 2))
-            conv2.weight.data.normal_(0, std2)
-            if bias:
-                conv1.bias.data.zero_()
-                conv2.bias.data.zero_()
-        elif init_weights == 'kaiming':
-            nn.init.kaiming_normal_(conv1.weight, mode='fan_out', nonlinearity='relu')
-            nn.init.kaiming_normal_(conv2.weight, mode='fan_out', nonlinearity='relu')
-        if weight_norm:
-            conv1 = nn.utils.weight_norm(conv1, dim=0)
-            conv2 = nn.utils.weight_norm(conv2, dim=0)
+        self.bn_size = params.get('bn_size', 4)
+        self.growth_rate = params.get('growth_rate', 32)
+        self.drop_rate = params.get('conv_dropout', 0.0)
+        self.index = index
+        self.mode = params.get('log_mode', 1)
+        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
         self.add_module('norm1', nn.BatchNorm2d(num_input_features)),
         self.add_module('relu1', nn.ReLU(inplace=True)),
         self.add_module('conv1', conv1)
-        self.add_module('norm2', nn.BatchNorm2d(bn_size * growth_rate)),
+        self.add_module('norm2', nn.BatchNorm2d(self.bn_size * self.growth_rate)),
         self.add_module('relu2', nn.ReLU(inplace=True)),
         self.add_module('conv2', conv2)
 
     def forward(self, *prev_features):
-        bn_function = _bn_function_factory(self.norm1, self.relu1, self.conv1)
-        if self.efficient and any(prev_feature.requires_grad for prev_feature in prev_features):
+        bn_function = _bn_function_factory(self.norm1, self.relu1, self.conv1, self.index, self.mode)
+        if any(prev_feature.requires_grad for prev_feature in prev_features):
             bottleneck_output = cp.checkpoint(bn_function, *prev_features)
         else:
             bottleneck_output = bn_function(*prev_features)
@@ -1215,44 +1645,42 @@ class _DenseLayer(nn.Module):
             new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return new_features
 
-    def reset_buffers(self):
-        self.conv2.incremental_state = torch.zeros(1, 1, 1, 1)
 
-    def update(self, x):
-        maxh = self.kernel_size // 2 + 1
-        if x.size(2) > maxh:
-            x = x[:, :, -maxh:, :].contiguous()
-        res = x
-        x = self.conv1(self.relu1(self.norm1(x)))
-        x = self.conv2.update(self.relu2(self.norm2(x)))
-        return torch.cat([res, x], 1)
+def is_power2(num):
+    """ True iff integer is a power of 2"""
+    return num & num - 1 == 0 and num != 0
 
 
 class _DenseBlock(nn.Module):
 
-    def __init__(self, num_layers, num_input_features, kernels, bn_size, growth_rate, drop_rate, gated, bias, init_weights, weight_norm, efficient=False):
+    def __init__(self, num_layers, num_input_features, kernels, params):
         super(_DenseBlock, self).__init__()
+        growth_rate = params.get('growth_rate', 32)
+        log_mode = params.get('log_mode', 1)
         None
         for i in range(num_layers):
+            index = i + 1
+            numc = floor(log2(index)) + 1
+            if log_mode == 1:
+                if is_power2(index):
+                    numf = num_input_features + (numc - 1) * growth_rate
+                else:
+                    numf = numc * growth_rate
+            elif log_mode == 2:
+                if is_power2(index):
+                    numf = num_input_features + (numc - 1) * growth_rate
+                else:
+                    numf = numc * growth_rate + num_input_features
             None
-            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, kernels[i], bn_size, drop_rate, gated=gated, bias=bias, init_weights=init_weights, weight_norm=weight_norm, efficient=efficient)
+            layer = _DenseLayer(numf, kernels[i], params, i + 1)
             self.add_module('denselayer%d' % (i + 1), layer)
 
     def forward(self, init_features):
         features = [init_features]
-        for name, layer in self.named_children():
+        for layer in self.children():
             new_features = layer(*features)
             features.append(new_features)
         return torch.cat(features, 1)
-
-    def update(self, x):
-        for layer in list(self.children()):
-            x = layer.update(x)
-        return x
-
-    def reset_buffers(self):
-        for layer in list(self.children()):
-            layer.reset_buffers()
 
 
 class Efficient_DenseNet(nn.Module):
@@ -1316,7 +1744,7 @@ class Efficient_DenseNet(nn.Module):
 def make_positions(tensor, padding_idx, left_pad):
     len = tensor.size(1)
     max_pos = padding_idx + 1 + len
-    out = torch.arange(padding_idx + 1, max_pos).long().cuda()
+    out = torch.arange(padding_idx + 1, max_pos).long()
     mask = tensor.ne(padding_idx)
     positions = out[:len].expand_as(tensor)
     final = tensor.clone().masked_scatter_(mask, positions[mask])
@@ -1539,73 +1967,6 @@ class Encoder(nn.Module):
         return {'emb': _emb, 'ctx': ctx, 'state': final_state}
 
 
-class _DenseLayer(nn.Module):
-
-    def __init__(self, num_input_features, kernel_size, params, index):
-        super().__init__()
-        self.kernel_size = kernel_size
-        self.bn_size = params.get('bn_size', 4)
-        self.growth_rate = params.get('growth_rate', 32)
-        self.drop_rate = params.get('conv_dropout', 0.0)
-        self.index = index
-        self.mode = params.get('log_mode', 1)
-        conv1, conv2 = _setup_conv(num_input_features, kernel_size, params)
-        self.add_module('norm1', nn.BatchNorm2d(num_input_features)),
-        self.add_module('relu1', nn.ReLU(inplace=True)),
-        self.add_module('conv1', conv1)
-        self.add_module('norm2', nn.BatchNorm2d(self.bn_size * self.growth_rate)),
-        self.add_module('relu2', nn.ReLU(inplace=True)),
-        self.add_module('conv2', conv2)
-
-    def forward(self, *prev_features):
-        bn_function = _bn_function_factory(self.norm1, self.relu1, self.conv1, self.index, self.mode)
-        if any(prev_feature.requires_grad for prev_feature in prev_features):
-            bottleneck_output = cp.checkpoint(bn_function, *prev_features)
-        else:
-            bottleneck_output = bn_function(*prev_features)
-        new_features = self.conv2(self.relu2(self.norm2(bottleneck_output)))
-        if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
-        return new_features
-
-
-def is_power2(num):
-    """ True iff integer is a power of 2"""
-    return num & num - 1 == 0 and num != 0
-
-
-class _DenseBlock(nn.Module):
-
-    def __init__(self, num_layers, num_input_features, kernels, params):
-        super(_DenseBlock, self).__init__()
-        growth_rate = params.get('growth_rate', 32)
-        log_mode = params.get('log_mode', 1)
-        None
-        for i in range(num_layers):
-            index = i + 1
-            numc = floor(log2(index)) + 1
-            if log_mode == 1:
-                if is_power2(index):
-                    numf = num_input_features + (numc - 1) * growth_rate
-                else:
-                    numf = numc * growth_rate
-            elif log_mode == 2:
-                if is_power2(index):
-                    numf = num_input_features + (numc - 1) * growth_rate
-                else:
-                    numf = numc * growth_rate + num_input_features
-            None
-            layer = _DenseLayer(numf, kernels[i], params, i + 1)
-            self.add_module('denselayer%d' % (i + 1), layer)
-
-    def forward(self, init_features):
-        features = [init_features]
-        for layer in self.children():
-            new_features = layer(*features)
-            features.append(new_features)
-        return torch.cat(features, 1)
-
-
 class Log_Efficient_DenseNet(nn.Module):
     """ 
     set to True to use checkpointing. Much more memory efficient, but slower.
@@ -1649,361 +2010,6 @@ class Log_Efficient_DenseNet(nn.Module):
 
     def forward(self, x):
         return self.features(x.contiguous())
-
-
-class AllamanisConvAttention(nn.Module):
-    """
-    Convolutional attention
-    @inproceedings{allamanis2016convolutional,
-          title={A Convolutional Attention Network for
-                 Extreme Summarization of Source Code},
-          author={Allamanis, Miltiadis and Peng, Hao and Sutton, Charles},
-          booktitle={International Conference on Machine Learning (ICML)},
-          year={2016}
-      }
-    """
-
-    def __init__(self, params, enc_params):
-        super(AllamanisConvAttention, self).__init__()
-        src_emb_dim = enc_params['input_dim']
-        dims = params['attention_channels'].split(',')
-        dim1, dim2 = [int(d) for d in dims]
-        None
-        widths = params['attention_windows'].split(',')
-        w1, w2, w3 = [int(w) for w in widths]
-        None
-        trg_dim = params['cell_dim']
-        self.normalize = params['normalize_attention']
-        self.conv1 = nn.Conv1d(src_emb_dim, dim1, w1, padding=(w1 - 1) // 2)
-        self.relu = nn.ReLU()
-        self.conv2 = nn.Conv1d(dim1, trg_dim, w2, padding=(w2 - 1) // 2)
-        self.conv3 = nn.Conv1d(trg_dim, 1, w3, padding=(w3 - 1) // 2)
-        self.sm = nn.Softmax(dim=2)
-        self.linear_out = nn.Linear(trg_dim + src_emb_dim, trg_dim, bias=False)
-        self.tanh = nn.Tanh()
-
-    def score(self, input, context, src_emb):
-        """
-        input: batch x trg_dim
-        context & src_emb : batch x Tx x src_dim (resp. src_emb_dim)
-        return the alphas for comuting the weighted context
-        """
-        src_emb = src_emb.transpose(1, 2)
-        L1 = self.relu(self.conv1(src_emb))
-        L2 = self.conv2(L1)
-        L2 = L2 * input.unsqueeze(2).repeat(1, 1, L2.size(2))
-        if self.normalize:
-            norm = L2.norm(p=2, dim=1, keepdim=True)
-            L2 = L2.div(norm)
-            if len((norm == 0).nonzero()):
-                None
-        attn = self.conv3(L2)
-        attn_sm = self.sm(attn)
-        return attn_sm
-
-    def forward(self, input, context, src_emb):
-        """
-        Score the context (resp src embedding)
-        and return a new context as a combination of either
-        the source embeddings or the hidden source codes
-        """
-        attn_sm = self.score(input, context, src_emb)
-        weighted_context = torch.bmm(attn_sm, src_emb).squeeze(1)
-        h_tilde = torch.cat((weighted_context, input), 1)
-        h_tilde = self.tanh(self.linear_out(h_tilde))
-        return h_tilde, attn_sm
-
-
-class ConvAttentionHid(nn.Module):
-    """
-    Convolutional attention
-    All around similar to Allamanis attention while never
-    using the source word embeddings
-    """
-
-    def __init__(self, params, enc_params):
-        super(ConvAttentionHid, self).__init__()
-        src_dim = enc_params['cell_dim']
-        dims = params['attention_channels'].split(',')
-        dim1, dim2 = [int(d) for d in dims]
-        None
-        widths = params['attention_windows'].split(',')
-        w1, w2, w3 = [int(w) for w in widths]
-        None
-        trg_dim = params['cell_dim']
-        self.normalize = params['normalize_attention']
-        self.conv1 = nn.Conv1d(src_dim, dim1, w1, padding=(w1 - 1) // 2)
-        self.relu = nn.ReLU()
-        self.conv2 = nn.Conv1d(dim1, trg_dim, w2, padding=(w2 - 1) // 2)
-        self.conv3 = nn.Conv1d(trg_dim, 1, w3, padding=(w3 - 1) // 2)
-        self.sm = nn.Softmax(dim=2)
-        self.linear_out = nn.Linear(trg_dim + src_dim, trg_dim, bias=False)
-        self.tanh = nn.Tanh()
-
-    def forward(self, input, context, src_emb):
-        """Propogate input through the network.
-        input: batch x dim
-        context: batch x sourceL x dim
-        """
-        context = context.transpose(1, 2)
-        L1 = self.relu(self.conv1(context))
-        L2 = self.conv2(L1)
-        L2 = L2 * input.unsqueeze(2).repeat(1, 1, L2.size(2))
-        if self.normalize:
-            norm = L2.norm(p=2, dim=2, keepdim=True)
-            L2 = L2.div(norm)
-            if len((norm == 0).nonzero()):
-                None
-        attn = self.conv3(L2)
-        attn_sm = self.sm(attn)
-        attn_reshape = attn_sm.transpose(1, 2)
-        weighted_context = torch.bmm(context, attn_reshape).squeeze(2)
-        h_tilde = torch.cat((weighted_context, input), 1)
-        h_tilde = self.tanh(self.linear_out(h_tilde))
-        return h_tilde, attn
-
-
-class ConvAttentionHidCat(nn.Module):
-    """
-    Convolutional attention
-    Use the encoder hidden states all around, Jakob's idea
-    """
-
-    def __init__(self, params, enc_params):
-        super(ConvAttentionHidCat, self).__init__()
-        src_dim = enc_params['cell_dim']
-        trg_dim = params['cell_dim']
-        self.normalize = params['normalize_attention']
-        widths = params['attention_windows'].split(',')
-        self.num_conv_layers = len(widths)
-        dims = params['attention_channels'].split(',')
-        assert len(dims) == self.num_conv_layers - 1
-        if self.num_conv_layers == 3:
-            w1, w2, w3 = [int(w) for w in widths]
-            None
-            dim1, dim2 = [int(d) for d in dims]
-            None
-        elif self.num_conv_layers == 4:
-            w1, w2, w3, w4 = [int(w) for w in widths]
-            None
-            dim1, dim2, dim3 = [int(d) for d in dims]
-            None
-        else:
-            raise ValueError('Number of layers is either 3 or 4, still working on a general form')
-        self.conv1 = nn.Conv1d(src_dim + trg_dim, dim1, w1, padding=(w1 - 1) // 2)
-        self.relu = nn.ReLU()
-        self.conv2 = nn.Conv1d(dim1, dim2, w2, padding=(w2 - 1) // 2)
-        if self.num_conv_layers == 3:
-            self.conv3 = nn.Conv1d(dim2, 1, w3, padding=(w3 - 1) // 2)
-        elif self.num_conv_layers == 4:
-            self.conv3 = nn.Conv1d(dim2, dim3, w3, padding=(w3 - 1) // 2)
-            self.conv4 = nn.Conv1d(dim3, 1, w4, padding=(w4 - 1) // 2)
-        self.sm = nn.Softmax(dim=2)
-        self.linear_out = nn.Linear(trg_dim + src_dim, trg_dim, bias=False)
-        self.tanh = nn.Tanh()
-
-    def forward(self, input, context, src_emb):
-        """Propogate input through the network.
-        input: batch x dim
-        context: batch x sourceL x dim
-        """
-        context = context.transpose(1, 2)
-        input_cat = torch.cat((context, input.unsqueeze(2).repeat(1, 1, context.size(2))), 1)
-        L1 = self.relu(self.conv1(input_cat))
-        L2 = self.conv2(L1)
-        if self.normalize:
-            norm = L2.norm(p=2, dim=2, keepdim=True)
-            L2 = L2.div(norm)
-            if len((norm == 0).nonzero()):
-                None
-        if self.num_conv_layers == 3:
-            attn = self.conv3(L2)
-        else:
-            attn = self.conv4(self.conv3(L2))
-        attn_sm = self.sm(attn)
-        attn_reshape = attn_sm.transpose(1, 2)
-        weighted_context = torch.bmm(context, attn_reshape).squeeze(2)
-        h_tilde = torch.cat((weighted_context, input), 1)
-        h_tilde = self.tanh(self.linear_out(h_tilde))
-        return h_tilde, attn
-
-
-class LocalDotAttention(nn.Module):
-    """
-    Soft Dot/ local-predictive attention
-
-    Ref: http://www.aclweb.org/anthology/D15-1166
-    Effective approaches to attention based NMT (Luong et al. EMNLP 15)
-    """
-
-    def __init__(self, params):
-        super(LocalDotAttention, self).__init__()
-        dim = params['cell_dim']
-        dropout = params['attention_dropout']
-        self.window = 4
-        self.sigma = self.window / 2
-        self.linear_in = nn.Linear(dim, dim, bias=False)
-        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
-        self.linear_predict_1 = nn.Linear(dim, dim // 2, bias=False)
-        self.linear_predict_2 = nn.Linear(dim // 2, 1, bias=False)
-        self.tanh = nn.Tanh()
-        self.sm = nn.Softmax(dim=1)
-        self.dropout = nn.Dropout(dropout)
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, input, context, src_emb=None):
-        """Propogate input through the network.
-        input: batch x dim
-        context: batch x sourceL x dim
-        """
-        Tx = context.size(1)
-        pt = self.tanh(self.linear_predict_1(input))
-        None
-        pt = self.linear_predict_2(pt)
-        None
-        pt = Tx * self.sigmoid(pt)
-        bl, bh = (pt - self.window).int(), (pt + self.window).int()
-        indices = torch.cat([torch.arange(i.item(), j.item()).unsqueeze(0) for i, j in zip(bl, bh)], dim=0).long()
-        None
-        target = self.linear_in(input).unsqueeze(2)
-        None
-        context_window = context.gather(0, indices)
-        None
-        attn = torch.bmm(context_window, target).squeeze(2)
-        attn = self.sm(self.dropout(attn))
-        attn3 = attn.view(attn.size(0), 1, attn.size(1))
-        weighted_context = torch.bmm(attn3, context_window).squeeze(1)
-        h_tilde = torch.cat((weighted_context, input), 1)
-        h_tilde = self.tanh(self.linear_out(h_tilde))
-        return h_tilde, attn
-
-
-class SoftDotAttention(nn.Module):
-    """Soft Dot Attention.
-
-    Ref: http://www.aclweb.org/anthology/D15-1166
-    Effective approaches to attention based NMT (Luong et al. EMNLP 15)
-    Adapted from PyTorch OPEN NMT.
-    """
-
-    def __init__(self, params):
-        super(SoftDotAttention, self).__init__()
-        dim = params['cell_dim']
-        self.linear_in = nn.Linear(dim, dim, bias=False)
-        self.sm = nn.Softmax(dim=1)
-        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
-        self.tanh = nn.Tanh()
-        self.dropout = nn.Dropout(params['attention_dropout'])
-
-    def forward(self, input, context, src_emb=None):
-        """Propogate input through the network.
-        input: batch x dim
-        context: batch x sourceL x dim
-        """
-        target = self.linear_in(input).unsqueeze(2)
-        attn = torch.bmm(context, target).squeeze(2)
-        attn = self.sm(self.dropout(attn))
-        attn3 = attn.view(attn.size(0), 1, attn.size(1))
-        weighted_context = torch.bmm(attn3, context).squeeze(1)
-        h_tilde = torch.cat((weighted_context, input), 1)
-        h_tilde = self.tanh(self.linear_out(h_tilde))
-        return h_tilde, attn
-
-
-class AllamanisConvAttentionBis(AllamanisConvAttention):
-    """
-    Similar to AllamanisConvAttention with the only difference at computing
-    the weighted context which takes the encoder's hidden states
-    instead of the source word embeddings
-    """
-
-    def __init__(self, params, enc_params):
-        super(AllamanisConvAttentionBis, self).__init__(params)
-        trg_dim = params['cell_dim']
-        src_dim = enc_params['cell_dim']
-        self.linear_out = nn.Linear(trg_dim + src_dim, trg_dim, bias=False)
-
-    def forward(self, input, context, src_emb):
-        attn_sm = self.score(input, context, src_emb)
-        attn_reshape = attn_sm.transpose(1, 2)
-        weighted_context = torch.bmm(context.transpose(1, 2), attn_reshape).squeeze(2)
-        h_tilde = torch.cat((weighted_context, input), 1)
-        h_tilde = self.tanh(self.linear_out(h_tilde))
-        return h_tilde, attn_sm
-
-
-class LSTMAttention(nn.Module):
-    """
-    A long short-term memory (LSTM) cell with attention.
-    Use SoftDotAttention
-    """
-
-    def __init__(self, params, enc_params):
-        super(LSTMAttention, self).__init__()
-        self.mode = params['attention_mode']
-        self.input_size = params['input_dim']
-        self.hidden_size = params['cell_dim']
-        self.input_weights = nn.Linear(self.input_size, 4 * self.hidden_size)
-        self.hidden_weights = nn.Linear(self.hidden_size, 4 * self.hidden_size)
-        if self.mode == 'dot':
-            self.attention_layer = SoftDotAttention(params)
-        elif self.mode == 'local-dot':
-            self.attention_layer = LocalDotAttention(params)
-        elif self.mode == 'allamanis':
-            self.attention_layer = AllamanisConvAttention(params, enc_params)
-        elif self.mode == 'allamanis-v2':
-            self.attention_layer = AllamanisConvAttentionBis(params, enc_params)
-        elif self.mode == 'conv-hid':
-            self.attention_layer = ConvAttentionHid(params, enc_params)
-        elif self.mode == 'conv-hid-cat':
-            self.attention_layer = ConvAttentionHidCat(params, enc_params)
-        else:
-            raise ValueError('Unkown attention mode %s' % self.mode)
-
-    def forward(self, input, hidden, ctx, src_emb):
-        """Propogate input through the network."""
-
-        def recurrence(input, hidden):
-            """Recurrence helper."""
-            hx, cx = hidden
-            gates = self.input_weights(input) + self.hidden_weights(hx)
-            ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
-            ingate = F.sigmoid(ingate)
-            forgetgate = F.sigmoid(forgetgate)
-            cellgate = F.tanh(cellgate)
-            outgate = F.sigmoid(outgate)
-            cy = forgetgate * cx + ingate * cellgate
-            hy = outgate * F.tanh(cy)
-            h_tilde, attn = self.attention_layer(hy, ctx, src_emb)
-            return (h_tilde, cy), attn
-        input = input.transpose(0, 1)
-        output = []
-        attention = []
-        steps = list(range(input.size(0)))
-        for i in steps:
-            hidden, attn = recurrence(input[i], hidden)
-            if isinstance(hidden, tuple):
-                h = hidden[0]
-            else:
-                h = hidden
-            output.append(h)
-            attention.append(attn)
-        output = torch.cat(output, 0).view(input.size(0), *output[0].size())
-        output = output.transpose(0, 1)
-        attention = torch.cat(attention, 0)
-        return output, hidden, attention
-
-
-class LSTM(nn.LSTM):
-
-    def __init__(self, *args, **kwargs):
-        super(LSTM, self).__init__(*args, **kwargs)
-
-    def forward(self, input, hidden, ctx, src_emb):
-        if hidden[0].size(0) != 1:
-            hidden = [h.unsqueeze(0) for h in hidden]
-        output, hdec = super(LSTM, self).forward(input, hidden)
-        return output, hdec
 
 
 class positional_encoding(nn.Module):
@@ -2544,61 +2550,6 @@ class Pervasive_Parallel(nn.DataParallel):
         return self.module.sample(data_src, scorer, kwargs)
 
 
-class MaxAttention(nn.Module):
-
-    def __init__(self, params, in_channels):
-        super(MaxAttention, self).__init__()
-        self.in_channels = in_channels
-        self.attend = nn.Linear(in_channels, 1)
-        self.dropout = params['attention_dropout']
-        self.scale_ctx = params.get('scale_ctx', 1)
-        if params['nonlin'] == 'tanh':
-            self.nonlin = F.tanh
-        elif params['nonlin'] == 'relu':
-            self.nonlin = F.relu
-        else:
-            self.nonlin = lambda x: x
-        if params['first_aggregator'] == 'max':
-            self.max = max_code
-        elif params['first_aggregator'] == 'truncated-max':
-            self.max = truncated_max
-        elif params['first_aggregator'] == 'skip':
-            self.max = None
-        else:
-            raise ValueError('Unknown mode for first aggregator ', params['first_aggregator'])
-
-    def forward(self, X, src_lengths, track=False, *args):
-        if track:
-            N, d, Tt, Ts = X.size()
-            Xatt = X.permute(0, 2, 3, 1)
-            alphas = self.nonlin(self.attend(Xatt))
-            alphas = F.softmax(alphas, dim=2)
-            context = alphas.expand_as(Xatt) * Xatt
-            context = context.mean(dim=2).permute(0, 2, 1)
-            if self.scale_ctx:
-                context = math.sqrt(Ts) * context
-            if self.max is not None:
-                Xpool, tracking = self.max(X, src_lengths, track=True)
-                feat = torch.cat((Xpool, context), dim=1)
-                return feat, (alphas[(0), (-1), :, (0)].data.cpu().numpy(), *tracking[1:])
-            else:
-                return context
-        else:
-            N, d, Tt, Ts = X.size()
-            Xatt = X.permute(0, 2, 3, 1)
-            alphas = self.nonlin(self.attend(Xatt))
-            alphas = F.softmax(alphas, dim=2)
-            context = alphas.expand_as(Xatt) * Xatt
-            context = context.mean(dim=2).permute(0, 2, 1)
-            if self.scale_ctx:
-                context = math.sqrt(Ts) * context
-            if self.max is not None:
-                Xpool = self.max(X, src_lengths)
-                return torch.cat((Xpool, context), dim=1)
-            else:
-                return context
-
-
 class Seq2Seq(nn.Module):
 
     def __init__(self, jobname, params, src_vocab_size, trg_vocab_size, trg_specials):
@@ -2635,42 +2586,6 @@ class Seq2Seq(nn.Module):
             state - ctx - emb
         """
         return self.decoder.sample(source, kwargs)
-
-
-class Transition(nn.Sequential):
-    """
-    Transiton btw dense blocks:
-    BN > ReLU > Conv(k=1) to reduce the number of channels
-    """
-
-    def __init__(self, num_input_features, num_output_features, init_weights=0):
-        super(Transition, self).__init__()
-        self.add_module('norm', nn.BatchNorm2d(num_input_features))
-        self.add_module('relu', nn.ReLU(inplace=True))
-        conv = nn.Conv2d(num_input_features, num_output_features, kernel_size=1, bias=False)
-        if init_weights == 'manual':
-            std = sqrt(2 / num_input_features)
-            conv.weight.data.normal_(0, std)
-        self.add_module('conv', conv)
-
-    def forward(self, x, *args):
-        return super(Transition, self).forward(x)
-
-
-class Transition2(nn.Sequential):
-    """
-    Transiton btw dense blocks:
-    ReLU > Conv(k=1) to reduce the number of channels
-
-    """
-
-    def __init__(self, num_input_features, num_output_features):
-        super(Transition2, self).__init__()
-        self.add_module('relu', nn.ReLU(inplace=True))
-        self.add_module('conv', nn.Conv2d(num_input_features, num_output_features, kernel_size=1, bias=False))
-
-    def forward(self, x, *args):
-        return super(Transition2, self).forward(x)
 
 
 import torch

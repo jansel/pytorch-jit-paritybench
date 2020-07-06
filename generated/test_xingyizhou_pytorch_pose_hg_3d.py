@@ -29,23 +29,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import torchvision.models as models
+import numpy as np
 
 
 import torch
+
+
+import torch.utils.data
+
+
+import torch.utils.data as data
+
+
+import scipy.io as sio
+
+
+import time
+
+
+import torchvision.models as models
 
 
 import torch.nn as nn
@@ -54,19 +70,7 @@ import torch.nn as nn
 from torch.autograd import Function
 
 
-import numpy as np
-
-
 import torch.utils.model_zoo as model_zoo
-
-
-import time
-
-
-import torch.utils.data
-
-
-import scipy.io as sio
 
 
 def _gather_feat(feat, ind, mask=None):
@@ -145,7 +149,7 @@ class VarLoss(Function):
                     output += loss
         output = self.var_weight * output / batch_size
         self.save_for_backward(input, visible, mask, gt_2d)
-        output = output.cuda(self.device, non_blocking=True)
+        output = output
         return output
 
     def backward(self, grad_output):
@@ -175,7 +179,7 @@ class VarLoss(Function):
                             id1, id2 = self.skeleton_idx[g][j]
                             grad_input[t][id1] += self.var_weight * self.skeleton_weight[g][j] ** 2 / num * (l[j] - E) / l[j] * (input[t, id1] - input[t, id2]) / batch_size
                             grad_input[t][id2] += self.var_weight * self.skeleton_weight[g][j] ** 2 / num * (l[j] - E) / l[j] * (input[t, id2] - input[t, id1]) / batch_size
-        grad_input = grad_input.cuda(self.device, non_blocking=True)
+        grad_input = grad_input
         return grad_input, None, None, None
 
 

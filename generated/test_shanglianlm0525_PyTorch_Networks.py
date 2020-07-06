@@ -55,15 +55,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -467,16 +468,15 @@ class InceptionAux(nn.Module):
         super(InceptionAux, self).__init__()
         self.auxiliary_avgpool = nn.AvgPool2d(kernel_size=5, stride=3)
         self.auxiliary_conv1 = ConvBNReLU(in_channels=in_channels, out_channels=128, kernel_size=1)
-        self.auxiliary_linear1 = nn.Linear(in_features=128 * 4 * 4, out_features=1024)
-        self.auxiliary_relu = nn.ReLU6(inplace=True)
+        self.auxiliary_conv2 = nn.Conv2d(in_channels=128, out_channels=768, kernel_size=5, stride=1)
         self.auxiliary_dropout = nn.Dropout(p=0.7)
-        self.auxiliary_linear2 = nn.Linear(in_features=1024, out_features=out_channels)
+        self.auxiliary_linear1 = nn.Linear(in_features=768, out_features=out_channels)
 
     def forward(self, x):
         x = self.auxiliary_conv1(self.auxiliary_avgpool(x))
+        x = self.auxiliary_conv2(x)
         x = x.view(x.size(0), -1)
-        x = self.auxiliary_relu(self.auxiliary_linear1(x))
-        out = self.auxiliary_linear2(self.auxiliary_dropout(x))
+        out = self.auxiliary_linear1(self.auxiliary_dropout(x))
         return out
 
 
@@ -589,33 +589,15 @@ class InceptionV3ModuleD(nn.Module):
 
     def __init__(self, in_channels, out_channels1reduce, out_channels1, out_channels2reduce, out_channels2):
         super(InceptionV3ModuleD, self).__init__()
-        self.branch1 = nn.Sequential(ConvBNReLU(in_channels=in_channels, out_channels=out_channels1reduce, kernel_size=1), ConvBNReLU(in_channels=out_channels1reduce, out_channels=out_channels1, kernel_size=3, stride=2, padding=1))
-        self.branch2 = nn.Sequential(ConvBNReLU(in_channels=in_channels, out_channels=out_channels2reduce, kernel_size=1), ConvBNReLU(in_channels=out_channels2reduce, out_channels=out_channels2, kernel_size=3, stride=1, padding=1), ConvBNReLU(in_channels=out_channels2, out_channels=out_channels2, kernel_size=3, stride=2, padding=1))
-        self.branch3 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.branch1 = nn.Sequential(ConvBNReLU(in_channels=in_channels, out_channels=out_channels1reduce, kernel_size=1), ConvBNReLU(in_channels=out_channels1reduce, out_channels=out_channels1, kernel_size=3, stride=2))
+        self.branch2 = nn.Sequential(ConvBNReLU(in_channels=in_channels, out_channels=out_channels2reduce, kernel_size=1), ConvBNReLU(in_channels=out_channels2reduce, out_channels=out_channels2, kernel_size=3, stride=1, padding=1), ConvBNReLU(in_channels=out_channels2, out_channels=out_channels2, kernel_size=3, stride=2))
+        self.branch3 = nn.MaxPool2d(kernel_size=3, stride=2)
 
     def forward(self, x):
         out1 = self.branch1(x)
         out2 = self.branch2(x)
         out3 = self.branch3(x)
         out = torch.cat([out1, out2, out3], dim=1)
-        return out
-
-
-class InceptionAux(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super(InceptionAux, self).__init__()
-        self.auxiliary_avgpool = nn.AvgPool2d(kernel_size=5, stride=3)
-        self.auxiliary_conv1 = ConvBNReLU(in_channels=in_channels, out_channels=128, kernel_size=1)
-        self.auxiliary_conv2 = nn.Conv2d(in_channels=128, out_channels=768, kernel_size=5, stride=1)
-        self.auxiliary_dropout = nn.Dropout(p=0.7)
-        self.auxiliary_linear1 = nn.Linear(in_features=768, out_features=out_channels)
-
-    def forward(self, x):
-        x = self.auxiliary_conv1(self.auxiliary_avgpool(x))
-        x = self.auxiliary_conv2(x)
-        x = x.view(x.size(0), -1)
-        out = self.auxiliary_linear1(self.auxiliary_dropout(x))
         return out
 
 
@@ -707,22 +689,6 @@ class InceptionV3ModuleC(nn.Module):
         return out
 
 
-class InceptionV3ModuleD(nn.Module):
-
-    def __init__(self, in_channels, out_channels1reduce, out_channels1, out_channels2reduce, out_channels2):
-        super(InceptionV3ModuleD, self).__init__()
-        self.branch1 = nn.Sequential(ConvBNReLU(in_channels=in_channels, out_channels=out_channels1reduce, kernel_size=1), ConvBNReLU(in_channels=out_channels1reduce, out_channels=out_channels1, kernel_size=3, stride=2))
-        self.branch2 = nn.Sequential(ConvBNReLU(in_channels=in_channels, out_channels=out_channels2reduce, kernel_size=1), ConvBNReLU(in_channels=out_channels2reduce, out_channels=out_channels2, kernel_size=3, stride=1, padding=1), ConvBNReLU(in_channels=out_channels2, out_channels=out_channels2, kernel_size=3, stride=2))
-        self.branch3 = nn.MaxPool2d(kernel_size=3, stride=2)
-
-    def forward(self, x):
-        out1 = self.branch1(x)
-        out2 = self.branch2(x)
-        out3 = self.branch3(x)
-        out = torch.cat([out1, out2, out3], dim=1)
-        return out
-
-
 class InceptionV3ModuleE(nn.Module):
 
     def __init__(self, in_channels, out_channels1reduce, out_channels1, out_channels2reduce, out_channels2):
@@ -736,24 +702,6 @@ class InceptionV3ModuleE(nn.Module):
         out2 = self.branch2(x)
         out3 = self.branch3(x)
         out = torch.cat([out1, out2, out3], dim=1)
-        return out
-
-
-class InceptionAux(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super(InceptionAux, self).__init__()
-        self.auxiliary_avgpool = nn.AvgPool2d(kernel_size=5, stride=3)
-        self.auxiliary_conv1 = ConvBNReLU(in_channels=in_channels, out_channels=128, kernel_size=1)
-        self.auxiliary_conv2 = nn.Conv2d(in_channels=128, out_channels=768, kernel_size=5, stride=1)
-        self.auxiliary_dropout = nn.Dropout(p=0.7)
-        self.auxiliary_linear1 = nn.Linear(in_features=768, out_features=out_channels)
-
-    def forward(self, x):
-        x = self.auxiliary_conv1(self.auxiliary_avgpool(x))
-        x = self.auxiliary_conv2(x)
-        x = x.view(x.size(0), -1)
-        out = self.auxiliary_linear1(self.auxiliary_dropout(x))
         return out
 
 
@@ -1097,13 +1045,23 @@ class LFFD(nn.Module):
         return out
 
 
+class HardSwish(nn.Module):
+
+    def __init__(self, inplace=True):
+        super(HardSwish, self).__init__()
+        self.relu6 = nn.ReLU6(inplace)
+
+    def forward(self, x):
+        return x * self.relu6(x + 3) / 6
+
+
 class SqueezeAndExcite(nn.Module):
 
-    def __init__(self, in_channels, out_channels, divide=4):
+    def __init__(self, in_channels, out_channels, se_kernel_size, divide=4):
         super(SqueezeAndExcite, self).__init__()
         mid_channels = in_channels // divide
-        self.pool = nn.AdaptiveAvgPool2d(1)
-        self.SEblock = nn.Sequential(nn.Linear(in_features=in_channels, out_features=mid_channels), nn.ReLU6(inplace=True), nn.Linear(in_features=mid_channels, out_features=out_channels), nn.ReLU6(inplace=True))
+        self.pool = nn.AvgPool2d(kernel_size=se_kernel_size, stride=1)
+        self.SEblock = nn.Sequential(nn.Linear(in_features=in_channels, out_features=mid_channels), nn.ReLU6(inplace=True), nn.Linear(in_features=mid_channels, out_features=out_channels), HardSwish(inplace=True))
 
     def forward(self, x):
         b, c, h, w = x.size()
@@ -1311,6 +1269,62 @@ class Hourglass(nn.Module):
         return out1, out2
 
 
+class ContextBlock(nn.Module):
+
+    def __init__(self, inplanes, ratio, pooling_type='att', fusion_types=('channel_add',)):
+        super(ContextBlock, self).__init__()
+        assert pooling_type in ['avg', 'att']
+        assert isinstance(fusion_types, (list, tuple))
+        valid_fusion_types = ['channel_add', 'channel_mul']
+        assert all([(f in valid_fusion_types) for f in fusion_types])
+        assert len(fusion_types) > 0, 'at least one fusion should be used'
+        self.inplanes = inplanes
+        self.ratio = ratio
+        self.planes = int(inplanes * ratio)
+        self.pooling_type = pooling_type
+        self.fusion_types = fusion_types
+        if pooling_type == 'att':
+            self.conv_mask = nn.Conv2d(inplanes, 1, kernel_size=1)
+            self.softmax = nn.Softmax(dim=2)
+        else:
+            self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        if 'channel_add' in fusion_types:
+            self.channel_add_conv = nn.Sequential(nn.Conv2d(self.inplanes, self.planes, kernel_size=1), nn.LayerNorm([self.planes, 1, 1]), nn.ReLU(inplace=True), nn.Conv2d(self.planes, self.inplanes, kernel_size=1))
+        else:
+            self.channel_add_conv = None
+        if 'channel_mul' in fusion_types:
+            self.channel_mul_conv = nn.Sequential(nn.Conv2d(self.inplanes, self.planes, kernel_size=1), nn.LayerNorm([self.planes, 1, 1]), nn.ReLU(inplace=True), nn.Conv2d(self.planes, self.inplanes, kernel_size=1))
+        else:
+            self.channel_mul_conv = None
+
+    def spatial_pool(self, x):
+        batch, channel, height, width = x.size()
+        if self.pooling_type == 'att':
+            input_x = x
+            input_x = input_x.view(batch, channel, height * width)
+            input_x = input_x.unsqueeze(1)
+            context_mask = self.conv_mask(x)
+            context_mask = context_mask.view(batch, 1, height * width)
+            context_mask = self.softmax(context_mask)
+            context_mask = context_mask.unsqueeze(-1)
+            context = torch.matmul(input_x, context_mask)
+            context = context.view(batch, channel, 1, 1)
+        else:
+            context = self.avg_pool(x)
+        return context
+
+    def forward(self, x):
+        context = self.spatial_pool(x)
+        out = x
+        if self.channel_mul_conv is not None:
+            channel_mul_term = torch.sigmoid(self.channel_mul_conv(context))
+            out = out * channel_mul_term
+        if self.channel_add_conv is not None:
+            channel_add_term = self.channel_add_conv(context)
+            out = out + channel_add_term
+        return out
+
+
 class LBwithGCBlock(nn.Module):
     expansion = 1
 
@@ -1482,62 +1496,6 @@ class SimpleBaseline(nn.Module):
         return x
 
 
-class ContextBlock(nn.Module):
-
-    def __init__(self, inplanes, ratio, pooling_type='att', fusion_types=('channel_add',)):
-        super(ContextBlock, self).__init__()
-        assert pooling_type in ['avg', 'att']
-        assert isinstance(fusion_types, (list, tuple))
-        valid_fusion_types = ['channel_add', 'channel_mul']
-        assert all([(f in valid_fusion_types) for f in fusion_types])
-        assert len(fusion_types) > 0, 'at least one fusion should be used'
-        self.inplanes = inplanes
-        self.ratio = ratio
-        self.planes = int(inplanes * ratio)
-        self.pooling_type = pooling_type
-        self.fusion_types = fusion_types
-        if pooling_type == 'att':
-            self.conv_mask = nn.Conv2d(inplanes, 1, kernel_size=1)
-            self.softmax = nn.Softmax(dim=2)
-        else:
-            self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        if 'channel_add' in fusion_types:
-            self.channel_add_conv = nn.Sequential(nn.Conv2d(self.inplanes, self.planes, kernel_size=1), nn.LayerNorm([self.planes, 1, 1]), nn.ReLU(inplace=True), nn.Conv2d(self.planes, self.inplanes, kernel_size=1))
-        else:
-            self.channel_add_conv = None
-        if 'channel_mul' in fusion_types:
-            self.channel_mul_conv = nn.Sequential(nn.Conv2d(self.inplanes, self.planes, kernel_size=1), nn.LayerNorm([self.planes, 1, 1]), nn.ReLU(inplace=True), nn.Conv2d(self.planes, self.inplanes, kernel_size=1))
-        else:
-            self.channel_mul_conv = None
-
-    def spatial_pool(self, x):
-        batch, channel, height, width = x.size()
-        if self.pooling_type == 'att':
-            input_x = x
-            input_x = input_x.view(batch, channel, height * width)
-            input_x = input_x.unsqueeze(1)
-            context_mask = self.conv_mask(x)
-            context_mask = context_mask.view(batch, 1, height * width)
-            context_mask = self.softmax(context_mask)
-            context_mask = context_mask.unsqueeze(-1)
-            context = torch.matmul(input_x, context_mask)
-            context = context.view(batch, channel, 1, 1)
-        else:
-            context = self.avg_pool(x)
-        return context
-
-    def forward(self, x):
-        context = self.spatial_pool(x)
-        out = x
-        if self.channel_mul_conv is not None:
-            channel_mul_term = torch.sigmoid(self.channel_mul_conv(context))
-            out = out * channel_mul_term
-        if self.channel_add_conv is not None:
-            channel_add_term = self.channel_add_conv(context)
-            out = out + channel_add_term
-        return out
-
-
 def conf_centernessLayer(in_channels, out_channels):
     return nn.Sequential(Conv3x3ReLU(in_channels=in_channels, out_channels=in_channels), Conv3x3ReLU(in_channels=in_channels, out_channels=in_channels), Conv3x3ReLU(in_channels=in_channels, out_channels=in_channels), Conv3x3ReLU(in_channels=in_channels, out_channels=in_channels), nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=1, padding=1))
 
@@ -1616,23 +1574,6 @@ class PolarMask(nn.Module):
         return out
 
 
-class SqueezeAndExcite(nn.Module):
-
-    def __init__(self, in_channels, out_channels, divide=4):
-        super(SqueezeAndExcite, self).__init__()
-        mid_channels = in_channels // divide
-        self.pool = nn.AdaptiveAvgPool2d(1)
-        self.SEblock = nn.Sequential(nn.Linear(in_features=in_channels, out_features=mid_channels), nn.ReLU6(inplace=True), nn.Linear(in_features=mid_channels, out_features=out_channels), nn.ReLU6(inplace=True))
-
-    def forward(self, x):
-        b, c, h, w = x.size()
-        out = self.pool(x)
-        out = out.view(b, -1)
-        out = self.SEblock(out)
-        out = out.view(b, c, 1, 1)
-        return out * x
-
-
 def DW_Conv3x3BNReLU(in_channels, out_channels, stride, groups=1):
     return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=1, groups=groups, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU6(inplace=True))
 
@@ -1698,16 +1639,6 @@ class GhostNet(nn.Module):
         return out
 
 
-class HardSwish(nn.Module):
-
-    def __init__(self, inplace=True):
-        super(HardSwish, self).__init__()
-        self.relu6 = nn.ReLU6(inplace)
-
-    def forward(self, x):
-        return x * self.relu6(x + 3) / 6
-
-
 class MDConv(nn.Module):
 
     def __init__(self, nchannels, kernel_sizes, stride):
@@ -1724,19 +1655,6 @@ class MDConv(nn.Module):
         split_x = torch.split(x, self.split_channels, dim=1)
         outputs = [layer(sp_x) for layer, sp_x in zip(self.layers, split_x)]
         return torch.cat(outputs, dim=1)
-
-
-class SqueezeAndExcite(nn.Module):
-
-    def __init__(self, nchannels, squeeze_channels, se_ratio=1):
-        super(SqueezeAndExcite, self).__init__()
-        squeeze_channels = int(squeeze_channels * se_ratio)
-        self.SEblock = nn.Sequential(nn.Conv2d(in_channels=nchannels, out_channels=squeeze_channels, kernel_size=1, stride=1, padding=0), nn.ReLU6(inplace=True), nn.Conv2d(in_channels=squeeze_channels, out_channels=nchannels, kernel_size=1, stride=1, padding=0), nn.Sigmoid())
-
-    def forward(self, x):
-        out = torch.mean(x, (2, 3), keepdim=True)
-        out = self.SEblock(out)
-        return out * x
 
 
 def Conv1x1BN(in_channels, out_channels, groups):
@@ -1904,33 +1822,6 @@ class MobileNetV2(nn.Module):
         return out
 
 
-class HardSwish(nn.Module):
-
-    def __init__(self, inplace=True):
-        super(HardSwish, self).__init__()
-        self.relu6 = nn.ReLU6(inplace)
-
-    def forward(self, x):
-        return x * self.relu6(x + 3) / 6
-
-
-class SqueezeAndExcite(nn.Module):
-
-    def __init__(self, in_channels, out_channels, se_kernel_size, divide=4):
-        super(SqueezeAndExcite, self).__init__()
-        mid_channels = in_channels // divide
-        self.pool = nn.AvgPool2d(kernel_size=se_kernel_size, stride=1)
-        self.SEblock = nn.Sequential(nn.Linear(in_features=in_channels, out_features=mid_channels), nn.ReLU6(inplace=True), nn.Linear(in_features=mid_channels, out_features=out_channels), HardSwish(inplace=True))
-
-    def forward(self, x):
-        b, c, h, w = x.size()
-        out = self.pool(x)
-        out = out.view(b, -1)
-        out = self.SEblock(out)
-        out = out.view(b, c, 1, 1)
-        return out * x
-
-
 def ConvBNActivation(in_channels, out_channels, kernel_size, stride, activate):
     return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=(kernel_size - 1) // 2, groups=in_channels), nn.BatchNorm2d(out_channels), nn.ReLU6(inplace=True) if activate == 'relu' else HardSwish())
 
@@ -2075,53 +1966,6 @@ class HalfSplit(nn.Module):
     def forward(self, input):
         splits = torch.chunk(input, 2, dim=self.dim)
         return splits[0] if self.first_half else splits[1]
-
-
-class ChannelShuffle(nn.Module):
-
-    def __init__(self, groups):
-        super(ChannelShuffle, self).__init__()
-        self.groups = groups
-
-    def forward(self, x):
-        """Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]"""
-        N, C, H, W = x.size()
-        g = self.groups
-        return x.view(N, g, int(C / g), H, W).permute(0, 2, 1, 3, 4).contiguous().view(N, C, H, W)
-
-
-def Conv3x3BN(in_channels, out_channels, stride, groups):
-    return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, stride=stride, padding=1, groups=groups), nn.BatchNorm2d(out_channels))
-
-
-class ShuffleNetUnits(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride, groups):
-        super(ShuffleNetUnits, self).__init__()
-        self.stride = stride
-        if self.stride > 1:
-            mid_channels = out_channels - in_channels
-        else:
-            mid_channels = out_channels // 2
-            in_channels = mid_channels
-            self.first_half = HalfSplit(dim=1, first_half=True)
-            self.second_split = HalfSplit(dim=1, first_half=False)
-        self.bottleneck = nn.Sequential(Conv1x1BNReLU(in_channels, in_channels), Conv3x3BN(in_channels, mid_channels, stride, groups), Conv1x1BNReLU(mid_channels, mid_channels))
-        if self.stride > 1:
-            self.shortcut = nn.Sequential(Conv3x3BN(in_channels=in_channels, out_channels=in_channels, stride=stride, groups=groups), Conv1x1BNReLU(in_channels, in_channels))
-        self.channel_shuffle = ChannelShuffle(groups)
-
-    def forward(self, x):
-        if self.stride > 1:
-            x1 = self.bottleneck(x)
-            x2 = self.shortcut(x)
-        else:
-            x1 = self.first_half(x)
-            x2 = self.second_split(x)
-            x1 = self.bottleneck(x1)
-        out = torch.cat([x1, x2], dim=1)
-        out = self.channel_shuffle(out)
-        return out
 
 
 class ShuffleNetV2(nn.Module):
@@ -2348,19 +2192,6 @@ class ASFF(nn.Module):
         return out
 
 
-class ResidualBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super(ResidualBlock, self).__init__()
-        mid_channels = out_channels // 2
-        self.bottleneck = nn.Sequential(ConvBNReLU(in_channels=in_channels, out_channels=mid_channels, kernel_size=1, stride=1), ConvBNReLU(in_channels=mid_channels, out_channels=mid_channels, kernel_size=3, stride=1, padding=1), ConvBNReLU(in_channels=mid_channels, out_channels=out_channels, kernel_size=1, stride=1))
-        self.shortcut = ConvBNReLU(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1)
-
-    def forward(self, x):
-        out = self.bottleneck(x)
-        return out + self.shortcut(x)
-
-
 class HourglassNetwork(nn.Module):
 
     def __init__(self):
@@ -2501,37 +2332,6 @@ class FPN(nn.Module):
         p3 = self.smooth3(p3)
         p2 = self.smooth4(p2)
         return p2, p3, p4, p5
-
-
-class ChannelShuffle(nn.Module):
-
-    def __init__(self, groups):
-        super(ChannelShuffle, self).__init__()
-        self.groups = groups
-
-    def forward(self, x):
-        """Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]"""
-        N, C, H, W = x.size()
-        g = self.groups
-        return x.view(N, g, int(C / g), H, W).permute(0, 2, 1, 3, 4).contiguous().view(N, C, H, W)
-
-
-class ShuffleNetUnits(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride, groups):
-        super(ShuffleNetUnits, self).__init__()
-        self.stride = stride
-        out_channels = out_channels - in_channels if self.stride > 1 else out_channels
-        mid_channels = out_channels // 4
-        self.bottleneck = nn.Sequential(Conv1x1BNReLU(in_channels, mid_channels, groups), ChannelShuffle(groups), Conv3x3BNReLU(mid_channels, mid_channels, stride, groups), Conv1x1BN(mid_channels, out_channels, groups))
-        if self.stride > 1:
-            self.shortcut = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.relu = nn.ReLU6(inplace=True)
-
-    def forward(self, x):
-        out = self.bottleneck(x)
-        out = torch.cat([self.shortcut(x), out], dim=1) if self.stride > 1 else out + x
-        return self.relu(out)
 
 
 class FisheyeMODNet(nn.Module):
@@ -2880,23 +2680,6 @@ class YOLO_Nano(nn.Module):
         return out1, out2, out3
 
 
-class Darknet19(nn.Module):
-
-    def __init__(self, num_classes=1000):
-        super(Darknet19, self).__init__()
-        self.feature = nn.Sequential(Conv3x3BNReLU(in_channels=3, out_channels=32), nn.MaxPool2d(kernel_size=2, stride=2), Conv3x3BNReLU(in_channels=32, out_channels=64), nn.MaxPool2d(kernel_size=2, stride=2), Conv3x3BNReLU(in_channels=64, out_channels=128), Conv1x1BNReLU(in_channels=128, out_channels=64), Conv3x3BNReLU(in_channels=64, out_channels=128), nn.MaxPool2d(kernel_size=2, stride=2), Conv3x3BNReLU(in_channels=128, out_channels=256), Conv1x1BNReLU(in_channels=256, out_channels=128), Conv3x3BNReLU(in_channels=128, out_channels=256), nn.MaxPool2d(kernel_size=2, stride=2), Conv3x3BNReLU(in_channels=256, out_channels=512), Conv1x1BNReLU(in_channels=512, out_channels=256), Conv3x3BNReLU(in_channels=256, out_channels=512), Conv1x1BNReLU(in_channels=512, out_channels=256), Conv3x3BNReLU(in_channels=256, out_channels=512), nn.MaxPool2d(kernel_size=2, stride=2), Conv3x3BNReLU(in_channels=512, out_channels=1024), Conv1x1BNReLU(in_channels=1024, out_channels=512), Conv3x3BNReLU(in_channels=512, out_channels=1024), Conv1x1BNReLU(in_channels=1024, out_channels=512), Conv3x3BNReLU(in_channels=512, out_channels=1024))
-        self.classifier = nn.Sequential(Conv1x1BNReLU(in_channels=1024, out_channels=num_classes), nn.AvgPool2d(kernel_size=7, stride=1))
-        self.softmax = nn.Softmax(dim=1)
-
-    def forward(self, x):
-        x = self.feature(x)
-        x = self.classifier(x)
-        x = torch.squeeze(x, dim=3).contiguous()
-        x = torch.squeeze(x, dim=2).contiguous()
-        out = self.softmax(x)
-        return out
-
-
 class Residual(nn.Module):
 
     def __init__(self, nchannels):
@@ -2976,99 +2759,6 @@ class FCN8s(nn.Module):
         out = self.up_pool3_out(output3)
         out = out[:, :, 31:31 + h, 31:31 + w].contiguous()
         return out
-
-
-class ChannelShuffle(nn.Module):
-
-    def __init__(self, groups):
-        super(ChannelShuffle, self).__init__()
-        self.groups = groups
-
-    def forward(self, x):
-        """Channel shuffle: [N,C,H,W] -> [N,g,C/g,H,W] -> [N,C/g,g,H,w] -> [N,C,H,W]"""
-        N, C, H, W = x.size()
-        g = self.groups
-        return x.view(N, g, int(C / g), H, W).permute(0, 2, 1, 3, 4).contiguous().view(N, C, H, W)
-
-
-class ShuffleNetUnits(nn.Module):
-
-    def __init__(self, in_channels, out_channels, stride, groups):
-        super(ShuffleNetUnits, self).__init__()
-        self.stride = stride
-        out_channels = out_channels - in_channels if self.stride > 1 else out_channels
-        mid_channels = out_channels // 4
-        self.bottleneck = nn.Sequential(Conv1x1BNReLU(in_channels, mid_channels, groups), ChannelShuffle(groups), Conv3x3BNReLU(mid_channels, mid_channels, stride, groups), Conv1x1BN(mid_channels, out_channels, groups))
-        if self.stride > 1:
-            self.shortcut = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.relu = nn.ReLU6(inplace=True)
-
-    def forward(self, x):
-        out = self.bottleneck(x)
-        out = torch.cat([self.shortcut(x), out], dim=1) if self.stride > 1 else out + x
-        return self.relu(out)
-
-
-class FisheyeMODNet(nn.Module):
-
-    def __init__(self, groups=1, num_classes=2):
-        super(FisheyeMODNet, self).__init__()
-        layers = [4, 8, 4]
-        self.stage1a = nn.Sequential(nn.Conv2d(in_channels=3, out_channels=24, kernel_size=3, stride=2, padding=1), nn.MaxPool2d(kernel_size=2, stride=2))
-        self.stage2a = self._make_layer(24, 120, groups, layers[0])
-        self.stage1b = nn.Sequential(nn.Conv2d(in_channels=3, out_channels=24, kernel_size=3, stride=2, padding=1), nn.MaxPool2d(kernel_size=2, stride=2))
-        self.stage2b = self._make_layer(24, 120, groups, layers[0])
-        self.stage3 = self._make_layer(240, 480, groups, layers[1])
-        self.stage4 = self._make_layer(480, 960, groups, layers[2])
-        self.adapt_conv3 = nn.Conv2d(960, num_classes, kernel_size=1)
-        self.adapt_conv2 = nn.Conv2d(480, num_classes, kernel_size=1)
-        self.adapt_conv1 = nn.Conv2d(240, num_classes, kernel_size=1)
-        self.up_sampling3 = nn.ConvTranspose2d(in_channels=num_classes, out_channels=num_classes, kernel_size=4, stride=2, padding=1)
-        self.up_sampling2 = nn.ConvTranspose2d(in_channels=num_classes, out_channels=num_classes, kernel_size=4, stride=2, padding=1)
-        self.up_sampling1 = nn.ConvTranspose2d(in_channels=num_classes, out_channels=num_classes, kernel_size=16, stride=8, padding=4)
-        self.softmax = nn.Softmax(dim=1)
-        self.init_params()
-
-    def _make_layer(self, in_channels, out_channels, groups, block_num):
-        layers = []
-        layers.append(ShuffleNetUnits(in_channels=in_channels, out_channels=out_channels, stride=2, groups=groups))
-        for idx in range(1, block_num):
-            layers.append(ShuffleNetUnits(in_channels=out_channels, out_channels=out_channels, stride=1, groups=groups))
-        return nn.Sequential(*layers)
-
-    def init_params(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.Linear):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-    def forward(self, x, y):
-        x = self.stage2a(self.stage1a(x))
-        y = self.stage2b(self.stage1b(y))
-        feature1 = torch.cat([x, y], dim=1)
-        feature2 = self.stage3(feature1)
-        feature3 = self.stage4(feature2)
-        out3 = self.up_sampling3(self.adapt_conv3(feature3))
-        out2 = self.up_sampling2(self.adapt_conv2(feature2) + out3)
-        out1 = self.up_sampling1(self.adapt_conv1(feature1) + out2)
-        out = self.softmax(out1)
-        return out
-
-
-class ResidualBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super(ResidualBlock, self).__init__()
-        mid_channels = out_channels // 2
-        self.bottleneck = nn.Sequential(ConvBNReLU(in_channels=in_channels, out_channels=mid_channels, kernel_size=1, stride=1), ConvBNReLU(in_channels=mid_channels, out_channels=mid_channels, kernel_size=3, stride=1, padding=1), ConvBNReLU(in_channels=mid_channels, out_channels=out_channels, kernel_size=1, stride=1))
-        self.shortcut = ConvBNReLU(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1)
-
-    def forward(self, x):
-        out = self.bottleneck(x)
-        return out + self.shortcut(x)
 
 
 import torch

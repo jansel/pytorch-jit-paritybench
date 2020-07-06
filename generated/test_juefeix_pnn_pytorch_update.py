@@ -16,15 +16,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -32,13 +33,34 @@ __version__ = '1.0.0'
 import torch
 
 
-import torch.nn as nn
-
-
-import torch.nn.functional as F
+import torchvision.transforms as transforms
 
 
 import numpy as np
+
+
+import torch.utils.data as data
+
+
+from sklearn.utils import shuffle
+
+
+import math
+
+
+import types
+
+
+import random
+
+
+import numbers
+
+
+import scipy as sp
+
+
+from scipy import misc
 
 
 from torch import nn
@@ -47,13 +69,13 @@ from torch import nn
 import torch.optim as optim
 
 
-import torchvision.transforms as transforms
+import torch.nn as nn
+
+
+import torch.nn.functional as F
 
 
 import copy
-
-
-import math
 
 
 def act_fn(act):
@@ -74,31 +96,31 @@ def act_fn(act):
     elif act == 'sigmoid':
         act_ = nn.Sigmoid()
     else:
-        print('\n\nActivation function {} is not supported/understood\n\n'.format(act))
+        None
         act_ = None
     return act_
 
 
 def print_values(x, noise, y, unique_masks, n=2):
     np.set_printoptions(precision=5, linewidth=200, threshold=1000000, suppress=True)
-    print('\nimage: {}  image0, channel0          {}'.format(list(x.unsqueeze(2).size()), x.unsqueeze(2).data[(0), (0), (0), (0), :n].cpu().numpy()))
-    print('image: {}  image0, channel1          {}'.format(list(x.unsqueeze(2).size()), x.unsqueeze(2).data[(0), (1), (0), (0), :n].cpu().numpy()))
-    print('\nimage: {}  image1, channel0          {}'.format(list(x.unsqueeze(2).size()), x.unsqueeze(2).data[(1), (0), (0), (0), :n].cpu().numpy()))
-    print('image: {}  image1, channel1          {}'.format(list(x.unsqueeze(2).size()), x.unsqueeze(2).data[(1), (1), (0), (0), :n].cpu().numpy()))
+    None
+    None
+    None
+    None
     if noise is not None:
-        print('\nnoise {}  channel0, mask0:           {}'.format(list(noise.size()), noise.data[(0), (0), (0), (0), :n].cpu().numpy()))
-        print('noise {}  channel0, mask1:           {}'.format(list(noise.size()), noise.data[(0), (0), (1), (0), :n].cpu().numpy()))
+        None
+        None
         if unique_masks:
-            print('\nnoise {}  channel1, mask0:           {}'.format(list(noise.size()), noise.data[(0), (1), (0), (0), :n].cpu().numpy()))
-            print('noise {}  channel1, mask1:           {}'.format(list(noise.size()), noise.data[(0), (1), (1), (0), :n].cpu().numpy()))
-    print('\nmasks: {} image0, channel0, mask0:  {}'.format(list(y.size()), y.data[(0), (0), (0), (0), :n].cpu().numpy()))
-    print('masks: {} image0, channel0, mask1:  {}'.format(list(y.size()), y.data[(0), (0), (1), (0), :n].cpu().numpy()))
-    print('masks: {} image0, channel1, mask0:  {}'.format(list(y.size()), y.data[(0), (1), (0), (0), :n].cpu().numpy()))
-    print('masks: {} image0, channel1, mask1:  {}'.format(list(y.size()), y.data[(0), (1), (1), (0), :n].cpu().numpy()))
-    print('\nmasks: {} image1, channel0, mask0:  {}'.format(list(y.size()), y.data[(1), (0), (0), (0), :n].cpu().numpy()))
-    print('masks: {} image1, channel0, mask1:  {}'.format(list(y.size()), y.data[(1), (0), (1), (0), :n].cpu().numpy()))
-    print('masks: {} image1, channel1, mask0:  {}'.format(list(y.size()), y.data[(1), (1), (0), (0), :n].cpu().numpy()))
-    print('masks: {} image1, channel1, mask1:  {}'.format(list(y.size()), y.data[(1), (1), (1), (0), :n].cpu().numpy()))
+            None
+            None
+    None
+    None
+    None
+    None
+    None
+    None
+    None
+    None
 
 
 class PerturbLayerFirst(nn.Module):

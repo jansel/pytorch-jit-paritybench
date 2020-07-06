@@ -23,23 +23,36 @@ voc_eval = _module
 model = _module
 nms = _module
 _ext = _module
+nms = _module
 build = _module
 nms_gpu = _module
 nms_wrapper = _module
 pcl = _module
 pcl = _module
 pcl_losses = _module
+pcl_losses = _module
+build = _module
 functions = _module
+pcl_losses = _module
 modules = _module
 pcl_losses = _module
 roi_align = _module
 roi_align = _module
+build = _module
+roi_align = _module
+roi_align = _module
 roi_crop = _module
 crop_resize = _module
+roi_crop = _module
+build = _module
+crop_resize = _module
 gridgen = _module
+roi_crop = _module
 gridgen = _module
 roi_crop = _module
 roi_pooling = _module
+roi_pooling = _module
+build = _module
 roi_pool = _module
 roi_pool = _module
 utils = _module
@@ -48,6 +61,9 @@ modeling = _module
 model_builder = _module
 pcl_heads = _module
 roi_xfrom = _module
+roi_align = _module
+build = _module
+roi_align = _module
 roi_align = _module
 vgg16 = _module
 nn = _module
@@ -92,15 +108,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -120,10 +137,22 @@ import torch.nn as nn
 from torch.nn import init
 
 
-import torch.nn.functional as F
+from collections import defaultdict
 
 
 from torch.autograd import Variable
+
+
+import logging
+
+
+import torch.nn.functional as F
+
+
+from sklearn.cluster import KMeans
+
+
+from torch.autograd import Function
 
 
 from torch.nn.modules.module import Module
@@ -144,9 +173,6 @@ import random
 from functools import wraps
 
 
-import logging
-
-
 import torch.nn.init as init
 
 
@@ -159,49 +185,69 @@ import math
 from functools import reduce
 
 
+import torch.cuda.comm as comm
+
+
 from torch.nn import Module
 
 
-from collections import defaultdict
+import collections
 
 
-class PCLLosses(torch.autograd.Function):
+import re
+
+
+from torch._six import string_classes
+
+
+from torch._six import int_classes
+
+
+import numpy.random as npr
+
+
+import torch.utils.data as data
+
+
+import torch.utils.data.sampler as torch_sampler
+
+
+from torch.utils.data.dataloader import default_collate
+
+
+from torch._six import int_classes as _int_classes
+
+
+from collections import Iterable
+
+
+from copy import deepcopy
+
+
+from itertools import chain
+
+
+import time
+
+
+class PCLLosses(Function):
 
     def forward(ctx, pcl_probs, labels, cls_loss_weights, gt_assignment, pc_labels, pc_probs, pc_count, img_cls_loss_weights, im_labels):
-        ctx.pcl_probs, ctx.labels, ctx.cls_loss_weights, ctx.gt_assignment, ctx.pc_labels, ctx.pc_probs, ctx.pc_count, ctx.img_cls_loss_weights, ctx.im_labels = pcl_probs, labels, cls_loss_weights, gt_assignment, pc_labels, pc_probs, pc_count, img_cls_loss_weights, im_labels
-        batch_size, channels = pcl_probs.size()
-        loss = 0
-        ctx.mark_non_differentiable(labels, cls_loss_weights, gt_assignment, pc_labels, pc_probs, pc_count, img_cls_loss_weights, im_labels)
-        for c in range(channels):
-            if im_labels[0, c] != 0:
-                if c == 0:
-                    for i in range(batch_size):
-                        if labels[0, i] == 0:
-                            loss -= cls_loss_weights[0, i] * torch.log(pcl_probs[i, c])
-                else:
-                    for i in range(pc_labels.size(0)):
-                        if pc_probs[0, i] == c:
-                            loss -= img_cls_loss_weights[0, i] * torch.log(pc_probs[0, i])
-        return loss / batch_size
+        device_id = pcl_probs.get_device()
+        pcl_probs = pcl_probs.data.cpu()
+        ctx.save_for_backward(pcl_probs, labels, cls_loss_weights, gt_assignment, pc_labels, pc_probs, pc_count, img_cls_loss_weights, im_labels, torch.tensor(device_id))
+        output = pcl_probs.new(1, pcl_probs.shape[1]).zero_()
+        pcl_losses.pcl_losses_forward(pcl_probs, labels, cls_loss_weights, pc_labels, pc_probs, img_cls_loss_weights, im_labels, output)
+        return output.sum() / pcl_probs.size(0)
 
     def backward(ctx, grad_output):
-        pcl_probs, labels, cls_loss_weights, gt_assignment, pc_labels, pc_probs, pc_count, img_cls_loss_weights, im_labels = ctx.pcl_probs, ctx.labels, ctx.cls_loss_weights, ctx.gt_assignment, ctx.pc_labels, ctx.pc_probs, ctx.pc_count, ctx.img_cls_loss_weights, ctx.im_labels
+        pcl_probs, labels, cls_loss_weights, gt_assignment, pc_labels, pc_probs, pc_count, img_cls_loss_weights, im_labels, device_id = ctx.saved_tensors
+        if grad_output.is_cuda:
+            grad_output = grad_output.data.cpu()
         grad_input = grad_output.new(pcl_probs.size()).zero_()
-        batch_size, channels = pcl_probs.size()
-        for i in range(batch_size):
-            for c in range(channels):
-                grad_input[i, c] = 0
-                if im_labels[0, c] != 0:
-                    if c == 0:
-                        if labels[0, i] == 0:
-                            grad_input[i, c] = -cls_loss_weights[0, i] / pcl_probs[i, c]
-                    elif labels[0, i] == c:
-                        pc_index = int(gt_assignment[0, i].item())
-                        if c != pc_labels[0, pc_index]:
-                            print('labels mismatch.')
-                        grad_input[i, c] = -img_cls_loss_weights[0, pc_index] / (pc_count[0, pc_index] * pc_probs[0, pc_index])
-        grad_input /= batch_size
-        return grad_input, grad_output.new(labels.size()).zero_(), grad_output.new(cls_loss_weights.size()).zero_(), grad_output.new(gt_assignment.size()).zero_(), grad_output.new(pc_labels.size()).zero_(), grad_output.new(pc_probs.size()).zero_(), grad_output.new(pc_count.size()).zero_(), grad_output.new(img_cls_loss_weights.size()).zero_(), grad_output.new(im_labels.size()).zero_()
+        pcl_losses.pcl_losses_backward(pcl_probs, labels, cls_loss_weights, gt_assignment, pc_labels, pc_probs, pc_count, img_cls_loss_weights, im_labels, grad_output, grad_input)
+        grad_input /= pcl_probs.size(0)
+        return grad_input, None, None, None, None, None, None, None, None
 
 
 class _PCL_Losses(Module):
@@ -212,10 +258,11 @@ class _PCL_Losses(Module):
 
 class RoIAlignFunction(Function):
 
-    def __init__(self, aligned_height, aligned_width, spatial_scale):
+    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
         self.aligned_width = int(aligned_width)
         self.aligned_height = int(aligned_height)
         self.spatial_scale = float(spatial_scale)
+        self.sampling_ratio = int(sampling_ratio)
         self.rois = None
         self.feature_size = None
 
@@ -226,7 +273,7 @@ class RoIAlignFunction(Function):
         num_rois = rois.size(0)
         output = features.new(num_rois, num_channels, self.aligned_height, self.aligned_width).zero_()
         if features.is_cuda:
-            roi_align.roi_align_forward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, features, rois, output)
+            roi_align.roi_align_forward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, self.sampling_ratio, features, rois, output)
         else:
             raise NotImplementedError
         return output
@@ -235,45 +282,48 @@ class RoIAlignFunction(Function):
         assert self.feature_size is not None and grad_output.is_cuda
         batch_size, num_channels, data_height, data_width = self.feature_size
         grad_input = self.rois.new(batch_size, num_channels, data_height, data_width).zero_()
-        roi_align.roi_align_backward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, grad_output, self.rois, grad_input)
+        roi_align.roi_align_backward_cuda(self.aligned_height, self.aligned_width, self.spatial_scale, self.sampling_ratio, grad_output, self.rois, grad_input)
         return grad_input, None
 
 
 class RoIAlign(Module):
 
-    def __init__(self, aligned_height, aligned_width, spatial_scale):
+    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
         super(RoIAlign, self).__init__()
         self.aligned_width = int(aligned_width)
         self.aligned_height = int(aligned_height)
         self.spatial_scale = float(spatial_scale)
+        self.sampling_ratio = int(sampling_ratio)
 
     def forward(self, features, rois):
-        return RoIAlignFunction(self.aligned_height, self.aligned_width, self.spatial_scale)(features, rois)
+        return RoIAlignFunction(self.aligned_height, self.aligned_width, self.spatial_scale, self.sampling_ratio)(features, rois)
 
 
 class RoIAlignAvg(Module):
 
-    def __init__(self, aligned_height, aligned_width, spatial_scale):
+    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
         super(RoIAlignAvg, self).__init__()
         self.aligned_width = int(aligned_width)
         self.aligned_height = int(aligned_height)
         self.spatial_scale = float(spatial_scale)
+        self.sampling_ratio = int(sampling_ratio)
 
     def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale)(features, rois)
+        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale, self.sampling_ratio)(features, rois)
         return avg_pool2d(x, kernel_size=2, stride=1)
 
 
 class RoIAlignMax(Module):
 
-    def __init__(self, aligned_height, aligned_width, spatial_scale):
+    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
         super(RoIAlignMax, self).__init__()
         self.aligned_width = int(aligned_width)
         self.aligned_height = int(aligned_height)
         self.spatial_scale = float(spatial_scale)
+        self.sampling_ratio = int(sampling_ratio)
 
     def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale)(features, rois)
+        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale, self.sampling_ratio)(features, rois)
         return max_pool2d(x, kernel_size=2, stride=1)
 
 
@@ -574,49 +624,21 @@ class Depth3DGridGen_with_mask(Module):
         return output
 
 
-defines = []
-
-
-extra_objects = ['src/nms_cuda_kernel.cu.o']
-
-
-headers = []
-
-
-sources = []
-
-
-with_cuda = False
-
-
 class RoICropFunction(Function):
 
     def forward(self, input1, input2):
-        self.input1 = input1
-        self.input2 = input2
-        self.device_c = ffi.new('int *')
-        output = torch.zeros(input2.size()[0], input1.size()[1], input2.size()[1], input2.size()[2])
-        if input1.is_cuda:
-            self.device = torch.cuda.current_device()
-        else:
-            self.device = -1
-        self.device_c[0] = self.device
-        if not input1.is_cuda:
-            roi_crop.BilinearSamplerBHWD_updateOutput(input1, input2, output)
-        else:
-            output = output.cuda(self.device)
-            roi_crop.BilinearSamplerBHWD_updateOutput_cuda(input1, input2, output)
+        self.input1 = input1.clone()
+        self.input2 = input2.clone()
+        output = input2.new(input2.size()[0], input1.size()[1], input2.size()[1], input2.size()[2]).zero_()
+        assert output.get_device() == input1.get_device(), 'output and input1 must on the same device'
+        assert output.get_device() == input2.get_device(), 'output and input2 must on the same device'
+        roi_crop.BilinearSamplerBHWD_updateOutput_cuda(input1, input2, output)
         return output
 
     def backward(self, grad_output):
-        grad_input1 = torch.zeros(self.input1.size())
-        grad_input2 = torch.zeros(self.input2.size())
-        if not grad_output.is_cuda:
-            roi_crop.BilinearSamplerBHWD_updateGradInput(self.input1, self.input2, grad_input1, grad_input2, grad_output)
-        else:
-            grad_input1 = grad_input1.cuda(self.device)
-            grad_input2 = grad_input2.cuda(self.device)
-            roi_crop.BilinearSamplerBHWD_updateGradInput_cuda(self.input1, self.input2, grad_input1, grad_input2, grad_output)
+        grad_input1 = self.input1.new(self.input1.size()).zero_()
+        grad_input2 = self.input2.new(self.input2.size()).zero_()
+        roi_crop.BilinearSamplerBHWD_updateGradInput_cuda(self.input1, self.input2, grad_input1, grad_input2, grad_output)
         return grad_input1, grad_input2
 
 
@@ -675,12 +697,6 @@ def _build_graph(boxes, iou_threshold):
     """Build graph based on box IoU"""
     overlaps = box_utils.bbox_overlaps(boxes.astype(dtype=np.float32, copy=False), boxes.astype(dtype=np.float32, copy=False))
     return (overlaps > iou_threshold).astype(np.float32)
-
-
-_global_config['RNG_SEED'] = 4
-
-
-_global_config['TRAIN'] = 4
 
 
 def _get_top_ranking_propoals(probs):
@@ -784,9 +800,6 @@ def PCL(boxes, cls_prob, im_labels, cls_prob_new):
     return {'labels': labels.reshape(1, -1).astype(np.float32).copy(), 'cls_loss_weights': cls_loss_weights.reshape(1, -1).astype(np.float32).copy(), 'gt_assignment': gt_assignment.reshape(1, -1).astype(np.float32).copy(), 'pc_labels': pc_labels.reshape(1, -1).astype(np.float32).copy(), 'pc_probs': pc_probs.reshape(1, -1).astype(np.float32).copy(), 'pc_count': pc_count.reshape(1, -1).astype(np.float32).copy(), 'img_cls_loss_weights': img_cls_loss_weights.reshape(1, -1).astype(np.float32).copy(), 'im_labels_real': np.hstack((np.array([[1]]), im_labels)).astype(np.float32).copy()}
 
 
-_global_config['PYTORCH_VERSION_LESS_THAN_040'] = 4
-
-
 def check_inference(net_func):
 
     @wraps(net_func)
@@ -830,18 +843,6 @@ def get_func(func_name):
     except Exception:
         logger.error('Failed to find function: %s', func_name)
         raise
-
-
-_global_config['CROP_RESIZE_WITH_MAX_POOL'] = 4
-
-
-_global_config['MODEL'] = 4
-
-
-_global_config['FAST_RCNN'] = 4
-
-
-_global_config['REFINE_TIMES'] = 4
 
 
 class Generalized_RCNN(nn.Module):
@@ -1012,55 +1013,11 @@ class refine_outputs(nn.Module):
         return refine_score
 
 
-class RoIAlign(Module):
-
-    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
-        super(RoIAlign, self).__init__()
-        self.aligned_width = int(aligned_width)
-        self.aligned_height = int(aligned_height)
-        self.spatial_scale = float(spatial_scale)
-        self.sampling_ratio = int(sampling_ratio)
-
-    def forward(self, features, rois):
-        return RoIAlignFunction(self.aligned_height, self.aligned_width, self.spatial_scale, self.sampling_ratio)(features, rois)
-
-
-class RoIAlignAvg(Module):
-
-    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
-        super(RoIAlignAvg, self).__init__()
-        self.aligned_width = int(aligned_width)
-        self.aligned_height = int(aligned_height)
-        self.spatial_scale = float(spatial_scale)
-        self.sampling_ratio = int(sampling_ratio)
-
-    def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale, self.sampling_ratio)(features, rois)
-        return avg_pool2d(x, kernel_size=2, stride=1)
-
-
-class RoIAlignMax(Module):
-
-    def __init__(self, aligned_height, aligned_width, spatial_scale, sampling_ratio):
-        super(RoIAlignMax, self).__init__()
-        self.aligned_width = int(aligned_width)
-        self.aligned_height = int(aligned_height)
-        self.spatial_scale = float(spatial_scale)
-        self.sampling_ratio = int(sampling_ratio)
-
-    def forward(self, features, rois):
-        x = RoIAlignFunction(self.aligned_height + 1, self.aligned_width + 1, self.spatial_scale, self.sampling_ratio)(features, rois)
-        return max_pool2d(x, kernel_size=2, stride=1)
-
-
 def freeze_params(m):
     """Freeze all the weights by setting requires_grad to False
     """
     for p in m.parameters():
         p.requires_grad = False
-
-
-_global_config['VGG'] = 4
 
 
 class dilated_conv5_body(nn.Module):
@@ -1246,7 +1203,7 @@ class Scatter(Function):
         outputs = comm.scatter(input, ctx.target_gpus, ctx.chunk_sizes, ctx.dim, streams)
         if streams is not None:
             for i, output in enumerate(outputs):
-                with torch.cuda.device(ctx.target_gpus[i]):
+                with torch.device(ctx.target_gpus[i]):
                     main_stream = torch.cuda.current_stream()
                     main_stream.wait_stream(streams[i])
                     output.record_stream(main_stream)
@@ -1337,12 +1294,12 @@ class DataParallel(Module):
 
     def __init__(self, module, device_ids=None, output_device=None, dim=0, cpu_keywords=[], minibatch=False, batch_outputs=True):
         super(DataParallel, self).__init__()
-        if not torch.is_available():
+        if not torch.cuda.is_available():
             self.module = module
             self.device_ids = []
             return
         if device_ids is None:
-            device_ids = list(range(torch.device_count()))
+            device_ids = list(range(torch.cuda.device_count()))
         if output_device is None:
             output_device = device_ids[0]
         self.dim = dim
@@ -1431,6 +1388,10 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (DataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
     (Depth3DGridGen,
      lambda: ([], {'height': 4, 'width': 4}),
      lambda: ([torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -1440,10 +1401,6 @@ TESTCASES = [
      lambda: ([torch.rand([256, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
     (mil_outputs,
-     lambda: ([], {'dim_in': 4, 'dim_out': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (refine_outputs,
      lambda: ([], {'dim_in': 4, 'dim_out': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),

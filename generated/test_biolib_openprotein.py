@@ -1,7 +1,6 @@
 import sys
 _module = sys.modules[__name__]
 del sys
-__main__ = _module
 dashboard = _module
 experiments = _module
 example = _module
@@ -26,15 +25,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -61,6 +61,21 @@ import time
 
 
 from enum import Enum
+
+
+import random
+
+
+from torch.utils.data.dataset import Dataset
+
+
+import torch.onnx
+
+
+import re
+
+
+import torch.optim as optim
 
 
 import collections
@@ -132,8 +147,8 @@ def calc_pairwise_distances(chain_a, chain_b, use_gpu):
     distance_matrix = torch.Tensor(chain_a.size()[0], chain_b.size()[0]).type(torch.float)
     epsilon = 10 ** -4 * torch.ones(chain_a.size(0), chain_b.size(0))
     if use_gpu:
-        distance_matrix = distance_matrix.cuda()
-        epsilon = epsilon.cuda()
+        distance_matrix = distance_matrix
+        epsilon = epsilon
     for idx, row in enumerate(chain_a.split(1)):
         distance_matrix[idx] = torch.sum((row.expand_as(chain_b) - chain_b) ** 2, 1).view(1, -1)
     return torch.sqrt(distance_matrix + epsilon)
@@ -200,7 +215,7 @@ def calculate_dihedral_angles(atomic_coords, use_gpu):
     atomic_coords = atomic_coords.contiguous().view(-1, 3)
     zero_tensor = torch.zeros(1)
     if use_gpu:
-        zero_tensor = zero_tensor.cuda()
+        zero_tensor = zero_tensor
     angles = torch.cat((zero_tensor, zero_tensor, compute_dihedral_list(atomic_coords), zero_tensor)).view(-1, 3)
     return angles
 
@@ -244,8 +259,8 @@ def dihedral_to_point(dihedral, use_gpu, bond_lengths=BOND_LENGTHS, bond_angles=
     r_cos_theta = bond_lengths * torch.cos(PI_TENSOR - bond_angles)
     r_sin_theta = bond_lengths * torch.sin(PI_TENSOR - bond_angles)
     if use_gpu:
-        r_cos_theta = r_cos_theta.cuda()
-        r_sin_theta = r_sin_theta.cuda()
+        r_cos_theta = r_cos_theta
+        r_sin_theta = r_sin_theta
     point_x = r_cos_theta.view(1, 1, -1).repeat(num_steps, batch_size, 1)
     point_y = torch.cos(dihedral) * r_sin_theta
     point_z = torch.sin(dihedral) * r_sin_theta
@@ -285,7 +300,7 @@ def point_to_coordinate(points, use_gpu, num_fragments):
     for row in PNERF_INIT_MATRIX:
         row_tensor = row.repeat([num_fragments * batch_size, 1]).view(num_fragments, batch_size, NUM_DIMENSIONS)
         if use_gpu:
-            row_tensor = row_tensor.cuda()
+            row_tensor = row_tensor
         init_coords.append(row_tensor)
     init_coords = Triplet(*init_coords)
     padding = torch.fmod(num_fragments - total_num_angles % num_fragments, num_fragments)
@@ -371,7 +386,7 @@ def write_out(*args, end='\n'):
         with open('output/' + globals().get('experiment_id') + '.txt', 'a+') as output_file:
             output_file.write(output_string)
             output_file.flush()
-    print(output_string, end='')
+    None
 
 
 def write_to_pdb(structure, prot_id):

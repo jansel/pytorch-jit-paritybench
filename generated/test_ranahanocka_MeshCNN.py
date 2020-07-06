@@ -25,23 +25,34 @@ test = _module
 train = _module
 util = _module
 mesh_viewer = _module
+util = _module
 writer = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch.utils.data
+
+
+import torch.utils.data as data
+
+
+import numpy as np
 
 
 import torch
@@ -51,9 +62,6 @@ import torch.nn as nn
 
 
 import torch.nn.functional as F
-
-
-import numpy as np
 
 
 from torch.nn import ConstantPad2d
@@ -424,6 +432,29 @@ class NoNorm(nn.Module):
         return self.forward(x)
 
 
+class MResConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels, skips=1):
+        super(MResConv, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.skips = skips
+        self.conv0 = MeshConv(self.in_channels, self.out_channels, bias=False)
+        for i in range(self.skips):
+            setattr(self, 'bn{}'.format(i + 1), nn.BatchNorm2d(self.out_channels))
+            setattr(self, 'conv{}'.format(i + 1), MeshConv(self.out_channels, self.out_channels, bias=False))
+
+    def forward(self, x, mesh):
+        x = self.conv0(x, mesh)
+        x1 = x
+        for i in range(self.skips):
+            x = getattr(self, 'bn{}'.format(i + 1))(F.relu(x))
+            x = getattr(self, 'conv{}'.format(i + 1))(x, mesh)
+        x += x1
+        x = F.relu(x)
+        return x
+
+
 def get_norm_args(norm_layer, nfeats_list):
     if hasattr(norm_layer, '__name__') and norm_layer.__name__ == 'NoNorm':
         norm_args = [{'fake': True} for f in nfeats_list]
@@ -463,92 +494,6 @@ class MeshConvNet(nn.Module):
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
-
-
-class MResConv(nn.Module):
-
-    def __init__(self, in_channels, out_channels, skips=1):
-        super(MResConv, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.skips = skips
-        self.conv0 = MeshConv(self.in_channels, self.out_channels, bias=False)
-        for i in range(self.skips):
-            setattr(self, 'bn{}'.format(i + 1), nn.BatchNorm2d(self.out_channels))
-            setattr(self, 'conv{}'.format(i + 1), MeshConv(self.out_channels, self.out_channels, bias=False))
-
-    def forward(self, x, mesh):
-        x = self.conv0(x, mesh)
-        x1 = x
-        for i in range(self.skips):
-            x = getattr(self, 'bn{}'.format(i + 1))(F.relu(x))
-            x = getattr(self, 'conv{}'.format(i + 1))(x, mesh)
-        x += x1
-        x = F.relu(x)
-        return x
-
-
-class MeshEncoderDecoder(nn.Module):
-    """Network for fully-convolutional tasks (segmentation)
-    """
-
-    def __init__(self, pools, down_convs, up_convs, blocks=0, transfer_data=True):
-        super(MeshEncoderDecoder, self).__init__()
-        self.transfer_data = transfer_data
-        self.encoder = MeshEncoder(pools, down_convs, blocks=blocks)
-        unrolls = pools[:-1].copy()
-        unrolls.reverse()
-        self.decoder = MeshDecoder(unrolls, up_convs, blocks=blocks, transfer_data=transfer_data)
-
-    def forward(self, x, meshes):
-        fe, before_pool = self.encoder((x, meshes))
-        fe = self.decoder((fe, meshes), before_pool)
-        return fe
-
-    def __call__(self, x, meshes):
-        return self.forward(x, meshes)
-
-
-class DownConv(nn.Module):
-
-    def __init__(self, in_channels, out_channels, blocks=0, pool=0):
-        super(DownConv, self).__init__()
-        self.bn = []
-        self.pool = None
-        self.conv1 = MeshConv(in_channels, out_channels)
-        self.conv2 = []
-        for _ in range(blocks):
-            self.conv2.append(MeshConv(out_channels, out_channels))
-            self.conv2 = nn.ModuleList(self.conv2)
-        for _ in range(blocks + 1):
-            self.bn.append(nn.InstanceNorm2d(out_channels))
-            self.bn = nn.ModuleList(self.bn)
-        if pool:
-            self.pool = MeshPool(pool)
-
-    def __call__(self, x):
-        return self.forward(x)
-
-    def forward(self, x):
-        fe, meshes = x
-        x1 = self.conv1(fe, meshes)
-        if self.bn:
-            x1 = self.bn[0](x1)
-        x1 = F.relu(x1)
-        x2 = x1
-        for idx, conv in enumerate(self.conv2):
-            x2 = conv(x1, meshes)
-            if self.bn:
-                x2 = self.bn[idx + 1](x2)
-            x2 = x2 + x1
-            x2 = F.relu(x2)
-            x1 = x2
-        x2 = x2.squeeze(3)
-        before_pool = None
-        if self.pool:
-            before_pool = x2
-            x2 = self.pool(x2, meshes)
-        return x2, before_pool
 
 
 class UpConv(nn.Module):
@@ -613,6 +558,77 @@ def reset_params(model):
         weight_init(m)
 
 
+class MeshDecoder(nn.Module):
+
+    def __init__(self, unrolls, convs, blocks=0, batch_norm=True, transfer_data=True):
+        super(MeshDecoder, self).__init__()
+        self.up_convs = []
+        for i in range(len(convs) - 2):
+            if i < len(unrolls):
+                unroll = unrolls[i]
+            else:
+                unroll = 0
+            self.up_convs.append(UpConv(convs[i], convs[i + 1], blocks=blocks, unroll=unroll, batch_norm=batch_norm, transfer_data=transfer_data))
+        self.final_conv = UpConv(convs[-2], convs[-1], blocks=blocks, unroll=False, batch_norm=batch_norm, transfer_data=False)
+        self.up_convs = nn.ModuleList(self.up_convs)
+        reset_params(self)
+
+    def forward(self, x, encoder_outs=None):
+        fe, meshes = x
+        for i, up_conv in enumerate(self.up_convs):
+            before_pool = None
+            if encoder_outs is not None:
+                before_pool = encoder_outs[-(i + 2)]
+            fe = up_conv((fe, meshes), before_pool)
+        fe = self.final_conv((fe, meshes))
+        return fe
+
+    def __call__(self, x, encoder_outs=None):
+        return self.forward(x, encoder_outs)
+
+
+class DownConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels, blocks=0, pool=0):
+        super(DownConv, self).__init__()
+        self.bn = []
+        self.pool = None
+        self.conv1 = MeshConv(in_channels, out_channels)
+        self.conv2 = []
+        for _ in range(blocks):
+            self.conv2.append(MeshConv(out_channels, out_channels))
+            self.conv2 = nn.ModuleList(self.conv2)
+        for _ in range(blocks + 1):
+            self.bn.append(nn.InstanceNorm2d(out_channels))
+            self.bn = nn.ModuleList(self.bn)
+        if pool:
+            self.pool = MeshPool(pool)
+
+    def __call__(self, x):
+        return self.forward(x)
+
+    def forward(self, x):
+        fe, meshes = x
+        x1 = self.conv1(fe, meshes)
+        if self.bn:
+            x1 = self.bn[0](x1)
+        x1 = F.relu(x1)
+        x2 = x1
+        for idx, conv in enumerate(self.conv2):
+            x2 = conv(x1, meshes)
+            if self.bn:
+                x2 = self.bn[idx + 1](x2)
+            x2 = x2 + x1
+            x2 = F.relu(x2)
+            x1 = x2
+        x2 = x2.squeeze(3)
+        before_pool = None
+        if self.pool:
+            before_pool = x2
+            x2 = self.pool(x2, meshes)
+        return x2, before_pool
+
+
 class MeshEncoder(nn.Module):
 
     def __init__(self, pools, convs, fcs=None, blocks=0, global_pool=None):
@@ -673,33 +689,25 @@ class MeshEncoder(nn.Module):
         return self.forward(x)
 
 
-class MeshDecoder(nn.Module):
+class MeshEncoderDecoder(nn.Module):
+    """Network for fully-convolutional tasks (segmentation)
+    """
 
-    def __init__(self, unrolls, convs, blocks=0, batch_norm=True, transfer_data=True):
-        super(MeshDecoder, self).__init__()
-        self.up_convs = []
-        for i in range(len(convs) - 2):
-            if i < len(unrolls):
-                unroll = unrolls[i]
-            else:
-                unroll = 0
-            self.up_convs.append(UpConv(convs[i], convs[i + 1], blocks=blocks, unroll=unroll, batch_norm=batch_norm, transfer_data=transfer_data))
-        self.final_conv = UpConv(convs[-2], convs[-1], blocks=blocks, unroll=False, batch_norm=batch_norm, transfer_data=False)
-        self.up_convs = nn.ModuleList(self.up_convs)
-        reset_params(self)
+    def __init__(self, pools, down_convs, up_convs, blocks=0, transfer_data=True):
+        super(MeshEncoderDecoder, self).__init__()
+        self.transfer_data = transfer_data
+        self.encoder = MeshEncoder(pools, down_convs, blocks=blocks)
+        unrolls = pools[:-1].copy()
+        unrolls.reverse()
+        self.decoder = MeshDecoder(unrolls, up_convs, blocks=blocks, transfer_data=transfer_data)
 
-    def forward(self, x, encoder_outs=None):
-        fe, meshes = x
-        for i, up_conv in enumerate(self.up_convs):
-            before_pool = None
-            if encoder_outs is not None:
-                before_pool = encoder_outs[-(i + 2)]
-            fe = up_conv((fe, meshes), before_pool)
-        fe = self.final_conv((fe, meshes))
+    def forward(self, x, meshes):
+        fe, before_pool = self.encoder((x, meshes))
+        fe = self.decoder((fe, meshes), before_pool)
         return fe
 
-    def __call__(self, x, encoder_outs=None):
-        return self.forward(x, encoder_outs)
+    def __call__(self, x, meshes):
+        return self.forward(x, meshes)
 
 
 import torch

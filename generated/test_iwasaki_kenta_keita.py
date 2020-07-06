@@ -17,6 +17,8 @@ rnn_main = _module
 classifiers = _module
 encoders = _module
 encoders = _module
+utils = _module
+utils = _module
 encoders = _module
 meta = _module
 
@@ -24,17 +26,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import random
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision import transforms
 
 
 import torch
@@ -428,7 +440,7 @@ class MahalanobisMetricLoss(nn.Module):
         :return: Loss and accuracy. Loss is a variable which may have a backward pass performed.
         """
         loss = torch.zeros(1)
-        if torch.is_available():
+        if torch.cuda.is_available():
             loss = loss
         loss = torch.autograd.Variable(loss)
         batch_size = outputs.size(0)
@@ -466,35 +478,6 @@ class MahalanobisMetricLoss(nn.Module):
         return loss / (2 * num_pairs), accuracy
 
 
-class HierarchialNetwork1D(nn.Module):
-    """
-    A shallow 1D CNN text classification model.
-    Sequences are assumed to be 3D tensors (sequence length, sentence_batch size, word dim.)
-    """
-
-    def __init__(self, embed_dim, hidden_dim=64):
-        super(HierarchialNetwork1D, self).__init__()
-        self.layers = nn.ModuleList()
-        first_block = nn.Sequential(nn.Conv1d(in_channels=embed_dim, out_channels=hidden_dim, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.BatchNorm1d(hidden_dim))
-        self.layers.append(first_block)
-        for layer_index in range(4):
-            conv_block = nn.Sequential(nn.Conv1d(in_channels=hidden_dim, out_channels=hidden_dim, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.BatchNorm1d(hidden_dim))
-            self.layers.append(conv_block)
-
-    @staticmethod
-    def get_output_size(hidden_dim):
-        return hidden_dim * 5
-
-    def forward(self, x):
-        x = x.transpose(0, 1).transpose(1, 2)
-        feature_maps = []
-        for layer in self.layers:
-            x = layer(x)
-            feature_maps.append(F.max_pool1d(x, kernel_size=x.size(2)).squeeze())
-        features = torch.cat(feature_maps, dim=1)
-        return features
-
-
 class BidirectionalEncoder(nn.Module):
 
     def __init__(self, embed_dim=50, hidden_dim=300, num_layers=4, dropout=0.1, rnn=nn.GRU, pooling_mode='max'):
@@ -530,6 +513,89 @@ class BidirectionalEncoder(nn.Module):
             encoder_outputs = F.avg_pool1d(encoder_outputs, kernel_size=encoder_outputs.size(2))
         encoder_outputs = encoder_outputs.squeeze()
         return encoder_outputs
+
+
+class SiameseNet(nn.Module):
+
+    def __init__(self, num_classes=2, embed_dim=300, fc_dim=512, hidden_dim=512, encoder=BidirectionalEncoder, *encoder_params):
+        super(SiameseNet, self).__init__()
+        self.encoder = encoder(*encoder_params, embed_dim=embed_dim, hidden_dim=hidden_dim)
+        self.encoder_dim = encoder.get_output_size(hidden_dim)
+        self.classifier = nn.Sequential(nn.Dropout(p=0.5), nn.Linear(self.encoder_dim * 4, fc_dim), nn.Tanh(), nn.Dropout(p=0.5), nn.Linear(fc_dim, num_classes))
+
+    def forward(self, source_sentences, target_sentences):
+        """
+        Supervised Learning of Universal Sentence Representations from Natural Language Inference Data
+        https://arxiv.org/abs/1705.02364
+
+        A Siamese text classification network made w/ the goal of creating sentence embeddings.
+
+        :param source_sentences:  A tuple of Variable's representing padded sentence tensor batch
+            [seq. length, batch size, embed. size] and sentence lengths.
+        :param target_sentences:  A tuple of Variable's representing padded sentence tensor batch
+            [seq. length, batch size, embed. size] and sentence lengths.
+        :return: Embedding. (batch size, # classes)
+        """
+        u = self.encoder(source_sentences)
+        v = self.encoder(target_sentences)
+        features = torch.cat((u, v, torch.abs(u - v), u * v), 1)
+        return self.classifier(features)
+
+    def encode(self, sentences):
+        return self.encoder(sentences)
+
+
+class LinearNet(nn.Module):
+
+    def __init__(self, num_classes=2, embed_dim=300, fc_dim=512, hidden_dim=512, encoder=BidirectionalEncoder, **encoder_params):
+        super(LinearNet, self).__init__()
+        self.encoder = encoder(embed_dim=embed_dim, hidden_dim=hidden_dim, **encoder_params)
+        self.encoder_dim = encoder.get_output_size(hidden_dim)
+        if 'Bidirectional' in encoder.__class__.__name__:
+            self.encoder_dim = self.encoder_dim * 2
+        self.classifier = nn.Sequential(nn.Dropout(p=0.5), nn.Linear(self.encoder_dim, fc_dim), nn.Tanh(), nn.Dropout(p=0.5), nn.Linear(fc_dim, num_classes))
+
+    def forward(self, source_sentences):
+        """
+        A text classification network made w/ the goal of creating sentence embeddings.
+
+        :param source_sentences:  A tuple of Variable's representing padded sentence tensor batch
+            [seq. length, batch size, embed. size] and sentence lengths.
+        :return: Embedding. (batch size, # classes)
+        """
+        return self.classifier(self.encode(source_sentences))
+
+    def encode(self, sentences):
+        return self.encoder(sentences)
+
+
+class HierarchialNetwork1D(nn.Module):
+    """
+    A shallow 1D CNN text classification model.
+    Sequences are assumed to be 3D tensors (sequence length, sentence_batch size, word dim.)
+    """
+
+    def __init__(self, embed_dim, hidden_dim=64):
+        super(HierarchialNetwork1D, self).__init__()
+        self.layers = nn.ModuleList()
+        first_block = nn.Sequential(nn.Conv1d(in_channels=embed_dim, out_channels=hidden_dim, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.BatchNorm1d(hidden_dim))
+        self.layers.append(first_block)
+        for layer_index in range(4):
+            conv_block = nn.Sequential(nn.Conv1d(in_channels=hidden_dim, out_channels=hidden_dim, kernel_size=3, padding=1), nn.ReLU(inplace=True), nn.BatchNorm1d(hidden_dim))
+            self.layers.append(conv_block)
+
+    @staticmethod
+    def get_output_size(hidden_dim):
+        return hidden_dim * 5
+
+    def forward(self, x):
+        x = x.transpose(0, 1).transpose(1, 2)
+        feature_maps = []
+        for layer in self.layers:
+            x = layer(x)
+            feature_maps.append(F.max_pool1d(x, kernel_size=x.size(2)).squeeze())
+        features = torch.cat(feature_maps, dim=1)
+        return features
 
 
 class OmniglotEncoder(nn.Module):

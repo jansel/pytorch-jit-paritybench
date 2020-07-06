@@ -19,6 +19,7 @@ data_parallel = _module
 utils = _module
 data = _module
 dataloader = _module
+dataset = _module
 distributed = _module
 sampler = _module
 th = _module
@@ -28,6 +29,7 @@ mobilenet = _module
 models = _module
 resnet = _module
 resnext = _module
+utils = _module
 test = _module
 train = _module
 
@@ -35,26 +37,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import time
+import torch
+
+
+from torchvision import transforms
 
 
 import numpy as np
 
 
-import torch
+import time
 
 
 import torch.nn as nn
@@ -94,6 +100,36 @@ import torch.cuda as cuda
 
 
 from torch.nn.parallel._functions import Gather
+
+
+import torch.multiprocessing as multiprocessing
+
+
+from torch._C import _set_worker_signal_handlers
+
+
+from torch._C import _remove_worker_pids
+
+
+from torch._C import _error_if_any_worker_fails
+
+
+import re
+
+
+from torch._six import string_classes
+
+
+from torch._six import int_classes
+
+
+import warnings
+
+
+from torch._utils import _accumulate
+
+
+from torch import randperm
 
 
 from torch.distributed import get_world_size
@@ -315,6 +351,193 @@ class _SynchronizedBatchNorm(_BatchNorm):
         return mean, bias_var.clamp(self.eps) ** -0.5
 
 
+class SynchronizedBatchNorm1d(_SynchronizedBatchNorm):
+    """Applies Synchronized Batch Normalization over a 2d or 3d input that is seen as a
+    mini-batch.
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm1d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+    
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, L)` slices, it's common terminology to call this Temporal BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of size
+            `batch_size x num_features [x width]`
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape:
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm1d, self)._check_input_dim(input)
+
+
+class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 4d input that is seen as a mini-batch
+    of 3d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm2d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+    
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape:
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm2d, self)._check_input_dim(input)
+
+
+class SynchronizedBatchNorm3d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 5d input that is seen as a mini-batch
+    of 4d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm3d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+    
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, D, H, W)` slices, it's common terminology to call this Volumetric BatchNorm
+    or Spatio-temporal BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x depth x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape:
+        - Input: :math:`(N, C, D, H, W)`
+        - Output: :math:`(N, C, D, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45, 10))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm3d, self)._check_input_dim(input)
+
+
 class CallbackContext(object):
     pass
 
@@ -388,69 +611,57 @@ class DictGatherDataParallel(nn.DataParallel):
         return dict_gather(outputs, output_device, dim=self.dim)
 
 
-BN_MOMENTUM = 0.1
+def _get_stream(device):
+    """Gets a background stream for copying between CPU and GPU"""
+    global _streams
+    if device == -1:
+        return None
+    if _streams is None:
+        _streams = [None] * cuda.device_count()
+    if _streams[device] is None:
+        _streams[device] = cuda.Stream(device)
+    return _streams[device]
 
 
-class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
-    """Applies Batch Normalization over a 4d input that is seen as a mini-batch
-    of 3d inputs
+def async_copy_to(obj, dev, main_stream=None):
+    if torch.is_tensor(obj):
+        v = obj
+        if main_stream is not None:
+            v.data.record_stream(main_stream)
+        return v
+    elif isinstance(obj, collections.Mapping):
+        return {k: async_copy_to(o, dev, main_stream) for k, o in obj.items()}
+    elif isinstance(obj, collections.Sequence):
+        return [async_copy_to(o, dev, main_stream) for o in obj]
+    else:
+        return obj
 
-    .. math::
 
-        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+def _async_copy_stream(inputs, device_ids):
+    nr_devs = len(device_ids)
+    assert type(inputs) in (tuple, list)
+    assert len(inputs) == nr_devs
+    outputs = []
+    streams = [_get_stream(d) for d in device_ids]
+    for i, dev, stream in zip(inputs, device_ids, streams):
+        with cuda.device(dev):
+            main_stream = cuda.current_stream()
+            with cuda.stream(stream):
+                outputs.append(async_copy_to(i, dev, main_stream=main_stream))
+            main_stream.wait_stream(stream)
+    return outputs
 
-    This module differs from the built-in PyTorch BatchNorm2d as the mean and
-    standard-deviation are reduced across all devices during training.
 
-    For example, when one uses `nn.DataParallel` to wrap the network during
-    training, PyTorch's implementation normalize the tensor on each device using
-    the statistics only on that device, which accelerated the computation and
-    is also easy to implement, but the statistics might be inaccurate.
-    Instead, in this synchronized version, the statistics will be computed
-    over all training samples distributed on multiple devices.
-    
-    Note that, for one-GPU or CPU-only case, this module behaves exactly same
-    as the built-in PyTorch implementation.
+class UserScatteredDataParallel(DictGatherDataParallel):
 
-    The mean and standard-deviation are calculated per-dimension over
-    the mini-batches and gamma and beta are learnable parameter vectors
-    of size C (where C is the input size).
-
-    During training, this layer keeps a running estimate of its computed mean
-    and variance. The running sum is kept with a default momentum of 0.1.
-
-    During evaluation, this running mean/variance is used for normalization.
-
-    Because the BatchNorm is done over the `C` dimension, computing statistics
-    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
-
-    Args:
-        num_features: num_features from an expected input of
-            size batch_size x num_features x height x width
-        eps: a value added to the denominator for numerical stability.
-            Default: 1e-5
-        momentum: the value used for the running_mean and running_var
-            computation. Default: 0.1
-        affine: a boolean value that when set to ``True``, gives the layer learnable
-            affine parameters. Default: ``True``
-
-    Shape:
-        - Input: :math:`(N, C, H, W)`
-        - Output: :math:`(N, C, H, W)` (same shape as input)
-
-    Examples:
-        >>> # With Learnable Parameters
-        >>> m = SynchronizedBatchNorm2d(100)
-        >>> # Without Learnable Parameters
-        >>> m = SynchronizedBatchNorm2d(100, affine=False)
-        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45))
-        >>> output = m(input)
-    """
-
-    def _check_input_dim(self, input):
-        if input.dim() != 4:
-            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
-        super(SynchronizedBatchNorm2d, self)._check_input_dim(input)
+    def scatter(self, inputs, kwargs, device_ids):
+        assert len(inputs) == 1
+        inputs = inputs[0]
+        inputs = _async_copy_stream(inputs, device_ids)
+        inputs = [[i] for i in inputs]
+        assert len(kwargs) == 0
+        kwargs = [{} for _ in range(len(inputs))]
+        return inputs, kwargs
 
 
 BatchNorm2d = SynchronizedBatchNorm2d
@@ -467,10 +678,10 @@ class BasicBlock(nn.Module):
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.bn1 = BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
-        self.bn2 = BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.bn2 = BatchNorm2d(planes)
         self.downsample = downsample
         self.stride = stride
 
@@ -494,11 +705,11 @@ class Bottleneck(nn.Module):
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = BatchNorm2d(planes, momentum=BN_MOMENTUM)
+        self.bn1 = BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = BatchNorm2d(planes, momentum=BN_MOMENTUM)
-        self.conv3 = nn.Conv2d(planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.bn3 = BatchNorm2d(planes * self.expansion, momentum=BN_MOMENTUM)
+        self.bn2 = BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
@@ -518,6 +729,9 @@ class Bottleneck(nn.Module):
         out += residual
         out = self.relu(out)
         return out
+
+
+BN_MOMENTUM = 0.1
 
 
 logger = logging.getLogger(__name__)
@@ -823,6 +1037,32 @@ class SegmentationModuleBase(nn.Module):
         return acc
 
 
+class SegmentationModule(SegmentationModuleBase):
+
+    def __init__(self, net_enc, net_dec, crit, deep_sup_scale=None):
+        super(SegmentationModule, self).__init__()
+        self.encoder = net_enc
+        self.decoder = net_dec
+        self.crit = crit
+        self.deep_sup_scale = deep_sup_scale
+
+    def forward(self, feed_dict, *, segSize=None):
+        if segSize is None:
+            if self.deep_sup_scale is not None:
+                pred, pred_deepsup = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True))
+            else:
+                pred = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True))
+            loss = self.crit(pred, feed_dict['seg_label'])
+            if self.deep_sup_scale is not None:
+                loss_deepsup = self.crit(pred_deepsup, feed_dict['seg_label'])
+                loss = loss + loss_deepsup * self.deep_sup_scale
+            acc = self.pixel_acc(pred, feed_dict['seg_label'])
+            return loss, acc
+        else:
+            pred = self.decoder(self.encoder(feed_dict['img_data'], return_feature_maps=True), segSize=segSize)
+            return pred
+
+
 class Resnet(nn.Module):
 
     def __init__(self, orig_resnet):
@@ -1125,65 +1365,6 @@ class UPerNet(nn.Module):
         return x
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
 class ResNet(nn.Module):
 
     def __init__(self, block, layers, num_classes=1000):
@@ -1341,6 +1522,10 @@ TESTCASES = [
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
      False),
+    (UserScatteredDataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
 ]
 
 class Test_CSAILVision_semantic_segmentation_pytorch(_paritybench_base):
@@ -1349,4 +1534,7 @@ class Test_CSAILVision_semantic_segmentation_pytorch(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

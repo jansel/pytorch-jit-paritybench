@@ -9,6 +9,8 @@ lib = _module
 build = _module
 nms = _module
 _ext = _module
+nms = _module
+build = _module
 pth_nms = _module
 nms_wrapper = _module
 pycocotools = _module
@@ -17,6 +19,7 @@ cocoeval = _module
 mask = _module
 roi_align = _module
 crop_and_resize = _module
+build = _module
 crop_and_resize = _module
 roi_align = _module
 network = _module
@@ -44,15 +47,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -112,6 +116,9 @@ from torch import nn
 
 
 import torch.utils.model_zoo as model_zoo
+
+
+import torch.utils.data as data
 
 
 class CropAndResizeFunction(Function):
@@ -338,7 +345,7 @@ def ROIAlign(feature_maps, rois, config, pool_size, mode='bilinear'):
         indices_pooled = ixx.nonzero()[:, (0)]
         pooled[(indices_pooled.data), :, :, :] = crops.data
     pooled = pooled.view(config.IMAGES_PER_GPU, roi_number, 256, pool_size, pool_size)
-    pooled = Variable(pooled).cuda()
+    pooled = Variable(pooled)
     return pooled
 
 
@@ -536,7 +543,7 @@ def mrcnn_class_loss(target_class_ids, pred_class_logits, active_class_ids, conf
         for classes that are not in the dataset.
     """
     pred_class_logits = pred_class_logits.contiguous().view(-1, config.NUM_CLASSES)
-    target_class_ids = target_class_ids.contiguous().view(-1).type(torch.cuda.LongTensor)
+    target_class_ids = target_class_ids.contiguous().view(-1).type(torch.LongTensor)
     loss = F.cross_entropy(pred_class_logits, target_class_ids, weight=None, size_average=True)
     return loss
 
@@ -583,7 +590,7 @@ def pth_nms(dets, thresh):
         keep = torch.LongTensor(dets.size(0))
         num_out = torch.LongTensor(1)
         nms.gpu_nms(keep, num_out, dets, thresh)
-        return order[keep[:num_out[0]].cuda()].contiguous()
+        return order[keep[:num_out[0]]].contiguous()
 
 
 def nms(dets, thresh):
@@ -607,7 +614,7 @@ def rpn_bbox_loss(target_bbox, rpn_match, rpn_bbox, config):
     batch_counts = torch.sum(indices.float(), dim=1)
     outputs = []
     for i in range(config.IMAGES_PER_GPU):
-        outputs.append(target_bbox[torch.cuda.LongTensor([i]), torch.arange(int(batch_counts[i].cpu().data.numpy()[0])).type(torch.cuda.LongTensor)])
+        outputs.append(target_bbox[torch.LongTensor([i]), torch.arange(int(batch_counts[i].cpu().data.numpy()[0])).type(torch.LongTensor)])
     target_bbox = torch.cat(outputs, dim=0)
     loss = F.smooth_l1_loss(rpn_bbox, target_bbox, size_average=True)
     return loss
@@ -625,7 +632,7 @@ def rpn_class_loss(rpn_match, rpn_class_logits):
     rpn_class_logits = torch.masked_select(rpn_class_logits, indices)
     anchor_class = torch.masked_select(anchor_class, indices)
     rpn_class_logits = rpn_class_logits.contiguous().view(-1, 2)
-    anchor_class = anchor_class.contiguous().view(-1).type(torch.cuda.LongTensor)
+    anchor_class = anchor_class.contiguous().view(-1).type(torch.LongTensor)
     loss = F.cross_entropy(rpn_class_logits, anchor_class, weight=None)
     return loss
 

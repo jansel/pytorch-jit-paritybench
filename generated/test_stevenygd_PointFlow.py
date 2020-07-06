@@ -25,15 +25,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -44,7 +45,37 @@ import torch
 import numpy as np
 
 
+from torch.utils.data import Dataset
+
+
+from torch.utils import data
+
+
+import random
+
+
 import torch.nn as nn
+
+
+import warnings
+
+
+from scipy.stats import entropy
+
+
+from sklearn.neighbors import NearestNeighbors
+
+
+from numpy.linalg import norm
+
+
+from torch.autograd import Function
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from torch.utils.cpp_extension import BuildExtension
 
 
 import torch.nn.functional as F
@@ -68,13 +99,7 @@ from collections import defaultdict
 import torch.distributed as dist
 
 
-import warnings
-
-
 import torch.distributed
-
-
-import random
 
 
 import torch.multiprocessing as mp
@@ -87,6 +112,15 @@ import scipy.misc
 
 
 from torch.backends import cudnn
+
+
+from sklearn.svm import LinearSVC
+
+
+from math import log
+
+
+from math import pi
 
 
 class SequentialFlow(nn.Module):
@@ -334,6 +368,225 @@ class Encoder(nn.Module):
         return m, v
 
 
+def reduce_tensor(tensor, world_size=None):
+    rt = tensor.clone()
+    dist.all_reduce(rt, op=dist.ReduceOp.SUM)
+    if world_size is None:
+        world_size = dist.get_world_size()
+    rt /= world_size
+    return rt
+
+
+class MovingBatchNormNd(nn.Module):
+
+    def __init__(self, num_features, eps=0.0001, decay=0.1, bn_lag=0.0, affine=True, sync=False):
+        super(MovingBatchNormNd, self).__init__()
+        self.num_features = num_features
+        self.sync = sync
+        self.affine = affine
+        self.eps = eps
+        self.decay = decay
+        self.bn_lag = bn_lag
+        self.register_buffer('step', torch.zeros(1))
+        if self.affine:
+            self.weight = Parameter(torch.Tensor(num_features))
+            self.bias = Parameter(torch.Tensor(num_features))
+        else:
+            self.register_parameter('weight', None)
+            self.register_parameter('bias', None)
+        self.register_buffer('running_mean', torch.zeros(num_features))
+        self.register_buffer('running_var', torch.ones(num_features))
+        self.reset_parameters()
+
+    @property
+    def shape(self):
+        raise NotImplementedError
+
+    def reset_parameters(self):
+        self.running_mean.zero_()
+        self.running_var.fill_(1)
+        if self.affine:
+            self.weight.data.zero_()
+            self.bias.data.zero_()
+
+    def forward(self, x, c=None, logpx=None, reverse=False):
+        if reverse:
+            return self._reverse(x, logpx)
+        else:
+            return self._forward(x, logpx)
+
+    def _forward(self, x, logpx=None):
+        num_channels = x.size(-1)
+        used_mean = self.running_mean.clone().detach()
+        used_var = self.running_var.clone().detach()
+        if self.training:
+            x_t = x.transpose(0, 1).reshape(num_channels, -1)
+            batch_mean = torch.mean(x_t, dim=1)
+            if self.sync:
+                batch_ex2 = torch.mean(x_t ** 2, dim=1)
+                batch_mean = reduce_tensor(batch_mean)
+                batch_ex2 = reduce_tensor(batch_ex2)
+                batch_var = batch_ex2 - batch_mean ** 2
+            else:
+                batch_var = torch.var(x_t, dim=1)
+            if self.bn_lag > 0:
+                used_mean = batch_mean - (1 - self.bn_lag) * (batch_mean - used_mean.detach())
+                used_mean /= 1.0 - self.bn_lag ** (self.step[0] + 1)
+                used_var = batch_var - (1 - self.bn_lag) * (batch_var - used_var.detach())
+                used_var /= 1.0 - self.bn_lag ** (self.step[0] + 1)
+            self.running_mean -= self.decay * (self.running_mean - batch_mean.data)
+            self.running_var -= self.decay * (self.running_var - batch_var.data)
+            self.step += 1
+        used_mean = used_mean.view(*self.shape).expand_as(x)
+        used_var = used_var.view(*self.shape).expand_as(x)
+        y = (x - used_mean) * torch.exp(-0.5 * torch.log(used_var + self.eps))
+        if self.affine:
+            weight = self.weight.view(*self.shape).expand_as(x)
+            bias = self.bias.view(*self.shape).expand_as(x)
+            y = y * torch.exp(weight) + bias
+        if logpx is None:
+            return y
+        else:
+            return y, logpx - self._logdetgrad(x, used_var).sum(-1, keepdim=True)
+
+    def _reverse(self, y, logpy=None):
+        used_mean = self.running_mean
+        used_var = self.running_var
+        if self.affine:
+            weight = self.weight.view(*self.shape).expand_as(y)
+            bias = self.bias.view(*self.shape).expand_as(y)
+            y = (y - bias) * torch.exp(-weight)
+        used_mean = used_mean.view(*self.shape).expand_as(y)
+        used_var = used_var.view(*self.shape).expand_as(y)
+        x = y * torch.exp(0.5 * torch.log(used_var + self.eps)) + used_mean
+        if logpy is None:
+            return x
+        else:
+            return x, logpy + self._logdetgrad(x, used_var).sum(-1, keepdim=True)
+
+    def _logdetgrad(self, x, used_var):
+        logdetgrad = -0.5 * torch.log(used_var + self.eps)
+        if self.affine:
+            weight = self.weight.view(*self.shape).expand(*x.size())
+            logdetgrad += weight
+        return logdetgrad
+
+    def __repr__(self):
+        return '{name}({num_features}, eps={eps}, decay={decay}, bn_lag={bn_lag}, affine={affine})'.format(name=self.__class__.__name__, **self.__dict__)
+
+
+class MovingBatchNorm1d(MovingBatchNormNd):
+
+    @property
+    def shape(self):
+        return [1, -1]
+
+    def forward(self, x, context=None, logpx=None, integration_times=None, reverse=False):
+        ret = super(MovingBatchNorm1d, self).forward(x, context, logpx=logpx, reverse=reverse)
+        return ret
+
+
+def divergence_approx(f, y, e=None):
+    e_dzdx = torch.autograd.grad(f, y, e, create_graph=True)[0]
+    e_dzdx_e = e_dzdx.mul(e)
+    cnt = 0
+    while not e_dzdx_e.requires_grad and cnt < 10:
+        e_dzdx = torch.autograd.grad(f, y, e, create_graph=True)[0]
+        e_dzdx_e = e_dzdx * e
+        cnt += 1
+    approx_tr_dzdx = e_dzdx_e.sum(dim=-1)
+    assert approx_tr_dzdx.requires_grad, '(failed to add node to graph) f=%s %s, y(rgrad)=%s, e_dzdx:%s, e:%s, e_dzdx_e:%s cnt:%s' % (f.size(), f.requires_grad, y.requires_grad, e_dzdx.requires_grad, e.requires_grad, e_dzdx_e.requires_grad, cnt)
+    return approx_tr_dzdx
+
+
+class ODEfunc(nn.Module):
+
+    def __init__(self, diffeq):
+        super(ODEfunc, self).__init__()
+        self.diffeq = diffeq
+        self.divergence_fn = divergence_approx
+        self.register_buffer('_num_evals', torch.tensor(0.0))
+
+    def before_odeint(self, e=None):
+        self._e = e
+        self._num_evals.fill_(0)
+
+    def forward(self, t, states):
+        y = states[0]
+        t = torch.ones(y.size(0), 1) * t.clone().detach().requires_grad_(True).type_as(y)
+        self._num_evals += 1
+        for state in states:
+            state.requires_grad_(True)
+        if self._e is None:
+            self._e = torch.randn_like(y, requires_grad=True)
+        with torch.set_grad_enabled(True):
+            if len(states) == 3:
+                c = states[2]
+                tc = torch.cat([t, c.view(y.size(0), -1)], dim=1)
+                dy = self.diffeq(tc, y)
+                divergence = self.divergence_fn(dy, y, e=self._e).unsqueeze(-1)
+                return dy, -divergence, torch.zeros_like(c).requires_grad_(True)
+            elif len(states) == 2:
+                dy = self.diffeq(t, y)
+                divergence = self.divergence_fn(dy, y, e=self._e).view(-1, 1)
+                return dy, -divergence
+            else:
+                assert 0, '`len(states)` should be 2 or 3'
+
+
+class Lambda(nn.Module):
+
+    def __init__(self, f):
+        super(Lambda, self).__init__()
+        self.f = f
+
+    def forward(self, x):
+        return self.f(x)
+
+
+class Swish(nn.Module):
+
+    def __init__(self):
+        super(Swish, self).__init__()
+        self.beta = nn.Parameter(torch.tensor(1.0))
+
+    def forward(self, x):
+        return x * torch.sigmoid(self.beta * x)
+
+
+NONLINEARITIES = {'tanh': nn.Tanh(), 'relu': nn.ReLU(), 'softplus': nn.Softplus(), 'elu': nn.ELU(), 'swish': Swish(), 'square': Lambda(lambda x: x ** 2), 'identity': Lambda(lambda x: x)}
+
+
+class ODEnet(nn.Module):
+    """
+    Helper class to make neural nets for use in continuous normalizing flows
+    """
+
+    def __init__(self, hidden_dims, input_shape, context_dim, layer_type='concat', nonlinearity='softplus'):
+        super(ODEnet, self).__init__()
+        base_layer = {'ignore': diffeq_layers.IgnoreLinear, 'squash': diffeq_layers.SquashLinear, 'scale': diffeq_layers.ScaleLinear, 'concat': diffeq_layers.ConcatLinear, 'concat_v2': diffeq_layers.ConcatLinear_v2, 'concatsquash': diffeq_layers.ConcatSquashLinear, 'concatscale': diffeq_layers.ConcatScaleLinear}[layer_type]
+        layers = []
+        activation_fns = []
+        hidden_shape = input_shape
+        for dim_out in (hidden_dims + (input_shape[0],)):
+            layer_kwargs = {}
+            layer = base_layer(hidden_shape[0], dim_out, context_dim, **layer_kwargs)
+            layers.append(layer)
+            activation_fns.append(NONLINEARITIES[nonlinearity])
+            hidden_shape = list(copy.copy(hidden_shape))
+            hidden_shape[0] = dim_out
+        self.layers = nn.ModuleList(layers)
+        self.activation_fns = nn.ModuleList(activation_fns[:-1])
+
+    def forward(self, context, y):
+        dx = y
+        for l, layer in enumerate(self.layers):
+            dx = layer(context, dx)
+            if l < len(self.layers) - 1:
+                dx = self.activation_fns[l](dx)
+        return dx
+
+
 def build_model(args, input_dim, hidden_dims, context_dim, num_blocks, conditional):
 
     def build_cnf():
@@ -359,25 +612,16 @@ def count_parameters(model):
 
 def get_latent_cnf(args):
     dims = tuple(map(int, args.latent_dims.split('-')))
-    model = build_model(args, args.zdim, dims, 0, args.latent_num_blocks, False).cuda()
-    print('Number of trainable parameters of Latent CNF: {}'.format(count_parameters(model)))
+    model = build_model(args, args.zdim, dims, 0, args.latent_num_blocks, False)
+    None
     return model
 
 
 def get_point_cnf(args):
     dims = tuple(map(int, args.dims.split('-')))
-    model = build_model(args, args.input_dim, dims, args.zdim, args.num_blocks, True).cuda()
-    print('Number of trainable parameters of Point CNF: {}'.format(count_parameters(model)))
+    model = build_model(args, args.input_dim, dims, args.zdim, args.num_blocks, True)
+    None
     return model
-
-
-def reduce_tensor(tensor, world_size=None):
-    rt = tensor.clone()
-    dist.all_reduce(rt, op=dist.ReduceOp.SUM)
-    if world_size is None:
-        world_size = dist.get_world_size()
-    rt /= world_size
-    return rt
 
 
 def standard_normal_logprob(z):
@@ -528,205 +772,6 @@ class PointFlow(nn.Module):
         return x
 
 
-class MovingBatchNormNd(nn.Module):
-
-    def __init__(self, num_features, eps=0.0001, decay=0.1, bn_lag=0.0, affine=True, sync=False):
-        super(MovingBatchNormNd, self).__init__()
-        self.num_features = num_features
-        self.sync = sync
-        self.affine = affine
-        self.eps = eps
-        self.decay = decay
-        self.bn_lag = bn_lag
-        self.register_buffer('step', torch.zeros(1))
-        if self.affine:
-            self.weight = Parameter(torch.Tensor(num_features))
-            self.bias = Parameter(torch.Tensor(num_features))
-        else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
-
-    @property
-    def shape(self):
-        raise NotImplementedError
-
-    def reset_parameters(self):
-        self.running_mean.zero_()
-        self.running_var.fill_(1)
-        if self.affine:
-            self.weight.data.zero_()
-            self.bias.data.zero_()
-
-    def forward(self, x, c=None, logpx=None, reverse=False):
-        if reverse:
-            return self._reverse(x, logpx)
-        else:
-            return self._forward(x, logpx)
-
-    def _forward(self, x, logpx=None):
-        num_channels = x.size(-1)
-        used_mean = self.running_mean.clone().detach()
-        used_var = self.running_var.clone().detach()
-        if self.training:
-            x_t = x.transpose(0, 1).reshape(num_channels, -1)
-            batch_mean = torch.mean(x_t, dim=1)
-            if self.sync:
-                batch_ex2 = torch.mean(x_t ** 2, dim=1)
-                batch_mean = reduce_tensor(batch_mean)
-                batch_ex2 = reduce_tensor(batch_ex2)
-                batch_var = batch_ex2 - batch_mean ** 2
-            else:
-                batch_var = torch.var(x_t, dim=1)
-            if self.bn_lag > 0:
-                used_mean = batch_mean - (1 - self.bn_lag) * (batch_mean - used_mean.detach())
-                used_mean /= 1.0 - self.bn_lag ** (self.step[0] + 1)
-                used_var = batch_var - (1 - self.bn_lag) * (batch_var - used_var.detach())
-                used_var /= 1.0 - self.bn_lag ** (self.step[0] + 1)
-            self.running_mean -= self.decay * (self.running_mean - batch_mean.data)
-            self.running_var -= self.decay * (self.running_var - batch_var.data)
-            self.step += 1
-        used_mean = used_mean.view(*self.shape).expand_as(x)
-        used_var = used_var.view(*self.shape).expand_as(x)
-        y = (x - used_mean) * torch.exp(-0.5 * torch.log(used_var + self.eps))
-        if self.affine:
-            weight = self.weight.view(*self.shape).expand_as(x)
-            bias = self.bias.view(*self.shape).expand_as(x)
-            y = y * torch.exp(weight) + bias
-        if logpx is None:
-            return y
-        else:
-            return y, logpx - self._logdetgrad(x, used_var).sum(-1, keepdim=True)
-
-    def _reverse(self, y, logpy=None):
-        used_mean = self.running_mean
-        used_var = self.running_var
-        if self.affine:
-            weight = self.weight.view(*self.shape).expand_as(y)
-            bias = self.bias.view(*self.shape).expand_as(y)
-            y = (y - bias) * torch.exp(-weight)
-        used_mean = used_mean.view(*self.shape).expand_as(y)
-        used_var = used_var.view(*self.shape).expand_as(y)
-        x = y * torch.exp(0.5 * torch.log(used_var + self.eps)) + used_mean
-        if logpy is None:
-            return x
-        else:
-            return x, logpy + self._logdetgrad(x, used_var).sum(-1, keepdim=True)
-
-    def _logdetgrad(self, x, used_var):
-        logdetgrad = -0.5 * torch.log(used_var + self.eps)
-        if self.affine:
-            weight = self.weight.view(*self.shape).expand(*x.size())
-            logdetgrad += weight
-        return logdetgrad
-
-    def __repr__(self):
-        return '{name}({num_features}, eps={eps}, decay={decay}, bn_lag={bn_lag}, affine={affine})'.format(name=self.__class__.__name__, **self.__dict__)
-
-
-class Swish(nn.Module):
-
-    def __init__(self):
-        super(Swish, self).__init__()
-        self.beta = nn.Parameter(torch.tensor(1.0))
-
-    def forward(self, x):
-        return x * torch.sigmoid(self.beta * x)
-
-
-class Lambda(nn.Module):
-
-    def __init__(self, f):
-        super(Lambda, self).__init__()
-        self.f = f
-
-    def forward(self, x):
-        return self.f(x)
-
-
-NONLINEARITIES = {'tanh': nn.Tanh(), 'relu': nn.ReLU(), 'softplus': nn.Softplus(), 'elu': nn.ELU(), 'swish': Swish(), 'square': Lambda(lambda x: x ** 2), 'identity': Lambda(lambda x: x)}
-
-
-class ODEnet(nn.Module):
-    """
-    Helper class to make neural nets for use in continuous normalizing flows
-    """
-
-    def __init__(self, hidden_dims, input_shape, context_dim, layer_type='concat', nonlinearity='softplus'):
-        super(ODEnet, self).__init__()
-        base_layer = {'ignore': diffeq_layers.IgnoreLinear, 'squash': diffeq_layers.SquashLinear, 'scale': diffeq_layers.ScaleLinear, 'concat': diffeq_layers.ConcatLinear, 'concat_v2': diffeq_layers.ConcatLinear_v2, 'concatsquash': diffeq_layers.ConcatSquashLinear, 'concatscale': diffeq_layers.ConcatScaleLinear}[layer_type]
-        layers = []
-        activation_fns = []
-        hidden_shape = input_shape
-        for dim_out in (hidden_dims + (input_shape[0],)):
-            layer_kwargs = {}
-            layer = base_layer(hidden_shape[0], dim_out, context_dim, **layer_kwargs)
-            layers.append(layer)
-            activation_fns.append(NONLINEARITIES[nonlinearity])
-            hidden_shape = list(copy.copy(hidden_shape))
-            hidden_shape[0] = dim_out
-        self.layers = nn.ModuleList(layers)
-        self.activation_fns = nn.ModuleList(activation_fns[:-1])
-
-    def forward(self, context, y):
-        dx = y
-        for l, layer in enumerate(self.layers):
-            dx = layer(context, dx)
-            if l < len(self.layers) - 1:
-                dx = self.activation_fns[l](dx)
-        return dx
-
-
-def divergence_approx(f, y, e=None):
-    e_dzdx = torch.autograd.grad(f, y, e, create_graph=True)[0]
-    e_dzdx_e = e_dzdx.mul(e)
-    cnt = 0
-    while not e_dzdx_e.requires_grad and cnt < 10:
-        e_dzdx = torch.autograd.grad(f, y, e, create_graph=True)[0]
-        e_dzdx_e = e_dzdx * e
-        cnt += 1
-    approx_tr_dzdx = e_dzdx_e.sum(dim=-1)
-    assert approx_tr_dzdx.requires_grad, '(failed to add node to graph) f=%s %s, y(rgrad)=%s, e_dzdx:%s, e:%s, e_dzdx_e:%s cnt:%s' % (f.size(), f.requires_grad, y.requires_grad, e_dzdx.requires_grad, e.requires_grad, e_dzdx_e.requires_grad, cnt)
-    return approx_tr_dzdx
-
-
-class ODEfunc(nn.Module):
-
-    def __init__(self, diffeq):
-        super(ODEfunc, self).__init__()
-        self.diffeq = diffeq
-        self.divergence_fn = divergence_approx
-        self.register_buffer('_num_evals', torch.tensor(0.0))
-
-    def before_odeint(self, e=None):
-        self._e = e
-        self._num_evals.fill_(0)
-
-    def forward(self, t, states):
-        y = states[0]
-        t = torch.ones(y.size(0), 1) * t.clone().detach().requires_grad_(True).type_as(y)
-        self._num_evals += 1
-        for state in states:
-            state.requires_grad_(True)
-        if self._e is None:
-            self._e = torch.randn_like(y, requires_grad=True)
-        with torch.set_grad_enabled(True):
-            if len(states) == 3:
-                c = states[2]
-                tc = torch.cat([t, c.view(y.size(0), -1)], dim=1)
-                dy = self.diffeq(tc, y)
-                divergence = self.divergence_fn(dy, y, e=self._e).unsqueeze(-1)
-                return dy, -divergence, torch.zeros_like(c).requires_grad_(True)
-            elif len(states) == 2:
-                dy = self.diffeq(t, y)
-                divergence = self.divergence_fn(dy, y, e=self._e).view(-1, 1)
-                return dy, -divergence
-            else:
-                assert 0, '`len(states)` should be 2 or 3'
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -762,6 +807,10 @@ TESTCASES = [
      lambda: ([], {'f': _mock_layer()}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (MovingBatchNorm1d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (ScaleLinear,
      lambda: ([], {'dim_in': 4, 'dim_out': 4, 'dim_c': 4}),
      lambda: ([torch.rand([4, 5]), torch.rand([4, 4])], {}),
@@ -806,4 +855,7 @@ class Test_stevenygd_PointFlow(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

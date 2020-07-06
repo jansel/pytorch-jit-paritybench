@@ -16,15 +16,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -53,10 +54,25 @@ from torch.autograd import Variable
 import torchvision
 
 
+from torch.utils.data import Dataset
+
+
 from torch.utils.data import DataLoader
 
 
 from torchvision import transforms
+
+
+from torchvision import utils
+
+
+from random import random
+
+
+from random import randint
+
+
+import warnings
 
 
 from torch.optim import Adam
@@ -82,7 +98,7 @@ from torch import nn
 
 def to_var(x):
     if torch.cuda.is_available():
-        x = x.cuda()
+        x = x
     return Variable(x)
 
 
@@ -285,6 +301,54 @@ class MultiConv(nn.Module):
         return self.fuse_attn(x)
 
 
+class LambdaBase(nn.Sequential):
+
+    def __init__(self, fn, *args):
+        super(LambdaBase, self).__init__(*args)
+        self.lambda_func = fn
+
+    def forward_prepare(self, input):
+        output = []
+        for module in self._modules.values():
+            output.append(module(input))
+        return output if output else input
+
+
+class Lambda(LambdaBase):
+
+    def forward(self, input):
+        return self.lambda_func(self.forward_prepare(input))
+
+
+def resnext101():
+    model = resnext101_32x8d()
+    model.conv1 = nn.Conv2d(1, 64, (7, 7), (2, 2), (3, 3), 1, 1, bias=False)
+    model.avgpool = nn.AvgPool2d((7, 7), (1, 1))
+    model.fc = nn.Sequential(Lambda(lambda x: x.view(x.size(0), -1)), Lambda(lambda x: x.view(1, -1) if 1 == len(x.size()) else x), nn.Linear(2048, 1000))
+    return model
+
+
+class ResNeXt101(nn.Module):
+
+    def __init__(self):
+        super(ResNeXt101, self).__init__()
+        net = resnext101()
+        net = list(net.children())
+        self.layer0 = nn.Sequential(*net[:3])
+        self.layer1 = nn.Sequential(*net[3:5])
+        self.layer2 = net[5]
+        self.layer3 = net[6]
+        self.layer4 = net[7]
+
+    def forward(self, x):
+        layer0 = self.layer0(x)
+        layer1 = self.layer1(layer0)
+        layer2 = self.layer2(layer1)
+        layer3 = self.layer3(layer2)
+        layer4 = self.layer4(layer3)
+        return layer4
+
+
 class DAF_stack(nn.Module):
 
     def __init__(self):
@@ -422,52 +486,16 @@ class DAF_stack(nn.Module):
             return (predict1_2 + predict2_2 + predict3_2 + predict4_2) / 4
 
 
-class LambdaBase(nn.Sequential):
-
-    def __init__(self, fn, *args):
-        super(LambdaBase, self).__init__(*args)
-        self.lambda_func = fn
-
-    def forward_prepare(self, input):
-        output = []
-        for module in self._modules.values():
-            output.append(module(input))
-        return output if output else input
-
-
-class Lambda(LambdaBase):
+class LambdaMap(LambdaBase):
 
     def forward(self, input):
-        return self.lambda_func(self.forward_prepare(input))
+        return list(map(self.lambda_func, self.forward_prepare(input)))
 
 
-def resnext101():
-    model = resnext101_32x8d()
-    model.conv1 = nn.Conv2d(1, 64, (7, 7), (2, 2), (3, 3), 1, 1, bias=False)
-    model.avgpool = nn.AvgPool2d((7, 7), (1, 1))
-    model.fc = nn.Sequential(Lambda(lambda x: x.view(x.size(0), -1)), Lambda(lambda x: x.view(1, -1) if 1 == len(x.size()) else x), nn.Linear(2048, 1000))
-    return model
+class LambdaReduce(LambdaBase):
 
-
-class ResNeXt101(nn.Module):
-
-    def __init__(self):
-        super(ResNeXt101, self).__init__()
-        net = resnext101()
-        net = list(net.children())
-        self.layer0 = nn.Sequential(*net[:3])
-        self.layer1 = nn.Sequential(*net[3:5])
-        self.layer2 = net[5]
-        self.layer3 = net[6]
-        self.layer4 = net[7]
-
-    def forward(self, x):
-        layer0 = self.layer0(x)
-        layer1 = self.layer1(layer0)
-        layer2 = self.layer2(layer1)
-        layer3 = self.layer3(layer2)
-        layer4 = self.layer4(layer3)
-        return layer4
+    def forward(self, input):
+        return reduce(self.lambda_func, self.forward_prepare(input))
 
 
 import torch

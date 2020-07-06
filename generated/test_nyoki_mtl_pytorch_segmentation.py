@@ -48,29 +48,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import torch.nn as nn
+import tensorflow as tf
 
 
 import torch
 
 
-import torch.nn.functional as F
-
-
 import numpy as np
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision import transforms
+
+
+from functools import partial
+
+
+import torch.nn as nn
+
+
+import torch.nn.functional as F
 
 
 from collections import OrderedDict
@@ -85,29 +101,7 @@ from torch import nn
 from torch.nn import functional as F
 
 
-from torch.utils.data import DataLoader
-
-
-class BinaryClassCriterion(nn.Module):
-
-    def __init__(self, loss_type='BCE', **kwargs):
-        super().__init__()
-        if loss_type == 'BCE':
-            self.criterion = nn.BCEWithLogitsLoss(**kwargs)
-        elif loss_type == 'Focal':
-            self.criterion = FocalLoss(**kwargs)
-        elif loss_type == 'Lovasz':
-            self.criterion = LovaszLoss(**kwargs)
-        elif loss_type == 'Dice':
-            self.criterion = DiceLoss(**kwargs)
-        elif loss_type == 'MixedDiceBCE':
-            self.criterion = MixedDiceBCELoss(**kwargs)
-        else:
-            raise NotImplementedError
-
-    def forward(self, preds, labels):
-        loss = self.criterion(preds, labels)
-        return loss
+import torch.optim as optim
 
 
 class DiceLoss(nn.Module):
@@ -121,37 +115,18 @@ class DiceLoss(nn.Module):
         return 1 - (2 * torch.sum(preds * labels) + self.smooth) / (torch.sum(preds) + torch.sum(labels) + self.smooth + self.eps)
 
 
-class MixedDiceBCELoss(nn.Module):
-
-    def __init__(self, dice_weight=0.2, bce_weight=0.9):
-        super().__init__()
-        self.dice_loss = DiceLoss()
-        self.bce_loss = nn.BCELoss()
-        self.dice_weight = dice_weight
-        self.bce_weight = bce_weight
-
-    def forward(self, preds, labels):
-        preds = torch.sigmoid(preds)
-        loss = self.dice_weight * self.dice_loss(preds, labels) + self.bce_weight * self.bce_loss(preds, labels)
-        return loss
-
-
 class FocalLoss(nn.Module):
 
-    def __init__(self, alpha=0.25, gamma=2, weight=None, ignore_index=255):
-        super(FocalLoss, self).__init__()
+    def __init__(self, alpha=0.5, gamma=2, weight=None, ignore_index=255):
+        super().__init__()
         self.alpha = alpha
         self.gamma = gamma
         self.weight = weight
         self.ignore_index = ignore_index
-        self.bce_fn = nn.BCEWithLogitsLoss(weight=self.weight)
+        self.ce_fn = nn.CrossEntropyLoss(weight=self.weight, ignore_index=self.ignore_index)
 
     def forward(self, preds, labels):
-        if self.ignore_index is not None:
-            mask = labels != self.ignore_index
-            labels = labels[mask]
-            preds = preds[mask]
-        logpt = -self.bce_fn(preds, labels)
+        logpt = -self.ce_fn(preds, labels)
         pt = torch.exp(logpt)
         loss = -(1 - pt) ** self.gamma * self.alpha * logpt
         return loss
@@ -216,42 +191,40 @@ class LovaszLoss(nn.Module):
         return lovasz_hinge_flat(logits, labels, self.ignore_index)
 
 
-class MultiClassCriterion(nn.Module):
+class MixedDiceBCELoss(nn.Module):
 
-    def __init__(self, loss_type='CrossEntropy', **kwargs):
+    def __init__(self, dice_weight=0.2, bce_weight=0.9):
         super().__init__()
-        if loss_type == 'CrossEntropy':
-            self.criterion = nn.CrossEntropyLoss(**kwargs)
+        self.dice_loss = DiceLoss()
+        self.bce_loss = nn.BCELoss()
+        self.dice_weight = dice_weight
+        self.bce_weight = bce_weight
+
+    def forward(self, preds, labels):
+        preds = torch.sigmoid(preds)
+        loss = self.dice_weight * self.dice_loss(preds, labels) + self.bce_weight * self.bce_loss(preds, labels)
+        return loss
+
+
+class BinaryClassCriterion(nn.Module):
+
+    def __init__(self, loss_type='BCE', **kwargs):
+        super().__init__()
+        if loss_type == 'BCE':
+            self.criterion = nn.BCEWithLogitsLoss(**kwargs)
         elif loss_type == 'Focal':
             self.criterion = FocalLoss(**kwargs)
         elif loss_type == 'Lovasz':
-            self.criterion = LovaszSoftmax(**kwargs)
-        elif loss_type == 'OhemCrossEntropy':
-            self.criterion = OhemCrossEntropy2d(**kwargs)
-        elif loss_type == 'SoftIOU':
-            self.criterion = SoftIoULoss(**kwargs)
+            self.criterion = LovaszLoss(**kwargs)
+        elif loss_type == 'Dice':
+            self.criterion = DiceLoss(**kwargs)
+        elif loss_type == 'MixedDiceBCE':
+            self.criterion = MixedDiceBCELoss(**kwargs)
         else:
             raise NotImplementedError
 
     def forward(self, preds, labels):
         loss = self.criterion(preds, labels)
-        return loss
-
-
-class FocalLoss(nn.Module):
-
-    def __init__(self, alpha=0.5, gamma=2, weight=None, ignore_index=255):
-        super().__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.weight = weight
-        self.ignore_index = ignore_index
-        self.ce_fn = nn.CrossEntropyLoss(weight=self.weight, ignore_index=self.ignore_index)
-
-    def forward(self, preds, labels):
-        logpt = -self.ce_fn(preds, labels)
-        pt = torch.exp(logpt)
-        loss = -(1 - pt) ** self.gamma * self.alpha * logpt
         return loss
 
 
@@ -380,6 +353,28 @@ class SoftIoULoss(nn.Module):
         return -loss.mean()
 
 
+class MultiClassCriterion(nn.Module):
+
+    def __init__(self, loss_type='CrossEntropy', **kwargs):
+        super().__init__()
+        if loss_type == 'CrossEntropy':
+            self.criterion = nn.CrossEntropyLoss(**kwargs)
+        elif loss_type == 'Focal':
+            self.criterion = FocalLoss(**kwargs)
+        elif loss_type == 'Lovasz':
+            self.criterion = LovaszSoftmax(**kwargs)
+        elif loss_type == 'OhemCrossEntropy':
+            self.criterion = OhemCrossEntropy2d(**kwargs)
+        elif loss_type == 'SoftIOU':
+            self.criterion = SoftIoULoss(**kwargs)
+        else:
+            raise NotImplementedError
+
+    def forward(self, preds, labels):
+        loss = self.criterion(preds, labels)
+        return loss
+
+
 class SoftCrossEntropy(nn.Module):
 
     def __init__(self):
@@ -457,6 +452,24 @@ class SeparableConv2d(nn.Module):
 ActivatedBatchNorm = _ActivatedBatchNorm
 
 
+class SCSEBlock(nn.Module):
+
+    def __init__(self, channel, reduction=16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.channel_excitation = nn.Sequential(nn.Linear(channel, int(channel // reduction)), nn.ReLU(inplace=True), nn.Linear(int(channel // reduction), channel))
+        self.spatial_se = nn.Conv2d(channel, 1, kernel_size=1, stride=1, padding=0, bias=False)
+
+    def forward(self, x):
+        bahs, chs, _, _ = x.size()
+        chn_se = self.avg_pool(x).view(bahs, chs)
+        chn_se = torch.sigmoid(self.channel_excitation(chn_se).view(bahs, chs, 1, 1))
+        chn_se = torch.mul(x, chn_se)
+        spa_se = torch.sigmoid(self.spatial_se(x))
+        spa_se = torch.mul(x, spa_se)
+        return torch.add(chn_se, 1, spa_se)
+
+
 class DecoderUnetSCSE(nn.Module):
 
     def __init__(self, in_channels, middle_channels, out_channels):
@@ -468,6 +481,48 @@ class DecoderUnetSCSE(nn.Module):
         return self.block(x)
 
 
+class IBN(nn.Module):
+
+    def __init__(self, planes):
+        super().__init__()
+        half1 = int(planes / 2)
+        self.half = half1
+        half2 = planes - half1
+        self.IN = nn.Sequential(nn.InstanceNorm2d(half1, affine=True), nn.ReLU(inplace=True))
+        self.BN = ActivatedBatchNorm(half2)
+
+    def forward(self, x):
+        split = torch.split(x, self.half, 1)
+        out1 = self.IN(split[0].contiguous())
+        out2 = self.BN(split[1].contiguous())
+        out = torch.cat((out1, out2), 1)
+        return out
+
+
+class ImprovedIBNaDecoderBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.block = nn.Sequential(nn.Conv2d(in_channels, in_channels // 4, 1), IBN(in_channels // 4), nn.ConvTranspose2d(in_channels // 4, in_channels // 4, 4, stride=2, padding=1), ActivatedBatchNorm(in_channels // 4), nn.Conv2d(in_channels // 4, out_channels, 1), ActivatedBatchNorm(out_channels))
+
+    def forward(self, x):
+        return self.block(x)
+
+
+class SELayer(nn.Module):
+
+    def __init__(self, channel, reduction=16):
+        super().__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(nn.Linear(channel, int(channel / reduction), bias=False), nn.ReLU(inplace=True), nn.Linear(int(channel / reduction), channel, bias=False), nn.Sigmoid())
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
+
+
 class DecoderUnetSEIBN(nn.Module):
 
     def __init__(self, in_channels, middle_channels, out_channels):
@@ -476,6 +531,95 @@ class DecoderUnetSEIBN(nn.Module):
 
     def forward(self, *args):
         x = torch.cat(args, 1)
+        return self.block(x)
+
+
+class SelfAttentionBlock2D(nn.Module):
+    """
+    The basic implementation for self-attention block/non-local block
+    Input:
+        N X C X H X W
+    Parameters:
+        in_channels       : the dimension of the input feature map
+        key_channels      : the dimension after the key/query transform
+        value_channels    : the dimension after the value transform
+        scale             : choose the scale to downsample the input feature maps (save memory cost)
+    Return:
+        N X C X H X W
+        position-aware context features.(w/o concate or add with the input)
+    """
+
+    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1):
+        super().__init__()
+        self.scale = scale
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.key_channels = key_channels
+        self.value_channels = value_channels
+        if out_channels is None:
+            self.out_channels = in_channels
+        self.pool = nn.MaxPool2d(kernel_size=(scale, scale))
+        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels, out_channels=self.key_channels, kernel_size=1), ActivatedBatchNorm(self.key_channels))
+        self.f_query = self.f_key
+        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels=self.value_channels, kernel_size=1)
+        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=self.out_channels, kernel_size=1)
+        nn.init.constant_(self.W.weight, 0)
+        nn.init.constant_(self.W.bias, 0)
+
+    def forward(self, x):
+        batch_size, h, w = x.size(0), x.size(2), x.size(3)
+        if self.scale > 1:
+            x = self.pool(x)
+        value = self.f_value(x).view(batch_size, self.value_channels, -1)
+        value = value.permute(0, 2, 1)
+        query = self.f_query(x).view(batch_size, self.key_channels, -1)
+        query = query.permute(0, 2, 1)
+        key = self.f_key(x).view(batch_size, self.key_channels, -1)
+        sim_map = torch.matmul(query, key)
+        sim_map = self.key_channels ** -0.5 * sim_map
+        sim_map = F.softmax(sim_map, dim=-1)
+        context = torch.matmul(sim_map, value)
+        context = context.permute(0, 2, 1).contiguous()
+        context = context.view(batch_size, self.value_channels, *x.size()[2:])
+        context = self.W(context)
+        if self.scale > 1:
+            context = F.interpolate(context, size=(h, w), mode='bilinear', align_corners=True)
+        return context
+
+
+class BaseOC_Context(nn.Module):
+    """
+    Output only the context features.
+    Parameters:
+        in_features / out_features: the channels of the input / output feature maps.
+        dropout: specify the dropout ratio
+        fusion: We provide two different fusion method, "concat" or "add"
+        size: we find that directly learn the attention weights on even 1/8 feature maps is hard.
+    Return:
+        features after "concat" or "add"
+    """
+
+    def __init__(self, in_channels, out_channels, key_channels, value_channels, dropout=0.05, sizes=(1,)):
+        super().__init__()
+        self.stages = nn.ModuleList([SelfAttentionBlock2D(in_channels, key_channels, value_channels, out_channels, size) for size in sizes])
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0), ActivatedBatchNorm(out_channels), nn.Dropout2d(dropout))
+
+    def forward(self, feats):
+        priors = [stage(feats) for stage in self.stages]
+        context = priors[0]
+        for i in range(1, len(priors)):
+            context += priors[i]
+        output = self.conv_bn_dropout(context)
+        return output
+
+
+class BaseOC(nn.Module):
+
+    def __init__(self, in_channels=2048, out_channels=256, dropout=0.05):
+        super().__init__()
+        self.block = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1), ActivatedBatchNorm(out_channels), BaseOC_Context(in_channels=out_channels, out_channels=out_channels, key_channels=out_channels // 2, value_channels=out_channels // 2, dropout=dropout))
+
+    def forward(self, x):
         return self.block(x)
 
 
@@ -509,34 +653,6 @@ class DecoderSPP(nn.Module):
         x = self.sep1(x)
         x = self.sep2(x)
         return x
-
-
-class IBN(nn.Module):
-
-    def __init__(self, planes):
-        super().__init__()
-        half1 = int(planes / 2)
-        self.half = half1
-        half2 = planes - half1
-        self.IN = nn.Sequential(nn.InstanceNorm2d(half1, affine=True), nn.ReLU(inplace=True))
-        self.BN = ActivatedBatchNorm(half2)
-
-    def forward(self, x):
-        split = torch.split(x, self.half, 1)
-        out1 = self.IN(split[0].contiguous())
-        out2 = self.BN(split[1].contiguous())
-        out = torch.cat((out1, out2), 1)
-        return out
-
-
-class ImprovedIBNaDecoderBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.block = nn.Sequential(nn.Conv2d(in_channels, in_channels // 4, 1), IBN(in_channels // 4), nn.ConvTranspose2d(in_channels // 4, in_channels // 4, 4, stride=2, padding=1), ActivatedBatchNorm(in_channels // 4), nn.Conv2d(in_channels // 4, out_channels, 1), ActivatedBatchNorm(out_channels))
-
-    def forward(self, x):
-        return self.block(x)
 
 
 class ExpandedConv(nn.Module):
@@ -674,6 +790,113 @@ def create_decoder(dec_type):
         raise NotImplementedError
 
 
+class XceptionBlock(nn.Module):
+
+    def __init__(self, channel_list, stride=1, dilation=1, skip_connection_type='conv', relu_first=True, low_feat=False):
+        super().__init__()
+        assert len(channel_list) == 4
+        self.skip_connection_type = skip_connection_type
+        self.relu_first = relu_first
+        self.low_feat = low_feat
+        if self.skip_connection_type == 'conv':
+            self.conv = nn.Conv2d(channel_list[0], channel_list[-1], 1, stride=stride, bias=False)
+            self.bn = nn.BatchNorm2d(channel_list[-1])
+        self.sep_conv1 = SeparableConv2d(channel_list[0], channel_list[1], dilation=dilation, relu_first=relu_first)
+        self.sep_conv2 = SeparableConv2d(channel_list[1], channel_list[2], dilation=dilation, relu_first=relu_first)
+        self.sep_conv3 = SeparableConv2d(channel_list[2], channel_list[3], dilation=dilation, relu_first=relu_first, stride=stride)
+
+    def forward(self, inputs):
+        sc1 = self.sep_conv1(inputs)
+        sc2 = self.sep_conv2(sc1)
+        residual = self.sep_conv3(sc2)
+        if self.skip_connection_type == 'conv':
+            shortcut = self.conv(inputs)
+            shortcut = self.bn(shortcut)
+            outputs = residual + shortcut
+        elif self.skip_connection_type == 'sum':
+            outputs = residual + inputs
+        elif self.skip_connection_type == 'none':
+            outputs = residual
+        else:
+            raise ValueError('Unsupported skip connection type.')
+        if self.low_feat:
+            return outputs, sc2
+        else:
+            return outputs
+
+
+class Xception65(nn.Module):
+
+    def __init__(self, output_stride=8):
+        super().__init__()
+        if output_stride == 16:
+            entry_block3_stride = 2
+            middle_block_dilation = 1
+            exit_block_dilations = 1, 2
+        elif output_stride == 8:
+            entry_block3_stride = 1
+            middle_block_dilation = 2
+            exit_block_dilations = 2, 4
+        else:
+            raise NotImplementedError
+        self.conv1 = nn.Conv2d(3, 32, 3, stride=2, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv2d(32, 64, 3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.block1 = XceptionBlock([64, 128, 128, 128], stride=2)
+        self.block2 = XceptionBlock([128, 256, 256, 256], stride=2, low_feat=True)
+        self.block3 = XceptionBlock([256, 728, 728, 728], stride=entry_block3_stride)
+        self.block4 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block5 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block6 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block7 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block8 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block9 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block10 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block11 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block12 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block13 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block14 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block15 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block16 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block17 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block18 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block19 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
+        self.block20 = XceptionBlock([728, 728, 1024, 1024], dilation=exit_block_dilations[0])
+        self.block21 = XceptionBlock([1024, 1536, 1536, 2048], dilation=exit_block_dilations[1], skip_connection_type='none', relu_first=False)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+        x = self.block1(x)
+        x, low_level_feat = self.block2(x)
+        x = self.block3(x)
+        x = self.block4(x)
+        x = self.block5(x)
+        x = self.block6(x)
+        x = self.block7(x)
+        x = self.block8(x)
+        x = self.block9(x)
+        x = self.block10(x)
+        x = self.block11(x)
+        x = self.block12(x)
+        x = self.block13(x)
+        x = self.block14(x)
+        x = self.block15(x)
+        x = self.block16(x)
+        x = self.block17(x)
+        x = self.block18(x)
+        x = self.block19(x)
+        x = self.block20(x)
+        x = self.block21(x)
+        return x, low_level_feat
+
+
 def resnet(name, pretrained=False):
 
     def get_channels(layer):
@@ -805,6 +1028,133 @@ class EncoderDecoderNet(nn.Module, SegmentatorTTA):
         return logits
 
 
+class ASPOC(nn.Module):
+
+    def __init__(self, in_channels=2048, out_channels=256, output_stride=8):
+        super().__init__()
+        if output_stride == 16:
+            dilations = [6, 12, 18]
+        elif output_stride == 8:
+            dilations = [12, 24, 36]
+        else:
+            raise NotImplementedError
+        self.context = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, dilation=1, bias=True), ActivatedBatchNorm(out_channels), BaseOC_Context(in_channels=out_channels, out_channels=out_channels, key_channels=out_channels // 2, value_channels=out_channels, dropout=0, sizes=[2]))
+        self.conv2 = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0, dilation=1, bias=False), ActivatedBatchNorm(out_channels))
+        self.conv3 = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=dilations[0], dilation=dilations[0], bias=False), ActivatedBatchNorm(out_channels))
+        self.conv4 = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=dilations[1], dilation=dilations[1], bias=False), ActivatedBatchNorm(out_channels))
+        self.conv5 = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=dilations[2], dilation=dilations[2], bias=False), ActivatedBatchNorm(out_channels))
+        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(out_channels * 5, out_channels, kernel_size=1, padding=0, dilation=1, bias=False), ActivatedBatchNorm(out_channels), nn.Dropout2d(0.1))
+
+    def forward(self, x):
+        _, _, h, w = x.size()
+        feat1 = self.context(x)
+        feat2 = self.conv2(x)
+        feat3 = self.conv3(x)
+        feat4 = self.conv4(x)
+        feat5 = self.conv5(x)
+        out = torch.cat((feat1, feat2, feat3, feat4, feat5), 1)
+        output = self.conv_bn_dropout(out)
+        return output
+
+
+class ASPP(nn.Module):
+
+    def __init__(self, in_channels=2048, out_channels=256, output_stride=8):
+        super().__init__()
+        if output_stride == 16:
+            dilations = [6, 12, 18]
+        elif output_stride == 8:
+            dilations = [12, 24, 36]
+        else:
+            raise NotImplementedError
+        self.aspp0 = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_channels, out_channels, 1, bias=False)), ('bn', nn.BatchNorm2d(out_channels)), ('relu', nn.ReLU(inplace=True))]))
+        self.aspp1 = SeparableConv2d(in_channels, out_channels, dilation=dilations[0], relu_first=False)
+        self.aspp2 = SeparableConv2d(in_channels, out_channels, dilation=dilations[1], relu_first=False)
+        self.aspp3 = SeparableConv2d(in_channels, out_channels, dilation=dilations[2], relu_first=False)
+        self.image_pooling = nn.Sequential(OrderedDict([('gap', nn.AdaptiveAvgPool2d((1, 1))), ('conv', nn.Conv2d(in_channels, out_channels, 1, bias=False)), ('bn', nn.BatchNorm2d(out_channels)), ('relu', nn.ReLU(inplace=True))]))
+        self.conv = nn.Conv2d(out_channels * 5, out_channels, 1, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.dropout = nn.Dropout2d(p=0.1)
+
+    def forward(self, x):
+        pool = self.image_pooling(x)
+        pool = F.interpolate(pool, size=x.shape[2:], mode='bilinear', align_corners=True)
+        x0 = self.aspp0(x)
+        x1 = self.aspp1(x)
+        x2 = self.aspp2(x)
+        x3 = self.aspp3(x)
+        x = torch.cat((pool, x0, x1, x2, x3), dim=1)
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+        return x
+
+
+class MobileASPP(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.aspp0 = nn.Sequential(OrderedDict([('conv', nn.Conv2d(320, 256, 1, bias=False)), ('bn', nn.BatchNorm2d(256)), ('relu', nn.ReLU(inplace=True))]))
+        self.image_pooling = nn.Sequential(OrderedDict([('gap', nn.AdaptiveAvgPool2d((1, 1))), ('conv', nn.Conv2d(320, 256, 1, bias=False)), ('bn', nn.BatchNorm2d(256)), ('relu', nn.ReLU(inplace=True))]))
+        self.conv = nn.Conv2d(512, 256, 1, bias=False)
+        self.bn = nn.BatchNorm2d(256)
+        self.relu = nn.ReLU(inplace=True)
+        self.dropout = nn.Dropout2d(p=0.1)
+
+    def forward(self, x):
+        pool = self.image_pooling(x)
+        pool = F.interpolate(pool, size=x.shape[2:], mode='bilinear', align_corners=True)
+        x = self.aspp0(x)
+        x = torch.cat((pool, x), dim=1)
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+        return x
+
+
+class SPP(nn.Module):
+
+    def __init__(self, in_channels=2048, out_channels=256, pyramids=(1, 2, 3, 6)):
+        super().__init__()
+        stages = []
+        for p in pyramids:
+            stages.append(nn.Sequential(nn.AdaptiveAvgPool2d(p), nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False), ActivatedBatchNorm(out_channels)))
+        self.stages = nn.ModuleList(stages)
+        self.bottleneck = nn.Sequential(nn.Conv2d(in_channels + out_channels * len(pyramids), out_channels, kernel_size=1), ActivatedBatchNorm(out_channels))
+
+    def forward(self, x):
+        x_size = x.size()
+        out = [x]
+        for stage in self.stages:
+            out.append(F.interpolate(stage(x), size=x_size[2:], mode='bilinear', align_corners=False))
+        out = self.bottleneck(torch.cat(out, 1))
+        return out
+
+
+class SPPDecoder(nn.Module):
+
+    def __init__(self, in_channels, reduced_layer_num=48):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, reduced_layer_num, 1, bias=False)
+        self.bn = nn.BatchNorm2d(reduced_layer_num)
+        self.relu = nn.ReLU(inplace=True)
+        self.sep1 = SeparableConv2d(256 + reduced_layer_num, 256, relu_first=False)
+        self.sep2 = SeparableConv2d(256, 256, relu_first=False)
+
+    def forward(self, x, low_level_feat):
+        x = F.interpolate(x, size=low_level_feat.shape[2:], mode='bilinear', align_corners=True)
+        low_level_feat = self.conv(low_level_feat)
+        low_level_feat = self.bn(low_level_feat)
+        low_level_feat = self.relu(low_level_feat)
+        x = torch.cat((x, low_level_feat), dim=1)
+        x = self.sep1(x)
+        x = self.sep2(x)
+        return x
+
+
 def create_mspp(dec_type):
     if dec_type == 'spp':
         return SPP(320, 256)
@@ -885,361 +1235,6 @@ class SPPNet(nn.Module, SegmentatorTTA):
         for module in modules:
             for p in module.parameters():
                 yield p
-
-
-class SelfAttentionBlock2D(nn.Module):
-    """
-    The basic implementation for self-attention block/non-local block
-    Input:
-        N X C X H X W
-    Parameters:
-        in_channels       : the dimension of the input feature map
-        key_channels      : the dimension after the key/query transform
-        value_channels    : the dimension after the value transform
-        scale             : choose the scale to downsample the input feature maps (save memory cost)
-    Return:
-        N X C X H X W
-        position-aware context features.(w/o concate or add with the input)
-    """
-
-    def __init__(self, in_channels, key_channels, value_channels, out_channels=None, scale=1):
-        super().__init__()
-        self.scale = scale
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.key_channels = key_channels
-        self.value_channels = value_channels
-        if out_channels is None:
-            self.out_channels = in_channels
-        self.pool = nn.MaxPool2d(kernel_size=(scale, scale))
-        self.f_key = nn.Sequential(nn.Conv2d(in_channels=self.in_channels, out_channels=self.key_channels, kernel_size=1), ActivatedBatchNorm(self.key_channels))
-        self.f_query = self.f_key
-        self.f_value = nn.Conv2d(in_channels=self.in_channels, out_channels=self.value_channels, kernel_size=1)
-        self.W = nn.Conv2d(in_channels=self.value_channels, out_channels=self.out_channels, kernel_size=1)
-        nn.init.constant_(self.W.weight, 0)
-        nn.init.constant_(self.W.bias, 0)
-
-    def forward(self, x):
-        batch_size, h, w = x.size(0), x.size(2), x.size(3)
-        if self.scale > 1:
-            x = self.pool(x)
-        value = self.f_value(x).view(batch_size, self.value_channels, -1)
-        value = value.permute(0, 2, 1)
-        query = self.f_query(x).view(batch_size, self.key_channels, -1)
-        query = query.permute(0, 2, 1)
-        key = self.f_key(x).view(batch_size, self.key_channels, -1)
-        sim_map = torch.matmul(query, key)
-        sim_map = self.key_channels ** -0.5 * sim_map
-        sim_map = F.softmax(sim_map, dim=-1)
-        context = torch.matmul(sim_map, value)
-        context = context.permute(0, 2, 1).contiguous()
-        context = context.view(batch_size, self.value_channels, *x.size()[2:])
-        context = self.W(context)
-        if self.scale > 1:
-            context = F.interpolate(context, size=(h, w), mode='bilinear', align_corners=True)
-        return context
-
-
-class BaseOC_Context(nn.Module):
-    """
-    Output only the context features.
-    Parameters:
-        in_features / out_features: the channels of the input / output feature maps.
-        dropout: specify the dropout ratio
-        fusion: We provide two different fusion method, "concat" or "add"
-        size: we find that directly learn the attention weights on even 1/8 feature maps is hard.
-    Return:
-        features after "concat" or "add"
-    """
-
-    def __init__(self, in_channels, out_channels, key_channels, value_channels, dropout=0.05, sizes=(1,)):
-        super().__init__()
-        self.stages = nn.ModuleList([SelfAttentionBlock2D(in_channels, key_channels, value_channels, out_channels, size) for size in sizes])
-        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0), ActivatedBatchNorm(out_channels), nn.Dropout2d(dropout))
-
-    def forward(self, feats):
-        priors = [stage(feats) for stage in self.stages]
-        context = priors[0]
-        for i in range(1, len(priors)):
-            context += priors[i]
-        output = self.conv_bn_dropout(context)
-        return output
-
-
-class BaseOC(nn.Module):
-
-    def __init__(self, in_channels=2048, out_channels=256, dropout=0.05):
-        super().__init__()
-        self.block = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1), ActivatedBatchNorm(out_channels), BaseOC_Context(in_channels=out_channels, out_channels=out_channels, key_channels=out_channels // 2, value_channels=out_channels // 2, dropout=dropout))
-
-    def forward(self, x):
-        return self.block(x)
-
-
-class ASPOC(nn.Module):
-
-    def __init__(self, in_channels=2048, out_channels=256, output_stride=8):
-        super().__init__()
-        if output_stride == 16:
-            dilations = [6, 12, 18]
-        elif output_stride == 8:
-            dilations = [12, 24, 36]
-        else:
-            raise NotImplementedError
-        self.context = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, dilation=1, bias=True), ActivatedBatchNorm(out_channels), BaseOC_Context(in_channels=out_channels, out_channels=out_channels, key_channels=out_channels // 2, value_channels=out_channels, dropout=0, sizes=[2]))
-        self.conv2 = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, padding=0, dilation=1, bias=False), ActivatedBatchNorm(out_channels))
-        self.conv3 = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=dilations[0], dilation=dilations[0], bias=False), ActivatedBatchNorm(out_channels))
-        self.conv4 = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=dilations[1], dilation=dilations[1], bias=False), ActivatedBatchNorm(out_channels))
-        self.conv5 = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=dilations[2], dilation=dilations[2], bias=False), ActivatedBatchNorm(out_channels))
-        self.conv_bn_dropout = nn.Sequential(nn.Conv2d(out_channels * 5, out_channels, kernel_size=1, padding=0, dilation=1, bias=False), ActivatedBatchNorm(out_channels), nn.Dropout2d(0.1))
-
-    def forward(self, x):
-        _, _, h, w = x.size()
-        feat1 = self.context(x)
-        feat2 = self.conv2(x)
-        feat3 = self.conv3(x)
-        feat4 = self.conv4(x)
-        feat5 = self.conv5(x)
-        out = torch.cat((feat1, feat2, feat3, feat4, feat5), 1)
-        output = self.conv_bn_dropout(out)
-        return output
-
-
-class SELayer(nn.Module):
-
-    def __init__(self, channel, reduction=16):
-        super().__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, int(channel / reduction), bias=False), nn.ReLU(inplace=True), nn.Linear(int(channel / reduction), channel, bias=False), nn.Sigmoid())
-
-    def forward(self, x):
-        b, c, _, _ = x.size()
-        y = self.avg_pool(x).view(b, c)
-        y = self.fc(y).view(b, c, 1, 1)
-        return x * y.expand_as(x)
-
-
-class SCSEBlock(nn.Module):
-
-    def __init__(self, channel, reduction=16):
-        super().__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.channel_excitation = nn.Sequential(nn.Linear(channel, int(channel // reduction)), nn.ReLU(inplace=True), nn.Linear(int(channel // reduction), channel))
-        self.spatial_se = nn.Conv2d(channel, 1, kernel_size=1, stride=1, padding=0, bias=False)
-
-    def forward(self, x):
-        bahs, chs, _, _ = x.size()
-        chn_se = self.avg_pool(x).view(bahs, chs)
-        chn_se = torch.sigmoid(self.channel_excitation(chn_se).view(bahs, chs, 1, 1))
-        chn_se = torch.mul(x, chn_se)
-        spa_se = torch.sigmoid(self.spatial_se(x))
-        spa_se = torch.mul(x, spa_se)
-        return torch.add(chn_se, 1, spa_se)
-
-
-class SPP(nn.Module):
-
-    def __init__(self, in_channels=2048, out_channels=256, pyramids=(1, 2, 3, 6)):
-        super().__init__()
-        stages = []
-        for p in pyramids:
-            stages.append(nn.Sequential(nn.AdaptiveAvgPool2d(p), nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False), ActivatedBatchNorm(out_channels)))
-        self.stages = nn.ModuleList(stages)
-        self.bottleneck = nn.Sequential(nn.Conv2d(in_channels + out_channels * len(pyramids), out_channels, kernel_size=1), ActivatedBatchNorm(out_channels))
-
-    def forward(self, x):
-        x_size = x.size()
-        out = [x]
-        for stage in self.stages:
-            out.append(F.interpolate(stage(x), size=x_size[2:], mode='bilinear', align_corners=False))
-        out = self.bottleneck(torch.cat(out, 1))
-        return out
-
-
-class ASPP(nn.Module):
-
-    def __init__(self, in_channels=2048, out_channels=256, output_stride=8):
-        super().__init__()
-        if output_stride == 16:
-            dilations = [6, 12, 18]
-        elif output_stride == 8:
-            dilations = [12, 24, 36]
-        else:
-            raise NotImplementedError
-        self.aspp0 = nn.Sequential(OrderedDict([('conv', nn.Conv2d(in_channels, out_channels, 1, bias=False)), ('bn', nn.BatchNorm2d(out_channels)), ('relu', nn.ReLU(inplace=True))]))
-        self.aspp1 = SeparableConv2d(in_channels, out_channels, dilation=dilations[0], relu_first=False)
-        self.aspp2 = SeparableConv2d(in_channels, out_channels, dilation=dilations[1], relu_first=False)
-        self.aspp3 = SeparableConv2d(in_channels, out_channels, dilation=dilations[2], relu_first=False)
-        self.image_pooling = nn.Sequential(OrderedDict([('gap', nn.AdaptiveAvgPool2d((1, 1))), ('conv', nn.Conv2d(in_channels, out_channels, 1, bias=False)), ('bn', nn.BatchNorm2d(out_channels)), ('relu', nn.ReLU(inplace=True))]))
-        self.conv = nn.Conv2d(out_channels * 5, out_channels, 1, bias=False)
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU(inplace=True)
-        self.dropout = nn.Dropout2d(p=0.1)
-
-    def forward(self, x):
-        pool = self.image_pooling(x)
-        pool = F.interpolate(pool, size=x.shape[2:], mode='bilinear', align_corners=True)
-        x0 = self.aspp0(x)
-        x1 = self.aspp1(x)
-        x2 = self.aspp2(x)
-        x3 = self.aspp3(x)
-        x = torch.cat((pool, x0, x1, x2, x3), dim=1)
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        return x
-
-
-class MobileASPP(nn.Module):
-
-    def __init__(self):
-        super().__init__()
-        self.aspp0 = nn.Sequential(OrderedDict([('conv', nn.Conv2d(320, 256, 1, bias=False)), ('bn', nn.BatchNorm2d(256)), ('relu', nn.ReLU(inplace=True))]))
-        self.image_pooling = nn.Sequential(OrderedDict([('gap', nn.AdaptiveAvgPool2d((1, 1))), ('conv', nn.Conv2d(320, 256, 1, bias=False)), ('bn', nn.BatchNorm2d(256)), ('relu', nn.ReLU(inplace=True))]))
-        self.conv = nn.Conv2d(512, 256, 1, bias=False)
-        self.bn = nn.BatchNorm2d(256)
-        self.relu = nn.ReLU(inplace=True)
-        self.dropout = nn.Dropout2d(p=0.1)
-
-    def forward(self, x):
-        pool = self.image_pooling(x)
-        pool = F.interpolate(pool, size=x.shape[2:], mode='bilinear', align_corners=True)
-        x = self.aspp0(x)
-        x = torch.cat((pool, x), dim=1)
-        x = self.conv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        return x
-
-
-class SPPDecoder(nn.Module):
-
-    def __init__(self, in_channels, reduced_layer_num=48):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels, reduced_layer_num, 1, bias=False)
-        self.bn = nn.BatchNorm2d(reduced_layer_num)
-        self.relu = nn.ReLU(inplace=True)
-        self.sep1 = SeparableConv2d(256 + reduced_layer_num, 256, relu_first=False)
-        self.sep2 = SeparableConv2d(256, 256, relu_first=False)
-
-    def forward(self, x, low_level_feat):
-        x = F.interpolate(x, size=low_level_feat.shape[2:], mode='bilinear', align_corners=True)
-        low_level_feat = self.conv(low_level_feat)
-        low_level_feat = self.bn(low_level_feat)
-        low_level_feat = self.relu(low_level_feat)
-        x = torch.cat((x, low_level_feat), dim=1)
-        x = self.sep1(x)
-        x = self.sep2(x)
-        return x
-
-
-class XceptionBlock(nn.Module):
-
-    def __init__(self, channel_list, stride=1, dilation=1, skip_connection_type='conv', relu_first=True, low_feat=False):
-        super().__init__()
-        assert len(channel_list) == 4
-        self.skip_connection_type = skip_connection_type
-        self.relu_first = relu_first
-        self.low_feat = low_feat
-        if self.skip_connection_type == 'conv':
-            self.conv = nn.Conv2d(channel_list[0], channel_list[-1], 1, stride=stride, bias=False)
-            self.bn = nn.BatchNorm2d(channel_list[-1])
-        self.sep_conv1 = SeparableConv2d(channel_list[0], channel_list[1], dilation=dilation, relu_first=relu_first)
-        self.sep_conv2 = SeparableConv2d(channel_list[1], channel_list[2], dilation=dilation, relu_first=relu_first)
-        self.sep_conv3 = SeparableConv2d(channel_list[2], channel_list[3], dilation=dilation, relu_first=relu_first, stride=stride)
-
-    def forward(self, inputs):
-        sc1 = self.sep_conv1(inputs)
-        sc2 = self.sep_conv2(sc1)
-        residual = self.sep_conv3(sc2)
-        if self.skip_connection_type == 'conv':
-            shortcut = self.conv(inputs)
-            shortcut = self.bn(shortcut)
-            outputs = residual + shortcut
-        elif self.skip_connection_type == 'sum':
-            outputs = residual + inputs
-        elif self.skip_connection_type == 'none':
-            outputs = residual
-        else:
-            raise ValueError('Unsupported skip connection type.')
-        if self.low_feat:
-            return outputs, sc2
-        else:
-            return outputs
-
-
-class Xception65(nn.Module):
-
-    def __init__(self, output_stride=8):
-        super().__init__()
-        if output_stride == 16:
-            entry_block3_stride = 2
-            middle_block_dilation = 1
-            exit_block_dilations = 1, 2
-        elif output_stride == 8:
-            entry_block3_stride = 1
-            middle_block_dilation = 2
-            exit_block_dilations = 2, 4
-        else:
-            raise NotImplementedError
-        self.conv1 = nn.Conv2d(3, 32, 3, stride=2, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(32)
-        self.relu = nn.ReLU()
-        self.conv2 = nn.Conv2d(32, 64, 3, stride=1, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(64)
-        self.block1 = XceptionBlock([64, 128, 128, 128], stride=2)
-        self.block2 = XceptionBlock([128, 256, 256, 256], stride=2, low_feat=True)
-        self.block3 = XceptionBlock([256, 728, 728, 728], stride=entry_block3_stride)
-        self.block4 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block5 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block6 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block7 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block8 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block9 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block10 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block11 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block12 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block13 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block14 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block15 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block16 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block17 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block18 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block19 = XceptionBlock([728, 728, 728, 728], dilation=middle_block_dilation, skip_connection_type='sum')
-        self.block20 = XceptionBlock([728, 728, 1024, 1024], dilation=exit_block_dilations[0])
-        self.block21 = XceptionBlock([1024, 1536, 1536, 2048], dilation=exit_block_dilations[1], skip_connection_type='none', relu_first=False)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = self.relu(x)
-        x = self.block1(x)
-        x, low_level_feat = self.block2(x)
-        x = self.block3(x)
-        x = self.block4(x)
-        x = self.block5(x)
-        x = self.block6(x)
-        x = self.block7(x)
-        x = self.block8(x)
-        x = self.block9(x)
-        x = self.block10(x)
-        x = self.block11(x)
-        x = self.block12(x)
-        x = self.block13(x)
-        x = self.block14(x)
-        x = self.block15(x)
-        x = self.block16(x)
-        x = self.block17(x)
-        x = self.block18(x)
-        x = self.block19(x)
-        x = self.block20(x)
-        x = self.block21(x)
-        return x, low_level_feat
 
 
 import torch

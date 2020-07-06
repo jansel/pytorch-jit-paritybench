@@ -30,15 +30,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -128,9 +129,8 @@ def pad_gap_scores(s, gap):
 
 class OrdinalRegression(nn.Module):
 
-    def __init__(self, embedding, n_classes, compare=L1(), align_method='ssa', beta_init=10, allow_insertions=False, gap_init=-10):
+    def __init__(self, n_classes, compare=L1(), align_method='ssa', beta_init=10, allow_insertions=False, gap_init=-10):
         super(OrdinalRegression, self).__init__()
-        self.embedding = embedding
         self.n_out = n_classes
         self.compare = compare
         self.align_method = align_method
@@ -140,13 +140,10 @@ class OrdinalRegression(nn.Module):
         self.beta = nn.Parameter(torch.zeros(n_classes - 1) + beta_init)
         self.clip()
 
-    def forward(self, x):
-        return self.embedding(x)
-
     def clip(self):
         self.theta.data.clamp_(min=0)
 
-    def score(self, z_x, z_y):
+    def forward(self, z_x, z_y):
         if self.align_method == 'ssa':
             s = self.compare(z_x, z_y)
             if self.allow_insertions:
@@ -282,29 +279,6 @@ class StackedRNN(nn.Module):
         return z
 
 
-class SCOPCM(nn.Module):
-
-    def __init__(self, embedding, similarity_kwargs={}, cmap_kwargs={}):
-        super(SCOPCM, self).__init__()
-        self.embedding = embedding
-        embed_dim = embedding.nout
-        self.scop_predict = OrdinalRegression(5, **similarity_kwargs)
-        self.cmap_predict = ConvContactMap(embed_dim, **cmap_kwargs)
-
-    def clip(self):
-        self.scop_predict.clip()
-        self.cmap_predict.clip()
-
-    def forward(self, x):
-        return self.embedding(x)
-
-    def score(self, z_x, z_y):
-        return self.scop_predict(z_x, z_y)
-
-    def predict(self, z):
-        return self.cmap_predict(z)
-
-
 class ConvContactMap(nn.Module):
 
     def __init__(self, embed_dim, hidden_dim=50, width=7, act=nn.ReLU()):
@@ -331,49 +305,27 @@ class ConvContactMap(nn.Module):
         return logits
 
 
-class OrdinalRegression(nn.Module):
+class SCOPCM(nn.Module):
 
-    def __init__(self, n_classes, compare=L1(), align_method='ssa', beta_init=10, allow_insertions=False, gap_init=-10):
-        super(OrdinalRegression, self).__init__()
-        self.n_out = n_classes
-        self.compare = compare
-        self.align_method = align_method
-        self.allow_insertions = allow_insertions
-        self.gap = nn.Parameter(torch.FloatTensor([gap_init]))
-        self.theta = nn.Parameter(torch.ones(1, n_classes - 1))
-        self.beta = nn.Parameter(torch.zeros(n_classes - 1) + beta_init)
-        self.clip()
+    def __init__(self, embedding, similarity_kwargs={}, cmap_kwargs={}):
+        super(SCOPCM, self).__init__()
+        self.embedding = embedding
+        embed_dim = embedding.nout
+        self.scop_predict = OrdinalRegression(5, **similarity_kwargs)
+        self.cmap_predict = ConvContactMap(embed_dim, **cmap_kwargs)
 
     def clip(self):
-        self.theta.data.clamp_(min=0)
+        self.scop_predict.clip()
+        self.cmap_predict.clip()
 
-    def forward(self, z_x, z_y):
-        if self.align_method == 'ssa':
-            s = self.compare(z_x, z_y)
-            if self.allow_insertions:
-                s = pad_gap_scores(s, self.gap)
-            a = F.softmax(s, 1)
-            b = F.softmax(s, 0)
-            if self.allow_insertions:
-                index = s.size(0) - 1
-                index = s.data.new(1).long().fill_(index)
-                a = a.index_fill(0, index, 0)
-                index = s.size(1) - 1
-                index = s.data.new(1).long().fill_(index)
-                b = b.index_fill(1, index, 0)
-            a = a + b - a * b
-            c = torch.sum(a * s) / torch.sum(a)
-        elif self.align_method == 'ua':
-            s = self.compare(z_x, z_y)
-            c = torch.mean(s)
-        elif self.align_method == 'me':
-            z_x = z_x.mean(0)
-            z_y = z_y.mean(0)
-            c = self.compare(z_x.unsqueeze(0), z_y.unsqueeze(0)).squeeze(0)
-        else:
-            raise Exception('Unknown alignment method: ' + self.align_method)
-        logits = c * self.theta + self.beta
-        return logits.view(-1)
+    def forward(self, x):
+        return self.embedding(x)
+
+    def score(self, z_x, z_y):
+        return self.scop_predict(z_x, z_y)
+
+    def predict(self, z):
+        return self.cmap_predict(z)
 
 
 class BiLM(nn.Module):
@@ -556,6 +508,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (BiLM,
+     lambda: ([], {'nin': 4, 'nout': 4, 'embedding_dim': 4, 'hidden_dim': 4, 'num_layers': 1}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
     (ConvContactMap,
      lambda: ([], {'embed_dim': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
@@ -600,4 +556,7 @@ class Test_tbepler_protein_sequence_embedding_iclr2019(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

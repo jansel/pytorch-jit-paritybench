@@ -15,15 +15,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -47,6 +48,15 @@ import torch.nn as nn
 
 
 import functools
+
+
+import time
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.tensorboard import SummaryWriter
 
 
 import math
@@ -162,6 +172,47 @@ class DeepvoxelsRenderer(nn.Module):
         return out.view(batch_size, 3, -1).permute(0, 2, 1)
 
 
+class BatchLinear(nn.Module):
+
+    def __init__(self, weights, biases):
+        """Implements a batch linear layer.
+
+        :param weights: Shape: (batch, out_ch, in_ch)
+        :param biases: Shape: (batch, 1, out_ch)
+        """
+        super().__init__()
+        self.weights = weights
+        self.biases = biases
+
+    def __repr__(self):
+        return 'BatchLinear(in_ch=%d, out_ch=%d)' % (self.weights.shape[-1], self.weights.shape[-2])
+
+    def forward(self, input):
+        output = input.matmul(self.weights.permute(*[i for i in range(len(self.weights.shape) - 2)], -1, -2))
+        output += self.biases
+        return output
+
+
+class LookupLinear(nn.Module):
+
+    def __init__(self, in_ch, out_ch, num_objects):
+        super().__init__()
+        self.in_ch = in_ch
+        self.out_ch = out_ch
+        self.hypo_params = nn.Embedding(num_objects, in_ch * out_ch + out_ch)
+        for i in range(num_objects):
+            nn.init.kaiming_normal_(self.hypo_params.weight.data[(i), :self.in_ch * self.out_ch].view(self.out_ch, self.in_ch), a=0.0, nonlinearity='relu', mode='fan_in')
+            self.hypo_params.weight.data[(i), self.in_ch * self.out_ch:].fill_(0.0)
+
+    def forward(self, obj_idx):
+        hypo_params = self.hypo_params(obj_idx)
+        weights = hypo_params[(...), :self.in_ch * self.out_ch]
+        biases = hypo_params[(...), self.in_ch * self.out_ch:self.in_ch * self.out_ch + self.out_ch]
+        biases = biases.view(*biases.size()[:-1], 1, self.out_ch)
+        weights = weights.view(*weights.size()[:-1], self.out_ch, self.in_ch)
+        return BatchLinear(weights=weights, biases=biases)
+
+
 class LookupLayer(nn.Module):
 
     def __init__(self, in_ch, out_ch, num_objects):
@@ -195,19 +246,24 @@ class LookupFC(nn.Module):
         return nn.Sequential(*net)
 
 
-class LookupLinear(nn.Module):
+def last_hyper_layer_init(m):
+    if type(m) == nn.Linear:
+        nn.init.kaiming_normal_(m.weight, a=0.0, nonlinearity='relu', mode='fan_in')
+        m.weight.data *= 0.1
 
-    def __init__(self, in_ch, out_ch, num_objects):
+
+class HyperLinear(nn.Module):
+    """A hypernetwork that predicts a single linear layer (weights & biases)."""
+
+    def __init__(self, in_ch, out_ch, hyper_in_ch, hyper_num_hidden_layers, hyper_hidden_ch):
         super().__init__()
         self.in_ch = in_ch
         self.out_ch = out_ch
-        self.hypo_params = nn.Embedding(num_objects, in_ch * out_ch + out_ch)
-        for i in range(num_objects):
-            nn.init.kaiming_normal_(self.hypo_params.weight.data[(i), :self.in_ch * self.out_ch].view(self.out_ch, self.in_ch), a=0.0, nonlinearity='relu', mode='fan_in')
-            self.hypo_params.weight.data[(i), self.in_ch * self.out_ch:].fill_(0.0)
+        self.hypo_params = pytorch_prototyping.FCBlock(in_features=hyper_in_ch, hidden_ch=hyper_hidden_ch, num_hidden_layers=hyper_num_hidden_layers, out_features=in_ch * out_ch + out_ch, outermost_linear=True)
+        self.hypo_params[-1].apply(last_hyper_layer_init)
 
-    def forward(self, obj_idx):
-        hypo_params = self.hypo_params(obj_idx)
+    def forward(self, hyper_input):
+        hypo_params = self.hypo_params(hyper_input)
         weights = hypo_params[(...), :self.in_ch * self.out_ch]
         biases = hypo_params[(...), self.in_ch * self.out_ch:self.in_ch * self.out_ch + self.out_ch]
         biases = biases.view(*biases.size()[:-1], 1, self.out_ch)
@@ -265,52 +321,6 @@ class HyperFC(nn.Module):
         for i in range(len(self.layers)):
             net.append(self.layers[i](hyper_input))
         return nn.Sequential(*net)
-
-
-class BatchLinear(nn.Module):
-
-    def __init__(self, weights, biases):
-        """Implements a batch linear layer.
-
-        :param weights: Shape: (batch, out_ch, in_ch)
-        :param biases: Shape: (batch, 1, out_ch)
-        """
-        super().__init__()
-        self.weights = weights
-        self.biases = biases
-
-    def __repr__(self):
-        return 'BatchLinear(in_ch=%d, out_ch=%d)' % (self.weights.shape[-1], self.weights.shape[-2])
-
-    def forward(self, input):
-        output = input.matmul(self.weights.permute(*[i for i in range(len(self.weights.shape) - 2)], -1, -2))
-        output += self.biases
-        return output
-
-
-def last_hyper_layer_init(m):
-    if type(m) == nn.Linear:
-        nn.init.kaiming_normal_(m.weight, a=0.0, nonlinearity='relu', mode='fan_in')
-        m.weight.data *= 0.1
-
-
-class HyperLinear(nn.Module):
-    """A hypernetwork that predicts a single linear layer (weights & biases)."""
-
-    def __init__(self, in_ch, out_ch, hyper_in_ch, hyper_num_hidden_layers, hyper_hidden_ch):
-        super().__init__()
-        self.in_ch = in_ch
-        self.out_ch = out_ch
-        self.hypo_params = pytorch_prototyping.FCBlock(in_features=hyper_in_ch, hidden_ch=hyper_hidden_ch, num_hidden_layers=hyper_num_hidden_layers, out_features=in_ch * out_ch + out_ch, outermost_linear=True)
-        self.hypo_params[-1].apply(last_hyper_layer_init)
-
-    def forward(self, hyper_input):
-        hypo_params = self.hypo_params(hyper_input)
-        weights = hypo_params[(...), :self.in_ch * self.out_ch]
-        biases = hypo_params[(...), self.in_ch * self.out_ch:self.in_ch * self.out_ch + self.out_ch]
-        biases = biases.view(*biases.size()[:-1], 1, self.out_ch)
-        weights = weights.view(*weights.size()[:-1], self.out_ch, self.in_ch)
-        return BatchLinear(weights=weights, biases=biases)
 
 
 class SRNsModel(nn.Module):

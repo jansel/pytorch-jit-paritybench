@@ -21,15 +21,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -159,76 +160,6 @@ class Normalize:
         proc_img[..., 1] = imgarr[..., 1] - self.mean[1]
         proc_img[..., 2] = imgarr[..., 0] - self.mean[0]
         return proc_img
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1a = nn.Conv2d(3, 64, 3, padding=1, bias=False)
-        self.b2 = ResBlock(64, 128, 128, stride=2)
-        self.b2_1 = ResBlock(128, 128, 128)
-        self.b2_2 = ResBlock(128, 128, 128)
-        self.b3 = ResBlock(128, 256, 256, stride=2)
-        self.b3_1 = ResBlock(256, 256, 256)
-        self.b3_2 = ResBlock(256, 256, 256)
-        self.b4 = ResBlock(256, 512, 512, stride=2)
-        self.b4_1 = ResBlock(512, 512, 512)
-        self.b4_2 = ResBlock(512, 512, 512)
-        self.b4_3 = ResBlock(512, 512, 512)
-        self.b4_4 = ResBlock(512, 512, 512)
-        self.b4_5 = ResBlock(512, 512, 512)
-        self.b5 = ResBlock(512, 512, 1024, stride=1, first_dilation=1, dilation=2)
-        self.b5_1 = ResBlock(1024, 512, 1024, dilation=2)
-        self.b5_2 = ResBlock(1024, 512, 1024, dilation=2)
-        self.b6 = ResBlock_bot(1024, 2048, stride=1, dilation=4, dropout=0.3)
-        self.b7 = ResBlock_bot(2048, 4096, dilation=4, dropout=0.5)
-        self.bn7 = nn.BatchNorm2d(4096)
-        self.not_training = [self.conv1a]
-        self.normalize = Normalize()
-        return
-
-    def forward(self, x):
-        return self.forward_as_dict(x)['conv6']
-
-    def forward_as_dict(self, x):
-        x = self.conv1a(x)
-        x = self.b2(x)
-        x = self.b2_1(x)
-        x = self.b2_2(x)
-        x = self.b3(x)
-        x = self.b3_1(x)
-        x = self.b3_2(x)
-        x = self.b4(x)
-        x = self.b4_1(x)
-        x = self.b4_2(x)
-        x = self.b4_3(x)
-        x = self.b4_4(x)
-        x = self.b4_5(x)
-        x, conv4 = self.b5(x, get_x_bn_relu=True)
-        x = self.b5_1(x)
-        x = self.b5_2(x)
-        x, conv5 = self.b6(x, get_x_bn_relu=True)
-        x = self.b7(x)
-        conv6 = F.relu(self.bn7(x))
-        return dict({'conv4': conv4, 'conv5': conv5, 'conv6': conv6})
-
-    def train(self, mode=True):
-        super().train(mode)
-        for layer in self.not_training:
-            if isinstance(layer, torch.nn.Conv2d):
-                layer.weight.requires_grad = False
-            elif isinstance(layer, torch.nn.Module):
-                for c in layer.children():
-                    c.weight.requires_grad = False
-                    if c.bias is not None:
-                        c.bias.requires_grad = False
-        for layer in self.modules():
-            if isinstance(layer, torch.nn.BatchNorm2d):
-                layer.eval()
-                layer.bias.requires_grad = False
-                layer.weight.requires_grad = False
-        return
 
 
 class Net(nn.Module):

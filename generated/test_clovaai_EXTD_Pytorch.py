@@ -41,15 +41,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -75,6 +76,9 @@ import numpy as np
 import torch.utils.data as data
 
 
+import random
+
+
 import torch.backends.cudnn as cudnn
 
 
@@ -87,6 +91,9 @@ import time
 from torch.autograd import Function
 
 
+from itertools import product as product
+
+
 import math
 
 
@@ -94,6 +101,12 @@ import scipy.io as sio
 
 
 import torch.optim as optim
+
+
+from torchvision import transforms
+
+
+import types
 
 
 def decode(loc, priors, variances):
@@ -219,7 +232,7 @@ class Detect(Function):
                     count = count if count < self.top_k else self.top_k
                     output[(i), (cl), :count] = torch.cat((scores[ids[:count]].unsqueeze(1), boxes_[ids[:count]]), 1)
                 except:
-                    print('zero')
+                    None
         return output
 
 
@@ -262,285 +275,6 @@ class PriorBox(object):
 
 def upsample(in_channels, out_channels):
     return nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=(3, 3), stride=1, padding=1, groups=in_channels, bias=False), nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=False), nn.BatchNorm2d(out_channels), nn.ReLU())
-
-
-class EXTD(nn.Module):
-    """Single Shot Multibox Architecture
-    The network is composed of a base VGG network followed by the
-    added multibox conv layers.  Each multibox layer branches into
-        1) conv2d for class conf scores
-        2) conv2d for localization predictions
-        3) associated priorbox layer to produce default bounding
-           boxes specific to the layer's feature map size.
-    See: https://arxiv.org/pdf/1512.02325.pdf for more details.
-
-
-    Args:
-        phase: (string) Can be "test" or "train"
-        size: input image size
-        base: VGG16 layers for input, size of either 300 or 500
-        extras: extra layers that feed to multibox loc and conf layers
-        head: "multibox head" consists of loc and conf conv layers
-    """
-
-    def __init__(self, phase, base, head, num_classes):
-        super(EXTD, self).__init__()
-        self.phase = phase
-        self.num_classes = num_classes
-        """
-        self.priorbox = PriorBox(size,cfg)
-        self.priors = Variable(self.priorbox.forward(), volatile=True)
-        """
-        self.base = nn.ModuleList(base)
-        self.upfeat = []
-        for it in range(5):
-            self.upfeat.append(upsample(in_channels=32, out_channels=32))
-        self.upfeat = nn.ModuleList(self.upfeat)
-        self.loc = nn.ModuleList(head[0])
-        self.conf = nn.ModuleList(head[1])
-        if self.phase == 'test':
-            self.softmax = nn.Softmax(dim=-1)
-            self.detect = Detect(cfg)
-
-    def forward(self, x):
-        """Applies network layers and ops on input image(s) x.
-
-        Args:
-            x: input image or batch of images. Shape: [batch,3,300,300].
-
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        size = x.size()[2:]
-        sources = list()
-        loc = list()
-        conf = list()
-        for k in range(8):
-            x = self.base[k](x)
-        s1 = x
-        for k in range(2, 8):
-            x = self.base[k](x)
-        s2 = x
-        for k in range(2, 8):
-            x = self.base[k](x)
-        s3 = x
-        for k in range(2, 8):
-            x = self.base[k](x)
-        s4 = x
-        for k in range(2, 8):
-            x = self.base[k](x)
-        s5 = x
-        for k in range(2, 8):
-            x = self.base[k](x)
-        s6 = x
-        sources.append(s6)
-        u1 = self.upfeat[0](F.interpolate(s6, size=(s5.size()[2], s5.size()[3]), mode='bilinear')) + s5
-        sources.append(u1)
-        u2 = self.upfeat[1](F.interpolate(u1, size=(s4.size()[2], s4.size()[3]), mode='bilinear')) + s4
-        sources.append(u2)
-        u3 = self.upfeat[2](F.interpolate(u2, size=(s3.size()[2], s3.size()[3]), mode='bilinear')) + s3
-        sources.append(u3)
-        u4 = self.upfeat[3](F.interpolate(u3, size=(s2.size()[2], s2.size()[3]), mode='bilinear')) + s2
-        sources.append(u4)
-        u5 = self.upfeat[4](F.interpolate(u4, size=(s1.size()[2], s1.size()[3]), mode='bilinear')) + s1
-        sources.append(u5)
-        sources = sources[::-1]
-        loc_x = self.loc[0](sources[0])
-        conf_x = self.conf[0](sources[0])
-        max_conf, _ = torch.max(conf_x[:, 0:3, :, :], dim=1, keepdim=True)
-        conf_x = torch.cat((max_conf, conf_x[:, 3:, :, :]), dim=1)
-        loc.append(loc_x.permute(0, 2, 3, 1).contiguous())
-        conf.append(conf_x.permute(0, 2, 3, 1).contiguous())
-        for i in range(1, len(sources)):
-            x = sources[i]
-            conf.append(self.conf[i](x).permute(0, 2, 3, 1).contiguous())
-            loc.append(self.loc[i](x).permute(0, 2, 3, 1).contiguous())
-        """
-        for (x, l, c) in zip(sources, self.loc, self.conf):
-            loc.append(l(x).permute(0, 2, 3, 1).contiguous())
-            conf.append(c(x).permute(0, 2, 3, 1).contiguous())
-        """
-        features_maps = []
-        for i in range(len(loc)):
-            feat = []
-            feat += [loc[i].size(1), loc[i].size(2)]
-            features_maps += [feat]
-        self.priorbox = PriorBox(size, features_maps, cfg)
-        self.priors = Variable(self.priorbox.forward(), volatile=True)
-        loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
-        conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
-        if self.phase == 'test':
-            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax(conf.view(conf.size(0), -1, self.num_classes)), self.priors.type(type(x.data)))
-        else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes), self.priors
-        return output
-
-    def load_weights(self, base_file):
-        other, ext = os.path.splitext(base_file)
-        if ext == '.pkl' or '.pth':
-            None
-            mdata = torch.load(base_file, map_location=lambda storage, loc: storage)
-            weights = mdata['weight']
-            epoch = mdata['epoch']
-            self.load_state_dict(weights)
-            None
-        else:
-            None
-        return epoch
-
-    def xavier(self, param):
-        init.xavier_uniform(param)
-
-    def weights_init(self, m):
-        if isinstance(m, nn.Conv2d):
-            self.xavier(m.weight.data)
-            if torch.is_tensor(m.bias):
-                m.bias.data.zero_()
-
-
-class EXTD(nn.Module):
-    """Single Shot Multibox Architecture
-    The network is composed of a base VGG network followed by the
-    added multibox conv layers.  Each multibox layer branches into
-        1) conv2d for class conf scores
-        2) conv2d for localization predictions
-        3) associated priorbox layer to produce default bounding
-           boxes specific to the layer's feature map size.
-    See: https://arxiv.org/pdf/1512.02325.pdf for more details.
-
-
-    Args:
-        phase: (string) Can be "test" or "train"
-        size: input image size
-        base: VGG16 layers for input, size of either 300 or 500
-        extras: extra layers that feed to multibox loc and conf layers
-        head: "multibox head" consists of loc and conf conv layers
-    """
-
-    def __init__(self, phase, base, head, num_classes):
-        super(EXTD, self).__init__()
-        self.phase = phase
-        self.num_classes = num_classes
-        self.base = nn.ModuleList(base)
-        self.upfeat = []
-        for it in range(5):
-            self.upfeat.append(upsample(in_channels=48, out_channels=48))
-        self.upfeat = nn.ModuleList(self.upfeat)
-        self.loc = nn.ModuleList(head[0])
-        self.conf = nn.ModuleList(head[1])
-        if self.phase == 'test':
-            self.softmax = nn.Softmax(dim=-1)
-            self.detect = Detect(cfg)
-
-    def forward(self, x):
-        """Applies network layers and ops on input image(s) x.
-
-        Args:
-            x: input image or batch of images. Shape: [batch,3,300,300].
-
-        Return:
-            Depending on phase:
-            test:
-                Variable(tensor) of output class label predictions,
-                confidence score, and corresponding location predictions for
-                each object detected. Shape: [batch,topk,7]
-
-            train:
-                list of concat outputs from:
-                    1: confidence layers, Shape: [batch*num_priors,num_classes]
-                    2: localization layers, Shape: [batch,num_priors*4]
-                    3: priorbox layers, Shape: [2,num_priors*4]
-        """
-        size = x.size()[2:]
-        sources = list()
-        loc = list()
-        conf = list()
-        for k in range(6):
-            x = self.base[k](x)
-        s1 = x
-        for k in range(2, 6):
-            x = self.base[k](x)
-        s2 = x
-        for k in range(2, 6):
-            x = self.base[k](x)
-        s3 = x
-        for k in range(2, 6):
-            x = self.base[k](x)
-        s4 = x
-        for k in range(2, 6):
-            x = self.base[k](x)
-        s5 = x
-        for k in range(2, 6):
-            x = self.base[k](x)
-        s6 = x
-        sources.append(s6)
-        u1 = self.upfeat[0](F.interpolate(s6, size=(s5.size()[2], s5.size()[3]), mode='bilinear')) + s5
-        sources.append(u1)
-        u2 = self.upfeat[1](F.interpolate(u1, size=(s4.size()[2], s4.size()[3]), mode='bilinear')) + s4
-        sources.append(u2)
-        u3 = self.upfeat[2](F.interpolate(u2, size=(s3.size()[2], s3.size()[3]), mode='bilinear')) + s3
-        sources.append(u3)
-        u4 = self.upfeat[3](F.interpolate(u3, size=(s2.size()[2], s2.size()[3]), mode='bilinear')) + s2
-        sources.append(u4)
-        u5 = self.upfeat[4](F.interpolate(u4, size=(s1.size()[2], s1.size()[3]), mode='bilinear')) + s1
-        sources.append(u5)
-        sources = sources[::-1]
-        loc_x = self.loc[0](sources[0])
-        conf_x = self.conf[0](sources[0])
-        max_conf, _ = torch.max(conf_x[:, 0:3, :, :], dim=1, keepdim=True)
-        conf_x = torch.cat((max_conf, conf_x[:, 3:, :, :]), dim=1)
-        loc.append(loc_x.permute(0, 2, 3, 1).contiguous())
-        conf.append(conf_x.permute(0, 2, 3, 1).contiguous())
-        for i in range(1, len(sources)):
-            x = sources[i]
-            conf.append(self.conf[i](x).permute(0, 2, 3, 1).contiguous())
-            loc.append(self.loc[i](x).permute(0, 2, 3, 1).contiguous())
-        features_maps = []
-        for i in range(len(loc)):
-            feat = []
-            feat += [loc[i].size(1), loc[i].size(2)]
-            features_maps += [feat]
-        self.priorbox = PriorBox(size, features_maps, cfg)
-        self.priors = Variable(self.priorbox.forward(), volatile=True)
-        loc = torch.cat([o.view(o.size(0), -1) for o in loc], 1)
-        conf = torch.cat([o.view(o.size(0), -1) for o in conf], 1)
-        if self.phase == 'test':
-            output = self.detect(loc.view(loc.size(0), -1, 4), self.softmax(conf.view(conf.size(0), -1, self.num_classes)), self.priors.type(type(x.data)))
-        else:
-            output = loc.view(loc.size(0), -1, 4), conf.view(conf.size(0), -1, self.num_classes), self.priors
-        return output
-
-    def load_weights(self, base_file):
-        other, ext = os.path.splitext(base_file)
-        if ext == '.pkl' or '.pth':
-            None
-            mdata = torch.load(base_file, map_location=lambda storage, loc: storage)
-            weights = mdata['weight']
-            epoch = mdata['epoch']
-            self.load_state_dict(weights)
-            None
-        else:
-            None
-        return epoch
-
-    def xavier(self, param):
-        init.xavier_uniform(param)
-
-    def weights_init(self, m):
-        if isinstance(m, nn.Conv2d):
-            self.xavier(m.weight.data)
-            if torch.is_tensor(m.bias):
-                m.bias.data.zero_()
 
 
 class EXTD(nn.Module):
@@ -729,22 +463,10 @@ def encode(matched, priors, variances):
 
 
 def intersect(box_a, box_b):
-    """ We resize both tensors to [A,B,2] without new malloc:
-    [A,2] -> [A,1,2] -> [A,B,2]
-    [B,2] -> [1,B,2] -> [A,B,2]
-    Then we compute the area of intersect between box_a and box_b.
-    Args:
-      box_a: (tensor) bounding boxes, Shape: [A,4].
-      box_b: (tensor) bounding boxes, Shape: [B,4].
-    Return:
-      (tensor) intersection area, Shape: [A,B].
-    """
-    A = box_a.size(0)
-    B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
-    inter = torch.clamp(max_xy - min_xy, min=0)
-    return inter[:, :, (0)] * inter[:, :, (1)]
+    max_xy = np.minimum(box_a[:, 2:], box_b[2:])
+    min_xy = np.maximum(box_a[:, :2], box_b[:2])
+    inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
+    return inter[:, (0)] * inter[:, (1)]
 
 
 def jaccard(box_a, box_b):
@@ -978,18 +700,6 @@ class Max_AvgPool(nn.Module):
         return x
 
 
-class Max_AvgPool(nn.Module):
-
-    def __init__(self, kernel_size=(3, 3), stride=2, padding=1, dim=128):
-        super(Max_AvgPool, self).__init__()
-        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
-        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
-
-    def forward(self, x):
-        x = self.Maxpool(x) + self.Avgpool(x)
-        return x
-
-
 class gated_conv1x1(nn.Module):
 
     def __init__(self, inc=128, outc=128):
@@ -1027,7 +737,6 @@ class InvertedResidual_dwc(nn.Module):
             self.conv.append(nn.PReLU())
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(oup))
-            self.conv.append(nn.PReLU())
         else:
             self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(hidden_dim))
@@ -1037,7 +746,6 @@ class InvertedResidual_dwc(nn.Module):
             self.conv.append(nn.PReLU())
             self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
             self.conv.append(nn.BatchNorm2d(oup))
-            self.conv.append(nn.PReLU())
         self.conv = nn.Sequential(*self.conv)
 
     def forward(self, x):
@@ -1078,356 +786,6 @@ class InvertedResidual(nn.Module):
 
 def conv_bn(inp, oup, stride, k_size=3):
     return nn.Sequential(nn.Conv2d(inp, oup, k_size, stride, 1, bias=False), nn.BatchNorm2d(oup), nn.PReLU())
-
-
-class Net(nn.Module):
-
-    def __init__(self, embedding_size=128, input_size=224, width_mult=1.0):
-        super(Net, self).__init__()
-        block = InvertedResidual
-        block_dwc = InvertedResidual_dwc
-        input_channel = 64
-        last_channel = 256
-        interverted_residual_setting = [[1, 32, 1, 1], [2, 32, 2, 1], [4, 32, 2, 1], [2, 32, 2, 2], [4, 32, 5, 1], [2, 32, 2, 2], [2, 32, 6, 2]]
-        input_channel = int(input_channel * width_mult)
-        self.last_channel = int(last_channel * width_mult) if width_mult > 1.0 else last_channel
-        self.features = [conv_bn(3, input_channel, 2)]
-        cnt = 0
-        for t, c, n, s in interverted_residual_setting:
-            output_channel = int(c * width_mult)
-            for i in range(n):
-                if cnt > 1:
-                    if i == n - 1:
-                        self.features.append(block_dwc(input_channel, output_channel, s, expand_ratio=t))
-                    else:
-                        self.features.append(block_dwc(input_channel, output_channel, 1, expand_ratio=t))
-                    input_channel = output_channel
-                else:
-                    if i == n - 1:
-                        self.features.append(block_dwc(input_channel, output_channel, s, expand_ratio=t))
-                    else:
-                        self.features.append(block_dwc(input_channel, output_channel, 1, expand_ratio=t))
-                    input_channel = output_channel
-            cnt += 1
-        self.features.append(gated_conv1x1(input_channel, self.last_channel))
-        self.features_sequential = nn.Sequential(*self.features)
-        self._initialize_weights()
-
-    def forward(self, x):
-        x = self.features_sequential(x).view(-1, 256 * 4)
-        return x
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                n = m.weight.size(1)
-                m.weight.data.normal_(0, 0.01)
-                m.bias.data.zero_()
-
-
-class DWC(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super(DWC, self).__init__()
-        self.batch_norm_in = nn.BatchNorm2d(in_channels)
-        self.depthwise = nn.AvgPool2d((7, 6), stride=1, padding=0)
-        self.pointwise = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=False)
-
-    def forward(self, x):
-        x = self.depthwise(x)
-        x = self.pointwise(x)
-        return x
-
-
-class Max_AvgPool(nn.Module):
-
-    def __init__(self, kernel_size=(3, 3), stride=2, padding=1, dim=128):
-        super(Max_AvgPool, self).__init__()
-        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
-        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
-
-    def forward(self, x):
-        x = self.Maxpool(x) + self.Avgpool(x)
-        return x
-
-
-class Max_AvgPool(nn.Module):
-
-    def __init__(self, kernel_size=(3, 3), stride=2, padding=1, dim=128):
-        super(Max_AvgPool, self).__init__()
-        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
-        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
-
-    def forward(self, x):
-        x = self.Maxpool(x) + self.Avgpool(x)
-        return x
-
-
-class gated_conv1x1(nn.Module):
-
-    def __init__(self, inc=128, outc=128):
-        super(gated_conv1x1, self).__init__()
-        self.inp = int(inc / 2)
-        self.oup = int(outc / 2)
-        self.conv1x1_1 = nn.Conv2d(self.inp, self.oup, 1, 1, 0, bias=False)
-        self.gate_1 = nn.Conv2d(self.inp, self.oup, 1, 1, 0, bias=True)
-        self.conv1x1_2 = nn.Conv2d(self.inp, self.oup, 1, 1, 0, bias=False)
-        self.gate_2 = nn.Conv2d(self.inp, self.oup, 1, 1, 0, bias=True)
-
-    def forward(self, x):
-        x_1 = x[:, :self.inp, :, :]
-        x_2 = x[:, self.inp:, :, :]
-        a_1 = self.conv1x1_1(x_1)
-        g_1 = F.sigmoid(self.gate_1(x_1))
-        a_2 = self.conv1x1_2(x_2)
-        g_2 = F.sigmoid(self.gate_2(x_2))
-        ret = torch.cat((a_1 * g_1, a_2 * g_2), 1)
-        return ret
-
-
-class InvertedResidual_dwc(nn.Module):
-
-    def __init__(self, inp, oup, stride, expand_ratio):
-        super(InvertedResidual_dwc, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        hidden_dim = int(round(inp * expand_ratio))
-        self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv = []
-        if expand_ratio == 1:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, kernel_size=(3, 3), stride=stride, padding=1, groups=hidden_dim))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        else:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, hidden_dim, kernel_size=(3, 3), stride=stride, padding=1, groups=hidden_dim))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        self.conv = nn.Sequential(*self.conv)
-
-    def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
-
-
-class InvertedResidual(nn.Module):
-
-    def __init__(self, inp, oup, stride, expand_ratio):
-        super(InvertedResidual, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        hidden_dim = int(round(inp * expand_ratio))
-        self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv = []
-        if expand_ratio == 1:
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride, padding=1))
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        else:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride, padding=1))
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        self.conv = nn.Sequential(*self.conv)
-
-    def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
-
-
-class Net(nn.Module):
-
-    def __init__(self, embedding_size=128, input_size=224, width_mult=1.0):
-        super(Net, self).__init__()
-        block = InvertedResidual
-        block_dwc = InvertedResidual_dwc
-        input_channel = 64
-        last_channel = 256
-        interverted_residual_setting = [[1, 48, 1, 1], [2, 48, 2, 1], [4, 48, 2, 2], [2, 48, 2, 1], [4, 48, 5, 1], [2, 48, 2, 2], [2, 48, 6, 2]]
-        input_channel = int(input_channel * width_mult)
-        self.last_channel = int(last_channel * width_mult) if width_mult > 1.0 else last_channel
-        self.features = [conv_bn(3, input_channel, 2)]
-        cnt = 0
-        for t, c, n, s in interverted_residual_setting:
-            output_channel = int(c * width_mult)
-            for i in range(n):
-                if cnt > 1:
-                    if i == n - 1:
-                        self.features.append(block_dwc(input_channel, output_channel, s, expand_ratio=t))
-                    else:
-                        self.features.append(block_dwc(input_channel, output_channel, 1, expand_ratio=t))
-                    input_channel = output_channel
-                else:
-                    if i == n - 1:
-                        self.features.append(block_dwc(input_channel, output_channel, s, expand_ratio=t))
-                    else:
-                        self.features.append(block_dwc(input_channel, output_channel, 1, expand_ratio=t))
-                    input_channel = output_channel
-            cnt += 1
-        self.features.append(gated_conv1x1(input_channel, self.last_channel))
-        self.features_sequential = nn.Sequential(*self.features)
-        self._initialize_weights()
-
-    def forward(self, x):
-        x = self.features_sequential(x).view(-1, 256 * 4)
-        return x
-
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                n = m.weight.size(1)
-                m.weight.data.normal_(0, 0.01)
-                m.bias.data.zero_()
-
-
-class DWC(nn.Module):
-
-    def __init__(self, in_channels, out_channels):
-        super(DWC, self).__init__()
-        self.batch_norm_in = nn.BatchNorm2d(in_channels)
-        self.depthwise = nn.AvgPool2d((7, 6), stride=1, padding=0)
-        self.pointwise = nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1, stride=1, padding=0, bias=False)
-
-    def forward(self, x):
-        x = self.depthwise(x)
-        x = self.pointwise(x)
-        return x
-
-
-class Max_AvgPool(nn.Module):
-
-    def __init__(self, kernel_size=(3, 3), stride=2, padding=1, dim=128):
-        super(Max_AvgPool, self).__init__()
-        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
-        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
-
-    def forward(self, x):
-        x = self.Maxpool(x) + self.Avgpool(x)
-        return x
-
-
-class Max_AvgPool(nn.Module):
-
-    def __init__(self, kernel_size=(3, 3), stride=2, padding=1, dim=128):
-        super(Max_AvgPool, self).__init__()
-        self.Maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
-        self.Avgpool = nn.AvgPool2d(kernel_size=kernel_size, stride=stride, padding=padding)
-
-    def forward(self, x):
-        x = self.Maxpool(x) + self.Avgpool(x)
-        return x
-
-
-class gated_conv1x1(nn.Module):
-
-    def __init__(self, inc=128, outc=128):
-        super(gated_conv1x1, self).__init__()
-        self.inp = int(inc / 2)
-        self.oup = int(outc / 2)
-        self.conv1x1_1 = nn.Conv2d(self.inp, self.oup, 1, 1, 0, bias=False)
-        self.gate_1 = nn.Conv2d(self.inp, self.oup, 1, 1, 0, bias=True)
-        self.conv1x1_2 = nn.Conv2d(self.inp, self.oup, 1, 1, 0, bias=False)
-        self.gate_2 = nn.Conv2d(self.inp, self.oup, 1, 1, 0, bias=True)
-
-    def forward(self, x):
-        x_1 = x[:, :self.inp, :, :]
-        x_2 = x[:, self.inp:, :, :]
-        a_1 = self.conv1x1_1(x_1)
-        g_1 = F.sigmoid(self.gate_1(x_1))
-        a_2 = self.conv1x1_2(x_2)
-        g_2 = F.sigmoid(self.gate_2(x_2))
-        ret = torch.cat((a_1 * g_1, a_2 * g_2), 1)
-        return ret
-
-
-class InvertedResidual_dwc(nn.Module):
-
-    def __init__(self, inp, oup, stride, expand_ratio):
-        super(InvertedResidual_dwc, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        hidden_dim = int(round(inp * expand_ratio))
-        self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv = []
-        if expand_ratio == 1:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, kernel_size=(3, 3), stride=stride, padding=1, groups=hidden_dim))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        else:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, hidden_dim, kernel_size=(3, 3), stride=stride, padding=1, groups=hidden_dim))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        self.conv = nn.Sequential(*self.conv)
-
-    def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
-
-
-class InvertedResidual(nn.Module):
-
-    def __init__(self, inp, oup, stride, expand_ratio):
-        super(InvertedResidual, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        hidden_dim = int(round(inp * expand_ratio))
-        self.use_res_connect = self.stride == 1 and inp == oup
-        self.conv = []
-        if expand_ratio == 1:
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride, padding=1))
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        else:
-            self.conv.append(nn.Conv2d(inp, hidden_dim, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(hidden_dim))
-            self.conv.append(nn.PReLU())
-            self.conv.append(nn.MaxPool2d(kernel_size=(3, 3), stride=stride, padding=1))
-            self.conv.append(nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False))
-            self.conv.append(nn.BatchNorm2d(oup))
-        self.conv = nn.Sequential(*self.conv)
-
-    def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
 
 
 class Net(nn.Module):

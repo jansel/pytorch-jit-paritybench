@@ -12,15 +12,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -105,6 +106,54 @@ class DropBlock2D(nn.Module):
         return self.drop_prob / self.block_size ** 2
 
 
+class DropBlock3D(DropBlock2D):
+    """Randomly zeroes 3D spatial blocks of the input tensor.
+
+    An extension to the concept described in the paper
+    `DropBlock: A regularization method for convolutional networks`_ ,
+    dropping whole blocks of feature map allows to remove semantic
+    information as compared to regular dropout.
+
+    Args:
+        drop_prob (float): probability of an element to be dropped.
+        block_size (int): size of the block to drop
+
+    Shape:
+        - Input: `(N, C, D, H, W)`
+        - Output: `(N, C, D, H, W)`
+
+    .. _DropBlock: A regularization method for convolutional networks:
+       https://arxiv.org/abs/1810.12890
+
+    """
+
+    def __init__(self, drop_prob, block_size):
+        super(DropBlock3D, self).__init__(drop_prob, block_size)
+
+    def forward(self, x):
+        assert x.dim() == 5, 'Expected input with 5 dimensions (bsize, channels, depth, height, width)'
+        if not self.training or self.drop_prob == 0.0:
+            return x
+        else:
+            gamma = self._compute_gamma(x)
+            mask = (torch.rand(x.shape[0], *x.shape[2:]) < gamma).float()
+            mask = mask
+            block_mask = self._compute_block_mask(mask)
+            out = x * block_mask[:, (None), :, :, :]
+            out = out * block_mask.numel() / block_mask.sum()
+            return out
+
+    def _compute_block_mask(self, mask):
+        block_mask = F.max_pool3d(input=mask[:, (None), :, :, :], kernel_size=(self.block_size, self.block_size, self.block_size), stride=(1, 1, 1), padding=self.block_size // 2)
+        if self.block_size % 2 == 0:
+            block_mask = block_mask[:, :, :-1, :-1, :-1]
+        block_mask = 1 - block_mask.squeeze(1)
+        return block_mask
+
+    def _compute_gamma(self, x):
+        return self.drop_prob / self.block_size ** 3
+
+
 class LinearScheduler(nn.Module):
 
     def __init__(self, dropblock, start_value, stop_value, nr_steps):
@@ -133,6 +182,10 @@ TESTCASES = [
      lambda: ([], {'drop_prob': 4, 'block_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (DropBlock3D,
+     lambda: ([], {'drop_prob': 4, 'block_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
     (LinearScheduler,
      lambda: ([], {'dropblock': _mock_layer(), 'start_value': 4, 'stop_value': 4, 'nr_steps': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -145,4 +198,7 @@ class Test_miguelvr_dropblock(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

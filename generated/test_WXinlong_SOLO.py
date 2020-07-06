@@ -238,6 +238,7 @@ bbox_heads = _module
 bbox_head = _module
 convfc_bbox_head = _module
 double_bbox_head = _module
+builder = _module
 detectors = _module
 atss = _module
 base = _module
@@ -305,6 +306,7 @@ roi_align = _module
 gradcheck = _module
 roi_align = _module
 roi_pool = _module
+gradcheck = _module
 roi_pool = _module
 sigmoid_focal_loss = _module
 sigmoid_focal_loss = _module
@@ -337,6 +339,7 @@ test = _module
 test_ins = _module
 test_ins_vis = _module
 test_robustness = _module
+train = _module
 upgrade_model_version = _module
 voc_eval = _module
 
@@ -344,26 +347,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
 
 
 import warnings
 
 
 import numpy as np
-
-
-import torch
 
 
 from scipy import ndimage
@@ -381,6 +385,15 @@ from collections import OrderedDict
 import torch.distributed as dist
 
 
+from abc import ABCMeta
+
+
+from abc import abstractmethod
+
+
+from torch.utils.data import Dataset
+
+
 import functools
 
 
@@ -393,7 +406,28 @@ import copy
 import torch.nn as nn
 
 
+from collections import abc
+
+
 from torch.nn.modules.utils import _pair
+
+
+from torch._utils import _flatten_dense_tensors
+
+
+from torch._utils import _take_tensors
+
+
+from torch._utils import _unflatten_dense_tensors
+
+
+from torch.utils.data.dataset import ConcatDataset as _ConcatDataset
+
+
+from functools import partial
+
+
+from torch.utils.data import DataLoader
 
 
 import math
@@ -405,6 +439,9 @@ from torch.utils.data import DistributedSampler as _DistributedSampler
 from torch.utils.data import Sampler
 
 
+from collections.abc import Sequence
+
+
 import torch.nn.functional as F
 
 
@@ -414,16 +451,13 @@ from torch.nn.modules.batchnorm import _BatchNorm
 import torch.utils.checkpoint as cp
 
 
-from abc import ABCMeta
+from torch import nn
 
 
-from abc import abstractmethod
+import logging
 
 
 from torch.utils.checkpoint import checkpoint
-
-
-from torch import nn
 
 
 from torch.autograd import Function
@@ -433,6 +467,15 @@ from torch.autograd.function import once_differentiable
 
 
 from torch.nn.modules.utils import _single
+
+
+from torch.autograd import gradcheck
+
+
+import time
+
+
+from typing import List
 
 
 from torch.nn.modules.conv import _ConvNd
@@ -456,10 +499,16 @@ from torch.nn.modules.pooling import _MaxPoolNd
 import inspect
 
 
-from functools import partial
+from torch.utils.cpp_extension import BuildExtension
 
 
-import time
+from torch.utils.cpp_extension import CUDAExtension
+
+
+from collections import defaultdict
+
+
+import torchvision
 
 
 class AnchorGenerator(object):
@@ -515,7 +564,7 @@ class AnchorGenerator(object):
             return yy, xx
 
     def grid_anchors(self, featmap_size, stride=16, device='cuda'):
-        base_anchors = self.base_anchors.to(device)
+        base_anchors = self.base_anchors
         feat_h, feat_w = featmap_size
         shift_x = torch.arange(0, feat_w, device=device) * stride
         shift_y = torch.arange(0, feat_h, device=device) * stride
@@ -789,7 +838,7 @@ def anchor_target_single(flat_anchors, valid_flags, gt_bboxes, gt_bboxes_ignore,
     return labels, label_weights, bbox_targets, bbox_weights, pos_inds, neg_inds
 
 
-def images_to_levels(target, num_level_anchors):
+def images_to_levels(target, num_level_grids):
     """Convert targets by image to targets by feature level.
 
     [target_img0, target_img1] -> [target_level0, target_level1, ...]
@@ -797,7 +846,7 @@ def images_to_levels(target, num_level_anchors):
     target = torch.stack(target, 0)
     level_targets = []
     start = 0
-    for n in num_level_anchors:
+    for n in num_level_grids:
         end = start + n
         level_targets.append(target[:, start:end].squeeze(0))
         start = end
@@ -964,7 +1013,7 @@ def delta2bbox(rois, deltas, means=[0, 0, 0, 0], stds=[1, 1, 1, 1], max_shape=No
 
 def cast_tensor_type(inputs, src_type, dst_type):
     if isinstance(inputs, torch.Tensor):
-        return inputs.to(dst_type)
+        return inputs
     elif isinstance(inputs, str):
         return inputs
     elif isinstance(inputs, np.ndarray):
@@ -1101,7 +1150,6 @@ def normal_init(module, mean=0, std=1, bias=0):
         nn.init.constant_(module.bias, bias)
 
 
-@HEADS.register_module
 class AnchorHead(nn.Module):
     """Anchor-based head (RPN, RetinaNet, SSD, etc.).
 
@@ -1316,10 +1364,783 @@ class AnchorHead(nn.Module):
         return det_bboxes, det_labels
 
 
+def conv_ws_2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, eps=1e-05):
+    c_in = weight.size(0)
+    weight_flat = weight.view(c_in, -1)
+    mean = weight_flat.mean(dim=1, keepdim=True).view(c_in, 1, 1, 1)
+    std = weight_flat.std(dim=1, keepdim=True).view(c_in, 1, 1, 1)
+    weight = (weight - mean) / (std + eps)
+    return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
+
+
+class ConvWS2d(nn.Conv2d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, eps=1e-05):
+        super(ConvWS2d, self).__init__(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.eps = eps
+
+    def forward(self, x):
+        return conv_ws_2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.eps)
+
+
+class DeformConvFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input, offset, weight, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, im2col_step=64):
+        if input is not None and input.dim() != 4:
+            raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
+        ctx.stride = _pair(stride)
+        ctx.padding = _pair(padding)
+        ctx.dilation = _pair(dilation)
+        ctx.groups = groups
+        ctx.deformable_groups = deformable_groups
+        ctx.im2col_step = im2col_step
+        ctx.save_for_backward(input, offset, weight)
+        output = input.new_empty(DeformConvFunction._output_size(input, weight, ctx.padding, ctx.dilation, ctx.stride))
+        ctx.bufs_ = [input.new_empty(0), input.new_empty(0)]
+        if not input.is_cuda:
+            raise NotImplementedError
+        else:
+            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
+            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            deform_conv_cuda.deform_conv_forward_cuda(input, weight, offset, output, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, cur_im2col_step)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        input, offset, weight = ctx.saved_tensors
+        grad_input = grad_offset = grad_weight = None
+        if not grad_output.is_cuda:
+            raise NotImplementedError
+        else:
+            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
+            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
+            if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
+                grad_input = torch.zeros_like(input)
+                grad_offset = torch.zeros_like(offset)
+                deform_conv_cuda.deform_conv_backward_input_cuda(input, offset, grad_output, grad_input, grad_offset, weight, ctx.bufs_[0], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, cur_im2col_step)
+            if ctx.needs_input_grad[2]:
+                grad_weight = torch.zeros_like(weight)
+                deform_conv_cuda.deform_conv_backward_parameters_cuda(input, offset, grad_output, grad_weight, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, 1, cur_im2col_step)
+        return grad_input, grad_offset, grad_weight, None, None, None, None, None
+
+    @staticmethod
+    def _output_size(input, weight, padding, dilation, stride):
+        channels = weight.size(0)
+        output_size = input.size(0), channels
+        for d in range(input.dim() - 2):
+            in_size = input.size(d + 2)
+            pad = padding[d]
+            kernel = dilation[d] * (weight.size(d + 2) - 1) + 1
+            stride_ = stride[d]
+            output_size += (in_size + 2 * pad - kernel) // stride_ + 1,
+        if not all(map(lambda s: s > 0, output_size)):
+            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
+        return output_size
+
+
+deform_conv = DeformConvFunction.apply
+
+
+class DeformConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, bias=False):
+        super(DeformConv, self).__init__()
+        assert not bias
+        assert in_channels % groups == 0, 'in_channels {} cannot be divisible by groups {}'.format(in_channels, groups)
+        assert out_channels % groups == 0, 'out_channels {} cannot be divisible by groups {}'.format(out_channels, groups)
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = _pair(kernel_size)
+        self.stride = _pair(stride)
+        self.padding = _pair(padding)
+        self.dilation = _pair(dilation)
+        self.groups = groups
+        self.deformable_groups = deformable_groups
+        self.transposed = False
+        self.output_padding = _single(0)
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels // self.groups, *self.kernel_size))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        n = self.in_channels
+        for k in self.kernel_size:
+            n *= k
+        stdv = 1.0 / math.sqrt(n)
+        self.weight.data.uniform_(-stdv, stdv)
+
+    def forward(self, x, offset):
+        return deform_conv(x, offset, self.weight, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
+
+
+def get_root_logger(log_file=None, log_level=logging.INFO):
+    """Get the root logger.
+
+    The logger will be initialized if it has not been initialized. By default a
+    StreamHandler will be added. If `log_file` is specified, a FileHandler will
+    also be added. The name of the root logger is the top-level package name,
+    e.g., "mmdet".
+
+    Args:
+        log_file (str | None): The log filename. If specified, a FileHandler
+            will be added to the root logger.
+        log_level (int): The root logger level. Note that only the process of
+            rank 0 is affected, while other processes will set the level to
+            "Error" and be silent most of the time.
+
+    Returns:
+        logging.Logger: The root logger.
+    """
+    logger = logging.getLogger(__name__.split('.')[0])
+    if logger.hasHandlers():
+        return logger
+    format_str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    logging.basicConfig(format=format_str, level=log_level)
+    rank, _ = get_dist_info()
+    if rank != 0:
+        logger.setLevel('ERROR')
+    elif log_file is not None:
+        file_handler = logging.FileHandler(log_file, 'w')
+        file_handler.setFormatter(logging.Formatter(format_str))
+        file_handler.setLevel(log_level)
+        logger.addHandler(file_handler)
+    return logger
+
+
+def print_log(msg, logger=None, level=logging.INFO):
+    """Print a log message.
+
+    Args:
+        msg (str): The message to be logged.
+        logger (logging.Logger | str | None): The logger to be used. Some
+            special loggers are:
+            - "root": the root logger obtained with `get_root_logger()`.
+            - "silent": no message will be printed.
+            - None: The `print()` method will be used to print log messages.
+        level (int): Logging level. Only available when `logger` is a Logger
+            object or "root".
+    """
+    if logger is None:
+        None
+    elif logger == 'root':
+        _logger = get_root_logger()
+        _logger.log(level, msg)
+    elif isinstance(logger, logging.Logger):
+        logger.log(level, msg)
+    elif logger != 'silent':
+        raise TypeError('logger should be either a logging.Logger object, "root", "silent" or None, but got {}'.format(logger))
+
+
+class DeformConvPack(DeformConv):
+    """A Deformable Conv Encapsulation that acts as normal Conv layers.
+
+    Args:
+        in_channels (int): Same as nn.Conv2d.
+        out_channels (int): Same as nn.Conv2d.
+        kernel_size (int or tuple[int]): Same as nn.Conv2d.
+        stride (int or tuple[int]): Same as nn.Conv2d.
+        padding (int or tuple[int]): Same as nn.Conv2d.
+        dilation (int or tuple[int]): Same as nn.Conv2d.
+        groups (int): Same as nn.Conv2d.
+        bias (bool or str): If specified as `auto`, it will be decided by the
+            norm_cfg. Bias will be set as True if norm_cfg is None, otherwise
+            False.
+    """
+    _version = 2
+
+    def __init__(self, *args, **kwargs):
+        super(DeformConvPack, self).__init__(*args, **kwargs)
+        self.conv_offset = nn.Conv2d(self.in_channels, self.deformable_groups * 2 * self.kernel_size[0] * self.kernel_size[1], kernel_size=self.kernel_size, stride=_pair(self.stride), padding=_pair(self.padding), bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset.weight.data.zero_()
+        self.conv_offset.bias.data.zero_()
+
+    def forward(self, x):
+        offset = self.conv_offset(x)
+        return deform_conv(x, offset, self.weight, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        version = local_metadata.get('version', None)
+        if version is None or version < 2:
+            if prefix + 'conv_offset.weight' not in state_dict and prefix[:-1] + '_offset.weight' in state_dict:
+                state_dict[prefix + 'conv_offset.weight'] = state_dict.pop(prefix[:-1] + '_offset.weight')
+            if prefix + 'conv_offset.bias' not in state_dict and prefix[:-1] + '_offset.bias' in state_dict:
+                state_dict[prefix + 'conv_offset.bias'] = state_dict.pop(prefix[:-1] + '_offset.bias')
+        if version is not None and version > 1:
+            print_log('DeformConvPack {} is upgraded to version 2.'.format(prefix.rstrip('.')), logger='root')
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+
+
+class ModulatedDeformConvFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input, offset, mask, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1):
+        ctx.stride = stride
+        ctx.padding = padding
+        ctx.dilation = dilation
+        ctx.groups = groups
+        ctx.deformable_groups = deformable_groups
+        ctx.with_bias = bias is not None
+        if not ctx.with_bias:
+            bias = input.new_empty(1)
+        if not input.is_cuda:
+            raise NotImplementedError
+        if weight.requires_grad or mask.requires_grad or offset.requires_grad or input.requires_grad:
+            ctx.save_for_backward(input, offset, mask, weight, bias)
+        output = input.new_empty(ModulatedDeformConvFunction._infer_shape(ctx, input, weight))
+        ctx._bufs = [input.new_empty(0), input.new_empty(0)]
+        deform_conv_cuda.modulated_deform_conv_cuda_forward(input, weight, bias, ctx._bufs[0], offset, mask, output, ctx._bufs[1], weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.deformable_groups, ctx.with_bias)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        if not grad_output.is_cuda:
+            raise NotImplementedError
+        input, offset, mask, weight, bias = ctx.saved_tensors
+        grad_input = torch.zeros_like(input)
+        grad_offset = torch.zeros_like(offset)
+        grad_mask = torch.zeros_like(mask)
+        grad_weight = torch.zeros_like(weight)
+        grad_bias = torch.zeros_like(bias)
+        deform_conv_cuda.modulated_deform_conv_cuda_backward(input, weight, bias, ctx._bufs[0], offset, mask, ctx._bufs[1], grad_input, grad_weight, grad_bias, grad_offset, grad_mask, grad_output, weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.deformable_groups, ctx.with_bias)
+        if not ctx.with_bias:
+            grad_bias = None
+        return grad_input, grad_offset, grad_mask, grad_weight, grad_bias, None, None, None, None, None
+
+    @staticmethod
+    def _infer_shape(ctx, input, weight):
+        n = input.size(0)
+        channels_out = weight.size(0)
+        height, width = input.shape[2:4]
+        kernel_h, kernel_w = weight.shape[2:4]
+        height_out = (height + 2 * ctx.padding - (ctx.dilation * (kernel_h - 1) + 1)) // ctx.stride + 1
+        width_out = (width + 2 * ctx.padding - (ctx.dilation * (kernel_w - 1) + 1)) // ctx.stride + 1
+        return n, channels_out, height_out, width_out
+
+
+modulated_deform_conv = ModulatedDeformConvFunction.apply
+
+
+class ModulatedDeformConv(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, bias=True):
+        super(ModulatedDeformConv, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = _pair(kernel_size)
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.groups = groups
+        self.deformable_groups = deformable_groups
+        self.with_bias = bias
+        self.transposed = False
+        self.output_padding = _single(0)
+        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, *self.kernel_size))
+        if bias:
+            self.bias = nn.Parameter(torch.Tensor(out_channels))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        n = self.in_channels
+        for k in self.kernel_size:
+            n *= k
+        stdv = 1.0 / math.sqrt(n)
+        self.weight.data.uniform_(-stdv, stdv)
+        if self.bias is not None:
+            self.bias.data.zero_()
+
+    def forward(self, x, offset, mask):
+        return modulated_deform_conv(x, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
+
+
+class ModulatedDeformConvPack(ModulatedDeformConv):
+    """A ModulatedDeformable Conv Encapsulation that acts as normal Conv layers.
+
+    Args:
+        in_channels (int): Same as nn.Conv2d.
+        out_channels (int): Same as nn.Conv2d.
+        kernel_size (int or tuple[int]): Same as nn.Conv2d.
+        stride (int or tuple[int]): Same as nn.Conv2d.
+        padding (int or tuple[int]): Same as nn.Conv2d.
+        dilation (int or tuple[int]): Same as nn.Conv2d.
+        groups (int): Same as nn.Conv2d.
+        bias (bool or str): If specified as `auto`, it will be decided by the
+            norm_cfg. Bias will be set as True if norm_cfg is None, otherwise
+            False.
+    """
+    _version = 2
+
+    def __init__(self, *args, **kwargs):
+        super(ModulatedDeformConvPack, self).__init__(*args, **kwargs)
+        self.conv_offset = nn.Conv2d(self.in_channels, self.deformable_groups * 3 * self.kernel_size[0] * self.kernel_size[1], kernel_size=self.kernel_size, stride=_pair(self.stride), padding=_pair(self.padding), bias=True)
+        self.init_offset()
+
+    def init_offset(self):
+        self.conv_offset.weight.data.zero_()
+        self.conv_offset.bias.data.zero_()
+
+    def forward(self, x):
+        out = self.conv_offset(x)
+        o1, o2, mask = torch.chunk(out, 3, dim=1)
+        offset = torch.cat((o1, o2), dim=1)
+        mask = torch.sigmoid(mask)
+        return modulated_deform_conv(x, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        version = local_metadata.get('version', None)
+        if version is None or version < 2:
+            if prefix + 'conv_offset.weight' not in state_dict and prefix[:-1] + '_offset.weight' in state_dict:
+                state_dict[prefix + 'conv_offset.weight'] = state_dict.pop(prefix[:-1] + '_offset.weight')
+            if prefix + 'conv_offset.bias' not in state_dict and prefix[:-1] + '_offset.bias' in state_dict:
+                state_dict[prefix + 'conv_offset.bias'] = state_dict.pop(prefix[:-1] + '_offset.bias')
+        if version is not None and version > 1:
+            print_log('ModulatedDeformConvPack {} is upgraded to version 2.'.format(prefix.rstrip('.')), logger='root')
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+
+
+conv_cfg = {'Conv': nn.Conv2d, 'ConvWS': ConvWS2d, 'DCN': DeformConvPack, 'DCNv2': ModulatedDeformConvPack}
+
+
+def build_conv_layer(cfg, *args, **kwargs):
+    """ Build convolution layer
+
+    Args:
+        cfg (None or dict): cfg should contain:
+            type (str): identify conv layer type.
+            layer args: args needed to instantiate a conv layer.
+
+    Returns:
+        layer (nn.Module): created conv layer
+    """
+    if cfg is None:
+        cfg_ = dict(type='Conv')
+    else:
+        assert isinstance(cfg, dict) and 'type' in cfg
+        cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in conv_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        conv_layer = conv_cfg[layer_type]
+    layer = conv_layer(*args, **kwargs, **cfg_)
+    return layer
+
+
+norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm), 'GN': ('gn', nn.GroupNorm)}
+
+
+def build_norm_layer(cfg, num_features, postfix=''):
+    """ Build normalization layer
+
+    Args:
+        cfg (dict): cfg should contain:
+            type (str): identify norm layer type.
+            layer args: args needed to instantiate a norm layer.
+            requires_grad (bool): [optional] whether stop gradient updates
+        num_features (int): number of channels from input.
+        postfix (int, str): appended into norm abbreviation to
+            create named layer.
+
+    Returns:
+        name (str): abbreviation + postfix
+        layer (nn.Module): created norm layer
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in norm_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        abbr, norm_layer = norm_cfg[layer_type]
+        if norm_layer is None:
+            raise NotImplementedError
+    assert isinstance(postfix, (int, str))
+    name = abbr + str(postfix)
+    requires_grad = cfg_.pop('requires_grad', True)
+    cfg_.setdefault('eps', 1e-05)
+    if layer_type != 'GN':
+        layer = norm_layer(num_features, **cfg_)
+        if layer_type == 'SyncBN':
+            layer._specify_ddp_gpu_num(1)
+    else:
+        assert 'num_groups' in cfg_
+        layer = norm_layer(num_channels=num_features, **cfg_)
+    for param in layer.parameters():
+        param.requires_grad = requires_grad
+    return name, layer
+
+
+def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0, distribution='normal'):
+    assert distribution in ['uniform', 'normal']
+    if distribution == 'uniform':
+        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=nonlinearity)
+    else:
+        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=nonlinearity)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
+
+
+class ConvModule(nn.Module):
+    """A conv block that contains conv/norm/activation layers.
+
+    Args:
+        in_channels (int): Same as nn.Conv2d.
+        out_channels (int): Same as nn.Conv2d.
+        kernel_size (int or tuple[int]): Same as nn.Conv2d.
+        stride (int or tuple[int]): Same as nn.Conv2d.
+        padding (int or tuple[int]): Same as nn.Conv2d.
+        dilation (int or tuple[int]): Same as nn.Conv2d.
+        groups (int): Same as nn.Conv2d.
+        bias (bool or str): If specified as `auto`, it will be decided by the
+            norm_cfg. Bias will be set as True if norm_cfg is None, otherwise
+            False.
+        conv_cfg (dict): Config dict for convolution layer.
+        norm_cfg (dict): Config dict for normalization layer.
+        activation (str or None): Activation type, "ReLU" by default.
+        inplace (bool): Whether to use inplace mode for activation.
+        order (tuple[str]): The order of conv/norm/activation layers. It is a
+            sequence of "conv", "norm" and "act". Examples are
+            ("conv", "norm", "act") and ("act", "conv", "norm").
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias='auto', conv_cfg=None, norm_cfg=None, activation='relu', inplace=True, order=('conv', 'norm', 'act')):
+        super(ConvModule, self).__init__()
+        assert conv_cfg is None or isinstance(conv_cfg, dict)
+        assert norm_cfg is None or isinstance(norm_cfg, dict)
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.activation = activation
+        self.inplace = inplace
+        self.order = order
+        assert isinstance(self.order, tuple) and len(self.order) == 3
+        assert set(order) == set(['conv', 'norm', 'act'])
+        self.with_norm = norm_cfg is not None
+        self.with_activation = activation is not None
+        if bias == 'auto':
+            bias = False if self.with_norm else True
+        self.with_bias = bias
+        if self.with_norm and self.with_bias:
+            warnings.warn('ConvModule has norm and bias at the same time')
+        self.conv = build_conv_layer(conv_cfg, in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.in_channels = self.conv.in_channels
+        self.out_channels = self.conv.out_channels
+        self.kernel_size = self.conv.kernel_size
+        self.stride = self.conv.stride
+        self.padding = self.conv.padding
+        self.dilation = self.conv.dilation
+        self.transposed = self.conv.transposed
+        self.output_padding = self.conv.output_padding
+        self.groups = self.conv.groups
+        if self.with_norm:
+            if order.index('norm') > order.index('conv'):
+                norm_channels = out_channels
+            else:
+                norm_channels = in_channels
+            self.norm_name, norm = build_norm_layer(norm_cfg, norm_channels)
+            self.add_module(self.norm_name, norm)
+        if self.with_activation:
+            if self.activation not in ['relu']:
+                raise ValueError('{} is currently not supported.'.format(self.activation))
+            if self.activation == 'relu':
+                self.activate = nn.ReLU(inplace=inplace)
+        self.init_weights()
+
+    @property
+    def norm(self):
+        return getattr(self, self.norm_name)
+
+    def init_weights(self):
+        nonlinearity = 'relu' if self.activation is None else self.activation
+        kaiming_init(self.conv, nonlinearity=nonlinearity)
+        if self.with_norm:
+            constant_init(self.norm, 1, bias=0)
+
+    def forward(self, x, activate=True, norm=True):
+        for layer in self.order:
+            if layer == 'conv':
+                x = self.conv(x)
+            elif layer == 'norm' and norm and self.with_norm:
+                x = self.norm(x)
+            elif layer == 'act' and activate and self.with_activation:
+                x = self.activate(x)
+        return x
+
+
+class Scale(nn.Module):
+    """
+    A learnable scale parameter
+    """
+
+    def __init__(self, scale=1.0):
+        super(Scale, self).__init__()
+        self.scale = nn.Parameter(torch.tensor(scale, dtype=torch.float))
+
+    def forward(self, x):
+        return x * self.scale
+
+
 def bias_init_with_prob(prior_prob):
     """ initialize conv/fc bias value according to giving probablity"""
     bias_init = float(-np.log((1 - prior_prob) / prior_prob))
     return bias_init
+
+
+def reduce_mean(tensor):
+    if not (dist.is_available() and dist.is_initialized()):
+        return tensor
+    tensor = tensor.clone()
+    dist.all_reduce(tensor.div_(dist.get_world_size()), op=dist.reduce_op.SUM)
+    return tensor
+
+
+class ATSSHead(AnchorHead):
+    """
+    Bridging the Gap Between Anchor-based and Anchor-free Detection via
+    Adaptive Training Sample Selection
+
+    ATSS head structure is similar with FCOS, however ATSS use anchor boxes
+    and assign label by Adaptive Training Sample Selection instead max-iou.
+
+    https://arxiv.org/abs/1912.02424
+    """
+
+    def __init__(self, num_classes, in_channels, stacked_convs=4, octave_base_scale=4, scales_per_octave=1, conv_cfg=None, norm_cfg=dict(type='GN', num_groups=32, requires_grad=True), loss_centerness=dict(type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0), **kwargs):
+        self.stacked_convs = stacked_convs
+        self.octave_base_scale = octave_base_scale
+        self.scales_per_octave = scales_per_octave
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        octave_scales = np.array([(2 ** (i / scales_per_octave)) for i in range(scales_per_octave)])
+        anchor_scales = octave_scales * octave_base_scale
+        super(ATSSHead, self).__init__(num_classes, in_channels, anchor_scales=anchor_scales, **kwargs)
+        self.loss_centerness = build_loss(loss_centerness)
+
+    def _init_layers(self):
+        self.relu = nn.ReLU(inplace=True)
+        self.cls_convs = nn.ModuleList()
+        self.reg_convs = nn.ModuleList()
+        for i in range(self.stacked_convs):
+            chn = self.in_channels if i == 0 else self.feat_channels
+            self.cls_convs.append(ConvModule(chn, self.feat_channels, 3, stride=1, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+            self.reg_convs.append(ConvModule(chn, self.feat_channels, 3, stride=1, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+        self.atss_cls = nn.Conv2d(self.feat_channels, self.num_anchors * self.cls_out_channels, 3, padding=1)
+        self.atss_reg = nn.Conv2d(self.feat_channels, self.num_anchors * 4, 3, padding=1)
+        self.atss_centerness = nn.Conv2d(self.feat_channels, self.num_anchors * 1, 3, padding=1)
+        self.scales = nn.ModuleList([Scale(1.0) for _ in self.anchor_strides])
+
+    def init_weights(self):
+        for m in self.cls_convs:
+            normal_init(m.conv, std=0.01)
+        for m in self.reg_convs:
+            normal_init(m.conv, std=0.01)
+        bias_cls = bias_init_with_prob(0.01)
+        normal_init(self.atss_cls, std=0.01, bias=bias_cls)
+        normal_init(self.atss_reg, std=0.01)
+        normal_init(self.atss_centerness, std=0.01)
+
+    def forward(self, feats):
+        return multi_apply(self.forward_single, feats, self.scales)
+
+    def forward_single(self, x, scale):
+        cls_feat = x
+        reg_feat = x
+        for cls_conv in self.cls_convs:
+            cls_feat = cls_conv(cls_feat)
+        for reg_conv in self.reg_convs:
+            reg_feat = reg_conv(reg_feat)
+        cls_score = self.atss_cls(cls_feat)
+        bbox_pred = scale(self.atss_reg(reg_feat)).float()
+        centerness = self.atss_centerness(reg_feat)
+        return cls_score, bbox_pred, centerness
+
+    def loss_single(self, anchors, cls_score, bbox_pred, centerness, labels, label_weights, bbox_targets, num_total_samples, cfg):
+        anchors = anchors.reshape(-1, 4)
+        cls_score = cls_score.permute(0, 2, 3, 1).reshape(-1, self.cls_out_channels)
+        bbox_pred = bbox_pred.permute(0, 2, 3, 1).reshape(-1, 4)
+        centerness = centerness.permute(0, 2, 3, 1).reshape(-1)
+        bbox_targets = bbox_targets.reshape(-1, 4)
+        labels = labels.reshape(-1)
+        label_weights = label_weights.reshape(-1)
+        loss_cls = self.loss_cls(cls_score, labels, label_weights, avg_factor=num_total_samples)
+        pos_inds = torch.nonzero(labels).squeeze(1)
+        if len(pos_inds) > 0:
+            pos_bbox_targets = bbox_targets[pos_inds]
+            pos_bbox_pred = bbox_pred[pos_inds]
+            pos_anchors = anchors[pos_inds]
+            pos_centerness = centerness[pos_inds]
+            centerness_targets = self.centerness_target(pos_anchors, pos_bbox_targets)
+            pos_decode_bbox_pred = delta2bbox(pos_anchors, pos_bbox_pred, self.target_means, self.target_stds)
+            pos_decode_bbox_targets = delta2bbox(pos_anchors, pos_bbox_targets, self.target_means, self.target_stds)
+            loss_bbox = self.loss_bbox(pos_decode_bbox_pred, pos_decode_bbox_targets, weight=centerness_targets, avg_factor=1.0)
+            loss_centerness = self.loss_centerness(pos_centerness, centerness_targets, avg_factor=num_total_samples)
+        else:
+            loss_bbox = loss_cls * 0
+            loss_centerness = loss_bbox * 0
+            centerness_targets = torch.tensor(0)
+        return loss_cls, loss_bbox, loss_centerness, centerness_targets.sum()
+
+    @force_fp32(apply_to=('cls_scores', 'bbox_preds', 'centernesses'))
+    def loss(self, cls_scores, bbox_preds, centernesses, gt_bboxes, gt_labels, img_metas, cfg, gt_bboxes_ignore=None):
+        featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
+        assert len(featmap_sizes) == len(self.anchor_generators)
+        device = cls_scores[0].device
+        anchor_list, valid_flag_list = self.get_anchors(featmap_sizes, img_metas, device=device)
+        label_channels = self.cls_out_channels if self.use_sigmoid_cls else 1
+        cls_reg_targets = self.atss_target(anchor_list, valid_flag_list, gt_bboxes, img_metas, cfg, gt_bboxes_ignore_list=gt_bboxes_ignore, gt_labels_list=gt_labels, label_channels=label_channels)
+        if cls_reg_targets is None:
+            return None
+        anchor_list, labels_list, label_weights_list, bbox_targets_list, bbox_weights_list, num_total_pos, num_total_neg = cls_reg_targets
+        num_total_samples = reduce_mean(torch.tensor(num_total_pos)).item()
+        num_total_samples = max(num_total_samples, 1.0)
+        losses_cls, losses_bbox, loss_centerness, bbox_avg_factor = multi_apply(self.loss_single, anchor_list, cls_scores, bbox_preds, centernesses, labels_list, label_weights_list, bbox_targets_list, num_total_samples=num_total_samples, cfg=cfg)
+        bbox_avg_factor = sum(bbox_avg_factor)
+        bbox_avg_factor = reduce_mean(bbox_avg_factor).item()
+        losses_bbox = list(map(lambda x: x / bbox_avg_factor, losses_bbox))
+        return dict(loss_cls=losses_cls, loss_bbox=losses_bbox, loss_centerness=loss_centerness)
+
+    def centerness_target(self, anchors, bbox_targets):
+        gts = delta2bbox(anchors, bbox_targets, self.target_means, self.target_stds)
+        anchors_cx = (anchors[:, (2)] + anchors[:, (0)]) / 2
+        anchors_cy = (anchors[:, (3)] + anchors[:, (1)]) / 2
+        l_ = anchors_cx - gts[:, (0)]
+        t_ = anchors_cy - gts[:, (1)]
+        r_ = gts[:, (2)] - anchors_cx
+        b_ = gts[:, (3)] - anchors_cy
+        left_right = torch.stack([l_, r_], dim=1)
+        top_bottom = torch.stack([t_, b_], dim=1)
+        centerness = torch.sqrt(left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0] * (top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0]))
+        assert not torch.isnan(centerness).any()
+        return centerness
+
+    @force_fp32(apply_to=('cls_scores', 'bbox_preds', 'centernesses'))
+    def get_bboxes(self, cls_scores, bbox_preds, centernesses, img_metas, cfg, rescale=False):
+        assert len(cls_scores) == len(bbox_preds)
+        num_levels = len(cls_scores)
+        device = cls_scores[0].device
+        mlvl_anchors = [self.anchor_generators[i].grid_anchors(cls_scores[i].size()[-2:], self.anchor_strides[i], device=device) for i in range(num_levels)]
+        result_list = []
+        for img_id in range(len(img_metas)):
+            cls_score_list = [cls_scores[i][img_id].detach() for i in range(num_levels)]
+            bbox_pred_list = [bbox_preds[i][img_id].detach() for i in range(num_levels)]
+            centerness_pred_list = [centernesses[i][img_id].detach() for i in range(num_levels)]
+            img_shape = img_metas[img_id]['img_shape']
+            scale_factor = img_metas[img_id]['scale_factor']
+            proposals = self.get_bboxes_single(cls_score_list, bbox_pred_list, centerness_pred_list, mlvl_anchors, img_shape, scale_factor, cfg, rescale)
+            result_list.append(proposals)
+        return result_list
+
+    def get_bboxes_single(self, cls_scores, bbox_preds, centernesses, mlvl_anchors, img_shape, scale_factor, cfg, rescale=False):
+        assert len(cls_scores) == len(bbox_preds) == len(mlvl_anchors)
+        mlvl_bboxes = []
+        mlvl_scores = []
+        mlvl_centerness = []
+        for cls_score, bbox_pred, centerness, anchors in zip(cls_scores, bbox_preds, centernesses, mlvl_anchors):
+            assert cls_score.size()[-2:] == bbox_pred.size()[-2:]
+            scores = cls_score.permute(1, 2, 0).reshape(-1, self.cls_out_channels).sigmoid()
+            bbox_pred = bbox_pred.permute(1, 2, 0).reshape(-1, 4)
+            centerness = centerness.permute(1, 2, 0).reshape(-1).sigmoid()
+            nms_pre = cfg.get('nms_pre', -1)
+            if nms_pre > 0 and scores.shape[0] > nms_pre:
+                max_scores, _ = (scores * centerness[:, (None)]).max(dim=1)
+                _, topk_inds = max_scores.topk(nms_pre)
+                anchors = anchors[(topk_inds), :]
+                bbox_pred = bbox_pred[(topk_inds), :]
+                scores = scores[(topk_inds), :]
+                centerness = centerness[topk_inds]
+            bboxes = delta2bbox(anchors, bbox_pred, self.target_means, self.target_stds, img_shape)
+            mlvl_bboxes.append(bboxes)
+            mlvl_scores.append(scores)
+            mlvl_centerness.append(centerness)
+        mlvl_bboxes = torch.cat(mlvl_bboxes)
+        if rescale:
+            mlvl_bboxes /= mlvl_bboxes.new_tensor(scale_factor)
+        mlvl_scores = torch.cat(mlvl_scores)
+        padding = mlvl_scores.new_zeros(mlvl_scores.shape[0], 1)
+        mlvl_scores = torch.cat([padding, mlvl_scores], dim=1)
+        mlvl_centerness = torch.cat(mlvl_centerness)
+        det_bboxes, det_labels = multiclass_nms(mlvl_bboxes, mlvl_scores, cfg.score_thr, cfg.nms, cfg.max_per_img, score_factors=mlvl_centerness)
+        return det_bboxes, det_labels
+
+    def atss_target(self, anchor_list, valid_flag_list, gt_bboxes_list, img_metas, cfg, gt_bboxes_ignore_list=None, gt_labels_list=None, label_channels=1, unmap_outputs=True):
+        """
+        almost the same with anchor_target, with a little modification,
+        here we need return the anchor
+        """
+        num_imgs = len(img_metas)
+        assert len(anchor_list) == len(valid_flag_list) == num_imgs
+        num_level_anchors = [anchors.size(0) for anchors in anchor_list[0]]
+        num_level_anchors_list = [num_level_anchors] * num_imgs
+        for i in range(num_imgs):
+            assert len(anchor_list[i]) == len(valid_flag_list[i])
+            anchor_list[i] = torch.cat(anchor_list[i])
+            valid_flag_list[i] = torch.cat(valid_flag_list[i])
+        if gt_bboxes_ignore_list is None:
+            gt_bboxes_ignore_list = [None for _ in range(num_imgs)]
+        if gt_labels_list is None:
+            gt_labels_list = [None for _ in range(num_imgs)]
+        all_anchors, all_labels, all_label_weights, all_bbox_targets, all_bbox_weights, pos_inds_list, neg_inds_list = multi_apply(self.atss_target_single, anchor_list, valid_flag_list, num_level_anchors_list, gt_bboxes_list, gt_bboxes_ignore_list, gt_labels_list, img_metas, cfg=cfg, label_channels=label_channels, unmap_outputs=unmap_outputs)
+        if any([(labels is None) for labels in all_labels]):
+            return None
+        num_total_pos = sum([max(inds.numel(), 1) for inds in pos_inds_list])
+        num_total_neg = sum([max(inds.numel(), 1) for inds in neg_inds_list])
+        anchors_list = images_to_levels(all_anchors, num_level_anchors)
+        labels_list = images_to_levels(all_labels, num_level_anchors)
+        label_weights_list = images_to_levels(all_label_weights, num_level_anchors)
+        bbox_targets_list = images_to_levels(all_bbox_targets, num_level_anchors)
+        bbox_weights_list = images_to_levels(all_bbox_weights, num_level_anchors)
+        return anchors_list, labels_list, label_weights_list, bbox_targets_list, bbox_weights_list, num_total_pos, num_total_neg
+
+    def atss_target_single(self, flat_anchors, valid_flags, num_level_anchors, gt_bboxes, gt_bboxes_ignore, gt_labels, img_meta, cfg, label_channels=1, unmap_outputs=True):
+        inside_flags = anchor_inside_flags(flat_anchors, valid_flags, img_meta['img_shape'][:2], cfg.allowed_border)
+        if not inside_flags.any():
+            return (None,) * 6
+        anchors = flat_anchors[(inside_flags), :]
+        num_level_anchors_inside = self.get_num_level_anchors_inside(num_level_anchors, inside_flags)
+        bbox_assigner = build_assigner(cfg.assigner)
+        assign_result = bbox_assigner.assign(anchors, num_level_anchors_inside, gt_bboxes, gt_bboxes_ignore, gt_labels)
+        bbox_sampler = PseudoSampler()
+        sampling_result = bbox_sampler.sample(assign_result, anchors, gt_bboxes)
+        num_valid_anchors = anchors.shape[0]
+        bbox_targets = torch.zeros_like(anchors)
+        bbox_weights = torch.zeros_like(anchors)
+        labels = anchors.new_zeros(num_valid_anchors, dtype=torch.long)
+        label_weights = anchors.new_zeros(num_valid_anchors, dtype=torch.float)
+        pos_inds = sampling_result.pos_inds
+        neg_inds = sampling_result.neg_inds
+        if len(pos_inds) > 0:
+            pos_bbox_targets = bbox2delta(sampling_result.pos_bboxes, sampling_result.pos_gt_bboxes, self.target_means, self.target_stds)
+            bbox_targets[(pos_inds), :] = pos_bbox_targets
+            bbox_weights[(pos_inds), :] = 1.0
+            if gt_labels is None:
+                labels[pos_inds] = 1
+            else:
+                labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
+            if cfg.pos_weight <= 0:
+                label_weights[pos_inds] = 1.0
+            else:
+                label_weights[pos_inds] = cfg.pos_weight
+        if len(neg_inds) > 0:
+            label_weights[neg_inds] = 1.0
+        if unmap_outputs:
+            num_total_anchors = flat_anchors.size(0)
+            anchors = unmap(anchors, num_total_anchors, inside_flags)
+            labels = unmap(labels, num_total_anchors, inside_flags)
+            label_weights = unmap(label_weights, num_total_anchors, inside_flags)
+            bbox_targets = unmap(bbox_targets, num_total_anchors, inside_flags)
+            bbox_weights = unmap(bbox_weights, num_total_anchors, inside_flags)
+        return anchors, labels, label_weights, bbox_targets, bbox_weights, pos_inds, neg_inds
+
+    def get_num_level_anchors_inside(self, num_level_anchors, inside_flags):
+        split_inside_flags = torch.split(inside_flags, num_level_anchors)
+        num_level_anchors_inside = [int(flags.sum()) for flags in split_inside_flags]
+        return num_level_anchors_inside
 
 
 def dice_loss(input, target):
@@ -1379,7 +2200,6 @@ def points_nms(heat, kernel=2):
     return heat * keep
 
 
-@HEADS.register_module
 class DecoupledSOLOHead(nn.Module):
 
     def __init__(self, num_classes, in_channels, seg_feat_channels=256, stacked_convs=4, strides=(4, 8, 16, 32, 64), base_edge_list=(16, 32, 64, 128, 256), scale_ranges=((8, 32), (16, 64), (32, 128), (64, 256), (128, 512)), sigma=0.4, num_grids=None, cate_down_pos=0, with_deform=False, loss_ins=None, loss_cate=None, conv_cfg=None, norm_cfg=None):
@@ -1642,7 +2462,6 @@ class DecoupledSOLOHead(nn.Module):
         return seg_masks, cate_labels, cate_scores
 
 
-@HEADS.register_module
 class DecoupledSOLOLightHead(nn.Module):
 
     def __init__(self, num_classes, in_channels, seg_feat_channels=256, stacked_convs=4, strides=(4, 8, 16, 32, 64), base_edge_list=(16, 32, 64, 128, 256), scale_ranges=((8, 32), (16, 64), (32, 128), (64, 256), (128, 512)), sigma=0.4, num_grids=None, cate_down_pos=0, loss_ins=None, loss_cate=None, conv_cfg=None, norm_cfg=None, use_dcn_in_tower=False, type_dcn=None):
@@ -1931,7 +2750,6 @@ def distance2bbox(points, distance, max_shape=None):
     return torch.stack([x1, y1, x2, y2], -1)
 
 
-@HEADS.register_module
 class FCOSHead(nn.Module):
     """
     Fully Convolutional One-Stage Object Detection head from [1]_.
@@ -2182,7 +3000,6 @@ class FeatureAlign(nn.Module):
         return x
 
 
-@HEADS.register_module
 class FoveaHead(nn.Module):
     """FoveaBox: Beyond Anchor-based Object Detector
     https://arxiv.org/abs/1904.03797
@@ -2406,6 +3223,570 @@ class FeatureAdaption(nn.Module):
         return x
 
 
+class MaskedConv2dFunction(Function):
+
+    @staticmethod
+    def forward(ctx, features, mask, weight, bias, padding=0, stride=1):
+        assert mask.dim() == 3 and mask.size(0) == 1
+        assert features.dim() == 4 and features.size(0) == 1
+        assert features.size()[2:] == mask.size()[1:]
+        pad_h, pad_w = _pair(padding)
+        stride_h, stride_w = _pair(stride)
+        if stride_h != 1 or stride_w != 1:
+            raise ValueError('Stride could not only be 1 in masked_conv2d currently.')
+        if not features.is_cuda:
+            raise NotImplementedError
+        out_channel, in_channel, kernel_h, kernel_w = weight.size()
+        batch_size = features.size(0)
+        out_h = int(math.floor((features.size(2) + 2 * pad_h - (kernel_h - 1) - 1) / stride_h + 1))
+        out_w = int(math.floor((features.size(3) + 2 * pad_w - (kernel_h - 1) - 1) / stride_w + 1))
+        mask_inds = torch.nonzero(mask[0] > 0)
+        output = features.new_zeros(batch_size, out_channel, out_h, out_w)
+        if mask_inds.numel() > 0:
+            mask_h_idx = mask_inds[:, (0)].contiguous()
+            mask_w_idx = mask_inds[:, (1)].contiguous()
+            data_col = features.new_zeros(in_channel * kernel_h * kernel_w, mask_inds.size(0))
+            masked_conv2d_cuda.masked_im2col_forward(features, mask_h_idx, mask_w_idx, kernel_h, kernel_w, pad_h, pad_w, data_col)
+            masked_output = torch.addmm(1, bias[:, (None)], 1, weight.view(out_channel, -1), data_col)
+            masked_conv2d_cuda.masked_col2im_forward(masked_output, mask_h_idx, mask_w_idx, out_h, out_w, out_channel, output)
+        return output
+
+    @staticmethod
+    @once_differentiable
+    def backward(ctx, grad_output):
+        return (None,) * 5
+
+
+masked_conv2d = MaskedConv2dFunction.apply
+
+
+class MaskedConv2d(nn.Conv2d):
+    """A MaskedConv2d which inherits the official Conv2d.
+
+    The masked forward doesn't implement the backward function and only
+    supports the stride parameter to be 1 currently.
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
+        super(MaskedConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+
+    def forward(self, input, mask=None):
+        if mask is None:
+            return super(MaskedConv2d, self).forward(input)
+        else:
+            return masked_conv2d(input, mask, self.weight, self.bias, self.padding)
+
+
+def calc_region(bbox, ratio, featmap_size=None):
+    """Calculate a proportional bbox region.
+
+    The bbox center are fixed and the new h' and w' is h * ratio and w * ratio.
+
+    Args:
+        bbox (Tensor): Bboxes to calculate regions, shape (n, 4)
+        ratio (float): Ratio of the output region.
+        featmap_size (tuple): Feature map size used for clipping the boundary.
+
+    Returns:
+        tuple: x1, y1, x2, y2
+    """
+    x1 = torch.round((1 - ratio) * bbox[0] + ratio * bbox[2]).long()
+    y1 = torch.round((1 - ratio) * bbox[1] + ratio * bbox[3]).long()
+    x2 = torch.round(ratio * bbox[0] + (1 - ratio) * bbox[2]).long()
+    y2 = torch.round(ratio * bbox[1] + (1 - ratio) * bbox[3]).long()
+    if featmap_size is not None:
+        x1 = x1.clamp(min=0, max=featmap_size[1] - 1)
+        y1 = y1.clamp(min=0, max=featmap_size[0] - 1)
+        x2 = x2.clamp(min=0, max=featmap_size[1] - 1)
+        y2 = y2.clamp(min=0, max=featmap_size[0] - 1)
+    return x1, y1, x2, y2
+
+
+def ga_loc_target(gt_bboxes_list, featmap_sizes, anchor_scale, anchor_strides, center_ratio=0.2, ignore_ratio=0.5):
+    """Compute location targets for guided anchoring.
+
+    Each feature map is divided into positive, negative and ignore regions.
+    - positive regions: target 1, weight 1
+    - ignore regions: target 0, weight 0
+    - negative regions: target 0, weight 0.1
+
+    Args:
+        gt_bboxes_list (list[Tensor]): Gt bboxes of each image.
+        featmap_sizes (list[tuple]): Multi level sizes of each feature maps.
+        anchor_scale (int): Anchor scale.
+        anchor_strides ([list[int]]): Multi level anchor strides.
+        center_ratio (float): Ratio of center region.
+        ignore_ratio (float): Ratio of ignore region.
+
+    Returns:
+        tuple
+    """
+    img_per_gpu = len(gt_bboxes_list)
+    num_lvls = len(featmap_sizes)
+    r1 = (1 - center_ratio) / 2
+    r2 = (1 - ignore_ratio) / 2
+    all_loc_targets = []
+    all_loc_weights = []
+    all_ignore_map = []
+    for lvl_id in range(num_lvls):
+        h, w = featmap_sizes[lvl_id]
+        loc_targets = torch.zeros(img_per_gpu, 1, h, w, device=gt_bboxes_list[0].device, dtype=torch.float32)
+        loc_weights = torch.full_like(loc_targets, -1)
+        ignore_map = torch.zeros_like(loc_targets)
+        all_loc_targets.append(loc_targets)
+        all_loc_weights.append(loc_weights)
+        all_ignore_map.append(ignore_map)
+    for img_id in range(img_per_gpu):
+        gt_bboxes = gt_bboxes_list[img_id]
+        scale = torch.sqrt((gt_bboxes[:, (2)] - gt_bboxes[:, (0)] + 1) * (gt_bboxes[:, (3)] - gt_bboxes[:, (1)] + 1))
+        min_anchor_size = scale.new_full((1,), float(anchor_scale * anchor_strides[0]))
+        target_lvls = torch.floor(torch.log2(scale) - torch.log2(min_anchor_size) + 0.5)
+        target_lvls = target_lvls.clamp(min=0, max=num_lvls - 1).long()
+        for gt_id in range(gt_bboxes.size(0)):
+            lvl = target_lvls[gt_id].item()
+            gt_ = gt_bboxes[(gt_id), :4] / anchor_strides[lvl]
+            ignore_x1, ignore_y1, ignore_x2, ignore_y2 = calc_region(gt_, r2, featmap_sizes[lvl])
+            ctr_x1, ctr_y1, ctr_x2, ctr_y2 = calc_region(gt_, r1, featmap_sizes[lvl])
+            all_loc_targets[lvl][(img_id), (0), ctr_y1:ctr_y2 + 1, ctr_x1:ctr_x2 + 1] = 1
+            all_loc_weights[lvl][(img_id), (0), ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 0
+            all_loc_weights[lvl][(img_id), (0), ctr_y1:ctr_y2 + 1, ctr_x1:ctr_x2 + 1] = 1
+            if lvl > 0:
+                d_lvl = lvl - 1
+                gt_ = gt_bboxes[(gt_id), :4] / anchor_strides[d_lvl]
+                ignore_x1, ignore_y1, ignore_x2, ignore_y2 = calc_region(gt_, r2, featmap_sizes[d_lvl])
+                all_ignore_map[d_lvl][(img_id), (0), ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 1
+            if lvl < num_lvls - 1:
+                u_lvl = lvl + 1
+                gt_ = gt_bboxes[(gt_id), :4] / anchor_strides[u_lvl]
+                ignore_x1, ignore_y1, ignore_x2, ignore_y2 = calc_region(gt_, r2, featmap_sizes[u_lvl])
+                all_ignore_map[u_lvl][(img_id), (0), ignore_y1:ignore_y2 + 1, ignore_x1:ignore_x2 + 1] = 1
+    for lvl_id in range(num_lvls):
+        all_loc_weights[lvl_id][(all_loc_weights[lvl_id] < 0) & (all_ignore_map[lvl_id] > 0)] = 0
+        all_loc_weights[lvl_id][all_loc_weights[lvl_id] < 0] = 0.1
+    loc_avg_factor = sum([(t.size(0) * t.size(-1) * t.size(-2)) for t in all_loc_targets]) / 200
+    return all_loc_targets, all_loc_weights, loc_avg_factor
+
+
+def ga_shape_target_single(flat_approxs, inside_flags, flat_squares, gt_bboxes, gt_bboxes_ignore, img_meta, approxs_per_octave, cfg, sampling=True, unmap_outputs=True):
+    """Compute guided anchoring targets.
+
+    This function returns sampled anchors and gt bboxes directly
+    rather than calculates regression targets.
+
+    Args:
+        flat_approxs (Tensor): flat approxs of a single image,
+            shape (n, 4)
+        inside_flags (Tensor): inside flags of a single image,
+            shape (n, ).
+        flat_squares (Tensor): flat squares of a single image,
+            shape (approxs_per_octave * n, 4)
+        gt_bboxes (Tensor): Ground truth bboxes of a single image.
+        img_meta (dict): Meta info of a single image.
+        approxs_per_octave (int): number of approxs per octave
+        cfg (dict): RPN train configs.
+        sampling (bool): sampling or not.
+        unmap_outputs (bool): unmap outputs or not.
+
+    Returns:
+        tuple
+    """
+    if not inside_flags.any():
+        return (None,) * 5
+    expand_inside_flags = inside_flags[:, (None)].expand(-1, approxs_per_octave).reshape(-1)
+    approxs = flat_approxs[(expand_inside_flags), :]
+    squares = flat_squares[(inside_flags), :]
+    bbox_assigner = build_assigner(cfg.ga_assigner)
+    assign_result = bbox_assigner.assign(approxs, squares, approxs_per_octave, gt_bboxes, gt_bboxes_ignore)
+    if sampling:
+        bbox_sampler = build_sampler(cfg.ga_sampler)
+    else:
+        bbox_sampler = PseudoSampler()
+    sampling_result = bbox_sampler.sample(assign_result, squares, gt_bboxes)
+    bbox_anchors = torch.zeros_like(squares)
+    bbox_gts = torch.zeros_like(squares)
+    bbox_weights = torch.zeros_like(squares)
+    pos_inds = sampling_result.pos_inds
+    neg_inds = sampling_result.neg_inds
+    if len(pos_inds) > 0:
+        bbox_anchors[(pos_inds), :] = sampling_result.pos_bboxes
+        bbox_gts[(pos_inds), :] = sampling_result.pos_gt_bboxes
+        bbox_weights[(pos_inds), :] = 1.0
+    if unmap_outputs:
+        num_total_anchors = flat_squares.size(0)
+        bbox_anchors = unmap(bbox_anchors, num_total_anchors, inside_flags)
+        bbox_gts = unmap(bbox_gts, num_total_anchors, inside_flags)
+        bbox_weights = unmap(bbox_weights, num_total_anchors, inside_flags)
+    return bbox_anchors, bbox_gts, bbox_weights, pos_inds, neg_inds
+
+
+def ga_shape_target(approx_list, inside_flag_list, square_list, gt_bboxes_list, img_metas, approxs_per_octave, cfg, gt_bboxes_ignore_list=None, sampling=True, unmap_outputs=True):
+    """Compute guided anchoring targets.
+
+    Args:
+        approx_list (list[list]): Multi level approxs of each image.
+        inside_flag_list (list[list]): Multi level inside flags of each image.
+        square_list (list[list]): Multi level squares of each image.
+        gt_bboxes_list (list[Tensor]): Ground truth bboxes of each image.
+        img_metas (list[dict]): Meta info of each image.
+        approxs_per_octave (int): number of approxs per octave
+        cfg (dict): RPN train configs.
+        gt_bboxes_ignore_list (list[Tensor]): ignore list of gt bboxes.
+        sampling (bool): sampling or not.
+        unmap_outputs (bool): unmap outputs or not.
+
+    Returns:
+        tuple
+    """
+    num_imgs = len(img_metas)
+    assert len(approx_list) == len(inside_flag_list) == len(square_list) == num_imgs
+    num_level_squares = [squares.size(0) for squares in square_list[0]]
+    inside_flag_flat_list = []
+    approx_flat_list = []
+    square_flat_list = []
+    for i in range(num_imgs):
+        assert len(square_list[i]) == len(inside_flag_list[i])
+        inside_flag_flat_list.append(torch.cat(inside_flag_list[i]))
+        approx_flat_list.append(torch.cat(approx_list[i]))
+        square_flat_list.append(torch.cat(square_list[i]))
+    if gt_bboxes_ignore_list is None:
+        gt_bboxes_ignore_list = [None for _ in range(num_imgs)]
+    all_bbox_anchors, all_bbox_gts, all_bbox_weights, pos_inds_list, neg_inds_list = multi_apply(ga_shape_target_single, approx_flat_list, inside_flag_flat_list, square_flat_list, gt_bboxes_list, gt_bboxes_ignore_list, img_metas, approxs_per_octave=approxs_per_octave, cfg=cfg, sampling=sampling, unmap_outputs=unmap_outputs)
+    if any([(bbox_anchors is None) for bbox_anchors in all_bbox_anchors]):
+        return None
+    num_total_pos = sum([max(inds.numel(), 1) for inds in pos_inds_list])
+    num_total_neg = sum([max(inds.numel(), 1) for inds in neg_inds_list])
+    bbox_anchors_list = images_to_levels(all_bbox_anchors, num_level_squares)
+    bbox_gts_list = images_to_levels(all_bbox_gts, num_level_squares)
+    bbox_weights_list = images_to_levels(all_bbox_weights, num_level_squares)
+    return bbox_anchors_list, bbox_gts_list, bbox_weights_list, num_total_pos, num_total_neg
+
+
+class GuidedAnchorHead(AnchorHead):
+    """Guided-Anchor-based head (GA-RPN, GA-RetinaNet, etc.).
+
+    This GuidedAnchorHead will predict high-quality feature guided
+    anchors and locations where anchors will be kept in inference.
+    There are mainly 3 categories of bounding-boxes.
+    - Sampled (9) pairs for target assignment. (approxes)
+    - The square boxes where the predicted anchors are based on.
+        (squares)
+    - Guided anchors.
+    Please refer to https://arxiv.org/abs/1901.03278 for more details.
+
+    Args:
+        num_classes (int): Number of classes.
+        in_channels (int): Number of channels in the input feature map.
+        feat_channels (int): Number of hidden channels.
+        octave_base_scale (int): Base octave scale of each level of
+            feature map.
+        scales_per_octave (int): Number of octave scales in each level of
+            feature map
+        octave_ratios (Iterable): octave aspect ratios.
+        anchor_strides (Iterable): Anchor strides.
+        anchor_base_sizes (Iterable): Anchor base sizes.
+        anchoring_means (Iterable): Mean values of anchoring targets.
+        anchoring_stds (Iterable): Std values of anchoring targets.
+        target_means (Iterable): Mean values of regression targets.
+        target_stds (Iterable): Std values of regression targets.
+        deformable_groups: (int): Group number of DCN in
+            FeatureAdaption module.
+        loc_filter_thr (float): Threshold to filter out unconcerned regions.
+        loss_loc (dict): Config of location loss.
+        loss_shape (dict): Config of anchor shape loss.
+        loss_cls (dict): Config of classification loss.
+        loss_bbox (dict): Config of bbox regression loss.
+    """
+
+    def __init__(self, num_classes, in_channels, feat_channels=256, octave_base_scale=8, scales_per_octave=3, octave_ratios=[0.5, 1.0, 2.0], anchor_strides=[4, 8, 16, 32, 64], anchor_base_sizes=None, anchoring_means=(0.0, 0.0, 0.0, 0.0), anchoring_stds=(1.0, 1.0, 1.0, 1.0), target_means=(0.0, 0.0, 0.0, 0.0), target_stds=(1.0, 1.0, 1.0, 1.0), deformable_groups=4, loc_filter_thr=0.01, loss_loc=dict(type='FocalLoss', use_sigmoid=True, gamma=2.0, alpha=0.25, loss_weight=1.0), loss_shape=dict(type='BoundedIoULoss', beta=0.2, loss_weight=1.0), loss_cls=dict(type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0), loss_bbox=dict(type='SmoothL1Loss', beta=1.0, loss_weight=1.0)):
+        super(AnchorHead, self).__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+        self.feat_channels = feat_channels
+        self.octave_base_scale = octave_base_scale
+        self.scales_per_octave = scales_per_octave
+        self.octave_scales = octave_base_scale * np.array([(2 ** (i / scales_per_octave)) for i in range(scales_per_octave)])
+        self.approxs_per_octave = len(self.octave_scales) * len(octave_ratios)
+        self.octave_ratios = octave_ratios
+        self.anchor_strides = anchor_strides
+        self.anchor_base_sizes = list(anchor_strides) if anchor_base_sizes is None else anchor_base_sizes
+        self.anchoring_means = anchoring_means
+        self.anchoring_stds = anchoring_stds
+        self.target_means = target_means
+        self.target_stds = target_stds
+        self.deformable_groups = deformable_groups
+        self.loc_filter_thr = loc_filter_thr
+        self.approx_generators = []
+        self.square_generators = []
+        for anchor_base in self.anchor_base_sizes:
+            self.approx_generators.append(AnchorGenerator(anchor_base, self.octave_scales, self.octave_ratios))
+            self.square_generators.append(AnchorGenerator(anchor_base, [self.octave_base_scale], [1.0]))
+        self.num_anchors = 1
+        self.use_sigmoid_cls = loss_cls.get('use_sigmoid', False)
+        self.cls_focal_loss = loss_cls['type'] in ['FocalLoss']
+        self.loc_focal_loss = loss_loc['type'] in ['FocalLoss']
+        if self.use_sigmoid_cls:
+            self.cls_out_channels = self.num_classes - 1
+        else:
+            self.cls_out_channels = self.num_classes
+        self.loss_loc = build_loss(loss_loc)
+        self.loss_shape = build_loss(loss_shape)
+        self.loss_cls = build_loss(loss_cls)
+        self.loss_bbox = build_loss(loss_bbox)
+        self.fp16_enabled = False
+        self._init_layers()
+
+    def _init_layers(self):
+        self.relu = nn.ReLU(inplace=True)
+        self.conv_loc = nn.Conv2d(self.in_channels, 1, 1)
+        self.conv_shape = nn.Conv2d(self.in_channels, self.num_anchors * 2, 1)
+        self.feature_adaption = FeatureAdaption(self.in_channels, self.feat_channels, kernel_size=3, deformable_groups=self.deformable_groups)
+        self.conv_cls = MaskedConv2d(self.feat_channels, self.num_anchors * self.cls_out_channels, 1)
+        self.conv_reg = MaskedConv2d(self.feat_channels, self.num_anchors * 4, 1)
+
+    def init_weights(self):
+        normal_init(self.conv_cls, std=0.01)
+        normal_init(self.conv_reg, std=0.01)
+        bias_cls = bias_init_with_prob(0.01)
+        normal_init(self.conv_loc, std=0.01, bias=bias_cls)
+        normal_init(self.conv_shape, std=0.01)
+        self.feature_adaption.init_weights()
+
+    def forward_single(self, x):
+        loc_pred = self.conv_loc(x)
+        shape_pred = self.conv_shape(x)
+        x = self.feature_adaption(x, shape_pred)
+        if not self.training:
+            mask = loc_pred.sigmoid()[0] >= self.loc_filter_thr
+        else:
+            mask = None
+        cls_score = self.conv_cls(x, mask)
+        bbox_pred = self.conv_reg(x, mask)
+        return cls_score, bbox_pred, shape_pred, loc_pred
+
+    def forward(self, feats):
+        return multi_apply(self.forward_single, feats)
+
+    def get_sampled_approxs(self, featmap_sizes, img_metas, cfg, device='cuda'):
+        """Get sampled approxs and inside flags according to feature map sizes.
+
+        Args:
+            featmap_sizes (list[tuple]): Multi-level feature map sizes.
+            img_metas (list[dict]): Image meta info.
+            device (torch.device | str): device for returned tensors
+
+        Returns:
+            tuple: approxes of each image, inside flags of each image
+        """
+        num_imgs = len(img_metas)
+        num_levels = len(featmap_sizes)
+        multi_level_approxs = []
+        for i in range(num_levels):
+            approxs = self.approx_generators[i].grid_anchors(featmap_sizes[i], self.anchor_strides[i], device=device)
+            multi_level_approxs.append(approxs)
+        approxs_list = [multi_level_approxs for _ in range(num_imgs)]
+        inside_flag_list = []
+        for img_id, img_meta in enumerate(img_metas):
+            multi_level_flags = []
+            multi_level_approxs = approxs_list[img_id]
+            for i in range(num_levels):
+                approxs = multi_level_approxs[i]
+                anchor_stride = self.anchor_strides[i]
+                feat_h, feat_w = featmap_sizes[i]
+                h, w = img_meta['pad_shape'][:2]
+                valid_feat_h = min(int(np.ceil(h / anchor_stride)), feat_h)
+                valid_feat_w = min(int(np.ceil(w / anchor_stride)), feat_w)
+                flags = self.approx_generators[i].valid_flags((feat_h, feat_w), (valid_feat_h, valid_feat_w), device=device)
+                inside_flags_list = []
+                for i in range(self.approxs_per_octave):
+                    split_valid_flags = flags[i::self.approxs_per_octave]
+                    split_approxs = approxs[i::self.approxs_per_octave, :]
+                    inside_flags = anchor_inside_flags(split_approxs, split_valid_flags, img_meta['img_shape'][:2], cfg.allowed_border)
+                    inside_flags_list.append(inside_flags)
+                inside_flags = torch.stack(inside_flags_list, 0).sum(dim=0) > 0
+                multi_level_flags.append(inside_flags)
+            inside_flag_list.append(multi_level_flags)
+        return approxs_list, inside_flag_list
+
+    def get_anchors(self, featmap_sizes, shape_preds, loc_preds, img_metas, use_loc_filter=False, device='cuda'):
+        """Get squares according to feature map sizes and guided
+        anchors.
+
+        Args:
+            featmap_sizes (list[tuple]): Multi-level feature map sizes.
+            shape_preds (list[tensor]): Multi-level shape predictions.
+            loc_preds (list[tensor]): Multi-level location predictions.
+            img_metas (list[dict]): Image meta info.
+            use_loc_filter (bool): Use loc filter or not.
+            device (torch.device | str): device for returned tensors
+
+        Returns:
+            tuple: square approxs of each image, guided anchors of each image,
+                loc masks of each image
+        """
+        num_imgs = len(img_metas)
+        num_levels = len(featmap_sizes)
+        multi_level_squares = []
+        for i in range(num_levels):
+            squares = self.square_generators[i].grid_anchors(featmap_sizes[i], self.anchor_strides[i], device=device)
+            multi_level_squares.append(squares)
+        squares_list = [multi_level_squares for _ in range(num_imgs)]
+        guided_anchors_list = []
+        loc_mask_list = []
+        for img_id, img_meta in enumerate(img_metas):
+            multi_level_guided_anchors = []
+            multi_level_loc_mask = []
+            for i in range(num_levels):
+                squares = squares_list[img_id][i]
+                shape_pred = shape_preds[i][img_id]
+                loc_pred = loc_preds[i][img_id]
+                guided_anchors, loc_mask = self.get_guided_anchors_single(squares, shape_pred, loc_pred, use_loc_filter=use_loc_filter)
+                multi_level_guided_anchors.append(guided_anchors)
+                multi_level_loc_mask.append(loc_mask)
+            guided_anchors_list.append(multi_level_guided_anchors)
+            loc_mask_list.append(multi_level_loc_mask)
+        return squares_list, guided_anchors_list, loc_mask_list
+
+    def get_guided_anchors_single(self, squares, shape_pred, loc_pred, use_loc_filter=False):
+        """Get guided anchors and loc masks for a single level.
+
+        Args:
+            square (tensor): Squares of a single level.
+            shape_pred (tensor): Shape predections of a single level.
+            loc_pred (tensor): Loc predections of a single level.
+            use_loc_filter (list[tensor]): Use loc filter or not.
+
+        Returns:
+            tuple: guided anchors, location masks
+        """
+        loc_pred = loc_pred.sigmoid().detach()
+        if use_loc_filter:
+            loc_mask = loc_pred >= self.loc_filter_thr
+        else:
+            loc_mask = loc_pred >= 0.0
+        mask = loc_mask.permute(1, 2, 0).expand(-1, -1, self.num_anchors)
+        mask = mask.contiguous().view(-1)
+        squares = squares[mask]
+        anchor_deltas = shape_pred.permute(1, 2, 0).contiguous().view(-1, 2).detach()[mask]
+        bbox_deltas = anchor_deltas.new_full(squares.size(), 0)
+        bbox_deltas[:, 2:] = anchor_deltas
+        guided_anchors = delta2bbox(squares, bbox_deltas, self.anchoring_means, self.anchoring_stds, wh_ratio_clip=1e-06)
+        return guided_anchors, mask
+
+    def loss_shape_single(self, shape_pred, bbox_anchors, bbox_gts, anchor_weights, anchor_total_num):
+        shape_pred = shape_pred.permute(0, 2, 3, 1).contiguous().view(-1, 2)
+        bbox_anchors = bbox_anchors.contiguous().view(-1, 4)
+        bbox_gts = bbox_gts.contiguous().view(-1, 4)
+        anchor_weights = anchor_weights.contiguous().view(-1, 4)
+        bbox_deltas = bbox_anchors.new_full(bbox_anchors.size(), 0)
+        bbox_deltas[:, 2:] += shape_pred
+        inds = torch.nonzero(anchor_weights[:, (0)] > 0).squeeze(1)
+        bbox_deltas_ = bbox_deltas[inds]
+        bbox_anchors_ = bbox_anchors[inds]
+        bbox_gts_ = bbox_gts[inds]
+        anchor_weights_ = anchor_weights[inds]
+        pred_anchors_ = delta2bbox(bbox_anchors_, bbox_deltas_, self.anchoring_means, self.anchoring_stds, wh_ratio_clip=1e-06)
+        loss_shape = self.loss_shape(pred_anchors_, bbox_gts_, anchor_weights_, avg_factor=anchor_total_num)
+        return loss_shape
+
+    def loss_loc_single(self, loc_pred, loc_target, loc_weight, loc_avg_factor, cfg):
+        loss_loc = self.loss_loc(loc_pred.reshape(-1, 1), loc_target.reshape(-1, 1).long(), loc_weight.reshape(-1, 1), avg_factor=loc_avg_factor)
+        return loss_loc
+
+    @force_fp32(apply_to=('cls_scores', 'bbox_preds', 'shape_preds', 'loc_preds'))
+    def loss(self, cls_scores, bbox_preds, shape_preds, loc_preds, gt_bboxes, gt_labels, img_metas, cfg, gt_bboxes_ignore=None):
+        featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
+        assert len(featmap_sizes) == len(self.approx_generators)
+        device = cls_scores[0].device
+        loc_targets, loc_weights, loc_avg_factor = ga_loc_target(gt_bboxes, featmap_sizes, self.octave_base_scale, self.anchor_strides, center_ratio=cfg.center_ratio, ignore_ratio=cfg.ignore_ratio)
+        approxs_list, inside_flag_list = self.get_sampled_approxs(featmap_sizes, img_metas, cfg, device=device)
+        squares_list, guided_anchors_list, _ = self.get_anchors(featmap_sizes, shape_preds, loc_preds, img_metas, device=device)
+        sampling = False if not hasattr(cfg, 'ga_sampler') else True
+        shape_targets = ga_shape_target(approxs_list, inside_flag_list, squares_list, gt_bboxes, img_metas, self.approxs_per_octave, cfg, sampling=sampling)
+        if shape_targets is None:
+            return None
+        bbox_anchors_list, bbox_gts_list, anchor_weights_list, anchor_fg_num, anchor_bg_num = shape_targets
+        anchor_total_num = anchor_fg_num if not sampling else anchor_fg_num + anchor_bg_num
+        sampling = False if self.cls_focal_loss else True
+        label_channels = self.cls_out_channels if self.use_sigmoid_cls else 1
+        cls_reg_targets = anchor_target(guided_anchors_list, inside_flag_list, gt_bboxes, img_metas, self.target_means, self.target_stds, cfg, gt_bboxes_ignore_list=gt_bboxes_ignore, gt_labels_list=gt_labels, label_channels=label_channels, sampling=sampling)
+        if cls_reg_targets is None:
+            return None
+        labels_list, label_weights_list, bbox_targets_list, bbox_weights_list, num_total_pos, num_total_neg = cls_reg_targets
+        num_total_samples = num_total_pos if self.cls_focal_loss else num_total_pos + num_total_neg
+        losses_cls, losses_bbox = multi_apply(self.loss_single, cls_scores, bbox_preds, labels_list, label_weights_list, bbox_targets_list, bbox_weights_list, num_total_samples=num_total_samples, cfg=cfg)
+        losses_loc = []
+        for i in range(len(loc_preds)):
+            loss_loc = self.loss_loc_single(loc_preds[i], loc_targets[i], loc_weights[i], loc_avg_factor=loc_avg_factor, cfg=cfg)
+            losses_loc.append(loss_loc)
+        losses_shape = []
+        for i in range(len(shape_preds)):
+            loss_shape = self.loss_shape_single(shape_preds[i], bbox_anchors_list[i], bbox_gts_list[i], anchor_weights_list[i], anchor_total_num=anchor_total_num)
+            losses_shape.append(loss_shape)
+        return dict(loss_cls=losses_cls, loss_bbox=losses_bbox, loss_shape=losses_shape, loss_loc=losses_loc)
+
+    @force_fp32(apply_to=('cls_scores', 'bbox_preds', 'shape_preds', 'loc_preds'))
+    def get_bboxes(self, cls_scores, bbox_preds, shape_preds, loc_preds, img_metas, cfg, rescale=False):
+        assert len(cls_scores) == len(bbox_preds) == len(shape_preds) == len(loc_preds)
+        num_levels = len(cls_scores)
+        featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
+        device = cls_scores[0].device
+        _, guided_anchors, loc_masks = self.get_anchors(featmap_sizes, shape_preds, loc_preds, img_metas, use_loc_filter=not self.training, device=device)
+        result_list = []
+        for img_id in range(len(img_metas)):
+            cls_score_list = [cls_scores[i][img_id].detach() for i in range(num_levels)]
+            bbox_pred_list = [bbox_preds[i][img_id].detach() for i in range(num_levels)]
+            guided_anchor_list = [guided_anchors[img_id][i].detach() for i in range(num_levels)]
+            loc_mask_list = [loc_masks[img_id][i].detach() for i in range(num_levels)]
+            img_shape = img_metas[img_id]['img_shape']
+            scale_factor = img_metas[img_id]['scale_factor']
+            proposals = self.get_bboxes_single(cls_score_list, bbox_pred_list, guided_anchor_list, loc_mask_list, img_shape, scale_factor, cfg, rescale)
+            result_list.append(proposals)
+        return result_list
+
+    def get_bboxes_single(self, cls_scores, bbox_preds, mlvl_anchors, mlvl_masks, img_shape, scale_factor, cfg, rescale=False):
+        assert len(cls_scores) == len(bbox_preds) == len(mlvl_anchors)
+        mlvl_bboxes = []
+        mlvl_scores = []
+        for cls_score, bbox_pred, anchors, mask in zip(cls_scores, bbox_preds, mlvl_anchors, mlvl_masks):
+            assert cls_score.size()[-2:] == bbox_pred.size()[-2:]
+            if mask.sum() == 0:
+                continue
+            cls_score = cls_score.permute(1, 2, 0).reshape(-1, self.cls_out_channels)
+            if self.use_sigmoid_cls:
+                scores = cls_score.sigmoid()
+            else:
+                scores = cls_score.softmax(-1)
+            bbox_pred = bbox_pred.permute(1, 2, 0).reshape(-1, 4)
+            scores = scores[(mask), :]
+            bbox_pred = bbox_pred[(mask), :]
+            if scores.dim() == 0:
+                anchors = anchors.unsqueeze(0)
+                scores = scores.unsqueeze(0)
+                bbox_pred = bbox_pred.unsqueeze(0)
+            nms_pre = cfg.get('nms_pre', -1)
+            if nms_pre > 0 and scores.shape[0] > nms_pre:
+                if self.use_sigmoid_cls:
+                    max_scores, _ = scores.max(dim=1)
+                else:
+                    max_scores, _ = scores[:, 1:].max(dim=1)
+                _, topk_inds = max_scores.topk(nms_pre)
+                anchors = anchors[(topk_inds), :]
+                bbox_pred = bbox_pred[(topk_inds), :]
+                scores = scores[(topk_inds), :]
+            bboxes = delta2bbox(anchors, bbox_pred, self.target_means, self.target_stds, img_shape)
+            mlvl_bboxes.append(bboxes)
+            mlvl_scores.append(scores)
+        mlvl_bboxes = torch.cat(mlvl_bboxes)
+        if rescale:
+            mlvl_bboxes /= mlvl_bboxes.new_tensor(scale_factor)
+        mlvl_scores = torch.cat(mlvl_scores)
+        if self.use_sigmoid_cls:
+            padding = mlvl_scores.new_zeros(mlvl_scores.shape[0], 1)
+            mlvl_scores = torch.cat([padding, mlvl_scores], dim=1)
+        det_bboxes, det_labels = multiclass_nms(mlvl_bboxes, mlvl_scores, cfg.score_thr, cfg.nms, cfg.max_per_img)
+        return det_bboxes, det_labels
+
+
 class PointGenerator(object):
 
     def _meshgrid(self, x, y, row_major=True):
@@ -2423,7 +3804,7 @@ class PointGenerator(object):
         shift_xx, shift_yy = self._meshgrid(shift_x, shift_y)
         stride = shift_x.new_full((shift_xx.shape[0],), stride)
         shifts = torch.stack([shift_xx, shift_yy, stride], dim=-1)
-        all_points = shifts.to(device)
+        all_points = shifts
         return all_points
 
     def valid_flags(self, featmap_size, valid_size, device='cuda'):
@@ -2521,7 +3902,6 @@ def point_target(proposals_list, valid_flag_list, gt_bboxes_list, img_metas, cfg
     return labels_list, label_weights_list, bbox_gt_list, proposals_list, proposal_weights_list, num_total_pos, num_total_neg
 
 
-@HEADS.register_module
 class RepPointsHead(nn.Module):
     """RepPoint head.
 
@@ -2888,7 +4268,253 @@ class RepPointsHead(nn.Module):
             return mlvl_bboxes, mlvl_scores
 
 
-@HEADS.register_module
+class RetinaHead(AnchorHead):
+    """
+    An anchor-based head used in [1]_.
+
+    The head contains two subnetworks. The first classifies anchor boxes and
+    the second regresses deltas for the anchors.
+
+    References:
+        .. [1]  https://arxiv.org/pdf/1708.02002.pdf
+
+    Example:
+        >>> import torch
+        >>> self = RetinaHead(11, 7)
+        >>> x = torch.rand(1, 7, 32, 32)
+        >>> cls_score, bbox_pred = self.forward_single(x)
+        >>> # Each anchor predicts a score for each class except background
+        >>> cls_per_anchor = cls_score.shape[1] / self.num_anchors
+        >>> box_per_anchor = bbox_pred.shape[1] / self.num_anchors
+        >>> assert cls_per_anchor == (self.num_classes - 1)
+        >>> assert box_per_anchor == 4
+    """
+
+    def __init__(self, num_classes, in_channels, stacked_convs=4, octave_base_scale=4, scales_per_octave=3, conv_cfg=None, norm_cfg=None, **kwargs):
+        self.stacked_convs = stacked_convs
+        self.octave_base_scale = octave_base_scale
+        self.scales_per_octave = scales_per_octave
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        octave_scales = np.array([(2 ** (i / scales_per_octave)) for i in range(scales_per_octave)])
+        anchor_scales = octave_scales * octave_base_scale
+        super(RetinaHead, self).__init__(num_classes, in_channels, anchor_scales=anchor_scales, **kwargs)
+
+    def _init_layers(self):
+        self.relu = nn.ReLU(inplace=True)
+        self.cls_convs = nn.ModuleList()
+        self.reg_convs = nn.ModuleList()
+        for i in range(self.stacked_convs):
+            chn = self.in_channels if i == 0 else self.feat_channels
+            self.cls_convs.append(ConvModule(chn, self.feat_channels, 3, stride=1, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+            self.reg_convs.append(ConvModule(chn, self.feat_channels, 3, stride=1, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+        self.retina_cls = nn.Conv2d(self.feat_channels, self.num_anchors * self.cls_out_channels, 3, padding=1)
+        self.retina_reg = nn.Conv2d(self.feat_channels, self.num_anchors * 4, 3, padding=1)
+
+    def init_weights(self):
+        for m in self.cls_convs:
+            normal_init(m.conv, std=0.01)
+        for m in self.reg_convs:
+            normal_init(m.conv, std=0.01)
+        bias_cls = bias_init_with_prob(0.01)
+        normal_init(self.retina_cls, std=0.01, bias=bias_cls)
+        normal_init(self.retina_reg, std=0.01)
+
+    def forward_single(self, x):
+        cls_feat = x
+        reg_feat = x
+        for cls_conv in self.cls_convs:
+            cls_feat = cls_conv(cls_feat)
+        for reg_conv in self.reg_convs:
+            reg_feat = reg_conv(reg_feat)
+        cls_score = self.retina_cls(cls_feat)
+        bbox_pred = self.retina_reg(reg_feat)
+        return cls_score, bbox_pred
+
+
+class RetinaSepBNHead(AnchorHead):
+    """"RetinaHead with separate BN.
+
+    In RetinaHead, conv/norm layers are shared across different FPN levels,
+    while in RetinaSepBNHead, conv layers are shared across different FPN
+    levels, but BN layers are separated.
+    """
+
+    def __init__(self, num_classes, num_ins, in_channels, stacked_convs=4, octave_base_scale=4, scales_per_octave=3, conv_cfg=None, norm_cfg=None, **kwargs):
+        self.stacked_convs = stacked_convs
+        self.octave_base_scale = octave_base_scale
+        self.scales_per_octave = scales_per_octave
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.num_ins = num_ins
+        octave_scales = np.array([(2 ** (i / scales_per_octave)) for i in range(scales_per_octave)])
+        anchor_scales = octave_scales * octave_base_scale
+        super(RetinaSepBNHead, self).__init__(num_classes, in_channels, anchor_scales=anchor_scales, **kwargs)
+
+    def _init_layers(self):
+        self.relu = nn.ReLU(inplace=True)
+        self.cls_convs = nn.ModuleList()
+        self.reg_convs = nn.ModuleList()
+        for i in range(self.num_ins):
+            cls_convs = nn.ModuleList()
+            reg_convs = nn.ModuleList()
+            for i in range(self.stacked_convs):
+                chn = self.in_channels if i == 0 else self.feat_channels
+                cls_convs.append(ConvModule(chn, self.feat_channels, 3, stride=1, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+                reg_convs.append(ConvModule(chn, self.feat_channels, 3, stride=1, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+            self.cls_convs.append(cls_convs)
+            self.reg_convs.append(reg_convs)
+        for i in range(self.stacked_convs):
+            for j in range(1, self.num_ins):
+                self.cls_convs[j][i].conv = self.cls_convs[0][i].conv
+                self.reg_convs[j][i].conv = self.reg_convs[0][i].conv
+        self.retina_cls = nn.Conv2d(self.feat_channels, self.num_anchors * self.cls_out_channels, 3, padding=1)
+        self.retina_reg = nn.Conv2d(self.feat_channels, self.num_anchors * 4, 3, padding=1)
+
+    def init_weights(self):
+        for m in self.cls_convs[0]:
+            normal_init(m.conv, std=0.01)
+        for m in self.reg_convs[0]:
+            normal_init(m.conv, std=0.01)
+        bias_cls = bias_init_with_prob(0.01)
+        normal_init(self.retina_cls, std=0.01, bias=bias_cls)
+        normal_init(self.retina_reg, std=0.01)
+
+    def forward(self, feats):
+        cls_scores = []
+        bbox_preds = []
+        for i, x in enumerate(feats):
+            cls_feat = feats[i]
+            reg_feat = feats[i]
+            for cls_conv in self.cls_convs[i]:
+                cls_feat = cls_conv(cls_feat)
+            for reg_conv in self.reg_convs[i]:
+                reg_feat = reg_conv(reg_feat)
+            cls_score = self.retina_cls(cls_feat)
+            bbox_pred = self.retina_reg(reg_feat)
+            cls_scores.append(cls_score)
+            bbox_preds.append(bbox_pred)
+        return cls_scores, bbox_preds
+
+
+def nms(dets, iou_thr, device_id=None):
+    """Dispatch to either CPU or GPU NMS implementations.
+
+    The input can be either a torch tensor or numpy array. GPU NMS will be used
+    if the input is a gpu tensor or device_id is specified, otherwise CPU NMS
+    will be used. The returned type will always be the same as inputs.
+
+    Arguments:
+        dets (torch.Tensor or np.ndarray): bboxes with scores.
+        iou_thr (float): IoU threshold for NMS.
+        device_id (int, optional): when `dets` is a numpy array, if `device_id`
+            is None, then cpu nms is used, otherwise gpu_nms will be used.
+
+    Returns:
+        tuple: kept bboxes and indice, which is always the same data type as
+            the input.
+
+    Example:
+        >>> dets = np.array([[49.1, 32.4, 51.0, 35.9, 0.9],
+        >>>                  [49.3, 32.9, 51.0, 35.3, 0.9],
+        >>>                  [49.2, 31.8, 51.0, 35.4, 0.5],
+        >>>                  [35.1, 11.5, 39.1, 15.7, 0.5],
+        >>>                  [35.6, 11.8, 39.3, 14.2, 0.5],
+        >>>                  [35.3, 11.5, 39.9, 14.5, 0.4],
+        >>>                  [35.2, 11.7, 39.7, 15.7, 0.3]], dtype=np.float32)
+        >>> iou_thr = 0.7
+        >>> supressed, inds = nms(dets, iou_thr)
+        >>> assert len(inds) == len(supressed) == 3
+    """
+    if isinstance(dets, torch.Tensor):
+        is_numpy = False
+        dets_th = dets
+    elif isinstance(dets, np.ndarray):
+        is_numpy = True
+        device = 'cpu' if device_id is None else 'cuda:{}'.format(device_id)
+        dets_th = torch.from_numpy(dets)
+    else:
+        raise TypeError('dets must be either a Tensor or numpy array, but got {}'.format(type(dets)))
+    if dets_th.shape[0] == 0:
+        inds = dets_th.new_zeros(0, dtype=torch.long)
+    elif dets_th.is_cuda:
+        inds = nms_cuda.nms(dets_th, iou_thr)
+    else:
+        inds = nms_cpu.nms(dets_th, iou_thr)
+    if is_numpy:
+        inds = inds.cpu().numpy()
+    return dets[(inds), :], inds
+
+
+class RPNHead(AnchorHead):
+
+    def __init__(self, in_channels, **kwargs):
+        super(RPNHead, self).__init__(2, in_channels, **kwargs)
+
+    def _init_layers(self):
+        self.rpn_conv = nn.Conv2d(self.in_channels, self.feat_channels, 3, padding=1)
+        self.rpn_cls = nn.Conv2d(self.feat_channels, self.num_anchors * self.cls_out_channels, 1)
+        self.rpn_reg = nn.Conv2d(self.feat_channels, self.num_anchors * 4, 1)
+
+    def init_weights(self):
+        normal_init(self.rpn_conv, std=0.01)
+        normal_init(self.rpn_cls, std=0.01)
+        normal_init(self.rpn_reg, std=0.01)
+
+    def forward_single(self, x):
+        x = self.rpn_conv(x)
+        x = F.relu(x, inplace=True)
+        rpn_cls_score = self.rpn_cls(x)
+        rpn_bbox_pred = self.rpn_reg(x)
+        return rpn_cls_score, rpn_bbox_pred
+
+    def loss(self, cls_scores, bbox_preds, gt_bboxes, img_metas, cfg, gt_bboxes_ignore=None):
+        losses = super(RPNHead, self).loss(cls_scores, bbox_preds, gt_bboxes, None, img_metas, cfg, gt_bboxes_ignore=gt_bboxes_ignore)
+        return dict(loss_rpn_cls=losses['loss_cls'], loss_rpn_bbox=losses['loss_bbox'])
+
+    def get_bboxes_single(self, cls_scores, bbox_preds, mlvl_anchors, img_shape, scale_factor, cfg, rescale=False):
+        mlvl_proposals = []
+        for idx in range(len(cls_scores)):
+            rpn_cls_score = cls_scores[idx]
+            rpn_bbox_pred = bbox_preds[idx]
+            assert rpn_cls_score.size()[-2:] == rpn_bbox_pred.size()[-2:]
+            rpn_cls_score = rpn_cls_score.permute(1, 2, 0)
+            if self.use_sigmoid_cls:
+                rpn_cls_score = rpn_cls_score.reshape(-1)
+                scores = rpn_cls_score.sigmoid()
+            else:
+                rpn_cls_score = rpn_cls_score.reshape(-1, 2)
+                scores = rpn_cls_score.softmax(dim=1)[:, (1)]
+            rpn_bbox_pred = rpn_bbox_pred.permute(1, 2, 0).reshape(-1, 4)
+            anchors = mlvl_anchors[idx]
+            if cfg.nms_pre > 0 and scores.shape[0] > cfg.nms_pre:
+                _, topk_inds = scores.topk(cfg.nms_pre)
+                rpn_bbox_pred = rpn_bbox_pred[(topk_inds), :]
+                anchors = anchors[(topk_inds), :]
+                scores = scores[topk_inds]
+            proposals = delta2bbox(anchors, rpn_bbox_pred, self.target_means, self.target_stds, img_shape)
+            if cfg.min_bbox_size > 0:
+                w = proposals[:, (2)] - proposals[:, (0)] + 1
+                h = proposals[:, (3)] - proposals[:, (1)] + 1
+                valid_inds = torch.nonzero((w >= cfg.min_bbox_size) & (h >= cfg.min_bbox_size)).squeeze()
+                proposals = proposals[(valid_inds), :]
+                scores = scores[valid_inds]
+            proposals = torch.cat([proposals, scores.unsqueeze(-1)], dim=-1)
+            proposals, _ = nms(proposals, cfg.nms_thr)
+            proposals = proposals[:cfg.nms_post, :]
+            mlvl_proposals.append(proposals)
+        proposals = torch.cat(mlvl_proposals, 0)
+        if cfg.nms_across_levels:
+            proposals, _ = nms(proposals, cfg.nms_thr)
+            proposals = proposals[:cfg.max_num, :]
+        else:
+            scores = proposals[:, (4)]
+            num = min(cfg.max_num, proposals.shape[0])
+            _, topk_inds = scores.topk(num)
+            proposals = proposals[(topk_inds), :]
+        return proposals
+
+
 class SOLOHead(nn.Module):
 
     def __init__(self, num_classes, in_channels, seg_feat_channels=256, stacked_convs=4, strides=(4, 8, 16, 32, 64), base_edge_list=(16, 32, 64, 128, 256), scale_ranges=((8, 32), (16, 64), (32, 128), (64, 256), (128, 512)), sigma=0.4, num_grids=None, cate_down_pos=0, with_deform=False, loss_ins=None, loss_cate=None, conv_cfg=None, norm_cfg=None):
@@ -3118,242 +4744,214 @@ class SOLOHead(nn.Module):
         return seg_masks, cate_labels, cate_scores
 
 
-class DeformConvFunction(Function):
-
-    @staticmethod
-    def forward(ctx, input, offset, weight, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, im2col_step=64):
-        if input is not None and input.dim() != 4:
-            raise ValueError('Expected 4D tensor as input, got {}D tensor instead.'.format(input.dim()))
-        ctx.stride = _pair(stride)
-        ctx.padding = _pair(padding)
-        ctx.dilation = _pair(dilation)
-        ctx.groups = groups
-        ctx.deformable_groups = deformable_groups
-        ctx.im2col_step = im2col_step
-        ctx.save_for_backward(input, offset, weight)
-        output = input.new_empty(DeformConvFunction._output_size(input, weight, ctx.padding, ctx.dilation, ctx.stride))
-        ctx.bufs_ = [input.new_empty(0), input.new_empty(0)]
-        if not input.is_cuda:
-            raise NotImplementedError
-        else:
-            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
-            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
-            deform_conv_cuda.deform_conv_forward_cuda(input, weight, offset, output, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, cur_im2col_step)
-        return output
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, grad_output):
-        input, offset, weight = ctx.saved_tensors
-        grad_input = grad_offset = grad_weight = None
-        if not grad_output.is_cuda:
-            raise NotImplementedError
-        else:
-            cur_im2col_step = min(ctx.im2col_step, input.shape[0])
-            assert input.shape[0] % cur_im2col_step == 0, 'im2col step must divide batchsize'
-            if ctx.needs_input_grad[0] or ctx.needs_input_grad[1]:
-                grad_input = torch.zeros_like(input)
-                grad_offset = torch.zeros_like(offset)
-                deform_conv_cuda.deform_conv_backward_input_cuda(input, offset, grad_output, grad_input, grad_offset, weight, ctx.bufs_[0], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, cur_im2col_step)
-            if ctx.needs_input_grad[2]:
-                grad_weight = torch.zeros_like(weight)
-                deform_conv_cuda.deform_conv_backward_parameters_cuda(input, offset, grad_output, grad_weight, ctx.bufs_[0], ctx.bufs_[1], weight.size(3), weight.size(2), ctx.stride[1], ctx.stride[0], ctx.padding[1], ctx.padding[0], ctx.dilation[1], ctx.dilation[0], ctx.groups, ctx.deformable_groups, 1, cur_im2col_step)
-        return grad_input, grad_offset, grad_weight, None, None, None, None, None
-
-    @staticmethod
-    def _output_size(input, weight, padding, dilation, stride):
-        channels = weight.size(0)
-        output_size = input.size(0), channels
-        for d in range(input.dim() - 2):
-            in_size = input.size(d + 2)
-            pad = padding[d]
-            kernel = dilation[d] * (weight.size(d + 2) - 1) + 1
-            stride_ = stride[d]
-            output_size += (in_size + 2 * pad - kernel) // stride_ + 1,
-        if not all(map(lambda s: s > 0, output_size)):
-            raise ValueError('convolution input is too small (output would be {})'.format('x'.join(map(str, output_size))))
-        return output_size
-
-
-deform_conv = DeformConvFunction.apply
-
-
-def get_root_logger(log_file=None, log_level=logging.INFO):
-    """Get the root logger.
-
-    The logger will be initialized if it has not been initialized. By default a
-    StreamHandler will be added. If `log_file` is specified, a FileHandler will
-    also be added. The name of the root logger is the top-level package name,
-    e.g., "mmdet".
+def reduce_loss(loss, reduction):
+    """Reduce loss as specified.
 
     Args:
-        log_file (str | None): The log filename. If specified, a FileHandler
-            will be added to the root logger.
-        log_level (int): The root logger level. Note that only the process of
-            rank 0 is affected, while other processes will set the level to
-            "Error" and be silent most of the time.
+        loss (Tensor): Elementwise loss tensor.
+        reduction (str): Options are "none", "mean" and "sum".
+
+    Return:
+        Tensor: Reduced loss tensor.
+    """
+    reduction_enum = F._Reduction.get_enum(reduction)
+    if reduction_enum == 0:
+        return loss
+    elif reduction_enum == 1:
+        return loss.mean()
+    elif reduction_enum == 2:
+        return loss.sum()
+
+
+def weight_reduce_loss(loss, weight=None, reduction='mean', avg_factor=None):
+    """Apply element-wise weight and reduce loss.
+
+    Args:
+        loss (Tensor): Element-wise loss.
+        weight (Tensor): Element-wise weights.
+        reduction (str): Same as built-in losses of PyTorch.
+        avg_factor (float): Avarage factor when computing the mean of losses.
 
     Returns:
-        logging.Logger: The root logger.
+        Tensor: Processed loss values.
     """
-    logger = logging.getLogger(__name__.split('.')[0])
-    if logger.hasHandlers():
-        return logger
-    format_str = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    logging.basicConfig(format=format_str, level=log_level)
-    rank, _ = get_dist_info()
-    if rank != 0:
-        logger.setLevel('ERROR')
-    elif log_file is not None:
-        file_handler = logging.FileHandler(log_file, 'w')
-        file_handler.setFormatter(logging.Formatter(format_str))
-        file_handler.setLevel(log_level)
-        logger.addHandler(file_handler)
-    return logger
+    if weight is not None:
+        loss = loss * weight
+    if avg_factor is None:
+        loss = reduce_loss(loss, reduction)
+    elif reduction == 'mean':
+        loss = loss.sum() / avg_factor
+    elif reduction != 'none':
+        raise ValueError('avg_factor can not be used with reduction="sum"')
+    return loss
 
 
-def print_log(msg, logger=None, level=logging.INFO):
-    """Print a log message.
+def weighted_loss(loss_func):
+    """Create a weighted version of a given loss function.
 
-    Args:
-        msg (str): The message to be logged.
-        logger (logging.Logger | str | None): The logger to be used. Some
-            special loggers are:
-            - "root": the root logger obtained with `get_root_logger()`.
-            - "silent": no message will be printed.
-            - None: The `print()` method will be used to print log messages.
-        level (int): Logging level. Only available when `logger` is a Logger
-            object or "root".
+    To use this decorator, the loss function must have the signature like
+    `loss_func(pred, target, **kwargs)`. The function only needs to compute
+    element-wise loss without any reduction. This decorator will add weight
+    and reduction arguments to the function. The decorated function will have
+    the signature like `loss_func(pred, target, weight=None, reduction='mean',
+    avg_factor=None, **kwargs)`.
+
+    :Example:
+
+    >>> import torch
+    >>> @weighted_loss
+    >>> def l1_loss(pred, target):
+    >>>     return (pred - target).abs()
+
+    >>> pred = torch.Tensor([0, 2, 3])
+    >>> target = torch.Tensor([1, 1, 1])
+    >>> weight = torch.Tensor([1, 0, 1])
+
+    >>> l1_loss(pred, target)
+    tensor(1.3333)
+    >>> l1_loss(pred, target, weight)
+    tensor(1.)
+    >>> l1_loss(pred, target, reduction='none')
+    tensor([1., 1., 2.])
+    >>> l1_loss(pred, target, weight, avg_factor=2)
+    tensor(1.5000)
     """
-    if logger is None:
-        print(msg)
-    elif logger == 'root':
-        _logger = get_root_logger()
-        _logger.log(level, msg)
-    elif isinstance(logger, logging.Logger):
-        logger.log(level, msg)
-    elif logger != 'silent':
-        raise TypeError('logger should be either a logging.Logger object, "root", "silent" or None, but got {}'.format(logger))
+
+    @functools.wraps(loss_func)
+    def wrapper(pred, target, weight=None, reduction='mean', avg_factor=None, **kwargs):
+        loss = loss_func(pred, target, **kwargs)
+        loss = weight_reduce_loss(loss, weight, reduction, avg_factor)
+        return loss
+    return wrapper
 
 
-class ModulatedDeformConvFunction(Function):
-
-    @staticmethod
-    def forward(ctx, input, offset, mask, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1):
-        ctx.stride = stride
-        ctx.padding = padding
-        ctx.dilation = dilation
-        ctx.groups = groups
-        ctx.deformable_groups = deformable_groups
-        ctx.with_bias = bias is not None
-        if not ctx.with_bias:
-            bias = input.new_empty(1)
-        if not input.is_cuda:
-            raise NotImplementedError
-        if weight.requires_grad or mask.requires_grad or offset.requires_grad or input.requires_grad:
-            ctx.save_for_backward(input, offset, mask, weight, bias)
-        output = input.new_empty(ModulatedDeformConvFunction._infer_shape(ctx, input, weight))
-        ctx._bufs = [input.new_empty(0), input.new_empty(0)]
-        deform_conv_cuda.modulated_deform_conv_cuda_forward(input, weight, bias, ctx._bufs[0], offset, mask, output, ctx._bufs[1], weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.deformable_groups, ctx.with_bias)
-        return output
-
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, grad_output):
-        if not grad_output.is_cuda:
-            raise NotImplementedError
-        input, offset, mask, weight, bias = ctx.saved_tensors
-        grad_input = torch.zeros_like(input)
-        grad_offset = torch.zeros_like(offset)
-        grad_mask = torch.zeros_like(mask)
-        grad_weight = torch.zeros_like(weight)
-        grad_bias = torch.zeros_like(bias)
-        deform_conv_cuda.modulated_deform_conv_cuda_backward(input, weight, bias, ctx._bufs[0], offset, mask, ctx._bufs[1], grad_input, grad_weight, grad_bias, grad_offset, grad_mask, grad_output, weight.shape[2], weight.shape[3], ctx.stride, ctx.stride, ctx.padding, ctx.padding, ctx.dilation, ctx.dilation, ctx.groups, ctx.deformable_groups, ctx.with_bias)
-        if not ctx.with_bias:
-            grad_bias = None
-        return grad_input, grad_offset, grad_mask, grad_weight, grad_bias, None, None, None, None, None
-
-    @staticmethod
-    def _infer_shape(ctx, input, weight):
-        n = input.size(0)
-        channels_out = weight.size(0)
-        height, width = input.shape[2:4]
-        kernel_h, kernel_w = weight.shape[2:4]
-        height_out = (height + 2 * ctx.padding - (ctx.dilation * (kernel_h - 1) + 1)) // ctx.stride + 1
-        width_out = (width + 2 * ctx.padding - (ctx.dilation * (kernel_w - 1) + 1)) // ctx.stride + 1
-        return n, channels_out, height_out, width_out
+@weighted_loss
+def smooth_l1_loss(pred, target, beta=1.0):
+    assert beta > 0
+    assert pred.size() == target.size() and target.numel() > 0
+    diff = torch.abs(pred - target)
+    loss = torch.where(diff < beta, 0.5 * diff * diff / beta, diff - 0.5 * beta)
+    return loss
 
 
-modulated_deform_conv = ModulatedDeformConvFunction.apply
-
-
-def build_conv_layer(cfg, *args, **kwargs):
-    """ Build convolution layer
-
-    Args:
-        cfg (None or dict): cfg should contain:
-            type (str): identify conv layer type.
-            layer args: args needed to instantiate a conv layer.
-
-    Returns:
-        layer (nn.Module): created conv layer
-    """
-    if cfg is None:
-        cfg_ = dict(type='Conv')
+def xavier_init(module, gain=1, bias=0, distribution='normal'):
+    assert distribution in ['uniform', 'normal']
+    if distribution == 'uniform':
+        nn.init.xavier_uniform_(module.weight, gain=gain)
     else:
-        assert isinstance(cfg, dict) and 'type' in cfg
-        cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in conv_cfg:
-        raise KeyError('Unrecognized norm type {}'.format(layer_type))
-    else:
-        conv_layer = conv_cfg[layer_type]
-    layer = conv_layer(*args, **kwargs, **cfg_)
-    return layer
+        nn.init.xavier_normal_(module.weight, gain=gain)
+    if hasattr(module, 'bias'):
+        nn.init.constant_(module.bias, bias)
 
 
-norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm), 'GN': ('gn', nn.GroupNorm)}
+class SSDHead(AnchorHead):
 
+    def __init__(self, input_size=300, num_classes=81, in_channels=(512, 1024, 512, 256, 256, 256), anchor_strides=(8, 16, 32, 64, 100, 300), basesize_ratio_range=(0.1, 0.9), anchor_ratios=([2], [2, 3], [2, 3], [2, 3], [2], [2]), target_means=(0.0, 0.0, 0.0, 0.0), target_stds=(1.0, 1.0, 1.0, 1.0)):
+        super(AnchorHead, self).__init__()
+        self.input_size = input_size
+        self.num_classes = num_classes
+        self.in_channels = in_channels
+        self.cls_out_channels = num_classes
+        num_anchors = [(len(ratios) * 2 + 2) for ratios in anchor_ratios]
+        reg_convs = []
+        cls_convs = []
+        for i in range(len(in_channels)):
+            reg_convs.append(nn.Conv2d(in_channels[i], num_anchors[i] * 4, kernel_size=3, padding=1))
+            cls_convs.append(nn.Conv2d(in_channels[i], num_anchors[i] * num_classes, kernel_size=3, padding=1))
+        self.reg_convs = nn.ModuleList(reg_convs)
+        self.cls_convs = nn.ModuleList(cls_convs)
+        min_ratio, max_ratio = basesize_ratio_range
+        min_ratio = int(min_ratio * 100)
+        max_ratio = int(max_ratio * 100)
+        step = int(np.floor(max_ratio - min_ratio) / (len(in_channels) - 2))
+        min_sizes = []
+        max_sizes = []
+        for r in range(int(min_ratio), int(max_ratio) + 1, step):
+            min_sizes.append(int(input_size * r / 100))
+            max_sizes.append(int(input_size * (r + step) / 100))
+        if input_size == 300:
+            if basesize_ratio_range[0] == 0.15:
+                min_sizes.insert(0, int(input_size * 7 / 100))
+                max_sizes.insert(0, int(input_size * 15 / 100))
+            elif basesize_ratio_range[0] == 0.2:
+                min_sizes.insert(0, int(input_size * 10 / 100))
+                max_sizes.insert(0, int(input_size * 20 / 100))
+        elif input_size == 512:
+            if basesize_ratio_range[0] == 0.1:
+                min_sizes.insert(0, int(input_size * 4 / 100))
+                max_sizes.insert(0, int(input_size * 10 / 100))
+            elif basesize_ratio_range[0] == 0.15:
+                min_sizes.insert(0, int(input_size * 7 / 100))
+                max_sizes.insert(0, int(input_size * 15 / 100))
+        self.anchor_generators = []
+        self.anchor_strides = anchor_strides
+        for k in range(len(anchor_strides)):
+            base_size = min_sizes[k]
+            stride = anchor_strides[k]
+            ctr = (stride - 1) / 2.0, (stride - 1) / 2.0
+            scales = [1.0, np.sqrt(max_sizes[k] / min_sizes[k])]
+            ratios = [1.0]
+            for r in anchor_ratios[k]:
+                ratios += [1 / r, r]
+            anchor_generator = AnchorGenerator(base_size, scales, ratios, scale_major=False, ctr=ctr)
+            indices = list(range(len(ratios)))
+            indices.insert(1, len(indices))
+            anchor_generator.base_anchors = torch.index_select(anchor_generator.base_anchors, 0, torch.LongTensor(indices))
+            self.anchor_generators.append(anchor_generator)
+        self.target_means = target_means
+        self.target_stds = target_stds
+        self.use_sigmoid_cls = False
+        self.cls_focal_loss = False
+        self.fp16_enabled = False
 
-def build_norm_layer(cfg, num_features, postfix=''):
-    """ Build normalization layer
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                xavier_init(m, distribution='uniform', bias=0)
 
-    Args:
-        cfg (dict): cfg should contain:
-            type (str): identify norm layer type.
-            layer args: args needed to instantiate a norm layer.
-            requires_grad (bool): [optional] whether stop gradient updates
-        num_features (int): number of channels from input.
-        postfix (int, str): appended into norm abbreviation to
-            create named layer.
+    def forward(self, feats):
+        cls_scores = []
+        bbox_preds = []
+        for feat, reg_conv, cls_conv in zip(feats, self.reg_convs, self.cls_convs):
+            cls_scores.append(cls_conv(feat))
+            bbox_preds.append(reg_conv(feat))
+        return cls_scores, bbox_preds
 
-    Returns:
-        name (str): abbreviation + postfix
-        layer (nn.Module): created norm layer
-    """
-    assert isinstance(cfg, dict) and 'type' in cfg
-    cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in norm_cfg:
-        raise KeyError('Unrecognized norm type {}'.format(layer_type))
-    else:
-        abbr, norm_layer = norm_cfg[layer_type]
-        if norm_layer is None:
-            raise NotImplementedError
-    assert isinstance(postfix, (int, str))
-    name = abbr + str(postfix)
-    requires_grad = cfg_.pop('requires_grad', True)
-    cfg_.setdefault('eps', 1e-05)
-    if layer_type != 'GN':
-        layer = norm_layer(num_features, **cfg_)
-        if layer_type == 'SyncBN':
-            layer._specify_ddp_gpu_num(1)
-    else:
-        assert 'num_groups' in cfg_
-        layer = norm_layer(num_channels=num_features, **cfg_)
-    for param in layer.parameters():
-        param.requires_grad = requires_grad
-    return name, layer
+    def loss_single(self, cls_score, bbox_pred, labels, label_weights, bbox_targets, bbox_weights, num_total_samples, cfg):
+        loss_cls_all = F.cross_entropy(cls_score, labels, reduction='none') * label_weights
+        pos_inds = (labels > 0).nonzero().view(-1)
+        neg_inds = (labels == 0).nonzero().view(-1)
+        num_pos_samples = pos_inds.size(0)
+        num_neg_samples = cfg.neg_pos_ratio * num_pos_samples
+        if num_neg_samples > neg_inds.size(0):
+            num_neg_samples = neg_inds.size(0)
+        topk_loss_cls_neg, _ = loss_cls_all[neg_inds].topk(num_neg_samples)
+        loss_cls_pos = loss_cls_all[pos_inds].sum()
+        loss_cls_neg = topk_loss_cls_neg.sum()
+        loss_cls = (loss_cls_pos + loss_cls_neg) / num_total_samples
+        loss_bbox = smooth_l1_loss(bbox_pred, bbox_targets, bbox_weights, beta=cfg.smoothl1_beta, avg_factor=num_total_samples)
+        return loss_cls[None], loss_bbox
+
+    def loss(self, cls_scores, bbox_preds, gt_bboxes, gt_labels, img_metas, cfg, gt_bboxes_ignore=None):
+        featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
+        assert len(featmap_sizes) == len(self.anchor_generators)
+        device = cls_scores[0].device
+        anchor_list, valid_flag_list = self.get_anchors(featmap_sizes, img_metas, device=device)
+        cls_reg_targets = anchor_target(anchor_list, valid_flag_list, gt_bboxes, img_metas, self.target_means, self.target_stds, cfg, gt_bboxes_ignore_list=gt_bboxes_ignore, gt_labels_list=gt_labels, label_channels=1, sampling=False, unmap_outputs=False)
+        if cls_reg_targets is None:
+            return None
+        labels_list, label_weights_list, bbox_targets_list, bbox_weights_list, num_total_pos, num_total_neg = cls_reg_targets
+        num_images = len(img_metas)
+        all_cls_scores = torch.cat([s.permute(0, 2, 3, 1).reshape(num_images, -1, self.cls_out_channels) for s in cls_scores], 1)
+        all_labels = torch.cat(labels_list, -1).view(num_images, -1)
+        all_label_weights = torch.cat(label_weights_list, -1).view(num_images, -1)
+        all_bbox_preds = torch.cat([b.permute(0, 2, 3, 1).reshape(num_images, -1, 4) for b in bbox_preds], -2)
+        all_bbox_targets = torch.cat(bbox_targets_list, -2).view(num_images, -1, 4)
+        all_bbox_weights = torch.cat(bbox_weights_list, -2).view(num_images, -1, 4)
+        assert torch.isfinite(all_cls_scores).all().item(), 'classification scores become infinite or NaN!'
+        assert torch.isfinite(all_bbox_preds).all().item(), 'bbox predications become infinite or NaN!'
+        losses_cls, losses_bbox = multi_apply(self.loss_single, all_cls_scores, all_bbox_preds, all_labels, all_label_weights, all_bbox_targets, all_bbox_weights, num_total_samples=num_total_pos, cfg=cfg)
+        return dict(loss_cls=losses_cls, loss_bbox=losses_bbox)
 
 
 class HRModule(nn.Module):
@@ -3447,16 +5045,6 @@ class HRModule(nn.Module):
 BACKBONES = Registry('backbone')
 
 
-def kaiming_init(module, mode='fan_out', nonlinearity='relu', bias=0, distribution='normal'):
-    assert distribution in ['uniform', 'normal']
-    if distribution == 'uniform':
-        nn.init.kaiming_uniform_(module.weight, mode=mode, nonlinearity=nonlinearity)
-    else:
-        nn.init.kaiming_normal_(module.weight, mode=mode, nonlinearity=nonlinearity)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
-
-
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -3499,103 +5087,6 @@ class BasicBlock(nn.Module):
         return out
 
 
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, style='pytorch', with_cp=False, conv_cfg=None, norm_cfg=dict(type='BN'), dcn=None, gcb=None, gen_attention=None):
-        """Bottleneck block for ResNet.
-        If style is "pytorch", the stride-two layer is the 3x3 conv layer,
-        if it is "caffe", the stride-two layer is the first 1x1 conv layer.
-        """
-        super(Bottleneck, self).__init__()
-        assert style in ['pytorch', 'caffe']
-        assert dcn is None or isinstance(dcn, dict)
-        assert gcb is None or isinstance(gcb, dict)
-        assert gen_attention is None or isinstance(gen_attention, dict)
-        self.inplanes = inplanes
-        self.planes = planes
-        self.stride = stride
-        self.dilation = dilation
-        self.style = style
-        self.with_cp = with_cp
-        self.conv_cfg = conv_cfg
-        self.norm_cfg = norm_cfg
-        self.dcn = dcn
-        self.with_dcn = dcn is not None
-        self.gcb = gcb
-        self.with_gcb = gcb is not None
-        self.gen_attention = gen_attention
-        self.with_gen_attention = gen_attention is not None
-        if self.style == 'pytorch':
-            self.conv1_stride = 1
-            self.conv2_stride = stride
-        else:
-            self.conv1_stride = stride
-            self.conv2_stride = 1
-        self.norm1_name, norm1 = build_norm_layer(norm_cfg, planes, postfix=1)
-        self.norm2_name, norm2 = build_norm_layer(norm_cfg, planes, postfix=2)
-        self.norm3_name, norm3 = build_norm_layer(norm_cfg, planes * self.expansion, postfix=3)
-        self.conv1 = build_conv_layer(conv_cfg, inplanes, planes, kernel_size=1, stride=self.conv1_stride, bias=False)
-        self.add_module(self.norm1_name, norm1)
-        fallback_on_stride = False
-        if self.with_dcn:
-            fallback_on_stride = dcn.pop('fallback_on_stride', False)
-        if not self.with_dcn or fallback_on_stride:
-            self.conv2 = build_conv_layer(conv_cfg, planes, planes, kernel_size=3, stride=self.conv2_stride, padding=dilation, dilation=dilation, bias=False)
-        else:
-            assert self.conv_cfg is None, 'conv_cfg cannot be None for DCN'
-            self.conv2 = build_conv_layer(dcn, planes, planes, kernel_size=3, stride=self.conv2_stride, padding=dilation, dilation=dilation, bias=False)
-        self.add_module(self.norm2_name, norm2)
-        self.conv3 = build_conv_layer(conv_cfg, planes, planes * self.expansion, kernel_size=1, bias=False)
-        self.add_module(self.norm3_name, norm3)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        if self.with_gcb:
-            gcb_inplanes = planes * self.expansion
-            self.context_block = ContextBlock(inplanes=gcb_inplanes, **gcb)
-        if self.with_gen_attention:
-            self.gen_attention_block = GeneralizedAttention(planes, **gen_attention)
-
-    @property
-    def norm1(self):
-        return getattr(self, self.norm1_name)
-
-    @property
-    def norm2(self):
-        return getattr(self, self.norm2_name)
-
-    @property
-    def norm3(self):
-        return getattr(self, self.norm3_name)
-
-    def forward(self, x):
-
-        def _inner_forward(x):
-            identity = x
-            out = self.conv1(x)
-            out = self.norm1(out)
-            out = self.relu(out)
-            out = self.conv2(out)
-            out = self.norm2(out)
-            out = self.relu(out)
-            if self.with_gen_attention:
-                out = self.gen_attention_block(out)
-            out = self.conv3(out)
-            out = self.norm3(out)
-            if self.with_gcb:
-                out = self.context_block(out)
-            if self.downsample is not None:
-                identity = self.downsample(x)
-            out += identity
-            return out
-        if self.with_cp and x.requires_grad:
-            out = cp.checkpoint(_inner_forward, x)
-        else:
-            out = _inner_forward(x)
-        out = self.relu(out)
-        return out
-
-
 def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1, groups=1, base_width=4, style='pytorch', with_cp=False, conv_cfg=None, norm_cfg=dict(type='BN'), dcn=None, gcb=None):
     downsample = None
     if stride != 1 or inplanes != planes * block.expansion:
@@ -3606,162 +5097,6 @@ def make_res_layer(block, inplanes, planes, blocks, stride=1, dilation=1, groups
     for i in range(1, blocks):
         layers.append(block(inplanes=inplanes, planes=planes, stride=1, dilation=dilation, groups=groups, base_width=base_width, style=style, with_cp=with_cp, conv_cfg=conv_cfg, norm_cfg=norm_cfg, dcn=dcn, gcb=gcb))
     return nn.Sequential(*layers)
-
-
-@BACKBONES.register_module
-class ResNet(nn.Module):
-    """ResNet backbone.
-
-    Args:
-        depth (int): Depth of resnet, from {18, 34, 50, 101, 152}.
-        in_channels (int): Number of input image channels. Normally 3.
-        num_stages (int): Resnet stages, normally 4.
-        strides (Sequence[int]): Strides of the first block of each stage.
-        dilations (Sequence[int]): Dilation of each stage.
-        out_indices (Sequence[int]): Output from which stages.
-        style (str): `pytorch` or `caffe`. If set to "pytorch", the stride-two
-            layer is the 3x3 conv layer, otherwise the stride-two layer is
-            the first 1x1 conv layer.
-        frozen_stages (int): Stages to be frozen (stop grad and set eval mode).
-            -1 means not freezing any parameters.
-        norm_cfg (dict): dictionary to construct and config norm layer.
-        norm_eval (bool): Whether to set norm layers to eval mode, namely,
-            freeze running stats (mean and var). Note: Effect on Batch Norm
-            and its variants only.
-        with_cp (bool): Use checkpoint or not. Using checkpoint will save some
-            memory while slowing down the training speed.
-        zero_init_residual (bool): whether to use zero init for last norm layer
-            in resblocks to let them behave as identity.
-
-    Example:
-        >>> from mmdet.models import ResNet
-        >>> import torch
-        >>> self = ResNet(depth=18)
-        >>> self.eval()
-        >>> inputs = torch.rand(1, 3, 32, 32)
-        >>> level_outputs = self.forward(inputs)
-        >>> for level_out in level_outputs:
-        ...     print(tuple(level_out.shape))
-        (1, 64, 8, 8)
-        (1, 128, 4, 4)
-        (1, 256, 2, 2)
-        (1, 512, 1, 1)
-    """
-    arch_settings = {(18): (BasicBlock, (2, 2, 2, 2)), (34): (BasicBlock, (3, 4, 6, 3)), (50): (Bottleneck, (3, 4, 6, 3)), (101): (Bottleneck, (3, 4, 23, 3)), (152): (Bottleneck, (3, 8, 36, 3))}
-
-    def __init__(self, depth, in_channels=3, num_stages=4, strides=(1, 2, 2, 2), dilations=(1, 1, 1, 1), out_indices=(0, 1, 2, 3), style='pytorch', frozen_stages=-1, conv_cfg=None, norm_cfg=dict(type='BN', requires_grad=True), norm_eval=True, dcn=None, stage_with_dcn=(False, False, False, False), gcb=None, stage_with_gcb=(False, False, False, False), gen_attention=None, stage_with_gen_attention=((), (), (), ()), with_cp=False, zero_init_residual=True):
-        super(ResNet, self).__init__()
-        if depth not in self.arch_settings:
-            raise KeyError('invalid depth {} for resnet'.format(depth))
-        self.depth = depth
-        self.num_stages = num_stages
-        assert num_stages >= 1 and num_stages <= 4
-        self.strides = strides
-        self.dilations = dilations
-        assert len(strides) == len(dilations) == num_stages
-        self.out_indices = out_indices
-        assert max(out_indices) < num_stages
-        self.style = style
-        self.frozen_stages = frozen_stages
-        self.conv_cfg = conv_cfg
-        self.norm_cfg = norm_cfg
-        self.with_cp = with_cp
-        self.norm_eval = norm_eval
-        self.dcn = dcn
-        self.stage_with_dcn = stage_with_dcn
-        if dcn is not None:
-            assert len(stage_with_dcn) == num_stages
-        self.gen_attention = gen_attention
-        self.gcb = gcb
-        self.stage_with_gcb = stage_with_gcb
-        if gcb is not None:
-            assert len(stage_with_gcb) == num_stages
-        self.zero_init_residual = zero_init_residual
-        self.block, stage_blocks = self.arch_settings[depth]
-        self.stage_blocks = stage_blocks[:num_stages]
-        self.inplanes = 64
-        self._make_stem_layer(in_channels)
-        self.res_layers = []
-        for i, num_blocks in enumerate(self.stage_blocks):
-            stride = strides[i]
-            dilation = dilations[i]
-            dcn = self.dcn if self.stage_with_dcn[i] else None
-            gcb = self.gcb if self.stage_with_gcb[i] else None
-            planes = 64 * 2 ** i
-            res_layer = make_res_layer(self.block, self.inplanes, planes, num_blocks, stride=stride, dilation=dilation, style=self.style, with_cp=with_cp, conv_cfg=conv_cfg, norm_cfg=norm_cfg, dcn=dcn, gcb=gcb, gen_attention=gen_attention, gen_attention_blocks=stage_with_gen_attention[i])
-            self.inplanes = planes * self.block.expansion
-            layer_name = 'layer{}'.format(i + 1)
-            self.add_module(layer_name, res_layer)
-            self.res_layers.append(layer_name)
-        self._freeze_stages()
-        self.feat_dim = self.block.expansion * 64 * 2 ** (len(self.stage_blocks) - 1)
-
-    @property
-    def norm1(self):
-        return getattr(self, self.norm1_name)
-
-    def _make_stem_layer(self, in_channels):
-        self.conv1 = build_conv_layer(self.conv_cfg, in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.norm1_name, norm1 = build_norm_layer(self.norm_cfg, 64, postfix=1)
-        self.add_module(self.norm1_name, norm1)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-
-    def _freeze_stages(self):
-        if self.frozen_stages >= 0:
-            self.norm1.eval()
-            for m in [self.conv1, self.norm1]:
-                for param in m.parameters():
-                    param.requires_grad = False
-        for i in range(1, self.frozen_stages + 1):
-            m = getattr(self, 'layer{}'.format(i))
-            m.eval()
-            for param in m.parameters():
-                param.requires_grad = False
-
-    def init_weights(self, pretrained=None):
-        if isinstance(pretrained, str):
-            logger = get_root_logger()
-            load_checkpoint(self, pretrained, strict=False, logger=logger)
-        elif pretrained is None:
-            for m in self.modules():
-                if isinstance(m, nn.Conv2d):
-                    kaiming_init(m)
-                elif isinstance(m, (_BatchNorm, nn.GroupNorm)):
-                    constant_init(m, 1)
-            if self.dcn is not None:
-                for m in self.modules():
-                    if isinstance(m, Bottleneck) and hasattr(m, 'conv2_offset'):
-                        constant_init(m.conv2_offset, 0)
-            if self.zero_init_residual:
-                for m in self.modules():
-                    if isinstance(m, Bottleneck):
-                        constant_init(m.norm3, 0)
-                    elif isinstance(m, BasicBlock):
-                        constant_init(m.norm2, 0)
-        else:
-            raise TypeError('pretrained must be a str or None')
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.norm1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        outs = []
-        for i, layer_name in enumerate(self.res_layers):
-            res_layer = getattr(self, layer_name)
-            x = res_layer(x)
-            if i in self.out_indices:
-                outs.append(x)
-        return tuple(outs)
-
-    def train(self, mode=True):
-        super(ResNet, self).train(mode)
-        self._freeze_stages()
-        if mode and self.norm_eval:
-            for m in self.modules():
-                if isinstance(m, _BatchNorm):
-                    m.eval()
 
 
 class L2Norm(nn.Module):
@@ -3890,7 +5225,6 @@ def bbox_target(pos_bboxes_list, neg_bboxes_list, pos_gt_bboxes_list, pos_gt_lab
     return labels, label_weights, bbox_targets, bbox_weights
 
 
-@HEADS.register_module
 class BBoxHead(nn.Module):
     """Simplest RoI head, with only two fc layers for classification and
     regression respectively"""
@@ -4088,6 +5422,120 @@ class BBoxHead(nn.Module):
         return new_rois
 
 
+class ConvFCBBoxHead(BBoxHead):
+    """More general bbox head, with shared conv and fc layers and two optional
+    separated branches.
+
+                                /-> cls convs -> cls fcs -> cls
+    shared convs -> shared fcs
+                                \\-> reg convs -> reg fcs -> reg
+    """
+
+    def __init__(self, num_shared_convs=0, num_shared_fcs=0, num_cls_convs=0, num_cls_fcs=0, num_reg_convs=0, num_reg_fcs=0, conv_out_channels=256, fc_out_channels=1024, conv_cfg=None, norm_cfg=None, *args, **kwargs):
+        super(ConvFCBBoxHead, self).__init__(*args, **kwargs)
+        assert num_shared_convs + num_shared_fcs + num_cls_convs + num_cls_fcs + num_reg_convs + num_reg_fcs > 0
+        if num_cls_convs > 0 or num_reg_convs > 0:
+            assert num_shared_fcs == 0
+        if not self.with_cls:
+            assert num_cls_convs == 0 and num_cls_fcs == 0
+        if not self.with_reg:
+            assert num_reg_convs == 0 and num_reg_fcs == 0
+        self.num_shared_convs = num_shared_convs
+        self.num_shared_fcs = num_shared_fcs
+        self.num_cls_convs = num_cls_convs
+        self.num_cls_fcs = num_cls_fcs
+        self.num_reg_convs = num_reg_convs
+        self.num_reg_fcs = num_reg_fcs
+        self.conv_out_channels = conv_out_channels
+        self.fc_out_channels = fc_out_channels
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.shared_convs, self.shared_fcs, last_layer_dim = self._add_conv_fc_branch(self.num_shared_convs, self.num_shared_fcs, self.in_channels, True)
+        self.shared_out_channels = last_layer_dim
+        self.cls_convs, self.cls_fcs, self.cls_last_dim = self._add_conv_fc_branch(self.num_cls_convs, self.num_cls_fcs, self.shared_out_channels)
+        self.reg_convs, self.reg_fcs, self.reg_last_dim = self._add_conv_fc_branch(self.num_reg_convs, self.num_reg_fcs, self.shared_out_channels)
+        if self.num_shared_fcs == 0 and not self.with_avg_pool:
+            if self.num_cls_fcs == 0:
+                self.cls_last_dim *= self.roi_feat_area
+            if self.num_reg_fcs == 0:
+                self.reg_last_dim *= self.roi_feat_area
+        self.relu = nn.ReLU(inplace=True)
+        if self.with_cls:
+            self.fc_cls = nn.Linear(self.cls_last_dim, self.num_classes)
+        if self.with_reg:
+            out_dim_reg = 4 if self.reg_class_agnostic else 4 * self.num_classes
+            self.fc_reg = nn.Linear(self.reg_last_dim, out_dim_reg)
+
+    def _add_conv_fc_branch(self, num_branch_convs, num_branch_fcs, in_channels, is_shared=False):
+        """Add shared or separable branch
+
+        convs -> avg pool (optional) -> fcs
+        """
+        last_layer_dim = in_channels
+        branch_convs = nn.ModuleList()
+        if num_branch_convs > 0:
+            for i in range(num_branch_convs):
+                conv_in_channels = last_layer_dim if i == 0 else self.conv_out_channels
+                branch_convs.append(ConvModule(conv_in_channels, self.conv_out_channels, 3, padding=1, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+            last_layer_dim = self.conv_out_channels
+        branch_fcs = nn.ModuleList()
+        if num_branch_fcs > 0:
+            if (is_shared or self.num_shared_fcs == 0) and not self.with_avg_pool:
+                last_layer_dim *= self.roi_feat_area
+            for i in range(num_branch_fcs):
+                fc_in_channels = last_layer_dim if i == 0 else self.fc_out_channels
+                branch_fcs.append(nn.Linear(fc_in_channels, self.fc_out_channels))
+            last_layer_dim = self.fc_out_channels
+        return branch_convs, branch_fcs, last_layer_dim
+
+    def init_weights(self):
+        super(ConvFCBBoxHead, self).init_weights()
+        for module_list in [self.shared_fcs, self.cls_fcs, self.reg_fcs]:
+            for m in module_list.modules():
+                if isinstance(m, nn.Linear):
+                    nn.init.xavier_uniform_(m.weight)
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        if self.num_shared_convs > 0:
+            for conv in self.shared_convs:
+                x = conv(x)
+        if self.num_shared_fcs > 0:
+            if self.with_avg_pool:
+                x = self.avg_pool(x)
+            x = x.flatten(1)
+            for fc in self.shared_fcs:
+                x = self.relu(fc(x))
+        x_cls = x
+        x_reg = x
+        for conv in self.cls_convs:
+            x_cls = conv(x_cls)
+        if x_cls.dim() > 2:
+            if self.with_avg_pool:
+                x_cls = self.avg_pool(x_cls)
+            x_cls = x_cls.flatten(1)
+        for fc in self.cls_fcs:
+            x_cls = self.relu(fc(x_cls))
+        for conv in self.reg_convs:
+            x_reg = conv(x_reg)
+        if x_reg.dim() > 2:
+            if self.with_avg_pool:
+                x_reg = self.avg_pool(x_reg)
+            x_reg = x_reg.flatten(1)
+        for fc in self.reg_fcs:
+            x_reg = self.relu(fc(x_reg))
+        cls_score = self.fc_cls(x_cls) if self.with_cls else None
+        bbox_pred = self.fc_reg(x_reg) if self.with_reg else None
+        return cls_score, bbox_pred
+
+
+class SharedFCBBoxHead(ConvFCBBoxHead):
+
+    def __init__(self, num_fcs=2, fc_out_channels=1024, *args, **kwargs):
+        assert num_fcs >= 1
+        super(SharedFCBBoxHead, self).__init__(*args, num_shared_convs=0, num_shared_fcs=num_fcs, num_cls_convs=0, num_cls_fcs=0, num_reg_convs=0, num_reg_fcs=0, fc_out_channels=fc_out_channels, **kwargs)
+
+
 class BasicResBlock(nn.Module):
     """Basic residual block.
 
@@ -4116,6 +5564,75 @@ class BasicResBlock(nn.Module):
         out = x + identity
         out = self.relu(out)
         return out
+
+
+class DoubleConvFCBBoxHead(BBoxHead):
+    """Bbox head used in Double-Head R-CNN
+
+                                      /-> cls
+                  /-> shared convs ->
+                                      \\-> reg
+    roi features
+                                      /-> cls
+                  \\-> shared fc    ->
+                                      \\-> reg
+    """
+
+    def __init__(self, num_convs=0, num_fcs=0, conv_out_channels=1024, fc_out_channels=1024, conv_cfg=None, norm_cfg=dict(type='BN'), **kwargs):
+        kwargs.setdefault('with_avg_pool', True)
+        super(DoubleConvFCBBoxHead, self).__init__(**kwargs)
+        assert self.with_avg_pool
+        assert num_convs > 0
+        assert num_fcs > 0
+        self.num_convs = num_convs
+        self.num_fcs = num_fcs
+        self.conv_out_channels = conv_out_channels
+        self.fc_out_channels = fc_out_channels
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.res_block = BasicResBlock(self.in_channels, self.conv_out_channels)
+        self.conv_branch = self._add_conv_branch()
+        self.fc_branch = self._add_fc_branch()
+        out_dim_reg = 4 if self.reg_class_agnostic else 4 * self.num_classes
+        self.fc_reg = nn.Linear(self.conv_out_channels, out_dim_reg)
+        self.fc_cls = nn.Linear(self.fc_out_channels, self.num_classes)
+        self.relu = nn.ReLU(inplace=True)
+
+    def _add_conv_branch(self):
+        """Add the fc branch which consists of a sequential of conv layers"""
+        branch_convs = nn.ModuleList()
+        for i in range(self.num_convs):
+            branch_convs.append(Bottleneck(inplanes=self.conv_out_channels, planes=self.conv_out_channels // 4, conv_cfg=self.conv_cfg, norm_cfg=self.norm_cfg))
+        return branch_convs
+
+    def _add_fc_branch(self):
+        """Add the fc branch which consists of a sequential of fc layers"""
+        branch_fcs = nn.ModuleList()
+        for i in range(self.num_fcs):
+            fc_in_channels = self.in_channels * self.roi_feat_area if i == 0 else self.fc_out_channels
+            branch_fcs.append(nn.Linear(fc_in_channels, self.fc_out_channels))
+        return branch_fcs
+
+    def init_weights(self):
+        normal_init(self.fc_cls, std=0.01)
+        normal_init(self.fc_reg, std=0.001)
+        for m in self.fc_branch.modules():
+            if isinstance(m, nn.Linear):
+                xavier_init(m, distribution='uniform')
+
+    def forward(self, x_cls, x_reg):
+        x_conv = self.res_block(x_reg)
+        for conv in self.conv_branch:
+            x_conv = conv(x_conv)
+        if self.with_avg_pool:
+            x_conv = self.avg_pool(x_conv)
+        x_conv = x_conv.view(x_conv.size(0), -1)
+        bbox_pred = self.fc_reg(x_conv)
+        x_fc = x_cls.view(x_cls.size(0), -1)
+        for fc in self.fc_branch:
+            x_fc = self.relu(fc(x_fc))
+        cls_score = self.fc_cls(x_fc)
+        return cls_score, bbox_pred
 
 
 dataset_aliases = {'voc': ['voc', 'pascal_voc', 'voc07', 'voc12'], 'imagenet_det': ['det', 'imagenet_det', 'ilsvrc_det'], 'imagenet_vid': ['vid', 'imagenet_vid', 'ilsvrc_vid'], 'coco': ['coco', 'mscoco', 'ms_coco'], 'wider_face': ['WIDERFaceDataset', 'wider_face', 'WDIERFace'], 'cityscapes': ['cityscapes']}
@@ -4299,6 +5816,287 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
             mmcv.imshow_det_bboxes(img_show, bboxes, labels, class_names=class_names, score_thr=score_thr)
 
 
+DETECTORS = Registry('detector')
+
+
+logger = logging.getLogger(__name__)
+
+
+def bbox_flip(bboxes, img_shape):
+    """Flip bboxes horizontally.
+
+    Args:
+        bboxes(Tensor or ndarray): Shape (..., 4*k)
+        img_shape(tuple): Image shape.
+
+    Returns:
+        Same type as `bboxes`: Flipped bboxes.
+    """
+    if isinstance(bboxes, torch.Tensor):
+        assert bboxes.shape[-1] % 4 == 0
+        flipped = bboxes.clone()
+        flipped[:, 0::4] = img_shape[1] - bboxes[:, 2::4] - 1
+        flipped[:, 2::4] = img_shape[1] - bboxes[:, 0::4] - 1
+        return flipped
+    elif isinstance(bboxes, np.ndarray):
+        return mmcv.bbox_flip(bboxes, img_shape)
+
+
+def bbox_mapping_back(bboxes, img_shape, scale_factor, flip):
+    """Map bboxes from testing scale to original image scale"""
+    new_bboxes = bbox_flip(bboxes, img_shape) if flip else bboxes
+    new_bboxes = new_bboxes / scale_factor
+    return new_bboxes
+
+
+def merge_aug_proposals(aug_proposals, img_metas, rpn_test_cfg):
+    """Merge augmented proposals (multiscale, flip, etc.)
+
+    Args:
+        aug_proposals (list[Tensor]): proposals from different testing
+            schemes, shape (n, 5). Note that they are not rescaled to the
+            original image size.
+
+        img_metas (list[dict]): list of image info dict where each dict has:
+            'img_shape', 'scale_factor', 'flip', and my also contain
+            'filename', 'ori_shape', 'pad_shape', and 'img_norm_cfg'.
+            For details on the values of these keys see
+            `mmdet/datasets/pipelines/formatting.py:Collect`.
+
+        rpn_test_cfg (dict): rpn test config.
+
+    Returns:
+        Tensor: shape (n, 4), proposals corresponding to original image scale.
+    """
+    recovered_proposals = []
+    for proposals, img_info in zip(aug_proposals, img_metas):
+        img_shape = img_info['img_shape']
+        scale_factor = img_info['scale_factor']
+        flip = img_info['flip']
+        _proposals = proposals.clone()
+        _proposals[:, :4] = bbox_mapping_back(_proposals[:, :4], img_shape, scale_factor, flip)
+        recovered_proposals.append(_proposals)
+    aug_proposals = torch.cat(recovered_proposals, dim=0)
+    merged_proposals, _ = nms(aug_proposals, rpn_test_cfg.nms_thr)
+    scores = merged_proposals[:, (4)]
+    _, order = scores.sort(0, descending=True)
+    num = min(rpn_test_cfg.max_num, merged_proposals.shape[0])
+    order = order[:num]
+    merged_proposals = merged_proposals[(order), :]
+    return merged_proposals
+
+
+def bbox2result(bboxes, labels, num_classes):
+    """Convert detection results to a list of numpy arrays.
+
+    Args:
+        bboxes (Tensor): shape (n, 5)
+        labels (Tensor): shape (n, )
+        num_classes (int): class number, including background class
+
+    Returns:
+        list(ndarray): bbox results of each class
+    """
+    if bboxes.shape[0] == 0:
+        return [np.zeros((0, 5), dtype=np.float32) for i in range(num_classes - 1)]
+    else:
+        bboxes = bboxes.cpu().numpy()
+        labels = labels.cpu().numpy()
+        return [bboxes[(labels == i), :] for i in range(num_classes - 1)]
+
+
+def bbox2roi(bbox_list):
+    """Convert a list of bboxes to roi format.
+
+    Args:
+        bbox_list (list[Tensor]): a list of bboxes corresponding to a batch
+            of images.
+
+    Returns:
+        Tensor: shape (n, 5), [batch_ind, x1, y1, x2, y2]
+    """
+    rois_list = []
+    for img_id, bboxes in enumerate(bbox_list):
+        if bboxes.size(0) > 0:
+            img_inds = bboxes.new_full((bboxes.size(0), 1), img_id)
+            rois = torch.cat([img_inds, bboxes[:, :4]], dim=-1)
+        else:
+            rois = bboxes.new_zeros((0, 5))
+        rois_list.append(rois)
+    rois = torch.cat(rois_list, 0)
+    return rois
+
+
+def bbox_mapping(bboxes, img_shape, scale_factor, flip):
+    """Map bboxes from the original image scale to testing scale"""
+    new_bboxes = bboxes * scale_factor
+    if flip:
+        new_bboxes = bbox_flip(new_bboxes, img_shape)
+    return new_bboxes
+
+
+def merge_aug_bboxes(aug_bboxes, aug_scores, img_metas, rcnn_test_cfg):
+    """Merge augmented detection bboxes and scores.
+
+    Args:
+        aug_bboxes (list[Tensor]): shape (n, 4*#class)
+        aug_scores (list[Tensor] or None): shape (n, #class)
+        img_shapes (list[Tensor]): shape (3, ).
+        rcnn_test_cfg (dict): rcnn test config.
+
+    Returns:
+        tuple: (bboxes, scores)
+    """
+    recovered_bboxes = []
+    for bboxes, img_info in zip(aug_bboxes, img_metas):
+        img_shape = img_info[0]['img_shape']
+        scale_factor = img_info[0]['scale_factor']
+        flip = img_info[0]['flip']
+        bboxes = bbox_mapping_back(bboxes, img_shape, scale_factor, flip)
+        recovered_bboxes.append(bboxes)
+    bboxes = torch.stack(recovered_bboxes).mean(dim=0)
+    if aug_scores is None:
+        return bboxes
+    else:
+        scores = torch.stack(aug_scores).mean(dim=0)
+        return bboxes, scores
+
+
+def merge_aug_masks(aug_masks, img_metas, rcnn_test_cfg, weights=None):
+    """Merge augmented mask prediction.
+
+    Args:
+        aug_masks (list[ndarray]): shape (n, #class, h, w)
+        img_shapes (list[ndarray]): shape (3, ).
+        rcnn_test_cfg (dict): rcnn test config.
+
+    Returns:
+        tuple: (bboxes, scores)
+    """
+    recovered_masks = [(mask if not img_info[0]['flip'] else mask[(...), ::-1]) for mask, img_info in zip(aug_masks, img_metas)]
+    if weights is None:
+        merged_masks = np.mean(recovered_masks, axis=0)
+    else:
+        merged_masks = np.average(np.array(recovered_masks), axis=0, weights=np.array(weights))
+    return merged_masks
+
+
+class SingleStageDetector(BaseDetector):
+    """Base class for single-stage detectors.
+
+    Single-stage detectors directly and densely predict bounding boxes on the
+    output features of the backbone+neck.
+    """
+
+    def __init__(self, backbone, neck=None, bbox_head=None, train_cfg=None, test_cfg=None, pretrained=None):
+        super(SingleStageDetector, self).__init__()
+        self.backbone = builder.build_backbone(backbone)
+        if neck is not None:
+            self.neck = builder.build_neck(neck)
+        self.bbox_head = builder.build_head(bbox_head)
+        self.train_cfg = train_cfg
+        self.test_cfg = test_cfg
+        self.init_weights(pretrained=pretrained)
+
+    def init_weights(self, pretrained=None):
+        super(SingleStageDetector, self).init_weights(pretrained)
+        self.backbone.init_weights(pretrained=pretrained)
+        if self.with_neck:
+            if isinstance(self.neck, nn.Sequential):
+                for m in self.neck:
+                    m.init_weights()
+            else:
+                self.neck.init_weights()
+        self.bbox_head.init_weights()
+
+    def extract_feat(self, img):
+        """Directly extract features from the backbone+neck
+        """
+        x = self.backbone(img)
+        if self.with_neck:
+            x = self.neck(x)
+        return x
+
+    def forward_dummy(self, img):
+        """Used for computing network flops.
+
+        See `mmedetection/tools/get_flops.py`
+        """
+        x = self.extract_feat(img)
+        outs = self.bbox_head(x)
+        return outs
+
+    def forward_train(self, img, img_metas, gt_bboxes, gt_labels, gt_bboxes_ignore=None):
+        x = self.extract_feat(img)
+        outs = self.bbox_head(x)
+        loss_inputs = outs + (gt_bboxes, gt_labels, img_metas, self.train_cfg)
+        losses = self.bbox_head.loss(*loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
+        return losses
+
+    def simple_test(self, img, img_meta, rescale=False):
+        x = self.extract_feat(img)
+        outs = self.bbox_head(x)
+        bbox_inputs = outs + (img_meta, self.test_cfg, rescale)
+        bbox_list = self.bbox_head.get_bboxes(*bbox_inputs)
+        bbox_results = [bbox2result(det_bboxes, det_labels, self.bbox_head.num_classes) for det_bboxes, det_labels in bbox_list]
+        return bbox_results[0]
+
+    def aug_test(self, imgs, img_metas, rescale=False):
+        raise NotImplementedError
+
+
+class SingleStageInsDetector(BaseDetector):
+
+    def __init__(self, backbone, neck=None, bbox_head=None, train_cfg=None, test_cfg=None, pretrained=None):
+        super(SingleStageInsDetector, self).__init__()
+        self.backbone = builder.build_backbone(backbone)
+        if neck is not None:
+            self.neck = builder.build_neck(neck)
+        self.bbox_head = builder.build_head(bbox_head)
+        self.train_cfg = train_cfg
+        self.test_cfg = test_cfg
+        self.init_weights(pretrained=pretrained)
+
+    def init_weights(self, pretrained=None):
+        super(SingleStageInsDetector, self).init_weights(pretrained)
+        self.backbone.init_weights(pretrained=pretrained)
+        if self.with_neck:
+            if isinstance(self.neck, nn.Sequential):
+                for m in self.neck:
+                    m.init_weights()
+            else:
+                self.neck.init_weights()
+        self.bbox_head.init_weights()
+
+    def extract_feat(self, img):
+        x = self.backbone(img)
+        if self.with_neck:
+            x = self.neck(x)
+        return x
+
+    def forward_dummy(self, img):
+        x = self.extract_feat(img)
+        outs = self.bbox_head(x)
+        return outs
+
+    def forward_train(self, img, img_metas, gt_bboxes, gt_labels, gt_bboxes_ignore=None, gt_masks=None):
+        x = self.extract_feat(img)
+        outs = self.bbox_head(x)
+        loss_inputs = outs + (gt_bboxes, gt_labels, gt_masks, img_metas, self.train_cfg)
+        losses = self.bbox_head.loss(*loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
+        return losses
+
+    def simple_test(self, img, img_meta, rescale=False):
+        x = self.extract_feat(img)
+        outs = self.bbox_head(x, eval=True)
+        seg_inputs = outs + (img_meta, self.test_cfg, rescale)
+        seg_result = self.bbox_head.get_seg(*seg_inputs)
+        return seg_result
+
+    def aug_test(self, imgs, img_metas, rescale=False):
+        raise NotImplementedError
+
+
 class Accuracy(nn.Module):
 
     def __init__(self, topk=(1,)):
@@ -4307,87 +6105,6 @@ class Accuracy(nn.Module):
 
     def forward(self, pred, target):
         return accuracy(pred, target, self.topk)
-
-
-def reduce_loss(loss, reduction):
-    """Reduce loss as specified.
-
-    Args:
-        loss (Tensor): Elementwise loss tensor.
-        reduction (str): Options are "none", "mean" and "sum".
-
-    Return:
-        Tensor: Reduced loss tensor.
-    """
-    reduction_enum = F._Reduction.get_enum(reduction)
-    if reduction_enum == 0:
-        return loss
-    elif reduction_enum == 1:
-        return loss.mean()
-    elif reduction_enum == 2:
-        return loss.sum()
-
-
-def weight_reduce_loss(loss, weight=None, reduction='mean', avg_factor=None):
-    """Apply element-wise weight and reduce loss.
-
-    Args:
-        loss (Tensor): Element-wise loss.
-        weight (Tensor): Element-wise weights.
-        reduction (str): Same as built-in losses of PyTorch.
-        avg_factor (float): Avarage factor when computing the mean of losses.
-
-    Returns:
-        Tensor: Processed loss values.
-    """
-    if weight is not None:
-        loss = loss * weight
-    if avg_factor is None:
-        loss = reduce_loss(loss, reduction)
-    elif reduction == 'mean':
-        loss = loss.sum() / avg_factor
-    elif reduction != 'none':
-        raise ValueError('avg_factor can not be used with reduction="sum"')
-    return loss
-
-
-def weighted_loss(loss_func):
-    """Create a weighted version of a given loss function.
-
-    To use this decorator, the loss function must have the signature like
-    `loss_func(pred, target, **kwargs)`. The function only needs to compute
-    element-wise loss without any reduction. This decorator will add weight
-    and reduction arguments to the function. The decorated function will have
-    the signature like `loss_func(pred, target, weight=None, reduction='mean',
-    avg_factor=None, **kwargs)`.
-
-    :Example:
-
-    >>> import torch
-    >>> @weighted_loss
-    >>> def l1_loss(pred, target):
-    >>>     return (pred - target).abs()
-
-    >>> pred = torch.Tensor([0, 2, 3])
-    >>> target = torch.Tensor([1, 1, 1])
-    >>> weight = torch.Tensor([1, 0, 1])
-
-    >>> l1_loss(pred, target)
-    tensor(1.3333)
-    >>> l1_loss(pred, target, weight)
-    tensor(1.)
-    >>> l1_loss(pred, target, reduction='none')
-    tensor([1., 1., 2.])
-    >>> l1_loss(pred, target, weight, avg_factor=2)
-    tensor(1.5000)
-    """
-
-    @functools.wraps(loss_func)
-    def wrapper(pred, target, weight=None, reduction='mean', avg_factor=None, **kwargs):
-        loss = loss_func(pred, target, **kwargs)
-        loss = weight_reduce_loss(loss, weight, reduction, avg_factor)
-        return loss
-    return wrapper
 
 
 @weighted_loss
@@ -4400,7 +6117,6 @@ def balanced_l1_loss(pred, target, beta=1.0, alpha=0.5, gamma=1.5, reduction='me
     return loss
 
 
-@LOSSES.register_module
 class BalancedL1Loss(nn.Module):
     """Balanced L1 Loss
 
@@ -4457,7 +6173,6 @@ def mask_cross_entropy(pred, target, label, reduction='mean', avg_factor=None):
     return F.binary_cross_entropy_with_logits(pred_slice, target, reduction='mean')[None]
 
 
-@LOSSES.register_module
 class CrossEntropyLoss(nn.Module):
 
     def __init__(self, use_sigmoid=False, use_mask=False, reduction='mean', loss_weight=1.0):
@@ -4508,7 +6223,6 @@ class SigmoidFocalLossFunction(Function):
 sigmoid_focal_loss = SigmoidFocalLossFunction.apply
 
 
-@LOSSES.register_module
 class FocalLoss(nn.Module):
 
     def __init__(self, use_sigmoid=True, gamma=2.0, alpha=0.25, reduction='mean', loss_weight=1.0):
@@ -4530,7 +6244,6 @@ class FocalLoss(nn.Module):
         return loss_cls
 
 
-@LOSSES.register_module
 class GHMC(nn.Module):
     """GHM Classification Loss.
 
@@ -4599,7 +6312,6 @@ class GHMC(nn.Module):
         return loss * self.loss_weight
 
 
-@LOSSES.register_module
 class GHMR(nn.Module):
     """GHM Regression Loss.
 
@@ -4763,7 +6475,6 @@ def iou_loss(pred, target, eps=1e-06):
     return loss
 
 
-@LOSSES.register_module
 class IoULoss(nn.Module):
 
     def __init__(self, eps=1e-06, reduction='mean', loss_weight=1.0):
@@ -4812,7 +6523,6 @@ def bounded_iou_loss(pred, target, beta=0.2, eps=0.001):
     return loss
 
 
-@LOSSES.register_module
 class BoundedIoULoss(nn.Module):
 
     def __init__(self, beta=0.2, eps=0.001, reduction='mean', loss_weight=1.0):
@@ -4867,7 +6577,6 @@ def giou_loss(pred, target, eps=1e-07):
     return loss
 
 
-@LOSSES.register_module
 class GIoULoss(nn.Module):
 
     def __init__(self, eps=1e-06, reduction='mean', loss_weight=1.0):
@@ -4888,7 +6597,6 @@ class GIoULoss(nn.Module):
 mse_loss = weighted_loss(F.mse_loss)
 
 
-@LOSSES.register_module
 class MSELoss(nn.Module):
 
     def __init__(self, reduction='mean', loss_weight=1.0):
@@ -4901,16 +6609,6 @@ class MSELoss(nn.Module):
         return loss
 
 
-@weighted_loss
-def smooth_l1_loss(pred, target, beta=1.0):
-    assert beta > 0
-    assert pred.size() == target.size() and target.numel() > 0
-    diff = torch.abs(pred - target)
-    loss = torch.where(diff < beta, 0.5 * diff * diff / beta, diff - 0.5 * beta)
-    return loss
-
-
-@LOSSES.register_module
 class SmoothL1Loss(nn.Module):
 
     def __init__(self, beta=1.0, reduction='mean', loss_weight=1.0):
@@ -4944,7 +6642,7 @@ def mask_target_single(pos_proposals, pos_assigned_gt_inds, gt_masks, cfg):
             h = np.maximum(y2 - y1 + 1, 1)
             target = mmcv.imresize(gt_mask[y1:y1 + h, x1:x1 + w], mask_size[::-1])
             mask_targets.append(target)
-        mask_targets = torch.from_numpy(np.stack(mask_targets)).float().to(pos_proposals.device)
+        mask_targets = torch.from_numpy(np.stack(mask_targets)).float()
     else:
         mask_targets = pos_proposals.new_zeros((0,) + mask_size)
     return mask_targets
@@ -4957,7 +6655,6 @@ def mask_target(pos_proposals_list, pos_assigned_gt_inds_list, gt_masks_list, cf
     return mask_targets
 
 
-@HEADS.register_module
 class FCNMaskHead(nn.Module):
 
     def __init__(self, num_convs=4, roi_feat_size=14, in_channels=256, conv_kernel_size=3, conv_out_channels=256, upsample_method='deconv', upsample_ratio=2, num_classes=81, class_agnostic=False, conv_cfg=None, norm_cfg=None, loss_mask=dict(type='CrossEntropyLoss', use_mask=True, loss_weight=1.0)):
@@ -5085,7 +6782,6 @@ class FCNMaskHead(nn.Module):
         return cls_segms
 
 
-@HEADS.register_module
 class FusedSemanticHead(nn.Module):
     """Multi-level fused semantic segmentation head.
 
@@ -5149,7 +6845,6 @@ class FusedSemanticHead(nn.Module):
         return loss_semantic_seg
 
 
-@HEADS.register_module
 class GridHead(nn.Module):
 
     def __init__(self, grid_points=9, num_convs=8, roi_feat_size=14, in_channels=256, conv_kernel_size=3, point_feat_channels=64, deconv_kernel_size=4, class_agnostic=False, loss_grid=dict(type='CrossEntropyLoss', use_sigmoid=True, loss_weight=15), conv_cfg=None, norm_cfg=dict(type='GN', num_groups=36)):
@@ -5361,7 +7056,6 @@ class GridHead(nn.Module):
         return bbox_res
 
 
-@HEADS.register_module
 class MaskIoUHead(nn.Module):
     """Mask IoU Head.
 
@@ -5494,17 +7188,71 @@ class MaskIoUHead(nn.Module):
 NECKS = Registry('neck')
 
 
-def xavier_init(module, gain=1, bias=0, distribution='normal'):
-    assert distribution in ['uniform', 'normal']
-    if distribution == 'uniform':
-        nn.init.xavier_uniform_(module.weight, gain=gain)
-    else:
-        nn.init.xavier_normal_(module.weight, gain=gain)
-    if hasattr(module, 'bias'):
-        nn.init.constant_(module.bias, bias)
+class NonLocal2D(nn.Module):
+    """Non-local module.
+
+    See https://arxiv.org/abs/1711.07971 for details.
+
+    Args:
+        in_channels (int): Channels of the input feature map.
+        reduction (int): Channel reduction ratio.
+        use_scale (bool): Whether to scale pairwise_weight by 1/inter_channels.
+        conv_cfg (dict): The config dict for convolution layers.
+            (only applicable to conv_out)
+        norm_cfg (dict): The config dict for normalization layers.
+            (only applicable to conv_out)
+        mode (str): Options are `embedded_gaussian` and `dot_product`.
+    """
+
+    def __init__(self, in_channels, reduction=2, use_scale=True, conv_cfg=None, norm_cfg=None, mode='embedded_gaussian'):
+        super(NonLocal2D, self).__init__()
+        self.in_channels = in_channels
+        self.reduction = reduction
+        self.use_scale = use_scale
+        self.inter_channels = in_channels // reduction
+        self.mode = mode
+        assert mode in ['embedded_gaussian', 'dot_product']
+        self.g = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
+        self.theta = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
+        self.phi = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
+        self.conv_out = ConvModule(self.inter_channels, self.in_channels, kernel_size=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg, activation=None)
+        self.init_weights()
+
+    def init_weights(self, std=0.01, zeros_init=True):
+        for m in [self.g, self.theta, self.phi]:
+            normal_init(m.conv, std=std)
+        if zeros_init:
+            constant_init(self.conv_out.conv, 0)
+        else:
+            normal_init(self.conv_out.conv, std=std)
+
+    def embedded_gaussian(self, theta_x, phi_x):
+        pairwise_weight = torch.matmul(theta_x, phi_x)
+        if self.use_scale:
+            pairwise_weight /= theta_x.shape[-1] ** 0.5
+        pairwise_weight = pairwise_weight.softmax(dim=-1)
+        return pairwise_weight
+
+    def dot_product(self, theta_x, phi_x):
+        pairwise_weight = torch.matmul(theta_x, phi_x)
+        pairwise_weight /= pairwise_weight.shape[-1]
+        return pairwise_weight
+
+    def forward(self, x):
+        n, _, h, w = x.shape
+        g_x = self.g(x).view(n, self.inter_channels, -1)
+        g_x = g_x.permute(0, 2, 1)
+        theta_x = self.theta(x).view(n, self.inter_channels, -1)
+        theta_x = theta_x.permute(0, 2, 1)
+        phi_x = self.phi(x).view(n, self.inter_channels, -1)
+        pairwise_func = getattr(self, self.mode)
+        pairwise_weight = pairwise_func(theta_x, phi_x)
+        y = torch.matmul(pairwise_weight, g_x)
+        y = y.permute(0, 2, 1).reshape(n, self.inter_channels, h, w)
+        output = x + self.conv_out(y)
+        return output
 
 
-@NECKS.register_module
 class BFP(nn.Module):
     """BFP (Balanced Feature Pyrmamids)
 
@@ -5569,7 +7317,6 @@ class BFP(nn.Module):
         return tuple(outs)
 
 
-@NECKS.register_module
 class FPN(nn.Module):
 
     def __init__(self, in_channels, out_channels, num_outs, start_level=0, end_level=-1, add_extra_convs=False, extra_convs_on_inputs=True, relu_before_extra_convs=False, no_norm_on_lateral=False, conv_cfg=None, norm_cfg=None, activation=None):
@@ -5642,7 +7389,6 @@ class FPN(nn.Module):
         return tuple(outs)
 
 
-@NECKS.register_module
 class HRFPN(nn.Module):
     """HRFPN (High Resolution Feature Pyrmamids)
 
@@ -5741,6 +7487,12 @@ class MergingCell(nn.Module):
         return x
 
 
+class SumCell(MergingCell):
+
+    def _binary_op(self, x1, x2):
+        return x1 + x2
+
+
 class GPCell(MergingCell):
 
     def __init__(self, *args, **kwargs):
@@ -5752,13 +7504,6 @@ class GPCell(MergingCell):
         return x2 + x2_att * x1
 
 
-class SumCell(MergingCell):
-
-    def _binary_op(self, x1, x2):
-        return x1 + x2
-
-
-@NECKS.register_module
 class NASFPN(nn.Module):
     """NAS-FPN.
 
@@ -6020,75 +7765,9 @@ class GeneralizedAttention(nn.Module):
                 kaiming_init(m, mode='fan_in', nonlinearity='leaky_relu', bias=0, distribution='uniform', a=1)
 
 
-class NonLocal2D(nn.Module):
-    """Non-local module.
-
-    See https://arxiv.org/abs/1711.07971 for details.
-
-    Args:
-        in_channels (int): Channels of the input feature map.
-        reduction (int): Channel reduction ratio.
-        use_scale (bool): Whether to scale pairwise_weight by 1/inter_channels.
-        conv_cfg (dict): The config dict for convolution layers.
-            (only applicable to conv_out)
-        norm_cfg (dict): The config dict for normalization layers.
-            (only applicable to conv_out)
-        mode (str): Options are `embedded_gaussian` and `dot_product`.
-    """
-
-    def __init__(self, in_channels, reduction=2, use_scale=True, conv_cfg=None, norm_cfg=None, mode='embedded_gaussian'):
-        super(NonLocal2D, self).__init__()
-        self.in_channels = in_channels
-        self.reduction = reduction
-        self.use_scale = use_scale
-        self.inter_channels = in_channels // reduction
-        self.mode = mode
-        assert mode in ['embedded_gaussian', 'dot_product']
-        self.g = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
-        self.theta = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
-        self.phi = ConvModule(self.in_channels, self.inter_channels, kernel_size=1, activation=None)
-        self.conv_out = ConvModule(self.inter_channels, self.in_channels, kernel_size=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg, activation=None)
-        self.init_weights()
-
-    def init_weights(self, std=0.01, zeros_init=True):
-        for m in [self.g, self.theta, self.phi]:
-            normal_init(m.conv, std=std)
-        if zeros_init:
-            constant_init(self.conv_out.conv, 0)
-        else:
-            normal_init(self.conv_out.conv, std=std)
-
-    def embedded_gaussian(self, theta_x, phi_x):
-        pairwise_weight = torch.matmul(theta_x, phi_x)
-        if self.use_scale:
-            pairwise_weight /= theta_x.shape[-1] ** 0.5
-        pairwise_weight = pairwise_weight.softmax(dim=-1)
-        return pairwise_weight
-
-    def dot_product(self, theta_x, phi_x):
-        pairwise_weight = torch.matmul(theta_x, phi_x)
-        pairwise_weight /= pairwise_weight.shape[-1]
-        return pairwise_weight
-
-    def forward(self, x):
-        n, _, h, w = x.shape
-        g_x = self.g(x).view(n, self.inter_channels, -1)
-        g_x = g_x.permute(0, 2, 1)
-        theta_x = self.theta(x).view(n, self.inter_channels, -1)
-        theta_x = theta_x.permute(0, 2, 1)
-        phi_x = self.phi(x).view(n, self.inter_channels, -1)
-        pairwise_func = getattr(self, self.mode)
-        pairwise_weight = pairwise_func(theta_x, phi_x)
-        y = torch.matmul(pairwise_weight, g_x)
-        y = y.permute(0, 2, 1).reshape(n, self.inter_channels, h, w)
-        output = x + self.conv_out(y)
-        return output
-
-
 ROI_EXTRACTORS = Registry('roi_extractor')
 
 
-@ROI_EXTRACTORS.register_module
 class SingleRoIExtractor(nn.Module):
     """Extract RoI features from a single level feature map.
 
@@ -6182,7 +7861,6 @@ class SingleRoIExtractor(nn.Module):
 SHARED_HEADS = Registry('shared_head')
 
 
-@SHARED_HEADS.register_module
 class ResLayer(nn.Module):
 
     def __init__(self, depth, stage=3, stride=2, dilation=1, style='pytorch', norm_cfg=dict(type='BN', requires_grad=True), norm_eval=True, with_cp=False, dcn=None):
@@ -6223,124 +7901,6 @@ class ResLayer(nn.Module):
             for m in self.modules():
                 if isinstance(m, nn.BatchNorm2d):
                     m.eval()
-
-
-class ConvModule(nn.Module):
-    """A conv block that contains conv/norm/activation layers.
-
-    Args:
-        in_channels (int): Same as nn.Conv2d.
-        out_channels (int): Same as nn.Conv2d.
-        kernel_size (int or tuple[int]): Same as nn.Conv2d.
-        stride (int or tuple[int]): Same as nn.Conv2d.
-        padding (int or tuple[int]): Same as nn.Conv2d.
-        dilation (int or tuple[int]): Same as nn.Conv2d.
-        groups (int): Same as nn.Conv2d.
-        bias (bool or str): If specified as `auto`, it will be decided by the
-            norm_cfg. Bias will be set as True if norm_cfg is None, otherwise
-            False.
-        conv_cfg (dict): Config dict for convolution layer.
-        norm_cfg (dict): Config dict for normalization layer.
-        activation (str or None): Activation type, "ReLU" by default.
-        inplace (bool): Whether to use inplace mode for activation.
-        order (tuple[str]): The order of conv/norm/activation layers. It is a
-            sequence of "conv", "norm" and "act". Examples are
-            ("conv", "norm", "act") and ("act", "conv", "norm").
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias='auto', conv_cfg=None, norm_cfg=None, activation='relu', inplace=True, order=('conv', 'norm', 'act')):
-        super(ConvModule, self).__init__()
-        assert conv_cfg is None or isinstance(conv_cfg, dict)
-        assert norm_cfg is None or isinstance(norm_cfg, dict)
-        self.conv_cfg = conv_cfg
-        self.norm_cfg = norm_cfg
-        self.activation = activation
-        self.inplace = inplace
-        self.order = order
-        assert isinstance(self.order, tuple) and len(self.order) == 3
-        assert set(order) == set(['conv', 'norm', 'act'])
-        self.with_norm = norm_cfg is not None
-        self.with_activation = activation is not None
-        if bias == 'auto':
-            bias = False if self.with_norm else True
-        self.with_bias = bias
-        if self.with_norm and self.with_bias:
-            warnings.warn('ConvModule has norm and bias at the same time')
-        self.conv = build_conv_layer(conv_cfg, in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.in_channels = self.conv.in_channels
-        self.out_channels = self.conv.out_channels
-        self.kernel_size = self.conv.kernel_size
-        self.stride = self.conv.stride
-        self.padding = self.conv.padding
-        self.dilation = self.conv.dilation
-        self.transposed = self.conv.transposed
-        self.output_padding = self.conv.output_padding
-        self.groups = self.conv.groups
-        if self.with_norm:
-            if order.index('norm') > order.index('conv'):
-                norm_channels = out_channels
-            else:
-                norm_channels = in_channels
-            self.norm_name, norm = build_norm_layer(norm_cfg, norm_channels)
-            self.add_module(self.norm_name, norm)
-        if self.with_activation:
-            if self.activation not in ['relu']:
-                raise ValueError('{} is currently not supported.'.format(self.activation))
-            if self.activation == 'relu':
-                self.activate = nn.ReLU(inplace=inplace)
-        self.init_weights()
-
-    @property
-    def norm(self):
-        return getattr(self, self.norm_name)
-
-    def init_weights(self):
-        nonlinearity = 'relu' if self.activation is None else self.activation
-        kaiming_init(self.conv, nonlinearity=nonlinearity)
-        if self.with_norm:
-            constant_init(self.norm, 1, bias=0)
-
-    def forward(self, x, activate=True, norm=True):
-        for layer in self.order:
-            if layer == 'conv':
-                x = self.conv(x)
-            elif layer == 'norm' and norm and self.with_norm:
-                x = self.norm(x)
-            elif layer == 'act' and activate and self.with_activation:
-                x = self.activate(x)
-        return x
-
-
-def conv_ws_2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, eps=1e-05):
-    c_in = weight.size(0)
-    weight_flat = weight.view(c_in, -1)
-    mean = weight_flat.mean(dim=1, keepdim=True).view(c_in, 1, 1, 1)
-    std = weight_flat.std(dim=1, keepdim=True).view(c_in, 1, 1, 1)
-    weight = (weight - mean) / (std + eps)
-    return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
-
-
-class ConvWS2d(nn.Conv2d):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, eps=1e-05):
-        super(ConvWS2d, self).__init__(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.eps = eps
-
-    def forward(self, x):
-        return conv_ws_2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.eps)
-
-
-class Scale(nn.Module):
-    """
-    A learnable scale parameter
-    """
-
-    def __init__(self, scale=1.0):
-        super(Scale, self).__init__()
-        self.scale = nn.Parameter(torch.tensor(scale, dtype=torch.float))
-
-    def forward(self, x):
-        return x * self.scale
 
 
 def last_zero_init(m):
@@ -6416,72 +7976,6 @@ class ContextBlock(nn.Module):
         return out
 
 
-class DeformConv(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, bias=False):
-        super(DeformConv, self).__init__()
-        assert not bias
-        assert in_channels % groups == 0, 'in_channels {} cannot be divisible by groups {}'.format(in_channels, groups)
-        assert out_channels % groups == 0, 'out_channels {} cannot be divisible by groups {}'.format(out_channels, groups)
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = _pair(kernel_size)
-        self.stride = _pair(stride)
-        self.padding = _pair(padding)
-        self.dilation = _pair(dilation)
-        self.groups = groups
-        self.deformable_groups = deformable_groups
-        self.transposed = False
-        self.output_padding = _single(0)
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels // self.groups, *self.kernel_size))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        n = self.in_channels
-        for k in self.kernel_size:
-            n *= k
-        stdv = 1.0 / math.sqrt(n)
-        self.weight.data.uniform_(-stdv, stdv)
-
-    def forward(self, x, offset):
-        return deform_conv(x, offset, self.weight, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
-
-
-class ModulatedDeformConv(nn.Module):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, deformable_groups=1, bias=True):
-        super(ModulatedDeformConv, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = _pair(kernel_size)
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
-        self.groups = groups
-        self.deformable_groups = deformable_groups
-        self.with_bias = bias
-        self.transposed = False
-        self.output_padding = _single(0)
-        self.weight = nn.Parameter(torch.Tensor(out_channels, in_channels // groups, *self.kernel_size))
-        if bias:
-            self.bias = nn.Parameter(torch.Tensor(out_channels))
-        else:
-            self.register_parameter('bias', None)
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        n = self.in_channels
-        for k in self.kernel_size:
-            n *= k
-        stdv = 1.0 / math.sqrt(n)
-        self.weight.data.uniform_(-stdv, stdv)
-        if self.bias is not None:
-            self.bias.data.zero_()
-
-    def forward(self, x, offset, mask):
-        return modulated_deform_conv(x, offset, mask, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.deformable_groups)
-
-
 class DeformRoIPoolingFunction(Function):
 
     @staticmethod
@@ -6546,58 +8040,95 @@ class DeformRoIPooling(nn.Module):
         return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
 
 
-class MaskedConv2dFunction(Function):
+class DeformRoIPoolingPack(DeformRoIPooling):
 
-    @staticmethod
-    def forward(ctx, features, mask, weight, bias, padding=0, stride=1):
-        assert mask.dim() == 3 and mask.size(0) == 1
-        assert features.dim() == 4 and features.size(0) == 1
-        assert features.size()[2:] == mask.size()[1:]
-        pad_h, pad_w = _pair(padding)
-        stride_h, stride_w = _pair(stride)
-        if stride_h != 1 or stride_w != 1:
-            raise ValueError('Stride could not only be 1 in masked_conv2d currently.')
-        if not features.is_cuda:
-            raise NotImplementedError
-        out_channel, in_channel, kernel_h, kernel_w = weight.size()
-        batch_size = features.size(0)
-        out_h = int(math.floor((features.size(2) + 2 * pad_h - (kernel_h - 1) - 1) / stride_h + 1))
-        out_w = int(math.floor((features.size(3) + 2 * pad_w - (kernel_h - 1) - 1) / stride_w + 1))
-        mask_inds = torch.nonzero(mask[0] > 0)
-        output = features.new_zeros(batch_size, out_channel, out_h, out_w)
-        if mask_inds.numel() > 0:
-            mask_h_idx = mask_inds[:, (0)].contiguous()
-            mask_w_idx = mask_inds[:, (1)].contiguous()
-            data_col = features.new_zeros(in_channel * kernel_h * kernel_w, mask_inds.size(0))
-            masked_conv2d_cuda.masked_im2col_forward(features, mask_h_idx, mask_w_idx, kernel_h, kernel_w, pad_h, pad_w, data_col)
-            masked_output = torch.addmm(1, bias[:, (None)], 1, weight.view(out_channel, -1), data_col)
-            masked_conv2d_cuda.masked_col2im_forward(masked_output, mask_h_idx, mask_w_idx, out_h, out_w, out_channel, output)
-        return output
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, num_offset_fcs=3, deform_fc_channels=1024):
+        super(DeformRoIPoolingPack, self).__init__(spatial_scale, out_size, out_channels, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.num_offset_fcs = num_offset_fcs
+        self.deform_fc_channels = deform_fc_channels
+        if not no_trans:
+            seq = []
+            ic = self.out_size[0] * self.out_size[1] * self.out_channels
+            for i in range(self.num_offset_fcs):
+                if i < self.num_offset_fcs - 1:
+                    oc = self.deform_fc_channels
+                else:
+                    oc = self.out_size[0] * self.out_size[1] * 2
+                seq.append(nn.Linear(ic, oc))
+                ic = oc
+                if i < self.num_offset_fcs - 1:
+                    seq.append(nn.ReLU(inplace=True))
+            self.offset_fc = nn.Sequential(*seq)
+            self.offset_fc[-1].weight.data.zero_()
+            self.offset_fc[-1].bias.data.zero_()
 
-    @staticmethod
-    @once_differentiable
-    def backward(ctx, grad_output):
-        return (None,) * 5
-
-
-masked_conv2d = MaskedConv2dFunction.apply
-
-
-class MaskedConv2d(nn.Conv2d):
-    """A MaskedConv2d which inherits the official Conv2d.
-
-    The masked forward doesn't implement the backward function and only
-    supports the stride parameter to be 1 currently.
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True):
-        super(MaskedConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
-
-    def forward(self, input, mask=None):
-        if mask is None:
-            return super(MaskedConv2d, self).forward(input)
+    def forward(self, data, rois):
+        assert data.size(1) == self.out_channels
+        if self.no_trans:
+            offset = data.new_empty(0)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
         else:
-            return masked_conv2d(input, mask, self.weight, self.bias, self.padding)
+            n = rois.shape[0]
+            offset = data.new_empty(0)
+            x = deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset = self.offset_fc(x.view(n, -1))
+            offset = offset.view(n, 2, self.out_size[0], self.out_size[1])
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+
+
+class ModulatedDeformRoIPoolingPack(DeformRoIPooling):
+
+    def __init__(self, spatial_scale, out_size, out_channels, no_trans, group_size=1, part_size=None, sample_per_part=4, trans_std=0.0, num_offset_fcs=3, num_mask_fcs=2, deform_fc_channels=1024):
+        super(ModulatedDeformRoIPoolingPack, self).__init__(spatial_scale, out_size, out_channels, no_trans, group_size, part_size, sample_per_part, trans_std)
+        self.num_offset_fcs = num_offset_fcs
+        self.num_mask_fcs = num_mask_fcs
+        self.deform_fc_channels = deform_fc_channels
+        if not no_trans:
+            offset_fc_seq = []
+            ic = self.out_size[0] * self.out_size[1] * self.out_channels
+            for i in range(self.num_offset_fcs):
+                if i < self.num_offset_fcs - 1:
+                    oc = self.deform_fc_channels
+                else:
+                    oc = self.out_size[0] * self.out_size[1] * 2
+                offset_fc_seq.append(nn.Linear(ic, oc))
+                ic = oc
+                if i < self.num_offset_fcs - 1:
+                    offset_fc_seq.append(nn.ReLU(inplace=True))
+            self.offset_fc = nn.Sequential(*offset_fc_seq)
+            self.offset_fc[-1].weight.data.zero_()
+            self.offset_fc[-1].bias.data.zero_()
+            mask_fc_seq = []
+            ic = self.out_size[0] * self.out_size[1] * self.out_channels
+            for i in range(self.num_mask_fcs):
+                if i < self.num_mask_fcs - 1:
+                    oc = self.deform_fc_channels
+                else:
+                    oc = self.out_size[0] * self.out_size[1]
+                mask_fc_seq.append(nn.Linear(ic, oc))
+                ic = oc
+                if i < self.num_mask_fcs - 1:
+                    mask_fc_seq.append(nn.ReLU(inplace=True))
+                else:
+                    mask_fc_seq.append(nn.Sigmoid())
+            self.mask_fc = nn.Sequential(*mask_fc_seq)
+            self.mask_fc[-2].weight.data.zero_()
+            self.mask_fc[-2].bias.data.zero_()
+
+    def forward(self, data, rois):
+        assert data.size(1) == self.out_channels
+        if self.no_trans:
+            offset = data.new_empty(0)
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+        else:
+            n = rois.shape[0]
+            offset = data.new_empty(0)
+            x = deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, True, self.group_size, self.part_size, self.sample_per_part, self.trans_std)
+            offset = self.offset_fc(x.view(n, -1))
+            offset = offset.view(n, 2, self.out_size[0], self.out_size[1])
+            mask = self.mask_fc(x.view(n, -1))
+            mask = mask.view(n, 1, self.out_size[0], self.out_size[1])
+            return deform_roi_pooling(data, rois, offset, self.spatial_scale, self.out_size, self.out_channels, self.no_trans, self.group_size, self.part_size, self.sample_per_part, self.trans_std) * mask
 
 
 class RoIAlignFunction(Function):
@@ -6751,9 +8282,17 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
+    (BasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (BoundedIoULoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ConvModule,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (ConvWS2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
@@ -6833,4 +8372,10 @@ class Test_WXinlong_SOLO(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

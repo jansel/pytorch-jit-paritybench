@@ -24,17 +24,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
 
 
 import torch.nn.functional as F
@@ -46,9 +50,6 @@ from torch.nn.modules.loss import _Loss
 import numpy as np
 
 
-import torch
-
-
 import logging
 
 
@@ -56,6 +57,9 @@ import torch.nn as nn
 
 
 from torch.autograd import Variable
+
+
+from collections import defaultdict
 
 
 from torch.nn.modules.module import _addindent
@@ -89,11 +93,11 @@ LONG = 1
 def cast_type(var, dtype, use_gpu):
     if use_gpu:
         if dtype == INT:
-            var = var.type(torch.cuda.IntTensor)
+            var = var.type(torch.IntTensor)
         elif dtype == LONG:
-            var = var.type(torch.cuda.LongTensor)
+            var = var.type(torch.LongTensor)
         elif dtype == FLOAT:
-            var = var.type(torch.cuda.FloatTensor)
+            var = var.type(torch.FloatTensor)
         else:
             raise ValueError('Unknown dtype')
     elif dtype == INT:
@@ -296,113 +300,136 @@ class Attention(nn.Module):
             return output, attn
 
 
-class EncoderRNN(BaseRNN):
-    """
-    Applies a multi-layer RNN to an input sequence.
-    Args:
-        vocab_size (int): size of the vocabulary
-        max_len (int): a maximum allowed length for the sequence to be processed
-        hidden_size (int): the number of features in the hidden state `h`
-        input_dropout_p (float, optional): dropout probability for the input sequence (default: 0)
-        dropout_p (float, optional): dropout probability for the output sequence (default: 0)
-        n_layers (int, optional): number of recurrent layers (default: 1)
-        rnn_cell (str, optional): type of RNN cell (default: gru)
-        variable_lengths (bool, optional): if use variable length RNN (default: False)
-    Inputs: inputs, input_lengths
-        - **inputs**: list of sequences, whose length is the batch size and within which each sequence is a list of token IDs.
-        - **input_lengths** (list of int, optional): list that contains the lengths of sequences
-            in the mini-batch, it must be provided when using variable length RNN (default: `None`)
-    Outputs: output, hidden
-        - **output** (batch, seq_len, hidden_size): tensor containing the encoded features of the input sequence
-        - **hidden** (num_layers * num_directions, batch, hidden_size): tensor containing the features in the hidden state `h`
-    Examples::
-         >>> encoder = EncoderRNN(input_vocab, max_seq_length, hidden_size)
-         >>> output, hidden = encoder(input)
-    """
-
-    def __init__(self, input_size, hidden_size, input_dropout_p=0, dropout_p=0, n_layers=1, rnn_cell='gru', variable_lengths=False, bidirection=False):
-        super(EncoderRNN, self).__init__(-1, input_size, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell, bidirection)
-        self.variable_lengths = variable_lengths
-        self.output_size = hidden_size * 2 if bidirection else hidden_size
-
-    def forward(self, input_var, input_lengths=None, init_state=None):
-        """
-        Applies a multi-layer RNN to an input sequence.
-        Args:
-            input_var (batch, seq_len, embedding size): tensor containing the features of the input sequence.
-            input_lengths (list of int, optional): A list that contains the lengths of sequences
-              in the mini-batch
-        Returns: output, hidden
-            - **output** (batch, seq_len, hidden_size): variable containing the encoded features of the input sequence
-            - **hidden** (num_layers * num_directions, batch, hidden_size): variable containing the features in the hidden state h
-        """
-        embedded = self.input_dropout(input_var)
-        if self.variable_lengths:
-            embedded = nn.utils.rnn.pack_padded_sequence(embedded, input_lengths, batch_first=True)
-        if init_state is not None:
-            output, hidden = self.rnn(embedded, init_state)
-        else:
-            output, hidden = self.rnn(embedded)
-        if self.variable_lengths:
-            output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)
-        return output, hidden
-
-
-class RnnUttEncoder(nn.Module):
-
-    def __init__(self, utt_cell_size, dropout, rnn_cell='gru', bidirection=True, use_attn=False, embedding=None, vocab_size=None, embed_dim=None, feat_size=0):
-        super(RnnUttEncoder, self).__init__()
-        self.bidirection = bidirection
-        self.utt_cell_size = utt_cell_size
-        if embedding is None:
-            self.embed_size = embed_dim
-            self.embedding = nn.Embedding(vocab_size, embed_dim)
-        else:
-            self.embedding = embedding
-            self.embed_size = embedding.embedding_dim
-        self.rnn = EncoderRNN(self.embed_size + feat_size, utt_cell_size, 0.0, dropout, rnn_cell=rnn_cell, variable_lengths=False, bidirection=bidirection)
-        self.multipler = 2 if bidirection else 1
-        self.output_size = self.utt_cell_size * self.multipler
-        self.use_attn = use_attn
-        self.feat_size = feat_size
-        if use_attn:
-            self.key_w = nn.Linear(self.utt_cell_size * self.multipler, self.utt_cell_size)
-            self.query = nn.Linear(self.utt_cell_size, 1)
-
-    def forward(self, utterances, feats=None, init_state=None, return_all=False):
-        batch_size = int(utterances.size()[0])
-        max_ctx_lens = int(utterances.size()[1])
-        max_utt_len = int(utterances.size()[2])
-        if init_state is not None:
-            init_state = init_state.repeat(1, max_ctx_lens, 1)
-        flat_words = utterances.view(-1, max_utt_len)
-        words_embeded = self.embedding(flat_words)
-        if feats is not None:
-            flat_feats = feats.view(-1, 1)
-            flat_feats = flat_feats.unsqueeze(1).repeat(1, max_utt_len, 1)
-            words_embeded = torch.cat([words_embeded, flat_feats], dim=2)
-        enc_outs, enc_last = self.rnn(words_embeded, init_state=init_state)
-        if self.use_attn:
-            fc1 = F.tanh(self.key_w(enc_outs))
-            attn = self.query(fc1).squeeze(2)
-            attn = F.softmax(attn, attn.dim() - 1).unsqueeze(2)
-            utt_embedded = attn * enc_outs
-            utt_embedded = torch.sum(utt_embedded, dim=1)
-        else:
-            attn = None
-            utt_embedded = enc_last.transpose(0, 1).contiguous()
-            utt_embedded = utt_embedded.view(-1, self.output_size)
-        utt_embedded = utt_embedded.view(batch_size, max_ctx_lens, self.output_size)
-        if return_all:
-            return utt_embedded, enc_outs, enc_last, attn
-        else:
-            return utt_embedded
-
-
 GEN = 'gen'
 
 
 TEACH_FORCE = 'teacher_forcing'
+
+
+class DecoderRNN(BaseRNN):
+
+    def __init__(self, vocab_size, max_len, input_size, hidden_size, sos_id, eos_id, n_layers=1, rnn_cell='lstm', input_dropout_p=0, dropout_p=0, use_attention=False, attn_mode='cat', attn_size=None, use_gpu=True, embedding=None, output_size=None, tie_output_embed=False):
+        super(DecoderRNN, self).__init__(vocab_size, input_size, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell, False)
+        self.output_size = vocab_size if output_size is None else output_size
+        self.max_length = max_len
+        self.use_attention = use_attention
+        self.eos_id = eos_id
+        self.sos_id = sos_id
+        self.init_input = None
+        self.use_gpu = use_gpu
+        if embedding is None:
+            self.embedding = nn.Embedding(vocab_size, self.input_size)
+        else:
+            self.embedding = embedding
+        if use_attention:
+            self.attention = Attention(self.hidden_size, attn_size, attn_mode, project=True)
+        if tie_output_embed:
+            self.project = lambda x: x * self.embedding.weight.transpose(0, 1)
+        else:
+            self.project = nn.Linear(self.hidden_size, self.output_size)
+        self.function = F.log_softmax
+
+    def forward_step(self, input_var, hidden, encoder_outputs):
+        batch_size = input_var.size(0)
+        output_size = input_var.size(1)
+        embedded = self.embedding(input_var)
+        embedded = self.input_dropout(embedded)
+        output, hidden = self.rnn(embedded, hidden)
+        attn = None
+        if self.use_attention:
+            output, attn = self.attention(output, encoder_outputs)
+        output = output.contiguous()
+        logits = self.project(output.view(-1, self.hidden_size))
+        predicted_softmax = self.function(logits, dim=logits.dim() - 1).view(batch_size, output_size, -1)
+        return predicted_softmax, hidden, attn
+
+    def forward(self, batch_size, inputs=None, init_state=None, attn_context=None, mode=TEACH_FORCE, gen_type='greedy', beam_size=4):
+        ret_dict = dict()
+        if self.use_attention:
+            ret_dict[DecoderRNN.KEY_ATTN_SCORE] = list()
+        if mode == GEN:
+            inputs = None
+        if gen_type != 'beam':
+            beam_size = 1
+        if inputs is not None:
+            decoder_input = inputs
+        else:
+            bos_var = Variable(torch.LongTensor([self.sos_id]), volatile=True)
+            bos_var = cast_type(bos_var, LONG, self.use_gpu)
+            decoder_input = bos_var.expand(batch_size * beam_size, 1)
+        if mode == GEN and gen_type == 'beam':
+            if self.rnn_cell is nn.LSTM:
+                h, c = init_state
+                decoder_hidden = self.repeat_state(h, batch_size, beam_size), self.repeat_state(c, batch_size, beam_size)
+            else:
+                decoder_hidden = self.repeat_state(init_state, batch_size, beam_size)
+        else:
+            decoder_hidden = init_state
+        decoder_outputs = []
+        sequence_symbols = []
+        back_pointers = []
+        lengths = np.array([self.max_length] * batch_size * beam_size)
+
+        def decode(step, cum_sum, step_output, step_attn):
+            decoder_outputs.append(step_output)
+            step_output_slice = step_output.squeeze(1)
+            if self.use_attention:
+                ret_dict[DecoderRNN.KEY_ATTN_SCORE].append(step_attn)
+            if gen_type == 'greedy':
+                symbols = step_output_slice.topk(1)[1]
+            elif gen_type == 'sample':
+                symbols = self.gumbel_max(step_output_slice)
+            elif gen_type == 'beam':
+                if step == 0:
+                    seq_score = step_output_slice.view(batch_size, -1)
+                    seq_score = seq_score[:, 0:self.output_size]
+                else:
+                    seq_score = cum_sum + step_output_slice
+                    seq_score = seq_score.view(batch_size, -1)
+                top_v, top_id = seq_score.topk(beam_size)
+                back_ptr = top_id.div(self.output_size).view(-1, 1)
+                symbols = top_id.fmod(self.output_size).view(-1, 1)
+                cum_sum = top_v.view(-1, 1)
+                back_pointers.append(back_ptr)
+            else:
+                raise ValueError('Unsupported decoding mode')
+            sequence_symbols.append(symbols)
+            eos_batches = symbols.data.eq(self.eos_id)
+            if eos_batches.dim() > 0:
+                eos_batches = eos_batches.cpu().view(-1).numpy()
+                update_idx = (lengths > di) & eos_batches != 0
+                lengths[update_idx] = len(sequence_symbols)
+            return cum_sum, symbols
+        if mode == TEACH_FORCE:
+            decoder_output, decoder_hidden, attn = self.forward_step(decoder_input, decoder_hidden, attn_context)
+            decoder_outputs = decoder_output
+        else:
+            cum_sum = None
+            for di in range(self.max_length):
+                decoder_output, decoder_hidden, step_attn = self.forward_step(decoder_input, decoder_hidden, attn_context)
+                cum_sum, symbols = decode(di, cum_sum, decoder_output, step_attn)
+                decoder_input = symbols
+            decoder_outputs = torch.cat(decoder_outputs, dim=1)
+            if gen_type == 'beam':
+                final_seq_symbols = []
+                cum_sum = cum_sum.view(-1, beam_size)
+                max_seq_id = cum_sum.topk(1)[1].data.cpu().view(-1).numpy()
+                rev_seq_symbols = sequence_symbols[::-1]
+                rev_back_ptrs = back_pointers[::-1]
+                for symbols, back_ptrs in zip(rev_seq_symbols, rev_back_ptrs):
+                    symbol2ds = symbols.view(-1, beam_size)
+                    back2ds = back_ptrs.view(-1, beam_size)
+                    selected_symbols = []
+                    selected_parents = []
+                    for b_id in range(batch_size):
+                        selected_parents.append(back2ds[b_id, max_seq_id[b_id]])
+                        selected_symbols.append(symbol2ds[b_id, max_seq_id[b_id]])
+                    final_seq_symbols.append(torch.cat(selected_symbols).unsqueeze(1))
+                    max_seq_id = torch.cat(selected_parents).data.cpu().numpy()
+                sequence_symbols = final_seq_symbols[::-1]
+        ret_dict[DecoderRNN.KEY_SEQUENCE] = sequence_symbols
+        ret_dict[DecoderRNN.KEY_LENGTH] = lengths.tolist()
+        return decoder_outputs, decoder_hidden, ret_dict
 
 
 class DecoderPointerGen(BaseRNN):
@@ -525,6 +552,109 @@ class DecoderPointerGen(BaseRNN):
         return decoder_outputs, decoder_hidden, ret_dict
 
 
+class EncoderRNN(BaseRNN):
+    """
+    Applies a multi-layer RNN to an input sequence.
+    Args:
+        vocab_size (int): size of the vocabulary
+        max_len (int): a maximum allowed length for the sequence to be processed
+        hidden_size (int): the number of features in the hidden state `h`
+        input_dropout_p (float, optional): dropout probability for the input sequence (default: 0)
+        dropout_p (float, optional): dropout probability for the output sequence (default: 0)
+        n_layers (int, optional): number of recurrent layers (default: 1)
+        rnn_cell (str, optional): type of RNN cell (default: gru)
+        variable_lengths (bool, optional): if use variable length RNN (default: False)
+    Inputs: inputs, input_lengths
+        - **inputs**: list of sequences, whose length is the batch size and within which each sequence is a list of token IDs.
+        - **input_lengths** (list of int, optional): list that contains the lengths of sequences
+            in the mini-batch, it must be provided when using variable length RNN (default: `None`)
+    Outputs: output, hidden
+        - **output** (batch, seq_len, hidden_size): tensor containing the encoded features of the input sequence
+        - **hidden** (num_layers * num_directions, batch, hidden_size): tensor containing the features in the hidden state `h`
+    Examples::
+         >>> encoder = EncoderRNN(input_vocab, max_seq_length, hidden_size)
+         >>> output, hidden = encoder(input)
+    """
+
+    def __init__(self, input_size, hidden_size, input_dropout_p=0, dropout_p=0, n_layers=1, rnn_cell='gru', variable_lengths=False, bidirection=False):
+        super(EncoderRNN, self).__init__(-1, input_size, hidden_size, input_dropout_p, dropout_p, n_layers, rnn_cell, bidirection)
+        self.variable_lengths = variable_lengths
+        self.output_size = hidden_size * 2 if bidirection else hidden_size
+
+    def forward(self, input_var, input_lengths=None, init_state=None):
+        """
+        Applies a multi-layer RNN to an input sequence.
+        Args:
+            input_var (batch, seq_len, embedding size): tensor containing the features of the input sequence.
+            input_lengths (list of int, optional): A list that contains the lengths of sequences
+              in the mini-batch
+        Returns: output, hidden
+            - **output** (batch, seq_len, hidden_size): variable containing the encoded features of the input sequence
+            - **hidden** (num_layers * num_directions, batch, hidden_size): variable containing the features in the hidden state h
+        """
+        embedded = self.input_dropout(input_var)
+        if self.variable_lengths:
+            embedded = nn.utils.rnn.pack_padded_sequence(embedded, input_lengths, batch_first=True)
+        if init_state is not None:
+            output, hidden = self.rnn(embedded, init_state)
+        else:
+            output, hidden = self.rnn(embedded)
+        if self.variable_lengths:
+            output, _ = nn.utils.rnn.pad_packed_sequence(output, batch_first=True)
+        return output, hidden
+
+
+class RnnUttEncoder(nn.Module):
+
+    def __init__(self, utt_cell_size, dropout, rnn_cell='gru', bidirection=True, use_attn=False, embedding=None, vocab_size=None, embed_dim=None, feat_size=0):
+        super(RnnUttEncoder, self).__init__()
+        self.bidirection = bidirection
+        self.utt_cell_size = utt_cell_size
+        if embedding is None:
+            self.embed_size = embed_dim
+            self.embedding = nn.Embedding(vocab_size, embed_dim)
+        else:
+            self.embedding = embedding
+            self.embed_size = embedding.embedding_dim
+        self.rnn = EncoderRNN(self.embed_size + feat_size, utt_cell_size, 0.0, dropout, rnn_cell=rnn_cell, variable_lengths=False, bidirection=bidirection)
+        self.multipler = 2 if bidirection else 1
+        self.output_size = self.utt_cell_size * self.multipler
+        self.use_attn = use_attn
+        self.feat_size = feat_size
+        if use_attn:
+            self.key_w = nn.Linear(self.utt_cell_size * self.multipler, self.utt_cell_size)
+            self.query = nn.Linear(self.utt_cell_size, 1)
+
+    def forward(self, utterances, feats=None, init_state=None, return_all=False):
+        batch_size = int(utterances.size()[0])
+        max_ctx_lens = int(utterances.size()[1])
+        max_utt_len = int(utterances.size()[2])
+        if init_state is not None:
+            init_state = init_state.repeat(1, max_ctx_lens, 1)
+        flat_words = utterances.view(-1, max_utt_len)
+        words_embeded = self.embedding(flat_words)
+        if feats is not None:
+            flat_feats = feats.view(-1, 1)
+            flat_feats = flat_feats.unsqueeze(1).repeat(1, max_utt_len, 1)
+            words_embeded = torch.cat([words_embeded, flat_feats], dim=2)
+        enc_outs, enc_last = self.rnn(words_embeded, init_state=init_state)
+        if self.use_attn:
+            fc1 = F.tanh(self.key_w(enc_outs))
+            attn = self.query(fc1).squeeze(2)
+            attn = F.softmax(attn, attn.dim() - 1).unsqueeze(2)
+            utt_embedded = attn * enc_outs
+            utt_embedded = torch.sum(utt_embedded, dim=1)
+        else:
+            attn = None
+            utt_embedded = enc_last.transpose(0, 1).contiguous()
+            utt_embedded = utt_embedded.view(-1, self.output_size)
+        utt_embedded = utt_embedded.view(batch_size, max_ctx_lens, self.output_size)
+        if return_all:
+            return utt_embedded, enc_outs, enc_last, attn
+        else:
+            return utt_embedded
+
+
 class BaseModel(nn.Module):
 
     def __init__(self, config):
@@ -622,6 +752,67 @@ class BaseModel(nn.Module):
         return avg_attn_loss
 
 
+class Pack(dict):
+
+    def __getattr__(self, name):
+        return self[name]
+
+    def add(self, **kwargs):
+        for k, v in kwargs.items():
+            self[k] = v
+
+    def copy(self):
+        pack = Pack()
+        for k, v in self.items():
+            if type(v) is list:
+                pack[k] = list(v)
+            else:
+                pack[k] = v
+        return pack
+
+    @staticmethod
+    def msg_from_dict(dictionary, tokenize, speaker2id, bos_id, eos_id, include_domain=False):
+        pack = Pack()
+        for k, v in dictionary.items():
+            pack[k] = v
+        pack['speaker'] = speaker2id[pack.speaker]
+        pack['conf'] = dictionary.get('conf', 1.0)
+        utt = pack['utt']
+        if 'QUERY' in utt or 'RET' in utt:
+            utt = str(utt)
+            utt = utt.translate(None, ''.join([':', '"', '{', '}', ']', '[']))
+            utt = unicode(utt)
+        if include_domain:
+            pack['utt'] = [bos_id, pack['speaker'], pack['domain']] + tokenize(utt) + [eos_id]
+        else:
+            pack['utt'] = [bos_id, pack['speaker']] + tokenize(utt) + [eos_id]
+        return pack
+
+
+class PtrBase(BaseModel):
+
+    def compute_loss(self, dec_outs, dec_ctx, labels):
+        rnn_loss = self.nll_loss(dec_outs, labels)
+        g = dec_ctx.get(DecoderPointerGen.KEY_G)
+        if g is not None:
+            ptr_softmax = dec_ctx[DecoderPointerGen.KEY_PTR_SOFTMAX]
+            flat_ptr = ptr_softmax.view(-1, self.vocab_size)
+            label_mask = labels.view(-1, 1) == self.rev_vocab[PAD]
+            label_ptr = flat_ptr.gather(1, labels.view(-1, 1))
+            not_in_ctx = label_ptr == 0
+            mix_ptr = torch.cat([label_ptr, g.view(-1, 1)], dim=1).gather(1, not_in_ctx.long())
+            attention_loss = -1.0 * torch.log(mix_ptr.clamp(min=1e-10))
+            attention_loss.masked_fill_(label_mask, 0)
+            valid_cnt = (label_mask.size(0) - torch.sum(label_mask).float()).clamp(min=1e-10)
+            avg_attn_loss = torch.sum(attention_loss) / valid_cnt
+        else:
+            avg_attn_loss = None
+        return Pack(nll=rnn_loss, attn_loss=avg_attn_loss)
+
+
+BOS = '<s>'
+
+
 class Bi2UniConnector(nn.Module):
 
     def __init__(self, rnn_cell, num_layer, hidden_size, output_size):
@@ -663,6 +854,284 @@ class IdentityConnector(nn.Module):
 
     def forward(self, hidden_state):
         return hidden_state
+
+
+class HRED(BaseModel):
+
+    def valid_loss(self, loss, batch_cnt=None):
+        return loss.nll
+
+    def __init__(self, corpus, config):
+        super(HRED, self).__init__(config)
+        self.vocab = corpus.vocab
+        self.rev_vocab = corpus.rev_vocab
+        self.vocab_size = len(self.vocab)
+        self.go_id = self.rev_vocab[BOS]
+        self.eos_id = self.rev_vocab[EOS]
+        self.pad_id = self.rev_vocab[PAD]
+        self.utt_encoder = RnnUttEncoder(config.utt_cell_size, config.dropout, use_attn=config.utt_type == 'attn_rnn', vocab_size=self.vocab_size, embed_dim=config.embed_size, feat_size=1)
+        self.ctx_encoder = EncoderRNN(self.utt_encoder.output_size, config.ctx_cell_size, 0.0, config.dropout, config.num_layer, config.rnn_cell, variable_lengths=False, bidirection=config.bi_ctx_cell)
+        if config.bi_ctx_cell or config.num_layer > 1:
+            self.connector = Bi2UniConnector(config.rnn_cell, config.num_layer, config.ctx_cell_size, config.dec_cell_size)
+        else:
+            self.connector = IdentityConnector()
+        self.decoder = DecoderRNN(self.vocab_size, config.max_dec_len, config.embed_size, config.dec_cell_size, self.go_id, self.eos_id, n_layers=1, rnn_cell=config.rnn_cell, input_dropout_p=config.dropout, dropout_p=config.dropout, use_attention=config.use_attn, attn_size=self.ctx_encoder.output_size, attn_mode=config.attn_type, use_gpu=config.use_gpu)
+        self.nll = criterions.NLLEntropy(self.pad_id, config)
+
+    def forward(self, data_feed, mode, gen_type='greedy', return_latent=False):
+        """         
+        B: batch_size, D: context_size U: utt_size, X: response_size
+        1. ctx_lens: B x 1
+        2. ctx_utts: B x D x U
+        3. ctx_confs: B x D
+        4. ctx_floors: B x D
+        5. out_lens: B x 1
+        6. out_utts: B x X
+        
+        :param data_feed: 
+        {'ctx_lens': vec_ctx_lens, 'ctx_utts': vec_ctx_utts,
+         'ctx_confs': vec_ctx_confs, 'ctx_floors': vec_ctx_floors,
+         'out_lens': vec_out_lens, 'out_utts': vec_out_utts}
+        :param return_label
+        :param dec_type
+        :return: outputs
+        """
+        ctx_lens = data_feed['context_lens']
+        ctx_utts = self.np2var(data_feed['contexts'], LONG)
+        ctx_confs = self.np2var(data_feed['context_confs'], FLOAT)
+        out_utts = self.np2var(data_feed['outputs'], LONG)
+        batch_size = len(ctx_lens)
+        enc_inputs = self.utt_encoder(ctx_utts, ctx_confs)
+        enc_outs, enc_last = self.ctx_encoder(enc_inputs, ctx_lens)
+        labels = out_utts[:, 1:].contiguous()
+        dec_inputs = out_utts[:, 0:-1]
+        if self.config.use_attn:
+            attn_inputs = enc_outs
+        else:
+            attn_inputs = None
+        dec_init_state = self.connector(enc_last)
+        dec_outs, dec_last, dec_ctx = self.decoder(batch_size, dec_inputs, dec_init_state, attn_context=attn_inputs, mode=mode, gen_type=gen_type, beam_size=self.config.beam_size)
+        if mode == GEN:
+            return dec_ctx, labels
+        elif return_latent:
+            return Pack(nll=self.nll(dec_outs, labels), latent_actions=dec_init_state)
+        else:
+            return Pack(nll=self.nll(dec_outs, labels))
+
+
+class PtrHRED(PtrBase):
+
+    def valid_loss(self, loss, batch_cnt=None):
+        total_loss = loss.nll + 0.01 * loss.attn_loss
+        return total_loss
+
+    def __init__(self, corpus, config):
+        super(PtrHRED, self).__init__(config)
+        self.vocab = corpus.vocab
+        self.rev_vocab = corpus.rev_vocab
+        self.vocab_size = len(self.vocab)
+        self.go_id = self.rev_vocab[BOS]
+        self.eos_id = self.rev_vocab[EOS]
+        self.pad_id = self.rev_vocab[PAD]
+        self.embedding = nn.Embedding(self.vocab_size, config.embed_size)
+        self.utt_encoder = RnnUttEncoder(config.utt_cell_size, config.dropout, use_attn=True, vocab_size=self.vocab_size, embedding=self.embedding, feat_size=1)
+        self.ctx_encoder = EncoderRNN(self.utt_encoder.output_size, config.ctx_cell_size, 0.0, config.dropout, config.num_layer, config.rnn_cell, variable_lengths=False, bidirection=config.bi_ctx_cell)
+        if config.bi_ctx_cell or config.num_layer > 1:
+            self.connector = Bi2UniConnector(config.rnn_cell, config.num_layer, config.ctx_cell_size, config.dec_cell_size)
+        else:
+            self.connector = IdentityConnector()
+        self.attn_size = self.ctx_encoder.output_size
+        self.decoder = DecoderPointerGen(self.vocab_size, config.max_dec_len, config.embed_size, config.dec_cell_size, self.go_id, self.eos_id, n_layers=1, rnn_cell=config.rnn_cell, input_dropout_p=config.dropout, dropout_p=config.dropout, attn_size=self.attn_size, attn_mode=config.attn_type, use_gpu=config.use_gpu, embedding=self.embedding)
+        self.nll_loss = criterions.NLLEntropy(self.pad_id, config)
+
+    def forward(self, data_feed, mode, gen_type='greedy', return_latent=False):
+        """
+        B: batch_size, D: context_size U: utt_size, X: response_size
+        1. ctx_lens: B x 1
+        2. ctx_utts: B x D x U
+        3. ctx_confs: B x D
+        4. ctx_floors: B x D
+        5. out_lens: B x 1
+        6. out_utts: B x X
+
+        :param data_feed:
+        {'ctx_lens': vec_ctx_lens, 'ctx_utts': vec_ctx_utts,
+         'ctx_confs': vec_ctx_confs, 'ctx_floors': vec_ctx_floors,
+         'out_lens': vec_out_lens, 'out_utts': vec_out_utts}
+        :param return_label
+        :param dec_type
+        :return: outputs
+        """
+        ctx_lens = data_feed['context_lens']
+        ctx_utts = self.np2var(data_feed['contexts'], LONG)
+        ctx_confs = self.np2var(data_feed['context_confs'], FLOAT)
+        out_utts = self.np2var(data_feed['outputs'], LONG)
+        batch_size = len(ctx_lens)
+        utt_embedded, utt_outs, _, _ = self.utt_encoder(ctx_utts, ctx_confs, return_all=True)
+        ctx_outs, ctx_last = self.ctx_encoder(utt_embedded, ctx_lens)
+        labels = out_utts[:, 1:].contiguous()
+        dec_inputs = out_utts[:, 0:-1]
+        dec_init_state = self.connector(ctx_last)
+        ctx_outs = ctx_outs.unsqueeze(2).repeat(1, 1, ctx_utts.size(2), 1).view(batch_size, -1, self.ctx_encoder.output_size)
+        utt_outs = utt_outs.contiguous().view(batch_size, -1, self.utt_encoder.output_size)
+        attn_inputs = ctx_outs + utt_outs
+        flat_ctx_words = ctx_utts.view(batch_size, -1)
+        dec_outs, dec_last, dec_ctx = self.decoder(batch_size, attn_inputs, flat_ctx_words, inputs=dec_inputs, init_state=dec_init_state, mode=mode, gen_type=gen_type)
+        if mode == GEN:
+            return dec_ctx, labels
+        else:
+            results = self.compute_loss(dec_outs, dec_ctx, labels)
+            if return_latent:
+                results['latent_actions'] = dec_init_state
+            return results
+
+
+class ZeroShotHRED(PtrBase):
+
+    def __init__(self, corpus, config):
+        super(ZeroShotHRED, self).__init__(config)
+        self.vocab = corpus.vocab
+        self.rev_vocab = corpus.rev_vocab
+        self.vocab_size = len(self.vocab)
+        self.go_id = self.rev_vocab[BOS]
+        self.eos_id = self.rev_vocab[EOS]
+        self.pad_id = self.rev_vocab[PAD]
+        self.embedding = nn.Embedding(self.vocab_size, config.embed_size, padding_idx=self.pad_id)
+        self.utt_encoder = RnnUttEncoder(config.utt_cell_size, config.dropout, use_attn=config.utt_type == 'rnn_attn', vocab_size=self.vocab_size, embedding=self.embedding, feat_size=1)
+        self.ctx_encoder = EncoderRNN(self.utt_encoder.output_size, config.ctx_cell_size, 0.0, config.dropout, config.num_layer, config.rnn_cell, variable_lengths=False, bidirection=config.bi_ctx_cell)
+        self.policy = nn_lib.Hidden2Feat(self.ctx_encoder.output_size, config.dec_cell_size, is_lstm=config.rnn_cell == 'lstm')
+        self.utt_policy = lambda x: x
+        self.connector = nn_lib.LinearConnector(config.dec_cell_size, config.dec_cell_size, is_lstm=config.rnn_cell == 'lstm')
+        self.attn_size = self.ctx_encoder.output_size
+        self.decoder = DecoderRNN(self.vocab_size, config.max_dec_len, config.embed_size, config.dec_cell_size, self.go_id, self.eos_id, n_layers=1, rnn_cell=config.rnn_cell, input_dropout_p=config.dropout, dropout_p=config.dropout, use_attention=config.use_attn, attn_size=self.ctx_encoder.output_size, attn_mode=config.attn_type, use_gpu=config.use_gpu)
+        self.nll_loss = criterions.NLLEntropy(self.pad_id, config)
+        self.l2_loss = criterions.L2Loss()
+
+    def valid_loss(self, loss, batch_cnt=None):
+        total_loss = loss.distance + loss.nll
+        return total_loss
+
+    def forward(self, data_feed, mode, gen_type='greedy', return_latent=False):
+        """
+        B: batch_size, D: context_size U: utt_size, X: response_size
+        1. ctx_lens: B x 1
+        2. ctx_utts: B x D x U
+        3. ctx_confs: B x D
+        4. ctx_floors: B x D
+        5. out_lens: B x 1
+        6. out_utts: B x X
+
+        :param data_feed:
+        {'ctx_lens': vec_ctx_lens, 'ctx_utts': vec_ctx_utts,
+         'ctx_confs': vec_ctx_confs, 'ctx_floors': vec_ctx_floors,
+         'out_lens': vec_out_lens, 'out_utts': vec_out_utts}
+        :param return_label
+        :param dec_type
+        :return: outputs
+        """
+        ctx_lens = data_feed.get('context_lens')
+        ctx_utts = self.np2var(data_feed.get('contexts'), LONG)
+        ctx_confs = self.np2var(data_feed.get('context_confs'), FLOAT)
+        out_acts = self.np2var(data_feed.get('output_actions'), LONG)
+        domain_metas = self.np2var(data_feed.get('domain_metas'), LONG)
+        out_utts = self.np2var(data_feed['outputs'], LONG)
+        batch_size = len(data_feed['outputs'])
+        out_confs = self.np2var(np.ones((batch_size, 1)), FLOAT)
+        out_embedded, out_outs, _, _ = self.utt_encoder(out_utts.unsqueeze(1), out_confs, return_all=True)
+        out_embedded = self.utt_policy(out_embedded.squeeze(1))
+        if ctx_lens is None:
+            act_embedded, act_outs, _, _ = self.utt_encoder(out_acts.unsqueeze(1), out_confs, return_all=True)
+            act_embedded = act_embedded.squeeze(1)
+            attn_inputs = act_outs.contiguous().view(batch_size, -1, self.utt_encoder.output_size)
+            attn_words = out_acts.view(batch_size, -1)
+            latent_action = self.utt_policy(act_embedded)
+        else:
+            utt_embedded, utt_outs, _, _ = self.utt_encoder(ctx_utts, ctx_confs, return_all=True)
+            ctx_outs, ctx_last = self.ctx_encoder(utt_embedded, ctx_lens)
+            latent_action = self.policy(ctx_last)
+            ctx_outs = ctx_outs.unsqueeze(2).repeat(1, 1, ctx_utts.size(2), 1).view(batch_size, -1, self.ctx_encoder.output_size)
+            utt_outs = utt_outs.contiguous().view(batch_size, -1, self.utt_encoder.output_size)
+            attn_inputs = ctx_outs + utt_outs
+            attn_words = ctx_utts.view(batch_size, -1)
+        dec_init_state = self.connector(latent_action)
+        attn_inputs, attn_words = self._remove_padding(attn_inputs, attn_words)
+        labels = out_utts[:, 1:].contiguous()
+        dec_inputs = out_utts[:, 0:-1]
+        dec_outs, dec_last, dec_ctx = self.decoder(batch_size, dec_inputs, dec_init_state, attn_context=attn_inputs, mode=mode, gen_type=gen_type, beam_size=self.config.beam_size)
+        if mode == GEN:
+            return dec_ctx, labels
+        else:
+            rnn_loss = self.nll_loss(dec_outs, labels)
+            loss_pack = Pack(nll=rnn_loss)
+            if return_latent:
+                loss_pack['latent_actions'] = latent_action
+            loss_pack['distance'] = self.l2_loss(out_embedded, latent_action)
+            return loss_pack
+
+
+class ZeroShotPtrHRED(PtrBase):
+
+    def __init__(self, corpus, config):
+        super(ZeroShotPtrHRED, self).__init__(config)
+        self.vocab = corpus.vocab
+        self.rev_vocab = corpus.rev_vocab
+        self.vocab_size = len(self.vocab)
+        self.go_id = self.rev_vocab[BOS]
+        self.eos_id = self.rev_vocab[EOS]
+        self.pad_id = self.rev_vocab[PAD]
+        self.embedding = nn.Embedding(self.vocab_size, config.embed_size, padding_idx=self.pad_id)
+        self.utt_encoder = RnnUttEncoder(config.utt_cell_size, config.dropout, use_attn=config.utt_type == 'rnn_attn', vocab_size=self.vocab_size, embedding=self.embedding, feat_size=1)
+        self.ctx_encoder = EncoderRNN(self.utt_encoder.output_size, config.ctx_cell_size, 0.0, config.dropout, config.num_layer, config.rnn_cell, variable_lengths=False, bidirection=config.bi_ctx_cell)
+        self.policy = nn.Linear(self.ctx_encoder.output_size, config.dec_cell_size)
+        self.utt_policy = lambda x: x
+        self.connector = nn_lib.LinearConnector(config.dec_cell_size, config.dec_cell_size, is_lstm=config.rnn_cell == 'lstm')
+        self.attn_size = self.ctx_encoder.output_size
+        self.decoder = DecoderPointerGen(self.vocab_size, config.max_dec_len, config.embed_size, config.dec_cell_size, self.go_id, self.eos_id, n_layers=1, rnn_cell=config.rnn_cell, input_dropout_p=config.dropout, dropout_p=config.dropout, attn_size=self.attn_size, attn_mode=config.attn_type, use_gpu=config.use_gpu, embedding=self.embedding)
+        self.nll_loss = criterions.NLLEntropy(self.pad_id, config)
+        self.l2_loss = criterions.L2Loss()
+
+    def valid_loss(self, loss, batch_cnt=None):
+        total_loss = loss.distance + loss.nll + 0.01 * loss.attn_loss
+        return total_loss
+
+    def forward(self, data_feed, mode, gen_type='greedy', return_latent=False):
+        ctx_lens = data_feed.get('context_lens')
+        ctx_utts = self.np2var(data_feed.get('contexts'), LONG)
+        ctx_confs = self.np2var(data_feed.get('context_confs'), FLOAT)
+        out_acts = self.np2var(data_feed.get('output_actions'), LONG)
+        out_utts = self.np2var(data_feed['outputs'], LONG)
+        batch_size = len(data_feed['outputs'])
+        out_confs = self.np2var(np.ones((batch_size, 1)), FLOAT)
+        out_embedded, out_outs, _, _ = self.utt_encoder(out_utts.unsqueeze(1), out_confs, return_all=True)
+        out_embedded = self.utt_policy(out_embedded.squeeze(1))
+        if ctx_lens is None:
+            act_embedded, act_outs, _, _ = self.utt_encoder(out_acts.unsqueeze(1), out_confs, return_all=True)
+            act_embedded = act_embedded.squeeze(1)
+            attn_inputs = act_outs.contiguous().view(batch_size, -1, self.utt_encoder.output_size)
+            attn_words = out_acts.view(batch_size, -1)
+            latent_action = self.utt_policy(act_embedded)
+        else:
+            utt_embedded, utt_outs, _, _ = self.utt_encoder(ctx_utts, ctx_confs, return_all=True)
+            ctx_outs, ctx_last = self.ctx_encoder(utt_embedded, ctx_lens)
+            pi_inputs = self._gather_last_out(ctx_outs, ctx_lens)
+            latent_action = self.policy(pi_inputs)
+            ctx_outs = ctx_outs.unsqueeze(2).repeat(1, 1, ctx_utts.size(2), 1).view(batch_size, -1, self.ctx_encoder.output_size)
+            utt_outs = utt_outs.contiguous().view(batch_size, -1, self.utt_encoder.output_size)
+            attn_inputs = ctx_outs + utt_outs
+            attn_words = ctx_utts.view(batch_size, -1)
+        dec_init_state = self.connector(latent_action)
+        attn_inputs, attn_words = self._remove_padding(attn_inputs, attn_words)
+        labels = out_utts[:, 1:].contiguous()
+        dec_inputs = out_utts[:, 0:-1]
+        dec_outs, dec_last, dec_ctx = self.decoder(batch_size, attn_inputs, attn_words, inputs=dec_inputs, init_state=dec_init_state, mode=mode, gen_type=gen_type)
+        if mode == GEN:
+            return dec_ctx, labels
+        else:
+            loss_pack = self.compute_loss(dec_outs, dec_ctx, labels)
+            if return_latent:
+                loss_pack['latent_actions'] = latent_action
+            loss_pack['distance'] = self.l2_loss(out_embedded, latent_action)
+            return loss_pack
 
 
 class AttnConnector(nn.Module):

@@ -21,12 +21,17 @@ _ext = _module
 channelnorm = _module
 build = _module
 functions = _module
+channelnorm = _module
 modules = _module
 channelnorm = _module
 correlation_package = _module
 correlation = _module
+build = _module
+correlation = _module
 correlation = _module
 resample2d_package = _module
+resample2d = _module
+build = _module
 resample2d = _module
 resample2d = _module
 submodules = _module
@@ -52,26 +57,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import math
+import torch
 
 
 import numpy as np
 
 
-import torch
+import torch.utils.data
+
+
+import random
+
+
+import torch.utils.data as data
+
+
+import math
 
 
 import torch.nn as nn
@@ -86,10 +101,16 @@ from torch.autograd import Variable
 from torch.nn import init
 
 
+from torch.autograd import Function
+
+
 from torch.nn.modules.module import Module
 
 
 from torch.utils.data import DataLoader
+
+
+import time
 
 
 import torch.optim as optim
@@ -113,94 +134,7 @@ from torch.backends import cudnn
 from random import *
 
 
-def to_var(x, volatile=False, device=None):
-    if torch.cuda.is_available():
-        if device:
-            x = x.cuda(device)
-        else:
-            x = x.cuda()
-    return Variable(x, volatile=volatile)
-
-
-class Generator(nn.Module):
-
-    def __init__(self, first_dim=32, isCheck=False, device=None):
-        super(Generator, self).__init__()
-        self.isCheck = isCheck
-        self.device = device
-        self.stage_1 = CoarseNet(5, first_dim, device=device)
-        self.stage_2 = RefinementNet(5, first_dim, device=device)
-
-    def forward(self, masked_img, mask, small_mask):
-        mask = mask.expand(masked_img.size(0), 1, masked_img.size(2), masked_img.size(3))
-        small_mask = small_mask.expand(masked_img.size(0), 1, masked_img.size(2) // 8, masked_img.size(3) // 8)
-        if self.device:
-            ones = to_var(torch.ones(mask.size()), device=self.device)
-        else:
-            ones = to_var(torch.ones(mask.size()))
-        stage1_input = torch.cat([masked_img, ones, ones * mask], dim=1)
-        stage1_output, resized_mask = self.stage_1(stage1_input, mask)
-        new_masked_img = stage1_output * mask.clone() + masked_img.clone() * (1.0 - mask.clone())
-        stage2_input = torch.cat([new_masked_img, ones.clone(), ones.clone() * mask.clone()], dim=1)
-        stage2_output, offset_flow = self.stage_2(stage2_input, small_mask)
-        return stage1_output, stage2_output, offset_flow
-
-
-def down_sample(x, scalor=2, mode='bilinear'):
-    if mode == 'bilinear':
-        x = F.avg_pool2d(x, kernel_size=scalor, stride=scalor)
-    elif mode == 'nearest':
-        x = F.max_pool2d(x, kernel_size=scalor, stride=scalor)
-    return x
-
-
-class CoarseNet(nn.Module):
-    """
-    # input: B x 5 x W x H
-    # after down: B x 128(32*4) x W/4 x H/4
-    # after atrous: same with the output size of the down module
-    # after up : same with the input size
-    """
-
-    def __init__(self, in_ch, out_ch, device=None):
-        super(CoarseNet, self).__init__()
-        self.down = Down_Module(in_ch, out_ch)
-        self.atrous = Dilation_Module(out_ch * 4, out_ch * 4)
-        self.up = Up_Module(out_ch * 4, 3)
-        self.device = device
-
-    def forward(self, x, mask):
-        x = self.down(x)
-        resized_mask = down_sample(mask, scale_factor=0.25, mode='nearest', device=self.device)
-        x = self.atrous(x)
-        x = self.up(x)
-        return x, resized_mask
-
-
-class RefinementNet(nn.Module):
-    """
-    # input: B x 5 x W x H
-    # after down: B x 128(32*4) x W/4 x H/4
-    # after atrous: same with the output size of the down module
-    # after up : same with the input size
-    """
-
-    def __init__(self, in_ch, out_ch, device=None):
-        super(RefinementNet, self).__init__()
-        self.down_conv_branch = Down_Module(in_ch, out_ch, isRefine=True)
-        self.down_attn_branch = Down_Module(in_ch, out_ch, activation=nn.ReLU(), isRefine=True, isAttn=True)
-        self.atrous = Dilation_Module(out_ch * 4, out_ch * 4)
-        self.CAttn = Contextual_Attention_Module(out_ch * 4, out_ch * 4, device=device)
-        self.up = Up_Module(out_ch * 8, 3, isRefine=True)
-
-    def forward(self, x, resized_mask):
-        conv_x = self.down_conv_branch(x)
-        conv_x = self.atrous(conv_x)
-        attn_x = self.down_attn_branch(x)
-        attn_x, offset_flow = self.CAttn(attn_x, attn_x, mask=resized_mask)
-        deconv_x = torch.cat([conv_x, attn_x], dim=1)
-        x = self.up(deconv_x)
-        return x, offset_flow
+from torch import autograd
 
 
 def weights_init(init_type='gaussian'):
@@ -240,6 +174,21 @@ class Conv(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         return x
+
+
+class Dilation_Module(nn.Module):
+
+    def __init__(self, in_ch, out_ch):
+        super(Dilation_Module, self).__init__()
+        layers = []
+        dilation = 1
+        for i in range(4):
+            dilation *= 2
+            layers.append(Conv(in_ch, out_ch, D=dilation, P=dilation))
+        self.out = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.out(x)
 
 
 class Conv_Downsample(nn.Module):
@@ -291,21 +240,6 @@ class Down_Module(nn.Module):
         return self.out(x)
 
 
-class Dilation_Module(nn.Module):
-
-    def __init__(self, in_ch, out_ch):
-        super(Dilation_Module, self).__init__()
-        layers = []
-        dilation = 1
-        for i in range(4):
-            dilation *= 2
-            layers.append(Conv(in_ch, out_ch, D=dilation, P=dilation))
-        self.out = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.out(x)
-
-
 class Up_Module(nn.Module):
 
     def __init__(self, in_ch, out_ch, isRefine=False):
@@ -331,50 +265,35 @@ class Up_Module(nn.Module):
         return torch.clamp(output, min=-1.0, max=1.0)
 
 
-class Up_Module_CNet(nn.Module):
-
-    def __init__(self, in_ch, out_ch, isRefine=False, isGated=False):
-        super(Up_Module_CNet, self).__init__()
-        layers = []
-        curr_dim = in_ch
-        if isRefine:
-            layers.append(Conv(curr_dim, curr_dim // 2, isGated=isGated))
-            curr_dim //= 2
-        else:
-            layers.append(Conv(curr_dim, curr_dim, isGated=isGated))
-        for i in range(2):
-            layers.append(Conv(curr_dim, curr_dim, isGated=isGated))
-            layers.append(nn.Upsample(scale_factor=2, mode='nearest'))
-            layers.append(Conv(curr_dim, curr_dim // 2, isGated=isGated))
-            curr_dim //= 2
-        layers.append(Conv(curr_dim, curr_dim // 2, isGated=isGated))
-        layers.append(Conv(curr_dim // 2, out_ch, activation=None, isGated=isGated))
-        self.out = nn.Sequential(*layers)
-
-    def forward(self, x):
-        output = self.out(x)
-        return output
+def down_sample(x, scalor=2, mode='bilinear'):
+    if mode == 'bilinear':
+        x = F.avg_pool2d(x, kernel_size=scalor, stride=scalor)
+    elif mode == 'nearest':
+        x = F.max_pool2d(x, kernel_size=scalor, stride=scalor)
+    return x
 
 
-class Flatten_Module(nn.Module):
+class CoarseNet(nn.Module):
+    """
+    # input: B x 5 x W x H
+    # after down: B x 128(32*4) x W/4 x H/4
+    # after atrous: same with the output size of the down module
+    # after up : same with the input size
+    """
 
-    def __init__(self, in_ch, out_ch, isLocal=True):
-        super(Flatten_Module, self).__init__()
-        layers = []
-        layers.append(Conv(in_ch, out_ch, K=5, S=2, P=2, activation=nn.LeakyReLU()))
-        curr_dim = out_ch
-        for i in range(2):
-            layers.append(Conv(curr_dim, curr_dim * 2, K=5, S=2, P=2, activation=nn.LeakyReLU()))
-            curr_dim *= 2
-        if isLocal:
-            layers.append(Conv(curr_dim, curr_dim * 2, K=5, S=2, P=2, activation=nn.LeakyReLU()))
-        else:
-            layers.append(Conv(curr_dim, curr_dim, K=5, S=2, P=2, activation=nn.LeakyReLU()))
-        self.out = nn.Sequential(*layers)
+    def __init__(self, in_ch, out_ch, device=None):
+        super(CoarseNet, self).__init__()
+        self.down = Down_Module(in_ch, out_ch)
+        self.atrous = Dilation_Module(out_ch * 4, out_ch * 4)
+        self.up = Up_Module(out_ch * 4, 3)
+        self.device = device
 
-    def forward(self, x):
-        x = self.out(x)
-        return x.view(x.size(0), -1)
+    def forward(self, x, mask):
+        x = self.down(x)
+        resized_mask = down_sample(mask, scale_factor=0.25, mode='nearest', device=self.device)
+        x = self.atrous(x)
+        x = self.up(x)
+        return x, resized_mask
 
 
 def l2_norm(x):
@@ -536,204 +455,194 @@ class Contextual_Attention_Module(nn.Module):
         return all_patches
 
 
-class FlowNet2(nn.Module):
+class RefinementNet(nn.Module):
+    """
+    # input: B x 5 x W x H
+    # after down: B x 128(32*4) x W/4 x H/4
+    # after atrous: same with the output size of the down module
+    # after up : same with the input size
+    """
 
-    def __init__(self, args, batchNorm=False, div_flow=20.0, requires_grad=False):
-        super(FlowNet2, self).__init__()
-        self.batchNorm = batchNorm
-        self.div_flow = div_flow
-        self.rgb_max = args.rgb_max
-        self.args = args
-        self.channelnorm = ChannelNorm()
-        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
-        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
-        if args.fp16:
-            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+    def __init__(self, in_ch, out_ch, device=None):
+        super(RefinementNet, self).__init__()
+        self.down_conv_branch = Down_Module(in_ch, out_ch, isRefine=True)
+        self.down_attn_branch = Down_Module(in_ch, out_ch, activation=nn.ReLU(), isRefine=True, isAttn=True)
+        self.atrous = Dilation_Module(out_ch * 4, out_ch * 4)
+        self.CAttn = Contextual_Attention_Module(out_ch * 4, out_ch * 4, device=device)
+        self.up = Up_Module(out_ch * 8, 3, isRefine=True)
+
+    def forward(self, x, resized_mask):
+        conv_x = self.down_conv_branch(x)
+        conv_x = self.atrous(conv_x)
+        attn_x = self.down_attn_branch(x)
+        attn_x, offset_flow = self.CAttn(attn_x, attn_x, mask=resized_mask)
+        deconv_x = torch.cat([conv_x, attn_x], dim=1)
+        x = self.up(deconv_x)
+        return x, offset_flow
+
+
+def to_var(x, volatile=False, device=None):
+    if torch.cuda.is_available():
+        if device:
+            x = x
         else:
-            self.resample1 = Resample2d()
-        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
-        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
-        if args.fp16:
-            self.resample2 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+            x = x
+    return Variable(x, volatile=volatile)
+
+
+class Generator(nn.Module):
+
+    def __init__(self, first_dim=32, isCheck=False, device=None):
+        super(Generator, self).__init__()
+        self.isCheck = isCheck
+        self.device = device
+        self.stage_1 = CoarseNet(5, first_dim, device=device)
+        self.stage_2 = RefinementNet(5, first_dim, device=device)
+
+    def forward(self, masked_img, mask, small_mask):
+        mask = mask.expand(masked_img.size(0), 1, masked_img.size(2), masked_img.size(3))
+        small_mask = small_mask.expand(masked_img.size(0), 1, masked_img.size(2) // 8, masked_img.size(3) // 8)
+        if self.device:
+            ones = to_var(torch.ones(mask.size()), device=self.device)
         else:
-            self.resample2 = Resample2d()
-        self.flownets_2 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
-        self.flownets_d = FlowNetSD.FlowNetSD(args, batchNorm=self.batchNorm)
-        self.upsample3 = nn.Upsample(scale_factor=4, mode='nearest')
-        self.upsample4 = nn.Upsample(scale_factor=4, mode='nearest')
-        if args.fp16:
-            self.resample3 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+            ones = to_var(torch.ones(mask.size()))
+        stage1_input = torch.cat([masked_img, ones, ones * mask], dim=1)
+        stage1_output, resized_mask = self.stage_1(stage1_input, mask)
+        new_masked_img = stage1_output * mask.clone() + masked_img.clone() * (1.0 - mask.clone())
+        stage2_input = torch.cat([new_masked_img, ones.clone(), ones.clone() * mask.clone()], dim=1)
+        stage2_output, offset_flow = self.stage_2(stage2_input, small_mask)
+        return stage1_output, stage2_output, offset_flow
+
+
+class Up_Module_CNet(nn.Module):
+
+    def __init__(self, in_ch, out_ch, isRefine=False, isGated=False):
+        super(Up_Module_CNet, self).__init__()
+        layers = []
+        curr_dim = in_ch
+        if isRefine:
+            layers.append(Conv(curr_dim, curr_dim // 2, isGated=isGated))
+            curr_dim //= 2
         else:
-            self.resample3 = Resample2d()
-        if args.fp16:
-            self.resample4 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+            layers.append(Conv(curr_dim, curr_dim, isGated=isGated))
+        for i in range(2):
+            layers.append(Conv(curr_dim, curr_dim, isGated=isGated))
+            layers.append(nn.Upsample(scale_factor=2, mode='nearest'))
+            layers.append(Conv(curr_dim, curr_dim // 2, isGated=isGated))
+            curr_dim //= 2
+        layers.append(Conv(curr_dim, curr_dim // 2, isGated=isGated))
+        layers.append(Conv(curr_dim // 2, out_ch, activation=None, isGated=isGated))
+        self.out = nn.Sequential(*layers)
+
+    def forward(self, x):
+        output = self.out(x)
+        return output
+
+
+class Flatten_Module(nn.Module):
+
+    def __init__(self, in_ch, out_ch, isLocal=True):
+        super(Flatten_Module, self).__init__()
+        layers = []
+        layers.append(Conv(in_ch, out_ch, K=5, S=2, P=2, activation=nn.LeakyReLU()))
+        curr_dim = out_ch
+        for i in range(2):
+            layers.append(Conv(curr_dim, curr_dim * 2, K=5, S=2, P=2, activation=nn.LeakyReLU()))
+            curr_dim *= 2
+        if isLocal:
+            layers.append(Conv(curr_dim, curr_dim * 2, K=5, S=2, P=2, activation=nn.LeakyReLU()))
         else:
-            self.resample4 = Resample2d()
-        self.flownetfusion = FlowNetFusion.FlowNetFusion(args, batchNorm=self.batchNorm)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                if m.bias is not None:
-                    init.uniform_(m.bias)
-                init.xavier_uniform_(m.weight)
-            if isinstance(m, nn.ConvTranspose2d):
-                if m.bias is not None:
-                    init.uniform_(m.bias)
-                init.xavier_uniform_(m.weight)
-        if not requires_grad:
-            for param in self.parameters():
-                param.requires_grad = False
+            layers.append(Conv(curr_dim, curr_dim, K=5, S=2, P=2, activation=nn.LeakyReLU()))
+        self.out = nn.Sequential(*layers)
 
-    def init_deconv_bilinear(self, weight):
-        f_shape = weight.size()
-        heigh, width = f_shape[-2], f_shape[-1]
-        f = np.ceil(width / 2.0)
-        c = (2 * f - 1 - f % 2) / (2.0 * f)
-        bilinear = np.zeros([heigh, width])
-        for x in range(width):
-            for y in range(heigh):
-                value = (1 - abs(x / f - c)) * (1 - abs(y / f - c))
-                bilinear[x, y] = value
-        min_dim = min(f_shape[0], f_shape[1])
-        weight.data.fill_(0.0)
-        for i in range(min_dim):
-            weight.data[(i), (i), :, :] = torch.from_numpy(bilinear)
-        return
-
-    def forward(self, img1, img2):
-        sz = img1.size()
-        img1 = img1.view(sz[0], sz[1], 1, sz[2], sz[3])
-        img2 = img2.view(sz[0], sz[1], 1, sz[2], sz[3])
-        inputs = torch.cat((img1, img2), dim=2)
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
-        x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
-        x = torch.cat((x1, x2), dim=1)
-        flownetc_flow2 = self.flownetc(x)[0]
-        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
-        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
-        diff_img0 = x[:, :3, :, :] - resampled_img1
-        norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
-        flownets1_flow2 = self.flownets_1(concat1)[0]
-        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
-        resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
-        diff_img0 = x[:, :3, :, :] - resampled_img1
-        norm_diff_img0 = self.channelnorm(diff_img0)
-        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
-        flownets2_flow2 = self.flownets_2(concat2)[0]
-        flownets2_flow = self.upsample4(flownets2_flow2 * self.div_flow)
-        norm_flownets2_flow = self.channelnorm(flownets2_flow)
-        diff_flownets2_flow = self.resample4(x[:, 3:, :, :], flownets2_flow)
-        diff_flownets2_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownets2_flow)
-        flownetsd_flow2 = self.flownets_d(x)[0]
-        flownetsd_flow = self.upsample3(flownetsd_flow2 / self.div_flow)
-        norm_flownetsd_flow = self.channelnorm(flownetsd_flow)
-        diff_flownetsd_flow = self.resample3(x[:, 3:, :, :], flownetsd_flow)
-        diff_flownetsd_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownetsd_flow)
-        concat3 = torch.cat((x[:, :3, :, :], flownetsd_flow, flownets2_flow, norm_flownetsd_flow, norm_flownets2_flow, diff_flownetsd_img1, diff_flownets2_img1), dim=1)
-        flownetfusion_flow = self.flownetfusion(concat3)
-        return flownetfusion_flow
+    def forward(self, x):
+        x = self.out(x)
+        return x.view(x.size(0), -1)
 
 
-class FlowNet2CS(nn.Module):
+class ChannelNormFunction(Function):
 
-    def __init__(self, args, batchNorm=False, div_flow=20.0):
-        super(FlowNet2CS, self).__init__()
-        self.batchNorm = batchNorm
-        self.div_flow = div_flow
-        self.rgb_max = args.rgb_max
-        self.args = args
-        self.channelnorm = ChannelNorm()
-        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
-        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
-        if args.fp16:
-            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
-        else:
-            self.resample1 = Resample2d()
-        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
-        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                if m.bias is not None:
-                    init.uniform_(m.bias)
-                init.xavier_uniform_(m.weight)
-            if isinstance(m, nn.ConvTranspose2d):
-                if m.bias is not None:
-                    init.uniform_(m.bias)
-                init.xavier_uniform_(m.weight)
+    def __init__(self, norm_deg=2):
+        super(ChannelNormFunction, self).__init__()
+        self.norm_deg = norm_deg
 
-    def forward(self, inputs):
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
-        x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
-        x = torch.cat((x1, x2), dim=1)
-        flownetc_flow2 = self.flownetc(x)[0]
-        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
-        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
-        diff_img0 = x[:, :3, :, :] - resampled_img1
-        norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
-        flownets1_flow2 = self.flownets_1(concat1)[0]
-        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
-        return flownets1_flow
+    def forward(self, input1):
+        assert input1.is_contiguous() == True
+        with torch.cuda.device_of(input1):
+            b, _, h, w = input1.size()
+            output = input1.new().resize_(b, 1, h, w).zero_()
+            channelnorm.ChannelNorm_cuda_forward(input1, output, self.norm_deg)
+        self.save_for_backward(input1, output)
+        return output
+
+    def backward(self, gradOutput):
+        input1, output = self.saved_tensors
+        with torch.cuda.device_of(input1):
+            b, c, h, w = input1.size()
+            gradInput1 = input1.new().resize_(b, c, h, w).zero_()
+            channelnorm.ChannelNorm_cuda_backward(input1, output, gradOutput, gradInput1, self.norm_deg)
+        return gradInput1
 
 
-class FlowNet2CSS(nn.Module):
+class ChannelNorm(Module):
 
-    def __init__(self, args, batchNorm=False, div_flow=20.0):
-        super(FlowNet2CSS, self).__init__()
-        self.batchNorm = batchNorm
-        self.div_flow = div_flow
-        self.rgb_max = args.rgb_max
-        self.args = args
-        self.channelnorm = ChannelNorm()
-        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
-        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
-        if args.fp16:
-            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
-        else:
-            self.resample1 = Resample2d()
-        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
-        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
-        if args.fp16:
-            self.resample2 = nn.Sequential(tofp32(), Resample2d(), tofp16())
-        else:
-            self.resample2 = Resample2d()
-        self.flownets_2 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
-        self.upsample3 = nn.Upsample(scale_factor=4, mode='nearest')
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                if m.bias is not None:
-                    init.uniform_(m.bias)
-                init.xavier_uniform_(m.weight)
-            if isinstance(m, nn.ConvTranspose2d):
-                if m.bias is not None:
-                    init.uniform_(m.bias)
-                init.xavier_uniform_(m.weight)
+    def __init__(self, norm_deg=2):
+        super(ChannelNorm, self).__init__()
+        self.norm_deg = norm_deg
 
-    def forward(self, inputs):
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
-        x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
-        x = torch.cat((x1, x2), dim=1)
-        flownetc_flow2 = self.flownetc(x)[0]
-        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
-        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
-        diff_img0 = x[:, :3, :, :] - resampled_img1
-        norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
-        flownets1_flow2 = self.flownets_1(concat1)[0]
-        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
-        resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
-        diff_img0 = x[:, :3, :, :] - resampled_img1
-        norm_diff_img0 = self.channelnorm(diff_img0)
-        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
-        flownets2_flow2 = self.flownets_2(concat2)[0]
-        flownets2_flow = self.upsample3(flownets2_flow2 * self.div_flow)
-        return flownets2_flow
+    def forward(self, input1):
+        result = ChannelNormFunction(self.norm_deg)(input1)
+        return result
+
+
+class CorrelationFunction(Function):
+
+    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20, stride1=1, stride2=2, corr_multiply=1):
+        super(CorrelationFunction, self).__init__()
+        self.pad_size = pad_size
+        self.kernel_size = kernel_size
+        self.max_displacement = max_displacement
+        self.stride1 = stride1
+        self.stride2 = stride2
+        self.corr_multiply = corr_multiply
+
+    def forward(self, input1, input2):
+        self.save_for_backward(input1, input2)
+        assert input1.is_contiguous() == True
+        assert input2.is_contiguous() == True
+        with torch.cuda.device_of(input1):
+            rbot1 = input1.new()
+            rbot2 = input2.new()
+            output = input1.new()
+            correlation.Correlation_forward_cuda(input1, input2, rbot1, rbot2, output, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
+        return output
+
+    def backward(self, grad_output):
+        input1, input2 = self.saved_tensors
+        assert grad_output.is_contiguous() == True
+        with torch.cuda.device_of(input1):
+            rbot1 = input1.new()
+            rbot2 = input2.new()
+            grad_input1 = input1.new()
+            grad_input2 = input2.new()
+            correlation.Correlation_backward_cuda(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
+        return grad_input1, grad_input2
+
+
+class Correlation(Module):
+
+    def __init__(self, pad_size=0, kernel_size=0, max_displacement=0, stride1=1, stride2=2, corr_multiply=1):
+        super(Correlation, self).__init__()
+        self.pad_size = pad_size
+        self.kernel_size = kernel_size
+        self.max_displacement = max_displacement
+        self.stride1 = stride1
+        self.stride2 = stride2
+        self.corr_multiply = corr_multiply
+
+    def forward(self, input1, input2):
+        result = CorrelationFunction(self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)(input1, input2)
+        return result
 
 
 def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
@@ -749,6 +658,24 @@ def deconv(in_planes, out_planes):
 
 def predict_flow(in_planes):
     return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias=True)
+
+
+class tofp16(nn.Module):
+
+    def __init__(self):
+        super(tofp16, self).__init__()
+
+    def forward(self, input):
+        return input.half()
+
+
+class tofp32(nn.Module):
+
+    def __init__(self):
+        super(tofp32, self).__init__()
+
+    def forward(self, input):
+        return input.float()
 
 
 class FlowNetC(nn.Module):
@@ -1042,91 +969,6 @@ class FlowNetSD(nn.Module):
             return flow2,
 
 
-class ChannelNormFunction(Function):
-
-    def __init__(self, norm_deg=2):
-        super(ChannelNormFunction, self).__init__()
-        self.norm_deg = norm_deg
-
-    def forward(self, input1):
-        assert input1.is_contiguous() == True
-        with torch.cuda.device_of(input1):
-            b, _, h, w = input1.size()
-            output = input1.new().resize_(b, 1, h, w).zero_()
-            channelnorm.ChannelNorm_cuda_forward(input1, output, self.norm_deg)
-        self.save_for_backward(input1, output)
-        return output
-
-    def backward(self, gradOutput):
-        input1, output = self.saved_tensors
-        with torch.cuda.device_of(input1):
-            b, c, h, w = input1.size()
-            gradInput1 = input1.new().resize_(b, c, h, w).zero_()
-            channelnorm.ChannelNorm_cuda_backward(input1, output, gradOutput, gradInput1, self.norm_deg)
-        return gradInput1
-
-
-class ChannelNorm(Module):
-
-    def __init__(self, norm_deg=2):
-        super(ChannelNorm, self).__init__()
-        self.norm_deg = norm_deg
-
-    def forward(self, input1):
-        result = ChannelNormFunction(self.norm_deg)(input1)
-        return result
-
-
-class CorrelationFunction(Function):
-
-    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20, stride1=1, stride2=2, corr_multiply=1):
-        super(CorrelationFunction, self).__init__()
-        self.pad_size = pad_size
-        self.kernel_size = kernel_size
-        self.max_displacement = max_displacement
-        self.stride1 = stride1
-        self.stride2 = stride2
-        self.corr_multiply = corr_multiply
-
-    def forward(self, input1, input2):
-        self.save_for_backward(input1, input2)
-        assert input1.is_contiguous() == True
-        assert input2.is_contiguous() == True
-        with torch.cuda.device_of(input1):
-            rbot1 = input1.new()
-            rbot2 = input2.new()
-            output = input1.new()
-            correlation.Correlation_forward_cuda(input1, input2, rbot1, rbot2, output, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
-        return output
-
-    def backward(self, grad_output):
-        input1, input2 = self.saved_tensors
-        assert grad_output.is_contiguous() == True
-        with torch.cuda.device_of(input1):
-            rbot1 = input1.new()
-            rbot2 = input2.new()
-            grad_input1 = input1.new()
-            grad_input2 = input2.new()
-            correlation.Correlation_backward_cuda(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
-        return grad_input1, grad_input2
-
-
-class Correlation(Module):
-
-    def __init__(self, pad_size=0, kernel_size=0, max_displacement=0, stride1=1, stride2=2, corr_multiply=1):
-        super(Correlation, self).__init__()
-        self.pad_size = pad_size
-        self.kernel_size = kernel_size
-        self.max_displacement = max_displacement
-        self.stride1 = stride1
-        self.stride2 = stride2
-        self.corr_multiply = corr_multiply
-
-    def forward(self, input1, input2):
-        result = CorrelationFunction(self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)(input1, input2)
-        return result
-
-
 class Resample2dFunction(Function):
 
     def __init__(self, kernel_size=1):
@@ -1168,22 +1010,204 @@ class Resample2d(Module):
         return result
 
 
-class tofp16(nn.Module):
+class FlowNet2(nn.Module):
 
-    def __init__(self):
-        super(tofp16, self).__init__()
+    def __init__(self, args, batchNorm=False, div_flow=20.0, requires_grad=False):
+        super(FlowNet2, self).__init__()
+        self.batchNorm = batchNorm
+        self.div_flow = div_flow
+        self.rgb_max = args.rgb_max
+        self.args = args
+        self.channelnorm = ChannelNorm()
+        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
+        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
+        if args.fp16:
+            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample1 = Resample2d()
+        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
+        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
+        if args.fp16:
+            self.resample2 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample2 = Resample2d()
+        self.flownets_2 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
+        self.flownets_d = FlowNetSD.FlowNetSD(args, batchNorm=self.batchNorm)
+        self.upsample3 = nn.Upsample(scale_factor=4, mode='nearest')
+        self.upsample4 = nn.Upsample(scale_factor=4, mode='nearest')
+        if args.fp16:
+            self.resample3 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample3 = Resample2d()
+        if args.fp16:
+            self.resample4 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample4 = Resample2d()
+        self.flownetfusion = FlowNetFusion.FlowNetFusion(args, batchNorm=self.batchNorm)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m.bias is not None:
+                    init.uniform_(m.bias)
+                init.xavier_uniform_(m.weight)
+            if isinstance(m, nn.ConvTranspose2d):
+                if m.bias is not None:
+                    init.uniform_(m.bias)
+                init.xavier_uniform_(m.weight)
+        if not requires_grad:
+            for param in self.parameters():
+                param.requires_grad = False
 
-    def forward(self, input):
-        return input.half()
+    def init_deconv_bilinear(self, weight):
+        f_shape = weight.size()
+        heigh, width = f_shape[-2], f_shape[-1]
+        f = np.ceil(width / 2.0)
+        c = (2 * f - 1 - f % 2) / (2.0 * f)
+        bilinear = np.zeros([heigh, width])
+        for x in range(width):
+            for y in range(heigh):
+                value = (1 - abs(x / f - c)) * (1 - abs(y / f - c))
+                bilinear[x, y] = value
+        min_dim = min(f_shape[0], f_shape[1])
+        weight.data.fill_(0.0)
+        for i in range(min_dim):
+            weight.data[(i), (i), :, :] = torch.from_numpy(bilinear)
+        return
+
+    def forward(self, img1, img2):
+        sz = img1.size()
+        img1 = img1.view(sz[0], sz[1], 1, sz[2], sz[3])
+        img2 = img2.view(sz[0], sz[1], 1, sz[2], sz[3])
+        inputs = torch.cat((img1, img2), dim=2)
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
+        x = (inputs - rgb_mean) / self.rgb_max
+        x1 = x[:, :, (0), :, :]
+        x2 = x[:, :, (1), :, :]
+        x = torch.cat((x1, x2), dim=1)
+        flownetc_flow2 = self.flownetc(x)[0]
+        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
+        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
+        diff_img0 = x[:, :3, :, :] - resampled_img1
+        norm_diff_img0 = self.channelnorm(diff_img0)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
+        flownets1_flow2 = self.flownets_1(concat1)[0]
+        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
+        resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
+        diff_img0 = x[:, :3, :, :] - resampled_img1
+        norm_diff_img0 = self.channelnorm(diff_img0)
+        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
+        flownets2_flow2 = self.flownets_2(concat2)[0]
+        flownets2_flow = self.upsample4(flownets2_flow2 * self.div_flow)
+        norm_flownets2_flow = self.channelnorm(flownets2_flow)
+        diff_flownets2_flow = self.resample4(x[:, 3:, :, :], flownets2_flow)
+        diff_flownets2_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownets2_flow)
+        flownetsd_flow2 = self.flownets_d(x)[0]
+        flownetsd_flow = self.upsample3(flownetsd_flow2 / self.div_flow)
+        norm_flownetsd_flow = self.channelnorm(flownetsd_flow)
+        diff_flownetsd_flow = self.resample3(x[:, 3:, :, :], flownetsd_flow)
+        diff_flownetsd_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownetsd_flow)
+        concat3 = torch.cat((x[:, :3, :, :], flownetsd_flow, flownets2_flow, norm_flownetsd_flow, norm_flownets2_flow, diff_flownetsd_img1, diff_flownets2_img1), dim=1)
+        flownetfusion_flow = self.flownetfusion(concat3)
+        return flownetfusion_flow
 
 
-class tofp32(nn.Module):
+class FlowNet2CS(nn.Module):
 
-    def __init__(self):
-        super(tofp32, self).__init__()
+    def __init__(self, args, batchNorm=False, div_flow=20.0):
+        super(FlowNet2CS, self).__init__()
+        self.batchNorm = batchNorm
+        self.div_flow = div_flow
+        self.rgb_max = args.rgb_max
+        self.args = args
+        self.channelnorm = ChannelNorm()
+        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
+        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
+        if args.fp16:
+            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample1 = Resample2d()
+        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
+        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m.bias is not None:
+                    init.uniform_(m.bias)
+                init.xavier_uniform_(m.weight)
+            if isinstance(m, nn.ConvTranspose2d):
+                if m.bias is not None:
+                    init.uniform_(m.bias)
+                init.xavier_uniform_(m.weight)
 
-    def forward(self, input):
-        return input.float()
+    def forward(self, inputs):
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
+        x = (inputs - rgb_mean) / self.rgb_max
+        x1 = x[:, :, (0), :, :]
+        x2 = x[:, :, (1), :, :]
+        x = torch.cat((x1, x2), dim=1)
+        flownetc_flow2 = self.flownetc(x)[0]
+        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
+        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
+        diff_img0 = x[:, :3, :, :] - resampled_img1
+        norm_diff_img0 = self.channelnorm(diff_img0)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
+        flownets1_flow2 = self.flownets_1(concat1)[0]
+        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
+        return flownets1_flow
+
+
+class FlowNet2CSS(nn.Module):
+
+    def __init__(self, args, batchNorm=False, div_flow=20.0):
+        super(FlowNet2CSS, self).__init__()
+        self.batchNorm = batchNorm
+        self.div_flow = div_flow
+        self.rgb_max = args.rgb_max
+        self.args = args
+        self.channelnorm = ChannelNorm()
+        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
+        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
+        if args.fp16:
+            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample1 = Resample2d()
+        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
+        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
+        if args.fp16:
+            self.resample2 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample2 = Resample2d()
+        self.flownets_2 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
+        self.upsample3 = nn.Upsample(scale_factor=4, mode='nearest')
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m.bias is not None:
+                    init.uniform_(m.bias)
+                init.xavier_uniform_(m.weight)
+            if isinstance(m, nn.ConvTranspose2d):
+                if m.bias is not None:
+                    init.uniform_(m.bias)
+                init.xavier_uniform_(m.weight)
+
+    def forward(self, inputs):
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
+        x = (inputs - rgb_mean) / self.rgb_max
+        x1 = x[:, :, (0), :, :]
+        x2 = x[:, :, (1), :, :]
+        x = torch.cat((x1, x2), dim=1)
+        flownetc_flow2 = self.flownetc(x)[0]
+        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
+        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
+        diff_img0 = x[:, :3, :, :] - resampled_img1
+        norm_diff_img0 = self.channelnorm(diff_img0)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
+        flownets1_flow2 = self.flownets_1(concat1)[0]
+        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
+        resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
+        diff_img0 = x[:, :3, :, :] - resampled_img1
+        norm_diff_img0 = self.channelnorm(diff_img0)
+        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
+        flownets2_flow2 = self.flownets_2(concat2)[0]
+        flownets2_flow = self.upsample3(flownets2_flow2 * self.div_flow)
+        return flownets2_flow
 
 
 affine_par = True

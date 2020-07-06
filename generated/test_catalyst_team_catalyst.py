@@ -4,7 +4,6 @@ del sys
 catalyst = _module
 __version__ = _module
 contrib = _module
-__main__ = _module
 data = _module
 cv = _module
 mixins = _module
@@ -22,6 +21,7 @@ language_modeling = _module
 test_language_modeling_dataset = _module
 test_text_classification_dataset = _module
 text_classification = _module
+transforms = _module
 datasets = _module
 mnist = _module
 utils = _module
@@ -57,11 +57,17 @@ psp = _module
 unet = _module
 bridge = _module
 core = _module
+unet = _module
 core = _module
 decoder = _module
 core = _module
+fpn = _module
+psp = _module
+unet = _module
 encoder = _module
 core = _module
+resnet = _module
+unet = _module
 head = _module
 core = _module
 fpn = _module
@@ -117,6 +123,7 @@ argparse = _module
 compression = _module
 confusion_matrix = _module
 image = _module
+tensor = _module
 test_image = _module
 misc = _module
 text = _module
@@ -144,8 +151,10 @@ experiment = _module
 legacy = _module
 runner = _module
 state = _module
+data = _module
 augmentor = _module
 collate_fn = _module
+dataset = _module
 sampler = _module
 image2embedding = _module
 process_images = _module
@@ -155,6 +164,7 @@ tag2label = _module
 test_tag2label = _module
 text2embedding = _module
 test_sampler = _module
+confusion_matrix = _module
 inference = _module
 meter = _module
 accuracy = _module
@@ -169,11 +179,13 @@ supervised = _module
 test_config = _module
 test_core = _module
 test_supervised = _module
+runner = _module
+supervised = _module
 init = _module
 run = _module
 trace = _module
 test_main = _module
-torch = _module
+utils = _module
 trace = _module
 wizard = _module
 frozen_class = _module
@@ -192,12 +204,15 @@ test_ppv_tpr_f1 = _module
 settings = _module
 time_manager = _module
 typing = _module
+utils = _module
+checkpoint = _module
 components = _module
 dict = _module
 distributed = _module
 hash = _module
 initialization = _module
 loader = _module
+accuracy = _module
 dice = _module
 f1_score = _module
 focal = _module
@@ -207,15 +222,16 @@ test_iou = _module
 numpy = _module
 parser = _module
 pipelines = _module
+scripts = _module
 seed = _module
 sys = _module
 registery_foo = _module
 test_hash = _module
 test_registry = _module
 test_torch = _module
-torch = _module
 conf = _module
 src = _module
+dataset = _module
 model = _module
 cifar_simple = _module
 experiments = _module
@@ -227,6 +243,7 @@ model = _module
 distilbert_text_classification = _module
 setup = _module
 _tests_contrib_dl_callbacks = _module
+experiment = _module
 model = _module
 _tests_cv_classification = _module
 model = _module
@@ -239,7 +256,9 @@ model = _module
 _tests_cv_classification_transforms = _module
 model = _module
 _tests_cv_segmentation = _module
+dataset = _module
 _tests_dl_callbacks = _module
+experiment = _module
 model = _module
 _tests_scripts = _module
 core_contrib_data = _module
@@ -290,17 +309,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
+
+
+import torch
+
+
+from typing import Iterable
+
+
+from typing import Union
+
+
+from torch.utils.data import Dataset
+
+
+from typing import List
+
+
+from typing import Mapping
+
+
+import logging
+
+
+from torch.utils.model_zoo import tqdm
 
 
 from typing import Dict
@@ -312,13 +359,40 @@ from torch.nn import DataParallel
 from torch.nn.parallel import DistributedDataParallel
 
 
-import numpy as np
+from math import ceil
 
 
-import torch
+from scipy import stats
+
+
+from sklearn.metrics import accuracy_score
+
+
+from sklearn.metrics import f1_score
+
+
+from sklearn.metrics import precision_score
+
+
+from sklearn.metrics import recall_score
+
+
+from sklearn.neighbors import NearestNeighbors
 
 
 import torch.nn.functional as F
+
+
+from collections import OrderedDict
+
+
+import copy
+
+
+from torch.utils.data import DataLoader
+
+
+from torch import nn
 
 
 from typing import Tuple
@@ -336,18 +410,6 @@ import torch.nn as nn
 from torch.optim import Adam
 
 
-from torch.utils.data import DataLoader
-
-
-from typing import Union
-
-
-from typing import List
-
-
-from torch import nn
-
-
 import torchvision
 
 
@@ -361,9 +423,6 @@ from torch.nn import functional as F
 
 
 from functools import partial
-
-
-from collections import OrderedDict
 
 
 from copy import deepcopy
@@ -390,28 +449,64 @@ import math
 from torch.nn.modules import *
 
 
-import logging
-
-
-from typing import Any
-
-
-from typing import Iterable
-
-
-from typing import Mapping
-
-
-from torch.utils.data import Dataset
+from torch.optim import *
 
 
 from typing import Callable
 
 
+from torch.optim.optimizer import Optimizer
+
+
 from collections import defaultdict
 
 
+from torch.optim import Optimizer
+
+
+from torch.optim.lr_scheduler import *
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+from torch import optim
+
+
+from collections import namedtuple
+
+
+import re
+
+
+from typing import BinaryIO
+
+
+from collections.abc import Iterable
+
+
+from torch import __version__ as torch_version
+
+
+import string
+
+
+from typing import Any
+
+
 from torch.utils.data import DistributedSampler
+
+
+from copy import copy
+
+
+import warnings
+
+
+from torch.utils.data.dataloader import default_collate
+
+
+from torch.utils.data import Sampler
 
 
 from typing import Iterator
@@ -432,7 +527,25 @@ from torch.utils.data.sampler import BatchSampler
 from torch.utils.data.sampler import Sampler
 
 
-import warnings
+from typing import Sequence
+
+
+from sklearn.metrics import confusion_matrix as confusion_matrix_fn
+
+
+import torch.distributed
+
+
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+
+from typing import Generator
+
+
+from torch.jit import ScriptModule
+
+
+from torch.utils.data.dataloader import default_collate as default_collate_fn
 
 
 import inspect
@@ -444,13 +557,10 @@ from torch.jit import load
 from torch.jit import save
 
 
-from torch.jit import ScriptModule
-
-
 from torch.jit import trace
 
 
-from torch import optim
+import numbers
 
 
 from torch.optim import lr_scheduler
@@ -459,16 +569,7 @@ from torch.optim import lr_scheduler
 from torch.utils import data
 
 
-import copy
-
-
-import torch.distributed
-
-
 import random
-
-
-import re
 
 
 import torch.backends
@@ -477,26 +578,143 @@ import torch.backends
 from torch.backends import cudnn
 
 
+from torch.utils.data import Subset
+
+
 import torch.optim as optim
 
 
 from torch.utils.data import TensorDataset
 
 
-LateAddCallbak = Callable[['Registry'], None]
+class _SimpleNet(nn.Module):
 
+    def __init__(self, input_shape: Tuple[int]):
+        super().__init__()
+        assert len(input_shape) == 3
+        c, h, w = input_shape
+        self.conv1 = nn.Conv2d(in_channels=c, out_channels=64, kernel_size=3)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=2)
+        self.flatten = nn.Flatten()
+        for conv in [self.conv1, self.conv2]:
+            h_kernel, w_kernel = conv.kernel_size
+            h_stride, w_stride = conv.stride
+            c = conv.out_channels
+            h, w = self.conv2d_size_out(size=(h, w), kernel_size=(h_kernel, w_kernel), stride=(h_stride, w_stride))
+        self.fc1 = nn.Linear(in_features=c * h * w, out_features=10)
 
-class RegistryException(Exception):
-    """Exception class for all registry errors."""
+    def forward(self, x: torch.Tensor):
+        for conv in [self.conv1, self.conv2]:
+            x = conv(x)
+            x = self.relu(x)
+        x = self.flatten(x)
+        x = self.fc1(x)
+        return x
 
-    def __init__(self, message):
-        """
-        Init.
+    @staticmethod
+    def conv2d_size_out(*, size: Tuple[int], kernel_size: Tuple[int], stride: Tuple[int]):
+        """Computes output size for 2D convolution layer.
+        cur_layer_img_w = conv2d_size_out(cur_layer_img_w, kernel_size, stride)
+        cur_layer_img_h = conv2d_size_out(cur_layer_img_h, kernel_size, stride)
+        to understand the shape for dense layer's input.
 
         Args:
-            message: exception message
+            size (Tuple[int]): size of input.
+            kernel_size (Tuple[int]): size of convolution kernel.
+            stride (Tuple[int]): size of convolution stride.
+
+        Returns:
+            int: output size
         """
-        super().__init__(message)
+        size, kernel_size, stride = map(lambda x: torch.tensor(x, dtype=torch.int32), (size, kernel_size, stride))
+        output_size = (size - (kernel_size - 1) - 1) / stride + 1
+        h, w = map(lambda x: x.item(), output_size)
+        return h, w
+
+
+class _TracedNet(nn.Module):
+    """
+    Simple model for the testing.
+    """
+
+    def __init__(self, input_shape: Tuple[int]):
+        """
+        Args:
+            input_shape (Tuple[int]): Shape of input tensor.
+        """
+        super().__init__()
+        assert len(input_shape) == 3
+        c, h, w = input_shape
+        self.conv1 = nn.Conv2d(in_channels=c, out_channels=64, kernel_size=3)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=2)
+        self.flatten = nn.Flatten()
+        for conv in [self.conv1, self.conv2]:
+            h_kernel, w_kernel = conv.kernel_size
+            h_stride, w_stride = conv.stride
+            c = conv.out_channels
+            h, w = self.conv2d_size_out(size=(h, w), kernel_size=(h_kernel, w_kernel), stride=(h_stride, w_stride))
+        self.fc1 = nn.Linear(in_features=c * h * w, out_features=10)
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """
+        Args:
+            x (torch.Tensor): Input tensor
+
+        Returns:
+            (torch.Tensor): Output tensor
+        """
+        for conv in [self.conv1, self.conv2]:
+            x = conv(x)
+            x = self.relu(x)
+        x = self.flatten(x)
+        x = self.fc1(x)
+        return x
+
+    @staticmethod
+    def conv2d_size_out(*, size: Tuple[int], kernel_size: Tuple[int], stride: Tuple[int]) ->Tuple[int, int]:
+        """
+        Computes output size for 2D convolution layer.
+        cur_layer_img_w = conv2d_size_out(cur_layer_img_w, kernel_size, stride)
+        cur_layer_img_h = conv2d_size_out(cur_layer_img_h, kernel_size, stride)
+        to understand the shape for dense layer's input.
+
+        Args:
+            size (Tuple[int]): size of input.
+            kernel_size (Tuple[int]): size of convolution kernel.
+            stride (Tuple[int]): size of convolution stride.
+
+        Returns:
+            (Tuple[int, int]): output size
+        """
+        size, kernel_size, stride = map(lambda x: torch.tensor(x, dtype=torch.int32), (size, kernel_size, stride))
+        output_size = (size - (kernel_size - 1) - 1) / stride + 1
+        h, w = map(lambda x: x.item(), output_size)
+        return h, w
+
+
+class EncoderSpec(ABC, nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
+
+    @property
+    @abstractmethod
+    def out_channels(self) ->List[int]:
+        """Number of channels produced by the block."""
+        pass
+
+    @property
+    @abstractmethod
+    def out_strides(self) ->List[int]:
+        """@TODO: Docs. Contribution is welcome."""
+        pass
+
+
+RESNET_PARAMS = {'resnet18': {'channels': [64, 64, 128, 256, 512], 'strides': [2, 4, 8, 16, 32]}, 'resnet34': {'channels': [64, 64, 128, 256, 512], 'strides': [2, 4, 8, 16, 32]}, 'resnet50': {'channels': [64, 256, 512, 1024, 2048], 'strides': [2, 4, 8, 16, 32]}, 'resnet101': {'channels': [64, 256, 512, 1024, 2048], 'strides': [2, 4, 8, 16, 32]}, 'resnet152': {'channels': [64, 256, 512, 1024, 2048], 'strides': [2, 4, 8, 16, 32]}}
+
+
+def _take(elements, indexes):
+    return [elements[i] for i in indexes]
 
 
 class ABN(nn.Module):
@@ -594,6 +812,31 @@ class DecoderBlock(ABC, nn.Module):
         pass
 
 
+class DecoderFPNBlock(DecoderBlock):
+    """@TODO: Docs (add description, `Example`). Contribution is welcome."""
+
+    def __init__(self, in_channels: int, enc_channels: int, out_channels: int, in_strides: int=None, upsample_scale: int=2, interpolation_mode: str='nearest', align_corners: bool=None, aggregate_first: bool=False, **kwargs):
+        """
+        Args:
+            @TODO: Docs. Contribution is welcome.
+        """
+        self.upsample_scale = upsample_scale
+        self.interpolation_mode = interpolation_mode
+        self.align_corners = align_corners
+        super().__init__(in_channels, enc_channels, out_channels, in_strides, **kwargs)
+
+    def _get_block(self):
+        block = nn.Conv2d(self.enc_channels, self.out_channels, kernel_size=1)
+        return block
+
+    def forward(self, bottom: torch.Tensor, left: torch.Tensor) ->torch.Tensor:
+        """Forward call."""
+        x = F.interpolate(bottom, scale_factor=self.upsample_scale, mode=self.interpolation_mode, align_corners=self.align_corners)
+        left = self.block(left)
+        x = x + left
+        return x
+
+
 class Conv3x3GNReLU(nn.Module):
     """@TODO: Docs (add description, `Example`). Contribution is welcome."""
 
@@ -678,6 +921,125 @@ class PSPBlock(nn.Module):
         return x
 
 
+class EncoderDownsampleBlock(EncoderBlock):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, in_channels: int, out_channels: int, in_strides: int=None, abn_block: nn.Module=ABN, activation: str='ReLU', first_stride: int=2, second_stride: int=1, **kwargs):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__(in_channels, out_channels, in_strides)
+        self._out_strides = in_strides * first_stride * second_stride if in_strides is not None else None
+        self._block = _get_block(in_channels=in_channels, out_channels=out_channels, abn_block=abn_block, activation=activation, first_stride=first_stride, second_stride=second_stride, **kwargs)
+
+    @property
+    def out_strides(self) ->int:
+        """@TODO: Docs. Contribution is welcome."""
+        return self._out_strides
+
+    @property
+    def block(self):
+        """@TODO: Docs. Contribution is welcome."""
+        return self._block
+
+
+class EncoderUpsampleBlock(EncoderBlock):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, in_channels: int, out_channels: int, in_strides: int=None, abn_block: nn.Module=ABN, activation: str='ReLU', first_stride: int=1, second_stride: int=1, pool_first: bool=False, upsample_scale: int=2, interpolation_mode: str='nearest', align_corners: bool=None, **kwargs):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__(in_channels, out_channels, in_strides)
+        if in_strides is None:
+            self._out_strides = None
+        elif pool_first:
+            self._out_strides = in_strides * first_stride * second_stride * 2 // upsample_scale
+        else:
+            self._out_strides = in_strides * first_stride * second_stride // upsample_scale
+        self.pool_first = pool_first
+        self.upsample_scale = upsample_scale
+        self.interpolation_mode = interpolation_mode
+        self.align_corners = align_corners
+        self._block = _get_block(in_channels=in_channels, out_channels=out_channels, abn_block=abn_block, activation=activation, first_stride=first_stride, second_stride=second_stride, **kwargs)
+
+    @property
+    def out_strides(self) ->int:
+        """@TODO: Docs. Contribution is welcome."""
+        return self._out_strides
+
+    @property
+    def block(self):
+        """@TODO: Docs. Contribution is welcome."""
+        return self._block
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """Forward call."""
+        if self.pool_first:
+            x = F.max_pool2d(x, kernel_size=self.upsample_scale, stride=self.upsample_scale)
+        x = F.interpolate(x, scale_factor=self.upsample_scale, mode=self.interpolation_mode, align_corners=self.align_corners)
+        return self.block(x)
+
+
+def _upsample(x: torch.Tensor, scale: int=None, size: int=None, interpolation_mode: str='bilinear', align_corners: bool=True) ->torch.Tensor:
+    if scale is None:
+        x = F.interpolate(x, size=size, mode=interpolation_mode, align_corners=align_corners)
+    else:
+        x = F.interpolate(x, scale_factor=scale, mode=interpolation_mode, align_corners=align_corners)
+    return x
+
+
+class DecoderConcatBlock(DecoderBlock):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, in_channels: int, enc_channels: int, out_channels: int, in_strides: int=None, abn_block: nn.Module=ABN, activation: str='ReLU', pre_dropout_rate: float=0.0, post_dropout_rate: float=0.0, upsample_scale: int=None, interpolation_mode: str='bilinear', align_corners: bool=True, aggregate_first: bool=False, **kwargs):
+        """@TODO: Docs. Contribution is welcome."""
+        self.upsample_scale = upsample_scale
+        self.interpolation_mode = interpolation_mode
+        self.align_corners = align_corners
+        self.aggregate_first = aggregate_first
+        super().__init__(in_channels, enc_channels, out_channels, in_strides, abn_block=abn_block, activation=activation, pre_dropout_rate=pre_dropout_rate, post_dropout_rate=post_dropout_rate, **kwargs)
+
+    def _get_block(self, abn_block: nn.Module=ABN, activation: str='ReLU', pre_dropout_rate: float=0.0, post_dropout_rate: float=0.0, **kwargs):
+        layers = []
+        if pre_dropout_rate > 0:
+            layers.append(nn.Dropout2d(pre_dropout_rate, inplace=True))
+        layers.append(_get_block(in_channels=self.in_channels + self.enc_channels, out_channels=self.out_channels, abn_block=abn_block, activation=activation, first_stride=1, second_stride=1, **kwargs))
+        if post_dropout_rate > 0:
+            layers.append(nn.Dropout2d(pre_dropout_rate, inplace=True))
+        block = nn.Sequential(*layers)
+        return block
+
+    def forward(self, bottom: torch.Tensor, left: torch.Tensor) ->torch.Tensor:
+        """Forward call."""
+        if self.aggregate_first:
+            x = torch.cat([bottom, left], 1)
+            x = _upsample(x, scale=self.upsample_scale, interpolation_mode=self.interpolation_mode, align_corners=self.align_corners)
+        else:
+            x = _upsample(bottom, scale=self.upsample_scale, size=left.shape[2:], interpolation_mode=self.interpolation_mode, align_corners=self.align_corners)
+            x = torch.cat([x, left], 1)
+        return self.block(x)
+
+
+class DecoderSumBlock(DecoderConcatBlock):
+    """@TODO: Docs (add description, `Example`). Contribution is welcome"""
+
+    def __init__(self, enc_channels: int, **kwargs):
+        """
+        Args:
+            @TODO: Docs. Contribution is welcome.
+        """
+        super().__init__(enc_channels=0, **kwargs)
+
+    def forward(self, bottom: torch.Tensor, left: torch.Tensor) ->torch.Tensor:
+        """Forward call."""
+        if self.aggregate_first:
+            x = bottom + left
+            x = _upsample(x, scale=self.upsample_scale, interpolation_mode=self.interpolation_mode, align_corners=self.align_corners)
+            x = self.block(x)
+        else:
+            x = _upsample(bottom, scale=self.upsample_scale, size=left.shape[2:], interpolation_mode=self.interpolation_mode, align_corners=self.align_corners)
+            x = self.block(x)
+            x = x + left
+        return x
+
+
 class BridgeSpec(ABC, nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
@@ -719,6 +1081,34 @@ class BridgeSpec(ABC, nn.Module):
         pass
 
 
+class UnetBridge(BridgeSpec):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, in_channels: List[int], in_strides: List[int], out_channels: int, block_fn: EncoderBlock=EncoderDownsampleBlock, **kwargs):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__(in_channels, in_strides)
+        self.block = block_fn(in_channels=in_channels[-1], in_strides=in_strides[-1], out_channels=out_channels, **kwargs)
+        self._out_channels = in_channels + [self.block.out_channels]
+        self._out_strides = in_strides + [self.block.out_strides]
+
+    @property
+    def out_channels(self) ->List[int]:
+        """Number of channels produced by the block."""
+        return self._out_channels
+
+    @property
+    def out_strides(self) ->List[int]:
+        """@TODO: Docs. Contribution is welcome."""
+        return self._out_strides
+
+    def forward(self, x: List[torch.Tensor]) ->List[torch.Tensor]:
+        """Forward call."""
+        x_: torch.Tensor = x[-1]
+        x_: torch.Tensor = self.block(x_)
+        output = x + [x_]
+        return output
+
+
 class DecoderSpec(ABC, nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
@@ -750,22 +1140,6 @@ class DecoderSpec(ABC, nn.Module):
         pass
 
 
-class EncoderSpec(ABC, nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    @property
-    @abstractmethod
-    def out_channels(self) ->List[int]:
-        """Number of channels produced by the block."""
-        pass
-
-    @property
-    @abstractmethod
-    def out_strides(self) ->List[int]:
-        """@TODO: Docs. Contribution is welcome."""
-        pass
-
-
 class HeadSpec(ABC, nn.Module):
     """@TODO: Docs. Contribution is welcome."""
 
@@ -782,70 +1156,335 @@ class HeadSpec(ABC, nn.Module):
         pass
 
 
-def normalize(tensor, mean, std, inplace=False):
-    """Normalize a tensor image with mean and standard deviation.
+class UnetEncoder(EncoderSpec):
+    """@TODO: Docs. Contribution is welcome."""
 
-    .. note::
-        This transform acts out of place by default, i.e.,
-            it does not mutates the input tensor.
-
-    Args:
-        tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
-        mean (sequence): Sequence of means for each channel.
-        std (sequence): Sequence of standard deviations for each channel.
-        inplace(bool,optional): Bool to make this operation inplace.
-
-    Returns:
-        Tensor: Normalized Tensor image.
-    """
-    if not (torch.is_tensor(tensor) and tensor.ndimension() == 3):
-        raise TypeError('tensor is not a torch image.')
-    if not inplace:
-        tensor = tensor.clone()
-    dtype = tensor.dtype
-    mean = torch.as_tensor(mean, dtype=dtype, device=tensor.device)
-    std = torch.as_tensor(std, dtype=dtype, device=tensor.device)
-    tensor.sub_(mean[:, (None), (None)]).div_(std[:, (None), (None)])
-    return tensor
-
-
-class Normalize(object):
-    """Normalize a tensor image with mean and standard deviation.
-
-    Given mean: ``(mean[1],...,mean[n])`` and std: ``(std[1],..,std[n])``
-    for ``n`` channels, this transform will normalize each channel of the input
-    ``torch.*Tensor`` i.e.,
-    ``output[channel] = (input[channel] - mean[channel]) / std[channel]``
-
-    .. note::
-        This transform acts out of place, i.e.,
-            it does not mutate the input tensor.
-    """
-
-    def __init__(self, mean, std, inplace=False):
-        """
-        Args:
-            mean (sequence): Sequence of means for each channel.
-            std (sequence): Sequence of standard deviations for each channel.
-            inplace(bool,optional): Bool to make this operation in-place.
-        """
-        self.mean = mean
-        self.std = std
-        self.inplace = inplace
-
-    def __call__(self, tensor):
-        """
-        Args:
-            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
-
-        Returns:
-            Tensor: Normalized Tensor image.
-        """
-        return normalize(tensor, self.mean, self.std, self.inplace)
-
-    def __repr__(self):
+    def __init__(self, in_channels: int, num_channels: int, num_blocks: int, layers_indices: List[int]=None, **kwargs):
         """@TODO: Docs. Contribution is welcome."""
-        return self.__class__.__name__ + '(mean={0}, std={1})'.format(self.mean, self.std)
+        super().__init__()
+        self.num_filters = num_channels
+        self.num_blocks = num_blocks
+        self._layers_indices = layers_indices or list(range(num_blocks))
+        self._channels = [(self.num_filters * 2 ** i) for i in range(self.num_blocks)]
+        self._strides = [(2 ** i) for i in range(self.num_blocks)]
+        self._channels = _take(self._channels, self._layers_indices)
+        self._strides = _take(self._strides, self._layers_indices)
+        for i in range(num_blocks):
+            in_channels = in_channels if not i else num_channels * 2 ** (i - 1)
+            out_channels = num_channels * 2 ** i
+            self.add_module(f'block{i + 1}', EncoderDownsampleBlock(in_channels, out_channels, first_stride=1, **kwargs))
+            if i != self.num_blocks - 1:
+                self.add_module(f'pool{i + 1}', nn.MaxPool2d(2, 2))
+
+    @property
+    def out_channels(self) ->List[int]:
+        """Number of channels produced by the block."""
+        return self._channels
+
+    @property
+    def out_strides(self) ->List[int]:
+        """@TODO: Docs. Contribution is welcome."""
+        return self._strides
+
+    def forward(self, x: torch.Tensor) ->List[torch.Tensor]:
+        """Forward call."""
+        output = []
+        for i in range(self.num_blocks):
+            x = self.__getattr__(f'block{i + 1}')(x)
+            output.append(x)
+            if i != self.num_blocks - 1:
+                x = self.__getattr__(f'pool{i + 1}')(x)
+        output = _take(output, self._layers_indices)
+        return output
+
+
+class FPNDecoder(DecoderSpec):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, in_channels: List[int], in_strides: List[int], pyramid_channels: int=256, **kwargs):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__(in_channels, in_strides)
+        out_strides_ = [in_strides[-1]]
+        self.center_conv = nn.Conv2d(in_channels[-1], pyramid_channels, kernel_size=1)
+        reversed_features = list(reversed(in_channels[:-1]))
+        blocks = []
+        for encoder_features in reversed_features:
+            blocks.append(DecoderFPNBlock(in_channels=pyramid_channels, enc_channels=encoder_features, out_channels=pyramid_channels, in_strides=out_strides_[-1], **kwargs))
+            out_strides_.append(blocks[-1].out_strides)
+        self.blocks = nn.ModuleList(blocks)
+        self._out_channels = [pyramid_channels] * len(in_channels)
+        self._out_strides = out_strides_
+
+    @property
+    def out_channels(self) ->List[int]:
+        """Number of channels produced by the block."""
+        return self._out_channels
+
+    @property
+    def out_strides(self) ->List[int]:
+        """@TODO: Docs. Contribution is welcome."""
+        return self._out_strides
+
+    def forward(self, x: List[torch.Tensor]) ->List[torch.Tensor]:
+        """Forward call."""
+        fpn_features = [self.center_conv(x[-1])]
+        reversed_features = list(reversed(x[:-1]))
+        for _i, (fpn_block, encoder_output) in enumerate(zip(self.blocks, reversed_features)):
+            fpn_features.append(fpn_block(fpn_features[-1], encoder_output))
+        return fpn_features
+
+
+class PSPDecoder(DecoderSpec):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, in_channels: List[int], in_strides: List[int], downsample_factor: int=8, use_batchnorm: bool=True, out_channels: int=512):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__(in_channels, in_strides)
+        self.block_offset = self._get_block_offset(downsample_factor)
+        psp_out_channels: int = self._get(in_channels)
+        self.psp = PSPBlock(psp_out_channels, pool_sizes=(1, 2, 3, 6), use_batchnorm=use_batchnorm)
+        self.conv = _get_block(psp_out_channels * 2, out_channels, kernel_size=1, padding=0, abn_block=partial(ABN, use_batchnorm=use_batchnorm), complexity=0)
+        self._out_channels = out_channels
+        self.downsample_factor = downsample_factor
+
+    @property
+    def out_channels(self) ->List[int]:
+        """Number of channels produced by the block."""
+        return [self._out_channels]
+
+    @property
+    def out_strides(self) ->List[int]:
+        """@TODO: Docs. Contribution is welcome."""
+        return [self.downsample_factor]
+
+    def _get_block_offset(self, downsample_factor: int):
+        offset = self.in_strides.index(downsample_factor)
+        return offset
+
+    def _get(self, xs: List):
+        return xs[self.block_offset]
+
+    def forward(self, x: List[torch.Tensor]) ->List[torch.Tensor]:
+        """Forward call."""
+        features = self._get(x)
+        x = self.psp(features)
+        x = self.conv(x)
+        return [x]
+
+
+class UNetDecoder(DecoderSpec):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, in_channels: List[int], in_strides: List[int], block_fn: DecoderBlock=DecoderConcatBlock, **kwargs):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__(in_channels, in_strides)
+        out_channels_ = [in_channels[-1]]
+        out_strides_ = [in_strides[-1]]
+        reversed_channels = list(reversed(in_channels[:-1]))
+        blocks: List[DecoderBlock] = []
+        for encoder_channels in reversed_channels:
+            out_channels_.append(encoder_channels)
+            blocks.append(block_fn(in_channels=out_channels_[-2], enc_channels=encoder_channels, out_channels=out_channels_[-1], in_strides=out_strides_[-1], **kwargs))
+            out_strides_.append(blocks[-1].out_strides)
+        self.blocks = nn.ModuleList(blocks)
+        self._out_channels = out_channels_
+        self._out_strides = out_strides_
+
+    @property
+    def out_channels(self) ->List[int]:
+        """Number of channels produced by the block."""
+        return self._out_channels
+
+    @property
+    def out_strides(self) ->List[int]:
+        """@TODO: Docs. Contribution is welcome."""
+        return self._out_strides
+
+    def forward(self, x: List[torch.Tensor]) ->List[torch.Tensor]:
+        """Forward call."""
+        decoder_outputs = [x[-1]]
+        reversed_features = list(reversed(x[:-1]))
+        for _i, (decoder_block, encoder_output) in enumerate(zip(self.blocks, reversed_features)):
+            decoder_outputs.append(decoder_block(decoder_outputs[-1], encoder_output))
+        return decoder_outputs
+
+
+class FPNHead(HeadSpec):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, in_channels: List[int], out_channels: int, hid_channel: int=256, in_strides: List[int]=None, dropout: float=0.0, num_upsample_blocks: int=0, upsample_scale: int=1, interpolation_mode: str='bilinear', align_corners: bool=True):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__(in_channels, out_channels, in_strides)
+        self.upsample_scale = upsample_scale
+        self.interpolation_mode = interpolation_mode
+        self.align_corners = align_corners
+        segmentation_blocks = []
+        for i, in_channels_ in enumerate(in_channels):
+            if in_strides is not None:
+                i = np.log2(in_strides[i]) - num_upsample_blocks - np.log2(upsample_scale)
+            segmentation_blocks.append(SegmentationBlock(in_channels=in_channels_, out_channels=hid_channel, num_upsamples=int(i)))
+        self.segmentation_blocks = nn.ModuleList(segmentation_blocks)
+        additional_layers = [EncoderUpsampleBlock(hid_channel, hid_channel)] * num_upsample_blocks
+        if dropout > 0:
+            additional_layers.append(nn.Dropout2d(p=dropout, inplace=True))
+        self.head = nn.Sequential(*additional_layers, nn.Conv2d(hid_channel, out_channels, 1))
+
+    def forward(self, x: List[torch.Tensor]) ->torch.Tensor:
+        """Forward call."""
+        x = list(map(lambda block, features: block(features), self.segmentation_blocks, x))
+        x = sum(x)
+        x = self.head(x)
+        if self.upsample_scale > 1:
+            x = F.interpolate(x, scale_factor=self.upsample_scale, mode=self.interpolation_mode, align_corners=self.align_corners)
+        return x
+
+
+class UnetHead(HeadSpec):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, in_channels: List[int], out_channels: int, in_strides: List[int]=None, dropout: float=0.0, num_upsample_blocks: int=0, upsample_scale: int=1, interpolation_mode: str='bilinear', align_corners: bool=True):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__(in_channels, out_channels, in_strides)
+        self.upsample_scale = upsample_scale
+        self.interpolation_mode = interpolation_mode
+        self.align_corners = align_corners
+        in_channels_ = in_channels[-1]
+        additional_layers = [EncoderUpsampleBlock(in_channels_, in_channels_)] * num_upsample_blocks
+        if dropout > 0:
+            additional_layers.append(nn.Dropout2d(p=dropout, inplace=True))
+        self.head = nn.Sequential(*additional_layers, nn.Conv2d(in_channels_, out_channels, 1))
+
+    def forward(self, x: List[torch.Tensor]) ->torch.Tensor:
+        """Forward call."""
+        x_ = x[-1]
+        x = self.head(x_)
+        if self.upsample_scale > 1:
+            x = F.interpolate(x, scale_factor=self.upsample_scale, mode=self.interpolation_mode, align_corners=self.align_corners)
+        return x
+
+
+class Normalize(nn.Module):
+    """Performs :math:`L_p` normalization of inputs over specified dimension.
+
+    @TODO: Docs (add `Example`). Contribution is welcome.
+    """
+
+    def __init__(self, **normalize_kwargs):
+        """
+        Args:
+            **normalize_kwargs: see ``torch.nn.functional.normalize`` params
+        """
+        super().__init__()
+        self.normalize_kwargs = normalize_kwargs
+
+    def forward(self, x):
+        """Forward call."""
+        return F.normalize(x, **self.normalize_kwargs)
+
+
+LateAddCallbak = Callable[['Registry'], None]
+
+
+class RegistryException(Exception):
+    """Exception class for all registry errors."""
+
+    def __init__(self, message):
+        """
+        Init.
+
+        Args:
+            message: exception message
+        """
+        super().__init__(message)
+
+
+class ResidualWrapper(nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, net):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__()
+        self.net = net
+
+    def forward(self, x):
+        """Forward call."""
+        return x + self.net(x)
+
+
+def _process_additional_params(params, layers):
+    if isinstance(params, List):
+        assert len(params) == len(layers)
+    else:
+        params = [params] * len(layers)
+    return params
+
+
+class SequentialNet(nn.Module):
+    """@TODO: Docs. Contribution is welcome."""
+
+    def __init__(self, hiddens, layer_fn: Union[str, Dict, List], norm_fn: Union[str, Dict, List]=None, dropout_fn: Union[str, Dict, List]=None, activation_fn: Union[str, Dict, List]=None, residual: Union[bool, str]=False, layer_order: List=None):
+        """@TODO: Docs. Contribution is welcome."""
+        super().__init__()
+        assert len(hiddens) > 1, 'No sequence found'
+        layer_fn = _process_additional_params(layer_fn, hiddens[1:])
+        norm_fn = _process_additional_params(norm_fn, hiddens[1:])
+        dropout_fn = _process_additional_params(dropout_fn, hiddens[1:])
+        activation_fn = _process_additional_params(activation_fn, hiddens[1:])
+        if isinstance(residual, bool) and residual:
+            residual = 'hard'
+            residual = _process_additional_params(residual, hiddens[1:])
+        layer_order = layer_order or ['layer', 'norm', 'drop', 'act']
+
+        def _layer_fn(layer_fn, f_in, f_out, **kwargs):
+            layer_fn = MODULES.get_if_str(layer_fn)
+            layer_fn = layer_fn(f_in, f_out, **kwargs)
+            return layer_fn
+
+        def _normalization_fn(normalization_fn, f_in, f_out, **kwargs):
+            normalization_fn = MODULES.get_if_str(normalization_fn)
+            normalization_fn = normalization_fn(f_out, **kwargs) if normalization_fn is not None else None
+            return normalization_fn
+
+        def _dropout_fn(dropout_fn, f_in, f_out, **kwargs):
+            dropout_fn = MODULES.get_if_str(dropout_fn)
+            dropout_fn = dropout_fn(**kwargs) if dropout_fn is not None else None
+            return dropout_fn
+
+        def _activation_fn(activation_fn, f_in, f_out, **kwargs):
+            activation_fn = MODULES.get_if_str(activation_fn)
+            activation_fn = activation_fn(**kwargs) if activation_fn is not None else None
+            return activation_fn
+        name2fn = {'layer': _layer_fn, 'norm': _normalization_fn, 'drop': _dropout_fn, 'act': _activation_fn}
+        name2params = {'layer': layer_fn, 'norm': norm_fn, 'drop': dropout_fn, 'act': activation_fn}
+        net = []
+        for i, (f_in, f_out) in enumerate(utils.pairwise(hiddens)):
+            block = []
+            for key in layer_order:
+                sub_fn = name2fn[key]
+                sub_params = deepcopy(name2params[key][i])
+                if isinstance(sub_params, Dict):
+                    sub_module = sub_params.pop('module')
+                else:
+                    sub_module = sub_params
+                    sub_params = {}
+                sub_block = sub_fn(sub_module, f_in, f_out, **sub_params)
+                if sub_block is not None:
+                    block.append((f'{key}', sub_block))
+            block_ = OrderedDict(block)
+            block = torch.nn.Sequential(block_)
+            if block_.get('act', None) is not None:
+                activation = block_['act']
+                activation_init = utils.get_optimal_inner_init(nonlinearity=activation)
+                block.apply(activation_init)
+            if residual == 'hard' or residual == 'soft' and f_in == f_out:
+                block = ResidualWrapper(net=block)
+            net.append((f'block_{i}', block))
+        self.net = torch.nn.Sequential(OrderedDict(net))
+
+    def forward(self, x):
+        """Forward call."""
+        x = self.net.forward(x)
+        return x
 
 
 class Hydra(nn.Module):
@@ -1004,95 +1643,6 @@ class BertClassifier(nn.Module):
         pooled_output = self.pre_classifier(pooled_output)
         logits = self.classifier(pooled_output)
         return logits
-
-
-class ResidualWrapper(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, net):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        self.net = net
-
-    def forward(self, x):
-        """Forward call."""
-        return x + self.net(x)
-
-
-def _process_additional_params(params, layers):
-    if isinstance(params, List):
-        assert len(params) == len(layers)
-    else:
-        params = [params] * len(layers)
-    return params
-
-
-class SequentialNet(nn.Module):
-    """@TODO: Docs. Contribution is welcome."""
-
-    def __init__(self, hiddens, layer_fn: Union[str, Dict, List], norm_fn: Union[str, Dict, List]=None, dropout_fn: Union[str, Dict, List]=None, activation_fn: Union[str, Dict, List]=None, residual: Union[bool, str]=False, layer_order: List=None):
-        """@TODO: Docs. Contribution is welcome."""
-        super().__init__()
-        assert len(hiddens) > 1, 'No sequence found'
-        layer_fn = _process_additional_params(layer_fn, hiddens[1:])
-        norm_fn = _process_additional_params(norm_fn, hiddens[1:])
-        dropout_fn = _process_additional_params(dropout_fn, hiddens[1:])
-        activation_fn = _process_additional_params(activation_fn, hiddens[1:])
-        if isinstance(residual, bool) and residual:
-            residual = 'hard'
-            residual = _process_additional_params(residual, hiddens[1:])
-        layer_order = layer_order or ['layer', 'norm', 'drop', 'act']
-
-        def _layer_fn(layer_fn, f_in, f_out, **kwargs):
-            layer_fn = MODULES.get_if_str(layer_fn)
-            layer_fn = layer_fn(f_in, f_out, **kwargs)
-            return layer_fn
-
-        def _normalization_fn(normalization_fn, f_in, f_out, **kwargs):
-            normalization_fn = MODULES.get_if_str(normalization_fn)
-            normalization_fn = normalization_fn(f_out, **kwargs) if normalization_fn is not None else None
-            return normalization_fn
-
-        def _dropout_fn(dropout_fn, f_in, f_out, **kwargs):
-            dropout_fn = MODULES.get_if_str(dropout_fn)
-            dropout_fn = dropout_fn(**kwargs) if dropout_fn is not None else None
-            return dropout_fn
-
-        def _activation_fn(activation_fn, f_in, f_out, **kwargs):
-            activation_fn = MODULES.get_if_str(activation_fn)
-            activation_fn = activation_fn(**kwargs) if activation_fn is not None else None
-            return activation_fn
-        name2fn = {'layer': _layer_fn, 'norm': _normalization_fn, 'drop': _dropout_fn, 'act': _activation_fn}
-        name2params = {'layer': layer_fn, 'norm': norm_fn, 'drop': dropout_fn, 'act': activation_fn}
-        net = []
-        for i, (f_in, f_out) in enumerate(utils.pairwise(hiddens)):
-            block = []
-            for key in layer_order:
-                sub_fn = name2fn[key]
-                sub_params = deepcopy(name2params[key][i])
-                if isinstance(sub_params, Dict):
-                    sub_module = sub_params.pop('module')
-                else:
-                    sub_module = sub_params
-                    sub_params = {}
-                sub_block = sub_fn(sub_module, f_in, f_out, **sub_params)
-                if sub_block is not None:
-                    block.append((f'{key}', sub_block))
-            block_ = OrderedDict(block)
-            block = torch.nn.Sequential(block_)
-            if block_.get('act', None) is not None:
-                activation = block_['act']
-                activation_init = utils.get_optimal_inner_init(nonlinearity=activation)
-                block.apply(activation_init)
-            if residual == 'hard' or residual == 'soft' and f_in == f_out:
-                block = ResidualWrapper(net=block)
-            net.append((f'block_{i}', block))
-        self.net = torch.nn.Sequential(OrderedDict(net))
-
-    def forward(self, x):
-        """Forward call."""
-        x = self.net.forward(x)
-        return x
 
 
 class NaiveCrossEntropyLoss(nn.Module):
@@ -1446,6 +1996,42 @@ class FocalLossBinary(_Loss):
             logits = logits[not_ignored]
             targets = targets[not_ignored]
         loss = self.loss_fn(logits, targets)
+        return loss
+
+
+class FocalLossMultiClass(FocalLossBinary):
+    """Compute focal loss for multi-class problem.
+    Ignores targets having -1 label.
+
+    It has been proposed in `Focal Loss for Dense Object Detection`_ paper.
+
+    @TODO: Docs (add `Example`). Contribution is welcome.
+
+    .. _Focal Loss for Dense Object Detection:
+        https://arxiv.org/abs/1708.02002
+    """
+
+    def forward(self, logits, targets):
+        """
+        Args:
+            logits: [bs; num_classes; ...]
+            targets: [bs; ...]
+
+        @TODO: Docs. Contribution is welcome.
+        """
+        num_classes = logits.size(1)
+        loss = 0
+        targets = targets.view(-1)
+        logits = logits.view(-1, num_classes)
+        if self.ignore is not None:
+            not_ignored = targets != self.ignore
+        for cls in range(num_classes):
+            cls_label_target = (targets == cls + 0).long()
+            cls_label_input = logits[..., cls]
+            if self.ignore is not None:
+                cls_label_target = cls_label_target[not_ignored]
+                cls_label_input = cls_label_input[not_ignored]
+            loss += self.loss_fn(cls_label_input, cls_label_target)
         return loss
 
 
@@ -2219,25 +2805,6 @@ class Lambda(nn.Module):
         return self.lambda_fn(x)
 
 
-class Normalize(nn.Module):
-    """Performs :math:`L_p` normalization of inputs over specified dimension.
-
-    @TODO: Docs (add `Example`). Contribution is welcome.
-    """
-
-    def __init__(self, **normalize_kwargs):
-        """
-        Args:
-            **normalize_kwargs: see ``torch.nn.functional.normalize`` params
-        """
-        super().__init__()
-        self.normalize_kwargs = normalize_kwargs
-
-    def forward(self, x):
-        """Forward call."""
-        return F.normalize(x, **self.normalize_kwargs)
-
-
 class GaussianNoise(nn.Module):
     """
     A gaussian noise module.
@@ -2837,179 +3404,30 @@ class _TracingModelWrapper(nn.Module):
         return output
 
 
-class SimpleNet(nn.Module):
+class Model(torch.nn.Module):
     """
     @TODO: Docs. Contribution is welcome
     """
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         """
         @TODO: Docs. Contribution is welcome
         """
         super().__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
 
     def forward(self, x):
         """
         @TODO: Docs. Contribution is welcome
         """
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = x.view(-1, 16 * 5 * 5)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
         return x
 
-
-class SimpleNet(nn.Module):
-    """
-    @TODO: Docs. Contribution is welcome
-    """
-
-    def __init__(self):
+    @classmethod
+    def get_from_params(cls, **model_params) ->'Model':
         """
         @TODO: Docs. Contribution is welcome
         """
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4 * 4 * 50, 500)
-        self.fc2 = nn.Linear(500, 10)
-
-    def forward(self, x):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class SimpleNet(nn.Module):
-    """
-    @TODO: Docs. Contribution is welcome
-    """
-
-    def __init__(self):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4 * 4 * 50, 500)
-        self.fc2 = nn.Linear(500, 10)
-
-    def forward(self, x):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class SimpleNet(nn.Module):
-    """
-    @TODO: Docs. Contribution is welcome
-    """
-
-    def __init__(self):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4 * 4 * 50, 500)
-        self.fc2 = nn.Linear(500, 10)
-
-    def forward(self, x):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class SimpleNet(nn.Module):
-    """
-    @TODO: Docs. Contribution is welcome
-    """
-
-    def __init__(self):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4 * 4 * 50, 500)
-        self.fc2 = nn.Linear(500, 10)
-
-    def forward(self, x):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class SimpleNet(nn.Module):
-    """
-    @TODO: Docs. Contribution is welcome
-    """
-
-    def __init__(self):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        super().__init__()
-        self.conv1 = nn.Conv2d(1, 20, 5, 1)
-        self.conv2 = nn.Conv2d(20, 50, 5, 1)
-        self.fc1 = nn.Linear(4 * 4 * 50, 500)
-        self.fc2 = nn.Linear(500, 10)
-
-    def forward(self, x):
-        """
-        @TODO: Docs. Contribution is welcome
-        """
-        x = F.relu(self.conv1(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = F.relu(self.conv2(x))
-        x = F.max_pool2d(x, 2, 2)
-        x = x.view(-1, 4 * 4 * 50)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+        model = cls(**model_params)
+        return model
 
 
 class SimpleNet(nn.Module):
@@ -3069,190 +3487,6 @@ class Projector(nn.Module):
 
     def forward(self, X: torch.Tensor) ->torch.Tensor:
         return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class Projector(nn.Module):
-
-    def __init__(self, input_size: int):
-        super().__init__()
-        self.linear = nn.Linear(input_size, 1)
-
-    def forward(self, X: torch.Tensor) ->torch.Tensor:
-        return self.linear(X).squeeze(-1)
-
-
-class ClassifyAE(nn.Module):
-    """
-    Docs.
-    """
-
-    def __init__(self, in_features, hid_features, out_features):
-        """
-        Docs.
-        """
-        super().__init__()
-        self.encoder = nn.Sequential(nn.Linear(in_features, hid_features), nn.Tanh())
-        self.decoder = nn.Sequential(nn.Linear(hid_features, in_features), nn.Sigmoid())
-        self.clf = nn.Linear(hid_features, out_features)
-
-    def forward(self, x):
-        """
-        Docs.
-        """
-        z = self.encoder(x)
-        y_hat = self.clf(z)
-        x_ = self.decoder(z)
-        return y_hat, x_
 
 
 class ClassifyAE(torch.nn.Module):
@@ -3365,6 +3599,26 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      True),
+    (DecoderConcatBlock,
+     lambda: ([], {'in_channels': 4, 'enc_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DecoderFPNBlock,
+     lambda: ([], {'in_channels': 4, 'enc_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 8, 8])], {}),
+     False),
+    (DecoderSumBlock,
+     lambda: ([], {'enc_channels': 4, 'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (EncoderDownsampleBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (EncoderUpsampleBlock,
+     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Flatten,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3416,6 +3670,10 @@ TESTCASES = [
     (MeanOutputLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (Model,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (NaiveCrossEntropyLoss,
      lambda: ([], {}),
@@ -3485,6 +3743,14 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4]), torch.rand([4, 4])], {}),
      True),
+    (UnetEncoder,
+     lambda: ([], {'in_channels': 4, 'num_channels': 4, 'num_blocks': 4}),
+     lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (UnetHead,
+     lambda: ([], {'in_channels': [4, 4], 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 64, 64])], {}),
+     False),
     (WingLoss,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
@@ -3608,4 +3874,28 @@ class Test_catalyst_team_catalyst(_paritybench_base):
 
     def test_038(self):
         self._check(*TESTCASES[38])
+
+    def test_039(self):
+        self._check(*TESTCASES[39])
+
+    def test_040(self):
+        self._check(*TESTCASES[40])
+
+    def test_041(self):
+        self._check(*TESTCASES[41])
+
+    def test_042(self):
+        self._check(*TESTCASES[42])
+
+    def test_043(self):
+        self._check(*TESTCASES[43])
+
+    def test_044(self):
+        self._check(*TESTCASES[44])
+
+    def test_045(self):
+        self._check(*TESTCASES[45])
+
+    def test_046(self):
+        self._check(*TESTCASES[46])
 

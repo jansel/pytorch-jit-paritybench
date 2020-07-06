@@ -27,23 +27,63 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils.data.dataloader import default_collate
 
 
 import numpy as np
 
 
+import scipy.misc as misc
+
+
 import torch
+
+
+import torch.utils.data as data
+
+
+import random
+
+
+from torchvision import transforms
+
+
+import math
+
+
+import collections
+
+
+import torch.multiprocessing as multiprocessing
+
+
+from torch._C import _set_worker_signal_handlers
+
+
+from torch._C import _remove_worker_pids
+
+
+from torch._C import _error_if_any_worker_fails
+
+
+from torch.utils.data.dataloader import DataLoader
+
+
+from torch.utils.data.dataloader import ExceptionWrapper
 
 
 import torch.nn as nn
@@ -64,10 +104,16 @@ import torchvision.models as models
 from torch.nn import DataParallel
 
 
-import math
-
-
 import torch.nn.init as init
+
+
+import time
+
+
+from functools import reduce
+
+
+import torch.optim.lr_scheduler as lrs
 
 
 class Loss(nn.modules.loss._Loss):
@@ -422,27 +468,39 @@ class Model(nn.Module):
         return output
 
 
-class MeanShift(nn.Conv2d):
+class MeanShift(nn.Module):
 
-    def __init__(self, rgb_range, rgb_mean, rgb_std, sign=-1):
-        super(MeanShift, self).__init__(3, 3, kernel_size=1)
-        std = torch.Tensor(rgb_std)
-        self.weight.data = torch.eye(3).view(3, 3, 1, 1)
-        self.weight.data.div_(std.view(3, 1, 1, 1))
-        self.bias.data = sign * rgb_range * torch.Tensor(rgb_mean)
-        self.bias.data.div_(std)
-        self.requires_grad = False
+    def __init__(self, mean_rgb, sub):
+        super(MeanShift, self).__init__()
+        sign = -1 if sub else 1
+        r = mean_rgb[0] * sign
+        g = mean_rgb[1] * sign
+        b = mean_rgb[2] * sign
+        self.shifter = nn.Conv2d(3, 3, 1, 1, 0)
+        self.shifter.weight.data = torch.eye(3).view(3, 3, 1, 1)
+        self.shifter.bias.data = torch.Tensor([r, g, b])
+        for params in self.shifter.parameters():
+            params.requires_grad = False
+
+    def forward(self, x):
+        x = self.shifter(x)
+        return x
 
 
-class BasicBlock(nn.Sequential):
+def init_weights(modules):
+    pass
 
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, bias=False, bn=True, act=nn.ReLU(True)):
-        m = [nn.Conv2d(in_channels, out_channels, kernel_size, padding=kernel_size // 2, stride=stride, bias=bias)]
-        if bn:
-            m.append(nn.BatchNorm2d(out_channels))
-        if act is not None:
-            m.append(act)
-        super(BasicBlock, self).__init__(*m)
+
+class BasicBlock(nn.Module):
+
+    def __init__(self, in_channels, out_channels, ksize=3, stride=1, pad=1):
+        super(BasicBlock, self).__init__()
+        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, ksize, stride, pad), nn.ReLU(inplace=True))
+        init_weights(self.modules)
+
+    def forward(self, x):
+        out = self.body(x)
+        return out
 
 
 class ResBlock(nn.Module):
@@ -489,29 +547,6 @@ class Upsampler(nn.Sequential):
         super(Upsampler, self).__init__(*m)
 
 
-class MeanShift(nn.Module):
-
-    def __init__(self, mean_rgb, sub):
-        super(MeanShift, self).__init__()
-        sign = -1 if sub else 1
-        r = mean_rgb[0] * sign
-        g = mean_rgb[1] * sign
-        b = mean_rgb[2] * sign
-        self.shifter = nn.Conv2d(3, 3, 1, 1, 0)
-        self.shifter.weight.data = torch.eye(3).view(3, 3, 1, 1)
-        self.shifter.bias.data = torch.Tensor([r, g, b])
-        for params in self.shifter.parameters():
-            params.requires_grad = False
-
-    def forward(self, x):
-        x = self.shifter(x)
-        return x
-
-
-def init_weights(modules):
-    pass
-
-
 class Merge_Run(nn.Module):
 
     def __init__(self, in_channels, out_channels, ksize=3, stride=1, pad=1, dilation=1):
@@ -545,18 +580,6 @@ class Merge_Run_dual(nn.Module):
         c = torch.cat([out1, out2], dim=1)
         c_out = self.body3(c)
         out = c_out + x
-        return out
-
-
-class BasicBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, ksize=3, stride=1, pad=1):
-        super(BasicBlock, self).__init__()
-        self.body = nn.Sequential(nn.Conv2d(in_channels, out_channels, ksize, stride, pad), nn.ReLU(inplace=True))
-        init_weights(self.modules)
-
-    def forward(self, x):
-        out = self.body(x)
         return out
 
 
@@ -598,6 +621,26 @@ class EResidualBlock(nn.Module):
         return out
 
 
+class _UpsampleBlock(nn.Module):
+
+    def __init__(self, n_channels, scale, group=1):
+        super(_UpsampleBlock, self).__init__()
+        modules = []
+        if scale == 2 or scale == 4 or scale == 8:
+            for _ in range(int(math.log(scale, 2))):
+                modules += [nn.Conv2d(n_channels, 4 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
+                modules += [nn.PixelShuffle(2)]
+        elif scale == 3:
+            modules += [nn.Conv2d(n_channels, 9 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
+            modules += [nn.PixelShuffle(3)]
+        self.body = nn.Sequential(*modules)
+        init_weights(self.modules)
+
+    def forward(self, x):
+        out = self.body(x)
+        return out
+
+
 class UpsampleBlock(nn.Module):
 
     def __init__(self, n_channels, scale, multi_scale, group=1):
@@ -620,26 +663,6 @@ class UpsampleBlock(nn.Module):
                 return self.up4(x)
         else:
             return self.up(x)
-
-
-class _UpsampleBlock(nn.Module):
-
-    def __init__(self, n_channels, scale, group=1):
-        super(_UpsampleBlock, self).__init__()
-        modules = []
-        if scale == 2 or scale == 4 or scale == 8:
-            for _ in range(int(math.log(scale, 2))):
-                modules += [nn.Conv2d(n_channels, 4 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
-                modules += [nn.PixelShuffle(2)]
-        elif scale == 3:
-            modules += [nn.Conv2d(n_channels, 9 * n_channels, 3, 1, 1, groups=group), nn.ReLU(inplace=True)]
-            modules += [nn.PixelShuffle(3)]
-        self.body = nn.Sequential(*modules)
-        init_weights(self.modules)
-
-    def forward(self, x):
-        out = self.body(x)
-        return out
 
 
 class CALayer(nn.Module):
@@ -748,6 +771,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (UpsampleBlock,
+     lambda: ([], {'n_channels': 4, 'scale': 1.0, 'multi_scale': 1.0}),
+     lambda: ([torch.rand([4, 4, 4, 4]), 0], {}),
+     False),
     (_UpsampleBlock,
      lambda: ([], {'n_channels': 4, 'scale': 1.0}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -784,4 +811,7 @@ class Test_saeed_anwar_RIDNet(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
 

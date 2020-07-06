@@ -19,17 +19,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
 
 
 import math
@@ -47,9 +51,6 @@ import scipy as sp
 import scipy.linalg
 
 
-import torch
-
-
 import torch.nn as nn
 
 
@@ -63,6 +64,9 @@ import torch.optim as optim
 
 
 import torch.utils.data
+
+
+import torchvision
 
 
 class MaskedLinear(nn.Module):
@@ -182,6 +186,18 @@ class Sigmoid(nn.Module):
             return s(inputs), torch.log(s(inputs) * (1 - s(inputs))).sum(-1, keepdim=True)
         else:
             return torch.log(inputs / (1 - inputs)), -torch.log(inputs - inputs ** 2).sum(-1, keepdim=True)
+
+
+class Logit(Sigmoid):
+
+    def __init__(self):
+        super(Logit, self).__init__()
+
+    def forward(self, inputs, cond_inputs=None, mode='direct'):
+        if mode == 'direct':
+            return super(Logit, self).forward(inputs, 'inverse')
+        else:
+            return super(Logit, self).forward(inputs, 'direct')
 
 
 class BatchNormFlow(nn.Module):
@@ -458,6 +474,10 @@ TESTCASES = [
      lambda: ([], {'num_inputs': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (Logit,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Reverse,
      lambda: ([], {'num_inputs': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -499,4 +519,7 @@ class Test_ikostrikov_pytorch_flows(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

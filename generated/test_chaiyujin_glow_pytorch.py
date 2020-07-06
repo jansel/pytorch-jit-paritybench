@@ -20,20 +20,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import re
+
+
+import copy
+
+
 import torch
+
+
+from collections import defaultdict
 
 
 import torch.nn as nn
@@ -48,10 +58,19 @@ import numpy as np
 import scipy.linalg
 
 
-import re
-
-
 from torch.utils.data import DataLoader
+
+
+import random
+
+
+from torchvision import transforms
+
+
+import tensorflow as tf
+
+
+from torch.utils.data import Dataset
 
 
 def f(in_channels, out_channels, hidden_channels):
@@ -370,6 +389,16 @@ class _ActNorm(nn.Module):
         return input, logdet
 
 
+class ActNorm2d(_ActNorm):
+
+    def __init__(self, num_features, scale=1.0):
+        super().__init__(num_features, scale)
+
+    def _check_input_dim(self, input):
+        assert len(input.size()) == 4
+        assert input.size(1) == self.num_features, '[ActNorm]: input should be in shape as `BCHW`, channels should be {} rather than {}'.format(self.num_features, input.size())
+
+
 class LinearZeros(nn.Linear):
 
     def __init__(self, in_channels, out_channels, logscale_factor=3):
@@ -382,16 +411,6 @@ class LinearZeros(nn.Linear):
     def forward(self, input):
         output = super().forward(input)
         return output * torch.exp(self.logs * self.logscale_factor)
-
-
-class ActNorm2d(_ActNorm):
-
-    def __init__(self, num_features, scale=1.0):
-        super().__init__(num_features, scale)
-
-    def _check_input_dim(self, input):
-        assert len(input.size()) == 4
-        assert input.size(1) == self.num_features, '[ActNorm]: input should be in shape as `BCHW`, channels should be {} rather than {}'.format(self.num_features, input.size())
 
 
 class Conv2d(nn.Conv2d):

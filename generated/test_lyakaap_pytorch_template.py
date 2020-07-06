@@ -16,15 +16,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -41,16 +42,28 @@ import torch.nn as nn
 import torch.optim as optim
 
 
+from sklearn.model_selection import train_test_split
+
+
 from torch.utils.data import DataLoader
 
 
 from torchvision import transforms
 
 
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import sampler
+
+
 import torch.nn.functional as F
 
 
 from itertools import filterfalse
+
+
+import math
 
 
 from torch import nn
@@ -71,33 +84,13 @@ from collections import OrderedDict
 from collections import deque
 
 
+from sklearn.model_selection import ParameterGrid
+
+
+from sklearn.model_selection import ParameterSampler
+
+
 import torchvision
-
-
-class MixLoss(nn.Module):
-
-    def __init__(self, bce_w=1.0, dice_w=0.0, focal_w=0.0, lovasz_w=0.0, bce_kwargs={}, dice_kwargs={}, focal_kwargs={}, lovasz_kwargs={}):
-        super(MixLoss, self).__init__()
-        self.bce_w = bce_w
-        self.dice_w = dice_w
-        self.focal_w = focal_w
-        self.lovasz_w = lovasz_w
-        self.bce_loss = nn.BCEWithLogitsLoss(**bce_kwargs)
-        self.dice_loss = DiceLoss(**dice_kwargs)
-        self.focal_loss = FocalLoss(**focal_kwargs)
-        self.lovasz_loss = LovaszHinge(**lovasz_kwargs)
-
-    def forward(self, output, target):
-        loss = 0.0
-        if self.bce_w:
-            loss += self.bce_w * self.bce_loss(output, target)
-        if self.dice_w:
-            loss += self.dice_w * self.dice_loss(output, target)
-        if self.focal_w:
-            loss += self.focal_w * self.focal_loss(output, target)
-        if self.lovasz_w:
-            loss += self.lovasz_w * self.lovasz_loss(output, target)
-        return loss
 
 
 class DiceLoss(nn.Module):
@@ -113,30 +106,6 @@ class DiceLoss(nn.Module):
             output = 1.0 - output
             target = 1.0 - target
         return 1.0 - (2 * torch.sum(output * target) + self.smooth) / (torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
-
-
-class SoftIoULoss(nn.Module):
-
-    def __init__(self, n_classes=19):
-        super(SoftIoULoss, self).__init__()
-        self.n_classes = n_classes
-
-    @staticmethod
-    def to_one_hot(tensor, n_classes):
-        n, h, w = tensor.size()
-        one_hot = torch.zeros(n, n_classes, h, w).scatter_(1, tensor.view(n, 1, h, w), 1)
-        return one_hot
-
-    def forward(self, logit, target):
-        N = len(logit)
-        pred = F.softmax(logit, dim=1)
-        target_onehot = self.to_one_hot(target, self.n_classes)
-        inter = pred * target_onehot
-        inter = inter.view(N, self.n_classes, -1).sum(2)
-        union = pred + target_onehot - pred * target_onehot
-        union = union.view(N, self.n_classes, -1).sum(2)
-        loss = inter / (union + 1e-16)
-        return -loss.mean()
 
 
 class FocalLoss(nn.Module):
@@ -241,6 +210,56 @@ class LovaszHinge(nn.Module):
         else:
             loss = self.lovasz_hinge_flat(*flatten_binary_scores(logits, labels, self.ignore))
         return loss
+
+
+class MixLoss(nn.Module):
+
+    def __init__(self, bce_w=1.0, dice_w=0.0, focal_w=0.0, lovasz_w=0.0, bce_kwargs={}, dice_kwargs={}, focal_kwargs={}, lovasz_kwargs={}):
+        super(MixLoss, self).__init__()
+        self.bce_w = bce_w
+        self.dice_w = dice_w
+        self.focal_w = focal_w
+        self.lovasz_w = lovasz_w
+        self.bce_loss = nn.BCEWithLogitsLoss(**bce_kwargs)
+        self.dice_loss = DiceLoss(**dice_kwargs)
+        self.focal_loss = FocalLoss(**focal_kwargs)
+        self.lovasz_loss = LovaszHinge(**lovasz_kwargs)
+
+    def forward(self, output, target):
+        loss = 0.0
+        if self.bce_w:
+            loss += self.bce_w * self.bce_loss(output, target)
+        if self.dice_w:
+            loss += self.dice_w * self.dice_loss(output, target)
+        if self.focal_w:
+            loss += self.focal_w * self.focal_loss(output, target)
+        if self.lovasz_w:
+            loss += self.lovasz_w * self.lovasz_loss(output, target)
+        return loss
+
+
+class SoftIoULoss(nn.Module):
+
+    def __init__(self, n_classes=19):
+        super(SoftIoULoss, self).__init__()
+        self.n_classes = n_classes
+
+    @staticmethod
+    def to_one_hot(tensor, n_classes):
+        n, h, w = tensor.size()
+        one_hot = torch.zeros(n, n_classes, h, w).scatter_(1, tensor.view(n, 1, h, w), 1)
+        return one_hot
+
+    def forward(self, logit, target):
+        N = len(logit)
+        pred = F.softmax(logit, dim=1)
+        target_onehot = self.to_one_hot(target, self.n_classes)
+        inter = pred * target_onehot
+        inter = inter.view(N, self.n_classes, -1).sum(2)
+        union = pred + target_onehot - pred * target_onehot
+        union = union.view(N, self.n_classes, -1).sum(2)
+        loss = inter / (union + 1e-16)
+        return -loss.mean()
 
 
 def flatten_probas(probas, labels, ignore=None):
@@ -450,135 +469,6 @@ class CriterionOhemDSN_single(nn.Module):
         return self.dsn_weight * loss1 + loss2
 
 
-class MLSNet(nn.Module):
-
-    def __init__(self, n_classes: int=19, encoder_depth: int=18, pretrained: bool=True, up_mode: str='bilinear', bn_module=nn.BatchNorm2d, dilations: tuple=None, stop_level: int=3, multiple_oc_size: int=4, n_oc: int=3):
-        """
-        :param stop_level: level for pruning calc.
-            1: first level,
-            2: second level,
-            3: third level (return all level preds),
-        """
-        super(MLSNet, self).__init__()
-        encoder = ResNetEncoder(encoder_depth=encoder_depth, pretrained=pretrained, bn_module=bn_module, relu_inplace=True)
-        activation = nn.ReLU(inplace=True)
-        self.encoder = encoder.encoder
-        self.channels_list = encoder.channels_list
-        self.depth = len(self.channels_list)
-        self.up_mode = up_mode
-        self.align_corners = False if self.up_mode == 'bilinear' else None
-        self.stop_level = stop_level
-        if dilations is None:
-            dilations = [1] * self.depth
-        self.decoder = nn.ModuleList([nn.ModuleList([None for _ in range(i)]) for i in reversed(range(1, self.depth))])
-        for i in reversed(range(self.depth - 1)):
-            for j in range(0, self.depth - i - 1):
-                in_ch = self.channels_list[i] + self.channels_list[i + 1]
-                out_ch = self.channels_list[i]
-                self.decoder[i][j] = ConvLayer(in_ch, out_ch, kernel_size=3, padding=dilations[j], dilation=dilations[j], activation=activation, bn_module=bn_module)
-        if n_oc > 0:
-            dilation_rates = [(6, 12, 24), (4, 8, 12), (2, 4, 6)]
-            for i in range(n_oc):
-                self.decoder[i][0].add_module(f'oc_{i}', ASP_OC_Module(self.channels_list[i], self.channels_list[i], size=2 ** (multiple_oc_size - i), dilations=dilation_rates[i], bn_module=bn_module))
-        self.cls = nn.ModuleList(nn.Conv2d(self.channels_list[0], n_classes, kernel_size=1) for _ in range(self.depth - 1))
-        self._init_weight()
-
-    def _init_weight(self):
-        for m in self.decoder.modules():
-            if isinstance(m, nn.Conv2d):
-                torch.nn.init.kaiming_normal_(m.weight)
-        for m in self.cls.modules():
-            if isinstance(m, nn.Conv2d):
-                torch.nn.init.kaiming_normal_(m.weight)
-
-    def forward(self, x, return_all_preds=True):
-        """
-        :param x: input tensor (shape: B, C, H, W)
-        :param return_all_preds:
-            True:
-                All level predictions are returned. It is necessary when training.
-            False:
-                Only one prediction are returned according to self.stop_level.
-                This enables to avoid redundant calculation and thus saves inference time.
-        :return: list of predictions from each level classifiers
-        """
-        X = [[None for _ in range(i + 1)] for i in reversed(range(self.depth))]
-        preds = []
-        for i in range(self.depth):
-            if i == 0:
-                X[0][0] = self.encoder[0](x)
-            else:
-                X[i][0] = self.encoder[i](X[i - 1][0])
-            for j in range(i):
-                if i - (j + 1) == 0:
-                    cat_feat = torch.cat([X[i - (j + 1)][j], F.interpolate(X[i - j][j], scale_factor=2, mode=self.up_mode, align_corners=self.align_corners)], dim=1)
-                    X[i - (j + 1)][j + 1] = self.decoder[i - (j + 1)][j](cat_feat)
-            if i > 0:
-                if return_all_preds or i == self.stop_level:
-                    preds.append(self.cls[i - 1](X[0][i]))
-                if i == self.stop_level:
-                    break
-        return preds
-
-    def adaptive_inference(self, x, threshold=0.93):
-        """adaptive inference which enables to save computation time
-        by pruning depending on the hardness of input."""
-        X = [[None for _ in range(i + 1)] for i in reversed(range(self.depth))]
-        for i in range(self.depth):
-            if i == 0:
-                X[0][0] = self.encoder[0](x)
-            else:
-                X[i][0] = self.encoder[i](X[i - 1][0])
-            for j in range(i):
-                cat_feat = torch.cat([X[i - (j + 1)][j], F.interpolate(X[i - j][j], scale_factor=2, mode=self.up_mode, align_corners=self.align_corners)], dim=1)
-                X[i - (j + 1)][j + 1] = self.decoder[i - (j + 1)][j](cat_feat)
-            if i > 0:
-                logits = self.cls[i - 1](X[0][i])
-                avg_conf = F.softmax(logits, dim=1).max(dim=1)[0].mean()
-                if avg_conf > threshold:
-                    break
-        return logits, i
-
-
-class NoOperation(nn.Module):
-
-    def __init__(self, *args, **kwargs):
-        super(NoOperation, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class ConvLayer(nn.Sequential):
-
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, dilation=1, bn_module=nn.BatchNorm2d, activation=nn.ReLU(inplace=True), use_cbam=False):
-        super(ConvLayer, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation))
-        if bn_module is not None:
-            self.add_module('bn', bn_module(out_channels))
-        if activation is not None:
-            self.add_module('act', activation)
-        if use_cbam:
-            self.add_module('cbam', attention.CBAM(out_channels, bn_module=bn_module))
-
-
-class EncoderBase(nn.Module):
-
-    def __init__(self, encoder, channels_list):
-        super(EncoderBase, self).__init__()
-        self.encoder = encoder
-        self.channels_list = channels_list
-
-    def forward(self, x):
-        bridges = []
-        for down in self.encoder:
-            x = down(x)
-            bridges.append(x)
-        return bridges
-
-
 class SelfAttentionBlock(nn.Module):
     """
     The basic implementation for self-attention block/non-local block
@@ -703,6 +593,239 @@ class ASP_OC_Module(nn.Module):
         return output
 
 
+class ConvLayer(nn.Sequential):
+
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, dilation=1, bn_module=nn.BatchNorm2d, activation=nn.ReLU(inplace=True), use_cbam=False):
+        super(ConvLayer, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.add_module('conv', nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation))
+        if bn_module is not None:
+            self.add_module('bn', bn_module(out_channels))
+        if activation is not None:
+            self.add_module('act', activation)
+        if use_cbam:
+            self.add_module('cbam', attention.CBAM(out_channels, bn_module=bn_module))
+
+
+class EncoderBase(nn.Module):
+
+    def __init__(self, encoder, channels_list):
+        super(EncoderBase, self).__init__()
+        self.encoder = encoder
+        self.channels_list = channels_list
+
+    def forward(self, x):
+        bridges = []
+        for down in self.encoder:
+            x = down(x)
+            bridges.append(x)
+        return bridges
+
+
+class ResNetEncoder(EncoderBase):
+
+    def __init__(self, encoder_depth=18, pretrained=True, bn_module=nn.BatchNorm2d, relu_inplace=False):
+        if encoder_depth == 18:
+            backbone = resnet_csail.resnet18(pretrained=pretrained, bn_module=bn_module, relu_inplace=relu_inplace)
+            channels_list = [64, 128, 256, 512]
+        elif encoder_depth == 34:
+            backbone = torchvision.models.resnet34(pretrained=pretrained)
+            channels_list = [64, 128, 256, 512]
+        elif encoder_depth == 50:
+            backbone = resnet_csail.resnet50(pretrained=pretrained, bn_module=bn_module, relu_inplace=relu_inplace)
+            channels_list = [256, 512, 1024, 2048]
+        elif encoder_depth == 101:
+            backbone = resnet_csail.resnet101(pretrained=pretrained, bn_module=bn_module, relu_inplace=relu_inplace)
+            channels_list = [256, 512, 1024, 2048]
+        elif encoder_depth == 152:
+            backbone = torchvision.models.resnet152(pretrained=pretrained)
+            channels_list = [256, 512, 1024, 2048]
+        elif encoder_depth == 38:
+            backbone = wider_resnet.net_wider_resnet38_a2()
+            if pretrained:
+                state_dict = torch.load('/opt/segmentation/weights/wide_resnet38_deeplab_vistas.pth.tar')
+                backbone.load_state_dict(state_dict['state_dict']['body'], strict=True)
+            channels_list = [256, 512, 1024, 4096]
+        elif encoder_depth == 'X_101':
+            backbone = resnet_not_inplace.get_pretrained_backbone(cfg_path='/opt/segmentation/maskrcnn-benchmark/configs/dtc/MX_101_32x8d_FPN.yaml', bn_module=bn_module)
+            channels_list = [256, 512, 1024, 2048]
+        else:
+            raise ValueError('invalid value (encoder_depth)')
+        if encoder_depth == 38:
+            encoder = nn.ModuleList([nn.Sequential(backbone.mod1, backbone.pool2, backbone.mod2, backbone.pool3, backbone.mod3), backbone.mod4, backbone.mod5, nn.Sequential(backbone.mod6, backbone.mod7)])
+        elif encoder_depth in [18, 50, 101]:
+            encoder = nn.ModuleList([nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu1, backbone.conv2, backbone.bn2, backbone.relu2, backbone.conv3, backbone.bn3, backbone.relu3, backbone.maxpool, backbone.layer1), backbone.layer2, backbone.layer3, backbone.layer4])
+        elif encoder_depth in [34, 152]:
+            encoder = nn.ModuleList([nn.Sequential(backbone.conv1, backbone.bn1, backbone.relu, backbone.maxpool, backbone.layer1), backbone.layer2, backbone.layer3, backbone.layer4])
+        elif encoder_depth == 'X_101':
+            encoder = nn.ModuleList([nn.Sequential(backbone.stem, backbone.layer1), backbone.layer2, backbone.layer3, backbone.layer4])
+        super(ResNetEncoder, self).__init__(encoder, channels_list)
+
+
+class MLSNet(nn.Module):
+
+    def __init__(self, n_classes: int=19, encoder_depth: int=18, pretrained: bool=True, up_mode: str='bilinear', bn_module=nn.BatchNorm2d, dilations: tuple=None, stop_level: int=3, multiple_oc_size: int=4, n_oc: int=3):
+        """
+        :param stop_level: level for pruning calc.
+            1: first level,
+            2: second level,
+            3: third level (return all level preds),
+        """
+        super(MLSNet, self).__init__()
+        encoder = ResNetEncoder(encoder_depth=encoder_depth, pretrained=pretrained, bn_module=bn_module, relu_inplace=True)
+        activation = nn.ReLU(inplace=True)
+        self.encoder = encoder.encoder
+        self.channels_list = encoder.channels_list
+        self.depth = len(self.channels_list)
+        self.up_mode = up_mode
+        self.align_corners = False if self.up_mode == 'bilinear' else None
+        self.stop_level = stop_level
+        if dilations is None:
+            dilations = [1] * self.depth
+        self.decoder = nn.ModuleList([nn.ModuleList([None for _ in range(i)]) for i in reversed(range(1, self.depth))])
+        for i in reversed(range(self.depth - 1)):
+            for j in range(0, self.depth - i - 1):
+                in_ch = self.channels_list[i] + self.channels_list[i + 1]
+                out_ch = self.channels_list[i]
+                self.decoder[i][j] = ConvLayer(in_ch, out_ch, kernel_size=3, padding=dilations[j], dilation=dilations[j], activation=activation, bn_module=bn_module)
+        if n_oc > 0:
+            dilation_rates = [(6, 12, 24), (4, 8, 12), (2, 4, 6)]
+            for i in range(n_oc):
+                self.decoder[i][0].add_module(f'oc_{i}', ASP_OC_Module(self.channels_list[i], self.channels_list[i], size=2 ** (multiple_oc_size - i), dilations=dilation_rates[i], bn_module=bn_module))
+        self.cls = nn.ModuleList(nn.Conv2d(self.channels_list[0], n_classes, kernel_size=1) for _ in range(self.depth - 1))
+        self._init_weight()
+
+    def _init_weight(self):
+        for m in self.decoder.modules():
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight)
+        for m in self.cls.modules():
+            if isinstance(m, nn.Conv2d):
+                torch.nn.init.kaiming_normal_(m.weight)
+
+    def forward(self, x, return_all_preds=True):
+        """
+        :param x: input tensor (shape: B, C, H, W)
+        :param return_all_preds:
+            True:
+                All level predictions are returned. It is necessary when training.
+            False:
+                Only one prediction are returned according to self.stop_level.
+                This enables to avoid redundant calculation and thus saves inference time.
+        :return: list of predictions from each level classifiers
+        """
+        X = [[None for _ in range(i + 1)] for i in reversed(range(self.depth))]
+        preds = []
+        for i in range(self.depth):
+            if i == 0:
+                X[0][0] = self.encoder[0](x)
+            else:
+                X[i][0] = self.encoder[i](X[i - 1][0])
+            for j in range(i):
+                if i - (j + 1) == 0:
+                    cat_feat = torch.cat([X[i - (j + 1)][j], F.interpolate(X[i - j][j], scale_factor=2, mode=self.up_mode, align_corners=self.align_corners)], dim=1)
+                    X[i - (j + 1)][j + 1] = self.decoder[i - (j + 1)][j](cat_feat)
+            if i > 0:
+                if return_all_preds or i == self.stop_level:
+                    preds.append(self.cls[i - 1](X[0][i]))
+                if i == self.stop_level:
+                    break
+        return preds
+
+    def adaptive_inference(self, x, threshold=0.93):
+        """adaptive inference which enables to save computation time
+        by pruning depending on the hardness of input."""
+        X = [[None for _ in range(i + 1)] for i in reversed(range(self.depth))]
+        for i in range(self.depth):
+            if i == 0:
+                X[0][0] = self.encoder[0](x)
+            else:
+                X[i][0] = self.encoder[i](X[i - 1][0])
+            for j in range(i):
+                cat_feat = torch.cat([X[i - (j + 1)][j], F.interpolate(X[i - j][j], scale_factor=2, mode=self.up_mode, align_corners=self.align_corners)], dim=1)
+                X[i - (j + 1)][j + 1] = self.decoder[i - (j + 1)][j](cat_feat)
+            if i > 0:
+                logits = self.cls[i - 1](X[0][i])
+                avg_conf = F.softmax(logits, dim=1).max(dim=1)[0].mean()
+                if avg_conf > threshold:
+                    break
+        return logits, i
+
+
+class NoOperation(nn.Module):
+
+    def __init__(self, *args, **kwargs):
+        super(NoOperation, self).__init__()
+
+    def forward(self, x):
+        return x
+
+
+class BasicEncoder(EncoderBase):
+
+    def __init__(self, input_channels=1, depth=4, channels=32, pooling='max', bn_module=nn.BatchNorm2d, activation=nn.ReLU(inplace=True), se_module=None):
+        depth = depth
+        channels_list = [(channels * 2 ** i) for i in range(depth)]
+        if pooling == 'avg':
+            pooling = nn.AvgPool2d(2)
+        elif pooling == 'max':
+            pooling = nn.MaxPool2d(2)
+        down_path = nn.ModuleList()
+        prev_channels = input_channels
+        for i in range(depth):
+            layers = [pooling if i != 0 else NoOperation(), ConvLayer(prev_channels, channels * 2 ** i, 3, padding=1, bn_module=bn_module, activation=activation), ConvLayer(channels * 2 ** i, channels * 2 ** i, 3, padding=1, bn_module=bn_module, activation=activation)]
+            if se_module is not None:
+                layers.append(se_module(channels * 2 ** i))
+            down_path.append(nn.Sequential(*layers))
+            prev_channels = channels * 2 ** i
+        super(BasicEncoder, self).__init__(down_path, channels_list)
+
+
+class UNetConvBlock(nn.Module):
+
+    def __init__(self, in_size, out_size, padding, batch_norm):
+        super(UNetConvBlock, self).__init__()
+        block = []
+        block.append(nn.Conv2d(in_size, out_size, kernel_size=3, padding=int(padding)))
+        block.append(nn.ReLU())
+        if batch_norm:
+            block.append(nn.BatchNorm2d(out_size))
+        block.append(nn.Conv2d(out_size, out_size, kernel_size=3, padding=int(padding)))
+        block.append(nn.ReLU())
+        if batch_norm:
+            block.append(nn.BatchNorm2d(out_size))
+        self.block = nn.Sequential(*block)
+
+    def forward(self, x):
+        out = self.block(x)
+        return out
+
+
+class UNetUpBlock(nn.Module):
+
+    def __init__(self, in_size, out_size, up_mode, padding, batch_norm):
+        super(UNetUpBlock, self).__init__()
+        if up_mode == 'deconv':
+            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
+        elif up_mode == 'upconv':
+            self.up = nn.Sequential(nn.Upsample(mode='bilinear', scale_factor=2), nn.Conv2d(in_size, out_size, kernel_size=1))
+        self.conv_block = UNetConvBlock(in_size, out_size, padding, batch_norm)
+
+    def center_crop(self, layer, target_size):
+        _, _, layer_height, layer_width = layer.size()
+        diff_y = (layer_height - target_size[0]) // 2
+        diff_x = (layer_width - target_size[1]) // 2
+        return layer[:, :, diff_y:diff_y + target_size[0], diff_x:diff_x + target_size[1]]
+
+    def forward(self, x, bridge):
+        up = self.up(x)
+        crop1 = self.center_crop(bridge, up.shape[2:])
+        out = torch.cat([up, crop1], 1)
+        out = self.conv_block(out)
+        return out
+
+
 class UNet(nn.Module):
 
     def __init__(self, in_channels=1, n_classes=2, depth=5, ch_first=6, padding=False, batch_norm=False, up_mode='upconv'):
@@ -753,50 +876,6 @@ class UNet(nn.Module):
         for i, up in enumerate(self.up_path):
             x = up(x, blocks[-i - 1])
         return self.last(x)
-
-
-class UNetConvBlock(nn.Module):
-
-    def __init__(self, in_size, out_size, padding, batch_norm):
-        super(UNetConvBlock, self).__init__()
-        block = []
-        block.append(nn.Conv2d(in_size, out_size, kernel_size=3, padding=int(padding)))
-        block.append(nn.ReLU())
-        if batch_norm:
-            block.append(nn.BatchNorm2d(out_size))
-        block.append(nn.Conv2d(out_size, out_size, kernel_size=3, padding=int(padding)))
-        block.append(nn.ReLU())
-        if batch_norm:
-            block.append(nn.BatchNorm2d(out_size))
-        self.block = nn.Sequential(*block)
-
-    def forward(self, x):
-        out = self.block(x)
-        return out
-
-
-class UNetUpBlock(nn.Module):
-
-    def __init__(self, in_size, out_size, up_mode, padding, batch_norm):
-        super(UNetUpBlock, self).__init__()
-        if up_mode == 'deconv':
-            self.up = nn.ConvTranspose2d(in_size, out_size, kernel_size=2, stride=2)
-        elif up_mode == 'upconv':
-            self.up = nn.Sequential(nn.Upsample(mode='bilinear', scale_factor=2), nn.Conv2d(in_size, out_size, kernel_size=1))
-        self.conv_block = UNetConvBlock(in_size, out_size, padding, batch_norm)
-
-    def center_crop(self, layer, target_size):
-        _, _, layer_height, layer_width = layer.size()
-        diff_y = (layer_height - target_size[0]) // 2
-        diff_x = (layer_width - target_size[1]) // 2
-        return layer[:, :, diff_y:diff_y + target_size[0], diff_x:diff_x + target_size[1]]
-
-    def forward(self, x, bridge):
-        up = self.up(x)
-        crop1 = self.center_crop(bridge, up.shape[2:])
-        out = torch.cat([up, crop1], 1)
-        out = self.conv_block(out)
-        return out
 
 
 class MultiModalNN(nn.Module):
@@ -892,6 +971,10 @@ TESTCASES = [
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'key_channels': 4, 'value_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (BasicEncoder,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 1, 64, 64])], {}),
+     True),
     (ConvLayer,
      lambda: ([], {'in_channels': 4, 'out_channels': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -970,4 +1053,7 @@ class Test_lyakaap_pytorch_template(_paritybench_base):
 
     def test_011(self):
         self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
 

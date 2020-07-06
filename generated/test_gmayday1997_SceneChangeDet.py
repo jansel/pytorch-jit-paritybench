@@ -33,20 +33,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+from torch.utils.data.dataset import Dataset
+
+
+import numpy as np
+
+
+import scipy.io
+
+
+import scipy.misc as m
 
 
 import torch.nn as nn
@@ -56,9 +69,6 @@ import torch.nn.functional as F
 
 
 from torch.autograd import Variable
-
-
-import numpy as np
 
 
 import torch.nn.init as init
@@ -74,6 +84,24 @@ import torchvision.datasets as dates
 
 
 from torch.nn import functional as F
+
+
+import math
+
+
+import random
+
+
+import numbers
+
+
+import types
+
+
+import collections
+
+
+from sklearn.manifold import TSNE
 
 
 class FeatureCorrelation(nn.Module):
@@ -447,104 +475,6 @@ class deeplab_V2(nn.Module):
         return conv5_feature, fc_feature, embedding_feature
 
 
-def convert_dict_names_for_fucking_faults():
-    deeplab_v2_dict_names_mapping = {'conv1.0': 'conv1_1', 'conv1.2': 'conv1_2', 'conv2.0': 'conv2_1', 'conv2.2': 'conv2_2', 'conv3.0': 'conv3_1', 'conv3.2': 'conv3_2', 'conv3.4': 'conv3_3', 'conv4.0': 'conv4_1', 'conv4.2': 'conv4_2', 'conv4.4': 'conv4_3', 'conv5.0': 'conv5_1', 'conv5.2': 'conv5_2', 'conv5.4': 'conv5_3'}
-    return deeplab_v2_dict_names_mapping
-
-
-class SiameseNet(nn.Module):
-
-    def __init__(self, norm_flag='l2'):
-        super(SiameseNet, self).__init__()
-        self.CNN = deeplab_V2()
-        if norm_flag == 'l2':
-            self.norm = fun.l2normalization(scale=1)
-        if norm_flag == 'exp':
-            self.norm = nn.Softmax2d()
-    """
-    def forward(self,t0,t1):
-
-        out_t0_embedding = self.CNN(t0)
-        out_t1_embedding = self.CNN(t1)
-        #out_t0_conv5_norm,out_t1_conv5_norm = self.norm(out_t0_conv5),self.norm(out_t1_conv5)
-        #out_t0_fc7_norm,out_t1_fc7_norm = self.norm(out_t0_fc7),self.norm(out_t1_fc7)
-        out_t0_embedding_norm,out_t1_embedding_norm = self.norm(out_t0_embedding),self.norm(out_t1_embedding)
-        return [out_t0_embedding_norm,out_t1_embedding_norm]
-    """
-
-    def forward(self, t0, t1):
-        out_t0_conv5, out_t0_fc7, out_t0_embedding = self.CNN(t0)
-        out_t1_conv5, out_t1_fc7, out_t1_embedding = self.CNN(t1)
-        out_t0_conv5_norm, out_t1_conv5_norm = self.norm(out_t0_conv5), self.norm(out_t1_conv5)
-        out_t0_fc7_norm, out_t1_fc7_norm = self.norm(out_t0_fc7), self.norm(out_t1_fc7)
-        out_t0_embedding_norm, out_t1_embedding_norm = self.norm(out_t0_embedding), self.norm(out_t1_embedding)
-        return [out_t0_conv5_norm, out_t1_conv5_norm], [out_t0_fc7_norm, out_t1_fc7_norm], [out_t0_embedding_norm, out_t1_embedding_norm]
-    """
-    def forward(self,t0,t1):
-
-        out_t0_conv4,out_t0_conv5,out_t0_fc7,out_t0_embedding = self.CNN(t0)
-        out_t1_conv4,out_t1_conv5,out_t1_fc7,out_t1_embedding = self.CNN(t1)
-        out_t0_conv4_norm,out_t1_conv4_norm = self.norm(out_t0_conv5),self.norm(out_t1_conv5)
-        out_t0_conv5_norm,out_t1_conv5_norm = self.norm(out_t0_conv5),self.norm(out_t1_conv5)
-        out_t0_fc7_norm,out_t1_fc7_norm = self.norm(out_t0_fc7),self.norm(out_t1_fc7)
-        out_t0_embedding_norm,out_t1_embedding_norm = self.norm(out_t0_embedding),self.norm(out_t1_embedding)
-        return [out_t0_conv4_norm,out_t1_conv4_norm],[out_t0_conv5_norm,out_t1_conv5_norm],[out_t0_fc7_norm,out_t1_fc7_norm],[out_t0_embedding_norm,out_t1_embedding_norm]
-    """
-    """
-    def forward(self,t0,t1):
-
-        out_t0_conv4,out_t0_conv5,out_t0_fc7 = self.CNN(t0)
-        out_t1_conv4,out_t1_conv5,out_t1_fc7 = self.CNN(t1)
-        out_t0_conv4_norm,out_t1_conv4_norm = self.norm(out_t0_conv4),self.norm(out_t1_conv4)
-        out_t0_conv5_norm,out_t1_conv5_norm = self.norm(out_t0_conv5),self.norm(out_t1_conv5)
-        out_t0_fc7_norm,out_t1_fc7_norm = self.norm(out_t0_fc7),self.norm(out_t1_fc7)
-        return [out_t0_conv4_norm,out_t1_conv4_norm],[out_t0_conv5_norm,out_t1_conv5_norm],[out_t0_fc7_norm,out_t1_fc7_norm]
-    """
-
-    def init_parameters_from_deeplab(self, pretrain_vgg16_1024):
-        pretrain_dict_names = convert_dict_names_for_fucking_faults()
-        keys = sorted(pretrain_dict_names.keys())
-        conv_blocks = [self.CNN.conv1, self.CNN.conv2, self.CNN.conv3, self.CNN.conv4, self.CNN.conv5]
-        ranges = [[0, 2], [0, 2], [0, 2, 4], [0, 2, 4], [0, 2, 4]]
-        for key in keys:
-            dic_name = pretrain_dict_names[key]
-            base_conv_name, conv_index, sub_index = dic_name[:5], int(dic_name[4]), int(dic_name[-1])
-            conv_blocks[conv_index - 1][ranges[sub_index - 1][sub_index - 1]].weight.data = pretrain_vgg16_1024[key + '.weight']
-            conv_blocks[conv_index - 1][ranges[sub_index - 1][sub_index - 1]].bias.data = pretrain_vgg16_1024[key + '.bias']
-        self.CNN.fc6_1[0].weight.data = pretrain_vgg16_1024['fc6_1.0.weight'].view(self.CNN.fc6_1[0].weight.size())
-        self.CNN.fc6_1[0].bias.data = pretrain_vgg16_1024['fc6_1.0.bias'].view(self.CNN.fc6_1[0].bias.size())
-        self.CNN.fc7_1[0].weight.data = pretrain_vgg16_1024['fc7_1.0.weight'].view(self.CNN.fc7_1[0].weight.size())
-        self.CNN.fc7_1[0].bias.data = pretrain_vgg16_1024['fc7_1.0.bias'].view(self.CNN.fc7_1[0].bias.size())
-        self.CNN.fc6_2[0].weight.data = pretrain_vgg16_1024['fc6_2.0.weight'].view(self.CNN.fc6_2[0].weight.size())
-        self.CNN.fc6_2[0].bias.data = pretrain_vgg16_1024['fc6_2.0.bias'].view(self.CNN.fc6_2[0].bias.size())
-        self.CNN.fc7_2[0].weight.data = pretrain_vgg16_1024['fc7_2.0.weight'].view(self.CNN.fc7_2[0].weight.size())
-        self.CNN.fc7_2[0].bias.data = pretrain_vgg16_1024['fc7_2.0.bias'].view(self.CNN.fc7_2[0].bias.size())
-        self.CNN.fc6_3[0].weight.data = pretrain_vgg16_1024['fc6_3.0.weight'].view(self.CNN.fc6_3[0].weight.size())
-        self.CNN.fc6_3[0].bias.data = pretrain_vgg16_1024['fc6_3.0.bias'].view(self.CNN.fc6_3[0].bias.size())
-        self.CNN.fc7_3[0].weight.data = pretrain_vgg16_1024['fc7_3.0.weight'].view(self.CNN.fc7_3[0].weight.size())
-        self.CNN.fc7_3[0].bias.data = pretrain_vgg16_1024['fc7_3.0.bias'].view(self.CNN.fc7_3[0].bias.size())
-        self.CNN.fc6_4[0].weight.data = pretrain_vgg16_1024['fc6_4.0.weight'].view(self.CNN.fc6_4[0].weight.size())
-        self.CNN.fc6_4[0].bias.data = pretrain_vgg16_1024['fc6_4.0.bias'].view(self.CNN.fc6_4[0].bias.size())
-        self.CNN.fc7_4[0].weight.data = pretrain_vgg16_1024['fc7_4.0.weight'].view(self.CNN.fc7_4[0].weight.size())
-        self.CNN.fc7_4[0].bias.data = pretrain_vgg16_1024['fc7_4.0.bias'].view(self.CNN.fc7_4[0].bias.size())
-
-    def init_parameters(self, pretrain_vgg16_1024):
-        conv_blocks = [self.CNN.conv1, self.CNN.conv2, self.CNN.conv3, self.CNN.conv4, self.CNN.conv5]
-        ranges = [[0, 4], [5, 9], [10, 16], [17, 23], [24, 29]]
-        features = list(pretrain_vgg16_1024.features.children())
-        for idx, conv_block in enumerate(conv_blocks):
-            for l1, l2 in zip(features[ranges[idx][0]:ranges[idx][1]], conv_block):
-                if isinstance(l1, nn.Conv2d) and isinstance(l2, nn.Conv2d):
-                    assert l1.weight.size() == l2.weight.size()
-                    assert l1.bias.size() == l2.bias.size()
-                    l2.weight.data = l1.weight.data
-                    l2.bias.data = l1.bias.data
-        self.CNN.fc6[0].weight.data = pretrain_vgg16_1024.classifier[0].weight.data.view(self.CNN.fc6[0].weight.size())
-        self.CNN.fc6[0].bias.data = pretrain_vgg16_1024.classifier[0].bias.data.view(self.CNN.fc6[0].bias.size())
-        self.CNN.fc7[0].weight.data = pretrain_vgg16_1024.classifier[3].weight.data.view(self.CNN.fc7[0].weight.size())
-        self.CNN.fc7[0].bias.data = pretrain_vgg16_1024.classifier[3].bias.data.view(self.CNN.fc7[0].bias.size())
-
-
 class fcn32s(nn.Module):
 
     def __init__(self, distance_flag):
@@ -606,9 +536,6 @@ class SiameseNet(nn.Module):
         initial_weight = get_upsampling_weight(self.upscore.in_channels, self.upscore.out_channels, self.upscore.kernel_size[0])
         self.upscore.weight.data.copy_(initial_weight)
         """
-
-
-_global_config['D'] = 4
 
 
 class vgg1024(nn.Module):

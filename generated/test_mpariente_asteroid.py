@@ -54,20 +54,33 @@ train = _module
 eval = _module
 create_local_metadata = _module
 model = _module
+train = _module
 test_dataloader = _module
 start_evaluation = _module
+eval = _module
 preprocess_wham = _module
 model = _module
+train = _module
+eval = _module
 model = _module
+train = _module
+eval = _module
 augmented_wham = _module
 resample_dataset = _module
 model = _module
+train = _module
 get_training_stats = _module
 model = _module
+train = _module
+eval = _module
 model = _module
 system = _module
+train = _module
+eval = _module
 preprocess_whamr = _module
 model = _module
+train = _module
+eval = _module
 preprocess_wsj0mix = _module
 model = _module
 train = _module
@@ -93,17 +106,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+from torch.utils import data
+
+
+import numpy as np
+
+
+from torch.utils.data.dataset import Dataset
+
+
+import random as random
+
+
+import torch.utils.data
+
+
+import random
 
 
 from torch.optim.optimizer import Optimizer
@@ -133,13 +168,7 @@ from torch.optim import AdamW
 from torch.optim import ASGD
 
 
-import torch
-
-
 import torch.nn as nn
-
-
-import numpy as np
 
 
 import warnings
@@ -149,6 +178,9 @@ from torch import nn
 
 
 from torch.nn import functional as F
+
+
+import math
 
 
 from torch.nn.modules.loss import _Loss
@@ -178,10 +210,46 @@ from torch.nn.functional import unfold
 from collections import OrderedDict
 
 
-import torch.nn.functional as F
+import collections
+
+
+import inspect
+
+
+from functools import partial
 
 
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import random_split
+
+
+from torch.utils.data import Dataset
+
+
+import torch.nn.functional as F
+
+
+from sklearn.cluster import KMeans
+
+
+from torch import optim
+
+
+from torch.testing import assert_allclose
+
+
+from torch import testing
+
+
+from scipy.signal import get_window
+
+
+import itertools
 
 
 class Filterbank(nn.Module):
@@ -261,69 +329,6 @@ class _EncDec(nn.Module):
         config = {'is_pinv': self.is_pinv}
         base_config = self.filterbank.get_config()
         return dict(list(base_config.items()) + list(config.items()))
-
-
-class PairwiseMSE(_Loss):
-    """ Measure pairwise mean square error on a batch.
-
-    Shape:
-        est_targets (:class:`torch.Tensor`): Expected shape [batch, nsrc, *].
-            The batch of target estimates.
-        targets (:class:`torch.Tensor`): Expected shape [batch, nsrc, *].
-            The batch of training targets
-
-    Returns:
-        :class:`torch.Tensor`: with shape [batch, nsrc, nsrc]
-
-    Examples:
-
-        >>> import torch
-        >>> from asteroid.losses import PITLossWrapper
-        >>> targets = torch.randn(10, 2, 32000)
-        >>> est_targets = torch.randn(10, 2, 32000)
-        >>> loss_func = PITLossWrapper(PairwiseMSE(), pit_from='pairwise')
-        >>> loss = loss_func(est_targets, targets)
-    """
-
-    def forward(self, est_targets, targets):
-        targets = targets.unsqueeze(1)
-        est_targets = est_targets.unsqueeze(2)
-        pw_loss = (targets - est_targets) ** 2
-        mean_over = list(range(3, pw_loss.ndim))
-        return pw_loss.mean(dim=mean_over)
-
-
-class SingleSrcMSE(_Loss):
-    """ Measure mean square error on a batch.
-    Supports both tensors with and without source axis.
-
-    Shape:
-        est_targets (:class:`torch.Tensor`): Expected shape [batch, *].
-            The batch of target estimates.
-        targets (:class:`torch.Tensor`): Expected shape [batch, *].
-            The batch of training targets.
-
-    Returns:
-        :class:`torch.Tensor`: with shape [batch]
-
-    Examples:
-
-        >>> import torch
-        >>> from asteroid.losses import PITLossWrapper
-        >>> targets = torch.randn(10, 2, 32000)
-        >>> est_targets = torch.randn(10, 2, 32000)
-        >>> # singlesrc_mse / multisrc_mse support both 'pw_pt' and 'perm_avg'.
-        >>> loss_func = PITLossWrapper(singlesrc_mse, pit_from='pw_pt')
-        >>> loss = loss_func(est_targets, targets)
-    """
-
-    def forward(self, est_targets, targets):
-        loss = (targets - est_targets) ** 2
-        mean_over = list(range(1, loss.ndim))
-        return loss.mean(dim=mean_over)
-
-
-EPS = 1e-08
 
 
 class Decoder(_EncDec):
@@ -445,6 +450,221 @@ class Encoder(_EncDec):
         return batched_conv.view(output_shape)
 
 
+class FreeFB(Filterbank):
+    """ Free filterbank without any constraints. Equivalent to
+    :class:`nn.Conv1d`.
+
+    Args:
+        n_filters (int): Number of filters.
+        kernel_size (int): Length of the filters.
+        stride (int, optional): Stride of the convolution.
+            If None (default), set to ``kernel_size // 2``.
+
+    Attributes:
+        n_feats_out (int): Number of output filters.
+
+    References:
+        [1] : "Filterbank design for end-to-end speech separation".
+        Submitted to ICASSP 2020. Manuel Pariente, Samuele Cornell,
+        Antoine Deleforge, Emmanuel Vincent.
+    """
+
+    def __init__(self, n_filters, kernel_size, stride=None, **kwargs):
+        super(FreeFB, self).__init__(n_filters, kernel_size, stride=stride)
+        self._filters = nn.Parameter(torch.ones(n_filters, 1, kernel_size))
+        for p in self.parameters():
+            nn.init.xavier_normal_(p)
+
+    @property
+    def filters(self):
+        return self._filters
+
+
+def erb_scale_2_freq_hz(freq_erb):
+    """ Convert frequency on ERB scale to frequency in Hertz """
+    freq_hz = (np.exp(freq_erb / 9.265) - 1) * 24.7 * 9.265
+    return freq_hz
+
+
+def freq_hz_2_erb_scale(freq_hz):
+    """ Convert frequency in Hertz to frequency on ERB scale """
+    freq_erb = 9.265 * np.log(1 + freq_hz / (24.7 * 9.265))
+    return freq_erb
+
+
+def gammatone_impulse_response(samplerate_hz, len_sec, center_freq_hz, phase_shift):
+    """ Generate single parametrized gammatone filter """
+    p = 2
+    erb = 24.7 + 0.108 * center_freq_hz
+    divisor = np.pi * np.math.factorial(2 * p - 2) * np.power(2, float(-(2 * p - 2))) / np.square(np.math.factorial(p - 1))
+    b = erb / divisor
+    a = 1.0
+    len_sample = int(np.floor(samplerate_hz * len_sec))
+    t = np.linspace(1.0 / samplerate_hz, len_sec, len_sample)
+    gammatone_ir = a * np.power(t, p - 1) * np.exp(-2 * np.pi * b * t) * np.cos(2 * np.pi * center_freq_hz * t + phase_shift)
+    return gammatone_ir
+
+
+def normalize_filters(filterbank):
+    """ Normalizes a filterbank such that all filters
+    have the same root mean square (RMS). """
+    rms_per_filter = np.sqrt(np.mean(np.square(filterbank), axis=1))
+    rms_normalization_values = 1.0 / (rms_per_filter / np.amax(rms_per_filter))
+    normalized_filterbank = filterbank * rms_normalization_values[:, (np.newaxis)]
+    return normalized_filterbank
+
+
+def generate_mpgtf(samplerate_hz, len_sec, n_filters):
+    center_freq_hz_min = 100
+    n_center_freqs = 24
+    len_sample = int(np.floor(samplerate_hz * len_sec))
+    index = 0
+    filterbank = np.zeros((n_filters, len_sample))
+    current_center_freq_hz = center_freq_hz_min
+    phase_pair_count = (np.ones(n_center_freqs) * np.floor(n_filters / 2 / n_center_freqs)).astype(int)
+    remaining_phase_pairs = ((n_filters - np.sum(phase_pair_count) * 2) / 2).astype(int)
+    if remaining_phase_pairs > 0:
+        phase_pair_count[:remaining_phase_pairs] = phase_pair_count[:remaining_phase_pairs] + 1
+    for i in range(n_center_freqs):
+        for phase_index in range(phase_pair_count[i]):
+            current_phase_shift = np.float(phase_index) / phase_pair_count[i] * np.pi
+            filterbank[(index), :] = gammatone_impulse_response(samplerate_hz, len_sec, current_center_freq_hz, current_phase_shift)
+            index = index + 1
+        filterbank[index:index + phase_pair_count[i], :] = -filterbank[index - phase_pair_count[i]:index, :]
+        index = index + phase_pair_count[i]
+        current_center_freq_hz = erb_scale_2_freq_hz(freq_hz_2_erb_scale(current_center_freq_hz) + 1)
+    filterbank = normalize_filters(filterbank)
+    return filterbank
+
+
+class MultiphaseGammatoneFB(Filterbank):
+    """ Multi-Phase Gammatone Filterbank as described in [1].
+    Please cite [1] whenever using this.
+    Original code repository: `<https://github.com/sp-uhh/mp-gtf>`
+
+    Args:
+        n_filters (int): Number of filters.
+        kernel_size (int): Length of the filters.
+        sample_rate (int, optional): The sample rate (used for initialization).
+        stride (int, optional): Stride of the convolution. If None (default),
+            set to ``kernel_size // 2``.
+
+    References:
+    [1] David Ditter, Timo Gerkmann, "A Multi-Phase Gammatone Filterbank for
+        Speech Separation via TasNet", ICASSP 2020
+        Available: `<https://ieeexplore.ieee.org/document/9053602/>`
+    """
+
+    def __init__(self, n_filters=128, kernel_size=16, sample_rate=8000, stride=None, **kwargs):
+        super().__init__(n_filters, kernel_size, stride=stride)
+        self.sample_rate = sample_rate
+        self.n_feats_out = n_filters
+        length_in_seconds = kernel_size / sample_rate
+        mpgtf = generate_mpgtf(sample_rate, length_in_seconds, n_filters)
+        filters = torch.from_numpy(mpgtf).unsqueeze(1).float()
+        self.register_buffer('_filters', filters)
+
+    @property
+    def filters(self):
+        return self._filters
+
+
+class ParamSincFB(Filterbank):
+    """Extension of the parameterized filterbank from [1] proposed in [2].
+    Modified and extended from from `<https://github.com/mravanelli/SincNet>`__
+
+    Args:
+        n_filters (int): Number of filters. Half of `n_filters` (the real
+            parts) will have parameters, the other half will correspond to the
+            imaginary parts. `n_filters` should be even.
+        kernel_size (int): Length of the filters.
+        stride (int, optional): Stride of the convolution. If None (default),
+            set to ``kernel_size // 2``.
+        sample_rate (int, optional): The sample rate (used for initialization).
+        min_low_hz (int, optional): Lowest low frequency allowed (Hz).
+        min_band_hz (int, optional): Lowest band frequency allowed (Hz).
+
+    Attributes:
+        n_feats_out (int): Number of output filters.
+
+    References:
+        [1] : "Speaker Recognition from raw waveform with SincNet". SLT 2018.
+        Mirco Ravanelli, Yoshua Bengio.  https://arxiv.org/abs/1808.00158
+
+        [2] : "Filterbank design for end-to-end speech separation".
+        Submitted to ICASSP 2020. Manuel Pariente, Samuele Cornell,
+        Antoine Deleforge, Emmanuel Vincent. https://arxiv.org/abs/1910.10400
+    """
+
+    def __init__(self, n_filters, kernel_size, stride=None, sample_rate=16000, min_low_hz=50, min_band_hz=50):
+        if kernel_size % 2 == 0:
+            None
+            kernel_size += 1
+        super(ParamSincFB, self).__init__(n_filters, kernel_size, stride=stride)
+        self.sample_rate = sample_rate
+        self.min_low_hz, self.min_band_hz = min_low_hz, min_band_hz
+        self.half_kernel = self.kernel_size // 2
+        self.cutoff = int(n_filters // 2)
+        self.n_feats_out = 2 * self.cutoff
+        self._initialize_filters()
+        if n_filters % 2 != 0:
+            None
+        window_ = np.hamming(self.kernel_size)[:self.half_kernel]
+        n_ = 2 * np.pi * (torch.arange(-self.half_kernel, 0.0).view(1, -1) / self.sample_rate)
+        self.register_buffer('window_', torch.from_numpy(window_).float())
+        self.register_buffer('n_', n_)
+
+    def _initialize_filters(self):
+        """ Filter Initialization along the Mel scale"""
+        low_hz = 30
+        high_hz = self.sample_rate / 2 - (self.min_low_hz + self.min_band_hz)
+        mel = np.linspace(self.to_mel(low_hz), self.to_mel(high_hz), self.n_filters // 2 + 1, dtype='float32')
+        hz = self.to_hz(mel)
+        self.low_hz_ = nn.Parameter(torch.from_numpy(hz[:-1]).view(-1, 1))
+        self.band_hz_ = nn.Parameter(torch.from_numpy(np.diff(hz)).view(-1, 1))
+
+    @property
+    def filters(self):
+        """ Compute filters from parameters """
+        low = self.min_low_hz + torch.abs(self.low_hz_)
+        high = torch.clamp(low + self.min_band_hz + torch.abs(self.band_hz_), self.min_low_hz, self.sample_rate / 2)
+        cos_filters = self.make_filters(low, high, filt_type='cos')
+        sin_filters = self.make_filters(low, high, filt_type='sin')
+        return torch.cat([cos_filters, sin_filters], dim=0)
+
+    def make_filters(self, low, high, filt_type='cos'):
+        band = (high - low)[:, (0)]
+        ft_low = torch.matmul(low, self.n_)
+        ft_high = torch.matmul(high, self.n_)
+        if filt_type == 'cos':
+            bp_left = (torch.sin(ft_high) - torch.sin(ft_low)) / (self.n_ / 2) * self.window_
+            bp_center = 2 * band.view(-1, 1)
+            bp_right = torch.flip(bp_left, dims=[1])
+        elif filt_type == 'sin':
+            bp_left = (torch.cos(ft_low) - torch.cos(ft_high)) / (self.n_ / 2) * self.window_
+            bp_center = torch.zeros_like(band.view(-1, 1))
+            bp_right = -torch.flip(bp_left, dims=[1])
+        else:
+            raise ValueError('Invalid filter type {}'.format(filt_type))
+        band_pass = torch.cat([bp_left, bp_center, bp_right], dim=1)
+        band_pass = band_pass / (2 * band[:, (None)])
+        return band_pass.view(self.n_filters // 2, 1, self.kernel_size)
+
+    @staticmethod
+    def to_mel(hz):
+        return 2595 * np.log10(1 + hz / 700)
+
+    @staticmethod
+    def to_hz(mel):
+        return 700 * (10 ** (mel / 2595) - 1)
+
+    def get_config(self):
+        """ Returns dictionary of arguments to re-instantiate the class."""
+        config = {'sample_rate': self.sample_rate, 'min_low_hz': self.min_low_hz, 'min_band_hz': self.min_band_hz}
+        base_config = super(ParamSincFB, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+
 class STFTFB(Filterbank):
     """ STFT filterbank.
 
@@ -487,6 +707,83 @@ class STFTFB(Filterbank):
     @property
     def filters(self):
         return self._filters
+
+
+class PairwiseMSE(_Loss):
+    """ Measure pairwise mean square error on a batch.
+
+    Shape:
+        est_targets (:class:`torch.Tensor`): Expected shape [batch, nsrc, *].
+            The batch of target estimates.
+        targets (:class:`torch.Tensor`): Expected shape [batch, nsrc, *].
+            The batch of training targets
+
+    Returns:
+        :class:`torch.Tensor`: with shape [batch, nsrc, nsrc]
+
+    Examples:
+
+        >>> import torch
+        >>> from asteroid.losses import PITLossWrapper
+        >>> targets = torch.randn(10, 2, 32000)
+        >>> est_targets = torch.randn(10, 2, 32000)
+        >>> loss_func = PITLossWrapper(PairwiseMSE(), pit_from='pairwise')
+        >>> loss = loss_func(est_targets, targets)
+    """
+
+    def forward(self, est_targets, targets):
+        targets = targets.unsqueeze(1)
+        est_targets = est_targets.unsqueeze(2)
+        pw_loss = (targets - est_targets) ** 2
+        mean_over = list(range(3, pw_loss.ndim))
+        return pw_loss.mean(dim=mean_over)
+
+
+class SingleSrcMSE(_Loss):
+    """ Measure mean square error on a batch.
+    Supports both tensors with and without source axis.
+
+    Shape:
+        est_targets (:class:`torch.Tensor`): Expected shape [batch, *].
+            The batch of target estimates.
+        targets (:class:`torch.Tensor`): Expected shape [batch, *].
+            The batch of training targets.
+
+    Returns:
+        :class:`torch.Tensor`: with shape [batch]
+
+    Examples:
+
+        >>> import torch
+        >>> from asteroid.losses import PITLossWrapper
+        >>> targets = torch.randn(10, 2, 32000)
+        >>> est_targets = torch.randn(10, 2, 32000)
+        >>> # singlesrc_mse / multisrc_mse support both 'pw_pt' and 'perm_avg'.
+        >>> loss_func = PITLossWrapper(singlesrc_mse, pit_from='pw_pt')
+        >>> loss = loss_func(est_targets, targets)
+    """
+
+    def forward(self, est_targets, targets):
+        loss = (targets - est_targets) ** 2
+        mean_over = list(range(1, loss.ndim))
+        return loss.mean(dim=mean_over)
+
+
+class DeprecationMixin:
+    """ Deprecation mixin. Example to come """
+
+    def warn_deprecated(self):
+        warnings.warn('{} is deprecated since v0.1.0, it will be removed in v0.2.0. Please use {} instead.'.format(self.__class__.__name__, self.__class__.__bases__[0].__name__), VisibleDeprecationWarning)
+
+
+class NoSrcMSE(SingleSrcMSE, DeprecationMixin):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.warn_deprecated()
+
+
+EPS = 1e-08
 
 
 def check_complex(tensor, dim=-2):
@@ -1326,6 +1623,20 @@ class MultiSrcNegSDR(_Loss):
         return -torch.mean(pair_wise_sdr, dim=-1)
 
 
+class NonPitSDR(MultiSrcNegSDR, DeprecationMixin):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.warn_deprecated()
+
+
+class NoSrcSDR(SingleSrcNegSDR, DeprecationMixin):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.warn_deprecated()
+
+
 class Conv1DBlock(nn.Module):
     """One dimensional convolutional block, as proposed in [1].
 
@@ -1499,6 +1810,65 @@ class _LayerNorm(nn.Module):
     def apply_gain_and_bias(self, normed_x):
         """ Assumes input of size `[batch, chanel, *]`. """
         return (self.gamma * normed_x.transpose(1, -1) + self.beta).transpose(1, -1)
+
+
+class GlobLN(_LayerNorm):
+    """Global Layer Normalization (globLN)."""
+
+    def forward(self, x):
+        """ Applies forward pass.
+        
+        Works for any input size > 2D.
+
+        Args:
+            x (:class:`torch.Tensor`): Shape `[batch, chan, *]`
+
+        Returns:
+            :class:`torch.Tensor`: gLN_x `[batch, chan, *]`
+        """
+        dims = list(range(1, len(x.shape)))
+        mean = x.mean(dim=dims, keepdim=True)
+        var = torch.pow(x - mean, 2).mean(dim=dims, keepdim=True)
+        return self.apply_gain_and_bias((x - mean) / (var + EPS).sqrt())
+
+
+class ChanLN(_LayerNorm):
+    """Channel-wise Layer Normalization (chanLN)."""
+
+    def forward(self, x):
+        """ Applies forward pass.
+        
+        Works for any input size > 2D.
+
+        Args:
+            x (:class:`torch.Tensor`): `[batch, chan, *]`
+
+        Returns:
+            :class:`torch.Tensor`: chanLN_x `[batch, chan, *]`
+        """
+        mean = torch.mean(x, dim=1, keepdim=True)
+        var = torch.var(x, dim=1, keepdim=True, unbiased=False)
+        return self.apply_gain_and_bias((x - mean) / (var + EPS).sqrt())
+
+
+class CumLN(_LayerNorm):
+    """Cumulative Global layer normalization(cumLN)."""
+
+    def forward(self, x):
+        """
+
+        Args:
+            x (:class:`torch.Tensor`): Shape `[batch, channels, length]`
+        Returns:
+             :class:`torch.Tensor`: cumLN_x `[batch, channels, length]`
+        """
+        batch, chan, spec_len = x.size()
+        cum_sum = torch.cumsum(x.sum(1, keepdim=True), dim=-1)
+        cum_pow_sum = torch.cumsum(x.pow(2).sum(1, keepdim=True), dim=-1)
+        cnt = torch.arange(start=chan, end=chan * (spec_len + 1), step=chan, dtype=x.dtype).view(1, 1, -1)
+        cum_mean = cum_sum / cnt
+        cum_var = cum_pow_sum - cum_mean.pow(2)
+        return self.apply_gain_and_bias((x - cum_mean) / (cum_var + EPS).sqrt())
 
 
 class BatchNorm(_BatchNorm):
@@ -1891,70 +2261,98 @@ def apply_mag_mask(tf_rep, mask, dim=-2):
     return tf_rep * mask
 
 
-def apply_real_mask(tf_rep, mask, dim=-2):
-    """ Applies a real-valued mask to a real-valued representation.
-
-    It corresponds to ReIm mask in [1].
+def ebased_vad(mag_spec, th_db=40):
+    """ Compute energy-based VAD from a magnitude spectrogram (or equivalent).
 
     Args:
-        tf_rep (:class:`torch.Tensor`): The time frequency representation to
-            apply the mask to.
-        mask (:class:`torch.Tensor`): The real-valued mask to be applied.
-        dim (int): Kept to have the same interface with the other ones.
+        mag_spec (torch.Tensor): the spectrogram to perform VAD on.
+            Expected shape (batch, *, freq, time).
+            The VAD mask will be computed independently for all the leading
+            dimensions until the last two. Independent of the ordering of the
+            last two dimensions.
+        th_db (int): The threshold in dB from which a TF-bin is considered
+            silent.
+
     Returns:
-        :class:`torch.Tensor`: `tf_rep` multiplied by the `mask`.
+        torch.BoolTensor, the VAD mask.
+
+
+    Examples:
+        >>> import torch
+        >>> mag_spec = torch.abs(torch.randn(10, 2, 65, 16))
+        >>> batch_src_mask = ebased_vad(mag_spec)
     """
-    return tf_rep * mask
+    log_mag = 20 * torch.log10(mag_spec)
+    to_view = list(mag_spec.shape[:-2]) + [1, -1]
+    max_log_mag = torch.max(log_mag.view(to_view), -1, keepdim=True)[0]
+    return log_mag > max_log_mag - th_db
 
 
-def take_cat(x, dim=-2):
-    return torch.cat([take_mag(x, dim=dim), x], dim=dim)
+def pad_x_to_y(x, y, axis=-1):
+    """  Pad first argument to have same size as second argument
+
+    Args:
+        x (torch.Tensor): Tensor to be padded.
+        y (torch.Tensor): Tensor to pad x to.
+        axis (int): Axis to pad on.
+
+    Returns:
+        torch.Tensor, x padded to match y's shape.
+    """
+    if axis != -1:
+        raise NotImplementedError
+    inp_len = y.size(axis)
+    output_len = x.size(axis)
+    return nn.functional.pad(x, [0, inp_len - output_len])
 
 
 class Model(nn.Module):
-    """ Speech enhancement model.
 
-    Args:
-        encoder (~.Encoder): instance of a complex filterbank encoder
-            `Encoder(STFTBFB(**))`.
-        masker (nn.Module): Mask estimator network.
-        decoder (~.Decoder): instance of a complex filterbank decoder
-            `Decoder(STFTBFB(**))`.
-        is_complex (bool): If the network works on the complex domain.
-
-    If `is_complex` is `True`, the input to the network are complex features,
-    the network estimates a complex mask and returns a complex speech estimate.
-    Else, the input is the magnitude, the network estimates a magnitude mask
-    and the returns a **complex** speech estimate.
-    The loss function needs to be adapted to complex representations.
-    """
-
-    def __init__(self, encoder, masker, decoder, is_complex=True):
+    def __init__(self, encoder, masker, decoder):
         super().__init__()
         self.encoder = encoder
         self.masker = masker
         self.decoder = decoder
-        self.is_complex = is_complex
 
     def forward(self, x):
         if len(x.shape) == 2:
             x = x.unsqueeze(1)
         tf_rep = self.encoder(x)
-        if self.is_complex:
-            to_masker = take_cat(tf_rep)
-        else:
-            to_masker = take_mag(tf_rep)
-        est_masks = self.masker(to_masker.transpose(1, 2)).transpose(1, 2)
-        if self.is_complex:
-            masked_tf_rep = apply_real_mask(tf_rep, est_masks)
-        else:
-            masked_tf_rep = apply_mag_mask(tf_rep, est_masks)
-        return masked_tf_rep
+        final_proj, mask_out = self.masker(take_mag(tf_rep))
+        return final_proj, mask_out
 
-    def denoise(self, x):
-        estimate_stft = self(x)
-        wav = self.decoder(estimate_stft)
-        return torch_utils.pad_x_to_y(wav, x)
+    def separate(self, x):
+        """ Separate with mask-inference head, output waveforms """
+        if len(x.shape) == 2:
+            x = x.unsqueeze(1)
+        tf_rep = self.encoder(x)
+        proj, mask_out = self.masker(take_mag(tf_rep))
+        masked = apply_mag_mask(tf_rep.unsqueeze(1), mask_out)
+        wavs = pad_x_to_y(self.decoder(masked), x)
+        dic_out = dict(tfrep=tf_rep, mask=mask_out, masked_tfrep=masked, proj=proj)
+        return wavs, dic_out
+
+    def dc_head_separate(self, x):
+        """ Cluster embeddings to produce binary masks, output waveforms """
+        kmeans = KMeans(n_clusters=self.masker.n_src)
+        if len(x.shape) == 2:
+            x = x.unsqueeze(1)
+        tf_rep = self.encoder(x)
+        mag_spec = take_mag(tf_rep)
+        proj, mask_out = self.masker(mag_spec)
+        active_bins = ebased_vad(mag_spec)
+        active_proj = proj[active_bins.view(1, -1)]
+        bin_clusters = kmeans.fit_predict(active_proj.cpu().data.numpy())
+        est_mask_list = []
+        for i in range(self.masker.n_src):
+            mask = ~active_bins
+            mask[active_bins] = torch.from_numpy(bin_clusters == i)
+            est_mask_list.append(mask.float())
+        est_masks = torch.stack(est_mask_list, dim=1)
+        masked = apply_mag_mask(tf_rep, est_masks)
+        wavs = pad_x_to_y(self.decoder(masked), x)
+        dic_out = dict(tfrep=tf_rep, mask=mask_out, masked_tfrep=masked, proj=proj)
+        return wavs, dic_out
 
 
 class SimpleModel(nn.Module):
@@ -1986,120 +2384,37 @@ class SimpleModel(nn.Module):
         return torch.relu(self.out_proj_layer(out_rec))
 
 
-class Model(nn.Module):
+class SeparableDilatedConv1DBlock(nn.Module):
+    """One dimensional convolutional block, as proposed in [1] without skip
+        output. As used in the two step approach [2]. This block uses the
+        groupnorm across features and also produces always a padded output.
 
-    def __init__(self, encoder, masker, decoder):
-        super().__init__()
-        self.encoder = encoder
-        self.masker = masker
-        self.decoder = decoder
+    Args:
+        in_chan (int): Number of input channels.
+        hid_chan (int): Number of hidden channels in the depth-wise
+            convolution.
+        kernel_size (int): Size of the depth-wise convolutional kernel.
+        dilation (int): Dilation of the depth-wise convolution.
 
-    def forward(self, x):
-        if len(x.shape) == 2:
-            x = x.unsqueeze(1)
-        tf_rep = self.encoder(x)
-        est_masks = self.masker(tf_rep)
-        masked_tf_rep = est_masks * tf_rep.unsqueeze(1)
-        return torch_utils.pad_x_to_y(self.decoder(masked_tf_rep), x)
+    References:
+        [1]: "Conv-TasNet: Surpassing ideal time-frequency magnitude masking
+             for speech separation" TASLP 2019 Yi Luo, Nima Mesgarani
+             https://arxiv.org/abs/1809.07454
+        [2]: Tzinis, E., Venkataramani, S., Wang, Z., Subakan, Y. C., and
+            Smaragdis, P., "Two-Step Sound Source Separation:
+            Training on Learned Latent Targets." In Acoustics, Speech
+            and Signal Processing (ICASSP), 2020 IEEE International Conference.
+            https://arxiv.org/abs/1910.09804
+    """
 
-
-class Model(nn.Module):
-
-    def __init__(self, encoder, masker, decoder):
-        super().__init__()
-        self.encoder = encoder
-        self.masker = masker
-        self.decoder = decoder
-
-    def forward(self, x):
-        if len(x.shape) == 2:
-            x = x.unsqueeze(1)
-        tf_rep = self.encoder(x)
-        est_masks = self.masker(tf_rep)
-        masked_tf_rep = est_masks * tf_rep.unsqueeze(1)
-        return self.pad_output_to_inp(self.decoder(masked_tf_rep), x)
-
-    @staticmethod
-    def pad_output_to_inp(output, inp):
-        """ Pad first argument to have same size as second argument"""
-        inp_len = inp.size(-1)
-        output_len = output.size(-1)
-        return nn.functional.pad(output, [0, inp_len - output_len])
-
-
-class Model(nn.Module):
-
-    def __init__(self, encoder, masker, decoder):
-        super().__init__()
-        self.encoder = encoder
-        self.masker = masker
-        self.decoder = decoder
+    def __init__(self, in_chan=256, hid_chan=512, kernel_size=3, dilation=1):
+        super(SeparableDilatedConv1DBlock, self).__init__()
+        self.module = nn.Sequential(nn.Conv1d(in_channels=in_chan, out_channels=hid_chan, kernel_size=1), nn.PReLU(), nn.GroupNorm(1, hid_chan, eps=1e-08), nn.Conv1d(in_channels=hid_chan, out_channels=hid_chan, kernel_size=kernel_size, padding=dilation * (kernel_size - 1) // 2, dilation=dilation, groups=hid_chan), nn.PReLU(), nn.GroupNorm(1, hid_chan, eps=1e-08), nn.Conv1d(in_channels=hid_chan, out_channels=in_chan, kernel_size=1))
 
     def forward(self, x):
-        if len(x.shape) == 2:
-            x = x.unsqueeze(1)
-        tf_rep = self.encoder(x)
-        est_masks = self.masker(tf_rep)
-        masked_tf_rep = est_masks * tf_rep.unsqueeze(1)
-        return self.pad_output_to_inp(self.decoder(masked_tf_rep), x)
-
-    @staticmethod
-    def pad_output_to_inp(output, inp):
-        """ Pad first argument to have same size as second argument"""
-        inp_len = inp.size(-1)
-        output_len = output.size(-1)
-        return nn.functional.pad(output, [0, inp_len - output_len])
-
-
-class Model(nn.Module):
-
-    def __init__(self, encoder, masker, decoder):
-        super().__init__()
-        self.encoder = encoder
-        self.masker = masker
-        self.decoder = decoder
-
-    def forward(self, x):
-        if len(x.shape) == 2:
-            x = x.unsqueeze(1)
-        tf_rep = self.encoder(x)
-        est_masks = self.masker(tf_rep)
-        masked_tf_rep = est_masks * tf_rep.unsqueeze(1)
-        return self.pad_output_to_inp(self.decoder(masked_tf_rep), x)
-
-    @staticmethod
-    def pad_output_to_inp(output, inp):
-        """ Pad first argument to have same size as second argument"""
-        inp_len = inp.size(-1)
-        output_len = output.size(-1)
-        return nn.functional.pad(output, [0, inp_len - output_len])
-
-
-class Model(nn.Module):
-
-    def __init__(self, encoder, masker, decoder):
-        super().__init__()
-        self.encoder = encoder
-        self.masker = masker
-        self.decoder = decoder
-        self.inp_mode = encoder.inp_mode
-        self.mask_mode = encoder.mask_mode
-
-    def forward(self, x):
-        if len(x.shape) == 2:
-            x = x.unsqueeze(1)
-        tf_rep = self.encoder(x)
-        masker_input = tf_rep
-        est_masks = self.masker(masker_input)
-        masked_tf_reps = self.encoder.apply_mask(tf_rep.unsqueeze(1), est_masks, dim=2)
-        return self.pad_output_to_inp(self.decoder(masked_tf_reps), x)
-
-    @staticmethod
-    def pad_output_to_inp(output, inp):
-        """ Pad first argument to have same size as second argument"""
-        inp_len = inp.size(-1)
-        output_len = output.size(-1)
-        return nn.functional.pad(output, [0, inp_len - output_len])
+        """ Input shape [batch, feats, seq]"""
+        y = x.clone()
+        return x + self.module(y)
 
 
 class TwoStepTDCN(nn.Module):
@@ -2179,39 +2494,6 @@ class TwoStepTDCN(nn.Module):
         adfe_sources = self.forward(mixture_wav)
         rec_wavs = self.decoder(adfe_sources.view(adfe_sources.shape[0], -1, adfe_sources.shape[-1]))
         return rec_wavs
-
-
-class SeparableDilatedConv1DBlock(nn.Module):
-    """One dimensional convolutional block, as proposed in [1] without skip
-        output. As used in the two step approach [2]. This block uses the
-        groupnorm across features and also produces always a padded output.
-
-    Args:
-        in_chan (int): Number of input channels.
-        hid_chan (int): Number of hidden channels in the depth-wise
-            convolution.
-        kernel_size (int): Size of the depth-wise convolutional kernel.
-        dilation (int): Dilation of the depth-wise convolution.
-
-    References:
-        [1]: "Conv-TasNet: Surpassing ideal time-frequency magnitude masking
-             for speech separation" TASLP 2019 Yi Luo, Nima Mesgarani
-             https://arxiv.org/abs/1809.07454
-        [2]: Tzinis, E., Venkataramani, S., Wang, Z., Subakan, Y. C., and
-            Smaragdis, P., "Two-Step Sound Source Separation:
-            Training on Learned Latent Targets." In Acoustics, Speech
-            and Signal Processing (ICASSP), 2020 IEEE International Conference.
-            https://arxiv.org/abs/1910.09804
-    """
-
-    def __init__(self, in_chan=256, hid_chan=512, kernel_size=3, dilation=1):
-        super(SeparableDilatedConv1DBlock, self).__init__()
-        self.module = nn.Sequential(nn.Conv1d(in_channels=in_chan, out_channels=hid_chan, kernel_size=1), nn.PReLU(), nn.GroupNorm(1, hid_chan, eps=1e-08), nn.Conv1d(in_channels=hid_chan, out_channels=hid_chan, kernel_size=kernel_size, padding=dilation * (kernel_size - 1) // 2, dilation=dilation, groups=hid_chan), nn.PReLU(), nn.GroupNorm(1, hid_chan, eps=1e-08), nn.Conv1d(in_channels=hid_chan, out_channels=in_chan, kernel_size=1))
-
-    def forward(self, x):
-        """ Input shape [batch, feats, seq]"""
-        y = x.clone()
-        return x + self.module(y)
 
 
 class AdaptiveEncoder1D(nn.Module):
@@ -2305,103 +2587,6 @@ class AdaptiveEncoderDecoder(nn.Module):
         return recon_sources, enc_masks
 
 
-class Model(nn.Module):
-
-    def __init__(self, pretrained_filterbank, conf):
-        super().__init__()
-        self.pretrained_filterbank = pretrained_filterbank
-        self.separator = TwoStepTDCN(pretrained_filterbank, bn_chan=conf['masknet']['bn_chan'], hid_chan=conf['masknet']['hid_chan'], kernel_size=conf['masknet']['conv_kernel_size'], n_blocks=conf['masknet']['n_blocks'], n_repeats=conf['masknet']['n_repeats'], n_sources=conf['masknet']['n_src'])
-
-    def get_ideal_targets(self, mixture, clean_sources):
-        """
-        Get the latent targets for all sources
-        :param mixture: Input mixture in time domain [batch, timesamples]
-        :param clean_sources: Clean sources that constitute to the mixture in
-            time domain [batch, n_sources, timesamples].
-        :return: Latent representations for the sources which can be used as
-            targets for training:
-            [batch, n_sources, timesamples//encoder_stride]
-        """
-        return self.pretrained_filterbank.get_encoded_sources(mixture, clean_sources)
-
-    def estimate_latent_representations(self, mixture):
-        return self.separator(mixture.unsqueeze(1))
-
-    def get_ideal_latent_targets(self, mixture, clean_sources):
-        return self.pretrained_filterbank.get_encoded_sources(mixture, clean_sources)
-
-    def forward(self, x):
-        return self.separator.infer_source_signals(x.unsqueeze(1))
-
-
-class FreeFB(Filterbank):
-    """ Free filterbank without any constraints. Equivalent to
-    :class:`nn.Conv1d`.
-
-    Args:
-        n_filters (int): Number of filters.
-        kernel_size (int): Length of the filters.
-        stride (int, optional): Stride of the convolution.
-            If None (default), set to ``kernel_size // 2``.
-
-    Attributes:
-        n_feats_out (int): Number of output filters.
-
-    References:
-        [1] : "Filterbank design for end-to-end speech separation".
-        Submitted to ICASSP 2020. Manuel Pariente, Samuele Cornell,
-        Antoine Deleforge, Emmanuel Vincent.
-    """
-
-    def __init__(self, n_filters, kernel_size, stride=None, **kwargs):
-        super(FreeFB, self).__init__(n_filters, kernel_size, stride=stride)
-        self._filters = nn.Parameter(torch.ones(n_filters, 1, kernel_size))
-        for p in self.parameters():
-            nn.init.xavier_normal_(p)
-
-    @property
-    def filters(self):
-        return self._filters
-
-
-class GlobLN(_LayerNorm):
-    """Global Layer Normalization (globLN)."""
-
-    def forward(self, x):
-        """ Applies forward pass.
-        
-        Works for any input size > 2D.
-
-        Args:
-            x (:class:`torch.Tensor`): Shape `[batch, chan, *]`
-
-        Returns:
-            :class:`torch.Tensor`: gLN_x `[batch, chan, *]`
-        """
-        dims = list(range(1, len(x.shape)))
-        mean = x.mean(dim=dims, keepdim=True)
-        var = torch.pow(x - mean, 2).mean(dim=dims, keepdim=True)
-        return self.apply_gain_and_bias((x - mean) / (var + EPS).sqrt())
-
-
-def pad_x_to_y(x, y, axis=-1):
-    """  Pad first argument to have same size as second argument
-
-    Args:
-        x (torch.Tensor): Tensor to be padded.
-        y (torch.Tensor): Tensor to pad x to.
-        axis (int): Axis to pad on.
-
-    Returns:
-        torch.Tensor, x padded to match y's shape.
-    """
-    if axis != -1:
-        raise NotImplementedError
-    inp_len = y.size(axis)
-    output_len = x.size(axis)
-    return nn.functional.pad(x, [0, inp_len - output_len])
-
-
 class TasNet(nn.Module):
     """ Some kind of TasNet, but not the original one
     Differences:
@@ -2476,82 +2661,6 @@ class Chimera(nn.Module):
         return projection_final, mask_out
 
 
-def ebased_vad(mag_spec, th_db=40):
-    """ Compute energy-based VAD from a magnitude spectrogram (or equivalent).
-
-    Args:
-        mag_spec (torch.Tensor): the spectrogram to perform VAD on.
-            Expected shape (batch, *, freq, time).
-            The VAD mask will be computed independently for all the leading
-            dimensions until the last two. Independent of the ordering of the
-            last two dimensions.
-        th_db (int): The threshold in dB from which a TF-bin is considered
-            silent.
-
-    Returns:
-        torch.BoolTensor, the VAD mask.
-
-
-    Examples:
-        >>> import torch
-        >>> mag_spec = torch.abs(torch.randn(10, 2, 65, 16))
-        >>> batch_src_mask = ebased_vad(mag_spec)
-    """
-    log_mag = 20 * torch.log10(mag_spec)
-    to_view = list(mag_spec.shape[:-2]) + [1, -1]
-    max_log_mag = torch.max(log_mag.view(to_view), -1, keepdim=True)[0]
-    return log_mag > max_log_mag - th_db
-
-
-class Model(nn.Module):
-
-    def __init__(self, encoder, masker, decoder):
-        super().__init__()
-        self.encoder = encoder
-        self.masker = masker
-        self.decoder = decoder
-
-    def forward(self, x):
-        if len(x.shape) == 2:
-            x = x.unsqueeze(1)
-        tf_rep = self.encoder(x)
-        final_proj, mask_out = self.masker(take_mag(tf_rep))
-        return final_proj, mask_out
-
-    def separate(self, x):
-        """ Separate with mask-inference head, output waveforms """
-        if len(x.shape) == 2:
-            x = x.unsqueeze(1)
-        tf_rep = self.encoder(x)
-        proj, mask_out = self.masker(take_mag(tf_rep))
-        masked = apply_mag_mask(tf_rep.unsqueeze(1), mask_out)
-        wavs = pad_x_to_y(self.decoder(masked), x)
-        dic_out = dict(tfrep=tf_rep, mask=mask_out, masked_tfrep=masked, proj=proj)
-        return wavs, dic_out
-
-    def dc_head_separate(self, x):
-        """ Cluster embeddings to produce binary masks, output waveforms """
-        kmeans = KMeans(n_clusters=self.masker.n_src)
-        if len(x.shape) == 2:
-            x = x.unsqueeze(1)
-        tf_rep = self.encoder(x)
-        mag_spec = take_mag(tf_rep)
-        proj, mask_out = self.masker(mag_spec)
-        active_bins = ebased_vad(mag_spec)
-        active_proj = proj[active_bins.view(1, -1)]
-        bin_clusters = kmeans.fit_predict(active_proj.cpu().data.numpy())
-        est_mask_list = []
-        for i in range(self.masker.n_src):
-            mask = ~active_bins
-            mask[active_bins] = torch.from_numpy(bin_clusters == i)
-            est_mask_list.append(mask.float())
-        est_masks = torch.stack(est_mask_list, dim=1)
-        masked = apply_mag_mask(tf_rep, est_masks)
-        wavs = pad_x_to_y(self.decoder(masked), x)
-        dic_out = dict(tfrep=tf_rep, mask=mask_out, masked_tfrep=masked, proj=proj)
-        return wavs, dic_out
-
-
 def batch_matrix_norm(matrix, norm_order=2):
     """ Normalize a matrix according to `norm_order`
 
@@ -2605,7 +2714,7 @@ def deep_clustering_loss(embedding, tgt_index, binary_mask=None):
     binary_mask = binary_mask.float()
     if len(binary_mask.shape) == 3:
         binary_mask = binary_mask.view(batch, bins * frames, 1)
-    binary_mask = binary_mask.to(tgt_index.device)
+    binary_mask = binary_mask
     tgt_embedding = torch.zeros(batch, bins * frames, spk_cnt, device=tgt_index.device)
     tgt_embedding.scatter_(2, tgt_index.view(batch, bins * frames, 1), 1)
     tgt_embedding = tgt_embedding * binary_mask
@@ -2687,8 +2796,16 @@ TESTCASES = [
      lambda: ([], {'num_features': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ChanLN,
+     lambda: ([], {'channel_size': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (Chimera,
      lambda: ([], {'in_chan': 4, 'n_src': 4}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     False),
+    (CumLN,
+     lambda: ([], {'channel_size': 4}),
      lambda: ([torch.rand([4, 4, 4])], {}),
      False),
     (GlobLN,
@@ -2696,6 +2813,18 @@ TESTCASES = [
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (MultiSrcNegSDR,
+     lambda: ([], {'sdr_type': 'snr'}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NoSrcMSE,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NoSrcSDR,
+     lambda: ([], {'sdr_type': 'snr'}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (NonPitSDR,
      lambda: ([], {'sdr_type': 'snr'}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
      False),
@@ -2778,4 +2907,19 @@ class Test_mpariente_asteroid(_paritybench_base):
 
     def test_014(self):
         self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
 

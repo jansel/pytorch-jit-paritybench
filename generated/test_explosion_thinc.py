@@ -126,22 +126,27 @@ test_types = _module
 test_util = _module
 util = _module
 types = _module
+util = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from typing import List
 
 
 from typing import Optional
@@ -153,11 +158,38 @@ from typing import Tuple
 from typing import Callable
 
 
+import torch
+
+
 from typing import cast
 
 
 from functools import partial
 
 
+from typing import Any
+
+
 import numpy
+
+
+from typing import Union
+
+
+from typing import Sequence
+
+
+from typing import Dict
+
+
+from typing import TypeVar
+
+
+import random
+
+
+import functools
+
+
+import inspect
 

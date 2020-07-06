@@ -36,6 +36,7 @@ super_resolve = _module
 generate_sine_wave = _module
 train = _module
 main = _module
+data = _module
 generate = _module
 main = _module
 model = _module
@@ -44,15 +45,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -192,10 +194,16 @@ from torchtext import data
 from torchtext import datasets
 
 
+import torch.utils.data as data
+
+
 from math import log10
 
 
 import torch.nn.init as init
+
+
+from torchvision.transforms import ToTensor
 
 
 from torch import nn
@@ -258,18 +266,6 @@ class ToyModel(nn.Module):
         return self.net2(self.relu(self.net1(x)))
 
 
-class ToyModel(nn.Module):
-
-    def __init__(self):
-        super(ToyModel, self).__init__()
-        self.net1 = nn.Linear(10, 10)
-        self.relu = nn.ReLU()
-        self.net2 = nn.Linear(10, 5)
-
-    def forward(self, x):
-        return self.net2(self.relu(self.net1(x)))
-
-
 class ToyMpModel(nn.Module):
 
     def __init__(self, dev0, dev1):
@@ -289,37 +285,28 @@ class ToyMpModel(nn.Module):
 
 class Net(nn.Module):
 
-    def __init__(self, num_gpus=0):
+    def __init__(self, upscale_factor):
         super(Net, self).__init__()
-        None
-        self.num_gpus = num_gpus
-        device = torch.device('cuda:0' if torch.is_available() and self.num_gpus > 0 else 'cpu')
-        None
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1)
-        if 'cuda' in str(device) and num_gpus > 1:
-            device = torch.device('cuda:1')
-        None
-        self.dropout1 = nn.Dropout2d(0.25)
-        self.dropout2 = nn.Dropout2d(0.5)
-        self.fc1 = nn.Linear(9216, 128)
-        self.fc2 = nn.Linear(128, 10)
+        self.relu = nn.ReLU()
+        self.conv1 = nn.Conv2d(1, 64, (5, 5), (1, 1), (2, 2))
+        self.conv2 = nn.Conv2d(64, 64, (3, 3), (1, 1), (1, 1))
+        self.conv3 = nn.Conv2d(64, 32, (3, 3), (1, 1), (1, 1))
+        self.conv4 = nn.Conv2d(32, upscale_factor ** 2, (3, 3), (1, 1), (1, 1))
+        self.pixel_shuffle = nn.PixelShuffle(upscale_factor)
+        self._initialize_weights()
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.max_pool2d(x, 2)
-        x = self.dropout1(x)
-        x = torch.flatten(x, 1)
-        next_device = next(self.fc1.parameters()).device
-        x = x
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.dropout2(x)
-        x = self.fc2(x)
-        output = F.log_softmax(x, dim=1)
-        return output
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.relu(self.conv3(x))
+        x = self.pixel_shuffle(self.conv4(x))
+        return x
+
+    def _initialize_weights(self):
+        init.orthogonal_(self.conv1.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv2.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv3.weight, init.calculate_gain('relu'))
+        init.orthogonal_(self.conv4.weight)
 
 
 class ParameterServer(nn.Module):
@@ -328,7 +315,7 @@ class ParameterServer(nn.Module):
         super().__init__()
         model = Net(num_gpus=num_gpus)
         self.model = model
-        self.input_device = torch.device('cuda:0' if torch.is_available() and num_gpus > 0 else 'cpu')
+        self.input_device = torch.device('cuda:0' if torch.cuda.is_available() and num_gpus > 0 else 'cpu')
 
     def forward(self, inp):
         inp = inp
@@ -424,7 +411,7 @@ class ResNetPart1(ResNetBase):
     def __init__(self, device, *args, **kwargs):
         super(ResNetPart1, self).__init__(Bottleneck, 64, *args, num_classes=num_classes, **kwargs)
         self.device = device
-        self.seq = nn.Sequential(nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False), self._norm_layer(self.inplanes), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), self._make_layer(64, 3), self._make_layer(128, 4, stride=2)).to(self.device)
+        self.seq = nn.Sequential(nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False), self._norm_layer(self.inplanes), nn.ReLU(inplace=True), nn.MaxPool2d(kernel_size=3, stride=2, padding=1), self._make_layer(64, 3), self._make_layer(128, 4, stride=2))
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -433,7 +420,7 @@ class ResNetPart1(ResNetBase):
                 nn.init.zeros_(m.bias)
 
     def forward(self, x_rref):
-        x = x_rref.to_here().to(self.device)
+        x = x_rref.to_here()
         with self._lock:
             out = self.seq(x)
         return out.cpu()
@@ -447,11 +434,11 @@ class ResNetPart2(ResNetBase):
     def __init__(self, device, *args, **kwargs):
         super(ResNetPart2, self).__init__(Bottleneck, 512, *args, num_classes=num_classes, **kwargs)
         self.device = device
-        self.seq = nn.Sequential(self._make_layer(256, 6, stride=2), self._make_layer(512, 3, stride=2), nn.AdaptiveAvgPool2d((1, 1))).to(self.device)
-        self.fc = nn.Linear(512 * self._block.expansion, num_classes).to(self.device)
+        self.seq = nn.Sequential(self._make_layer(256, 6, stride=2), self._make_layer(512, 3, stride=2), nn.AdaptiveAvgPool2d((1, 1)))
+        self.fc = nn.Linear(512 * self._block.expansion, num_classes)
 
     def forward(self, x_rref):
-        x = x_rref.to_here().to(self.device)
+        x = x_rref.to_here()
         with self._lock:
             out = self.fc(torch.flatten(self.seq(x), 1))
         return out.cpu()
@@ -521,11 +508,6 @@ class DistResNet50(nn.Module):
 
 
 class Policy(nn.Module):
-    """
-    Borrowing the ``Policy`` class from the Reinforcement Learning example.
-    Copying the code to make these two examples independent.
-    See https://github.com/pytorch/examples/tree/master/reinforcement_learning
-    """
 
     def __init__(self):
         super(Policy, self).__init__()
@@ -574,77 +556,53 @@ class Decoder(nn.Module):
         return self.decoder(self.drop(output))
 
 
-def _remote_method(method, rref, *args, **kwargs):
-    """
-    a helper function to run method on the owner of rref and fetch back the
-    result using RPC
-    """
-    return rpc.rpc_sync(rref.owner(), _call_method, args=[method, rref] + list(args), kwargs=kwargs)
-
-
 class RNNModel(nn.Module):
-    """
-    A distributed RNN model which puts embedding table and decoder parameters on
-    a remote parameter server, and locally holds parameters for the LSTM module.
-    The structure of the RNN model is borrowed from the word language model
-    example. See https://github.com/pytorch/examples/blob/master/word_language_model/model.py
-    """
+    """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, ps, ntoken, ninp, nhid, nlayers, dropout=0.5):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
         super(RNNModel, self).__init__()
-        self.emb_table_rref = rpc.remote(ps, EmbeddingTable, args=(ntoken, ninp, dropout))
-        self.rnn = nn.LSTM(ninp, nhid, nlayers, dropout=dropout)
-        self.decoder_rref = rpc.remote(ps, Decoder, args=(ntoken, nhid, dropout))
+        self.ntoken = ntoken
+        self.drop = nn.Dropout(dropout)
+        self.encoder = nn.Embedding(ntoken, ninp)
+        if rnn_type in ['LSTM', 'GRU']:
+            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
+        else:
+            try:
+                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
+            except KeyError:
+                raise ValueError("""An invalid option for `--model` was supplied,
+                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
+            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
+        self.decoder = nn.Linear(nhid, ntoken)
+        if tie_weights:
+            if nhid != ninp:
+                raise ValueError('When using the tied flag, nhid must be equal to emsize')
+            self.decoder.weight = self.encoder.weight
+        self.init_weights()
+        self.rnn_type = rnn_type
+        self.nhid = nhid
+        self.nlayers = nlayers
+
+    def init_weights(self):
+        initrange = 0.1
+        nn.init.uniform_(self.encoder.weight, -initrange, initrange)
+        nn.init.zeros_(self.decoder.weight)
+        nn.init.uniform_(self.decoder.weight, -initrange, initrange)
 
     def forward(self, input, hidden):
-        emb = _remote_method(EmbeddingTable.forward, self.emb_table_rref, input)
+        emb = self.drop(self.encoder(input))
         output, hidden = self.rnn(emb, hidden)
-        decoded = _remote_method(Decoder.forward, self.decoder_rref, output)
-        return decoded, hidden
+        output = self.drop(output)
+        decoded = self.decoder(output)
+        decoded = decoded.view(-1, self.ntoken)
+        return F.log_softmax(decoded, dim=1), hidden
 
-    def parameter_rrefs(self):
-        remote_params = []
-        remote_params.extend(_remote_method(_parameter_rrefs, self.emb_table_rref))
-        remote_params.extend(_parameter_rrefs(self.rnn))
-        remote_params.extend(_remote_method(_parameter_rrefs, self.decoder_rref))
-        return remote_params
-
-
-class TransformerNet(torch.nn.Module):
-
-    def __init__(self):
-        super(TransformerNet, self).__init__()
-        self.conv1 = ConvLayer(3, 32, kernel_size=9, stride=1)
-        self.in1 = torch.nn.InstanceNorm2d(32, affine=True)
-        self.conv2 = ConvLayer(32, 64, kernel_size=3, stride=2)
-        self.in2 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.conv3 = ConvLayer(64, 128, kernel_size=3, stride=2)
-        self.in3 = torch.nn.InstanceNorm2d(128, affine=True)
-        self.res1 = ResidualBlock(128)
-        self.res2 = ResidualBlock(128)
-        self.res3 = ResidualBlock(128)
-        self.res4 = ResidualBlock(128)
-        self.res5 = ResidualBlock(128)
-        self.deconv1 = UpsampleConvLayer(128, 64, kernel_size=3, stride=1, upsample=2)
-        self.in4 = torch.nn.InstanceNorm2d(64, affine=True)
-        self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3, stride=1, upsample=2)
-        self.in5 = torch.nn.InstanceNorm2d(32, affine=True)
-        self.deconv3 = ConvLayer(32, 3, kernel_size=9, stride=1)
-        self.relu = torch.nn.ReLU()
-
-    def forward(self, X):
-        y = self.relu(self.in1(self.conv1(X)))
-        y = self.relu(self.in2(self.conv2(y)))
-        y = self.relu(self.in3(self.conv3(y)))
-        y = self.res1(y)
-        y = self.res2(y)
-        y = self.res3(y)
-        y = self.res4(y)
-        y = self.res5(y)
-        y = self.relu(self.in4(self.deconv1(y)))
-        y = self.relu(self.in5(self.deconv2(y)))
-        y = self.deconv3(y)
-        return y
+    def init_hidden(self, bsz):
+        weight = next(self.parameters())
+        if self.rnn_type == 'LSTM':
+            return weight.new_zeros(self.nlayers, bsz, self.nhid), weight.new_zeros(self.nlayers, bsz, self.nhid)
+        else:
+            return weight.new_zeros(self.nlayers, bsz, self.nhid)
 
 
 class ConvLayer(torch.nn.Module):
@@ -706,6 +664,43 @@ class UpsampleConvLayer(torch.nn.Module):
         return out
 
 
+class TransformerNet(torch.nn.Module):
+
+    def __init__(self):
+        super(TransformerNet, self).__init__()
+        self.conv1 = ConvLayer(3, 32, kernel_size=9, stride=1)
+        self.in1 = torch.nn.InstanceNorm2d(32, affine=True)
+        self.conv2 = ConvLayer(32, 64, kernel_size=3, stride=2)
+        self.in2 = torch.nn.InstanceNorm2d(64, affine=True)
+        self.conv3 = ConvLayer(64, 128, kernel_size=3, stride=2)
+        self.in3 = torch.nn.InstanceNorm2d(128, affine=True)
+        self.res1 = ResidualBlock(128)
+        self.res2 = ResidualBlock(128)
+        self.res3 = ResidualBlock(128)
+        self.res4 = ResidualBlock(128)
+        self.res5 = ResidualBlock(128)
+        self.deconv1 = UpsampleConvLayer(128, 64, kernel_size=3, stride=1, upsample=2)
+        self.in4 = torch.nn.InstanceNorm2d(64, affine=True)
+        self.deconv2 = UpsampleConvLayer(64, 32, kernel_size=3, stride=1, upsample=2)
+        self.in5 = torch.nn.InstanceNorm2d(32, affine=True)
+        self.deconv3 = ConvLayer(32, 3, kernel_size=9, stride=1)
+        self.relu = torch.nn.ReLU()
+
+    def forward(self, X):
+        y = self.relu(self.in1(self.conv1(X)))
+        y = self.relu(self.in2(self.conv2(y)))
+        y = self.relu(self.in3(self.conv3(y)))
+        y = self.res1(y)
+        y = self.res2(y)
+        y = self.res3(y)
+        y = self.res4(y)
+        y = self.res5(y)
+        y = self.relu(self.in4(self.deconv1(y)))
+        y = self.relu(self.in5(self.deconv2(y)))
+        y = self.deconv3(y)
+        return y
+
+
 class Vgg16(torch.nn.Module):
 
     def __init__(self, requires_grad=False):
@@ -739,94 +734,6 @@ class Vgg16(torch.nn.Module):
         vgg_outputs = namedtuple('VggOutputs', ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
         out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
         return out
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 3, 1)
-        self.conv2 = nn.Conv2d(32, 64, 3, 1)
-        self.dropout1 = nn.Dropout2d(0.25)
-        self.dropout2 = nn.Dropout2d(0.5)
-        self.fc1 = nn.Linear(9216, 128)
-        self.fc2 = nn.Linear(128, 10)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2)
-        x = self.dropout1(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.dropout2(x)
-        x = self.fc2(x)
-        output = F.log_softmax(x, dim=1)
-        return output
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
-        self.conv2 = nn.Conv2d(10, 20, kernel_size=5)
-        self.conv2_drop = nn.Dropout2d()
-        self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
-
-    def forward(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 2))
-        x = F.relu(F.max_pool2d(self.conv2_drop(self.conv2(x)), 2))
-        x = x.view(-1, 320)
-        x = F.relu(self.fc1(x))
-        x = F.dropout(x, training=self.training)
-        x = self.fc2(x)
-        return F.log_softmax(x, dim=1)
-
-
-class Policy(nn.Module):
-    """
-    implements both actor and critic in one model
-    """
-
-    def __init__(self):
-        super(Policy, self).__init__()
-        self.affine1 = nn.Linear(4, 128)
-        self.action_head = nn.Linear(128, 2)
-        self.value_head = nn.Linear(128, 1)
-        self.saved_actions = []
-        self.rewards = []
-
-    def forward(self, x):
-        """
-        forward of both actor and critic
-        """
-        x = F.relu(self.affine1(x))
-        action_prob = F.softmax(self.action_head(x), dim=-1)
-        state_values = self.value_head(x)
-        return action_prob, state_values
-
-
-class Policy(nn.Module):
-
-    def __init__(self):
-        super(Policy, self).__init__()
-        self.affine1 = nn.Linear(4, 128)
-        self.dropout = nn.Dropout(p=0.6)
-        self.affine2 = nn.Linear(128, 2)
-        self.saved_log_probs = []
-        self.rewards = []
-
-    def forward(self, x):
-        x = self.affine1(x)
-        x = self.dropout(x)
-        x = F.relu(x)
-        action_scores = self.affine2(x)
-        return F.softmax(action_scores, dim=1)
 
 
 class Bottle(nn.Module):
@@ -891,32 +798,6 @@ class SNLIClassifier(nn.Module):
         return scores
 
 
-class Net(nn.Module):
-
-    def __init__(self, upscale_factor):
-        super(Net, self).__init__()
-        self.relu = nn.ReLU()
-        self.conv1 = nn.Conv2d(1, 64, (5, 5), (1, 1), (2, 2))
-        self.conv2 = nn.Conv2d(64, 64, (3, 3), (1, 1), (1, 1))
-        self.conv3 = nn.Conv2d(64, 32, (3, 3), (1, 1), (1, 1))
-        self.conv4 = nn.Conv2d(32, upscale_factor ** 2, (3, 3), (1, 1), (1, 1))
-        self.pixel_shuffle = nn.PixelShuffle(upscale_factor)
-        self._initialize_weights()
-
-    def forward(self, x):
-        x = self.relu(self.conv1(x))
-        x = self.relu(self.conv2(x))
-        x = self.relu(self.conv3(x))
-        x = self.pixel_shuffle(self.conv4(x))
-        return x
-
-    def _initialize_weights(self):
-        init.orthogonal_(self.conv1.weight, init.calculate_gain('relu'))
-        init.orthogonal_(self.conv2.weight, init.calculate_gain('relu'))
-        init.orthogonal_(self.conv3.weight, init.calculate_gain('relu'))
-        init.orthogonal_(self.conv4.weight)
-
-
 class Sequence(nn.Module):
 
     def __init__(self):
@@ -972,55 +853,6 @@ class VAE(nn.Module):
         mu, logvar = self.encode(x.view(-1, 784))
         z = self.reparameterize(mu, logvar)
         return self.decode(z), mu, logvar
-
-
-class RNNModel(nn.Module):
-    """Container module with an encoder, a recurrent module, and a decoder."""
-
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
-        super(RNNModel, self).__init__()
-        self.ntoken = ntoken
-        self.drop = nn.Dropout(dropout)
-        self.encoder = nn.Embedding(ntoken, ninp)
-        if rnn_type in ['LSTM', 'GRU']:
-            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
-        else:
-            try:
-                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
-            except KeyError:
-                raise ValueError("""An invalid option for `--model` was supplied,
-                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
-            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
-        self.decoder = nn.Linear(nhid, ntoken)
-        if tie_weights:
-            if nhid != ninp:
-                raise ValueError('When using the tied flag, nhid must be equal to emsize')
-            self.decoder.weight = self.encoder.weight
-        self.init_weights()
-        self.rnn_type = rnn_type
-        self.nhid = nhid
-        self.nlayers = nlayers
-
-    def init_weights(self):
-        initrange = 0.1
-        nn.init.uniform_(self.encoder.weight, -initrange, initrange)
-        nn.init.zeros_(self.decoder.weight)
-        nn.init.uniform_(self.decoder.weight, -initrange, initrange)
-
-    def forward(self, input, hidden):
-        emb = self.drop(self.encoder(input))
-        output, hidden = self.rnn(emb, hidden)
-        output = self.drop(output)
-        decoded = self.decoder(output)
-        decoded = decoded.view(-1, self.ntoken)
-        return F.log_softmax(decoded, dim=1), hidden
-
-    def init_hidden(self, bsz):
-        weight = next(self.parameters())
-        if self.rnn_type == 'LSTM':
-            return weight.new_zeros(self.nlayers, bsz, self.nhid), weight.new_zeros(self.nlayers, bsz, self.nhid)
-        else:
-            return weight.new_zeros(self.nlayers, bsz, self.nhid)
 
 
 class PositionalEncoding(nn.Module):

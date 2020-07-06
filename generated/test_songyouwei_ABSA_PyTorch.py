@@ -31,26 +31,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import numpy as np
 
 
 import torch
 
 
+from torch.utils.data import Dataset
+
+
 import torch.nn.functional as F
-
-
-import numpy as np
 
 
 import math
@@ -75,6 +79,9 @@ from time import localtime
 
 
 import random
+
+
+from sklearn import metrics
 
 
 from torch.utils.data import DataLoader
@@ -159,6 +166,25 @@ class Attention(nn.Module):
         output = self.proj(output)
         output = self.dropout(output)
         return output, score
+
+
+class NoQueryAttention(Attention):
+    """q is a parameter"""
+
+    def __init__(self, embed_dim, hidden_dim=None, out_dim=None, n_head=1, score_function='dot_product', q_len=1, dropout=0):
+        super(NoQueryAttention, self).__init__(embed_dim, hidden_dim, out_dim, n_head, score_function, dropout)
+        self.q_len = q_len
+        self.q = nn.Parameter(torch.Tensor(q_len, embed_dim))
+        self.reset_q()
+
+    def reset_q(self):
+        stdv = 1.0 / math.sqrt(self.embed_dim)
+        self.q.data.uniform_(-stdv, stdv)
+
+    def forward(self, k, **kwargs):
+        mb_size = k.shape[0]
+        q = self.q.expand(mb_size, -1, -1)
+        return super(NoQueryAttention, self).forward(k, q)
 
 
 class DynamicLSTM(nn.Module):
@@ -410,25 +436,6 @@ class AOA(nn.Module):
         weighted_sum = torch.matmul(torch.transpose(ctx_out, 1, 2), gamma).squeeze(-1)
         out = self.dense(weighted_sum)
         return out
-
-
-class NoQueryAttention(Attention):
-    """q is a parameter"""
-
-    def __init__(self, embed_dim, hidden_dim=None, out_dim=None, n_head=1, score_function='dot_product', q_len=1, dropout=0):
-        super(NoQueryAttention, self).__init__(embed_dim, hidden_dim, out_dim, n_head, score_function, dropout)
-        self.q_len = q_len
-        self.q = nn.Parameter(torch.Tensor(q_len, embed_dim))
-        self.reset_q()
-
-    def reset_q(self):
-        stdv = 1.0 / math.sqrt(self.embed_dim)
-        self.q.data.uniform_(-stdv, stdv)
-
-    def forward(self, k, **kwargs):
-        mb_size = k.shape[0]
-        q = self.q.expand(mb_size, -1, -1)
-        return super(NoQueryAttention, self).forward(k, q)
 
 
 class ATAE_LSTM(nn.Module):
@@ -1054,6 +1061,10 @@ TESTCASES = [
      lambda: ([], {'embedding_matrix': torch.rand([4, 4]), 'opt': _mock_config(embed_dim=4, hidden_dim=4, polarities_dim=4)}),
      lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
      False),
+    (Absolute_Position_Embedding,
+     lambda: ([], {'opt': _mock_config()}),
+     lambda: ([torch.rand([4, 4]), torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
     (Attention,
      lambda: ([], {'embed_dim': 4}),
      lambda: ([torch.rand([4, 4, 1, 4]), torch.rand([4, 4, 1, 4])], {}),
@@ -1077,6 +1088,10 @@ TESTCASES = [
     (LSTM,
      lambda: ([], {'embedding_matrix': torch.rand([4, 4]), 'opt': _mock_config(embed_dim=4, hidden_dim=4, polarities_dim=4)}),
      lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64)], {}),
+     False),
+    (LocationEncoding,
+     lambda: ([], {'opt': _mock_config()}),
+     lambda: ([torch.rand([4, 4]), torch.zeros([4, 4], dtype=torch.int64)], {}),
      False),
     (MemNet,
      lambda: ([], {'embedding_matrix': torch.rand([4, 4]), 'opt': _mock_config(embed_dim=4, polarities_dim=4, hops=4)}),
@@ -1146,4 +1161,10 @@ class Test_songyouwei_ABSA_PyTorch(_paritybench_base):
 
     def test_013(self):
         self._check(*TESTCASES[13])
+
+    def test_014(self):
+        self._check(*TESTCASES[14])
+
+    def test_015(self):
+        self._check(*TESTCASES[15])
 

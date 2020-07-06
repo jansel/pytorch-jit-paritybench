@@ -11,20 +11,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import re
+
+
 import torch
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
 
 
 import torch.nn as nn
@@ -57,55 +67,19 @@ import math
 import torch.optim as optim
 
 
-import torchvision.transforms as transforms
-
-
-def apply_attention(input, attention):
-    """ Apply any number of attention maps over the input. """
-    n, c = input.size()[:2]
-    glimpses = attention.size(1)
-    input = input.view(n, 1, c, -1)
-    attention = attention.view(n, glimpses, -1)
-    attention = F.softmax(attention, dim=-1).unsqueeze(2)
-    weighted = attention * input
-    weighted_mean = weighted.sum(dim=-1)
-    return weighted_mean.view(n, -1)
-
-
-_global_config['max_answers'] = 4
-
-
-_global_config['output_features'] = 4
-
-
 class Net(nn.Module):
-    """ Re-implementation of ``Show, Ask, Attend, and Answer: A Strong Baseline For Visual Question Answering'' [0]
 
-    [0]: https://arxiv.org/abs/1704.03162
-    """
-
-    def __init__(self, embedding_tokens):
+    def __init__(self):
         super(Net, self).__init__()
-        question_features = 1024
-        vision_features = config.output_features
-        glimpses = 2
-        self.text = TextProcessor(embedding_tokens=embedding_tokens, embedding_features=300, lstm_features=question_features, drop=0.5)
-        self.attention = Attention(v_features=vision_features, q_features=question_features, mid_features=512, glimpses=2, drop=0.5)
-        self.classifier = Classifier(in_features=glimpses * vision_features + question_features, mid_features=1024, out_features=config.max_answers, drop=0.5)
-        for m in self.modules():
-            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
-                init.xavier_uniform(m.weight)
-                if m.bias is not None:
-                    m.bias.data.zero_()
+        self.model = caffe_resnet.resnet152(pretrained=True)
 
-    def forward(self, v, q, q_len):
-        q = self.text(q, list(q_len.data))
-        v = v / (v.norm(p=2, dim=1, keepdim=True).expand_as(v) + 1e-08)
-        a = self.attention(v, q)
-        v = apply_attention(v, a)
-        combined = torch.cat([v, q], dim=1)
-        answer = self.classifier(combined)
-        return answer
+        def save_output(module, input, output):
+            self.buffer = output
+        self.model.layer4.register_forward_hook(save_output)
+
+    def forward(self, x):
+        self.model(x)
+        return self.buffer
 
 
 class Classifier(nn.Sequential):
@@ -173,21 +147,6 @@ class Attention(nn.Module):
         x = self.relu(v + q)
         x = self.x_conv(self.drop(x))
         return x
-
-
-class Net(nn.Module):
-
-    def __init__(self):
-        super(Net, self).__init__()
-        self.model = caffe_resnet.resnet152(pretrained=True)
-
-        def save_output(module, input, output):
-            self.buffer = output
-        self.model.layer4.register_forward_hook(save_output)
-
-    def forward(self, x):
-        self.model(x)
-        return self.buffer
 
 
 import torch

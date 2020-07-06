@@ -23,26 +23,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-import time
 
 
 import numpy as np
 
 
 import torch
+
+
+import torch.utils.data
+
+
+from torch.utils.data.sampler import Sampler
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+import time
 
 
 import torch.nn as nn
@@ -52,12 +65,6 @@ from torch.autograd import Variable
 
 
 from torch.optim import RMSprop
-
-
-from torch.utils.data import DataLoader
-
-
-import torch.utils.data
 
 
 class Model(nn.Module):
@@ -112,7 +119,7 @@ class Model(nn.Module):
         else:
             spans, words, single_features = inputs
         words = words.type(torch.LongTensor)
-        if torch.is_available():
+        if torch.cuda.is_available():
             words = words
         embed_words = self.drop(self.word_embeds(words).view(words.size()[0], -1))
         single_input = torch.cat([spans, embed_words, single_features], 1)
@@ -121,7 +128,7 @@ class Model(nn.Module):
             batchsize, pairs_num, _ = ana_spans.size()
             ant_words_long = ant_words.view(batchsize, -1).type(torch.LongTensor)
             ana_words_long = ana_words.view(batchsize, -1).type(torch.LongTensor)
-            if torch.is_available():
+            if torch.cuda.is_available():
                 ant_words_long = ant_words_long
                 ana_words_long = ana_words_long
             ant_embed_words = self.drop(self.word_embeds(ant_words_long).view(batchsize, pairs_num, -1))

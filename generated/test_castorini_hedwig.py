@@ -31,6 +31,7 @@ sogou_processor = _module
 sst_processor = _module
 yelp2014_processor = _module
 bow_processors = _module
+abstract_processor = _module
 imdb = _module
 reuters = _module
 robust04 = _module
@@ -41,7 +42,6 @@ yelp2014 = _module
 models = _module
 args = _module
 bert = _module
-__main__ = _module
 char_cnn = _module
 model = _module
 fasttext = _module
@@ -51,13 +51,11 @@ model = _module
 sent_level_rnn = _module
 word_level_rnn = _module
 hbert = _module
-__main__ = _module
 model = _module
 sentence_encoder = _module
 kim_cnn = _module
 model = _module
 lr = _module
-__main__ = _module
 model = _module
 reg_lstm = _module
 embed_regularize = _module
@@ -69,7 +67,6 @@ model = _module
 setup = _module
 tasks = _module
 relevance_transfer = _module
-__main__ = _module
 rerank = _module
 resample = _module
 utils = _module
@@ -80,15 +77,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -103,6 +101,9 @@ import torch
 
 
 import torch.nn.functional as F
+
+
+from sklearn import metrics
 
 
 from torch.utils.data import DataLoader
@@ -120,19 +121,49 @@ from torch.utils.data import RandomSampler
 import time
 
 
+from torchtext.data import NestedField
+
+
+from torchtext.data import Field
+
+
+from torchtext.data import TabularDataset
+
+
+from torchtext.data.iterator import BucketIterator
+
+
+from torchtext.vocab import Vectors
+
+
+from torch import tensor
+
+
+from torch.utils.data import Dataset
+
+
+import re
+
+
 import random
+
+
+import logging
+
+
+from copy import deepcopy
 
 
 import torch.nn as nn
 
 
-from torch import nn
-
-
 import torch.onnx
 
 
-from copy import deepcopy
+from torch import nn
+
+
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 from torch.nn import Parameter
@@ -142,6 +173,12 @@ from functools import wraps
 
 
 from collections import defaultdict
+
+
+import torch.utils.data
+
+
+import math
 
 
 class CharCNN(nn.Module):
@@ -166,7 +203,7 @@ class CharCNN(nn.Module):
         self.fc3 = nn.Linear(num_affine_neurons, target_class)
 
     def forward(self, x, **kwargs):
-        if torch.is_available() and self.is_cuda_enabled:
+        if torch.cuda.is_available() and self.is_cuda_enabled:
             x = x.transpose(1, 2).type(torch.FloatTensor)
         else:
             x = x.transpose(1, 2).type(torch.FloatTensor)
@@ -216,27 +253,6 @@ class FastText(nn.Module):
         x = F.avg_pool2d(x, (x.shape[1], 1)).squeeze(1)
         logit = self.fc1(x)
         return logit
-
-
-class HAN(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.mode = config.mode
-        self.word_attention_rnn = WordLevelRNN(config)
-        self.sentence_attention_rnn = SentLevelRNN(config)
-
-    def forward(self, x, **kwargs):
-        x = x.permute(1, 2, 0)
-        num_sentences = x.size(0)
-        word_attentions = None
-        for i in range(num_sentences):
-            word_attn = self.word_attention_rnn(x[(i), :, :])
-            if word_attentions is None:
-                word_attentions = word_attn
-            else:
-                word_attentions = torch.cat((word_attentions, word_attn), 0)
-        return self.sentence_attention_rnn(word_attentions)
 
 
 class SentLevelRNN(nn.Module):
@@ -308,6 +324,27 @@ class WordLevelRNN(nn.Module):
         x = torch.mul(h.permute(2, 0, 1), x.transpose(1, 0))
         x = torch.sum(x, dim=1).transpose(1, 0).unsqueeze(0)
         return x
+
+
+class HAN(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.mode = config.mode
+        self.word_attention_rnn = WordLevelRNN(config)
+        self.sentence_attention_rnn = SentLevelRNN(config)
+
+    def forward(self, x, **kwargs):
+        x = x.permute(1, 2, 0)
+        num_sentences = x.size(0)
+        word_attentions = None
+        for i in range(num_sentences):
+            word_attn = self.word_attention_rnn(x[(i), :, :])
+            if word_attentions is None:
+                word_attentions = word_attn
+            else:
+                word_attentions = torch.cat((word_attentions, word_attn), 0)
+        return self.sentence_attention_rnn(word_attentions)
 
 
 class HierarchicalBert(nn.Module):
@@ -437,6 +474,47 @@ class LockedDropout(nn.Module):
         return mask * x
 
 
+class WeightDrop(torch.nn.Module):
+
+    def __init__(self, module, weights, dropout=0, variational=False):
+        super().__init__()
+        self.module = module
+        self.weights = weights
+        self.dropout = dropout
+        self.variational = variational
+        self._setup()
+
+    def null_function(*args, **kwargs):
+        return
+
+    def _setup(self):
+        if issubclass(type(self.module), torch.nn.RNNBase):
+            self.module.flatten_parameters = self.null_function
+        for name_w in self.weights:
+            None
+            w = getattr(self.module, name_w)
+            del self.module._parameters[name_w]
+            self.module.register_parameter(name_w + '_raw', Parameter(w.data))
+
+    def _setweights(self):
+        for name_w in self.weights:
+            raw_w = getattr(self.module, name_w + '_raw')
+            w = None
+            if self.variational:
+                mask = torch.autograd.Variable(torch.ones(raw_w.size(0), 1))
+                if raw_w.is_cuda:
+                    mask = mask
+                mask = torch.nn.functional.dropout(mask, p=self.dropout, training=True)
+                w = mask.expand_as(raw_w) * raw_w
+            else:
+                w = torch.nn.functional.dropout(raw_w, p=self.dropout, training=self.training)
+            setattr(self.module, name_w, w)
+
+    def forward(self, *args):
+        self._setweights()
+        return self.module.forward(*args)
+
+
 def embedded_dropout(embed, words, dropout=0.1, scale=None):
     if dropout:
         mask = embed.weight.data.new().resize_((embed.weight.size(0), 1)).bernoulli_(1 - dropout).expand_as(embed.weight) / (1 - dropout)
@@ -493,7 +571,7 @@ class RegLSTM(nn.Module):
             self.fc1 = nn.Linear(config.hidden_dim, target_class)
         if self.beta_ema > 0:
             self.avg_param = deepcopy(list(p.data for p in self.parameters()))
-            if torch.is_available():
+            if torch.cuda.is_available():
                 self.avg_param = [a for a in self.avg_param]
             self.steps_ema = 0.0
 
@@ -543,47 +621,6 @@ class RegLSTM(nn.Module):
     def get_params(self):
         params = deepcopy(list(p.data for p in self.parameters()))
         return params
-
-
-class WeightDrop(torch.nn.Module):
-
-    def __init__(self, module, weights, dropout=0, variational=False):
-        super().__init__()
-        self.module = module
-        self.weights = weights
-        self.dropout = dropout
-        self.variational = variational
-        self._setup()
-
-    def null_function(*args, **kwargs):
-        return
-
-    def _setup(self):
-        if issubclass(type(self.module), torch.nn.RNNBase):
-            self.module.flatten_parameters = self.null_function
-        for name_w in self.weights:
-            None
-            w = getattr(self.module, name_w)
-            del self.module._parameters[name_w]
-            self.module.register_parameter(name_w + '_raw', Parameter(w.data))
-
-    def _setweights(self):
-        for name_w in self.weights:
-            raw_w = getattr(self.module, name_w + '_raw')
-            w = None
-            if self.variational:
-                mask = torch.autograd.Variable(torch.ones(raw_w.size(0), 1))
-                if raw_w.is_cuda:
-                    mask = mask
-                mask = torch.nn.functional.dropout(mask, p=self.dropout, training=True)
-                w = mask.expand_as(raw_w) * raw_w
-            else:
-                w = torch.nn.functional.dropout(raw_w, p=self.dropout, training=self.training)
-            setattr(self.module, name_w, w)
-
-    def forward(self, *args):
-        self._setweights()
-        return self.module.forward(*args)
 
 
 class XmlCNN(nn.Module):

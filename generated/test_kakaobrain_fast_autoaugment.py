@@ -36,15 +36,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -53,6 +54,51 @@ import numpy as np
 
 
 import torch
+
+
+import random
+
+
+from torchvision.transforms.transforms import Compose
+
+
+import logging
+
+
+import math
+
+
+import torchvision
+
+
+from torch.utils.data import SubsetRandomSampler
+
+
+from torch.utils.data import Sampler
+
+
+from torch.utils.data import Subset
+
+
+from torch.utils.data import ConcatDataset
+
+
+import torch.distributed as dist
+
+
+from torchvision.transforms import transforms
+
+
+from sklearn.model_selection import StratifiedShuffleSplit
+
+
+from torchvision.datasets.utils import check_integrity
+
+
+from torchvision.datasets.utils import download_url
+
+
+from torch.optim.lr_scheduler import MultiStepLR
 
 
 import copy
@@ -103,9 +149,6 @@ from typing import Optional
 from typing import Callable
 
 
-import math
-
-
 from torch.nn import functional as F
 
 
@@ -130,35 +173,22 @@ import time
 from collections import OrderedDict
 
 
+from torch.optim.optimizer import Optimizer
+
+
 from torch.nn import BatchNorm2d
 
 
 from torch.nn.parameter import Parameter
 
 
-import torch.distributed as dist
-
-
 import itertools
-
-
-import logging
 
 
 from torch import optim
 
 
 from torch.nn.parallel.data_parallel import DataParallel
-
-
-class CrossEntropyMixUpLabelSmooth(torch.nn.Module):
-
-    def __init__(self, num_classes, epsilon, reduction='mean'):
-        super(CrossEntropyMixUpLabelSmooth, self).__init__()
-        self.ce = CrossEntropyLabelSmooth(num_classes, epsilon, reduction=reduction)
-
-    def forward(self, input, target1, target2, lam):
-        return lam * self.ce(input, target1) + (1 - lam) * self.ce(input, target2)
 
 
 class CrossEntropyLabelSmooth(torch.nn.Module):
@@ -182,6 +212,16 @@ class CrossEntropyLabelSmooth(torch.nn.Module):
         elif self.reduction == 'sum':
             loss = loss.sum()
         return loss
+
+
+class CrossEntropyMixUpLabelSmooth(torch.nn.Module):
+
+    def __init__(self, num_classes, epsilon, reduction='mean'):
+        super(CrossEntropyMixUpLabelSmooth, self).__init__()
+        self.ce = CrossEntropyLabelSmooth(num_classes, epsilon, reduction=reduction)
+
+    def forward(self, input, target1, target2, lam):
+        return lam * self.ce(input, target1) + (1 - lam) * self.ce(input, target2)
 
 
 def _ntuple(n):
@@ -343,6 +383,27 @@ class RoutingFn(nn.Linear):
     pass
 
 
+class SwishImplementation(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, i):
+        result = i * torch.sigmoid(i)
+        ctx.save_for_backward(i)
+        return result
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        i = ctx.saved_tensors[0]
+        sigmoid_i = torch.sigmoid(i)
+        return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
+
+
+class MemoryEfficientSwish(nn.Module):
+
+    def forward(self, x):
+        return SwishImplementation.apply(x)
+
+
 def drop_connect(inputs, drop_p, training):
     """ Drop connect. """
     if not training:
@@ -352,6 +413,58 @@ def drop_connect(inputs, drop_p, training):
     binary_tensor = random_tensor > drop_p
     output = inputs * binary_tensor.float()
     return output
+
+
+class Conv2dDynamicSamePadding(nn.Conv2d):
+    """ 2D Convolutions like TensorFlow, for a dynamic image size """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
+        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
+
+    def forward(self, x):
+        ih, iw = x.size()[-2:]
+        kh, kw = self.weight.size()[-2:]
+        sh, sw = self.stride
+        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+
+
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, input):
+        return input
+
+
+class Conv2dStaticSamePadding(nn.Conv2d):
+    """ 2D Convolutions like TensorFlow, for a fixed image size"""
+
+    def __init__(self, in_channels, out_channels, kernel_size, image_size=None, **kwargs):
+        super().__init__(in_channels, out_channels, kernel_size, **kwargs)
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
+        assert image_size is not None
+        ih, iw = image_size if type(image_size) == list else [image_size, image_size]
+        kh, kw = self.weight.size()[-2:]
+        sh, sw = self.stride
+        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
+        if pad_h > 0 or pad_w > 0:
+            self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2))
+        else:
+            self.static_padding = Identity()
+
+    def forward(self, x):
+        x = self.static_padding(x)
+        x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+        return x
 
 
 def get_same_padding_conv2d(image_size=None, condconv_num_expert=1):
@@ -555,7 +668,7 @@ def load_pretrained_weights(model, model_name, load_fc=True):
         state_dict.pop('_fc.bias')
         res = model.load_state_dict(state_dict, strict=False)
         assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']), 'issue loading pretrained weights'
-    print('Loaded pretrained weights for {}'.format(model_name))
+    None
 
 
 def round_filters(filters, global_params):
@@ -681,165 +794,66 @@ class EfficientNet(nn.Module):
             raise ValueError(f'model_name={model_name} should be one of: ' + ', '.join(valid_models))
 
 
-class SwishImplementation(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, i):
-        result = i * torch.sigmoid(i)
-        ctx.save_for_backward(i)
-        return result
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        i = ctx.saved_tensors[0]
-        sigmoid_i = torch.sigmoid(i)
-        return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
-
-
-class MemoryEfficientSwish(nn.Module):
-
-    def forward(self, x):
-        return SwishImplementation.apply(x)
-
-
-class Conv2dDynamicSamePadding(nn.Conv2d):
-    """ 2D Convolutions like TensorFlow, for a dynamic image size """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
-        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
-
-    def forward(self, x):
-        ih, iw = x.size()[-2:]
-        kh, kw = self.weight.size()[-2:]
-        sh, sw = self.stride
-        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
-        if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
-
-
-class Conv2dStaticSamePadding(nn.Conv2d):
-    """ 2D Convolutions like TensorFlow, for a fixed image size"""
-
-    def __init__(self, in_channels, out_channels, kernel_size, image_size=None, **kwargs):
-        super().__init__(in_channels, out_channels, kernel_size, **kwargs)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
-        assert image_size is not None
-        ih, iw = image_size if type(image_size) == list else [image_size, image_size]
-        kh, kw = self.weight.size()[-2:]
-        sh, sw = self.stride
-        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
-        if pad_h > 0 or pad_w > 0:
-            self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2))
-        else:
-            self.static_padding = Identity()
-
-    def forward(self, x):
-        x = self.static_padding(x)
-        x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
-        return x
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, input):
-        return input
-
-
 def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=True)
 
 
 class BasicBlock(nn.Module):
-    outchannel_ratio = 1
+    expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, p_shakedrop=1.0):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(BasicBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn2 = nn.BatchNorm2d(planes)
+        self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = conv3x3(planes, planes)
-        self.bn3 = nn.BatchNorm2d(planes)
+        self.bn2 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-        self.shake_drop = ShakeDrop(p_shakedrop)
 
     def forward(self, x):
-        out = self.bn1(x)
-        out = self.conv1(out)
-        out = self.bn2(out)
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
         out = self.relu(out)
         out = self.conv2(out)
-        out = self.bn3(out)
-        out = self.shake_drop(out)
+        out = self.bn2(out)
         if self.downsample is not None:
-            shortcut = self.downsample(x)
-            featuremap_size = shortcut.size()[2:4]
-        else:
-            shortcut = x
-            featuremap_size = out.size()[2:4]
-        batch_size = out.size()[0]
-        residual_channel = out.size()[1]
-        shortcut_channel = shortcut.size()[1]
-        if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0))
-            out += torch.cat((shortcut, padding), 1)
-        else:
-            out += shortcut
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
         return out
 
 
 class Bottleneck(nn.Module):
-    outchannel_ratio = 4
+    expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, p_shakedrop=1.0):
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.bn1 = nn.BatchNorm2d(inplanes)
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes * 1, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 1)
-        self.conv3 = nn.Conv2d(planes * 1, planes * Bottleneck.outchannel_ratio, kernel_size=1, bias=False)
-        self.bn4 = nn.BatchNorm2d(planes * Bottleneck.outchannel_ratio)
+        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.expansion, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * Bottleneck.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
-        self.shake_drop = ShakeDrop(p_shakedrop)
 
     def forward(self, x):
-        out = self.bn1(x)
-        out = self.conv1(out)
-        out = self.bn2(out)
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
         out = self.relu(out)
         out = self.conv2(out)
-        out = self.bn3(out)
+        out = self.bn2(out)
         out = self.relu(out)
         out = self.conv3(out)
-        out = self.bn4(out)
-        out = self.shake_drop(out)
+        out = self.bn3(out)
         if self.downsample is not None:
-            shortcut = self.downsample(x)
-            featuremap_size = shortcut.size()[2:4]
-        else:
-            shortcut = x
-            featuremap_size = out.size()[2:4]
-        batch_size = out.size()[0]
-        residual_channel = out.size()[1]
-        shortcut_channel = shortcut.size()[1]
-        if residual_channel != shortcut_channel:
-            padding = torch.autograd.Variable(torch.FloatTensor(batch_size, residual_channel - shortcut_channel, featuremap_size[0], featuremap_size[1]).fill_(0))
-            out += torch.cat((shortcut, padding), 1)
-        else:
-            out += shortcut
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
         return out
 
 
@@ -951,65 +965,6 @@ class PyramidNet(nn.Module):
         return x
 
 
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * Bottleneck.expansion, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * Bottleneck.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
 class ResNet(nn.Module):
 
     def __init__(self, dataset, depth, num_classes, bottleneck=False):
@@ -1097,10 +1052,10 @@ class ShakeDropFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x, training=True, p_drop=0.5, alpha_range=[-1, 1]):
         if training:
-            gate = torch.cuda.FloatTensor([0]).bernoulli_(1 - p_drop)
+            gate = torch.FloatTensor([0]).bernoulli_(1 - p_drop)
             ctx.save_for_backward(gate)
             if gate.item() == 0:
-                alpha = torch.cuda.FloatTensor(x.size(0)).uniform_(*alpha_range)
+                alpha = torch.FloatTensor(x.size(0)).uniform_(*alpha_range)
                 alpha = alpha.view(alpha.size(0), 1, 1, 1).expand_as(x)
                 return alpha * x
             else:
@@ -1112,7 +1067,7 @@ class ShakeDropFunction(torch.autograd.Function):
     def backward(ctx, grad_output):
         gate = ctx.saved_tensors[0]
         if gate.item() == 0:
-            beta = torch.cuda.FloatTensor(grad_output.size(0)).uniform_(0, 1)
+            beta = torch.FloatTensor(grad_output.size(0)).uniform_(0, 1)
             beta = beta.view(beta.size(0), 1, 1, 1).expand_as(grad_output)
             beta = Variable(beta)
             return beta * grad_output, None, None, None
@@ -1136,7 +1091,7 @@ class ShakeShake(torch.autograd.Function):
     @staticmethod
     def forward(ctx, x1, x2, training=True):
         if training:
-            alpha = torch.cuda.FloatTensor(x1.size(0)).uniform_()
+            alpha = torch.FloatTensor(x1.size(0)).uniform_()
             alpha = alpha.view(alpha.size(0), 1, 1, 1).expand_as(x1)
         else:
             alpha = 0.5
@@ -1144,10 +1099,29 @@ class ShakeShake(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        beta = torch.cuda.FloatTensor(grad_output.size(0)).uniform_()
+        beta = torch.FloatTensor(grad_output.size(0)).uniform_()
         beta = beta.view(beta.size(0), 1, 1, 1).expand_as(grad_output)
         beta = Variable(beta)
         return beta * grad_output, (1 - beta) * grad_output, None
+
+
+class Shortcut(nn.Module):
+
+    def __init__(self, in_ch, out_ch, stride):
+        super(Shortcut, self).__init__()
+        self.stride = stride
+        self.conv1 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0, bias=False)
+        self.conv2 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0, bias=False)
+        self.bn = nn.BatchNorm2d(out_ch)
+
+    def forward(self, x):
+        h = F.relu(x)
+        h1 = F.avg_pool2d(h, 1, self.stride)
+        h1 = self.conv1(h1)
+        h2 = F.avg_pool2d(F.pad(h, (-1, 1, -1, 1)), 1, self.stride)
+        h2 = self.conv2(h2)
+        h = torch.cat((h1, h2), 1)
+        return self.bn(h)
 
 
 class ShakeBlock(nn.Module):
@@ -1272,25 +1246,6 @@ class ShakeResNeXt(nn.Module):
             layers.append(ShakeBottleNeck(self.in_ch, mid_ch, out_ch, cardinary, stride=stride))
             self.in_ch, stride = out_ch, 1
         return nn.Sequential(*layers)
-
-
-class Shortcut(nn.Module):
-
-    def __init__(self, in_ch, out_ch, stride):
-        super(Shortcut, self).__init__()
-        self.stride = stride
-        self.conv1 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0, bias=False)
-        self.conv2 = nn.Conv2d(in_ch, out_ch // 2, 1, stride=1, padding=0, bias=False)
-        self.bn = nn.BatchNorm2d(out_ch)
-
-    def forward(self, x):
-        h = F.relu(x)
-        h1 = F.avg_pool2d(h, 1, self.stride)
-        h1 = self.conv1(h1)
-        h2 = F.avg_pool2d(F.pad(h, (-1, 1, -1, 1)), 1, self.stride)
-        h2 = self.conv2(h2)
-        h = torch.cat((h1, h2), 1)
-        return self.bn(h)
 
 
 class WideBasic(nn.Module):

@@ -12,15 +12,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -109,32 +110,8 @@ def to_input_variable(sents, vocab, cuda=False, is_test=False):
     sents_t, masks = input_transpose(word_ids, vocab['<pad>'])
     sents_var = Variable(torch.LongTensor(sents_t), volatile=is_test, requires_grad=False)
     if cuda:
-        sents_var = sents_var.cuda()
+        sents_var = sents_var
     return sents_var
-
-
-_global_config['beam_size'] = 4
-
-
-_global_config['sample_method'] = 4
-
-
-_global_config['sample_size'] = 4
-
-
-_global_config['hidden_size'] = 4
-
-
-_global_config['dropout'] = 0.5
-
-
-_global_config['embed_size'] = 4
-
-
-_global_config['decode_max_time_step'] = 4
-
-
-_global_config['cuda'] = False
 
 
 class NMT(nn.Module):

@@ -13,29 +13,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch.utils.data as data
 
 
 import torch
 
 
-import torch.nn as nn
-
-
 import numpy as np
 
 
+from torch.autograd import Variable
+
+
+import time
+
+
 import math
+
+
+import scipy.io as sio
+
+
+import torch.nn as nn
 
 
 import random
@@ -45,9 +58,6 @@ import torch.backends.cudnn as cudnn
 
 
 import torch.optim as optim
-
-
-from torch.autograd import Variable
 
 
 from torch.utils.data import DataLoader
@@ -142,17 +152,6 @@ class L1_Charbonnier_loss(nn.Module):
         return loss
 
 
-class _Conv_Block(nn.Module):
-
-    def __init__(self):
-        super(_Conv_Block, self).__init__()
-        self.cov_block = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True), nn.ConvTranspose2d(in_channels=64, out_channels=64, kernel_size=4, stride=2, padding=1, bias=False), nn.LeakyReLU(0.2, inplace=True))
-
-    def forward(self, x):
-        output = self.cov_block(x)
-        return output
-
-
 class _netG(nn.Module):
 
     def __init__(self):
@@ -194,20 +193,6 @@ class _netG(nn.Module):
         convt_R2 = self.convt_R2(convt_F2)
         HR_4x = convt_I2 + convt_R2
         return HR_2x, HR_4x
-
-
-class L1_Charbonnier_loss(nn.Module):
-    """L1 Charbonnierloss."""
-
-    def __init__(self):
-        super(L1_Charbonnier_loss, self).__init__()
-        self.eps = 1e-06
-
-    def forward(self, X, Y):
-        diff = torch.add(X, -Y)
-        error = torch.sqrt(diff * diff + self.eps)
-        loss = torch.sum(error)
-        return loss
 
 
 class _netD(nn.Module):

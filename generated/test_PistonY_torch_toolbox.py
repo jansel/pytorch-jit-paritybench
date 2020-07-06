@@ -18,6 +18,7 @@ lmdb_dataset = _module
 utils = _module
 metric = _module
 feature_verification = _module
+metric = _module
 nn = _module
 activation = _module
 conv = _module
@@ -39,21 +40,23 @@ reset_model_setting = _module
 summary = _module
 transform = _module
 cutout = _module
+functional = _module
 transforms = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -61,10 +64,28 @@ __version__ = '1.0.0'
 import torch
 
 
+import numpy as np
+
+
+from numpy.testing import assert_allclose
+
+
 from torch import nn
 
 
-import numpy as np
+from torch.autograd import gradcheck
+
+
+from torchvision.models.resnet import resnet50
+
+
+from torchvision.models.mobilenet import mobilenet_v2
+
+
+from torch.utils.data import Dataset
+
+
+from torch import Tensor
 
 
 from torch.nn import functional as F
@@ -94,6 +115,9 @@ from torch.nn.init import zeros_
 from torch.nn.modules.loss import _WeightedLoss
 
 
+from torch.autograd import Function
+
+
 import functools
 
 
@@ -104,9 +128,6 @@ from torch.nn import Module
 
 
 from itertools import chain
-
-
-from torch.autograd import Function
 
 
 from torch.nn.parallel.parallel_apply import get_a_var
@@ -139,10 +160,37 @@ from torch.cuda._utils import _get_device_index
 from torch._utils import ExceptionWrapper
 
 
+from collections import defaultdict
+
+
+from torch.optim.optimizer import Optimizer
+
+
+from math import pi
+
+
+from math import cos
+
+
+from torch.utils.data import DataLoader
+
+
 from collections import OrderedDict
 
 
 import torch.nn as nn
+
+
+from string import ascii_letters
+
+
+import random
+
+
+import collections
+
+
+import warnings
 
 
 class n_to_n(nn.Module):
@@ -708,6 +756,20 @@ class _SwitchNorm(nn.Module):
         return F.switch_norm(x, self.running_mean, self.running_var, self.weight, self.bias, self.mean_weight, self.var_weight, self.training, self.momentum, self.eps)
 
 
+class SwitchNorm2d(_SwitchNorm):
+
+    def _check_input_dim(self, x):
+        if x.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(x.dim()))
+
+
+class SwitchNorm3d(_SwitchNorm):
+
+    def _check_input_dim(self, x):
+        if x.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(x.dim()))
+
+
 class _EvoNorm(nn.Module):
 
     def __init__(self, prefix, num_features, eps=1e-05, momentum=0.9, groups=32, affine=True):
@@ -745,16 +807,28 @@ class _EvoNorm(nn.Module):
         return F.evo_norm(x, self.prefix, self.running_var, self.v, self.weight, self.bias, self.training, self.momentum, self.eps, self.groups)
 
 
+class EvoNormB0(_EvoNorm):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.9, affine=True):
+        super(EvoNormB0, self).__init__('b0', num_features, eps, momentum, affine=affine)
+
+
+class EvoNormS0(_EvoNorm):
+
+    def __init__(self, num_features, groups=32, affine=True):
+        super(EvoNormS0, self).__init__('s0', num_features, groups=groups, affine=affine)
+
+
 class EncodingParallel(Module):
 
     def __init__(self, module, device_ids=None, output_device=None, dim=0):
         super(EncodingParallel, self).__init__()
-        if not torch.is_available():
+        if not torch.cuda.is_available():
             self.module = module
             self.device_ids = []
             return
         if device_ids is None:
-            device_ids = list(range(torch.device_count()))
+            device_ids = list(range(torch.cuda.device_count()))
         if output_device is None:
             output_device = device_ids[0]
         self.dim = dim
@@ -771,6 +845,112 @@ class EncodingParallel(Module):
 
     def scatter(self, inputs, kwargs, device_ids):
         return scatter_kwargs(inputs, kwargs, device_ids, dim=self.dim)
+
+
+class EncodingDataParallel(EncodingParallel):
+    """Implements data parallelism at the module level.
+    This container parallelizes the application of the given module by
+    splitting the input across the specified devices by chunking in the
+    batch dimension.
+    In the forward pass, the module is replicated on each device,
+    and each replica handles a portion of the input. During the backwards pass, gradients from each replica are summed into the original module.
+    Note that the outputs are not gathered, please use compatible
+    :class:`encoding.parallel.DataParallelCriterion`.
+    The batch size should be larger than the number of GPUs used. It should
+    also be an integer multiple of the number of GPUs so that each chunk is
+    the same size (so that each GPU processes the same number of samples).
+    Args:
+        module: module to be parallelized
+        device_ids: CUDA devices (default: all devices)
+    Reference:
+        Hang Zhang, Kristin Dana, Jianping Shi, Zhongyue Zhang, Xiaogang Wang, Ambrish Tyagi,
+        Amit Agrawal. “Context Encoding for Semantic Segmentation.
+        *The IEEE Conference on Computer Vision and Pattern Recognition (CVPR) 2018*
+    Example::
+        >>> net = encoding.nn.DataParallelModel(model, device_ids=[0, 1, 2])
+        >>> y = net(x)
+    """
+
+    def forward(self, *inputs, **kwargs):
+        if not self.device_ids:
+            return self.module(*inputs, **kwargs)
+        for t in chain(self.module.parameters(), self.module.buffers()):
+            if t.device != self.src_device_obj:
+                raise RuntimeError('module must have its parameters and buffers on device {} (device_ids[0]) but found one of them on device: {}'.format(self.src_device_obj, t.device))
+        inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
+        if len(self.device_ids) == 1:
+            return self.module(*inputs, **kwargs)
+        replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
+        outputs = self.parallel_apply(replicas, inputs, kwargs)
+        return outputs
+
+    def parallel_apply(self, replicas, inputs, kwargs):
+        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
+
+
+def criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices=None):
+    assert len(modules) == len(inputs)
+    assert len(targets) == len(inputs)
+    if kwargs_tup is not None:
+        assert len(modules) == len(kwargs_tup)
+    else:
+        kwargs_tup = ({},) * len(modules)
+    if devices is not None:
+        assert len(modules) == len(devices)
+    else:
+        devices = [None] * len(modules)
+    devices = list(map(lambda x: _get_device_index(x, True), devices))
+    lock = threading.Lock()
+    results = {}
+    grad_enabled = torch.is_grad_enabled()
+
+    def _worker(i, module, input, target, kwargs, device=None):
+        torch.set_grad_enabled(grad_enabled)
+        if device is None:
+            device = get_a_var(input).get_device()
+        try:
+            with torch.device(device):
+                if not isinstance(input, (list, tuple)):
+                    input = input,
+                if not isinstance(target, (list, tuple)):
+                    target = target,
+                output = module(*input, *target, **kwargs)
+            with lock:
+                results[i] = output
+        except Exception:
+            with lock:
+                results[i] = ExceptionWrapper(where='in replica {} on device {}'.format(i, device))
+    if len(modules) > 1:
+        threads = [threading.Thread(target=_worker, args=(i, module, input, target, kwargs, device)) for i, (module, input, target, kwargs, device) in enumerate(zip(modules, inputs, kwargs_tup, devices))]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    else:
+        _worker(0, modules[0], inputs[0], kwargs_tup[0], devices[0])
+    outputs = []
+    for i in range(len(inputs)):
+        output = results[i]
+        if isinstance(output, ExceptionWrapper):
+            output.reraise()
+        outputs.append(output)
+    return outputs
+
+
+class EncodingCriterionParallel(EncodingParallel):
+
+    def forward(self, inputs, *targets, **kwargs):
+        if not self.device_ids:
+            return self.module(inputs, *targets, **kwargs)
+        targets, kwargs = self.scatter(targets, kwargs, self.device_ids)
+        if len(self.device_ids) == 1:
+            return self.module(inputs, *targets, **kwargs)
+        replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
+        outputs = self.criterion_apply(replicas, inputs, targets, kwargs)
+        return ReduceAddCoalesced.apply(self.device_ids[0], len(outputs), *outputs) / len(outputs)
+
+    def criterion_apply(self, replicas, inputs, targets, kwargs):
+        return criterion_parallel_apply(replicas, inputs, targets, kwargs, self.device_ids[:len(replicas)])
 
 
 class AdaptiveSequential(nn.Sequential):
@@ -849,6 +1029,14 @@ TESTCASES = [
      lambda: ([], {'inc': 4, 'outc': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (EncodingCriterionParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (EncodingDataParallel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
     (HardSigmoid,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -909,4 +1097,10 @@ class Test_PistonY_torch_toolbox(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
 

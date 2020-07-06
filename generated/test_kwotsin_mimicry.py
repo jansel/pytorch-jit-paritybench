@@ -60,6 +60,7 @@ datasets = _module
 data_utils = _module
 image_loader = _module
 imagenet = _module
+imagenet = _module
 imagenet_utils = _module
 metrics = _module
 compute_fid = _module
@@ -136,20 +137,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import torch.optim as optim
 
 
 import torch.nn as nn
@@ -158,16 +163,40 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-import torch.optim as optim
-
-
 import numpy as np
+
+
+import tensorflow as tf
+
+
+from itertools import product
+
+
+import math
 
 
 from torch.utils.data import Dataset
 
 
-import math
+import torchvision
+
+
+from torchvision import transforms
+
+
+from torchvision.datasets import ImageFolder
+
+
+from torch._six import PY3
+
+
+from torch.utils.model_zoo import tqdm
+
+
+import random
+
+
+import time
 
 
 from abc import ABC
@@ -182,14 +211,80 @@ from torch import autograd
 import torch.functional as F
 
 
-def SNConv2d(*args, **kwargs):
+from torch.utils.tensorboard import SummaryWriter
+
+
+from torchvision import utils as vutils
+
+
+import re
+
+
+class SpectralNorm(object):
     """
-    Wrapper for applying spectral norm on conv2d layer.
+    Spectral Normalization for GANs (Miyato 2018).
+
+    Inheritable class for performing spectral normalization of weights,
+    as approximated using power iteration.
+
+    Details: See Algorithm 1 of Appendix A (Miyato 2018).
+
+    Attributes:
+        n_dim (int): Number of dimensions.
+        num_iters (int): Number of iterations for power iter.
+        eps (float): Epsilon for zero division tolerance when normalizing.
     """
-    if kwargs.get('default', True):
-        return nn.utils.spectral_norm(nn.Conv2d(*args, **kwargs))
-    else:
-        return spectral_norm.SNConv2d(*args, **kwargs)
+
+    def __init__(self, n_dim, num_iters=1, eps=1e-12):
+        self.num_iters = num_iters
+        self.eps = eps
+        self.register_buffer('sn_u', torch.randn(1, n_dim))
+        self.register_buffer('sn_sigma', torch.ones(1))
+
+    @property
+    def u(self):
+        return getattr(self, 'sn_u')
+
+    @property
+    def sigma(self):
+        return getattr(self, 'sn_sigma')
+
+    def _power_iteration(self, W, u, num_iters, eps=1e-12):
+        with torch.no_grad():
+            for _ in range(num_iters):
+                v = F.normalize(torch.matmul(u, W), eps=eps)
+                u = F.normalize(torch.matmul(v, W.t()), eps=eps)
+        sigma = torch.mm(u, torch.mm(W, v.t()))
+        return sigma, u, v
+
+    def sn_weights(self):
+        """
+        Spectrally normalize current weights of the layer.
+        """
+        W = self.weight.view(self.weight.shape[0], -1)
+        sigma, u, v = self._power_iteration(W=W, u=self.u, num_iters=self.num_iters, eps=self.eps)
+        if self.training:
+            with torch.no_grad():
+                self.sigma[:] = sigma
+                self.u[:] = u
+        return self.weight / sigma
+
+
+class SNConv2d(nn.Conv2d, SpectralNorm):
+    """
+    Spectrally normalized layer for Conv2d.
+
+    Attributes:
+        in_channels (int): Input channel dimension.
+        out_channels (int): Output channel dimensions.
+    """
+
+    def __init__(self, in_channels, out_channels, *args, **kwargs):
+        nn.Conv2d.__init__(self, in_channels, out_channels, *args, **kwargs)
+        SpectralNorm.__init__(self, n_dim=out_channels, num_iters=kwargs.get('num_iters', 1))
+
+    def forward(self, x):
+        return F.conv2d(input=x, weight=self.sn_weights(), bias=self.bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
 
 
 class SelfAttention(nn.Module):
@@ -263,293 +358,6 @@ class ConditionalBatchNorm2d(nn.Module):
         gamma, beta = self.embed(y).chunk(2, 1)
         out = gamma.view(-1, self.num_features, 1, 1) * out + beta.view(-1, self.num_features, 1, 1)
         return out
-
-
-class GBlock(nn.Module):
-    """
-    Residual block for generator.
-
-    Uses bilinear (rather than nearest) interpolation, and align_corners
-    set to False. This is as per how torchvision does upsampling, as seen in:
-    https://github.com/pytorch/vision/blob/master/torchvision/models/segmentation/_utils.py
-
-    Attributes:
-        in_channels (int): The channel size of input feature map.
-        out_channels (int): The channel size of output feature map.
-        hidden_channels (int): The channel size of intermediate feature maps.
-        upsample (bool): If True, upsamples the input feature map.
-        num_classes (int): If more than 0, uses conditional batch norm instead.
-        spectral_norm (bool): If True, uses spectral norm for convolutional layers.
-    """
-
-    def __init__(self, in_channels, out_channels, hidden_channels=None, upsample=False, num_classes=0, spectral_norm=False):
-        super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.hidden_channels = hidden_channels if hidden_channels is not None else out_channels
-        self.learnable_sc = in_channels != out_channels or upsample
-        self.upsample = upsample
-        self.num_classes = num_classes
-        self.spectral_norm = spectral_norm
-        if self.spectral_norm:
-            self.c1 = SNConv2d(self.in_channels, self.hidden_channels, 3, 1, padding=1)
-            self.c2 = SNConv2d(self.hidden_channels, self.out_channels, 3, 1, padding=1)
-        else:
-            self.c1 = nn.Conv2d(self.in_channels, self.hidden_channels, 3, 1, padding=1)
-            self.c2 = nn.Conv2d(self.hidden_channels, self.out_channels, 3, 1, padding=1)
-        if self.num_classes == 0:
-            self.b1 = nn.BatchNorm2d(self.in_channels)
-            self.b2 = nn.BatchNorm2d(self.hidden_channels)
-        else:
-            self.b1 = ConditionalBatchNorm2d(self.in_channels, self.num_classes)
-            self.b2 = ConditionalBatchNorm2d(self.hidden_channels, self.num_classes)
-        self.activation = nn.ReLU(True)
-        nn.init.xavier_uniform_(self.c1.weight.data, math.sqrt(2.0))
-        nn.init.xavier_uniform_(self.c2.weight.data, math.sqrt(2.0))
-        if self.learnable_sc:
-            if self.spectral_norm:
-                self.c_sc = SNConv2d(in_channels, out_channels, 1, 1, padding=0)
-            else:
-                self.c_sc = nn.Conv2d(in_channels, out_channels, 1, 1, padding=0)
-            nn.init.xavier_uniform_(self.c_sc.weight.data, 1.0)
-
-    def _upsample_conv(self, x, conv):
-        """
-        Helper function for performing convolution after upsampling.
-        """
-        return conv(F.interpolate(x, scale_factor=2, mode='bilinear', align_corners=False))
-
-    def _residual(self, x):
-        """
-        Helper function for feedforwarding through main layers.
-        """
-        h = x
-        h = self.b1(h)
-        h = self.activation(h)
-        h = self._upsample_conv(h, self.c1) if self.upsample else self.c1(h)
-        h = self.b2(h)
-        h = self.activation(h)
-        h = self.c2(h)
-        return h
-
-    def _residual_conditional(self, x, y):
-        """
-        Helper function for feedforwarding through main layers, including conditional BN.
-        """
-        h = x
-        h = self.b1(h, y)
-        h = self.activation(h)
-        h = self._upsample_conv(h, self.c1) if self.upsample else self.c1(h)
-        h = self.b2(h, y)
-        h = self.activation(h)
-        h = self.c2(h)
-        return h
-
-    def _shortcut(self, x):
-        """
-        Helper function for feedforwarding through shortcut layers.
-        """
-        if self.learnable_sc:
-            x = self._upsample_conv(x, self.c_sc) if self.upsample else self.c_sc(x)
-            return x
-        else:
-            return x
-
-    def forward(self, x, y=None):
-        """
-        Residual block feedforward function.
-        """
-        if y is None:
-            return self._residual(x) + self._shortcut(x)
-        else:
-            return self._residual_conditional(x, y) + self._shortcut(x)
-
-
-class DBlock(nn.Module):
-    """
-    Residual block for discriminator.
-
-    Attributes:
-        in_channels (int): The channel size of input feature map.
-        out_channels (int): The channel size of output feature map.
-        hidden_channels (int): The channel size of intermediate feature maps.
-        downsample (bool): If True, downsamples the input feature map.
-        spectral_norm (bool): If True, uses spectral norm for convolutional layers.        
-    """
-
-    def __init__(self, in_channels, out_channels, hidden_channels=None, downsample=False, spectral_norm=True):
-        super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.hidden_channels = hidden_channels if hidden_channels is not None else in_channels
-        self.downsample = downsample
-        self.learnable_sc = in_channels != out_channels or downsample
-        self.spectral_norm = spectral_norm
-        if self.spectral_norm:
-            self.c1 = SNConv2d(self.in_channels, self.hidden_channels, 3, 1, 1)
-            self.c2 = SNConv2d(self.hidden_channels, self.out_channels, 3, 1, 1)
-        else:
-            self.c1 = nn.Conv2d(self.in_channels, self.hidden_channels, 3, 1, 1)
-            self.c2 = nn.Conv2d(self.hidden_channels, self.out_channels, 3, 1, 1)
-        self.activation = nn.ReLU(True)
-        nn.init.xavier_uniform_(self.c1.weight.data, math.sqrt(2.0))
-        nn.init.xavier_uniform_(self.c2.weight.data, math.sqrt(2.0))
-        if self.learnable_sc:
-            if self.spectral_norm:
-                self.c_sc = SNConv2d(in_channels, out_channels, 1, 1, 0)
-            else:
-                self.c_sc = nn.Conv2d(in_channels, out_channels, 1, 1, 0)
-            nn.init.xavier_uniform_(self.c_sc.weight.data, 1.0)
-
-    def _residual(self, x):
-        """
-        Helper function for feedforwarding through main layers.
-        """
-        h = x
-        h = self.activation(h)
-        h = self.c1(h)
-        h = self.activation(h)
-        h = self.c2(h)
-        if self.downsample:
-            h = F.avg_pool2d(h, 2)
-        return h
-
-    def _shortcut(self, x):
-        """
-        Helper function for feedforwarding through shortcut layers.
-        """
-        if self.learnable_sc:
-            x = self.c_sc(x)
-            return F.avg_pool2d(x, 2) if self.downsample else x
-        else:
-            return x
-
-    def forward(self, x):
-        """
-        Residual block feedforward function.
-        """
-        return self._residual(x) + self._shortcut(x)
-
-
-class DBlockOptimized(nn.Module):
-    """
-    Optimized residual block for discriminator. This is used as the first residual block,
-    where there is a definite downsampling involved. Follows the official SNGAN reference implementation
-    in chainer.
-
-    Attributes:
-        in_channels (int): The channel size of input feature map.
-        out_channels (int): The channel size of output feature map.
-        spectral_norm (bool): If True, uses spectral norm for convolutional layers.        
-    """
-
-    def __init__(self, in_channels, out_channels, spectral_norm=True):
-        super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.spectral_norm = spectral_norm
-        if self.spectral_norm:
-            self.c1 = SNConv2d(self.in_channels, self.out_channels, 3, 1, 1)
-            self.c2 = SNConv2d(self.out_channels, self.out_channels, 3, 1, 1)
-            self.c_sc = SNConv2d(self.in_channels, self.out_channels, 1, 1, 0)
-        else:
-            self.c1 = nn.Conv2d(self.in_channels, self.out_channels, 3, 1, 1)
-            self.c2 = nn.Conv2d(self.out_channels, self.out_channels, 3, 1, 1)
-            self.c_sc = nn.Conv2d(self.in_channels, self.out_channels, 1, 1, 0)
-        self.activation = nn.ReLU(True)
-        nn.init.xavier_uniform_(self.c1.weight.data, math.sqrt(2.0))
-        nn.init.xavier_uniform_(self.c2.weight.data, math.sqrt(2.0))
-        nn.init.xavier_uniform_(self.c_sc.weight.data, 1.0)
-
-    def _residual(self, x):
-        """
-        Helper function for feedforwarding through main layers.
-        """
-        h = x
-        h = self.c1(h)
-        h = self.activation(h)
-        h = self.c2(h)
-        h = F.avg_pool2d(h, 2)
-        return h
-
-    def _shortcut(self, x):
-        """
-        Helper function for feedforwarding through shortcut layers.
-        """
-        return self.c_sc(F.avg_pool2d(x, 2))
-
-    def forward(self, x):
-        """
-        Residual block feedforward function.
-        """
-        return self._residual(x) + self._shortcut(x)
-
-
-class SpectralNorm(object):
-    """
-    Spectral Normalization for GANs (Miyato 2018).
-
-    Inheritable class for performing spectral normalization of weights,
-    as approximated using power iteration.
-
-    Details: See Algorithm 1 of Appendix A (Miyato 2018).
-
-    Attributes:
-        n_dim (int): Number of dimensions.
-        num_iters (int): Number of iterations for power iter.
-        eps (float): Epsilon for zero division tolerance when normalizing.
-    """
-
-    def __init__(self, n_dim, num_iters=1, eps=1e-12):
-        self.num_iters = num_iters
-        self.eps = eps
-        self.register_buffer('sn_u', torch.randn(1, n_dim))
-        self.register_buffer('sn_sigma', torch.ones(1))
-
-    @property
-    def u(self):
-        return getattr(self, 'sn_u')
-
-    @property
-    def sigma(self):
-        return getattr(self, 'sn_sigma')
-
-    def _power_iteration(self, W, u, num_iters, eps=1e-12):
-        with torch.no_grad():
-            for _ in range(num_iters):
-                v = F.normalize(torch.matmul(u, W), eps=eps)
-                u = F.normalize(torch.matmul(v, W.t()), eps=eps)
-        sigma = torch.mm(u, torch.mm(W, v.t()))
-        return sigma, u, v
-
-    def sn_weights(self):
-        """
-        Spectrally normalize current weights of the layer.
-        """
-        W = self.weight.view(self.weight.shape[0], -1)
-        sigma, u, v = self._power_iteration(W=W, u=self.u, num_iters=self.num_iters, eps=self.eps)
-        if self.training:
-            with torch.no_grad():
-                self.sigma[:] = sigma
-                self.u[:] = u
-        return self.weight / sigma
-
-
-class SNConv2d(nn.Conv2d, SpectralNorm):
-    """
-    Spectrally normalized layer for Conv2d.
-
-    Attributes:
-        in_channels (int): Input channel dimension.
-        out_channels (int): Output channel dimensions.
-    """
-
-    def __init__(self, in_channels, out_channels, *args, **kwargs):
-        nn.Conv2d.__init__(self, in_channels, out_channels, *args, **kwargs)
-        SpectralNorm.__init__(self, n_dim=out_channels, num_iters=kwargs.get('num_iters', 1))
-
-    def forward(self, x):
-        return F.conv2d(input=x, weight=self.sn_weights(), bias=self.bias, stride=self.stride, padding=self.padding, dilation=self.dilation, groups=self.groups)
 
 
 class SNLinear(nn.Linear, SpectralNorm):
@@ -661,6 +469,233 @@ class BaseModel(nn.Module, ABC):
         return num_total_params, num_trainable_params
 
 
+class BaseGenerator(basemodel.BaseModel):
+    """
+    Base class for a generic unconditional generator model.
+
+    Attributes:
+        nz (int): Noise dimension for upsampling.
+        ngf (int): Variable controlling generator feature map sizes.
+        bottom_width (int): Starting width for upsampling generator output to an image.
+        loss_type (str): Name of loss to use for GAN loss.
+    """
+
+    def __init__(self, nz, ngf, bottom_width, loss_type, **kwargs):
+        super().__init__(**kwargs)
+        self.nz = nz
+        self.ngf = ngf
+        self.bottom_width = bottom_width
+        self.loss_type = loss_type
+
+    def generate_images(self, num_images, device=None):
+        """
+        Generates num_images randomly.
+
+        Args:
+            num_images (int): Number of images to generate
+            device (torch.device): Device to send images to.
+
+        Returns:
+            Tensor: A batch of generated images.
+        """
+        if device is None:
+            device = self.device
+        noise = torch.randn((num_images, self.nz), device=device)
+        fake_images = self.forward(noise)
+        return fake_images
+
+    def compute_gan_loss(self, output):
+        """
+        Computes GAN loss for generator.
+
+        Args:
+            output (Tensor): A batch of output logits from the discriminator of shape (N, 1).
+
+        Returns:
+            Tensor: A batch of GAN losses for the generator.
+        """
+        if self.loss_type == 'gan':
+            errG = losses.minimax_loss_gen(output)
+        elif self.loss_type == 'ns':
+            errG = losses.ns_loss_gen(output)
+        elif self.loss_type == 'hinge':
+            errG = losses.hinge_loss_gen(output)
+        elif self.loss_type == 'wasserstein':
+            errG = losses.wasserstein_loss_gen(output)
+        else:
+            raise ValueError('Invalid loss_type {} selected.'.format(self.loss_type))
+        return errG
+
+    def train_step(self, real_batch, netD, optG, log_data, device=None, global_step=None, **kwargs):
+        """
+        Takes one training step for G.
+
+        Args:
+            real_batch (Tensor): A batch of real images of shape (N, C, H, W).
+                Used for obtaining current batch size.
+            netD (nn.Module): Discriminator model for obtaining losses.
+            optG (Optimizer): Optimizer for updating generator's parameters.
+            log_data (dict): A dict mapping name to values for logging uses.
+            device (torch.device): Device to use for running the model.
+            global_step (int): Variable to sync training, logging and checkpointing.
+                Useful for dynamic changes to model amidst training.
+
+        Returns:
+            Returns MetricLog object containing updated logging variables after 1 training step.
+
+        """
+        self.zero_grad()
+        batch_size = real_batch[0].shape[0]
+        fake_images = self.generate_images(num_images=batch_size, device=device)
+        output = netD(fake_images)
+        errG = self.compute_gan_loss(output=output)
+        errG.backward()
+        optG.step()
+        log_data.add_metric('errG', errG, group='loss')
+        return log_data
+
+
+class InfoMaxGANBaseGenerator(gan.BaseGenerator):
+    """
+    ResNet backbone generator for InfoMax-GAN.
+
+    Attributes:
+        nz (int): Noise dimension for upsampling.
+        ngf (int): Variable controlling generator feature map sizes.
+        bottom_width (int): Starting width for upsampling generator output to an image.
+        loss_type (str): Name of loss to use for GAN loss.        
+        infomax_loss_scale (float): The alpha parameter used for scaling the generator infomax loss.
+    """
+
+    def __init__(self, nz, ngf, bottom_width, loss_type='hinge', infomax_loss_scale=0.2, **kwargs):
+        super().__init__(nz=nz, ngf=ngf, bottom_width=bottom_width, loss_type=loss_type, **kwargs)
+        self.infomax_loss_scale = infomax_loss_scale
+
+    def train_step(self, real_batch, netD, optG, log_data, device=None, global_step=None, **kwargs):
+        """
+        Takes one training step for G.
+
+        Args:
+            real_batch (Tensor): A batch of real images of shape (N, C, H, W).
+                Used for obtaining current batch size.
+            netD (nn.Module): Discriminator model for obtaining losses.
+            optG (Optimizer): Optimizer for updating generator's parameters.
+            log_data (MetricLog): An object to add custom metrics for visualisations.
+            device (torch.device): Device to use for running the model.
+            global_step (int): Variable to sync training, logging and checkpointing.
+                Useful for dynamic changes to model amidst training.
+
+        Returns:
+            MetricLog: Returns MetricLog object containing updated logging variables after 1 training step.
+
+        """
+        self.zero_grad()
+        real_images, _ = real_batch
+        batch_size = real_images.shape[0]
+        fake_images = self.generate_images(num_images=batch_size, device=device)
+        output_fake, local_feat_fake, global_feat_fake = netD(fake_images)
+        local_feat_fake, global_feat_fake = netD.project_features(local_feat=local_feat_fake, global_feat=global_feat_fake)
+        errG = self.compute_gan_loss(output_fake)
+        errG_IM = netD.compute_infomax_loss(local_feat=local_feat_fake, global_feat=global_feat_fake, scale=self.infomax_loss_scale)
+        errG_total = errG + errG_IM
+        errG_total.backward()
+        optG.step()
+        log_data.add_metric('errG', errG, group='loss')
+        log_data.add_metric('errG_IM', errG_IM, group='loss_IM')
+        return log_data
+
+
+class SSGANBaseGenerator(gan.BaseGenerator):
+    """
+    ResNet backbone generator for SSGAN.
+
+    Attributes:
+        nz (int): Noise dimension for upsampling.
+        ngf (int): Variable controlling generator feature map sizes.
+        bottom_width (int): Starting width for upsampling generator output to an image.
+        loss_type (str): Name of loss to use for GAN loss.        
+        ss_loss_scale (float): Self-supervised loss scale for generator.
+    """
+
+    def __init__(self, nz, ngf, bottom_width, loss_type='hinge', ss_loss_scale=0.2, **kwargs):
+        super().__init__(nz=nz, ngf=ngf, bottom_width=bottom_width, loss_type=loss_type, **kwargs)
+        self.ss_loss_scale = ss_loss_scale
+
+    def train_step(self, real_batch, netD, optG, log_data, device=None, global_step=None, **kwargs):
+        """
+        Takes one training step for G.
+
+        Args:
+            real_batch (Tensor): A batch of real images of shape (N, C, H, W).
+                Used for obtaining current batch size.
+            netD (nn.Module): Discriminator model for obtaining losses.
+            optG (Optimizer): Optimizer for updating generator's parameters.
+            log_data (MetricLog): An object to add custom metrics for visualisations.
+            device (torch.device): Device to use for running the model.
+            global_step (int): Variable to sync training, logging and checkpointing.
+                Useful for dynamic changes to model amidst training.
+
+        Returns:
+            MetricLog: Returns MetricLog object containing updated logging variables after 1 training step.
+
+        """
+        self.zero_grad()
+        batch_size = real_batch[0].shape[0]
+        fake_images = self.generate_images(num_images=batch_size, device=device)
+        output, _ = netD(fake_images)
+        errG = self.compute_gan_loss(output)
+        errG_SS, _ = netD.compute_ss_loss(images=fake_images, scale=self.ss_loss_scale)
+        errG_total = errG + errG_SS
+        errG_total.backward()
+        optG.step()
+        log_data.add_metric('errG', errG, group='loss')
+        log_data.add_metric('errG_SS', errG_SS, group='loss_SS')
+        return log_data
+
+
+class WGANGPBaseGenerator(gan.BaseGenerator):
+    """
+    ResNet backbone generator for WGAN-GP.
+
+    Attributes:
+        nz (int): Noise dimension for upsampling.
+        ngf (int): Variable controlling generator feature map sizes.
+        bottom_width (int): Starting width for upsampling generator output to an image.
+        loss_type (str): Name of loss to use for GAN loss.        
+    """
+
+    def __init__(self, nz, ngf, bottom_width, loss_type='wasserstein', **kwargs):
+        super().__init__(nz=nz, ngf=ngf, bottom_width=bottom_width, loss_type=loss_type, **kwargs)
+
+    def train_step(self, real_batch, netD, optG, log_data, device=None, global_step=None, **kwargs):
+        """
+        Takes one training step for G.
+
+        Args:
+            real_batch (Tensor): A batch of real images of shape (N, C, H, W).
+                Used for obtaining current batch size.
+            netD (nn.Module): Discriminator model for obtaining losses.
+            optG (Optimizer): Optimizer for updating generator's parameters.
+            log_data (MetricLog): An object to add custom metrics for visualisations.
+            device (torch.device): Device to use for running the model.
+            global_step (int): Variable to sync training, logging and checkpointing.
+                Useful for dynamic changes to model amidst training.
+
+        Returns:
+            MetricLog: Returns MetricLog object containing updated logging variables after 1 training step.
+
+        """
+        self.zero_grad()
+        batch_size = real_batch[0].shape[0]
+        fake_images = self.generate_images(num_images=batch_size, device=device)
+        output = netD(fake_images)
+        errG = self.compute_gan_loss(output)
+        errG.backward()
+        optG.step()
+        log_data.add_metric('errG', errG, group='loss')
+        return log_data
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -672,18 +707,6 @@ TESTCASES = [
      lambda: ([], {'num_features': 4, 'num_classes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.zeros([4], dtype=torch.int64)], {}),
      True),
-    (DBlock,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (DBlockOptimized,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
-    (GBlock,
-     lambda: ([], {'in_channels': 4, 'out_channels': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     False),
     (SNConv2d,
      lambda: ([], {'in_channels': 4, 'out_channels': 4, 'kernel_size': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -717,13 +740,4 @@ class Test_kwotsin_mimicry(_paritybench_base):
 
     def test_004(self):
         self._check(*TESTCASES[4])
-
-    def test_005(self):
-        self._check(*TESTCASES[5])
-
-    def test_006(self):
-        self._check(*TESTCASES[6])
-
-    def test_007(self):
-        self._check(*TESTCASES[7])
 

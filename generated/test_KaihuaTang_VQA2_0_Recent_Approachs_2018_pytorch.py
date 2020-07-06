@@ -18,15 +18,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -52,10 +53,28 @@ from torch.nn.utils import weight_norm
 from torch.nn.utils.rnn import pack_padded_sequence
 
 
-from torch.nn.parameter import Parameter
+import re
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
 
 
 import numpy as np
+
+
+from collections import defaultdict
+
+
+from torch.nn.parameter import Parameter
+
+
+import itertools
+
+
+import torch.utils.data
 
 
 import math
@@ -73,32 +92,253 @@ from torch.nn.utils import clip_grad_norm_
 import torch.backends.cudnn as cudnn
 
 
-import torchvision.transforms as transforms
+APPLY_MASK = True
 
 
-_global_config['max_answers'] = 4
+class FCNet(nn.Module):
+
+    def __init__(self, in_size, out_size, activate=None, drop=0.0):
+        super(FCNet, self).__init__()
+        self.lin = weight_norm(nn.Linear(in_size, out_size), dim=None)
+        self.drop_value = drop
+        self.drop = nn.Dropout(drop)
+        self.activate = activate.lower() if activate is not None else None
+        if activate == 'relu':
+            self.ac_fn = nn.ReLU()
+        elif activate == 'sigmoid':
+            self.ac_fn = nn.Sigmoid()
+        elif activate == 'tanh':
+            self.ac_fn = nn.Tanh()
+
+    def forward(self, x):
+        if self.drop_value > 0:
+            x = self.drop(x)
+        x = self.lin(x)
+        if self.activate is not None:
+            x = self.ac_fn(x)
+        return x
 
 
-_global_config['v_feat_norm'] = 4
+class Classifier(nn.Sequential):
+
+    def __init__(self, in_features, mid_features, out_features, drop=0.0):
+        super(Classifier, self).__init__()
+        self.lin1 = FCNet(in_features, mid_features, activate='relu', drop=drop / 2.5)
+        self.lin2 = FCNet(mid_features, out_features, drop=drop)
+
+    def forward(self, v, q, v_mask, q_mask):
+        """
+        v: visual feature      [batch, num_obj, 512]
+        q: question            [batch, max_len, 512]
+        v_mask                 [batch, num_obj]
+        q_mask                 [batch, max_len]
+        """
+        num_obj = v_mask.shape[1]
+        max_len = q_mask.shape[1]
+        if APPLY_MASK:
+            v_mean = (v * v_mask.unsqueeze(2)).sum(1) / v_mask.sum(1).unsqueeze(1)
+            q_mean = (q * q_mask.unsqueeze(2)).sum(1) / q_mask.sum(1).unsqueeze(1)
+        else:
+            v_mean = v.sum(1) / num_obj
+            q_mean = q.sum(1) / max_len
+        out = self.lin1(v_mean * q_mean)
+        out = self.lin2(out)
+        return out
 
 
-_global_config['output_features'] = 4
+class DyIntraModalityUpdate(nn.Module):
+    """
+    Dynamic Intra-modality Attention Flow
+    """
+
+    def __init__(self, v_size, q_size, output_size, num_head, drop=0.0):
+        super(DyIntraModalityUpdate, self).__init__()
+        self.v_size = v_size
+        self.q_size = q_size
+        self.output_size = output_size
+        self.num_head = num_head
+        self.v4q_gate_lin = FCNet(v_size, output_size, drop=drop)
+        self.q4v_gate_lin = FCNet(q_size, output_size, drop=drop)
+        self.v_lin = FCNet(v_size, output_size * 3, drop=drop)
+        self.q_lin = FCNet(q_size, output_size * 3, drop=drop)
+        self.v_output = FCNet(output_size, output_size, drop=drop)
+        self.q_output = FCNet(output_size, output_size, drop=drop)
+        self.relu = nn.ReLU()
+        self.tanh = nn.Tanh()
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, v, q, v_mask, q_mask):
+        """
+        v: visual feature      [batch, num_obj, feat_size]
+        q: question            [batch, max_len, feat_size]
+        v_mask                 [batch, num_obj]
+        q_mask                 [batch, max_len]
+        """
+        batch_size, num_obj = v_mask.shape
+        _, max_len = q_mask.shape
+        if APPLY_MASK:
+            v_mean = (v * v_mask.unsqueeze(2)).sum(1) / v_mask.sum(1).unsqueeze(1)
+            q_mean = (q * q_mask.unsqueeze(2)).sum(1) / q_mask.sum(1).unsqueeze(1)
+        else:
+            v_mean = v.sum(1) / num_obj
+            q_mean = q.sum(1) / max_len
+        v4q_gate = self.sigmoid(self.v4q_gate_lin(v_mean)).unsqueeze(1)
+        q4v_gate = self.sigmoid(self.q4v_gate_lin(q_mean)).unsqueeze(1)
+        v_trans = self.v_lin(v)
+        q_trans = self.q_lin(q)
+        if APPLY_MASK:
+            v_trans = v_trans * v_mask.unsqueeze(2)
+            q_trans = q_trans * q_mask.unsqueeze(2)
+        v_key, v_qry, v_val = torch.split(v_trans, v_trans.size(2) // 3, dim=2)
+        q_key, q_qry, q_val = torch.split(q_trans, q_trans.size(2) // 3, dim=2)
+        gated_v_qry = (1 + q4v_gate) * v_qry
+        gated_v_key = (1 + q4v_gate) * v_key
+        gated_v_val = (1 + q4v_gate) * v_val
+        gated_q_qry = (1 + v4q_gate) * q_qry
+        gated_q_key = (1 + v4q_gate) * q_key
+        gated_q_val = (1 + v4q_gate) * q_val
+        v_key_set = torch.split(gated_v_key, gated_v_key.size(2) // self.num_head, dim=2)
+        v_qry_set = torch.split(gated_v_qry, gated_v_qry.size(2) // self.num_head, dim=2)
+        v_val_set = torch.split(gated_v_val, gated_v_val.size(2) // self.num_head, dim=2)
+        q_key_set = torch.split(gated_q_key, gated_q_key.size(2) // self.num_head, dim=2)
+        q_qry_set = torch.split(gated_q_qry, gated_q_qry.size(2) // self.num_head, dim=2)
+        q_val_set = torch.split(gated_q_val, gated_q_val.size(2) // self.num_head, dim=2)
+        for i in range(self.num_head):
+            v_key_slice, v_qry_slice, v_val_slice = v_key_set[i], v_qry_set[i], v_val_set[i]
+            q_key_slice, q_qry_slice, q_val_slice = q_key_set[i], q_qry_set[i], q_val_set[i]
+            v2v = v_qry_slice @ v_key_slice.transpose(1, 2) / (self.output_size // self.num_head) ** 0.5
+            q2q = q_qry_slice @ q_key_slice.transpose(1, 2) / (self.output_size // self.num_head) ** 0.5
+            if APPLY_MASK:
+                v2v.masked_fill_(v_mask.unsqueeze(1).expand([batch_size, num_obj, num_obj]) == 0, -float('inf'))
+                q2q.masked_fill_(q_mask.unsqueeze(1).expand([batch_size, max_len, max_len]) == 0, -float('inf'))
+            dyIntraMAF_v2v = F.softmax(v2v, dim=2).unsqueeze(3)
+            dyIntraMAF_q2q = F.softmax(q2q, dim=2).unsqueeze(3)
+            v_update = (dyIntraMAF_v2v * v_val_slice.unsqueeze(1)).sum(2) if i == 0 else torch.cat((v_update, (dyIntraMAF_v2v * v_val_slice.unsqueeze(1)).sum(2)), dim=2)
+            q_update = (dyIntraMAF_q2q * q_val_slice.unsqueeze(1)).sum(2) if i == 0 else torch.cat((q_update, (dyIntraMAF_q2q * q_val_slice.unsqueeze(1)).sum(2)), dim=2)
+        updated_v = self.v_output(v + v_update)
+        updated_q = self.q_output(q + q_update)
+        return updated_v, updated_q
+
+
+class OneSideInterModalityUpdate(nn.Module):
+    """
+    One-Side Inter-modality Attention Flow
+    
+    According to original paper, instead of parallel V->Q & Q->V, we first to V->Q and then Q->V
+    """
+
+    def __init__(self, src_size, tgt_size, output_size, num_head, drop=0.0):
+        super(OneSideInterModalityUpdate, self).__init__()
+        self.src_size = src_size
+        self.tgt_size = tgt_size
+        self.output_size = output_size
+        self.num_head = num_head
+        self.src_lin = FCNet(src_size, output_size * 2, drop=drop)
+        self.tgt_lin = FCNet(tgt_size, output_size, drop=drop)
+        self.tgt_output = FCNet(output_size + tgt_size, output_size, drop=drop)
+
+    def forward(self, src, tgt, src_mask, tgt_mask):
+        """
+        src: src feature      [batch, num_src, feat_size]
+        tgt: tgt feautre      [batch, num_tgt, feat_size]
+        src_mask              [batch, num_src]
+        tgt_mask              [batch, num_tgt]
+        """
+        batch_size, num_src = src_mask.shape
+        _, num_tgt = tgt_mask.shape
+        src_trans = self.src_lin(src)
+        tgt_trans = self.tgt_lin(tgt)
+        if APPLY_MASK:
+            src_trans = src_trans * src_mask.unsqueeze(2)
+            tgt_trans = tgt_trans * tgt_mask.unsqueeze(2)
+        src_key, src_val = torch.split(src_trans, src_trans.size(2) // 2, dim=2)
+        tgt_qry = tgt_trans
+        src_key_set = torch.split(src_key, src_key.size(2) // self.num_head, dim=2)
+        src_val_set = torch.split(src_val, src_val.size(2) // self.num_head, dim=2)
+        tgt_qry_set = torch.split(tgt_qry, tgt_qry.size(2) // self.num_head, dim=2)
+        for i in range(self.num_head):
+            src_key_slice, tgt_qry_slice, src_val_slice = src_key_set[i], tgt_qry_set[i], src_val_set[i]
+            src2tgt = tgt_qry_slice @ src_key_slice.transpose(1, 2) / (self.output_size // self.num_head) ** 0.5
+            if APPLY_MASK:
+                src2tgt.masked_fill_(src_mask.unsqueeze(1).expand([batch_size, num_tgt, num_src]) == 0, -float('inf'))
+            interMAF_src2tgt = F.softmax(src2tgt, dim=2).unsqueeze(3)
+            tgt_update = (interMAF_src2tgt * src_val_slice.unsqueeze(1)).sum(2) if i == 0 else torch.cat((tgt_update, (interMAF_src2tgt * src_val_slice.unsqueeze(1)).sum(2)), dim=2)
+        cat_tgt = torch.cat((tgt, tgt_update), dim=2)
+        update_tgt = self.tgt_output(cat_tgt)
+        return update_tgt
+
+
+class MultiBlock(nn.Module):
+    """
+    Multi Block (different parameters) Inter-/Intra-modality
+    """
+
+    def __init__(self, num_block, v_size, q_size, output_size, num_inter_head, num_intra_head, drop=0.0):
+        super(MultiBlock, self).__init__()
+        self.v_size = v_size
+        self.q_size = q_size
+        self.output_size = output_size
+        self.num_inter_head = num_inter_head
+        self.num_intra_head = num_intra_head
+        self.num_block = num_block
+        self.v_lin = FCNet(v_size, output_size, drop=drop)
+        self.q_lin = FCNet(q_size, output_size, drop=drop)
+        blocks = []
+        for i in range(num_block):
+            blocks.append(OneSideInterModalityUpdate(output_size, output_size, output_size, num_inter_head, drop))
+            blocks.append(OneSideInterModalityUpdate(output_size, output_size, output_size, num_inter_head, drop))
+            blocks.append(DyIntraModalityUpdate(output_size, output_size, output_size, num_intra_head, drop))
+        self.multi_blocks = nn.ModuleList(blocks)
+
+    def forward(self, v, q, v_mask, q_mask):
+        """
+        v: visual feature      [batch, num_obj, feat_size]
+        q: question            [batch, max_len, feat_size]
+        v_mask                 [batch, num_obj]
+        q_mask                 [batch, max_len]
+        """
+        v = self.v_lin(v)
+        q = self.q_lin(q)
+        v_container = [v]
+        q_container = [q]
+        result_v = [v]
+        result_q = [q]
+        for i in range(self.num_block):
+            q1 = self.multi_blocks[i * 3 + 0](v_container[-1], q_container[-1], v_mask, q_mask)
+            q_container.append(q1)
+            v1 = self.multi_blocks[i * 3 + 1](q_container[-1] + q_container[-2], v_container[-1], q_mask, v_mask)
+            v_container.append(v1)
+            v2, q2 = self.multi_blocks[i * 3 + 2](v_container[-1] + v_container[-2], q_container[-1] + q_container[-2], v_mask, q_mask)
+            v_container.append(v2)
+            q_container.append(q2)
+            result_v.append(v1)
+            result_v.append(v2)
+            result_q.append(q1)
+            result_q.append(q2)
+            v_container.append(v_container[-1] + v_container[-2] + v_container[-3])
+            q_container.append(q_container[-1] + q_container[-2] + q_container[-3])
+        return sum(result_v), sum(result_q)
 
 
 class Net(nn.Module):
+    """
+    Implementation of Dynamic Fusion with Intra- and Inter-modality Attention Flow for Visual Question Answering (DFAF)
+    Based on code from https://github.com/Cyanogenoid/vqa-counting
+    """
 
     def __init__(self, words_list):
         super(Net, self).__init__()
-        num_hid = 1280
-        question_features = num_hid
-        vision_features = config.output_features
-        glimpses = 12
-        objects = 10
-        self.text = word_embedding.TextProcessor(classes=words_list, embedding_features=300, lstm_features=question_features, use_hidden=False, drop=0.0)
-        self.count = Counter(objects)
-        self.attention = weight_norm(BiAttention(v_features=vision_features, q_features=question_features, mid_features=num_hid, glimpses=glimpses, drop=0.5), name='h_weight', dim=None)
-        self.apply_attention = ApplyAttention(v_features=vision_features, q_features=question_features, mid_features=num_hid, glimpses=glimpses, num_obj=objects, drop=0.2)
-        self.classifier = Classifier(in_features=num_hid, mid_features=num_hid * 2, out_features=config.max_answers, drop=0.5)
+        self.question_features = 1280
+        self.vision_features = config.output_features
+        self.hidden_features = 512
+        self.num_inter_head = 8
+        self.num_intra_head = 8
+        self.num_block = 1
+        assert self.hidden_features % self.num_inter_head == 0
+        assert self.hidden_features % self.num_intra_head == 0
+        self.text = word_embedding.TextProcessor(classes=words_list, embedding_features=300, lstm_features=self.question_features, use_hidden=False, drop=0.0)
+        self.interIntraBlocks = MultiBlock(num_block=self.num_block, v_size=self.vision_features, q_size=self.question_features, output_size=self.hidden_features, num_inter_head=self.num_inter_head, num_intra_head=self.num_intra_head, drop=0.1)
+        self.classifier = Classifier(in_features=self.hidden_features, mid_features=2048, out_features=config.max_answers, drop=0.5)
 
     def forward(self, v, b, q, v_mask, q_mask, q_len):
         """
@@ -112,23 +352,9 @@ class Net(nn.Module):
         q = self.text(q, list(q_len.data))
         if config.v_feat_norm:
             v = v / (v.norm(p=2, dim=2, keepdim=True) + 1e-12).expand_as(v)
-        atten, logits = self.attention(v, q, v_mask, q_mask)
-        new_q = self.apply_attention(v, q, b, v_mask, q_mask, atten, logits, count_layer=self.count)
-        answer = self.classifier(new_q)
+        v, q = self.interIntraBlocks(v, q, v_mask, q_mask)
+        answer = self.classifier(v, q, v_mask, q_mask)
         return answer
-
-
-class Classifier(nn.Module):
-
-    def __init__(self, in_features, mid_features, out_features, drop=0.0):
-        super(Classifier, self).__init__()
-        self.lin1 = FCNet(in_features, mid_features, activate='relu')
-        self.lin2 = FCNet(mid_features, out_features, drop=drop)
-
-    def forward(self, q):
-        x = self.lin1(q)
-        x = self.lin2(x)
-        return x
 
 
 class BiAttention(nn.Module):
@@ -163,31 +389,6 @@ class BiAttention(nn.Module):
         return atten.view(-1, self.glimpses, v_num, q_num), logits
 
 
-class ApplyAttention(nn.Module):
-
-    def __init__(self, v_features, q_features, mid_features, glimpses, num_obj, drop=0.0):
-        super(ApplyAttention, self).__init__()
-        self.glimpses = glimpses
-        layers = []
-        for g in range(self.glimpses):
-            layers.append(ApplySingleAttention(v_features, q_features, mid_features, num_obj, drop))
-        self.glimpse_layers = nn.ModuleList(layers)
-
-    def forward(self, v, q, b, v_mask, q_mask, atten, logits, count_layer):
-        """
-        v = batch, num_obj, dim
-        q = batch, que_len, dim
-        v_mask: number of obj  [batch, max_obj]   1 is obj,  0 is none
-        q_mask: question length [batch, max_len]   1 is word, 0 is none
-        atten:  batch x glimpses x v_num x q_num
-        logits:  batch x glimpses x v_num x q_num
-        """
-        for g in range(self.glimpses):
-            atten_h, count_h = self.glimpse_layers[g](v, q, b, v_mask, q_mask, atten[:, (g), :, :], logits[:, (g), :, :], count_layer)
-            q = q + atten_h + count_h
-        return q.sum(1)
-
-
 class ApplySingleAttention(nn.Module):
 
     def __init__(self, v_features, q_features, mid_features, num_obj, drop=0.0):
@@ -217,92 +418,94 @@ class ApplySingleAttention(nn.Module):
         return atten_h, count_h
 
 
-def apply_attention(input, attention):
-    """ Apply any number of attention maps over the input.
-        The attention map has to have the same size in all dimensions except dim=1.
-    """
-    n, c = input.size()[:2]
-    glimpses = attention.size(1)
-    input = input.view(n, c, -1)
-    attention = attention.view(n, glimpses, -1)
-    s = input.size(2)
-    attention = attention.view(n * glimpses, -1)
-    attention = F.softmax(attention, dim=1)
-    target_size = [n, glimpses, c, s]
-    input = input.view(n, 1, c, s).expand(*target_size)
-    attention = attention.view(n, glimpses, 1, s).expand(*target_size)
-    weighted = input * attention
-    weighted_mean = weighted.sum(dim=3, keepdim=True)
-    return weighted_mean.view(n, -1)
+class ApplyAttention(nn.Module):
 
+    def __init__(self, v_features, q_features, mid_features, glimpses, num_obj, drop=0.0):
+        super(ApplyAttention, self).__init__()
+        self.glimpses = glimpses
+        layers = []
+        for g in range(self.glimpses):
+            layers.append(ApplySingleAttention(v_features, q_features, mid_features, num_obj, drop))
+        self.glimpse_layers = nn.ModuleList(layers)
 
-class Net(nn.Module):
-
-    def __init__(self, words_list):
-        super(Net, self).__init__()
-        question_features = 1024
-        vision_features = config.output_features
-        glimpses = 2
-        self.text = word_embedding.TextProcessor(classes=words_list, embedding_features=300, lstm_features=question_features, drop=0.0)
-        self.attention = Attention(v_features=vision_features, q_features=question_features, mid_features=1024, glimpses=glimpses, drop=0.2)
-        self.classifier = Classifier(in_features=(glimpses * vision_features, question_features), mid_features=1024, out_features=config.max_answers, drop=0.5)
-
-    def forward(self, v, b, q, v_mask, q_mask, q_len):
+    def forward(self, v, q, b, v_mask, q_mask, atten, logits, count_layer):
         """
-        v: visual feature      [batch, num_obj, 2048]
-        b: bounding box        [batch, num_obj, 4]
-        q: question            [batch, max_q_len]
+        v = batch, num_obj, dim
+        q = batch, que_len, dim
         v_mask: number of obj  [batch, max_obj]   1 is obj,  0 is none
         q_mask: question length [batch, max_len]   1 is word, 0 is none
-        answer: predict logits [batch, config.max_answers]
+        atten:  batch x glimpses x v_num x q_num
+        logits:  batch x glimpses x v_num x q_num
         """
-        q = self.text(q, list(q_len.data))
-        if config.v_feat_norm:
-            v = v / (v.norm(p=2, dim=2, keepdim=True) + 1e-12).expand_as(v)
-        a = self.attention(v, q)
-        v = apply_attention(v.transpose(1, 2), a)
-        answer = self.classifier(v, q)
-        return answer
+        for g in range(self.glimpses):
+            atten_h, count_h = self.glimpse_layers[g](v, q, b, v_mask, q_mask, atten[:, (g), :, :], logits[:, (g), :, :], count_layer)
+            q = q + atten_h + count_h
+        return q.sum(1)
 
 
-class Classifier(nn.Module):
+class Fusion(nn.Module):
+    """ Crazy multi-modal fusion: negative squared difference minus relu'd sum
+    """
 
-    def __init__(self, in_features, mid_features, out_features, drop=0.0):
-        super(Classifier, self).__init__()
-        self.lin11 = FCNet(in_features[0], mid_features, activate='relu')
-        self.lin12 = FCNet(in_features[1], mid_features, activate='relu')
-        self.lin2 = FCNet(mid_features, mid_features, activate='relu')
-        self.lin3 = FCNet(mid_features, out_features, drop=drop)
+    def __init__(self):
+        super().__init__()
 
-    def forward(self, v, q):
-        x = self.lin11(v) * self.lin12(q)
-        x = self.lin2(x)
-        x = self.lin3(x)
-        return x
+    def forward(self, x, y):
+        return -(x - y) ** 2 + F.relu(x + y)
+
+
+def tile_2d_over_nd(feature_vector, feature_map):
+    """ Repeat the same feature vector over all spatial positions of a given feature map.
+        The feature vector should have the same batch size and number of features as the feature map.
+    """
+    n, c = feature_vector.size()
+    spatial_sizes = feature_map.size()[2:]
+    tiled = feature_vector.view(n, c, *([1] * len(spatial_sizes))).expand(n, c, *spatial_sizes)
+    return tiled
 
 
 class Attention(nn.Module):
 
     def __init__(self, v_features, q_features, mid_features, glimpses, drop=0.0):
         super(Attention, self).__init__()
-        self.lin_v = FCNet(v_features, mid_features, activate='relu')
-        self.lin_q = FCNet(q_features, mid_features, activate='relu')
-        self.lin = FCNet(mid_features, glimpses, drop=drop)
+        self.v_conv = nn.Conv2d(v_features, mid_features, 1, bias=False)
+        self.q_lin = nn.Linear(q_features, mid_features)
+        self.x_conv = nn.Conv2d(mid_features, glimpses, 1)
+        self.drop = nn.Dropout(drop)
+        self.relu = nn.ReLU(inplace=True)
+        self.fusion = Fusion()
 
     def forward(self, v, q):
-        """
-        v = batch, num_obj, dim
-        q = batch, dim
-        """
-        v = self.lin_v(v)
-        q = self.lin_q(q)
-        batch, num_obj, _ = v.shape
-        _, q_dim = q.shape
-        q = q.unsqueeze(1).expand(batch, num_obj, q_dim)
-        x = v * q
-        x = self.lin(x)
-        x = F.softmax(x, dim=1)
+        q_in = q
+        v = self.v_conv(self.drop(v))
+        q = self.q_lin(self.drop(q))
+        q = tile_2d_over_nd(q, v)
+        x = self.fusion(v, q)
+        x = self.x_conv(self.drop(x))
         return x
+
+
+class PiecewiseLin(nn.Module):
+
+    def __init__(self, n):
+        super().__init__()
+        self.n = n
+        self.weight = nn.Parameter(torch.ones(n + 1))
+        self.weight.data[0] = 0
+
+    def forward(self, x):
+        w = self.weight.abs()
+        w = w / w.sum()
+        w = w.view([self.n + 1] + [1] * x.dim())
+        csum = w.cumsum(dim=0)
+        csum = csum.expand((self.n + 1,) + tuple(x.size()))
+        w = w.expand_as(csum)
+        y = self.n * x.unsqueeze(0)
+        idx = Variable(y.long().data)
+        f = y.frac()
+        x = csum.gather(0, idx.clamp(max=self.n))
+        x = x + f * w.gather(0, (idx + 1).clamp(max=self.n))
+        return x.squeeze(0)
 
 
 class Counter(nn.Module):
@@ -407,215 +610,44 @@ class Counter(nn.Module):
         return area
 
 
-class PiecewiseLin(nn.Module):
-
-    def __init__(self, n):
-        super().__init__()
-        self.n = n
-        self.weight = nn.Parameter(torch.ones(n + 1))
-        self.weight.data[0] = 0
-
-    def forward(self, x):
-        w = self.weight.abs()
-        w = w / w.sum()
-        w = w.view([self.n + 1] + [1] * x.dim())
-        csum = w.cumsum(dim=0)
-        csum = csum.expand((self.n + 1,) + tuple(x.size()))
-        w = w.expand_as(csum)
-        y = self.n * x.unsqueeze(0)
-        idx = Variable(y.long().data)
-        f = y.frac()
-        x = csum.gather(0, idx.clamp(max=self.n))
-        x = x + f * w.gather(0, (idx + 1).clamp(max=self.n))
-        return x.squeeze(0)
-
-
-class Net(nn.Module):
-    """ Based on ``Show, Ask, Attend, and Answer: A Strong Baseline For Visual Question Answering'' [0]
-    [0]: https://arxiv.org/abs/1704.03162
-    """
-
-    def __init__(self, embedding_tokens):
-        super(Net, self).__init__()
-        question_features = 1024
-        vision_features = config.output_features
-        glimpses = 2
-        objects = 10
-        self.text = TextProcessor(embedding_tokens=len(embedding_tokens) + 1, embedding_features=300, lstm_features=question_features, drop=0.5)
-        self.attention = Attention(v_features=vision_features, q_features=question_features, mid_features=512, glimpses=glimpses, drop=0.5)
-        self.classifier = Classifier(in_features=(glimpses * vision_features, question_features), mid_features=1024, out_features=config.max_answers, count_features=objects + 1, drop=0.5)
-        self.counter = counting.Counter(objects)
-        for m in self.modules():
-            if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
-                init.xavier_uniform_(m.weight)
-                if m.bias is not None:
-                    m.bias.data.zero_()
-
-    def forward(self, v, b, q, v_mask, q_mask, q_len):
-        """
-        v: visual feature      [batch, num_obj, 2048]
-        b: bounding box        [batch, num_obj, 4]
-        q: question            [batch, max_q_len]
-        v_mask: number of obj  [batch, max_obj]   1 is obj,  0 is none
-        q_mask: question length [batch, max_len]   1 is word, 0 is none
-        answer: predict logits [batch, config.max_answers]
-        """
-        q = self.text(q, list(q_len.data))
-        v = v.transpose(1, 2).unsqueeze(2)
-        v = v / (v.norm(p=2, dim=1, keepdim=True) + 1e-12).expand_as(v)
-        a = self.attention(v, q)
-        v = apply_attention(v, a)
-        a1 = a[:, (0), :, :].contiguous().view(a.size(0), -1)
-        count = self.counter(b.transpose(1, 2), a1)
-        answer = self.classifier(v, q, count)
-        return answer
-
-
-class Fusion(nn.Module):
-    """ Crazy multi-modal fusion: negative squared difference minus relu'd sum
-    """
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x, y):
-        return -(x - y) ** 2 + F.relu(x + y)
-
-
-class Classifier(nn.Sequential):
-
-    def __init__(self, in_features, mid_features, count_features, out_features, drop=0.0):
-        super(Classifier, self).__init__()
-        self.drop = nn.Dropout(drop)
-        self.relu = nn.ReLU()
-        self.fusion = Fusion()
-        self.lin11 = nn.Linear(in_features[0], mid_features)
-        self.lin12 = nn.Linear(in_features[1], mid_features)
-        self.lin2 = nn.Linear(mid_features, out_features)
-        self.lin_c = nn.Linear(count_features, mid_features)
-        self.bn = nn.BatchNorm1d(mid_features)
-        self.bn2 = nn.BatchNorm1d(mid_features)
-
-    def forward(self, x, y, c):
-        x = self.fusion(self.lin11(self.drop(x)), self.lin12(self.drop(y)))
-        x = x + self.bn2(self.relu(self.lin_c(c)))
-        x = self.lin2(self.drop(self.bn(x)))
-        return x
+qa_path = 'data'
 
 
 class TextProcessor(nn.Module):
 
-    def __init__(self, embedding_tokens, embedding_features, lstm_features, drop=0.0):
+    def __init__(self, classes, embedding_features, lstm_features, drop=0.0, use_hidden=True, use_tanh=False, only_embed=False):
         super(TextProcessor, self).__init__()
-        self.embedding = nn.Embedding(embedding_tokens, embedding_features, padding_idx=0)
+        self.use_hidden = use_hidden
+        self.use_tanh = use_tanh
+        self.only_embed = only_embed
+        classes = list(classes)
+        self.embed = nn.Embedding(len(classes) + 1, embedding_features, padding_idx=len(classes))
+        weight_init = torch.from_numpy(np.load(qa_path + '/glove6b_init_300d.npy'))
+        assert weight_init.shape == (len(classes), embedding_features)
+        None
+        self.embed.weight.data[:len(classes)] = weight_init
+        None
         self.drop = nn.Dropout(drop)
-        self.tanh = nn.Tanh()
-        self.lstm = nn.GRU(input_size=embedding_features, hidden_size=lstm_features, num_layers=1)
-        self.features = lstm_features
-        self._init_lstm(self.lstm.weight_ih_l0)
-        self._init_lstm(self.lstm.weight_hh_l0)
-        self.lstm.bias_ih_l0.data.zero_()
-        self.lstm.bias_hh_l0.data.zero_()
-        init.xavier_uniform_(self.embedding.weight)
-
-    def _init_lstm(self, weight):
-        for w in weight.chunk(3, 0):
-            init.xavier_uniform_(w)
+        if self.use_tanh:
+            self.tanh = nn.Tanh()
+        if not self.only_embed:
+            self.lstm = nn.GRU(input_size=embedding_features, hidden_size=lstm_features, num_layers=1, batch_first=not use_hidden)
 
     def forward(self, q, q_len):
-        embedded = self.embedding(q)
-        tanhed = self.tanh(self.drop(embedded))
-        packed = pack_padded_sequence(tanhed, q_len, batch_first=True)
-        _, h = self.lstm(packed)
-        return h.squeeze(0)
-
-
-def tile_2d_over_nd(feature_vector, feature_map):
-    """ Repeat the same feature vector over all spatial positions of a given feature map.
-        The feature vector should have the same batch size and number of features as the feature map.
-    """
-    n, c = feature_vector.size()
-    spatial_sizes = feature_map.size()[2:]
-    tiled = feature_vector.view(n, c, *([1] * len(spatial_sizes))).expand(n, c, *spatial_sizes)
-    return tiled
-
-
-class Attention(nn.Module):
-
-    def __init__(self, v_features, q_features, mid_features, glimpses, drop=0.0):
-        super(Attention, self).__init__()
-        self.v_conv = nn.Conv2d(v_features, mid_features, 1, bias=False)
-        self.q_lin = nn.Linear(q_features, mid_features)
-        self.x_conv = nn.Conv2d(mid_features, glimpses, 1)
-        self.drop = nn.Dropout(drop)
-        self.relu = nn.ReLU(inplace=True)
-        self.fusion = Fusion()
-
-    def forward(self, v, q):
-        q_in = q
-        v = self.v_conv(self.drop(v))
-        q = self.q_lin(self.drop(q))
-        q = tile_2d_over_nd(q, v)
-        x = self.fusion(v, q)
-        x = self.x_conv(self.drop(x))
-        return x
-
-
-class Net(nn.Module):
-
-    def __init__(self, words_list):
-        super(Net, self).__init__()
-        mid_features = 1024
-        question_features = mid_features
-        vision_features = config.output_features
-        self.top_k_sparse = 16
-        num_kernels = 8
-        sparse_graph = True
-        self.text = word_embedding.TextProcessor(classes=words_list, embedding_features=300, lstm_features=question_features, drop=0.0)
-        self.pseudo_coord = PseudoCoord()
-        self.graph_learner = GraphLearner(v_features=vision_features + 4, q_features=question_features, mid_features=512, dropout=0.5, sparse_graph=sparse_graph)
-        self.graph_conv1 = GraphConv(v_features=vision_features + 4, mid_features=mid_features * 2, num_kernels=num_kernels, bias=False)
-        self.graph_conv2 = GraphConv(v_features=mid_features * 2, mid_features=mid_features, num_kernels=num_kernels, bias=False)
-        self.classifier = Classifier(in_features=mid_features, mid_features=mid_features * 2, out_features=config.max_answers, drop=0.5)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.5)
-
-    def forward(self, v, b, q, v_mask, q_mask, q_len):
-        """
-        v: visual feature      [batch, num_obj, 2048]
-        b: bounding box        [batch, num_obj, 4]
-        q: question            [batch, max_q_len]
-        v_mask: number of obj  [batch, max_obj]   1 is obj,  0 is none
-        q_mask: question length [batch, max_len]   1 is word, 0 is none
-        answer: predict logits [batch, config.max_answers]
-        """
-        q = self.text(q, list(q_len.data))
-        v = self.dropout(v)
-        v = torch.cat((v, b), dim=2)
-        new_coord = self.pseudo_coord(b)
-        adj_matrix, top_ind = self.graph_learner(v, q, v_mask, top_K=self.top_k_sparse)
-        hid_v1 = self.graph_conv1(v, v_mask, new_coord, adj_matrix, top_ind, weight_adj=True)
-        hid_v1 = self.dropout(self.relu(hid_v1))
-        hid_v2 = self.graph_conv2(hid_v1, v_mask, new_coord, adj_matrix, top_ind, weight_adj=False)
-        hid_v2 = self.relu(hid_v2)
-        max_pooled_v = torch.max(hid_v2, dim=1)[0]
-        answer = self.classifier(max_pooled_v, q)
-        return answer
-
-
-class Classifier(nn.Module):
-
-    def __init__(self, in_features, mid_features, out_features, drop=0.0):
-        super(Classifier, self).__init__()
-        self.lin1 = FCNet(in_features, mid_features, activate='relu')
-        self.lin2 = FCNet(mid_features, out_features, drop=drop)
-        self.relu = nn.ReLU()
-
-    def forward(self, v, q):
-        x = v * self.relu(q)
-        x = self.lin1(x)
-        x = self.lin2(x)
-        return x
+        embedded = self.embed(q)
+        embedded = self.drop(embedded)
+        if self.use_tanh:
+            embedded = self.tanh(embedded)
+        if self.only_embed:
+            return embedded
+        self.lstm.flatten_parameters()
+        if self.use_hidden:
+            packed = pack_padded_sequence(embedded, q_len, batch_first=True)
+            _, hid = self.lstm(packed)
+            return hid.squeeze(0)
+        else:
+            out, _ = self.lstm(embedded)
+            return out
 
 
 class PseudoCoord(nn.Module):
@@ -738,73 +770,6 @@ class GraphConv(nn.Module):
         return weights.view(batch_size, num_obj, num_obj, self.num_kernels)
 
 
-class Net(nn.Module):
-    """
-    Implementation of Dynamic Fusion with Intra- and Inter-modality Attention Flow for Visual Question Answering (DFAF)
-    Based on code from https://github.com/Cyanogenoid/vqa-counting
-    """
-
-    def __init__(self, words_list):
-        super(Net, self).__init__()
-        self.question_features = 1280
-        self.vision_features = config.output_features
-        self.hidden_features = 512
-        self.num_inter_head = 8
-        self.num_intra_head = 8
-        self.num_block = 1
-        assert self.hidden_features % self.num_inter_head == 0
-        assert self.hidden_features % self.num_intra_head == 0
-        self.text = word_embedding.TextProcessor(classes=words_list, embedding_features=300, lstm_features=self.question_features, use_hidden=False, drop=0.0)
-        self.interIntraBlocks = MultiBlock(num_block=self.num_block, v_size=self.vision_features, q_size=self.question_features, output_size=self.hidden_features, num_inter_head=self.num_inter_head, num_intra_head=self.num_intra_head, drop=0.1)
-        self.classifier = Classifier(in_features=self.hidden_features, mid_features=2048, out_features=config.max_answers, drop=0.5)
-
-    def forward(self, v, b, q, v_mask, q_mask, q_len):
-        """
-        v: visual feature      [batch, num_obj, 2048]
-        b: bounding box        [batch, num_obj, 4]
-        q: question            [batch, max_q_len]
-        v_mask: number of obj  [batch, max_obj]   1 is obj,  0 is none
-        q_mask: question length [batch, max_len]   1 is word, 0 is none
-        answer: predict logits [batch, config.max_answers]
-        """
-        q = self.text(q, list(q_len.data))
-        if config.v_feat_norm:
-            v = v / (v.norm(p=2, dim=2, keepdim=True) + 1e-12).expand_as(v)
-        v, q = self.interIntraBlocks(v, q, v_mask, q_mask)
-        answer = self.classifier(v, q, v_mask, q_mask)
-        return answer
-
-
-APPLY_MASK = True
-
-
-class Classifier(nn.Sequential):
-
-    def __init__(self, in_features, mid_features, out_features, drop=0.0):
-        super(Classifier, self).__init__()
-        self.lin1 = FCNet(in_features, mid_features, activate='relu', drop=drop / 2.5)
-        self.lin2 = FCNet(mid_features, out_features, drop=drop)
-
-    def forward(self, v, q, v_mask, q_mask):
-        """
-        v: visual feature      [batch, num_obj, 512]
-        q: question            [batch, max_len, 512]
-        v_mask                 [batch, num_obj]
-        q_mask                 [batch, max_len]
-        """
-        num_obj = v_mask.shape[1]
-        max_len = q_mask.shape[1]
-        if APPLY_MASK:
-            v_mean = (v * v_mask.unsqueeze(2)).sum(1) / v_mask.sum(1).unsqueeze(1)
-            q_mean = (q * q_mask.unsqueeze(2)).sum(1) / q_mask.sum(1).unsqueeze(1)
-        else:
-            v_mean = v.sum(1) / num_obj
-            q_mean = q.sum(1) / max_len
-        out = self.lin1(v_mean * q_mean)
-        out = self.lin2(out)
-        return out
-
-
 class SingleBlock(nn.Module):
     """
     Single Block Inter-/Intra-modality stack multiple times
@@ -843,58 +808,6 @@ class SingleBlock(nn.Module):
             v1 = self.q2v_interBlock(q_container[-1] + q_container[-2], v_container[-1], q_mask, v_mask)
             v_container.append(v1)
             v2, q2 = intraBlock(v_container[-1] + v_container[-2], q_container[-1] + q_container[-2], v_mask, q_mask)
-            v_container.append(v2)
-            q_container.append(q2)
-            result_v.append(v1)
-            result_v.append(v2)
-            result_q.append(q1)
-            result_q.append(q2)
-            v_container.append(v_container[-1] + v_container[-2] + v_container[-3])
-            q_container.append(q_container[-1] + q_container[-2] + q_container[-3])
-        return sum(result_v), sum(result_q)
-
-
-class MultiBlock(nn.Module):
-    """
-    Multi Block (different parameters) Inter-/Intra-modality
-    """
-
-    def __init__(self, num_block, v_size, q_size, output_size, num_inter_head, num_intra_head, drop=0.0):
-        super(MultiBlock, self).__init__()
-        self.v_size = v_size
-        self.q_size = q_size
-        self.output_size = output_size
-        self.num_inter_head = num_inter_head
-        self.num_intra_head = num_intra_head
-        self.num_block = num_block
-        self.v_lin = FCNet(v_size, output_size, drop=drop)
-        self.q_lin = FCNet(q_size, output_size, drop=drop)
-        blocks = []
-        for i in range(num_block):
-            blocks.append(OneSideInterModalityUpdate(output_size, output_size, output_size, num_inter_head, drop))
-            blocks.append(OneSideInterModalityUpdate(output_size, output_size, output_size, num_inter_head, drop))
-            blocks.append(DyIntraModalityUpdate(output_size, output_size, output_size, num_intra_head, drop))
-        self.multi_blocks = nn.ModuleList(blocks)
-
-    def forward(self, v, q, v_mask, q_mask):
-        """
-        v: visual feature      [batch, num_obj, feat_size]
-        q: question            [batch, max_len, feat_size]
-        v_mask                 [batch, num_obj]
-        q_mask                 [batch, max_len]
-        """
-        v = self.v_lin(v)
-        q = self.q_lin(q)
-        v_container = [v]
-        q_container = [q]
-        result_v = [v]
-        result_q = [q]
-        for i in range(self.num_block):
-            q1 = self.multi_blocks[i * 3 + 0](v_container[-1], q_container[-1], v_mask, q_mask)
-            q_container.append(q1)
-            v1 = self.multi_blocks[i * 3 + 1](q_container[-1] + q_container[-2], v_container[-1], q_mask, v_mask)
-            v_container.append(v1)
-            v2, q2 = self.multi_blocks[i * 3 + 2](v_container[-1] + v_container[-2], q_container[-1] + q_container[-2], v_mask, q_mask)
             v_container.append(v2)
             q_container.append(q2)
             result_v.append(v1)
@@ -961,203 +874,6 @@ class InterModalityUpdate(nn.Module):
         updated_v = self.v_output(cat_v)
         updated_q = self.q_output(cat_q)
         return updated_v, updated_q
-
-
-class OneSideInterModalityUpdate(nn.Module):
-    """
-    One-Side Inter-modality Attention Flow
-    
-    According to original paper, instead of parallel V->Q & Q->V, we first to V->Q and then Q->V
-    """
-
-    def __init__(self, src_size, tgt_size, output_size, num_head, drop=0.0):
-        super(OneSideInterModalityUpdate, self).__init__()
-        self.src_size = src_size
-        self.tgt_size = tgt_size
-        self.output_size = output_size
-        self.num_head = num_head
-        self.src_lin = FCNet(src_size, output_size * 2, drop=drop)
-        self.tgt_lin = FCNet(tgt_size, output_size, drop=drop)
-        self.tgt_output = FCNet(output_size + tgt_size, output_size, drop=drop)
-
-    def forward(self, src, tgt, src_mask, tgt_mask):
-        """
-        src: src feature      [batch, num_src, feat_size]
-        tgt: tgt feautre      [batch, num_tgt, feat_size]
-        src_mask              [batch, num_src]
-        tgt_mask              [batch, num_tgt]
-        """
-        batch_size, num_src = src_mask.shape
-        _, num_tgt = tgt_mask.shape
-        src_trans = self.src_lin(src)
-        tgt_trans = self.tgt_lin(tgt)
-        if APPLY_MASK:
-            src_trans = src_trans * src_mask.unsqueeze(2)
-            tgt_trans = tgt_trans * tgt_mask.unsqueeze(2)
-        src_key, src_val = torch.split(src_trans, src_trans.size(2) // 2, dim=2)
-        tgt_qry = tgt_trans
-        src_key_set = torch.split(src_key, src_key.size(2) // self.num_head, dim=2)
-        src_val_set = torch.split(src_val, src_val.size(2) // self.num_head, dim=2)
-        tgt_qry_set = torch.split(tgt_qry, tgt_qry.size(2) // self.num_head, dim=2)
-        for i in range(self.num_head):
-            src_key_slice, tgt_qry_slice, src_val_slice = src_key_set[i], tgt_qry_set[i], src_val_set[i]
-            src2tgt = tgt_qry_slice @ src_key_slice.transpose(1, 2) / (self.output_size // self.num_head) ** 0.5
-            if APPLY_MASK:
-                src2tgt.masked_fill_(src_mask.unsqueeze(1).expand([batch_size, num_tgt, num_src]) == 0, -float('inf'))
-            interMAF_src2tgt = F.softmax(src2tgt, dim=2).unsqueeze(3)
-            tgt_update = (interMAF_src2tgt * src_val_slice.unsqueeze(1)).sum(2) if i == 0 else torch.cat((tgt_update, (interMAF_src2tgt * src_val_slice.unsqueeze(1)).sum(2)), dim=2)
-        cat_tgt = torch.cat((tgt, tgt_update), dim=2)
-        update_tgt = self.tgt_output(cat_tgt)
-        return update_tgt
-
-
-class DyIntraModalityUpdate(nn.Module):
-    """
-    Dynamic Intra-modality Attention Flow
-    """
-
-    def __init__(self, v_size, q_size, output_size, num_head, drop=0.0):
-        super(DyIntraModalityUpdate, self).__init__()
-        self.v_size = v_size
-        self.q_size = q_size
-        self.output_size = output_size
-        self.num_head = num_head
-        self.v4q_gate_lin = FCNet(v_size, output_size, drop=drop)
-        self.q4v_gate_lin = FCNet(q_size, output_size, drop=drop)
-        self.v_lin = FCNet(v_size, output_size * 3, drop=drop)
-        self.q_lin = FCNet(q_size, output_size * 3, drop=drop)
-        self.v_output = FCNet(output_size, output_size, drop=drop)
-        self.q_output = FCNet(output_size, output_size, drop=drop)
-        self.relu = nn.ReLU()
-        self.tanh = nn.Tanh()
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, v, q, v_mask, q_mask):
-        """
-        v: visual feature      [batch, num_obj, feat_size]
-        q: question            [batch, max_len, feat_size]
-        v_mask                 [batch, num_obj]
-        q_mask                 [batch, max_len]
-        """
-        batch_size, num_obj = v_mask.shape
-        _, max_len = q_mask.shape
-        if APPLY_MASK:
-            v_mean = (v * v_mask.unsqueeze(2)).sum(1) / v_mask.sum(1).unsqueeze(1)
-            q_mean = (q * q_mask.unsqueeze(2)).sum(1) / q_mask.sum(1).unsqueeze(1)
-        else:
-            v_mean = v.sum(1) / num_obj
-            q_mean = q.sum(1) / max_len
-        v4q_gate = self.sigmoid(self.v4q_gate_lin(v_mean)).unsqueeze(1)
-        q4v_gate = self.sigmoid(self.q4v_gate_lin(q_mean)).unsqueeze(1)
-        v_trans = self.v_lin(v)
-        q_trans = self.q_lin(q)
-        if APPLY_MASK:
-            v_trans = v_trans * v_mask.unsqueeze(2)
-            q_trans = q_trans * q_mask.unsqueeze(2)
-        v_key, v_qry, v_val = torch.split(v_trans, v_trans.size(2) // 3, dim=2)
-        q_key, q_qry, q_val = torch.split(q_trans, q_trans.size(2) // 3, dim=2)
-        gated_v_qry = (1 + q4v_gate) * v_qry
-        gated_v_key = (1 + q4v_gate) * v_key
-        gated_v_val = (1 + q4v_gate) * v_val
-        gated_q_qry = (1 + v4q_gate) * q_qry
-        gated_q_key = (1 + v4q_gate) * q_key
-        gated_q_val = (1 + v4q_gate) * q_val
-        v_key_set = torch.split(gated_v_key, gated_v_key.size(2) // self.num_head, dim=2)
-        v_qry_set = torch.split(gated_v_qry, gated_v_qry.size(2) // self.num_head, dim=2)
-        v_val_set = torch.split(gated_v_val, gated_v_val.size(2) // self.num_head, dim=2)
-        q_key_set = torch.split(gated_q_key, gated_q_key.size(2) // self.num_head, dim=2)
-        q_qry_set = torch.split(gated_q_qry, gated_q_qry.size(2) // self.num_head, dim=2)
-        q_val_set = torch.split(gated_q_val, gated_q_val.size(2) // self.num_head, dim=2)
-        for i in range(self.num_head):
-            v_key_slice, v_qry_slice, v_val_slice = v_key_set[i], v_qry_set[i], v_val_set[i]
-            q_key_slice, q_qry_slice, q_val_slice = q_key_set[i], q_qry_set[i], q_val_set[i]
-            v2v = v_qry_slice @ v_key_slice.transpose(1, 2) / (self.output_size // self.num_head) ** 0.5
-            q2q = q_qry_slice @ q_key_slice.transpose(1, 2) / (self.output_size // self.num_head) ** 0.5
-            if APPLY_MASK:
-                v2v.masked_fill_(v_mask.unsqueeze(1).expand([batch_size, num_obj, num_obj]) == 0, -float('inf'))
-                q2q.masked_fill_(q_mask.unsqueeze(1).expand([batch_size, max_len, max_len]) == 0, -float('inf'))
-            dyIntraMAF_v2v = F.softmax(v2v, dim=2).unsqueeze(3)
-            dyIntraMAF_q2q = F.softmax(q2q, dim=2).unsqueeze(3)
-            v_update = (dyIntraMAF_v2v * v_val_slice.unsqueeze(1)).sum(2) if i == 0 else torch.cat((v_update, (dyIntraMAF_v2v * v_val_slice.unsqueeze(1)).sum(2)), dim=2)
-            q_update = (dyIntraMAF_q2q * q_val_slice.unsqueeze(1)).sum(2) if i == 0 else torch.cat((q_update, (dyIntraMAF_q2q * q_val_slice.unsqueeze(1)).sum(2)), dim=2)
-        updated_v = self.v_output(v + v_update)
-        updated_q = self.q_output(q + q_update)
-        return updated_v, updated_q
-
-
-class Fusion(nn.Module):
-    """ Crazy multi-modal fusion: negative squared difference minus relu'd sum
-    """
-
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x, y):
-        return -(x - y) ** 2 + F.relu(x + y)
-
-
-class FCNet(nn.Module):
-
-    def __init__(self, in_size, out_size, activate=None, drop=0.0):
-        super(FCNet, self).__init__()
-        self.lin = weight_norm(nn.Linear(in_size, out_size), dim=None)
-        self.drop_value = drop
-        self.drop = nn.Dropout(drop)
-        self.activate = activate.lower() if activate is not None else None
-        if activate == 'relu':
-            self.ac_fn = nn.ReLU()
-        elif activate == 'sigmoid':
-            self.ac_fn = nn.Sigmoid()
-        elif activate == 'tanh':
-            self.ac_fn = nn.Tanh()
-
-    def forward(self, x):
-        if self.drop_value > 0:
-            x = self.drop(x)
-        x = self.lin(x)
-        if self.activate is not None:
-            x = self.ac_fn(x)
-        return x
-
-
-qa_path = 'data'
-
-
-class TextProcessor(nn.Module):
-
-    def __init__(self, classes, embedding_features, lstm_features, drop=0.0, use_hidden=True, use_tanh=False, only_embed=False):
-        super(TextProcessor, self).__init__()
-        self.use_hidden = use_hidden
-        self.use_tanh = use_tanh
-        self.only_embed = only_embed
-        classes = list(classes)
-        self.embed = nn.Embedding(len(classes) + 1, embedding_features, padding_idx=len(classes))
-        weight_init = torch.from_numpy(np.load(qa_path + '/glove6b_init_300d.npy'))
-        assert weight_init.shape == (len(classes), embedding_features)
-        None
-        self.embed.weight.data[:len(classes)] = weight_init
-        None
-        self.drop = nn.Dropout(drop)
-        if self.use_tanh:
-            self.tanh = nn.Tanh()
-        if not self.only_embed:
-            self.lstm = nn.GRU(input_size=embedding_features, hidden_size=lstm_features, num_layers=1, batch_first=not use_hidden)
-
-    def forward(self, q, q_len):
-        embedded = self.embed(q)
-        embedded = self.drop(embedded)
-        if self.use_tanh:
-            embedded = self.tanh(embedded)
-        if self.only_embed:
-            return embedded
-        self.lstm.flatten_parameters()
-        if self.use_hidden:
-            packed = pack_padded_sequence(embedded, q_len, batch_first=True)
-            _, hid = self.lstm(packed)
-            return hid.squeeze(0)
-        else:
-            out, _ = self.lstm(embedded)
-            return out
 
 
 import torch

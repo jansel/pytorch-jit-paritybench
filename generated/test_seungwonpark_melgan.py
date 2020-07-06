@@ -24,20 +24,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import random
+
+
+import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from scipy.io.wavfile import write
 
 
 import torch.nn as nn
@@ -46,13 +62,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-import numpy as np
+from scipy.signal import get_window
 
 
 from torch.autograd import Variable
-
-
-from scipy.signal import get_window
 
 
 import math
@@ -81,6 +94,25 @@ class Discriminator(nn.Module):
 
 
 MAX_WAV_VALUE = 32768.0
+
+
+class ResStack(nn.Module):
+
+    def __init__(self, channel):
+        super(ResStack, self).__init__()
+        self.blocks = nn.ModuleList([nn.Sequential(nn.LeakyReLU(0.2), nn.ReflectionPad1d(3 ** i), nn.utils.weight_norm(nn.Conv1d(channel, channel, kernel_size=3, dilation=3 ** i)), nn.LeakyReLU(0.2), nn.utils.weight_norm(nn.Conv1d(channel, channel, kernel_size=1))) for i in range(3)])
+        self.shortcuts = nn.ModuleList([nn.utils.weight_norm(nn.Conv1d(channel, channel, kernel_size=1)) for i in range(3)])
+
+    def forward(self, x):
+        for block, shortcut in zip(self.blocks, self.shortcuts):
+            x = shortcut(x) + block(x)
+        return x
+
+    def remove_weight_norm(self):
+        for block, shortcut in zip(self.blocks, self.shortcuts):
+            nn.utils.remove_weight_norm(block[2])
+            nn.utils.remove_weight_norm(block[4])
+            nn.utils.remove_weight_norm(shortcut)
 
 
 class Generator(nn.Module):
@@ -142,25 +174,6 @@ class MultiScaleDiscriminator(nn.Module):
             x = pool(x)
             ret.append(disc(x))
         return ret
-
-
-class ResStack(nn.Module):
-
-    def __init__(self, channel):
-        super(ResStack, self).__init__()
-        self.blocks = nn.ModuleList([nn.Sequential(nn.LeakyReLU(0.2), nn.ReflectionPad1d(3 ** i), nn.utils.weight_norm(nn.Conv1d(channel, channel, kernel_size=3, dilation=3 ** i)), nn.LeakyReLU(0.2), nn.utils.weight_norm(nn.Conv1d(channel, channel, kernel_size=1))) for i in range(3)])
-        self.shortcuts = nn.ModuleList([nn.utils.weight_norm(nn.Conv1d(channel, channel, kernel_size=1)) for i in range(3)])
-
-    def forward(self, x):
-        for block, shortcut in zip(self.blocks, self.shortcuts):
-            x = shortcut(x) + block(x)
-        return x
-
-    def remove_weight_norm(self):
-        for block, shortcut in zip(self.blocks, self.shortcuts):
-            nn.utils.remove_weight_norm(block[2])
-            nn.utils.remove_weight_norm(block[4])
-            nn.utils.remove_weight_norm(shortcut)
 
 
 def window_sumsquare(window, n_frames, hop_length=200, win_length=800, n_fft=800, dtype=np.float32, norm=None):

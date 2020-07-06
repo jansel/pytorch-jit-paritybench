@@ -64,11 +64,13 @@ distrib_data_parallel = _module
 distrib_parts = _module
 evaluation_loop = _module
 ignored_warnings = _module
+logging = _module
 lr_finder = _module
 model_hooks = _module
 optimizers = _module
 seed = _module
 supporters = _module
+trainer = _module
 training_io = _module
 training_loop = _module
 training_tricks = _module
@@ -78,6 +80,7 @@ device_dtype_mixin = _module
 distributed = _module
 exceptions = _module
 io = _module
+memory = _module
 parsing = _module
 setup = _module
 tests = _module
@@ -96,6 +99,7 @@ model_valid_dataloaders = _module
 model_valid_epoch_ends = _module
 model_valid_steps = _module
 models = _module
+utils = _module
 test_callbacks = _module
 test_lr = _module
 test_progress_bar = _module
@@ -136,15 +140,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -162,6 +167,15 @@ from torch.utils.data import Dataset
 
 
 from torch.utils.data import DataLoader
+
+
+import time
+
+
+import numpy as np
+
+
+import inspect
 
 
 from collections import OrderedDict
@@ -198,9 +212,6 @@ from torchvision.datasets import ImageFolder
 
 
 from torchvision.datasets.utils import download_and_extract_archive
-
-
-import numpy as np
 
 
 import torchvision
@@ -257,6 +268,9 @@ from torch.optim import Optimizer
 from torch.utils.data.dataset import IterableDataset
 
 
+import re
+
+
 from typing import Dict
 
 
@@ -267,9 +281,6 @@ from torch import Tensor
 
 
 import collections
-
-
-import inspect
 
 
 from abc import ABC
@@ -299,7 +310,25 @@ from typing import Iterable
 from typing import Mapping
 
 
+from torch import is_tensor
+
+
+from warnings import warn
+
+
+from torch.utils.tensorboard import SummaryWriter
+
+
+import numbers
+
+
+from torch.utils.data._utils.collate import np_str_obj_array_pattern
+
+
 import torch.distributed
+
+
+from torch.utils.data._utils.collate import default_convert
 
 
 import itertools
@@ -314,7 +343,85 @@ from torch.cuda._utils import _get_device_index
 from torch.nn import DataParallel
 
 
+from torch.utils.data import RandomSampler
+
+
+from torch.utils.data import SequentialSampler
+
+
+from torch.utils.data.distributed import DistributedSampler
+
+
+from time import sleep
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+from typing import Type
+
+
+import torch.multiprocessing as mp
+
+
 import math
+
+
+from collections import Mapping
+
+
+from collections import Sequence
+
+
+import logging
+
+
+import numpy
+
+
+from functools import wraps
+
+
+from functools import partial
+
+
+import torch.distributed as dist
+
+
+from sklearn.metrics import accuracy_score
+
+
+from sklearn.metrics import average_precision_score
+
+
+from sklearn.metrics import auc
+
+
+from sklearn.metrics import confusion_matrix
+
+
+from sklearn.metrics import f1_score
+
+
+from sklearn.metrics import fbeta_score
+
+
+from sklearn.metrics import precision_score
+
+
+from sklearn.metrics import recall_score
+
+
+from sklearn.metrics import precision_recall_curve
+
+
+from sklearn.metrics import roc_curve
+
+
+from sklearn.metrics import roc_auc_score
+
+
+import logging as log
 
 
 from torch.utils.data.dataloader import DataLoader
@@ -328,7 +435,7 @@ import types
 
 class Generator(nn.Module):
 
-    def __init__(self, latent_dim, img_shape):
+    def __init__(self, latent_dim: tuple, img_shape: tuple):
         super().__init__()
         self.img_shape = img_shape
 
@@ -348,7 +455,7 @@ class Generator(nn.Module):
 
 class Discriminator(nn.Module):
 
-    def __init__(self, img_shape):
+    def __init__(self, img_shape: tuple):
         super().__init__()
         self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
 
@@ -374,42 +481,6 @@ class DQN(nn.Module):
 
     def forward(self, x):
         return self.net(x.float())
-
-
-class UNet(nn.Module):
-    """
-    Architecture based on U-Net: Convolutional Networks for Biomedical Image Segmentation
-    Link - https://arxiv.org/abs/1505.04597
-
-    Parameters:
-        num_classes: Number of output classes required (default 19 for KITTI dataset)
-        num_layers: Number of layers in each side of U-net
-        features_start: Number of features in first layer
-        bilinear: Whether to use bilinear interpolation or transposed
-            convolutions for upsampling.
-    """
-
-    def __init__(self, num_classes: int=19, num_layers: int=5, features_start: int=64, bilinear: bool=False):
-        super().__init__()
-        self.num_layers = num_layers
-        layers = [DoubleConv(3, features_start)]
-        feats = features_start
-        for _ in range(num_layers - 1):
-            layers.append(Down(feats, feats * 2))
-            feats *= 2
-        for _ in range(num_layers - 1):
-            layers.append(Up(feats, feats // 2, bilinear))
-            feats //= 2
-        layers.append(nn.Conv2d(feats, num_classes, kernel_size=1))
-        self.layers = nn.ModuleList(layers)
-
-    def forward(self, x):
-        xi = [self.layers[0](x)]
-        for layer in self.layers[1:self.num_layers]:
-            xi.append(layer(xi[-1]))
-        for i, layer in enumerate(self.layers[self.num_layers:-1]):
-            xi[-1] = layer(xi[-1], xi[-2 - i])
-        return self.layers[-1](xi[-1])
 
 
 class DoubleConv(nn.Module):
@@ -462,6 +533,42 @@ class Up(nn.Module):
         x1 = F.pad(x1, [diff_w // 2, diff_w - diff_w // 2, diff_h // 2, diff_h - diff_h // 2])
         x = torch.cat([x2, x1], dim=1)
         return self.conv(x)
+
+
+class UNet(nn.Module):
+    """
+    Architecture based on U-Net: Convolutional Networks for Biomedical Image Segmentation
+    Link - https://arxiv.org/abs/1505.04597
+
+    Parameters:
+        num_classes: Number of output classes required (default 19 for KITTI dataset)
+        num_layers: Number of layers in each side of U-net
+        features_start: Number of features in first layer
+        bilinear: Whether to use bilinear interpolation or transposed
+            convolutions for upsampling.
+    """
+
+    def __init__(self, num_classes: int=19, num_layers: int=5, features_start: int=64, bilinear: bool=False):
+        super().__init__()
+        self.num_layers = num_layers
+        layers = [DoubleConv(3, features_start)]
+        feats = features_start
+        for _ in range(num_layers - 1):
+            layers.append(Down(feats, feats * 2))
+            feats *= 2
+        for _ in range(num_layers - 1):
+            layers.append(Up(feats, feats // 2, bilinear))
+            feats //= 2
+        layers.append(nn.Conv2d(feats, num_classes, kernel_size=1))
+        self.layers = nn.ModuleList(layers)
+
+    def forward(self, x):
+        xi = [self.layers[0](x)]
+        for layer in self.layers[1:self.num_layers]:
+            xi.append(layer(xi[-1]))
+        for i, layer in enumerate(self.layers[self.num_layers:-1]):
+            xi[-1] = layer(xi[-1], xi[-2 - i])
+        return self.layers[-1](xi[-1])
 
 
 class GradInformation(Module):
@@ -539,7 +646,7 @@ def move_data_to_device(batch: Any, device: torch.device):
     """
 
     def to(tensor):
-        return tensor.to(device, non_blocking=True)
+        return tensor
     return apply_to_collection(batch, dtype=torch.Tensor, function=to)
 
 
@@ -752,6 +859,202 @@ class AttributeDict(dict):
         return out
 
 
+class DeviceDtypeModuleMixin(Module):
+    _device: ...
+    _dtype: Union[str, torch.dtype]
+
+    @property
+    def dtype(self) ->Union[str, torch.dtype]:
+        return self._dtype
+
+    @dtype.setter
+    def dtype(self, new_dtype: Union[str, torch.dtype]):
+        raise RuntimeError('Cannot set the dtype explicitly. Please use module.to(new_dtype).')
+
+    @property
+    def device(self) ->Union[str, torch.device]:
+        return self._device
+
+    @device.setter
+    def device(self, new_device: Union[str, torch.device]):
+        raise RuntimeError('Cannot set the device explicitly. Please use module.to(new_device).')
+
+    def to(self, *args, **kwargs) ->Module:
+        """Moves and/or casts the parameters and buffers.
+
+        This can be called as
+        .. function:: to(device=None, dtype=None, non_blocking=False)
+        .. function:: to(dtype, non_blocking=False)
+        .. function:: to(tensor, non_blocking=False)
+        Its signature is similar to :meth:`torch.Tensor.to`, but only accepts
+        floating point desired :attr:`dtype` s. In addition, this method will
+        only cast the floating point parameters and buffers to :attr:`dtype`
+        (if given). The integral parameters and buffers will be moved
+        :attr:`device`, if that is given, but with dtypes unchanged. When
+        :attr:`non_blocking` is set, it tries to convert/move asynchronously
+        with respect to the host if possible, e.g., moving CPU Tensors with
+        pinned memory to CUDA devices.
+        See below for examples.
+
+        Note:
+            This method modifies the module in-place.
+
+        Args:
+            device: the desired device of the parameters
+                and buffers in this module
+            dtype: the desired floating point type of
+                the floating point parameters and buffers in this module
+            tensor: Tensor whose dtype and device are the desired
+                dtype and device for all parameters and buffers in this module
+
+        Returns:
+            Module: self
+
+        Example::
+            >>> class ExampleModule(DeviceDtypeModuleMixin):
+            ...     def __init__(self, weight: torch.Tensor):
+            ...         super().__init__()
+            ...         self.register_buffer('weight', weight)
+            >>> _ = torch.manual_seed(0)
+            >>> module = ExampleModule(torch.rand(3, 4))
+            >>> module.weight #doctest: +ELLIPSIS
+            tensor([[...]])
+            >>> module.to(torch.double)
+            ExampleModule()
+            >>> module.weight #doctest: +ELLIPSIS
+            tensor([[...]], dtype=torch.float64)
+            >>> cpu = torch.device('cpu')
+            >>> module.to(cpu, dtype=torch.half, non_blocking=True)
+            ExampleModule()
+            >>> module.weight #doctest: +ELLIPSIS
+            tensor([[...]], dtype=torch.float16)
+            >>> module.to(cpu)
+            ExampleModule()
+            >>> module.weight #doctest: +ELLIPSIS
+            tensor([[...]], dtype=torch.float16)
+        """
+        out = torch._C._nn._parse_to(*args, **kwargs)
+        device = out[0]
+        dtype = out[1]
+        if device is not None:
+            self._device = device
+        if dtype is not None:
+            self._dtype = dtype
+        return super()
+
+    def cuda(self, device: Optional[int]=None) ->Module:
+        """Moves all model parameters and buffers to the GPU.
+        This also makes associated parameters and buffers different objects. So
+        it should be called before constructing optimizer if the module will
+        live on GPU while being optimized.
+
+        Arguments:
+            device: if specified, all parameters will be
+                copied to that device
+
+        Returns:
+            Module: self
+        """
+        self._device = torch.device('cuda', index=device)
+        return super()
+
+    def cpu(self) ->Module:
+        """Moves all model parameters and buffers to the CPU.
+        Returns:
+            Module: self
+        """
+        self._device = torch.device('cpu')
+        return super().cpu()
+
+    def type(self, dst_type: Union[str, torch.dtype]) ->Module:
+        """Casts all parameters and buffers to :attr:`dst_type`.
+
+        Arguments:
+            dst_type (type or string): the desired type
+
+        Returns:
+            Module: self
+        """
+        self._dtype = dst_type
+        return super().type(dst_type=dst_type)
+
+    def float(self) ->Module:
+        """Casts all floating point parameters and buffers to float datatype.
+
+        Returns:
+            Module: self
+        """
+        self._dtype = torch.float
+        return super().float()
+
+    def double(self) ->Module:
+        """Casts all floating point parameters and buffers to ``double`` datatype.
+
+        Returns:
+            Module: self
+        """
+        self._dtype = torch.double
+        return super().double()
+
+    def half(self) ->Module:
+        """Casts all floating point parameters and buffers to ``half`` datatype.
+
+        Returns:
+            Module: self
+        """
+        self._dtype = torch.half
+        return super().half()
+
+
+def _find_tensors(obj):
+    """
+    Recursively find all tensors contained in the specified object.
+    """
+    if isinstance(obj, torch.Tensor):
+        return [obj]
+    if isinstance(obj, (list, tuple)):
+        return itertools.chain(*map(_find_tensors, obj))
+    if isinstance(obj, dict):
+        return itertools.chain(*map(_find_tensors, obj.values()))
+    return []
+
+
+class LightningDistributedDataParallel(DistributedDataParallel):
+    """
+    Override the forward call in lightning so it goes to training and validation step respectively
+    """
+
+    def parallel_apply(self, replicas, inputs, kwargs):
+        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
+
+    def forward(self, *inputs, **kwargs):
+        self._sync_params()
+        if self.device_ids:
+            inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
+            if len(self.device_ids) == 1:
+                if self.module.training:
+                    output = self.module.training_step(*inputs[0], **kwargs[0])
+                elif self.module.testing:
+                    output = self.module.test_step(*inputs[0], **kwargs[0])
+                else:
+                    output = self.module.validation_step(*inputs[0], **kwargs[0])
+            else:
+                outputs = self.parallel_apply(self._module_copies[:len(inputs)], inputs, kwargs)
+                output = self.gather(outputs, self.output_device)
+        elif self.module.training:
+            output = self.module.training_step(*inputs, **kwargs)
+        elif self.module.testing:
+            output = self.module.test_step(*inputs, **kwargs)
+        else:
+            output = self.module.validation_step(*inputs, **kwargs)
+        if torch.is_grad_enabled():
+            if self.find_unused_parameters:
+                self.reducer.prepare_for_backward(list(_find_tensors(output)))
+            else:
+                self.reducer.prepare_for_backward([])
+        return output
+
+
 class MisconfigurationException(Exception):
     pass
 
@@ -775,6 +1078,9 @@ def rank_zero_only(fn):
         if rank_zero_only.rank == 0:
             return fn(*args, **kwargs)
     return wrapped_fn
+
+
+rank_zero_warn = rank_zero_only(_warn)
 
 
 def load_hparams_from_tags_csv(tags_csv: str) ->Dict[str, Any]:
@@ -1099,9 +1405,9 @@ class ModelSummary(object):
         if self.model.on_gpu:
             device = next(self.model.parameters()).get_device()
             if isinstance(input_, (list, tuple)):
-                input_ = [(input_i.cuda(device) if torch.is_tensor(input_i) else input_i) for input_i in input_]
+                input_ = [(input_i if torch.is_tensor(input_i) else input_i) for input_i in input_]
             else:
-                input_ = input_.cuda(device)
+                input_ = input_
         if self.model.trainer.use_amp:
             if isinstance(input_, (list, tuple)):
                 input_ = [(input_i.half() if torch.is_tensor(input_i) else input_i) for input_i in input_]
@@ -1231,6 +1537,795 @@ def collect_init_args(frame, path_args: list, inside: bool=False) ->list:
         return path_args
 
 
+class Metric(ABC, DeviceDtypeModuleMixin, Module):
+    """
+    Abstract base class for metric implementation.
+
+    Should be used to implement metrics that
+    1. Return multiple Outputs
+    2. Handle their own DDP sync
+    """
+
+    def __init__(self, name: str):
+        """
+        Args:
+            name: the metric's name
+
+        """
+        super().__init__()
+        self.name = name
+        self._dtype = torch.get_default_dtype()
+        self._device = torch.device('cpu')
+
+    @abstractmethod
+    def forward(self, *args, **kwargs) ->torch.Tensor:
+        """
+        Implements the actual metric computation.
+
+        Returns:
+            metric value
+
+        """
+        raise NotImplementedError
+
+
+def _apply_to_outputs(func_to_apply, *dec_args, **dec_kwargs):
+
+    def decorator_fn(function_to_decorate):
+
+        def new_func(*args, **kwargs):
+            result = function_to_decorate(*args, **kwargs)
+            return func_to_apply(result, *dec_args, **dec_kwargs)
+        return new_func
+    return decorator_fn
+
+
+def _sync_ddp(result: Union[torch.Tensor], group: Any=torch.distributed.group.WORLD, reduce_op: torch.distributed.ReduceOp=torch.distributed.ReduceOp.SUM) ->torch.Tensor:
+    """
+    Function to reduce the tensors from several ddp processes to one master process
+
+    Args:
+        result: the value to sync and reduce (typically tensor or number)
+        device: the device to put the synced and reduced value to
+        dtype: the datatype to convert the synced and reduced value to
+        group: the process group to gather results from. Defaults to all processes (world)
+        reduce_op: the reduction operation. Defaults to sum
+
+    Returns:
+        reduced value
+
+    """
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        torch.distributed.barrier(group=group)
+        torch.distributed.all_reduce(result, op=reduce_op, group=group, async_op=False)
+    return result
+
+
+def _apply_to_inputs(func_to_apply, *dec_args, **dec_kwargs):
+
+    def decorator_fn(func_to_decorate):
+
+        def new_func(*args, **kwargs):
+            args = func_to_apply(args, *dec_args, **dec_kwargs)
+            kwargs = func_to_apply(kwargs, *dec_args, **dec_kwargs)
+            return func_to_decorate(*args, **kwargs)
+        return new_func
+    return decorator_fn
+
+
+def _convert_to_tensor(data: Any) ->Any:
+    """
+    Maps all kind of collections and numbers to tensors
+
+    Args:
+        data: the data to convert to tensor
+
+    Returns:
+        the converted data
+
+    """
+    if isinstance(data, numbers.Number):
+        return torch.tensor([data])
+    else:
+        return default_convert(data)
+
+
+def _tensor_metric_conversion(func_to_decorate):
+    func_convert_inputs = _apply_to_inputs(_convert_to_tensor)(func_to_decorate)
+    return _apply_to_outputs(_convert_to_tensor)(func_convert_inputs)
+
+
+def tensor_metric(group: Any=torch.distributed.group.WORLD, reduce_op: torch.distributed.ReduceOp=torch.distributed.ReduceOp.SUM):
+
+    def decorator_fn(func_to_decorate):
+        return _apply_to_outputs(apply_to_collection, torch.Tensor, _sync_ddp, group=group, reduce_op=reduce_op)(_tensor_metric_conversion(func_to_decorate))
+    return decorator_fn
+
+
+class TensorMetric(Metric):
+    """
+    Base class for metric implementation operating directly on tensors.
+    All inputs and outputs will be casted to tensors if necessary.
+    Already handles DDP sync and input/output conversions.
+    """
+
+    def __init__(self, name: str, reduce_group: Optional[Any]=None, reduce_op: Optional[Any]=None):
+        """
+
+        Args:
+            name: the metric's name
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__(name)
+        self._orig_call = tensor_metric(group=reduce_group, reduce_op=reduce_op)(super().__call__)
+
+    def __call__(self, *args, **kwargs) ->torch.Tensor:
+
+        def _to_device_dtype(x: torch.Tensor) ->torch.Tensor:
+            return x
+        return apply_to_collection(self._orig_call(*args, **kwargs), torch.Tensor, _to_device_dtype)
+
+
+def _convert_to_numpy(data: Union[torch.Tensor, np.ndarray, numbers.Number]) ->np.ndarray:
+    """
+    converts all tensors and numpy arrays to numpy arrays
+    Args:
+        data: the tensor or array to convert to numpy
+
+    Returns:
+        the resulting numpy array
+
+    """
+    if isinstance(data, torch.Tensor):
+        return data.cpu().detach().numpy()
+    elif isinstance(data, numbers.Number):
+        return np.array([data])
+    return data
+
+
+def _numpy_metric_conversion(func_to_decorate):
+    func_convert_inputs = _apply_to_inputs(apply_to_collection, (torch.Tensor, np.ndarray, numbers.Number), _convert_to_numpy)(func_to_decorate)
+    func_convert_in_out = _apply_to_outputs(_convert_to_tensor)(func_convert_inputs)
+    return func_convert_in_out
+
+
+def numpy_metric(group: Any=torch.distributed.group.WORLD, reduce_op: torch.distributed.ReduceOp=torch.distributed.ReduceOp.SUM):
+
+    def decorator_fn(func_to_decorate):
+        return _apply_to_outputs(apply_to_collection, torch.Tensor, _sync_ddp, group=group, reduce_op=reduce_op)(_numpy_metric_conversion(func_to_decorate))
+    return decorator_fn
+
+
+class NumpyMetric(Metric):
+    """
+    Base class for metric implementation operating on numpy arrays.
+    All inputs will be casted to numpy if necessary and all outputs will
+    be casted to tensors if necessary.
+    Already handles DDP sync and input/output conversions.
+    """
+
+    def __init__(self, name: str, reduce_group: Optional[Any]=None, reduce_op: Optional[Any]=None):
+        """
+
+        Args:
+            name: the metric's name
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__(name)
+        self._orig_call = numpy_metric(group=reduce_group, reduce_op=reduce_op)(super().__call__)
+
+    def __call__(self, *args, **kwargs) ->torch.Tensor:
+
+        def _to_device_dtype(x: torch.Tensor) ->torch.Tensor:
+            return x
+        return apply_to_collection(self._orig_call(*args, **kwargs), torch.Tensor, _to_device_dtype)
+
+
+class SklearnMetric(NumpyMetric):
+    """
+    Bridge between PyTorch Lightning and scikit-learn metrics
+
+    Warning:
+        Every metric call will cause a GPU synchronization, which may slow down your code
+
+    Note:
+        The order of targets and predictions may be different from the order typically used in PyTorch
+    """
+
+    def __init__(self, metric_name: str, reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM, **kwargs):
+        """
+        Args:
+            metric_name: the metric name to import and compute from scikit-learn.metrics
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+            **kwargs: additonal keyword arguments (will be forwarded to metric call)
+        """
+        super().__init__(name=metric_name, reduce_group=reduce_group, reduce_op=reduce_op)
+        self.metric_kwargs = kwargs
+        lightning_logger.debug(f'Metric {self.__class__.__name__} is using Sklearn as backend, meaning that every metric call will cause a GPU synchronization, which may slow down your code')
+
+    @property
+    def metric_fn(self):
+        import sklearn.metrics
+        return getattr(sklearn.metrics, self.name)
+
+    def forward(self, *args, **kwargs) ->Union[np.ndarray, int, float]:
+        """
+        Carries the actual metric computation
+
+        Args:
+            *args: Positional arguments forwarded to metric call (should be already converted to numpy)
+            **kwargs: keyword arguments forwarded to metric call (should be already converted to numpy)
+
+        Return:
+            the metric value (will be converted to tensor by baseclass)
+
+        """
+        return self.metric_fn(*args, **kwargs, **self.metric_kwargs)
+
+
+class Accuracy(SklearnMetric):
+    """
+    Calculates the Accuracy Score
+
+    Warning:
+            Every metric call will cause a GPU synchronization, which may slow down your code
+    """
+
+    def __init__(self, normalize: bool=True, reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM):
+        """
+        Args:
+            normalize: If ``False``, return the number of correctly classified samples.
+                Otherwise, return the fraction of correctly classified samples.
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__(metric_name='accuracy_score', reduce_group=reduce_group, reduce_op=reduce_op, normalize=normalize)
+
+    def forward(self, y_pred: np.ndarray, y_true: np.ndarray, sample_weight: Optional[np.ndarray]=None) ->float:
+        """
+        Computes the accuracy
+
+        Args:
+            y_pred: the array containing the predictions (already in categorical form)
+            y_true: the array containing the targets (in categorical form)
+            sample_weight:  Sample weights.
+
+        Return:
+            Accuracy Score
+
+        """
+        return super().forward(y_pred=y_pred, y_true=y_true, sample_weight=sample_weight)
+
+
+class AUC(SklearnMetric):
+    """
+    Calculates the Area Under the Curve using the trapoezoidal rule
+
+    Warning:
+        Every metric call will cause a GPU synchronization, which may slow down your code
+    """
+
+    def __init__(self, reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM):
+        """
+        Args:
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__(metric_name='auc', reduce_group=reduce_group, reduce_op=reduce_op)
+
+    def forward(self, x: np.ndarray, y: np.ndarray) ->float:
+        """
+        Computes the AUC
+
+        Args:
+            x: x coordinates.
+            y: y coordinates.
+
+        Return:
+            AUC calculated with trapezoidal rule
+
+        """
+        return super().forward(x=x, y=y)
+
+
+class AveragePrecision(SklearnMetric):
+    """
+    Calculates the average precision (AP) score.
+    """
+
+    def __init__(self, average: Optional[str]='macro', reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM):
+        """
+        Args:
+            average: If None, the scores for each class are returned. Otherwise, this determines the type of
+                averaging performed on the data:
+
+                * If 'micro': Calculate metrics globally by considering each element of the label indicator
+                  matrix as a label.
+                * If 'macro': Calculate metrics for each label, and find their unweighted mean.
+                  This does not take label imbalance into account.
+                * If 'weighted': Calculate metrics for each label, and find their average, weighted by
+                  support (the number of true instances for each label).
+                * If 'samples': Calculate metrics for each instance, and find their average.
+
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__('average_precision_score', reduce_group=reduce_group, reduce_op=reduce_op, average=average)
+
+    def forward(self, y_score: np.ndarray, y_true: np.ndarray, sample_weight: Optional[np.ndarray]=None) ->float:
+        """
+        Args:
+            y_score: Target scores, can either be probability estimates of the positive class,
+                confidence values, or binary decisions.
+            y_true: True binary labels in binary label indicators.
+            sample_weight: Sample weights.
+
+        Return:
+            average precision score
+        """
+        return super().forward(y_score=y_score, y_true=y_true, sample_weight=sample_weight)
+
+
+class ConfusionMatrix(SklearnMetric):
+    """
+    Compute confusion matrix to evaluate the accuracy of a classification
+    By definition a confusion matrix :math:`C` is such that :math:`C_{i, j}`
+    is equal to the number of observations known to be in group :math:`i` but
+    predicted to be in group :math:`j`.
+    """
+
+    def __init__(self, labels: Optional[Sequence]=None, reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM):
+        """
+        Args:
+            labels: List of labels to index the matrix. This may be used to reorder
+                or select a subset of labels.
+                If none is given, those that appear at least once
+                in ``y_true`` or ``y_pred`` are used in sorted order.
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__('confusion_matrix', reduce_group=reduce_group, reduce_op=reduce_op, labels=labels)
+
+    def forward(self, y_pred: np.ndarray, y_true: np.ndarray) ->np.ndarray:
+        """
+        Args:
+            y_pred: Estimated targets as returned by a classifier.
+            y_true: Ground truth (correct) target values.
+
+        Return:
+            Confusion matrix (array of shape [n_classes, n_classes])
+
+        """
+        return super().forward(y_pred=y_pred, y_true=y_true)
+
+
+class F1(SklearnMetric):
+    """
+    Compute the F1 score, also known as balanced F-score or F-measure
+    The F1 score can be interpreted as a weighted average of the precision and
+    recall, where an F1 score reaches its best value at 1 and worst score at 0.
+    The relative contribution of precision and recall to the F1 score are
+    equal. The formula for the F1 score is:
+
+    .. math::
+
+        F_1 = 2 \\cdot \\frac{precision \\cdot recall}{precision + recall}
+
+    In the multi-class and multi-label case, this is the weighted average of
+    the F1 score of each class.
+
+    References
+        - [1] `Wikipedia entry for the F1-score
+          <http://en.wikipedia.org/wiki/F1_score>`_
+    """
+
+    def __init__(self, labels: Optional[Sequence]=None, pos_label: Union[str, int]=1, average: Optional[str]='binary', reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM):
+        """
+        Args:
+            labels: Integer array of labels.
+            pos_label: The class to report if ``average='binary'``.
+            average: This parameter is required for multiclass/multilabel targets.
+                If ``None``, the scores for each class are returned. Otherwise, this
+                determines the type of averaging performed on the data:
+
+                * ``'binary'``:
+                  Only report results for the class specified by ``pos_label``.
+                  This is applicable only if targets (``y_{true,pred}``) are binary.
+                * ``'micro'``:
+                  Calculate metrics globally by counting the total true positives,
+                  false negatives and false positives.
+                * ``'macro'``:
+                  Calculate metrics for each label, and find their unweighted
+                  mean.  This does not take label imbalance into account.
+                * ``'weighted'``:
+                  Calculate metrics for each label, and find their average, weighted
+                  by support (the number of true instances for each label). This
+                  alters 'macro' to account for label imbalance; it can result in an
+                  F-score that is not between precision and recall.
+                * ``'samples'``:
+                  Calculate metrics for each instance, and find their average (only
+                  meaningful for multilabel classification where this differs from
+                  :func:`accuracy_score`).
+
+                Note that if ``pos_label`` is given in binary classification with
+                `average != 'binary'`, only that positive class is reported. This
+                behavior is deprecated and will change in version 0.18.
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__('f1_score', reduce_group=reduce_group, reduce_op=reduce_op, labels=labels, pos_label=pos_label, average=average)
+
+    def forward(self, y_pred: np.ndarray, y_true: np.ndarray, sample_weight: Optional[np.ndarray]=None) ->Union[np.ndarray, float]:
+        """
+        Args:
+            y_pred : Estimated targets as returned by a classifier.
+            y_true: Ground truth (correct) target values.
+            sample_weight: Sample weights.
+
+        Return:
+            F1 score of the positive class in binary classification or weighted
+            average of the F1 scores of each class for the multiclass task.
+
+        """
+        return super().forward(y_pred=y_pred, y_true=y_true, sample_weight=sample_weight)
+
+
+class FBeta(SklearnMetric):
+    """
+    Compute the F-beta score. The `beta` parameter determines the weight of precision in the combined
+    score. ``beta < 1`` lends more weight to precision, while ``beta > 1``
+    favors recall (``beta -> 0`` considers only precision, ``beta -> inf``
+    only recall).
+
+    References:
+        - [1] R. Baeza-Yates and B. Ribeiro-Neto (2011).
+          Modern Information Retrieval. Addison Wesley, pp. 327-328.
+        - [2] `Wikipedia entry for the F1-score
+          <http://en.wikipedia.org/wiki/F1_score>`_
+    """
+
+    def __init__(self, beta: float, labels: Optional[Sequence]=None, pos_label: Union[str, int]=1, average: Optional[str]='binary', reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM):
+        """
+        Args:
+            beta: Weight of precision in harmonic mean.
+            labels: Integer array of labels.
+            pos_label: The class to report if ``average='binary'``.
+            average: This parameter is required for multiclass/multilabel targets.
+                If ``None``, the scores for each class are returned. Otherwise, this
+                determines the type of averaging performed on the data:
+
+                * ``'binary'``:
+                  Only report results for the class specified by ``pos_label``.
+                  This is applicable only if targets (``y_{true,pred}``) are binary.
+                * ``'micro'``:
+                  Calculate metrics globally by counting the total true positives,
+                  false negatives and false positives.
+                * ``'macro'``:
+                  Calculate metrics for each label, and find their unweighted
+                  mean.  This does not take label imbalance into account.
+                * ``'weighted'``:
+                  Calculate metrics for each label, and find their average, weighted
+                  by support (the number of true instances for each label). This
+                  alters 'macro' to account for label imbalance; it can result in an
+                  F-score that is not between precision and recall.
+                * ``'samples'``:
+                  Calculate metrics for each instance, and find their average (only
+                  meaningful for multilabel classification where this differs from
+                  :func:`accuracy_score`).
+
+                Note that if ``pos_label`` is given in binary classification with
+                `average != 'binary'`, only that positive class is reported. This
+                behavior is deprecated and will change in version 0.18.
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__('fbeta_score', reduce_group=reduce_group, reduce_op=reduce_op, beta=beta, labels=labels, pos_label=pos_label, average=average)
+
+    def forward(self, y_pred: np.ndarray, y_true: np.ndarray, sample_weight: Optional[np.ndarray]=None) ->Union[np.ndarray, float]:
+        """
+        Args:
+            y_pred : Estimated targets as returned by a classifier.
+            y_true: Ground truth (correct) target values.
+            sample_weight: Sample weights.
+
+
+        Return:
+            FBeta score of the positive class in binary classification or weighted
+            average of the FBeta scores of each class for the multiclass task.
+
+        """
+        return super().forward(y_pred=y_pred, y_true=y_true, sample_weight=sample_weight)
+
+
+class Precision(SklearnMetric):
+    """
+    Compute the precision
+    The precision is the ratio ``tp / (tp + fp)`` where ``tp`` is the number of
+    true positives and ``fp`` the number of false positives. The precision is
+    intuitively the ability of the classifier not to label as positive a sample
+    that is negative.
+    The best value is 1 and the worst value is 0.
+    """
+
+    def __init__(self, labels: Optional[Sequence]=None, pos_label: Union[str, int]=1, average: Optional[str]='binary', reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM):
+        """
+        Args:
+            labels: Integer array of labels.
+            pos_label: The class to report if ``average='binary'``.
+            average: This parameter is required for multiclass/multilabel targets.
+                If ``None``, the scores for each class are returned. Otherwise, this
+                determines the type of averaging performed on the data:
+
+                * ``'binary'``:
+                  Only report results for the class specified by ``pos_label``.
+                  This is applicable only if targets (``y_{true,pred}``) are binary.
+                * ``'micro'``:
+                  Calculate metrics globally by counting the total true positives,
+                  false negatives and false positives.
+                * ``'macro'``:
+                  Calculate metrics for each label, and find their unweighted
+                  mean.  This does not take label imbalance into account.
+                * ``'weighted'``:
+                  Calculate metrics for each label, and find their average, weighted
+                  by support (the number of true instances for each label). This
+                  alters 'macro' to account for label imbalance; it can result in an
+                  F-score that is not between precision and recall.
+                * ``'samples'``:
+                  Calculate metrics for each instance, and find their average (only
+                  meaningful for multilabel classification where this differs from
+                  :func:`accuracy_score`).
+
+                Note that if ``pos_label`` is given in binary classification with
+                `average != 'binary'`, only that positive class is reported. This
+                behavior is deprecated and will change in version 0.18.
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__('precision_score', reduce_group=reduce_group, reduce_op=reduce_op, labels=labels, pos_label=pos_label, average=average)
+
+    def forward(self, y_pred: np.ndarray, y_true: np.ndarray, sample_weight: Optional[np.ndarray]=None) ->Union[np.ndarray, float]:
+        """
+        Args:
+            y_pred : Estimated targets as returned by a classifier.
+            y_true: Ground truth (correct) target values.
+            sample_weight: Sample weights.
+
+        Return:
+            Precision of the positive class in binary classification or weighted
+            average of the precision of each class for the multiclass task.
+
+        """
+        return super().forward(y_pred=y_pred, y_true=y_true, sample_weight=sample_weight)
+
+
+class Recall(SklearnMetric):
+    """
+    Compute the recall
+    The recall is the ratio ``tp / (tp + fn)`` where ``tp`` is the number of
+    true positives and ``fn`` the number of false negatives. The recall is
+    intuitively the ability of the classifier to find all the positive samples.
+    The best value is 1 and the worst value is 0.
+    """
+
+    def __init__(self, labels: Optional[Sequence]=None, pos_label: Union[str, int]=1, average: Optional[str]='binary', reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM):
+        """
+        Args:
+            labels: Integer array of labels.
+            pos_label: The class to report if ``average='binary'``.
+            average: This parameter is required for multiclass/multilabel targets.
+                If ``None``, the scores for each class are returned. Otherwise, this
+                determines the type of averaging performed on the data:
+
+                * ``'binary'``:
+                  Only report results for the class specified by ``pos_label``.
+                  This is applicable only if targets (``y_{true,pred}``) are binary.
+                * ``'micro'``:
+                  Calculate metrics globally by counting the total true positives,
+                  false negatives and false positives.
+                * ``'macro'``:
+                  Calculate metrics for each label, and find their unweighted
+                  mean.  This does not take label imbalance into account.
+                * ``'weighted'``:
+                  Calculate metrics for each label, and find their average, weighted
+                  by support (the number of true instances for each label). This
+                  alters 'macro' to account for label imbalance; it can result in an
+                  F-score that is not between precision and recall.
+                * ``'samples'``:
+                  Calculate metrics for each instance, and find their average (only
+                  meaningful for multilabel classification where this differs from
+                  :func:`accuracy_score`).
+
+                Note that if ``pos_label`` is given in binary classification with
+                `average != 'binary'`, only that positive class is reported. This
+                behavior is deprecated and will change in version 0.18.
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__('recall_score', reduce_group=reduce_group, reduce_op=reduce_op, labels=labels, pos_label=pos_label, average=average)
+
+    def forward(self, y_pred: np.ndarray, y_true: np.ndarray, sample_weight: Optional[np.ndarray]=None) ->Union[np.ndarray, float]:
+        """
+        Args:
+            y_pred : Estimated targets as returned by a classifier.
+            y_true: Ground truth (correct) target values.
+            sample_weight: Sample weights.
+
+        Return:
+            Recall of the positive class in binary classification or weighted
+            average of the recall of each class for the multiclass task.
+
+        """
+        return super().forward(y_pred=y_pred, y_true=y_true, sample_weight=sample_weight)
+
+
+class PrecisionRecallCurve(SklearnMetric):
+    """
+    Compute precision-recall pairs for different probability thresholds
+
+    Note:
+        This implementation is restricted to the binary classification task.
+
+    The precision is the ratio ``tp / (tp + fp)`` where ``tp`` is the number of
+    true positives and ``fp`` the number of false positives. The precision is
+    intuitively the ability of the classifier not to label as positive a sample
+    that is negative.
+    The recall is the ratio ``tp / (tp + fn)`` where ``tp`` is the number of
+    true positives and ``fn`` the number of false negatives. The recall is
+    intuitively the ability of the classifier to find all the positive samples.
+    The last precision and recall values are 1. and 0. respectively and do not
+    have a corresponding threshold.  This ensures that the graph starts on the
+    x axis.
+    """
+
+    def __init__(self, pos_label: Union[str, int]=1, reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM):
+        """
+        Args:
+            pos_label: The class to report if ``average='binary'``.
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__('precision_recall_curve', reduce_group=reduce_group, reduce_op=reduce_op, pos_label=pos_label)
+
+    def forward(self, probas_pred: np.ndarray, y_true: np.ndarray, sample_weight: Optional[np.ndarray]=None) ->Union[np.ndarray, float]:
+        """
+        Args:
+            probas_pred : Estimated probabilities or decision function.
+            y_true: Ground truth (correct) target values.
+            sample_weight: Sample weights.
+
+        Returns:
+            precision:
+                Precision values such that element i is the precision of
+                predictions with score >= thresholds[i] and the last element is 1.
+            recall:
+                Decreasing recall values such that element i is the recall of
+                predictions with score >= thresholds[i] and the last element is 0.
+            thresholds:
+                Increasing thresholds on the decision function used to compute
+                precision and recall.
+
+        """
+        return np.array(super().forward(probas_pred=probas_pred, y_true=y_true, sample_weight=sample_weight)[:2])
+
+
+class ROC(SklearnMetric):
+    """
+    Compute Receiver operating characteristic (ROC)
+
+    Note:
+        this implementation is restricted to the binary classification task.
+    """
+
+    def __init__(self, pos_label: Union[str, int]=1, reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM):
+        """
+        Args:
+            pos_labels: The class to report if ``average='binary'``.
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+
+        References:
+            - [1] `Wikipedia entry for the Receiver operating characteristic
+              <http://en.wikipedia.org/wiki/Receiver_operating_characteristic>`_
+        """
+        super().__init__('roc_curve', reduce_group=reduce_group, reduce_op=reduce_op, pos_label=pos_label)
+
+    def forward(self, y_score: np.ndarray, y_true: np.ndarray, sample_weight: Optional[np.ndarray]=None) ->Union[np.ndarray, float]:
+        """
+        Args:
+            y_score : Target scores, can either be probability estimates of the positive
+                class or confidence values.
+            y_true: Ground truth (correct) target values.
+            sample_weight: Sample weights.
+
+        Returns:
+            fpr:
+                Increasing false positive rates such that element i is the false
+                positive rate of predictions with score >= thresholds[i].
+            tpr:
+                Increasing true positive rates such that element i is the true
+                positive rate of predictions with score >= thresholds[i].
+            thresholds:
+                Decreasing thresholds on the decision function used to compute
+                fpr and tpr. `thresholds[0]` represents no instances being predicted
+                and is arbitrarily set to `max(y_score) + 1`.
+
+        """
+        return np.array(super().forward(y_score=y_score, y_true=y_true, sample_weight=sample_weight)[:2])
+
+
+class AUROC(SklearnMetric):
+    """
+    Compute Area Under the Curve (AUC) from prediction scores
+
+    Note:
+        this implementation is restricted to the binary classification task
+        or multilabel classification task in label indicator format.
+    """
+
+    def __init__(self, average: Optional[str]='macro', reduce_group: Any=torch.distributed.group.WORLD, reduce_op: Any=torch.distributed.ReduceOp.SUM):
+        """
+        Args:
+            average: If None, the scores for each class are returned. Otherwise, this determines the type of
+                averaging performed on the data:
+
+                * If 'micro': Calculate metrics globally by considering each element of the label indicator
+                  matrix as a label.
+                * If 'macro': Calculate metrics for each label, and find their unweighted mean.
+                  This does not take label imbalance into account.
+                * If 'weighted': Calculate metrics for each label, and find their average, weighted by
+                  support (the number of true instances for each label).
+                * If 'samples': Calculate metrics for each instance, and find their average.
+
+            reduce_group: the process group for DDP reduces (only needed for DDP training).
+                Defaults to all processes (world)
+            reduce_op: the operation to perform during reduction within DDP (only needed for DDP training).
+                Defaults to sum.
+        """
+        super().__init__('roc_auc_score', reduce_group=reduce_group, reduce_op=reduce_op, average=average)
+
+    def forward(self, y_score: np.ndarray, y_true: np.ndarray, sample_weight: Optional[np.ndarray]=None) ->float:
+        """
+        Args:
+            y_score: Target scores, can either be probability estimates of the positive class,
+                confidence values, or binary decisions.
+            y_true: True binary labels in binary label indicators.
+            sample_weight: Sample weights.
+
+        Return:
+            Area Under Receiver Operating Characteristic Curve
+        """
+        return super().forward(y_score=y_score, y_true=y_true, sample_weight=sample_weight)
+
+
 class LightningDataParallel(DataParallel):
     """
     Override the forward call in lightning so it goes to training and validation step respectively
@@ -1257,232 +2352,399 @@ class LightningDataParallel(DataParallel):
         return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
 
 
-def _find_tensors(obj):
-    """
-    Recursively find all tensors contained in the specified object.
-    """
-    if isinstance(obj, torch.Tensor):
-        return [obj]
-    if isinstance(obj, (list, tuple)):
-        return itertools.chain(*map(_find_tensors, obj))
-    if isinstance(obj, dict):
-        return itertools.chain(*map(_find_tensors, obj.values()))
-    return []
+class ConfigureOptimizersPool(ABC):
+
+    def configure_optimizers(self):
+        """
+        return whatever optimizers we want here.
+        :return: list of optimizers
+        """
+        optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
+        return optimizer
+
+    def configure_optimizers__empty(self):
+        return None
+
+    def configure_optimizers__lbfgs(self):
+        """
+        return whatever optimizers we want here.
+        :return: list of optimizers
+        """
+        optimizer = optim.LBFGS(self.parameters(), lr=self.learning_rate)
+        return optimizer
+
+    def configure_optimizers__multiple_optimizers(self):
+        """
+        return whatever optimizers we want here.
+        :return: list of optimizers
+        """
+        optimizer1 = optim.Adam(self.parameters(), lr=self.learning_rate)
+        optimizer2 = optim.Adam(self.parameters(), lr=self.learning_rate)
+        return optimizer1, optimizer2
+
+    def configure_optimizers__single_scheduler(self):
+        optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
+        lr_scheduler = optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.1)
+        return [optimizer], [lr_scheduler]
+
+    def configure_optimizers__multiple_schedulers(self):
+        optimizer1 = optim.Adam(self.parameters(), lr=self.learning_rate)
+        optimizer2 = optim.Adam(self.parameters(), lr=self.learning_rate)
+        lr_scheduler1 = optim.lr_scheduler.StepLR(optimizer1, 1, gamma=0.1)
+        lr_scheduler2 = optim.lr_scheduler.StepLR(optimizer2, 1, gamma=0.1)
+        return [optimizer1, optimizer2], [lr_scheduler1, lr_scheduler2]
+
+    def configure_optimizers__mixed_scheduling(self):
+        optimizer1 = optim.Adam(self.parameters(), lr=self.learning_rate)
+        optimizer2 = optim.Adam(self.parameters(), lr=self.learning_rate)
+        lr_scheduler1 = optim.lr_scheduler.StepLR(optimizer1, 4, gamma=0.1)
+        lr_scheduler2 = optim.lr_scheduler.StepLR(optimizer2, 1, gamma=0.1)
+        return [optimizer1, optimizer2], [{'scheduler': lr_scheduler1, 'interval': 'step'}, lr_scheduler2]
+
+    def configure_optimizers__reduce_lr_on_plateau(self):
+        optimizer = optim.Adam(self.parameters(), lr=self.learning_rate)
+        lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
+        return [optimizer], [lr_scheduler]
+
+    def configure_optimizers__param_groups(self):
+        param_groups = [{'params': list(self.parameters())[:2], 'lr': self.learning_rate * 0.1}, {'params': list(self.parameters())[2:], 'lr': self.learning_rate}]
+        optimizer = optim.Adam(param_groups)
+        lr_scheduler = optim.lr_scheduler.StepLR(optimizer, 1, gamma=0.1)
+        return [optimizer], [lr_scheduler]
 
 
-class LightningDistributedDataParallel(DistributedDataParallel):
-    """
-    Override the forward call in lightning so it goes to training and validation step respectively
-    """
+class ModelTemplateData:
+    hparams: ...
 
-    def parallel_apply(self, replicas, inputs, kwargs):
-        return parallel_apply(replicas, inputs, kwargs, self.device_ids[:len(replicas)])
+    def dataloader(self, train):
+        dataset = TrialMNIST(root=self.data_root, train=train, download=True)
+        loader = DataLoader(dataset=dataset, batch_size=self.batch_size, num_workers=3, shuffle=train)
+        return loader
 
-    def forward(self, *inputs, **kwargs):
-        self._sync_params()
-        if self.device_ids:
-            inputs, kwargs = self.scatter(inputs, kwargs, self.device_ids)
-            if len(self.device_ids) == 1:
-                if self.module.training:
-                    output = self.module.training_step(*inputs[0], **kwargs[0])
-                elif self.module.testing:
-                    output = self.module.test_step(*inputs[0], **kwargs[0])
-                else:
-                    output = self.module.validation_step(*inputs[0], **kwargs[0])
-            else:
-                outputs = self.parallel_apply(self._module_copies[:len(inputs)], inputs, kwargs)
-                output = self.gather(outputs, self.output_device)
-        elif self.module.training:
-            output = self.module.training_step(*inputs, **kwargs)
-        elif self.module.testing:
-            output = self.module.test_step(*inputs, **kwargs)
+
+class ModelTemplateUtils:
+
+    def get_output_metric(self, output, name):
+        if isinstance(output, dict):
+            val = output[name]
         else:
-            output = self.module.validation_step(*inputs, **kwargs)
-        if torch.is_grad_enabled():
-            if self.find_unused_parameters:
-                self.reducer.prepare_for_backward(list(_find_tensors(output)))
+            val = sum(out[name] for out in output) / len(output)
+        return val
+
+
+class CustomInfDataloader:
+
+    def __init__(self, dataloader):
+        self.dataloader = dataloader
+        self.iter = iter(dataloader)
+        self.count = 0
+
+    def __iter__(self):
+        self.count = 0
+        return self
+
+    def __next__(self):
+        if self.count >= 50:
+            raise StopIteration
+        self.count = self.count + 1
+        try:
+            return next(self.iter)
+        except StopIteration:
+            self.iter = iter(self.dataloader)
+            return next(self.iter)
+
+
+class TestDataloaderVariations(ABC):
+
+    @abstractmethod
+    def dataloader(self, train: bool):
+        """placeholder"""
+
+    def test_dataloader(self):
+        return self.dataloader(train=False)
+
+    def test_dataloader__infinite(self):
+        return CustomInfDataloader(self.dataloader(train=False))
+
+    def test_dataloader__empty(self):
+        return None
+
+    def test_dataloader__multiple(self):
+        return [self.dataloader(train=False), self.dataloader(train=False)]
+
+
+class TestEpochEndVariations(ABC):
+
+    def test_epoch_end(self, outputs):
+        """
+        Called at the end of validation to aggregate outputs
+        :param outputs: list of individual outputs of each validation step
+        :return:
+        """
+        test_loss_mean = 0
+        test_acc_mean = 0
+        for output in outputs:
+            test_loss = self.get_output_metric(output, 'test_loss')
+            if self.trainer.use_dp:
+                test_loss = torch.mean(test_loss)
+            test_loss_mean += test_loss
+            test_acc = self.get_output_metric(output, 'test_acc')
+            if self.trainer.use_dp:
+                test_acc = torch.mean(test_acc)
+            test_acc_mean += test_acc
+        test_loss_mean /= len(outputs)
+        test_acc_mean /= len(outputs)
+        metrics_dict = {'test_loss': test_loss_mean.item(), 'test_acc': test_acc_mean.item()}
+        result = {'progress_bar': metrics_dict, 'log': metrics_dict}
+        return result
+
+    def test_epoch_end__multiple_dataloaders(self, outputs):
+        """
+        Called at the end of validation to aggregate outputs
+        :param outputs: list of individual outputs of each validation step
+        :return:
+        """
+        test_loss_mean = 0
+        test_acc_mean = 0
+        i = 0
+        for dl_output in outputs:
+            for output in dl_output:
+                test_loss = output['test_loss']
+                if self.trainer.use_dp:
+                    test_loss = torch.mean(test_loss)
+                test_loss_mean += test_loss
+                test_acc = output['test_acc']
+                if self.trainer.use_dp:
+                    test_acc = torch.mean(test_acc)
+                test_acc_mean += test_acc
+                i += 1
+        test_loss_mean /= i
+        test_acc_mean /= i
+        tqdm_dict = {'test_loss': test_loss_mean.item(), 'test_acc': test_acc_mean.item()}
+        result = {'progress_bar': tqdm_dict}
+        return result
+
+
+class TestStepVariations(ABC):
+    """
+    Houses all variations of test steps
+    """
+
+    def test_step(self, batch, batch_idx, *args, **kwargs):
+        """
+        Default, baseline test_step
+        :param batch:
+        :return:
+        """
+        x, y = batch
+        x = x.view(x.size(0), -1)
+        y_hat = self(x)
+        loss_test = self.loss(y, y_hat)
+        labels_hat = torch.argmax(y_hat, dim=1)
+        test_acc = torch.sum(y == labels_hat).item() / (len(y) * 1.0)
+        test_acc = torch.tensor(test_acc)
+        test_acc = test_acc.type_as(x)
+        if batch_idx % 1 == 0:
+            output = OrderedDict({'test_loss': loss_test, 'test_acc': test_acc})
+            return output
+        if batch_idx % 2 == 0:
+            return test_acc
+        if batch_idx % 3 == 0:
+            output = OrderedDict({'test_loss': loss_test, 'test_acc': test_acc, 'test_dic': {'test_loss_a': loss_test}})
+            return output
+
+    def test_step__multiple_dataloaders(self, batch, batch_idx, dataloader_idx, **kwargs):
+        """
+        Default, baseline test_step
+        :param batch:
+        :return:
+        """
+        x, y = batch
+        x = x.view(x.size(0), -1)
+        y_hat = self(x)
+        loss_test = self.loss(y, y_hat)
+        labels_hat = torch.argmax(y_hat, dim=1)
+        test_acc = torch.sum(y == labels_hat).item() / (len(y) * 1.0)
+        test_acc = torch.tensor(test_acc)
+        test_acc = test_acc.type_as(x)
+        if batch_idx % 1 == 0:
+            output = OrderedDict({'test_loss': loss_test, 'test_acc': test_acc})
+            return output
+        if batch_idx % 2 == 0:
+            return test_acc
+        if batch_idx % 3 == 0:
+            output = OrderedDict({'test_loss': loss_test, 'test_acc': test_acc, 'test_dic': {'test_loss_a': loss_test}})
+            return output
+        if batch_idx % 5 == 0:
+            output = OrderedDict({f'test_loss_{dataloader_idx}': loss_test, f'test_acc_{dataloader_idx}': test_acc})
+            return output
+
+    def test_step__empty(self, batch, batch_idx, *args, **kwargs):
+        return {}
+
+
+class TrainDataloaderVariations(ABC):
+
+    @abstractmethod
+    def dataloader(self, train: bool):
+        """placeholder"""
+
+    def train_dataloader(self):
+        return self.dataloader(train=True)
+
+    def train_dataloader__infinite(self):
+        return CustomInfDataloader(self.dataloader(train=True))
+
+    def train_dataloader__zero_length(self):
+        dataloader = self.dataloader(train=True)
+        dataloader.dataset.data = dataloader.dataset.data[:0]
+        dataloader.dataset.targets = dataloader.dataset.targets[:0]
+        return dataloader
+
+
+class TrainingStepVariations(ABC):
+    """
+    Houses all variations of training steps
+    """
+    test_step_inf_loss = float('inf')
+
+    def training_step(self, batch, batch_idx, optimizer_idx=None):
+        """Lightning calls this inside the training loop"""
+        x, y = batch
+        x = x.view(x.size(0), -1)
+        y_hat = self(x)
+        loss_val = self.loss(y, y_hat)
+        output = OrderedDict({'loss': loss_val, 'progress_bar': {'some_val': loss_val * loss_val}, 'log': {'train_some_val': loss_val * loss_val}})
+        return output
+
+    def training_step__inf_loss(self, batch, batch_idx, optimizer_idx=None):
+        output = self.training_step(batch, batch_idx, optimizer_idx)
+        if batch_idx == self.test_step_inf_loss:
+            if isinstance(output, dict):
+                output['loss'] *= torch.tensor(math.inf)
             else:
-                self.reducer.prepare_for_backward([])
+                output /= 0
         return output
 
 
-class DeviceDtypeModuleMixin(Module):
-    _device: ...
-    _dtype: Union[str, torch.dtype]
+class ValDataloaderVariations(ABC):
 
-    @property
-    def dtype(self) ->Union[str, torch.dtype]:
-        return self._dtype
+    @abstractmethod
+    def dataloader(self, train: bool):
+        """placeholder"""
 
-    @dtype.setter
-    def dtype(self, new_dtype: Union[str, torch.dtype]):
-        raise RuntimeError('Cannot set the dtype explicitly. Please use module.to(new_dtype).')
+    def val_dataloader(self):
+        return self.dataloader(train=False)
 
-    @property
-    def device(self) ->Union[str, torch.device]:
-        return self._device
+    def val_dataloader__multiple(self):
+        return [self.dataloader(train=False), self.dataloader(train=False)]
 
-    @device.setter
-    def device(self, new_device: Union[str, torch.device]):
-        raise RuntimeError('Cannot set the device explicitly. Please use module.to(new_device).')
+    def val_dataloader__infinite(self):
+        return CustomInfDataloader(self.dataloader(train=False))
 
-    def to(self, *args, **kwargs) ->Module:
-        """Moves and/or casts the parameters and buffers.
 
-        This can be called as
-        .. function:: to(device=None, dtype=None, non_blocking=False)
-        .. function:: to(dtype, non_blocking=False)
-        .. function:: to(tensor, non_blocking=False)
-        Its signature is similar to :meth:`torch.Tensor.to`, but only accepts
-        floating point desired :attr:`dtype` s. In addition, this method will
-        only cast the floating point parameters and buffers to :attr:`dtype`
-        (if given). The integral parameters and buffers will be moved
-        :attr:`device`, if that is given, but with dtypes unchanged. When
-        :attr:`non_blocking` is set, it tries to convert/move asynchronously
-        with respect to the host if possible, e.g., moving CPU Tensors with
-        pinned memory to CUDA devices.
-        See below for examples.
+class ValidationEpochEndVariations(ABC):
+    """
+    Houses all variations of validation_epoch_end steps
+    """
 
-        Note:
-            This method modifies the module in-place.
+    def validation_epoch_end(self, outputs):
+        """
+        Called at the end of validation to aggregate outputs
 
         Args:
-            device: the desired device of the parameters
-                and buffers in this module
-            dtype: the desired floating point type of
-                the floating point parameters and buffers in this module
-            tensor: Tensor whose dtype and device are the desired
-                dtype and device for all parameters and buffers in this module
-
-        Returns:
-            Module: self
-
-        Example::
-            >>> class ExampleModule(DeviceDtypeModuleMixin):
-            ...     def __init__(self, weight: torch.Tensor):
-            ...         super().__init__()
-            ...         self.register_buffer('weight', weight)
-            >>> _ = torch.manual_seed(0)
-            >>> module = ExampleModule(torch.rand(3, 4))
-            >>> module.weight #doctest: +ELLIPSIS
-            tensor([[...]])
-            >>> module.to(torch.double)
-            ExampleModule()
-            >>> module.weight #doctest: +ELLIPSIS
-            tensor([[...]], dtype=torch.float64)
-            >>> cpu = torch.device('cpu')
-            >>> module.to(cpu, dtype=torch.half, non_blocking=True)
-            ExampleModule()
-            >>> module.weight #doctest: +ELLIPSIS
-            tensor([[...]], dtype=torch.float16)
-            >>> module.to(cpu)
-            ExampleModule()
-            >>> module.weight #doctest: +ELLIPSIS
-            tensor([[...]], dtype=torch.float16)
+            outputs: list of individual outputs of each validation step
         """
-        out = torch._C._nn._parse_to(*args, **kwargs)
-        device = out[0]
-        dtype = out[1]
-        if device is not None:
-            self._device = device
-        if dtype is not None:
-            self._dtype = dtype
-        return super()
 
-    def cuda(self, device: Optional[int]=None) ->Module:
-        """Moves all model parameters and buffers to the GPU.
-        This also makes associated parameters and buffers different objects. So
-        it should be called before constructing optimizer if the module will
-        live on GPU while being optimized.
+        def _mean(res, key):
+            return torch.stack([(x[key] if isinstance(x, dict) else _mean(x, key)) for x in res]).mean()
+        val_loss_mean = _mean(outputs, 'val_loss')
+        val_acc_mean = _mean(outputs, 'val_acc')
+        metrics_dict = {'val_loss': val_loss_mean.item(), 'val_acc': val_acc_mean.item()}
+        results = {'progress_bar': metrics_dict, 'log': metrics_dict}
+        return results
 
-        Arguments:
-            device: if specified, all parameters will be
-                copied to that device
-
-        Returns:
-            Module: self
+    def validation_epoch_end_multiple_dataloaders(self, outputs):
         """
-        self._device = torch.device('cuda', index=device)
-        return super()
+        Called at the end of validation to aggregate outputs
 
-    def cpu(self) ->Module:
-        """Moves all model parameters and buffers to the CPU.
-        Returns:
-            Module: self
+        Args:
+            outputs: list of individual outputs of each validation step
         """
-        self._device = torch.device('cpu')
-        return super().cpu()
 
-    def type(self, dst_type: Union[str, torch.dtype]) ->Module:
-        """Casts all parameters and buffers to :attr:`dst_type`.
+        def _mean(res, key):
+            return torch.stack([x[key] for x in res]).mean()
+        pbar = {}
+        logs = {}
+        for dl_output_list in outputs:
+            output_keys = dl_output_list[0].keys()
+            output_keys = [x for x in output_keys if 'val_' in x]
+            for key in output_keys:
+                metric_out = _mean(dl_output_list, key)
+                pbar[key] = metric_out
+                logs[key] = metric_out
+        results = {'progress_bar': pbar, 'log': logs}
+        return results
 
-        Arguments:
-            dst_type (type or string): the desired type
 
-        Returns:
-            Module: self
+class ValidationStepVariations(ABC):
+    """
+    Houses all variations of validation steps
+    """
+
+    def validation_step(self, batch, batch_idx, *args, **kwargs):
         """
-        self._dtype = dst_type
-        return super().type(dst_type=dst_type)
-
-    def float(self) ->Module:
-        """Casts all floating point parameters and buffers to float datatype.
-
-        Returns:
-            Module: self
+        Lightning calls this inside the validation loop
+        :param batch:
+        :return:
         """
-        self._dtype = torch.float
-        return super().float()
+        x, y = batch
+        x = x.view(x.size(0), -1)
+        y_hat = self(x)
+        loss_val = self.loss(y, y_hat)
+        labels_hat = torch.argmax(y_hat, dim=1)
+        val_acc = torch.sum(y == labels_hat).item() / (len(y) * 1.0)
+        val_acc = torch.tensor(val_acc).type_as(x)
+        output = OrderedDict({'val_loss': loss_val, 'val_acc': val_acc, 'test_dic': {'val_loss_a': loss_val}})
+        return output
 
-    def double(self) ->Module:
-        """Casts all floating point parameters and buffers to ``double`` datatype.
-
-        Returns:
-            Module: self
+    def validation_step__multiple_dataloaders(self, batch, batch_idx, dataloader_idx, **kwargs):
         """
-        self._dtype = torch.double
-        return super().double()
-
-    def half(self) ->Module:
-        """Casts all floating point parameters and buffers to ``half`` datatype.
-
-        Returns:
-            Module: self
+        Lightning calls this inside the validation loop
+        :param batch:
+        :return:
         """
-        self._dtype = torch.half
-        return super().half()
+        x, y = batch
+        x = x.view(x.size(0), -1)
+        y_hat = self(x)
+        loss_val = self.loss(y, y_hat)
+        labels_hat = torch.argmax(y_hat, dim=1)
+        val_acc = torch.sum(y == labels_hat).item() / (len(y) * 1.0)
+        val_acc = torch.tensor(val_acc).type_as(x)
+        output = OrderedDict({f'val_loss_{dataloader_idx}': loss_val, f'val_acc_{dataloader_idx}': val_acc})
+        return output
 
 
-class Generator(nn.Module):
+class DummyTensorMetric(TensorMetric):
 
-    def __init__(self, latent_dim: tuple, img_shape: tuple):
-        super().__init__()
-        self.img_shape = img_shape
+    def __init__(self):
+        super().__init__('dummy')
 
-        def block(in_feat, out_feat, normalize=True):
-            layers = [nn.Linear(in_feat, out_feat)]
-            if normalize:
-                layers.append(nn.BatchNorm1d(out_feat, 0.8))
-            layers.append(nn.LeakyReLU(0.2, inplace=True))
-            return layers
-        self.model = nn.Sequential(*block(latent_dim, 128, normalize=False), *block(128, 256), *block(256, 512), *block(512, 1024), nn.Linear(1024, int(np.prod(img_shape))), nn.Tanh())
-
-    def forward(self, z):
-        img = self.model(z)
-        img = img.view(img.size(0), *self.img_shape)
-        return img
+    def forward(self, input1, input2):
+        assert isinstance(input1, torch.Tensor)
+        assert isinstance(input2, torch.Tensor)
+        return 1.0
 
 
-class Discriminator(nn.Module):
+class DummyNumpyMetric(NumpyMetric):
 
-    def __init__(self, img_shape: tuple):
-        super().__init__()
-        self.model = nn.Sequential(nn.Linear(int(np.prod(img_shape)), 512), nn.LeakyReLU(0.2, inplace=True), nn.Linear(512, 256), nn.LeakyReLU(0.2, inplace=True), nn.Linear(256, 1), nn.Sigmoid())
+    def __init__(self):
+        super().__init__('dummy')
 
-    def forward(self, img):
-        img_flat = img.view(img.size(0), -1)
-        validity = self.model(img_flat)
-        return validity
+    def forward(self, input1, input2):
+        assert isinstance(input1, np.ndarray)
+        assert isinstance(input2, np.ndarray)
+        return 1.0
 
 
 import torch
@@ -1508,6 +2770,14 @@ TESTCASES = [
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (DummyNumpyMetric,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DummyTensorMetric,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
     (LightningDataParallel,
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
@@ -1536,4 +2806,10 @@ class Test_PyTorchLightning_pytorch_lightning(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
 

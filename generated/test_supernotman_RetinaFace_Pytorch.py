@@ -31,15 +31,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -86,16 +87,28 @@ import time
 import torch.utils.model_zoo as model_zoo
 
 
+from torch.utils.data.dataset import Dataset
+
+
+from torchvision import transforms
+
+
 from torch.autograd import Variable
 
 
 from torch.utils.data import DataLoader
 
 
-from torchvision import transforms
-
-
 import torch.backends.cudnn as cudnn
+
+
+import scipy.io as sio
+
+
+from math import cos
+
+
+from math import sin
 
 
 import torchvision.models.detection.backbone_utils as backbone_utils
@@ -358,7 +371,7 @@ class ClassHead(nn.Module):
     def __init__(self, inchannels=512, num_anchors=3):
         super(ClassHead, self).__init__()
         self.num_anchors = num_anchors
-        self.conv1x1 = nn.Conv2d(inchannels, self.num_anchors * 2, kernel_size=(1, 1), stride=1)
+        self.conv1x1 = nn.Conv2d(inchannels, self.num_anchors * 2, kernel_size=(1, 1), stride=1, padding=0)
         self.output_act = nn.LogSoftmax(dim=-1)
 
     def forward(self, x):
@@ -374,7 +387,7 @@ class BboxHead(nn.Module):
 
     def __init__(self, inchannels=512, num_anchors=3):
         super(BboxHead, self).__init__()
-        self.conv1x1 = nn.Conv2d(inchannels, num_anchors * 4, kernel_size=(1, 1), stride=1)
+        self.conv1x1 = nn.Conv2d(inchannels, num_anchors * 4, kernel_size=(1, 1), stride=1, padding=0)
 
     def forward(self, x):
         out = self.conv1x1(x)
@@ -386,7 +399,7 @@ class LandmarkHead(nn.Module):
 
     def __init__(self, inchannels=512, num_anchors=3):
         super(LandmarkHead, self).__init__()
-        self.conv1x1 = nn.Conv2d(inchannels, num_anchors * 10, kernel_size=(1, 1), stride=1)
+        self.conv1x1 = nn.Conv2d(inchannels, num_anchors * 10, kernel_size=(1, 1), stride=1, padding=0)
 
     def forward(self, x):
         out = self.conv1x1(x)
@@ -531,7 +544,7 @@ class Context(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, num_classes, block, layers, num_anchors=3):
+    def __init__(self, block, layers, num_classes=1000):
         self.inplanes = 64
         super(ResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
@@ -542,52 +555,15 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        if block == BasicBlock:
-            fpn_sizes = [self.layer1[layers[0] - 1].conv2.out_channels, self.layer2[layers[1] - 1].conv2.out_channels, self.layer3[layers[2] - 1].conv2.out_channels, self.layer4[layers[3] - 1].conv2.out_channels]
-        elif block == Bottleneck:
-            fpn_sizes = [self.layer1[layers[0] - 1].conv3.out_channels, self.layer2[layers[1] - 1].conv3.out_channels, self.layer3[layers[2] - 1].conv3.out_channels, self.layer4[layers[3] - 1].conv3.out_channels]
-        self.fpn = PyramidFeatures(fpn_sizes[0], fpn_sizes[1], fpn_sizes[2], fpn_sizes[3])
-        self.context = self._make_contextlayer()
-        self.clsHead = ClassHead_()
-        self.bboxHead = BboxHead_()
-        self.ldmHead = LandmarkHead_()
-        self.anchors = Anchors()
-        self.regressBoxes = RegressionTransform()
-        self.losslayer = losses.LossLayer()
-        self.freeze_bn()
-        for layer in self.context:
-            for m in layer.modules():
-                if isinstance(m, nn.Conv2d):
-                    nn.init.normal_(m.weight, std=0.01)
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0)
-                if isinstance(m, nn.BatchNorm2d):
-                    nn.init.constant_(m.weight, 1)
-                    nn.init.constant_(m.bias, 0)
-
-    def _make_contextlayer(self, fpn_num=5, inchannels=256):
-        context = nn.ModuleList()
-        for i in range(fpn_num):
-            context.append(Context())
-        return context
-
-    def _make_class_head(self, fpn_num=5, inchannels=512, anchor_num=3):
-        classhead = nn.ModuleList()
-        for i in range(fpn_num):
-            classhead.append(ClassHead(inchannels, anchor_num))
-        return classhead
-
-    def _make_bbox_head(self, fpn_num=5, inchannels=512, anchor_num=3):
-        bboxhead = nn.ModuleList()
-        for i in range(fpn_num):
-            bboxhead.append(BboxHead(inchannels, anchor_num))
-        return bboxhead
-
-    def _make_landmark_head(self, fpn_num=5, inchannels=512, anchor_num=3):
-        landmarkhead = nn.ModuleList()
-        for i in range(fpn_num):
-            landmarkhead.append(LandmarkHead(inchannels, anchor_num))
-        return landmarkhead
+        self.avgpool = nn.AvgPool2d(7)
+        self.fc_angles = nn.Linear(512 * block.expansion, num_classes)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
 
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
@@ -600,40 +576,19 @@ class ResNet(nn.Module):
             layers.append(block(self.inplanes, planes))
         return nn.Sequential(*layers)
 
-    def freeze_bn(self):
-        """Freeze BatchNorm layers."""
-        for layer in self.modules():
-            if isinstance(layer, nn.BatchNorm2d):
-                layer.eval()
-
-    def freeze_first_layer(self):
-        """Freeze First layer"""
-        for param in self.conv1.parameters():
-            param.requires_grad = False
-
-    def forward(self, inputs):
-        if self.training:
-            img_batch, annotations = inputs
-        else:
-            img_batch = inputs
-        x = self.conv1(img_batch)
+    def forward(self, x):
+        x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
-        x1 = self.layer1(x)
-        x2 = self.layer2(x1)
-        x3 = self.layer3(x2)
-        x4 = self.layer4(x3)
-        features = self.fpn([x1, x2, x3, x4])
-        bbox_regressions = torch.cat([self.bboxHead(feature) for feature in features], dim=1)
-        ldm_regressions = torch.cat([self.ldmHead(feature) for feature in features], dim=1)
-        classifications = torch.cat([self.clsHead(feature) for feature in features], dim=1)
-        anchors = self.anchors(img_batch)
-        if self.training:
-            return self.losslayer(classifications, bbox_regressions, ldm_regressions, anchors, annotations)
-        else:
-            bboxes, landmarks = self.regressBoxes(anchors, bbox_regressions, ldm_regressions, img_batch)
-            return classifications, bboxes, landmarks
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = self.avgpool(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc_angles(x)
+        return x
 
 
 class Hopenet(nn.Module):
@@ -688,55 +643,6 @@ class Hopenet(nn.Module):
         pre_pitch = self.fc_pitch(x)
         pre_roll = self.fc_roll(x)
         return pre_yaw, pre_pitch, pre_roll
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes=1000):
-        self.inplanes = 64
-        super(ResNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.avgpool = nn.AvgPool2d(7)
-        self.fc_angles = nn.Linear(512 * block.expansion, num_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), nn.BatchNorm2d(planes * block.expansion))
-        layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc_angles(x)
-        return x
 
 
 class AlexNet(nn.Module):
@@ -822,45 +728,58 @@ class FeaturePyramidNetwork(nn.Module):
         return out
 
 
-class ClassHead(nn.Module):
+class RegressionTransform(nn.Module):
 
-    def __init__(self, inchannels=512, num_anchors=3):
-        super(ClassHead, self).__init__()
-        self.num_anchors = num_anchors
-        self.conv1x1 = nn.Conv2d(inchannels, self.num_anchors * 2, kernel_size=(1, 1), stride=1, padding=0)
-        self.output_act = nn.LogSoftmax(dim=-1)
+    def __init__(self, mean=None, std_box=None, std_ldm=None):
+        super(RegressionTransform, self).__init__()
+        if mean is None:
+            self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
+        else:
+            self.mean = mean
+        if std_box is None:
+            self.std_box = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
+        else:
+            self.std_box = std_box
+        if std_ldm is None:
+            self.std_ldm = torch.ones(1, 10) * 0.1
 
-    def forward(self, x):
-        out = self.conv1x1(x)
-        out = out.permute(0, 2, 3, 1)
-        b, h, w, c = out.shape
-        out = out.view(b, h, w, self.num_anchors, 2)
-        out = self.output_act(out)
-        return out.contiguous().view(out.shape[0], -1, 2)
-
-
-class BboxHead(nn.Module):
-
-    def __init__(self, inchannels=512, num_anchors=3):
-        super(BboxHead, self).__init__()
-        self.conv1x1 = nn.Conv2d(inchannels, num_anchors * 4, kernel_size=(1, 1), stride=1, padding=0)
-
-    def forward(self, x):
-        out = self.conv1x1(x)
-        out = out.permute(0, 2, 3, 1)
-        return out.contiguous().view(out.shape[0], -1, 4)
-
-
-class LandmarkHead(nn.Module):
-
-    def __init__(self, inchannels=512, num_anchors=3):
-        super(LandmarkHead, self).__init__()
-        self.conv1x1 = nn.Conv2d(inchannels, num_anchors * 10, kernel_size=(1, 1), stride=1, padding=0)
-
-    def forward(self, x):
-        out = self.conv1x1(x)
-        out = out.permute(0, 2, 3, 1)
-        return out.contiguous().view(out.shape[0], -1, 10)
+    def forward(self, anchors, bbox_deltas, ldm_deltas, img):
+        widths = anchors[:, :, (2)] - anchors[:, :, (0)]
+        heights = anchors[:, :, (3)] - anchors[:, :, (1)]
+        ctr_x = anchors[:, :, (0)] + 0.5 * widths
+        ctr_y = anchors[:, :, (1)] + 0.5 * heights
+        ldm_deltas = ldm_deltas * self.std_ldm
+        bbox_deltas = bbox_deltas * self.std_box
+        bbox_dx = bbox_deltas[:, :, (0)]
+        bbox_dy = bbox_deltas[:, :, (1)]
+        bbox_dw = bbox_deltas[:, :, (2)]
+        bbox_dh = bbox_deltas[:, :, (3)]
+        pred_ctr_x = ctr_x + bbox_dx * widths
+        pred_ctr_y = ctr_y + bbox_dy * heights
+        pred_w = torch.exp(bbox_dw) * widths
+        pred_h = torch.exp(bbox_dh) * heights
+        pred_boxes_x1 = pred_ctr_x - 0.5 * pred_w
+        pred_boxes_y1 = pred_ctr_y - 0.5 * pred_h
+        pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
+        pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
+        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
+        pt0_x = ctr_x + ldm_deltas[:, :, (0)] * widths
+        pt0_y = ctr_y + ldm_deltas[:, :, (1)] * heights
+        pt1_x = ctr_x + ldm_deltas[:, :, (2)] * widths
+        pt1_y = ctr_y + ldm_deltas[:, :, (3)] * heights
+        pt2_x = ctr_x + ldm_deltas[:, :, (4)] * widths
+        pt2_y = ctr_y + ldm_deltas[:, :, (5)] * heights
+        pt3_x = ctr_x + ldm_deltas[:, :, (6)] * widths
+        pt3_y = ctr_y + ldm_deltas[:, :, (7)] * heights
+        pt4_x = ctr_x + ldm_deltas[:, :, (8)] * widths
+        pt4_y = ctr_y + ldm_deltas[:, :, (9)] * heights
+        pred_landmarks = torch.stack([pt0_x, pt0_y, pt1_x, pt1_y, pt2_x, pt2_y, pt3_x, pt3_y, pt4_x, pt4_y], dim=2)
+        B, C, H, W = img.shape
+        pred_boxes[:, :, ::2] = torch.clamp(pred_boxes[:, :, ::2], min=0, max=W)
+        pred_boxes[:, :, 1::2] = torch.clamp(pred_boxes[:, :, 1::2], min=0, max=H)
+        pred_landmarks[:, :, ::2] = torch.clamp(pred_landmarks[:, :, ::2], min=0, max=W)
+        pred_landmarks[:, :, 1::2] = torch.clamp(pred_landmarks[:, :, 1::2], min=0, max=H)
+        return pred_boxes, pred_landmarks
 
 
 class RetinaFace(nn.Module):
@@ -985,60 +904,6 @@ class Bottleneck(nn.Module):
         out += residual
         out = self.relu(out)
         return out
-
-
-class RegressionTransform(nn.Module):
-
-    def __init__(self, mean=None, std_box=None, std_ldm=None):
-        super(RegressionTransform, self).__init__()
-        if mean is None:
-            self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
-        else:
-            self.mean = mean
-        if std_box is None:
-            self.std_box = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
-        else:
-            self.std_box = std_box
-        if std_ldm is None:
-            self.std_ldm = torch.ones(1, 10) * 0.1
-
-    def forward(self, anchors, bbox_deltas, ldm_deltas, img):
-        widths = anchors[:, :, (2)] - anchors[:, :, (0)]
-        heights = anchors[:, :, (3)] - anchors[:, :, (1)]
-        ctr_x = anchors[:, :, (0)] + 0.5 * widths
-        ctr_y = anchors[:, :, (1)] + 0.5 * heights
-        ldm_deltas = ldm_deltas * self.std_ldm
-        bbox_deltas = bbox_deltas * self.std_box
-        bbox_dx = bbox_deltas[:, :, (0)]
-        bbox_dy = bbox_deltas[:, :, (1)]
-        bbox_dw = bbox_deltas[:, :, (2)]
-        bbox_dh = bbox_deltas[:, :, (3)]
-        pred_ctr_x = ctr_x + bbox_dx * widths
-        pred_ctr_y = ctr_y + bbox_dy * heights
-        pred_w = torch.exp(bbox_dw) * widths
-        pred_h = torch.exp(bbox_dh) * heights
-        pred_boxes_x1 = pred_ctr_x - 0.5 * pred_w
-        pred_boxes_y1 = pred_ctr_y - 0.5 * pred_h
-        pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
-        pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
-        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
-        pt0_x = ctr_x + ldm_deltas[:, :, (0)] * widths
-        pt0_y = ctr_y + ldm_deltas[:, :, (1)] * heights
-        pt1_x = ctr_x + ldm_deltas[:, :, (2)] * widths
-        pt1_y = ctr_y + ldm_deltas[:, :, (3)] * heights
-        pt2_x = ctr_x + ldm_deltas[:, :, (4)] * widths
-        pt2_y = ctr_y + ldm_deltas[:, :, (5)] * heights
-        pt3_x = ctr_x + ldm_deltas[:, :, (6)] * widths
-        pt3_y = ctr_y + ldm_deltas[:, :, (7)] * heights
-        pt4_x = ctr_x + ldm_deltas[:, :, (8)] * widths
-        pt4_y = ctr_y + ldm_deltas[:, :, (9)] * heights
-        pred_landmarks = torch.stack([pt0_x, pt0_y, pt1_x, pt1_y, pt2_x, pt2_y, pt3_x, pt3_y, pt4_x, pt4_y], dim=2)
-        B, C, H, W = img.shape
-        pred_boxes[:, :, ::2] = torch.clamp(pred_boxes[:, :, ::2], min=0, max=W)
-        pred_boxes[:, :, 1::2] = torch.clamp(pred_boxes[:, :, 1::2], min=0, max=H)
-        pred_landmarks[:, :, ::2] = torch.clamp(pred_landmarks[:, :, ::2], min=0, max=W)
-        pred_landmarks[:, :, 1::2] = torch.clamp(pred_landmarks[:, :, 1::2], min=0, max=H)
-        return pred_boxes, pred_landmarks
 
 
 import torch

@@ -33,15 +33,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -88,83 +89,29 @@ from torch.utils.data import Dataset
 from torch.utils.data import Sampler
 
 
-class Model(nn.Module):
+from collections import Counter
 
-    def __init__(self, args):
-        super(Model, self).__init__()
-        self.args = args
-        self.word_embed = nn.Embedding(num_embeddings=args.n_words, embedding_dim=args.n_embed)
-        if args.feat == 'char':
-            self.feat_embed = CHAR_LSTM(n_chars=args.n_feats, n_embed=args.n_char_embed, n_out=args.n_embed)
-        elif args.feat == 'bert':
-            self.feat_embed = BertEmbedding(model=args.bert_model, n_layers=args.n_bert_layers, n_out=args.n_embed)
-        else:
-            self.feat_embed = nn.Embedding(num_embeddings=args.n_feats, embedding_dim=args.n_embed)
-        self.embed_dropout = IndependentDropout(p=args.embed_dropout)
-        self.lstm = BiLSTM(input_size=args.n_embed * 2, hidden_size=args.n_lstm_hidden, num_layers=args.n_lstm_layers, dropout=args.lstm_dropout)
-        self.lstm_dropout = SharedDropout(p=args.lstm_dropout)
-        self.mlp_arc_h = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_arc, dropout=args.mlp_dropout)
-        self.mlp_arc_d = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_arc, dropout=args.mlp_dropout)
-        self.mlp_rel_h = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_rel, dropout=args.mlp_dropout)
-        self.mlp_rel_d = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_rel, dropout=args.mlp_dropout)
-        self.arc_attn = Biaffine(n_in=args.n_mlp_arc, bias_x=True, bias_y=False)
-        self.rel_attn = Biaffine(n_in=args.n_mlp_rel, n_out=args.n_rels, bias_x=True, bias_y=True)
-        self.pad_index = args.pad_index
-        self.unk_index = args.unk_index
 
-    def load_pretrained(self, embed=None):
-        if embed is not None:
-            self.pretrained = nn.Embedding.from_pretrained(embed)
-            nn.init.zeros_(self.word_embed.weight)
-        return self
+class ScalarMix(nn.Module):
 
-    def forward(self, words, feats):
-        batch_size, seq_len = words.shape
-        mask = words.ne(self.pad_index)
-        lens = mask.sum(dim=1)
-        ext_mask = words.ge(self.word_embed.num_embeddings)
-        ext_words = words.masked_fill(ext_mask, self.unk_index)
-        word_embed = self.word_embed(ext_words)
-        if hasattr(self, 'pretrained'):
-            word_embed += self.pretrained(words)
-        if self.args.feat == 'char':
-            feat_embed = self.feat_embed(feats[mask])
-            feat_embed = pad_sequence(feat_embed.split(lens.tolist()), True)
-        elif self.args.feat == 'bert':
-            feat_embed = self.feat_embed(*feats)
-        else:
-            feat_embed = self.feat_embed(feats)
-        word_embed, feat_embed = self.embed_dropout(word_embed, feat_embed)
-        embed = torch.cat((word_embed, feat_embed), dim=-1)
-        x = pack_padded_sequence(embed, lens, True, False)
-        x, _ = self.lstm(x)
-        x, _ = pad_packed_sequence(x, True, total_length=seq_len)
-        x = self.lstm_dropout(x)
-        arc_h = self.mlp_arc_h(x)
-        arc_d = self.mlp_arc_d(x)
-        rel_h = self.mlp_rel_h(x)
-        rel_d = self.mlp_rel_d(x)
-        s_arc = self.arc_attn(arc_d, arc_h)
-        s_rel = self.rel_attn(rel_d, rel_h).permute(0, 2, 3, 1)
-        s_arc.masked_fill_(~mask.unsqueeze(1), float('-inf'))
-        return s_arc, s_rel
+    def __init__(self, n_layers, dropout=0):
+        super(ScalarMix, self).__init__()
+        self.n_layers = n_layers
+        self.dropout = dropout
+        self.weights = nn.Parameter(torch.zeros(n_layers))
+        self.gamma = nn.Parameter(torch.tensor([1.0]))
+        self.dropout = nn.Dropout(dropout)
 
-    @classmethod
-    def load(cls, path):
-        device = 'cuda' if torch.is_available() else 'cpu'
-        state = torch.load(path, map_location=device)
-        model = cls(state['args'])
-        model.load_pretrained(state['pretrained'])
-        model.load_state_dict(state['state_dict'], False)
-        model
-        return model
+    def extra_repr(self):
+        s = f'n_layers={self.n_layers}'
+        if self.dropout.p > 0:
+            s += f', dropout={self.dropout.p}'
+        return s
 
-    def save(self, path):
-        state_dict, pretrained = self.state_dict(), None
-        if hasattr(self, 'pretrained'):
-            pretrained = state_dict.pop('pretrained.weight')
-        state = {'args': self.args, 'state_dict': state_dict, 'pretrained': pretrained}
-        torch.save(state, path)
+    def forward(self, tensors):
+        normed_weights = self.dropout(self.weights.softmax(-1))
+        weighted_sum = sum(w * h for w, h in zip(normed_weights, tensors))
+        return self.gamma * weighted_sum
 
 
 class BertEmbedding(nn.Module):
@@ -204,36 +151,33 @@ class BertEmbedding(nn.Module):
         return bert_embed
 
 
-class Biaffine(nn.Module):
+class SharedDropout(nn.Module):
 
-    def __init__(self, n_in, n_out=1, bias_x=True, bias_y=True):
-        super(Biaffine, self).__init__()
-        self.n_in = n_in
-        self.n_out = n_out
-        self.bias_x = bias_x
-        self.bias_y = bias_y
-        self.weight = nn.Parameter(torch.Tensor(n_out, n_in + bias_x, n_in + bias_y))
-        self.reset_parameters()
+    def __init__(self, p=0.5, batch_first=True):
+        super(SharedDropout, self).__init__()
+        self.p = p
+        self.batch_first = batch_first
 
     def extra_repr(self):
-        s = f'n_in={self.n_in}, n_out={self.n_out}'
-        if self.bias_x:
-            s += f', bias_x={self.bias_x}'
-        if self.bias_y:
-            s += f', bias_y={self.bias_y}'
+        s = f'p={self.p}'
+        if self.batch_first:
+            s += f', batch_first={self.batch_first}'
         return s
 
-    def reset_parameters(self):
-        nn.init.zeros_(self.weight)
+    def forward(self, x):
+        if self.training:
+            if self.batch_first:
+                mask = self.get_mask(x[:, (0)], self.p)
+            else:
+                mask = self.get_mask(x[0], self.p)
+            x *= mask.unsqueeze(1) if self.batch_first else mask
+        return x
 
-    def forward(self, x, y):
-        if self.bias_x:
-            x = torch.cat((x, torch.ones_like(x[(...), :1])), -1)
-        if self.bias_y:
-            y = torch.cat((y, torch.ones_like(y[(...), :1])), -1)
-        s = torch.einsum('bxi,oij,byj->boxy', x, self.weight, y)
-        s = s.squeeze(1)
-        return s
+    @staticmethod
+    def get_mask(x, p):
+        mask = x.new_empty(x.shape).bernoulli_(1 - p)
+        mask = mask / (1 - p)
+        return mask
 
 
 class BiLSTM(nn.Module):
@@ -329,6 +273,38 @@ class BiLSTM(nn.Module):
         return x, hx
 
 
+class Biaffine(nn.Module):
+
+    def __init__(self, n_in, n_out=1, bias_x=True, bias_y=True):
+        super(Biaffine, self).__init__()
+        self.n_in = n_in
+        self.n_out = n_out
+        self.bias_x = bias_x
+        self.bias_y = bias_y
+        self.weight = nn.Parameter(torch.Tensor(n_out, n_in + bias_x, n_in + bias_y))
+        self.reset_parameters()
+
+    def extra_repr(self):
+        s = f'n_in={self.n_in}, n_out={self.n_out}'
+        if self.bias_x:
+            s += f', bias_x={self.bias_x}'
+        if self.bias_y:
+            s += f', bias_y={self.bias_y}'
+        return s
+
+    def reset_parameters(self):
+        nn.init.zeros_(self.weight)
+
+    def forward(self, x, y):
+        if self.bias_x:
+            x = torch.cat((x, torch.ones_like(x[(...), :1])), -1)
+        if self.bias_y:
+            y = torch.cat((y, torch.ones_like(y[(...), :1])), -1)
+        s = torch.einsum('bxi,oij,byj->boxy', x, self.weight, y)
+        s = s.squeeze(1)
+        return s
+
+
 class CHAR_LSTM(nn.Module):
 
     def __init__(self, n_chars, n_embed, n_out):
@@ -343,35 +319,6 @@ class CHAR_LSTM(nn.Module):
         x, (hidden, _) = self.lstm(x)
         hidden = torch.cat(torch.unbind(hidden), dim=-1)
         return hidden
-
-
-class SharedDropout(nn.Module):
-
-    def __init__(self, p=0.5, batch_first=True):
-        super(SharedDropout, self).__init__()
-        self.p = p
-        self.batch_first = batch_first
-
-    def extra_repr(self):
-        s = f'p={self.p}'
-        if self.batch_first:
-            s += f', batch_first={self.batch_first}'
-        return s
-
-    def forward(self, x):
-        if self.training:
-            if self.batch_first:
-                mask = self.get_mask(x[:, (0)], self.p)
-            else:
-                mask = self.get_mask(x[0], self.p)
-            x *= mask.unsqueeze(1) if self.batch_first else mask
-        return x
-
-    @staticmethod
-    def get_mask(x, p):
-        mask = x.new_empty(x.shape).bernoulli_(1 - p)
-        mask = mask / (1 - p)
-        return mask
 
 
 class IndependentDropout(nn.Module):
@@ -413,26 +360,83 @@ class MLP(nn.Module):
         return x
 
 
-class ScalarMix(nn.Module):
+class Model(nn.Module):
 
-    def __init__(self, n_layers, dropout=0):
-        super(ScalarMix, self).__init__()
-        self.n_layers = n_layers
-        self.dropout = dropout
-        self.weights = nn.Parameter(torch.zeros(n_layers))
-        self.gamma = nn.Parameter(torch.tensor([1.0]))
-        self.dropout = nn.Dropout(dropout)
+    def __init__(self, args):
+        super(Model, self).__init__()
+        self.args = args
+        self.word_embed = nn.Embedding(num_embeddings=args.n_words, embedding_dim=args.n_embed)
+        if args.feat == 'char':
+            self.feat_embed = CHAR_LSTM(n_chars=args.n_feats, n_embed=args.n_char_embed, n_out=args.n_embed)
+        elif args.feat == 'bert':
+            self.feat_embed = BertEmbedding(model=args.bert_model, n_layers=args.n_bert_layers, n_out=args.n_embed)
+        else:
+            self.feat_embed = nn.Embedding(num_embeddings=args.n_feats, embedding_dim=args.n_embed)
+        self.embed_dropout = IndependentDropout(p=args.embed_dropout)
+        self.lstm = BiLSTM(input_size=args.n_embed * 2, hidden_size=args.n_lstm_hidden, num_layers=args.n_lstm_layers, dropout=args.lstm_dropout)
+        self.lstm_dropout = SharedDropout(p=args.lstm_dropout)
+        self.mlp_arc_h = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_arc, dropout=args.mlp_dropout)
+        self.mlp_arc_d = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_arc, dropout=args.mlp_dropout)
+        self.mlp_rel_h = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_rel, dropout=args.mlp_dropout)
+        self.mlp_rel_d = MLP(n_in=args.n_lstm_hidden * 2, n_hidden=args.n_mlp_rel, dropout=args.mlp_dropout)
+        self.arc_attn = Biaffine(n_in=args.n_mlp_arc, bias_x=True, bias_y=False)
+        self.rel_attn = Biaffine(n_in=args.n_mlp_rel, n_out=args.n_rels, bias_x=True, bias_y=True)
+        self.pad_index = args.pad_index
+        self.unk_index = args.unk_index
 
-    def extra_repr(self):
-        s = f'n_layers={self.n_layers}'
-        if self.dropout.p > 0:
-            s += f', dropout={self.dropout.p}'
-        return s
+    def load_pretrained(self, embed=None):
+        if embed is not None:
+            self.pretrained = nn.Embedding.from_pretrained(embed)
+            nn.init.zeros_(self.word_embed.weight)
+        return self
 
-    def forward(self, tensors):
-        normed_weights = self.dropout(self.weights.softmax(-1))
-        weighted_sum = sum(w * h for w, h in zip(normed_weights, tensors))
-        return self.gamma * weighted_sum
+    def forward(self, words, feats):
+        batch_size, seq_len = words.shape
+        mask = words.ne(self.pad_index)
+        lens = mask.sum(dim=1)
+        ext_mask = words.ge(self.word_embed.num_embeddings)
+        ext_words = words.masked_fill(ext_mask, self.unk_index)
+        word_embed = self.word_embed(ext_words)
+        if hasattr(self, 'pretrained'):
+            word_embed += self.pretrained(words)
+        if self.args.feat == 'char':
+            feat_embed = self.feat_embed(feats[mask])
+            feat_embed = pad_sequence(feat_embed.split(lens.tolist()), True)
+        elif self.args.feat == 'bert':
+            feat_embed = self.feat_embed(*feats)
+        else:
+            feat_embed = self.feat_embed(feats)
+        word_embed, feat_embed = self.embed_dropout(word_embed, feat_embed)
+        embed = torch.cat((word_embed, feat_embed), dim=-1)
+        x = pack_padded_sequence(embed, lens, True, False)
+        x, _ = self.lstm(x)
+        x, _ = pad_packed_sequence(x, True, total_length=seq_len)
+        x = self.lstm_dropout(x)
+        arc_h = self.mlp_arc_h(x)
+        arc_d = self.mlp_arc_d(x)
+        rel_h = self.mlp_rel_h(x)
+        rel_d = self.mlp_rel_d(x)
+        s_arc = self.arc_attn(arc_d, arc_h)
+        s_rel = self.rel_attn(rel_d, rel_h).permute(0, 2, 3, 1)
+        s_arc.masked_fill_(~mask.unsqueeze(1), float('-inf'))
+        return s_arc, s_rel
+
+    @classmethod
+    def load(cls, path):
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        state = torch.load(path, map_location=device)
+        model = cls(state['args'])
+        model.load_pretrained(state['pretrained'])
+        model.load_state_dict(state['state_dict'], False)
+        model
+        return model
+
+    def save(self, path):
+        state_dict, pretrained = self.state_dict(), None
+        if hasattr(self, 'pretrained'):
+            pretrained = state_dict.pop('pretrained.weight')
+        state = {'args': self.args, 'state_dict': state_dict, 'pretrained': pretrained}
+        torch.save(state, path)
 
 
 import torch

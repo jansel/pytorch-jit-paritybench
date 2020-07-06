@@ -30,15 +30,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -46,10 +47,16 @@ __version__ = '1.0.0'
 import torch
 
 
-import torch.nn as nn
-
-
 import torch.utils.data as data
+
+
+import numpy as np
+
+
+import random
+
+
+import torch.nn as nn
 
 
 import torch.backends.cudnn as cudnn
@@ -61,19 +68,19 @@ import torchvision.transforms as transforms
 import time
 
 
-import numpy as np
-
-
 from torch.autograd import Variable
-
-
-import torch.nn.init as init
 
 
 from torch.autograd import Function
 
 
+from itertools import product as product
+
+
 import math
+
+
+import torch.nn.init as init
 
 
 import torch.nn.functional as F
@@ -83,6 +90,12 @@ import scipy.io as sio
 
 
 import torch.optim as optim
+
+
+from torchvision import transforms
+
+
+import types
 
 
 class L2Norm(nn.Module):
@@ -136,22 +149,10 @@ def encode(matched, priors, variances):
 
 
 def intersect(box_a, box_b):
-    """ We resize both tensors to [A,B,2] without new malloc:
-    [A,2] -> [A,1,2] -> [A,B,2]
-    [B,2] -> [1,B,2] -> [A,B,2]
-    Then we compute the area of intersect between box_a and box_b.
-    Args:
-      box_a: (tensor) bounding boxes, Shape: [A,4].
-      box_b: (tensor) bounding boxes, Shape: [B,4].
-    Return:
-      (tensor) intersection area, Shape: [A,B].
-    """
-    A = box_a.size(0)
-    B = box_b.size(0)
-    max_xy = torch.min(box_a[:, 2:].unsqueeze(1).expand(A, B, 2), box_b[:, 2:].unsqueeze(0).expand(A, B, 2))
-    min_xy = torch.max(box_a[:, :2].unsqueeze(1).expand(A, B, 2), box_b[:, :2].unsqueeze(0).expand(A, B, 2))
-    inter = torch.clamp(max_xy - min_xy, min=0)
-    return inter[:, :, (0)] * inter[:, :, (1)]
+    max_xy = np.minimum(box_a[:, 2:], box_b[2:])
+    min_xy = np.maximum(box_a[:, :2], box_b[:2])
+    inter = np.clip(max_xy - min_xy, a_min=0, a_max=np.inf)
+    return inter[:, (0)] * inter[:, (1)]
 
 
 def jaccard(box_a, box_b):
@@ -601,135 +602,6 @@ class PriorBox(object):
         if self.clip:
             output.clamp_(max=1, min=0)
         return output
-
-
-class DSFD(nn.Module):
-    """docstring for SRN"""
-
-    def __init__(self, phase, base, extras, fem_modules, head1, head2, num_classes=2):
-        super(DSFD, self).__init__()
-        self.resnet = base
-        self.phase = phase
-        self.num_classes = num_classes
-        self.extras = nn.ModuleList(extras)
-        self.fpn_topdown = nn.ModuleList(fem_modules[0])
-        self.fpn_latlayer = nn.ModuleList(fem_modules[1])
-        self.fpn_fem = nn.ModuleList(fem_modules[2])
-        self.loc_pal1 = nn.ModuleList(head1[0])
-        self.conf_pal1 = nn.ModuleList(head1[1])
-        self.loc_pal2 = nn.ModuleList(head2[0])
-        self.conf_pal2 = nn.ModuleList(head2[1])
-        if self.phase == 'test':
-            self.softmax = nn.Softmax(dim=-1)
-            self.detect = Detect(cfg)
-
-    def _upsample_prod(self, x, y):
-        _, _, H, W = y.size()
-        return F.upsample(x, size=(H, W), mode='bilinear') * y
-
-    def forward(self, x):
-        size = x.size()[2:]
-        of1, of2, of3, of4 = self.resnet(x)
-        x = of4
-        for i in range(2):
-            x = F.relu(self.extras[i](x), inplace=True)
-        of5 = x
-        for i in range(2, len(self.extras)):
-            x = F.relu(self.extras[i](x), inplace=True)
-        of6 = x
-        conv7 = F.relu(self.fpn_topdown[0](of6), inplace=True)
-        x = F.relu(self.fpn_topdown[1](conv7), inplace=True)
-        conv6 = F.relu(self._upsample_prod(x, self.fpn_latlayer[0](of5)), inplace=True)
-        x = F.relu(self.fpn_topdown[2](conv6), inplace=True)
-        conv5 = F.relu(self._upsample_prod(x, self.fpn_latlayer[1](of4)), inplace=True)
-        x = F.relu(self.fpn_topdown[3](conv5), inplace=True)
-        conv4 = F.relu(self._upsample_prod(x, self.fpn_latlayer[2](of3)), inplace=True)
-        x = F.relu(self.fpn_topdown[4](conv4), inplace=True)
-        conv3 = F.relu(self._upsample_prod(x, self.fpn_latlayer[3](of2)), inplace=True)
-        x = F.relu(self.fpn_topdown[5](conv3), inplace=True)
-        conv2 = F.relu(self._upsample_prod(x, self.fpn_latlayer[4](of1)), inplace=True)
-        ef1 = self.fpn_fem[0](conv2)
-        ef2 = self.fpn_fem[1](conv3)
-        ef3 = self.fpn_fem[2](conv4)
-        ef4 = self.fpn_fem[3](conv5)
-        ef5 = self.fpn_fem[4](conv6)
-        ef6 = self.fpn_fem[5](conv7)
-        sources_pal1 = [of1, of2, of3, of4, of5, of6]
-        sources_pal2 = [ef1, ef2, ef3, ef4, ef5, ef6]
-        loc_pal1, conf_pal1 = list(), list()
-        loc_pal2, conf_pal2 = list(), list()
-        for x, l, c in zip(sources_pal1, self.loc_pal1, self.conf_pal1):
-            loc_pal1.append(l(x).permute(0, 2, 3, 1).contiguous())
-            conf_pal1.append(c(x).permute(0, 2, 3, 1).contiguous())
-        for x, l, c in zip(sources_pal2, self.loc_pal2, self.conf_pal2):
-            loc_pal2.append(l(x).permute(0, 2, 3, 1).contiguous())
-            conf_pal2.append(c(x).permute(0, 2, 3, 1).contiguous())
-        features_maps = []
-        for i in range(len(loc_pal1)):
-            feat = []
-            feat += [loc_pal1[i].size(1), loc_pal1[i].size(2)]
-            features_maps += [feat]
-        loc_pal1 = torch.cat([o.view(o.size(0), -1) for o in loc_pal1], 1)
-        conf_pal1 = torch.cat([o.view(o.size(0), -1) for o in conf_pal1], 1)
-        loc_pal2 = torch.cat([o.view(o.size(0), -1) for o in loc_pal2], 1)
-        conf_pal2 = torch.cat([o.view(o.size(0), -1) for o in conf_pal2], 1)
-        priorbox = PriorBox(size, features_maps, cfg, pal=1)
-        self.priors_pal1 = Variable(priorbox.forward(), volatile=True)
-        priorbox = PriorBox(size, features_maps, cfg, pal=2)
-        self.priors_pal2 = Variable(priorbox.forward(), volatile=True)
-        if self.phase == 'test':
-            output = self.detect(loc_pal2.view(loc_pal2.size(0), -1, 4), self.softmax(conf_pal2.view(conf_pal2.size(0), -1, self.num_classes)), self.priors_pal2.type(type(x.data)))
-        else:
-            output = loc_pal1.view(loc_pal1.size(0), -1, 4), conf_pal1.view(conf_pal1.size(0), -1, self.num_classes), self.priors_pal1, loc_pal2.view(loc_pal2.size(0), -1, 4), conf_pal2.view(conf_pal2.size(0), -1, self.num_classes), self.priors_pal2
-        return output
-
-    def load_weights(self, base_file):
-        other, ext = os.path.splitext(base_file)
-        if ext == '.pkl' or '.pth':
-            None
-            mdata = torch.load(base_file, map_location=lambda storage, loc: storage)
-            weights = mdata['weight']
-            epoch = mdata['epoch']
-            self.load_state_dict(weights)
-            None
-        else:
-            None
-        return epoch
-
-    def xavier(self, param):
-        init.xavier_uniform(param)
-
-    def weights_init(self, m):
-        if isinstance(m, nn.Conv2d):
-            self.xavier(m.weight.data)
-            m.bias.data.zero_()
-        if isinstance(m, nn.ConvTranspose2d):
-            self.xavier(m.weight.data)
-            if 'bias' in m.state_dict().keys():
-                m.bias.data.zero_()
-        if isinstance(m, nn.BatchNorm2d):
-            m.weight.data[...] = 1
-            m.bias.data.zero_()
-
-
-class FEM(nn.Module):
-    """docstring for FEM"""
-
-    def __init__(self, in_planes):
-        super(FEM, self).__init__()
-        inter_planes = in_planes // 3
-        inter_planes1 = in_planes - 2 * inter_planes
-        self.branch1 = nn.Conv2d(in_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3)
-        self.branch2 = nn.Sequential(nn.Conv2d(in_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(inplace=True), nn.Conv2d(inter_planes, inter_planes, kernel_size=3, stride=1, padding=3, dilation=3))
-        self.branch3 = nn.Sequential(nn.Conv2d(in_planes, inter_planes1, kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(inplace=True), nn.Conv2d(inter_planes1, inter_planes1, kernel_size=3, stride=1, padding=3, dilation=3), nn.ReLU(inplace=True), nn.Conv2d(inter_planes1, inter_planes1, kernel_size=3, stride=1, padding=3, dilation=3))
-
-    def forward(self, x):
-        x1 = self.branch1(x)
-        x2 = self.branch2(x)
-        x3 = self.branch3(x)
-        out = torch.cat((x1, x2, x3), dim=1)
-        out = F.relu(out, inplace=True)
-        return out
 
 
 class DSFD(nn.Module):

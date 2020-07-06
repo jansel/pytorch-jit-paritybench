@@ -5,6 +5,7 @@ _ext = _module
 stnm = _module
 functions = _module
 gridgen = _module
+stnm = _module
 modules = _module
 gridgen = _module
 stnm = _module
@@ -14,29 +15,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
-
-
-from torch.nn.modules.module import Module
 
 
 import torch
 
 
-from torch.autograd import Variable
+from torch.autograd import Function
 
 
 import numpy as np
+
+
+from torch.nn.modules.module import Module
+
+
+from torch.autograd import Variable
 
 
 import random
@@ -86,8 +91,8 @@ class AffineGridGenFunction(Function):
         for i in range(input1.size(0)):
             self.batchgrid[i] = self.grid
         if input1.is_cuda:
-            self.batchgrid = self.batchgrid.cuda()
-            output = output.cuda()
+            self.batchgrid = self.batchgrid
+            output = output
         batchgrid_temp = self.batchgrid.view(-1, self.height * self.width, 3)
         batchgrid_temp.contiguous()
         input_temp = torch.transpose(input1, 1, 2)
@@ -100,8 +105,8 @@ class AffineGridGenFunction(Function):
     def backward(self, grad_output):
         grad_input1 = torch.zeros(self.input1.size())
         if grad_output.is_cuda:
-            self.batchgrid = self.batchgrid.cuda()
-            grad_input1 = grad_input1.cuda()
+            self.batchgrid = self.batchgrid
+            grad_input1 = grad_input1
         grad_output_temp = grad_output.contiguous()
         grad_output_view = grad_output_temp.view(-1, self.height * self.width, 2)
         grad_output_view.contiguous()
@@ -166,7 +171,7 @@ class CylinderGridGenFunction(Function):
                 output[(i), :, :, (1)] = output[(i), :, :, (1)] + self.grid[:, :, (1)]
                 output[(i), :, :, (0)] = self.grid[:, :, (0)]
         else:
-            print('not implemented')
+            None
         return output
 
     def backward(self, grad_output):
@@ -175,7 +180,7 @@ class CylinderGridGenFunction(Function):
             for i in range(self.input1.size(0)):
                 grad_input1[i] = -torch.sum(torch.sum(grad_output[(i), :, :, (1)], 1)) * torch.sin(self.input1[i]) / 2
         else:
-            print('not implemented')
+            None
         return grad_input1 * self.lr
 
 
@@ -460,9 +465,9 @@ class STNMFunction(Function):
         self.fgmask = fgmask
         output = torch.zeros(canvas.size()[0], canvas.size()[1], canvas.size()[2], canvas.size()[3])
         if not canvas.is_cuda:
-            print('only support cuda now!')
+            None
         else:
-            output = output.cuda()
+            output = output
             stnm.BilinearSamplerBHWD_updateOutput_cuda(canvas, fgimg, fggrid, fgmask, output)
         return output
 
@@ -472,13 +477,13 @@ class STNMFunction(Function):
         grad_fggrid = torch.zeros(self.fggrid.size())
         grad_fgmask = torch.zeros(self.fgmask.size())
         if not grad_output.is_cuda:
-            print('only support cuda now!')
+            None
         else:
             grad_output = grad_output.contiguous()
-            grad_canvas = grad_canvas.cuda().contiguous()
-            grad_fgimg = grad_fgimg.cuda().contiguous()
-            grad_fggrid = grad_fggrid.cuda().contiguous()
-            grad_fgmask = grad_fgmask.cuda().contiguous()
+            grad_canvas = grad_canvas.contiguous()
+            grad_fgimg = grad_fgimg.contiguous()
+            grad_fggrid = grad_fggrid.contiguous()
+            grad_fgmask = grad_fgmask.contiguous()
             stnm.BilinearSamplerBHWD_updateGradInput_cuda(self.canvas, self.fgimg, self.fggrid, self.fgmask, grad_canvas, grad_fgimg, grad_fggrid, grad_fgmask, grad_output)
         return grad_canvas, grad_fgimg, grad_fggrid, grad_fgmask
 

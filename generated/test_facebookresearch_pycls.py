@@ -35,20 +35,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+from collections import deque
+
+
+import numpy as np
 
 
 import itertools
@@ -60,7 +67,16 @@ import math
 import torch.nn as nn
 
 
-import numpy as np
+import torch.utils.data
+
+
+import re
+
+
+from torch.utils.data.distributed import DistributedSampler
+
+
+from torch.utils.data.sampler import RandomSampler
 
 
 class AnyHead(nn.Module):
@@ -82,12 +98,6 @@ class AnyHead(nn.Module):
         cx['h'], cx['w'] = 1, 1
         cx = net.complexity_conv2d(cx, w_in, nc, 1, 1, 0, bias=True)
         return cx
-
-
-_global_config['MEM'] = 4
-
-
-_global_config['BN'] = 4
 
 
 class VanillaBlock(nn.Module):
@@ -121,9 +131,11 @@ class VanillaBlock(nn.Module):
 
 
 class BasicTransform(nn.Module):
-    """Basic transformation: [3x3 conv, BN, Relu] x2."""
+    """Basic transformation: 3x3, BN, ReLU, 3x3, BN."""
 
-    def __init__(self, w_in, w_out, stride):
+    def __init__(self, w_in, w_out, stride, w_b=None, num_gs=1):
+        err_str = 'Basic transform does not support w_b and num_gs options'
+        assert w_b is None and num_gs == 1, err_str
         super(BasicTransform, self).__init__()
         self.a = nn.Conv2d(w_in, w_out, 3, stride=stride, padding=1, bias=False)
         self.a_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
@@ -138,7 +150,9 @@ class BasicTransform(nn.Module):
         return x
 
     @staticmethod
-    def complexity(cx, w_in, w_out, stride):
+    def complexity(cx, w_in, w_out, stride, w_b=None, num_gs=1):
+        err_str = 'Basic transform does not support w_b and num_gs options'
+        assert w_b is None and num_gs == 1, err_str
         cx = net.complexity_conv2d(cx, w_in, w_out, 3, stride, 1)
         cx = net.complexity_batchnorm2d(cx, w_out)
         cx = net.complexity_conv2d(cx, w_out, w_out, 3, 1, 1)
@@ -182,13 +196,23 @@ class ResBasicBlock(nn.Module):
         return cx
 
 
+class Swish(nn.Module):
+    """Swish activation function: x * sigmoid(x)."""
+
+    def __init__(self):
+        super(Swish, self).__init__()
+
+    def forward(self, x):
+        return x * torch.sigmoid(x)
+
+
 class SE(nn.Module):
-    """Squeeze-and-Excitation (SE) block: AvgPool, FC, ReLU, FC, Sigmoid."""
+    """Squeeze-and-Excitation (SE) block w/ Swish: AvgPool, FC, Swish, FC, Sigmoid."""
 
     def __init__(self, w_in, w_se):
         super(SE, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.f_ex = nn.Sequential(nn.Conv2d(w_in, w_se, 1, bias=True), nn.ReLU(inplace=cfg.MEM.RELU_INPLACE), nn.Conv2d(w_se, w_in, 1, bias=True), nn.Sigmoid())
+        self.f_ex = nn.Sequential(nn.Conv2d(w_in, w_se, 1, bias=True), Swish(), nn.Conv2d(w_se, w_in, 1, bias=True), nn.Sigmoid())
 
     def forward(self, x):
         return x * self.f_ex(self.avg_pool(x))
@@ -204,21 +228,17 @@ class SE(nn.Module):
 
 
 class BottleneckTransform(nn.Module):
-    """Bottleneck transformation: 1x1, 3x3 [+SE], 1x1."""
+    """Bottleneck transformation: 1x1, BN, ReLU, 3x3, BN, ReLU, 1x1, BN."""
 
-    def __init__(self, w_in, w_out, stride, bm, gw, se_r):
+    def __init__(self, w_in, w_out, stride, w_b, num_gs):
         super(BottleneckTransform, self).__init__()
-        w_b = int(round(w_out * bm))
-        g = w_b // gw
-        self.a = nn.Conv2d(w_in, w_b, 1, stride=1, padding=0, bias=False)
+        s1, s3 = (stride, 1) if cfg.RESNET.STRIDE_1X1 else (1, stride)
+        self.a = nn.Conv2d(w_in, w_b, 1, stride=s1, padding=0, bias=False)
         self.a_bn = nn.BatchNorm2d(w_b, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.a_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
-        self.b = nn.Conv2d(w_b, w_b, 3, stride=stride, padding=1, groups=g, bias=False)
+        self.b = nn.Conv2d(w_b, w_b, 3, stride=s3, padding=1, groups=num_gs, bias=False)
         self.b_bn = nn.BatchNorm2d(w_b, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.b_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
-        if se_r:
-            w_se = int(round(w_in * se_r))
-            self.se = SE(w_b, w_se)
         self.c = nn.Conv2d(w_b, w_out, 1, stride=1, padding=0, bias=False)
         self.c_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
         self.c_bn.final_bn = True
@@ -229,16 +249,12 @@ class BottleneckTransform(nn.Module):
         return x
 
     @staticmethod
-    def complexity(cx, w_in, w_out, stride, bm, gw, se_r):
-        w_b = int(round(w_out * bm))
-        g = w_b // gw
-        cx = net.complexity_conv2d(cx, w_in, w_b, 1, 1, 0)
+    def complexity(cx, w_in, w_out, stride, w_b, num_gs):
+        s1, s3 = (stride, 1) if cfg.RESNET.STRIDE_1X1 else (1, stride)
+        cx = net.complexity_conv2d(cx, w_in, w_b, 1, s1, 0)
         cx = net.complexity_batchnorm2d(cx, w_b)
-        cx = net.complexity_conv2d(cx, w_b, w_b, 3, stride, 1, g)
+        cx = net.complexity_conv2d(cx, w_b, w_b, 3, s3, 1, num_gs)
         cx = net.complexity_batchnorm2d(cx, w_b)
-        if se_r:
-            w_se = int(round(w_in * se_r))
-            cx = SE.complexity(cx, w_b, w_se)
         cx = net.complexity_conv2d(cx, w_b, w_out, 1, 1, 0)
         cx = net.complexity_batchnorm2d(cx, w_out)
         return cx
@@ -382,12 +398,6 @@ def get_stem_fun(stem_type):
     return stem_funs[stem_type]
 
 
-_global_config['MODEL'] = 4
-
-
-_global_config['ANYNET'] = 4
-
-
 class AnyNet(nn.Module):
     """AnyNet model."""
 
@@ -442,9 +452,6 @@ class AnyNet(nn.Module):
         return cx
 
 
-_global_config['EN'] = 4
-
-
 class EffHead(nn.Module):
     """EfficientNet head: 1x1, BN, Swish, AvgPool, Dropout, FC."""
 
@@ -472,37 +479,6 @@ class EffHead(nn.Module):
         cx = net.complexity_batchnorm2d(cx, w_out)
         cx['h'], cx['w'] = 1, 1
         cx = net.complexity_conv2d(cx, w_out, nc, 1, 1, 0, bias=True)
-        return cx
-
-
-class Swish(nn.Module):
-    """Swish activation function: x * sigmoid(x)."""
-
-    def __init__(self):
-        super(Swish, self).__init__()
-
-    def forward(self, x):
-        return x * torch.sigmoid(x)
-
-
-class SE(nn.Module):
-    """Squeeze-and-Excitation (SE) block w/ Swish: AvgPool, FC, Swish, FC, Sigmoid."""
-
-    def __init__(self, w_in, w_se):
-        super(SE, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.f_ex = nn.Sequential(nn.Conv2d(w_in, w_se, 1, bias=True), Swish(), nn.Conv2d(w_se, w_in, 1, bias=True), nn.Sigmoid())
-
-    def forward(self, x):
-        return x * self.f_ex(self.avg_pool(x))
-
-    @staticmethod
-    def complexity(cx, w_in, w_se):
-        h, w = cx['h'], cx['w']
-        cx['h'], cx['w'] = 1, 1
-        cx = net.complexity_conv2d(cx, w_in, w_se, 1, 1, 0, bias=True)
-        cx = net.complexity_conv2d(cx, w_se, w_in, 1, 1, 0, bias=True)
-        cx['h'], cx['w'] = h, w
         return cx
 
 
@@ -600,12 +576,6 @@ class StemIN(nn.Module):
         return cx
 
 
-_global_config['TEST'] = 4
-
-
-_global_config['TRAIN'] = 4
-
-
 class EffNet(nn.Module):
     """EfficientNet model."""
 
@@ -674,72 +644,6 @@ class ResHead(nn.Module):
         return cx
 
 
-class BasicTransform(nn.Module):
-    """Basic transformation: 3x3, BN, ReLU, 3x3, BN."""
-
-    def __init__(self, w_in, w_out, stride, w_b=None, num_gs=1):
-        err_str = 'Basic transform does not support w_b and num_gs options'
-        assert w_b is None and num_gs == 1, err_str
-        super(BasicTransform, self).__init__()
-        self.a = nn.Conv2d(w_in, w_out, 3, stride=stride, padding=1, bias=False)
-        self.a_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
-        self.a_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
-        self.b = nn.Conv2d(w_out, w_out, 3, stride=1, padding=1, bias=False)
-        self.b_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
-        self.b_bn.final_bn = True
-
-    def forward(self, x):
-        for layer in self.children():
-            x = layer(x)
-        return x
-
-    @staticmethod
-    def complexity(cx, w_in, w_out, stride, w_b=None, num_gs=1):
-        err_str = 'Basic transform does not support w_b and num_gs options'
-        assert w_b is None and num_gs == 1, err_str
-        cx = net.complexity_conv2d(cx, w_in, w_out, 3, stride, 1)
-        cx = net.complexity_batchnorm2d(cx, w_out)
-        cx = net.complexity_conv2d(cx, w_out, w_out, 3, 1, 1)
-        cx = net.complexity_batchnorm2d(cx, w_out)
-        return cx
-
-
-_global_config['RESNET'] = 4
-
-
-class BottleneckTransform(nn.Module):
-    """Bottleneck transformation: 1x1, BN, ReLU, 3x3, BN, ReLU, 1x1, BN."""
-
-    def __init__(self, w_in, w_out, stride, w_b, num_gs):
-        super(BottleneckTransform, self).__init__()
-        s1, s3 = (stride, 1) if cfg.RESNET.STRIDE_1X1 else (1, stride)
-        self.a = nn.Conv2d(w_in, w_b, 1, stride=s1, padding=0, bias=False)
-        self.a_bn = nn.BatchNorm2d(w_b, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
-        self.a_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
-        self.b = nn.Conv2d(w_b, w_b, 3, stride=s3, padding=1, groups=num_gs, bias=False)
-        self.b_bn = nn.BatchNorm2d(w_b, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
-        self.b_relu = nn.ReLU(inplace=cfg.MEM.RELU_INPLACE)
-        self.c = nn.Conv2d(w_b, w_out, 1, stride=1, padding=0, bias=False)
-        self.c_bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
-        self.c_bn.final_bn = True
-
-    def forward(self, x):
-        for layer in self.children():
-            x = layer(x)
-        return x
-
-    @staticmethod
-    def complexity(cx, w_in, w_out, stride, w_b, num_gs):
-        s1, s3 = (stride, 1) if cfg.RESNET.STRIDE_1X1 else (1, stride)
-        cx = net.complexity_conv2d(cx, w_in, w_b, 1, s1, 0)
-        cx = net.complexity_batchnorm2d(cx, w_b)
-        cx = net.complexity_conv2d(cx, w_b, w_b, 3, s3, 1, num_gs)
-        cx = net.complexity_batchnorm2d(cx, w_b)
-        cx = net.complexity_conv2d(cx, w_b, w_out, 1, 1, 0)
-        cx = net.complexity_batchnorm2d(cx, w_out)
-        return cx
-
-
 class ResBlock(nn.Module):
     """Residual block: x + F(x)."""
 
@@ -804,50 +708,6 @@ class ResStage(nn.Module):
             b_w_in = w_in if i == 0 else w_out
             trans_f = get_trans_fun(cfg.RESNET.TRANS_FUN)
             cx = ResBlock.complexity(cx, b_w_in, w_out, b_stride, trans_f, w_b, num_gs)
-        return cx
-
-
-class ResStemCifar(nn.Module):
-    """ResNet stem for CIFAR: 3x3, BN, ReLU."""
-
-    def __init__(self, w_in, w_out):
-        super(ResStemCifar, self).__init__()
-        self.conv = nn.Conv2d(w_in, w_out, 3, stride=1, padding=1, bias=False)
-        self.bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
-        self.relu = nn.ReLU(cfg.MEM.RELU_INPLACE)
-
-    def forward(self, x):
-        for layer in self.children():
-            x = layer(x)
-        return x
-
-    @staticmethod
-    def complexity(cx, w_in, w_out):
-        cx = net.complexity_conv2d(cx, w_in, w_out, 3, 1, 1)
-        cx = net.complexity_batchnorm2d(cx, w_out)
-        return cx
-
-
-class ResStemIN(nn.Module):
-    """ResNet stem for ImageNet: 7x7, BN, ReLU, MaxPool."""
-
-    def __init__(self, w_in, w_out):
-        super(ResStemIN, self).__init__()
-        self.conv = nn.Conv2d(w_in, w_out, 7, stride=2, padding=3, bias=False)
-        self.bn = nn.BatchNorm2d(w_out, eps=cfg.BN.EPS, momentum=cfg.BN.MOM)
-        self.relu = nn.ReLU(cfg.MEM.RELU_INPLACE)
-        self.pool = nn.MaxPool2d(3, stride=2, padding=1)
-
-    def forward(self, x):
-        for layer in self.children():
-            x = layer(x)
-        return x
-
-    @staticmethod
-    def complexity(cx, w_in, w_out):
-        cx = net.complexity_conv2d(cx, w_in, w_out, 7, 2, 3)
-        cx = net.complexity_batchnorm2d(cx, w_out)
-        cx = net.complexity_maxpool2d(cx, 3, 2, 1)
         return cx
 
 

@@ -32,20 +32,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+from torch.utils import data
+
+
+import numpy as np
+
+
+from torchvision import transforms as T
 
 
 from torch import nn
@@ -58,6 +68,24 @@ from torchvision import models
 
 
 from torch.nn import functional as F
+
+
+import scipy.io
+
+
+from sklearn.metrics import accuracy_score
+
+
+from sklearn.metrics import precision_score
+
+
+from sklearn.metrics import recall_score
+
+
+from sklearn.metrics import f1_score
+
+
+import warnings
 
 
 import time
@@ -124,26 +152,6 @@ class DenseNet121_nFC(nn.Module):
         return pred
 
 
-class ClassBlock(nn.Module):
-
-    def __init__(self, input_dim, num_bottleneck=512):
-        super(ClassBlock, self).__init__()
-        add_block = []
-        add_block += [nn.Linear(input_dim, num_bottleneck)]
-        add_block += [nn.BatchNorm1d(num_bottleneck)]
-        add_block += [nn.LeakyReLU(0.1)]
-        add_block += [nn.Dropout(p=0.5)]
-        add_block += [nn.Linear(num_bottleneck, 1)]
-        add_block += [nn.Sigmoid()]
-        add_block = nn.Sequential(*add_block)
-        add_block.apply(weights_init_kaiming)
-        self.classifier = add_block
-
-    def forward(self, x):
-        x = self.classifier(x)
-        return x
-
-
 class ResNet18_nFC(nn.Module):
 
     def __init__(self, class_num):
@@ -169,26 +177,6 @@ class ResNet18_nFC(nn.Module):
         return pred
 
 
-class ClassBlock(nn.Module):
-
-    def __init__(self, input_dim, num_bottleneck=512):
-        super(ClassBlock, self).__init__()
-        add_block = []
-        add_block += [nn.Linear(input_dim, num_bottleneck)]
-        add_block += [nn.BatchNorm1d(num_bottleneck)]
-        add_block += [nn.LeakyReLU(0.1)]
-        add_block += [nn.Dropout(p=0.5)]
-        add_block += [nn.Linear(num_bottleneck, 1)]
-        add_block += [nn.Sigmoid()]
-        add_block = nn.Sequential(*add_block)
-        add_block.apply(weights_init_kaiming)
-        self.classifier = add_block
-
-    def forward(self, x):
-        x = self.classifier(x)
-        return x
-
-
 class ResNet34_nFC(nn.Module):
 
     def __init__(self, class_num):
@@ -212,26 +200,6 @@ class ResNet34_nFC(nn.Module):
             else:
                 pred = torch.cat((pred, self.__getattr__('class_%d' % c)(x)), dim=1)
         return pred
-
-
-class ClassBlock(nn.Module):
-
-    def __init__(self, input_dim, num_bottleneck=512):
-        super(ClassBlock, self).__init__()
-        add_block = []
-        add_block += [nn.Linear(input_dim, num_bottleneck)]
-        add_block += [nn.BatchNorm1d(num_bottleneck)]
-        add_block += [nn.LeakyReLU(0.1)]
-        add_block += [nn.Dropout(p=0.5)]
-        add_block += [nn.Linear(num_bottleneck, 1)]
-        add_block += [nn.Sigmoid()]
-        add_block = nn.Sequential(*add_block)
-        add_block.apply(weights_init_kaiming)
-        self.classifier = add_block
-
-    def forward(self, x):
-        x = self.classifier(x)
-        return x
 
 
 class ResNet50_nFC(nn.Module):

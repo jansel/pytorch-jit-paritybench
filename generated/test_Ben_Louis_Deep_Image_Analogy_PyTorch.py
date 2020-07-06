@@ -12,23 +12,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import torchvision.models as models
-
-
 import torch
+
+
+import numpy as np
+
+
+import copy
+
+
+import time
+
+
+import torch.multiprocessing as mp
+
+
+from torch.multiprocessing import Pool
+
+
+import torchvision.models as models
 
 
 from torch.autograd import Variable
@@ -38,9 +54,6 @@ import torch.nn as nn
 
 
 import torch.utils.model_zoo as model_zoo
-
-
-import copy
 
 
 class FeatureExtractor(nn.Sequential):

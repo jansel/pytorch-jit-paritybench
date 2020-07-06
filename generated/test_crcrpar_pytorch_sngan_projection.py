@@ -24,15 +24,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -106,223 +107,6 @@ class ConditionalBatchNorm2d(nn.BatchNorm2d):
         weight = weight.unsqueeze(-1).unsqueeze(-1).expand(size)
         bias = bias.unsqueeze(-1).unsqueeze(-1).expand(size)
         return weight * output + bias
-
-
-class Block(nn.Module):
-
-    def __init__(self, in_ch, out_ch, h_ch=None, ksize=3, pad=1, activation=F.relu, downsample=False):
-        super(Block, self).__init__()
-        self.activation = activation
-        self.downsample = downsample
-        self.learnable_sc = in_ch != out_ch or downsample
-        if h_ch is None:
-            h_ch = in_ch
-        else:
-            h_ch = out_ch
-        self.c1 = utils.spectral_norm(nn.Conv2d(in_ch, h_ch, ksize, 1, pad))
-        self.c2 = utils.spectral_norm(nn.Conv2d(h_ch, out_ch, ksize, 1, pad))
-        if self.learnable_sc:
-            self.c_sc = utils.spectral_norm(nn.Conv2d(in_ch, out_ch, 1, 1, 0))
-        self._initialize()
-
-    def _initialize(self):
-        init.xavier_uniform_(self.c1.weight.data, math.sqrt(2))
-        init.xavier_uniform_(self.c2.weight.data, math.sqrt(2))
-        if self.learnable_sc:
-            init.xavier_uniform_(self.c_sc.weight.data)
-
-    def forward(self, x):
-        return self.shortcut(x) + self.residual(x)
-
-    def shortcut(self, x):
-        if self.learnable_sc:
-            x = self.c_sc(x)
-        if self.downsample:
-            return F.avg_pool2d(x, 2)
-        return x
-
-    def residual(self, x):
-        h = self.c1(self.activation(x))
-        h = self.c2(self.activation(h))
-        if self.downsample:
-            h = F.avg_pool2d(h, 2)
-        return h
-
-
-class OptimizedBlock(nn.Module):
-
-    def __init__(self, in_ch, out_ch, ksize=3, pad=1, activation=F.relu):
-        super(OptimizedBlock, self).__init__()
-        self.activation = activation
-        self.c1 = utils.spectral_norm(nn.Conv2d(in_ch, out_ch, ksize, 1, pad))
-        self.c2 = utils.spectral_norm(nn.Conv2d(out_ch, out_ch, ksize, 1, pad))
-        self.c_sc = utils.spectral_norm(nn.Conv2d(in_ch, out_ch, 1, 1, 0))
-        self._initialize()
-
-    def _initialize(self):
-        init.xavier_uniform_(self.c1.weight.data, math.sqrt(2))
-        init.xavier_uniform_(self.c2.weight.data, math.sqrt(2))
-        init.xavier_uniform_(self.c_sc.weight.data)
-
-    def forward(self, x):
-        return self.shortcut(x) + self.residual(x)
-
-    def shortcut(self, x):
-        return self.c_sc(F.avg_pool2d(x, 2))
-
-    def residual(self, x):
-        h = self.activation(self.c1(x))
-        return F.avg_pool2d(self.c2(h), 2)
-
-
-class SNResNetProjectionDiscriminator(nn.Module):
-
-    def __init__(self, num_features, num_classes=0, activation=F.relu):
-        super(SNResNetProjectionDiscriminator, self).__init__()
-        self.num_features = num_features
-        self.num_classes = num_classes
-        self.activation = activation
-        self.block1 = OptimizedBlock(3, num_features)
-        self.block2 = Block(num_features, num_features * 2, activation=activation, downsample=True)
-        self.block3 = Block(num_features * 2, num_features * 4, activation=activation, downsample=True)
-        self.block4 = Block(num_features * 4, num_features * 8, activation=activation, downsample=True)
-        self.block5 = Block(num_features * 8, num_features * 16, activation=activation, downsample=True)
-        self.block6 = Block(num_features * 16, num_features * 16, activation=activation, downsample=True)
-        self.l7 = utils.spectral_norm(nn.Linear(num_features * 16, 1))
-        if num_classes > 0:
-            self.l_y = utils.spectral_norm(nn.Embedding(num_classes, num_features * 16))
-        self._initialize()
-
-    def _initialize(self):
-        init.xavier_uniform_(self.l7.weight.data)
-        optional_l_y = getattr(self, 'l_y', None)
-        if optional_l_y is not None:
-            init.xavier_uniform_(optional_l_y.weight.data)
-
-    def forward(self, x, y=None):
-        h = x
-        for i in range(1, 7):
-            h = getattr(self, 'block{}'.format(i))(h)
-        h = self.activation(h)
-        h = torch.sum(h, dim=(2, 3))
-        output = self.l7(h)
-        if y is not None:
-            output += torch.sum(self.l_y(y) * h, dim=1, keepdim=True)
-        return output
-
-
-class SNResNetConcatDiscriminator(nn.Module):
-
-    def __init__(self, num_features, num_classes, activation=F.relu, dim_emb=128):
-        super(SNResNetConcatDiscriminator, self).__init__()
-        self.num_features = num_features
-        self.num_classes = num_classes
-        self.dim_emb = dim_emb
-        self.activation = activation
-        self.block1 = OptimizedBlock(3, num_features)
-        self.block2 = Block(num_features, num_features * 2, activation=activation, downsample=True)
-        self.block3 = Block(num_features * 2, num_features * 4, activation=activation, downsample=True)
-        if num_classes > 0:
-            self.l_y = utils.spectral_norm(nn.Embedding(num_classes, dim_emb))
-        self.block4 = Block(num_features * 4 + dim_emb, num_features * 8, activation=activation, downsample=True)
-        self.block5 = Block(num_features * 8, num_features * 16, activation=activation, downsample=True)
-        self.block6 = Block(num_features * 16, num_features * 16, activation=activation, downsample=False)
-        self.l7 = utils.spectral_norm(nn.Linear(num_features * 16, 1))
-        self._initialize()
-
-    def _initialize(self):
-        init.xavier_uniform_(self.l7.weight.data)
-        if hasattr(self, 'l_y'):
-            init.xavier_uniform_(self.l_y.weight.data)
-
-    def forward(self, x, y=None):
-        h = x
-        for i in range(1, 4):
-            h = getattr(self, 'block{}'.format(i))(h)
-        if y is not None:
-            emb = self.l_y(y).unsqueeze(-1).unsqueeze(-1)
-            emb = emb.expand(emb.size(0), emb.size(1), h.size(2), h.size(3))
-            h = torch.cat((h, emb), dim=1)
-        for i in range(4, 7):
-            h = getattr(self, 'block{}'.format(i))(h)
-        h = torch.sum(self.activation(h), dim=(2, 3))
-        return self.l7(h)
-
-
-class SNResNetProjectionDiscriminator(nn.Module):
-
-    def __init__(self, num_features=64, num_classes=0, activation=F.relu):
-        super(SNResNetProjectionDiscriminator, self).__init__()
-        self.num_features = num_features
-        self.num_classes = num_classes
-        self.activation = activation
-        self.block1 = OptimizedBlock(3, num_features)
-        self.block2 = Block(num_features, num_features * 2, activation=activation, downsample=True)
-        self.block3 = Block(num_features * 2, num_features * 4, activation=activation, downsample=True)
-        self.block4 = Block(num_features * 4, num_features * 8, activation=activation, downsample=True)
-        self.block5 = Block(num_features * 8, num_features * 16, activation=activation, downsample=True)
-        self.l6 = utils.spectral_norm(nn.Linear(num_features * 16, 1))
-        if num_classes > 0:
-            self.l_y = utils.spectral_norm(nn.Embedding(num_classes, num_features * 16))
-        self._initialize()
-
-    def _initialize(self):
-        init.xavier_uniform_(self.l6.weight.data)
-        optional_l_y = getattr(self, 'l_y', None)
-        if optional_l_y is not None:
-            init.xavier_uniform_(optional_l_y.weight.data)
-
-    def forward(self, x, y=None):
-        h = x
-        h = self.block1(h)
-        h = self.block2(h)
-        h = self.block3(h)
-        h = self.block4(h)
-        h = self.block5(h)
-        h = self.activation(h)
-        h = torch.sum(h, dim=(2, 3))
-        output = self.l6(h)
-        if y is not None:
-            output += torch.sum(self.l_y(y) * h, dim=1, keepdim=True)
-        return output
-
-
-class SNResNetConcatDiscriminator(nn.Module):
-
-    def __init__(self, num_features, num_classes, activation=F.relu, dim_emb=128):
-        super(SNResNetConcatDiscriminator, self).__init__()
-        self.num_features = num_features
-        self.num_classes = num_classes
-        self.dim_emb = dim_emb
-        self.activation = activation
-        self.block1 = OptimizedBlock(3, num_features)
-        self.block2 = Block(num_features, num_features * 2, activation=activation, downsample=True)
-        self.block3 = Block(num_features * 2, num_features * 4, activation=activation, downsample=True)
-        if num_classes > 0:
-            self.l_y = utils.spectral_norm(nn.Embedding(num_classes, dim_emb))
-        self.block4 = Block(num_features * 4 + dim_emb, num_features * 8, activation=activation, downsample=True)
-        self.block5 = Block(num_features * 8, num_features * 16, activation=activation, downsample=True)
-        self.l6 = utils.spectral_norm(nn.Linear(num_features * 16, 1))
-        self._initialize()
-
-    def _initialize(self):
-        init.xavier_uniform_(self.l6.weight.data)
-        if hasattr(self, 'l_y'):
-            init.xavier_uniform_(self.l_y.weight.data)
-
-    def forward(self, x, y=None):
-        h = x
-        h = self.block1(h)
-        h = self.block2(h)
-        h = self.block3(h)
-        if y is not None:
-            emb = self.l_y(y).unsqueeze(-1).unsqueeze(-1)
-            emb = emb.expand(emb.size(0), emb.size(1), h.size(2), h.size(3))
-            h = torch.cat((h, emb), dim=1)
-        h = self.block4(h)
-        h = self.block5(h)
-        h = torch.sum(self.activation(h), dim=(2, 3))
-        return self.l6(h)
 
 
 class CategoricalConditionalBatchNorm2d(ConditionalBatchNorm2d):
@@ -403,36 +187,106 @@ class Block(nn.Module):
         return self.c2(self.activation(h))
 
 
-class ResNetGenerator(nn.Module):
-    """Generator generates 128x128."""
+class OptimizedBlock(nn.Module):
 
-    def __init__(self, num_features=64, dim_z=128, bottom_width=4, activation=F.relu, num_classes=0, distribution='normal'):
-        super(ResNetGenerator, self).__init__()
-        self.num_features = num_features
-        self.dim_z = dim_z
-        self.bottom_width = bottom_width
+    def __init__(self, in_ch, out_ch, ksize=3, pad=1, activation=F.relu):
+        super(OptimizedBlock, self).__init__()
         self.activation = activation
-        self.num_classes = num_classes
-        self.distribution = distribution
-        self.l1 = nn.Linear(dim_z, 16 * num_features * bottom_width ** 2)
-        self.block2 = Block(num_features * 16, num_features * 16, activation=activation, upsample=True, num_classes=num_classes)
-        self.block3 = Block(num_features * 16, num_features * 8, activation=activation, upsample=True, num_classes=num_classes)
-        self.block4 = Block(num_features * 8, num_features * 4, activation=activation, upsample=True, num_classes=num_classes)
-        self.block5 = Block(num_features * 4, num_features * 2, activation=activation, upsample=True, num_classes=num_classes)
-        self.block6 = Block(num_features * 2, num_features, activation=activation, upsample=True, num_classes=num_classes)
-        self.b7 = nn.BatchNorm2d(num_features)
-        self.conv7 = nn.Conv2d(num_features, 3, 1, 1)
+        self.c1 = utils.spectral_norm(nn.Conv2d(in_ch, out_ch, ksize, 1, pad))
+        self.c2 = utils.spectral_norm(nn.Conv2d(out_ch, out_ch, ksize, 1, pad))
+        self.c_sc = utils.spectral_norm(nn.Conv2d(in_ch, out_ch, 1, 1, 0))
+        self._initialize()
 
     def _initialize(self):
-        init.xavier_uniform_(self.l1.weight.tensor)
-        init.xavier_uniform_(self.conv7.weight.tensor)
+        init.xavier_uniform_(self.c1.weight.data, math.sqrt(2))
+        init.xavier_uniform_(self.c2.weight.data, math.sqrt(2))
+        init.xavier_uniform_(self.c_sc.weight.data)
 
-    def forward(self, z, y=None, **kwargs):
-        h = self.l1(z).view(z.size(0), -1, self.bottom_width, self.bottom_width)
-        for i in [2, 3, 4, 5, 6]:
-            h = getattr(self, 'block{}'.format(i))(h, y, **kwargs)
-        h = self.activation(self.b7(h))
-        return torch.tanh(self.conv7(h))
+    def forward(self, x):
+        return self.shortcut(x) + self.residual(x)
+
+    def shortcut(self, x):
+        return self.c_sc(F.avg_pool2d(x, 2))
+
+    def residual(self, x):
+        h = self.activation(self.c1(x))
+        return F.avg_pool2d(self.c2(h), 2)
+
+
+class SNResNetProjectionDiscriminator(nn.Module):
+
+    def __init__(self, num_features=64, num_classes=0, activation=F.relu):
+        super(SNResNetProjectionDiscriminator, self).__init__()
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.activation = activation
+        self.block1 = OptimizedBlock(3, num_features)
+        self.block2 = Block(num_features, num_features * 2, activation=activation, downsample=True)
+        self.block3 = Block(num_features * 2, num_features * 4, activation=activation, downsample=True)
+        self.block4 = Block(num_features * 4, num_features * 8, activation=activation, downsample=True)
+        self.block5 = Block(num_features * 8, num_features * 16, activation=activation, downsample=True)
+        self.l6 = utils.spectral_norm(nn.Linear(num_features * 16, 1))
+        if num_classes > 0:
+            self.l_y = utils.spectral_norm(nn.Embedding(num_classes, num_features * 16))
+        self._initialize()
+
+    def _initialize(self):
+        init.xavier_uniform_(self.l6.weight.data)
+        optional_l_y = getattr(self, 'l_y', None)
+        if optional_l_y is not None:
+            init.xavier_uniform_(optional_l_y.weight.data)
+
+    def forward(self, x, y=None):
+        h = x
+        h = self.block1(h)
+        h = self.block2(h)
+        h = self.block3(h)
+        h = self.block4(h)
+        h = self.block5(h)
+        h = self.activation(h)
+        h = torch.sum(h, dim=(2, 3))
+        output = self.l6(h)
+        if y is not None:
+            output += torch.sum(self.l_y(y) * h, dim=1, keepdim=True)
+        return output
+
+
+class SNResNetConcatDiscriminator(nn.Module):
+
+    def __init__(self, num_features, num_classes, activation=F.relu, dim_emb=128):
+        super(SNResNetConcatDiscriminator, self).__init__()
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.dim_emb = dim_emb
+        self.activation = activation
+        self.block1 = OptimizedBlock(3, num_features)
+        self.block2 = Block(num_features, num_features * 2, activation=activation, downsample=True)
+        self.block3 = Block(num_features * 2, num_features * 4, activation=activation, downsample=True)
+        if num_classes > 0:
+            self.l_y = utils.spectral_norm(nn.Embedding(num_classes, dim_emb))
+        self.block4 = Block(num_features * 4 + dim_emb, num_features * 8, activation=activation, downsample=True)
+        self.block5 = Block(num_features * 8, num_features * 16, activation=activation, downsample=True)
+        self.l6 = utils.spectral_norm(nn.Linear(num_features * 16, 1))
+        self._initialize()
+
+    def _initialize(self):
+        init.xavier_uniform_(self.l6.weight.data)
+        if hasattr(self, 'l_y'):
+            init.xavier_uniform_(self.l_y.weight.data)
+
+    def forward(self, x, y=None):
+        h = x
+        h = self.block1(h)
+        h = self.block2(h)
+        h = self.block3(h)
+        if y is not None:
+            emb = self.l_y(y).unsqueeze(-1).unsqueeze(-1)
+            emb = emb.expand(emb.size(0), emb.size(1), h.size(2), h.size(3))
+            h = torch.cat((h, emb), dim=1)
+        h = self.block4(h)
+        h = self.block5(h)
+        h = torch.sum(self.activation(h), dim=(2, 3))
+        return self.l6(h)
 
 
 class ResNetGenerator(nn.Module):
@@ -559,6 +413,14 @@ TESTCASES = [
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
+    (ConditionalBatchNorm2d,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4]), torch.rand([4, 4])], {}),
+     False),
+    (InceptionV3,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 4, 4])], {}),
+     False),
     (OptimizedBlock,
      lambda: ([], {'in_ch': 4, 'out_ch': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -578,4 +440,10 @@ class Test_crcrpar_pytorch_sngan_projection(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

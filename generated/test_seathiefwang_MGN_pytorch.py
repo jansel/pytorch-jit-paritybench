@@ -23,17 +23,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torchvision import transforms
+
+
+from torch.utils.data import dataloader
+
+
+from torch.utils.data import dataset
+
+
+from torchvision.datasets.folder import default_loader
+
+
+import random
+
+
+import collections
+
+
+from torch.utils.data import sampler
 
 
 import numpy as np
@@ -61,6 +83,76 @@ from torchvision.models.resnet import resnet50
 
 
 from torchvision.models.resnet import Bottleneck
+
+
+from scipy.spatial.distance import cdist
+
+
+from collections import defaultdict
+
+
+from sklearn.metrics import average_precision_score
+
+
+import math
+
+
+from torch.optim import Optimizer
+
+
+from torchvision.transforms import *
+
+
+import scipy.misc as misc
+
+
+import torch.optim as optim
+
+
+import torch.optim.lr_scheduler as lrs
+
+
+class TripletLoss(nn.Module):
+    """Triplet loss with hard positive/negative mining.
+
+    Reference:
+    Hermans et al. In Defense of the Triplet Loss for Person Re-Identification. arXiv:1703.07737.
+
+    Code imported from https://github.com/Cysu/open-reid/blob/master/reid/loss/triplet.py.
+
+    Args:
+        margin (float): margin for triplet.
+    """
+
+    def __init__(self, margin=0.3, mutual_flag=False):
+        super(TripletLoss, self).__init__()
+        self.margin = margin
+        self.ranking_loss = nn.MarginRankingLoss(margin=margin)
+        self.mutual = mutual_flag
+
+    def forward(self, inputs, targets):
+        """
+        Args:
+            inputs: feature matrix with shape (batch_size, feat_dim)
+            targets: ground truth labels with shape (num_classes)
+        """
+        n = inputs.size(0)
+        dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
+        dist = dist + dist.t()
+        dist.addmm_(1, -2, inputs, inputs.t())
+        dist = dist.clamp(min=1e-12).sqrt()
+        mask = targets.expand(n, n).eq(targets.expand(n, n).t())
+        dist_ap, dist_an = [], []
+        for i in range(n):
+            dist_ap.append(dist[i][mask[i]].max().unsqueeze(0))
+            dist_an.append(dist[i][mask[i] == 0].min().unsqueeze(0))
+        dist_ap = torch.cat(dist_ap)
+        dist_an = torch.cat(dist_an)
+        y = torch.ones_like(dist_an)
+        loss = self.ranking_loss(dist_an, dist_ap, y)
+        if self.mutual:
+            return loss, dist
+        return loss
 
 
 class Loss(nn.modules.loss._Loss):
@@ -205,49 +297,6 @@ class TripletSemihardLoss(nn.Module):
         neg_min, neg_idx = _mask_min(dist, neg_mask, axis=-1)
         y = torch.ones(same_id.size()[0])
         return F.margin_ranking_loss(neg_min.float(), pos_max.float(), y, self.margin, self.size_average)
-
-
-class TripletLoss(nn.Module):
-    """Triplet loss with hard positive/negative mining.
-
-    Reference:
-    Hermans et al. In Defense of the Triplet Loss for Person Re-Identification. arXiv:1703.07737.
-
-    Code imported from https://github.com/Cysu/open-reid/blob/master/reid/loss/triplet.py.
-
-    Args:
-        margin (float): margin for triplet.
-    """
-
-    def __init__(self, margin=0.3, mutual_flag=False):
-        super(TripletLoss, self).__init__()
-        self.margin = margin
-        self.ranking_loss = nn.MarginRankingLoss(margin=margin)
-        self.mutual = mutual_flag
-
-    def forward(self, inputs, targets):
-        """
-        Args:
-            inputs: feature matrix with shape (batch_size, feat_dim)
-            targets: ground truth labels with shape (num_classes)
-        """
-        n = inputs.size(0)
-        dist = torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(n, n)
-        dist = dist + dist.t()
-        dist.addmm_(1, -2, inputs, inputs.t())
-        dist = dist.clamp(min=1e-12).sqrt()
-        mask = targets.expand(n, n).eq(targets.expand(n, n).t())
-        dist_ap, dist_an = [], []
-        for i in range(n):
-            dist_ap.append(dist[i][mask[i]].max().unsqueeze(0))
-            dist_an.append(dist[i][mask[i] == 0].min().unsqueeze(0))
-        dist_ap = torch.cat(dist_ap)
-        dist_an = torch.cat(dist_an)
-        y = torch.ones_like(dist_an)
-        loss = self.ranking_loss(dist_an, dist_ap, y)
-        if self.mutual:
-            return loss, dist
-        return loss
 
 
 class Model(nn.Module):

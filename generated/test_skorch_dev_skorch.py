@@ -12,9 +12,11 @@ prepare_dataset = _module
 utils = _module
 model = _module
 data = _module
+data = _module
 generate = _module
 model = _module
 net = _module
+train = _module
 setup = _module
 skorch = _module
 callbacks = _module
@@ -26,6 +28,7 @@ scoring = _module
 training = _module
 classifier = _module
 cli = _module
+dataset = _module
 exceptions = _module
 helper = _module
 net = _module
@@ -56,29 +59,102 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import time
-
-
-import numpy as np
+from functools import partial
 
 
 import torch
 
 
+import sklearn.datasets
+
+
+import numpy as np
+
+
+import time
+
+
+from sklearn.datasets import make_classification
+
+
+from sklearn.datasets import fetch_openml
+
+
+from sklearn.model_selection import train_test_split
+
+
+from sklearn.model_selection import StratifiedKFold
+
+
+from sklearn.metrics import accuracy_score
+
+
+from sklearn.utils import shuffle
+
+
 from torch import nn
+
+
+from sklearn.feature_selection import SelectKBest
+
+
+from sklearn.pipeline import FeatureUnion
+
+
+from sklearn.pipeline import Pipeline
+
+
+from sklearn.preprocessing import MinMaxScaler
+
+
+from sklearn.preprocessing import Normalizer
+
+
+from itertools import zip_longest
+
+
+from itertools import product
+
+
+from itertools import chain
+
+
+import random
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision.transforms.functional import pad
+
+
+from torchvision.transforms.functional import to_tensor
+
+
+from torchvision.transforms.functional import normalize
+
+
+from torchvision.transforms.functional import hflip
+
+
+from torchvision.transforms.functional import vflip
+
+
+from torchvision.transforms.functional import crop
 
 
 import torch.nn as nn
@@ -93,7 +169,46 @@ from torch.nn.functional import binary_cross_entropy_with_logits
 from torchvision.transforms.functional import to_pil_image
 
 
+from sklearn.datasets import load_files
+
+
 from torch.autograd import Variable
+
+
+from sklearn.metrics import f1_score
+
+
+from sklearn.model_selection import GridSearchCV
+
+
+from numbers import Number
+
+
+from itertools import cycle
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+from torch.optim.lr_scheduler import CosineAnnealingLR
+
+
+from torch.optim.lr_scheduler import ExponentialLR
+
+
+from torch.optim.lr_scheduler import LambdaLR
+
+
+from torch.optim.lr_scheduler import MultiStepLR
+
+
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+
+from torch.optim.lr_scheduler import StepLR
+
+
+from torch.optim.optimizer import Optimizer
 
 
 from torch.nn.utils import clip_grad_norm_
@@ -102,19 +217,31 @@ from torch.nn.utils import clip_grad_norm_
 import warnings
 
 
-from functools import partial
-
-
-from itertools import product
-
-
 import re
+
+
+from sklearn.base import ClassifierMixin
 
 
 from torch.utils.data import DataLoader
 
 
-from itertools import chain
+from sklearn.base import BaseEstimator
+
+
+from scipy import sparse
+
+
+from sklearn.model_selection import ShuffleSplit
+
+
+from sklearn.model_selection import StratifiedShuffleSplit
+
+
+from sklearn.model_selection import check_cv
+
+
+import torch.utils.data
 
 
 from collections import Sequence
@@ -123,7 +250,31 @@ from collections import Sequence
 from collections import namedtuple
 
 
+from sklearn.base import TransformerMixin
+
+
 from collections import OrderedDict
+
+
+from sklearn.base import RegressorMixin
+
+
+from sklearn.base import clone
+
+
+from torch.optim import SGD
+
+
+from torch.optim.lr_scheduler import CyclicLR as TorchCyclicLR
+
+
+from sklearn.metrics import make_scorer
+
+
+from sklearn.datasets import make_regression
+
+
+from sklearn.preprocessing import StandardScaler
 
 
 from math import cos
@@ -132,16 +283,13 @@ from math import cos
 from torch.nn import RReLU
 
 
-import torch.utils.data
-
-
 import torch.nn.functional as F
 
 
-from scipy import sparse
-
-
 import copy
+
+
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 from torch.nn.utils.rnn import PackedSequence
@@ -157,6 +305,9 @@ from enum import Enum
 
 
 from itertools import tee
+
+
+import sklearn
 
 
 from torch.utils.data.dataset import Subset
@@ -444,6 +595,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([20, 20])], {}),
      False),
+    (RNNClassifier,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     False),
     (UNet,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 3, 64, 64])], {}),
@@ -462,4 +617,7 @@ class Test_skorch_dev_skorch(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

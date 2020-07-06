@@ -15,20 +15,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+from torchvision import transforms
+
+
 import torch
+
+
+import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
 
 
 import torch.nn as nn
@@ -38,15 +51,6 @@ import math
 
 
 from torchvision.ops.boxes import nms as nms_torch
-
-
-import numpy as np
-
-
-from torch.utils.data import DataLoader
-
-
-from torchvision import transforms
 
 
 def calc_iou(a, b):
@@ -84,7 +88,7 @@ class FocalLoss(nn.Module):
             bbox_annotation = annotations[(j), :, :]
             bbox_annotation = bbox_annotation[bbox_annotation[:, (4)] != -1]
             if bbox_annotation.shape[0] == 0:
-                if torch.is_available():
+                if torch.cuda.is_available():
                     regression_losses.append(torch.tensor(0).float())
                     classification_losses.append(torch.tensor(0).float())
                 else:
@@ -95,7 +99,7 @@ class FocalLoss(nn.Module):
             IoU = calc_iou(anchors[(0), :, :], bbox_annotation[:, :4])
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)
             targets = torch.ones(classification.shape) * -1
-            if torch.is_available():
+            if torch.cuda.is_available():
                 targets = targets
             targets[(torch.lt(IoU_max, 0.4)), :] = 0
             positive_indices = torch.ge(IoU_max, 0.5)
@@ -104,7 +108,7 @@ class FocalLoss(nn.Module):
             targets[(positive_indices), :] = 0
             targets[positive_indices, assigned_annotations[positive_indices, 4].long()] = 1
             alpha_factor = torch.ones(targets.shape) * alpha
-            if torch.is_available():
+            if torch.cuda.is_available():
                 alpha_factor = alpha_factor
             alpha_factor = torch.where(torch.eq(targets, 1.0), alpha_factor, 1.0 - alpha_factor)
             focal_weight = torch.where(torch.eq(targets, 1.0), 1.0 - classification, classification)
@@ -112,7 +116,7 @@ class FocalLoss(nn.Module):
             bce = -(targets * torch.log(classification) + (1.0 - targets) * torch.log(1.0 - classification))
             cls_loss = focal_weight * bce
             zeros = torch.zeros(cls_loss.shape)
-            if torch.is_available():
+            if torch.cuda.is_available():
                 zeros = zeros
             cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, zeros)
             classification_losses.append(cls_loss.sum() / torch.clamp(num_positive_anchors.float(), min=1.0))
@@ -135,13 +139,13 @@ class FocalLoss(nn.Module):
                 targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh))
                 targets = targets.t()
                 norm = torch.Tensor([[0.1, 0.1, 0.2, 0.2]])
-                if torch.is_available():
+                if torch.cuda.is_available():
                     norm = norm
                 targets = targets / norm
                 regression_diff = torch.abs(targets - regression[(positive_indices), :])
                 regression_loss = torch.where(torch.le(regression_diff, 1.0 / 9.0), 0.5 * 9.0 * torch.pow(regression_diff, 2), regression_diff - 0.5 / 9.0)
                 regression_losses.append(regression_loss.mean())
-            elif torch.is_available():
+            elif torch.cuda.is_available():
                 regression_losses.append(torch.tensor(0).float())
             else:
                 regression_losses.append(torch.tensor(0).float())
@@ -302,6 +306,116 @@ class EfficientNet(nn.Module):
         return feature_maps[1:]
 
 
+def generate_anchors(base_size=16, ratios=None, scales=None):
+    if ratios is None:
+        ratios = np.array([0.5, 1, 2])
+    if scales is None:
+        scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
+    num_anchors = len(ratios) * len(scales)
+    anchors = np.zeros((num_anchors, 4))
+    anchors[:, 2:] = base_size * np.tile(scales, (2, len(ratios))).T
+    areas = anchors[:, (2)] * anchors[:, (3)]
+    anchors[:, (2)] = np.sqrt(areas / np.repeat(ratios, len(scales)))
+    anchors[:, (3)] = anchors[:, (2)] * np.repeat(ratios, len(scales))
+    anchors[:, 0::2] -= np.tile(anchors[:, (2)] * 0.5, (2, 1)).T
+    anchors[:, 1::2] -= np.tile(anchors[:, (3)] * 0.5, (2, 1)).T
+    return anchors
+
+
+def shift(shape, stride, anchors):
+    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
+    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
+    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
+    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(), shift_y.ravel())).transpose()
+    A = anchors.shape[0]
+    K = shifts.shape[0]
+    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)).transpose((1, 0, 2))
+    all_anchors = all_anchors.reshape((K * A, 4))
+    return all_anchors
+
+
+class Anchors(nn.Module):
+
+    def __init__(self, pyramid_levels=None, strides=None, sizes=None, ratios=None, scales=None):
+        super(Anchors, self).__init__()
+        if pyramid_levels is None:
+            self.pyramid_levels = [3, 4, 5, 6, 7]
+        if strides is None:
+            self.strides = [(2 ** x) for x in self.pyramid_levels]
+        if sizes is None:
+            self.sizes = [(2 ** (x + 2)) for x in self.pyramid_levels]
+        if ratios is None:
+            self.ratios = np.array([0.5, 1, 2])
+        if scales is None:
+            self.scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
+
+    def forward(self, image):
+        image_shape = image.shape[2:]
+        image_shape = np.array(image_shape)
+        image_shapes = [((image_shape + 2 ** x - 1) // 2 ** x) for x in self.pyramid_levels]
+        all_anchors = np.zeros((0, 4)).astype(np.float32)
+        for idx, p in enumerate(self.pyramid_levels):
+            anchors = generate_anchors(base_size=self.sizes[idx], ratios=self.ratios, scales=self.scales)
+            shifted_anchors = shift(image_shapes[idx], self.strides[idx], anchors)
+            all_anchors = np.append(all_anchors, shifted_anchors, axis=0)
+        all_anchors = np.expand_dims(all_anchors, axis=0)
+        anchors = torch.from_numpy(all_anchors.astype(np.float32))
+        if torch.cuda.is_available():
+            anchors = anchors
+        return anchors
+
+
+class BBoxTransform(nn.Module):
+
+    def __init__(self, mean=None, std=None):
+        super(BBoxTransform, self).__init__()
+        if mean is None:
+            self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
+        else:
+            self.mean = mean
+        if std is None:
+            self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
+        else:
+            self.std = std
+        if torch.cuda.is_available():
+            self.mean = self.mean
+            self.std = self.std
+
+    def forward(self, boxes, deltas):
+        widths = boxes[:, :, (2)] - boxes[:, :, (0)]
+        heights = boxes[:, :, (3)] - boxes[:, :, (1)]
+        ctr_x = boxes[:, :, (0)] + 0.5 * widths
+        ctr_y = boxes[:, :, (1)] + 0.5 * heights
+        dx = deltas[:, :, (0)] * self.std[0] + self.mean[0]
+        dy = deltas[:, :, (1)] * self.std[1] + self.mean[1]
+        dw = deltas[:, :, (2)] * self.std[2] + self.mean[2]
+        dh = deltas[:, :, (3)] * self.std[3] + self.mean[3]
+        pred_ctr_x = ctr_x + dx * widths
+        pred_ctr_y = ctr_y + dy * heights
+        pred_w = torch.exp(dw) * widths
+        pred_h = torch.exp(dh) * heights
+        pred_boxes_x1 = pred_ctr_x - 0.5 * pred_w
+        pred_boxes_y1 = pred_ctr_y - 0.5 * pred_h
+        pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
+        pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
+        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
+        return pred_boxes
+
+
+class ClipBoxes(nn.Module):
+
+    def __init__(self):
+        super(ClipBoxes, self).__init__()
+
+    def forward(self, boxes, img):
+        batch_size, num_channels, height, width = img.shape
+        boxes[:, :, (0)] = torch.clamp(boxes[:, :, (0)], min=0)
+        boxes[:, :, (1)] = torch.clamp(boxes[:, :, (1)], min=0)
+        boxes[:, :, (2)] = torch.clamp(boxes[:, :, (2)], max=width)
+        boxes[:, :, (3)] = torch.clamp(boxes[:, :, (3)], max=height)
+        return boxes
+
+
 def nms(dets, thresh):
     return nms_torch(dets[:, :4], dets[:, (4)], thresh)
 
@@ -379,116 +493,6 @@ class EfficientDet(nn.Module):
             return [nms_scores, nms_class, transformed_anchors[(0), (anchors_nms_idx), :]]
 
 
-class BBoxTransform(nn.Module):
-
-    def __init__(self, mean=None, std=None):
-        super(BBoxTransform, self).__init__()
-        if mean is None:
-            self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
-        else:
-            self.mean = mean
-        if std is None:
-            self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
-        else:
-            self.std = std
-        if torch.is_available():
-            self.mean = self.mean
-            self.std = self.std
-
-    def forward(self, boxes, deltas):
-        widths = boxes[:, :, (2)] - boxes[:, :, (0)]
-        heights = boxes[:, :, (3)] - boxes[:, :, (1)]
-        ctr_x = boxes[:, :, (0)] + 0.5 * widths
-        ctr_y = boxes[:, :, (1)] + 0.5 * heights
-        dx = deltas[:, :, (0)] * self.std[0] + self.mean[0]
-        dy = deltas[:, :, (1)] * self.std[1] + self.mean[1]
-        dw = deltas[:, :, (2)] * self.std[2] + self.mean[2]
-        dh = deltas[:, :, (3)] * self.std[3] + self.mean[3]
-        pred_ctr_x = ctr_x + dx * widths
-        pred_ctr_y = ctr_y + dy * heights
-        pred_w = torch.exp(dw) * widths
-        pred_h = torch.exp(dh) * heights
-        pred_boxes_x1 = pred_ctr_x - 0.5 * pred_w
-        pred_boxes_y1 = pred_ctr_y - 0.5 * pred_h
-        pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
-        pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
-        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
-        return pred_boxes
-
-
-class ClipBoxes(nn.Module):
-
-    def __init__(self):
-        super(ClipBoxes, self).__init__()
-
-    def forward(self, boxes, img):
-        batch_size, num_channels, height, width = img.shape
-        boxes[:, :, (0)] = torch.clamp(boxes[:, :, (0)], min=0)
-        boxes[:, :, (1)] = torch.clamp(boxes[:, :, (1)], min=0)
-        boxes[:, :, (2)] = torch.clamp(boxes[:, :, (2)], max=width)
-        boxes[:, :, (3)] = torch.clamp(boxes[:, :, (3)], max=height)
-        return boxes
-
-
-def generate_anchors(base_size=16, ratios=None, scales=None):
-    if ratios is None:
-        ratios = np.array([0.5, 1, 2])
-    if scales is None:
-        scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
-    num_anchors = len(ratios) * len(scales)
-    anchors = np.zeros((num_anchors, 4))
-    anchors[:, 2:] = base_size * np.tile(scales, (2, len(ratios))).T
-    areas = anchors[:, (2)] * anchors[:, (3)]
-    anchors[:, (2)] = np.sqrt(areas / np.repeat(ratios, len(scales)))
-    anchors[:, (3)] = anchors[:, (2)] * np.repeat(ratios, len(scales))
-    anchors[:, 0::2] -= np.tile(anchors[:, (2)] * 0.5, (2, 1)).T
-    anchors[:, 1::2] -= np.tile(anchors[:, (3)] * 0.5, (2, 1)).T
-    return anchors
-
-
-def shift(shape, stride, anchors):
-    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
-    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
-    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
-    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(), shift_y.ravel())).transpose()
-    A = anchors.shape[0]
-    K = shifts.shape[0]
-    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)).transpose((1, 0, 2))
-    all_anchors = all_anchors.reshape((K * A, 4))
-    return all_anchors
-
-
-class Anchors(nn.Module):
-
-    def __init__(self, pyramid_levels=None, strides=None, sizes=None, ratios=None, scales=None):
-        super(Anchors, self).__init__()
-        if pyramid_levels is None:
-            self.pyramid_levels = [3, 4, 5, 6, 7]
-        if strides is None:
-            self.strides = [(2 ** x) for x in self.pyramid_levels]
-        if sizes is None:
-            self.sizes = [(2 ** (x + 2)) for x in self.pyramid_levels]
-        if ratios is None:
-            self.ratios = np.array([0.5, 1, 2])
-        if scales is None:
-            self.scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
-
-    def forward(self, image):
-        image_shape = image.shape[2:]
-        image_shape = np.array(image_shape)
-        image_shapes = [((image_shape + 2 ** x - 1) // 2 ** x) for x in self.pyramid_levels]
-        all_anchors = np.zeros((0, 4)).astype(np.float32)
-        for idx, p in enumerate(self.pyramid_levels):
-            anchors = generate_anchors(base_size=self.sizes[idx], ratios=self.ratios, scales=self.scales)
-            shifted_anchors = shift(image_shapes[idx], self.strides[idx], anchors)
-            all_anchors = np.append(all_anchors, shifted_anchors, axis=0)
-        all_anchors = np.expand_dims(all_anchors, axis=0)
-        anchors = torch.from_numpy(all_anchors.astype(np.float32))
-        if torch.is_available():
-            anchors = anchors
-        return anchors
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -496,6 +500,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (Anchors,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BBoxTransform,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (Classifier,
      lambda: ([], {'in_channels': 4, 'num_anchors': 4, 'num_classes': 4, 'num_layers': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -526,4 +538,10 @@ class Test_signatrix_efficientdet(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
 

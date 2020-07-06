@@ -23,21 +23,23 @@ get_data = _module
 html = _module
 image_pool = _module
 png = _module
+util = _module
 visualizer = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -75,6 +77,15 @@ import scipy.io as sio
 from torch.nn.functional import conv2d
 
 
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.autograd import gradcheck
+
+
 import itertools
 
 
@@ -82,6 +93,24 @@ from torch.nn import init
 
 
 import functools
+
+
+import torchvision
+
+
+from collections import OrderedDict
+
+
+import random
+
+
+import inspect
+
+
+import re
+
+
+import collections
 
 
 class LaplacianLayer(nn.Module):
@@ -160,6 +189,65 @@ class Twist2Mat(nn.Module):
 
 
 IMG_CHAN = 3
+
+
+class ImagePyramidLayer(nn.Module):
+
+    def __init__(self, chan, pyramid_layer_num):
+        super(ImagePyramidLayer, self).__init__()
+        self.pyramid_layer_num = pyramid_layer_num
+        F = torch.FloatTensor([[0.0751, 0.1238, 0.0751], [0.1238, 0.2042, 0.1238], [0.0751, 0.1238, 0.0751]]).view(1, 1, 3, 3)
+        self.register_buffer('smooth_kernel', F)
+        if chan > 1:
+            f = F
+            F = torch.zeros(chan, chan, 3, 3)
+            for i in range(chan):
+                F[(i), (i), :, :] = f
+        self.register_buffer('smooth_kernel_K', F)
+        self.avg_pool_func = torch.nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
+        self.reflection_pad_func = torch.nn.ReflectionPad2d(1)
+
+    def downsample(self, input):
+        output_dim = input.dim()
+        output_size = input.size()
+        if output_dim == 2:
+            F = self.smooth_kernel
+            input = input.unsqueeze(0).unsqueeze(0)
+        elif output_dim == 3:
+            F = self.smooth_kernel
+            input = input.unsqueeze(1)
+        else:
+            F = self.smooth_kernel_K
+        x = self.reflection_pad_func(input)
+        x = conv2d(input=x, weight=Variable(F), stride=1, padding=0)
+        padding = [0, int(np.mod(input.size(-1), 2)), 0, int(np.mod(input.size(-2), 2))]
+        x = torch.nn.ReplicationPad2d(padding)(x)
+        x = self.avg_pool_func(x)
+        if output_dim == 2:
+            x = x.squeeze(0).squeeze(0)
+        elif output_dim == 3:
+            x = x.squeeze(1)
+        return x
+
+    def forward(self, input, do_detach=True):
+        pyramid = [input]
+        for i in range(self.pyramid_layer_num - 1):
+            img_d = self.downsample(pyramid[i])
+            if isinstance(img_d, Variable) and do_detach:
+                img_d = img_d.detach()
+            pyramid.append(img_d)
+            assert np.ceil(pyramid[i].size(-1) / 2) == img_d.size(-1)
+        return pyramid
+
+    def get_coords(self, imH, imW):
+        x_pyramid = [np.arange(imW) + 0.5]
+        y_pyramid = [np.arange(imH) + 0.5]
+        for i in range(self.pyramid_layer_num - 1):
+            offset = 2 ** i
+            stride = 2 ** (i + 1)
+            x_pyramid.append(np.arange(offset, offset + stride * np.ceil(x_pyramid[i].shape[0] / 2), stride))
+            y_pyramid.append(np.arange(offset, offset + stride * np.ceil(y_pyramid[i].shape[0] / 2), stride))
+        return x_pyramid, y_pyramid
 
 
 def compute_SSIM(img0, mu0, sigma0, img1, mu1, sigma1):
@@ -595,65 +683,6 @@ class ImageSmoothLayer(nn.Module):
         return x
 
 
-class ImagePyramidLayer(nn.Module):
-
-    def __init__(self, chan, pyramid_layer_num):
-        super(ImagePyramidLayer, self).__init__()
-        self.pyramid_layer_num = pyramid_layer_num
-        F = torch.FloatTensor([[0.0751, 0.1238, 0.0751], [0.1238, 0.2042, 0.1238], [0.0751, 0.1238, 0.0751]]).view(1, 1, 3, 3)
-        self.register_buffer('smooth_kernel', F)
-        if chan > 1:
-            f = F
-            F = torch.zeros(chan, chan, 3, 3)
-            for i in range(chan):
-                F[(i), (i), :, :] = f
-        self.register_buffer('smooth_kernel_K', F)
-        self.avg_pool_func = torch.nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
-        self.reflection_pad_func = torch.nn.ReflectionPad2d(1)
-
-    def downsample(self, input):
-        output_dim = input.dim()
-        output_size = input.size()
-        if output_dim == 2:
-            F = self.smooth_kernel
-            input = input.unsqueeze(0).unsqueeze(0)
-        elif output_dim == 3:
-            F = self.smooth_kernel
-            input = input.unsqueeze(1)
-        else:
-            F = self.smooth_kernel_K
-        x = self.reflection_pad_func(input)
-        x = conv2d(input=x, weight=Variable(F), stride=1, padding=0)
-        padding = [0, int(np.mod(input.size(-1), 2)), 0, int(np.mod(input.size(-2), 2))]
-        x = torch.nn.ReplicationPad2d(padding)(x)
-        x = self.avg_pool_func(x)
-        if output_dim == 2:
-            x = x.squeeze(0).squeeze(0)
-        elif output_dim == 3:
-            x = x.squeeze(1)
-        return x
-
-    def forward(self, input, do_detach=True):
-        pyramid = [input]
-        for i in range(self.pyramid_layer_num - 1):
-            img_d = self.downsample(pyramid[i])
-            if isinstance(img_d, Variable) and do_detach:
-                img_d = img_d.detach()
-            pyramid.append(img_d)
-            assert np.ceil(pyramid[i].size(-1) / 2) == img_d.size(-1)
-        return pyramid
-
-    def get_coords(self, imH, imW):
-        x_pyramid = [np.arange(imW) + 0.5]
-        y_pyramid = [np.arange(imH) + 0.5]
-        for i in range(self.pyramid_layer_num - 1):
-            offset = 2 ** i
-            stride = 2 ** (i + 1)
-            x_pyramid.append(np.arange(offset, offset + stride * np.ceil(x_pyramid[i].shape[0] / 2), stride))
-            y_pyramid.append(np.arange(offset, offset + stride * np.ceil(y_pyramid[i].shape[0] / 2), stride))
-        return x_pyramid, y_pyramid
-
-
 class FlipLR(nn.Module):
 
     def __init__(self, imW, dim_w):
@@ -666,267 +695,34 @@ class FlipLR(nn.Module):
         return input.index_select(self.dim_w, Variable(self.inv_indices))
 
 
-class LKVOLearner(nn.Module):
+class PoseNet(nn.Module):
 
-    def __init__(self, img_size=[128, 416], ref_frame_idx=1, lambda_S=0.5, use_ssim=True, smooth_term='lap', gpu_ids=[0]):
-        super(LKVOLearner, self).__init__()
-        self.lkvo = nn.DataParallel(LKVOKernel(img_size, smooth_term=smooth_term), device_ids=gpu_ids)
-        self.ref_frame_idx = ref_frame_idx
-        self.lambda_S = lambda_S
-        self.use_ssim = use_ssim
-
-    def forward(self, frames, camparams, max_lk_iter_num=10):
-        cost, photometric_cost, smoothness_cost, ref_frame, ref_inv_depth = self.lkvo.forward(frames, camparams, self.ref_frame_idx, self.lambda_S, max_lk_iter_num=max_lk_iter_num, use_ssim=self.use_ssim)
-        return cost.mean(), photometric_cost.mean(), smoothness_cost.mean(), ref_frame, ref_inv_depth
-
-    def save_model(self, file_path):
-        torch.save(self.cpu().lkvo.module.depth_net.state_dict(), file_path)
-        self
-
-    def load_model(self, file_path):
-        self.lkvo.module.depth_net.load_state_dict(torch.load(file_path))
-
-    def init_weights(self):
-        self.lkvo.module.depth_net.init_weights()
-
-    def get_parameters(self):
-        return self.lkvo.module.depth_net.parameters()
-
-
-class LKVOKernel(nn.Module):
-    """
-     only support single training isinstance
-    """
-
-    def __init__(self, img_size=[128, 416], smooth_term='lap'):
-        super(LKVOKernel, self).__init__()
-        self.img_size = img_size
-        self.fliplr_func = FlipLR(imW=img_size[1], dim_w=3)
-        self.vo = DirectVO(imH=img_size[0], imW=img_size[1], pyramid_layer_num=5)
-        self.depth_net = VggDepthEstimator(img_size)
-        self.pyramid_func = ImagePyramidLayer(chan=1, pyramid_layer_num=5)
-        self.smooth_term = smooth_term
-
-    def forward(self, frames, camparams, ref_frame_idx, lambda_S=0.5, do_data_augment=True, use_ssim=True, max_lk_iter_num=10):
-        assert frames.size(0) == 1 and frames.dim() == 5
-        frames = frames.squeeze(0)
-        camparams = camparams.squeeze(0).data
-        if do_data_augment:
-            if np.random.rand() > 0.5:
-                frames = self.fliplr_func(frames)
-                camparams[2] = self.img_size[1] - camparams[2]
-        bundle_size = frames.size(0)
-        src_frame_idx = tuple(range(0, ref_frame_idx)) + tuple(range(ref_frame_idx + 1, bundle_size))
-        frames_pyramid = self.vo.pyramid_func(frames)
-        ref_frame_pyramid = [frame[(ref_frame_idx), :, :, :] for frame in frames_pyramid]
-        src_frames_pyramid = [frame[(src_frame_idx), :, :, :] for frame in frames_pyramid]
-        self.vo.setCamera(fx=camparams[0], cx=camparams[2], fy=camparams[4], cy=camparams[5])
-        inv_depth_pyramid = self.depth_net.forward((frames - 127) / 127)
-        inv_depth_mean_ten = inv_depth_pyramid[0].mean() * 0.1
-        inv_depth_norm_pyramid = [(depth / inv_depth_mean_ten) for depth in inv_depth_pyramid]
-        inv_depth0_pyramid = self.pyramid_func(inv_depth_norm_pyramid[0], do_detach=False)
-        ref_inv_depth_pyramid = [depth[(ref_frame_idx), :, :] for depth in inv_depth_norm_pyramid]
-        ref_inv_depth0_pyramid = [depth[(ref_frame_idx), :, :] for depth in inv_depth0_pyramid]
-        src_inv_depth_pyramid = [depth[(src_frame_idx), :, :] for depth in inv_depth_norm_pyramid]
-        src_inv_depth0_pyramid = [depth[(src_frame_idx), :, :] for depth in inv_depth0_pyramid]
-        rot_mat_batch, trans_batch = self.vo.forward(ref_frame_pyramid, src_frames_pyramid, ref_inv_depth0_pyramid, max_itr_num=max_lk_iter_num)
-        photometric_cost = self.vo.compute_phtometric_loss(self.vo.ref_frame_pyramid, src_frames_pyramid, ref_inv_depth_pyramid, src_inv_depth_pyramid, rot_mat_batch, trans_batch, levels=[0, 1, 2, 3], use_ssim=use_ssim)
-        smoothness_cost = self.vo.multi_scale_image_aware_smoothness_cost(inv_depth0_pyramid, frames_pyramid, levels=[2, 3], type=self.smooth_term) + self.vo.multi_scale_image_aware_smoothness_cost(inv_depth_norm_pyramid, frames_pyramid, levels=[2, 3], type=self.smooth_term)
-        cost = photometric_cost + lambda_S * smoothness_cost
-        return cost, photometric_cost, smoothness_cost, self.vo.ref_frame_pyramid[0], ref_inv_depth0_pyramid[0] * inv_depth_mean_ten
-
-
-class FlipLR(nn.Module):
-
-    def __init__(self, imW, dim_w):
-        super(FlipLR, self).__init__()
-        inv_indices = torch.arange(imW - 1, -1, -1).long()
-        self.register_buffer('inv_indices', inv_indices)
-        self.dim_w = dim_w
+    def __init__(self, bundle_size):
+        super(PoseNet, self).__init__()
+        self.bundle_size = bundle_size
+        model = [nn.Conv2d(bundle_size * 3, 16, kernel_size=7, stride=2, padding=3, bias=True), nn.ReLU(True), nn.Conv2d(16, 32, kernel_size=5, stride=2, padding=2, bias=True), nn.ReLU(True), nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1, bias=True), nn.ReLU(True), nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1, bias=True), nn.ReLU(True), nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1, bias=True), nn.ReLU(True), nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1, bias=True), nn.ReLU(True), nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1, bias=True), nn.ReLU(True), nn.Conv2d(256, 6 * (bundle_size - 1), kernel_size=3, stride=2, padding=1, bias=True)]
+        self.model = nn.Sequential(*model)
 
     def forward(self, input):
-        return input.index_select(self.dim_w, Variable(self.inv_indices))
+        assert self.bundle_size * 3 == input.size(1)
+        p = self.model.forward(input)
+        p = p.view(input.size(0), 6 * (self.bundle_size - 1), -1).mean(2)
+        return p.view(input.size(0), self.bundle_size - 1, 6) * 0.01
 
 
-class LKVOLearner(nn.Module):
+class Conv(nn.Module):
 
-    def __init__(self, img_size=[128, 416], ref_frame_idx=1, lambda_S=0.5, use_ssim=True, smooth_term='lap', gpu_ids=[0]):
-        super(LKVOLearner, self).__init__()
-        self.lkvo = nn.DataParallel(LKVOKernel(img_size, smooth_term=smooth_term), device_ids=gpu_ids)
-        self.ref_frame_idx = ref_frame_idx
-        self.lambda_S = lambda_S
-        self.use_ssim = use_ssim
-
-    def forward(self, frames, camparams, max_lk_iter_num=10, lk_level=1):
-        cost, photometric_cost, smoothness_cost, ref_frame, ref_inv_depth = self.lkvo.forward(frames, camparams, self.ref_frame_idx, self.lambda_S, max_lk_iter_num=max_lk_iter_num, use_ssim=self.use_ssim, lk_level=lk_level)
-        return cost.mean(), photometric_cost.mean(), smoothness_cost.mean(), ref_frame, ref_inv_depth
-
-    def save_model(self, file_path):
-        torch.save(self.cpu().lkvo.module.depth_net.state_dict(), file_path)
-        self
-
-    def load_model(self, depth_net_file_path, pose_net_file_path):
-        self.lkvo.module.depth_net.load_state_dict(torch.load(depth_net_file_path))
-        self.lkvo.module.pose_net.load_state_dict(torch.load(pose_net_file_path))
-
-    def init_weights(self):
-        self.lkvo.module.depth_net.init_weights()
-
-    def get_parameters(self):
-        return self.lkvo.module.depth_net.parameters()
-
-
-class LKVOKernel(nn.Module):
-    """
-     only support single training isinstance
-    """
-
-    def __init__(self, img_size=[128, 416], smooth_term='lap'):
-        super(LKVOKernel, self).__init__()
-        self.img_size = img_size
-        self.fliplr_func = FlipLR(imW=img_size[1], dim_w=3)
-        self.vo = DirectVO(imH=img_size[0], imW=img_size[1], pyramid_layer_num=4)
-        self.pose_net = PoseNet(3)
-        self.depth_net = VggDepthEstimator(img_size)
-        self.pyramid_func = ImagePyramidLayer(chan=1, pyramid_layer_num=4)
-        self.smooth_term = smooth_term
-
-    def forward(self, frames, camparams, ref_frame_idx, lambda_S=0.5, do_data_augment=True, use_ssim=True, max_lk_iter_num=10, lk_level=1):
-        assert frames.size(0) == 1 and frames.dim() == 5
-        frames = frames.squeeze(0)
-        camparams = camparams.squeeze(0).data
-        if do_data_augment:
-            if np.random.rand() > 0.5:
-                frames = self.fliplr_func(frames)
-                camparams[2] = self.img_size[1] - camparams[2]
-        bundle_size = frames.size(0)
-        src_frame_idx = tuple(range(0, ref_frame_idx)) + tuple(range(ref_frame_idx + 1, bundle_size))
-        frames_pyramid = self.vo.pyramid_func(frames)
-        ref_frame_pyramid = [frame[(ref_frame_idx), :, :, :] for frame in frames_pyramid]
-        src_frames_pyramid = [frame[(src_frame_idx), :, :, :] for frame in frames_pyramid]
-        self.vo.setCamera(fx=camparams[0], cx=camparams[2], fy=camparams[4], cy=camparams[5])
-        inv_depth_pyramid = self.depth_net.forward((frames - 127) / 127)
-        inv_depth_mean_ten = inv_depth_pyramid[0].mean() * 0.1
-        inv_depth_norm_pyramid = [(depth / inv_depth_mean_ten) for depth in inv_depth_pyramid]
-        inv_depth0_pyramid = self.pyramid_func(inv_depth_norm_pyramid[0], do_detach=False)
-        ref_inv_depth_pyramid = [depth[(ref_frame_idx), :, :] for depth in inv_depth_norm_pyramid]
-        ref_inv_depth0_pyramid = [depth[(ref_frame_idx), :, :] for depth in inv_depth0_pyramid]
-        src_inv_depth_pyramid = [depth[(src_frame_idx), :, :] for depth in inv_depth_norm_pyramid]
-        src_inv_depth0_pyramid = [depth[(src_frame_idx), :, :] for depth in inv_depth0_pyramid]
-        self.vo.init(ref_frame_pyramid=ref_frame_pyramid, inv_depth_pyramid=ref_inv_depth0_pyramid)
-        p = self.pose_net.forward((frames.view(1, -1, frames.size(2), frames.size(3)) - 127) / 127)
-        rot_mat_batch = self.vo.twist2mat_batch_func(p[(0), :, 0:3]).contiguous()
-        trans_batch = p[(0), :, 3:6].contiguous()
-        rot_mat_batch, trans_batch = self.vo.update_with_init_pose(src_frames_pyramid[0:lk_level], max_itr_num=max_lk_iter_num, rot_mat_batch=rot_mat_batch, trans_batch=trans_batch)
-        photometric_cost = self.vo.compute_phtometric_loss(self.vo.ref_frame_pyramid, src_frames_pyramid, ref_inv_depth_pyramid, src_inv_depth_pyramid, rot_mat_batch, trans_batch, levels=[0, 1, 2, 3], use_ssim=use_ssim)
-        smoothness_cost = self.vo.multi_scale_image_aware_smoothness_cost(inv_depth0_pyramid, frames_pyramid, levels=[2, 3], type=self.smooth_term) + self.vo.multi_scale_image_aware_smoothness_cost(inv_depth_norm_pyramid, frames_pyramid, levels=[2, 3], type=self.smooth_term)
-        cost = photometric_cost + lambda_S * smoothness_cost
-        return cost, photometric_cost, smoothness_cost, self.vo.ref_frame_pyramid[0], ref_inv_depth0_pyramid[0] * inv_depth_mean_ten
-
-
-class FlipLR(nn.Module):
-
-    def __init__(self, imW, dim_w):
-        super(FlipLR, self).__init__()
-        inv_indices = torch.arange(imW - 1, -1, -1).long()
-        self.register_buffer('inv_indices', inv_indices)
-        self.dim_w = dim_w
+    def __init__(self, input_nc, output_nc, kernel_size, stride, padding, activation_func=nn.ELU()):
+        super(Conv, self).__init__()
+        self.conv = nn.Conv2d(in_channels=input_nc, out_channels=output_nc, kernel_size=kernel_size, stride=stride, padding=0, bias=True)
+        self.activation_fn = activation_func
+        self.pad_fn = nn.ReplicationPad2d(padding)
 
     def forward(self, input):
-        return input.index_select(self.dim_w, Variable(self.inv_indices))
-
-
-class SfMLearner(nn.Module):
-
-    def __init__(self, img_size=[128, 416], ref_frame_idx=1, lambda_S=0.5, lambda_E=0.01, use_ssim=True, smooth_term='lap', use_expl_mask=False, gpu_ids=[0]):
-        super(SfMLearner, self).__init__()
-        self.sfmkernel = nn.DataParallel(SfMKernel(img_size, smooth_term=smooth_term, use_expl_mask=use_expl_mask), device_ids=gpu_ids)
-        self.ref_frame_idx = ref_frame_idx
-        self.lambda_S = lambda_S
-        self.lambda_E = lambda_E
-        self.use_ssim = use_ssim
-        self.use_expl_mask = use_expl_mask
-
-    def forward(self, frames, camparams, max_lk_iter_num=10):
-        cost, photometric_cost, smoothness_cost, ref_frame, ref_inv_depth, ref_expl_mask = self.sfmkernel.forward(frames, camparams, self.ref_frame_idx, self.lambda_S, self.lambda_E, use_ssim=self.use_ssim)
-        return cost.mean(), photometric_cost.mean(), smoothness_cost.mean(), ref_frame, ref_inv_depth, ref_expl_mask
-
-    def save_model(self, file_path):
-        torch.save(self.cpu().sfmkernel.module.depth_net.state_dict(), file_path + '_depth_net.pth')
-        torch.save(self.sfmkernel.module.pose_net.state_dict(), file_path + '_pose_net.pth')
-        self
-
-    def load_model(self, file_path):
-        self.sfmkernel.module.depth_net.load_state_dict(torch.load(file_path + '_depth_net.pth'))
-        self.sfmkernel.module.pose_net.load_state_dict(torch.load(file_path + '_pose_net.pth'))
-
-    def init_weights(self):
-        self.sfmkernel.module.depth_net.init_weights()
-
-    def get_parameters(self):
-        return itertools.chain(self.sfmkernel.module.depth_net.parameters(), self.sfmkernel.module.pose_net.parameters())
-
-
-class SfMKernel(nn.Module):
-    """
-     only support single training isinstance
-    """
-
-    def __init__(self, img_size=[128, 416], smooth_term='lap', use_expl_mask=False):
-        super(SfMKernel, self).__init__()
-        self.img_size = img_size
-        self.fliplr_func = FlipLR(imW=img_size[1], dim_w=3)
-        self.vo = DirectVO(imH=img_size[0], imW=img_size[1], pyramid_layer_num=4)
-        self.depth_net = VggDepthEstimator(img_size)
-        if use_expl_mask:
-            self.pose_net = PoseExpNet(3)
+        if self.activation_fn == None:
+            return self.conv(self.pad_fn(input))
         else:
-            self.pose_net = PoseNet(3)
-        self.pyramid_func = ImagePyramidLayer(chan=1, pyramid_layer_num=4)
-        self.smooth_term = smooth_term
-        self.use_expl_mask = use_expl_mask
-
-    def forward(self, frames, camparams, ref_frame_idx, lambda_S=0.5, lambda_E=0.01, do_data_augment=True, use_ssim=True):
-        assert frames.size(0) == 1 and frames.dim() == 5
-        frames = frames.squeeze(0)
-        camparams = camparams.squeeze(0).data
-        if do_data_augment:
-            if np.random.rand() > 0.5:
-                frames = self.fliplr_func(frames)
-                camparams[2] = self.img_size[1] - camparams[2]
-        bundle_size = frames.size(0)
-        src_frame_idx = tuple(range(0, ref_frame_idx)) + tuple(range(ref_frame_idx + 1, bundle_size))
-        frames_pyramid = self.vo.pyramid_func(frames)
-        ref_frame_pyramid = [frame[(ref_frame_idx), :, :, :] for frame in frames_pyramid]
-        src_frames_pyramid = [frame[(src_frame_idx), :, :, :] for frame in frames_pyramid]
-        self.vo.setCamera(fx=camparams[0], cx=camparams[2], fy=camparams[4], cy=camparams[5])
-        self.vo.init_xy_pyramid(ref_frame_pyramid)
-        if self.use_expl_mask:
-            p, expl_mask_pyramid = self.pose_net.forward((frames.view(1, -1, frames.size(2), frames.size(3)) - 127) / 127)
-            expl_mask_reg_cost = 0
-            for mask in expl_mask_pyramid:
-                expl_mask_reg_cost += mask.mean()
-            ref_expl_mask_pyramid = [mask.squeeze(0)[ref_frame_idx, ...] for mask in expl_mask_pyramid]
-            src_expl_mask_pyramid = [mask.squeeze(0)[src_frame_idx, ...] for mask in expl_mask_pyramid]
-            expl_mask = ref_expl_mask_pyramid[0]
-        else:
-            p = self.pose_net.forward((frames.view(1, -1, frames.size(2), frames.size(3)) - 127) / 127)
-            ref_expl_mask_pyramid = None
-            src_expl_mask_pyramid = None
-            expl_mask_reg_cost = 0
-            expl_mask = None
-        rot_mat_batch = self.vo.twist2mat_batch_func(p[(0), :, 0:3])
-        trans_batch = p[(0), :, 3:6]
-        inv_depth_pyramid = self.depth_net.forward((frames - 127) / 127)
-        inv_depth_mean_ten = inv_depth_pyramid[0].mean() * 0.1
-        inv_depth_norm_pyramid = [(depth / inv_depth_mean_ten) for depth in inv_depth_pyramid]
-        ref_inv_depth_pyramid = [depth[(ref_frame_idx), :, :] for depth in inv_depth_norm_pyramid]
-        src_inv_depth_pyramid = [depth[(src_frame_idx), :, :] for depth in inv_depth_norm_pyramid]
-        photometric_cost = self.vo.compute_phtometric_loss(ref_frame_pyramid, src_frames_pyramid, ref_inv_depth_pyramid, src_inv_depth_pyramid, rot_mat_batch, trans_batch, levels=[0, 1, 2, 3], use_ssim=use_ssim, ref_expl_mask_pyramid=ref_expl_mask_pyramid, src_expl_mask_pyramid=src_expl_mask_pyramid)
-        inv_depth0_pyramid = self.pyramid_func(inv_depth_norm_pyramid[0], do_detach=False)
-        smoothness_cost = self.vo.multi_scale_image_aware_smoothness_cost(inv_depth0_pyramid, frames_pyramid, levels=[2, 3], type=self.smooth_term) + self.vo.multi_scale_image_aware_smoothness_cost(inv_depth_norm_pyramid, frames_pyramid, levels=[2, 3], type=self.smooth_term)
-        cost = photometric_cost + lambda_S * smoothness_cost - lambda_E * expl_mask_reg_cost
-        return cost, photometric_cost, smoothness_cost, ref_frame_pyramid[0], ref_inv_depth_pyramid[0] * inv_depth_mean_ten, expl_mask
+            return self.activation_fn(self.conv(self.pad_fn(input)))
 
 
 class ConvBlock(nn.Module):
@@ -946,6 +742,12 @@ class ConvBlock(nn.Module):
         return torch.nn.AvgPool2d(kernel_size=2, stride=2, padding=0)(self.activation_fn(x_pad))
 
 
+DISP_SCALING = 10
+
+
+MIN_DISP = 0.01
+
+
 class UpConv(nn.Module):
 
     def __init__(self, input_nc, output_nc, kernel_size):
@@ -955,27 +757,6 @@ class UpConv(nn.Module):
 
     def forward(self, input):
         return self.activation_fn(self.deconv(input))
-
-
-class Conv(nn.Module):
-
-    def __init__(self, input_nc, output_nc, kernel_size, stride, padding, activation_func=nn.ELU()):
-        super(Conv, self).__init__()
-        self.conv = nn.Conv2d(in_channels=input_nc, out_channels=output_nc, kernel_size=kernel_size, stride=stride, padding=0, bias=True)
-        self.activation_fn = activation_func
-        self.pad_fn = nn.ReplicationPad2d(padding)
-
-    def forward(self, input):
-        if self.activation_fn == None:
-            return self.conv(self.pad_fn(input))
-        else:
-            return self.activation_fn(self.conv(self.pad_fn(input)))
-
-
-DISP_SCALING = 10
-
-
-MIN_DISP = 0.01
 
 
 class VggDepthEstimator(nn.Module):
@@ -1052,19 +833,80 @@ class VggDepthEstimator(nn.Module):
         return invdepth_pyramid
 
 
-class PoseNet(nn.Module):
+class LKVOKernel(nn.Module):
+    """
+     only support single training isinstance
+    """
 
-    def __init__(self, bundle_size):
-        super(PoseNet, self).__init__()
-        self.bundle_size = bundle_size
-        model = [nn.Conv2d(bundle_size * 3, 16, kernel_size=7, stride=2, padding=3, bias=True), nn.ReLU(True), nn.Conv2d(16, 32, kernel_size=5, stride=2, padding=2, bias=True), nn.ReLU(True), nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1, bias=True), nn.ReLU(True), nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1, bias=True), nn.ReLU(True), nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1, bias=True), nn.ReLU(True), nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1, bias=True), nn.ReLU(True), nn.Conv2d(256, 256, kernel_size=3, stride=2, padding=1, bias=True), nn.ReLU(True), nn.Conv2d(256, 6 * (bundle_size - 1), kernel_size=3, stride=2, padding=1, bias=True)]
-        self.model = nn.Sequential(*model)
+    def __init__(self, img_size=[128, 416], smooth_term='lap'):
+        super(LKVOKernel, self).__init__()
+        self.img_size = img_size
+        self.fliplr_func = FlipLR(imW=img_size[1], dim_w=3)
+        self.vo = DirectVO(imH=img_size[0], imW=img_size[1], pyramid_layer_num=4)
+        self.pose_net = PoseNet(3)
+        self.depth_net = VggDepthEstimator(img_size)
+        self.pyramid_func = ImagePyramidLayer(chan=1, pyramid_layer_num=4)
+        self.smooth_term = smooth_term
 
-    def forward(self, input):
-        assert self.bundle_size * 3 == input.size(1)
-        p = self.model.forward(input)
-        p = p.view(input.size(0), 6 * (self.bundle_size - 1), -1).mean(2)
-        return p.view(input.size(0), self.bundle_size - 1, 6) * 0.01
+    def forward(self, frames, camparams, ref_frame_idx, lambda_S=0.5, do_data_augment=True, use_ssim=True, max_lk_iter_num=10, lk_level=1):
+        assert frames.size(0) == 1 and frames.dim() == 5
+        frames = frames.squeeze(0)
+        camparams = camparams.squeeze(0).data
+        if do_data_augment:
+            if np.random.rand() > 0.5:
+                frames = self.fliplr_func(frames)
+                camparams[2] = self.img_size[1] - camparams[2]
+        bundle_size = frames.size(0)
+        src_frame_idx = tuple(range(0, ref_frame_idx)) + tuple(range(ref_frame_idx + 1, bundle_size))
+        frames_pyramid = self.vo.pyramid_func(frames)
+        ref_frame_pyramid = [frame[(ref_frame_idx), :, :, :] for frame in frames_pyramid]
+        src_frames_pyramid = [frame[(src_frame_idx), :, :, :] for frame in frames_pyramid]
+        self.vo.setCamera(fx=camparams[0], cx=camparams[2], fy=camparams[4], cy=camparams[5])
+        inv_depth_pyramid = self.depth_net.forward((frames - 127) / 127)
+        inv_depth_mean_ten = inv_depth_pyramid[0].mean() * 0.1
+        inv_depth_norm_pyramid = [(depth / inv_depth_mean_ten) for depth in inv_depth_pyramid]
+        inv_depth0_pyramid = self.pyramid_func(inv_depth_norm_pyramid[0], do_detach=False)
+        ref_inv_depth_pyramid = [depth[(ref_frame_idx), :, :] for depth in inv_depth_norm_pyramid]
+        ref_inv_depth0_pyramid = [depth[(ref_frame_idx), :, :] for depth in inv_depth0_pyramid]
+        src_inv_depth_pyramid = [depth[(src_frame_idx), :, :] for depth in inv_depth_norm_pyramid]
+        src_inv_depth0_pyramid = [depth[(src_frame_idx), :, :] for depth in inv_depth0_pyramid]
+        self.vo.init(ref_frame_pyramid=ref_frame_pyramid, inv_depth_pyramid=ref_inv_depth0_pyramid)
+        p = self.pose_net.forward((frames.view(1, -1, frames.size(2), frames.size(3)) - 127) / 127)
+        rot_mat_batch = self.vo.twist2mat_batch_func(p[(0), :, 0:3]).contiguous()
+        trans_batch = p[(0), :, 3:6].contiguous()
+        rot_mat_batch, trans_batch = self.vo.update_with_init_pose(src_frames_pyramid[0:lk_level], max_itr_num=max_lk_iter_num, rot_mat_batch=rot_mat_batch, trans_batch=trans_batch)
+        photometric_cost = self.vo.compute_phtometric_loss(self.vo.ref_frame_pyramid, src_frames_pyramid, ref_inv_depth_pyramid, src_inv_depth_pyramid, rot_mat_batch, trans_batch, levels=[0, 1, 2, 3], use_ssim=use_ssim)
+        smoothness_cost = self.vo.multi_scale_image_aware_smoothness_cost(inv_depth0_pyramid, frames_pyramid, levels=[2, 3], type=self.smooth_term) + self.vo.multi_scale_image_aware_smoothness_cost(inv_depth_norm_pyramid, frames_pyramid, levels=[2, 3], type=self.smooth_term)
+        cost = photometric_cost + lambda_S * smoothness_cost
+        return cost, photometric_cost, smoothness_cost, self.vo.ref_frame_pyramid[0], ref_inv_depth0_pyramid[0] * inv_depth_mean_ten
+
+
+class LKVOLearner(nn.Module):
+
+    def __init__(self, img_size=[128, 416], ref_frame_idx=1, lambda_S=0.5, use_ssim=True, smooth_term='lap', gpu_ids=[0]):
+        super(LKVOLearner, self).__init__()
+        self.lkvo = nn.DataParallel(LKVOKernel(img_size, smooth_term=smooth_term), device_ids=gpu_ids)
+        self.ref_frame_idx = ref_frame_idx
+        self.lambda_S = lambda_S
+        self.use_ssim = use_ssim
+
+    def forward(self, frames, camparams, max_lk_iter_num=10, lk_level=1):
+        cost, photometric_cost, smoothness_cost, ref_frame, ref_inv_depth = self.lkvo.forward(frames, camparams, self.ref_frame_idx, self.lambda_S, max_lk_iter_num=max_lk_iter_num, use_ssim=self.use_ssim, lk_level=lk_level)
+        return cost.mean(), photometric_cost.mean(), smoothness_cost.mean(), ref_frame, ref_inv_depth
+
+    def save_model(self, file_path):
+        torch.save(self.cpu().lkvo.module.depth_net.state_dict(), file_path)
+        self
+
+    def load_model(self, depth_net_file_path, pose_net_file_path):
+        self.lkvo.module.depth_net.load_state_dict(torch.load(depth_net_file_path))
+        self.lkvo.module.pose_net.load_state_dict(torch.load(pose_net_file_path))
+
+    def init_weights(self):
+        self.lkvo.module.depth_net.init_weights()
+
+    def get_parameters(self):
+        return self.lkvo.module.depth_net.parameters()
 
 
 class PoseExpNet(nn.Module):
@@ -1107,6 +949,99 @@ class PoseExpNet(nn.Module):
         mask2 = self.explyr2(upcnv2)
         mask1 = self.explyr1(upcnv1)
         return p, [mask1, mask2, mask3, mask4]
+
+
+class SfMKernel(nn.Module):
+    """
+     only support single training isinstance
+    """
+
+    def __init__(self, img_size=[128, 416], smooth_term='lap', use_expl_mask=False):
+        super(SfMKernel, self).__init__()
+        self.img_size = img_size
+        self.fliplr_func = FlipLR(imW=img_size[1], dim_w=3)
+        self.vo = DirectVO(imH=img_size[0], imW=img_size[1], pyramid_layer_num=4)
+        self.depth_net = VggDepthEstimator(img_size)
+        if use_expl_mask:
+            self.pose_net = PoseExpNet(3)
+        else:
+            self.pose_net = PoseNet(3)
+        self.pyramid_func = ImagePyramidLayer(chan=1, pyramid_layer_num=4)
+        self.smooth_term = smooth_term
+        self.use_expl_mask = use_expl_mask
+
+    def forward(self, frames, camparams, ref_frame_idx, lambda_S=0.5, lambda_E=0.01, do_data_augment=True, use_ssim=True):
+        assert frames.size(0) == 1 and frames.dim() == 5
+        frames = frames.squeeze(0)
+        camparams = camparams.squeeze(0).data
+        if do_data_augment:
+            if np.random.rand() > 0.5:
+                frames = self.fliplr_func(frames)
+                camparams[2] = self.img_size[1] - camparams[2]
+        bundle_size = frames.size(0)
+        src_frame_idx = tuple(range(0, ref_frame_idx)) + tuple(range(ref_frame_idx + 1, bundle_size))
+        frames_pyramid = self.vo.pyramid_func(frames)
+        ref_frame_pyramid = [frame[(ref_frame_idx), :, :, :] for frame in frames_pyramid]
+        src_frames_pyramid = [frame[(src_frame_idx), :, :, :] for frame in frames_pyramid]
+        self.vo.setCamera(fx=camparams[0], cx=camparams[2], fy=camparams[4], cy=camparams[5])
+        self.vo.init_xy_pyramid(ref_frame_pyramid)
+        if self.use_expl_mask:
+            p, expl_mask_pyramid = self.pose_net.forward((frames.view(1, -1, frames.size(2), frames.size(3)) - 127) / 127)
+            expl_mask_reg_cost = 0
+            for mask in expl_mask_pyramid:
+                expl_mask_reg_cost += mask.mean()
+            ref_expl_mask_pyramid = [mask.squeeze(0)[ref_frame_idx, ...] for mask in expl_mask_pyramid]
+            src_expl_mask_pyramid = [mask.squeeze(0)[src_frame_idx, ...] for mask in expl_mask_pyramid]
+            expl_mask = ref_expl_mask_pyramid[0]
+        else:
+            p = self.pose_net.forward((frames.view(1, -1, frames.size(2), frames.size(3)) - 127) / 127)
+            ref_expl_mask_pyramid = None
+            src_expl_mask_pyramid = None
+            expl_mask_reg_cost = 0
+            expl_mask = None
+        rot_mat_batch = self.vo.twist2mat_batch_func(p[(0), :, 0:3])
+        trans_batch = p[(0), :, 3:6]
+        inv_depth_pyramid = self.depth_net.forward((frames - 127) / 127)
+        inv_depth_mean_ten = inv_depth_pyramid[0].mean() * 0.1
+        inv_depth_norm_pyramid = [(depth / inv_depth_mean_ten) for depth in inv_depth_pyramid]
+        ref_inv_depth_pyramid = [depth[(ref_frame_idx), :, :] for depth in inv_depth_norm_pyramid]
+        src_inv_depth_pyramid = [depth[(src_frame_idx), :, :] for depth in inv_depth_norm_pyramid]
+        photometric_cost = self.vo.compute_phtometric_loss(ref_frame_pyramid, src_frames_pyramid, ref_inv_depth_pyramid, src_inv_depth_pyramid, rot_mat_batch, trans_batch, levels=[0, 1, 2, 3], use_ssim=use_ssim, ref_expl_mask_pyramid=ref_expl_mask_pyramid, src_expl_mask_pyramid=src_expl_mask_pyramid)
+        inv_depth0_pyramid = self.pyramid_func(inv_depth_norm_pyramid[0], do_detach=False)
+        smoothness_cost = self.vo.multi_scale_image_aware_smoothness_cost(inv_depth0_pyramid, frames_pyramid, levels=[2, 3], type=self.smooth_term) + self.vo.multi_scale_image_aware_smoothness_cost(inv_depth_norm_pyramid, frames_pyramid, levels=[2, 3], type=self.smooth_term)
+        cost = photometric_cost + lambda_S * smoothness_cost - lambda_E * expl_mask_reg_cost
+        return cost, photometric_cost, smoothness_cost, ref_frame_pyramid[0], ref_inv_depth_pyramid[0] * inv_depth_mean_ten, expl_mask
+
+
+class SfMLearner(nn.Module):
+
+    def __init__(self, img_size=[128, 416], ref_frame_idx=1, lambda_S=0.5, lambda_E=0.01, use_ssim=True, smooth_term='lap', use_expl_mask=False, gpu_ids=[0]):
+        super(SfMLearner, self).__init__()
+        self.sfmkernel = nn.DataParallel(SfMKernel(img_size, smooth_term=smooth_term, use_expl_mask=use_expl_mask), device_ids=gpu_ids)
+        self.ref_frame_idx = ref_frame_idx
+        self.lambda_S = lambda_S
+        self.lambda_E = lambda_E
+        self.use_ssim = use_ssim
+        self.use_expl_mask = use_expl_mask
+
+    def forward(self, frames, camparams, max_lk_iter_num=10):
+        cost, photometric_cost, smoothness_cost, ref_frame, ref_inv_depth, ref_expl_mask = self.sfmkernel.forward(frames, camparams, self.ref_frame_idx, self.lambda_S, self.lambda_E, use_ssim=self.use_ssim)
+        return cost.mean(), photometric_cost.mean(), smoothness_cost.mean(), ref_frame, ref_inv_depth, ref_expl_mask
+
+    def save_model(self, file_path):
+        torch.save(self.cpu().sfmkernel.module.depth_net.state_dict(), file_path + '_depth_net.pth')
+        torch.save(self.sfmkernel.module.pose_net.state_dict(), file_path + '_pose_net.pth')
+        self
+
+    def load_model(self, file_path):
+        self.sfmkernel.module.depth_net.load_state_dict(torch.load(file_path + '_depth_net.pth'))
+        self.sfmkernel.module.pose_net.load_state_dict(torch.load(file_path + '_pose_net.pth'))
+
+    def init_weights(self):
+        self.sfmkernel.module.depth_net.init_weights()
+
+    def get_parameters(self):
+        return itertools.chain(self.sfmkernel.module.depth_net.parameters(), self.sfmkernel.module.pose_net.parameters())
 
 
 import torch

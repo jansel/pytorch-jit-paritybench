@@ -29,26 +29,54 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+import numpy as np
+
+
+import random
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import transforms
+
+
+from torchvision import utils
+
+
+from torch.utils.data.sampler import Sampler
+
+
+import torch.utils.data as data
+
+
+import copy
 
 
 import torch.nn as nn
 
 
 import torch.nn.functional as F
-
-
-import torch
 
 
 import math
@@ -61,9 +89,6 @@ from torch import nn
 
 
 from torch.nn import functional as F
-
-
-import numpy as np
 
 
 import warnings
@@ -79,9 +104,6 @@ import collections
 
 
 from torch.utils import model_zoo
-
-
-import random
 
 
 import time
@@ -117,7 +139,169 @@ import torchvision.datasets as datasets
 import torch.optim as optim
 
 
-from torch.utils.data import DataLoader
+def conv_ws_2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, eps=1e-05):
+    c_in = weight.size(0)
+    weight_flat = weight.view(c_in, -1)
+    mean = weight_flat.mean(dim=1, keepdim=True).view(c_in, 1, 1, 1)
+    std = weight_flat.std(dim=1, keepdim=True).view(c_in, 1, 1, 1)
+    weight = (weight - mean) / (std + eps)
+    return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
+
+
+class ConvWS2d(nn.Conv2d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, eps=1e-05):
+        super(ConvWS2d, self).__init__(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.eps = eps
+
+    def forward(self, x):
+        return conv_ws_2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.eps)
+
+
+conv_cfg = {'Conv': nn.Conv2d, 'ConvWS': ConvWS2d}
+
+
+def build_conv_layer(cfg, *args, **kwargs):
+    """ Build convolution layer
+    Args:
+        cfg (None or dict): cfg should contain:
+            type (str): identify conv layer type.
+            layer args: args needed to instantiate a conv layer.
+    Returns:
+        layer (nn.Module): created conv layer
+    """
+    if cfg is None:
+        cfg_ = dict(type='Conv')
+    else:
+        assert isinstance(cfg, dict) and 'type' in cfg
+        cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in conv_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        conv_layer = conv_cfg[layer_type]
+    layer = conv_layer(*args, **kwargs, **cfg_)
+    return layer
+
+
+norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm), 'GN': ('gn', nn.GroupNorm)}
+
+
+def build_norm_layer(cfg, num_features, postfix=''):
+    """ Build normalization layer
+    Args:
+        cfg (dict): cfg should contain:
+            type (str): identify norm layer type.
+            layer args: args needed to instantiate a norm layer.
+            requires_grad (bool): [optional] whether stop gradient updates
+        num_features (int): number of channels from input.
+        postfix (int, str): appended into norm abbreviation to
+            create named layer.
+    Returns:
+        name (str): abbreviation + postfix
+        layer (nn.Module): created norm layer
+    """
+    assert isinstance(cfg, dict) and 'type' in cfg
+    cfg_ = cfg.copy()
+    layer_type = cfg_.pop('type')
+    if layer_type not in norm_cfg:
+        raise KeyError('Unrecognized norm type {}'.format(layer_type))
+    else:
+        abbr, norm_layer = norm_cfg[layer_type]
+        if norm_layer is None:
+            raise NotImplementedError
+    assert isinstance(postfix, (int, str))
+    name = abbr + str(postfix)
+    requires_grad = cfg_.pop('requires_grad', True)
+    cfg_.setdefault('eps', 1e-05)
+    if layer_type != 'GN':
+        layer = norm_layer(num_features, **cfg_)
+        if layer_type == 'SyncBN':
+            layer._specify_ddp_gpu_num(1)
+    else:
+        assert 'num_groups' in cfg_
+        layer = norm_layer(num_channels=num_features, **cfg_)
+    for param in layer.parameters():
+        param.requires_grad = requires_grad
+    return name, layer
+
+
+class ConvModule(nn.Module):
+    """A conv block that contains conv/norm/activation layers.
+    Args:
+        in_channels (int): Same as nn.Conv2d.
+        out_channels (int): Same as nn.Conv2d.
+        kernel_size (int or tuple[int]): Same as nn.Conv2d.
+        stride (int or tuple[int]): Same as nn.Conv2d.
+        padding (int or tuple[int]): Same as nn.Conv2d.
+        dilation (int or tuple[int]): Same as nn.Conv2d.
+        groups (int): Same as nn.Conv2d.
+        bias (bool or str): If specified as `auto`, it will be decided by the
+            norm_cfg. Bias will be set as True if norm_cfg is None, otherwise
+            False.
+        conv_cfg (dict): Config dict for convolution layer.
+        norm_cfg (dict): Config dict for normalization layer.
+        activation (str or None): Activation type, "ReLU" by default.
+        inplace (bool): Whether to use inplace mode for activation.
+        order (tuple[str]): The order of conv/norm/activation layers. It is a
+            sequence of "conv", "norm" and "act". Examples are
+            ("conv", "norm", "act") and ("act", "conv", "norm").
+    """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias='auto', conv_cfg=None, norm_cfg=None, activation='relu', inplace=True, order=('conv', 'norm', 'act')):
+        super(ConvModule, self).__init__()
+        assert conv_cfg is None or isinstance(conv_cfg, dict)
+        assert norm_cfg is None or isinstance(norm_cfg, dict)
+        self.conv_cfg = conv_cfg
+        self.norm_cfg = norm_cfg
+        self.activation = activation
+        self.inplace = inplace
+        self.order = order
+        assert isinstance(self.order, tuple) and len(self.order) == 3
+        assert set(order) == set(['conv', 'norm', 'act'])
+        self.with_norm = norm_cfg is not None
+        self.with_activatation = activation is not None
+        if bias == 'auto':
+            bias = False if self.with_norm else True
+        self.with_bias = bias
+        if self.with_norm and self.with_bias:
+            warnings.warn('ConvModule has norm and bias at the same time')
+        self.conv = build_conv_layer(conv_cfg, in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
+        self.in_channels = self.conv.in_channels
+        self.out_channels = self.conv.out_channels
+        self.kernel_size = self.conv.kernel_size
+        self.stride = self.conv.stride
+        self.padding = self.conv.padding
+        self.dilation = self.conv.dilation
+        self.transposed = self.conv.transposed
+        self.output_padding = self.conv.output_padding
+        self.groups = self.conv.groups
+        if self.with_norm:
+            if order.index('norm') > order.index('conv'):
+                norm_channels = out_channels
+            else:
+                norm_channels = in_channels
+            self.norm_name, norm = build_norm_layer(norm_cfg, norm_channels)
+            self.add_module(self.norm_name, norm)
+        if self.with_activatation:
+            if self.activation not in ['relu']:
+                raise ValueError('{} is currently not supported.'.format(self.activation))
+            if self.activation == 'relu':
+                self.activate = nn.ReLU(inplace=inplace)
+
+    @property
+    def norm(self):
+        return getattr(self, self.norm_name)
+
+    def forward(self, x, activate=True, norm=True):
+        for layer in self.order:
+            if layer == 'conv':
+                x = self.conv(x)
+            elif layer == 'norm' and norm and self.with_norm:
+                x = self.norm(x)
+            elif layer == 'act' and activate and self.with_activatation:
+                x = self.activate(x)
+        return x
 
 
 def xavier_init(module, gain=1, bias=0, distribution='normal'):
@@ -128,6 +312,53 @@ def xavier_init(module, gain=1, bias=0, distribution='normal'):
         nn.init.xavier_normal_(module.weight, gain=gain)
     if hasattr(module, 'bias'):
         nn.init.constant_(module.bias, bias)
+
+
+class BiFPNModule(nn.Module):
+
+    def __init__(self, channels, levels, init=0.5, conv_cfg=None, norm_cfg=None, activation=None, eps=0.0001):
+        super(BiFPNModule, self).__init__()
+        self.activation = activation
+        self.eps = eps
+        self.levels = levels
+        self.bifpn_convs = nn.ModuleList()
+        self.w1 = nn.Parameter(torch.Tensor(2, levels).fill_(init))
+        self.relu1 = nn.ReLU()
+        self.w2 = nn.Parameter(torch.Tensor(3, levels - 2).fill_(init))
+        self.relu2 = nn.ReLU()
+        for jj in range(2):
+            for i in range(self.levels - 1):
+                fpn_conv = nn.Sequential(ConvModule(channels, channels, 3, padding=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg, activation=self.activation, inplace=False))
+                self.bifpn_convs.append(fpn_conv)
+
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                xavier_init(m, distribution='uniform')
+
+    def forward(self, inputs):
+        assert len(inputs) == self.levels
+        levels = self.levels
+        w1 = self.relu1(self.w1)
+        w1 /= torch.sum(w1, dim=0) + self.eps
+        w2 = self.relu2(self.w2)
+        w2 /= torch.sum(w2, dim=0) + self.eps
+        idx_bifpn = 0
+        pathtd = inputs
+        inputs_clone = []
+        for in_tensor in inputs:
+            inputs_clone.append(in_tensor.clone())
+        for i in range(levels - 1, 0, -1):
+            pathtd[i - 1] = (w1[0, i - 1] * pathtd[i - 1] + w1[1, i - 1] * F.interpolate(pathtd[i], scale_factor=2, mode='nearest')) / (w1[0, i - 1] + w1[1, i - 1] + self.eps)
+            pathtd[i - 1] = self.bifpn_convs[idx_bifpn](pathtd[i - 1])
+            idx_bifpn = idx_bifpn + 1
+        for i in range(0, levels - 2, 1):
+            pathtd[i + 1] = (w2[0, i] * pathtd[i + 1] + w2[1, i] * F.max_pool2d(pathtd[i], kernel_size=2) + w2[2, i] * inputs_clone[i + 1]) / (w2[0, i] + w2[1, i] + w2[2, i] + self.eps)
+            pathtd[i + 1] = self.bifpn_convs[idx_bifpn](pathtd[i + 1])
+            idx_bifpn = idx_bifpn + 1
+        pathtd[levels - 1] = (w1[0, levels - 1] * pathtd[levels - 1] + w1[1, levels - 1] * F.max_pool2d(pathtd[levels - 2], kernel_size=2)) / (w1[0, levels - 1] + w1[1, levels - 1] + self.eps)
+        pathtd[levels - 1] = self.bifpn_convs[idx_bifpn](pathtd[levels - 1])
+        return pathtd
 
 
 class BIFPN(nn.Module):
@@ -203,119 +434,139 @@ class BIFPN(nn.Module):
         return tuple(outs)
 
 
-class BiFPNModule(nn.Module):
-
-    def __init__(self, channels, levels, init=0.5, conv_cfg=None, norm_cfg=None, activation=None, eps=0.0001):
-        super(BiFPNModule, self).__init__()
-        self.activation = activation
-        self.eps = eps
-        self.levels = levels
-        self.bifpn_convs = nn.ModuleList()
-        self.w1 = nn.Parameter(torch.Tensor(2, levels).fill_(init))
-        self.relu1 = nn.ReLU()
-        self.w2 = nn.Parameter(torch.Tensor(3, levels - 2).fill_(init))
-        self.relu2 = nn.ReLU()
-        for jj in range(2):
-            for i in range(self.levels - 1):
-                fpn_conv = nn.Sequential(ConvModule(channels, channels, 3, padding=1, conv_cfg=conv_cfg, norm_cfg=norm_cfg, activation=self.activation, inplace=False))
-                self.bifpn_convs.append(fpn_conv)
-
-    def init_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                xavier_init(m, distribution='uniform')
-
-    def forward(self, inputs):
-        assert len(inputs) == self.levels
-        levels = self.levels
-        w1 = self.relu1(self.w1)
-        w1 /= torch.sum(w1, dim=0) + self.eps
-        w2 = self.relu2(self.w2)
-        w2 /= torch.sum(w2, dim=0) + self.eps
-        idx_bifpn = 0
-        pathtd = inputs
-        inputs_clone = []
-        for in_tensor in inputs:
-            inputs_clone.append(in_tensor.clone())
-        for i in range(levels - 1, 0, -1):
-            pathtd[i - 1] = (w1[0, i - 1] * pathtd[i - 1] + w1[1, i - 1] * F.interpolate(pathtd[i], scale_factor=2, mode='nearest')) / (w1[0, i - 1] + w1[1, i - 1] + self.eps)
-            pathtd[i - 1] = self.bifpn_convs[idx_bifpn](pathtd[i - 1])
-            idx_bifpn = idx_bifpn + 1
-        for i in range(0, levels - 2, 1):
-            pathtd[i + 1] = (w2[0, i] * pathtd[i + 1] + w2[1, i] * F.max_pool2d(pathtd[i], kernel_size=2) + w2[2, i] * inputs_clone[i + 1]) / (w2[0, i] + w2[1, i] + w2[2, i] + self.eps)
-            pathtd[i + 1] = self.bifpn_convs[idx_bifpn](pathtd[i + 1])
-            idx_bifpn = idx_bifpn + 1
-        pathtd[levels - 1] = (w1[0, levels - 1] * pathtd[levels - 1] + w1[1, levels - 1] * F.max_pool2d(pathtd[levels - 2], kernel_size=2)) / (w1[0, levels - 1] + w1[1, levels - 1] + self.eps)
-        pathtd[levels - 1] = self.bifpn_convs[idx_bifpn](pathtd[levels - 1])
-        return pathtd
+def generate_anchors(base_size=16, ratios=None, scales=None):
+    """
+    Generate anchor (reference) windows by enumerating aspect ratios X
+    scales w.r.t. a reference window.
+    """
+    if ratios is None:
+        ratios = np.array([0.5, 1, 2])
+    if scales is None:
+        scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
+    num_anchors = len(ratios) * len(scales)
+    anchors = np.zeros((num_anchors, 4))
+    anchors[:, 2:] = base_size * np.tile(scales, (2, len(ratios))).T
+    areas = anchors[:, (2)] * anchors[:, (3)]
+    anchors[:, (2)] = np.sqrt(areas / np.repeat(ratios, len(scales)))
+    anchors[:, (3)] = anchors[:, (2)] * np.repeat(ratios, len(scales))
+    anchors[:, 0::2] -= np.tile(anchors[:, (2)] * 0.5, (2, 1)).T
+    anchors[:, 1::2] -= np.tile(anchors[:, (3)] * 0.5, (2, 1)).T
+    return anchors
 
 
-MODEL_MAP = {'efficientdet-d0': 'efficientnet-b0', 'efficientdet-d1': 'efficientnet-b1', 'efficientdet-d2': 'efficientnet-b2', 'efficientdet-d3': 'efficientnet-b3', 'efficientdet-d4': 'efficientnet-b4', 'efficientdet-d5': 'efficientnet-b5', 'efficientdet-d6': 'efficientnet-b6', 'efficientdet-d7': 'efficientnet-b6'}
+def shift(shape, stride, anchors):
+    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
+    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
+    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
+    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(), shift_y.ravel())).transpose()
+    A = anchors.shape[0]
+    K = shifts.shape[0]
+    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)).transpose((1, 0, 2))
+    all_anchors = all_anchors.reshape((K * A, 4))
+    return all_anchors
 
 
-class EfficientDet(nn.Module):
+class Anchors(nn.Module):
 
-    def __init__(self, num_classes, network='efficientdet-d0', D_bifpn=3, W_bifpn=88, D_class=3, is_training=True, threshold=0.01, iou_threshold=0.5):
-        super(EfficientDet, self).__init__()
-        self.backbone = EfficientNet.from_pretrained(MODEL_MAP[network])
-        self.is_training = is_training
-        self.neck = BIFPN(in_channels=self.backbone.get_list_features()[-5:], out_channels=W_bifpn, stack=D_bifpn, num_outs=5)
-        self.bbox_head = RetinaHead(num_classes=num_classes, in_channels=W_bifpn)
-        self.anchors = Anchors()
-        self.regressBoxes = BBoxTransform()
-        self.clipBoxes = ClipBoxes()
-        self.threshold = threshold
-        self.iou_threshold = iou_threshold
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2.0 / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-        self.freeze_bn()
-        self.criterion = FocalLoss()
+    def __init__(self, pyramid_levels=None, strides=None, sizes=None, ratios=None, scales=None):
+        super(Anchors, self).__init__()
+        if pyramid_levels is None:
+            self.pyramid_levels = [3, 4, 5, 6, 7]
+        if strides is None:
+            self.strides = [(2 ** x) for x in self.pyramid_levels]
+        if sizes is None:
+            self.sizes = [(2 ** (x + 2)) for x in self.pyramid_levels]
+        if ratios is None:
+            self.ratios = np.array([0.5, 1, 2])
+        if scales is None:
+            self.scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
 
-    def forward(self, inputs):
-        if self.is_training:
-            inputs, annotations = inputs
+    def forward(self, image):
+        image_shape = image.shape[2:]
+        image_shape = np.array(image_shape)
+        image_shapes = [((image_shape + 2 ** x - 1) // 2 ** x) for x in self.pyramid_levels]
+        all_anchors = np.zeros((0, 4)).astype(np.float32)
+        for idx, p in enumerate(self.pyramid_levels):
+            anchors = generate_anchors(base_size=self.sizes[idx], ratios=self.ratios, scales=self.scales)
+            shifted_anchors = shift(image_shapes[idx], self.strides[idx], anchors)
+            all_anchors = np.append(all_anchors, shifted_anchors, axis=0)
+        all_anchors = np.expand_dims(all_anchors, axis=0)
+        return torch.from_numpy(all_anchors.astype(np.float32))
+
+
+class BBoxTransform(nn.Module):
+
+    def __init__(self, mean=None, std=None):
+        super(BBoxTransform, self).__init__()
+        if mean is None:
+            self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
         else:
-            inputs = inputs
-        x = self.extract_feat(inputs)
-        outs = self.bbox_head(x)
-        classification = torch.cat([out for out in outs[0]], dim=1)
-        regression = torch.cat([out for out in outs[1]], dim=1)
-        anchors = self.anchors(inputs)
-        if self.is_training:
-            return self.criterion(classification, regression, anchors, annotations)
+            self.mean = mean
+        if std is None:
+            self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
         else:
-            transformed_anchors = self.regressBoxes(anchors, regression)
-            transformed_anchors = self.clipBoxes(transformed_anchors, inputs)
-            scores = torch.max(classification, dim=2, keepdim=True)[0]
-            scores_over_thresh = (scores > self.threshold)[(0), :, (0)]
-            if scores_over_thresh.sum() == 0:
-                None
-                return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
-            classification = classification[:, (scores_over_thresh), :]
-            transformed_anchors = transformed_anchors[:, (scores_over_thresh), :]
-            scores = scores[:, (scores_over_thresh), :]
-            anchors_nms_idx = nms(transformed_anchors[(0), :, :], scores[(0), :, (0)], iou_threshold=self.iou_threshold)
-            nms_scores, nms_class = classification[(0), (anchors_nms_idx), :].max(dim=1)
-            return [nms_scores, nms_class, transformed_anchors[(0), (anchors_nms_idx), :]]
+            self.std = std
 
-    def freeze_bn(self):
-        """Freeze BatchNorm layers."""
-        for layer in self.modules():
-            if isinstance(layer, nn.BatchNorm2d):
-                layer.eval()
+    def forward(self, boxes, deltas):
+        widths = boxes[:, :, (2)] - boxes[:, :, (0)]
+        heights = boxes[:, :, (3)] - boxes[:, :, (1)]
+        ctr_x = boxes[:, :, (0)] + 0.5 * widths
+        ctr_y = boxes[:, :, (1)] + 0.5 * heights
+        dx = deltas[:, :, (0)] * self.std[0] + self.mean[0]
+        dy = deltas[:, :, (1)] * self.std[1] + self.mean[1]
+        dw = deltas[:, :, (2)] * self.std[2] + self.mean[2]
+        dh = deltas[:, :, (3)] * self.std[3] + self.mean[3]
+        pred_ctr_x = ctr_x + dx * widths
+        pred_ctr_y = ctr_y + dy * heights
+        pred_w = torch.exp(dw) * widths
+        pred_h = torch.exp(dh) * heights
+        pred_boxes_x1 = pred_ctr_x - 0.5 * pred_w
+        pred_boxes_y1 = pred_ctr_y - 0.5 * pred_h
+        pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
+        pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
+        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
+        return pred_boxes
 
-    def extract_feat(self, img):
-        """
-            Directly extract features from the backbone+neck
-        """
-        x = self.backbone(img)
-        x = self.neck(x[-5:])
-        return x
+
+class ClipBoxes(nn.Module):
+
+    def __init__(self, width=None, height=None):
+        super(ClipBoxes, self).__init__()
+
+    def forward(self, boxes, img):
+        batch_size, num_channels, height, width = img.shape
+        boxes[:, :, (0)] = torch.clamp(boxes[:, :, (0)], min=0)
+        boxes[:, :, (1)] = torch.clamp(boxes[:, :, (1)], min=0)
+        boxes[:, :, (2)] = torch.clamp(boxes[:, :, (2)], max=width)
+        boxes[:, :, (3)] = torch.clamp(boxes[:, :, (3)], max=height)
+        return boxes
+
+
+class SwishImplementation(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, i):
+        result = i * torch.sigmoid(i)
+        ctx.save_for_backward(i)
+        return result
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        i = ctx.saved_variables[0]
+        sigmoid_i = torch.sigmoid(i)
+        return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
+
+
+class MemoryEfficientSwish(nn.Module):
+
+    def forward(self, x):
+        return SwishImplementation.apply(x)
+
+
+class Swish(nn.Module):
+
+    def forward(self, x):
+        return x * torch.sigmoid(x)
 
 
 def drop_connect(inputs, p, training):
@@ -329,6 +580,58 @@ def drop_connect(inputs, p, training):
     binary_tensor = torch.floor(random_tensor)
     output = inputs / keep_prob * binary_tensor
     return output
+
+
+class Conv2dDynamicSamePadding(nn.Conv2d):
+    """ 2D Convolutions like TensorFlow, for a dynamic image size """
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
+        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
+
+    def forward(self, x):
+        ih, iw = x.size()[-2:]
+        kh, kw = self.weight.size()[-2:]
+        sh, sw = self.stride
+        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
+        if pad_h > 0 or pad_w > 0:
+            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
+        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+
+
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, input):
+        return input
+
+
+class Conv2dStaticSamePadding(nn.Conv2d):
+    """ 2D Convolutions like TensorFlow, for a fixed image size"""
+
+    def __init__(self, in_channels, out_channels, kernel_size, image_size=None, **kwargs):
+        super().__init__(in_channels, out_channels, kernel_size, **kwargs)
+        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
+        assert image_size is not None
+        ih, iw = image_size if type(image_size) == list else [image_size, image_size]
+        kh, kw = self.weight.size()[-2:]
+        sh, sw = self.stride
+        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
+        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
+        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
+        if pad_h > 0 or pad_w > 0:
+            self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2))
+        else:
+            self.static_padding = Identity()
+
+    def forward(self, x):
+        x = self.static_padding(x)
+        x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+        return x
 
 
 def get_same_padding_conv2d(image_size=None):
@@ -501,7 +804,7 @@ def load_pretrained_weights(model, model_name, load_fc=True):
         state_dict.pop('_fc.bias')
         res = model.load_state_dict(state_dict, strict=False)
         assert set(res.missing_keys) == set(['_fc.weight', '_fc.bias']), 'issue loading pretrained weights'
-    print('Loaded pretrained weights for {}'.format(model_name))
+    None
 
 
 def round_filters(filters, global_params):
@@ -722,339 +1025,7 @@ class FocalLoss(nn.Module):
         return torch.stack(classification_losses).mean(dim=0, keepdim=True), torch.stack(regression_losses).mean(dim=0, keepdim=True)
 
 
-class BBoxTransform(nn.Module):
-
-    def __init__(self, mean=None, std=None):
-        super(BBoxTransform, self).__init__()
-        if mean is None:
-            self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
-        else:
-            self.mean = mean
-        if std is None:
-            self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
-        else:
-            self.std = std
-
-    def forward(self, boxes, deltas):
-        widths = boxes[:, :, (2)] - boxes[:, :, (0)]
-        heights = boxes[:, :, (3)] - boxes[:, :, (1)]
-        ctr_x = boxes[:, :, (0)] + 0.5 * widths
-        ctr_y = boxes[:, :, (1)] + 0.5 * heights
-        dx = deltas[:, :, (0)] * self.std[0] + self.mean[0]
-        dy = deltas[:, :, (1)] * self.std[1] + self.mean[1]
-        dw = deltas[:, :, (2)] * self.std[2] + self.mean[2]
-        dh = deltas[:, :, (3)] * self.std[3] + self.mean[3]
-        pred_ctr_x = ctr_x + dx * widths
-        pred_ctr_y = ctr_y + dy * heights
-        pred_w = torch.exp(dw) * widths
-        pred_h = torch.exp(dh) * heights
-        pred_boxes_x1 = pred_ctr_x - 0.5 * pred_w
-        pred_boxes_y1 = pred_ctr_y - 0.5 * pred_h
-        pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
-        pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
-        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
-        return pred_boxes
-
-
-class ClipBoxes(nn.Module):
-
-    def __init__(self, width=None, height=None):
-        super(ClipBoxes, self).__init__()
-
-    def forward(self, boxes, img):
-        batch_size, num_channels, height, width = img.shape
-        boxes[:, :, (0)] = torch.clamp(boxes[:, :, (0)], min=0)
-        boxes[:, :, (1)] = torch.clamp(boxes[:, :, (1)], min=0)
-        boxes[:, :, (2)] = torch.clamp(boxes[:, :, (2)], max=width)
-        boxes[:, :, (3)] = torch.clamp(boxes[:, :, (3)], max=height)
-        return boxes
-
-
-class RegressionModel(nn.Module):
-
-    def __init__(self, num_features_in, num_anchors=9, feature_size=256):
-        super(RegressionModel, self).__init__()
-        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
-        self.act1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
-        self.act2 = nn.ReLU()
-        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
-        self.act3 = nn.ReLU()
-        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
-        self.act4 = nn.ReLU()
-        self.output = nn.Conv2d(feature_size, num_anchors * 4, kernel_size=3, padding=1)
-
-    def forward(self, x):
-        out = self.conv1(x)
-        out = self.act1(out)
-        out = self.conv2(out)
-        out = self.act2(out)
-        out = self.conv3(out)
-        out = self.act3(out)
-        out = self.conv4(out)
-        out = self.act4(out)
-        out = self.output(out)
-        out = out.permute(0, 2, 3, 1)
-        return out.contiguous().view(out.shape[0], -1, 4)
-
-
-class ClassificationModel(nn.Module):
-
-    def __init__(self, num_features_in, num_anchors=9, num_classes=80, prior=0.01, feature_size=256):
-        super(ClassificationModel, self).__init__()
-        self.num_classes = num_classes
-        self.num_anchors = num_anchors
-        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
-        self.act1 = nn.ReLU()
-        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
-        self.act2 = nn.ReLU()
-        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
-        self.act3 = nn.ReLU()
-        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
-        self.act4 = nn.ReLU()
-        self.output = nn.Conv2d(feature_size, num_anchors * num_classes, kernel_size=3, padding=1)
-        self.output_act = nn.Sigmoid()
-
-    def forward(self, x):
-        out = self.conv1(x)
-        out = self.act1(out)
-        out = self.conv2(out)
-        out = self.act2(out)
-        out = self.conv3(out)
-        out = self.act3(out)
-        out = self.conv4(out)
-        out = self.act4(out)
-        out = self.output(out)
-        out = self.output_act(out)
-        out1 = out.permute(0, 2, 3, 1)
-        batch_size, width, height, channels = out1.shape
-        out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes)
-        return out2.contiguous().view(x.shape[0], -1, self.num_classes)
-
-
-def generate_anchors(base_size=16, ratios=None, scales=None):
-    """
-    Generate anchor (reference) windows by enumerating aspect ratios X
-    scales w.r.t. a reference window.
-    """
-    if ratios is None:
-        ratios = np.array([0.5, 1, 2])
-    if scales is None:
-        scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
-    num_anchors = len(ratios) * len(scales)
-    anchors = np.zeros((num_anchors, 4))
-    anchors[:, 2:] = base_size * np.tile(scales, (2, len(ratios))).T
-    areas = anchors[:, (2)] * anchors[:, (3)]
-    anchors[:, (2)] = np.sqrt(areas / np.repeat(ratios, len(scales)))
-    anchors[:, (3)] = anchors[:, (2)] * np.repeat(ratios, len(scales))
-    anchors[:, 0::2] -= np.tile(anchors[:, (2)] * 0.5, (2, 1)).T
-    anchors[:, 1::2] -= np.tile(anchors[:, (3)] * 0.5, (2, 1)).T
-    return anchors
-
-
-def shift(shape, stride, anchors):
-    shift_x = (np.arange(0, shape[1]) + 0.5) * stride
-    shift_y = (np.arange(0, shape[0]) + 0.5) * stride
-    shift_x, shift_y = np.meshgrid(shift_x, shift_y)
-    shifts = np.vstack((shift_x.ravel(), shift_y.ravel(), shift_x.ravel(), shift_y.ravel())).transpose()
-    A = anchors.shape[0]
-    K = shifts.shape[0]
-    all_anchors = anchors.reshape((1, A, 4)) + shifts.reshape((1, K, 4)).transpose((1, 0, 2))
-    all_anchors = all_anchors.reshape((K * A, 4))
-    return all_anchors
-
-
-class Anchors(nn.Module):
-
-    def __init__(self, pyramid_levels=None, strides=None, sizes=None, ratios=None, scales=None):
-        super(Anchors, self).__init__()
-        if pyramid_levels is None:
-            self.pyramid_levels = [3, 4, 5, 6, 7]
-        if strides is None:
-            self.strides = [(2 ** x) for x in self.pyramid_levels]
-        if sizes is None:
-            self.sizes = [(2 ** (x + 2)) for x in self.pyramid_levels]
-        if ratios is None:
-            self.ratios = np.array([0.5, 1, 2])
-        if scales is None:
-            self.scales = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
-
-    def forward(self, image):
-        image_shape = image.shape[2:]
-        image_shape = np.array(image_shape)
-        image_shapes = [((image_shape + 2 ** x - 1) // 2 ** x) for x in self.pyramid_levels]
-        all_anchors = np.zeros((0, 4)).astype(np.float32)
-        for idx, p in enumerate(self.pyramid_levels):
-            anchors = generate_anchors(base_size=self.sizes[idx], ratios=self.ratios, scales=self.scales)
-            shifted_anchors = shift(image_shapes[idx], self.strides[idx], anchors)
-            all_anchors = np.append(all_anchors, shifted_anchors, axis=0)
-        all_anchors = np.expand_dims(all_anchors, axis=0)
-        return torch.from_numpy(all_anchors.astype(np.float32))
-
-
-def conv_ws_2d(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, eps=1e-05):
-    c_in = weight.size(0)
-    weight_flat = weight.view(c_in, -1)
-    mean = weight_flat.mean(dim=1, keepdim=True).view(c_in, 1, 1, 1)
-    std = weight_flat.std(dim=1, keepdim=True).view(c_in, 1, 1, 1)
-    weight = (weight - mean) / (std + eps)
-    return F.conv2d(input, weight, bias, stride, padding, dilation, groups)
-
-
-class ConvWS2d(nn.Conv2d):
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias=True, eps=1e-05):
-        super(ConvWS2d, self).__init__(in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.eps = eps
-
-    def forward(self, x):
-        return conv_ws_2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups, self.eps)
-
-
-conv_cfg = {'Conv': nn.Conv2d, 'ConvWS': ConvWS2d}
-
-
-def build_conv_layer(cfg, *args, **kwargs):
-    """ Build convolution layer
-    Args:
-        cfg (None or dict): cfg should contain:
-            type (str): identify conv layer type.
-            layer args: args needed to instantiate a conv layer.
-    Returns:
-        layer (nn.Module): created conv layer
-    """
-    if cfg is None:
-        cfg_ = dict(type='Conv')
-    else:
-        assert isinstance(cfg, dict) and 'type' in cfg
-        cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in conv_cfg:
-        raise KeyError('Unrecognized norm type {}'.format(layer_type))
-    else:
-        conv_layer = conv_cfg[layer_type]
-    layer = conv_layer(*args, **kwargs, **cfg_)
-    return layer
-
-
-norm_cfg = {'BN': ('bn', nn.BatchNorm2d), 'SyncBN': ('bn', nn.SyncBatchNorm), 'GN': ('gn', nn.GroupNorm)}
-
-
-def build_norm_layer(cfg, num_features, postfix=''):
-    """ Build normalization layer
-    Args:
-        cfg (dict): cfg should contain:
-            type (str): identify norm layer type.
-            layer args: args needed to instantiate a norm layer.
-            requires_grad (bool): [optional] whether stop gradient updates
-        num_features (int): number of channels from input.
-        postfix (int, str): appended into norm abbreviation to
-            create named layer.
-    Returns:
-        name (str): abbreviation + postfix
-        layer (nn.Module): created norm layer
-    """
-    assert isinstance(cfg, dict) and 'type' in cfg
-    cfg_ = cfg.copy()
-    layer_type = cfg_.pop('type')
-    if layer_type not in norm_cfg:
-        raise KeyError('Unrecognized norm type {}'.format(layer_type))
-    else:
-        abbr, norm_layer = norm_cfg[layer_type]
-        if norm_layer is None:
-            raise NotImplementedError
-    assert isinstance(postfix, (int, str))
-    name = abbr + str(postfix)
-    requires_grad = cfg_.pop('requires_grad', True)
-    cfg_.setdefault('eps', 1e-05)
-    if layer_type != 'GN':
-        layer = norm_layer(num_features, **cfg_)
-        if layer_type == 'SyncBN':
-            layer._specify_ddp_gpu_num(1)
-    else:
-        assert 'num_groups' in cfg_
-        layer = norm_layer(num_channels=num_features, **cfg_)
-    for param in layer.parameters():
-        param.requires_grad = requires_grad
-    return name, layer
-
-
-class ConvModule(nn.Module):
-    """A conv block that contains conv/norm/activation layers.
-    Args:
-        in_channels (int): Same as nn.Conv2d.
-        out_channels (int): Same as nn.Conv2d.
-        kernel_size (int or tuple[int]): Same as nn.Conv2d.
-        stride (int or tuple[int]): Same as nn.Conv2d.
-        padding (int or tuple[int]): Same as nn.Conv2d.
-        dilation (int or tuple[int]): Same as nn.Conv2d.
-        groups (int): Same as nn.Conv2d.
-        bias (bool or str): If specified as `auto`, it will be decided by the
-            norm_cfg. Bias will be set as True if norm_cfg is None, otherwise
-            False.
-        conv_cfg (dict): Config dict for convolution layer.
-        norm_cfg (dict): Config dict for normalization layer.
-        activation (str or None): Activation type, "ReLU" by default.
-        inplace (bool): Whether to use inplace mode for activation.
-        order (tuple[str]): The order of conv/norm/activation layers. It is a
-            sequence of "conv", "norm" and "act". Examples are
-            ("conv", "norm", "act") and ("act", "conv", "norm").
-    """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, bias='auto', conv_cfg=None, norm_cfg=None, activation='relu', inplace=True, order=('conv', 'norm', 'act')):
-        super(ConvModule, self).__init__()
-        assert conv_cfg is None or isinstance(conv_cfg, dict)
-        assert norm_cfg is None or isinstance(norm_cfg, dict)
-        self.conv_cfg = conv_cfg
-        self.norm_cfg = norm_cfg
-        self.activation = activation
-        self.inplace = inplace
-        self.order = order
-        assert isinstance(self.order, tuple) and len(self.order) == 3
-        assert set(order) == set(['conv', 'norm', 'act'])
-        self.with_norm = norm_cfg is not None
-        self.with_activatation = activation is not None
-        if bias == 'auto':
-            bias = False if self.with_norm else True
-        self.with_bias = bias
-        if self.with_norm and self.with_bias:
-            warnings.warn('ConvModule has norm and bias at the same time')
-        self.conv = build_conv_layer(conv_cfg, in_channels, out_channels, kernel_size, stride=stride, padding=padding, dilation=dilation, groups=groups, bias=bias)
-        self.in_channels = self.conv.in_channels
-        self.out_channels = self.conv.out_channels
-        self.kernel_size = self.conv.kernel_size
-        self.stride = self.conv.stride
-        self.padding = self.conv.padding
-        self.dilation = self.conv.dilation
-        self.transposed = self.conv.transposed
-        self.output_padding = self.conv.output_padding
-        self.groups = self.conv.groups
-        if self.with_norm:
-            if order.index('norm') > order.index('conv'):
-                norm_channels = out_channels
-            else:
-                norm_channels = in_channels
-            self.norm_name, norm = build_norm_layer(norm_cfg, norm_channels)
-            self.add_module(self.norm_name, norm)
-        if self.with_activatation:
-            if self.activation not in ['relu']:
-                raise ValueError('{} is currently not supported.'.format(self.activation))
-            if self.activation == 'relu':
-                self.activate = nn.ReLU(inplace=inplace)
-
-    @property
-    def norm(self):
-        return getattr(self, self.norm_name)
-
-    def forward(self, x, activate=True, norm=True):
-        for layer in self.order:
-            if layer == 'conv':
-                x = self.conv(x)
-            elif layer == 'norm' and norm and self.with_norm:
-                x = self.norm(x)
-            elif layer == 'act' and activate and self.with_activatation:
-                x = self.activate(x)
-        return x
+MODEL_MAP = {'efficientdet-d0': 'efficientnet-b0', 'efficientdet-d1': 'efficientnet-b1', 'efficientdet-d2': 'efficientnet-b2', 'efficientdet-d3': 'efficientnet-b3', 'efficientdet-d4': 'efficientnet-b4', 'efficientdet-d5': 'efficientnet-b5', 'efficientdet-d6': 'efficientnet-b6', 'efficientdet-d7': 'efficientnet-b6'}
 
 
 def bias_init_with_prob(prior_prob):
@@ -1156,83 +1127,131 @@ class RetinaHead(nn.Module):
         return multi_apply(self.forward_single, feats)
 
 
-class SwishImplementation(torch.autograd.Function):
+class EfficientDet(nn.Module):
 
-    @staticmethod
-    def forward(ctx, i):
-        result = i * torch.sigmoid(i)
-        ctx.save_for_backward(i)
-        return result
+    def __init__(self, num_classes, network='efficientdet-d0', D_bifpn=3, W_bifpn=88, D_class=3, is_training=True, threshold=0.01, iou_threshold=0.5):
+        super(EfficientDet, self).__init__()
+        self.backbone = EfficientNet.from_pretrained(MODEL_MAP[network])
+        self.is_training = is_training
+        self.neck = BIFPN(in_channels=self.backbone.get_list_features()[-5:], out_channels=W_bifpn, stack=D_bifpn, num_outs=5)
+        self.bbox_head = RetinaHead(num_classes=num_classes, in_channels=W_bifpn)
+        self.anchors = Anchors()
+        self.regressBoxes = BBoxTransform()
+        self.clipBoxes = ClipBoxes()
+        self.threshold = threshold
+        self.iou_threshold = iou_threshold
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2.0 / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+        self.freeze_bn()
+        self.criterion = FocalLoss()
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        i = ctx.saved_variables[0]
-        sigmoid_i = torch.sigmoid(i)
-        return grad_output * (sigmoid_i * (1 + i * (1 - sigmoid_i)))
-
-
-class MemoryEfficientSwish(nn.Module):
-
-    def forward(self, x):
-        return SwishImplementation.apply(x)
-
-
-class Swish(nn.Module):
-
-    def forward(self, x):
-        return x * torch.sigmoid(x)
-
-
-class Conv2dDynamicSamePadding(nn.Conv2d):
-    """ 2D Convolutions like TensorFlow, for a dynamic image size """
-
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1, groups=1, bias=True):
-        super().__init__(in_channels, out_channels, kernel_size, stride, 0, dilation, groups, bias)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
-
-    def forward(self, x):
-        ih, iw = x.size()[-2:]
-        kh, kw = self.weight.size()[-2:]
-        sh, sw = self.stride
-        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
-        if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
-        return F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
-
-
-class Conv2dStaticSamePadding(nn.Conv2d):
-    """ 2D Convolutions like TensorFlow, for a fixed image size"""
-
-    def __init__(self, in_channels, out_channels, kernel_size, image_size=None, **kwargs):
-        super().__init__(in_channels, out_channels, kernel_size, **kwargs)
-        self.stride = self.stride if len(self.stride) == 2 else [self.stride[0]] * 2
-        assert image_size is not None
-        ih, iw = image_size if type(image_size) == list else [image_size, image_size]
-        kh, kw = self.weight.size()[-2:]
-        sh, sw = self.stride
-        oh, ow = math.ceil(ih / sh), math.ceil(iw / sw)
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
-        if pad_h > 0 or pad_w > 0:
-            self.static_padding = nn.ZeroPad2d((pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2))
+    def forward(self, inputs):
+        if self.is_training:
+            inputs, annotations = inputs
         else:
-            self.static_padding = Identity()
+            inputs = inputs
+        x = self.extract_feat(inputs)
+        outs = self.bbox_head(x)
+        classification = torch.cat([out for out in outs[0]], dim=1)
+        regression = torch.cat([out for out in outs[1]], dim=1)
+        anchors = self.anchors(inputs)
+        if self.is_training:
+            return self.criterion(classification, regression, anchors, annotations)
+        else:
+            transformed_anchors = self.regressBoxes(anchors, regression)
+            transformed_anchors = self.clipBoxes(transformed_anchors, inputs)
+            scores = torch.max(classification, dim=2, keepdim=True)[0]
+            scores_over_thresh = (scores > self.threshold)[(0), :, (0)]
+            if scores_over_thresh.sum() == 0:
+                None
+                return [torch.zeros(0), torch.zeros(0), torch.zeros(0, 4)]
+            classification = classification[:, (scores_over_thresh), :]
+            transformed_anchors = transformed_anchors[:, (scores_over_thresh), :]
+            scores = scores[:, (scores_over_thresh), :]
+            anchors_nms_idx = nms(transformed_anchors[(0), :, :], scores[(0), :, (0)], iou_threshold=self.iou_threshold)
+            nms_scores, nms_class = classification[(0), (anchors_nms_idx), :].max(dim=1)
+            return [nms_scores, nms_class, transformed_anchors[(0), (anchors_nms_idx), :]]
 
-    def forward(self, x):
-        x = self.static_padding(x)
-        x = F.conv2d(x, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+    def freeze_bn(self):
+        """Freeze BatchNorm layers."""
+        for layer in self.modules():
+            if isinstance(layer, nn.BatchNorm2d):
+                layer.eval()
+
+    def extract_feat(self, img):
+        """
+            Directly extract features from the backbone+neck
+        """
+        x = self.backbone(img)
+        x = self.neck(x[-5:])
         return x
 
 
-class Identity(nn.Module):
+class RegressionModel(nn.Module):
 
-    def __init__(self):
-        super(Identity, self).__init__()
+    def __init__(self, num_features_in, num_anchors=9, feature_size=256):
+        super(RegressionModel, self).__init__()
+        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
+        self.act1 = nn.ReLU()
+        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.act2 = nn.ReLU()
+        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.act3 = nn.ReLU()
+        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.act4 = nn.ReLU()
+        self.output = nn.Conv2d(feature_size, num_anchors * 4, kernel_size=3, padding=1)
 
-    def forward(self, input):
-        return input
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.act1(out)
+        out = self.conv2(out)
+        out = self.act2(out)
+        out = self.conv3(out)
+        out = self.act3(out)
+        out = self.conv4(out)
+        out = self.act4(out)
+        out = self.output(out)
+        out = out.permute(0, 2, 3, 1)
+        return out.contiguous().view(out.shape[0], -1, 4)
+
+
+class ClassificationModel(nn.Module):
+
+    def __init__(self, num_features_in, num_anchors=9, num_classes=80, prior=0.01, feature_size=256):
+        super(ClassificationModel, self).__init__()
+        self.num_classes = num_classes
+        self.num_anchors = num_anchors
+        self.conv1 = nn.Conv2d(num_features_in, feature_size, kernel_size=3, padding=1)
+        self.act1 = nn.ReLU()
+        self.conv2 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.act2 = nn.ReLU()
+        self.conv3 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.act3 = nn.ReLU()
+        self.conv4 = nn.Conv2d(feature_size, feature_size, kernel_size=3, padding=1)
+        self.act4 = nn.ReLU()
+        self.output = nn.Conv2d(feature_size, num_anchors * num_classes, kernel_size=3, padding=1)
+        self.output_act = nn.Sigmoid()
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.act1(out)
+        out = self.conv2(out)
+        out = self.act2(out)
+        out = self.conv3(out)
+        out = self.act3(out)
+        out = self.conv4(out)
+        out = self.act4(out)
+        out = self.output(out)
+        out = self.output_act(out)
+        out1 = out.permute(0, 2, 3, 1)
+        batch_size, width, height, channels = out1.shape
+        out2 = out1.view(batch_size, width, height, self.num_anchors, self.num_classes)
+        return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
 
 import torch

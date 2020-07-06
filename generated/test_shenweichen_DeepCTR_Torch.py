@@ -25,6 +25,7 @@ onn = _module
 pnn = _module
 wdl = _module
 xdeepfm = _module
+utils = _module
 conf = _module
 run_classification_criteo = _module
 run_dien = _module
@@ -48,20 +49,22 @@ ONN_test = _module
 PNN_test = _module
 WDL_test = _module
 xDeepFM_test = _module
+utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -105,6 +108,9 @@ import time
 import torch.utils.data as Data
 
 
+from sklearn.metrics import *
+
+
 from torch.utils.data import DataLoader
 
 
@@ -112,6 +118,33 @@ from torch.nn.utils.rnn import pack_padded_sequence
 
 
 from torch.nn.utils.rnn import pad_packed_sequence
+
+
+import logging
+
+
+from sklearn.metrics import log_loss
+
+
+from sklearn.metrics import roc_auc_score
+
+
+from sklearn.model_selection import train_test_split
+
+
+from sklearn.preprocessing import LabelEncoder
+
+
+from sklearn.preprocessing import MinMaxScaler
+
+
+from tensorflow.python.keras.preprocessing.sequence import pad_sequences
+
+
+from sklearn.metrics import mean_squared_error
+
+
+import torch as torch
 
 
 class Dice(nn.Module):
@@ -160,47 +193,6 @@ class Identity(nn.Module):
 
     def forward(self, X):
         return X
-
-
-class LocalActivationUnit(nn.Module):
-    """The LocalActivationUnit used in DIN with which the representation of
-        user interests varies adaptively given different candidate items.
-
-    Input shape
-        - A list of two 3D tensor with shape:  ``(batch_size, 1, embedding_size)`` and ``(batch_size, T, embedding_size)``
-
-    Output shape
-        - 3D tensor with shape: ``(batch_size, T, 1)``.
-
-    Arguments
-        - **hidden_units**:list of positive integer, the attention net layer number and units in each layer.
-
-        - **activation**: Activation function to use in attention net.
-
-        - **l2_reg**: float between 0 and 1. L2 regularizer strength applied to the kernel weights matrix of attention net.
-
-        - **dropout_rate**: float in [0,1). Fraction of the units to dropout in attention net.
-
-        - **use_bn**: bool. Whether use BatchNormalization before activation or not in attention net.
-
-        - **seed**: A Python integer to use as random seed.
-
-    References
-        - [Zhou G, Zhu X, Song C, et al. Deep interest network for click-through rate prediction[C]//Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining. ACM, 2018: 1059-1068.](https://arxiv.org/pdf/1706.06978.pdf)
-    """
-
-    def __init__(self, hidden_units=(64, 32), embedding_dim=4, activation='sigmoid', dropout_rate=0, dice_dim=3, l2_reg=0, use_bn=False):
-        super(LocalActivationUnit, self).__init__()
-        self.dnn = DNN(inputs_dim=4 * embedding_dim, hidden_units=hidden_units, activation=activation, l2_reg=l2_reg, dropout_rate=dropout_rate, dice_dim=dice_dim, use_bn=use_bn)
-        self.dense = nn.Linear(hidden_units[-1], 1)
-
-    def forward(self, query, user_behavior):
-        user_behavior_len = user_behavior.size(1)
-        queries = query.expand(-1, user_behavior_len, -1)
-        attention_input = torch.cat([queries, user_behavior, queries - user_behavior, queries * user_behavior], dim=-1)
-        attention_output = self.dnn(attention_input)
-        attention_score = self.dense(attention_output)
-        return attention_score
 
 
 def activation_layer(act_name, hidden_size=None, dice_dim=2):
@@ -286,6 +278,47 @@ class DNN(nn.Module):
             fc = self.dropout(fc)
             deep_input = fc
         return deep_input
+
+
+class LocalActivationUnit(nn.Module):
+    """The LocalActivationUnit used in DIN with which the representation of
+        user interests varies adaptively given different candidate items.
+
+    Input shape
+        - A list of two 3D tensor with shape:  ``(batch_size, 1, embedding_size)`` and ``(batch_size, T, embedding_size)``
+
+    Output shape
+        - 3D tensor with shape: ``(batch_size, T, 1)``.
+
+    Arguments
+        - **hidden_units**:list of positive integer, the attention net layer number and units in each layer.
+
+        - **activation**: Activation function to use in attention net.
+
+        - **l2_reg**: float between 0 and 1. L2 regularizer strength applied to the kernel weights matrix of attention net.
+
+        - **dropout_rate**: float in [0,1). Fraction of the units to dropout in attention net.
+
+        - **use_bn**: bool. Whether use BatchNormalization before activation or not in attention net.
+
+        - **seed**: A Python integer to use as random seed.
+
+    References
+        - [Zhou G, Zhu X, Song C, et al. Deep interest network for click-through rate prediction[C]//Proceedings of the 24th ACM SIGKDD International Conference on Knowledge Discovery & Data Mining. ACM, 2018: 1059-1068.](https://arxiv.org/pdf/1706.06978.pdf)
+    """
+
+    def __init__(self, hidden_units=(64, 32), embedding_dim=4, activation='sigmoid', dropout_rate=0, dice_dim=3, l2_reg=0, use_bn=False):
+        super(LocalActivationUnit, self).__init__()
+        self.dnn = DNN(inputs_dim=4 * embedding_dim, hidden_units=hidden_units, activation=activation, l2_reg=l2_reg, dropout_rate=dropout_rate, dice_dim=dice_dim, use_bn=use_bn)
+        self.dense = nn.Linear(hidden_units[-1], 1)
+
+    def forward(self, query, user_behavior):
+        user_behavior_len = user_behavior.size(1)
+        queries = query.expand(-1, user_behavior_len, -1)
+        attention_input = torch.cat([queries, user_behavior, queries - user_behavior, queries * user_behavior], dim=-1)
+        attention_output = self.dnn(attention_input)
+        attention_score = self.dense(attention_output)
+        return attention_score
 
 
 class PredictionLayer(nn.Module):
@@ -761,6 +794,37 @@ class OutterProductLayer(nn.Module):
         return kp
 
 
+class KMaxPooling(nn.Module):
+    """K Max pooling that selects the k biggest value along the specific axis.
+
+      Input shape
+        -  nD tensor with shape: ``(batch_size, ..., input_dim)``.
+
+      Output shape
+        - nD tensor with shape: ``(batch_size, ..., output_dim)``.
+
+      Arguments
+        - **k**: positive integer, number of top elements to look for along the ``axis`` dimension.
+
+        - **axis**: positive integer, the dimension to look for elements.
+
+     """
+
+    def __init__(self, k, axis, device='cpu'):
+        super(KMaxPooling, self).__init__()
+        self.k = k
+        self.axis = axis
+        self
+
+    def forward(self, input):
+        if self.axis < 0 or self.axis >= len(input.shape):
+            raise ValueError('axis must be 0~%d,now is %d' % (len(input.shape) - 1, self.axis))
+        if self.k < 1 or self.k > input.shape[self.axis]:
+            raise ValueError('k must be in 1 ~ %d,now k is %d' % (input.shape[self.axis], self.k))
+        out = torch.topk(input, k=self.k, dim=self.axis, sorted=True)[0]
+        return out
+
+
 class ConvLayer(nn.Module):
     """Conv Layer used in CCPM.
 
@@ -924,37 +988,6 @@ class AttentionSequencePoolingLayer(nn.Module):
         return outputs
 
 
-class KMaxPooling(nn.Module):
-    """K Max pooling that selects the k biggest value along the specific axis.
-
-      Input shape
-        -  nD tensor with shape: ``(batch_size, ..., input_dim)``.
-
-      Output shape
-        - nD tensor with shape: ``(batch_size, ..., output_dim)``.
-
-      Arguments
-        - **k**: positive integer, number of top elements to look for along the ``axis`` dimension.
-
-        - **axis**: positive integer, the dimension to look for elements.
-
-     """
-
-    def __init__(self, k, axis, device='cpu'):
-        super(KMaxPooling, self).__init__()
-        self.k = k
-        self.axis = axis
-        self
-
-    def forward(self, input):
-        if self.axis < 0 or self.axis >= len(input.shape):
-            raise ValueError('axis must be 0~%d,now is %d' % (len(input.shape) - 1, self.axis))
-        if self.k < 1 or self.k > input.shape[self.axis]:
-            raise ValueError('k must be in 1 ~ %d,now k is %d' % (input.shape[self.axis], self.k))
-        out = torch.topk(input, k=self.k, dim=self.axis, sorted=True)[0]
-        return out
-
-
 class AGRUCell(nn.Module):
     """ Attention based GRU (AGRU)
 
@@ -1082,7 +1115,7 @@ class SparseFeat(namedtuple('SparseFeat', ['name', 'vocabulary_size', 'embedding
         if embedding_dim == 'auto':
             embedding_dim = 6 * int(pow(vocabulary_size, 0.25))
         if use_hash:
-            print('Notice! Feature Hashing on the fly currently is not supported in torch version,you can use tensorflow version!')
+            None
         return super(SparseFeat, cls).__new__(cls, name, vocabulary_size, embedding_dim, use_hash, dtype, embedding_name, group_name)
 
     def __hash__(self):
@@ -1129,7 +1162,7 @@ def create_embedding_matrix(feature_columns, init_std=0.0001, linear=False, spar
     embedding_dict = nn.ModuleDict({feat.embedding_name: nn.Embedding(feat.vocabulary_size, feat.embedding_dim if not linear else 1, sparse=sparse) for feat in sparse_feature_columns + varlen_sparse_feature_columns})
     for tensor in embedding_dict.values():
         nn.init.normal_(tensor.weight, mean=0, std=init_std)
-    return embedding_dict.to(device)
+    return embedding_dict
 
 
 def get_varlen_pooling_list(embedding_dict, features, feature_index, varlen_sparse_feature_columns, device):
@@ -1513,68 +1546,182 @@ class BaseModel(nn.Module):
         return list(embedding_size_set)[0]
 
 
-class InterestExtractor(nn.Module):
+def concat_fun(inputs, axis=-1):
+    if len(inputs) == 1:
+        return inputs[0]
+    else:
+        return torch.cat(inputs, dim=axis)
 
-    def __init__(self, input_size, use_neg=False, init_std=0.001, device='cpu'):
-        super(InterestExtractor, self).__init__()
-        self.use_neg = use_neg
-        self.gru = nn.GRU(input_size=input_size, hidden_size=input_size, batch_first=True)
-        if self.use_neg:
-            self.auxiliary_net = DNN(input_size * 2, [100, 50, 1], 'sigmoid', init_std=init_std, device=device)
-        for name, tensor in self.gru.named_parameters():
-            if 'weight' in name:
-                nn.init.normal_(tensor, mean=0, std=init_std)
+
+class CCPM(BaseModel):
+    """Instantiates the Convolutional Click Prediction Model architecture.
+
+    :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param conv_kernel_width: list,list of positive integer or empty list,the width of filter in each conv layer.
+    :param conv_filters: list,list of positive integer or empty list,the number of filters in each conv layer.
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN.
+    :param l2_reg_linear: float. L2 regularizer strength applied to linear part
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :return: A PyTorch model instance.
+
+    """
+
+    def __init__(self, linear_feature_columns, dnn_feature_columns, conv_kernel_width=(6, 5), conv_filters=(4, 4), dnn_hidden_units=(256,), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, dnn_dropout=0, init_std=0.0001, seed=1024, task='binary', device='cpu', dnn_use_bn=False, dnn_activation='relu'):
+        super(CCPM, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+        if len(conv_kernel_width) != len(conv_filters):
+            raise ValueError('conv_kernel_width must have same element with conv_filters')
+        filed_size = self.compute_input_dim(dnn_feature_columns, include_dense=False, feature_group=True)
+        self.conv_layer = ConvLayer(field_size=filed_size, conv_kernel_width=conv_kernel_width, conv_filters=conv_filters, device=device)
+        self.dnn_input_dim = self.conv_layer.filed_shape * self.embedding_size * conv_filters[-1]
+        self.dnn = DNN(self.dnn_input_dim, dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
+        self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
+        self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
+        self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
         self
 
-    def forward(self, keys, keys_length, neg_keys=None):
-        """
-        Parameters
-        ----------
-        keys: 3D tensor, [B, T, H]
-        keys_length: 1D tensor, [B]
-        neg_keys: 3D tensor, [B, T, H]
+    def forward(self, X):
+        linear_logit = self.linear_model(X)
+        sparse_embedding_list, _ = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict, support_dense=False)
+        if len(sparse_embedding_list) == 0:
+            raise ValueError('must have the embedding feature,now the embedding feature is None!')
+        conv_input = concat_fun(sparse_embedding_list, axis=1)
+        conv_input_concact = torch.unsqueeze(conv_input, 1)
+        pooling_result = self.conv_layer(conv_input_concact)
+        flatten_result = pooling_result.view(pooling_result.size(0), -1)
+        dnn_output = self.dnn(flatten_result)
+        dnn_logit = self.dnn_linear(dnn_output)
+        logit = linear_logit + dnn_logit
+        y_pred = self.out(logit)
+        return y_pred
 
-        Returns
-        -------
-        masked_interests: 2D tensor, [b, H]
-        aux_loss: [1]
-        """
-        batch_size, max_length, dim = keys.size()
-        zero_outputs = torch.zeros(batch_size, dim, device=keys.device)
-        aux_loss = torch.zeros((1,), device=keys.device)
-        mask = keys_length > 0
-        masked_keys_length = keys_length[mask]
-        if masked_keys_length.shape[0] == 0:
-            return zero_outputs,
-        masked_keys = torch.masked_select(keys, mask.view(-1, 1, 1)).view(-1, max_length, dim)
-        packed_keys = pack_padded_sequence(masked_keys, lengths=masked_keys_length, batch_first=True, enforce_sorted=False)
-        packed_interests, _ = self.gru(packed_keys)
-        interests, _ = pad_packed_sequence(packed_interests, batch_first=True, padding_value=0.0, total_length=max_length)
-        if self.use_neg and neg_keys is not None:
-            masked_neg_keys = torch.masked_select(neg_keys, mask.view(-1, 1, 1)).view(-1, max_length, dim)
-            aux_loss = self._cal_auxiliary_loss(interests[:, :-1, :], masked_keys[:, 1:, :], masked_neg_keys[:, 1:, :], masked_keys_length - 1)
-        return interests, aux_loss
 
-    def _cal_auxiliary_loss(self, states, click_seq, noclick_seq, keys_length):
-        mask_shape = keys_length > 0
-        keys_length = keys_length[mask_shape]
-        if keys_length.shape[0] == 0:
-            return torch.zeros((1,), device=states.device)
-        _, max_seq_length, embedding_size = states.size()
-        states = torch.masked_select(states, mask_shape.view(-1, 1, 1)).view(-1, max_seq_length, embedding_size)
-        click_seq = torch.masked_select(click_seq, mask_shape.view(-1, 1, 1)).view(-1, max_seq_length, embedding_size)
-        noclick_seq = torch.masked_select(noclick_seq, mask_shape.view(-1, 1, 1)).view(-1, max_seq_length, embedding_size)
-        batch_size = states.size()[0]
-        mask = (torch.arange(max_seq_length, device=states.device).repeat(batch_size, 1) < keys_length.view(-1, 1)).float()
-        click_input = torch.cat([states, click_seq], dim=-1)
-        noclick_input = torch.cat([states, noclick_seq], dim=-1)
-        embedding_size = embedding_size * 2
-        click_p = self.auxiliary_net(click_input.view(batch_size * max_seq_length, embedding_size)).view(batch_size, max_seq_length)[mask > 0].view(-1, 1)
-        click_target = torch.ones(click_p.size(), dtype=torch.float, device=click_p.device)
-        noclick_p = self.auxiliary_net(noclick_input.view(batch_size * max_seq_length, embedding_size)).view(batch_size, max_seq_length)[mask > 0].view(-1, 1)
-        noclick_target = torch.zeros(noclick_p.size(), dtype=torch.float, device=noclick_p.device)
-        loss = F.binary_cross_entropy(torch.cat([click_p, noclick_p], dim=0), torch.cat([click_target, noclick_target], dim=0))
-        return loss
+def combined_dnn_input(sparse_embedding_list, dense_value_list):
+    if len(sparse_embedding_list) > 0 and len(dense_value_list) > 0:
+        sparse_dnn_input = torch.flatten(torch.cat(sparse_embedding_list, dim=-1), start_dim=1)
+        dense_dnn_input = torch.flatten(torch.cat(dense_value_list, dim=-1), start_dim=1)
+        return concat_fun([sparse_dnn_input, dense_dnn_input])
+    elif len(sparse_embedding_list) > 0:
+        return torch.flatten(torch.cat(sparse_embedding_list, dim=-1), start_dim=1)
+    elif len(dense_value_list) > 0:
+        return torch.flatten(torch.cat(dense_value_list, dim=-1), start_dim=1)
+    else:
+        raise NotImplementedError
+
+
+class DCN(BaseModel):
+    """Instantiates the Deep&Cross Network architecture.
+
+    :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param cross_num: positive integet,cross layer number
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_cross: float. L2 regularizer strength applied to cross net
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not DNN
+    :param dnn_activation: Activation function to use in DNN
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :return: A PyTorch model instance.
+    
+    """
+
+    def __init__(self, linear_feature_columns, dnn_feature_columns, cross_num=2, dnn_hidden_units=(128, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_cross=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu'):
+        super(DCN, self).__init__(linear_feature_columns=linear_feature_columns, dnn_feature_columns=dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+        self.dnn_hidden_units = dnn_hidden_units
+        self.cross_num = cross_num
+        self.dnn = DNN(self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, use_bn=dnn_use_bn, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, init_std=init_std, device=device)
+        if len(self.dnn_hidden_units) > 0 and self.cross_num > 0:
+            dnn_linear_in_feature = self.compute_input_dim(dnn_feature_columns) + dnn_hidden_units[-1]
+        elif len(self.dnn_hidden_units) > 0:
+            dnn_linear_in_feature = dnn_hidden_units[-1]
+        elif self.cross_num > 0:
+            dnn_linear_in_feature = self.compute_input_dim(dnn_feature_columns)
+        self.dnn_linear = nn.Linear(dnn_linear_in_feature, 1, bias=False)
+        self.crossnet = CrossNet(in_features=self.compute_input_dim(dnn_feature_columns), layer_num=cross_num, seed=1024, device=device)
+        self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
+        self.add_regularization_loss(self.dnn_linear.weight, l2_reg_linear)
+        self.add_regularization_loss(self.crossnet.kernels, l2_reg_cross)
+        self
+
+    def forward(self, X):
+        logit = self.linear_model(X)
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
+        if len(self.dnn_hidden_units) > 0 and self.cross_num > 0:
+            deep_out = self.dnn(dnn_input)
+            cross_out = self.crossnet(dnn_input)
+            stack_out = torch.cat((cross_out, deep_out), dim=-1)
+            logit += self.dnn_linear(stack_out)
+        elif len(self.dnn_hidden_units) > 0:
+            deep_out = self.dnn(dnn_input)
+            logit += self.dnn_linear(deep_out)
+        elif self.cross_num > 0:
+            cross_out = self.crossnet(dnn_input)
+            logit += self.dnn_linear(cross_out)
+        else:
+            pass
+        y_pred = self.out(logit)
+        return y_pred
+
+
+class DeepFM(BaseModel):
+    """Instantiates the DeepFM Network architecture.
+
+    :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param use_fm: bool,use FM part or not
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN
+    :param l2_reg_linear: float. L2 regularizer strength applied to linear part
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN
+    :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not in DNN
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :return: A PyTorch model instance.
+    
+    """
+
+    def __init__(self, linear_feature_columns, dnn_feature_columns, use_fm=True, dnn_hidden_units=(256, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu'):
+        super(DeepFM, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+        self.use_fm = use_fm
+        self.use_dnn = len(dnn_feature_columns) > 0 and len(dnn_hidden_units) > 0
+        if use_fm:
+            self.fm = FM()
+        if self.use_dnn:
+            self.dnn = DNN(self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
+            self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
+            self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
+            self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+        self
+
+    def forward(self, X):
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        logit = self.linear_model(X)
+        if self.use_fm and len(sparse_embedding_list) > 0:
+            fm_input = torch.cat(sparse_embedding_list, dim=1)
+            logit += self.fm(fm_input)
+        if self.use_dnn:
+            dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
+            dnn_output = self.dnn(dnn_input)
+            dnn_logit = self.dnn_linear(dnn_output)
+            logit += dnn_logit
+        y_pred = self.out(logit)
+        return y_pred
 
 
 class InterestEvolving(nn.Module):
@@ -1648,6 +1795,478 @@ class InterestEvolving(nn.Module):
         return zero_outputs
 
 
+class InterestExtractor(nn.Module):
+
+    def __init__(self, input_size, use_neg=False, init_std=0.001, device='cpu'):
+        super(InterestExtractor, self).__init__()
+        self.use_neg = use_neg
+        self.gru = nn.GRU(input_size=input_size, hidden_size=input_size, batch_first=True)
+        if self.use_neg:
+            self.auxiliary_net = DNN(input_size * 2, [100, 50, 1], 'sigmoid', init_std=init_std, device=device)
+        for name, tensor in self.gru.named_parameters():
+            if 'weight' in name:
+                nn.init.normal_(tensor, mean=0, std=init_std)
+        self
+
+    def forward(self, keys, keys_length, neg_keys=None):
+        """
+        Parameters
+        ----------
+        keys: 3D tensor, [B, T, H]
+        keys_length: 1D tensor, [B]
+        neg_keys: 3D tensor, [B, T, H]
+
+        Returns
+        -------
+        masked_interests: 2D tensor, [b, H]
+        aux_loss: [1]
+        """
+        batch_size, max_length, dim = keys.size()
+        zero_outputs = torch.zeros(batch_size, dim, device=keys.device)
+        aux_loss = torch.zeros((1,), device=keys.device)
+        mask = keys_length > 0
+        masked_keys_length = keys_length[mask]
+        if masked_keys_length.shape[0] == 0:
+            return zero_outputs,
+        masked_keys = torch.masked_select(keys, mask.view(-1, 1, 1)).view(-1, max_length, dim)
+        packed_keys = pack_padded_sequence(masked_keys, lengths=masked_keys_length, batch_first=True, enforce_sorted=False)
+        packed_interests, _ = self.gru(packed_keys)
+        interests, _ = pad_packed_sequence(packed_interests, batch_first=True, padding_value=0.0, total_length=max_length)
+        if self.use_neg and neg_keys is not None:
+            masked_neg_keys = torch.masked_select(neg_keys, mask.view(-1, 1, 1)).view(-1, max_length, dim)
+            aux_loss = self._cal_auxiliary_loss(interests[:, :-1, :], masked_keys[:, 1:, :], masked_neg_keys[:, 1:, :], masked_keys_length - 1)
+        return interests, aux_loss
+
+    def _cal_auxiliary_loss(self, states, click_seq, noclick_seq, keys_length):
+        mask_shape = keys_length > 0
+        keys_length = keys_length[mask_shape]
+        if keys_length.shape[0] == 0:
+            return torch.zeros((1,), device=states.device)
+        _, max_seq_length, embedding_size = states.size()
+        states = torch.masked_select(states, mask_shape.view(-1, 1, 1)).view(-1, max_seq_length, embedding_size)
+        click_seq = torch.masked_select(click_seq, mask_shape.view(-1, 1, 1)).view(-1, max_seq_length, embedding_size)
+        noclick_seq = torch.masked_select(noclick_seq, mask_shape.view(-1, 1, 1)).view(-1, max_seq_length, embedding_size)
+        batch_size = states.size()[0]
+        mask = (torch.arange(max_seq_length, device=states.device).repeat(batch_size, 1) < keys_length.view(-1, 1)).float()
+        click_input = torch.cat([states, click_seq], dim=-1)
+        noclick_input = torch.cat([states, noclick_seq], dim=-1)
+        embedding_size = embedding_size * 2
+        click_p = self.auxiliary_net(click_input.view(batch_size * max_seq_length, embedding_size)).view(batch_size, max_seq_length)[mask > 0].view(-1, 1)
+        click_target = torch.ones(click_p.size(), dtype=torch.float, device=click_p.device)
+        noclick_p = self.auxiliary_net(noclick_input.view(batch_size * max_seq_length, embedding_size)).view(batch_size, max_seq_length)[mask > 0].view(-1, 1)
+        noclick_target = torch.zeros(noclick_p.size(), dtype=torch.float, device=noclick_p.device)
+        loss = F.binary_cross_entropy(torch.cat([click_p, noclick_p], dim=0), torch.cat([click_target, noclick_target], dim=0))
+        return loss
+
+
+def embedding_lookup(X, sparse_embedding_dict, sparse_input_dict, sparse_feature_columns, return_feat_list=(), mask_feat_list=(), to_list=False):
+    """
+        Args:
+            X: input Tensor [batch_size x hidden_dim]
+            sparse_embedding_dict: nn.ModuleDict, {embedding_name: nn.Embedding}
+            sparse_input_dict: OrderedDict, {feature_name:(start, start+dimension)}
+            sparse_feature_columns: list, sparse features
+            return_feat_list: list, names of feature to be returned, defualt () -> return all features
+            mask_feat_list, list, names of feature to be masked in hash transform
+        Return:
+            group_embedding_dict: defaultdict(list)
+    """
+    group_embedding_dict = defaultdict(list)
+    for fc in sparse_feature_columns:
+        feature_name = fc.name
+        embedding_name = fc.embedding_name
+        if len(return_feat_list) == 0 or feature_name in return_feat_list:
+            lookup_idx = np.array(sparse_input_dict[feature_name])
+            input_tensor = X[:, lookup_idx[0]:lookup_idx[1]].long()
+            emb = sparse_embedding_dict[embedding_name](input_tensor)
+            group_embedding_dict[fc.group_name].append(emb)
+    if to_list:
+        return list(chain.from_iterable(group_embedding_dict.values()))
+    return group_embedding_dict
+
+
+def get_dense_input(X, features, feature_columns):
+    dense_feature_columns = list(filter(lambda x: isinstance(x, DenseFeat), feature_columns)) if feature_columns else []
+    dense_input_list = []
+    for fc in dense_feature_columns:
+        lookup_idx = np.array(features[fc.name])
+        input_tensor = X[:, lookup_idx[0]:lookup_idx[1]].float()
+        dense_input_list.append(input_tensor)
+    return dense_input_list
+
+
+def maxlen_lookup(X, sparse_input_dict, maxlen_column):
+    if maxlen_column is None or len(maxlen_column) == 0:
+        raise ValueError('please add max length column for VarLenSparseFeat of DIEN input')
+    lookup_idx = np.array(sparse_input_dict[maxlen_column[0]])
+    return X[:, lookup_idx[0]:lookup_idx[1]].long()
+
+
+class DIEN(BaseModel):
+    """Instantiates the Deep Interest Evolution Network architecture.
+
+       :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+       :param history_feature_list: list,to indicate  sequence sparse field
+       :param gru_type: str,can be GRU AIGRU AUGRU AGRU
+       :param use_negsampling: bool, whether or not use negtive sampling
+       :param alpha: float ,weight of auxiliary_loss
+       :param use_bn: bool. Whether use BatchNormalization before activation or not in deep net
+       :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN
+       :param dnn_activation: Activation function to use in DNN
+       :param att_hidden_units: list,list of positive integer , the layer number and units in each layer of attention net
+       :param att_activation: Activation function to use in attention net
+       :param att_weight_normalization: bool.Whether normalize the attention score of local activation unit.
+       :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+       :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+       :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+       :param init_std: float,to use as the initialize std of embedding vector
+       :param seed: integer ,to use as random seed.
+       :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+       :param device: str, ``"cpu"`` or ``"cuda:0"``
+       :return: A PyTorch model instance.
+    """
+
+    def __init__(self, dnn_feature_columns, history_feature_list, gru_type='GRU', use_negsampling=False, alpha=1.0, use_bn=False, dnn_hidden_units=(256, 128), dnn_activation='relu', att_hidden_units=(64, 16), att_activation='relu', att_weight_normalization=True, l2_reg_dnn=0, l2_reg_embedding=1e-06, dnn_dropout=0, init_std=0.0001, seed=1024, task='binary', device='cpu'):
+        super(DIEN, self).__init__([], dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=0, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+        self.item_features = history_feature_list
+        self.use_negsampling = use_negsampling
+        self.alpha = alpha
+        self._split_columns()
+        input_size = self._compute_interest_dim()
+        self.interest_extractor = InterestExtractor(input_size=input_size, use_neg=use_negsampling, init_std=init_std)
+        self.interest_evolution = InterestEvolving(input_size=input_size, gru_type=gru_type, use_neg=use_negsampling, init_std=init_std, att_hidden_size=att_hidden_units, att_activation=att_activation, att_weight_normalization=att_weight_normalization)
+        dnn_input_size = self._compute_dnn_dim() + input_size
+        self.dnn = DNN(dnn_input_size, dnn_hidden_units, dnn_activation, l2_reg_dnn, dnn_dropout, use_bn, init_std=init_std, seed=seed)
+        self.linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
+        for name, tensor in self.linear.named_parameters():
+            if 'weight' in name:
+                nn.init.normal_(tensor, mean=0, std=init_std)
+        self
+
+    def forward(self, X):
+        query_emb, keys_emb, neg_keys_emb, keys_length = self._get_emb(X)
+        masked_interest, aux_loss = self.interest_extractor(keys_emb, keys_length, neg_keys_emb)
+        self.add_auxiliary_loss(aux_loss, self.alpha)
+        hist = self.interest_evolution(query_emb, masked_interest, keys_length)
+        deep_input_emb = self._get_deep_input_emb(X)
+        deep_input_emb = concat_fun([hist, deep_input_emb])
+        dense_value_list = get_dense_input(X, self.feature_index, self.dense_feature_columns)
+        dnn_input = combined_dnn_input([deep_input_emb], dense_value_list)
+        output = self.linear(self.dnn(dnn_input))
+        y_pred = self.out(output)
+        return y_pred
+
+    def _get_emb(self, X):
+        history_feature_columns = []
+        neg_history_feature_columns = []
+        sparse_varlen_feature_columns = []
+        history_fc_names = list(map(lambda x: 'hist_' + x, self.item_features))
+        neg_history_fc_names = list(map(lambda x: 'neg_' + x, history_fc_names))
+        for fc in self.varlen_sparse_feature_columns:
+            feature_name = fc.name
+            if feature_name in history_fc_names:
+                history_feature_columns.append(fc)
+            elif feature_name in neg_history_fc_names:
+                neg_history_feature_columns.append(fc)
+            else:
+                sparse_varlen_feature_columns.append(fc)
+        features = self.feature_index
+        query_emb_list = embedding_lookup(X, self.embedding_dict, features, self.sparse_feature_columns, return_feat_list=self.item_features, to_list=True)
+        query_emb = torch.squeeze(concat_fun(query_emb_list), 1)
+        keys_emb_list = embedding_lookup(X, self.embedding_dict, features, history_feature_columns, return_feat_list=history_fc_names, to_list=True)
+        keys_emb = concat_fun(keys_emb_list)
+        keys_length_feature_name = [feat.length_name for feat in self.varlen_sparse_feature_columns if feat.length_name is not None]
+        keys_length = torch.squeeze(maxlen_lookup(X, features, keys_length_feature_name), 1)
+        if self.use_negsampling:
+            neg_keys_emb_list = embedding_lookup(X, self.embedding_dict, features, neg_history_feature_columns, return_feat_list=neg_history_fc_names, to_list=True)
+            neg_keys_emb = concat_fun(neg_keys_emb_list)
+        else:
+            neg_keys_emb = None
+        return query_emb, keys_emb, neg_keys_emb, keys_length
+
+    def _split_columns(self):
+        self.sparse_feature_columns = list(filter(lambda x: isinstance(x, SparseFeat), self.dnn_feature_columns)) if len(self.dnn_feature_columns) else []
+        self.dense_feature_columns = list(filter(lambda x: isinstance(x, DenseFeat), self.dnn_feature_columns)) if len(self.dnn_feature_columns) else []
+        self.varlen_sparse_feature_columns = list(filter(lambda x: isinstance(x, VarLenSparseFeat), self.dnn_feature_columns)) if len(self.dnn_feature_columns) else []
+
+    def _compute_interest_dim(self):
+        interest_dim = 0
+        for feat in self.sparse_feature_columns:
+            if feat.name in self.item_features:
+                interest_dim += feat.embedding_dim
+        return interest_dim
+
+    def _compute_dnn_dim(self):
+        dnn_input_dim = 0
+        for fc in self.sparse_feature_columns:
+            dnn_input_dim += fc.embedding_dim
+        for fc in self.dense_feature_columns:
+            dnn_input_dim += fc.dimension
+        return dnn_input_dim
+
+    def _get_deep_input_emb(self, X):
+        dnn_input_emb_list = embedding_lookup(X, self.embedding_dict, self.feature_index, self.sparse_feature_columns, mask_feat_list=self.item_features, to_list=True)
+        dnn_input_emb = concat_fun(dnn_input_emb_list)
+        return dnn_input_emb.squeeze(1)
+
+
+def varlen_embedding_lookup(X, embedding_dict, sequence_input_dict, varlen_sparse_feature_columns):
+    varlen_embedding_vec_dict = {}
+    for fc in varlen_sparse_feature_columns:
+        feature_name = fc.name
+        embedding_name = fc.embedding_name
+        if fc.use_hash:
+            lookup_idx = sequence_input_dict[feature_name]
+        else:
+            lookup_idx = sequence_input_dict[feature_name]
+        varlen_embedding_vec_dict[feature_name] = embedding_dict[embedding_name](X[:, lookup_idx[0]:lookup_idx[1]].long())
+    return varlen_embedding_vec_dict
+
+
+class DIN(BaseModel):
+    """Instantiates the Deep Interest Network architecture.
+
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param history_feature_list: list,to indicate  sequence sparse field
+    :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not in deep net
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of deep net
+    :param dnn_activation: Activation function to use in deep net
+    :param att_hidden_size: list,list of positive integer , the layer number and units in each layer of attention net
+    :param att_activation: Activation function to use in attention net
+    :param att_weight_normalization: bool. Whether normalize the attention score of local activation unit.
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :return:  A PyTorch model instance.
+
+    """
+
+    def __init__(self, dnn_feature_columns, history_feature_list, dnn_use_bn=False, dnn_hidden_units=(256, 128), dnn_activation='relu', att_hidden_size=(64, 16), att_activation='Dice', att_weight_normalization=False, l2_reg_dnn=0.0, l2_reg_embedding=1e-06, dnn_dropout=0, init_std=0.0001, seed=1024, task='binary', device='cpu'):
+        super(DIN, self).__init__([], dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=0, l2_reg_dnn=l2_reg_dnn, init_std=init_std, l2_reg_embedding=l2_reg_embedding, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, seed=seed, task=task, device=device)
+        self.sparse_feature_columns = list(filter(lambda x: isinstance(x, SparseFeat), dnn_feature_columns)) if dnn_feature_columns else []
+        self.varlen_sparse_feature_columns = list(filter(lambda x: isinstance(x, VarLenSparseFeat), dnn_feature_columns)) if dnn_feature_columns else []
+        self.history_feature_list = history_feature_list
+        self.history_feature_columns = []
+        self.sparse_varlen_feature_columns = []
+        self.history_fc_names = list(map(lambda x: 'hist_' + x, history_feature_list))
+        for fc in self.varlen_sparse_feature_columns:
+            feature_name = fc.name
+            if feature_name in self.history_fc_names:
+                self.history_feature_columns.append(fc)
+            else:
+                self.sparse_varlen_feature_columns.append(fc)
+        att_emb_dim = self._compute_interest_dim()
+        self.attention = AttentionSequencePoolingLayer(att_hidden_units=att_hidden_size, embedding_dim=att_emb_dim, activation=att_activation, return_score=False, supports_masking=False, weight_normalization=att_weight_normalization)
+        self.dnn = DNN(inputs_dim=self.compute_input_dim(dnn_feature_columns), hidden_units=dnn_hidden_units, activation=dnn_activation, dropout_rate=dnn_dropout, l2_reg=l2_reg_dnn, use_bn=dnn_use_bn)
+        self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
+        self
+
+    def forward(self, X):
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        query_emb_list = embedding_lookup(X, self.embedding_dict, self.feature_index, self.sparse_feature_columns, self.history_feature_list, self.history_feature_list, to_list=True)
+        keys_emb_list = embedding_lookup(X, self.embedding_dict, self.feature_index, self.history_feature_columns, self.history_fc_names, self.history_fc_names, to_list=True)
+        dnn_input_emb_list = embedding_lookup(X, self.embedding_dict, self.feature_index, self.sparse_feature_columns, mask_feat_list=self.history_feature_list, to_list=True)
+        sequence_embed_dict = varlen_embedding_lookup(X, self.embedding_dict, self.feature_index, self.sparse_varlen_feature_columns)
+        sequence_embed_list = get_varlen_pooling_list(sequence_embed_dict, X, self.feature_index, self.sparse_varlen_feature_columns, self.device)
+        dnn_input_emb_list += sequence_embed_list
+        query_emb = torch.cat(query_emb_list, dim=-1)
+        keys_emb = torch.cat(keys_emb_list, dim=-1)
+        keys_length = torch.ones((query_emb.size(0), 1))
+        deep_input_emb = torch.cat(dnn_input_emb_list, dim=-1)
+        hist = self.attention(query_emb, keys_emb, keys_length)
+        deep_input_emb = torch.cat((deep_input_emb, hist), dim=-1)
+        deep_input_emb = deep_input_emb.view(deep_input_emb.size(0), -1)
+        dnn_input = combined_dnn_input([deep_input_emb], dense_value_list)
+        dnn_output = self.dnn(dnn_input)
+        dnn_logit = self.dnn_linear(dnn_output)
+        y_pred = self.out(dnn_logit)
+        return y_pred
+
+    def _compute_interest_dim(self):
+        interest_dim = 0
+        for feat in self.sparse_feature_columns:
+            if feat.name in self.history_feature_list:
+                interest_dim += feat.embedding_dim
+        return interest_dim
+
+
+class FiBiNET(BaseModel):
+    """Instantiates the Feature Importance and Bilinear feature Interaction NETwork architecture.
+
+    :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param bilinear_type: str,bilinear function type used in Bilinear Interaction Layer,can be ``'all'`` , ``'each'`` or ``'interaction'``
+    :param reduction_ratio: integer in [1,inf), reduction ratio used in SENET Layer
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN
+    :param l2_reg_linear: float. L2 regularizer strength applied to wide part
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :return: A PyTorch model instance.
+    
+    """
+
+    def __init__(self, linear_feature_columns, dnn_feature_columns, bilinear_type='interaction', reduction_ratio=3, dnn_hidden_units=(128, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', task='binary', device='cpu'):
+        super(FiBiNET, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+        self.linear_feature_columns = linear_feature_columns
+        self.dnn_feature_columns = dnn_feature_columns
+        self.filed_size = len(self.embedding_dict)
+        self.SE = SENETLayer(self.filed_size, reduction_ratio, seed, device)
+        self.Bilinear = BilinearInteraction(self.filed_size, self.embedding_size, bilinear_type, seed, device)
+        self.dnn = DNN(self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=False, init_std=init_std, device=device)
+        self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
+
+    def compute_input_dim(self, feature_columns, include_sparse=True, include_dense=True):
+        sparse_feature_columns = list(filter(lambda x: isinstance(x, (SparseFeat, VarLenSparseFeat)), feature_columns)) if len(feature_columns) else []
+        dense_feature_columns = list(filter(lambda x: isinstance(x, DenseFeat), feature_columns)) if len(feature_columns) else []
+        field_size = len(sparse_feature_columns)
+        dense_input_dim = sum(map(lambda x: x.dimension, dense_feature_columns))
+        embedding_size = sparse_feature_columns[0].embedding_dim
+        sparse_input_dim = field_size * (field_size - 1) * embedding_size
+        input_dim = 0
+        if include_sparse:
+            input_dim += sparse_input_dim
+        if include_dense:
+            input_dim += dense_input_dim
+        return input_dim
+
+    def forward(self, X):
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        sparse_embedding_input = torch.cat(sparse_embedding_list, dim=1)
+        senet_output = self.SE(sparse_embedding_input)
+        senet_bilinear_out = self.Bilinear(senet_output)
+        bilinear_out = self.Bilinear(sparse_embedding_input)
+        linear_logit = self.linear_model(X)
+        temp = torch.split(torch.cat((senet_bilinear_out, bilinear_out), dim=1), 1, dim=1)
+        dnn_input = combined_dnn_input(temp, dense_value_list)
+        dnn_output = self.dnn(dnn_input)
+        dnn_logit = self.dnn_linear(dnn_output)
+        if len(self.linear_feature_columns) > 0 and len(self.dnn_feature_columns) > 0:
+            final_logit = linear_logit + dnn_logit
+        elif len(self.linear_feature_columns) == 0:
+            final_logit = dnn_logit
+        elif len(self.dnn_feature_columns) == 0:
+            final_logit = linear_logit
+        else:
+            raise NotImplementedError
+        y_pred = self.out(final_logit)
+        return y_pred
+
+
+class MLR(BaseModel):
+    """Instantiates the Mixed Logistic Regression/Piece-wise Linear Model.
+
+    :param region_feature_columns: An iterable containing all the features used by region part of the model.
+    :param base_feature_columns: An iterable containing all the features used by base part of the model.
+    :param region_num: integer > 1,indicate the piece number
+    :param l2_reg_linear: float. L2 regularizer strength applied to weight
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param bias_feature_columns: An iterable containing all the features used by bias part of the model.
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :return: A PyTorch model instance.
+    
+    """
+
+    def __init__(self, region_feature_columns, base_feature_columns=None, bias_feature_columns=None, region_num=4, l2_reg_linear=1e-05, init_std=0.0001, seed=1024, task='binary', device='cpu'):
+        super(MLR, self).__init__(region_feature_columns, region_feature_columns, task=task, device=device)
+        if region_num <= 1:
+            raise ValueError('region_num must > 1')
+        self.l2_reg_linear = l2_reg_linear
+        self.init_std = init_std
+        self.seed = seed
+        self.device = device
+        self.region_num = region_num
+        self.region_feature_columns = region_feature_columns
+        self.base_feature_columns = base_feature_columns
+        self.bias_feature_columns = bias_feature_columns
+        if base_feature_columns is None or len(base_feature_columns) == 0:
+            self.base_feature_columns = region_feature_columns
+        if bias_feature_columns is None:
+            self.bias_feature_columns = []
+        self.feature_index = build_input_features(self.region_feature_columns + self.base_feature_columns + self.bias_feature_columns)
+        self.region_linear_model = nn.ModuleList([Linear(self.region_feature_columns, self.feature_index, self.init_std, self.device) for i in range(self.region_num)])
+        self.base_linear_model = nn.ModuleList([Linear(self.base_feature_columns, self.feature_index, self.init_std, self.device) for i in range(self.region_num)])
+        if self.bias_feature_columns is not None and len(self.bias_feature_columns) > 0:
+            self.bias_model = nn.Sequential(Linear(self.bias_feature_columns, self.feature_index, self.init_std, self.device), PredictionLayer(task='binary', use_bias=False))
+        self.prediction_layer = PredictionLayer(task=task, use_bias=False)
+        self
+
+    def get_region_score(self, inputs, region_number):
+        region_logit = torch.cat([self.region_linear_model[i](inputs) for i in range(region_number)], dim=-1)
+        region_score = nn.Softmax(dim=-1)(region_logit)
+        return region_score
+
+    def get_learner_score(self, inputs, region_number):
+        learner_score = self.prediction_layer(torch.cat([self.region_linear_model[i](inputs) for i in range(region_number)], dim=-1))
+        return learner_score
+
+    def forward(self, X):
+        region_score = self.get_region_score(X, self.region_num)
+        learner_score = self.get_learner_score(X, self.region_num)
+        final_logit = torch.sum(region_score * learner_score, dim=-1, keepdim=True)
+        if self.bias_feature_columns is not None and len(self.bias_feature_columns) > 0:
+            bias_score = self.bias_model(X)
+            final_logit = final_logit * bias_score
+        return final_logit
+
+
+class NFM(BaseModel):
+    """Instantiates the NFM Network architecture.
+
+    :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of deep net
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_linear: float. L2 regularizer strength applied to linear part.
+    :param l2_reg_dnn: float . L2 regularizer strength applied to DNN
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param biout_dropout: When not ``None``, the probability we will drop out the output of BiInteractionPooling Layer.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in deep net
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :return: A PyTorch model instance.
+    
+    """
+
+    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(128, 128), l2_reg_embedding=1e-05, l2_reg_linear=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, bi_dropout=0, dnn_dropout=0, dnn_activation='relu', task='binary', device='cpu'):
+        super(NFM, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+        self.dnn = DNN(self.compute_input_dim(dnn_feature_columns, include_sparse=False) + self.embedding_size, dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=False, init_std=init_std, device=device)
+        self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
+        self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
+        self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+        self.bi_pooling = BiInteractionPooling()
+        self.bi_dropout = bi_dropout
+        if self.bi_dropout > 0:
+            self.dropout = nn.Dropout(bi_dropout)
+        self
+
+    def forward(self, X):
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        linear_logit = self.linear_model(X)
+        fm_input = torch.cat(sparse_embedding_list, dim=1)
+        bi_out = self.bi_pooling(fm_input)
+        if self.bi_dropout:
+            bi_out = self.dropout(bi_out)
+        dnn_input = combined_dnn_input([bi_out], dense_value_list)
+        dnn_output = self.dnn(dnn_input)
+        dnn_logit = self.dnn_linear(dnn_output)
+        logit = linear_logit + dnn_logit
+        y_pred = self.out(logit)
+        return y_pred
+
+
 class Interac(nn.Module):
 
     def __init__(self, first_size, second_size, emb_size, init_std, sparse=False):
@@ -1670,6 +2289,262 @@ class Interac(nn.Module):
         second_emb = self.emb2(second)
         y = first_emb * second_emb
         return y
+
+
+class ONN(BaseModel):
+    """Instantiates the Operation-aware Neural Networks  architecture.
+
+    :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of deep net
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_linear: float. L2 regularizer strength applied to linear part.
+    :param l2_reg_dnn: float . L2 regularizer strength applied to DNN
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param use_bn: bool,whether use bn after ffm out or not
+    :param reduce_sum: bool,whether apply reduce_sum on cross vector
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :return: A PyTorch model instance.
+    
+    """
+
+    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(128, 128), l2_reg_embedding=1e-05, l2_reg_linear=1e-05, l2_reg_dnn=0, dnn_dropout=0, init_std=0.0001, seed=1024, dnn_use_bn=False, dnn_activation='relu', task='binary', device='cpu'):
+        super(ONN, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+        embedding_size = self.embedding_size
+        self.second_order_embedding_dict = self.__create_second_order_embedding_matrix(dnn_feature_columns, embedding_size=embedding_size, sparse=False)
+        self.add_regularization_loss(self.second_order_embedding_dict.parameters(), l2_reg_embedding)
+        dim = self.__compute_nffm_dnn_dim(feature_columns=dnn_feature_columns, embedding_size=embedding_size)
+        self.dnn = DNN(inputs_dim=dim, hidden_units=dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
+        self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
+        self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
+        self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+        self
+
+    def __compute_nffm_dnn_dim(self, feature_columns, embedding_size):
+        sparse_feature_columns = list(filter(lambda x: isinstance(x, SparseFeat), feature_columns)) if len(feature_columns) else []
+        dense_feature_columns = list(filter(lambda x: isinstance(x, DenseFeat), feature_columns)) if len(feature_columns) else []
+        return int(len(sparse_feature_columns) * (len(sparse_feature_columns) - 1) / 2 * embedding_size + sum(map(lambda x: x.dimension, dense_feature_columns)))
+
+    def __input_from_second_order_column(self, X, feature_columns, second_order_embedding_dict):
+        """
+        :param X: same as input_from_feature_columns
+        :param feature_columns: same as input_from_feature_columns
+        :param second_order_embedding_dict: ex: {'A1+A2': Interac model} created by function create_second_order_embedding_matrix
+        :return:
+        """
+        sparse_feature_columns = list(filter(lambda x: isinstance(x, SparseFeat), feature_columns)) if len(feature_columns) else []
+        second_order_embedding_list = []
+        for first_index in range(len(sparse_feature_columns) - 1):
+            for second_index in range(first_index + 1, len(sparse_feature_columns)):
+                first_name = sparse_feature_columns[first_index].embedding_name
+                second_name = sparse_feature_columns[second_index].embedding_name
+                second_order_embedding_list.append(second_order_embedding_dict[first_name + '+' + second_name](X[:, self.feature_index[first_name][0]:self.feature_index[first_name][1]].long(), X[:, self.feature_index[second_name][0]:self.feature_index[second_name][1]].long()))
+        return second_order_embedding_list
+
+    def __create_second_order_embedding_matrix(self, feature_columns, embedding_size, init_std=0.0001, sparse=False):
+        sparse_feature_columns = list(filter(lambda x: isinstance(x, SparseFeat), feature_columns)) if len(feature_columns) else []
+        temp_dict = {}
+        for first_index in range(len(sparse_feature_columns) - 1):
+            for second_index in range(first_index + 1, len(sparse_feature_columns)):
+                first_name = sparse_feature_columns[first_index].embedding_name
+                second_name = sparse_feature_columns[second_index].embedding_name
+                temp_dict[first_name + '+' + second_name] = Interac(sparse_feature_columns[first_index].vocabulary_size, sparse_feature_columns[second_index].vocabulary_size, emb_size=embedding_size, init_std=init_std, sparse=sparse)
+        return nn.ModuleDict(temp_dict)
+
+    def forward(self, X):
+        _, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        linear_logit = self.linear_model(X)
+        spare_second_order_embedding_list = self.__input_from_second_order_column(X, self.dnn_feature_columns, self.second_order_embedding_dict)
+        dnn_input = combined_dnn_input(spare_second_order_embedding_list, dense_value_list)
+        dnn_output = self.dnn(dnn_input)
+        dnn_logit = self.dnn_linear(dnn_output)
+        if len(self.dnn_feature_columns) > 0:
+            final_logit = dnn_logit + linear_logit
+        else:
+            final_logit = linear_logit
+        y_pred = self.out(final_logit)
+        return y_pred
+
+
+class PNN(BaseModel):
+    """Instantiates the Product-based Neural Network architecture.
+
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of deep net
+    :param l2_reg_embedding: float . L2 regularizer strength applied to embedding vector
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN
+    :param use_inner: bool,whether use inner-product or not.
+    :param use_outter: bool,whether use outter-product or not.
+    :param kernel_type: str,kernel_type used in outter-product,can be ``'mat'`` , ``'vec'`` or ``'num'``
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :return: A PyTorch model instance.
+    
+    """
+
+    def __init__(self, dnn_feature_columns, dnn_hidden_units=(128, 128), l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', use_inner=True, use_outter=False, kernel_type='mat', task='binary', device='cpu'):
+        super(PNN, self).__init__([], dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, l2_reg_linear=0, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+        if kernel_type not in ['mat', 'vec', 'num']:
+            raise ValueError('kernel_type must be mat,vec or num')
+        self.use_inner = use_inner
+        self.use_outter = use_outter
+        self.kernel_type = kernel_type
+        self.task = task
+        product_out_dim = 0
+        num_inputs = self.compute_input_dim(dnn_feature_columns, include_dense=False, feature_group=True)
+        num_pairs = int(num_inputs * (num_inputs - 1) / 2)
+        if self.use_inner:
+            product_out_dim += num_pairs
+            self.innerproduct = InnerProductLayer(device=device)
+        if self.use_outter:
+            product_out_dim += num_pairs
+            self.outterproduct = OutterProductLayer(num_inputs, self.embedding_size, kernel_type=kernel_type, device=device)
+        self.dnn = DNN(product_out_dim + self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=False, init_std=init_std, device=device)
+        self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
+        self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
+        self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+        self
+
+    def forward(self, X):
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        linear_signal = torch.flatten(concat_fun(sparse_embedding_list), start_dim=1)
+        if self.use_inner:
+            inner_product = torch.flatten(self.innerproduct(sparse_embedding_list), start_dim=1)
+        if self.use_outter:
+            outer_product = self.outterproduct(sparse_embedding_list)
+        if self.use_outter and self.use_inner:
+            product_layer = torch.cat([linear_signal, inner_product, outer_product], dim=1)
+        elif self.use_outter:
+            product_layer = torch.cat([linear_signal, outer_product], dim=1)
+        elif self.use_inner:
+            product_layer = torch.cat([linear_signal, inner_product], dim=1)
+        else:
+            product_layer = linear_signal
+        dnn_input = combined_dnn_input([product_layer], dense_value_list)
+        dnn_output = self.dnn(dnn_input)
+        dnn_logit = self.dnn_linear(dnn_output)
+        logit = dnn_logit
+        y_pred = self.out(logit)
+        return y_pred
+
+
+class WDL(BaseModel):
+    """Instantiates the Wide&Deep Learning architecture.
+
+    :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of DNN
+    :param l2_reg_linear: float. L2 regularizer strength applied to wide part
+    :param l2_reg_embedding: float. L2 regularizer strength applied to embedding vector
+    :param l2_reg_dnn: float. L2 regularizer strength applied to DNN
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :return: A PyTorch model instance.
+    
+    """
+
+    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(256, 128), l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu'):
+        super(WDL, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+        self.use_dnn = len(dnn_feature_columns) > 0 and len(dnn_hidden_units) > 0
+        if self.use_dnn:
+            self.dnn = DNN(self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
+            self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
+            self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
+            self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+        self
+
+    def forward(self, X):
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        logit = self.linear_model(X)
+        if self.use_dnn:
+            dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
+            dnn_output = self.dnn(dnn_input)
+            dnn_logit = self.dnn_linear(dnn_output)
+            logit += dnn_logit
+        y_pred = self.out(logit)
+        return y_pred
+
+
+class xDeepFM(BaseModel):
+    """Instantiates the xDeepFM architecture.
+
+    :param linear_feature_columns: An iterable containing all the features used by linear part of the model.
+    :param dnn_feature_columns: An iterable containing all the features used by deep part of the model.
+    :param dnn_hidden_units: list,list of positive integer or empty list, the layer number and units in each layer of deep net
+    :param cin_layer_size: list,list of positive integer or empty list, the feature maps  in each hidden layer of Compressed Interaction Network
+    :param cin_split_half: bool.if set to True, half of the feature maps in each hidden will connect to output unit
+    :param cin_activation: activation function used on feature maps
+    :param l2_reg_linear: float. L2 regularizer strength applied to linear part
+    :param l2_reg_embedding: L2 regularizer strength applied to embedding vector
+    :param l2_reg_dnn: L2 regularizer strength applied to deep net
+    :param l2_reg_cin: L2 regularizer strength applied to CIN.
+    :param init_std: float,to use as the initialize std of embedding vector
+    :param seed: integer ,to use as random seed.
+    :param dnn_dropout: float in [0,1), the probability we will drop out a given DNN coordinate.
+    :param dnn_activation: Activation function to use in DNN
+    :param dnn_use_bn: bool. Whether use BatchNormalization before activation or not in DNN
+    :param task: str, ``"binary"`` for  binary logloss or  ``"regression"`` for regression loss
+    :param device: str, ``"cpu"`` or ``"cuda:0"``
+    :return: A PyTorch model instance.
+    
+    """
+
+    def __init__(self, linear_feature_columns, dnn_feature_columns, dnn_hidden_units=(256, 256), cin_layer_size=(256, 128), cin_split_half=True, cin_activation='relu', l2_reg_linear=1e-05, l2_reg_embedding=1e-05, l2_reg_dnn=0, l2_reg_cin=0, init_std=0.0001, seed=1024, dnn_dropout=0, dnn_activation='relu', dnn_use_bn=False, task='binary', device='cpu'):
+        super(xDeepFM, self).__init__(linear_feature_columns, dnn_feature_columns, dnn_hidden_units=dnn_hidden_units, l2_reg_linear=l2_reg_linear, l2_reg_embedding=l2_reg_embedding, l2_reg_dnn=l2_reg_dnn, init_std=init_std, seed=seed, dnn_dropout=dnn_dropout, dnn_activation=dnn_activation, task=task, device=device)
+        self.dnn_hidden_units = dnn_hidden_units
+        self.use_dnn = len(dnn_feature_columns) > 0 and len(dnn_hidden_units) > 0
+        if self.use_dnn:
+            self.dnn = DNN(self.compute_input_dim(dnn_feature_columns), dnn_hidden_units, activation=dnn_activation, l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn, init_std=init_std, device=device)
+            self.dnn_linear = nn.Linear(dnn_hidden_units[-1], 1, bias=False)
+            self.add_regularization_loss(filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], self.dnn.named_parameters()), l2_reg_dnn)
+            self.add_regularization_loss(self.dnn_linear.weight, l2_reg_dnn)
+        self.cin_layer_size = cin_layer_size
+        self.use_cin = len(self.cin_layer_size) > 0 and len(dnn_feature_columns) > 0
+        if self.use_cin:
+            field_num = len(self.embedding_dict)
+            if cin_split_half == True:
+                self.featuremap_num = sum(cin_layer_size[:-1]) // 2 + cin_layer_size[-1]
+            else:
+                self.featuremap_num = sum(cin_layer_size)
+            self.cin = CIN(field_num, cin_layer_size, cin_activation, cin_split_half, l2_reg_cin, seed, device=device)
+            self.cin_linear = nn.Linear(self.featuremap_num, 1, bias=False)
+            self.add_regularization_loss(filter(lambda x: 'weight' in x[0], self.cin.named_parameters()), l2_reg_cin)
+        self
+
+    def forward(self, X):
+        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns, self.embedding_dict)
+        linear_logit = self.linear_model(X)
+        if self.use_cin:
+            cin_input = torch.cat(sparse_embedding_list, dim=1)
+            cin_output = self.cin(cin_input)
+            cin_logit = self.cin_linear(cin_output)
+        if self.use_dnn:
+            dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
+            dnn_output = self.dnn(dnn_input)
+            dnn_logit = self.dnn_linear(dnn_output)
+        if len(self.dnn_hidden_units) == 0 and len(self.cin_layer_size) == 0:
+            final_logit = linear_logit
+        elif len(self.dnn_hidden_units) == 0 and len(self.cin_layer_size) > 0:
+            final_logit = linear_logit + cin_logit
+        elif len(self.dnn_hidden_units) > 0 and len(self.cin_layer_size) == 0:
+            final_logit = linear_logit + dnn_logit
+        elif len(self.dnn_hidden_units) > 0 and len(self.cin_layer_size) > 0:
+            final_logit = linear_logit + dnn_logit + cin_logit
+        else:
+            raise NotImplementedError
+        y_pred = self.out(final_logit)
+        return y_pred
 
 
 import torch

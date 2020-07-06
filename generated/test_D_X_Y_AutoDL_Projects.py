@@ -102,6 +102,8 @@ search_main_v2 = _module
 simple_KD_main = _module
 starts = _module
 tf_models = _module
+search_model_darts = _module
+search_model_gdas = _module
 tf_optimizers = _module
 weight_decay_optimizers = _module
 utils = _module
@@ -116,15 +118,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -141,22 +144,58 @@ import random
 from copy import deepcopy
 
 
-import numpy as np
-
-
-import torch.nn as nn
-
-
 import collections
 
 
-from torch.distributions import Categorical
+from collections import defaultdict
+
+
+import numpy as np
 
 
 from collections import OrderedDict
 
 
+from typing import Dict
+
+
+from typing import Any
+
+
+from typing import Text
+
+
+from typing import List
+
+
 import math
+
+
+import torch.nn as nn
+
+
+from torch.distributions import Categorical
+
+
+import torchvision
+
+
+import torchvision.datasets as dset
+
+
+import torch.utils.data as data
+
+
+from copy import deepcopy as copy
+
+
+import warnings
+
+
+import copy
+
+
+import torchvision.transforms as transforms
 
 
 import torch.nn.functional as F
@@ -165,28 +204,19 @@ import torch.nn.functional as F
 from torch import nn
 
 
-import warnings
-
-
-from typing import List
-
-
-from typing import Text
-
-
-from typing import Dict
-
-
 from torch.distributions.categorical import Categorical
 
 
-from typing import Any
-
-
-import copy
+from typing import Union
 
 
 from torch.optim import Optimizer
+
+
+import tensorflow as tf
+
+
+from sklearn.decomposition import TruncatedSVD
 
 
 class Policy(nn.Module):
@@ -231,20 +261,44 @@ class Policy(nn.Module):
         return alphas
 
 
-class Bottleneck(nn.Module):
+def conv1x1(in_planes, out_planes, stride=1):
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
 
-    def __init__(self, nChannels, growthRate):
+
+def conv3x3(in_planes, out_planes, stride=1, groups=1):
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, groups=groups, bias=False)
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64):
         super(Bottleneck, self).__init__()
-        interChannels = 4 * growthRate
-        self.bn1 = nn.BatchNorm2d(nChannels)
-        self.conv1 = nn.Conv2d(nChannels, interChannels, kernel_size=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(interChannels)
-        self.conv2 = nn.Conv2d(interChannels, growthRate, kernel_size=3, padding=1, bias=False)
+        width = int(planes * (base_width / 64.0)) * groups
+        self.conv1 = conv1x1(inplanes, width)
+        self.bn1 = nn.BatchNorm2d(width)
+        self.conv2 = conv3x3(width, width, stride, groups)
+        self.bn2 = nn.BatchNorm2d(width)
+        self.conv3 = conv1x1(width, planes * self.expansion)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
 
     def forward(self, x):
-        out = self.conv1(F.relu(self.bn1(x)))
-        out = self.conv2(F.relu(self.bn2(out)))
-        out = torch.cat((x, out), 1)
+        identity = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            identity = self.downsample(x)
+        out += identity
+        out = self.relu(out)
         return out
 
 
@@ -355,26 +409,146 @@ class Downsample(nn.Module):
         return out
 
 
-class ConvBNReLU(nn.Module):
+def ChannelWiseInterV1(inputs, oC):
+    assert inputs.dim() == 4, 'invalid dimension : {:}'.format(inputs.size())
 
-    def __init__(self, nIn, nOut, kernel, stride, padding, bias, relu):
+    def start_index(a, b, c):
+        return int(math.floor(float(a * c) / b))
+
+    def end_index(a, b, c):
+        return int(math.ceil(float((a + 1) * c) / b))
+    batch, iC, H, W = inputs.size()
+    outputs = torch.zeros((batch, oC, H, W), dtype=inputs.dtype, device=inputs.device)
+    if iC == oC:
+        return inputs
+    for ot in range(oC):
+        istartT, iendT = start_index(ot, oC, iC), end_index(ot, oC, iC)
+        values = inputs[:, istartT:iendT].mean(dim=1)
+        outputs[:, (ot), :, :] = values
+    return outputs
+
+
+def ChannelWiseInterV2(inputs, oC):
+    assert inputs.dim() == 4, 'invalid dimension : {:}'.format(inputs.size())
+    batch, C, H, W = inputs.size()
+    if C == oC:
+        return inputs
+    else:
+        return nn.functional.adaptive_avg_pool3d(inputs, (oC, H, W))
+
+
+def ChannelWiseInter(inputs, oC, mode='v2'):
+    if mode == 'v1':
+        return ChannelWiseInterV1(inputs, oC)
+    elif mode == 'v2':
+        return ChannelWiseInterV2(inputs, oC)
+    else:
+        raise ValueError('invalid mode : {:}'.format(mode))
+
+
+def conv_forward(inputs, conv, choices):
+    iC = conv.in_channels
+    fill_size = list(inputs.size())
+    fill_size[1] = iC - fill_size[1]
+    filled = torch.zeros(fill_size, device=inputs.device)
+    xinputs = torch.cat((inputs, filled), dim=1)
+    outputs = conv(xinputs)
+    selecteds = [outputs[:, :oC] for oC in choices]
+    return selecteds
+
+
+class ConvBNReLU(nn.Module):
+    num_conv = 1
+
+    def __init__(self, nIn, nOut, kernel, stride, padding, bias, has_avg, has_bn, has_relu):
         super(ConvBNReLU, self).__init__()
-        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride, padding=padding, bias=bias)
-        self.bn = nn.BatchNorm2d(nOut)
-        if relu:
+        self.InShape = None
+        self.OutShape = None
+        self.choices = get_choices(nOut)
+        self.register_buffer('choices_tensor', torch.Tensor(self.choices))
+        if has_avg:
+            self.avg = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
+        else:
+            self.avg = None
+        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride, padding=padding, dilation=1, groups=1, bias=bias)
+        self.has_bn = has_bn
+        self.BNs = nn.ModuleList()
+        for i, _out in enumerate(self.choices):
+            self.BNs.append(nn.BatchNorm2d(_out))
+        if has_relu:
             self.relu = nn.ReLU(inplace=True)
         else:
             self.relu = None
+        self.in_dim = nIn
         self.out_dim = nOut
-        self.num_conv = 1
+        self.search_mode = 'basic'
 
-    def forward(self, x):
-        conv = self.conv(x)
-        bn = self.bn(conv)
-        if self.relu:
-            return self.relu(bn)
+    def get_flops(self, channels, check_range=True, divide=1):
+        iC, oC = channels
+        if check_range:
+            assert iC <= self.conv.in_channels and oC <= self.conv.out_channels, '{:} vs {:}  |  {:} vs {:}'.format(iC, self.conv.in_channels, oC, self.conv.out_channels)
+        assert isinstance(self.InShape, tuple) and len(self.InShape) == 2, 'invalid in-shape : {:}'.format(self.InShape)
+        assert isinstance(self.OutShape, tuple) and len(self.OutShape) == 2, 'invalid out-shape : {:}'.format(self.OutShape)
+        conv_per_position_flops = self.conv.kernel_size[0] * self.conv.kernel_size[1] * 1.0 / self.conv.groups
+        all_positions = self.OutShape[0] * self.OutShape[1]
+        flops = conv_per_position_flops * all_positions / divide * iC * oC
+        if self.conv.bias is not None:
+            flops += all_positions / divide
+        return flops
+
+    def get_range(self):
+        return [self.choices]
+
+    def forward(self, inputs):
+        if self.search_mode == 'basic':
+            return self.basic_forward(inputs)
+        elif self.search_mode == 'search':
+            return self.search_forward(inputs)
         else:
-            return bn
+            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
+
+    def search_forward(self, tuple_inputs):
+        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
+        inputs, expected_inC, probability, index, prob = tuple_inputs
+        index, prob = torch.squeeze(index).tolist(), torch.squeeze(prob)
+        probability = torch.squeeze(probability)
+        assert len(index) == 2, 'invalid length : {:}'.format(index)
+        expected_outC = (self.choices_tensor * probability).sum()
+        expected_flop = self.get_flops([expected_inC, expected_outC], False, 1000000.0)
+        if self.avg:
+            out = self.avg(inputs)
+        else:
+            out = inputs
+        out_convs = conv_forward(out, self.conv, [self.choices[i] for i in index])
+        out_bns = [self.BNs[idx](out_conv) for idx, out_conv in zip(index, out_convs)]
+        out_channel = max([x.size(1) for x in out_bns])
+        outA = ChannelWiseInter(out_bns[0], out_channel)
+        outB = ChannelWiseInter(out_bns[1], out_channel)
+        out = outA * prob[0] + outB * prob[1]
+        if self.relu:
+            out = self.relu(out)
+        else:
+            out = out
+        return out, expected_outC, expected_flop
+
+    def basic_forward(self, inputs):
+        if self.avg:
+            out = self.avg(inputs)
+        else:
+            out = inputs
+        conv = self.conv(out)
+        if self.has_bn:
+            out = self.BNs[-1](conv)
+        else:
+            out = conv
+        if self.relu:
+            out = self.relu(out)
+        else:
+            out = out
+        if self.InShape is None:
+            self.InShape = inputs.size(-2), inputs.size(-1)
+            self.OutShape = out.size(-2), out.size(-1)
+        return out
 
 
 def additive_func(A, B):
@@ -394,22 +568,59 @@ def additive_func(A, B):
 
 class ResNetBasicblock(nn.Module):
     expansion = 1
+    num_conv = 2
 
     def __init__(self, inplanes, planes, stride):
         super(ResNetBasicblock, self).__init__()
         assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_a = ConvBNReLU(inplanes, planes, 3, stride, 1, False, True)
-        self.conv_b = ConvBNReLU(planes, planes, 3, 1, 1, False, False)
+        self.conv_a = ConvBNReLU(inplanes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
+        self.conv_b = ConvBNReLU(planes, planes, 3, 1, 1, False, has_avg=False, has_bn=True, has_relu=False)
         if stride == 2:
-            self.downsample = Downsample(inplanes, planes, stride)
+            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=True, has_bn=True, has_relu=False)
         elif inplanes != planes:
-            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, False)
+            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
         else:
             self.downsample = None
         self.out_dim = planes
-        self.num_conv = 2
+        self.search_mode = 'basic'
+
+    def get_range(self):
+        return self.conv_a.get_range() + self.conv_b.get_range()
+
+    def get_flops(self, channels):
+        assert len(channels) == 3, 'invalid channels : {:}'.format(channels)
+        flop_A = self.conv_a.get_flops([channels[0], channels[1]])
+        flop_B = self.conv_b.get_flops([channels[1], channels[2]])
+        if hasattr(self.downsample, 'get_flops'):
+            flop_C = self.downsample.get_flops([channels[0], channels[-1]])
+        else:
+            flop_C = 0
+        if channels[0] != channels[-1] and self.downsample is None:
+            flop_C = channels[0] * channels[-1] * self.conv_b.OutShape[0] * self.conv_b.OutShape[1]
+        return flop_A + flop_B + flop_C
 
     def forward(self, inputs):
+        if self.search_mode == 'basic':
+            return self.basic_forward(inputs)
+        elif self.search_mode == 'search':
+            return self.search_forward(inputs)
+        else:
+            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
+
+    def search_forward(self, tuple_inputs):
+        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
+        inputs, expected_inC, probability, indexes, probs = tuple_inputs
+        assert indexes.size(0) == 2 and probs.size(0) == 2 and probability.size(0) == 2
+        out_a, expected_inC_a, expected_flop_a = self.conv_a((inputs, expected_inC, probability[0], indexes[0], probs[0]))
+        out_b, expected_inC_b, expected_flop_b = self.conv_b((out_a, expected_inC_a, probability[1], indexes[1], probs[1]))
+        if self.downsample is not None:
+            residual, _, expected_flop_c = self.downsample((inputs, expected_inC, probability[1], indexes[1], probs[1]))
+        else:
+            residual, expected_flop_c = inputs, 0
+        out = additive_func(residual, out_b)
+        return nn.functional.relu(out, inplace=True), expected_inC_b, sum([expected_flop_a, expected_flop_b, expected_flop_c])
+
+    def basic_forward(self, inputs):
         basicblock = self.conv_a(inputs)
         basicblock = self.conv_b(basicblock)
         if self.downsample is not None:
@@ -417,28 +628,53 @@ class ResNetBasicblock(nn.Module):
         else:
             residual = inputs
         out = additive_func(residual, basicblock)
-        return F.relu(out, inplace=True)
+        return nn.functional.relu(out, inplace=True)
 
 
 class ResNetBottleneck(nn.Module):
     expansion = 4
+    num_conv = 3
 
     def __init__(self, inplanes, planes, stride):
         super(ResNetBottleneck, self).__init__()
         assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_1x1 = ConvBNReLU(inplanes, planes, 1, 1, 0, False, True)
-        self.conv_3x3 = ConvBNReLU(planes, planes, 3, stride, 1, False, True)
-        self.conv_1x4 = ConvBNReLU(planes, planes * self.expansion, 1, 1, 0, False, False)
+        self.conv_1x1 = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=True)
+        self.conv_3x3 = ConvBNReLU(planes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
+        self.conv_1x4 = ConvBNReLU(planes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
         if stride == 2:
-            self.downsample = Downsample(inplanes, planes * self.expansion, stride)
+            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=True, has_bn=True, has_relu=False)
         elif inplanes != planes * self.expansion:
-            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, False)
+            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
         else:
             self.downsample = None
         self.out_dim = planes * self.expansion
-        self.num_conv = 3
+        self.search_mode = 'basic'
+
+    def get_range(self):
+        return self.conv_1x1.get_range() + self.conv_3x3.get_range() + self.conv_1x4.get_range()
+
+    def get_flops(self, channels):
+        assert len(channels) == 4, 'invalid channels : {:}'.format(channels)
+        flop_A = self.conv_1x1.get_flops([channels[0], channels[1]])
+        flop_B = self.conv_3x3.get_flops([channels[1], channels[2]])
+        flop_C = self.conv_1x4.get_flops([channels[2], channels[3]])
+        if hasattr(self.downsample, 'get_flops'):
+            flop_D = self.downsample.get_flops([channels[0], channels[-1]])
+        else:
+            flop_D = 0
+        if channels[0] != channels[-1] and self.downsample is None:
+            flop_D = channels[0] * channels[-1] * self.conv_1x4.OutShape[0] * self.conv_1x4.OutShape[1]
+        return flop_A + flop_B + flop_C + flop_D
 
     def forward(self, inputs):
+        if self.search_mode == 'basic':
+            return self.basic_forward(inputs)
+        elif self.search_mode == 'search':
+            return self.search_forward(inputs)
+        else:
+            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
+
+    def basic_forward(self, inputs):
         bottleneck = self.conv_1x1(inputs)
         bottleneck = self.conv_3x3(bottleneck)
         bottleneck = self.conv_1x4(bottleneck)
@@ -447,7 +683,21 @@ class ResNetBottleneck(nn.Module):
         else:
             residual = inputs
         out = additive_func(residual, bottleneck)
-        return F.relu(out, inplace=True)
+        return nn.functional.relu(out, inplace=True)
+
+    def search_forward(self, tuple_inputs):
+        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
+        inputs, expected_inC, probability, indexes, probs = tuple_inputs
+        assert indexes.size(0) == 3 and probs.size(0) == 3 and probability.size(0) == 3
+        out_1x1, expected_inC_1x1, expected_flop_1x1 = self.conv_1x1((inputs, expected_inC, probability[0], indexes[0], probs[0]))
+        out_3x3, expected_inC_3x3, expected_flop_3x3 = self.conv_3x3((out_1x1, expected_inC_1x1, probability[1], indexes[1], probs[1]))
+        out_1x4, expected_inC_1x4, expected_flop_1x4 = self.conv_1x4((out_3x3, expected_inC_3x3, probability[2], indexes[2], probs[2]))
+        if self.downsample is not None:
+            residual, _, expected_flop_c = self.downsample((inputs, expected_inC, probability[2], indexes[2], probs[2]))
+        else:
+            residual, expected_flop_c = inputs, 0
+        out = additive_func(residual, out_1x4)
+        return nn.functional.relu(out, inplace=True), expected_inC_1x4, sum([expected_flop_1x1, expected_flop_3x3, expected_flop_1x4, expected_flop_c])
 
 
 class CifarResNet(nn.Module):
@@ -579,41 +829,32 @@ class CifarWideResNet(nn.Module):
         return features, outs
 
 
-class ConvBNReLU(nn.Module):
+class InvertedResidual(nn.Module):
 
-    def __init__(self, in_planes, out_planes, kernel_size=3, stride=1, groups=1):
-        super(ConvBNReLU, self).__init__()
-        padding = (kernel_size - 1) // 2
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size, stride, padding, groups=groups, bias=False)
-        self.bn = nn.BatchNorm2d(out_planes)
-        self.relu = nn.ReLU6(inplace=True)
+    def __init__(self, channels, stride, expand_ratio, additive):
+        super(InvertedResidual, self).__init__()
+        self.stride = stride
+        assert stride in [1, 2], 'invalid stride : {:}'.format(stride)
+        assert len(channels) in [2, 3], 'invalid channels : {:}'.format(channels)
+        if len(channels) == 2:
+            layers = []
+        else:
+            layers = [ConvBNReLU(channels[0], channels[1], 1, 1, 1)]
+        layers.extend([ConvBNReLU(channels[-2], channels[-2], 3, stride, channels[-2]), ConvBNReLU(channels[-2], channels[-1], 1, 1, 1, True, False)])
+        self.conv = nn.Sequential(*layers)
+        self.additive = additive
+        if self.additive and channels[0] != channels[-1]:
+            self.shortcut = ConvBNReLU(channels[0], channels[-1], 1, 1, 1, True, False)
+        else:
+            self.shortcut = None
+        self.out_dim = channels[-1]
 
     def forward(self, x):
         out = self.conv(x)
-        out = self.bn(out)
-        out = self.relu(out)
-        return out
-
-
-class InvertedResidual(nn.Module):
-
-    def __init__(self, inp, oup, stride, expand_ratio):
-        super(InvertedResidual, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2]
-        hidden_dim = int(round(inp * expand_ratio))
-        self.use_res_connect = self.stride == 1 and inp == oup
-        layers = []
-        if expand_ratio != 1:
-            layers.append(ConvBNReLU(inp, hidden_dim, kernel_size=1))
-        layers.extend([ConvBNReLU(hidden_dim, hidden_dim, stride=stride, groups=hidden_dim), nn.Conv2d(hidden_dim, oup, 1, 1, 0, bias=False), nn.BatchNorm2d(oup)])
-        self.conv = nn.Sequential(*layers)
-
-    def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
+        if self.shortcut:
+            return out + self.shortcut(x)
         else:
-            return self.conv(x)
+            return out
 
 
 class MobileNetV2(nn.Module):
@@ -650,10 +891,6 @@ class MobileNetV2(nn.Module):
         return features, predicts
 
 
-def conv3x3(in_planes, out_planes, stride=1, groups=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, groups=groups, bias=False)
-
-
 class BasicBlock(nn.Module):
     expansion = 1
 
@@ -676,43 +913,6 @@ class BasicBlock(nn.Module):
         out = self.relu(out)
         out = self.conv2(out)
         out = self.bn2(out)
-        if self.downsample is not None:
-            identity = self.downsample(x)
-        out += identity
-        out = self.relu(out)
-        return out
-
-
-def conv1x1(in_planes, out_planes, stride=1):
-    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1, base_width=64):
-        super(Bottleneck, self).__init__()
-        width = int(planes * (base_width / 64.0)) * groups
-        self.conv1 = conv1x1(inplanes, width)
-        self.bn1 = nn.BatchNorm2d(width)
-        self.conv2 = conv3x3(width, width, stride, groups)
-        self.bn2 = nn.BatchNorm2d(width)
-        self.conv3 = conv1x1(width, planes * self.expansion)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        identity = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
         if self.downsample is not None:
             identity = self.downsample(x)
         out += identity
@@ -783,50 +983,206 @@ class ResNet(nn.Module):
         return features, logits
 
 
+class FactorizedReduce(nn.Module):
+
+    def __init__(self, C_in, C_out, stride, affine=True):
+        super(FactorizedReduce, self).__init__()
+        self.stride = stride
+        self.C_in = C_in
+        self.C_out = C_out
+        self.relu = nn.ReLU(inplace=False)
+        if stride == 2:
+            C_outs = [C_out // 2, C_out - C_out // 2]
+            self.convs = nn.ModuleList()
+            for i in range(2):
+                self.convs.append(nn.Conv2d(C_in, C_outs[i], 1, stride=stride, padding=0, bias=False))
+            self.pad = nn.ConstantPad2d((0, 1, 0, 1), 0)
+        elif stride == 4:
+            assert C_out % 4 == 0, 'C_out : {:}'.format(C_out)
+            self.convs = nn.ModuleList()
+            for i in range(4):
+                self.convs.append(nn.Conv2d(C_in, C_out // 4, 1, stride=stride, padding=0, bias=False))
+            self.pad = nn.ConstantPad2d((0, 3, 0, 3), 0)
+        else:
+            raise ValueError('Invalid stride : {:}'.format(stride))
+        self.bn = nn.BatchNorm2d(C_out, affine=affine)
+
+    def forward(self, x):
+        x = self.relu(x)
+        y = self.pad(x)
+        if self.stride == 2:
+            out = torch.cat([self.convs[0](x), self.convs[1](y[:, :, 1:, 1:])], dim=1)
+        else:
+            out = torch.cat([self.convs[0](x), self.convs[1](y[:, :, 1:-2, 1:-2]), self.convs[2](y[:, :, 2:-1, 2:-1]), self.convs[3](y[:, :, 3:, 3:])], dim=1)
+        out = self.bn(out)
+        return out
+
+    def extra_repr(self):
+        return 'C_in={C_in}, C_out={C_out}, stride={stride}'.format(**self.__dict__)
+
+
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
+
+class Conv313(nn.Module):
+
+    def __init__(self, C_in, C_out, stride, affine):
+        super(Conv313, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, (1, 3), stride=(1, stride), padding=(0, 1), bias=False), nn.Conv2d(C_out, C_out, (3, 1), stride=(stride, 1), padding=(1, 0), bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+class Conv717(nn.Module):
+
+    def __init__(self, C_in, C_out, stride, affine):
+        super(Conv717, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, (1, 7), stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(C_out, C_out, (7, 1), stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+class DilConv(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
+        super(DilConv, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+class ReLUConvBN(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
+        super(ReLUConvBN, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+class POOLING(nn.Module):
+
+    def __init__(self, C_in, C_out, stride, mode):
+        super(POOLING, self).__init__()
+        if C_in == C_out:
+            self.preprocess = None
+        else:
+            self.preprocess = ReLUConvBN(C_in, C_out, 1, 1, 0)
+        if mode == 'avg':
+            self.op = nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False)
+        elif mode == 'max':
+            self.op = nn.MaxPool2d(3, stride=stride, padding=1)
+
+    def forward(self, inputs):
+        if self.preprocess is not None:
+            x = self.preprocess(inputs)
+        else:
+            x = inputs
+        return self.op(x)
+
+
+class SepConv(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
+        super(SepConv, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+class Zero(nn.Module):
+
+    def __init__(self, stride):
+        super(Zero, self).__init__()
+        self.stride = stride
+
+    def forward(self, x):
+        if self.stride == 1:
+            return x.mul(0.0)
+        return x[:, :, ::self.stride, ::self.stride].mul(0.0)
+
+    def extra_repr(self):
+        return 'stride={stride}'.format(**self.__dict__)
+
+
 OPS = {'none': lambda C_in, C_out, stride, affine: Zero(stride), 'avg_pool_3x3': lambda C_in, C_out, stride, affine: POOLING(C_in, C_out, stride, 'avg'), 'max_pool_3x3': lambda C_in, C_out, stride, affine: POOLING(C_in, C_out, stride, 'max'), 'nor_conv_7x7': lambda C_in, C_out, stride, affine: ReLUConvBN(C_in, C_out, (7, 7), (stride, stride), (3, 3), affine), 'nor_conv_3x3': lambda C_in, C_out, stride, affine: ReLUConvBN(C_in, C_out, (3, 3), (stride, stride), (1, 1), affine), 'nor_conv_1x1': lambda C_in, C_out, stride, affine: ReLUConvBN(C_in, C_out, (1, 1), (stride, stride), (0, 0), affine), 'skip_connect': lambda C_in, C_out, stride, affine: Identity() if stride == 1 and C_in == C_out else FactorizedReduce(C_in, C_out, stride, affine), 'sep_conv_3x3': lambda C_in, C_out, stride, affine: SepConv(C_in, C_out, 3, stride, 1, affine=affine), 'sep_conv_5x5': lambda C_in, C_out, stride, affine: SepConv(C_in, C_out, 5, stride, 2, affine=affine), 'sep_conv_7x7': lambda C_in, C_out, stride, affine: SepConv(C_in, C_out, 7, stride, 3, affine=affine), 'dil_conv_3x3': lambda C_in, C_out, stride, affine: DilConv(C_in, C_out, 3, stride, 2, 2, affine=affine), 'dil_conv_5x5': lambda C_in, C_out, stride, affine: DilConv(C_in, C_out, 5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda C_in, C_out, stride, affine: Conv717(C_in, C_out, stride, affine), 'conv_3x1_1x3': lambda C_in, C_out, stride, affine: Conv313(C_in, C_out, stride, affine)}
+
+
+def drop_path(x, drop_prob):
+    if drop_prob > 0.0:
+        keep_prob = 1.0 - drop_prob
+        mask = x.new_zeros(x.size(0), 1, 1, 1)
+        mask = mask.bernoulli_(keep_prob)
+        x = torch.div(x, keep_prob)
+        x.mul_(mask)
+    return x
 
 
 class InferCell(nn.Module):
 
-    def __init__(self, genotype, C_in, C_out, stride):
+    def __init__(self, genotype, C_prev_prev, C_prev, C, reduction, reduction_prev):
         super(InferCell, self).__init__()
-        self.layers = nn.ModuleList()
-        self.node_IN = []
-        self.node_IX = []
-        self.genotype = deepcopy(genotype)
-        for i in range(1, len(genotype)):
-            node_info = genotype[i - 1]
-            cur_index = []
-            cur_innod = []
-            for op_name, op_in in node_info:
-                if op_in == 0:
-                    layer = OPS[op_name](C_in, C_out, stride, True, True)
+        None
+        if reduction_prev is None:
+            self.preprocess0 = Identity()
+        elif reduction_prev:
+            self.preprocess0 = FactorizedReduce(C_prev_prev, C, 2)
+        else:
+            self.preprocess0 = ReLUConvBN(C_prev_prev, C, 1, 1, 0)
+        self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0)
+        if reduction:
+            step_ops, concat = genotype.reduce, genotype.reduce_concat
+        else:
+            step_ops, concat = genotype.normal, genotype.normal_concat
+        self._steps = len(step_ops)
+        self._concat = concat
+        self._multiplier = len(concat)
+        self._ops = nn.ModuleList()
+        self._indices = []
+        for operations in step_ops:
+            for name, index in operations:
+                stride = 2 if reduction and index < 2 else 1
+                if reduction_prev is None and index == 0:
+                    op = OPS[name](C_prev_prev, C, stride, True)
                 else:
-                    layer = OPS[op_name](C_out, C_out, 1, True, True)
-                cur_index.append(len(self.layers))
-                cur_innod.append(op_in)
-                self.layers.append(layer)
-            self.node_IX.append(cur_index)
-            self.node_IN.append(cur_innod)
-        self.nodes = len(genotype)
-        self.in_dim = C_in
-        self.out_dim = C_out
+                    op = OPS[name](C, C, stride, True)
+                self._ops.append(op)
+                self._indices.append(index)
 
     def extra_repr(self):
-        string = 'info :: nodes={nodes}, inC={in_dim}, outC={out_dim}'.format(**self.__dict__)
-        laystr = []
-        for i, (node_layers, node_innods) in enumerate(zip(self.node_IX, self.node_IN)):
-            y = ['I{:}-L{:}'.format(_ii, _il) for _il, _ii in zip(node_layers, node_innods)]
-            x = '{:}<-({:})'.format(i + 1, ','.join(y))
-            laystr.append(x)
-        return string + ', [{:}]'.format(' | '.join(laystr)) + ', {:}'.format(self.genotype.tostr())
+        return '{name}(steps={_steps}, concat={_concat})'.format(name=self.__class__.__name__, **self.__dict__)
 
-    def forward(self, inputs):
-        nodes = [inputs]
-        for i, (node_layers, node_innods) in enumerate(zip(self.node_IX, self.node_IN)):
-            node_feature = sum(self.layers[_il](nodes[_ii]) for _il, _ii in zip(node_layers, node_innods))
-            nodes.append(node_feature)
-        return nodes[-1]
+    def forward(self, S0, S1, drop_prob):
+        s0 = self.preprocess0(S0)
+        s1 = self.preprocess1(S1)
+        states = [s0, s1]
+        for i in range(self._steps):
+            h1 = states[self._indices[2 * i]]
+            h2 = states[self._indices[2 * i + 1]]
+            op1 = self._ops[2 * i]
+            op2 = self._ops[2 * i + 1]
+            h1 = op1(h1)
+            h2 = op2(h2)
+            if self.training and drop_prob > 0.0:
+                if not isinstance(op1, Identity):
+                    h1 = drop_path(h1, drop_prob)
+                if not isinstance(op2, Identity):
+                    h2 = drop_path(h2, drop_prob)
+            state = h1 + h2
+            states += [state]
+        output = torch.cat([states[i] for i in self._concat], dim=1)
+        return output
 
 
 class NASNetInferCell(nn.Module):
@@ -989,26 +1345,6 @@ class TinyNetwork(nn.Module):
         return out, logits
 
 
-class ReLUConvBN(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine, track_running_stats=True):
-        super(ReLUConvBN, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, dilation=dilation, bias=False), nn.BatchNorm2d(C_out, affine=affine, track_running_stats=track_running_stats))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class SepConv(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine, track_running_stats=True):
-        super(SepConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine, track_running_stats=track_running_stats))
-
-    def forward(self, x):
-        return self.op(x)
-
-
 class DualSepConv(nn.Module):
 
     def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine, track_running_stats=True):
@@ -1020,129 +1356,6 @@ class DualSepConv(nn.Module):
         x = self.op_a(x)
         x = self.op_b(x)
         return x
-
-
-class ResNetBasicblock(nn.Module):
-
-    def __init__(self, inplanes, planes, stride, affine=True):
-        super(ResNetBasicblock, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_a = ReLUConvBN(inplanes, planes, 3, stride, 1, 1, affine)
-        self.conv_b = ReLUConvBN(planes, planes, 3, 1, 1, 1, affine)
-        if stride == 2:
-            self.downsample = nn.Sequential(nn.AvgPool2d(kernel_size=2, stride=2, padding=0), nn.Conv2d(inplanes, planes, kernel_size=1, stride=1, padding=0, bias=False))
-        elif inplanes != planes:
-            self.downsample = ReLUConvBN(inplanes, planes, 1, 1, 0, 1, affine)
-        else:
-            self.downsample = None
-        self.in_dim = inplanes
-        self.out_dim = planes
-        self.stride = stride
-        self.num_conv = 2
-
-    def extra_repr(self):
-        string = '{name}(inC={in_dim}, outC={out_dim}, stride={stride})'.format(name=self.__class__.__name__, **self.__dict__)
-        return string
-
-    def forward(self, inputs):
-        basicblock = self.conv_a(inputs)
-        basicblock = self.conv_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        return residual + basicblock
-
-
-class POOLING(nn.Module):
-
-    def __init__(self, C_in, C_out, stride, mode, affine=True, track_running_stats=True):
-        super(POOLING, self).__init__()
-        if C_in == C_out:
-            self.preprocess = None
-        else:
-            self.preprocess = ReLUConvBN(C_in, C_out, 1, 1, 0, 1, affine, track_running_stats)
-        if mode == 'avg':
-            self.op = nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False)
-        elif mode == 'max':
-            self.op = nn.MaxPool2d(3, stride=stride, padding=1)
-        else:
-            raise ValueError('Invalid mode={:} in POOLING'.format(mode))
-
-    def forward(self, inputs):
-        if self.preprocess:
-            x = self.preprocess(inputs)
-        else:
-            x = inputs
-        return self.op(x)
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class Zero(nn.Module):
-
-    def __init__(self, C_in, C_out, stride):
-        super(Zero, self).__init__()
-        self.C_in = C_in
-        self.C_out = C_out
-        self.stride = stride
-        self.is_zero = True
-
-    def forward(self, x):
-        if self.C_in == self.C_out:
-            if self.stride == 1:
-                return x.mul(0.0)
-            else:
-                return x[:, :, ::self.stride, ::self.stride].mul(0.0)
-        else:
-            shape = list(x.shape)
-            shape[1] = self.C_out
-            zeros = x.new_zeros(shape, dtype=x.dtype, device=x.device)
-            return zeros
-
-    def extra_repr(self):
-        return 'C_in={C_in}, C_out={C_out}, stride={stride}'.format(**self.__dict__)
-
-
-class FactorizedReduce(nn.Module):
-
-    def __init__(self, C_in, C_out, stride, affine, track_running_stats):
-        super(FactorizedReduce, self).__init__()
-        self.stride = stride
-        self.C_in = C_in
-        self.C_out = C_out
-        self.relu = nn.ReLU(inplace=False)
-        if stride == 2:
-            C_outs = [C_out // 2, C_out - C_out // 2]
-            self.convs = nn.ModuleList()
-            for i in range(2):
-                self.convs.append(nn.Conv2d(C_in, C_outs[i], 1, stride=stride, padding=0, bias=False))
-            self.pad = nn.ConstantPad2d((0, 1, 0, 1), 0)
-        elif stride == 1:
-            self.conv = nn.Conv2d(C_in, C_out, 1, stride=stride, padding=0, bias=False)
-        else:
-            raise ValueError('Invalid stride : {:}'.format(stride))
-        self.bn = nn.BatchNorm2d(C_out, affine=affine, track_running_stats=track_running_stats)
-
-    def forward(self, x):
-        if self.stride == 2:
-            x = self.relu(x)
-            y = self.pad(x)
-            out = torch.cat([self.convs[0](x), self.convs[1](y[:, :, 1:, 1:])], dim=1)
-        else:
-            out = self.conv(x)
-        out = self.bn(out)
-        return out
-
-    def extra_repr(self):
-        return 'C_in={C_in}, C_out={C_out}, stride={stride}'.format(**self.__dict__)
 
 
 class PartAwareOp(nn.Module):
@@ -1192,16 +1405,6 @@ class PartAwareOp(nn.Module):
         final_fea = torch.cat((x, features), dim=1)
         outputs = self.last(final_fea)
         return outputs
-
-
-def drop_path(x, drop_prob):
-    if drop_prob > 0.0:
-        keep_prob = 1.0 - drop_prob
-        mask = x.new_zeros(x.size(0), 1, 1, 1)
-        mask = mask.bernoulli_(keep_prob)
-        x = torch.div(x, keep_prob)
-        x.mul_(mask)
-    return x
 
 
 class GDAS_Reduction_Cell(nn.Module):
@@ -1339,18 +1542,25 @@ class NAS201SearchCell(nn.Module):
 
 class MixedOp(nn.Module):
 
-    def __init__(self, space, C, stride, affine, track_running_stats):
+    def __init__(self, C, stride, PRIMITIVES):
         super(MixedOp, self).__init__()
         self._ops = nn.ModuleList()
-        for primitive in space:
-            op = OPS[primitive](C, C, stride, affine, track_running_stats)
+        self.name2idx = {}
+        for idx, primitive in enumerate(PRIMITIVES):
+            op = OPS[primitive](C, C, stride, False)
             self._ops.append(op)
+            assert primitive not in self.name2idx, '{:} has already in'.format(primitive)
+            self.name2idx[primitive] = idx
 
-    def forward_gdas(self, x, weights, index):
-        return self._ops[index](x) * weights[index]
-
-    def forward_darts(self, x, weights):
-        return sum(w * op(x) for w, op in zip(weights, self._ops))
+    def forward(self, x, weights, op_name):
+        if op_name is None:
+            if weights is None:
+                return [op(x) for op in self._ops]
+            else:
+                return sum(w * op(x) for w, op in zip(weights, self._ops))
+        else:
+            op_index = self.name2idx[op_name]
+            return self._ops[op_index](x)
 
 
 class NASNetSearchCell(nn.Module):
@@ -1405,6 +1615,91 @@ class NASNetSearchCell(nn.Module):
                 weights = weightss[self.edge2index[node_str]]
                 clist.append(op.forward_darts(h, weights))
             states.append(sum(clist))
+        return torch.cat(states[-self._multiplier:], dim=1)
+
+
+class SearchCell(nn.Module):
+
+    def __init__(self, steps, multiplier, C_prev_prev, C_prev, C, reduction, reduction_prev, PRIMITIVES, use_residual):
+        super(SearchCell, self).__init__()
+        self.reduction = reduction
+        self.PRIMITIVES = deepcopy(PRIMITIVES)
+        if reduction_prev:
+            self.preprocess0 = FactorizedReduce(C_prev_prev, C, 2, affine=False)
+        else:
+            self.preprocess0 = ReLUConvBN(C_prev_prev, C, 1, 1, 0, affine=False)
+        self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0, affine=False)
+        self._steps = steps
+        self._multiplier = multiplier
+        self._use_residual = use_residual
+        self._ops = nn.ModuleList()
+        for i in range(self._steps):
+            for j in range(2 + i):
+                stride = 2 if reduction and j < 2 else 1
+                op = MixedOp(C, stride, self.PRIMITIVES)
+                self._ops.append(op)
+
+    def extra_repr(self):
+        return '{name}(residual={_use_residual}, steps={_steps}, multiplier={_multiplier})'.format(name=self.__class__.__name__, **self.__dict__)
+
+    def forward(self, S0, S1, weights, connect, adjacency, drop_prob, modes):
+        if modes[0] is None:
+            if modes[1] == 'normal':
+                output = self.__forwardBoth(S0, S1, weights, connect, adjacency, drop_prob)
+            elif modes[1] == 'only_W':
+                output = self.__forwardOnlyW(S0, S1, drop_prob)
+        else:
+            test_genotype = modes[0]
+            if self.reduction:
+                operations, concats = test_genotype.reduce, test_genotype.reduce_concat
+            else:
+                operations, concats = test_genotype.normal, test_genotype.normal_concat
+            s0, s1 = self.preprocess0(S0), self.preprocess1(S1)
+            states, offset = [s0, s1], 0
+            assert self._steps == len(operations), '{:} vs. {:}'.format(self._steps, len(operations))
+            for i, (opA, opB) in enumerate(operations):
+                A = self._ops[offset + opA[1]](states[opA[1]], None, opA[0])
+                B = self._ops[offset + opB[1]](states[opB[1]], None, opB[0])
+                state = A + B
+                offset += len(states)
+                states.append(state)
+            output = torch.cat([states[i] for i in concats], dim=1)
+        if self._use_residual and S1.size() == output.size():
+            return S1 + output
+        else:
+            return output
+
+    def __forwardBoth(self, S0, S1, weights, connect, adjacency, drop_prob):
+        s0, s1 = self.preprocess0(S0), self.preprocess1(S1)
+        states, offset = [s0, s1], 0
+        for i in range(self._steps):
+            clist = []
+            for j, h in enumerate(states):
+                x = self._ops[offset + j](h, weights[offset + j], None)
+                if self.training and drop_prob > 0.0:
+                    x = drop_path(x, math.pow(drop_prob, 1.0 / len(states)))
+                clist.append(x)
+            connection = torch.mm(connect['{:}'.format(i)], adjacency[i]).squeeze(0)
+            state = sum(w * node for w, node in zip(connection, clist))
+            offset += len(states)
+            states.append(state)
+        return torch.cat(states[-self._multiplier:], dim=1)
+
+    def __forwardOnlyW(self, S0, S1, drop_prob):
+        s0, s1 = self.preprocess0(S0), self.preprocess1(S1)
+        states, offset = [s0, s1], 0
+        for i in range(self._steps):
+            clist = []
+            for j, h in enumerate(states):
+                xs = self._ops[offset + j](h, None, None)
+                clist += xs
+            if self.training and drop_prob > 0.0:
+                xlist = [drop_path(x, math.pow(drop_prob, 1.0 / len(states))) for x in clist]
+            else:
+                xlist = clist
+            state = sum(xlist) * 2 / len(xlist)
+            offset += len(states)
+            states.append(state)
         return torch.cat(states[-self._multiplier:], dim=1)
 
 
@@ -1742,6 +2037,45 @@ class NASNetworkDARTS(nn.Module):
         return out, logits
 
 
+class Controller(nn.Module):
+
+    def __init__(self, num_edge, num_ops, lstm_size=32, lstm_num_layers=2, tanh_constant=2.5, temperature=5.0):
+        super(Controller, self).__init__()
+        self.num_edge = num_edge
+        self.num_ops = num_ops
+        self.lstm_size = lstm_size
+        self.lstm_N = lstm_num_layers
+        self.tanh_constant = tanh_constant
+        self.temperature = temperature
+        self.register_parameter('input_vars', nn.Parameter(torch.Tensor(1, 1, lstm_size)))
+        self.w_lstm = nn.LSTM(input_size=self.lstm_size, hidden_size=self.lstm_size, num_layers=self.lstm_N)
+        self.w_embd = nn.Embedding(self.num_ops, self.lstm_size)
+        self.w_pred = nn.Linear(self.lstm_size, self.num_ops)
+        nn.init.uniform_(self.input_vars, -0.1, 0.1)
+        nn.init.uniform_(self.w_lstm.weight_hh_l0, -0.1, 0.1)
+        nn.init.uniform_(self.w_lstm.weight_ih_l0, -0.1, 0.1)
+        nn.init.uniform_(self.w_embd.weight, -0.1, 0.1)
+        nn.init.uniform_(self.w_pred.weight, -0.1, 0.1)
+
+    def forward(self):
+        inputs, h0 = self.input_vars, None
+        log_probs, entropys, sampled_arch = [], [], []
+        for iedge in range(self.num_edge):
+            outputs, h0 = self.w_lstm(inputs, h0)
+            logits = self.w_pred(outputs)
+            logits = logits / self.temperature
+            logits = self.tanh_constant * torch.tanh(logits)
+            op_distribution = Categorical(logits=logits)
+            op_index = op_distribution.sample()
+            sampled_arch.append(op_index.item())
+            op_log_prob = op_distribution.log_prob(op_index)
+            log_probs.append(op_log_prob.view(-1))
+            op_entropy = op_distribution.entropy()
+            entropys.append(op_entropy.view(-1))
+            inputs = self.w_embd(op_index)
+        return torch.sum(torch.cat(log_probs)), torch.sum(torch.cat(entropys)), sampled_arch
+
+
 class TinyNetworkENAS(nn.Module):
 
     def __init__(self, C, N, max_nodes, num_classes, search_space, affine, track_running_stats):
@@ -1819,141 +2153,84 @@ class TinyNetworkENAS(nn.Module):
         return out, logits
 
 
-class Controller(nn.Module):
-
-    def __init__(self, num_edge, num_ops, lstm_size=32, lstm_num_layers=2, tanh_constant=2.5, temperature=5.0):
-        super(Controller, self).__init__()
-        self.num_edge = num_edge
-        self.num_ops = num_ops
-        self.lstm_size = lstm_size
-        self.lstm_N = lstm_num_layers
-        self.tanh_constant = tanh_constant
-        self.temperature = temperature
-        self.register_parameter('input_vars', nn.Parameter(torch.Tensor(1, 1, lstm_size)))
-        self.w_lstm = nn.LSTM(input_size=self.lstm_size, hidden_size=self.lstm_size, num_layers=self.lstm_N)
-        self.w_embd = nn.Embedding(self.num_ops, self.lstm_size)
-        self.w_pred = nn.Linear(self.lstm_size, self.num_ops)
-        nn.init.uniform_(self.input_vars, -0.1, 0.1)
-        nn.init.uniform_(self.w_lstm.weight_hh_l0, -0.1, 0.1)
-        nn.init.uniform_(self.w_lstm.weight_ih_l0, -0.1, 0.1)
-        nn.init.uniform_(self.w_embd.weight, -0.1, 0.1)
-        nn.init.uniform_(self.w_pred.weight, -0.1, 0.1)
-
-    def forward(self):
-        inputs, h0 = self.input_vars, None
-        log_probs, entropys, sampled_arch = [], [], []
-        for iedge in range(self.num_edge):
-            outputs, h0 = self.w_lstm(inputs, h0)
-            logits = self.w_pred(outputs)
-            logits = logits / self.temperature
-            logits = self.tanh_constant * torch.tanh(logits)
-            op_distribution = Categorical(logits=logits)
-            op_index = op_distribution.sample()
-            sampled_arch.append(op_index.item())
-            op_log_prob = op_distribution.log_prob(op_index)
-            log_probs.append(op_log_prob.view(-1))
-            op_entropy = op_distribution.entropy()
-            entropys.append(op_entropy.view(-1))
-            inputs = self.w_embd(op_index)
-        return torch.sum(torch.cat(log_probs)), torch.sum(torch.cat(entropys)), sampled_arch
+def sample_gumbel(shape, eps=1e-20):
+    U = tf.random.uniform(shape, minval=0, maxval=1)
+    return -tf.math.log(-tf.math.log(U + eps) + eps)
 
 
-class TinyNetworkGDAS(nn.Module):
+def gumbel_softmax(logits, temperature):
+    gumbel_softmax_sample = logits + sample_gumbel(tf.shape(logits))
+    y = tf.nn.softmax(gumbel_softmax_sample / temperature)
+    return y
 
-    def __init__(self, C, N, max_nodes, num_classes, search_space, affine, track_running_stats):
+
+class TinyNetworkGDAS(tf.keras.Model):
+
+    def __init__(self, C, N, max_nodes, num_classes, search_space, affine):
         super(TinyNetworkGDAS, self).__init__()
         self._C = C
         self._layerN = N
         self.max_nodes = max_nodes
-        self.stem = nn.Sequential(nn.Conv2d(3, C, kernel_size=3, padding=1, bias=False), nn.BatchNorm2d(C))
+        self.stem = tf.keras.Sequential([tf.keras.layers.Conv2D(16, 3, 1, padding='same', use_bias=False), tf.keras.layers.BatchNormalization()], name='stem')
         layer_channels = [C] * N + [C * 2] + [C * 2] * N + [C * 4] + [C * 4] * N
         layer_reductions = [False] * N + [True] + [False] * N + [True] + [False] * N
         C_prev, num_edge, edge2index = C, None, None
-        self.cells = nn.ModuleList()
         for index, (C_curr, reduction) in enumerate(zip(layer_channels, layer_reductions)):
+            cell_prefix = 'cell-{:03d}'.format(index)
             if reduction:
                 cell = ResNetBasicblock(C_prev, C_curr, 2)
             else:
-                cell = SearchCell(C_prev, C_curr, 1, max_nodes, search_space, affine, track_running_stats)
+                cell = SearchCell(C_prev, C_curr, 1, max_nodes, search_space, affine)
                 if num_edge is None:
                     num_edge, edge2index = cell.num_edges, cell.edge2index
                 else:
                     assert num_edge == cell.num_edges and edge2index == cell.edge2index, 'invalid {:} vs. {:}.'.format(num_edge, cell.num_edges)
-            self.cells.append(cell)
             C_prev = cell.out_dim
+            setattr(self, cell_prefix, cell)
+        self.num_layers = len(layer_reductions)
         self.op_names = deepcopy(search_space)
-        self._Layer = len(self.cells)
         self.edge2index = edge2index
-        self.lastact = nn.Sequential(nn.BatchNorm2d(C_prev), nn.ReLU(inplace=True))
-        self.global_pooling = nn.AdaptiveAvgPool2d(1)
-        self.classifier = nn.Linear(C_prev, num_classes)
-        self.arch_parameters = nn.Parameter(0.001 * torch.randn(num_edge, len(search_space)))
-        self.tau = 10
-
-    def get_weights(self):
-        xlist = list(self.stem.parameters()) + list(self.cells.parameters())
-        xlist += list(self.lastact.parameters()) + list(self.global_pooling.parameters())
-        xlist += list(self.classifier.parameters())
-        return xlist
-
-    def set_tau(self, tau):
-        self.tau = tau
-
-    def get_tau(self):
-        return self.tau
+        self.num_edge = num_edge
+        self.lastact = tf.keras.Sequential([tf.keras.layers.BatchNormalization(), tf.keras.layers.ReLU(), tf.keras.layers.GlobalAvgPool2D(), tf.keras.layers.Flatten(), tf.keras.layers.Dense(num_classes, activation='softmax')], name='lastact')
+        arch_init = tf.random_normal_initializer(mean=0, stddev=0.001)
+        self.arch_parameters = tf.Variable(initial_value=arch_init(shape=(num_edge, len(search_space)), dtype='float32'), trainable=True, name='arch-encoding')
 
     def get_alphas(self):
-        return [self.arch_parameters]
+        xlist = self.trainable_variables
+        return [x for x in xlist if 'arch-encoding' in x.name]
 
-    def show_alphas(self):
-        with torch.no_grad():
-            return 'arch-parameters :\n{:}'.format(nn.functional.softmax(self.arch_parameters, dim=-1).cpu())
+    def get_weights(self):
+        xlist = self.trainable_variables
+        return [x for x in xlist if 'arch-encoding' not in x.name]
 
-    def get_message(self):
-        string = self.extra_repr()
-        for i, cell in enumerate(self.cells):
-            string += '\n {:02d}/{:02d} :: {:}'.format(i, len(self.cells), cell.extra_repr())
-        return string
-
-    def extra_repr(self):
-        return '{name}(C={_C}, Max-Nodes={max_nodes}, N={_layerN}, L={_Layer})'.format(name=self.__class__.__name__, **self.__dict__)
+    def get_np_alphas(self):
+        arch_nps = self.arch_parameters.numpy()
+        arch_ops = np.exp(arch_nps) / np.sum(np.exp(arch_nps), axis=-1, keepdims=True)
+        return arch_ops
 
     def genotype(self):
-        genotypes = []
+        genotypes, arch_nps = [], self.arch_parameters.numpy()
         for i in range(1, self.max_nodes):
             xlist = []
             for j in range(i):
                 node_str = '{:}<-{:}'.format(i, j)
-                with torch.no_grad():
-                    weights = self.arch_parameters[self.edge2index[node_str]]
-                    op_name = self.op_names[weights.argmax().item()]
+                weights = arch_nps[self.edge2index[node_str]]
+                op_name = self.op_names[weights.argmax().item()]
                 xlist.append((op_name, j))
             genotypes.append(tuple(xlist))
-        return Structure(genotypes)
+        return genotypes
 
-    def forward(self, inputs):
-        while True:
-            gumbels = -torch.empty_like(self.arch_parameters).exponential_().log()
-            logits = (self.arch_parameters.log_softmax(dim=1) + gumbels) / self.tau
-            probs = nn.functional.softmax(logits, dim=1)
-            index = probs.max(-1, keepdim=True)[1]
-            one_h = torch.zeros_like(logits).scatter_(-1, index, 1.0)
-            hardwts = one_h - probs.detach() + probs
-            if torch.isinf(gumbels).any() or torch.isinf(probs).any() or torch.isnan(probs).any():
-                continue
-            else:
-                break
-        feature = self.stem(inputs)
-        for i, cell in enumerate(self.cells):
+    def call(self, inputs, tau, training):
+        weightss = tf.cond(tau < 0, lambda : tf.nn.softmax(self.arch_parameters, axis=1), lambda : gumbel_softmax(tf.math.log_softmax(self.arch_parameters, axis=1), tau))
+        feature = self.stem(inputs, training)
+        for idx in range(self.num_layers):
+            cell = getattr(self, 'cell-{:03d}'.format(idx))
             if isinstance(cell, SearchCell):
-                feature = cell.forward_gdas(feature, hardwts, index)
+                feature = cell.call(feature, weightss, training)
             else:
-                feature = cell(feature)
-        out = self.lastact(feature)
-        out = self.global_pooling(out)
-        out = out.view(out.size(0), -1)
-        logits = self.classifier(out)
-        return out, logits
+                feature = cell(feature, training)
+        logits = self.lastact(feature, training)
+        return logits
 
 
 class NASNetworkGDAS(nn.Module):
@@ -2401,108 +2678,6 @@ class NASNetworkSETN(nn.Module):
         return out, logits
 
 
-class ConvBNReLU(nn.Module):
-
-    def __init__(self, nIn, nOut, kernel, stride, padding, bias, has_avg, has_bn, has_relu):
-        super(ConvBNReLU, self).__init__()
-        if has_avg:
-            self.avg = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
-        else:
-            self.avg = None
-        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride, padding=padding, dilation=1, groups=1, bias=bias)
-        if has_bn:
-            self.bn = nn.BatchNorm2d(nOut)
-        else:
-            self.bn = None
-        if has_relu:
-            self.relu = nn.ReLU(inplace=True)
-        else:
-            self.relu = None
-
-    def forward(self, inputs):
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        conv = self.conv(out)
-        if self.bn:
-            out = self.bn(conv)
-        else:
-            out = conv
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        return out
-
-
-class ResNetBasicblock(nn.Module):
-    num_conv = 2
-    expansion = 1
-
-    def __init__(self, iCs, stride):
-        super(ResNetBasicblock, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        assert isinstance(iCs, tuple) or isinstance(iCs, list), 'invalid type of iCs : {:}'.format(iCs)
-        assert len(iCs) == 3, 'invalid lengths of iCs : {:}'.format(iCs)
-        self.conv_a = ConvBNReLU(iCs[0], iCs[1], 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_b = ConvBNReLU(iCs[1], iCs[2], 3, 1, 1, False, has_avg=False, has_bn=True, has_relu=False)
-        residual_in = iCs[0]
-        if stride == 2:
-            self.downsample = ConvBNReLU(iCs[0], iCs[2], 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-            residual_in = iCs[2]
-        elif iCs[0] != iCs[2]:
-            self.downsample = ConvBNReLU(iCs[0], iCs[2], 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = iCs[2]
-
-    def forward(self, inputs):
-        basicblock = self.conv_a(inputs)
-        basicblock = self.conv_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = residual + basicblock
-        return F.relu(out, inplace=True)
-
-
-class ResNetBottleneck(nn.Module):
-    expansion = 4
-    num_conv = 3
-
-    def __init__(self, iCs, stride):
-        super(ResNetBottleneck, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        assert isinstance(iCs, tuple) or isinstance(iCs, list), 'invalid type of iCs : {:}'.format(iCs)
-        assert len(iCs) == 4, 'invalid lengths of iCs : {:}'.format(iCs)
-        self.conv_1x1 = ConvBNReLU(iCs[0], iCs[1], 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_3x3 = ConvBNReLU(iCs[1], iCs[2], 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_1x4 = ConvBNReLU(iCs[2], iCs[3], 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        residual_in = iCs[0]
-        if stride == 2:
-            self.downsample = ConvBNReLU(iCs[0], iCs[3], 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-            residual_in = iCs[3]
-        elif iCs[0] != iCs[3]:
-            self.downsample = ConvBNReLU(iCs[0], iCs[3], 1, 1, 0, False, has_avg=False, has_bn=False, has_relu=False)
-            residual_in = iCs[3]
-        else:
-            self.downsample = None
-        self.out_dim = iCs[3]
-
-    def forward(self, inputs):
-        bottleneck = self.conv_1x1(inputs)
-        bottleneck = self.conv_3x3(bottleneck)
-        bottleneck = self.conv_1x4(bottleneck)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = residual + bottleneck
-        return F.relu(out, inplace=True)
-
-
 class InferCifarResNet(nn.Module):
 
     def __init__(self, block_name, depth, xblocks, xchannels, num_classes, zero_init_residual):
@@ -2562,99 +2737,6 @@ class InferCifarResNet(nn.Module):
         return features, logits
 
 
-class ConvBNReLU(nn.Module):
-
-    def __init__(self, nIn, nOut, kernel, stride, padding, bias, has_avg, has_bn, has_relu):
-        super(ConvBNReLU, self).__init__()
-        if has_avg:
-            self.avg = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
-        else:
-            self.avg = None
-        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride, padding=padding, dilation=1, groups=1, bias=bias)
-        if has_bn:
-            self.bn = nn.BatchNorm2d(nOut)
-        else:
-            self.bn = None
-        if has_relu:
-            self.relu = nn.ReLU(inplace=True)
-        else:
-            self.relu = None
-
-    def forward(self, inputs):
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        conv = self.conv(out)
-        if self.bn:
-            out = self.bn(conv)
-        else:
-            out = conv
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        return out
-
-
-class ResNetBasicblock(nn.Module):
-    num_conv = 2
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride):
-        super(ResNetBasicblock, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_a = ConvBNReLU(inplanes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_b = ConvBNReLU(planes, planes, 3, 1, 1, False, has_avg=False, has_bn=True, has_relu=False)
-        if stride == 2:
-            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-        elif inplanes != planes:
-            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = planes
-
-    def forward(self, inputs):
-        basicblock = self.conv_a(inputs)
-        basicblock = self.conv_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = residual + basicblock
-        return F.relu(out, inplace=True)
-
-
-class ResNetBottleneck(nn.Module):
-    expansion = 4
-    num_conv = 3
-
-    def __init__(self, inplanes, planes, stride):
-        super(ResNetBottleneck, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_1x1 = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_3x3 = ConvBNReLU(planes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_1x4 = ConvBNReLU(planes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        if stride == 2:
-            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-        elif inplanes != planes * self.expansion:
-            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=False, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = planes * self.expansion
-
-    def forward(self, inputs):
-        bottleneck = self.conv_1x1(inputs)
-        bottleneck = self.conv_3x3(bottleneck)
-        bottleneck = self.conv_1x4(bottleneck)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = residual + bottleneck
-        return F.relu(out, inplace=True)
-
-
 class InferDepthCifarResNet(nn.Module):
 
     def __init__(self, block_name, depth, xblocks, num_classes, zero_init_residual):
@@ -2708,108 +2790,6 @@ class InferDepthCifarResNet(nn.Module):
         return features, logits
 
 
-class ConvBNReLU(nn.Module):
-
-    def __init__(self, nIn, nOut, kernel, stride, padding, bias, has_avg, has_bn, has_relu):
-        super(ConvBNReLU, self).__init__()
-        if has_avg:
-            self.avg = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
-        else:
-            self.avg = None
-        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride, padding=padding, dilation=1, groups=1, bias=bias)
-        if has_bn:
-            self.bn = nn.BatchNorm2d(nOut)
-        else:
-            self.bn = None
-        if has_relu:
-            self.relu = nn.ReLU(inplace=True)
-        else:
-            self.relu = None
-
-    def forward(self, inputs):
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        conv = self.conv(out)
-        if self.bn:
-            out = self.bn(conv)
-        else:
-            out = conv
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        return out
-
-
-class ResNetBasicblock(nn.Module):
-    num_conv = 2
-    expansion = 1
-
-    def __init__(self, iCs, stride):
-        super(ResNetBasicblock, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        assert isinstance(iCs, tuple) or isinstance(iCs, list), 'invalid type of iCs : {:}'.format(iCs)
-        assert len(iCs) == 3, 'invalid lengths of iCs : {:}'.format(iCs)
-        self.conv_a = ConvBNReLU(iCs[0], iCs[1], 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_b = ConvBNReLU(iCs[1], iCs[2], 3, 1, 1, False, has_avg=False, has_bn=True, has_relu=False)
-        residual_in = iCs[0]
-        if stride == 2:
-            self.downsample = ConvBNReLU(iCs[0], iCs[2], 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-            residual_in = iCs[2]
-        elif iCs[0] != iCs[2]:
-            self.downsample = ConvBNReLU(iCs[0], iCs[2], 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = iCs[2]
-
-    def forward(self, inputs):
-        basicblock = self.conv_a(inputs)
-        basicblock = self.conv_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = residual + basicblock
-        return F.relu(out, inplace=True)
-
-
-class ResNetBottleneck(nn.Module):
-    expansion = 4
-    num_conv = 3
-
-    def __init__(self, iCs, stride):
-        super(ResNetBottleneck, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        assert isinstance(iCs, tuple) or isinstance(iCs, list), 'invalid type of iCs : {:}'.format(iCs)
-        assert len(iCs) == 4, 'invalid lengths of iCs : {:}'.format(iCs)
-        self.conv_1x1 = ConvBNReLU(iCs[0], iCs[1], 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_3x3 = ConvBNReLU(iCs[1], iCs[2], 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_1x4 = ConvBNReLU(iCs[2], iCs[3], 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        residual_in = iCs[0]
-        if stride == 2:
-            self.downsample = ConvBNReLU(iCs[0], iCs[3], 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-            residual_in = iCs[3]
-        elif iCs[0] != iCs[3]:
-            self.downsample = ConvBNReLU(iCs[0], iCs[3], 1, 1, 0, False, has_avg=False, has_bn=False, has_relu=False)
-            residual_in = iCs[3]
-        else:
-            self.downsample = None
-        self.out_dim = iCs[3]
-
-    def forward(self, inputs):
-        bottleneck = self.conv_1x1(inputs)
-        bottleneck = self.conv_3x3(bottleneck)
-        bottleneck = self.conv_1x4(bottleneck)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = residual + bottleneck
-        return F.relu(out, inplace=True)
-
-
 class InferWidthCifarResNet(nn.Module):
 
     def __init__(self, block_name, depth, xchannels, num_classes, zero_init_residual):
@@ -2860,109 +2840,6 @@ class InferWidthCifarResNet(nn.Module):
         features = features.view(features.size(0), -1)
         logits = self.classifier(features)
         return features, logits
-
-
-class ConvBNReLU(nn.Module):
-    num_conv = 1
-
-    def __init__(self, nIn, nOut, kernel, stride, padding, bias, has_avg, has_bn, has_relu):
-        super(ConvBNReLU, self).__init__()
-        if has_avg:
-            self.avg = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
-        else:
-            self.avg = None
-        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride, padding=padding, dilation=1, groups=1, bias=bias)
-        if has_bn:
-            self.bn = nn.BatchNorm2d(nOut)
-        else:
-            self.bn = None
-        if has_relu:
-            self.relu = nn.ReLU(inplace=True)
-        else:
-            self.relu = None
-
-    def forward(self, inputs):
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        conv = self.conv(out)
-        if self.bn:
-            out = self.bn(conv)
-        else:
-            out = conv
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        return out
-
-
-class ResNetBasicblock(nn.Module):
-    num_conv = 2
-    expansion = 1
-
-    def __init__(self, iCs, stride):
-        super(ResNetBasicblock, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        assert isinstance(iCs, tuple) or isinstance(iCs, list), 'invalid type of iCs : {:}'.format(iCs)
-        assert len(iCs) == 3, 'invalid lengths of iCs : {:}'.format(iCs)
-        self.conv_a = ConvBNReLU(iCs[0], iCs[1], 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_b = ConvBNReLU(iCs[1], iCs[2], 3, 1, 1, False, has_avg=False, has_bn=True, has_relu=False)
-        residual_in = iCs[0]
-        if stride == 2:
-            self.downsample = ConvBNReLU(iCs[0], iCs[2], 1, 1, 0, False, has_avg=True, has_bn=True, has_relu=False)
-            residual_in = iCs[2]
-        elif iCs[0] != iCs[2]:
-            self.downsample = ConvBNReLU(iCs[0], iCs[2], 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = iCs[2]
-
-    def forward(self, inputs):
-        basicblock = self.conv_a(inputs)
-        basicblock = self.conv_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = residual + basicblock
-        return F.relu(out, inplace=True)
-
-
-class ResNetBottleneck(nn.Module):
-    expansion = 4
-    num_conv = 3
-
-    def __init__(self, iCs, stride):
-        super(ResNetBottleneck, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        assert isinstance(iCs, tuple) or isinstance(iCs, list), 'invalid type of iCs : {:}'.format(iCs)
-        assert len(iCs) == 4, 'invalid lengths of iCs : {:}'.format(iCs)
-        self.conv_1x1 = ConvBNReLU(iCs[0], iCs[1], 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_3x3 = ConvBNReLU(iCs[1], iCs[2], 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_1x4 = ConvBNReLU(iCs[2], iCs[3], 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        residual_in = iCs[0]
-        if stride == 2:
-            self.downsample = ConvBNReLU(iCs[0], iCs[3], 1, 1, 0, False, has_avg=True, has_bn=True, has_relu=False)
-            residual_in = iCs[3]
-        elif iCs[0] != iCs[3]:
-            self.downsample = ConvBNReLU(iCs[0], iCs[3], 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-            residual_in = iCs[3]
-        else:
-            self.downsample = None
-        self.out_dim = iCs[3]
-
-    def forward(self, inputs):
-        bottleneck = self.conv_1x1(inputs)
-        bottleneck = self.conv_3x3(bottleneck)
-        bottleneck = self.conv_1x4(bottleneck)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = residual + bottleneck
-        return F.relu(out, inplace=True)
 
 
 class InferImagenetResNet(nn.Module):
@@ -3024,58 +2901,6 @@ class InferImagenetResNet(nn.Module):
         features = features.view(features.size(0), -1)
         logits = self.classifier(features)
         return features, logits
-
-
-class ConvBNReLU(nn.Module):
-
-    def __init__(self, in_planes, out_planes, kernel_size, stride, groups, has_bn=True, has_relu=True):
-        super(ConvBNReLU, self).__init__()
-        padding = (kernel_size - 1) // 2
-        self.conv = nn.Conv2d(in_planes, out_planes, kernel_size, stride, padding, groups=groups, bias=False)
-        if has_bn:
-            self.bn = nn.BatchNorm2d(out_planes)
-        else:
-            self.bn = None
-        if has_relu:
-            self.relu = nn.ReLU6(inplace=True)
-        else:
-            self.relu = None
-
-    def forward(self, x):
-        out = self.conv(x)
-        if self.bn:
-            out = self.bn(out)
-        if self.relu:
-            out = self.relu(out)
-        return out
-
-
-class InvertedResidual(nn.Module):
-
-    def __init__(self, channels, stride, expand_ratio, additive):
-        super(InvertedResidual, self).__init__()
-        self.stride = stride
-        assert stride in [1, 2], 'invalid stride : {:}'.format(stride)
-        assert len(channels) in [2, 3], 'invalid channels : {:}'.format(channels)
-        if len(channels) == 2:
-            layers = []
-        else:
-            layers = [ConvBNReLU(channels[0], channels[1], 1, 1, 1)]
-        layers.extend([ConvBNReLU(channels[-2], channels[-2], 3, stride, channels[-2]), ConvBNReLU(channels[-2], channels[-1], 1, 1, 1, True, False)])
-        self.conv = nn.Sequential(*layers)
-        self.additive = additive
-        if self.additive and channels[0] != channels[-1]:
-            self.shortcut = ConvBNReLU(channels[0], channels[-1], 1, 1, 1, True, False)
-        else:
-            self.shortcut = None
-        self.out_dim = channels[-1]
-
-    def forward(self, x):
-        out = self.conv(x)
-        if self.shortcut:
-            return out + self.shortcut(x)
-        else:
-            return out
 
 
 def parse_channel_info(xstring):
@@ -3173,292 +2998,6 @@ class DynamicShapeTinyNet(nn.Module):
         return out, logits
 
 
-def ChannelWiseInterV1(inputs, oC):
-    assert inputs.dim() == 4, 'invalid dimension : {:}'.format(inputs.size())
-
-    def start_index(a, b, c):
-        return int(math.floor(float(a * c) / b))
-
-    def end_index(a, b, c):
-        return int(math.ceil(float((a + 1) * c) / b))
-    batch, iC, H, W = inputs.size()
-    outputs = torch.zeros((batch, oC, H, W), dtype=inputs.dtype, device=inputs.device)
-    if iC == oC:
-        return inputs
-    for ot in range(oC):
-        istartT, iendT = start_index(ot, oC, iC), end_index(ot, oC, iC)
-        values = inputs[:, istartT:iendT].mean(dim=1)
-        outputs[:, (ot), :, :] = values
-    return outputs
-
-
-def ChannelWiseInterV2(inputs, oC):
-    assert inputs.dim() == 4, 'invalid dimension : {:}'.format(inputs.size())
-    batch, C, H, W = inputs.size()
-    if C == oC:
-        return inputs
-    else:
-        return nn.functional.adaptive_avg_pool3d(inputs, (oC, H, W))
-
-
-def ChannelWiseInter(inputs, oC, mode='v2'):
-    if mode == 'v1':
-        return ChannelWiseInterV1(inputs, oC)
-    elif mode == 'v2':
-        return ChannelWiseInterV2(inputs, oC)
-    else:
-        raise ValueError('invalid mode : {:}'.format(mode))
-
-
-def conv_forward(inputs, conv, choices):
-    iC = conv.in_channels
-    fill_size = list(inputs.size())
-    fill_size[1] = iC - fill_size[1]
-    filled = torch.zeros(fill_size, device=inputs.device)
-    xinputs = torch.cat((inputs, filled), dim=1)
-    outputs = conv(xinputs)
-    selecteds = [outputs[:, :oC] for oC in choices]
-    return selecteds
-
-
-def get_width_choices(nOut):
-    xsrange = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-    if nOut is None:
-        return len(xsrange)
-    else:
-        Xs = [int(nOut * i) for i in xsrange]
-        Xs = sorted(list(set(Xs)))
-        return tuple(Xs)
-
-
-class ConvBNReLU(nn.Module):
-    num_conv = 1
-
-    def __init__(self, nIn, nOut, kernel, stride, padding, bias, has_avg, has_bn, has_relu):
-        super(ConvBNReLU, self).__init__()
-        self.InShape = None
-        self.OutShape = None
-        self.choices = get_width_choices(nOut)
-        self.register_buffer('choices_tensor', torch.Tensor(self.choices))
-        if has_avg:
-            self.avg = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
-        else:
-            self.avg = None
-        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride, padding=padding, dilation=1, groups=1, bias=bias)
-        self.has_bn = has_bn
-        self.BNs = nn.ModuleList()
-        for i, _out in enumerate(self.choices):
-            self.BNs.append(nn.BatchNorm2d(_out))
-        if has_relu:
-            self.relu = nn.ReLU(inplace=True)
-        else:
-            self.relu = None
-        self.in_dim = nIn
-        self.out_dim = nOut
-        self.search_mode = 'basic'
-
-    def get_flops(self, channels, check_range=True, divide=1):
-        iC, oC = channels
-        if check_range:
-            assert iC <= self.conv.in_channels and oC <= self.conv.out_channels, '{:} vs {:}  |  {:} vs {:}'.format(iC, self.conv.in_channels, oC, self.conv.out_channels)
-        assert isinstance(self.InShape, tuple) and len(self.InShape) == 2, 'invalid in-shape : {:}'.format(self.InShape)
-        assert isinstance(self.OutShape, tuple) and len(self.OutShape) == 2, 'invalid out-shape : {:}'.format(self.OutShape)
-        conv_per_position_flops = self.conv.kernel_size[0] * self.conv.kernel_size[1] * 1.0 / self.conv.groups
-        all_positions = self.OutShape[0] * self.OutShape[1]
-        flops = conv_per_position_flops * all_positions / divide * iC * oC
-        if self.conv.bias is not None:
-            flops += all_positions / divide
-        return flops
-
-    def get_range(self):
-        return [self.choices]
-
-    def forward(self, inputs):
-        if self.search_mode == 'basic':
-            return self.basic_forward(inputs)
-        elif self.search_mode == 'search':
-            return self.search_forward(inputs)
-        else:
-            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
-
-    def search_forward(self, tuple_inputs):
-        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
-        inputs, expected_inC, probability, index, prob = tuple_inputs
-        index, prob = torch.squeeze(index).tolist(), torch.squeeze(prob)
-        probability = torch.squeeze(probability)
-        assert len(index) == 2, 'invalid length : {:}'.format(index)
-        expected_outC = (self.choices_tensor * probability).sum()
-        expected_flop = self.get_flops([expected_inC, expected_outC], False, 1000000.0)
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        out_convs = conv_forward(out, self.conv, [self.choices[i] for i in index])
-        out_bns = [self.BNs[idx](out_conv) for idx, out_conv in zip(index, out_convs)]
-        out_channel = max([x.size(1) for x in out_bns])
-        outA = ChannelWiseInter(out_bns[0], out_channel)
-        outB = ChannelWiseInter(out_bns[1], out_channel)
-        out = outA * prob[0] + outB * prob[1]
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        return out, expected_outC, expected_flop
-
-    def basic_forward(self, inputs):
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        conv = self.conv(out)
-        if self.has_bn:
-            out = self.BNs[-1](conv)
-        else:
-            out = conv
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        if self.InShape is None:
-            self.InShape = inputs.size(-2), inputs.size(-1)
-            self.OutShape = out.size(-2), out.size(-1)
-        return out
-
-
-class ResNetBasicblock(nn.Module):
-    expansion = 1
-    num_conv = 2
-
-    def __init__(self, inplanes, planes, stride):
-        super(ResNetBasicblock, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_a = ConvBNReLU(inplanes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_b = ConvBNReLU(planes, planes, 3, 1, 1, False, has_avg=False, has_bn=True, has_relu=False)
-        if stride == 2:
-            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-        elif inplanes != planes:
-            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = planes
-        self.search_mode = 'basic'
-
-    def get_range(self):
-        return self.conv_a.get_range() + self.conv_b.get_range()
-
-    def get_flops(self, channels):
-        assert len(channels) == 3, 'invalid channels : {:}'.format(channels)
-        flop_A = self.conv_a.get_flops([channels[0], channels[1]])
-        flop_B = self.conv_b.get_flops([channels[1], channels[2]])
-        if hasattr(self.downsample, 'get_flops'):
-            flop_C = self.downsample.get_flops([channels[0], channels[-1]])
-        else:
-            flop_C = 0
-        if channels[0] != channels[-1] and self.downsample is None:
-            flop_C = channels[0] * channels[-1] * self.conv_b.OutShape[0] * self.conv_b.OutShape[1]
-        return flop_A + flop_B + flop_C
-
-    def forward(self, inputs):
-        if self.search_mode == 'basic':
-            return self.basic_forward(inputs)
-        elif self.search_mode == 'search':
-            return self.search_forward(inputs)
-        else:
-            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
-
-    def search_forward(self, tuple_inputs):
-        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
-        inputs, expected_inC, probability, indexes, probs = tuple_inputs
-        assert indexes.size(0) == 2 and probs.size(0) == 2 and probability.size(0) == 2
-        out_a, expected_inC_a, expected_flop_a = self.conv_a((inputs, expected_inC, probability[0], indexes[0], probs[0]))
-        out_b, expected_inC_b, expected_flop_b = self.conv_b((out_a, expected_inC_a, probability[1], indexes[1], probs[1]))
-        if self.downsample is not None:
-            residual, _, expected_flop_c = self.downsample((inputs, expected_inC, probability[1], indexes[1], probs[1]))
-        else:
-            residual, expected_flop_c = inputs, 0
-        out = additive_func(residual, out_b)
-        return nn.functional.relu(out, inplace=True), expected_inC_b, sum([expected_flop_a, expected_flop_b, expected_flop_c])
-
-    def basic_forward(self, inputs):
-        basicblock = self.conv_a(inputs)
-        basicblock = self.conv_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = additive_func(residual, basicblock)
-        return nn.functional.relu(out, inplace=True)
-
-
-class ResNetBottleneck(nn.Module):
-    expansion = 4
-    num_conv = 3
-
-    def __init__(self, inplanes, planes, stride):
-        super(ResNetBottleneck, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_1x1 = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_3x3 = ConvBNReLU(planes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_1x4 = ConvBNReLU(planes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        if stride == 2:
-            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-        elif inplanes != planes * self.expansion:
-            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = planes * self.expansion
-        self.search_mode = 'basic'
-
-    def get_range(self):
-        return self.conv_1x1.get_range() + self.conv_3x3.get_range() + self.conv_1x4.get_range()
-
-    def get_flops(self, channels):
-        assert len(channels) == 4, 'invalid channels : {:}'.format(channels)
-        flop_A = self.conv_1x1.get_flops([channels[0], channels[1]])
-        flop_B = self.conv_3x3.get_flops([channels[1], channels[2]])
-        flop_C = self.conv_1x4.get_flops([channels[2], channels[3]])
-        if hasattr(self.downsample, 'get_flops'):
-            flop_D = self.downsample.get_flops([channels[0], channels[-1]])
-        else:
-            flop_D = 0
-        if channels[0] != channels[-1] and self.downsample is None:
-            flop_D = channels[0] * channels[-1] * self.conv_1x4.OutShape[0] * self.conv_1x4.OutShape[1]
-        return flop_A + flop_B + flop_C + flop_D
-
-    def forward(self, inputs):
-        if self.search_mode == 'basic':
-            return self.basic_forward(inputs)
-        elif self.search_mode == 'search':
-            return self.search_forward(inputs)
-        else:
-            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
-
-    def basic_forward(self, inputs):
-        bottleneck = self.conv_1x1(inputs)
-        bottleneck = self.conv_3x3(bottleneck)
-        bottleneck = self.conv_1x4(bottleneck)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = additive_func(residual, bottleneck)
-        return nn.functional.relu(out, inplace=True)
-
-    def search_forward(self, tuple_inputs):
-        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
-        inputs, expected_inC, probability, indexes, probs = tuple_inputs
-        assert indexes.size(0) == 3 and probs.size(0) == 3 and probability.size(0) == 3
-        out_1x1, expected_inC_1x1, expected_flop_1x1 = self.conv_1x1((inputs, expected_inC, probability[0], indexes[0], probs[0]))
-        out_3x3, expected_inC_3x3, expected_flop_3x3 = self.conv_3x3((out_1x1, expected_inC_1x1, probability[1], indexes[1], probs[1]))
-        out_1x4, expected_inC_1x4, expected_flop_1x4 = self.conv_1x4((out_3x3, expected_inC_3x3, probability[2], indexes[2], probs[2]))
-        if self.downsample is not None:
-            residual, _, expected_flop_c = self.downsample((inputs, expected_inC, probability[2], indexes[2], probs[2]))
-        else:
-            residual, expected_flop_c = inputs, 0
-        out = additive_func(residual, out_1x4)
-        return nn.functional.relu(out, inplace=True), expected_inC_1x4, sum([expected_flop_1x1, expected_flop_3x3, expected_flop_1x4, expected_flop_c])
-
-
 def get_depth_choices(nDepth):
     if nDepth is None:
         return 3
@@ -3472,6 +3011,16 @@ def get_depth_choices(nDepth):
             return nDepth // 3, nDepth * 2 // 3, nDepth
         else:
             raise ValueError('invalid Depth : {:}'.format(nDepth))
+
+
+def get_width_choices(nOut):
+    xsrange = [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    if nOut is None:
+        return len(xsrange)
+    else:
+        Xs = [int(nOut * i) for i in xsrange]
+        Xs = sorted(list(set(Xs)))
+        return tuple(Xs)
 
 
 def linear_forward(inputs, linear):
@@ -3501,7 +3050,7 @@ def select2withP(logits, tau, just_prob=False, num=2, eps=1e-07):
         return probs
     with torch.no_grad():
         probs = probs.cpu()
-        selected_index = torch.multinomial(probs + eps, num, False).to(logits.device)
+        selected_index = torch.multinomial(probs + eps, num, False)
     selected_logit = torch.gather(new_logits, 1, selected_index)
     selcted_probs = nn.functional.softmax(selected_logit, dim=1)
     return selected_index, selcted_probs
@@ -3745,145 +3294,6 @@ class SearchShapeCifarResNet(nn.Module):
         return features, logits
 
 
-class ConvBNReLU(nn.Module):
-    num_conv = 1
-
-    def __init__(self, nIn, nOut, kernel, stride, padding, bias, has_avg, has_bn, has_relu):
-        super(ConvBNReLU, self).__init__()
-        self.InShape = None
-        self.OutShape = None
-        self.choices = get_width_choices(nOut)
-        self.register_buffer('choices_tensor', torch.Tensor(self.choices))
-        if has_avg:
-            self.avg = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
-        else:
-            self.avg = None
-        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride, padding=padding, dilation=1, groups=1, bias=bias)
-        if has_bn:
-            self.bn = nn.BatchNorm2d(nOut)
-        else:
-            self.bn = None
-        if has_relu:
-            self.relu = nn.ReLU(inplace=False)
-        else:
-            self.relu = None
-        self.in_dim = nIn
-        self.out_dim = nOut
-
-    def get_flops(self, divide=1):
-        iC, oC = self.in_dim, self.out_dim
-        assert iC <= self.conv.in_channels and oC <= self.conv.out_channels, '{:} vs {:}  |  {:} vs {:}'.format(iC, self.conv.in_channels, oC, self.conv.out_channels)
-        assert isinstance(self.InShape, tuple) and len(self.InShape) == 2, 'invalid in-shape : {:}'.format(self.InShape)
-        assert isinstance(self.OutShape, tuple) and len(self.OutShape) == 2, 'invalid out-shape : {:}'.format(self.OutShape)
-        conv_per_position_flops = self.conv.kernel_size[0] * self.conv.kernel_size[1] * 1.0 / self.conv.groups
-        all_positions = self.OutShape[0] * self.OutShape[1]
-        flops = conv_per_position_flops * all_positions / divide * iC * oC
-        if self.conv.bias is not None:
-            flops += all_positions / divide
-        return flops
-
-    def forward(self, inputs):
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        conv = self.conv(out)
-        if self.bn:
-            out = self.bn(conv)
-        else:
-            out = conv
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        if self.InShape is None:
-            self.InShape = inputs.size(-2), inputs.size(-1)
-            self.OutShape = out.size(-2), out.size(-1)
-        return out
-
-
-class ResNetBasicblock(nn.Module):
-    expansion = 1
-    num_conv = 2
-
-    def __init__(self, inplanes, planes, stride):
-        super(ResNetBasicblock, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_a = ConvBNReLU(inplanes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_b = ConvBNReLU(planes, planes, 3, 1, 1, False, has_avg=False, has_bn=True, has_relu=False)
-        if stride == 2:
-            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-        elif inplanes != planes:
-            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = planes
-        self.search_mode = 'basic'
-
-    def get_flops(self, divide=1):
-        flop_A = self.conv_a.get_flops(divide)
-        flop_B = self.conv_b.get_flops(divide)
-        if hasattr(self.downsample, 'get_flops'):
-            flop_C = self.downsample.get_flops(divide)
-        else:
-            flop_C = 0
-        return flop_A + flop_B + flop_C
-
-    def forward(self, inputs):
-        basicblock = self.conv_a(inputs)
-        basicblock = self.conv_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = additive_func(residual, basicblock)
-        return nn.functional.relu(out, inplace=True)
-
-
-class ResNetBottleneck(nn.Module):
-    expansion = 4
-    num_conv = 3
-
-    def __init__(self, inplanes, planes, stride):
-        super(ResNetBottleneck, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_1x1 = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_3x3 = ConvBNReLU(planes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_1x4 = ConvBNReLU(planes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        if stride == 2:
-            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-        elif inplanes != planes * self.expansion:
-            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = planes * self.expansion
-        self.search_mode = 'basic'
-
-    def get_range(self):
-        return self.conv_1x1.get_range() + self.conv_3x3.get_range() + self.conv_1x4.get_range()
-
-    def get_flops(self, divide):
-        flop_A = self.conv_1x1.get_flops(divide)
-        flop_B = self.conv_3x3.get_flops(divide)
-        flop_C = self.conv_1x4.get_flops(divide)
-        if hasattr(self.downsample, 'get_flops'):
-            flop_D = self.downsample.get_flops(divide)
-        else:
-            flop_D = 0
-        return flop_A + flop_B + flop_C + flop_D
-
-    def forward(self, inputs):
-        bottleneck = self.conv_1x1(inputs)
-        bottleneck = self.conv_3x3(bottleneck)
-        bottleneck = self.conv_1x4(bottleneck)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = additive_func(residual, bottleneck)
-        return nn.functional.relu(out, inplace=True)
-
-
 class SearchDepthCifarResNet(nn.Module):
 
     def __init__(self, block_name, depth, num_classes):
@@ -4064,234 +3474,6 @@ class SearchDepthCifarResNet(nn.Module):
         return features, logits
 
 
-class ConvBNReLU(nn.Module):
-    num_conv = 1
-
-    def __init__(self, nIn, nOut, kernel, stride, padding, bias, has_avg, has_bn, has_relu):
-        super(ConvBNReLU, self).__init__()
-        self.InShape = None
-        self.OutShape = None
-        self.choices = get_choices(nOut)
-        self.register_buffer('choices_tensor', torch.Tensor(self.choices))
-        if has_avg:
-            self.avg = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
-        else:
-            self.avg = None
-        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride, padding=padding, dilation=1, groups=1, bias=bias)
-        self.has_bn = has_bn
-        self.BNs = nn.ModuleList()
-        for i, _out in enumerate(self.choices):
-            self.BNs.append(nn.BatchNorm2d(_out))
-        if has_relu:
-            self.relu = nn.ReLU(inplace=True)
-        else:
-            self.relu = None
-        self.in_dim = nIn
-        self.out_dim = nOut
-        self.search_mode = 'basic'
-
-    def get_flops(self, channels, check_range=True, divide=1):
-        iC, oC = channels
-        if check_range:
-            assert iC <= self.conv.in_channels and oC <= self.conv.out_channels, '{:} vs {:}  |  {:} vs {:}'.format(iC, self.conv.in_channels, oC, self.conv.out_channels)
-        assert isinstance(self.InShape, tuple) and len(self.InShape) == 2, 'invalid in-shape : {:}'.format(self.InShape)
-        assert isinstance(self.OutShape, tuple) and len(self.OutShape) == 2, 'invalid out-shape : {:}'.format(self.OutShape)
-        conv_per_position_flops = self.conv.kernel_size[0] * self.conv.kernel_size[1] * 1.0 / self.conv.groups
-        all_positions = self.OutShape[0] * self.OutShape[1]
-        flops = conv_per_position_flops * all_positions / divide * iC * oC
-        if self.conv.bias is not None:
-            flops += all_positions / divide
-        return flops
-
-    def get_range(self):
-        return [self.choices]
-
-    def forward(self, inputs):
-        if self.search_mode == 'basic':
-            return self.basic_forward(inputs)
-        elif self.search_mode == 'search':
-            return self.search_forward(inputs)
-        else:
-            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
-
-    def search_forward(self, tuple_inputs):
-        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
-        inputs, expected_inC, probability, index, prob = tuple_inputs
-        index, prob = torch.squeeze(index).tolist(), torch.squeeze(prob)
-        probability = torch.squeeze(probability)
-        assert len(index) == 2, 'invalid length : {:}'.format(index)
-        expected_outC = (self.choices_tensor * probability).sum()
-        expected_flop = self.get_flops([expected_inC, expected_outC], False, 1000000.0)
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        out_convs = conv_forward(out, self.conv, [self.choices[i] for i in index])
-        out_bns = [self.BNs[idx](out_conv) for idx, out_conv in zip(index, out_convs)]
-        out_channel = max([x.size(1) for x in out_bns])
-        outA = ChannelWiseInter(out_bns[0], out_channel)
-        outB = ChannelWiseInter(out_bns[1], out_channel)
-        out = outA * prob[0] + outB * prob[1]
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        return out, expected_outC, expected_flop
-
-    def basic_forward(self, inputs):
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        conv = self.conv(out)
-        if self.has_bn:
-            out = self.BNs[-1](conv)
-        else:
-            out = conv
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        if self.InShape is None:
-            self.InShape = inputs.size(-2), inputs.size(-1)
-            self.OutShape = out.size(-2), out.size(-1)
-        return out
-
-
-class ResNetBasicblock(nn.Module):
-    expansion = 1
-    num_conv = 2
-
-    def __init__(self, inplanes, planes, stride):
-        super(ResNetBasicblock, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_a = ConvBNReLU(inplanes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_b = ConvBNReLU(planes, planes, 3, 1, 1, False, has_avg=False, has_bn=True, has_relu=False)
-        if stride == 2:
-            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-        elif inplanes != planes:
-            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = planes
-        self.search_mode = 'basic'
-
-    def get_range(self):
-        return self.conv_a.get_range() + self.conv_b.get_range()
-
-    def get_flops(self, channels):
-        assert len(channels) == 3, 'invalid channels : {:}'.format(channels)
-        flop_A = self.conv_a.get_flops([channels[0], channels[1]])
-        flop_B = self.conv_b.get_flops([channels[1], channels[2]])
-        if hasattr(self.downsample, 'get_flops'):
-            flop_C = self.downsample.get_flops([channels[0], channels[-1]])
-        else:
-            flop_C = 0
-        if channels[0] != channels[-1] and self.downsample is None:
-            flop_C = channels[0] * channels[-1] * self.conv_b.OutShape[0] * self.conv_b.OutShape[1]
-        return flop_A + flop_B + flop_C
-
-    def forward(self, inputs):
-        if self.search_mode == 'basic':
-            return self.basic_forward(inputs)
-        elif self.search_mode == 'search':
-            return self.search_forward(inputs)
-        else:
-            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
-
-    def search_forward(self, tuple_inputs):
-        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
-        inputs, expected_inC, probability, indexes, probs = tuple_inputs
-        assert indexes.size(0) == 2 and probs.size(0) == 2 and probability.size(0) == 2
-        out_a, expected_inC_a, expected_flop_a = self.conv_a((inputs, expected_inC, probability[0], indexes[0], probs[0]))
-        out_b, expected_inC_b, expected_flop_b = self.conv_b((out_a, expected_inC_a, probability[1], indexes[1], probs[1]))
-        if self.downsample is not None:
-            residual, _, expected_flop_c = self.downsample((inputs, expected_inC, probability[1], indexes[1], probs[1]))
-        else:
-            residual, expected_flop_c = inputs, 0
-        out = additive_func(residual, out_b)
-        return nn.functional.relu(out, inplace=True), expected_inC_b, sum([expected_flop_a, expected_flop_b, expected_flop_c])
-
-    def basic_forward(self, inputs):
-        basicblock = self.conv_a(inputs)
-        basicblock = self.conv_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = additive_func(residual, basicblock)
-        return nn.functional.relu(out, inplace=True)
-
-
-class ResNetBottleneck(nn.Module):
-    expansion = 4
-    num_conv = 3
-
-    def __init__(self, inplanes, planes, stride):
-        super(ResNetBottleneck, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_1x1 = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_3x3 = ConvBNReLU(planes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_1x4 = ConvBNReLU(planes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        if stride == 2:
-            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=True, has_bn=False, has_relu=False)
-        elif inplanes != planes * self.expansion:
-            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = planes * self.expansion
-        self.search_mode = 'basic'
-
-    def get_range(self):
-        return self.conv_1x1.get_range() + self.conv_3x3.get_range() + self.conv_1x4.get_range()
-
-    def get_flops(self, channels):
-        assert len(channels) == 4, 'invalid channels : {:}'.format(channels)
-        flop_A = self.conv_1x1.get_flops([channels[0], channels[1]])
-        flop_B = self.conv_3x3.get_flops([channels[1], channels[2]])
-        flop_C = self.conv_1x4.get_flops([channels[2], channels[3]])
-        if hasattr(self.downsample, 'get_flops'):
-            flop_D = self.downsample.get_flops([channels[0], channels[-1]])
-        else:
-            flop_D = 0
-        if channels[0] != channels[-1] and self.downsample is None:
-            flop_D = channels[0] * channels[-1] * self.conv_1x4.OutShape[0] * self.conv_1x4.OutShape[1]
-        return flop_A + flop_B + flop_C + flop_D
-
-    def forward(self, inputs):
-        if self.search_mode == 'basic':
-            return self.basic_forward(inputs)
-        elif self.search_mode == 'search':
-            return self.search_forward(inputs)
-        else:
-            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
-
-    def basic_forward(self, inputs):
-        bottleneck = self.conv_1x1(inputs)
-        bottleneck = self.conv_3x3(bottleneck)
-        bottleneck = self.conv_1x4(bottleneck)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = additive_func(residual, bottleneck)
-        return nn.functional.relu(out, inplace=True)
-
-    def search_forward(self, tuple_inputs):
-        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
-        inputs, expected_inC, probability, indexes, probs = tuple_inputs
-        assert indexes.size(0) == 3 and probs.size(0) == 3 and probability.size(0) == 3
-        out_1x1, expected_inC_1x1, expected_flop_1x1 = self.conv_1x1((inputs, expected_inC, probability[0], indexes[0], probs[0]))
-        out_3x3, expected_inC_3x3, expected_flop_3x3 = self.conv_3x3((out_1x1, expected_inC_1x1, probability[1], indexes[1], probs[1]))
-        out_1x4, expected_inC_1x4, expected_flop_1x4 = self.conv_1x4((out_3x3, expected_inC_3x3, probability[2], indexes[2], probs[2]))
-        if self.downsample is not None:
-            residual, _, expected_flop_c = self.downsample((inputs, expected_inC, probability[2], indexes[2], probs[2]))
-        else:
-            residual, expected_flop_c = inputs, 0
-        out = additive_func(residual, out_1x4)
-        return nn.functional.relu(out, inplace=True), expected_inC_1x4, sum([expected_flop_1x1, expected_flop_3x3, expected_flop_1x4, expected_flop_c])
-
-
 class SearchWidthCifarResNet(nn.Module):
 
     def __init__(self, block_name, depth, num_classes):
@@ -4445,240 +3627,6 @@ class SearchWidthCifarResNet(nn.Module):
         features = features.view(features.size(0), -1)
         logits = self.classifier(features)
         return features, logits
-
-
-class ConvBNReLU(nn.Module):
-    num_conv = 1
-
-    def __init__(self, nIn, nOut, kernel, stride, padding, bias, has_avg, has_bn, has_relu, last_max_pool=False):
-        super(ConvBNReLU, self).__init__()
-        self.InShape = None
-        self.OutShape = None
-        self.choices = get_width_choices(nOut)
-        self.register_buffer('choices_tensor', torch.Tensor(self.choices))
-        if has_avg:
-            self.avg = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
-        else:
-            self.avg = None
-        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride, padding=padding, dilation=1, groups=1, bias=bias)
-        self.has_bn = has_bn
-        self.BNs = nn.ModuleList()
-        for i, _out in enumerate(self.choices):
-            self.BNs.append(nn.BatchNorm2d(_out))
-        if has_relu:
-            self.relu = nn.ReLU(inplace=True)
-        else:
-            self.relu = None
-        if last_max_pool:
-            self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        else:
-            self.maxpool = None
-        self.in_dim = nIn
-        self.out_dim = nOut
-        self.search_mode = 'basic'
-
-    def get_flops(self, channels, check_range=True, divide=1):
-        iC, oC = channels
-        if check_range:
-            assert iC <= self.conv.in_channels and oC <= self.conv.out_channels, '{:} vs {:}  |  {:} vs {:}'.format(iC, self.conv.in_channels, oC, self.conv.out_channels)
-        assert isinstance(self.InShape, tuple) and len(self.InShape) == 2, 'invalid in-shape : {:}'.format(self.InShape)
-        assert isinstance(self.OutShape, tuple) and len(self.OutShape) == 2, 'invalid out-shape : {:}'.format(self.OutShape)
-        conv_per_position_flops = self.conv.kernel_size[0] * self.conv.kernel_size[1] * 1.0 / self.conv.groups
-        all_positions = self.OutShape[0] * self.OutShape[1]
-        flops = conv_per_position_flops * all_positions / divide * iC * oC
-        if self.conv.bias is not None:
-            flops += all_positions / divide
-        return flops
-
-    def get_range(self):
-        return [self.choices]
-
-    def forward(self, inputs):
-        if self.search_mode == 'basic':
-            return self.basic_forward(inputs)
-        elif self.search_mode == 'search':
-            return self.search_forward(inputs)
-        else:
-            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
-
-    def search_forward(self, tuple_inputs):
-        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
-        inputs, expected_inC, probability, index, prob = tuple_inputs
-        index, prob = torch.squeeze(index).tolist(), torch.squeeze(prob)
-        probability = torch.squeeze(probability)
-        assert len(index) == 2, 'invalid length : {:}'.format(index)
-        expected_outC = (self.choices_tensor * probability).sum()
-        expected_flop = self.get_flops([expected_inC, expected_outC], False, 1000000.0)
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        out_convs = conv_forward(out, self.conv, [self.choices[i] for i in index])
-        out_bns = [self.BNs[idx](out_conv) for idx, out_conv in zip(index, out_convs)]
-        out_channel = max([x.size(1) for x in out_bns])
-        outA = ChannelWiseInter(out_bns[0], out_channel)
-        outB = ChannelWiseInter(out_bns[1], out_channel)
-        out = outA * prob[0] + outB * prob[1]
-        if self.relu:
-            out = self.relu(out)
-        if self.maxpool:
-            out = self.maxpool(out)
-        return out, expected_outC, expected_flop
-
-    def basic_forward(self, inputs):
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        conv = self.conv(out)
-        if self.has_bn:
-            out = self.BNs[-1](conv)
-        else:
-            out = conv
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        if self.InShape is None:
-            self.InShape = inputs.size(-2), inputs.size(-1)
-            self.OutShape = out.size(-2), out.size(-1)
-        if self.maxpool:
-            out = self.maxpool(out)
-        return out
-
-
-class ResNetBasicblock(nn.Module):
-    expansion = 1
-    num_conv = 2
-
-    def __init__(self, inplanes, planes, stride):
-        super(ResNetBasicblock, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_a = ConvBNReLU(inplanes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_b = ConvBNReLU(planes, planes, 3, 1, 1, False, has_avg=False, has_bn=True, has_relu=False)
-        if stride == 2:
-            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=True, has_bn=True, has_relu=False)
-        elif inplanes != planes:
-            self.downsample = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = planes
-        self.search_mode = 'basic'
-
-    def get_range(self):
-        return self.conv_a.get_range() + self.conv_b.get_range()
-
-    def get_flops(self, channels):
-        assert len(channels) == 3, 'invalid channels : {:}'.format(channels)
-        flop_A = self.conv_a.get_flops([channels[0], channels[1]])
-        flop_B = self.conv_b.get_flops([channels[1], channels[2]])
-        if hasattr(self.downsample, 'get_flops'):
-            flop_C = self.downsample.get_flops([channels[0], channels[-1]])
-        else:
-            flop_C = 0
-        if channels[0] != channels[-1] and self.downsample is None:
-            flop_C = channels[0] * channels[-1] * self.conv_b.OutShape[0] * self.conv_b.OutShape[1]
-        return flop_A + flop_B + flop_C
-
-    def forward(self, inputs):
-        if self.search_mode == 'basic':
-            return self.basic_forward(inputs)
-        elif self.search_mode == 'search':
-            return self.search_forward(inputs)
-        else:
-            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
-
-    def search_forward(self, tuple_inputs):
-        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
-        inputs, expected_inC, probability, indexes, probs = tuple_inputs
-        assert indexes.size(0) == 2 and probs.size(0) == 2 and probability.size(0) == 2
-        out_a, expected_inC_a, expected_flop_a = self.conv_a((inputs, expected_inC, probability[0], indexes[0], probs[0]))
-        out_b, expected_inC_b, expected_flop_b = self.conv_b((out_a, expected_inC_a, probability[1], indexes[1], probs[1]))
-        if self.downsample is not None:
-            residual, _, expected_flop_c = self.downsample((inputs, expected_inC, probability[1], indexes[1], probs[1]))
-        else:
-            residual, expected_flop_c = inputs, 0
-        out = additive_func(residual, out_b)
-        return nn.functional.relu(out, inplace=True), expected_inC_b, sum([expected_flop_a, expected_flop_b, expected_flop_c])
-
-    def basic_forward(self, inputs):
-        basicblock = self.conv_a(inputs)
-        basicblock = self.conv_b(basicblock)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = additive_func(residual, basicblock)
-        return nn.functional.relu(out, inplace=True)
-
-
-class ResNetBottleneck(nn.Module):
-    expansion = 4
-    num_conv = 3
-
-    def __init__(self, inplanes, planes, stride):
-        super(ResNetBottleneck, self).__init__()
-        assert stride == 1 or stride == 2, 'invalid stride {:}'.format(stride)
-        self.conv_1x1 = ConvBNReLU(inplanes, planes, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_3x3 = ConvBNReLU(planes, planes, 3, stride, 1, False, has_avg=False, has_bn=True, has_relu=True)
-        self.conv_1x4 = ConvBNReLU(planes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        if stride == 2:
-            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=True, has_bn=True, has_relu=False)
-        elif inplanes != planes * self.expansion:
-            self.downsample = ConvBNReLU(inplanes, planes * self.expansion, 1, 1, 0, False, has_avg=False, has_bn=True, has_relu=False)
-        else:
-            self.downsample = None
-        self.out_dim = planes * self.expansion
-        self.search_mode = 'basic'
-
-    def get_range(self):
-        return self.conv_1x1.get_range() + self.conv_3x3.get_range() + self.conv_1x4.get_range()
-
-    def get_flops(self, channels):
-        assert len(channels) == 4, 'invalid channels : {:}'.format(channels)
-        flop_A = self.conv_1x1.get_flops([channels[0], channels[1]])
-        flop_B = self.conv_3x3.get_flops([channels[1], channels[2]])
-        flop_C = self.conv_1x4.get_flops([channels[2], channels[3]])
-        if hasattr(self.downsample, 'get_flops'):
-            flop_D = self.downsample.get_flops([channels[0], channels[-1]])
-        else:
-            flop_D = 0
-        if channels[0] != channels[-1] and self.downsample is None:
-            flop_D = channels[0] * channels[-1] * self.conv_1x4.OutShape[0] * self.conv_1x4.OutShape[1]
-        return flop_A + flop_B + flop_C + flop_D
-
-    def forward(self, inputs):
-        if self.search_mode == 'basic':
-            return self.basic_forward(inputs)
-        elif self.search_mode == 'search':
-            return self.search_forward(inputs)
-        else:
-            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
-
-    def basic_forward(self, inputs):
-        bottleneck = self.conv_1x1(inputs)
-        bottleneck = self.conv_3x3(bottleneck)
-        bottleneck = self.conv_1x4(bottleneck)
-        if self.downsample is not None:
-            residual = self.downsample(inputs)
-        else:
-            residual = inputs
-        out = additive_func(residual, bottleneck)
-        return nn.functional.relu(out, inplace=True)
-
-    def search_forward(self, tuple_inputs):
-        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
-        inputs, expected_inC, probability, indexes, probs = tuple_inputs
-        assert indexes.size(0) == 3 and probs.size(0) == 3 and probability.size(0) == 3
-        out_1x1, expected_inC_1x1, expected_flop_1x1 = self.conv_1x1((inputs, expected_inC, probability[0], indexes[0], probs[0]))
-        out_3x3, expected_inC_3x3, expected_flop_3x3 = self.conv_3x3((out_1x1, expected_inC_1x1, probability[1], indexes[1], probs[1]))
-        out_1x4, expected_inC_1x4, expected_flop_1x4 = self.conv_1x4((out_3x3, expected_inC_3x3, probability[2], indexes[2], probs[2]))
-        if self.downsample is not None:
-            residual, _, expected_flop_c = self.downsample((inputs, expected_inC, probability[2], indexes[2], probs[2]))
-        else:
-            residual, expected_flop_c = inputs, 0
-        out = additive_func(residual, out_1x4)
-        return nn.functional.relu(out, inplace=True), expected_inC_1x4, sum([expected_flop_1x1, expected_flop_3x3, expected_flop_1x4, expected_flop_c])
 
 
 class SearchShapeImagenetResNet(nn.Module):
@@ -4900,100 +3848,6 @@ class SearchShapeImagenetResNet(nn.Module):
         return features, logits
 
 
-class ConvBNReLU(nn.Module):
-    num_conv = 1
-
-    def __init__(self, nIn, nOut, kernel, stride, padding, bias, has_avg, has_bn, has_relu):
-        super(ConvBNReLU, self).__init__()
-        self.InShape = None
-        self.OutShape = None
-        self.choices = get_choices(nOut)
-        self.register_buffer('choices_tensor', torch.Tensor(self.choices))
-        if has_avg:
-            self.avg = nn.AvgPool2d(kernel_size=2, stride=2, padding=0)
-        else:
-            self.avg = None
-        self.conv = nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride, padding=padding, dilation=1, groups=1, bias=bias)
-        self.has_bn = has_bn
-        self.BNs = nn.ModuleList()
-        for i, _out in enumerate(self.choices):
-            self.BNs.append(nn.BatchNorm2d(_out))
-        if has_relu:
-            self.relu = nn.ReLU(inplace=True)
-        else:
-            self.relu = None
-        self.in_dim = nIn
-        self.out_dim = nOut
-        self.search_mode = 'basic'
-
-    def get_flops(self, channels, check_range=True, divide=1):
-        iC, oC = channels
-        if check_range:
-            assert iC <= self.conv.in_channels and oC <= self.conv.out_channels, '{:} vs {:}  |  {:} vs {:}'.format(iC, self.conv.in_channels, oC, self.conv.out_channels)
-        assert isinstance(self.InShape, tuple) and len(self.InShape) == 2, 'invalid in-shape : {:}'.format(self.InShape)
-        assert isinstance(self.OutShape, tuple) and len(self.OutShape) == 2, 'invalid out-shape : {:}'.format(self.OutShape)
-        conv_per_position_flops = self.conv.kernel_size[0] * self.conv.kernel_size[1] * 1.0 / self.conv.groups
-        all_positions = self.OutShape[0] * self.OutShape[1]
-        flops = conv_per_position_flops * all_positions / divide * iC * oC
-        if self.conv.bias is not None:
-            flops += all_positions / divide
-        return flops
-
-    def get_range(self):
-        return [self.choices]
-
-    def forward(self, inputs):
-        if self.search_mode == 'basic':
-            return self.basic_forward(inputs)
-        elif self.search_mode == 'search':
-            return self.search_forward(inputs)
-        else:
-            raise ValueError('invalid search_mode = {:}'.format(self.search_mode))
-
-    def search_forward(self, tuple_inputs):
-        assert isinstance(tuple_inputs, tuple) and len(tuple_inputs) == 5, 'invalid type input : {:}'.format(type(tuple_inputs))
-        inputs, expected_inC, probability, index, prob = tuple_inputs
-        index, prob = torch.squeeze(index).tolist(), torch.squeeze(prob)
-        probability = torch.squeeze(probability)
-        assert len(index) == 2, 'invalid length : {:}'.format(index)
-        expected_outC = (self.choices_tensor * probability).sum()
-        expected_flop = self.get_flops([expected_inC, expected_outC], False, 1000000.0)
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        out_convs = conv_forward(out, self.conv, [self.choices[i] for i in index])
-        out_bns = [self.BNs[idx](out_conv) for idx, out_conv in zip(index, out_convs)]
-        out_channel = max([x.size(1) for x in out_bns])
-        outA = ChannelWiseInter(out_bns[0], out_channel)
-        outB = ChannelWiseInter(out_bns[1], out_channel)
-        out = outA * prob[0] + outB * prob[1]
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        return out, expected_outC, expected_flop
-
-    def basic_forward(self, inputs):
-        if self.avg:
-            out = self.avg(inputs)
-        else:
-            out = inputs
-        conv = self.conv(out)
-        if self.has_bn:
-            out = self.BNs[-1](conv)
-        else:
-            out = conv
-        if self.relu:
-            out = self.relu(out)
-        else:
-            out = out
-        if self.InShape is None:
-            self.InShape = inputs.size(-2), inputs.size(-1)
-            self.OutShape = out.size(-2), out.size(-1)
-        return out
-
-
 class SimBlock(nn.Module):
     expansion = 1
     num_conv = 1
@@ -5202,6 +4056,14 @@ class SearchWidthSimResNet(nn.Module):
         return features, logits
 
 
+class CifarHEAD(nn.Sequential):
+
+    def __init__(self, C):
+        super(CifarHEAD, self).__init__()
+        self.add_module('conv', nn.Conv2d(3, C, kernel_size=3, padding=1, bias=False))
+        self.add_module('bn', nn.BatchNorm2d(C))
+
+
 class NetworkCIFAR(nn.Module):
 
     def __init__(self, C, N, stem_multiplier, auxiliary, genotype, num_classes):
@@ -5269,6 +4131,20 @@ class NetworkCIFAR(nn.Module):
             return out, [logits, logits_aux]
 
 
+class AuxiliaryHeadImageNet(nn.Module):
+
+    def __init__(self, C, num_classes):
+        """assuming input size 14x14"""
+        super(AuxiliaryHeadImageNet, self).__init__()
+        self.features = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5, stride=2, padding=0, count_include_pad=False), nn.Conv2d(C, 128, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 768, 2, bias=False), nn.BatchNorm2d(768), nn.ReLU(inplace=True))
+        self.classifier = nn.Linear(768, num_classes)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.classifier(x.view(x.size(0), -1))
+        return x
+
+
 class NetworkImageNet(nn.Module):
 
     def __init__(self, C, N, auxiliary, genotype, num_classes):
@@ -5330,170 +4206,6 @@ class NetworkImageNet(nn.Module):
             return out, [logits, logits_aux]
 
 
-class MixedOp(nn.Module):
-
-    def __init__(self, C, stride, PRIMITIVES):
-        super(MixedOp, self).__init__()
-        self._ops = nn.ModuleList()
-        self.name2idx = {}
-        for idx, primitive in enumerate(PRIMITIVES):
-            op = OPS[primitive](C, C, stride, False)
-            self._ops.append(op)
-            assert primitive not in self.name2idx, '{:} has already in'.format(primitive)
-            self.name2idx[primitive] = idx
-
-    def forward(self, x, weights, op_name):
-        if op_name is None:
-            if weights is None:
-                return [op(x) for op in self._ops]
-            else:
-                return sum(w * op(x) for w, op in zip(weights, self._ops))
-        else:
-            op_index = self.name2idx[op_name]
-            return self._ops[op_index](x)
-
-
-class SearchCell(nn.Module):
-
-    def __init__(self, steps, multiplier, C_prev_prev, C_prev, C, reduction, reduction_prev, PRIMITIVES, use_residual):
-        super(SearchCell, self).__init__()
-        self.reduction = reduction
-        self.PRIMITIVES = deepcopy(PRIMITIVES)
-        if reduction_prev:
-            self.preprocess0 = FactorizedReduce(C_prev_prev, C, 2, affine=False)
-        else:
-            self.preprocess0 = ReLUConvBN(C_prev_prev, C, 1, 1, 0, affine=False)
-        self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0, affine=False)
-        self._steps = steps
-        self._multiplier = multiplier
-        self._use_residual = use_residual
-        self._ops = nn.ModuleList()
-        for i in range(self._steps):
-            for j in range(2 + i):
-                stride = 2 if reduction and j < 2 else 1
-                op = MixedOp(C, stride, self.PRIMITIVES)
-                self._ops.append(op)
-
-    def extra_repr(self):
-        return '{name}(residual={_use_residual}, steps={_steps}, multiplier={_multiplier})'.format(name=self.__class__.__name__, **self.__dict__)
-
-    def forward(self, S0, S1, weights, connect, adjacency, drop_prob, modes):
-        if modes[0] is None:
-            if modes[1] == 'normal':
-                output = self.__forwardBoth(S0, S1, weights, connect, adjacency, drop_prob)
-            elif modes[1] == 'only_W':
-                output = self.__forwardOnlyW(S0, S1, drop_prob)
-        else:
-            test_genotype = modes[0]
-            if self.reduction:
-                operations, concats = test_genotype.reduce, test_genotype.reduce_concat
-            else:
-                operations, concats = test_genotype.normal, test_genotype.normal_concat
-            s0, s1 = self.preprocess0(S0), self.preprocess1(S1)
-            states, offset = [s0, s1], 0
-            assert self._steps == len(operations), '{:} vs. {:}'.format(self._steps, len(operations))
-            for i, (opA, opB) in enumerate(operations):
-                A = self._ops[offset + opA[1]](states[opA[1]], None, opA[0])
-                B = self._ops[offset + opB[1]](states[opB[1]], None, opB[0])
-                state = A + B
-                offset += len(states)
-                states.append(state)
-            output = torch.cat([states[i] for i in concats], dim=1)
-        if self._use_residual and S1.size() == output.size():
-            return S1 + output
-        else:
-            return output
-
-    def __forwardBoth(self, S0, S1, weights, connect, adjacency, drop_prob):
-        s0, s1 = self.preprocess0(S0), self.preprocess1(S1)
-        states, offset = [s0, s1], 0
-        for i in range(self._steps):
-            clist = []
-            for j, h in enumerate(states):
-                x = self._ops[offset + j](h, weights[offset + j], None)
-                if self.training and drop_prob > 0.0:
-                    x = drop_path(x, math.pow(drop_prob, 1.0 / len(states)))
-                clist.append(x)
-            connection = torch.mm(connect['{:}'.format(i)], adjacency[i]).squeeze(0)
-            state = sum(w * node for w, node in zip(connection, clist))
-            offset += len(states)
-            states.append(state)
-        return torch.cat(states[-self._multiplier:], dim=1)
-
-    def __forwardOnlyW(self, S0, S1, drop_prob):
-        s0, s1 = self.preprocess0(S0), self.preprocess1(S1)
-        states, offset = [s0, s1], 0
-        for i in range(self._steps):
-            clist = []
-            for j, h in enumerate(states):
-                xs = self._ops[offset + j](h, None, None)
-                clist += xs
-            if self.training and drop_prob > 0.0:
-                xlist = [drop_path(x, math.pow(drop_prob, 1.0 / len(states))) for x in clist]
-            else:
-                xlist = clist
-            state = sum(xlist) * 2 / len(xlist)
-            offset += len(states)
-            states.append(state)
-        return torch.cat(states[-self._multiplier:], dim=1)
-
-
-class InferCell(nn.Module):
-
-    def __init__(self, genotype, C_prev_prev, C_prev, C, reduction, reduction_prev):
-        super(InferCell, self).__init__()
-        None
-        if reduction_prev is None:
-            self.preprocess0 = Identity()
-        elif reduction_prev:
-            self.preprocess0 = FactorizedReduce(C_prev_prev, C, 2)
-        else:
-            self.preprocess0 = ReLUConvBN(C_prev_prev, C, 1, 1, 0)
-        self.preprocess1 = ReLUConvBN(C_prev, C, 1, 1, 0)
-        if reduction:
-            step_ops, concat = genotype.reduce, genotype.reduce_concat
-        else:
-            step_ops, concat = genotype.normal, genotype.normal_concat
-        self._steps = len(step_ops)
-        self._concat = concat
-        self._multiplier = len(concat)
-        self._ops = nn.ModuleList()
-        self._indices = []
-        for operations in step_ops:
-            for name, index in operations:
-                stride = 2 if reduction and index < 2 else 1
-                if reduction_prev is None and index == 0:
-                    op = OPS[name](C_prev_prev, C, stride, True)
-                else:
-                    op = OPS[name](C, C, stride, True)
-                self._ops.append(op)
-                self._indices.append(index)
-
-    def extra_repr(self):
-        return '{name}(steps={_steps}, concat={_concat})'.format(name=self.__class__.__name__, **self.__dict__)
-
-    def forward(self, S0, S1, drop_prob):
-        s0 = self.preprocess0(S0)
-        s1 = self.preprocess1(S1)
-        states = [s0, s1]
-        for i in range(self._steps):
-            h1 = states[self._indices[2 * i]]
-            h2 = states[self._indices[2 * i + 1]]
-            op1 = self._ops[2 * i]
-            op2 = self._ops[2 * i + 1]
-            h1 = op1(h1)
-            h2 = op2(h2)
-            if self.training and drop_prob > 0.0:
-                if not isinstance(op1, Identity):
-                    h1 = drop_path(h1, drop_prob)
-                if not isinstance(op2, Identity):
-                    h2 = drop_path(h2, drop_prob)
-            state = h1 + h2
-            states += [state]
-        output = torch.cat([states[i] for i in self._concat], dim=1)
-        return output
-
-
 class ImageNetHEAD(nn.Sequential):
 
     def __init__(self, C, stride=2):
@@ -5503,175 +4215,6 @@ class ImageNetHEAD(nn.Sequential):
         self.add_module('relu1', nn.ReLU(inplace=True))
         self.add_module('conv2', nn.Conv2d(C // 2, C, kernel_size=3, stride=stride, padding=1, bias=False))
         self.add_module('bn2', nn.BatchNorm2d(C))
-
-
-class CifarHEAD(nn.Sequential):
-
-    def __init__(self, C):
-        super(CifarHEAD, self).__init__()
-        self.add_module('conv', nn.Conv2d(3, C, kernel_size=3, padding=1, bias=False))
-        self.add_module('bn', nn.BatchNorm2d(C))
-
-
-class AuxiliaryHeadCIFAR(nn.Module):
-
-    def __init__(self, C, num_classes):
-        """assuming input size 8x8"""
-        super(AuxiliaryHeadCIFAR, self).__init__()
-        self.features = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5, stride=3, padding=0, count_include_pad=False), nn.Conv2d(C, 128, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 768, 2, bias=False), nn.BatchNorm2d(768), nn.ReLU(inplace=True))
-        self.classifier = nn.Linear(768, num_classes)
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.classifier(x.view(x.size(0), -1))
-        return x
-
-
-class AuxiliaryHeadImageNet(nn.Module):
-
-    def __init__(self, C, num_classes):
-        """assuming input size 14x14"""
-        super(AuxiliaryHeadImageNet, self).__init__()
-        self.features = nn.Sequential(nn.ReLU(inplace=True), nn.AvgPool2d(5, stride=2, padding=0, count_include_pad=False), nn.Conv2d(C, 128, 1, bias=False), nn.BatchNorm2d(128), nn.ReLU(inplace=True), nn.Conv2d(128, 768, 2, bias=False), nn.BatchNorm2d(768), nn.ReLU(inplace=True))
-        self.classifier = nn.Linear(768, num_classes)
-
-    def forward(self, x):
-        x = self.features(x)
-        x = self.classifier(x.view(x.size(0), -1))
-        return x
-
-
-class POOLING(nn.Module):
-
-    def __init__(self, C_in, C_out, stride, mode):
-        super(POOLING, self).__init__()
-        if C_in == C_out:
-            self.preprocess = None
-        else:
-            self.preprocess = ReLUConvBN(C_in, C_out, 1, 1, 0)
-        if mode == 'avg':
-            self.op = nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False)
-        elif mode == 'max':
-            self.op = nn.MaxPool2d(3, stride=stride, padding=1)
-
-    def forward(self, inputs):
-        if self.preprocess is not None:
-            x = self.preprocess(inputs)
-        else:
-            x = inputs
-        return self.op(x)
-
-
-class Conv313(nn.Module):
-
-    def __init__(self, C_in, C_out, stride, affine):
-        super(Conv313, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, (1, 3), stride=(1, stride), padding=(0, 1), bias=False), nn.Conv2d(C_out, C_out, (3, 1), stride=(stride, 1), padding=(1, 0), bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class Conv717(nn.Module):
-
-    def __init__(self, C_in, C_out, stride, affine):
-        super(Conv717, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, (1, 7), stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(C_out, C_out, (7, 1), stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class ReLUConvBN(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super(ReLUConvBN, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class DilConv(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
-        super(DilConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class SepConv(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super(SepConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class Zero(nn.Module):
-
-    def __init__(self, stride):
-        super(Zero, self).__init__()
-        self.stride = stride
-
-    def forward(self, x):
-        if self.stride == 1:
-            return x.mul(0.0)
-        return x[:, :, ::self.stride, ::self.stride].mul(0.0)
-
-    def extra_repr(self):
-        return 'stride={stride}'.format(**self.__dict__)
-
-
-class FactorizedReduce(nn.Module):
-
-    def __init__(self, C_in, C_out, stride, affine=True):
-        super(FactorizedReduce, self).__init__()
-        self.stride = stride
-        self.C_in = C_in
-        self.C_out = C_out
-        self.relu = nn.ReLU(inplace=False)
-        if stride == 2:
-            C_outs = [C_out // 2, C_out - C_out // 2]
-            self.convs = nn.ModuleList()
-            for i in range(2):
-                self.convs.append(nn.Conv2d(C_in, C_outs[i], 1, stride=stride, padding=0, bias=False))
-            self.pad = nn.ConstantPad2d((0, 1, 0, 1), 0)
-        elif stride == 4:
-            assert C_out % 4 == 0, 'C_out : {:}'.format(C_out)
-            self.convs = nn.ModuleList()
-            for i in range(4):
-                self.convs.append(nn.Conv2d(C_in, C_out // 4, 1, stride=stride, padding=0, bias=False))
-            self.pad = nn.ConstantPad2d((0, 3, 0, 3), 0)
-        else:
-            raise ValueError('Invalid stride : {:}'.format(stride))
-        self.bn = nn.BatchNorm2d(C_out, affine=affine)
-
-    def forward(self, x):
-        x = self.relu(x)
-        y = self.pad(x)
-        if self.stride == 2:
-            out = torch.cat([self.convs[0](x), self.convs[1](y[:, :, 1:, 1:])], dim=1)
-        else:
-            out = torch.cat([self.convs[0](x), self.convs[1](y[:, :, 1:-2, 1:-2]), self.convs[2](y[:, :, 2:-1, 2:-1]), self.convs[3](y[:, :, 3:, 3:])], dim=1)
-        out = self.bn(out)
-        return out
-
-    def extra_repr(self):
-        return 'C_in={C_in}, C_out={C_out}, stride={stride}'.format(**self.__dict__)
 
 
 class CrossEntropyLabelSmooth(nn.Module):

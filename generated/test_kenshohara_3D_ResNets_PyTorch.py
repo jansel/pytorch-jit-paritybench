@@ -33,32 +33,49 @@ mit_json = _module
 remove_dataparallel = _module
 ucf101_json = _module
 utils = _module
+utils = _module
 validation = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import math
+
+
+import torch
+
+
+import torch.utils.data as data
+
+
+import copy
+
+
+import functools
+
+
+from torch.utils.data.dataloader import default_collate
 
 
 import time
 
 
 from collections import defaultdict
-
-
-import torch
 
 
 import torch.nn.functional as F
@@ -91,7 +108,7 @@ from torch.backends import cudnn
 import torchvision
 
 
-import math
+from torch import nn
 
 
 import torch.nn as nn
@@ -101,6 +118,12 @@ from collections import OrderedDict
 
 
 from functools import partial
+
+
+from functools import partialmethod
+
+
+from sklearn.metrics import precision_recall_fscore_support
 
 
 class _DenseLayer(nn.Sequential):
@@ -258,127 +281,6 @@ class PreActivationBottleneck(nn.Module):
             residual = self.downsample(x)
         out += residual
         return out
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, in_planes, planes, stride=1, downsample=None):
-        super().__init__()
-        self.conv1 = conv3x3x3(in_planes, planes, stride)
-        self.bn1 = nn.BatchNorm3d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3x3(planes, planes)
-        self.bn2 = nn.BatchNorm3d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, in_planes, planes, stride=1, downsample=None):
-        super().__init__()
-        self.conv1 = conv1x1x1(in_planes, planes)
-        self.bn1 = nn.BatchNorm3d(planes)
-        self.conv2 = conv3x3x3(planes, planes, stride)
-        self.bn2 = nn.BatchNorm3d(planes)
-        self.conv3 = conv1x1x1(planes, planes * self.expansion)
-        self.bn3 = nn.BatchNorm3d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, block_inplanes, n_input_channels=3, conv1_t_size=7, conv1_t_stride=1, no_max_pool=False, shortcut_type='B', widen_factor=1.0, n_classes=400):
-        super().__init__()
-        block_inplanes = [int(x * widen_factor) for x in block_inplanes]
-        self.in_planes = block_inplanes[0]
-        self.no_max_pool = no_max_pool
-        self.conv1 = nn.Conv3d(n_input_channels, self.in_planes, kernel_size=(conv1_t_size, 7, 7), stride=(conv1_t_stride, 2, 2), padding=(conv1_t_size // 2, 3, 3), bias=False)
-        self.bn1 = nn.BatchNorm3d(self.in_planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool3d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, block_inplanes[0], layers[0], shortcut_type)
-        self.layer2 = self._make_layer(block, block_inplanes[1], layers[1], shortcut_type, stride=2)
-        self.layer3 = self._make_layer(block, block_inplanes[2], layers[2], shortcut_type, stride=2)
-        self.layer4 = self._make_layer(block, block_inplanes[3], layers[3], shortcut_type, stride=2)
-        self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
-        self.fc = nn.Linear(block_inplanes[3] * block.expansion, n_classes)
-        for m in self.modules():
-            if isinstance(m, nn.Conv3d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, nn.BatchNorm3d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-
-    def _downsample_basic_block(self, x, planes, stride):
-        out = F.avg_pool3d(x, kernel_size=1, stride=stride)
-        zero_pads = torch.zeros(out.size(0), planes - out.size(1), out.size(2), out.size(3), out.size(4))
-        if isinstance(out.data, torch.FloatTensor):
-            zero_pads = zero_pads
-        out = torch.cat([out.data, zero_pads], dim=1)
-        return out
-
-    def _make_layer(self, block, planes, blocks, shortcut_type, stride=1):
-        downsample = None
-        if stride != 1 or self.in_planes != planes * block.expansion:
-            if shortcut_type == 'A':
-                downsample = partial(self._downsample_basic_block, planes=planes * block.expansion, stride=stride)
-            else:
-                downsample = nn.Sequential(conv1x1x1(self.in_planes, planes * block.expansion, stride), nn.BatchNorm3d(planes * block.expansion))
-        layers = []
-        layers.append(block(in_planes=self.in_planes, planes=planes, stride=stride, downsample=downsample))
-        self.in_planes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.in_planes, planes))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        x = self.relu(x)
-        if not self.no_max_pool:
-            x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        x = self.fc(x)
-        return x
 
 
 def conv1x3x3(in_planes, mid_planes, stride=1):
@@ -542,6 +444,39 @@ class ResNet(nn.Module):
         return x
 
 
+class ResNeXtBottleneck(Bottleneck):
+    expansion = 2
+
+    def __init__(self, inplanes, planes, cardinality, stride=1, downsample=None):
+        super().__init__(inplanes, planes, stride, downsample)
+        mid_planes = cardinality * planes // 32
+        self.conv1 = conv1x1x1(inplanes, mid_planes)
+        self.bn1 = nn.BatchNorm3d(mid_planes)
+        self.conv2 = nn.Conv3d(mid_planes, mid_planes, kernel_size=3, stride=stride, padding=1, groups=cardinality, bias=False)
+        self.bn2 = nn.BatchNorm3d(mid_planes)
+        self.conv3 = conv1x1x1(mid_planes, planes * self.expansion)
+
+
+def partialclass(cls, *args, **kwargs):
+
+
+    class PartialClass(cls):
+        __init__ = partialmethod(cls.__init__, *args, **kwargs)
+    return PartialClass
+
+
+class ResNeXt(ResNet):
+
+    def __init__(self, block, layers, block_inplanes, n_input_channels=3, conv1_t_size=7, conv1_t_stride=1, no_max_pool=False, shortcut_type='B', cardinality=32, n_classes=400):
+        block = partialclass(block, cardinality=cardinality)
+        super().__init__(block, layers, block_inplanes, n_input_channels, conv1_t_size, conv1_t_stride, no_max_pool, shortcut_type, n_classes)
+        self.fc = nn.Linear(cardinality * 32 * block.expansion, n_classes)
+
+
+class WideBottleneck(resnet.Bottleneck):
+    expansion = 2
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -553,9 +488,37 @@ TESTCASES = [
      lambda: ([], {'in_planes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 64, 64, 64])], {}),
      True),
+    (PreActivationBasicBlock,
+     lambda: ([], {'inplanes': 4, 'planes': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
+    (_DenseBlock,
+     lambda: ([], {'num_layers': 1, 'num_input_features': 4, 'bn_size': 4, 'growth_rate': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (_DenseLayer,
+     lambda: ([], {'num_input_features': 4, 'growth_rate': 4, 'bn_size': 4, 'drop_rate': 0.5}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     False),
+    (_Transition,
+     lambda: ([], {'num_input_features': 4, 'num_output_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4, 4])], {}),
+     True),
 ]
 
 class Test_kenshohara_3D_ResNets_PyTorch(_paritybench_base):
     def test_000(self):
         self._check(*TESTCASES[0])
+
+    def test_001(self):
+        self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
 

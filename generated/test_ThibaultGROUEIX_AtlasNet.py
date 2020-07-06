@@ -35,20 +35,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import random
+
+
+import numpy as np
+
+
 import torch
+
+
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
+from copy import deepcopy
 
 
 import torch.nn as nn
@@ -69,22 +85,73 @@ import math
 import torch.utils.model_zoo as model_zoo
 
 
+from torch.autograd import Variable
+
+
 import torch.optim as optim
 
 
-import numpy as np
+import time
 
 
-from copy import deepcopy
+class Identity(nn.Module):
+
+    def __init__(self, *args, **kwargs):
+        super(Identity, self).__init__()
+
+    def forward(self, input):
+        return input
+
+
+def get_activation(argument):
+    getter = {'relu': F.relu, 'sigmoid': F.sigmoid, 'softplus': F.softplus, 'logsigmoid': F.logsigmoid, 'softsign': F.softsign, 'tanh': F.tanh}
+    return getter.get(argument, 'Invalid activation')
+
+
+class Mapping2Dto3D(nn.Module):
+    """
+    Core Atlasnet Function.
+    Takes batched points as input and run them through an MLP.
+    Note : the MLP is implemented as a torch.nn.Conv1d with kernels of size 1 for speed.
+    Note : The latent vector is added as a bias after the first layer. Note that this is strictly identical
+    as concatenating each input point with the latent vector but saves memory and speeed.
+    Author : Thibault Groueix 01.11.2019
+    """
+
+    def __init__(self, opt):
+        self.opt = opt
+        self.bottleneck_size = opt.bottleneck_size
+        self.input_size = opt.dim_template
+        self.dim_output = 3
+        self.hidden_neurons = opt.hidden_neurons
+        self.num_layers = opt.num_layers
+        super(Mapping2Dto3D, self).__init__()
+        None
+        self.conv1 = torch.nn.Conv1d(self.input_size, self.bottleneck_size, 1)
+        self.conv2 = torch.nn.Conv1d(self.bottleneck_size, self.hidden_neurons, 1)
+        self.conv_list = nn.ModuleList([torch.nn.Conv1d(self.hidden_neurons, self.hidden_neurons, 1) for i in range(self.num_layers)])
+        self.last_conv = torch.nn.Conv1d(self.hidden_neurons, self.dim_output, 1)
+        self.bn1 = torch.nn.BatchNorm1d(self.bottleneck_size)
+        self.bn2 = torch.nn.BatchNorm1d(self.hidden_neurons)
+        self.bn_list = nn.ModuleList([torch.nn.BatchNorm1d(self.hidden_neurons) for i in range(self.num_layers)])
+        self.activation = get_activation(opt.activation)
+
+    def forward(self, x, latent):
+        x = self.conv1(x) + latent
+        x = self.activation(self.bn1(x))
+        x = self.activation(self.bn2(self.conv2(x)))
+        for i in range(self.opt.num_layers):
+            x = self.activation(self.bn_list[i](self.conv_list[i](x)))
+        return self.last_conv(x)
 
 
 class Template(object):
 
     def get_random_points(self):
-        print('Please implement get_random_points ')
+        None
 
     def get_regular_points(self):
-        print('Please implement get_regular_points ')
+        None
 
 
 class SphereTemplate(Template):
@@ -100,7 +167,7 @@ class SphereTemplate(Template):
         Return Tensor of Size [x, 3, x ... x]
         """
         assert shape[1] == 3, 'shape should have 3 in dim 1'
-        rand_grid = torch.cuda.FloatTensor(shape).to(device).float()
+        rand_grid = torch.cuda.FloatTensor(shape).float()
         rand_grid.data.normal_(0, 1)
         rand_grid = rand_grid / torch.sqrt(torch.sum(rand_grid ** 2, dim=1, keepdim=True))
         return Variable(rand_grid)
@@ -112,11 +179,11 @@ class SphereTemplate(Template):
         """
         if not self.npoints == npoints:
             self.mesh = pymesh.generate_icosphere(1, [0, 0, 0], 4)
-            self.vertex = torch.from_numpy(self.mesh.vertices).to(device).float()
+            self.vertex = torch.from_numpy(self.mesh.vertices).float()
             self.num_vertex = self.vertex.size(0)
             self.vertex = self.vertex.transpose(0, 1).contiguous().unsqueeze(0)
             self.npoints = npoints
-        return Variable(self.vertex.to(device))
+        return Variable(self.vertex)
 
 
 class SquareTemplate(Template):
@@ -131,7 +198,7 @@ class SquareTemplate(Template):
         Get random points on a Sphere
         Return Tensor of Size [x, 2, x ... x]
         """
-        rand_grid = torch.cuda.FloatTensor(shape).to(device).float()
+        rand_grid = torch.cuda.FloatTensor(shape).float()
         rand_grid.data.uniform_(0, 1)
         return Variable(rand_grid)
 
@@ -144,10 +211,10 @@ class SquareTemplate(Template):
             self.npoints = npoints
             vertices, faces = self.generate_square(np.sqrt(npoints))
             self.mesh = pymesh.form_mesh(vertices=vertices, faces=faces)
-            self.vertex = torch.from_numpy(self.mesh.vertices).to(device).float()
+            self.vertex = torch.from_numpy(self.mesh.vertices).float()
             self.num_vertex = self.vertex.size(0)
             self.vertex = self.vertex.transpose(0, 1).contiguous().unsqueeze(0)
-        return Variable(self.vertex[:, :2].contiguous().to(device))
+        return Variable(self.vertex[:, :2].contiguous())
 
     @staticmethod
     def generate_square(grain):
@@ -221,47 +288,6 @@ class Atlasnet(nn.Module):
         return mesh
 
 
-def weights_init(m):
-    classname = m.__class__.__name__
-    if classname.find('BatchNorm') != -1:
-        m.weight.data.normal_(1.0, 0.02)
-        m.bias.data.fill_(0)
-
-
-class EncoderDecoder(nn.Module):
-    """
-    Wrapper for a encoder and a decoder.
-    Author : Thibault Groueix 01.11.2019
-    """
-
-    def __init__(self, opt):
-        super(EncoderDecoder, self).__init__()
-        if opt.SVR:
-            self.encoder = resnet.resnet18(pretrained=False, num_classes=opt.bottleneck_size)
-        else:
-            self.encoder = PointNet(nlatent=opt.bottleneck_size)
-        self.decoder = Atlasnet(opt)
-        self
-        if not opt.SVR:
-            self.apply(weights_init)
-        self.eval()
-
-    def forward(self, x, train=True):
-        return self.decoder(self.encoder(x), train=train)
-
-    def generate_mesh(self, x):
-        return self.decoder.generate_mesh(self.encoder(x))
-
-
-class Identity(nn.Module):
-
-    def __init__(self, *args, **kwargs):
-        super(Identity, self).__init__()
-
-    def forward(self, input):
-        return input
-
-
 class PointNet(nn.Module):
 
     def __init__(self, nlatent=1024, dim_input=3):
@@ -295,46 +321,36 @@ class PointNet(nn.Module):
         return x.squeeze(2)
 
 
-def get_activation(argument):
-    getter = {'relu': F.relu, 'sigmoid': F.sigmoid, 'softplus': F.softplus, 'logsigmoid': F.logsigmoid, 'softsign': F.softsign, 'tanh': F.tanh}
-    return getter.get(argument, 'Invalid activation')
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('BatchNorm') != -1:
+        m.weight.data.normal_(1.0, 0.02)
+        m.bias.data.fill_(0)
 
 
-class Mapping2Dto3D(nn.Module):
+class EncoderDecoder(nn.Module):
     """
-    Core Atlasnet Function.
-    Takes batched points as input and run them through an MLP.
-    Note : the MLP is implemented as a torch.nn.Conv1d with kernels of size 1 for speed.
-    Note : The latent vector is added as a bias after the first layer. Note that this is strictly identical
-    as concatenating each input point with the latent vector but saves memory and speeed.
+    Wrapper for a encoder and a decoder.
     Author : Thibault Groueix 01.11.2019
     """
 
     def __init__(self, opt):
-        self.opt = opt
-        self.bottleneck_size = opt.bottleneck_size
-        self.input_size = opt.dim_template
-        self.dim_output = 3
-        self.hidden_neurons = opt.hidden_neurons
-        self.num_layers = opt.num_layers
-        super(Mapping2Dto3D, self).__init__()
-        None
-        self.conv1 = torch.nn.Conv1d(self.input_size, self.bottleneck_size, 1)
-        self.conv2 = torch.nn.Conv1d(self.bottleneck_size, self.hidden_neurons, 1)
-        self.conv_list = nn.ModuleList([torch.nn.Conv1d(self.hidden_neurons, self.hidden_neurons, 1) for i in range(self.num_layers)])
-        self.last_conv = torch.nn.Conv1d(self.hidden_neurons, self.dim_output, 1)
-        self.bn1 = torch.nn.BatchNorm1d(self.bottleneck_size)
-        self.bn2 = torch.nn.BatchNorm1d(self.hidden_neurons)
-        self.bn_list = nn.ModuleList([torch.nn.BatchNorm1d(self.hidden_neurons) for i in range(self.num_layers)])
-        self.activation = get_activation(opt.activation)
+        super(EncoderDecoder, self).__init__()
+        if opt.SVR:
+            self.encoder = resnet.resnet18(pretrained=False, num_classes=opt.bottleneck_size)
+        else:
+            self.encoder = PointNet(nlatent=opt.bottleneck_size)
+        self.decoder = Atlasnet(opt)
+        self
+        if not opt.SVR:
+            self.apply(weights_init)
+        self.eval()
 
-    def forward(self, x, latent):
-        x = self.conv1(x) + latent
-        x = self.activation(self.bn1(x))
-        x = self.activation(self.bn2(self.conv2(x)))
-        for i in range(self.opt.num_layers):
-            x = self.activation(self.bn_list[i](self.conv_list[i](x)))
-        return self.last_conv(x)
+    def forward(self, x, train=True):
+        return self.decoder(self.encoder(x), train=train)
+
+    def generate_mesh(self, x):
+        return self.decoder.generate_mesh(self.encoder(x))
 
 
 def conv3x3(in_planes, out_planes, stride=1):

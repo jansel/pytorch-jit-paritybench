@@ -34,26 +34,49 @@ html = _module
 image_pool = _module
 metrics = _module
 png = _module
+util = _module
 visualizer = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import random
+
+
+import torchvision.transforms as transforms
+
+
 import torch
+
+
+import torch.utils.data as data
+
+
+import torch.utils.data
+
+
+import numpy as np
+
+
+from collections import OrderedDict
+
+
+from torch.autograd import Variable
 
 
 import torch.nn as nn
@@ -68,13 +91,7 @@ import functools
 import torch.autograd as autograd
 
 
-import numpy as np
-
-
 import torchvision.models as models
-
-
-from torch.autograd import Variable
 
 
 import torch.nn.functional as F
@@ -84,6 +101,15 @@ from math import exp
 
 
 import math
+
+
+import inspect
+
+
+import re
+
+
+import collections
 
 
 class GANLoss(nn.Module):
@@ -121,6 +147,22 @@ class GANLoss(nn.Module):
         return self.loss(input, target_tensor)
 
 
+class ResnetBlock(nn.Module):
+
+    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
+        super(ResnetBlock, self).__init__()
+        padAndConv = {'reflect': [nn.ReflectionPad2d(1), nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)], 'replicate': [nn.ReplicationPad2d(1), nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)], 'zero': [nn.Conv2d(dim, dim, kernel_size=3, padding=1, bias=use_bias)]}
+        try:
+            blocks = padAndConv[padding_type] + [norm_layer(dim), nn.ReLU(True)] + [nn.Dropout(0.5)] if use_dropout else [] + padAndConv[padding_type] + [norm_layer(dim)]
+        except:
+            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
+        self.conv_block = nn.Sequential(*blocks)
+
+    def forward(self, x):
+        out = x + self.conv_block(x)
+        return out
+
+
 class ResnetGenerator(nn.Module):
 
     def __init__(self, input_nc, output_nc, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, n_blocks=6, gpu_ids=[], use_parallel=True, learn_residual=False, padding_type='reflect'):
@@ -152,50 +194,6 @@ class ResnetGenerator(nn.Module):
             output = self.model(input)
         if self.learn_residual:
             output = torch.clamp(input + output, min=-1, max=1)
-        return output
-
-
-class ResnetBlock(nn.Module):
-
-    def __init__(self, dim, padding_type, norm_layer, use_dropout, use_bias):
-        super(ResnetBlock, self).__init__()
-        padAndConv = {'reflect': [nn.ReflectionPad2d(1), nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)], 'replicate': [nn.ReplicationPad2d(1), nn.Conv2d(dim, dim, kernel_size=3, bias=use_bias)], 'zero': [nn.Conv2d(dim, dim, kernel_size=3, padding=1, bias=use_bias)]}
-        try:
-            blocks = padAndConv[padding_type] + [norm_layer(dim), nn.ReLU(True)] + [nn.Dropout(0.5)] if use_dropout else [] + padAndConv[padding_type] + [norm_layer(dim)]
-        except:
-            raise NotImplementedError('padding [%s] is not implemented' % padding_type)
-        self.conv_block = nn.Sequential(*blocks)
-
-    def forward(self, x):
-        out = x + self.conv_block(x)
-        return out
-
-
-class UnetGenerator(nn.Module):
-
-    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, gpu_ids=[], use_parallel=True, learn_residual=False):
-        super(UnetGenerator, self).__init__()
-        self.gpu_ids = gpu_ids
-        self.use_parallel = use_parallel
-        self.learn_residual = learn_residual
-        assert input_nc == output_nc
-        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, norm_layer=norm_layer, innermost=True)
-        for i in range(num_downs - 5):
-            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, unet_block, norm_layer=norm_layer, use_dropout=use_dropout)
-        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, unet_block, norm_layer=norm_layer)
-        unet_block = UnetSkipConnectionBlock(output_nc, ngf, unet_block, outermost=True, norm_layer=norm_layer)
-        self.model = unet_block
-
-    def forward(self, input):
-        if self.gpu_ids and isinstance(input.data, torch.FloatTensor) and self.use_parallel:
-            output = nn.parallel.data_parallel(self.model, input, self.gpu_ids)
-        else:
-            output = self.model(input)
-        if self.learn_residual:
-            output = input + output
-            output = torch.clamp(output, min=-1, max=1)
         return output
 
 
@@ -236,6 +234,34 @@ class UnetSkipConnectionBlock(nn.Module):
             return self.model(x)
         else:
             return torch.cat([self.model(x), x], 1)
+
+
+class UnetGenerator(nn.Module):
+
+    def __init__(self, input_nc, output_nc, num_downs, ngf=64, norm_layer=nn.BatchNorm2d, use_dropout=False, gpu_ids=[], use_parallel=True, learn_residual=False):
+        super(UnetGenerator, self).__init__()
+        self.gpu_ids = gpu_ids
+        self.use_parallel = use_parallel
+        self.learn_residual = learn_residual
+        assert input_nc == output_nc
+        unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, norm_layer=norm_layer, innermost=True)
+        for i in range(num_downs - 5):
+            unet_block = UnetSkipConnectionBlock(ngf * 8, ngf * 8, unet_block, norm_layer=norm_layer, use_dropout=use_dropout)
+        unet_block = UnetSkipConnectionBlock(ngf * 4, ngf * 8, unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, unet_block, norm_layer=norm_layer)
+        unet_block = UnetSkipConnectionBlock(output_nc, ngf, unet_block, outermost=True, norm_layer=norm_layer)
+        self.model = unet_block
+
+    def forward(self, input):
+        if self.gpu_ids and isinstance(input.data, torch.FloatTensor) and self.use_parallel:
+            output = nn.parallel.data_parallel(self.model, input, self.gpu_ids)
+        else:
+            output = self.model(input)
+        if self.learn_residual:
+            output = input + output
+            output = torch.clamp(output, min=-1, max=1)
+        return output
 
 
 class NLayerDiscriminator(nn.Module):

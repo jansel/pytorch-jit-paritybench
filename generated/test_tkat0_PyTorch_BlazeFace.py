@@ -12,15 +12,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -31,30 +32,7 @@ from torch import nn
 import torch.nn.functional as F
 
 
-def initialize(module):
-    if isinstance(module, nn.Conv2d):
-        nn.init.kaiming_normal_(module.weight.data)
-        nn.init.constant_(module.bias.data, 0)
-    elif isinstance(module, nn.BatchNorm2d):
-        nn.init.constant_(module.weight.data, 1)
-        nn.init.constant_(module.bias.data, 0)
-
-
-class MediaPipeBlazeFace(nn.Module):
-    """Constructs a BlazeFace model of the MediaPipe implementation
-
-    the original implementation
-    https://github.com/google/mediapipe/tree/master/mediapipe/models#blazeface-face-detection-model
-    """
-
-    def __init__(self):
-        super(MediaPipeBlazeFace, self).__init__()
-        self.features = nn.Sequential(nn.Conv2d(3, 24, kernel_size=5, stride=2, padding=2, bias=True), nn.BatchNorm2d(24), nn.ReLU(inplace=True), BlazeBlock(24, 24, kernel_size=3), BlazeBlock(24, 28, kernel_size=3), BlazeBlock(28, 32, kernel_size=3, stride=2), BlazeBlock(32, 36, kernel_size=3), BlazeBlock(36, 42, kernel_size=3), BlazeBlock(42, 48, kernel_size=3, stride=2), BlazeBlock(48, 56, kernel_size=3), BlazeBlock(56, 64, kernel_size=3), BlazeBlock(64, 72, kernel_size=3), BlazeBlock(72, 80, kernel_size=3), BlazeBlock(80, 88, kernel_size=3), BlazeBlock(88, 96, kernel_size=3, stride=2), BlazeBlock(96, 96, kernel_size=3), BlazeBlock(96, 96, kernel_size=3), BlazeBlock(96, 96, kernel_size=3), BlazeBlock(96, 96, kernel_size=3))
-        self.apply(initialize)
-
-    def forward(self, x):
-        h = self.features(x)
-        return h
+import torch
 
 
 class BlazeBlock(nn.Module):
@@ -86,6 +64,32 @@ class BlazeBlock(nn.Module):
         if self.channel_pad > 0:
             x = F.pad(x, (0, 0, 0, 0, 0, self.channel_pad), 'constant', 0)
         return self.act(h + x)
+
+
+def initialize(module):
+    if isinstance(module, nn.Conv2d):
+        nn.init.kaiming_normal_(module.weight.data)
+        nn.init.constant_(module.bias.data, 0)
+    elif isinstance(module, nn.BatchNorm2d):
+        nn.init.constant_(module.weight.data, 1)
+        nn.init.constant_(module.bias.data, 0)
+
+
+class MediaPipeBlazeFace(nn.Module):
+    """Constructs a BlazeFace model of the MediaPipe implementation
+
+    the original implementation
+    https://github.com/google/mediapipe/tree/master/mediapipe/models#blazeface-face-detection-model
+    """
+
+    def __init__(self):
+        super(MediaPipeBlazeFace, self).__init__()
+        self.features = nn.Sequential(nn.Conv2d(3, 24, kernel_size=5, stride=2, padding=2, bias=True), nn.BatchNorm2d(24), nn.ReLU(inplace=True), BlazeBlock(24, 24, kernel_size=3), BlazeBlock(24, 28, kernel_size=3), BlazeBlock(28, 32, kernel_size=3, stride=2), BlazeBlock(32, 36, kernel_size=3), BlazeBlock(36, 42, kernel_size=3), BlazeBlock(42, 48, kernel_size=3, stride=2), BlazeBlock(48, 56, kernel_size=3), BlazeBlock(56, 64, kernel_size=3), BlazeBlock(64, 72, kernel_size=3), BlazeBlock(72, 80, kernel_size=3), BlazeBlock(80, 88, kernel_size=3), BlazeBlock(88, 96, kernel_size=3, stride=2), BlazeBlock(96, 96, kernel_size=3), BlazeBlock(96, 96, kernel_size=3), BlazeBlock(96, 96, kernel_size=3), BlazeBlock(96, 96, kernel_size=3))
+        self.apply(initialize)
+
+    def forward(self, x):
+        h = self.features(x)
+        return h
 
 
 class BlazeFace(nn.Module):

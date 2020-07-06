@@ -46,13 +46,16 @@ setup = _module
 tests = _module
 broadcast = _module
 chwise_conv = _module
+common = _module
 conv = _module
 conv_on_coords = _module
+coords = _module
 dense = _module
 kernel_map = _module
 norm = _module
 pool = _module
 pruning = _module
+quantization = _module
 sparse_tensor = _module
 strided_conv = _module
 union = _module
@@ -61,15 +64,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -104,6 +108,9 @@ from torch.autograd import Function
 from torch.nn import Parameter
 
 
+from typing import List
+
+
 import torch.nn.functional as F
 
 
@@ -119,7 +126,43 @@ import torch.nn as nn
 from torch.nn.modules import Module
 
 
+import warnings
+
+
+import copy
+
+
 import logging
+
+
+import collections.abc
+
+
+import torch.testing
+
+
+from typing import Callable
+
+
+from typing import Optional
+
+
+from torch.autograd.gradcheck import _as_tuple
+
+
+from torch.autograd.gradcheck import _differentiable_outputs
+
+
+from torch.autograd.gradcheck import get_analytical_jacobian
+
+
+from torch.autograd.gradcheck import get_numerical_jacobian
+
+
+from torch.autograd.gradcheck import iter_tensors
+
+
+import time
 
 
 from time import time
@@ -155,72 +198,16 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 
 
-class MinkowskiModuleBase(Module):
-    pass
+import re
 
 
-class OperationType(Enum):
-    ADDITION = 0
-    MULTIPLICATION = 1
+from torch.utils.cpp_extension import CppExtension
 
 
-def get_postfix(tensor: torch.Tensor):
-    postfix = 'GPU' if tensor.is_cuda else 'CPU'
-    if isinstance(tensor, torch.DoubleTensor) or isinstance(tensor, torch.cuda.DoubleTensor):
-        postfix += 'd'
-    else:
-        postfix += 'f'
-    return postfix
+from torch.utils.cpp_extension import CUDAExtension
 
 
-def get_minkowski_function(name, variable):
-    fn_name = name + get_postfix(variable)
-    if hasattr(MEB, fn_name):
-        return getattr(MEB, fn_name)
-    elif variable.is_cuda:
-        raise ValueError(f'Function {fn_name} not available. Please compile MinkowskiEngine where `torch.cuda.is_available()` is `True`.')
-    else:
-        raise ValueError(f'Function {fn_name} not available.')
-
-
-op_to_int = {i: i.value for i in OperationType}
-
-
-def operation_type_to_int(op):
-    assert isinstance(op, OperationType)
-    return op_to_int[op]
-
-
-class MinkowskiBroadcastFunction(Function):
-
-    @staticmethod
-    def forward(ctx, input_features, input_features_global, operation_type, in_coords_key, glob_coords_key, coords_manager):
-        assert input_features.shape[1] == input_features_global.shape[1]
-        assert input_features.type() == input_features_global.type()
-        assert isinstance(operation_type, OperationType)
-        if not input_features.is_contiguous():
-            input_features = input_features.contiguous()
-        if not input_features_global.is_contiguous():
-            input_features_global = input_features_global.contiguous()
-        ctx.op = operation_type_to_int(operation_type)
-        ctx.in_feat = input_features
-        ctx.in_feat_glob = input_features_global
-        ctx.in_coords_key = in_coords_key
-        ctx.glob_coords_key = glob_coords_key
-        ctx.coords_manager = coords_manager
-        fw_fn = get_minkowski_function('BroadcastForward', input_features)
-        out_feat = fw_fn(ctx.in_feat, ctx.in_feat_glob, ctx.op, ctx.in_coords_key.CPPCoordsKey, ctx.glob_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
-        return out_feat
-
-    @staticmethod
-    def backward(ctx, grad_out_feat):
-        if not grad_out_feat.is_contiguous():
-            grad_out_feat = grad_out_feat.contiguous()
-        grad_in_feat = grad_out_feat.new()
-        grad_in_feat_glob = grad_out_feat.new()
-        bw_fn = get_minkowski_function('BroadcastBackward', grad_out_feat)
-        bw_fn(ctx.in_feat, grad_in_feat, ctx.in_feat_glob, grad_in_feat_glob, grad_out_feat, ctx.op, ctx.in_coords_key.CPPCoordsKey, ctx.glob_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
-        return grad_in_feat, grad_in_feat_glob, None, None, None, None
+from torch.utils.cpp_extension import BuildExtension
 
 
 COORDS_KEY_DIFFERENT_ERROR = 'SparseTensors must have the same coords_key.'
@@ -336,6 +323,85 @@ class SparseTensorQuantizationMode(Enum):
     UNWEIGHTED_AVERAGE = 1
 
 
+class MinkowskiModuleBase(Module):
+    MODULE = None
+
+    def __init__(self, *args, **kwargs):
+        super(MinkowskiModuleBase, self).__init__()
+        self.module = self.MODULE(*args, **kwargs)
+
+    def forward(self, input):
+        output = self.module(input.F)
+        return SparseTensor(output, coords_key=input.coords_key, coords_manager=input.coords_man)
+
+    def __repr__(self):
+        return self.__class__.__name__ + '()'
+
+
+class OperationType(Enum):
+    ADDITION = 0
+    MULTIPLICATION = 1
+
+
+def get_postfix(tensor: torch.Tensor):
+    postfix = 'GPU' if tensor.is_cuda else 'CPU'
+    if isinstance(tensor, torch.DoubleTensor) or isinstance(tensor, torch.DoubleTensor):
+        postfix += 'd'
+    else:
+        postfix += 'f'
+    return postfix
+
+
+def get_minkowski_function(name, variable):
+    fn_name = name + get_postfix(variable)
+    if hasattr(MEB, fn_name):
+        return getattr(MEB, fn_name)
+    elif variable.is_cuda:
+        raise ValueError(f'Function {fn_name} not available. Please compile MinkowskiEngine where `torch.cuda.is_available()` is `True`.')
+    else:
+        raise ValueError(f'Function {fn_name} not available.')
+
+
+op_to_int = {i: i.value for i in OperationType}
+
+
+def operation_type_to_int(op):
+    assert isinstance(op, OperationType)
+    return op_to_int[op]
+
+
+class MinkowskiBroadcastFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input_features, input_features_global, operation_type, in_coords_key, glob_coords_key, coords_manager):
+        assert input_features.shape[1] == input_features_global.shape[1]
+        assert input_features.type() == input_features_global.type()
+        assert isinstance(operation_type, OperationType)
+        if not input_features.is_contiguous():
+            input_features = input_features.contiguous()
+        if not input_features_global.is_contiguous():
+            input_features_global = input_features_global.contiguous()
+        ctx.op = operation_type_to_int(operation_type)
+        ctx.in_feat = input_features
+        ctx.in_feat_glob = input_features_global
+        ctx.in_coords_key = in_coords_key
+        ctx.glob_coords_key = glob_coords_key
+        ctx.coords_manager = coords_manager
+        fw_fn = get_minkowski_function('BroadcastForward', input_features)
+        out_feat = fw_fn(ctx.in_feat, ctx.in_feat_glob, ctx.op, ctx.in_coords_key.CPPCoordsKey, ctx.glob_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
+        return out_feat
+
+    @staticmethod
+    def backward(ctx, grad_out_feat):
+        if not grad_out_feat.is_contiguous():
+            grad_out_feat = grad_out_feat.contiguous()
+        grad_in_feat = grad_out_feat.new()
+        grad_in_feat_glob = grad_out_feat.new()
+        bw_fn = get_minkowski_function('BroadcastBackward', grad_out_feat)
+        bw_fn(ctx.in_feat, grad_in_feat, ctx.in_feat_glob, grad_in_feat_glob, grad_out_feat, ctx.op, ctx.in_coords_key.CPPCoordsKey, ctx.glob_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
+        return grad_in_feat, grad_in_feat_glob, None, None, None, None
+
+
 class AbstractMinkowskiBroadcast(Module):
 
     def __init__(self, operation_type):
@@ -351,6 +417,54 @@ class AbstractMinkowskiBroadcast(Module):
 
     def __repr__(self):
         return self.__class__.__name__
+
+
+class MinkowskiBroadcastAddition(AbstractMinkowskiBroadcast):
+    """Broadcast the reduced features to all input coordinates.
+
+    .. math::
+
+        \\mathbf{y}_\\mathbf{u} = \\mathbf{x}_{1, \\mathbf{u}} + \\mathbf{x}_2
+        \\; \\text{for} \\; \\mathbf{u} \\in \\mathcal{C}^\\text{in}
+
+
+    For all input :math:`\\mathbf{x}_\\mathbf{u}`, add :math:`\\mathbf{x}_2`. The
+    output coordinates will be the same as the input coordinates
+    :math:`\\mathcal{C}^\\text{in} = \\mathcal{C}^\\text{out}`.
+
+    .. note::
+        The first argument takes a sparse tensor; the second argument takes
+        features that are reduced to the origin. This can be typically done with
+        the global reduction such as the :attr:`MinkowskiGlobalPooling`.
+
+    """
+
+    def __init__(self):
+        AbstractMinkowskiBroadcast.__init__(self, OperationType.ADDITION)
+
+
+class MinkowskiBroadcastMultiplication(AbstractMinkowskiBroadcast):
+    """Broadcast reduced features to all input coordinates.
+
+    .. math::
+
+        \\mathbf{y}_\\mathbf{u} = \\mathbf{x}_{1, \\mathbf{u}} \\times \\mathbf{x}_2
+        \\; \\text{for} \\; \\mathbf{u} \\in \\mathcal{C}^\\text{in}
+
+
+    For all input :math:`\\mathbf{x}_\\mathbf{u}`, multiply :math:`\\mathbf{x}_2`
+    element-wise. The output coordinates will be the same as the input
+    coordinates :math:`\\mathcal{C}^\\text{in} = \\mathcal{C}^\\text{out}`.
+
+    .. note::
+        The first argument takes a sparse tensor; the second argument takes
+        features that are reduced to the origin. This can be typically done with
+        the global reduction such as the :attr:`MinkowskiGlobalPooling`.
+
+    """
+
+    def __init__(self):
+        AbstractMinkowskiBroadcast.__init__(self, OperationType.MULTIPLICATION)
 
 
 class MinkowskiBroadcast(Module):
@@ -386,6 +500,250 @@ class MinkowskiBroadcast(Module):
         for b, row_ind in enumerate(row_inds):
             broadcast_feat[row_ind] = input_glob.F[b]
         return SparseTensor(broadcast_feat, coords_key=input.coords_key, coords_manager=input.coords_man)
+
+
+class MinkowskiBroadcastConcatenation(MinkowskiBroadcast):
+    """Broadcast reduced features to all input coordinates and concatenate to the input.
+
+    .. math::
+
+        \\mathbf{y}_\\mathbf{u} = [\\mathbf{x}_{1,\\mathbf{u}}, \\mathbf{x}_2] \\;
+        \\text{for} \\; \\mathbf{u} \\in \\mathcal{C}^\\text{in}
+
+
+    For all input :math:`\\mathbf{x}_\\mathbf{u}`, concatenate vector
+    :math:`\\mathbf{x}_2`. :math:`[\\cdot, \\cdot]` is a concatenation operator.
+    The output coordinates will be the same as the input coordinates
+    :math:`\\mathcal{C}^\\text{in} = \\mathcal{C}^\\text{out}`.
+
+    .. note::
+        The first argument takes a sparse tensor; the second argument takes
+        features that are reduced to the origin. This can be typically done with
+        the global reduction such as the :attr:`MinkowskiGlobalPooling`.
+
+    """
+
+    def forward(self, input, input_glob):
+        assert isinstance(input, SparseTensor)
+        assert isinstance(input_glob, SparseTensor)
+        broadcast_feat = input.F.new(len(input), input_glob.size()[1])
+        row_inds = input.coords_man.get_row_indices_per_batch(input.coords_key)
+        for b, row_ind in enumerate(row_inds):
+            broadcast_feat[row_ind] = input_glob.F[b]
+        broadcast_cat = torch.cat((input.F, broadcast_feat), dim=1)
+        return SparseTensor(broadcast_cat, coords_key=input.coords_key, coords_manager=input.coords_man)
+
+
+def convert_region_type(region_type: RegionType, tensor_stride: Union[Sequence, np.ndarray, torch.IntTensor], kernel_size: Union[Sequence, np.ndarray, torch.IntTensor], up_stride: Union[Sequence, np.ndarray, torch.IntTensor], dilation: Union[Sequence, np.ndarray, torch.IntTensor], region_offset: Union[Sequence, np.ndarray, torch.IntTensor], axis_types: Union[Sequence, np.ndarray, torch.IntTensor], dimension: int, center: bool=True):
+    """
+    when center is True, the custom region_offset will be centered at the
+    origin. Currently, for HYPERCUBE, HYPERCROSS with odd kernel sizes cannot
+    use center=False.
+
+    up_stride: stride for conv_transpose, otherwise set it as 1
+    """
+    if region_type == RegionType.HYPERCUBE:
+        assert region_offset is None, 'Region offset must be None when region_type is given'
+        assert axis_types is None, 'Axis types must be None when region_type is given'
+        assert torch.prod(kernel_size > 0) == 1
+        kernel_volume = int(torch.prod(kernel_size))
+    elif region_type == RegionType.HYPERCROSS:
+        assert torch.prod(kernel_size > 0) == 1, 'kernel_size must be positive'
+        assert (kernel_size % 2).prod() == 1, 'kernel_size must be odd for region_type HYPERCROSS'
+        kernel_volume = int(torch.sum(kernel_size - 1) + 1)
+    elif region_type == RegionType.HYBRID:
+        assert region_offset is None, 'region_offset must be None when region_type is HYBRID'
+        region_offset = [[0] * dimension]
+        kernel_size_list = kernel_size.tolist()
+        for axis_type, curr_kernel_size, d in zip(axis_types, kernel_size_list, range(dimension)):
+            new_offset = []
+            if axis_type == RegionType.HYPERCUBE:
+                for offset in region_offset:
+                    for curr_offset in range(curr_kernel_size):
+                        off_center = int(math.floor((curr_kernel_size - 1) / 2)) if center else 0
+                        offset = offset.copy()
+                        if curr_offset == off_center:
+                            continue
+                        offset[d] = (curr_offset - off_center) * dilation[d] * (tensor_stride[d] / up_stride[d])
+                        new_offset.append(offset)
+            region_offset.extend(new_offset)
+        for axis_type, curr_kernel_size, d in zip(axis_types, kernel_size_list, range(dimension)):
+            new_offset = []
+            if axis_type == RegionType.HYPERCROSS:
+                for curr_offset in range(curr_kernel_size):
+                    off_center = int(math.floor((curr_kernel_size - 1) / 2)) if center else 0
+                    offset = [0] * dimension
+                    if curr_offset == off_center:
+                        continue
+                    offset[d] = (curr_offset - off_center) * dilation[d] * (tensor_stride[d] / up_stride[d])
+                    new_offset.append(offset)
+            region_offset.extend(new_offset)
+        region_type = RegionType.CUSTOM
+        region_offset = torch.IntTensor(region_offset)
+        kernel_volume = int(region_offset.size(0))
+    elif region_type == RegionType.CUSTOM:
+        assert region_offset.numel() > 0, 'region_offset must be non empty when region_type is CUSTOM'
+        assert region_offset.size(1) == dimension, 'region_offset must have the same dimension as the network'
+        kernel_volume = int(region_offset.size(0))
+        assert isinstance(region_offset.dtype, torch.IntTensor), 'region_offset must be a torch.IntTensor.'
+    else:
+        raise NotImplementedError()
+    if region_offset is None:
+        region_offset = torch.IntTensor()
+    return region_type, region_offset, kernel_volume
+
+
+def get_kernel_volume(region_type, kernel_size, region_offset, axis_types, dimension):
+    """
+    when center is True, the custom region_offset will be centered at the
+    origin. Currently, for HYPERCUBE, HYPERCROSS with odd kernel sizes cannot
+    use center=False.
+    """
+    if region_type == RegionType.HYPERCUBE:
+        assert region_offset is None, 'Region offset must be None when region_type is given'
+        assert axis_types is None, 'Axis types must be None when region_type is given'
+        assert torch.prod(kernel_size > 0) == 1
+        kernel_volume = int(torch.prod(kernel_size))
+    elif region_type == RegionType.HYPERCROSS:
+        assert torch.prod(kernel_size > 0) == 1, 'kernel_size must be positive'
+        assert (kernel_size % 2).prod() == 1, 'kernel_size must be odd for region_type HYPERCROSS'
+        kernel_volume = int(torch.sum(kernel_size - 1) + 1)
+    elif region_type == RegionType.HYBRID:
+        assert region_offset is None, 'region_offset must be None when region_type is HYBRID'
+        kernel_size_list = kernel_size.tolist()
+        kernel_volume = 1
+        for axis_type, curr_kernel_size, d in zip(axis_types, kernel_size_list, range(dimension)):
+            if axis_type == RegionType.HYPERCUBE:
+                kernel_volume *= curr_kernel_size
+        for axis_type, curr_kernel_size, d in zip(axis_types, kernel_size_list, range(dimension)):
+            if axis_type == RegionType.HYPERCROSS:
+                kernel_volume += curr_kernel_size - 1
+    elif region_type == RegionType.CUSTOM:
+        assert region_offset.numel() > 0, 'region_offset must be non empty when region_type is CUSTOM'
+        assert region_offset.size(1) == dimension, 'region_offset must have the same dimension as the network'
+        kernel_volume = int(region_offset.size(0))
+    else:
+        raise NotImplementedError()
+    return kernel_volume
+
+
+class KernelGenerator:
+
+    def __init__(self, kernel_size=-1, stride=1, dilation=1, is_transpose=False, region_type=RegionType.HYPERCUBE, region_offsets=None, axis_types=None, dimension=-1):
+        """
+            :attr:`region_type` (RegionType, optional): defines the kernel
+            shape. Please refer to MinkowskiEngine.Comon for details.
+
+            :attr:`region_offset` (torch.IntTensor, optional): when the
+            :attr:`region_type` is :attr:`RegionType.CUSTOM`, the convolution
+            kernel uses the provided `region_offset` to define offsets. It
+            should be a matrix of size :math:`N \\times D` where :math:`N` is
+            the number of offsets and :math:`D` is the dimension of the
+            space.
+
+            :attr:`axis_types` (list of RegionType, optional): If given, it
+            uses different methods to create a kernel for each axis. e.g., when
+            it is `[RegionType.HYPERCUBE, RegionType.HYPERCUBE,
+            RegionType.HYPERCROSS]`, the kernel would be rectangular for the
+            first two dimensions and cross shaped for the thrid dimension.
+        """
+        assert dimension > 0
+        assert isinstance(region_type, RegionType)
+        stride = convert_to_int_tensor(stride, dimension)
+        kernel_size = convert_to_int_tensor(kernel_size, dimension)
+        dilation = convert_to_int_tensor(dilation, dimension)
+        self.cache = {}
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.dilation = dilation
+        self.region_type = region_type
+        self.region_offsets = region_offsets
+        self.axis_types = axis_types
+        self.dimension = dimension
+        self.kernel_volume = get_kernel_volume(region_type, kernel_size, region_offsets, axis_types, dimension)
+
+    def get_kernel(self, tensor_stride, is_transpose):
+        assert len(tensor_stride) == self.dimension
+        if tuple(tensor_stride) not in self.cache:
+            up_stride = self.stride if is_transpose else torch.Tensor([1] * self.dimension)
+            self.cache[tuple(tensor_stride)] = convert_region_type(self.region_type, tensor_stride, self.kernel_size, up_stride, self.dilation, self.region_offsets, self.axis_types, self.dimension)
+        return self.cache[tuple(tensor_stride)]
+
+
+class MinkowskiConvolutionFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input_features, kernel, tensor_stride=1, stride=1, kernel_size=-1, dilation=1, region_type=0, region_offset=None, in_coords_key=None, out_coords_key=None, coords_manager=None):
+        """
+        region_type=0 HyperCube
+        """
+        assert input_features.shape[1] == kernel.shape[1], 'The input shape ' + str(list(input_features.shape)) + ' does not match the kernel shape ' + str(list(kernel.shape))
+        if out_coords_key is None:
+            out_coords_key = CoordsKey(in_coords_key.D)
+        assert in_coords_key.D == out_coords_key.D
+        assert input_features.type() == kernel.type(), f'Type mismatch input: {input_features.type()} != kernel: {kernel.type()}'
+        if not input_features.is_contiguous():
+            input_features = input_features.contiguous()
+        tensor_stride, stride, kernel_size, dilation, region_type = prep_args(tensor_stride, stride, kernel_size, dilation, region_type, in_coords_key.D)
+        if region_offset is None:
+            region_offset = torch.IntTensor()
+        ctx.in_feat = input_features
+        ctx.kernel = kernel
+        ctx = save_ctx(ctx, tensor_stride, stride, kernel_size, dilation, region_type, in_coords_key, out_coords_key, coords_manager)
+        D = in_coords_key.D
+        out_feat = input_features.new()
+        fw_fn = get_minkowski_function('ConvolutionForward', input_features)
+        fw_fn(ctx.in_feat, out_feat, kernel, convert_to_int_list(ctx.tensor_stride, D), convert_to_int_list(ctx.stride, D), convert_to_int_list(ctx.kernel_size, D), convert_to_int_list(ctx.dilation, D), region_type, region_offset, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_man.CPPCoordsManager)
+        return out_feat
+
+    @staticmethod
+    def backward(ctx, grad_out_feat):
+        if not grad_out_feat.is_contiguous():
+            grad_out_feat = grad_out_feat.contiguous()
+        grad_in_feat = grad_out_feat.new()
+        grad_kernel = grad_out_feat.new()
+        D = ctx.in_coords_key.D
+        bw_fn = get_minkowski_function('ConvolutionBackward', grad_out_feat)
+        bw_fn(ctx.in_feat, grad_in_feat, grad_out_feat, ctx.kernel, grad_kernel, convert_to_int_list(ctx.tensor_stride, D), convert_to_int_list(ctx.stride, D), convert_to_int_list(ctx.kernel_size, D), convert_to_int_list(ctx.dilation, D), ctx.region_type, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_man.CPPCoordsManager)
+        return grad_in_feat, grad_kernel, None, None, None, None, None, None, None, None, None
+
+
+class MinkowskiConvolutionTransposeFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input_features, kernel, tensor_stride=1, stride=1, kernel_size=-1, dilation=1, region_type=0, region_offset=None, generate_new_coords=False, in_coords_key=None, out_coords_key=None, coords_manager=None):
+        """
+        region_type=0 HyperCube
+        """
+        assert input_features.shape[1] == kernel.shape[1], 'The input shape ' + str(list(input_features.shape)) + ' does not match the kernel shape ' + str(list(kernel.shape))
+        if out_coords_key is None:
+            out_coords_key = CoordsKey(in_coords_key.D)
+        assert in_coords_key.D == out_coords_key.D
+        assert input_features.type() == kernel.type(), f'Type mismatch input: {input_features.type()} != kernel: {kernel.type()}'
+        if not input_features.is_contiguous():
+            input_features = input_features.contiguous()
+        tensor_stride, stride, kernel_size, dilation, region_type = prep_args(tensor_stride, stride, kernel_size, dilation, region_type, in_coords_key.D)
+        if region_offset is None:
+            region_offset = torch.IntTensor()
+        ctx.in_feat = input_features
+        ctx.kernel = kernel
+        ctx = save_ctx(ctx, tensor_stride, stride, kernel_size, dilation, region_type, in_coords_key, out_coords_key, coords_manager)
+        D = in_coords_key.D
+        out_feat = input_features.new()
+        fw_fn = get_minkowski_function('ConvolutionTransposeForward', input_features)
+        fw_fn(ctx.in_feat, out_feat, kernel, convert_to_int_list(ctx.tensor_stride, D), convert_to_int_list(ctx.stride, D), convert_to_int_list(ctx.kernel_size, D), convert_to_int_list(ctx.dilation, D), region_type, region_offset, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_man.CPPCoordsManager, generate_new_coords)
+        return out_feat
+
+    @staticmethod
+    def backward(ctx, grad_out_feat):
+        if not grad_out_feat.is_contiguous():
+            grad_out_feat = grad_out_feat.contiguous()
+        grad_in_feat = grad_out_feat.new()
+        grad_kernel = grad_out_feat.new()
+        D = ctx.in_coords_key.D
+        bw_fn = get_minkowski_function('ConvolutionTransposeBackward', grad_out_feat)
+        bw_fn(ctx.in_feat, grad_in_feat, grad_out_feat, ctx.kernel, grad_kernel, convert_to_int_list(ctx.tensor_stride, D), convert_to_int_list(ctx.stride, D), convert_to_int_list(ctx.kernel_size, D), convert_to_int_list(ctx.dilation, D), ctx.region_type, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_man.CPPCoordsManager)
+        return grad_in_feat, grad_kernel, None, None, None, None, None, None, None, None, None, None
 
 
 class MinkowskiNetwork(nn.Module, ABC):
@@ -461,19 +819,44 @@ class MinkowskiNetwork(nn.Module, ABC):
         return torch.from_numpy(warped_feat)
 
 
-class MinkowskiModuleBase(Module):
-    MODULE = None
+class MinkowskiReLU(MinkowskiModuleBase):
+    MODULE = torch.nn.ReLU
 
-    def __init__(self, *args, **kwargs):
-        super(MinkowskiModuleBase, self).__init__()
-        self.module = self.MODULE(*args, **kwargs)
 
-    def forward(self, input):
-        output = self.module(input.F)
-        return SparseTensor(output, coords_key=input.coords_key, coords_manager=input.coords_man)
+class MinkowskiPReLU(MinkowskiModuleBase):
+    MODULE = torch.nn.PReLU
 
-    def __repr__(self):
-        return self.__class__.__name__ + '()'
+
+class MinkowskiELU(MinkowskiModuleBase):
+    MODULE = torch.nn.ELU
+
+
+class MinkowskiSELU(MinkowskiModuleBase):
+    MODULE = torch.nn.SELU
+
+
+class MinkowskiCELU(MinkowskiModuleBase):
+    MODULE = torch.nn.CELU
+
+
+class MinkowskiDropout(MinkowskiModuleBase):
+    MODULE = torch.nn.Dropout
+
+
+class MinkowskiThreshold(MinkowskiModuleBase):
+    MODULE = torch.nn.Threshold
+
+
+class MinkowskiSigmoid(MinkowskiModuleBase):
+    MODULE = torch.nn.Sigmoid
+
+
+class MinkowskiTanh(MinkowskiModuleBase):
+    MODULE = torch.nn.Tanh
+
+
+class MinkowskiSoftmax(MinkowskiModuleBase):
+    MODULE = torch.nn.Softmax
 
 
 class MinkowskiBatchNorm(Module):
@@ -495,52 +878,61 @@ class MinkowskiBatchNorm(Module):
         return self.__class__.__name__ + s
 
 
-class MinkowskiBroadcastAddition(AbstractMinkowskiBroadcast):
-    """Broadcast the reduced features to all input coordinates.
-
-    .. math::
-
-        \\mathbf{y}_\\mathbf{u} = \\mathbf{x}_{1, \\mathbf{u}} + \\mathbf{x}_2
-        \\; \\text{for} \\; \\mathbf{u} \\in \\mathcal{C}^\\text{in}
-
-
-    For all input :math:`\\mathbf{x}_\\mathbf{u}`, add :math:`\\mathbf{x}_2`. The
-    output coordinates will be the same as the input coordinates
-    :math:`\\mathcal{C}^\\text{in} = \\mathcal{C}^\\text{out}`.
-
-    .. note::
-        The first argument takes a sparse tensor; the second argument takes
-        features that are reduced to the origin. This can be typically done with
-        the global reduction such as the :attr:`MinkowskiGlobalPooling`.
-
+class MinkowskiSyncBatchNorm(MinkowskiBatchNorm):
+    """A batch normalization layer with multi GPU synchronization.
     """
 
-    def __init__(self):
-        AbstractMinkowskiBroadcast.__init__(self, OperationType.ADDITION)
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, process_group=None):
+        Module.__init__(self)
+        self.bn = torch.nn.SyncBatchNorm(num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats, process_group=process_group)
 
+    def forward(self, input):
+        output = self.bn(input.F)
+        return SparseTensor(output, coords_key=input.coords_key, coords_manager=input.coords_man)
 
-class MinkowskiBroadcastMultiplication(AbstractMinkowskiBroadcast):
-    """Broadcast reduced features to all input coordinates.
+    @classmethod
+    def convert_sync_batchnorm(cls, module, process_group=None):
+        """Helper function to convert
+        :attr:`MinkowskiEngine.MinkowskiBatchNorm` layer in the model to
+        :attr:`MinkowskiEngine.MinkowskiSyncBatchNorm` layer.
 
-    .. math::
+        Args:
+            module (nn.Module): containing module
+            process_group (optional): process group to scope synchronization,
+            default is the whole world
 
-        \\mathbf{y}_\\mathbf{u} = \\mathbf{x}_{1, \\mathbf{u}} \\times \\mathbf{x}_2
-        \\; \\text{for} \\; \\mathbf{u} \\in \\mathcal{C}^\\text{in}
+        Returns:
+            The original module with the converted
+            :attr:`MinkowskiEngine.MinkowskiSyncBatchNorm` layer
 
+        Example::
 
-    For all input :math:`\\mathbf{x}_\\mathbf{u}`, multiply :math:`\\mathbf{x}_2`
-    element-wise. The output coordinates will be the same as the input
-    coordinates :math:`\\mathcal{C}^\\text{in} = \\mathcal{C}^\\text{out}`.
+            >>> # Network with nn.BatchNorm layer
+            >>> module = torch.nn.Sequential(
+            >>>            torch.nn.Linear(20, 100),
+            >>>            torch.nn.BatchNorm1d(100)
+            >>>          ).cuda()
+            >>> # creating process group (optional)
+            >>> # process_ids is a list of int identifying rank ids.
+            >>> process_group = torch.distributed.new_group(process_ids)
+            >>> sync_bn_module = convert_sync_batchnorm(module, process_group)
 
-    .. note::
-        The first argument takes a sparse tensor; the second argument takes
-        features that are reduced to the origin. This can be typically done with
-        the global reduction such as the :attr:`MinkowskiGlobalPooling`.
-
-    """
-
-    def __init__(self):
-        AbstractMinkowskiBroadcast.__init__(self, OperationType.MULTIPLICATION)
+        """
+        module_output = module
+        if isinstance(module, MinkowskiBatchNorm):
+            module_output = MinkowskiSyncBatchNorm(module.bn.num_features, module.bn.eps, module.bn.momentum, module.bn.affine, module.bn.track_running_stats, process_group)
+            if module.bn.affine:
+                module_output.bn.weight.data = module.bn.weight.data.clone().detach()
+                module_output.bn.bias.data = module.bn.bias.data.clone().detach()
+                module_output.bn.weight.requires_grad = module.bn.weight.requires_grad
+                module_output.bn.bias.requires_grad = module.bn.bias.requires_grad
+            module_output.bn.running_mean = module.bn.running_mean
+            module_output.bn.running_var = module.bn.running_var
+            module_output.bn.num_batches_tracked = module.bn.num_batches_tracked
+        for name, child in module.named_children():
+            module_output.add_module(name, cls.convert_sync_batchnorm(child, process_group))
+        del module
+        return module_output
 
 
 class GlobalPoolingMode(Enum):
@@ -752,6 +1144,189 @@ class MinkowskiLinear(Module):
     def __repr__(self):
         s = '(in_features={}, out_features={}, bias={})'.format(self.linear.in_features, self.linear.out_features, self.linear.bias is not None)
         return self.__class__.__name__ + s
+
+
+class MinkowskiAvgPoolingFunction(Function):
+    """
+    Due to ctx.num_nonzero = in_feat.new()....,
+    Should the function be called multiple times, this function must be first
+    instantiated and then reused every time it needs to be called. Otherwise,
+    PyTorch cannot free, out_feat, ctx.num_nonzero, which are initialized inside
+    the ffi function.
+    """
+
+    @staticmethod
+    def forward(ctx, input_features, tensor_stride=1, stride=1, kernel_size=-1, dilation=1, region_type=0, region_offset=None, average=True, in_coords_key=None, out_coords_key=None, coords_manager=None):
+        assert isinstance(region_type, RegionType)
+        if out_coords_key is None:
+            out_coords_key = CoordsKey(in_coords_key.D)
+        assert in_coords_key.D == out_coords_key.D
+        if not input_features.is_contiguous():
+            input_features = input_features.contiguous()
+        tensor_stride, stride, kernel_size, dilation, region_type = prep_args(tensor_stride, stride, kernel_size, dilation, region_type, in_coords_key.D)
+        if region_offset is None:
+            region_offset = torch.IntTensor()
+        ctx.in_feat = input_features
+        ctx = save_ctx(ctx, tensor_stride, stride, kernel_size, dilation, region_type, in_coords_key, out_coords_key, coords_manager)
+        ctx.use_avg = average
+        D = in_coords_key.D
+        out_feat = input_features.new()
+        ctx.num_nonzero = input_features.new()
+        fw_fn = get_minkowski_function('AvgPoolingForward', input_features)
+        fw_fn(ctx.in_feat, out_feat, ctx.num_nonzero, convert_to_int_list(ctx.tensor_stride, D), convert_to_int_list(ctx.stride, D), convert_to_int_list(ctx.kernel_size, D), convert_to_int_list(ctx.dilation, D), region_type, region_offset, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_man.CPPCoordsManager, ctx.use_avg)
+        return out_feat
+
+    @staticmethod
+    def backward(ctx, grad_out_feat):
+        if not grad_out_feat.is_contiguous():
+            grad_out_feat = grad_out_feat.contiguous()
+        grad_in_feat = grad_out_feat.new()
+        D = ctx.in_coords_key.D
+        bw_fn = get_minkowski_function('AvgPoolingBackward', grad_out_feat)
+        bw_fn(ctx.in_feat, grad_in_feat, grad_out_feat, ctx.num_nonzero, convert_to_int_list(ctx.tensor_stride, D), convert_to_int_list(ctx.stride, D), convert_to_int_list(ctx.kernel_size, D), convert_to_int_list(ctx.dilation, D), ctx.region_type, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_man.CPPCoordsManager, ctx.use_avg)
+        return grad_in_feat, None, None, None, None, None, None, None, None, None, None
+
+
+class MinkowskiMaxPoolingFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input_features, tensor_stride=1, stride=1, kernel_size=-1, dilation=1, region_type=0, region_offset=None, in_coords_key=None, out_coords_key=None, coords_manager=None):
+        assert isinstance(region_type, RegionType)
+        if out_coords_key is None:
+            out_coords_key = CoordsKey(in_coords_key.D)
+        assert in_coords_key.D == out_coords_key.D
+        if not input_features.is_contiguous():
+            input_features = input_features.contiguous()
+        tensor_stride, stride, kernel_size, dilation, region_type = prep_args(tensor_stride, stride, kernel_size, dilation, region_type, in_coords_key.D)
+        if region_offset is None:
+            region_offset = torch.IntTensor()
+        ctx.in_feat = input_features
+        ctx = save_ctx(ctx, tensor_stride, stride, kernel_size, dilation, region_type, in_coords_key, out_coords_key, coords_manager)
+        D = in_coords_key.D
+        out_feat = input_features.new()
+        max_index = input_features.new().int()
+        ctx.max_index = max_index
+        fw_fn = get_minkowski_function('MaxPoolingForward', input_features)
+        fw_fn(input_features, out_feat, max_index, convert_to_int_list(ctx.tensor_stride, D), convert_to_int_list(ctx.stride, D), convert_to_int_list(ctx.kernel_size, D), convert_to_int_list(ctx.dilation, D), region_type, region_offset, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_man.CPPCoordsManager)
+        return out_feat
+
+    @staticmethod
+    def backward(ctx, grad_out_feat):
+        if not grad_out_feat.is_contiguous():
+            grad_out_feat = grad_out_feat.contiguous()
+        grad_in_feat = grad_out_feat.new()
+        D = ctx.in_coords_key.D
+        bw_fn = get_minkowski_function('MaxPoolingBackward', grad_out_feat)
+        bw_fn(ctx.in_feat, grad_in_feat, grad_out_feat, ctx.max_index, convert_to_int_list(ctx.tensor_stride, D), convert_to_int_list(ctx.stride, D), convert_to_int_list(ctx.kernel_size, D), convert_to_int_list(ctx.dilation, D), ctx.region_type, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_man.CPPCoordsManager)
+        return grad_in_feat, None, None, None, None, None, None, None, None, None
+
+
+class MinkowskiPoolingTransposeFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input_features, tensor_stride=1, stride=1, kernel_size=-1, dilation=1, region_type=-1, region_offset=None, average=False, in_coords_key=None, out_coords_key=None, coords_manager=None):
+        assert isinstance(region_type, RegionType)
+        if out_coords_key is None:
+            out_coords_key = CoordsKey(in_coords_key.D)
+        assert in_coords_key.D == out_coords_key.D
+        tensor_stride, stride, kernel_size, dilation, region_type = prep_args(tensor_stride, stride, kernel_size, dilation, region_type, in_coords_key.D)
+        if region_offset is None:
+            region_offset = torch.IntTensor()
+        ctx.in_feat = input_features
+        out_feat = input_features.new()
+        ctx.num_nonzero = input_features.new()
+        ctx = save_ctx(ctx, tensor_stride, stride, kernel_size, dilation, region_type, in_coords_key, out_coords_key, coords_manager)
+        D = in_coords_key.D
+        fw_fn = get_minkowski_function('PoolingTransposeForward', input_features)
+        fw_fn(ctx.in_feat, out_feat, ctx.num_nonzero, convert_to_int_list(ctx.tensor_stride, D), convert_to_int_list(ctx.stride, D), convert_to_int_list(ctx.kernel_size, D), convert_to_int_list(ctx.dilation, D), region_type, region_offset, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_man.CPPCoordsManager)
+        return out_feat
+
+    @staticmethod
+    def backward(ctx, grad_out_feat):
+        grad_in_feat = grad_out_feat.new()
+        D = ctx.in_coords_key.D
+        bw_fn = get_minkowski_function('PoolingTransposeBackward', grad_out_feat)
+        bw_fn(ctx.in_feat, grad_in_feat, grad_out_feat, ctx.num_nonzero, convert_to_int_list(ctx.tensor_stride, D), convert_to_int_list(ctx.stride, D), convert_to_int_list(ctx.kernel_size, D), convert_to_int_list(ctx.dilation, D), ctx.region_type, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_man.CPPCoordsManager)
+        return grad_in_feat, None, None, None, None, None, None, None, None, None, None
+
+
+class MinkowskiGlobalSumPooling(MinkowskiGlobalPooling):
+
+    def __init__(self, mode=GlobalPoolingMode.AUTO):
+        """Reduces sparse coords into points at origin, i.e. reduce each point
+        cloud into a point at the origin, returning batch_size number of points
+        [[0, 0, ..., 0], [0, 0, ..., 1],, [0, 0, ..., 2]] where the last elem
+        of the coords is the batch index.
+
+        """
+        MinkowskiGlobalPooling.__init__(self, False, mode=mode)
+
+
+class MinkowskiGlobalAvgPooling(MinkowskiGlobalPooling):
+
+    def __init__(self, mode=GlobalPoolingMode.AUTO):
+        """Reduces sparse coords into points at origin, i.e. reduce each point
+        cloud into a point at the origin, returning batch_size number of points
+        [[0, 0, ..., 0], [0, 0, ..., 1],, [0, 0, ..., 2]] where the last elem
+        of the coords is the batch index.
+
+        """
+        MinkowskiGlobalPooling.__init__(self, True, mode=mode)
+
+
+class MinkowskiGlobalMaxPoolingFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input_features, in_coords_key=None, out_coords_key=None, coords_manager=None):
+        if out_coords_key is None:
+            out_coords_key = CoordsKey(in_coords_key.D)
+        ctx.in_coords_key = in_coords_key
+        ctx.out_coords_key = out_coords_key
+        ctx.in_feat = input_features
+        out_feat = input_features.new()
+        max_index = input_features.new().int()
+        ctx.max_index = max_index
+        ctx.coords_manager = coords_manager
+        fw_fn = get_minkowski_function('GlobalMaxPoolingForward', input_features)
+        fw_fn(ctx.in_feat, out_feat, ctx.max_index, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
+        return out_feat
+
+    @staticmethod
+    def backward(ctx, grad_out_feat):
+        grad_in_feat = grad_out_feat.new()
+        bw_fn = get_minkowski_function('GlobalMaxPoolingBackward', grad_out_feat)
+        bw_fn(ctx.in_feat, grad_in_feat, grad_out_feat, ctx.max_index, ctx.in_coords_key.CPPCoordsKey, ctx.out_coords_key.CPPCoordsKey, ctx.coords_manager.CPPCoordsManager)
+        return grad_in_feat, None, None, None, None, None
+
+
+class MinkowskiGlobalMaxPooling(MinkowskiModuleBase):
+    """Max pool all input features to one output feature at the origin.
+
+    .. math::
+
+        \\mathbf{y} = \\frac{1}{|\\mathcal{C}^\\text{in}|} \\max_{\\mathbf{i} \\in
+        \\mathcal{C}^\\text{in}} \\mathbf{x}_{\\mathbf{i}}
+
+    """
+
+    def __init__(self):
+        """Reduces sparse coords into points at origin, i.e. reduce each point
+        cloud into a point at the origin, returning batch_size number of points
+        [[0, 0, ..., 0], [0, 0, ..., 1],, [0, 0, ..., 2]] where the last elem
+        of the coords is the batch index.
+
+        """
+        super(MinkowskiGlobalMaxPooling, self).__init__()
+        self.pooling = MinkowskiGlobalMaxPoolingFunction()
+
+    def forward(self, input):
+        assert isinstance(input, SparseTensor)
+        out_coords_key = CoordsKey(input.coords_key.D)
+        output = self.pooling.apply(input.F, input.coords_key, out_coords_key, input.coords_man)
+        return SparseTensor(output, coords_key=out_coords_key, coords_manager=input.coords_man)
+
+    def __repr__(self):
+        return self.__class__.__name__
 
 
 class MinkowskiPruningFunction(Function):
@@ -969,6 +1544,51 @@ class SELayer(nn.Module):
         y = self.pooling(x)
         y = self.fc(y)
         return self.broadcast_mul(x, y)
+
+
+class SEBasicBlock(BasicBlock):
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, reduction=16, D=-1):
+        super(SEBasicBlock, self).__init__(inplanes, planes, stride=stride, dilation=dilation, downsample=downsample, D=D)
+        self.se = SELayer(planes, reduction=reduction, D=D)
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.norm1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.norm2(out)
+        out = self.se(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class SEBottleneck(Bottleneck):
+
+    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, D=3, reduction=16):
+        super(SEBottleneck, self).__init__(inplanes, planes, stride=stride, dilation=dilation, downsample=downsample, D=D)
+        self.se = SELayer(planes * self.expansion, reduction=reduction, D=D)
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.norm1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.norm2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.norm3(out)
+        out = self.se(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 class CompletionNet(nn.Module):
@@ -1361,6 +1981,31 @@ class ResNetBase(nn.Module):
         x = self.relu(x)
         x = self.glob_avg(x)
         return self.final(x)
+
+
+class ResNet14(ResNetBase):
+    BLOCK = BasicBlock
+    LAYERS = 1, 1, 1, 1
+
+
+class ResNet18(ResNetBase):
+    BLOCK = BasicBlock
+    LAYERS = 2, 2, 2, 2
+
+
+class ResNet34(ResNetBase):
+    BLOCK = BasicBlock
+    LAYERS = 3, 4, 6, 3
+
+
+class ResNet50(ResNetBase):
+    BLOCK = Bottleneck
+    LAYERS = 3, 4, 6, 3
+
+
+class ResNet101(ResNetBase):
+    BLOCK = Bottleneck
+    LAYERS = 3, 4, 23, 3
 
 
 class Encoder(nn.Module):

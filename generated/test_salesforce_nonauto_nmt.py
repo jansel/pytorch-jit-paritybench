@@ -14,15 +14,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -84,11 +85,29 @@ import uuid
 import copy
 
 
+from collections import OrderedDict
+
+
 class Linear(nn.Linear):
 
     def forward(self, x):
         size = x.size()
         return super().forward(x.contiguous().view(-1, size[-1])).view(*size[:-1], -1)
+
+
+TINY = 1e-09
+
+
+class CosineLinear(Linear):
+
+    def forward(self, x, tau=0.05):
+        size = x.size()
+        x = x / (x.norm(dim=-1, keepdim=True).expand_as(x) + TINY)
+        x = x.contiguous().view(-1, size[-1])
+        weight = self.weight / (self.weight.norm(dim=-1, keepdim=True).expand_as(self.weight) + TINY)
+        value = F.linear(x, weight)
+        value = value.view(*size[:-1], -1) / tau
+        return value
 
 
 class LayerNorm(nn.Module):
@@ -147,9 +166,6 @@ class HighwayBlock(nn.Module):
 
 
 INF = 10000000000.0
-
-
-TINY = 1e-09
 
 
 def softmax(x):
@@ -337,7 +353,7 @@ class LSTMCritic(nn.Module):
         lens = mask.sum(-1).long()
         lens, indices = torch.sort(lens, dim=0, descending=True)
         if trg.is_cuda:
-            with torch.device_of(trg):
+            with torch.cuda.device_of(trg):
                 lens = lens.tolist()
         trgs = pack_padded_sequence(trgs[(indices), :, :], lens, batch_first=True)
         _, (out, _) = self.bilstm(trgs)
@@ -384,13 +400,13 @@ def positional_encodings_like(x, t=None):
     if t is None:
         positions = torch.arange(0, x.size(-2))
         if x.is_cuda:
-            positions = positions.cuda(x.get_device())
+            positions = positions
         positions = Variable(positions.float())
     else:
         positions = t
     channels = torch.arange(0, x.size(-1), 2) / x.size(-1)
     if x.is_cuda:
-        channels = channels.cuda(x.get_device())
+        channels = channels
     channels = 1 / 10000 ** Variable(channels)
     encodings = positions.unsqueeze(-1) @ channels.unsqueeze(0)
     encodings = torch.cat([torch.sin(encodings).unsqueeze(-1), torch.cos(encodings).unsqueeze(-1)], -1)
@@ -504,7 +520,7 @@ class Decoder(nn.Module):
         eos_yet = encoding[0].data.new(B).byte().zero_()
         attentions = []
         for t in range(T):
-            torch.nvtx.mark(f'greedy:{t}')
+            torch.cuda.nvtx.mark(f'greedy:{t}')
             hiddens[0][:, (t)] = self.dropout(hiddens[0][:, (t)] + F.embedding(outs[:, (t)], embedW))
             inter_attention = []
             for l in range(len(self.layers)):
@@ -625,13 +641,13 @@ def topK_search(logits, mask_src, N=100):
     heap_inx = torch.zeros(batch_size, src_len, N).long()
     heap_scores[:, :1] = get_score(nlogP, R[:, :, :1])
     if nlogP.is_cuda:
-        heap_scores = heap_scores.cuda(nlogP.get_device())
-        heap_inx = heap_inx.cuda(nlogP.get_device())
+        heap_scores = heap_scores
+        heap_inx = heap_inx
 
     def span(ins):
         inds = torch.eye(ins.size(1)).long()
         if ins.is_cuda:
-            inds = inds.cuda(ins.get_device())
+            inds = inds
         return ins[:, :, (None)].expand(ins.size(0), ins.size(1), ins.size(1)) + inds[(None), :, :]
     for k in range(1, N):
         cur_inx = heap_inx[:, :, (k - 1)]
@@ -851,6 +867,88 @@ class Transformer(nn.Module):
         return self.apply_mask_cost(loss, decoder_masks, batched)
 
 
+class FastTransformer(Transformer):
+
+    def __init__(self, src, trg, args):
+        super(Transformer, self).__init__()
+        self.encoder = Encoder(src, args)
+        self.decoder = Decoder(trg, args, causal=False, positional=args.positional_attention, diag=args.diag, windows=args.windows)
+        self.field = trg
+        self.fertility = args.fertility
+        self.alignment = None
+        self.hard_inputs = args.hard_inputs
+        if self.fertility:
+            self.reorderer = ReOrderer(args)
+            self.predictor = Fertility(args)
+            if not args.old:
+                self.offsetor = Fertility(args, L=51)
+
+    def predict_offset(self, outs, masks, truth=None):
+        abs_pos = torch.arange(0, masks.size(1))[(None), :].expand_as(masks)
+        if outs.is_cuda:
+            abs_pos = abs_pos
+        abs_pos = Variable(abs_pos)
+        positions = self.offsetor(outs, mode='sharp') + abs_pos - 25
+        positions.data += (1 - masks) * INF
+        if truth is None:
+            return positions
+        logits = self.offsetor(outs)
+        truth = (truth - abs_pos.long() + 25).clamp(0, 50)
+        truth, logits = mask(truth, logits, masks.byte())
+        loss = F.cross_entropy(logits, truth)
+        return loss, positions
+
+    def prepare_initial(self, encoding, source=None, mask_src=None, mask_trg=None, post_fer=None, mode='argmax', N=1, tau=1):
+        source_embeddings = encoding[0]
+        if self.alignment is None:
+            input_embed = source_embeddings
+        else:
+            input_embed = F.embedding(self.alignment[source.data.view(-1)].view(*source.data.size()), self.decoder.out.weight * math.sqrt(self.decoder.d_model))
+        loss = None
+        if not self.fertility:
+            attention = ReOrderer.linear_attention(mask_src, mask_trg)
+            reordering = attention.max(-1)[1]
+        else:
+            if post_fer is not None and post_fer.size(1) < mask_src.size(1):
+                post_fer = torch.cat((post_fer, Variable(post_fer.data.new(post_fer.size(0), mask_src.size(1) - post_fer.size(1)).zero_())), 1)
+            if post_fer is not None:
+                logits_fer = self.predictor(encoding[-1], mask_src)
+                reordering, _, mask_trg = self.predictor.transform(post_fer, mask_src)
+                fer_targets, logits_fer = mask(post_fer, logits_fer, mask_src.byte())
+                loss = F.cross_entropy(logits_fer, fer_targets.clamp(0, self.predictor.L - 1))
+            else:
+                logits_fer, pred_fer, (reordering, mask_trg) = self.predictor(encoding[-1], mask_src, mode=mode, N=N, tau=tau, return_samples=True)
+        if N > 1:
+            B, T, D = source_embeddings.size()
+            source = source[:, (None), :].expand(B, N, T).contiguous().view(B * N, T)
+            input_embed = input_embed[:, (None), :, :].expand(B, N, T, D).contiguous().view(B * N, T, D)
+        source_reordering = self.apply_mask(source.gather(1, reordering), mask_trg)
+        if not self.hard_inputs and not self.fertility:
+            input_embed = matmul(attention, input_embed)
+        else:
+            input_embed = input_embed.gather(1, reordering[:, :, (None)].expand(*reordering.size(), input_embed.size(2)))
+        if post_fer is None:
+            return input_embed, source_reordering, mask_trg, loss, pred_fer
+        return input_embed, source_reordering, mask_trg, loss
+
+    def forward(self, encoding, encoder_masks, decoder_inputs, decoder_masks, decoding=False, beam=1, alpha=0.6, return_probs=False, positions=None, feedback=None):
+        out = self.decoder(decoder_inputs, encoding, encoder_masks, decoder_masks, input_embeddings=True, positions=positions, feedback=feedback)
+        if not decoding:
+            if not return_probs:
+                return out
+            return out, softmax(self.decoder.out(out))
+        logits = self.decoder.out(out)
+        if beam == 1:
+            output = self.apply_mask(logits.max(-1)[1], decoder_masks)
+        else:
+            output, decoder_masks = topK_search(logits, decoder_masks, N=beam)
+            output = self.apply_mask(output, decoder_masks)
+        if not return_probs:
+            return output
+        else:
+            return output, out, softmax(logits)
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -861,6 +959,10 @@ TESTCASES = [
     (Attention,
      lambda: ([], {'d_key': 4, 'drop_ratio': 0.5, 'causal': 4}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CosineLinear,
+     lambda: ([], {'in_features': 4, 'out_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (DecoderLayer,
      lambda: ([], {'args': _mock_config(d_model=4, n_heads=4, drop_ratio=0.5, use_wo=4, d_hidden=4)}),
@@ -923,4 +1025,7 @@ class Test_salesforce_nonauto_nmt(_paritybench_base):
 
     def test_008(self):
         self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

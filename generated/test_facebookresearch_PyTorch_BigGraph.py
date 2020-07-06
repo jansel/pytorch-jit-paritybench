@@ -65,23 +65,66 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils import cpp_extension
+
+
+from collections import defaultdict
+
+
+import torch
+
+
+from typing import Sequence
 
 
 import logging
 
 
-import torch
+import random
+
+
+import time
+
+
+from functools import partial
+
+
+from typing import Dict
+
+
+from typing import Iterable
+
+
+from typing import List
+
+
+from typing import Mapping
+
+
+from typing import NamedTuple
+
+
+from typing import Tuple
+
+
+from typing import Union
+
+
+import numpy as np
 
 
 import torch.multiprocessing as mp
@@ -93,31 +136,49 @@ import torch.nn as nn
 from torch.optim import Adagrad
 
 
-import time
+from abc import ABC
 
 
-from functools import partial
+from abc import abstractmethod
+
+
+from typing import Any
 
 
 from typing import Callable
 
 
-from typing import Generator
-
-
-from typing import List
-
-
 from typing import Optional
 
 
-from typing import Tuple
+import re
 
 
-from abc import ABC
+from typing import Generator
 
 
-from abc import abstractmethod
+from typing import Set
+
+
+import torch.distributed as td
+
+
+import torch.multiprocessing
+
+
+from typing import Counter
+
+
+from types import TracebackType
+
+
+from typing import ContextManager
+
+
+from typing import Iterator
+
+
+from typing import Type
 
 
 from torch import nn as nn
@@ -129,52 +190,19 @@ from torch.nn import functional as F
 from enum import Enum
 
 
-from typing import Dict
-
-
-from typing import NamedTuple
-
-
-from typing import Sequence
-
-
-from typing import Union
-
-
 import torch.nn.functional as F
-
-
-import math
-
-
-from collections import defaultdict
-
-
-from typing import Any
-
-
-from typing import Iterable
-
-
-from typing import Set
-
-
-import torch.distributed as td
 
 
 from torch.optim import Optimizer
 
 
-from typing import Mapping
-
-
-from typing import MutableMapping
+import math
 
 
 from typing import TypeVar
 
 
-import torch.multiprocessing
+from typing import MutableMapping
 
 
 FloatTensorType = torch.Tensor
@@ -199,6 +227,110 @@ class AbstractLossFunction(nn.Module, ABC):
     @abstractmethod
     def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType) ->FloatTensorType:
         pass
+
+
+T = TypeVar('T')
+
+
+def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(Ellipsis)]) ->Union[None, int, Tuple[int, ...]]:
+    """Compare the given tensor's shape with what you expect it to be.
+
+    This function serves two goals: it can be used both to assert that the size
+    of a tensor (or part of it) is what it should be, and to query for the size
+    of the unknown dimensions. The former result can be achieved with:
+
+        >>> match_shape(t, 2, 3, 4)
+
+    which is similar to
+
+        >>> assert t.size() == (2, 3, 4)
+
+    except that it doesn't use an assert (and is thus not stripped when the code
+    is optimized) and that it raises a TypeError (instead of an AssertionError)
+    with an informative error message. It works with any number of positional
+    arguments, including zero. If a dimension's size is not known beforehand
+    pass a -1: no check will be performed and the size will be returned.
+
+        >>> t = torch.empty(2, 3, 4)
+        >>> match_shape(t, 2, -1, 4)
+        3
+        >>> match_shape(t, -1, 3, -1)
+        (2, 4)
+
+    If the number of dimensions isn't known beforehand, an ellipsis can be used
+    as a placeholder for any number of dimensions (including zero). Their sizes
+    won't be returned.
+
+        >>> t = torch.empty(2, 3, 4)
+        >>> match_shape(t, ..., 3, -1)
+        4
+
+    """
+    if not all(isinstance(d, int) or d is Ellipsis for d in expected_shape):
+        raise RuntimeError("Some arguments aren't ints or ellipses: %s" % (expected_shape,))
+    actual_shape = tensor.size()
+    error = TypeError("Shape doesn't match: (%s) != (%s)" % (', '.join('%d' % d for d in actual_shape), ', '.join('...' if d is Ellipsis else '*' if d < 0 else '%d' % d for d in expected_shape)))
+    if Ellipsis not in expected_shape:
+        if len(actual_shape) != len(expected_shape):
+            raise error
+    else:
+        if expected_shape.count(Ellipsis) > 1:
+            raise RuntimeError('Two or more ellipses in %s' % (tuple(expected_shape),))
+        if len(actual_shape) < len(expected_shape) - 1:
+            raise error
+        pos = expected_shape.index(Ellipsis)
+        expected_shape = expected_shape[:pos] + actual_shape[pos:pos + 1 - len(expected_shape)] + expected_shape[pos + 1:]
+    unknown_dims: List[int] = []
+    for actual_dim, expected_dim in zip(actual_shape, expected_shape):
+        if expected_dim < 0:
+            unknown_dims.append(actual_dim)
+            continue
+        if actual_dim != expected_dim:
+            raise error
+    if not unknown_dims:
+        return None
+    if len(unknown_dims) == 1:
+        return unknown_dims[0]
+    return tuple(unknown_dims)
+
+
+class LogisticLossFunction(AbstractLossFunction):
+
+    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType) ->FloatTensorType:
+        num_pos = match_shape(pos_scores, -1)
+        num_neg = match_shape(neg_scores, num_pos, -1)
+        neg_weight = 1 / num_neg if num_neg > 0 else 0
+        pos_loss = F.binary_cross_entropy_with_logits(pos_scores, pos_scores.new_ones(()).expand(num_pos), reduction='sum')
+        neg_loss = F.binary_cross_entropy_with_logits(neg_scores, neg_scores.new_zeros(()).expand(num_pos, num_neg), reduction='sum')
+        loss = pos_loss + neg_weight * neg_loss
+        return loss
+
+
+class RankingLossFunction(AbstractLossFunction):
+
+    def __init__(self, *, margin, **kwargs):
+        super().__init__()
+        self.margin = margin
+
+    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType) ->FloatTensorType:
+        num_pos = match_shape(pos_scores, -1)
+        num_neg = match_shape(neg_scores, num_pos, -1)
+        if num_pos == 0 or num_neg == 0:
+            return torch.zeros((), device=pos_scores.device, requires_grad=True)
+        loss = F.margin_ranking_loss(neg_scores, pos_scores.unsqueeze(1), target=pos_scores.new_full((1, 1), -1, dtype=torch.float), margin=self.margin, reduction='sum')
+        return loss
+
+
+class SoftmaxLossFunction(AbstractLossFunction):
+
+    def forward(self, pos_scores: FloatTensorType, neg_scores: FloatTensorType) ->FloatTensorType:
+        num_pos = match_shape(pos_scores, -1)
+        num_neg = match_shape(neg_scores, num_pos, -1)
+        if num_pos == 0 or num_neg == 0:
+            return torch.zeros((), device=pos_scores.device, requires_grad=True)
+        scores = torch.cat([pos_scores.unsqueeze(1), neg_scores.logsumexp(dim=1, keepdim=True)], dim=1)
+        loss = F.cross_entropy(scores, pos_scores.new_zeros((), dtype=torch.long).expand(num_pos), reduction='sum')
+        return loss
 
 
 LongTensorType = torch.Tensor
@@ -261,7 +393,7 @@ class TensorList(object):
         return type(self)(self.offsets.new_zeros((1,)), self.data.new_empty((0,)))
 
     def __init__(self, offsets, data):
-        assert isinstance(offsets, (torch.LongTensor, torch.cuda.LongTensor))
+        assert isinstance(offsets, (torch.LongTensor, torch.LongTensor))
         assert offsets.ndimension() == 1
         assert offsets[0] == 0
         assert offsets[-1] == (data.size(0) if data.ndimension() > 0 else 0)
@@ -272,7 +404,7 @@ class TensorList(object):
         self.data = data
 
     def __getitem__(self, index):
-        if isinstance(index, (torch.LongTensor, torch.cuda.LongTensor)):
+        if isinstance(index, (torch.LongTensor, torch.LongTensor)):
             offsets_sub = self.offsets[index]
             sizes_sub = self.offsets[index + 1] - offsets_sub
             new_offsets, new_data = _extract_intervals(offsets_sub, sizes_sub, self.data)
@@ -376,7 +508,7 @@ class TensorList(object):
         return self.__class__(self.offsets, self.data.sum(dim, keepdim=keepdim))
 
     def to(self, *args, **kwargs) ->'TensorList':
-        return type(self)(self.offsets.to(*args, **kwargs), self.data.to(*args, **kwargs))
+        return type(self)(self.offsets, self.data)
 
 
 class EntityList:
@@ -410,7 +542,7 @@ class EntityList:
         return cls(torch.cat([el.tensor for el in entity_lists]), TensorList.cat(el.tensor_list for el in entity_lists))
 
     def __init__(self, tensor: LongTensorType, tensor_list: TensorList) ->None:
-        if not isinstance(tensor, (torch.LongTensor, torch.cuda.LongTensor)):
+        if not isinstance(tensor, (torch.LongTensor, torch.LongTensor)):
             raise TypeError('Expected long tensor as first argument, got %s' % type(tensor))
         if not isinstance(tensor_list, TensorList):
             raise TypeError('Expected tensor list as second argument, got %s' % type(tensor_list))
@@ -445,7 +577,7 @@ class EntityList:
     def __getitem__(self, index: Union[int, slice, LongTensorType]) ->'EntityList':
         if isinstance(index, int):
             return self[index:index + 1]
-        if isinstance(index, (torch.LongTensor, torch.cuda.LongTensor)) or isinstance(index, int):
+        if isinstance(index, (torch.LongTensor, torch.LongTensor)) or isinstance(index, int):
             tensor_sub = self.tensor[index]
             tensor_list_sub = self.tensor_list[index]
             return type(self)(tensor_sub, tensor_list_sub)
@@ -462,7 +594,7 @@ class EntityList:
         return self.tensor.shape[0]
 
     def to(self, *args, **kwargs) ->'EntityList':
-        return type(self)(self.tensor.to(*args, **kwargs), self.tensor_list.to(*args, **kwargs))
+        return type(self)(self.tensor, self.tensor_list)
 
 
 class AbstractEmbedding(nn.Module, ABC):
@@ -478,6 +610,48 @@ class AbstractEmbedding(nn.Module, ABC):
     @abstractmethod
     def sample_entities(self, *dims: int) ->FloatTensorType:
         pass
+
+
+class SimpleEmbedding(AbstractEmbedding):
+
+    def __init__(self, weight: nn.Parameter, max_norm: Optional[float]=None):
+        super().__init__()
+        self.weight: nn.Parameter = weight
+        self.max_norm: Optional[float] = max_norm
+
+    def forward(self, input_: EntityList) ->FloatTensorType:
+        return self.get(input_.to_tensor())
+
+    def get(self, input_: LongTensorType) ->FloatTensorType:
+        return F.embedding(input_, self.weight, max_norm=self.max_norm, sparse=True)
+
+    def get_all_entities(self) ->FloatTensorType:
+        return self.get(torch.arange(self.weight.size(0), dtype=torch.long, device=self.weight.device))
+
+    def sample_entities(self, *dims: int) ->FloatTensorType:
+        return self.get(torch.randint(low=0, high=self.weight.size(0), size=dims, device=self.weight.device))
+
+
+class FeaturizedEmbedding(AbstractEmbedding):
+
+    def __init__(self, weight: nn.Parameter, max_norm: Optional[float]=None):
+        super().__init__()
+        self.weight: nn.Parameter = weight
+        self.max_norm: Optional[float] = max_norm
+
+    def forward(self, input_: EntityList) ->FloatTensorType:
+        return self.get(input_.to_tensor_list())
+
+    def get(self, input_: TensorList) ->FloatTensorType:
+        if input_.size(0) == 0:
+            return torch.empty((0, self.weight.size(1)))
+        return F.embedding_bag(input_.data.long(), self.weight, input_.offsets[:-1], max_norm=self.max_norm, sparse=True)
+
+    def get_all_entities(self) ->FloatTensorType:
+        raise NotImplementedError('Cannot list all entities for featurized entities')
+
+    def sample_entities(self, *dims: int) ->FloatTensorType:
+        raise NotImplementedError('Cannot sample entities for featurized entities.')
 
 
 class AbstractOperator(nn.Module, ABC):
@@ -499,6 +673,86 @@ class AbstractOperator(nn.Module, ABC):
     @abstractmethod
     def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
         pass
+
+
+class IdentityOperator(AbstractOperator):
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        return embeddings
+
+
+class DiagonalOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        self.diagonal = nn.Parameter(torch.ones((self.dim,)))
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        return self.diagonal * embeddings
+
+
+class TranslationOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        self.translation = nn.Parameter(torch.zeros((self.dim,)))
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        return embeddings + self.translation
+
+
+class LinearOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        self.linear_transformation = nn.Parameter(torch.eye(self.dim))
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        return torch.matmul(self.linear_transformation, embeddings.unsqueeze(-1)).squeeze(-1)
+
+
+class AffineOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        self.linear_transformation = nn.Parameter(torch.eye(self.dim))
+        self.translation = nn.Parameter(torch.zeros((self.dim,)))
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        return torch.matmul(self.linear_transformation, embeddings.unsqueeze(-1)).squeeze(-1) + self.translation
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        param_key = '%slinear_transformation' % prefix
+        old_param_key = '%srotation' % prefix
+        if old_param_key in state_dict:
+            state_dict[param_key] = state_dict.pop(old_param_key).transpose(-1, -2).contiguous()
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
+
+class ComplexDiagonalOperator(AbstractOperator):
+
+    def __init__(self, dim: int):
+        super().__init__(dim)
+        if dim % 2 != 0:
+            raise ValueError('Need even dimension as 1st half is real and 2nd half is imaginary coordinates')
+        self.real = nn.Parameter(torch.ones((self.dim // 2,)))
+        self.imag = nn.Parameter(torch.zeros((self.dim // 2,)))
+
+    def forward(self, embeddings: FloatTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        real_a = embeddings[(...), :self.dim // 2]
+        imag_a = embeddings[(...), self.dim // 2:]
+        real_b = self.real
+        imag_b = self.imag
+        prod = torch.empty_like(embeddings)
+        prod[(...), :self.dim // 2] = real_a * real_b - imag_a * imag_b
+        prod[(...), self.dim // 2:] = real_a * imag_b + imag_a * real_b
+        return prod
 
 
 class AbstractDynamicOperator(nn.Module, ABC):
@@ -523,6 +777,92 @@ class AbstractDynamicOperator(nn.Module, ABC):
     @abstractmethod
     def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
         pass
+
+
+class IdentityDynamicOperator(AbstractDynamicOperator):
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return embeddings
+
+
+class DiagonalDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        self.diagonals = nn.Parameter(torch.ones((self.num_operations, self.dim)))
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return self.diagonals[operator_idxs] * embeddings
+
+
+class TranslationDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        self.translations = nn.Parameter(torch.zeros((self.num_operations, self.dim)))
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return embeddings + self.translations[operator_idxs]
+
+
+class LinearDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        self.linear_transformations = nn.Parameter(torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return torch.matmul(self.linear_transformations[operator_idxs], embeddings.unsqueeze(-1)).squeeze(-1)
+
+
+class AffineDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        self.linear_transformations = nn.Parameter(torch.diag_embed(torch.ones(()).expand(num_operations, dim)))
+        self.translations = nn.Parameter(torch.zeros((self.num_operations, self.dim)))
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        return torch.matmul(self.linear_transformations[operator_idxs], embeddings.unsqueeze(-1)).squeeze(-1) + self.translations[operator_idxs]
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        param_key = '%slinear_transformations' % prefix
+        old_param_key = '%srotations' % prefix
+        if old_param_key in state_dict:
+            state_dict[param_key] = state_dict.pop(old_param_key).transpose(-1, -2).contiguous()
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
+
+class ComplexDiagonalDynamicOperator(AbstractDynamicOperator):
+
+    def __init__(self, dim: int, num_operations: int):
+        super().__init__(dim, num_operations)
+        if dim % 2 != 0:
+            raise ValueError('Need even dimension as 1st half is real and 2nd half is imaginary coordinates')
+        self.real = nn.Parameter(torch.ones((self.num_operations, self.dim // 2)))
+        self.imag = nn.Parameter(torch.zeros((self.num_operations, self.dim // 2)))
+
+    def forward(self, embeddings: FloatTensorType, operator_idxs: LongTensorType) ->FloatTensorType:
+        match_shape(embeddings, ..., self.dim)
+        match_shape(operator_idxs, *embeddings.size()[:-1])
+        real_a = embeddings[(...), :self.dim // 2]
+        imag_a = embeddings[(...), self.dim // 2:]
+        real_b = self.real[operator_idxs]
+        imag_b = self.imag[operator_idxs]
+        prod = torch.empty_like(embeddings)
+        prod[(...), :self.dim // 2] = real_a * real_b - imag_a * imag_b
+        prod[(...), self.dim // 2:] = real_a * imag_b + imag_a * real_b
+        return prod
 
 
 class AbstractComparator(nn.Module, ABC):
@@ -570,10 +910,122 @@ class AbstractComparator(nn.Module, ABC):
         pass
 
 
+class DotComparator(AbstractComparator):
+
+    def prepare(self, embs: FloatTensorType) ->FloatTensorType:
+        return embs
+
+    def forward(self, lhs_pos: FloatTensorType, rhs_pos: FloatTensorType, lhs_neg: FloatTensorType, rhs_neg: FloatTensorType) ->Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
+        num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
+        match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
+        match_shape(lhs_neg, num_chunks, -1, dim)
+        match_shape(rhs_neg, num_chunks, -1, dim)
+        pos_scores = (lhs_pos.float() * rhs_pos.float()).sum(-1)
+        lhs_neg_scores = torch.bmm(rhs_pos, lhs_neg.transpose(-1, -2))
+        rhs_neg_scores = torch.bmm(lhs_pos, rhs_neg.transpose(-1, -2))
+        return pos_scores, lhs_neg_scores, rhs_neg_scores
+
+
+class CosComparator(AbstractComparator):
+
+    def prepare(self, embs: FloatTensorType) ->FloatTensorType:
+        norm = embs.norm(2, dim=-1)
+        return embs * norm.reciprocal().unsqueeze(-1)
+
+    def forward(self, lhs_pos: FloatTensorType, rhs_pos: FloatTensorType, lhs_neg: FloatTensorType, rhs_neg: FloatTensorType) ->Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
+        num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
+        match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
+        match_shape(lhs_neg, num_chunks, -1, dim)
+        match_shape(rhs_neg, num_chunks, -1, dim)
+        pos_scores = (lhs_pos.float() * rhs_pos.float()).sum(-1)
+        lhs_neg_scores = torch.bmm(rhs_pos, lhs_neg.transpose(-1, -2))
+        rhs_neg_scores = torch.bmm(lhs_pos, rhs_neg.transpose(-1, -2))
+        return pos_scores, lhs_neg_scores, rhs_neg_scores
+
+
+def batched_all_pairs_squared_l2_dist(a: FloatTensorType, b: FloatTensorType) ->FloatTensorType:
+    """For each batch, return the squared L2 distance between each pair of vectors
+
+    Let A and B be tensors of shape NxM_AxD and NxM_BxD, each containing N*M_A
+    and N*M_B vectors of dimension D grouped in N batches of size M_A and M_B.
+    For each batch, for each vector of A and each vector of B, return the sum
+    of the squares of the differences of their components.
+
+    """
+    num_chunks, num_a, dim = match_shape(a, -1, -1, -1)
+    num_b = match_shape(b, num_chunks, -1, dim)
+    a_squared = a.norm(dim=-1).pow(2)
+    b_squared = b.norm(dim=-1).pow(2)
+    res = torch.baddbmm(b_squared.unsqueeze(-2), a, b.transpose(-2, -1), alpha=-2).add_(a_squared.unsqueeze(-1))
+    match_shape(res, num_chunks, num_a, num_b)
+    return res
+
+
+def batched_all_pairs_l2_dist(a: FloatTensorType, b: FloatTensorType) ->FloatTensorType:
+    squared_res = batched_all_pairs_squared_l2_dist(a, b)
+    res = squared_res.clamp_min_(1e-30).sqrt_()
+    return res
+
+
+class L2Comparator(AbstractComparator):
+
+    def prepare(self, embs: FloatTensorType) ->FloatTensorType:
+        return embs
+
+    def forward(self, lhs_pos: FloatTensorType, rhs_pos: FloatTensorType, lhs_neg: FloatTensorType, rhs_neg: FloatTensorType) ->Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
+        num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
+        match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
+        match_shape(lhs_neg, num_chunks, -1, dim)
+        match_shape(rhs_neg, num_chunks, -1, dim)
+        pos_scores = (lhs_pos.float() - rhs_pos.float()).pow_(2).sum(dim=-1).clamp_min_(1e-30).sqrt_().neg()
+        lhs_neg_scores = batched_all_pairs_l2_dist(rhs_pos, lhs_neg).neg()
+        rhs_neg_scores = batched_all_pairs_l2_dist(lhs_pos, rhs_neg).neg()
+        return pos_scores, lhs_neg_scores, rhs_neg_scores
+
+
+class SquaredL2Comparator(AbstractComparator):
+
+    def prepare(self, embs: FloatTensorType) ->FloatTensorType:
+        return embs
+
+    def forward(self, lhs_pos: FloatTensorType, rhs_pos: FloatTensorType, lhs_neg: FloatTensorType, rhs_neg: FloatTensorType) ->Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
+        num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
+        match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
+        match_shape(lhs_neg, num_chunks, -1, dim)
+        match_shape(rhs_neg, num_chunks, -1, dim)
+        pos_scores = (lhs_pos.float() - rhs_pos.float()).pow_(2).sum(dim=-1).neg()
+        lhs_neg_scores = batched_all_pairs_squared_l2_dist(rhs_pos, lhs_neg).neg()
+        rhs_neg_scores = batched_all_pairs_squared_l2_dist(lhs_pos, rhs_neg).neg()
+        return pos_scores, lhs_neg_scores, rhs_neg_scores
+
+
+class BiasedComparator(AbstractComparator):
+
+    def __init__(self, base_comparator):
+        super().__init__()
+        self.base_comparator = base_comparator
+
+    def prepare(self, embs: FloatTensorType) ->FloatTensorType:
+        return torch.cat([embs[(...), :1], self.base_comparator.prepare(embs[(...), 1:])], dim=-1)
+
+    def forward(self, lhs_pos: FloatTensorType, rhs_pos: FloatTensorType, lhs_neg: FloatTensorType, rhs_neg: FloatTensorType) ->Tuple[FloatTensorType, FloatTensorType, FloatTensorType]:
+        num_chunks, num_pos_per_chunk, dim = match_shape(lhs_pos, -1, -1, -1)
+        match_shape(rhs_pos, num_chunks, num_pos_per_chunk, dim)
+        match_shape(lhs_neg, num_chunks, -1, dim)
+        match_shape(rhs_neg, num_chunks, -1, dim)
+        pos_scores, lhs_neg_scores, rhs_neg_scores = self.base_comparator.forward(lhs_pos[(...), 1:], rhs_pos[(...), 1:], lhs_neg[(...), 1:], rhs_neg[(...), 1:])
+        lhs_pos_bias = lhs_pos[..., 0]
+        rhs_pos_bias = rhs_pos[..., 0]
+        pos_scores += lhs_pos_bias
+        pos_scores += rhs_pos_bias
+        lhs_neg_scores += rhs_pos_bias.unsqueeze(-1)
+        lhs_neg_scores += lhs_neg[..., 0].unsqueeze(-2)
+        rhs_neg_scores += lhs_pos_bias.unsqueeze(-1)
+        rhs_neg_scores += rhs_neg[..., 0].unsqueeze(-2)
+        return pos_scores, lhs_neg_scores, rhs_neg_scores
+
+
 Partition = int
-
-
-T = TypeVar('T')
 
 
 class Side(Enum):
@@ -621,7 +1073,7 @@ class EdgeList:
     def __init__(self, lhs: EntityList, rhs: EntityList, rel: LongTensorType) ->None:
         if not isinstance(lhs, EntityList) or not isinstance(rhs, EntityList):
             raise TypeError('Expected left- and right-hand side to be entity lists, got %s and %s instead' % (type(lhs), type(rhs)))
-        if not isinstance(rel, (torch.LongTensor, torch.cuda.LongTensor)):
+        if not isinstance(rel, (torch.LongTensor, torch.LongTensor)):
             raise TypeError('Expected relation to be a long tensor, got %s' % type(rel))
         if len(lhs) != len(rhs):
             raise ValueError('The left- and right-hand side entity lists have different lengths: %d != %d' % (len(lhs), len(rhs)))
@@ -664,9 +1116,9 @@ class EdgeList:
         return 'EdgeList(%r, %r, %r)' % (self.lhs, self.rhs, self.rel)
 
     def __getitem__(self, index: Union[int, slice, LongTensorType]) ->'EdgeList':
-        if not isinstance(index, (int, slice, (torch.LongTensor, torch.cuda.LongTensor))):
+        if not isinstance(index, (int, slice, (torch.LongTensor, torch.LongTensor))):
             raise TypeError('Index can only be int, slice or long tensor, got %s' % type(index))
-        if isinstance(index, (torch.LongTensor, torch.cuda.LongTensor)) and index.dim() != 1:
+        if isinstance(index, (torch.LongTensor, torch.LongTensor)) and index.dim() != 1:
             raise ValueError('Long tensor index must be 1-dimensional, got %d-dimensional' % (index.dim(),))
         sub_lhs = self.lhs[index]
         sub_rhs = self.rhs[index]
@@ -680,7 +1132,7 @@ class EdgeList:
         return len(self.lhs)
 
     def to(self, *args, **kwargs):
-        return type(self)(self.lhs.to(*args, **kwargs), self.rhs.to(*args, **kwargs), self.rel.to(*args, **kwargs))
+        return type(self)(self.lhs, self.rhs, self.rel)
 
 
 class BucketOrder(Enum):
@@ -729,6 +1181,119 @@ def unpack_optional(type_):
     return candidate_arg
 
 
+class Mapper(ABC):
+
+    @abstractmethod
+    def map_bool(self, data: Any) ->bool:
+        pass
+
+    @staticmethod
+    def map_int(data: Any) ->int:
+        if not isinstance(data, int):
+            raise DeepTypeError('Not an int')
+        return data
+
+    @staticmethod
+    def map_float(data: Any) ->float:
+        if not isinstance(data, (int, float)):
+            raise DeepTypeError('Not a float')
+        return float(data)
+
+    @staticmethod
+    def map_str(data: Any) ->str:
+        if not isinstance(data, str):
+            raise DeepTypeError('Not a str')
+        return data
+
+    @abstractmethod
+    def map_enum(self, data: Any, type_: Type[Enum]) ->Any:
+        pass
+
+    def map_list(self, data: Any, type_) ->List:
+        if not isinstance(data, list):
+            raise DeepTypeError('Not a list')
+        element_type, = type_.__args__
+        result = []
+        for idx, element in enumerate(data):
+            try:
+                result.append(self.map_with_type(element, element_type))
+            except DeepTypeError as err:
+                err.prepend_index(idx)
+                raise err
+        return result
+
+    def map_dict(self, data: Any, type_) ->Dict:
+        if not isinstance(data, dict):
+            raise DeepTypeError('Not a dict')
+        key_type, value_type = type_.__args__
+        result = {}
+        for key, value in data.items():
+            try:
+                result[self.map_with_type(key, key_type)] = self.map_with_type(value, value_type)
+            except DeepTypeError as err:
+                err.prepend_key(key)
+                raise err
+        return result
+
+    @abstractmethod
+    def map_schema(self, data: Any, type_: Type['Schema']) ->Any:
+        pass
+
+    def map_with_type(self, data: Any, type_: Type) ->Any:
+        try:
+            base_type = unpack_optional(type_)
+        except TypeError:
+            pass
+        else:
+            if data is None:
+                return None
+            return self.map_with_type(data, base_type)
+        if isclass(type_) and issubclass(type_, bool):
+            return self.map_bool(data)
+        if isclass(type_) and issubclass(type_, int):
+            return self.map_int(data)
+        if isclass(type_) and issubclass(type_, float):
+            return self.map_float(data)
+        if isclass(type_) and issubclass(type_, str):
+            return self.map_str(data)
+        if isclass(type_) and issubclass(type_, Enum):
+            return self.map_enum(data, type_)
+        if has_origin(type_, list):
+            return self.map_list(data, type_)
+        if has_origin(type_, dict):
+            return self.map_dict(data, type_)
+        if isclass(type_) and issubclass(type_, Schema):
+            return self.map_schema(data, type_)
+        raise NotImplementedError('Unknown type: %s' % type_)
+
+
+class Dumper(Mapper):
+
+    @staticmethod
+    def map_bool(data: Any) ->bool:
+        if not isinstance(data, bool):
+            raise DeepTypeError('Not a bool')
+        return data
+
+    @staticmethod
+    def map_enum(data: Any, type_: Type[Enum]) ->str:
+        if not isinstance(data, type_):
+            raise TypeError('Not a %s' % type_.__name__)
+        return data.name.lower()
+
+    def map_schema(self, data: Any, type_: Type['Schema']) ->Dict[str, Any]:
+        result = {}
+        for key, field in attr.fields_dict(type_).items():
+            if field.type is None:
+                raise RuntimeError('Unannotated field: %s' % key)
+            try:
+                result[key] = self.map_with_type(getattr(data, key), field.type)
+            except DeepTypeError as err:
+                err.prepend_attr(key)
+                raise err
+        return result
+
+
 FALSE_STRINGS = {'0', 'n', 'no', 'false', 'off'}
 
 
@@ -739,6 +1304,59 @@ def mixed_case_to_lowercase(key: str) ->str:
     return ''.join('_%s' % c.lower() if c.isupper() else c for c in key)
 
 
+class Loader(Mapper):
+
+    @staticmethod
+    def map_bool(data: Any) ->bool:
+        if not isinstance(data, bool):
+            if isinstance(data, int):
+                if data == 0:
+                    return False
+                if data == 1:
+                    return True
+            if isinstance(data, str):
+                if data.lower() in TRUE_STRINGS:
+                    return True
+                if data.lower() in FALSE_STRINGS:
+                    return False
+            raise DeepTypeError('Not a bool')
+        return data
+
+    @staticmethod
+    def map_enum(data: Any, type_: Type[Enum]) ->Enum:
+        if not isinstance(data, str):
+            if isinstance(data, type_):
+                return data
+            raise DeepTypeError('Not a str: %s' % data)
+        try:
+            return type_[data.upper()]
+        except KeyError:
+            raise DeepTypeError('Unknown option: %s' % data) from None
+
+    def map_schema(self, data: Any, type_: Type['Schema']) ->'Schema':
+        if not isinstance(data, dict):
+            raise DeepTypeError('Not a schema')
+        fields = attr.fields_dict(type_)
+        kwargs = {}
+        for key, value in data.items():
+            key = mixed_case_to_lowercase(key)
+            try:
+                field = fields[key]
+            except LookupError:
+                raise DeepTypeError('Unknown key: %s' % key) from None
+            if field.type is None:
+                raise RuntimeError('Unannotated field: %s' % key)
+            try:
+                kwargs[key] = self.map_with_type(value, field.type)
+            except DeepTypeError as err:
+                err.prepend_attr(key)
+                raise err
+        try:
+            return type_(**kwargs)
+        except (ValueError, TypeError) as err:
+            raise DeepTypeError(str(err)) from None
+
+
 TSchema = TypeVar('TSchema', bound='Schema')
 
 
@@ -746,28 +1364,6 @@ logger = logging.getLogger('torchbiggraph')
 
 
 EntityName = str
-
-
-class FeaturizedEmbedding(AbstractEmbedding):
-
-    def __init__(self, weight: nn.Parameter, max_norm: Optional[float]=None):
-        super().__init__()
-        self.weight: nn.Parameter = weight
-        self.max_norm: Optional[float] = max_norm
-
-    def forward(self, input_: EntityList) ->FloatTensorType:
-        return self.get(input_.to_tensor_list())
-
-    def get(self, input_: TensorList) ->FloatTensorType:
-        if input_.size(0) == 0:
-            return torch.empty((0, self.weight.size(1)))
-        return F.embedding_bag(input_.data.long(), self.weight, input_.offsets[:-1], max_norm=self.max_norm, sparse=True)
-
-    def get_all_entities(self) ->FloatTensorType:
-        raise NotImplementedError('Cannot list all entities for featurized entities')
-
-    def sample_entities(self, *dims: int) ->FloatTensorType:
-        raise NotImplementedError('Cannot sample entities for featurized entities.')
 
 
 Mask = List[Tuple[Union[int, slice, Sequence[int], LongTensorType], ...]]
@@ -787,88 +1383,87 @@ class Scores(NamedTuple):
     rhs_neg: FloatTensorType
 
 
-class SimpleEmbedding(AbstractEmbedding):
-
-    def __init__(self, weight: nn.Parameter, max_norm: Optional[float]=None):
-        super().__init__()
-        self.weight: nn.Parameter = weight
-        self.max_norm: Optional[float] = max_norm
-
-    def forward(self, input_: EntityList) ->FloatTensorType:
-        return self.get(input_.to_tensor())
-
-    def get(self, input_: LongTensorType) ->FloatTensorType:
-        return F.embedding(input_, self.weight, max_norm=self.max_norm, sparse=True)
-
-    def get_all_entities(self) ->FloatTensorType:
-        return self.get(torch.arange(self.weight.size(0), dtype=torch.long, device=self.weight.device))
-
-    def sample_entities(self, *dims: int) ->FloatTensorType:
-        return self.get(torch.randint(low=0, high=self.weight.size(0), size=dims, device=self.weight.device))
-
-
 def ceil_of_ratio(num: int, den: int) ->int:
     return (num - 1) // den + 1
 
 
-def match_shape(tensor: torch.Tensor, *expected_shape: Union[int, type(Ellipsis)]) ->Union[None, int, Tuple[int, ...]]:
-    """Compare the given tensor's shape with what you expect it to be.
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-    This function serves two goals: it can be used both to assert that the size
-    of a tensor (or part of it) is what it should be, and to query for the size
-    of the unknown dimensions. The former result can be achieved with:
 
-        >>> match_shape(t, 2, 3, 4)
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (AffineOperator,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (ComplexDiagonalOperator,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CosComparator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (DiagonalOperator,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DotComparator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (IdentityOperator,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (L2Comparator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (LinearOperator,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (SquaredL2Comparator,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4]), torch.rand([4, 4, 4])], {}),
+     False),
+    (TranslationOperator,
+     lambda: ([], {'dim': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+]
 
-    which is similar to
+class Test_facebookresearch_PyTorch_BigGraph(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
 
-        >>> assert t.size() == (2, 3, 4)
+    def test_001(self):
+        self._check(*TESTCASES[1])
 
-    except that it doesn't use an assert (and is thus not stripped when the code
-    is optimized) and that it raises a TypeError (instead of an AssertionError)
-    with an informative error message. It works with any number of positional
-    arguments, including zero. If a dimension's size is not known beforehand
-    pass a -1: no check will be performed and the size will be returned.
+    def test_002(self):
+        self._check(*TESTCASES[2])
 
-        >>> t = torch.empty(2, 3, 4)
-        >>> match_shape(t, 2, -1, 4)
-        3
-        >>> match_shape(t, -1, 3, -1)
-        (2, 4)
+    def test_003(self):
+        self._check(*TESTCASES[3])
 
-    If the number of dimensions isn't known beforehand, an ellipsis can be used
-    as a placeholder for any number of dimensions (including zero). Their sizes
-    won't be returned.
+    def test_004(self):
+        self._check(*TESTCASES[4])
 
-        >>> t = torch.empty(2, 3, 4)
-        >>> match_shape(t, ..., 3, -1)
-        4
+    def test_005(self):
+        self._check(*TESTCASES[5])
 
-    """
-    if not all(isinstance(d, int) or d is Ellipsis for d in expected_shape):
-        raise RuntimeError("Some arguments aren't ints or ellipses: %s" % (expected_shape,))
-    actual_shape = tensor.size()
-    error = TypeError("Shape doesn't match: (%s) != (%s)" % (', '.join('%d' % d for d in actual_shape), ', '.join('...' if d is Ellipsis else '*' if d < 0 else '%d' % d for d in expected_shape)))
-    if Ellipsis not in expected_shape:
-        if len(actual_shape) != len(expected_shape):
-            raise error
-    else:
-        if expected_shape.count(Ellipsis) > 1:
-            raise RuntimeError('Two or more ellipses in %s' % (tuple(expected_shape),))
-        if len(actual_shape) < len(expected_shape) - 1:
-            raise error
-        pos = expected_shape.index(Ellipsis)
-        expected_shape = expected_shape[:pos] + actual_shape[pos:pos + 1 - len(expected_shape)] + expected_shape[pos + 1:]
-    unknown_dims: List[int] = []
-    for actual_dim, expected_dim in zip(actual_shape, expected_shape):
-        if expected_dim < 0:
-            unknown_dims.append(actual_dim)
-            continue
-        if actual_dim != expected_dim:
-            raise error
-    if not unknown_dims:
-        return None
-    if len(unknown_dims) == 1:
-        return unknown_dims[0]
-    return tuple(unknown_dims)
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
 

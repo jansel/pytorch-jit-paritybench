@@ -8,15 +8,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -38,7 +39,7 @@ def _get_anchor_negative_triplet_mask(labels):
 
 def _get_anchor_positive_triplet_mask(labels):
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    indices_not_equal = torch.eye(labels.shape[0]).to(device).byte() ^ 1
+    indices_not_equal = torch.eye(labels.shape[0]).byte() ^ 1
     labels_equal = torch.unsqueeze(labels, 0) == torch.unsqueeze(labels, 1)
     mask = indices_not_equal * labels_equal
     return mask
@@ -52,7 +53,7 @@ def _get_triplet_mask(labels):
         - labels[i] == labels[j] and labels[i] != labels[k]
     """
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-    indices_not_same = torch.eye(labels.shape[0]).to(device).byte() ^ 1
+    indices_not_same = torch.eye(labels.shape[0]).byte() ^ 1
     i_not_equal_j = torch.unsqueeze(indices_not_same, 2)
     i_not_equal_k = torch.unsqueeze(indices_not_same, 1)
     j_not_equal_k = torch.unsqueeze(indices_not_same, 0)

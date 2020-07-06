@@ -18,15 +18,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -55,112 +56,58 @@ import torch.nn as nn
 import numpy as np
 
 
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision.transforms import Compose
+
+
+from torchvision.transforms import RandomHorizontalFlip
+
+
+from torchvision.transforms import Resize
+
+
+from torchvision.transforms import ToPILImage
+
+
+from torchvision.transforms import CenterCrop
+
+
+from torchvision.transforms import Lambda
+
+
+from torchvision.transforms import Normalize
+
+
+from torchvision.transforms import ToTensor
+
+
+from torchvision.transforms import RandomCrop
+
+
+from torchvision.transforms import functional as F
+
+
+from torchvision.utils import make_grid
+
+
 import torch.nn.functional as f
 
 
 from torchvision.models import vgg19
 
 
-class Model(nn.Module):
+from torchvision import transforms as T
 
-    def __init__(self, opt):
-        super(Model, self).__init__()
-        self.gpu_id = opt.gpu_ids[0]
-        self.weights_path = os.path.join('runs', opt.experiment_name, 'checkpoints')
-        self.gen_A = Generator(opt)
-        self.gen_B = Generator(opt)
-        self.dis_A = Discriminator(opt)
-        self.dis_B = Discriminator(opt)
-        utils.load_checkpoint(self, opt.which_epoch, opt.pretrained_gen_path)
-        None
-        num_params = 0
-        for p in self.gen_B.parameters():
-            num_params += p.numel()
-        None
-        None
-        None
-        num_params = 0
-        for p in self.gen_A.parameters():
-            num_params += p.numel()
-        None
-        None
-        None
-        num_params = 0
-        for p in self.dis_A.parameters():
-            num_params += p.numel()
-        None
-        None
-        None
-        num_params = 0
-        for p in self.dis_B.parameters():
-            num_params += p.numel()
-        None
-        None
-        self.gen_params = chain(self.gen_A.parameters(), self.gen_B.parameters())
-        self.dis_params = chain(self.dis_A.parameters(), self.dis_B.parameters())
-        self.crit_dis = DiscriminatorLoss(opt)
-        self.adv_weight = opt.adv_loss_weight
-        if opt.mse_loss_type == 'perceptual' or opt.dis_use_encoder:
-            if opt.enc_type[:5] == 'vgg19':
-                layers = '1,6,11,20,29'
-            self.enc = FeatureExtractor(input_range='tanh', net_type=opt.enc_type, layers=layers).eval()
-            None
-            None
-            None
-        else:
-            self.enc = None
-        self.crit_mse = utils.get_loss_layer(opt.mse_loss_type, self.enc)
-        self.mse_weight = opt.mse_loss_weight
-        self.gen_A = nn.DataParallel(self.gen_A, opt.gpu_ids)
-        self.gen_B = nn.DataParallel(self.gen_B, opt.gpu_ids)
-        self.dis_A = nn.DataParallel(self.dis_A, opt.gpu_ids)
-        self.dis_B = nn.DataParallel(self.dis_B, opt.gpu_ids)
-        if self.enc is not None:
-            self.enc = nn.DataParallel(self.enc, opt.gpu_ids)
 
-    def forward(self, inputs):
-        real_A, real_B = inputs
-        self.real_A = Variable(real_A)
-        self.real_B = Variable(real_B)
-        self.fake_B = self.gen_B(self.real_A)
-        self.fake_A = self.gen_A(self.real_B)
+from torch.optim import Adam
 
-    def backward_G(self):
-        cycle_A = self.gen_A(self.fake_B)
-        cycle_B = self.gen_B(self.fake_A)
-        self.loss_cycle_A = self.crit_mse(cycle_A, self.real_A)
-        self.loss_cycle_B = self.crit_mse(cycle_B, self.real_B)
-        ident_A = self.gen_A(self.real_A)
-        ident_B = self.gen_B(self.real_B)
-        self.loss_ident_A = self.crit_mse(ident_A, self.real_A)
-        self.loss_ident_B = self.crit_mse(ident_B, self.real_B)
-        loss_mse = self.loss_cycle_A + self.loss_ident_A + self.loss_cycle_B + self.loss_ident_B
-        loss_dis_A, _ = self.crit_dis(dis=self.dis_A, img_real_dst=self.fake_A, enc=self.enc)
-        loss_dis_B, _ = self.crit_dis(dis=self.dis_B, img_real_dst=self.fake_B, enc=self.enc)
-        loss_dis = loss_dis_A + loss_dis_B
-        loss_G = loss_mse * self.mse_weight + loss_dis * self.adv_weight
-        if self.training:
-            loss_G.backward()
-        self.loss_cycle_A = self.loss_cycle_A.data.item()
-        self.loss_cycle_B = self.loss_cycle_B.data.item()
-        self.loss_ident_A = self.loss_ident_A.data.item()
-        self.loss_ident_B = self.loss_ident_B.data.item()
 
-    def backward_D(self):
-        loss_dis_A, self.losses_adv_A = self.crit_dis(dis=self.dis_A, img_real_dst=self.real_A, img_fake_dst=self.fake_A.detach(), enc=self.enc)
-        loss_dis_B, self.losses_adv_B = self.crit_dis(dis=self.dis_B, img_real_dst=self.real_B, img_fake_dst=self.fake_B.detach(), enc=self.enc)
-        loss_D = loss_dis_A + loss_dis_B
-        if self.training:
-            loss_D.backward()
-
-    def train(self, mode=True):
-        """Doesn't change encoder mode"""
-        self.training = mode
-        self.gen_A.train(mode)
-        self.gen_B.train(mode)
-        self.dis_A.train(mode)
-        self.dis_B.train(mode)
-        return self
+from torch.optim.lr_scheduler import MultiStepLR
 
 
 class Discriminator(nn.Module):
@@ -254,6 +201,61 @@ class DiscriminatorLoss(nn.Module):
         losses_adv = [loss_adv.data.item() for loss_adv in losses_adv]
         losses_adv = [sum(losses_adv)]
         return loss, losses_adv
+
+
+class VGGModified(nn.Module):
+
+    def __init__(self, vgg19_orig, slope):
+        super(VGGModified, self).__init__()
+        self.features = nn.Sequential()
+        self.features.add_module(str(0), vgg19_orig.features[0])
+        self.features.add_module(str(1), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(2), vgg19_orig.features[2])
+        self.features.add_module(str(3), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(4), nn.AvgPool2d((2, 2), (2, 2)))
+        self.features.add_module(str(5), vgg19_orig.features[5])
+        self.features.add_module(str(6), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(7), vgg19_orig.features[7])
+        self.features.add_module(str(8), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(9), nn.AvgPool2d((2, 2), (2, 2)))
+        self.features.add_module(str(10), vgg19_orig.features[10])
+        self.features.add_module(str(11), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(12), vgg19_orig.features[12])
+        self.features.add_module(str(13), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(14), vgg19_orig.features[14])
+        self.features.add_module(str(15), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(16), vgg19_orig.features[16])
+        self.features.add_module(str(17), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(18), nn.AvgPool2d((2, 2), (2, 2)))
+        self.features.add_module(str(19), vgg19_orig.features[19])
+        self.features.add_module(str(20), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(21), vgg19_orig.features[21])
+        self.features.add_module(str(22), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(23), vgg19_orig.features[23])
+        self.features.add_module(str(24), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(25), vgg19_orig.features[25])
+        self.features.add_module(str(26), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(27), nn.AvgPool2d((2, 2), (2, 2)))
+        self.features.add_module(str(28), vgg19_orig.features[28])
+        self.features.add_module(str(29), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(30), vgg19_orig.features[30])
+        self.features.add_module(str(31), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(32), vgg19_orig.features[32])
+        self.features.add_module(str(33), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(34), vgg19_orig.features[34])
+        self.features.add_module(str(35), nn.LeakyReLU(slope, True))
+        self.features.add_module(str(36), nn.AvgPool2d((2, 2), (2, 2)))
+        self.classifier = nn.Sequential()
+        self.classifier.add_module(str(0), vgg19_orig.classifier[0])
+        self.classifier.add_module(str(1), nn.LeakyReLU(slope, True))
+        self.classifier.add_module(str(2), nn.Dropout2d(p=0.5))
+        self.classifier.add_module(str(3), vgg19_orig.classifier[3])
+        self.classifier.add_module(str(4), nn.LeakyReLU(slope, True))
+        self.classifier.add_module(str(5), nn.Dropout2d(p=0.5))
+        self.classifier.add_module(str(6), vgg19_orig.classifier[6])
+
+    def forward(self, x):
+        return self.classifier(self.features.forward(x))
 
 
 def get_vgg19(model_name, model_path):
@@ -350,78 +352,37 @@ class FeatureExtractor(nn.Module):
         return outputs
 
 
-class Matcher(nn.Module):
+class Generator(nn.Module):
+    """Translation generator architecture by Johnston et al"""
 
-    def __init__(self, matching_type='features', matching_loss='L1', average_loss=True):
-        super(Matcher, self).__init__()
-        if matching_type == 'features':
-            self.get_stats = self.gram_matrix
-        elif matching_type == 'features':
-            self.get_stats = lambda x: x
-        matching_loss = matching_loss.lower()
-        if matching_loss == 'mse':
-            self.criterion = nn.MSELoss()
-        elif matching_loss == 'smoothl1':
-            self.criterion = nn.SmoothL1Loss()
-        elif matching_loss == 'l1':
-            self.criterion = nn.L1Loss()
-        self.average_loss = average_loss
+    def __init__(self, opt):
+        super(Generator, self).__init__()
+        norm_layer = utils.get_norm_layer(opt.gen_norm_layer)
+        upsampling_layer = utils.get_upsampling_layer(opt.gen_upsampling_layer)
+        num_down_blocks = int(log(opt.image_size // opt.gen_latent_size, 2))
+        num_up_blocks = int(log(opt.image_size // opt.gen_latent_size, 2))
+        in_channels = opt.gen_num_channels
+        padding = (opt.gen_kernel_size - 1) // 2
+        bias = norm_layer != nn.BatchNorm2d
+        layers = [nn.Conv2d(3, in_channels, 7, 1, 3, bias=False), nn.ReLU(True)]
+        for i in range(num_down_blocks):
+            out_channels = min(in_channels * 2, opt.gen_max_channels)
+            layers += [nn.Conv2d(in_channels, out_channels, opt.gen_kernel_size, 2, padding, bias), norm_layer(out_channels), nn.ReLU(True)]
+            in_channels = out_channels
+        for i in range(opt.gen_num_res_blocks):
+            layers += [utils.ResBlock(in_channels, norm_layer)]
+        for i in range(num_up_blocks):
+            out_channels = opt.gen_num_channels * 2 ** (num_up_blocks - i - 1)
+            out_channels = max(min(out_channels, opt.gen_max_channels), opt.gen_num_channels)
+            layers += upsampling_layer(in_channels, out_channels, opt.gen_kernel_size, 2, bias)
+            layers += [norm_layer(out_channels), nn.ReLU(True)]
+            in_channels = out_channels
+        layers += [nn.Conv2d(out_channels, 3, 7, 1, 3, bias=False), nn.Tanh()]
+        self.generator = nn.Sequential(*layers)
+        self.apply(utils.weights_init)
 
-    def gram_matrix(self, input):
-        b, c, h, w = input.size()
-        features = input.view(b, c, h * w)
-        features_t = features.transpose(1, 2)
-        gram = features.bmm(features_t) / (c * h * w)
-        return gram
-
-    def __call__(self, input_feats, target_feats):
-        input_stats = [self.get_stats(features) for features in input_feats]
-        target_stats = [self.get_stats(features) for features in target_feats]
-        loss = 0
-        for input, target in zip(input_stats, target_stats):
-            loss += self.criterion(input, target.detach())
-        if self.average_loss:
-            loss /= len(input_stats)
-        return loss
-
-
-class PerceptualLoss(nn.Module):
-
-    def __init__(self, input_range='sigmoid', net_type='vgg19_pytorch_modified', preprocessing_type='corresponding', matching_loss='L1', match=[{'matching_type': 'features', 'layers': '1,6,11,20,29'}], average_loss=True, extractor=None):
-        super(PerceptualLoss, self).__init__()
-        self.average_loss = average_loss
-        self.matchers = []
-        layers = ''
-        for m in match:
-            self.matchers += [Matcher(m['matching_type'], matching_loss, average_loss)]
-            layers += m['layers'] + ','
-        layers = layers[:-1]
-        layers = np.asarray(layers.split(',')).astype(int)
-        layers = np.unique(layers)
-        self.layers_idx_m = []
-        for m in match:
-            layers_m = [int(i) for i in m['layers'].split(',')]
-            layers_idx_m = []
-            for l in layers_m:
-                layers_idx_m += [np.argwhere(layers == l)[0, 0]]
-            self.layers_idx_m += [layers_idx_m]
-        layers = ','.join(layers.astype(str))
-        if extractor is None:
-            self.extractor = FeatureExtractor(input_range, net_type, preprocessing_type, layers)
-        else:
-            self.extractor = extractor
-
-    def forward(self, input, target):
-        input_feats = self.extractor(input)
-        target_feats = self.extractor(target)
-        loss = 0
-        for i, m in enumerate(self.matchers):
-            input_feats_m = [input_feats[j] for j in self.layers_idx_m[i]]
-            target_feats_m = [target_feats[j] for j in self.layers_idx_m[i]]
-            loss += m(input_feats_m, target_feats_m)
-        if self.average_loss:
-            loss /= len(self.matchers)
-        return loss
+    def forward(self, image):
+        return self.generator(image)
 
 
 class Model(nn.Module):
@@ -500,37 +461,78 @@ class Model(nn.Module):
         return self
 
 
-class Generator(nn.Module):
-    """Translation generator architecture by Johnston et al"""
+class Matcher(nn.Module):
 
-    def __init__(self, opt):
-        super(Generator, self).__init__()
-        norm_layer = utils.get_norm_layer(opt.gen_norm_layer)
-        upsampling_layer = utils.get_upsampling_layer(opt.gen_upsampling_layer)
-        num_down_blocks = int(log(opt.image_size // opt.gen_latent_size, 2))
-        num_up_blocks = int(log(opt.image_size // opt.gen_latent_size, 2))
-        in_channels = opt.gen_num_channels
-        padding = (opt.gen_kernel_size - 1) // 2
-        bias = norm_layer != nn.BatchNorm2d
-        layers = [nn.Conv2d(3, in_channels, 7, 1, 3, bias=False), nn.ReLU(True)]
-        for i in range(num_down_blocks):
-            out_channels = min(in_channels * 2, opt.gen_max_channels)
-            layers += [nn.Conv2d(in_channels, out_channels, opt.gen_kernel_size, 2, padding, bias), norm_layer(out_channels), nn.ReLU(True)]
-            in_channels = out_channels
-        for i in range(opt.gen_num_res_blocks):
-            layers += [utils.ResBlock(in_channels, norm_layer)]
-        for i in range(num_up_blocks):
-            out_channels = opt.gen_num_channels * 2 ** (num_up_blocks - i - 1)
-            out_channels = max(min(out_channels, opt.gen_max_channels), opt.gen_num_channels)
-            layers += upsampling_layer(in_channels, out_channels, opt.gen_kernel_size, 2, bias)
-            layers += [norm_layer(out_channels), nn.ReLU(True)]
-            in_channels = out_channels
-        layers += [nn.Conv2d(out_channels, 3, 7, 1, 3, bias=False), nn.Tanh()]
-        self.generator = nn.Sequential(*layers)
-        self.apply(utils.weights_init)
+    def __init__(self, matching_type='features', matching_loss='L1', average_loss=True):
+        super(Matcher, self).__init__()
+        if matching_type == 'features':
+            self.get_stats = self.gram_matrix
+        elif matching_type == 'features':
+            self.get_stats = lambda x: x
+        matching_loss = matching_loss.lower()
+        if matching_loss == 'mse':
+            self.criterion = nn.MSELoss()
+        elif matching_loss == 'smoothl1':
+            self.criterion = nn.SmoothL1Loss()
+        elif matching_loss == 'l1':
+            self.criterion = nn.L1Loss()
+        self.average_loss = average_loss
 
-    def forward(self, image):
-        return self.generator(image)
+    def gram_matrix(self, input):
+        b, c, h, w = input.size()
+        features = input.view(b, c, h * w)
+        features_t = features.transpose(1, 2)
+        gram = features.bmm(features_t) / (c * h * w)
+        return gram
+
+    def __call__(self, input_feats, target_feats):
+        input_stats = [self.get_stats(features) for features in input_feats]
+        target_stats = [self.get_stats(features) for features in target_feats]
+        loss = 0
+        for input, target in zip(input_stats, target_stats):
+            loss += self.criterion(input, target.detach())
+        if self.average_loss:
+            loss /= len(input_stats)
+        return loss
+
+
+class PerceptualLoss(nn.Module):
+
+    def __init__(self, input_range='sigmoid', net_type='vgg19_pytorch_modified', preprocessing_type='corresponding', matching_loss='L1', match=[{'matching_type': 'features', 'layers': '1,6,11,20,29'}], average_loss=True, extractor=None):
+        super(PerceptualLoss, self).__init__()
+        self.average_loss = average_loss
+        self.matchers = []
+        layers = ''
+        for m in match:
+            self.matchers += [Matcher(m['matching_type'], matching_loss, average_loss)]
+            layers += m['layers'] + ','
+        layers = layers[:-1]
+        layers = np.asarray(layers.split(',')).astype(int)
+        layers = np.unique(layers)
+        self.layers_idx_m = []
+        for m in match:
+            layers_m = [int(i) for i in m['layers'].split(',')]
+            layers_idx_m = []
+            for l in layers_m:
+                layers_idx_m += [np.argwhere(layers == l)[0, 0]]
+            self.layers_idx_m += [layers_idx_m]
+        layers = ','.join(layers.astype(str))
+        if extractor is None:
+            self.extractor = FeatureExtractor(input_range, net_type, preprocessing_type, layers)
+        else:
+            self.extractor = extractor
+
+    def forward(self, input, target):
+        input_feats = self.extractor(input)
+        target_feats = self.extractor(target)
+        loss = 0
+        for i, m in enumerate(self.matchers):
+            input_feats_m = [input_feats[j] for j in self.layers_idx_m[i]]
+            target_feats_m = [target_feats[j] for j in self.layers_idx_m[i]]
+            loss += m(input_feats_m, target_feats_m)
+        if self.average_loss:
+            loss /= len(self.matchers)
+        return loss
 
 
 class Identity(nn.Module):
@@ -592,61 +594,6 @@ class View(nn.Module):
 
     def __repr__(self):
         return '{name}()'.format(name=self.__class__.__name__)
-
-
-class VGGModified(nn.Module):
-
-    def __init__(self, vgg19_orig, slope):
-        super(VGGModified, self).__init__()
-        self.features = nn.Sequential()
-        self.features.add_module(str(0), vgg19_orig.features[0])
-        self.features.add_module(str(1), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(2), vgg19_orig.features[2])
-        self.features.add_module(str(3), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(4), nn.AvgPool2d((2, 2), (2, 2)))
-        self.features.add_module(str(5), vgg19_orig.features[5])
-        self.features.add_module(str(6), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(7), vgg19_orig.features[7])
-        self.features.add_module(str(8), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(9), nn.AvgPool2d((2, 2), (2, 2)))
-        self.features.add_module(str(10), vgg19_orig.features[10])
-        self.features.add_module(str(11), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(12), vgg19_orig.features[12])
-        self.features.add_module(str(13), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(14), vgg19_orig.features[14])
-        self.features.add_module(str(15), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(16), vgg19_orig.features[16])
-        self.features.add_module(str(17), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(18), nn.AvgPool2d((2, 2), (2, 2)))
-        self.features.add_module(str(19), vgg19_orig.features[19])
-        self.features.add_module(str(20), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(21), vgg19_orig.features[21])
-        self.features.add_module(str(22), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(23), vgg19_orig.features[23])
-        self.features.add_module(str(24), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(25), vgg19_orig.features[25])
-        self.features.add_module(str(26), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(27), nn.AvgPool2d((2, 2), (2, 2)))
-        self.features.add_module(str(28), vgg19_orig.features[28])
-        self.features.add_module(str(29), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(30), vgg19_orig.features[30])
-        self.features.add_module(str(31), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(32), vgg19_orig.features[32])
-        self.features.add_module(str(33), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(34), vgg19_orig.features[34])
-        self.features.add_module(str(35), nn.LeakyReLU(slope, True))
-        self.features.add_module(str(36), nn.AvgPool2d((2, 2), (2, 2)))
-        self.classifier = nn.Sequential()
-        self.classifier.add_module(str(0), vgg19_orig.classifier[0])
-        self.classifier.add_module(str(1), nn.LeakyReLU(slope, True))
-        self.classifier.add_module(str(2), nn.Dropout2d(p=0.5))
-        self.classifier.add_module(str(3), vgg19_orig.classifier[3])
-        self.classifier.add_module(str(4), nn.LeakyReLU(slope, True))
-        self.classifier.add_module(str(5), nn.Dropout2d(p=0.5))
-        self.classifier.add_module(str(6), vgg19_orig.classifier[6])
-
-    def forward(self, x):
-        return self.classifier(self.features.forward(x))
 
 
 import torch

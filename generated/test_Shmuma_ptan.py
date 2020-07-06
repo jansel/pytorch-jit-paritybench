@@ -42,15 +42,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -76,22 +77,31 @@ import collections
 import torch.nn as nn
 
 
+import random
+
+
+from torch.autograd import Variable
+
+
+from collections import namedtuple
+
+
+from collections import deque
+
+
 import logging
 
 
 import torch.optim as optim
 
 
-from torch.autograd import Variable
-
-
 import itertools
 
 
-import math
-
-
 import torch.multiprocessing as mp
+
+
+import math
 
 
 class WeightedMSELoss(nn.Module):
@@ -165,99 +175,6 @@ class ValueNet(nn.Module):
 
 class Net(nn.Module):
 
-    def __init__(self, n_actions, input_shape=(1, 80, 80)):
-        super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(input_shape[0], 32, 5)
-        self.conv2 = nn.Conv2d(32, 32, 3)
-        self.conv3 = nn.Conv2d(32, 64, 2)
-        n_size = self._get_conv_output(input_shape)
-        self.fc1 = nn.Linear(n_size, 50)
-        self.fc2 = nn.Linear(50, n_actions)
-
-    def _get_conv_output(self, shape):
-        input = Variable(torch.rand(1, *shape))
-        output_feat = self._forward_conv(input)
-        None
-        n_size = output_feat.data.view(1, -1).size(1)
-        return n_size
-
-    def _forward_conv(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 3, 2))
-        x = F.relu(F.max_pool2d(self.conv2(x), 3, 2))
-        x = F.relu(F.max_pool2d(self.conv3(x), 3, 2))
-        return x
-
-    def forward(self, x):
-        x = self._forward_conv(x)
-        x = x.view(x.size(0), -1)
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-class DQN(nn.Module):
-
-    def __init__(self, input_shape, n_actions):
-        super(DQN, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
-        conv_out_size = self._get_conv_out(input_shape)
-        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(), nn.Linear(512, n_actions))
-
-    def _get_conv_out(self, shape):
-        o = self.conv(Variable(torch.zeros(1, *shape)))
-        return int(np.prod(o.size()))
-
-    def forward(self, x):
-        fx = x.float() / 256
-        conv_out = self.conv(fx).view(fx.size()[0], -1)
-        return self.fc(conv_out)
-
-
-class Net(nn.Module):
-
-    def __init__(self, n_actions, input_shape, dueling=False):
-        super(Net, self).__init__()
-        self.dueling = dueling
-        self.conv1 = nn.Conv2d(input_shape[0], 32, 5)
-        self.conv2 = nn.Conv2d(32, 32, 3)
-        self.conv3 = nn.Conv2d(32, 64, 2)
-        n_size = self._get_conv_output(input_shape)
-        self.fc1 = nn.Linear(n_size, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, n_actions)
-        if self.dueling:
-            self.fc2_v = nn.Linear(256, 256)
-            self.fc3_v = nn.Linear(256, 1)
-
-    def _get_conv_output(self, shape):
-        input = Variable(torch.rand(1, *shape))
-        output_feat = self._forward_conv(input)
-        None
-        n_size = output_feat.data.view(1, -1).size(1)
-        return n_size
-
-    def _forward_conv(self, x):
-        x = F.relu(F.max_pool2d(self.conv1(x), 3))
-        x = F.relu(F.max_pool2d(self.conv2(x), 3))
-        x = F.relu(F.max_pool2d(self.conv3(x), 3))
-        return x
-
-    def forward(self, x):
-        x = self._forward_conv(x)
-        x = x.view(x.size(0), -1)
-        y = F.relu(self.fc1(x))
-        q = F.relu(self.fc2(y))
-        q = self.fc3(q)
-        if self.dueling:
-            v = F.relu(self.fc2_v(y))
-            v = self.fc3_v(v)
-            q -= q.max().expand_as(q)
-            q += v.expand_as(q)
-        return q
-
-
-class Net(nn.Module):
-
     def __init__(self, n_actions, input_shape):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(input_shape[0], 32, 5)
@@ -288,6 +205,24 @@ class Net(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
+
+
+class DQN(nn.Module):
+
+    def __init__(self, input_shape, n_actions):
+        super(DQN, self).__init__()
+        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
+        conv_out_size = self._get_conv_out(input_shape)
+        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(), nn.Linear(512, n_actions))
+
+    def _get_conv_out(self, shape):
+        o = self.conv(Variable(torch.zeros(1, *shape)))
+        return int(np.prod(o.size()))
+
+    def forward(self, x):
+        fx = x.float() / 256
+        conv_out = self.conv(fx).view(fx.size()[0], -1)
+        return self.fc(conv_out)
 
 
 class NoisyLinear(nn.Linear):
@@ -342,24 +277,6 @@ class NoisyFactorizedLinear(nn.Linear):
             bias = bias + self.sigma_bias * Variable(eps_out.t())
         noise_v = Variable(torch.mul(eps_in, eps_out))
         return F.linear(input, self.weight + self.sigma_weight * noise_v, bias)
-
-
-class DQN(nn.Module):
-
-    def __init__(self, input_shape, n_actions):
-        super(DQN, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
-        conv_out_size = self._get_conv_out(input_shape)
-        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(), nn.Linear(512, n_actions))
-
-    def _get_conv_out(self, shape):
-        o = self.conv(Variable(torch.zeros(1, *shape)))
-        return int(np.prod(o.size()))
-
-    def forward(self, x):
-        fx = x.float() / 256
-        conv_out = self.conv(fx).view(fx.size()[0], -1)
-        return self.fc(conv_out)
 
 
 QUANT_N = 51
@@ -517,78 +434,6 @@ class RainbowDQN(nn.Module):
 
     def apply_softmax(self, t):
         return self.softmax(t.view(-1, N_ATOMS)).view(t.size())
-
-
-class NoisyLinear(nn.Linear):
-
-    def __init__(self, in_features, out_features, sigma_init=0.017, bias=True):
-        super(NoisyLinear, self).__init__(in_features, out_features, bias=bias)
-        self.sigma_weight = nn.Parameter(torch.Tensor(out_features, in_features).fill_(sigma_init))
-        self.register_buffer('epsilon_weight', torch.zeros(out_features, in_features))
-        if bias:
-            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_(sigma_init))
-            self.register_buffer('epsilon_bias', torch.zeros(out_features))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        std = math.sqrt(3 / self.in_features)
-        nn.init.uniform(self.weight, -std, std)
-        nn.init.uniform(self.bias, -std, std)
-
-    def forward(self, input):
-        torch.randn(self.epsilon_weight.size(), out=self.epsilon_weight)
-        bias = self.bias
-        if bias is not None:
-            torch.randn(self.epsilon_bias.size(), out=self.epsilon_bias)
-            bias = bias + self.sigma_bias * Variable(self.epsilon_bias)
-        return F.linear(input, self.weight + self.sigma_weight * Variable(self.epsilon_weight), bias)
-
-
-class NoisyFactorizedLinear(nn.Linear):
-    """
-    NoisyNet layer with factorized gaussian noise
-
-    N.B. nn.Linear already initializes weight and bias to
-    """
-
-    def __init__(self, in_features, out_features, sigma_zero=0.4, bias=True):
-        super(NoisyFactorizedLinear, self).__init__(in_features, out_features, bias=bias)
-        sigma_init = sigma_zero / math.sqrt(in_features)
-        self.sigma_weight = nn.Parameter(torch.Tensor(out_features, in_features).fill_(sigma_init))
-        self.register_buffer('epsilon_input', torch.zeros(1, in_features))
-        self.register_buffer('epsilon_output', torch.zeros(out_features, 1))
-        if bias:
-            self.sigma_bias = nn.Parameter(torch.Tensor(out_features).fill_(sigma_init))
-
-    def forward(self, input):
-        torch.randn(self.epsilon_input.size(), out=self.epsilon_input)
-        torch.randn(self.epsilon_output.size(), out=self.epsilon_output)
-        func = lambda x: torch.sign(x) * torch.sqrt(torch.abs(x))
-        eps_in = func(self.epsilon_input)
-        eps_out = func(self.epsilon_output)
-        bias = self.bias
-        if bias is not None:
-            bias = bias + self.sigma_bias * Variable(eps_out.t())
-        noise_v = Variable(torch.mul(eps_in, eps_out))
-        return F.linear(input, self.weight + self.sigma_weight * noise_v, bias)
-
-
-class DQN(nn.Module):
-
-    def __init__(self, input_shape, n_actions):
-        super(DQN, self).__init__()
-        self.conv = nn.Sequential(nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4), nn.ReLU(), nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(), nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU())
-        conv_out_size = self._get_conv_out(input_shape)
-        self.fc = nn.Sequential(nn.Linear(conv_out_size, 512), nn.ReLU(), nn.Linear(512, n_actions))
-
-    def _get_conv_out(self, shape):
-        o = self.conv(Variable(torch.zeros(1, *shape)))
-        return int(np.prod(o.size()))
-
-    def forward(self, x):
-        fx = x.float() / 256
-        conv_out = self.conv(fx).view(fx.size()[0], -1)
-        return self.fc(conv_out)
 
 
 import torch

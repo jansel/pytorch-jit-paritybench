@@ -13,15 +13,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -163,6 +164,118 @@ class _ModuleNoStateBuffers(nn.Module):
         return result
 
 
+def stft(waveforms, fft_length, hop_length=None, win_length=None, window=None, center=True, pad_mode='reflect', normalized=False, onesided=True):
+    """Compute a short-time Fourier transform of the input waveform(s).
+    It wraps `torch.stft` but after reshaping the input audio
+    to allow for `waveforms` that `.dim()` >= 3.
+    It follows most of the `torch.stft` default value, but for `window`,
+    if it's not specified (`None`), it uses hann window.
+
+    Args:
+        waveforms (Tensor): Tensor of audio signal
+            of size `(*, channel, time)`
+        fft_length (int): FFT size [sample]
+        hop_length (int): Hop size [sample] between STFT frames.
+            Defaults to `fft_length // 4` (75%-overlapping windows)
+            by `torch.stft`.
+        win_length (int): Size of STFT window.
+            Defaults to `fft_length` by `torch.stft`.
+        window (Tensor): 1-D Tensor.
+            Defaults to Hann Window of size `win_length`
+            *unlike* `torch.stft`.
+        center (bool): Whether to pad `waveforms` on both sides so that the
+            `t`-th frame is centered at time `t * hop_length`.
+            Defaults to `True` by `torch.stft`.
+        pad_mode (str): padding method (see `torch.nn.functional.pad`).
+            Defaults to `'reflect'` by `torch.stft`.
+        normalized (bool): Whether the results are normalized.
+            Defaults to `False` by `torch.stft`.
+        onesided (bool): Whether the half + 1 frequency bins
+            are returned to removethe symmetric part of STFT
+            of real-valued signal. Defaults to `True`
+            by `torch.stft`.
+
+    Returns:
+        complex_specgrams (Tensor): `(*, channel, num_freqs, time, complex=2)`
+
+    Example:
+        >>> waveforms = torch.randn(16, 2, 10000)  # (batch, channel, time)
+        >>> x = stft(waveforms, 2048, 512)
+        >>> x.shape
+        torch.Size([16, 2, 1025, 20])
+    """
+    leading_dims = waveforms.shape[:-1]
+    waveforms = waveforms.reshape(-1, waveforms.size(-1))
+    if window is None:
+        if win_length is None:
+            window = torch.hann_window(fft_length)
+        else:
+            window = torch.hann_window(win_length)
+    complex_specgrams = torch.stft(waveforms, n_fft=fft_length, hop_length=hop_length, win_length=win_length, window=window, center=center, pad_mode=pad_mode, normalized=normalized, onesided=onesided)
+    complex_specgrams = complex_specgrams.reshape(leading_dims + complex_specgrams.shape[1:])
+    return complex_specgrams
+
+
+class STFT(_ModuleNoStateBuffers):
+    """Compute a short-time Fourier transform of the input waveform(s).
+    It essentially wraps `torch.stft` but after reshaping the input audio
+    to allow for `waveforms` that `.dim()` >= 3.
+    It follows most of the `torch.stft` default value, but for `window`,
+    if it's not specified (`None`), it uses hann window.
+
+    Args:
+        fft_length (int): FFT size [sample]
+        hop_length (int): Hop size [sample] between STFT frames.
+            Defaults to `fft_length // 4` (75%-overlapping windows) by `torch.stft`.
+        win_length (int): Size of STFT window.
+            Defaults to `fft_length` by `torch.stft`.
+        window (Tensor): 1-D Tensor.
+            Defaults to Hann Window of size `win_length` *unlike* `torch.stft`.
+        center (bool): Whether to pad `waveforms` on both sides so that the
+            `t`-th frame is centered at time `t * hop_length`.
+            Defaults to `True` by `torch.stft`.
+        pad_mode (str): padding method (see `torch.nn.functional.pad`).
+            Defaults to `'reflect'` by `torch.stft`.
+        normalized (bool): Whether the results are normalized.
+            Defaults to `False` by `torch.stft`.
+        onesided (bool): Whether the half + 1 frequency bins are returned to remove
+            the symmetric part of STFT of real-valued signal.
+            Defaults to `True` by `torch.stft`.
+    """
+
+    def __init__(self, fft_length, hop_length=None, win_length=None, window=None, center=True, pad_mode='reflect', normalized=False, onesided=True):
+        super(STFT, self).__init__()
+        self.fft_length = fft_length
+        self.hop_length = hop_length
+        self.win_length = win_length
+        self.center = center
+        self.pad_mode = pad_mode
+        self.normalized = normalized
+        self.onesided = onesided
+        if window is None:
+            if win_length is None:
+                window = torch.hann_window(fft_length)
+            else:
+                window = torch.hann_window(win_length)
+        self.register_buffer('window', window)
+
+    def forward(self, waveforms):
+        """
+        Args:
+            waveforms (Tensor): Tensor of audio signal of size `(*, channel, time)`
+
+        Returns:
+            complex_specgrams (Tensor): `(*, channel, num_freqs, time, complex=2)`
+        """
+        complex_specgrams = stft(waveforms, self.fft_length, hop_length=self.hop_length, win_length=self.win_length, window=self.window, center=self.center, pad_mode=self.pad_mode, normalized=self.normalized, onesided=self.onesided)
+        return complex_specgrams
+
+    def __repr__(self):
+        param_str1 = '(fft_length={}, hop_length={}, win_length={})'.format(self.fft_length, self.hop_length, self.win_length)
+        param_str2 = '(center={}, pad_mode={}, normalized={}, onesided={})'.format(self.center, self.pad_mode, self.normalized, self.onesided)
+        return self.__class__.__name__ + param_str1 + param_str2
+
+
 def complex_norm(complex_tensor, power=1.0):
     """Compute the norm of complex tensor input
 
@@ -204,6 +317,336 @@ class ComplexNorm(nn.Module):
         return self.__class__.__name__ + '(power={})'.format(self.power)
 
 
+def apply_filterbank(mag_specgrams, filterbank):
+    """
+    Transform spectrogram given a filterbank matrix.
+
+    Args:
+        mag_specgrams (Tensor): (batch, channel, num_freqs, time)
+        filterbank (Tensor): (num_freqs, num_bands)
+
+    Returns:
+        (Tensor): (batch, channel, num_bands, time)
+    """
+    return torch.matmul(mag_specgrams.transpose(-2, -1), filterbank).transpose(-2, -1)
+
+
+class ApplyFilterbank(_ModuleNoStateBuffers):
+    """
+    Applies a filterbank transform.
+    """
+
+    def __init__(self, filterbank):
+        super(ApplyFilterbank, self).__init__()
+        self.register_buffer('filterbank', filterbank)
+
+    def forward(self, mag_specgrams):
+        """
+        Args:
+            mag_specgrams (Tensor): (channel, time, freq) or (batch, channel, time, freq).
+
+        Returns:
+            (Tensor): freq -> filterbank.size(0)
+        """
+        return apply_filterbank(mag_specgrams, self.filterbank)
+
+
+def angle(complex_tensor):
+    """
+    Return angle of a complex tensor with shape (*, 2).
+    """
+    return torch.atan2(complex_tensor[..., 1], complex_tensor[..., 0])
+
+
+def phase_vocoder(complex_specgrams, rate, phase_advance):
+    """
+    Phase vocoder. Given a STFT tensor, speed up in time
+    without modifying pitch by a factor of `rate`.
+
+    Args:
+        complex_specgrams (Tensor):
+            (*, channel, num_freqs, time, complex=2)
+        rate (float): Speed-up factor.
+        phase_advance (Tensor): Expected phase advance in
+            each bin. (num_freqs, 1).
+
+    Returns:
+        complex_specgrams_stretch (Tensor):
+            (*, channel, num_freqs, ceil(time/rate), complex=2).
+
+    Example:
+        >>> num_freqs, hop_length = 1025, 512
+        >>> # (batch, channel, num_freqs, time, complex=2)
+        >>> complex_specgrams = torch.randn(16, 1, num_freqs, 300, 2)
+        >>> rate = 1.3 # Slow down by 30%
+        >>> phase_advance = torch.linspace(
+        >>>    0, math.pi * hop_length, num_freqs)[..., None]
+        >>> x = phase_vocoder(complex_specgrams, rate, phase_advance)
+        >>> x.shape # with 231 == ceil(300 / 1.3)
+        torch.Size([16, 1, 1025, 231, 2])
+    """
+    ndim = complex_specgrams.dim()
+    time_slice = [slice(None)] * (ndim - 2)
+    time_steps = torch.arange(0, complex_specgrams.size(-2), rate, device=complex_specgrams.device)
+    alphas = torch.remainder(time_steps, torch.tensor(1.0, device=complex_specgrams.device))
+    phase_0 = angle(complex_specgrams[time_slice + [slice(1)]])
+    complex_specgrams = torch.nn.functional.pad(complex_specgrams, [0, 0, 0, 2])
+    complex_specgrams_0 = complex_specgrams[time_slice + [time_steps.long()]]
+    complex_specgrams_1 = complex_specgrams[time_slice + [(time_steps + 1).long()]]
+    angle_0 = angle(complex_specgrams_0)
+    angle_1 = angle(complex_specgrams_1)
+    norm_0 = torch.norm(complex_specgrams_0, dim=-1)
+    norm_1 = torch.norm(complex_specgrams_1, dim=-1)
+    phase = angle_1 - angle_0 - phase_advance
+    phase = phase - 2 * math.pi * torch.round(phase / (2 * math.pi))
+    phase = phase + phase_advance
+    phase = torch.cat([phase_0, phase[time_slice + [slice(-1)]]], dim=-1)
+    phase_acc = torch.cumsum(phase, -1)
+    mag = alphas * norm_1 + (1 - alphas) * norm_0
+    real_stretch = mag * torch.cos(phase_acc)
+    imag_stretch = mag * torch.sin(phase_acc)
+    complex_specgrams_stretch = torch.stack([real_stretch, imag_stretch], dim=-1)
+    return complex_specgrams_stretch
+
+
+class TimeStretch(_ModuleNoStateBuffers):
+    """
+    Stretch stft in time without modifying pitch for a given rate.
+
+    Args:
+
+        hop_length (int): Number audio of frames between STFT columns.
+        num_freqs (int, optional): number of filter banks from stft.
+        fixed_rate (float): rate to speed up or slow down by.
+            Defaults to None (in which case a rate must be
+            passed to the forward method per batch).
+    """
+
+    def __init__(self, hop_length, num_freqs, fixed_rate=None):
+        super(TimeStretch, self).__init__()
+        self.fixed_rate = fixed_rate
+        phase_advance = torch.linspace(0, math.pi * hop_length, num_freqs)[..., None]
+        self.register_buffer('phase_advance', phase_advance)
+
+    def forward(self, complex_specgrams, overriding_rate=None):
+        """
+
+        Args:
+            complex_specgrams (Tensor): complex spectrogram
+                (*, channel, freq, time, complex=2)
+            overriding_rate (float or None): speed up to apply to this batch.
+                If no rate is passed, use self.fixed_rate.
+
+        Returns:
+            (Tensor): (*, channel, num_freqs, ceil(time/rate), complex=2)
+        """
+        if overriding_rate is None:
+            rate = self.fixed_rate
+            if rate is None:
+                raise ValueError('If no fixed_rate is specified, must pass a valid rate to the forward method.')
+        else:
+            rate = overriding_rate
+        if rate == 1.0:
+            return complex_specgrams
+        return phase_vocoder(complex_specgrams, rate, self.phase_advance)
+
+    def __repr__(self):
+        param_str = '(fixed_rate={})'.format(self.fixed_rate)
+        return self.__class__.__name__ + param_str
+
+
+def amplitude_to_db(x, ref=1.0, amin=1e-07):
+    """
+    Amplitude-to-decibel conversion (logarithmic mapping with base=10)
+    By using `amin=1e-7`, it assumes 32-bit floating point input. If the
+    data precision differs, use approproate `amin` accordingly.
+
+    Args:
+        x (Tensor): Input amplitude
+        ref (float): Amplitude value that is equivalent to 0 decibel
+        amin (float): Minimum amplitude. Any input that is smaller than `amin` is
+            clamped to `amin`.
+    Returns:
+        (Tensor): same size of x, after conversion
+    """
+    x = x.pow(2.0)
+    x = torch.clamp(x, min=amin)
+    return 10.0 * (torch.log10(x) - torch.log10(torch.tensor(ref, device=x.device, requires_grad=False, dtype=x.dtype)))
+
+
+class AmplitudeToDb(_ModuleNoStateBuffers):
+    """
+    Amplitude-to-decibel conversion (logarithmic mapping with base=10)
+    By using `amin=1e-7`, it assumes 32-bit floating point input. If the
+    data precision differs, use approproate `amin` accordingly.
+
+    Args:
+        ref (float): Amplitude value that is equivalent to 0 decibel
+        amin (float): Minimum amplitude. Any input that is smaller than `amin` is
+            clamped to `amin`.
+    """
+
+    def __init__(self, ref=1.0, amin=1e-07):
+        super(AmplitudeToDb, self).__init__()
+        self.ref = ref
+        self.amin = amin
+        assert ref > amin, 'Reference value is expected to be bigger than amin, but I haveref:{} and amin:{}'.format(ref, amin)
+
+    def forward(self, x):
+        """
+        Args:
+            x (Tensor): Input amplitude
+
+        Returns:
+            (Tensor): same size of x, after conversion
+        """
+        return amplitude_to_db(x, ref=self.ref, amin=self.amin)
+
+    def __repr__(self):
+        param_str = '(ref={}, amin={})'.format(self.ref, self.amin)
+        return self.__class__.__name__ + param_str
+
+
+def db_to_amplitude(x, ref=1.0):
+    """
+    Decibel-to-amplitude conversion (exponential mapping with base=10)
+
+    Args:
+        x (Tensor): Input in decibel to be converted
+        ref (float): Amplitude value that is equivalent to 0 decibel
+
+    Returns:
+        (Tensor): same size of x, after conversion
+    """
+    power_spec = torch.pow(10.0, x / 10.0 + torch.log10(torch.tensor(ref, device=x.device, requires_grad=False, dtype=x.dtype)))
+    return power_spec.pow(0.5)
+
+
+class DbToAmplitude(_ModuleNoStateBuffers):
+    """
+    Decibel-to-amplitude conversion (exponential mapping with base=10)
+
+    Args:
+        x (Tensor): Input in decibel to be converted
+        ref (float): Amplitude value that is equivalent to 0 decibel
+
+    Returns:
+        (Tensor): same size of x, after conversion
+    """
+
+    def __init__(self, ref=1.0):
+        super(DbToAmplitude, self).__init__()
+        self.ref = ref
+
+    def forward(self, x):
+        """
+        Args:
+            x (Tensor): Input in decibel to be converted
+
+        Returns:
+            (Tensor): same size of x, after conversion
+        """
+        return db_to_amplitude(x, ref=self.ref)
+
+    def __repr__(self):
+        param_str = '(ref={})'.format(self.ref)
+        return self.__class__.__name__ + param_str
+
+
+def mu_law_encoding(x, n_quantize=256):
+    """Apply mu-law encoding to the input tensor.
+    Usually applied to waveforms
+
+    Args:
+        x (Tensor): input value
+        n_quantize (int): quantization level. For 8-bit encoding, set 256 (2 ** 8).
+
+    Returns:
+        (Tensor): same size of x, after encoding
+
+    """
+    if not x.dtype.is_floating_point:
+        x = x
+    mu = torch.tensor(n_quantize - 1, dtype=x.dtype, requires_grad=False)
+    x_mu = x.sign() * torch.log1p(mu * x.abs()) / torch.log1p(mu)
+    x_mu = ((x_mu + 1) / 2 * mu + 0.5).long()
+    return x_mu
+
+
+class MuLawEncoding(_ModuleNoStateBuffers):
+    """Apply mu-law encoding to the input tensor.
+    Usually applied to waveforms
+
+    Args:
+        n_quantize (int): quantization level. For 8-bit encoding, set 256 (2 ** 8).
+
+    """
+
+    def __init__(self, n_quantize=256):
+        super(MuLawEncoding, self).__init__()
+        self.n_quantize = n_quantize
+
+    def forward(self, x):
+        """
+        Args:
+            x (Tensor): input value
+
+        Returns:
+            (Tensor): same size of x, after encoding
+        """
+        return mu_law_encoding(x, self.n_quantize)
+
+    def __repr__(self):
+        param_str = '(n_quantize={})'.format(self.n_quantize)
+        return self.__class__.__name__ + param_str
+
+
+def mu_law_decoding(x_mu, n_quantize=256, dtype=torch.get_default_dtype()):
+    """Apply mu-law decoding (expansion) to the input tensor.
+
+    Args:
+        x_mu (Tensor): mu-law encoded input
+        n_quantize (int): quantization level. For 8-bit decoding, set 256 (2 ** 8).
+        dtype: specifies `dtype` for the decoded value. Default: `torch.get_default_dtype()`
+
+    Returns:
+        (Tensor): mu-law decoded tensor
+    """
+    if not x_mu.dtype.is_floating_point:
+        x_mu = x_mu
+    mu = torch.tensor(n_quantize - 1, dtype=x_mu.dtype, requires_grad=False)
+    x = x_mu / mu * 2 - 1.0
+    x = x.sign() * (torch.exp(x.abs() * torch.log1p(mu)) - 1.0) / mu
+    return x
+
+
+class MuLawDecoding(_ModuleNoStateBuffers):
+    """Apply mu-law decoding (expansion) to the input tensor.
+    Usually applied to waveforms
+
+    Args:
+        n_quantize (int): quantization level. For 8-bit decoding, set 256 (2 ** 8).
+    """
+
+    def __init__(self, n_quantize=256):
+        super(MuLawDecoding, self).__init__()
+        self.n_quantize = n_quantize
+
+    def forward(self, x_mu):
+        """
+        Args:
+            x_mu (Tensor): mu-law encoded input
+
+        Returns:
+            (Tensor): mu-law decoded tensor
+        """
+        return mu_law_decoding(x_mu, self.n_quantize)
+
+    def __repr__(self):
+        param_str = '(n_quantize={})'.format(self.n_quantize)
+        return self.__class__.__name__ + param_str
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -211,13 +654,33 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (AmplitudeToDb,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
     (ComplexNorm,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (DbToAmplitude,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
     (HPSS,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 64, 64])], {}),
+     False),
+    (MuLawDecoding,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (MuLawEncoding,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (STFT,
+     lambda: ([], {'fft_length': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
      False),
 ]
 
@@ -227,4 +690,19 @@ class Test_keunwoochoi_torchaudio_contrib(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
 

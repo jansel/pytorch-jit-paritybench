@@ -21,20 +21,22 @@ utils = _module
 create_miniImagenet = _module
 util = _module
 visualize = _module
+visualize = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -42,10 +44,22 @@ __version__ = '1.0.0'
 import torch
 
 
-import torch.nn as nn
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
+import math
+
+
+import collections
 
 
 import numpy as np
+
+
+import torch.nn as nn
 
 
 from torch.autograd import Variable
@@ -54,7 +68,10 @@ from torch.autograd import Variable
 import time
 
 
-import math
+from sklearn.metrics import classification_report
+
+
+from sklearn.metrics import accuracy_score
 
 
 import torch.nn.init as init
@@ -120,17 +137,21 @@ class Classifier(nn.Module):
 
     def __init__(self, opt):
         super(Classifier, self).__init__()
+        nFilters = 64
         finalSize = int(math.floor(opt['nIn'] / (2 * 2 * 2 * 2)))
-        self.layer1 = convLayer(opt, 0, opt['nDepth'], opt['nFilters'], 3)
-        self.layer2 = convLayer(opt, 1, opt['nFilters'], opt['nFilters'], 3)
-        self.layer3 = convLayer(opt, 2, opt['nFilters'], opt['nFilters'], 3)
-        self.layer4 = convLayer(opt, 3, opt['nFilters'], opt['nFilters'], 3)
-        self.outSize = opt['nFilters'] * finalSize * finalSize
+        self.layer1 = convLayer(opt, opt['nDepth'], nFilters, 3)
+        self.layer2 = convLayer(opt, nFilters, nFilters, 3)
+        self.layer3 = convLayer(opt, nFilters, nFilters, 3)
+        self.layer4 = convLayer(opt, nFilters, nFilters, 3)
+        self.outSize = nFilters * finalSize * finalSize
         self.classify = opt['classify']
         if self.classify:
-            self.layer5 = nn.Linear(opt['nFilters'] * finalSize * finalSize, opt['nClasses']['train'])
-        self.outSize = opt['nClasses']['train']
-        self.reset()
+            self.layer5 = nn.Linear(nFilters * finalSize * finalSize, opt['nClasses']['train'])
+            self.outSize = opt['nClasses']['train']
+        self.weights_init(self.layer1)
+        self.weights_init(self.layer2)
+        self.weights_init(self.layer3)
+        self.weights_init(self.layer4)
 
     def weights_init(self, module):
         for m in module.modules():
@@ -140,12 +161,6 @@ class Classifier(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
-
-    def reset(self):
-        self.weights_init(self.layer1)
-        self.weights_init(self.layer2)
-        self.weights_init(self.layer3)
-        self.weights_init(self.layer4)
 
     def forward(self, x):
         """
@@ -746,47 +761,20 @@ class RecurrentLSTMNetwork(nn.Module):
         a = 0
 
 
-class Classifier(nn.Module):
+import torch
+from torch.nn import MSELoss, ReLU
+from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
 
-    def __init__(self, opt):
-        super(Classifier, self).__init__()
-        nFilters = 64
-        finalSize = int(math.floor(opt['nIn'] / (2 * 2 * 2 * 2)))
-        self.layer1 = convLayer(opt, opt['nDepth'], nFilters, 3)
-        self.layer2 = convLayer(opt, nFilters, nFilters, 3)
-        self.layer3 = convLayer(opt, nFilters, nFilters, 3)
-        self.layer4 = convLayer(opt, nFilters, nFilters, 3)
-        self.outSize = nFilters * finalSize * finalSize
-        self.classify = opt['classify']
-        if self.classify:
-            self.layer5 = nn.Linear(nFilters * finalSize * finalSize, opt['nClasses']['train'])
-            self.outSize = opt['nClasses']['train']
-        self.weights_init(self.layer1)
-        self.weights_init(self.layer2)
-        self.weights_init(self.layer3)
-        self.weights_init(self.layer4)
 
-    def weights_init(self, module):
-        for m in module.modules():
-            if isinstance(m, nn.Conv2d):
-                init.xavier_uniform(m.weight, gain=np.sqrt(2))
-                init.constant(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+TESTCASES = [
+    # (nn.Module, init_args, forward_args, jit_compiles)
+    (SeparatedBatchNorm1d,
+     lambda: ([], {'num_features': 4, 'max_length': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4]), 0], {}),
+     False),
+]
 
-    def forward(self, x):
-        """
-        Runs the CNN producing the embeddings and the gradients.
-        :param image_input: Image input to produce embeddings for. [batch_size, 28, 28, 1]
-        :return: Embeddings of size [batch_size, 64]
-        """
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-        x = x.view(x.size(0), -1)
-        if self.classify:
-            x = self.layer5(x)
-        return x
+class Test_gitabcworld_FewShotLearning(_paritybench_base):
+    def test_000(self):
+        self._check(*TESTCASES[0])
 

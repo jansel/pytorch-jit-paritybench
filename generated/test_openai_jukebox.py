@@ -29,6 +29,7 @@ fp16_optimizer = _module
 fp16util = _module
 loss_scaler = _module
 multi_tensor_apply = _module
+multi_tensor_apply = _module
 normalization = _module
 fused_layer_norm = _module
 optimizers = _module
@@ -59,6 +60,7 @@ test_multi_tensor_scale = _module
 test_multiple_models_optimizers_losses = _module
 test_promotion = _module
 test_rnn = _module
+utils = _module
 run_fp16util = _module
 test_fp16util = _module
 test_fused_layer_norm = _module
@@ -70,6 +72,7 @@ compare = _module
 main_amp = _module
 ddp_race_condition_test = _module
 amp_master_params = _module
+compare = _module
 single_gpu_unit_test = _module
 test_groups = _module
 two_gpu_unit_test = _module
@@ -112,6 +115,7 @@ bottleneck = _module
 encdec = _module
 resnet = _module
 vqvae = _module
+conf = _module
 examples = _module
 net = _module
 train_dcgan = _module
@@ -194,15 +198,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -234,10 +239,16 @@ import numpy as np
 import warnings
 
 
+import types
+
+
 import itertools
 
 
 import torch.nn.functional
+
+
+from itertools import product
 
 
 from torch import nn
@@ -277,6 +288,9 @@ import copy
 
 
 from torch.nn.modules.batchnorm import _BatchNorm
+
+
+from torch.autograd.function import Function
 
 
 import time
@@ -327,7 +341,37 @@ import torch.optim as optim
 import torch as t
 
 
+from torch.utils.data.distributed import DistributedSampler
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import BatchSampler
+
+
+from torch.utils.data import RandomSampler
+
+
 from torch.nn.parallel import DistributedDataParallel
+
+
+from enum import Enum
+
+
+from time import sleep
+
+
+from torch.optim import Optimizer
+
+
+import torchvision.utils as vutils
+
+
+from torchvision import datasets
 
 
 from torch.autograd.variable import Variable
@@ -336,73 +380,123 @@ from torch.autograd.variable import Variable
 from torch.utils.data import TensorDataset
 
 
-from torch.utils.data import DataLoader
-
-
 import torchvision
 
 
 import logging
 
 
-class bidirectionalRNN(nn.Module):
+class RNNCell(nn.Module):
+    """ 
+    RNNCell 
+    gate_multiplier is related to the architecture you're working with
+    For LSTM-like it will be 4 and GRU-like will be 3.
+    Always assumes input is NOT batch_first.
+    Output size that's not hidden size will use output projection
+    Hidden_states is number of hidden states that are needed for cell
+    if one will go directly to cell as tensor, if more will go as list
     """
-    bidirectionalRNN
-    """
 
-    def __init__(self, inputRNN, num_layers=1, dropout=0):
-        super(bidirectionalRNN, self).__init__()
-        self.dropout = dropout
-        self.fwd = stackedRNN(inputRNN, num_layers=num_layers, dropout=dropout)
-        self.bckwrd = stackedRNN(inputRNN.new_like(), num_layers=num_layers, dropout=dropout)
-        self.rnns = nn.ModuleList([self.fwd, self.bckwrd])
+    def __init__(self, gate_multiplier, input_size, hidden_size, cell, n_hidden_states=2, bias=False, output_size=None):
+        super(RNNCell, self).__init__()
+        self.gate_multiplier = gate_multiplier
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.cell = cell
+        self.bias = bias
+        self.output_size = output_size
+        if output_size is None:
+            self.output_size = hidden_size
+        self.gate_size = gate_multiplier * self.hidden_size
+        self.n_hidden_states = n_hidden_states
+        self.w_ih = nn.Parameter(torch.Tensor(self.gate_size, self.input_size))
+        self.w_hh = nn.Parameter(torch.Tensor(self.gate_size, self.output_size))
+        if self.output_size != self.hidden_size:
+            self.w_ho = nn.Parameter(torch.Tensor(self.output_size, self.hidden_size))
+        self.b_ih = self.b_hh = None
+        if self.bias:
+            self.b_ih = nn.Parameter(torch.Tensor(self.gate_size))
+            self.b_hh = nn.Parameter(torch.Tensor(self.gate_size))
+        self.hidden = [None for states in range(self.n_hidden_states)]
+        self.reset_parameters()
 
-    def forward(self, input, collect_hidden=False):
+    def new_like(self, new_input_size=None):
         """
-        forward()
+        new_like()
         """
-        seq_len = input.size(0)
-        bsz = input.size(1)
-        fwd_out, fwd_hiddens = list(self.fwd(input, collect_hidden=collect_hidden))
-        bckwrd_out, bckwrd_hiddens = list(self.bckwrd(input, reverse=True, collect_hidden=collect_hidden))
-        output = torch.cat([fwd_out, bckwrd_out], -1)
-        hiddens = tuple(torch.cat(hidden, -1) for hidden in zip(fwd_hiddens, bckwrd_hiddens))
-        return output, hiddens
+        if new_input_size is None:
+            new_input_size = self.input_size
+        return type(self)(self.gate_multiplier, new_input_size, self.hidden_size, self.cell, self.n_hidden_states, self.bias, self.output_size)
 
-    def reset_parameters(self):
+    def reset_parameters(self, gain=1):
         """
         reset_parameters()
         """
-        for rnn in self.rnns:
-            rnn.reset_parameters()
+        stdev = 1.0 / math.sqrt(self.hidden_size)
+        for param in self.parameters():
+            param.data.uniform_(-stdev, stdev)
+    """
+    Xavier reset:
+    def reset_parameters(self, gain=1):
+        stdv = 1.0 / math.sqrt(self.gate_size)
+
+        for param in self.parameters():
+            if (param.dim() > 1):
+                torch.nn.init.xavier_normal(param, gain)
+            else:
+                param.data.uniform_(-stdv, stdv)
+    """
 
     def init_hidden(self, bsz):
         """
         init_hidden()
         """
-        for rnn in self.rnns:
-            rnn.init_hidden(bsz)
-
-    def detach_hidden(self):
-        """
-        detach_hidden()
-        """
-        for rnn in self.rnns:
-            rnn.detachHidden()
+        for param in self.parameters():
+            if param is not None:
+                a_param = param
+                break
+        for i, _ in enumerate(self.hidden):
+            if self.hidden[i] is None or self.hidden[i].data.size()[0] != bsz:
+                if i == 0:
+                    hidden_size = self.output_size
+                else:
+                    hidden_size = self.hidden_size
+                tens = a_param.data.new(bsz, hidden_size).zero_()
+                self.hidden[i] = Variable(tens, requires_grad=False)
 
     def reset_hidden(self, bsz):
         """
         reset_hidden()
         """
-        for rnn in self.rnns:
-            rnn.reset_hidden(bsz)
+        for i, _ in enumerate(self.hidden):
+            self.hidden[i] = None
+        self.init_hidden(bsz)
 
-    def init_inference(self, bsz):
+    def detach_hidden(self):
         """
-        init_inference()
+        detach_hidden()
         """
-        for rnn in self.rnns:
-            rnn.init_inference(bsz)
+        for i, _ in enumerate(self.hidden):
+            if self.hidden[i] is None:
+                raise RuntimeError('Must initialize hidden state before you can detach it')
+        for i, _ in enumerate(self.hidden):
+            self.hidden[i] = self.hidden[i].detach()
+
+    def forward(self, input):
+        """
+        forward()
+        if not inited or bsz has changed this will create hidden states
+        """
+        self.init_hidden(input.size()[0])
+        hidden_state = self.hidden[0] if self.n_hidden_states == 1 else self.hidden
+        self.hidden = self.cell(input, hidden_state, self.w_ih, self.w_hh, b_ih=self.b_ih, b_hh=self.b_hh)
+        if self.n_hidden_states > 1:
+            self.hidden = list(self.hidden)
+        else:
+            self.hidden = [self.hidden]
+        if self.output_size != self.hidden_size:
+            self.hidden[0] = F.linear(self.hidden[0], self.w_ho)
+        return tuple(self.hidden)
 
 
 def is_iterable(maybe_iterable):
@@ -536,117 +630,116 @@ class stackedRNN(nn.Module):
             rnn.init_inference(bsz)
 
 
-class RNNCell(nn.Module):
-    """ 
-    RNNCell 
-    gate_multiplier is related to the architecture you're working with
-    For LSTM-like it will be 4 and GRU-like will be 3.
-    Always assumes input is NOT batch_first.
-    Output size that's not hidden size will use output projection
-    Hidden_states is number of hidden states that are needed for cell
-    if one will go directly to cell as tensor, if more will go as list
+class bidirectionalRNN(nn.Module):
+    """
+    bidirectionalRNN
     """
 
-    def __init__(self, gate_multiplier, input_size, hidden_size, cell, n_hidden_states=2, bias=False, output_size=None):
-        super(RNNCell, self).__init__()
-        self.gate_multiplier = gate_multiplier
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.cell = cell
-        self.bias = bias
-        self.output_size = output_size
-        if output_size is None:
-            self.output_size = hidden_size
-        self.gate_size = gate_multiplier * self.hidden_size
-        self.n_hidden_states = n_hidden_states
-        self.w_ih = nn.Parameter(torch.Tensor(self.gate_size, self.input_size))
-        self.w_hh = nn.Parameter(torch.Tensor(self.gate_size, self.output_size))
-        if self.output_size != self.hidden_size:
-            self.w_ho = nn.Parameter(torch.Tensor(self.output_size, self.hidden_size))
-        self.b_ih = self.b_hh = None
-        if self.bias:
-            self.b_ih = nn.Parameter(torch.Tensor(self.gate_size))
-            self.b_hh = nn.Parameter(torch.Tensor(self.gate_size))
-        self.hidden = [None for states in range(self.n_hidden_states)]
-        self.reset_parameters()
+    def __init__(self, inputRNN, num_layers=1, dropout=0):
+        super(bidirectionalRNN, self).__init__()
+        self.dropout = dropout
+        self.fwd = stackedRNN(inputRNN, num_layers=num_layers, dropout=dropout)
+        self.bckwrd = stackedRNN(inputRNN.new_like(), num_layers=num_layers, dropout=dropout)
+        self.rnns = nn.ModuleList([self.fwd, self.bckwrd])
 
-    def new_like(self, new_input_size=None):
+    def forward(self, input, collect_hidden=False):
         """
-        new_like()
+        forward()
         """
-        if new_input_size is None:
-            new_input_size = self.input_size
-        return type(self)(self.gate_multiplier, new_input_size, self.hidden_size, self.cell, self.n_hidden_states, self.bias, self.output_size)
+        seq_len = input.size(0)
+        bsz = input.size(1)
+        fwd_out, fwd_hiddens = list(self.fwd(input, collect_hidden=collect_hidden))
+        bckwrd_out, bckwrd_hiddens = list(self.bckwrd(input, reverse=True, collect_hidden=collect_hidden))
+        output = torch.cat([fwd_out, bckwrd_out], -1)
+        hiddens = tuple(torch.cat(hidden, -1) for hidden in zip(fwd_hiddens, bckwrd_hiddens))
+        return output, hiddens
 
-    def reset_parameters(self, gain=1):
+    def reset_parameters(self):
         """
         reset_parameters()
         """
-        stdev = 1.0 / math.sqrt(self.hidden_size)
-        for param in self.parameters():
-            param.data.uniform_(-stdev, stdev)
-    """
-    Xavier reset:
-    def reset_parameters(self, gain=1):
-        stdv = 1.0 / math.sqrt(self.gate_size)
-
-        for param in self.parameters():
-            if (param.dim() > 1):
-                torch.nn.init.xavier_normal(param, gain)
-            else:
-                param.data.uniform_(-stdv, stdv)
-    """
+        for rnn in self.rnns:
+            rnn.reset_parameters()
 
     def init_hidden(self, bsz):
         """
         init_hidden()
         """
-        for param in self.parameters():
-            if param is not None:
-                a_param = param
-                break
-        for i, _ in enumerate(self.hidden):
-            if self.hidden[i] is None or self.hidden[i].data.size()[0] != bsz:
-                if i == 0:
-                    hidden_size = self.output_size
-                else:
-                    hidden_size = self.hidden_size
-                tens = a_param.data.new(bsz, hidden_size).zero_()
-                self.hidden[i] = Variable(tens, requires_grad=False)
-
-    def reset_hidden(self, bsz):
-        """
-        reset_hidden()
-        """
-        for i, _ in enumerate(self.hidden):
-            self.hidden[i] = None
-        self.init_hidden(bsz)
+        for rnn in self.rnns:
+            rnn.init_hidden(bsz)
 
     def detach_hidden(self):
         """
         detach_hidden()
         """
-        for i, _ in enumerate(self.hidden):
-            if self.hidden[i] is None:
-                raise RuntimeError('Must initialize hidden state before you can detach it')
-        for i, _ in enumerate(self.hidden):
-            self.hidden[i] = self.hidden[i].detach()
+        for rnn in self.rnns:
+            rnn.detachHidden()
+
+    def reset_hidden(self, bsz):
+        """
+        reset_hidden()
+        """
+        for rnn in self.rnns:
+            rnn.reset_hidden(bsz)
+
+    def init_inference(self, bsz):
+        """
+        init_inference()
+        """
+        for rnn in self.rnns:
+            rnn.init_inference(bsz)
+
+
+def mLSTMCell(input, hidden, w_ih, w_hh, w_mih, w_mhh, b_ih=None, b_hh=None):
+    """
+    mLSTMCell
+    """
+    if input.is_cuda:
+        igates = F.linear(input, w_ih)
+        m = F.linear(input, w_mih) * F.linear(hidden[0], w_mhh)
+        hgates = F.linear(m, w_hh)
+        state = fusedBackend.LSTMFused.apply
+        return state(igates, hgates, hidden[1], b_ih, b_hh)
+    hx, cx = hidden
+    m = F.linear(input, w_mih) * F.linear(hidden[0], w_mhh)
+    gates = F.linear(input, w_ih, b_ih) + F.linear(m, w_hh, b_hh)
+    ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
+    ingate = F.sigmoid(ingate)
+    forgetgate = F.sigmoid(forgetgate)
+    cellgate = F.tanh(cellgate)
+    outgate = F.sigmoid(outgate)
+    cy = forgetgate * cx + ingate * cellgate
+    hy = outgate * F.tanh(cy)
+    return hy, cy
+
+
+class mLSTMRNNCell(RNNCell):
+    """
+    mLSTMRNNCell
+    """
+
+    def __init__(self, input_size, hidden_size, bias=False, output_size=None):
+        gate_multiplier = 4
+        super(mLSTMRNNCell, self).__init__(gate_multiplier, input_size, hidden_size, mLSTMCell, n_hidden_states=2, bias=bias, output_size=output_size)
+        self.w_mih = nn.Parameter(torch.Tensor(self.output_size, self.input_size))
+        self.w_mhh = nn.Parameter(torch.Tensor(self.output_size, self.output_size))
+        self.reset_parameters()
 
     def forward(self, input):
         """
-        forward()
-        if not inited or bsz has changed this will create hidden states
+        mLSTMRNNCell.forward()
         """
         self.init_hidden(input.size()[0])
         hidden_state = self.hidden[0] if self.n_hidden_states == 1 else self.hidden
-        self.hidden = self.cell(input, hidden_state, self.w_ih, self.w_hh, b_ih=self.b_ih, b_hh=self.b_hh)
-        if self.n_hidden_states > 1:
-            self.hidden = list(self.hidden)
-        else:
-            self.hidden = [self.hidden]
+        self.hidden = list(self.cell(input, hidden_state, self.w_ih, self.w_hh, self.w_mih, self.w_mhh, b_ih=self.b_ih, b_hh=self.b_hh))
         if self.output_size != self.hidden_size:
             self.hidden[0] = F.linear(self.hidden[0], self.w_ho)
         return tuple(self.hidden)
+
+    def new_like(self, new_input_size=None):
+        if new_input_size is None:
+            new_input_size = self.input_size
+        return type(self)(new_input_size, self.hidden_size, self.bias, self.output_size)
 
 
 class tofp16(nn.Module):
@@ -671,12 +764,12 @@ def convert_module(module, dtype):
     for param in module.parameters(recurse=False):
         if param is not None:
             if param.data.dtype.is_floating_point:
-                param.data = param.data.to(dtype=dtype)
+                param.data = param.data
             if param._grad is not None and param._grad.data.dtype.is_floating_point:
-                param._grad.data = param._grad.data.to(dtype=dtype)
+                param._grad.data = param._grad.data
     for buf in module.buffers(recurse=False):
         if buf is not None and buf.data.dtype.is_floating_point:
-            buf.data = buf.data.to(dtype=dtype)
+            buf.data = buf.data
 
 
 def convert_network(network, dtype):
@@ -847,11 +940,10 @@ class FusedLayerNorm(torch.nn.Module):
 def import_flatten_impl():
     global flatten_impl, unflatten_impl, imported_flatten_impl
     try:
-        import apex_C
         flatten_impl = apex_C.flatten
         unflatten_impl = apex_C.unflatten
     except ImportError:
-        print('Warning:  apex was installed without --cpp_ext.  Falling back to Python flatten and unflatten.')
+        None
         flatten_impl = torch._utils._flatten_dense_tensors
         unflatten_impl = torch._utils._unflatten_dense_tensors
     imported_flatten_impl = True
@@ -907,7 +999,6 @@ class MultiTensorApply(object):
 
     def __init__(self, chunk_size):
         try:
-            import amp_C
             MultiTensorApply.available = True
             self.chunk_size = chunk_size
         except ImportError as err:
@@ -996,8 +1087,8 @@ class DistributedDataParallel(Module):
             self.allreduce_trigger_params = set([id(param) for param in allreduce_trigger_params])
         self.delay_allreduce = delay_allreduce
         self.message_size = message_size
-        self.reduction_stream = torch.Stream()
-        self.reduction_event = torch.Event(enable_timing=False, blocking=False)
+        self.reduction_stream = torch.cuda.Stream()
+        self.reduction_event = torch.cuda.Event(enable_timing=False, blocking=False)
         self.module = module
         self._disable_allreduce = False
         if self._backend == self.backend_enum_holder.NCCL:
@@ -1013,8 +1104,8 @@ class DistributedDataParallel(Module):
 
     def __setstate__(self, state):
         super(DistributedDataParallel, self).__setstate__(state)
-        self.reduction_stream = torch.Stream()
-        self.reduction_event = torch.Event(enable_timing=False, blocking=False)
+        self.reduction_stream = torch.cuda.Stream()
+        self.reduction_event = torch.cuda.Event(enable_timing=False, blocking=False)
 
     def __getstate__(self):
         attrs = copy.copy(self.__dict__)
@@ -1062,7 +1153,7 @@ class DistributedDataParallel(Module):
 
         def overlapping_backward_epilogue():
             self.reduction_stream.record_event(self.reduction_event)
-            torch.current_stream().wait_event(self.reduction_event)
+            torch.cuda.current_stream().wait_event(self.reduction_event)
             if self.next_bucket != self.num_buckets:
                 raise RuntimeError('In epilogue, next_bucket ({}) != num_buckets ({}).  '.format(self.next_bucket, self.num_buckets), 'This probably indicates some buckets were not allreduced.')
             for actual, expected in zip(self.buckets_ready_size, self.bucket_sizes):
@@ -1150,9 +1241,9 @@ class DistributedDataParallel(Module):
         self.buckets_ready_size[bucket_idx] += 1
         if self.buckets_ready_size[bucket_idx] == self.bucket_sizes[bucket_idx]:
             if bucket_idx == self.next_bucket:
-                torch.current_stream().record_event(self.reduction_event)
+                torch.cuda.current_stream().record_event(self.reduction_event)
                 self.reduction_stream.wait_event(self.reduction_event)
-                with torch.stream(self.reduction_stream):
+                with torch.cuda.stream(self.reduction_stream):
                     self.allreduce_maybe_retain(self.buckets[bucket_idx], bucket_idx)
                     self.next_bucket += 1
                     if len(self.ready_buckets_not_reduced) > 0:
@@ -1196,164 +1287,67 @@ class DistributedDataParallel(Module):
         return result
 
 
+class ReduceOp(Enum):
+    SUM = 0,
+    PRODUCT = 1,
+    MIN = 2,
+    MAX = 3
+
+    def ToDistOp(self):
+        return {self.SUM: dist.ReduceOp.SUM, self.PRODUCT: dist.ReduceOp.PRODUCT, self.MIN: dist.ReduceOp.MIN, self.MAX: dist.ReduceOp.MAX}[self]
+
+
 class SyncBatchnormFunction(Function):
 
     @staticmethod
-    def forward(ctx, input, weight, bias, running_mean, running_variance, eps, track_running_stats=True, momentum=1.0, process_group=None, channel_last=False):
+    def forward(ctx, input, weight, bias, running_mean, running_variance, eps, process_group, world_size):
         torch.cuda.nvtx.range_push('sync_BN_fw')
-        input = input.contiguous()
-        world_size = 0
-        mean = None
-        var_biased = None
-        inv_std = None
-        var = None
-        out = None
-        count = None
-        if track_running_stats:
-            if channel_last:
-                count = int(input.numel() / input.size(-1))
-                mean, var_biased = syncbn.welford_mean_var_c_last(input)
-            else:
-                count = int(input.numel() / input.size(1))
-                mean, var_biased = syncbn.welford_mean_var(input)
-            if torch.distributed.is_initialized():
-                if not process_group:
-                    process_group = torch.distributed.group.WORLD
-                world_size = torch.distributed.get_world_size(process_group)
-                mean_all = torch.empty(world_size, mean.size(0), dtype=mean.dtype, device=mean.device)
-                var_all = torch.empty(world_size, var_biased.size(0), dtype=var_biased.dtype, device=var_biased.device)
-                mean_l = [mean_all.narrow(0, i, 1) for i in range(world_size)]
-                var_l = [var_all.narrow(0, i, 1) for i in range(world_size)]
-                torch.distributed.all_gather(mean_l, mean, process_group)
-                torch.distributed.all_gather(var_l, var_biased, process_group)
-                mean, var, inv_std = syncbn.welford_parallel(mean_all, var_all, count, eps)
-            else:
-                inv_std = 1.0 / torch.sqrt(var_biased + eps)
-                var = var_biased * count / (count - 1)
-            if count == 1 and world_size < 2:
-                raise ValueError('Expected more than 1 value per channel when training, got input size{}'.format(input.size()))
-            r_m_inc = mean if running_mean.dtype != torch.float16 else mean.half()
-            r_v_inc = var if running_variance.dtype != torch.float16 else var.half()
-            running_mean.data = running_mean.data * (1 - momentum) + momentum * r_m_inc
-            running_variance.data = running_variance.data * (1 - momentum) + momentum * r_v_inc
-        else:
-            mean = running_mean.data
-            inv_std = 1.0 / torch.sqrt(running_variance.data + eps)
-        ctx.save_for_backward(input, weight, mean, inv_std)
+        c_last_input = input.transpose(1, -1).contiguous().clone()
+        ctx.save_for_backward(c_last_input, weight, bias, running_mean, running_variance)
+        ctx.eps = eps
         ctx.process_group = process_group
-        ctx.channel_last = channel_last
         ctx.world_size = world_size
-        if channel_last:
-            out = syncbn.batchnorm_forward_c_last(input, mean, inv_std, weight, bias)
-        else:
-            out = syncbn.batchnorm_forward(input, mean, inv_std, weight, bias)
+        c_last_input = (c_last_input - running_mean) / torch.sqrt(running_variance + eps)
+        if weight is not None:
+            c_last_input = c_last_input * weight
+        if bias is not None:
+            c_last_input = c_last_input + bias
         torch.cuda.nvtx.range_pop()
-        return out
+        return c_last_input.transpose(1, -1).contiguous().clone()
 
     @staticmethod
     def backward(ctx, grad_output):
-        grad_output = grad_output.contiguous()
         torch.cuda.nvtx.range_push('sync_BN_bw')
-        saved_input, weight, mean, inv_std = ctx.saved_tensors
+        c_last_input, weight, bias, running_mean, running_variance = ctx.saved_tensors
+        eps = ctx.eps
         process_group = ctx.process_group
-        channel_last = ctx.channel_last
         world_size = ctx.world_size
         grad_input = grad_weight = grad_bias = None
-        if channel_last:
-            mean_dy, mean_dy_xmu, grad_weight, grad_bias = syncbn.reduce_bn_c_last(grad_output, saved_input, mean, inv_std, weight)
-        else:
-            mean_dy, mean_dy_xmu, grad_weight, grad_bias = syncbn.reduce_bn(grad_output, saved_input, mean, inv_std, weight)
+        num_features = running_mean.size()[0]
+        torch.cuda.nvtx.range_push('carilli field')
+        c_last_grad = grad_output.transpose(1, -1).contiguous()
+        c_grad = c_last_grad.view(-1, num_features).contiguous()
+        torch.cuda.nvtx.range_pop()
         if ctx.needs_input_grad[0]:
+            mean_dy = c_grad.mean(0)
+            mean_dy_xmu = (c_last_grad * (c_last_input - running_mean)).view(-1, num_features).mean(0)
             if torch.distributed.is_initialized():
                 torch.distributed.all_reduce(mean_dy, ReduceOp.SUM, process_group)
                 mean_dy = mean_dy / world_size
                 torch.distributed.all_reduce(mean_dy_xmu, ReduceOp.SUM, process_group)
                 mean_dy_xmu = mean_dy_xmu / world_size
-            if channel_last:
-                grad_input = syncbn.batchnorm_backward_c_last(grad_output, saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
-            else:
-                grad_input = syncbn.batchnorm_backward(grad_output, saved_input, mean, inv_std, weight, mean_dy, mean_dy_xmu)
-        if weight is None or not ctx.needs_input_grad[1]:
-            grad_weight = None
-        if weight is None or not ctx.needs_input_grad[2]:
-            grad_bias = None
+            c_last_grad_input = (c_last_grad - mean_dy - (c_last_input - running_mean) / (running_variance + eps) * mean_dy_xmu) / torch.sqrt(running_variance + eps)
+            if weight is not None:
+                c_last_grad_input.mul_(weight)
+            grad_input = c_last_grad_input.transpose(1, -1).contiguous()
+        grad_weight = None
+        if weight is not None and ctx.needs_input_grad[1]:
+            grad_weight = ((c_last_input - running_mean) / torch.sqrt(running_variance + eps) * c_last_grad).view(-1, num_features).sum(0)
+        grad_bias = None
+        if bias is not None and ctx.needs_input_grad[2]:
+            grad_bias = c_grad.sum(0)
         torch.cuda.nvtx.range_pop()
-        return grad_input, grad_weight, grad_bias, None, None, None, None, None, None, None
-
-
-class SyncBatchNorm(_BatchNorm):
-    """
-    synchronized batch normalization module extented from `torch.nn.BatchNormNd`
-    with the added stats reduction across multiple processes.
-    :class:`apex.parallel.SyncBatchNorm` is designed to work with
-    `DistributedDataParallel`.
-
-    When running in training mode, the layer reduces stats across all processes
-    to increase the effective batchsize for normalization layer. This is useful
-    in applications where batch size is small on a given process that would
-    diminish converged accuracy of the model. The model uses collective
-    communication package from `torch.distributed`.
-
-    When running in evaluation mode, the layer falls back to
-    `torch.nn.functional.batch_norm`
-
-    Args:
-        num_features: :math:`C` from an expected input of size
-            :math:`(N, C, L)` or :math:`L` from input of size :math:`(N, L)`
-        eps: a value added to the denominator for numerical stability.
-            Default: 1e-5
-        momentum: the value used for the running_mean and running_var
-            computation. Can be set to ``None`` for cumulative moving average
-            (i.e. simple average). Default: 0.1
-        affine: a boolean value that when set to ``True``, this module has
-            learnable affine parameters. Default: ``True``
-        track_running_stats: a boolean value that when set to ``True``, this
-            module tracks the running mean and variance, and when set to ``False``,
-            this module does not track such statistics and always uses batch
-            statistics in both training and eval modes. Default: ``True``
-        process_group: pass in a process group within which the stats of the
-            mini-batch is being synchronized. ``None`` for using default process
-            group
-        channel_last: a boolean value that when set to ``True``, this module
-            take the last dimension of the input tensor to be the channel
-            dimension. Default: False
-
-    Examples::
-        >>> # channel first tensor
-        >>> sbn = apex.parallel.SyncBatchNorm(100).cuda()
-        >>> inp = torch.randn(10, 100, 14, 14).cuda()
-        >>> out = sbn(inp)
-        >>> inp = torch.randn(3, 100, 20).cuda()
-        >>> out = sbn(inp)
-        >>> # channel last tensor
-        >>> sbn = apex.parallel.SyncBatchNorm(100, channel_last=True).cuda()
-        >>> inp = torch.randn(10, 14, 14, 100).cuda()
-    """
-
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True, process_group=None, channel_last=False):
-        super(SyncBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
-        self.process_group = process_group
-        self.channel_last = channel_last
-
-    def _specify_process_group(self, process_group):
-        self.process_group = process_group
-
-    def _specify_channel_last(self, channel_last):
-        self.channel_last = channel_last
-
-    def forward(self, input):
-        channel_last = self.channel_last if input.dim() != 2 else True
-        if not self.training and self.track_running_stats and not channel_last:
-            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, False, 0.0, self.eps)
-        else:
-            exponential_average_factor = 0.0
-            if self.training and self.track_running_stats:
-                self.num_batches_tracked += 1
-                if self.momentum is None:
-                    exponential_average_factor = 1.0 / float(self.num_batches_tracked)
-                else:
-                    exponential_average_factor = self.momentum
-            return SyncBatchnormFunction.apply(input, self.weight, self.bias, self.running_mean, self.running_var, self.eps, self.training or not self.track_running_stats, exponential_average_factor, self.process_group, channel_last)
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None
 
 
 class SyncBatchNorm(_BatchNorm):
@@ -1410,7 +1404,7 @@ class SyncBatchNorm(_BatchNorm):
         self.process_group = process_group
 
     def forward(self, input):
-        torch.nvtx.range_push('sync_bn_fw_with_mean_var')
+        torch.cuda.nvtx.range_push('sync_bn_fw_with_mean_var')
         mean = None
         var = None
         cast = None
@@ -1424,7 +1418,7 @@ class SyncBatchNorm(_BatchNorm):
                 input = input
                 cast = input.dtype
         if not self.training and self.track_running_stats:
-            torch.nvtx.range_pop()
+            torch.cuda.nvtx.range_pop()
             out = F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, False, 0.0, self.eps)
         else:
             process_group = self.process_group
@@ -1455,7 +1449,7 @@ class SyncBatchNorm(_BatchNorm):
                     self.running_mean = self.momentum * mean + (1 - self.momentum) * self.running_mean
                 if self.running_var is not None:
                     self.running_var = m / (m - 1) * self.momentum * var + (1 - self.momentum) * self.running_var
-            torch.nvtx.range_pop()
+            torch.cuda.nvtx.range_pop()
             out = SyncBatchnormFunction.apply(input, self.weight, self.bias, mean, var, self.eps, process_group, world_size)
         out = out
 
@@ -1515,21 +1509,6 @@ class PromoteModule(torch.nn.Module):
 
     def forward(self, input):
         return self.ops(input, self.weight)
-
-
-class MyModel(torch.nn.Module):
-
-    def __init__(self, unique):
-        super(MyModel, self).__init__()
-        self.weight0 = Parameter(unique + torch.arange(2, device='cuda', dtype=torch.float32))
-        self.weight1 = Parameter(1.0 + unique + torch.arange(2, device='cuda', dtype=torch.float16))
-
-    @staticmethod
-    def ops(input, weight0, weight1):
-        return (input * weight0.float() * weight1.float()).sum()
-
-    def forward(self, input):
-        return self.ops(input, self.weight0, self.weight1)
 
 
 class DummyBlock(nn.Module):
@@ -1614,959 +1593,26 @@ class PositionEmbedding(nn.Module):
         return pos_emb
 
 
-def empty_cache():
-    gc.collect()
-    t.cuda.empty_cache()
+class Conv1D(nn.Module):
 
+    def __init__(self, n_in, n_out, zero_out=False, init_scale=1.0):
+        super(Conv1D, self).__init__()
+        self.n_in = n_in
+        self.n_out = n_out
+        if zero_out:
+            w = t.zeros(n_in, n_out)
+        else:
+            w = t.empty(n_in, n_out)
+            nn.init.normal_(w, std=0.02 * init_scale)
+        b = t.zeros(n_out)
+        self.w = nn.Parameter(w)
+        self.b = nn.Parameter(b)
 
-def filter_logits(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
-    """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
-        Args:
-            logits: logits distribution shape (vocabulary size)
-            top_k >0: keep only top k tokens with highest probability (top-k filtering).
-            top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
-    """
-    logits = logits.clone()
-    top_k = min(top_k, logits.size(-1))
-    assert top_k == 0 or top_p == 0.0
-    if top_k > 0:
-        indices_to_remove = logits < t.topk(logits, top_k, dim=-1)[0][(...), -1:]
-        logits[indices_to_remove] = filter_value
-    if top_p > 0.0:
-        sorted_logits, sorted_indices = t.sort(logits, descending=True, dim=-1)
-        cumulative_probs = t.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-        sorted_indices_to_remove = cumulative_probs > top_p
-        sorted_indices_to_remove[(...), 1:] = sorted_indices_to_remove[(...), :-1].clone()
-        sorted_indices_to_remove[..., 0] = 0
-        indices_to_remove = t.zeros_like(logits, dtype=t.uint8).scatter_(dim=-1, index=sorted_indices, src=sorted_indices_to_remove)
-        logits[indices_to_remove] = filter_value
-    return logits
-
-
-def def_tqdm(x):
-    return tqdm(x, leave=True, file=sys.stdout, bar_format='{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
-
-
-def get_range(x):
-    if dist.get_rank() == 0:
-        return def_tqdm(x)
-    else:
+    def forward(self, x):
+        size_out = *x.size()[:-1], self.n_out
+        x = t.addmm(self.b.type_as(x), x.view(-1, x.size(-1)), self.w.type_as(x))
+        x = x.view(*size_out)
         return x
-
-
-def roll(x, n):
-    return t.cat((x[:, -n:], x[:, :-n]), dim=1)
-
-
-def split_chunks(length, chunk_size):
-    n_passes = (length + chunk_size - 1) // chunk_size
-    chunk_sizes = [*([chunk_size] * (n_passes - 1)), (length - 1) % chunk_size + 1]
-    assert sum(chunk_sizes) == length
-    return chunk_sizes
-
-
-class ConditionalAutoregressive2D(nn.Module):
-
-    def __init__(self, input_shape, bins, width=128, depth=2, heads=1, attn_dropout=0.0, resid_dropout=0.0, emb_dropout=0.0, mask=True, zero_out=False, init_scale=1.0, res_scale=False, pos_init=False, m_attn=0.25, m_mlp=1, checkpoint_res=0, checkpoint_attn=0, checkpoint_mlp=0, attn_order=0, blocks=None, spread=None, x_cond=False, y_cond=False, encoder_dims=0, only_encode=False, merged_decoder=False, prime_len=None):
-        super().__init__()
-        self.input_shape = input_shape
-        self.input_dims = input_dims = np.prod(input_shape)
-        self.encoder_dims = encoder_dims
-        self.bins = bins
-        self.width = width
-        self.depth = depth
-        self.x_emb = nn.Embedding(bins, width)
-        nn.init.normal_(self.x_emb.weight, std=0.02 * init_scale)
-        self.x_emb_dropout = nn.Dropout(emb_dropout)
-        self.y_cond = y_cond
-        self.x_cond = x_cond
-        if not y_cond:
-            self.start_token = nn.Parameter(get_normal(1, width, std=0.01 * init_scale))
-        self.pos_emb = PositionEmbedding(input_shape=input_shape, width=width, init_scale=init_scale, pos_init=pos_init)
-        self.pos_emb_dropout = nn.Dropout(emb_dropout)
-        self.transformer = Transformer(n_in=width, n_ctx=input_dims, n_head=heads, n_depth=depth, attn_dropout=attn_dropout, resid_dropout=resid_dropout, afn='quick_gelu', scale=True, mask=mask, zero_out=zero_out, init_scale=init_scale, res_scale=res_scale, m_attn=m_attn, m_mlp=m_mlp, checkpoint_attn=checkpoint_attn, checkpoint_mlp=checkpoint_mlp, checkpoint_res=checkpoint_res, attn_order=attn_order, blocks=blocks, spread=spread, encoder_dims=encoder_dims, prime_len=prime_len)
-        self.only_encode = only_encode
-        self.prime_len = prime_len
-        if merged_decoder:
-            self.add_cond_after_transformer = False
-            self.share_x_emb_x_out = False
-        else:
-            self.add_cond_after_transformer = True
-            self.share_x_emb_x_out = True
-        if not only_encode:
-            self.x_out = nn.Linear(width, bins, bias=False)
-            if self.share_x_emb_x_out:
-                self.x_out.weight = self.x_emb.weight
-            self.loss = t.nn.CrossEntropyLoss()
-
-    def preprocess(self, x):
-        N = x.shape[0]
-        return x.view(N, -1).long()
-
-    def postprocess(self, x, sample_tokens=None):
-        N = x.shape[0]
-        assert (0 <= x).all() and (x < self.bins).all()
-        if sample_tokens is None or sample_tokens == self.input_dims:
-            return x.view(N, *self.input_shape)
-        else:
-            return x.view(N, -1)
-
-    def forward(self, x, x_cond=None, y_cond=None, encoder_kv=None, fp16=False, loss_full=False, encode=False, get_preds=False, get_acts=False, get_sep_loss=False):
-        with t.no_grad():
-            x = self.preprocess(x)
-        N, D = x.shape
-        assert isinstance(x, t.cuda.LongTensor)
-        assert (0 <= x).all() and (x < self.bins).all()
-        if self.y_cond:
-            assert y_cond is not None
-            assert y_cond.shape == (N, 1, self.width)
-        else:
-            assert y_cond is None
-        if self.x_cond:
-            assert x_cond is not None
-            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N, 1, self.width), f'{x_cond.shape} != {N, D, self.width} nor {N, 1, self.width}. Did you pass the correct --sample_length?'
-        else:
-            assert x_cond is None
-            x_cond = t.zeros((N, 1, self.width), device=x.device, dtype=t.float)
-        x_t = x
-        x = self.x_emb(x)
-        x = roll(x, 1)
-        if self.y_cond:
-            x[:, (0)] = y_cond.view(N, self.width)
-        else:
-            x[:, (0)] = self.start_token
-        x = self.x_emb_dropout(x) + self.pos_emb_dropout(self.pos_emb()) + x_cond
-        x = self.transformer(x, encoder_kv=encoder_kv, fp16=fp16)
-        if self.add_cond_after_transformer:
-            x = x + x_cond
-        acts = x
-        if self.only_encode:
-            return x
-        x = self.x_out(x)
-        if get_sep_loss:
-            assert self.prime_len is not None
-            x_prime = x[:, :self.prime_len].reshape(-1, self.bins)
-            x_gen = x[:, self.prime_len:].reshape(-1, self.bins)
-            prime_loss = F.cross_entropy(x_prime, x_t[:, :self.prime_len].reshape(-1)) / np.log(2.0)
-            gen_loss = F.cross_entropy(x_gen, x_t[:, self.prime_len:].reshape(-1)) / np.log(2.0)
-            loss = prime_loss, gen_loss
-        else:
-            loss = F.cross_entropy(x.view(-1, self.bins), x_t.view(-1)) / np.log(2.0)
-        if get_preds:
-            return loss, x
-        elif get_acts:
-            return loss, acts
-        else:
-            return loss, None
-
-    def get_emb(self, sample_t, n_samples, x, x_cond, y_cond):
-        N, D = n_samples, self.input_dims
-        if sample_t == 0:
-            x = t.empty(n_samples, 1, self.width)
-            if self.y_cond:
-                x[:, (0)] = y_cond.view(N, self.width)
-            else:
-                x[:, (0)] = self.start_token
-        else:
-            assert isinstance(x, t.cuda.LongTensor)
-            assert (0 <= x).all() and (x < self.bins).all()
-            x = self.x_emb(x)
-        assert x.shape == (n_samples, 1, self.width)
-        if x_cond.shape == (N, D, self.width):
-            cond = x_cond[:, sample_t:sample_t + 1, :]
-        else:
-            cond = x_cond
-        x = x + self.pos_emb()[sample_t:sample_t + 1] + cond
-        assert x.shape == (n_samples, 1, self.width)
-        return x, cond
-
-    def sample(self, n_samples, x_cond=None, y_cond=None, encoder_kv=None, fp16=False, temp=1.0, top_k=0, top_p=0.0, get_preds=False, sample_tokens=None):
-        assert self.training == False
-        if sample_tokens is None:
-            sample_tokens = self.input_dims
-        N, D = n_samples, self.input_dims
-        if self.y_cond:
-            assert y_cond is not None
-            assert y_cond.shape == (N, 1, self.width)
-        else:
-            assert y_cond is None
-        if self.x_cond:
-            assert x_cond is not None
-            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N, 1, self.width), f'Got {x_cond.shape}, expected ({N}, {D}/{1}, {self.width})'
-        else:
-            assert x_cond is None
-            x_cond = t.zeros((N, 1, self.width), dtype=t.float)
-        with t.no_grad():
-            xs, x = [], None
-            if get_preds:
-                preds = []
-            for sample_t in get_range(range(0, sample_tokens)):
-                x, cond = self.get_emb(sample_t, n_samples, x, x_cond, y_cond)
-                self.transformer.check_cache(n_samples, sample_t, fp16)
-                x = self.transformer(x, encoder_kv=encoder_kv, sample=True, fp16=fp16)
-                if self.add_cond_after_transformer:
-                    x = x + cond
-                assert x.shape == (n_samples, 1, self.width)
-                x = self.x_out(x)
-                if get_preds:
-                    preds.append(x.clone())
-                x = x / temp
-                x = filter_logits(x, top_k=top_k, top_p=top_p)
-                x = t.distributions.Categorical(logits=x).sample()
-                assert x.shape == (n_samples, 1)
-                xs.append(x.clone())
-            del x
-            self.transformer.del_cache()
-            x = t.cat(xs, dim=1)
-            if get_preds:
-                preds = t.cat(preds, dim=1)
-            x = self.postprocess(x, sample_tokens)
-        if get_preds:
-            return x, preds
-        else:
-            return x
-
-    def primed_sample(self, n_samples, x, x_cond=None, y_cond=None, encoder_kv=None, fp16=False, temp=1.0, top_k=0, top_p=0.0, get_preds=False, chunk_size=None, sample_tokens=None):
-        assert self.training == False
-        if sample_tokens is None:
-            sample_tokens = self.input_dims
-        with t.no_grad():
-            x = self.preprocess(x)
-        assert isinstance(x, t.cuda.LongTensor)
-        assert (0 <= x).all() and (x < self.bins).all()
-        assert x.shape[0] == n_samples
-        xs = t.split(x, 1, dim=1)
-        xs = list(xs)
-        assert len(xs) < sample_tokens
-        N, D = n_samples, self.input_dims
-        if self.y_cond:
-            assert y_cond is not None
-            assert y_cond.shape == (N, 1, self.width)
-        else:
-            assert y_cond is None
-        if self.x_cond:
-            assert x_cond is not None
-            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N, 1, self.width), f'Got {x_cond.shape}, expected ({N}, {D}/{1}, {self.width})'
-        else:
-            assert x_cond is None
-            x_cond = t.zeros((N, 1, self.width), dtype=t.float)
-        with t.no_grad():
-            if get_preds:
-                preds = []
-            if chunk_size is None:
-                chunk_size = len(xs)
-            chunk_sizes = split_chunks(len(xs), chunk_size)
-            x_primes = []
-            start = 0
-            x = None
-            for current_chunk_size in get_range(chunk_sizes):
-                xs_prime, conds_prime = [], []
-                for sample_t in range(start, start + current_chunk_size):
-                    x_prime, cond_prime = self.get_emb(sample_t, n_samples, x, x_cond, y_cond)
-                    x = xs[sample_t]
-                    xs_prime.append(x_prime)
-                    conds_prime.append(cond_prime)
-                start = start + current_chunk_size
-                x_prime, cond_prime = t.cat(xs_prime, dim=1), t.cat(conds_prime, dim=1)
-                assert x_prime.shape == (n_samples, current_chunk_size, self.width)
-                assert cond_prime.shape == (n_samples, current_chunk_size, self.width)
-                del xs_prime
-                del conds_prime
-                if not get_preds:
-                    del cond_prime
-                x_prime = self.transformer(x_prime, encoder_kv=encoder_kv, sample=True, fp16=fp16)
-                if get_preds:
-                    if self.add_cond_after_transformer:
-                        x_prime = x_prime + cond_prime
-                    assert x_prime.shape == (n_samples, current_chunk_size, self.width)
-                    del cond_prime
-                    x_primes.append(x_prime)
-                else:
-                    del x_prime
-            if get_preds:
-                x_prime = t.cat(x_primes, dim=1)
-                assert x_prime.shape == (n_samples, len(xs), self.width)
-                x_prime = self.x_out(x_prime)
-                preds.append(x_prime)
-            empty_cache()
-            self.transformer.check_cache(n_samples, len(xs), fp16)
-            x = xs[-1]
-            assert x.shape == (n_samples, 1)
-            empty_cache()
-            for sample_t in get_range(range(len(xs), sample_tokens)):
-                x, cond = self.get_emb(sample_t, n_samples, x, x_cond, y_cond)
-                self.transformer.check_cache(n_samples, sample_t, fp16)
-                x = self.transformer(x, encoder_kv=encoder_kv, sample=True, fp16=fp16)
-                if self.add_cond_after_transformer:
-                    x = x + cond
-                assert x.shape == (n_samples, 1, self.width)
-                x = self.x_out(x)
-                if get_preds:
-                    preds.append(x)
-                x = x / temp
-                x = filter_logits(x, top_k=top_k, top_p=top_p)
-                x = t.distributions.Categorical(logits=x).sample()
-                assert x.shape == (n_samples, 1)
-                xs.append(x.clone())
-            del x
-            self.transformer.del_cache()
-            x = t.cat(xs, dim=1)
-            if get_preds:
-                preds = t.cat(preds, dim=1)
-            x = self.postprocess(x, sample_tokens)
-        if get_preds:
-            return x, preds
-        else:
-            return x
-
-    def check_sample(self, chunk_size):
-        bs, l, d = 4, self.input_dims, self.width
-        prime = int(self.input_dims // 8 * 7)
-        enc_l = self.encoder_dims
-        with t.no_grad():
-            y_cond = t.randn(bs, 1, d) if self.y_cond else None
-            x_cond = t.randn(bs, l, d) if self.x_cond else None
-            encoder_kv = t.randn(bs, enc_l, d)
-            x, preds_sample = self.sample(bs, x_cond, y_cond, encoder_kv, get_preds=True)
-            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
-            max_err = t.max(t.abs(preds_sample - preds_forw))
-            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
-            x_prime = x.view(bs, -1)[:, :prime]
-            x, preds_sample = self.primed_sample(bs, x_prime.clone(), x_cond, y_cond, encoder_kv, get_preds=True)
-            assert (x.view(bs, -1)[:, :prime] == x_prime).all(), "Priming samples don't match"
-            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
-            max_err = t.max(t.abs(preds_sample - preds_forw))
-            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
-            x, preds_sample = self.primed_sample(bs, x_prime.clone(), x_cond, y_cond, encoder_kv, get_preds=True, chunk_size=chunk_size)
-            assert (x.view(bs, -1)[:, :prime] == x_prime).all(), "Priming samples don't match"
-            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
-            max_err = t.max(t.abs(preds_sample - preds_forw))
-            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
-
-
-class LayerNorm(FusedLayerNorm):
-
-    def __init__(self, normalized_shape, eps=1e-05, elementwise_affine=True):
-        super().__init__(normalized_shape, eps=eps, elementwise_affine=elementwise_affine)
-        self.width = np.prod(normalized_shape)
-        self.max_numel = 65535 * self.width
-
-    def forward(self, input):
-        if input.numel() > self.max_numel:
-            return F.layer_norm(input.float(), self.normalized_shape, self.weight, self.bias, self.eps).type_as(input)
-        else:
-            return super(LayerNorm, self).forward(input.float()).type_as(input)
-
-
-def assert_shape(x, exp_shape):
-    assert x.shape == exp_shape, f'Expected {exp_shape} got {x.shape}'
-
-
-class Conditioner(nn.Module):
-
-    def __init__(self, input_shape, bins, down_t, stride_t, out_width, init_scale, zero_out, res_scale, **block_kwargs):
-        super().__init__()
-        self.x_shape = input_shape
-        self.width = out_width
-        self.x_emb = nn.Embedding(bins, out_width)
-        nn.init.normal_(self.x_emb.weight, std=0.02 * init_scale)
-        self.cond = DecoderConvBock(self.width, self.width, down_t, stride_t, **block_kwargs, zero_out=zero_out, res_scale=res_scale)
-        self.ln = LayerNorm(self.width)
-
-    def preprocess(self, x):
-        x = x.permute(0, 2, 1)
-        return x
-
-    def postprocess(self, x):
-        x = x.permute(0, 2, 1)
-        return x
-
-    def forward(self, x, x_cond=None):
-        N = x.shape[0]
-        assert_shape(x, (N, *self.x_shape))
-        if x_cond is not None:
-            assert_shape(x_cond, (N, *self.x_shape, self.width))
-        else:
-            x_cond = 0.0
-        x = x.long()
-        x = self.x_emb(x)
-        assert_shape(x, (N, *self.x_shape, self.width))
-        x = x + x_cond
-        x = self.preprocess(x)
-        x = self.cond(x)
-        x = self.postprocess(x)
-        x = self.ln(x)
-        return x
-
-
-class SimpleEmbedding(nn.Module):
-
-    def __init__(self, bins, out_width, init_scale):
-        super().__init__()
-        self.bins = bins
-        self.emb = nn.Embedding(bins, out_width)
-        nn.init.normal_(self.emb.weight, std=0.01 * init_scale)
-
-    def forward(self, y):
-        assert len(y.shape) == 2, f'Expected shape with 2 dims, got {y.shape}'
-        assert isinstance(y, t.cuda.LongTensor), f'Expected dtype {t.cuda.LongTensor}, got {y.dtype}'
-        assert (0 <= y).all() and (y < self.bins).all(), f'Bins {self.bins}, got label {y}'
-        return self.emb(y)
-
-
-class RangeEmbedding(nn.Module):
-
-    def __init__(self, n_time, bins, range, out_width, init_scale, clamp=False):
-        super().__init__()
-        self.n_time = n_time
-        self.bins = bins
-        self.emb = nn.Embedding(bins, out_width)
-        nn.init.normal_(self.emb.weight, std=0.01 * init_scale)
-        self.pos_min, self.pos_max = range
-        self.clamp = clamp
-
-    def forward(self, pos_start, pos_end=None):
-        assert len(pos_start.shape) == 2, f'Expected shape with 2 dims, got {pos_start.shape}'
-        assert (self.pos_min <= pos_start).all() and (pos_start < self.pos_max).all(), f'Range is [{self.pos_min},{self.pos_max}), got {pos_start}'
-        pos_start = pos_start.float()
-        if pos_end is not None:
-            assert len(pos_end.shape) == 2, f'Expected shape with 2 dims, got {pos_end.shape}'
-            if self.clamp:
-                pos_end = pos_end.clamp(self.pos_min, self.pos_max)
-            assert (self.pos_min <= pos_end).all() and (pos_end <= self.pos_max).all(), f'Range is [{self.pos_min},{self.pos_max}), got {pos_end}'
-            pos_end = pos_end.float()
-        n_time = self.n_time
-        if n_time != 1:
-            assert pos_end is not None
-            interpolation = t.arange(0, n_time, dtype=t.float, device='cuda').view(1, n_time) / n_time
-            position = pos_start + (pos_end - pos_start) * interpolation
-        else:
-            position = pos_start
-        normalised_position = (position - self.pos_min) / (self.pos_max - self.pos_min)
-        bins = (self.bins * normalised_position).floor().long().detach()
-        return self.emb(bins)
-
-
-class LabelConditioner(nn.Module):
-
-    def __init__(self, y_bins, t_bins, sr, min_duration, max_duration, n_time, out_width, init_scale, max_bow_genre_size, include_time_signal):
-        super().__init__()
-        self.n_time = n_time
-        self.out_width = out_width
-        assert len(y_bins) == 2, f'Expecting (genre, artist) bins, got {y_bins}'
-        bow_genre_bins, artist_bins = y_bins
-        self.max_bow_genre_size = max_bow_genre_size
-        self.bow_genre_emb = SimpleEmbedding(bow_genre_bins, out_width, init_scale)
-        self.artist_emb = SimpleEmbedding(artist_bins, out_width, init_scale)
-        self.include_time_signal = include_time_signal
-        if self.include_time_signal:
-            t_ranges = (min_duration * sr, max_duration * sr), (0.0, max_duration * sr), (0.0, 1.0)
-            assert len(t_ranges) == 3, f'Expecting (total, absolute, relative) ranges, got {t_ranges}'
-            total_length_range, absolute_pos_range, relative_pos_range = t_ranges
-            self.total_length_emb = RangeEmbedding(1, t_bins, total_length_range, out_width, init_scale)
-            self.absolute_pos_emb = RangeEmbedding(n_time, t_bins, absolute_pos_range, out_width, init_scale)
-            self.relative_pos_emb = RangeEmbedding(n_time, t_bins, relative_pos_range, out_width, init_scale, clamp=True)
-
-    def forward(self, y):
-        assert len(y.shape) == 2, f'Expected shape with 2 dims, got {y.shape}'
-        assert y.shape[-1] == 4 + self.max_bow_genre_size, f'Expected shape (N,{4 + self.max_bow_genre_size}), got {y.shape}'
-        assert isinstance(y, t.cuda.LongTensor), f'Expected dtype {t.cuda.LongTensor}, got {y.dtype}'
-        N = y.shape[0]
-        total_length, offset, length, artist, genre = y[:, 0:1], y[:, 1:2], y[:, 2:3], y[:, 3:4], y[:, 4:]
-        artist_emb = self.artist_emb(artist)
-        mask = (genre >= 0).float().unsqueeze(2)
-        genre_emb = (self.bow_genre_emb(genre.clamp(0)) * mask).sum(dim=1, keepdim=True)
-        start_emb = genre_emb + artist_emb
-        assert_shape(start_emb, (N, 1, self.out_width))
-        if self.include_time_signal:
-            start, end = offset, offset + length
-            total_length, start, end = total_length.float(), start.float(), end.float()
-            pos_emb = self.total_length_emb(total_length) + self.absolute_pos_emb(start, end) + self.relative_pos_emb(start / total_length, end / total_length)
-            assert_shape(pos_emb, (N, self.n_time, self.out_width))
-        else:
-            pos_emb = None
-        return start_emb, pos_emb
-
-
-def create_reverse_lookup(atoi):
-    itoa = {}
-    for a, i in atoi.items():
-        if i not in itoa:
-            itoa[i] = []
-        itoa[i].append(a)
-    indices = sorted(list(itoa.keys()))
-    for i in indices:
-        itoa[i] = '_'.join(sorted(itoa[i]))
-    return itoa
-
-
-accepted = frozenset([chr(i) for i in range(ord('a'), ord('z') + 1)] + [chr(i) for i in range(ord('A'), ord('Z') + 1)] + [chr(i) for i in range(ord('0'), ord('9') + 1)])
-
-
-rex = re.compile('_+')
-
-
-def norm(s):
-    s = ''.join([(c if c in accepted else '_') for c in s.lower()])
-    s = rex.sub('_', s).strip('_')
-    return s
-
-
-class ArtistGenreProcessor:
-
-    def __init__(self, v3=False):
-        self.v3 = v3
-        dirname = os.path.dirname(__file__)
-        if self.v3:
-            self.artist_id_file = f'{dirname}/ids/v3_artist_ids.txt'
-            self.genre_id_file = f'{dirname}/ids/v3_genre_ids.txt'
-        else:
-            self.artist_id_file = f'{dirname}/ids/v2_artist_ids.txt'
-            self.genre_id_file = f'{dirname}/ids/v2_genre_ids.txt'
-        self.load_artists()
-        self.load_genres()
-
-    def get_artist_id(self, artist):
-        input_artist = artist
-        if self.v3:
-            artist = artist.lower()
-        else:
-            artist = norm(artist)
-        if artist not in self.artist_ids:
-            print(f'Input artist {input_artist} maps to {artist}, which is not present in {self.artist_id_file}. Defaulting to (artist_id, artist) = (0, unknown), if that seems wrong please format artist correctly')
-        return self.artist_ids.get(artist, 0)
-
-    def get_genre_ids(self, genre):
-        if self.v3:
-            genres = [genre.lower()]
-        else:
-            genres = norm(genre).split('_')
-        for word in genres:
-            if word not in self.genre_ids:
-                print(f'Input genre {genre} maps to the list {genres}. {word} is not present in {self.genre_id_file}. Defaulting to (word_id, word) = (0, unknown), if that seems wrong please format genre correctly')
-        return [self.genre_ids.get(word, 0) for word in genres]
-
-    def get_artist(self, artist_id):
-        return self.artists[artist_id]
-
-    def get_genre(self, genre_ids):
-        if self.v3:
-            assert len(genre_ids) == 1
-            genre = self.genres[genre_ids[0]]
-        else:
-            genre = '_'.join([self.genres[genre_id] for genre_id in genre_ids if genre_id >= 0])
-        return genre
-
-    def load_artists(self):
-        print(f'Loading artist IDs from {self.artist_id_file}')
-        self.artist_ids = {}
-        with open(self.artist_id_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                artist, artist_id = line.strip().split(';')
-                self.artist_ids[artist.lower()] = int(artist_id)
-        self.artists = create_reverse_lookup(self.artist_ids)
-
-    def load_genres(self):
-        print(f'Loading artist IDs from {self.genre_id_file}')
-        self.genre_ids = {}
-        with open(self.genre_id_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                genre, genre_id = line.strip().split(';')
-                self.genre_ids[genre.lower()] = int(genre_id)
-        self.genres = create_reverse_lookup(self.genre_ids)
-
-
-class TextProcessor:
-
-    def __init__(self, v3=False):
-        if v3:
-            vocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-\'"()[] \t\n'
-            not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-\'"()\\[\\] \t\n]+')
-        else:
-            vocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-+\'"()[] \t\n'
-            not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-+\'"()\\[\\] \t\n]+')
-        self.vocab = {vocab[index]: (index + 1) for index in range(len(vocab))}
-        self.vocab['<unk>'] = 0
-        self.n_vocab = len(vocab) + 1
-        self.tokens = {v: k for k, v in self.vocab.items()}
-        self.tokens[0] = ''
-        self.not_vocab = not_vocab
-
-    def clean(self, text):
-        text = unidecode(text)
-        text = text.replace('\\', '\n')
-        text = self.not_vocab.sub('', text)
-        return text
-
-    def tokenise(self, text):
-        return [self.vocab[char] for char in text]
-
-    def textise(self, tokens):
-        return ''.join([self.tokens[token] for token in tokens])
-
-    def characterise(self, tokens):
-        return [self.tokens[token] for token in tokens]
-
-
-def get_relevant_lyric_tokens(full_tokens, n_tokens, total_length, offset, duration):
-    if len(full_tokens) < n_tokens:
-        tokens = [0] * (n_tokens - len(full_tokens)) + full_tokens
-        indices = [-1] * (n_tokens - len(full_tokens)) + list(range(0, len(full_tokens)))
-    else:
-        assert 0 <= offset < total_length
-        midpoint = int(len(full_tokens) * (offset + duration / 2.0) / total_length)
-        midpoint = min(max(midpoint, n_tokens // 2), len(full_tokens) - n_tokens // 2)
-        tokens = full_tokens[midpoint - n_tokens // 2:midpoint + n_tokens // 2]
-        indices = list(range(midpoint - n_tokens // 2, midpoint + n_tokens // 2))
-    assert len(tokens) == n_tokens, f'Expected length {n_tokens}, got {len(tokens)}'
-    assert len(indices) == n_tokens, f'Expected length {n_tokens}, got {len(indices)}'
-    assert tokens == [(full_tokens[index] if index != -1 else 0) for index in indices]
-    return tokens, indices
-
-
-class Labeller:
-
-    def __init__(self, max_genre_words, n_tokens, sample_length, v3=False):
-        self.ag_processor = ArtistGenreProcessor(v3)
-        self.text_processor = TextProcessor(v3)
-        self.n_tokens = n_tokens
-        self.max_genre_words = max_genre_words
-        self.sample_length = sample_length
-        self.label_shape = 4 + self.max_genre_words + self.n_tokens,
-
-    def get_label(self, artist, genre, lyrics, total_length, offset):
-        artist_id = self.ag_processor.get_artist_id(artist)
-        genre_ids = self.ag_processor.get_genre_ids(genre)
-        lyrics = self.text_processor.clean(lyrics)
-        full_tokens = self.text_processor.tokenise(lyrics)
-        tokens, _ = get_relevant_lyric_tokens(full_tokens, self.n_tokens, total_length, offset, self.sample_length)
-        assert len(genre_ids) <= self.max_genre_words
-        genre_ids = genre_ids + [-1] * (self.max_genre_words - len(genre_ids))
-        y = np.array([total_length, offset, self.sample_length, artist_id, *genre_ids, *tokens], dtype=np.int64)
-        assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
-        info = dict(artist=artist, genre=genre, lyrics=lyrics, full_tokens=full_tokens)
-        return dict(y=y, info=info)
-
-    def get_y_from_ids(self, artist_id, genre_ids, lyric_tokens, total_length, offset):
-        assert len(genre_ids) <= self.max_genre_words
-        genre_ids = genre_ids + [-1] * (self.max_genre_words - len(genre_ids))
-        if self.n_tokens > 0:
-            assert len(lyric_tokens) == self.n_tokens
-        else:
-            lyric_tokens = []
-        y = np.array([total_length, offset, self.sample_length, artist_id, *genre_ids, *lyric_tokens], dtype=np.int64)
-        assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
-        return y
-
-    def get_batch_labels(self, metas, device='cpu'):
-        ys, infos = [], []
-        for meta in metas:
-            label = self.get_label(**meta)
-            y, info = label['y'], label['info']
-            ys.append(y)
-            infos.append(info)
-        ys = t.stack([t.from_numpy(y) for y in ys], dim=0).to(device).long()
-        assert ys.shape[0] == len(metas)
-        assert len(infos) == len(metas)
-        return dict(y=ys, info=infos)
-
-    def set_y_lyric_tokens(self, ys, labels):
-        info = labels['info']
-        assert ys.shape[0] == len(info)
-        if self.n_tokens > 0:
-            tokens_list = []
-            indices_list = []
-            for i in range(ys.shape[0]):
-                full_tokens = info[i]['full_tokens']
-                total_length, offset, duration = ys[i, 0], ys[i, 1], ys[i, 2]
-                tokens, indices = get_relevant_lyric_tokens(full_tokens, self.n_tokens, total_length, offset, duration)
-                tokens_list.append(tokens)
-                indices_list.append(indices)
-            ys[:, -self.n_tokens:] = t.tensor(tokens_list, dtype=t.long, device='cuda')
-            return indices_list
-        else:
-            return None
-
-    def describe_label(self, y):
-        assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
-        y = np.array(y).tolist()
-        total_length, offset, length, artist_id, *genre_ids = y[:4 + self.max_genre_words]
-        tokens = y[4 + self.max_genre_words:]
-        artist = self.ag_processor.get_artist(artist_id)
-        genre = self.ag_processor.get_genre(genre_ids)
-        lyrics = self.text_processor.textise(tokens)
-        return dict(artist=artist, genre=genre, lyrics=lyrics)
-
-
-def calculate_strides(strides, downs):
-    return [(stride ** down) for stride, down in zip(strides, downs)]
-
-
-def print_once(msg):
-    if not dist.is_available() or dist.get_rank() == 0:
-        print(msg)
-
-
-class SimplePrior(nn.Module):
-
-    def __init__(self, z_shapes, l_bins, encoder, decoder, level, downs_t, strides_t, labels, prior_kwargs, x_cond_kwargs, y_cond_kwargs, prime_kwargs, copy_input, labels_v3=False, merged_decoder=False, single_enc_dec=False):
-        super().__init__()
-        self.use_tokens = prime_kwargs.pop('use_tokens')
-        self.n_tokens = prime_kwargs.pop('n_tokens')
-        self.prime_loss_fraction = prime_kwargs.pop('prime_loss_fraction')
-        self.copy_input = copy_input
-        if self.copy_input:
-            prime_kwargs['bins'] = l_bins
-        self.z_shapes = z_shapes
-        self.levels = len(self.z_shapes)
-        self.z_shape = self.z_shapes[level]
-        self.level = level
-        assert level < self.levels, f'Total levels {self.levels}, got level {level}'
-        self.l_bins = l_bins
-        self.encoder = encoder
-        self.decoder = decoder
-        self.x_cond = level != self.levels - 1
-        self.cond_level = level + 1
-        self.y_cond = labels
-        self.single_enc_dec = single_enc_dec
-        if self.x_cond:
-            self.conditioner_blocks = nn.ModuleList()
-            conditioner_block = lambda _level: Conditioner(input_shape=z_shapes[_level], bins=l_bins, down_t=downs_t[_level], stride_t=strides_t[_level], **x_cond_kwargs)
-            if dist.get_rank() == 0:
-                None
-            self.conditioner_blocks.append(conditioner_block(self.cond_level))
-        if self.y_cond:
-            self.n_time = self.z_shape[0]
-            self.y_emb = LabelConditioner(n_time=self.n_time, include_time_signal=not self.x_cond, **y_cond_kwargs)
-        if single_enc_dec:
-            self.prior_shapes = [(self.n_tokens,), prior_kwargs.pop('input_shape')]
-            self.prior_bins = [prime_kwargs['bins'], prior_kwargs.pop('bins')]
-            self.prior_dims = [np.prod(shape) for shape in self.prior_shapes]
-            self.prior_bins_shift = np.cumsum([0, *self.prior_bins])[:-1]
-            self.prior_width = prior_kwargs['width']
-            print_once(f'Creating cond. autoregress with prior bins {self.prior_bins}, ')
-            print_once(f'dims {self.prior_dims}, ')
-            print_once(f'shift {self.prior_bins_shift}')
-            print_once(f'input shape {sum(self.prior_dims)}')
-            print_once(f'input bins {sum(self.prior_bins)}')
-            print_once(f'Self copy is {self.copy_input}')
-            self.prime_loss_dims, self.gen_loss_dims = self.prior_dims[0], self.prior_dims[1]
-            self.total_loss_dims = self.prime_loss_dims + self.gen_loss_dims
-            self.prior = ConditionalAutoregressive2D(input_shape=(sum(self.prior_dims),), bins=sum(self.prior_bins), x_cond=self.x_cond or self.y_cond, y_cond=True, prime_len=self.prime_loss_dims, **prior_kwargs)
-        else:
-            if self.n_tokens != 0 and self.use_tokens:
-                prime_input_shape = self.n_tokens,
-                self.prime_loss_dims = np.prod(prime_input_shape)
-                self.prime_acts_width, self.prime_state_width = prime_kwargs['width'], prior_kwargs['width']
-                self.prime_prior = ConditionalAutoregressive2D(input_shape=prime_input_shape, x_cond=False, y_cond=False, only_encode=True, **prime_kwargs)
-                self.prime_state_proj = Conv1D(self.prime_acts_width, self.prime_state_width, init_scale=prime_kwargs['init_scale'])
-                self.prime_state_ln = LayerNorm(self.prime_state_width)
-                self.prime_bins = prime_kwargs['bins']
-                self.prime_x_out = nn.Linear(self.prime_state_width, self.prime_bins, bias=False)
-                nn.init.normal_(self.prime_x_out.weight, std=0.02 * prior_kwargs['init_scale'])
-            else:
-                self.prime_loss_dims = 0
-            self.gen_loss_dims = np.prod(self.z_shape)
-            self.total_loss_dims = self.prime_loss_dims + self.gen_loss_dims
-            self.prior = ConditionalAutoregressive2D(x_cond=self.x_cond or self.y_cond, y_cond=self.y_cond, encoder_dims=self.prime_loss_dims, merged_decoder=merged_decoder, **prior_kwargs)
-        self.n_ctx = self.gen_loss_dims
-        self.downsamples = calculate_strides(strides_t, downs_t)
-        self.cond_downsample = self.downsamples[level + 1] if level != self.levels - 1 else None
-        self.raw_to_tokens = np.prod(self.downsamples[:level + 1])
-        self.sample_length = self.n_ctx * self.raw_to_tokens
-        if labels:
-            self.labels_v3 = labels_v3
-            self.labeller = Labeller(self.y_emb.max_bow_genre_size, self.n_tokens, self.sample_length, v3=self.labels_v3)
-        None
-
-    def get_y(self, labels, start, get_indices=False):
-        y = labels['y'].clone()
-        y[:, (2)] = int(self.sample_length)
-        y[:, 1:2] = y[:, 1:2] + int(start * self.raw_to_tokens)
-        indices = self.labeller.set_y_lyric_tokens(y, labels)
-        if get_indices:
-            return y, indices
-        else:
-            return y
-
-    def get_z_conds(self, zs, start, end):
-        if self.level != self.levels - 1:
-            assert start % self.cond_downsample == end % self.cond_downsample == 0
-            z_cond = zs[self.level + 1][:, start // self.cond_downsample:end // self.cond_downsample]
-            assert z_cond.shape[1] == self.n_ctx // self.cond_downsample
-            z_conds = [z_cond]
-        else:
-            z_conds = None
-        return z_conds
-
-    def prior_preprocess(self, xs, conds):
-        N = xs[0].shape[0]
-        for i in range(len(xs)):
-            x, shape, dims = xs[i], self.prior_shapes[i], self.prior_dims[i]
-            bins, bins_shift = int(self.prior_bins[i]), int(self.prior_bins_shift[i])
-            assert isinstance(x, t.cuda.LongTensor), x
-            assert (0 <= x).all() and (x < bins).all()
-            xs[i] = (xs[i] + bins_shift).view(N, -1)
-        for i in range(len(conds)):
-            cond, shape, dims = conds[i], self.prior_shapes[i], self.prior_dims[i]
-            if cond is not None:
-                assert_shape(cond, (N, dims, self.prior_width))
-            else:
-                conds[i] = t.zeros((N, dims, self.prior_width), dtype=t.float, device='cuda')
-        return t.cat(xs, dim=1), t.cat(conds, dim=1)
-
-    def prior_postprocess(self, z):
-        N = z.shape[0]
-        dims = self.prior_dims[0], z.shape[1] - self.prior_dims[0]
-        xs = list(t.split(z, dims, dim=1))
-        for i in range(len(xs)):
-            shape = self.prior_shapes[i]
-            bins, bins_shift = int(self.prior_bins[i]), int(self.prior_bins_shift[i])
-            xs[i] = (xs[i] - bins_shift).view(N, -1, *shape[1:])
-            xs[i] = t.clamp(xs[i], min=0)
-            assert (xs[i] < bins).all(), f'rank: {dist.get_rank()}, bins: {bins}, dims {dims}, shape {shape}, prior_shape {self.prior_shapes}, bins_shift {bins_shift}, xs[i]: {xs[i]}'
-        return xs[-1]
-
-    def x_emb(self, z_conds):
-        z_conds = z_conds[:self.cond_level - self.level]
-        assert len(z_conds) == len(self.conditioner_blocks) == self.cond_level - self.level, f'Expected {len(z_conds)} == {len(self.conditioner_blocks)} == {self.cond_level} - {self.level}'
-        x_cond = None
-        for z_cond, conditioner_block in reversed(list(zip(z_conds, self.conditioner_blocks))):
-            x_cond = conditioner_block(z_cond, x_cond)
-        return x_cond
-
-    def encode(self, x, start_level=None, end_level=None, bs_chunks=1):
-        if start_level == None:
-            start_level = self.level
-        if end_level == None:
-            end_level = self.levels
-        with t.no_grad():
-            zs = self.encoder(x, start_level=start_level, end_level=end_level, bs_chunks=bs_chunks)
-        return zs
-
-    def decode(self, zs, start_level=None, end_level=None, bs_chunks=1):
-        if start_level == None:
-            start_level = self.level
-        if end_level == None:
-            end_level = self.levels
-        assert len(zs) == end_level - start_level
-        with t.no_grad():
-            x_out = self.decoder(zs, start_level=start_level, end_level=end_level, bs_chunks=bs_chunks)
-        return x_out
-
-    def get_cond(self, z_conds, y):
-        if y is not None:
-            assert y.shape[1] == 4 + self.y_emb.max_bow_genre_size + self.n_tokens, f'Expected {4} + {self.y_emb.max_bow_genre_size} + {self.n_tokens}, got {y.shape[1]}'
-            n_labels = y.shape[1] - self.n_tokens
-            y, prime = y[:, :n_labels], y[:, n_labels:]
-        else:
-            y, prime = None, None
-        y_cond, y_pos = self.y_emb(y) if self.y_cond else (None, None)
-        x_cond = self.x_emb(z_conds) if self.x_cond else y_pos
-        return x_cond, y_cond, prime
-
-    def sample(self, n_samples, z=None, z_conds=None, y=None, fp16=False, temp=1.0, top_k=0, top_p=0.0, chunk_size=None, sample_tokens=None):
-        N = n_samples
-        if z is not None:
-            assert z.shape[0] == N, f'Expected shape ({N},**), got shape {z.shape}'
-        if y is not None:
-            assert y.shape[0] == N, f'Expected shape ({N},**), got shape {y.shape}'
-        if z_conds is not None:
-            for z_cond in z_conds:
-                assert z_cond.shape[0] == N, f'Expected shape ({N},**), got shape {z_cond.shape}'
-        no_past_context = z is None or z.shape[1] == 0
-        if dist.get_rank() == 0:
-            name = {(True): 'Ancestral', (False): 'Primed'}[no_past_context]
-            None
-        with t.no_grad():
-            x_cond, y_cond, prime = self.get_cond(z_conds, y)
-            if self.single_enc_dec:
-                if no_past_context:
-                    z, x_cond = self.prior_preprocess([prime], [None, x_cond])
-                else:
-                    z, x_cond = self.prior_preprocess([prime, z], [None, x_cond])
-                if sample_tokens is not None:
-                    sample_tokens += self.n_tokens
-                z = self.prior.primed_sample(n_samples, z, x_cond, y_cond, fp16=fp16, temp=temp, top_k=top_k, top_p=top_p, chunk_size=chunk_size, sample_tokens=sample_tokens)
-                z = self.prior_postprocess(z)
-            else:
-                encoder_kv = self.get_encoder_kv(prime, fp16=fp16, sample=True)
-                if no_past_context:
-                    z = self.prior.sample(n_samples, x_cond, y_cond, encoder_kv, fp16=fp16, temp=temp, top_k=top_k, top_p=top_p, sample_tokens=sample_tokens)
-                else:
-                    z = self.prior.primed_sample(n_samples, z, x_cond, y_cond, encoder_kv, fp16=fp16, temp=temp, top_k=top_k, top_p=top_p, chunk_size=chunk_size, sample_tokens=sample_tokens)
-            if sample_tokens is None:
-                assert_shape(z, (N, *self.z_shape))
-        return z
-
-    def get_encoder_kv(self, prime, fp16=False, sample=False):
-        if self.n_tokens != 0 and self.use_tokens:
-            if sample:
-                self.prime_prior
-            N = prime.shape[0]
-            prime_acts = self.prime_prior(prime, None, None, None, fp16=fp16)
-            assert_shape(prime_acts, (N, self.prime_loss_dims, self.prime_acts_width))
-            assert prime_acts.dtype == t.float, f'Expected t.float, got {prime_acts.dtype}'
-            encoder_kv = self.prime_state_ln(self.prime_state_proj(prime_acts))
-            assert encoder_kv.dtype == t.float, f'Expected t.float, got {encoder_kv.dtype}'
-            if sample:
-                self.prime_prior.cpu()
-                if fp16:
-                    encoder_kv = encoder_kv.half()
-        else:
-            encoder_kv = None
-        return encoder_kv
-
-    def get_prime_loss(self, encoder_kv, prime_t):
-        if self.use_tokens:
-            encoder_kv = encoder_kv.float()
-            encoder_kv = self.prime_x_out(encoder_kv)
-            prime_loss = nn.functional.cross_entropy(encoder_kv.view(-1, self.prime_bins), prime_t.view(-1)) / np.log(2.0)
-        else:
-            prime_loss = t.tensor(0.0, device='cuda')
-        return prime_loss
-
-    def z_forward(self, z, z_conds=[], y=None, fp16=False, get_preds=False, get_attn_weights=False):
-        """
-        Arguments:
-            get_attn_weights (bool or set): Makes forward prop dump
-                self-attention softmaxes to self.prior.transformer.ws. Either a
-                set of layer indices indicating which layers to store, or a
-                boolean value indicating whether to dump all.
-        """
-        assert isinstance(get_attn_weights, (bool, set))
-        if get_attn_weights:
-            self.prior.transformer.set_record_attn(get_attn_weights)
-        x_cond, y_cond, prime = self.get_cond(z_conds, y)
-        if self.copy_input:
-            prime = z[:, :self.n_tokens]
-        if self.single_enc_dec:
-            z, x_cond = self.prior_preprocess([prime, z], [None, x_cond])
-            (prime_loss, gen_loss), preds = self.prior(z, x_cond, y_cond, fp16=fp16, get_sep_loss=True, get_preds=get_preds)
-        else:
-            encoder_kv = self.get_encoder_kv(prime, fp16=fp16)
-            prime_loss = self.get_prime_loss(encoder_kv, prime)
-            gen_loss, preds = self.prior(z, x_cond, y_cond, encoder_kv, fp16=fp16, get_preds=get_preds)
-        loss = self.prime_loss_fraction * prime_loss * self.prime_loss_dims / self.total_loss_dims + gen_loss * self.gen_loss_dims / self.total_loss_dims
-        metrics = dict(bpd=gen_loss.clone().detach(), prime_loss=prime_loss.clone().detach(), gen_loss=gen_loss.clone().detach())
-        if get_preds:
-            metrics['preds'] = preds.clone().detach()
-        if get_attn_weights:
-            ws = self.prior.transformer.ws
-            self.prior.transformer.set_record_attn(False)
-            return ws
-        else:
-            return loss, metrics
-
-    def forward(self, x, y=None, fp16=False, decode=False, get_preds=False):
-        bs = x.shape[0]
-        z, *z_conds = self.encode(x, bs_chunks=bs)
-        loss, metrics = self.z_forward(z=z, z_conds=z_conds, y=y, fp16=fp16, get_preds=get_preds)
-        if decode:
-            x_out = self.decode([z, *z_conds])
-        else:
-            x_out = None
-        return x_out, loss, metrics
 
 
 class CheckpointFunction(t.autograd.Function):
@@ -3030,37 +2076,18 @@ class FactoredAttention(nn.Module):
             assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(y_forw - y_forw_in_chunks)[:, (i), :]) > 1e-06]}'
 
 
-class Conv1D(nn.Module):
+class LayerNorm(FusedLayerNorm):
 
-    def __init__(self, n_in, n_out, zero_out=False, init_scale=1.0):
-        super(Conv1D, self).__init__()
-        self.n_in = n_in
-        self.n_out = n_out
-        if zero_out:
-            w = t.zeros(n_in, n_out)
+    def __init__(self, normalized_shape, eps=1e-05, elementwise_affine=True):
+        super().__init__(normalized_shape, eps=eps, elementwise_affine=elementwise_affine)
+        self.width = np.prod(normalized_shape)
+        self.max_numel = 65535 * self.width
+
+    def forward(self, input):
+        if input.numel() > self.max_numel:
+            return F.layer_norm(input.float(), self.normalized_shape, self.weight, self.bias, self.eps).type_as(input)
         else:
-            w = t.empty(n_in, n_out)
-            nn.init.normal_(w, std=0.02 * init_scale)
-        b = t.zeros(n_out)
-        self.w = nn.Parameter(w)
-        self.b = nn.Parameter(b)
-
-    def forward(self, x):
-        size_out = *x.size()[:-1], self.n_out
-        x = t.addmm(self.b.type_as(x), x.view(-1, x.size(-1)), self.w.type_as(x))
-        x = x.view(*size_out)
-        return x
-
-
-class Mask(nn.Module):
-
-    def __init__(self, n_ctx):
-        super().__init__()
-        self.register_buffer('b', t.tril(t.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
-
-    def forward(self, w):
-        w = w * self.b + -1000000000.0 * (1 - self.b)
-        return w
+            return super(LayerNorm, self).forward(input.float()).type_as(input)
 
 
 def gelu(x):
@@ -3246,6 +2273,1014 @@ class Transformer(nn.Module):
             y_forw_in_chunks = t.cat(y_chunks, dim=1)
             max_err = t.max(t.abs(y_forw - y_forw_in_chunks))
             assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(y_forw - y_forw_in_chunks)[:, (i), :]) > 1e-06]}'
+
+
+def empty_cache():
+    gc.collect()
+    t.cuda.empty_cache()
+
+
+def filter_logits(logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
+    """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
+        Args:
+            logits: logits distribution shape (vocabulary size)
+            top_k >0: keep only top k tokens with highest probability (top-k filtering).
+            top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
+    """
+    logits = logits.clone()
+    top_k = min(top_k, logits.size(-1))
+    assert top_k == 0 or top_p == 0.0
+    if top_k > 0:
+        indices_to_remove = logits < t.topk(logits, top_k, dim=-1)[0][(...), -1:]
+        logits[indices_to_remove] = filter_value
+    if top_p > 0.0:
+        sorted_logits, sorted_indices = t.sort(logits, descending=True, dim=-1)
+        cumulative_probs = t.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+        sorted_indices_to_remove = cumulative_probs > top_p
+        sorted_indices_to_remove[(...), 1:] = sorted_indices_to_remove[(...), :-1].clone()
+        sorted_indices_to_remove[..., 0] = 0
+        indices_to_remove = t.zeros_like(logits, dtype=t.uint8).scatter_(dim=-1, index=sorted_indices, src=sorted_indices_to_remove)
+        logits[indices_to_remove] = filter_value
+    return logits
+
+
+def def_tqdm(x):
+    return tqdm(x, leave=True, file=sys.stdout, bar_format='{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]')
+
+
+def get_range(x):
+    if dist.get_rank() == 0:
+        return def_tqdm(x)
+    else:
+        return x
+
+
+def roll(x, n):
+    return t.cat((x[:, -n:], x[:, :-n]), dim=1)
+
+
+def split_chunks(length, chunk_size):
+    n_passes = (length + chunk_size - 1) // chunk_size
+    chunk_sizes = [*([chunk_size] * (n_passes - 1)), (length - 1) % chunk_size + 1]
+    assert sum(chunk_sizes) == length
+    return chunk_sizes
+
+
+class ConditionalAutoregressive2D(nn.Module):
+
+    def __init__(self, input_shape, bins, width=128, depth=2, heads=1, attn_dropout=0.0, resid_dropout=0.0, emb_dropout=0.0, mask=True, zero_out=False, init_scale=1.0, res_scale=False, pos_init=False, m_attn=0.25, m_mlp=1, checkpoint_res=0, checkpoint_attn=0, checkpoint_mlp=0, attn_order=0, blocks=None, spread=None, x_cond=False, y_cond=False, encoder_dims=0, only_encode=False, merged_decoder=False, prime_len=None):
+        super().__init__()
+        self.input_shape = input_shape
+        self.input_dims = input_dims = np.prod(input_shape)
+        self.encoder_dims = encoder_dims
+        self.bins = bins
+        self.width = width
+        self.depth = depth
+        self.x_emb = nn.Embedding(bins, width)
+        nn.init.normal_(self.x_emb.weight, std=0.02 * init_scale)
+        self.x_emb_dropout = nn.Dropout(emb_dropout)
+        self.y_cond = y_cond
+        self.x_cond = x_cond
+        if not y_cond:
+            self.start_token = nn.Parameter(get_normal(1, width, std=0.01 * init_scale))
+        self.pos_emb = PositionEmbedding(input_shape=input_shape, width=width, init_scale=init_scale, pos_init=pos_init)
+        self.pos_emb_dropout = nn.Dropout(emb_dropout)
+        self.transformer = Transformer(n_in=width, n_ctx=input_dims, n_head=heads, n_depth=depth, attn_dropout=attn_dropout, resid_dropout=resid_dropout, afn='quick_gelu', scale=True, mask=mask, zero_out=zero_out, init_scale=init_scale, res_scale=res_scale, m_attn=m_attn, m_mlp=m_mlp, checkpoint_attn=checkpoint_attn, checkpoint_mlp=checkpoint_mlp, checkpoint_res=checkpoint_res, attn_order=attn_order, blocks=blocks, spread=spread, encoder_dims=encoder_dims, prime_len=prime_len)
+        self.only_encode = only_encode
+        self.prime_len = prime_len
+        if merged_decoder:
+            self.add_cond_after_transformer = False
+            self.share_x_emb_x_out = False
+        else:
+            self.add_cond_after_transformer = True
+            self.share_x_emb_x_out = True
+        if not only_encode:
+            self.x_out = nn.Linear(width, bins, bias=False)
+            if self.share_x_emb_x_out:
+                self.x_out.weight = self.x_emb.weight
+            self.loss = t.nn.CrossEntropyLoss()
+
+    def preprocess(self, x):
+        N = x.shape[0]
+        return x.view(N, -1).long()
+
+    def postprocess(self, x, sample_tokens=None):
+        N = x.shape[0]
+        assert (0 <= x).all() and (x < self.bins).all()
+        if sample_tokens is None or sample_tokens == self.input_dims:
+            return x.view(N, *self.input_shape)
+        else:
+            return x.view(N, -1)
+
+    def forward(self, x, x_cond=None, y_cond=None, encoder_kv=None, fp16=False, loss_full=False, encode=False, get_preds=False, get_acts=False, get_sep_loss=False):
+        with t.no_grad():
+            x = self.preprocess(x)
+        N, D = x.shape
+        assert isinstance(x, t.cuda.LongTensor)
+        assert (0 <= x).all() and (x < self.bins).all()
+        if self.y_cond:
+            assert y_cond is not None
+            assert y_cond.shape == (N, 1, self.width)
+        else:
+            assert y_cond is None
+        if self.x_cond:
+            assert x_cond is not None
+            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N, 1, self.width), f'{x_cond.shape} != {N, D, self.width} nor {N, 1, self.width}. Did you pass the correct --sample_length?'
+        else:
+            assert x_cond is None
+            x_cond = t.zeros((N, 1, self.width), device=x.device, dtype=t.float)
+        x_t = x
+        x = self.x_emb(x)
+        x = roll(x, 1)
+        if self.y_cond:
+            x[:, (0)] = y_cond.view(N, self.width)
+        else:
+            x[:, (0)] = self.start_token
+        x = self.x_emb_dropout(x) + self.pos_emb_dropout(self.pos_emb()) + x_cond
+        x = self.transformer(x, encoder_kv=encoder_kv, fp16=fp16)
+        if self.add_cond_after_transformer:
+            x = x + x_cond
+        acts = x
+        if self.only_encode:
+            return x
+        x = self.x_out(x)
+        if get_sep_loss:
+            assert self.prime_len is not None
+            x_prime = x[:, :self.prime_len].reshape(-1, self.bins)
+            x_gen = x[:, self.prime_len:].reshape(-1, self.bins)
+            prime_loss = F.cross_entropy(x_prime, x_t[:, :self.prime_len].reshape(-1)) / np.log(2.0)
+            gen_loss = F.cross_entropy(x_gen, x_t[:, self.prime_len:].reshape(-1)) / np.log(2.0)
+            loss = prime_loss, gen_loss
+        else:
+            loss = F.cross_entropy(x.view(-1, self.bins), x_t.view(-1)) / np.log(2.0)
+        if get_preds:
+            return loss, x
+        elif get_acts:
+            return loss, acts
+        else:
+            return loss, None
+
+    def get_emb(self, sample_t, n_samples, x, x_cond, y_cond):
+        N, D = n_samples, self.input_dims
+        if sample_t == 0:
+            x = t.empty(n_samples, 1, self.width)
+            if self.y_cond:
+                x[:, (0)] = y_cond.view(N, self.width)
+            else:
+                x[:, (0)] = self.start_token
+        else:
+            assert isinstance(x, t.cuda.LongTensor)
+            assert (0 <= x).all() and (x < self.bins).all()
+            x = self.x_emb(x)
+        assert x.shape == (n_samples, 1, self.width)
+        if x_cond.shape == (N, D, self.width):
+            cond = x_cond[:, sample_t:sample_t + 1, :]
+        else:
+            cond = x_cond
+        x = x + self.pos_emb()[sample_t:sample_t + 1] + cond
+        assert x.shape == (n_samples, 1, self.width)
+        return x, cond
+
+    def sample(self, n_samples, x_cond=None, y_cond=None, encoder_kv=None, fp16=False, temp=1.0, top_k=0, top_p=0.0, get_preds=False, sample_tokens=None):
+        assert self.training == False
+        if sample_tokens is None:
+            sample_tokens = self.input_dims
+        N, D = n_samples, self.input_dims
+        if self.y_cond:
+            assert y_cond is not None
+            assert y_cond.shape == (N, 1, self.width)
+        else:
+            assert y_cond is None
+        if self.x_cond:
+            assert x_cond is not None
+            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N, 1, self.width), f'Got {x_cond.shape}, expected ({N}, {D}/{1}, {self.width})'
+        else:
+            assert x_cond is None
+            x_cond = t.zeros((N, 1, self.width), dtype=t.float)
+        with t.no_grad():
+            xs, x = [], None
+            if get_preds:
+                preds = []
+            for sample_t in get_range(range(0, sample_tokens)):
+                x, cond = self.get_emb(sample_t, n_samples, x, x_cond, y_cond)
+                self.transformer.check_cache(n_samples, sample_t, fp16)
+                x = self.transformer(x, encoder_kv=encoder_kv, sample=True, fp16=fp16)
+                if self.add_cond_after_transformer:
+                    x = x + cond
+                assert x.shape == (n_samples, 1, self.width)
+                x = self.x_out(x)
+                if get_preds:
+                    preds.append(x.clone())
+                x = x / temp
+                x = filter_logits(x, top_k=top_k, top_p=top_p)
+                x = t.distributions.Categorical(logits=x).sample()
+                assert x.shape == (n_samples, 1)
+                xs.append(x.clone())
+            del x
+            self.transformer.del_cache()
+            x = t.cat(xs, dim=1)
+            if get_preds:
+                preds = t.cat(preds, dim=1)
+            x = self.postprocess(x, sample_tokens)
+        if get_preds:
+            return x, preds
+        else:
+            return x
+
+    def primed_sample(self, n_samples, x, x_cond=None, y_cond=None, encoder_kv=None, fp16=False, temp=1.0, top_k=0, top_p=0.0, get_preds=False, chunk_size=None, sample_tokens=None):
+        assert self.training == False
+        if sample_tokens is None:
+            sample_tokens = self.input_dims
+        with t.no_grad():
+            x = self.preprocess(x)
+        assert isinstance(x, t.cuda.LongTensor)
+        assert (0 <= x).all() and (x < self.bins).all()
+        assert x.shape[0] == n_samples
+        xs = t.split(x, 1, dim=1)
+        xs = list(xs)
+        assert len(xs) < sample_tokens
+        N, D = n_samples, self.input_dims
+        if self.y_cond:
+            assert y_cond is not None
+            assert y_cond.shape == (N, 1, self.width)
+        else:
+            assert y_cond is None
+        if self.x_cond:
+            assert x_cond is not None
+            assert x_cond.shape == (N, D, self.width) or x_cond.shape == (N, 1, self.width), f'Got {x_cond.shape}, expected ({N}, {D}/{1}, {self.width})'
+        else:
+            assert x_cond is None
+            x_cond = t.zeros((N, 1, self.width), dtype=t.float)
+        with t.no_grad():
+            if get_preds:
+                preds = []
+            if chunk_size is None:
+                chunk_size = len(xs)
+            chunk_sizes = split_chunks(len(xs), chunk_size)
+            x_primes = []
+            start = 0
+            x = None
+            for current_chunk_size in get_range(chunk_sizes):
+                xs_prime, conds_prime = [], []
+                for sample_t in range(start, start + current_chunk_size):
+                    x_prime, cond_prime = self.get_emb(sample_t, n_samples, x, x_cond, y_cond)
+                    x = xs[sample_t]
+                    xs_prime.append(x_prime)
+                    conds_prime.append(cond_prime)
+                start = start + current_chunk_size
+                x_prime, cond_prime = t.cat(xs_prime, dim=1), t.cat(conds_prime, dim=1)
+                assert x_prime.shape == (n_samples, current_chunk_size, self.width)
+                assert cond_prime.shape == (n_samples, current_chunk_size, self.width)
+                del xs_prime
+                del conds_prime
+                if not get_preds:
+                    del cond_prime
+                x_prime = self.transformer(x_prime, encoder_kv=encoder_kv, sample=True, fp16=fp16)
+                if get_preds:
+                    if self.add_cond_after_transformer:
+                        x_prime = x_prime + cond_prime
+                    assert x_prime.shape == (n_samples, current_chunk_size, self.width)
+                    del cond_prime
+                    x_primes.append(x_prime)
+                else:
+                    del x_prime
+            if get_preds:
+                x_prime = t.cat(x_primes, dim=1)
+                assert x_prime.shape == (n_samples, len(xs), self.width)
+                x_prime = self.x_out(x_prime)
+                preds.append(x_prime)
+            empty_cache()
+            self.transformer.check_cache(n_samples, len(xs), fp16)
+            x = xs[-1]
+            assert x.shape == (n_samples, 1)
+            empty_cache()
+            for sample_t in get_range(range(len(xs), sample_tokens)):
+                x, cond = self.get_emb(sample_t, n_samples, x, x_cond, y_cond)
+                self.transformer.check_cache(n_samples, sample_t, fp16)
+                x = self.transformer(x, encoder_kv=encoder_kv, sample=True, fp16=fp16)
+                if self.add_cond_after_transformer:
+                    x = x + cond
+                assert x.shape == (n_samples, 1, self.width)
+                x = self.x_out(x)
+                if get_preds:
+                    preds.append(x)
+                x = x / temp
+                x = filter_logits(x, top_k=top_k, top_p=top_p)
+                x = t.distributions.Categorical(logits=x).sample()
+                assert x.shape == (n_samples, 1)
+                xs.append(x.clone())
+            del x
+            self.transformer.del_cache()
+            x = t.cat(xs, dim=1)
+            if get_preds:
+                preds = t.cat(preds, dim=1)
+            x = self.postprocess(x, sample_tokens)
+        if get_preds:
+            return x, preds
+        else:
+            return x
+
+    def check_sample(self, chunk_size):
+        bs, l, d = 4, self.input_dims, self.width
+        prime = int(self.input_dims // 8 * 7)
+        enc_l = self.encoder_dims
+        with t.no_grad():
+            y_cond = t.randn(bs, 1, d) if self.y_cond else None
+            x_cond = t.randn(bs, l, d) if self.x_cond else None
+            encoder_kv = t.randn(bs, enc_l, d)
+            x, preds_sample = self.sample(bs, x_cond, y_cond, encoder_kv, get_preds=True)
+            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
+            max_err = t.max(t.abs(preds_sample - preds_forw))
+            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
+            x_prime = x.view(bs, -1)[:, :prime]
+            x, preds_sample = self.primed_sample(bs, x_prime.clone(), x_cond, y_cond, encoder_kv, get_preds=True)
+            assert (x.view(bs, -1)[:, :prime] == x_prime).all(), "Priming samples don't match"
+            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
+            max_err = t.max(t.abs(preds_sample - preds_forw))
+            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
+            x, preds_sample = self.primed_sample(bs, x_prime.clone(), x_cond, y_cond, encoder_kv, get_preds=True, chunk_size=chunk_size)
+            assert (x.view(bs, -1)[:, :prime] == x_prime).all(), "Priming samples don't match"
+            loss, preds_forw = self.forward(x, x_cond, y_cond, encoder_kv, get_preds=True)
+            max_err = t.max(t.abs(preds_sample - preds_forw))
+            assert max_err <= 1e-06, f'Max err is {max_err} {[i for i in range(l) if t.max(t.abs(preds_sample - preds_forw)[:, (i), :]) > 1e-06]}'
+
+
+class ResConv1DBlock(nn.Module):
+
+    def __init__(self, n_in, n_state, dilation=1, zero_out=False, res_scale=1.0):
+        super().__init__()
+        padding = dilation
+        self.model = nn.Sequential(nn.ReLU(), nn.Conv1d(n_in, n_state, 3, 1, padding, dilation), nn.ReLU(), nn.Conv1d(n_state, n_in, 1, 1, 0))
+        if zero_out:
+            out = self.model[-1]
+            nn.init.zeros_(out.weight)
+            nn.init.zeros_(out.bias)
+        self.res_scale = res_scale
+
+    def forward(self, x):
+        return x + self.res_scale * self.model(x)
+
+
+class Resnet1D(nn.Module):
+
+    def __init__(self, n_in, n_depth, m_conv=1.0, dilation_growth_rate=1, dilation_cycle=None, zero_out=False, res_scale=False, reverse_dilation=False, checkpoint_res=False):
+        super().__init__()
+
+        def _get_depth(depth):
+            if dilation_cycle is None:
+                return depth
+            else:
+                return depth % dilation_cycle
+        blocks = [ResConv1DBlock(n_in, int(m_conv * n_in), dilation=dilation_growth_rate ** _get_depth(depth), zero_out=zero_out, res_scale=1.0 if not res_scale else 1.0 / math.sqrt(n_depth)) for depth in range(n_depth)]
+        if reverse_dilation:
+            blocks = blocks[::-1]
+        self.checkpoint_res = checkpoint_res
+        if self.checkpoint_res == 1:
+            if dist.get_rank() == 0:
+                None
+            self.blocks = nn.ModuleList(blocks)
+        else:
+            self.model = nn.Sequential(*blocks)
+
+    def forward(self, x):
+        if self.checkpoint_res == 1:
+            for block in self.blocks:
+                x = checkpoint(block, (x,), block.parameters(), True)
+            return x
+        else:
+            return self.model(x)
+
+
+class DecoderConvBock(nn.Module):
+
+    def __init__(self, input_emb_width, output_emb_width, down_t, stride_t, width, depth, m_conv, dilation_growth_rate=1, dilation_cycle=None, zero_out=False, res_scale=False, reverse_decoder_dilation=False, checkpoint_res=False):
+        super().__init__()
+        blocks = []
+        if down_t > 0:
+            filter_t, pad_t = stride_t * 2, stride_t // 2
+            block = nn.Conv1d(output_emb_width, width, 3, 1, 1)
+            blocks.append(block)
+            for i in range(down_t):
+                block = nn.Sequential(Resnet1D(width, depth, m_conv, dilation_growth_rate, dilation_cycle, zero_out=zero_out, res_scale=res_scale, reverse_dilation=reverse_decoder_dilation, checkpoint_res=checkpoint_res), nn.ConvTranspose1d(width, input_emb_width if i == down_t - 1 else width, filter_t, stride_t, pad_t))
+                blocks.append(block)
+        self.model = nn.Sequential(*blocks)
+
+    def forward(self, x):
+        return self.model(x)
+
+
+def assert_shape(x, exp_shape):
+    assert x.shape == exp_shape, f'Expected {exp_shape} got {x.shape}'
+
+
+class Conditioner(nn.Module):
+
+    def __init__(self, input_shape, bins, down_t, stride_t, out_width, init_scale, zero_out, res_scale, **block_kwargs):
+        super().__init__()
+        self.x_shape = input_shape
+        self.width = out_width
+        self.x_emb = nn.Embedding(bins, out_width)
+        nn.init.normal_(self.x_emb.weight, std=0.02 * init_scale)
+        self.cond = DecoderConvBock(self.width, self.width, down_t, stride_t, **block_kwargs, zero_out=zero_out, res_scale=res_scale)
+        self.ln = LayerNorm(self.width)
+
+    def preprocess(self, x):
+        x = x.permute(0, 2, 1)
+        return x
+
+    def postprocess(self, x):
+        x = x.permute(0, 2, 1)
+        return x
+
+    def forward(self, x, x_cond=None):
+        N = x.shape[0]
+        assert_shape(x, (N, *self.x_shape))
+        if x_cond is not None:
+            assert_shape(x_cond, (N, *self.x_shape, self.width))
+        else:
+            x_cond = 0.0
+        x = x.long()
+        x = self.x_emb(x)
+        assert_shape(x, (N, *self.x_shape, self.width))
+        x = x + x_cond
+        x = self.preprocess(x)
+        x = self.cond(x)
+        x = self.postprocess(x)
+        x = self.ln(x)
+        return x
+
+
+class SimpleEmbedding(nn.Module):
+
+    def __init__(self, bins, out_width, init_scale):
+        super().__init__()
+        self.bins = bins
+        self.emb = nn.Embedding(bins, out_width)
+        nn.init.normal_(self.emb.weight, std=0.01 * init_scale)
+
+    def forward(self, y):
+        assert len(y.shape) == 2, f'Expected shape with 2 dims, got {y.shape}'
+        assert isinstance(y, t.cuda.LongTensor), f'Expected dtype {t.cuda.LongTensor}, got {y.dtype}'
+        assert (0 <= y).all() and (y < self.bins).all(), f'Bins {self.bins}, got label {y}'
+        return self.emb(y)
+
+
+class RangeEmbedding(nn.Module):
+
+    def __init__(self, n_time, bins, range, out_width, init_scale, clamp=False):
+        super().__init__()
+        self.n_time = n_time
+        self.bins = bins
+        self.emb = nn.Embedding(bins, out_width)
+        nn.init.normal_(self.emb.weight, std=0.01 * init_scale)
+        self.pos_min, self.pos_max = range
+        self.clamp = clamp
+
+    def forward(self, pos_start, pos_end=None):
+        assert len(pos_start.shape) == 2, f'Expected shape with 2 dims, got {pos_start.shape}'
+        assert (self.pos_min <= pos_start).all() and (pos_start < self.pos_max).all(), f'Range is [{self.pos_min},{self.pos_max}), got {pos_start}'
+        pos_start = pos_start.float()
+        if pos_end is not None:
+            assert len(pos_end.shape) == 2, f'Expected shape with 2 dims, got {pos_end.shape}'
+            if self.clamp:
+                pos_end = pos_end.clamp(self.pos_min, self.pos_max)
+            assert (self.pos_min <= pos_end).all() and (pos_end <= self.pos_max).all(), f'Range is [{self.pos_min},{self.pos_max}), got {pos_end}'
+            pos_end = pos_end.float()
+        n_time = self.n_time
+        if n_time != 1:
+            assert pos_end is not None
+            interpolation = t.arange(0, n_time, dtype=t.float, device='cuda').view(1, n_time) / n_time
+            position = pos_start + (pos_end - pos_start) * interpolation
+        else:
+            position = pos_start
+        normalised_position = (position - self.pos_min) / (self.pos_max - self.pos_min)
+        bins = (self.bins * normalised_position).floor().long().detach()
+        return self.emb(bins)
+
+
+class LabelConditioner(nn.Module):
+
+    def __init__(self, y_bins, t_bins, sr, min_duration, max_duration, n_time, out_width, init_scale, max_bow_genre_size, include_time_signal):
+        super().__init__()
+        self.n_time = n_time
+        self.out_width = out_width
+        assert len(y_bins) == 2, f'Expecting (genre, artist) bins, got {y_bins}'
+        bow_genre_bins, artist_bins = y_bins
+        self.max_bow_genre_size = max_bow_genre_size
+        self.bow_genre_emb = SimpleEmbedding(bow_genre_bins, out_width, init_scale)
+        self.artist_emb = SimpleEmbedding(artist_bins, out_width, init_scale)
+        self.include_time_signal = include_time_signal
+        if self.include_time_signal:
+            t_ranges = (min_duration * sr, max_duration * sr), (0.0, max_duration * sr), (0.0, 1.0)
+            assert len(t_ranges) == 3, f'Expecting (total, absolute, relative) ranges, got {t_ranges}'
+            total_length_range, absolute_pos_range, relative_pos_range = t_ranges
+            self.total_length_emb = RangeEmbedding(1, t_bins, total_length_range, out_width, init_scale)
+            self.absolute_pos_emb = RangeEmbedding(n_time, t_bins, absolute_pos_range, out_width, init_scale)
+            self.relative_pos_emb = RangeEmbedding(n_time, t_bins, relative_pos_range, out_width, init_scale, clamp=True)
+
+    def forward(self, y):
+        assert len(y.shape) == 2, f'Expected shape with 2 dims, got {y.shape}'
+        assert y.shape[-1] == 4 + self.max_bow_genre_size, f'Expected shape (N,{4 + self.max_bow_genre_size}), got {y.shape}'
+        assert isinstance(y, t.cuda.LongTensor), f'Expected dtype {t.cuda.LongTensor}, got {y.dtype}'
+        N = y.shape[0]
+        total_length, offset, length, artist, genre = y[:, 0:1], y[:, 1:2], y[:, 2:3], y[:, 3:4], y[:, 4:]
+        artist_emb = self.artist_emb(artist)
+        mask = (genre >= 0).float().unsqueeze(2)
+        genre_emb = (self.bow_genre_emb(genre.clamp(0)) * mask).sum(dim=1, keepdim=True)
+        start_emb = genre_emb + artist_emb
+        assert_shape(start_emb, (N, 1, self.out_width))
+        if self.include_time_signal:
+            start, end = offset, offset + length
+            total_length, start, end = total_length.float(), start.float(), end.float()
+            pos_emb = self.total_length_emb(total_length) + self.absolute_pos_emb(start, end) + self.relative_pos_emb(start / total_length, end / total_length)
+            assert_shape(pos_emb, (N, self.n_time, self.out_width))
+        else:
+            pos_emb = None
+        return start_emb, pos_emb
+
+
+def create_reverse_lookup(atoi):
+    itoa = {}
+    for a, i in atoi.items():
+        if i not in itoa:
+            itoa[i] = []
+        itoa[i].append(a)
+    indices = sorted(list(itoa.keys()))
+    for i in indices:
+        itoa[i] = '_'.join(sorted(itoa[i]))
+    return itoa
+
+
+def norm(x):
+    return (x.view(x.shape[0], -1) ** 2).sum(dim=-1).sqrt()
+
+
+class ArtistGenreProcessor:
+
+    def __init__(self, v3=False):
+        self.v3 = v3
+        dirname = os.path.dirname(__file__)
+        if self.v3:
+            self.artist_id_file = f'{dirname}/ids/v3_artist_ids.txt'
+            self.genre_id_file = f'{dirname}/ids/v3_genre_ids.txt'
+        else:
+            self.artist_id_file = f'{dirname}/ids/v2_artist_ids.txt'
+            self.genre_id_file = f'{dirname}/ids/v2_genre_ids.txt'
+        self.load_artists()
+        self.load_genres()
+
+    def get_artist_id(self, artist):
+        input_artist = artist
+        if self.v3:
+            artist = artist.lower()
+        else:
+            artist = norm(artist)
+        if artist not in self.artist_ids:
+            None
+        return self.artist_ids.get(artist, 0)
+
+    def get_genre_ids(self, genre):
+        if self.v3:
+            genres = [genre.lower()]
+        else:
+            genres = norm(genre).split('_')
+        for word in genres:
+            if word not in self.genre_ids:
+                None
+        return [self.genre_ids.get(word, 0) for word in genres]
+
+    def get_artist(self, artist_id):
+        return self.artists[artist_id]
+
+    def get_genre(self, genre_ids):
+        if self.v3:
+            assert len(genre_ids) == 1
+            genre = self.genres[genre_ids[0]]
+        else:
+            genre = '_'.join([self.genres[genre_id] for genre_id in genre_ids if genre_id >= 0])
+        return genre
+
+    def load_artists(self):
+        None
+        self.artist_ids = {}
+        with open(self.artist_id_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                artist, artist_id = line.strip().split(';')
+                self.artist_ids[artist.lower()] = int(artist_id)
+        self.artists = create_reverse_lookup(self.artist_ids)
+
+    def load_genres(self):
+        None
+        self.genre_ids = {}
+        with open(self.genre_id_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                genre, genre_id = line.strip().split(';')
+                self.genre_ids[genre.lower()] = int(genre_id)
+        self.genres = create_reverse_lookup(self.genre_ids)
+
+
+class TextProcessor:
+
+    def __init__(self, v3=False):
+        if v3:
+            vocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-\'"()[] \t\n'
+            not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-\'"()\\[\\] \t\n]+')
+        else:
+            vocab = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,:;!?-+\'"()[] \t\n'
+            not_vocab = re.compile('[^A-Za-z0-9.,:;!?\\-+\'"()\\[\\] \t\n]+')
+        self.vocab = {vocab[index]: (index + 1) for index in range(len(vocab))}
+        self.vocab['<unk>'] = 0
+        self.n_vocab = len(vocab) + 1
+        self.tokens = {v: k for k, v in self.vocab.items()}
+        self.tokens[0] = ''
+        self.not_vocab = not_vocab
+
+    def clean(self, text):
+        text = unidecode(text)
+        text = text.replace('\\', '\n')
+        text = self.not_vocab.sub('', text)
+        return text
+
+    def tokenise(self, text):
+        return [self.vocab[char] for char in text]
+
+    def textise(self, tokens):
+        return ''.join([self.tokens[token] for token in tokens])
+
+    def characterise(self, tokens):
+        return [self.tokens[token] for token in tokens]
+
+
+def get_relevant_lyric_tokens(full_tokens, n_tokens, total_length, offset, duration):
+    if len(full_tokens) < n_tokens:
+        tokens = [0] * (n_tokens - len(full_tokens)) + full_tokens
+        indices = [-1] * (n_tokens - len(full_tokens)) + list(range(0, len(full_tokens)))
+    else:
+        assert 0 <= offset < total_length
+        midpoint = int(len(full_tokens) * (offset + duration / 2.0) / total_length)
+        midpoint = min(max(midpoint, n_tokens // 2), len(full_tokens) - n_tokens // 2)
+        tokens = full_tokens[midpoint - n_tokens // 2:midpoint + n_tokens // 2]
+        indices = list(range(midpoint - n_tokens // 2, midpoint + n_tokens // 2))
+    assert len(tokens) == n_tokens, f'Expected length {n_tokens}, got {len(tokens)}'
+    assert len(indices) == n_tokens, f'Expected length {n_tokens}, got {len(indices)}'
+    assert tokens == [(full_tokens[index] if index != -1 else 0) for index in indices]
+    return tokens, indices
+
+
+class Labeller:
+
+    def __init__(self, max_genre_words, n_tokens, sample_length, v3=False):
+        self.ag_processor = ArtistGenreProcessor(v3)
+        self.text_processor = TextProcessor(v3)
+        self.n_tokens = n_tokens
+        self.max_genre_words = max_genre_words
+        self.sample_length = sample_length
+        self.label_shape = 4 + self.max_genre_words + self.n_tokens,
+
+    def get_label(self, artist, genre, lyrics, total_length, offset):
+        artist_id = self.ag_processor.get_artist_id(artist)
+        genre_ids = self.ag_processor.get_genre_ids(genre)
+        lyrics = self.text_processor.clean(lyrics)
+        full_tokens = self.text_processor.tokenise(lyrics)
+        tokens, _ = get_relevant_lyric_tokens(full_tokens, self.n_tokens, total_length, offset, self.sample_length)
+        assert len(genre_ids) <= self.max_genre_words
+        genre_ids = genre_ids + [-1] * (self.max_genre_words - len(genre_ids))
+        y = np.array([total_length, offset, self.sample_length, artist_id, *genre_ids, *tokens], dtype=np.int64)
+        assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
+        info = dict(artist=artist, genre=genre, lyrics=lyrics, full_tokens=full_tokens)
+        return dict(y=y, info=info)
+
+    def get_y_from_ids(self, artist_id, genre_ids, lyric_tokens, total_length, offset):
+        assert len(genre_ids) <= self.max_genre_words
+        genre_ids = genre_ids + [-1] * (self.max_genre_words - len(genre_ids))
+        if self.n_tokens > 0:
+            assert len(lyric_tokens) == self.n_tokens
+        else:
+            lyric_tokens = []
+        y = np.array([total_length, offset, self.sample_length, artist_id, *genre_ids, *lyric_tokens], dtype=np.int64)
+        assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
+        return y
+
+    def get_batch_labels(self, metas, device='cpu'):
+        ys, infos = [], []
+        for meta in metas:
+            label = self.get_label(**meta)
+            y, info = label['y'], label['info']
+            ys.append(y)
+            infos.append(info)
+        ys = t.stack([t.from_numpy(y) for y in ys], dim=0).long()
+        assert ys.shape[0] == len(metas)
+        assert len(infos) == len(metas)
+        return dict(y=ys, info=infos)
+
+    def set_y_lyric_tokens(self, ys, labels):
+        info = labels['info']
+        assert ys.shape[0] == len(info)
+        if self.n_tokens > 0:
+            tokens_list = []
+            indices_list = []
+            for i in range(ys.shape[0]):
+                full_tokens = info[i]['full_tokens']
+                total_length, offset, duration = ys[i, 0], ys[i, 1], ys[i, 2]
+                tokens, indices = get_relevant_lyric_tokens(full_tokens, self.n_tokens, total_length, offset, duration)
+                tokens_list.append(tokens)
+                indices_list.append(indices)
+            ys[:, -self.n_tokens:] = t.tensor(tokens_list, dtype=t.long, device='cuda')
+            return indices_list
+        else:
+            return None
+
+    def describe_label(self, y):
+        assert y.shape == self.label_shape, f'Expected {self.label_shape}, got {y.shape}'
+        y = np.array(y).tolist()
+        total_length, offset, length, artist_id, *genre_ids = y[:4 + self.max_genre_words]
+        tokens = y[4 + self.max_genre_words:]
+        artist = self.ag_processor.get_artist(artist_id)
+        genre = self.ag_processor.get_genre(genre_ids)
+        lyrics = self.text_processor.textise(tokens)
+        return dict(artist=artist, genre=genre, lyrics=lyrics)
+
+
+def calculate_strides(strides, downs):
+    return [(stride ** down) for stride, down in zip(strides, downs)]
+
+
+def print_once(msg):
+    if not dist.is_available() or dist.get_rank() == 0:
+        None
+
+
+class SimplePrior(nn.Module):
+
+    def __init__(self, z_shapes, l_bins, encoder, decoder, level, downs_t, strides_t, labels, prior_kwargs, x_cond_kwargs, y_cond_kwargs, prime_kwargs, copy_input, labels_v3=False, merged_decoder=False, single_enc_dec=False):
+        super().__init__()
+        self.use_tokens = prime_kwargs.pop('use_tokens')
+        self.n_tokens = prime_kwargs.pop('n_tokens')
+        self.prime_loss_fraction = prime_kwargs.pop('prime_loss_fraction')
+        self.copy_input = copy_input
+        if self.copy_input:
+            prime_kwargs['bins'] = l_bins
+        self.z_shapes = z_shapes
+        self.levels = len(self.z_shapes)
+        self.z_shape = self.z_shapes[level]
+        self.level = level
+        assert level < self.levels, f'Total levels {self.levels}, got level {level}'
+        self.l_bins = l_bins
+        self.encoder = encoder
+        self.decoder = decoder
+        self.x_cond = level != self.levels - 1
+        self.cond_level = level + 1
+        self.y_cond = labels
+        self.single_enc_dec = single_enc_dec
+        if self.x_cond:
+            self.conditioner_blocks = nn.ModuleList()
+            conditioner_block = lambda _level: Conditioner(input_shape=z_shapes[_level], bins=l_bins, down_t=downs_t[_level], stride_t=strides_t[_level], **x_cond_kwargs)
+            if dist.get_rank() == 0:
+                None
+            self.conditioner_blocks.append(conditioner_block(self.cond_level))
+        if self.y_cond:
+            self.n_time = self.z_shape[0]
+            self.y_emb = LabelConditioner(n_time=self.n_time, include_time_signal=not self.x_cond, **y_cond_kwargs)
+        if single_enc_dec:
+            self.prior_shapes = [(self.n_tokens,), prior_kwargs.pop('input_shape')]
+            self.prior_bins = [prime_kwargs['bins'], prior_kwargs.pop('bins')]
+            self.prior_dims = [np.prod(shape) for shape in self.prior_shapes]
+            self.prior_bins_shift = np.cumsum([0, *self.prior_bins])[:-1]
+            self.prior_width = prior_kwargs['width']
+            print_once(f'Creating cond. autoregress with prior bins {self.prior_bins}, ')
+            print_once(f'dims {self.prior_dims}, ')
+            print_once(f'shift {self.prior_bins_shift}')
+            print_once(f'input shape {sum(self.prior_dims)}')
+            print_once(f'input bins {sum(self.prior_bins)}')
+            print_once(f'Self copy is {self.copy_input}')
+            self.prime_loss_dims, self.gen_loss_dims = self.prior_dims[0], self.prior_dims[1]
+            self.total_loss_dims = self.prime_loss_dims + self.gen_loss_dims
+            self.prior = ConditionalAutoregressive2D(input_shape=(sum(self.prior_dims),), bins=sum(self.prior_bins), x_cond=self.x_cond or self.y_cond, y_cond=True, prime_len=self.prime_loss_dims, **prior_kwargs)
+        else:
+            if self.n_tokens != 0 and self.use_tokens:
+                prime_input_shape = self.n_tokens,
+                self.prime_loss_dims = np.prod(prime_input_shape)
+                self.prime_acts_width, self.prime_state_width = prime_kwargs['width'], prior_kwargs['width']
+                self.prime_prior = ConditionalAutoregressive2D(input_shape=prime_input_shape, x_cond=False, y_cond=False, only_encode=True, **prime_kwargs)
+                self.prime_state_proj = Conv1D(self.prime_acts_width, self.prime_state_width, init_scale=prime_kwargs['init_scale'])
+                self.prime_state_ln = LayerNorm(self.prime_state_width)
+                self.prime_bins = prime_kwargs['bins']
+                self.prime_x_out = nn.Linear(self.prime_state_width, self.prime_bins, bias=False)
+                nn.init.normal_(self.prime_x_out.weight, std=0.02 * prior_kwargs['init_scale'])
+            else:
+                self.prime_loss_dims = 0
+            self.gen_loss_dims = np.prod(self.z_shape)
+            self.total_loss_dims = self.prime_loss_dims + self.gen_loss_dims
+            self.prior = ConditionalAutoregressive2D(x_cond=self.x_cond or self.y_cond, y_cond=self.y_cond, encoder_dims=self.prime_loss_dims, merged_decoder=merged_decoder, **prior_kwargs)
+        self.n_ctx = self.gen_loss_dims
+        self.downsamples = calculate_strides(strides_t, downs_t)
+        self.cond_downsample = self.downsamples[level + 1] if level != self.levels - 1 else None
+        self.raw_to_tokens = np.prod(self.downsamples[:level + 1])
+        self.sample_length = self.n_ctx * self.raw_to_tokens
+        if labels:
+            self.labels_v3 = labels_v3
+            self.labeller = Labeller(self.y_emb.max_bow_genre_size, self.n_tokens, self.sample_length, v3=self.labels_v3)
+        None
+
+    def get_y(self, labels, start, get_indices=False):
+        y = labels['y'].clone()
+        y[:, (2)] = int(self.sample_length)
+        y[:, 1:2] = y[:, 1:2] + int(start * self.raw_to_tokens)
+        indices = self.labeller.set_y_lyric_tokens(y, labels)
+        if get_indices:
+            return y, indices
+        else:
+            return y
+
+    def get_z_conds(self, zs, start, end):
+        if self.level != self.levels - 1:
+            assert start % self.cond_downsample == end % self.cond_downsample == 0
+            z_cond = zs[self.level + 1][:, start // self.cond_downsample:end // self.cond_downsample]
+            assert z_cond.shape[1] == self.n_ctx // self.cond_downsample
+            z_conds = [z_cond]
+        else:
+            z_conds = None
+        return z_conds
+
+    def prior_preprocess(self, xs, conds):
+        N = xs[0].shape[0]
+        for i in range(len(xs)):
+            x, shape, dims = xs[i], self.prior_shapes[i], self.prior_dims[i]
+            bins, bins_shift = int(self.prior_bins[i]), int(self.prior_bins_shift[i])
+            assert isinstance(x, t.cuda.LongTensor), x
+            assert (0 <= x).all() and (x < bins).all()
+            xs[i] = (xs[i] + bins_shift).view(N, -1)
+        for i in range(len(conds)):
+            cond, shape, dims = conds[i], self.prior_shapes[i], self.prior_dims[i]
+            if cond is not None:
+                assert_shape(cond, (N, dims, self.prior_width))
+            else:
+                conds[i] = t.zeros((N, dims, self.prior_width), dtype=t.float, device='cuda')
+        return t.cat(xs, dim=1), t.cat(conds, dim=1)
+
+    def prior_postprocess(self, z):
+        N = z.shape[0]
+        dims = self.prior_dims[0], z.shape[1] - self.prior_dims[0]
+        xs = list(t.split(z, dims, dim=1))
+        for i in range(len(xs)):
+            shape = self.prior_shapes[i]
+            bins, bins_shift = int(self.prior_bins[i]), int(self.prior_bins_shift[i])
+            xs[i] = (xs[i] - bins_shift).view(N, -1, *shape[1:])
+            xs[i] = t.clamp(xs[i], min=0)
+            assert (xs[i] < bins).all(), f'rank: {dist.get_rank()}, bins: {bins}, dims {dims}, shape {shape}, prior_shape {self.prior_shapes}, bins_shift {bins_shift}, xs[i]: {xs[i]}'
+        return xs[-1]
+
+    def x_emb(self, z_conds):
+        z_conds = z_conds[:self.cond_level - self.level]
+        assert len(z_conds) == len(self.conditioner_blocks) == self.cond_level - self.level, f'Expected {len(z_conds)} == {len(self.conditioner_blocks)} == {self.cond_level} - {self.level}'
+        x_cond = None
+        for z_cond, conditioner_block in reversed(list(zip(z_conds, self.conditioner_blocks))):
+            x_cond = conditioner_block(z_cond, x_cond)
+        return x_cond
+
+    def encode(self, x, start_level=None, end_level=None, bs_chunks=1):
+        if start_level == None:
+            start_level = self.level
+        if end_level == None:
+            end_level = self.levels
+        with t.no_grad():
+            zs = self.encoder(x, start_level=start_level, end_level=end_level, bs_chunks=bs_chunks)
+        return zs
+
+    def decode(self, zs, start_level=None, end_level=None, bs_chunks=1):
+        if start_level == None:
+            start_level = self.level
+        if end_level == None:
+            end_level = self.levels
+        assert len(zs) == end_level - start_level
+        with t.no_grad():
+            x_out = self.decoder(zs, start_level=start_level, end_level=end_level, bs_chunks=bs_chunks)
+        return x_out
+
+    def get_cond(self, z_conds, y):
+        if y is not None:
+            assert y.shape[1] == 4 + self.y_emb.max_bow_genre_size + self.n_tokens, f'Expected {4} + {self.y_emb.max_bow_genre_size} + {self.n_tokens}, got {y.shape[1]}'
+            n_labels = y.shape[1] - self.n_tokens
+            y, prime = y[:, :n_labels], y[:, n_labels:]
+        else:
+            y, prime = None, None
+        y_cond, y_pos = self.y_emb(y) if self.y_cond else (None, None)
+        x_cond = self.x_emb(z_conds) if self.x_cond else y_pos
+        return x_cond, y_cond, prime
+
+    def sample(self, n_samples, z=None, z_conds=None, y=None, fp16=False, temp=1.0, top_k=0, top_p=0.0, chunk_size=None, sample_tokens=None):
+        N = n_samples
+        if z is not None:
+            assert z.shape[0] == N, f'Expected shape ({N},**), got shape {z.shape}'
+        if y is not None:
+            assert y.shape[0] == N, f'Expected shape ({N},**), got shape {y.shape}'
+        if z_conds is not None:
+            for z_cond in z_conds:
+                assert z_cond.shape[0] == N, f'Expected shape ({N},**), got shape {z_cond.shape}'
+        no_past_context = z is None or z.shape[1] == 0
+        if dist.get_rank() == 0:
+            name = {(True): 'Ancestral', (False): 'Primed'}[no_past_context]
+            None
+        with t.no_grad():
+            x_cond, y_cond, prime = self.get_cond(z_conds, y)
+            if self.single_enc_dec:
+                if no_past_context:
+                    z, x_cond = self.prior_preprocess([prime], [None, x_cond])
+                else:
+                    z, x_cond = self.prior_preprocess([prime, z], [None, x_cond])
+                if sample_tokens is not None:
+                    sample_tokens += self.n_tokens
+                z = self.prior.primed_sample(n_samples, z, x_cond, y_cond, fp16=fp16, temp=temp, top_k=top_k, top_p=top_p, chunk_size=chunk_size, sample_tokens=sample_tokens)
+                z = self.prior_postprocess(z)
+            else:
+                encoder_kv = self.get_encoder_kv(prime, fp16=fp16, sample=True)
+                if no_past_context:
+                    z = self.prior.sample(n_samples, x_cond, y_cond, encoder_kv, fp16=fp16, temp=temp, top_k=top_k, top_p=top_p, sample_tokens=sample_tokens)
+                else:
+                    z = self.prior.primed_sample(n_samples, z, x_cond, y_cond, encoder_kv, fp16=fp16, temp=temp, top_k=top_k, top_p=top_p, chunk_size=chunk_size, sample_tokens=sample_tokens)
+            if sample_tokens is None:
+                assert_shape(z, (N, *self.z_shape))
+        return z
+
+    def get_encoder_kv(self, prime, fp16=False, sample=False):
+        if self.n_tokens != 0 and self.use_tokens:
+            if sample:
+                self.prime_prior
+            N = prime.shape[0]
+            prime_acts = self.prime_prior(prime, None, None, None, fp16=fp16)
+            assert_shape(prime_acts, (N, self.prime_loss_dims, self.prime_acts_width))
+            assert prime_acts.dtype == t.float, f'Expected t.float, got {prime_acts.dtype}'
+            encoder_kv = self.prime_state_ln(self.prime_state_proj(prime_acts))
+            assert encoder_kv.dtype == t.float, f'Expected t.float, got {encoder_kv.dtype}'
+            if sample:
+                self.prime_prior.cpu()
+                if fp16:
+                    encoder_kv = encoder_kv.half()
+        else:
+            encoder_kv = None
+        return encoder_kv
+
+    def get_prime_loss(self, encoder_kv, prime_t):
+        if self.use_tokens:
+            encoder_kv = encoder_kv.float()
+            encoder_kv = self.prime_x_out(encoder_kv)
+            prime_loss = nn.functional.cross_entropy(encoder_kv.view(-1, self.prime_bins), prime_t.view(-1)) / np.log(2.0)
+        else:
+            prime_loss = t.tensor(0.0, device='cuda')
+        return prime_loss
+
+    def z_forward(self, z, z_conds=[], y=None, fp16=False, get_preds=False, get_attn_weights=False):
+        """
+        Arguments:
+            get_attn_weights (bool or set): Makes forward prop dump
+                self-attention softmaxes to self.prior.transformer.ws. Either a
+                set of layer indices indicating which layers to store, or a
+                boolean value indicating whether to dump all.
+        """
+        assert isinstance(get_attn_weights, (bool, set))
+        if get_attn_weights:
+            self.prior.transformer.set_record_attn(get_attn_weights)
+        x_cond, y_cond, prime = self.get_cond(z_conds, y)
+        if self.copy_input:
+            prime = z[:, :self.n_tokens]
+        if self.single_enc_dec:
+            z, x_cond = self.prior_preprocess([prime, z], [None, x_cond])
+            (prime_loss, gen_loss), preds = self.prior(z, x_cond, y_cond, fp16=fp16, get_sep_loss=True, get_preds=get_preds)
+        else:
+            encoder_kv = self.get_encoder_kv(prime, fp16=fp16)
+            prime_loss = self.get_prime_loss(encoder_kv, prime)
+            gen_loss, preds = self.prior(z, x_cond, y_cond, encoder_kv, fp16=fp16, get_preds=get_preds)
+        loss = self.prime_loss_fraction * prime_loss * self.prime_loss_dims / self.total_loss_dims + gen_loss * self.gen_loss_dims / self.total_loss_dims
+        metrics = dict(bpd=gen_loss.clone().detach(), prime_loss=prime_loss.clone().detach(), gen_loss=gen_loss.clone().detach())
+        if get_preds:
+            metrics['preds'] = preds.clone().detach()
+        if get_attn_weights:
+            ws = self.prior.transformer.ws
+            self.prior.transformer.set_record_attn(False)
+            return ws
+        else:
+            return loss, metrics
+
+    def forward(self, x, y=None, fp16=False, decode=False, get_preds=False):
+        bs = x.shape[0]
+        z, *z_conds = self.encode(x, bs_chunks=bs)
+        loss, metrics = self.z_forward(z=z, z_conds=z_conds, y=y, fp16=fp16, get_preds=get_preds)
+        if decode:
+            x_out = self.decode([z, *z_conds])
+        else:
+            x_out = None
+        return x_out, loss, metrics
+
+
+class Mask(nn.Module):
+
+    def __init__(self, n_ctx):
+        super().__init__()
+        self.register_buffer('b', t.tril(t.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
+
+    def forward(self, w):
+        w = w * self.b + -1000000000.0 * (1 - self.b)
+        return w
 
 
 class BottleneckBlock(nn.Module):
@@ -3465,24 +3500,6 @@ class EncoderConvBlock(nn.Module):
         return self.model(x)
 
 
-class DecoderConvBock(nn.Module):
-
-    def __init__(self, input_emb_width, output_emb_width, down_t, stride_t, width, depth, m_conv, dilation_growth_rate=1, dilation_cycle=None, zero_out=False, res_scale=False, reverse_decoder_dilation=False, checkpoint_res=False):
-        super().__init__()
-        blocks = []
-        if down_t > 0:
-            filter_t, pad_t = stride_t * 2, stride_t // 2
-            block = nn.Conv1d(output_emb_width, width, 3, 1, 1)
-            blocks.append(block)
-            for i in range(down_t):
-                block = nn.Sequential(Resnet1D(width, depth, m_conv, dilation_growth_rate, dilation_cycle, zero_out=zero_out, res_scale=res_scale, reverse_dilation=reverse_decoder_dilation, checkpoint_res=checkpoint_res), nn.ConvTranspose1d(width, input_emb_width if i == down_t - 1 else width, filter_t, stride_t, pad_t))
-                blocks.append(block)
-        self.model = nn.Sequential(*blocks)
-
-    def forward(self, x):
-        return self.model(x)
-
-
 class Encoder(nn.Module):
 
     def __init__(self, input_emb_width, output_emb_width, levels, downs_t, strides_t, **block_kwargs):
@@ -3571,52 +3588,6 @@ class Resnet(nn.Module):
 
     def forward(self, x):
         return self.model(x)
-
-
-class ResConv1DBlock(nn.Module):
-
-    def __init__(self, n_in, n_state, dilation=1, zero_out=False, res_scale=1.0):
-        super().__init__()
-        padding = dilation
-        self.model = nn.Sequential(nn.ReLU(), nn.Conv1d(n_in, n_state, 3, 1, padding, dilation), nn.ReLU(), nn.Conv1d(n_state, n_in, 1, 1, 0))
-        if zero_out:
-            out = self.model[-1]
-            nn.init.zeros_(out.weight)
-            nn.init.zeros_(out.bias)
-        self.res_scale = res_scale
-
-    def forward(self, x):
-        return x + self.res_scale * self.model(x)
-
-
-class Resnet1D(nn.Module):
-
-    def __init__(self, n_in, n_depth, m_conv=1.0, dilation_growth_rate=1, dilation_cycle=None, zero_out=False, res_scale=False, reverse_dilation=False, checkpoint_res=False):
-        super().__init__()
-
-        def _get_depth(depth):
-            if dilation_cycle is None:
-                return depth
-            else:
-                return depth % dilation_cycle
-        blocks = [ResConv1DBlock(n_in, int(m_conv * n_in), dilation=dilation_growth_rate ** _get_depth(depth), zero_out=zero_out, res_scale=1.0 if not res_scale else 1.0 / math.sqrt(n_depth)) for depth in range(n_depth)]
-        if reverse_dilation:
-            blocks = blocks[::-1]
-        self.checkpoint_res = checkpoint_res
-        if self.checkpoint_res == 1:
-            if dist.get_rank() == 0:
-                None
-            self.blocks = nn.ModuleList(blocks)
-        else:
-            self.model = nn.Sequential(*blocks)
-
-    def forward(self, x):
-        if self.checkpoint_res == 1:
-            for block in self.blocks:
-                x = checkpoint(block, (x,), block.parameters(), True)
-            return x
-        else:
-            return self.model(x)
 
 
 def _loss_fn(loss_fn, x_target, x_pred, hps):
@@ -4155,6 +4126,14 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (SyncBatchNorm,
+     lambda: ([], {'num_features': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (mLSTMRNNCell,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
     (tofp16,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -4230,4 +4209,10 @@ class Test_openai_jukebox(_paritybench_base):
 
     def test_022(self):
         self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
+
+    def test_024(self):
+        self._check(*TESTCASES[24])
 

@@ -9,8 +9,11 @@ dataset = _module
 datasets = _module
 evaluate = _module
 libs = _module
+_ext = _module
 bn = _module
+build = _module
 dense = _module
+functions = _module
 misc = _module
 residual = _module
 networks = _module
@@ -23,20 +26,22 @@ utils = _module
 criterion = _module
 encoding = _module
 loss = _module
+utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -65,22 +70,31 @@ import time
 import functools
 
 
+import numpy as np
+
+
+import random
+
+
+import collections
+
+
+import torchvision
+
+
+from torch.utils import data
+
+
 import scipy
 
 
 from scipy import ndimage
 
 
-import numpy as np
-
-
 from torch.autograd import Variable
 
 
 import torchvision.models as models
-
-
-from torch.utils import data
 
 
 from collections import OrderedDict
@@ -114,9 +128,6 @@ import scipy.misc
 
 
 import torch.backends.cudnn as cudnn
-
-
-import random
 
 
 import logging
@@ -335,66 +346,6 @@ class InPlaceABN(autograd.Function):
         return dx, dweight, dbias, None, None, None, None, None, None, None
 
 
-inplace_abn = InPlaceABN.apply
-
-
-class InPlaceABN(nn.Module):
-    """InPlace Activated Batch Normalization"""
-
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates an InPlace Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(InPlaceABN, self).__init__()
-        self.num_features = num_features
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        self.activation = activation
-        self.slope = slope
-        if self.affine:
-            self.weight = nn.Parameter(torch.Tensor(num_features))
-            self.bias = nn.Parameter(torch.Tensor(num_features))
-        else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        self.running_mean.zero_()
-        self.running_var.fill_(1)
-        if self.affine:
-            self.weight.data.fill_(1)
-            self.bias.data.zero_()
-
-    def forward(self, x):
-        return inplace_abn(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), self.training, self.momentum, self.eps, self.activation, self.slope)
-
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ' slope={slope})'
-        else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
-
-
 class InPlaceABNSync(autograd.Function):
 
     @classmethod
@@ -498,79 +449,6 @@ class InPlaceABNSync(autograd.Function):
         else:
             ctx.master_queue = extra['master_queue']
             ctx.worker_queue = extra['worker_queue']
-
-
-inplace_abn_sync = InPlaceABNSync.apply
-
-
-class InPlaceABNSync(nn.Module):
-    """InPlace Activated Batch Normalization with cross-GPU synchronization
-
-    This assumes that it will be replicated across GPUs using the same mechanism as in `nn.DataParallel`.
-    """
-
-    def __init__(self, num_features, devices=None, eps=1e-05, momentum=0.1, affine=True, activation='leaky_relu', slope=0.01):
-        """Creates a synchronized, InPlace Activated Batch Normalization module
-
-        Parameters
-        ----------
-        num_features : int
-            Number of feature channels in the input and output.
-        devices : list of int or None
-            IDs of the GPUs that will run the replicas of this module.
-        eps : float
-            Small constant to prevent numerical issues.
-        momentum : float
-            Momentum factor applied to compute running statistics as.
-        affine : bool
-            If `True` apply learned scale and shift transformation after normalization.
-        activation : str
-            Name of the activation functions, one of: `leaky_relu`, `elu` or `none`.
-        slope : float
-            Negative slope for the `leaky_relu` activation.
-        """
-        super(InPlaceABNSync, self).__init__()
-        self.num_features = num_features
-        self.devices = devices if devices else list(range(torch.device_count()))
-        self.affine = affine
-        self.eps = eps
-        self.momentum = momentum
-        self.activation = activation
-        self.slope = slope
-        if self.affine:
-            self.weight = nn.Parameter(torch.Tensor(num_features))
-            self.bias = nn.Parameter(torch.Tensor(num_features))
-        else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-        self.register_buffer('running_mean', torch.zeros(num_features))
-        self.register_buffer('running_var', torch.ones(num_features))
-        self.reset_parameters()
-        self.worker_ids = self.devices[1:]
-        self.master_queue = Queue(len(self.worker_ids))
-        self.worker_queues = [Queue(1) for _ in self.worker_ids]
-
-    def reset_parameters(self):
-        self.running_mean.zero_()
-        self.running_var.fill_(1)
-        if self.affine:
-            self.weight.data.fill_(1)
-            self.bias.data.zero_()
-
-    def forward(self, x):
-        if x.get_device() == self.devices[0]:
-            extra = {'is_master': True, 'master_queue': self.master_queue, 'worker_queues': self.worker_queues, 'worker_ids': self.worker_ids}
-        else:
-            extra = {'is_master': False, 'master_queue': self.master_queue, 'worker_queue': self.worker_queues[self.worker_ids.index(x.get_device())]}
-        return inplace_abn_sync(x, self.weight, self.bias, autograd.Variable(self.running_mean), autograd.Variable(self.running_var), extra, self.training, self.momentum, self.eps, self.activation, self.slope)
-
-    def __repr__(self):
-        rep = '{name}({num_features}, eps={eps}, momentum={momentum}, affine={affine}, devices={devices}, activation={activation}'
-        if self.activation == 'leaky_relu':
-            rep += ' slope={slope})'
-        else:
-            rep += ')'
-        return rep.format(name=self.__class__.__name__, **self.__dict__)
 
 
 class InPlaceABNWrapper(nn.Module):
@@ -801,243 +679,6 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
-        self.head = RCCAModule(2048, 512, num_classes)
-        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.1), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
-
-    def get_learnable_parameters(self, freeze_layers=[True, True, True, True, False, False, False]):
-        lr_parameters = []
-        if not freeze_layers[0]:
-            for i in [self.conv1, self.bn1, self.conv2, self.bn2, self.conv3, self.bn3]:
-                params = i.named_parameters()
-                for name, p in params:
-                    None
-                    lr_parameters.append(p)
-        layers = [self.layer1, self.layer2, self.layer3, self.layer4, self.layer5, self.layer6]
-        for freeze, layer in zip(freeze_layers[1:], layers):
-            if not freeze:
-                params = layer.named_parameters()
-                for name, p in params:
-                    None
-                    lr_parameters.append(p)
-        return lr_parameters
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
-        layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
-        return nn.Sequential(*layers)
-
-    def forward(self, x, recurrence=1):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x_dsn = self.dsn(x)
-        x = self.layer4(x)
-        x = self.head(x, recurrence)
-        return [x, x_dsn]
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, fist_dilation=1, multi_grid=1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation * multi_grid, dilation=dilation * multi_grid, bias=False)
-        self.bn2 = BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=False)
-        self.relu_inplace = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.dilation = dilation
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = out + residual
-        out = self.relu_inplace(out)
-        return out
-
-
-class ASPPModule(nn.Module):
-    """
-    Reference: 
-        Chen, Liang-Chieh, et al. *"Rethinking Atrous Convolution for Semantic Image Segmentation."*
-    """
-
-    def __init__(self, features, inner_features=256, out_features=512, dilations=(12, 24, 36)):
-        super(ASPPModule, self).__init__()
-        self.conv1 = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(features, inner_features, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(inner_features))
-        self.conv2 = nn.Sequential(nn.Conv2d(features, inner_features, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(inner_features))
-        self.conv3 = nn.Sequential(nn.Conv2d(features, inner_features, kernel_size=3, padding=dilations[0], dilation=dilations[0], bias=False), InPlaceABNSync(inner_features))
-        self.conv4 = nn.Sequential(nn.Conv2d(features, inner_features, kernel_size=3, padding=dilations[1], dilation=dilations[1], bias=False), InPlaceABNSync(inner_features))
-        self.conv5 = nn.Sequential(nn.Conv2d(features, inner_features, kernel_size=3, padding=dilations[2], dilation=dilations[2], bias=False), InPlaceABNSync(inner_features))
-        self.bottleneck = nn.Sequential(nn.Conv2d(inner_features * 5, out_features, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(out_features), nn.Dropout2d(0.1))
-
-    def forward(self, x):
-        _, _, h, w = x.size()
-        feat1 = F.upsample(self.conv1(x), size=(h, w), mode='bilinear', align_corners=True)
-        feat2 = self.conv2(x)
-        feat3 = self.conv3(x)
-        feat4 = self.conv4(x)
-        feat5 = self.conv5(x)
-        out = torch.cat((feat1, feat2, feat3, feat4, feat5), 1)
-        bottle = self.bottleneck(out)
-        return bottle
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes):
-        self.inplanes = 128
-        super(ResNet, self).__init__()
-        self.conv1 = conv3x3(3, 64, stride=2)
-        self.bn1 = BatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=False)
-        self.conv2 = conv3x3(64, 64)
-        self.bn2 = BatchNorm2d(64)
-        self.relu2 = nn.ReLU(inplace=False)
-        self.conv3 = conv3x3(64, 128)
-        self.bn3 = BatchNorm2d(128)
-        self.relu3 = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
-        self.head = nn.Sequential(ASPPModule(2048), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
-        self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.1), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
-
-    def _make_layer(self, block, planes, blocks, stride=1, dilation=1, multi_grid=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(nn.Conv2d(self.inplanes, planes * block.expansion, kernel_size=1, stride=stride, bias=False), BatchNorm2d(planes * block.expansion, affine=affine_par))
-        layers = []
-        generate_multi_grid = lambda index, grids: grids[index % len(grids)] if isinstance(grids, tuple) else 1
-        layers.append(block(self.inplanes, planes, stride, dilation=dilation, downsample=downsample, multi_grid=generate_multi_grid(0, multi_grid)))
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, dilation=dilation, multi_grid=generate_multi_grid(i, multi_grid)))
-        return nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = self.relu1(self.bn1(self.conv1(x)))
-        x = self.relu2(self.bn2(self.conv2(x)))
-        x = self.relu3(self.bn3(self.conv3(x)))
-        x = self.maxpool(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x_dsn = self.dsn(x)
-        x = self.layer4(x)
-        x = self.head(x)
-        return [x, x_dsn]
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, dilation=1, downsample=None, fist_dilation=1, multi_grid=1):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=dilation * multi_grid, dilation=dilation * multi_grid, bias=False)
-        self.bn2 = BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=False)
-        self.relu_inplace = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.dilation = dilation
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out = out + residual
-        out = self.relu_inplace(out)
-        return out
-
-
-class PSPModule(nn.Module):
-    """
-    Reference: 
-        Zhao, Hengshuang, et al. *"Pyramid scene parsing network."*
-    """
-
-    def __init__(self, features, out_features=512, sizes=(1, 2, 3, 6)):
-        super(PSPModule, self).__init__()
-        self.stages = []
-        self.stages = nn.ModuleList([self._make_stage(features, out_features, size) for size in sizes])
-        self.bottleneck = nn.Sequential(nn.Conv2d(features + len(sizes) * out_features, out_features, kernel_size=3, padding=1, dilation=1, bias=False), InPlaceABNSync(out_features), nn.Dropout2d(0.1))
-
-    def _make_stage(self, features, out_features, size):
-        prior = nn.AdaptiveAvgPool2d(output_size=(size, size))
-        conv = nn.Conv2d(features, out_features, kernel_size=1, bias=False)
-        bn = InPlaceABNSync(out_features)
-        return nn.Sequential(prior, conv, bn)
-
-    def forward(self, feats):
-        h, w = feats.size(2), feats.size(3)
-        priors = [F.upsample(input=stage(feats), size=(h, w), mode='bilinear', align_corners=True) for stage in self.stages] + [feats]
-        bottle = self.bottleneck(torch.cat(priors, 1))
-        return bottle
-
-
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes):
-        self.inplanes = 128
-        super(ResNet, self).__init__()
-        self.conv1 = conv3x3(3, 64, stride=2)
-        self.bn1 = BatchNorm2d(64)
-        self.relu1 = nn.ReLU(inplace=False)
-        self.conv2 = conv3x3(64, 64)
-        self.bn2 = BatchNorm2d(64)
-        self.relu2 = nn.ReLU(inplace=False)
-        self.conv3 = conv3x3(64, 128)
-        self.bn3 = BatchNorm2d(128)
-        self.relu3 = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.relu = nn.ReLU(inplace=False)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=True)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=1, dilation=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=1, dilation=4, multi_grid=(1, 1, 1))
         self.head = nn.Sequential(PSPModule(2048, 512), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
         self.dsn = nn.Sequential(nn.Conv2d(1024, 512, kernel_size=3, stride=1, padding=1), InPlaceABNSync(512), nn.Dropout2d(0.1), nn.Conv2d(512, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
 
@@ -1067,6 +708,33 @@ class ResNet(nn.Module):
         return [x, x_dsn]
 
 
+class ASPPModule(nn.Module):
+    """
+    Reference: 
+        Chen, Liang-Chieh, et al. *"Rethinking Atrous Convolution for Semantic Image Segmentation."*
+    """
+
+    def __init__(self, features, inner_features=256, out_features=512, dilations=(12, 24, 36)):
+        super(ASPPModule, self).__init__()
+        self.conv1 = nn.Sequential(nn.AdaptiveAvgPool2d((1, 1)), nn.Conv2d(features, inner_features, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(inner_features))
+        self.conv2 = nn.Sequential(nn.Conv2d(features, inner_features, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(inner_features))
+        self.conv3 = nn.Sequential(nn.Conv2d(features, inner_features, kernel_size=3, padding=dilations[0], dilation=dilations[0], bias=False), InPlaceABNSync(inner_features))
+        self.conv4 = nn.Sequential(nn.Conv2d(features, inner_features, kernel_size=3, padding=dilations[1], dilation=dilations[1], bias=False), InPlaceABNSync(inner_features))
+        self.conv5 = nn.Sequential(nn.Conv2d(features, inner_features, kernel_size=3, padding=dilations[2], dilation=dilations[2], bias=False), InPlaceABNSync(inner_features))
+        self.bottleneck = nn.Sequential(nn.Conv2d(inner_features * 5, out_features, kernel_size=1, padding=0, dilation=1, bias=False), InPlaceABNSync(out_features), nn.Dropout2d(0.1))
+
+    def forward(self, x):
+        _, _, h, w = x.size()
+        feat1 = F.upsample(self.conv1(x), size=(h, w), mode='bilinear', align_corners=True)
+        feat2 = self.conv2(x)
+        feat3 = self.conv3(x)
+        feat4 = self.conv4(x)
+        feat5 = self.conv5(x)
+        out = torch.cat((feat1, feat2, feat3, feat4, feat5), 1)
+        bottle = self.bottleneck(out)
+        return bottle
+
+
 class CriterionCrossEntropy(nn.Module):
 
     def __init__(self, ignore_index=255):
@@ -1079,6 +747,79 @@ class CriterionCrossEntropy(nn.Module):
         scale_pred = F.upsample(input=preds, size=(h, w), mode='bilinear', align_corners=True)
         loss = self.criterion(scale_pred, target)
         return loss
+
+
+class OhemCrossEntropy2d(nn.Module):
+
+    def __init__(self, ignore_label=255, thresh=0.7, min_kept=100000, factor=8):
+        super(OhemCrossEntropy2d, self).__init__()
+        self.ignore_label = ignore_label
+        self.thresh = float(thresh)
+        self.min_kept = int(min_kept)
+        self.factor = factor
+        self.criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_label)
+
+    def find_threshold(self, np_predict, np_target):
+        factor = self.factor
+        predict = nd.zoom(np_predict, (1.0, 1.0, 1.0 / factor, 1.0 / factor), order=1)
+        target = nd.zoom(np_target, (1.0, 1.0 / factor, 1.0 / factor), order=0)
+        n, c, h, w = predict.shape
+        min_kept = self.min_kept // (factor * factor)
+        input_label = target.ravel().astype(np.int32)
+        input_prob = np.rollaxis(predict, 1).reshape((c, -1))
+        valid_flag = input_label != self.ignore_label
+        valid_inds = np.where(valid_flag)[0]
+        label = input_label[valid_flag]
+        num_valid = valid_flag.sum()
+        if min_kept >= num_valid:
+            threshold = 1.0
+        elif num_valid > 0:
+            prob = input_prob[:, (valid_flag)]
+            pred = prob[label, np.arange(len(label), dtype=np.int32)]
+            threshold = self.thresh
+            if min_kept > 0:
+                k_th = min(len(pred), min_kept) - 1
+                new_array = np.partition(pred, k_th)
+                new_threshold = new_array[k_th]
+                if new_threshold > self.thresh:
+                    threshold = new_threshold
+        return threshold
+
+    def generate_new_target(self, predict, target):
+        np_predict = predict.data.cpu().numpy()
+        np_target = target.data.cpu().numpy()
+        n, c, h, w = np_predict.shape
+        threshold = self.find_threshold(np_predict, np_target)
+        input_label = np_target.ravel().astype(np.int32)
+        input_prob = np.rollaxis(np_predict, 1).reshape((c, -1))
+        valid_flag = input_label != self.ignore_label
+        valid_inds = np.where(valid_flag)[0]
+        label = input_label[valid_flag]
+        num_valid = valid_flag.sum()
+        if num_valid > 0:
+            prob = input_prob[:, (valid_flag)]
+            pred = prob[label, np.arange(len(label), dtype=np.int32)]
+            kept_flag = pred <= threshold
+            valid_inds = valid_inds[kept_flag]
+            None
+        label = input_label[valid_inds].copy()
+        input_label.fill(self.ignore_label)
+        input_label[valid_inds] = label
+        new_target = torch.from_numpy(input_label.reshape(target.size())).long()
+        return new_target
+
+    def forward(self, predict, target, weight=None):
+        """
+            Args:
+                predict:(n, c, h, w)
+                target:(n, h, w)
+                weight (Tensor, optional): a manual rescaling weight given to each class.
+                                           If given, has to be a Tensor of size "nclasses"
+        """
+        assert not target.requires_grad
+        input_prob = F.softmax(predict, 1)
+        target = self.generate_new_target(input_prob, target)
+        return self.criterion(predict, target)
 
 
 class CriterionOhemCrossEntropy(nn.Module):
@@ -1244,7 +985,7 @@ def _criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices
         try:
             if not isinstance(input, tuple):
                 input = input,
-            with torch.cuda.device(device):
+            with torch.device(device):
                 output = module(*(input + target), **kwargs)
             with lock:
                 results[i] = output
@@ -1298,79 +1039,6 @@ class DataParallelCriterion(DataParallel):
         replicas = self.replicate(self.module, self.device_ids[:len(inputs)])
         outputs = _criterion_parallel_apply(replicas, inputs, targets, kwargs)
         return Reduce.apply(*outputs) / len(outputs)
-
-
-class OhemCrossEntropy2d(nn.Module):
-
-    def __init__(self, ignore_label=255, thresh=0.7, min_kept=100000, factor=8):
-        super(OhemCrossEntropy2d, self).__init__()
-        self.ignore_label = ignore_label
-        self.thresh = float(thresh)
-        self.min_kept = int(min_kept)
-        self.factor = factor
-        self.criterion = torch.nn.CrossEntropyLoss(ignore_index=ignore_label)
-
-    def find_threshold(self, np_predict, np_target):
-        factor = self.factor
-        predict = nd.zoom(np_predict, (1.0, 1.0, 1.0 / factor, 1.0 / factor), order=1)
-        target = nd.zoom(np_target, (1.0, 1.0 / factor, 1.0 / factor), order=0)
-        n, c, h, w = predict.shape
-        min_kept = self.min_kept // (factor * factor)
-        input_label = target.ravel().astype(np.int32)
-        input_prob = np.rollaxis(predict, 1).reshape((c, -1))
-        valid_flag = input_label != self.ignore_label
-        valid_inds = np.where(valid_flag)[0]
-        label = input_label[valid_flag]
-        num_valid = valid_flag.sum()
-        if min_kept >= num_valid:
-            threshold = 1.0
-        elif num_valid > 0:
-            prob = input_prob[:, (valid_flag)]
-            pred = prob[label, np.arange(len(label), dtype=np.int32)]
-            threshold = self.thresh
-            if min_kept > 0:
-                k_th = min(len(pred), min_kept) - 1
-                new_array = np.partition(pred, k_th)
-                new_threshold = new_array[k_th]
-                if new_threshold > self.thresh:
-                    threshold = new_threshold
-        return threshold
-
-    def generate_new_target(self, predict, target):
-        np_predict = predict.data.cpu().numpy()
-        np_target = target.data.cpu().numpy()
-        n, c, h, w = np_predict.shape
-        threshold = self.find_threshold(np_predict, np_target)
-        input_label = np_target.ravel().astype(np.int32)
-        input_prob = np.rollaxis(np_predict, 1).reshape((c, -1))
-        valid_flag = input_label != self.ignore_label
-        valid_inds = np.where(valid_flag)[0]
-        label = input_label[valid_flag]
-        num_valid = valid_flag.sum()
-        if num_valid > 0:
-            prob = input_prob[:, (valid_flag)]
-            pred = prob[label, np.arange(len(label), dtype=np.int32)]
-            kept_flag = pred <= threshold
-            valid_inds = valid_inds[kept_flag]
-            None
-        label = input_label[valid_inds].copy()
-        input_label.fill(self.ignore_label)
-        input_label[valid_inds] = label
-        new_target = torch.from_numpy(input_label.reshape(target.size())).long()
-        return new_target
-
-    def forward(self, predict, target, weight=None):
-        """
-            Args:
-                predict:(n, c, h, w)
-                target:(n, h, w)
-                weight (Tensor, optional): a manual rescaling weight given to each class.
-                                           If given, has to be a Tensor of size "nclasses"
-        """
-        assert not target.requires_grad
-        input_prob = F.softmax(predict, 1)
-        target = self.generate_new_target(input_prob, target)
-        return self.criterion(predict, target)
 
 
 import torch

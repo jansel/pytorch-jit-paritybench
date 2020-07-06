@@ -15,17 +15,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import torch
+
+
+import random
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import torch.nn.functional as F
@@ -37,9 +50,6 @@ from torch.autograd import Variable
 import math
 
 
-import torch
-
-
 import itertools
 
 
@@ -49,10 +59,10 @@ import numpy as np
 import torch.nn as nn
 
 
-import random
-
-
 import torch.optim as optim
+
+
+import time
 
 
 from torch.autograd import Function
@@ -119,43 +129,6 @@ class UnBoundedGridLocNet(nn.Module):
         return points.view(batch_size, -1, 2)
 
 
-def grid_sample(input, grid, canvas=None):
-    output = F.grid_sample(input, grid)
-    if canvas is None:
-        return output
-    else:
-        input_mask = Variable(input.data.new(input.size()).fill_(1))
-        output_mask = F.grid_sample(input_mask, grid)
-        padded_output = output * output_mask + canvas * (1 - output_mask)
-        return padded_output
-
-
-class STNClsNet(nn.Module):
-
-    def __init__(self, args):
-        super(STNClsNet, self).__init__()
-        self.args = args
-        r1 = args.span_range_height
-        r2 = args.span_range_width
-        assert r1 < 1 and r2 < 1
-        target_control_points = torch.Tensor(list(itertools.product(np.arange(-r1, r1 + 1e-05, 2.0 * r1 / (args.grid_height - 1)), np.arange(-r2, r2 + 1e-05, 2.0 * r2 / (args.grid_width - 1)))))
-        Y, X = target_control_points.split(1, dim=1)
-        target_control_points = torch.cat([X, Y], dim=1)
-        GridLocNet = {'unbounded_stn': UnBoundedGridLocNet, 'bounded_stn': BoundedGridLocNet}[args.model]
-        self.loc_net = GridLocNet(args.grid_height, args.grid_width, target_control_points)
-        self.tps = TPSGridGen(args.image_height, args.image_width, target_control_points)
-        self.cls_net = ClsNet()
-
-    def forward(self, x):
-        batch_size = x.size(0)
-        source_control_points = self.loc_net(x)
-        source_coordinate = self.tps(source_control_points)
-        grid = source_coordinate.view(batch_size, self.args.image_height, self.args.image_width, 2)
-        transformed_x = grid_sample(x, grid)
-        logit = self.cls_net(transformed_x)
-        return logit
-
-
 def compute_partial_repr(input_points, control_points):
     N = input_points.size(0)
     M = control_points.size(0)
@@ -207,4 +180,41 @@ class TPSGridGen(nn.Module):
         mapping_matrix = torch.matmul(Variable(self.inverse_kernel), Y)
         source_coordinate = torch.matmul(Variable(self.target_coordinate_repr), mapping_matrix)
         return source_coordinate
+
+
+def grid_sample(input, grid, canvas=None):
+    output = F.grid_sample(input, grid)
+    if canvas is None:
+        return output
+    else:
+        input_mask = Variable(input.data.new(input.size()).fill_(1))
+        output_mask = F.grid_sample(input_mask, grid)
+        padded_output = output * output_mask + canvas * (1 - output_mask)
+        return padded_output
+
+
+class STNClsNet(nn.Module):
+
+    def __init__(self, args):
+        super(STNClsNet, self).__init__()
+        self.args = args
+        r1 = args.span_range_height
+        r2 = args.span_range_width
+        assert r1 < 1 and r2 < 1
+        target_control_points = torch.Tensor(list(itertools.product(np.arange(-r1, r1 + 1e-05, 2.0 * r1 / (args.grid_height - 1)), np.arange(-r2, r2 + 1e-05, 2.0 * r2 / (args.grid_width - 1)))))
+        Y, X = target_control_points.split(1, dim=1)
+        target_control_points = torch.cat([X, Y], dim=1)
+        GridLocNet = {'unbounded_stn': UnBoundedGridLocNet, 'bounded_stn': BoundedGridLocNet}[args.model]
+        self.loc_net = GridLocNet(args.grid_height, args.grid_width, target_control_points)
+        self.tps = TPSGridGen(args.image_height, args.image_width, target_control_points)
+        self.cls_net = ClsNet()
+
+    def forward(self, x):
+        batch_size = x.size(0)
+        source_control_points = self.loc_net(x)
+        source_coordinate = self.tps(source_control_points)
+        grid = source_coordinate.view(batch_size, self.args.image_height, self.args.image_width, 2)
+        transformed_x = grid_sample(x, grid)
+        logit = self.cls_net(transformed_x)
+        return logit
 

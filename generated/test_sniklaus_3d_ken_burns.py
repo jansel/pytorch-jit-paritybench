@@ -11,15 +11,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -166,46 +167,6 @@ class Disparity(torch.nn.Module):
         return torch.nn.functional.threshold(input=self.moduleDisparity(tenColumn[0]), threshold=0.0, value=0.0)
 
 
-class Basic(torch.nn.Module):
-
-    def __init__(self, strType, intChannels):
-        super(Basic, self).__init__()
-        if strType == 'relu-conv-relu-conv':
-            self.moduleMain = torch.nn.Sequential(torch.nn.PReLU(num_parameters=intChannels[0], init=0.25), torch.nn.Conv2d(in_channels=intChannels[0], out_channels=intChannels[1], kernel_size=3, stride=1, padding=1), torch.nn.PReLU(num_parameters=intChannels[1], init=0.25), torch.nn.Conv2d(in_channels=intChannels[1], out_channels=intChannels[2], kernel_size=3, stride=1, padding=1))
-        elif strType == 'conv-relu-conv':
-            self.moduleMain = torch.nn.Sequential(torch.nn.Conv2d(in_channels=intChannels[0], out_channels=intChannels[1], kernel_size=3, stride=1, padding=1), torch.nn.PReLU(num_parameters=intChannels[1], init=0.25), torch.nn.Conv2d(in_channels=intChannels[1], out_channels=intChannels[2], kernel_size=3, stride=1, padding=1))
-        if intChannels[0] == intChannels[2]:
-            self.moduleShortcut = None
-        elif intChannels[0] != intChannels[2]:
-            self.moduleShortcut = torch.nn.Conv2d(in_channels=intChannels[0], out_channels=intChannels[2], kernel_size=1, stride=1, padding=0)
-
-    def forward(self, tenInput):
-        if self.moduleShortcut is None:
-            return self.moduleMain(tenInput) + tenInput
-        elif self.moduleShortcut is not None:
-            return self.moduleMain(tenInput) + self.moduleShortcut(tenInput)
-
-
-class Downsample(torch.nn.Module):
-
-    def __init__(self, intChannels):
-        super(Downsample, self).__init__()
-        self.moduleMain = torch.nn.Sequential(torch.nn.PReLU(num_parameters=intChannels[0], init=0.25), torch.nn.Conv2d(in_channels=intChannels[0], out_channels=intChannels[1], kernel_size=3, stride=2, padding=1), torch.nn.PReLU(num_parameters=intChannels[1], init=0.25), torch.nn.Conv2d(in_channels=intChannels[1], out_channels=intChannels[2], kernel_size=3, stride=1, padding=1))
-
-    def forward(self, tenInput):
-        return self.moduleMain(tenInput)
-
-
-class Upsample(torch.nn.Module):
-
-    def __init__(self, intChannels):
-        super(Upsample, self).__init__()
-        self.moduleMain = torch.nn.Sequential(torch.nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), torch.nn.PReLU(num_parameters=intChannels[0], init=0.25), torch.nn.Conv2d(in_channels=intChannels[0], out_channels=intChannels[1], kernel_size=3, stride=1, padding=1), torch.nn.PReLU(num_parameters=intChannels[1], init=0.25), torch.nn.Conv2d(in_channels=intChannels[1], out_channels=intChannels[2], kernel_size=3, stride=1, padding=1))
-
-    def forward(self, tenInput):
-        return self.moduleMain(tenInput)
-
-
 class Refine(torch.nn.Module):
 
     def __init__(self):
@@ -248,46 +209,6 @@ class Refine(torch.nn.Module):
         tenRefine *= tenStd[1] + 1e-07
         tenRefine += tenMean[1]
         return torch.nn.functional.threshold(input=tenRefine, threshold=0.0, value=0.0)
-
-
-class Basic(torch.nn.Module):
-
-    def __init__(self, strType, intChannels):
-        super(Basic, self).__init__()
-        if strType == 'relu-conv-relu-conv':
-            self.moduleMain = torch.nn.Sequential(torch.nn.PReLU(num_parameters=intChannels[0], init=0.25), torch.nn.Conv2d(in_channels=intChannels[0], out_channels=intChannels[1], kernel_size=3, stride=1, padding=1), torch.nn.PReLU(num_parameters=intChannels[1], init=0.25), torch.nn.Conv2d(in_channels=intChannels[1], out_channels=intChannels[2], kernel_size=3, stride=1, padding=1))
-        elif strType == 'conv-relu-conv':
-            self.moduleMain = torch.nn.Sequential(torch.nn.Conv2d(in_channels=intChannels[0], out_channels=intChannels[1], kernel_size=3, stride=1, padding=1), torch.nn.PReLU(num_parameters=intChannels[1], init=0.25), torch.nn.Conv2d(in_channels=intChannels[1], out_channels=intChannels[2], kernel_size=3, stride=1, padding=1))
-        if intChannels[0] == intChannels[2]:
-            self.moduleShortcut = None
-        elif intChannels[0] != intChannels[2]:
-            self.moduleShortcut = torch.nn.Conv2d(in_channels=intChannels[0], out_channels=intChannels[2], kernel_size=1, stride=1, padding=0)
-
-    def forward(self, tenInput):
-        if self.moduleShortcut is None:
-            return self.moduleMain(tenInput) + tenInput
-        elif self.moduleShortcut is not None:
-            return self.moduleMain(tenInput) + self.moduleShortcut(tenInput)
-
-
-class Downsample(torch.nn.Module):
-
-    def __init__(self, intChannels):
-        super(Downsample, self).__init__()
-        self.moduleMain = torch.nn.Sequential(torch.nn.PReLU(num_parameters=intChannels[0], init=0.25), torch.nn.Conv2d(in_channels=intChannels[0], out_channels=intChannels[1], kernel_size=3, stride=2, padding=1), torch.nn.PReLU(num_parameters=intChannels[1], init=0.25), torch.nn.Conv2d(in_channels=intChannels[1], out_channels=intChannels[2], kernel_size=3, stride=1, padding=1))
-
-    def forward(self, tenInput):
-        return self.moduleMain(tenInput)
-
-
-class Upsample(torch.nn.Module):
-
-    def __init__(self, intChannels):
-        super(Upsample, self).__init__()
-        self.moduleMain = torch.nn.Sequential(torch.nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), torch.nn.PReLU(num_parameters=intChannels[0], init=0.25), torch.nn.Conv2d(in_channels=intChannels[0], out_channels=intChannels[1], kernel_size=3, stride=1, padding=1), torch.nn.PReLU(num_parameters=intChannels[1], init=0.25), torch.nn.Conv2d(in_channels=intChannels[1], out_channels=intChannels[2], kernel_size=3, stride=1, padding=1))
-
-    def forward(self, tenInput):
-        return self.moduleMain(tenInput)
 
 
 def depth_to_points(tenDepth, fltFocal):

@@ -10,20 +10,30 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+from torch.utils.data import TensorDataset
+
+
+from torchvision import datasets
+
+
+from torchvision import transforms
 
 
 import numpy as np
@@ -44,9 +54,6 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
 
-from torch.utils.data import TensorDataset
-
-
 from torch.nn.parameter import Parameter
 
 
@@ -57,6 +64,31 @@ from torch.nn import functional as F
 
 
 import math
+
+
+class LinearWeightNorm(torch.nn.Module):
+
+    def __init__(self, in_features, out_features, bias=True, weight_scale=None, weight_init_stdv=0.1):
+        super(LinearWeightNorm, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = Parameter(torch.randn(out_features, in_features) * weight_init_stdv)
+        if bias:
+            self.bias = Parameter(torch.zeros(out_features))
+        else:
+            self.register_parameter('bias', None)
+        if weight_scale is not None:
+            assert type(weight_scale) == int
+            self.weight_scale = Parameter(torch.ones(out_features, 1) * weight_scale)
+        else:
+            self.weight_scale = 1
+
+    def forward(self, x):
+        W = self.weight * self.weight_scale / torch.sqrt(torch.sum(self.weight ** 2, dim=1, keepdim=True))
+        return F.linear(x, W, self.bias)
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(' + 'in_features=' + str(self.in_features) + ', out_features=' + str(self.out_features) + ', weight_scale=' + str(self.weight_scale) + ')'
 
 
 class Discriminator(nn.Module):
@@ -108,31 +140,6 @@ class Generator(nn.Module):
         x = F.softplus(self.bn2(self.fc2(x)) + self.bn2_b)
         x = F.softplus(self.fc3(x))
         return x
-
-
-class LinearWeightNorm(torch.nn.Module):
-
-    def __init__(self, in_features, out_features, bias=True, weight_scale=None, weight_init_stdv=0.1):
-        super(LinearWeightNorm, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.weight = Parameter(torch.randn(out_features, in_features) * weight_init_stdv)
-        if bias:
-            self.bias = Parameter(torch.zeros(out_features))
-        else:
-            self.register_parameter('bias', None)
-        if weight_scale is not None:
-            assert type(weight_scale) == int
-            self.weight_scale = Parameter(torch.ones(out_features, 1) * weight_scale)
-        else:
-            self.weight_scale = 1
-
-    def forward(self, x):
-        W = self.weight * self.weight_scale / torch.sqrt(torch.sum(self.weight ** 2, dim=1, keepdim=True))
-        return F.linear(x, W, self.bias)
-
-    def __repr__(self):
-        return self.__class__.__name__ + '(' + 'in_features=' + str(self.in_features) + ', out_features=' + str(self.out_features) + ', weight_scale=' + str(self.weight_scale) + ')'
 
 
 import torch

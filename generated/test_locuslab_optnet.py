@@ -8,6 +8,7 @@ train = _module
 create = _module
 main = _module
 models = _module
+create = _module
 models = _module
 train = _module
 
@@ -15,15 +16,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -73,6 +75,18 @@ import numpy as np
 import numpy.random as npr
 
 
+import itertools
+
+
+import time
+
+
+import random
+
+
+import copy
+
+
 from itertools import product
 
 
@@ -82,7 +96,7 @@ import scipy.sparse as spa
 from torch.nn import Module
 
 
-import time
+import numpy.testing as npt
 
 
 class Bottleneck(nn.Module):
@@ -261,121 +275,32 @@ class LenetOptNet(nn.Module):
 
 class FC(nn.Module):
 
-    def __init__(self, nHidden, bn):
-        super().__init__()
-        self.bn = bn
-        self.fc1 = nn.Linear(784, nHidden)
-        if bn:
-            self.bn1 = nn.BatchNorm1d(nHidden)
-            self.bn2 = nn.BatchNorm1d(10)
-        self.fc2 = nn.Linear(nHidden, 10)
-        self.fc3 = nn.Linear(10, 10)
-
-    def forward(self, x):
-        nBatch = x.size(0)
-        x = x.view(nBatch, -1)
-        x = F.relu(self.fc1(x))
-        if self.bn:
-            x = self.bn1(x)
-        x = F.relu(self.fc2(x))
-        if self.bn:
-            x = self.bn2(x)
-        x = self.fc3(x)
-        return F.log_softmax(x)
-
-
-class OptNet(nn.Module):
-
-    def __init__(self, nFeatures, nHidden, nCls, bn, nineq=200, neq=0, eps=0.0001):
-        super().__init__()
-        self.nFeatures = nFeatures
-        self.nHidden = nHidden
-        self.bn = bn
-        self.nCls = nCls
-        if bn:
-            self.bn1 = nn.BatchNorm1d(nHidden)
-            self.bn2 = nn.BatchNorm1d(nCls)
-        self.fc1 = nn.Linear(nFeatures, nHidden)
-        self.fc2 = nn.Linear(nHidden, nCls)
-        assert neq == 0
-        self.M = Variable(torch.tril(torch.ones(nCls, nCls)))
-        self.L = Parameter(torch.tril(torch.rand(nCls, nCls)))
-        self.G = Parameter(torch.Tensor(nineq, nCls).uniform_(-1, 1))
-        self.z0 = Parameter(torch.zeros(nCls))
-        self.s0 = Parameter(torch.ones(nineq))
-        self.nineq = nineq
-        self.neq = neq
-        self.eps = eps
-
-    def forward(self, x):
-        nBatch = x.size(0)
-        x = x.view(nBatch, -1)
-        x = F.relu(self.fc1(x))
-        if self.bn:
-            x = self.bn1(x)
-        x = F.relu(self.fc2(x))
-        if self.bn:
-            x = self.bn2(x)
-        L = self.M * self.L
-        Q = L.mm(L.t()) + self.eps * Variable(torch.eye(self.nCls))
-        Q = Q.unsqueeze(0).expand(nBatch, self.nCls, self.nCls)
-        G = self.G.unsqueeze(0).expand(nBatch, self.nineq, self.nCls)
-        z0 = self.z0.unsqueeze(0).expand(nBatch, self.nCls)
-        s0 = self.s0.unsqueeze(0).expand(nBatch, self.nineq)
-        h = z0.mm(self.G.t()) + s0
-        e = Variable(torch.Tensor())
-        inputs = x
-        x = QPFunction(verbose=-1)(Q.double(), inputs.double(), G.double(), h.double(), e, e)
-        x = x.float()
-        return F.log_softmax(x)
-
-
-class OptNetEq(nn.Module):
-
-    def __init__(self, nFeatures, nHidden, nCls, neq, Qpenalty=0.1, eps=0.0001):
-        super().__init__()
-        self.nFeatures = nFeatures
-        self.nHidden = nHidden
-        self.nCls = nCls
-        self.fc1 = nn.Linear(nFeatures, nHidden)
-        self.fc2 = nn.Linear(nHidden, nCls)
-        self.Q = Variable(Qpenalty * torch.eye(nHidden).double())
-        self.G = Variable(-torch.eye(nHidden).double())
-        self.h = Variable(torch.zeros(nHidden).double())
-        self.A = Parameter(torch.rand(neq, nHidden).double())
-        self.b = Variable(torch.ones(self.A.size(0)).double())
-        self.neq = neq
-
-    def forward(self, x):
-        nBatch = x.size(0)
-        x = x.view(nBatch, -1)
-        x = F.relu(self.fc1(x))
-        Q = self.Q.unsqueeze(0).expand(nBatch, self.Q.size(0), self.Q.size(1))
-        p = -x.view(nBatch, -1)
-        G = self.G.unsqueeze(0).expand(nBatch, self.G.size(0), self.G.size(1))
-        h = self.h.unsqueeze(0).expand(nBatch, self.h.size(0))
-        A = self.A.unsqueeze(0).expand(nBatch, self.A.size(0), self.A.size(1))
-        b = self.b.unsqueeze(0).expand(nBatch, self.b.size(0))
-        x = QPFunction(verbose=False)(Q, p.double(), G, h, A, b).float()
-        x = self.fc2(x)
-        return F.log_softmax(x)
-
-
-class ReluNet(nn.Module):
-
     def __init__(self, nFeatures, nHidden, bn=False):
         super().__init__()
         self.bn = bn
-        self.fc1 = nn.Linear(nFeatures, nHidden)
-        self.fc2 = nn.Linear(nHidden, nFeatures)
-        if bn:
-            self.bn1 = nn.BatchNorm1d(nHidden)
+        fcs = []
+        prevSz = nFeatures
+        for sz in nHidden:
+            fc = nn.Linear(prevSz, sz)
+            prevSz = sz
+            fcs.append(fc)
+        for sz in (list(reversed(nHidden)) + [nFeatures]):
+            fc = nn.Linear(prevSz, sz)
+            prevSz = sz
+            fcs.append(fc)
+        self.fcs = nn.ModuleList(fcs)
 
     def __call__(self, x):
-        x = F.relu(self.fc1(x))
-        if self.bn:
-            x = self.bn1(x)
-        x = self.fc2(x)
+        nBatch = x.size(0)
+        Nsq = x.size(1)
+        in_x = x
+        x = x.view(nBatch, -1)
+        for fc in self.fcs:
+            x = F.relu(fc(x))
+        x = x.view_as(in_x)
+        ex = x.exp()
+        exs = ex.sum(3).expand(nBatch, Nsq, Nsq, Nsq)
+        x = ex / exs
         return x
 
 
@@ -436,103 +361,6 @@ class OptNet(nn.Module):
         return x
 
 
-class OptNet_LearnD(nn.Module):
-
-    def __init__(self, nFeatures, args):
-        super().__init__()
-        nHidden, neq, nineq = 2 * nFeatures - 1, 0, 2 * nFeatures - 2
-        assert neq == 0
-        self.M = Variable(torch.tril(torch.ones(nHidden, nHidden)))
-        Q = 1e-08 * torch.eye(nHidden)
-        Q[:nFeatures, :nFeatures] = torch.eye(nFeatures)
-        self.L = Variable(torch.potrf(Q))
-        self.D = Parameter(0.3 * torch.randn(nFeatures - 1, nFeatures))
-        self.h = Variable(torch.zeros(nineq))
-        self.nFeatures = nFeatures
-        self.nHidden = nHidden
-        self.neq = neq
-        self.nineq = nineq
-        self.args = args
-
-    def cuda(self):
-        for x in [self.L, self.D, self.h]:
-            x.data = x.data
-        return super()
-
-    def forward(self, x):
-        nBatch = x.size(0)
-        L = self.M * self.L
-        Q = L.mm(L.t()) + self.args.eps * Variable(torch.eye(self.nHidden))
-        Q = Q.unsqueeze(0).expand(nBatch, self.nHidden, self.nHidden)
-        nI = Variable(-torch.eye(self.nFeatures - 1).type_as(Q.data))
-        G = torch.cat((torch.cat((self.D, nI), 1), torch.cat((-self.D, nI), 1)))
-        G = G.unsqueeze(0).expand(nBatch, self.nineq, self.nHidden)
-        h = self.h.unsqueeze(0).expand(nBatch, self.nineq)
-        e = Variable(torch.Tensor())
-        p = torch.cat((-x, Parameter(13.0 * torch.ones(nBatch, self.nFeatures - 1))), 1)
-        x = QPFunction()(Q.double(), p.double(), G.double(), h.double(), e, e).float()
-        x = x[:, :self.nFeatures]
-        return x
-
-
-class FC(nn.Module):
-
-    def __init__(self, nFeatures, nHidden, bn=False):
-        super().__init__()
-        self.bn = bn
-        fcs = []
-        prevSz = nFeatures
-        for sz in nHidden:
-            fc = nn.Linear(prevSz, sz)
-            prevSz = sz
-            fcs.append(fc)
-        for sz in (list(reversed(nHidden)) + [nFeatures]):
-            fc = nn.Linear(prevSz, sz)
-            prevSz = sz
-            fcs.append(fc)
-        self.fcs = nn.ModuleList(fcs)
-
-    def __call__(self, x):
-        nBatch = x.size(0)
-        Nsq = x.size(1)
-        in_x = x
-        x = x.view(nBatch, -1)
-        for fc in self.fcs:
-            x = F.relu(fc(x))
-        x = x.view_as(in_x)
-        ex = x.exp()
-        exs = ex.sum(3).expand(nBatch, Nsq, Nsq, Nsq)
-        x = ex / exs
-        return x
-
-
-class Conv(nn.Module):
-
-    def __init__(self, boardSz):
-        super().__init__()
-        self.boardSz = boardSz
-        convs = []
-        Nsq = boardSz ** 2
-        prevSz = Nsq
-        szs = [512] * 10 + [Nsq]
-        for sz in szs:
-            conv = nn.Conv2d(prevSz, sz, kernel_size=3, padding=1)
-            convs.append(conv)
-            prevSz = sz
-        self.convs = nn.ModuleList(convs)
-
-    def __call__(self, x):
-        nBatch = x.size(0)
-        Nsq = x.size(1)
-        for i in range(len(self.convs) - 1):
-            x = F.relu(self.convs[i](x))
-        x = self.convs[-1](x)
-        ex = x.exp()
-        exs = ex.sum(3).expand(nBatch, Nsq, Nsq, Nsq)
-        x = ex / exs
-        return x
-
-
 def get_sudoku_matrix(n):
     X = np.array([[cp.Variable(n ** 2) for i in range(n ** 2)] for j in range(n ** 2)])
     cons = [(x >= 0) for row in X for x in row] + [(cp.sum(x) == 1) for row in X for x in row] + [(sum(row) == np.ones(n ** 2)) for row in X] + [(sum([row[i] for row in X]) == np.ones(n ** 2)) for i in range(n ** 2)] + [(sum([sum(row[i:i + n]) for row in X[j:j + n]]) == np.ones(n ** 2)) for i in range(0, n ** 2, n) for j in range(0, n ** 2, n)]
@@ -584,6 +412,90 @@ class OptNetEq(nn.Module):
         else:
             assert False
         return y
+
+
+class ReluNet(nn.Module):
+
+    def __init__(self, nFeatures, nHidden, bn=False):
+        super().__init__()
+        self.bn = bn
+        self.fc1 = nn.Linear(nFeatures, nHidden)
+        self.fc2 = nn.Linear(nHidden, nFeatures)
+        if bn:
+            self.bn1 = nn.BatchNorm1d(nHidden)
+
+    def __call__(self, x):
+        x = F.relu(self.fc1(x))
+        if self.bn:
+            x = self.bn1(x)
+        x = self.fc2(x)
+        return x
+
+
+class OptNet_LearnD(nn.Module):
+
+    def __init__(self, nFeatures, args):
+        super().__init__()
+        nHidden, neq, nineq = 2 * nFeatures - 1, 0, 2 * nFeatures - 2
+        assert neq == 0
+        self.M = Variable(torch.tril(torch.ones(nHidden, nHidden)))
+        Q = 1e-08 * torch.eye(nHidden)
+        Q[:nFeatures, :nFeatures] = torch.eye(nFeatures)
+        self.L = Variable(torch.potrf(Q))
+        self.D = Parameter(0.3 * torch.randn(nFeatures - 1, nFeatures))
+        self.h = Variable(torch.zeros(nineq))
+        self.nFeatures = nFeatures
+        self.nHidden = nHidden
+        self.neq = neq
+        self.nineq = nineq
+        self.args = args
+
+    def cuda(self):
+        for x in [self.L, self.D, self.h]:
+            x.data = x.data
+        return super()
+
+    def forward(self, x):
+        nBatch = x.size(0)
+        L = self.M * self.L
+        Q = L.mm(L.t()) + self.args.eps * Variable(torch.eye(self.nHidden))
+        Q = Q.unsqueeze(0).expand(nBatch, self.nHidden, self.nHidden)
+        nI = Variable(-torch.eye(self.nFeatures - 1).type_as(Q.data))
+        G = torch.cat((torch.cat((self.D, nI), 1), torch.cat((-self.D, nI), 1)))
+        G = G.unsqueeze(0).expand(nBatch, self.nineq, self.nHidden)
+        h = self.h.unsqueeze(0).expand(nBatch, self.nineq)
+        e = Variable(torch.Tensor())
+        p = torch.cat((-x, Parameter(13.0 * torch.ones(nBatch, self.nFeatures - 1))), 1)
+        x = QPFunction()(Q.double(), p.double(), G.double(), h.double(), e, e).float()
+        x = x[:, :self.nFeatures]
+        return x
+
+
+class Conv(nn.Module):
+
+    def __init__(self, boardSz):
+        super().__init__()
+        self.boardSz = boardSz
+        convs = []
+        Nsq = boardSz ** 2
+        prevSz = Nsq
+        szs = [512] * 10 + [Nsq]
+        for sz in szs:
+            conv = nn.Conv2d(prevSz, sz, kernel_size=3, padding=1)
+            convs.append(conv)
+            prevSz = sz
+        self.convs = nn.ModuleList(convs)
+
+    def __call__(self, x):
+        nBatch = x.size(0)
+        Nsq = x.size(1)
+        for i in range(len(self.convs) - 1):
+            x = F.relu(self.convs[i](x))
+        x = self.convs[-1](x)
+        ex = x.exp()
+        exs = ex.sum(3).expand(nBatch, Nsq, Nsq, Nsq)
+        x = ex / exs
+        return x
 
 
 class SpOptNetEq(nn.Module):

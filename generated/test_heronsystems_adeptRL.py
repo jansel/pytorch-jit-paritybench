@@ -18,6 +18,7 @@ actorlearner = _module
 learner_container = _module
 rollout_queuer = _module
 rollout_worker = _module
+container = _module
 nccl_optimizer = _module
 distrib = _module
 evaluation = _module
@@ -39,8 +40,10 @@ replay = _module
 rollout = _module
 globals = _module
 learner = _module
+ac_rollout = _module
 dm_return_scale = _module
 learner_module = _module
+impala = _module
 manager = _module
 manager_module = _module
 simple_env_manager = _module
@@ -84,6 +87,7 @@ rewnorm_module = _module
 normalizers = _module
 scripts = _module
 _distrib = _module
+distrib = _module
 evaluate = _module
 replay_gen_sc2 = _module
 utils = _module
@@ -118,26 +122,63 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import abc
+from collections import OrderedDict
 
 
 import torch
 
 
+import abc
+
+
 from torch.nn import functional as F
+
+
+from collections import defaultdict
+
+
+from functools import reduce
+
+
+from time import time
+
+
+import numpy as np
+
+
+import torch.distributed as dist
+
+
+from torch.utils.tensorboard import SummaryWriter
+
+
+from collections import namedtuple
+
+
+import time
+
+
+from torch.optim.lr_scheduler import LambdaLR
+
+
+from torch import distributed as dist
+
+
+from torch import multiprocessing as mp
 
 
 import math
@@ -164,9 +205,6 @@ from torch.nn import LayerNorm
 from torch import nn as nn
 
 
-from torch import distributed as dist
-
-
 from torch.nn import LSTMCell
 
 
@@ -188,10 +226,10 @@ from torch.nn import BatchNorm1d
 from collections import deque
 
 
-from functools import reduce
+from itertools import chain
 
 
-import numpy as np
+import random
 
 
 class MultiHeadSelfAttention(torch.nn.Module):
@@ -615,10 +653,80 @@ class NoisyLinear(nn.Linear):
         return ['W', 'b', 'sigma_W', 'sigma_b']
 
 
-class Identity(torch.nn.Module):
+class RequiresArgsMixin(metaclass=abc.ABCMeta):
+    """
+    This mixin makes it so that subclasses must implement an args class
+    attribute. These arguments are parsed at runtime and the user is offered a
+    chance to change any desired args. Classes the use this mixin must
+    implement the from_args() class method. from_args() is essentially a
+    secondary constructor.
+    """
+    args = None
 
-    def forward(self, x):
-        return x
+    @classmethod
+    def check_args_implemented(cls):
+        if cls.args is None:
+            raise NotImplementedError('Subclass must define class attribute "args"')
+
+    @classmethod
+    def prompt(cls, provided=None):
+        """
+        Display defaults as JSON, prompt user for changes.
+
+        :param provided: Dict[str, Any], Override default prompts.
+        :return: Dict[str, Any] Updated config dictionary.
+        """
+        if provided is not None:
+            overrides = {k: v for k, v in provided.items() if k in cls.args}
+            args = {**cls.args, **overrides}
+        else:
+            args = cls.args
+        return cls._prompt(cls.__name__, args)
+
+    @staticmethod
+    def _prompt(name, args):
+        """
+        Display defaults as JSON, prompt user for changes.
+
+        :param name: str Name of class
+        :param args: Dict[str, Any]
+        :return: Dict[str, Any] Updated config dictionary.
+        """
+        if not args:
+            return args
+        user_input = input('\n{} Defaults:\n{}\nPress ENTER to use defaults. Otherwise, modify JSON keys then press ENTER.\n'.format(name, json.dumps(args, indent=2, sort_keys=True)) + 'Example: {"x": True, "gamma": 0.001}\n')
+        if user_input == '':
+            return args
+        updates = json.loads(user_input)
+        return {**args, **updates}
+
+    @classmethod
+    @abc.abstractmethod
+    def from_args(cls, *argss, **kwargs):
+        raise NotImplementedError
+
+
+class RewardNormModule(RequiresArgsMixin, metaclass=abc.ABCMeta):
+
+    def __call__(self, reward):
+        """
+        Normalizes a reward tensor.
+
+        :param reward: torch.Tensor (1D)
+        :return:
+        """
+        raise NotImplementedError
+
+
+class Identity(RewardNormModule):
+    args = {}
+
+    @classmethod
+    def from_args(cls, args):
+        return cls()
+
+    def __call__(self, item):
+        return item
 
 
 class LSTMCellLayerNorm(Module):
@@ -728,59 +836,6 @@ class BaseNetwork(torch.nn.Module):
             for k, h in zip(keys, handles):
                 h.wait()
         return handles
-
-
-class RequiresArgsMixin(metaclass=abc.ABCMeta):
-    """
-    This mixin makes it so that subclasses must implement an args class
-    attribute. These arguments are parsed at runtime and the user is offered a
-    chance to change any desired args. Classes the use this mixin must
-    implement the from_args() class method. from_args() is essentially a
-    secondary constructor.
-    """
-    args = None
-
-    @classmethod
-    def check_args_implemented(cls):
-        if cls.args is None:
-            raise NotImplementedError('Subclass must define class attribute "args"')
-
-    @classmethod
-    def prompt(cls, provided=None):
-        """
-        Display defaults as JSON, prompt user for changes.
-
-        :param provided: Dict[str, Any], Override default prompts.
-        :return: Dict[str, Any] Updated config dictionary.
-        """
-        if provided is not None:
-            overrides = {k: v for k, v in provided.items() if k in cls.args}
-            args = {**cls.args, **overrides}
-        else:
-            args = cls.args
-        return cls._prompt(cls.__name__, args)
-
-    @staticmethod
-    def _prompt(name, args):
-        """
-        Display defaults as JSON, prompt user for changes.
-
-        :param name: str Name of class
-        :param args: Dict[str, Any]
-        :return: Dict[str, Any] Updated config dictionary.
-        """
-        if not args:
-            return args
-        user_input = input('\n{} Defaults:\n{}\nPress ENTER to use defaults. Otherwise, modify JSON keys then press ENTER.\n'.format(name, json.dumps(args, indent=2, sort_keys=True)) + 'Example: {"x": True, "gamma": 0.001}\n')
-        if user_input == '':
-            return args
-        updates = json.loads(user_input)
-        return {**args, **updates}
-
-    @classmethod
-    @abc.abstractmethod
-    def from_args(cls, *argss, **kwargs):
-        raise NotImplementedError
 
 
 class SubModule(torch.nn.Module, RequiresArgsMixin, metaclass=abc.ABCMeta):
@@ -991,6 +1046,215 @@ class SubModule(torch.nn.Module, RequiresArgsMixin, metaclass=abc.ABCMeta):
         return {(self.id + k): v for k, v in internals.items()}
 
 
+class ModularNetwork(BaseNetwork, metaclass=abc.ABCMeta):
+    """
+    A neural network comprised of SubModules. Tries to be smart about
+    converting dimensionality. Does not need or build submodules for unused
+    source nets or heads.
+    """
+
+    def __init__(self, source_nets, body_submodule, head_submodules, output_space, gpu_preprocessor):
+        """
+        :param source_nets: Dict[ObsKey, SubModule]
+        :param body_submodule: SubModule
+        :param head_submodules: Dict[Dim, SubModule]
+        :param output_space: Dict[OutputKey, Shape]
+        :param gpu_preprocessor: ObsPreprocessor
+        """
+        super().__init__()
+        self.gpu_preprocessor = gpu_preprocessor
+        self.source_nets = torch.nn.ModuleDict([(key, net) for key, net in source_nets.items()])
+        self.body = body_submodule
+        self.heads = torch.nn.ModuleDict(head_submodules)
+        self.output_layers = self._build_out_layers(output_space, self.heads)
+        self._obs_keys = list(source_nets.keys())
+        self._output_keys = list(output_space.keys())
+        self._output_space = output_space
+        self._output_dims = set([len(shape) for shape in self._output_space.values()])
+        self._check_outputs_have_heads()
+        self._validate_shapes()
+
+    @staticmethod
+    def _build_out_layers(output_space, heads):
+        """
+        Build output_layers to match the desired output space.
+        * For 1D outputs, converts uses a Linear layer
+        * For 2D outputs, uses a Conv1D, kernel size 1
+        * For 3D outputs, uses a 1x1 Conv
+        * For 4D outputs, uses a 1x1x1 Conv
+
+        :param output_space: Dict[OutputKey, Shape]
+        :param heads: Dict[DimStr, SubModule]
+        :return: ModuleDict[OutputKey, torch.nn.Module]
+        """
+        outputs = []
+        for output_name, shape in output_space.items():
+            dim = len(shape)
+            if dim == 1:
+                layer = torch.nn.Linear(heads[str(dim)].output_shape(dim)[0], shape[0])
+            elif dim == 2:
+                layer = torch.nn.Conv1d(heads[str(dim)].output_shape(dim)[0], shape[0], kernel_size=1)
+            elif dim == 3:
+                layer = torch.nn.Conv2d(heads[str(dim)].output_shape(dim)[0], shape[0], kernel_size=1)
+            elif dim == 4:
+                layer = torch.nn.Conv3d(heads[str(dim)].output_shape(dim)[0], shape[0], kernel_size=1)
+            else:
+                raise ValueError('Invalid dim {}'.format(dim))
+            outputs.append((output_name, layer))
+        return torch.nn.ModuleDict(outputs)
+
+    def _validate_shapes(self):
+        """
+        Ensures SubModule graph is valid.
+        :return:
+        """
+        if self.body.dim > 1:
+            for submod in self.source_nets.values():
+                if submod.dim > 1:
+                    shape = submod.output_shape(dim=self.body.dim)
+                    for a, b in zip(shape[1:], self.body.input_shape[1:]):
+                        assert a == b or a == 1 or b == 1, 'Source-Body conflict: {} {}'.format(shape, self.body.input_shape)
+            for submod in self.heads.values():
+                if submod.dim > 1:
+                    shape = self.body.output_shape(dim=submod.dim)
+                    for a, b in zip(shape[1:], submod.input_shape[1:]):
+                        assert a == b or a == 1 or b == 1, 'Body-Head conflict: {} {}'.format(shape, submod.input_shape)
+        for shape in self._output_space.values():
+            dim = len(shape)
+            if dim > 1:
+                submod = self.heads[str(dim)]
+                head_shp = submod.output_shape(dim)
+                for a, b in zip(shape[1:], head_shp[1:]):
+                    assert a == b, 'Head-Output conflict: {}-{}'.format(head_shp, shape)
+
+    def _check_outputs_have_heads(self):
+        for dim in self._output_dims:
+            assert str(dim) in self.heads
+
+    @classmethod
+    def from_args(cls, args, observation_space, output_space, gpu_preprocessor, net_reg):
+        """
+        Construct a Modular Network from arguments.
+
+        :param args: Dict[ArgName, Any]
+        :param observation_space: Dict[ObsKey, Shape]
+        :param output_space: Dict[OutputKey, Shape]
+        :param gpu_preprocessor: ObsPreprocessor
+        :param net_reg: NetworkRegistry
+        :return: ModularNetwork
+        """
+        obs_key_to_submod = {}
+        for obs_key, shape in observation_space.items():
+            dim = len(shape)
+            if dim == 1:
+                submod = net_reg.lookup_submodule(args.net1d).from_args(args, shape, obs_key)
+            elif dim == 2:
+                submod = net_reg.lookup_submodule(args.net2d).from_args(args, shape, obs_key)
+            elif dim == 3:
+                submod = net_reg.lookup_submodule(args.net3d).from_args(args, shape, obs_key)
+            elif dim == 4:
+                submod = net_reg.lookup_submodule(args.net4d).from_args(args, shape, obs_key)
+            else:
+                raise ValueError('Invalid dim: {}'.format(dim))
+            obs_key_to_submod[obs_key] = submod
+        body_cls = net_reg.lookup_submodule(args.netbody)
+        nb_body_feature = sum([submod.output_shape(dim=body_cls.dim)[0] for submod in obs_key_to_submod.values()])
+        if body_cls.dim > 1:
+            other_dims = [submod.output_shape(dim=body_cls.dim)[1:] for submod in obs_key_to_submod.values() if submod.dim == body_cls.dim][0]
+        else:
+            other_dims = []
+        input_shape = [nb_body_feature] + list(other_dims)
+        body_submod = body_cls.from_args(args, input_shape, 'body')
+        head_submodules = {}
+        for output_key, shape in output_space.items():
+            dim = len(shape)
+            if dim in head_submodules:
+                continue
+            elif dim == 1:
+                submod_cls = net_reg.lookup_submodule(args.head1d)
+            elif dim == 2:
+                submod_cls = net_reg.lookup_submodule(args.head2d)
+            elif dim == 3:
+                submod_cls = net_reg.lookup_submodule(args.head3d)
+            elif dim == 4:
+                submod_cls = net_reg.lookup_submodule(args.head4d)
+            else:
+                raise ValueError('Invalid dim: {}'.format(dim))
+            submod = submod_cls.from_args(args, body_submod.output_shape(submod_cls.dim), 'head' + str(dim) + 'd')
+            head_submodules[str(dim)] = submod
+        return cls(obs_key_to_submod, body_submod, head_submodules, output_space, gpu_preprocessor)
+
+    def forward(self, observation, internals):
+        """
+
+        :param observation: Dict[str, torch.Tensor (1D | 2D | 3D | 4D)]
+        :param internals: Dict[str, torch.Tensor (ND)]
+        :return: Tuple[
+            Dict[str, torch.Tensor (1D | 2D | 3D | 4D)],
+            Dict[str, torch.Tensor (ND)]
+        ]
+        """
+        proc_obs = self.gpu_preprocessor(observation)
+        nxt_internals = []
+        processed_inputs = []
+        for key in self._obs_keys:
+            result, nxt_internal = self.source_nets[key].forward(proc_obs[key], internals, dim=self.body.dim)
+            processed_inputs.append(result)
+            nxt_internals.append(nxt_internal)
+        processed_inputs = self._expand_dims(processed_inputs)
+        body_out, nxt_internal = self.body.forward(torch.cat(processed_inputs, dim=1), internals)
+        nxt_internals.append(nxt_internal)
+        head_out_by_dim = {}
+        for dim in self._output_dims:
+            cur_head = self.heads[str(dim)]
+            head_out, next_internal = cur_head.forward(self.body.to_dim(body_out, cur_head.dim), internals, dim=dim)
+            head_out_by_dim[dim] = head_out
+            nxt_internals.append(nxt_internal)
+        output_by_key = {}
+        for key in self._output_keys:
+            output = self.output_layers[key].forward(head_out_by_dim[len(self._output_space[key])])
+            output_by_key[key] = output
+        merged_internals = {}
+        for internal in nxt_internals:
+            for k, v in internal.items():
+                merged_internals[k] = v
+        return output_by_key, merged_internals, proc_obs
+
+    @staticmethod
+    def _expand_dims(inputs):
+        """
+        Expands dimensions when input dimension is 1.
+
+        :param inputs: List[torch.Tensor]
+        :return: List[torch.Tensor]
+        """
+        if len(inputs[0].shape) <= 2:
+            return inputs
+        target_shape = max([inpt.shape[2:] for inpt in inputs])
+        processed_inputs = []
+        for inpt in inputs:
+            if inpt.shape[2:] < target_shape:
+                processed_inputs.append(inpt.expand(-1, -1, *target_shape))
+            else:
+                processed_inputs.append(inpt)
+        return processed_inputs
+
+    def new_internals(self, device):
+        """
+
+        :param device:
+        :return: Dict[
+        """
+        internals = [submod.new_internals(device) for submod in self.source_nets.values()]
+        internals.append(self.body.new_internals(device))
+        internals += [submod.new_internals(device) for submod in self.heads.values()]
+        merged_internals = {}
+        for internal in internals:
+            for k, v in internal.items():
+                merged_internals[k] = v
+        return merged_internals
+
+
 def conv3x3(in_planes, out_planes, stride=1):
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
@@ -1151,6 +1415,370 @@ class ResNet(nn.Module):
         return x
 
 
+class Nature(SubModule):
+    """
+    https://web.stanford.edu/class/psych209/Readings/MnihEtAlHassibis15NatureControlDeepRL.pdf
+    """
+
+    def __init__(self, in_shape, normalize):
+        super().__init__()
+        bias = not normalize
+        self._nb_output_channel = 3136
+        self.conv1 = Conv2d(in_shape[0], 32, 8, stride=4, padding=0, bias=bias)
+        self.conv2 = Conv2d(32, 64, 4, stride=2, padding=0, bias=bias)
+        self.conv3 = Conv2d(64, 64, 3, stride=1, padding=0, bias=bias)
+        if normalize:
+            self.bn1 = BatchNorm2d(32)
+            self.bn2 = BatchNorm2d(64)
+            self.bn3 = BatchNorm2d(64)
+        else:
+            self.bn1 = Identity()
+            self.bn2 = Identity()
+            self.bn3 = Identity()
+        relu_gain = init.calculate_gain('relu')
+        self.conv1.weight.data.mul_(relu_gain)
+        self.conv2.weight.data.mul_(relu_gain)
+        self.conv3.weight.data.mul_(relu_gain)
+
+    @classmethod
+    def from_args(cls, in_shape, args):
+        return cls(in_shape, args.normalize)
+
+    @property
+    def nb_output_channel(self):
+        return self._nb_output_channel
+
+    def forward(self, xs):
+        xs = F.relu(self.bn1(self.conv1(xs)))
+        xs = F.relu(self.bn2(self.conv2(xs)))
+        xs = F.relu(self.bn3(self.conv3(xs)))
+        xs = xs.view(xs.size(0), -1)
+        return xs
+
+
+class Mnih2013(SubModule):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__()
+        bias = not normalize
+        self._nb_output_channel = 2592
+        self.conv1 = Conv2d(in_shape[0], 16, 8, stride=4, padding=0, bias=bias)
+        self.conv2 = Conv2d(16, 32, 4, stride=2, padding=0, bias=bias)
+        if normalize:
+            self.bn1 = BatchNorm2d(16)
+            self.bn2 = BatchNorm2d(32)
+        else:
+            self.bn1 = Identity()
+            self.bn2 = Identity()
+        relu_gain = init.calculate_gain('relu')
+        self.conv1.weight.data.mul_(relu_gain)
+        self.conv2.weight.data.mul_(relu_gain)
+
+    @classmethod
+    def from_args(cls, in_shape, args):
+        return cls(in_shape, args.normalize)
+
+    @property
+    def nb_output_channel(self):
+        return self._nb_output_channel
+
+    def forward(self, xs):
+        xs = F.relu(self.bn1(self.conv1(xs)))
+        xs = F.relu(self.bn2(self.conv2(xs)))
+        xs = xs.view(xs.size(0), -1)
+        return xs
+
+
+class FourConvSpatialAttention(SubModule):
+    """
+    https://arxiv.org/pdf/1806.01830.pdf
+    """
+
+    def __init__(self, in_shape, nb_head, normalize):
+        self._nb_output_channel = 800
+        super().__init__()
+        self.normalize = normalize
+        bias = not normalize
+        self.conv1 = Conv2d(in_shape[0], 32, kernel_size=3, stride=2, padding=1, bias=bias)
+        self.conv2 = Conv2d(32, 32, kernel_size=3, stride=2, padding=1, bias=bias)
+        self.attention = MultiHeadSelfAttention(20 * 20, 34, 34, nb_head)
+        self.mlp = Linear(34, 34)
+        self.conv3 = Conv2d(34, 32, kernel_size=3, stride=2, padding=1, bias=bias)
+        self.conv4 = Conv2d(32, 32, kernel_size=3, stride=2, padding=1, bias=bias)
+        if normalize:
+            self.bn1 = BatchNorm2d(32)
+            self.bn2 = BatchNorm2d(32)
+            self.bn3 = BatchNorm2d(32)
+            self.bn4 = BatchNorm2d(32)
+        else:
+            self.bn1 = Identity()
+            self.bn2 = Identity()
+            self.bn3 = Identity()
+            self.bn4 = Identity()
+        relu_gain = init.calculate_gain('relu')
+        self.conv1.weight.data.mul_(relu_gain)
+        self.conv2.weight.data.mul_(relu_gain)
+        self.conv3.weight.data.mul_(relu_gain)
+        self.conv4.weight.data.mul_(relu_gain)
+
+    @classmethod
+    def from_args(cls, in_shape, args):
+        return cls(in_shape, args.nb_head, args.normalize)
+
+    @property
+    def nb_output_channel(self):
+        return self._nb_output_channel
+
+    def forward(self, input, internals):
+        x = F.relu(self.bn1(self.conv1(input)))
+        x = F.relu(self.bn2(self.conv2(x)))
+        xs_chan = torch.linspace(-1, 1, 20).view(1, 1, 1, 20).expand(input.size(0), 1, 20, 20)
+        ys_chan = torch.linspace(-1, 1, 20).view(1, 1, 20, 1).expand(input.size(0), 1, 20, 20)
+        x = torch.cat([x, xs_chan, ys_chan], dim=1)
+        h = x.size(2)
+        w = x.size(3)
+        x = x.view(x.size(0), x.size(1), h * w).transpose(1, 2)
+        x = self.attention(x.contiguous())
+        x = F.relu(self.mlp(x))
+        x = x.transpose(1, 2)
+        x = x.view(x.size(0), x.size(1), h, w)
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = F.relu(self.bn4(self.conv4(x)))
+        x = x.view(x.size(0), -1)
+        return x
+
+
+class FourConvLarger(SubModule):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__()
+        bias = not normalize
+        self._nb_output_channel = 3200
+        self.conv1 = Conv2d(in_shape[0], 32, 7, stride=2, padding=1, bias=bias)
+        self.conv2 = Conv2d(32, 64, 3, stride=2, padding=1, bias=bias)
+        self.conv3 = Conv2d(64, 64, 3, stride=2, padding=1, bias=bias)
+        self.conv4 = Conv2d(64, 128, 3, stride=2, padding=1, bias=bias)
+        if normalize:
+            self.bn1 = BatchNorm2d(32)
+            self.bn2 = BatchNorm2d(64)
+            self.bn3 = BatchNorm2d(64)
+            self.bn4 = BatchNorm2d(128)
+        else:
+            self.bn1 = Identity()
+            self.bn2 = Identity()
+            self.bn3 = Identity()
+            self.bn4 = Identity()
+        relu_gain = init.calculate_gain('relu')
+        self.conv1.weight.data.mul_(relu_gain)
+        self.conv2.weight.data.mul_(relu_gain)
+        self.conv3.weight.data.mul_(relu_gain)
+        self.conv4.weight.data.mul_(relu_gain)
+
+    @classmethod
+    def from_args(cls, in_shape, args):
+        return cls(in_shape, args.normalize)
+
+    @property
+    def nb_output_channel(self):
+        return self._nb_output_channel
+
+    def forward(self, xs):
+        xs = F.relu(self.bn1(self.conv1(xs)))
+        xs = F.relu(self.bn2(self.conv2(xs)))
+        xs = F.relu(self.bn3(self.conv3(xs)))
+        xs = F.relu(self.bn4(self.conv4(xs)))
+        xs = xs.view(xs.size(0), -1)
+        return xs
+
+
+class BaseResNet(SubModule, metaclass=abc.ABCMeta):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__()
+        bias = not normalize
+        self.conv1 = Conv2d(in_shape[0], 64, 7, stride=2, padding=1, bias=bias)
+        relu_gain = init.calculate_gain('relu')
+        self.conv1.weight.data.mul_(relu_gain)
+        if normalize:
+            self.bn1 = BatchNorm2d(64)
+        else:
+            self.bn1 = Identity()
+
+    @property
+    @abc.abstractmethod
+    def resnet(self):
+        raise NotImplementedError()
+
+    @classmethod
+    def from_args(cls, in_shape, args):
+        return cls(in_shape, args.normalize)
+
+    @property
+    def nb_output_channel(self):
+        return self.resnet.nb_output_channel
+
+    def forward(self, xs):
+        xs = F.relu(self.bn1(self.conv1(xs)))
+        xs = self.resnet(xs)
+        xs = xs.view(xs.size(0), -1)
+        return xs
+
+
+def resnet18():
+    model = ResNet(BasicBlock, [2, 2, 2, 2])
+    return model
+
+
+class ResNet18(BaseResNet):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__(in_shape, normalize)
+        self._resnet = resnet18()
+
+    @property
+    def resnet(self):
+        return self._resnet
+
+
+def resnet18v2():
+    model = ResNet(BasicBlockV2, [2, 2, 2, 2])
+    return model
+
+
+class ResNet18V2(BaseResNet):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__(in_shape, normalize)
+        self._resnet = resnet18v2()
+
+    @property
+    def resnet(self):
+        return self._resnet
+
+
+def resnet34():
+    model = ResNet(BasicBlock, [3, 4, 6, 3])
+    return model
+
+
+class ResNet34(BaseResNet):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__(in_shape, normalize)
+        self._resnet = resnet34()
+
+    @property
+    def resnet(self):
+        return self._resnet
+
+
+def resnet34v2():
+    model = ResNet(BasicBlockV2, [3, 4, 6, 3])
+    return model
+
+
+class ResNet34V2(BaseResNet):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__(in_shape, normalize)
+        self._resnet = resnet34v2()
+
+    @property
+    def resnet(self):
+        return self._resnet
+
+
+def resnet50v2():
+    model = ResNet(BottleneckV2, [3, 4, 6, 3])
+    return model
+
+
+class ResNet50(BaseResNet):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__(in_shape, normalize)
+        self._resnet = resnet50v2()
+
+    @property
+    def resnet(self):
+        return self._resnet
+
+
+class ResNet50V2(BaseResNet):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__(in_shape, normalize)
+        self._resnet = resnet50v2()
+
+    @property
+    def resnet(self):
+        return self._resnet
+
+
+def resnet101():
+    model = ResNet(Bottleneck, [3, 4, 23, 3])
+    return model
+
+
+class ResNet101(BaseResNet):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__(in_shape, normalize)
+        self._resnet = resnet101()
+
+    @property
+    def resnet(self):
+        return self._resnet
+
+
+def resnet101v2():
+    model = ResNet(BottleneckV2, [3, 4, 23, 3])
+    return model
+
+
+class ResNet101V2(BaseResNet):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__(in_shape, normalize)
+        self._resnet = resnet101v2()
+
+    @property
+    def resnet(self):
+        return self._resnet
+
+
+def resnet152():
+    model = ResNet(Bottleneck, [3, 8, 36, 3])
+    return model
+
+
+class ResNet152(BaseResNet):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__(in_shape, normalize)
+        self._resnet = resnet152()
+
+    @property
+    def resnet(self):
+        return self._resnet
+
+
+def resnet152v2():
+    model = ResNet(BottleneckV2, [3, 8, 36, 3])
+    return model
+
+
+class ResNet152V2(BaseResNet):
+
+    def __init__(self, in_shape, normalize):
+        super().__init__(in_shape, normalize)
+        self._resnet = resnet152v2()
+
+    @property
+    def resnet(self):
+        return self._resnet
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -1176,10 +1804,6 @@ TESTCASES = [
      False),
     (GaussianLinear,
      lambda: ([], {'fan_in': 4, 'nodes': 4}),
-     lambda: ([torch.rand([4, 4, 4, 4])], {}),
-     True),
-    (Identity,
-     lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
     (MultiHeadSelfAttention,
@@ -1234,7 +1858,4 @@ class Test_heronsystems_adeptRL(_paritybench_base):
 
     def test_009(self):
         self._check(*TESTCASES[9])
-
-    def test_010(self):
-        self._check(*TESTCASES[10])
 

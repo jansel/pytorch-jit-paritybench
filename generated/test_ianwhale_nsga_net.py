@@ -24,15 +24,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -44,6 +45,12 @@ import torch
 
 
 import numpy as np
+
+
+import torchvision.transforms as transforms
+
+
+from torch.autograd import Variable
 
 
 from copy import copy
@@ -58,6 +65,12 @@ from abc import abstractmethod
 from collections import OrderedDict
 
 
+import torch.utils.data as data
+
+
+from collections import namedtuple
+
+
 import logging
 
 
@@ -65,9 +78,6 @@ import torch.utils
 
 
 import torch.backends.cudnn as cudnn
-
-
-import torchvision.transforms as transforms
 
 
 import time
@@ -120,6 +130,37 @@ class HourGlassDecoder(Decoder):
     @abstractmethod
     def check_genome(genome):
         raise NotImplementedError()
+
+
+class Identity(nn.Module):
+
+    def __init__(self):
+        super(Identity, self).__init__()
+
+    def forward(self, x):
+        return x
+
+
+class HourGlassResidual(nn.Module):
+    """
+    Hour glass residual, As defined in https://arxiv.org/pdf/1603.06937.pdf.
+    Code converted from original lua: https://github.com/umich-vl/pose-hg-demo/blob/master/residual.lua
+    """
+
+    def __init__(self, in_channels, out_channels):
+        super(HourGlassResidual, self).__init__()
+        self.skip_layer = Identity() if in_channels == out_channels else nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels))
+        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels // 2), nn.ReLU(inplace=True), nn.Conv2d(out_channels // 2, out_channels // 2, kernel_size=3, stride=1, padding=1, bias=True), nn.BatchNorm2d(out_channels // 2), nn.ReLU(inplace=True), nn.Conv2d(out_channels // 2, out_channels, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels))
+
+    def forward(self, x):
+        """
+        Apply forward propagation operation.
+        :param x: Variable, input.
+        :return: Variable
+        """
+        residual = x
+        out = self.model(x)
+        return out + self.skip_layer(residual)
 
 
 class LOSComputationGraph:
@@ -225,6 +266,98 @@ class LOSComputationGraph:
         return adj
 
 
+class LOSHourGlassBlock(nn.Module):
+    """
+    HourGlassBlock, repeated in an hourglass-type network.
+    """
+    EXPANSION = 2
+
+    def __init__(self, graph, in_channels, out_channels, operating_channels=64):
+        """
+        Constructor.
+        :param graph: decoder.LOSComputationGraph, represents the computation flow.
+        :param in_channels: int, number of input channels.
+        :param out_channels: int, number of output channels.
+        """
+        super(LOSHourGlassBlock, self).__init__()
+        self.operating_channels = operating_channels
+        self.graph = graph
+        samplers = []
+        nodes, _ = zip(*self.graph.items())
+        nodes = [None] + list(nodes) + [None]
+        for i in range(len(nodes[:-1])):
+            samplers.append(self.make_sampling(nodes[i], nodes[i + 1]))
+        self.samplers = nn.ModuleList(samplers)
+        skip_ops = []
+        for node in graph.keys():
+            if node.residual:
+                skip_ops.append(HourGlassResidual(self.operating_channels, self.operating_channels))
+            else:
+                skip_ops.append(None)
+        last_node = list(graph.keys())[-1]
+        res = last_node.residual_node
+        if res:
+            skip_ops[res.idx] = HourGlassResidual(self.operating_channels, out_channels)
+        self.skip_ops = nn.ModuleList(skip_ops)
+        path_ops = [HourGlassResidual(in_channels, self.operating_channels)]
+        for i in range(len(graph) - 2):
+            path_ops.append(HourGlassResidual(self.operating_channels, self.operating_channels))
+        path_ops.append(HourGlassResidual(self.operating_channels, out_channels))
+        self.path_ops = nn.ModuleList(path_ops)
+
+    @staticmethod
+    def make_sampling(prev_node, next_node):
+        """
+        Determine the factor of up/down sampling needed to move between two nodes.
+        :param prev_node: LOSComputationGraph.Node | None.
+        :param next_node: LOSComputationGraph.Node.
+        :return: nn.MaxPool2d | nn.Upsample
+        """
+        if prev_node is None:
+            prev_node = LOSComputationGraph.Node(1, -1)
+        if next_node is None:
+            next_node = LOSComputationGraph.Node(1, -1)
+        if prev_node.resolution == next_node.resolution:
+            return Identity()
+        elif prev_node.resolution > next_node.resolution:
+            s = int(prev_node.resolution / next_node.resolution)
+            return nn.MaxPool2d(kernel_size=2, stride=s)
+        else:
+            f = int(next_node.resolution / prev_node.resolution)
+            return nn.Upsample(scale_factor=f, mode='nearest')
+
+    def forward(self, x):
+        residuals = [None for _ in range(len(self.graph))]
+        for i, (node, _) in enumerate(self.graph.items()):
+            x = self.samplers[i](x)
+            x = self.path_ops[i](x)
+            if node.residual:
+                residuals[i] = self.skip_ops[i](x.clone())
+            res = node.residual_node
+            if res:
+                x += residuals[res.idx]
+                residuals[res.idx] = None
+        return self.samplers[-1](x)
+
+
+class Lin(nn.Module):
+    """
+    "Lin" layer as implemented in: https://github.com/umich-vl/pose-hg-demo/blob/master/stacked-hourglass-model.lua
+    """
+
+    def __init__(self, in_channels, out_channels):
+        """
+        Constructor.
+        :param in_channels: int, input channels.
+        :param out_channels: int, desired output channels.
+        """
+        super(Lin, self).__init__()
+        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
+
+    def forward(self, x):
+        return self.model(x)
+
+
 class LOSHourGlassDecoder(HourGlassDecoder, nn.Module):
     """
     Line of sight HourGlass decoder.
@@ -321,118 +454,64 @@ class LOSHourGlassDecoder(HourGlassDecoder, nn.Module):
         return maps
 
 
-class Lin(nn.Module):
+class PreactResidualNode(nn.Module):
     """
-    "Lin" layer as implemented in: https://github.com/umich-vl/pose-hg-demo/blob/master/stacked-hourglass-model.lua
+    Basic computation unit.
+    Does batchnorm, relu, and convolution (in this order).
     """
 
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, stride=1, kernel_size=3, padding=1, bias=False):
         """
         Constructor.
-        :param in_channels: int, input channels.
-        :param out_channels: int, desired output channels.
+        Default arguments preserve dimensionality of input.
+
+        :param in_channels: input to the node.
+        :param out_channels: output channels from the node.
+        :param stride: stride of convolution, default 1.
+        :param kernel_size: size of convolution kernel, default 3.
+        :param padding: amount of zero padding, default 1.
+        :param bias: true to use bias, false to not.
         """
-        super(Lin, self).__init__()
-        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
-
-    def forward(self, x):
-        return self.model(x)
-
-
-class LOSHourGlassBlock(nn.Module):
-    """
-    HourGlassBlock, repeated in an hourglass-type network.
-    """
-    EXPANSION = 2
-
-    def __init__(self, graph, in_channels, out_channels, operating_channels=64):
-        """
-        Constructor.
-        :param graph: decoder.LOSComputationGraph, represents the computation flow.
-        :param in_channels: int, number of input channels.
-        :param out_channels: int, number of output channels.
-        """
-        super(LOSHourGlassBlock, self).__init__()
-        self.operating_channels = operating_channels
-        self.graph = graph
-        samplers = []
-        nodes, _ = zip(*self.graph.items())
-        nodes = [None] + list(nodes) + [None]
-        for i in range(len(nodes[:-1])):
-            samplers.append(self.make_sampling(nodes[i], nodes[i + 1]))
-        self.samplers = nn.ModuleList(samplers)
-        skip_ops = []
-        for node in graph.keys():
-            if node.residual:
-                skip_ops.append(HourGlassResidual(self.operating_channels, self.operating_channels))
-            else:
-                skip_ops.append(None)
-        last_node = list(graph.keys())[-1]
-        res = last_node.residual_node
-        if res:
-            skip_ops[res.idx] = HourGlassResidual(self.operating_channels, out_channels)
-        self.skip_ops = nn.ModuleList(skip_ops)
-        path_ops = [HourGlassResidual(in_channels, self.operating_channels)]
-        for i in range(len(graph) - 2):
-            path_ops.append(HourGlassResidual(self.operating_channels, self.operating_channels))
-        path_ops.append(HourGlassResidual(self.operating_channels, out_channels))
-        self.path_ops = nn.ModuleList(path_ops)
-
-    @staticmethod
-    def make_sampling(prev_node, next_node):
-        """
-        Determine the factor of up/down sampling needed to move between two nodes.
-        :param prev_node: LOSComputationGraph.Node | None.
-        :param next_node: LOSComputationGraph.Node.
-        :return: nn.MaxPool2d | nn.Upsample
-        """
-        if prev_node is None:
-            prev_node = LOSComputationGraph.Node(1, -1)
-        if next_node is None:
-            next_node = LOSComputationGraph.Node(1, -1)
-        if prev_node.resolution == next_node.resolution:
-            return Identity()
-        elif prev_node.resolution > next_node.resolution:
-            s = int(prev_node.resolution / next_node.resolution)
-            return nn.MaxPool2d(kernel_size=2, stride=s)
-        else:
-            f = int(next_node.resolution / prev_node.resolution)
-            return nn.Upsample(scale_factor=f, mode='nearest')
-
-    def forward(self, x):
-        residuals = [None for _ in range(len(self.graph))]
-        for i, (node, _) in enumerate(self.graph.items()):
-            x = self.samplers[i](x)
-            x = self.path_ops[i](x)
-            if node.residual:
-                residuals[i] = self.skip_ops[i](x.clone())
-            res = node.residual_node
-            if res:
-                x += residuals[res.idx]
-                residuals[res.idx] = None
-        return self.samplers[-1](x)
-
-
-class HourGlassResidual(nn.Module):
-    """
-    Hour glass residual, As defined in https://arxiv.org/pdf/1603.06937.pdf.
-    Code converted from original lua: https://github.com/umich-vl/pose-hg-demo/blob/master/residual.lua
-    """
-
-    def __init__(self, in_channels, out_channels):
-        super(HourGlassResidual, self).__init__()
-        self.skip_layer = Identity() if in_channels == out_channels else nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels))
-        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels // 2, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels // 2), nn.ReLU(inplace=True), nn.Conv2d(out_channels // 2, out_channels // 2, kernel_size=3, stride=1, padding=1, bias=True), nn.BatchNorm2d(out_channels // 2), nn.ReLU(inplace=True), nn.Conv2d(out_channels // 2, out_channels, kernel_size=1, bias=True), nn.BatchNorm2d(out_channels))
+        super(PreactResidualNode, self).__init__()
+        self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias))
 
     def forward(self, x):
         """
         Apply forward propagation operation.
         :param x: Variable, input.
-        :return: Variable
+        :return: Variable.
         """
-        residual = x
-        out = self.model(x)
-        return out + self.skip_layer(residual)
+        return self.model(x)
+
+
+class ResidualNode(nn.Module):
+    """
+    Basic computation unit.
+    Does convolution, batchnorm, and relu (in this order).
+    """
+
+    def __init__(self, in_channels, out_channels, stride=1, kernel_size=3, padding=1, bias=False):
+        """
+        Constructor.
+        Default arguments preserve dimensionality of input.
+
+        :param in_channels: input to the node.
+        :param out_channels: output channels from the node.
+        :param stride: stride of convolution, default 1.
+        :param kernel_size: size of convolution kernel, default 3.
+        :param padding: amount of zero padding, default 1.
+        :param bias: true to use bias, false to not.
+        """
+        super(ResidualNode, self).__init__()
+        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
+
+    def forward(self, x):
+        """
+        Apply forward propagation operation.
+        :param x: Variable, input.
+        :return: Variable.
+        """
+        return self.model(x)
 
 
 class ResidualPhase(nn.Module):
@@ -528,63 +607,24 @@ class ResidualPhase(nn.Module):
         return self.processors[node_idx](torch.cat([outputs[i] for i in self.dependency_graph[node_idx]], dim=1))
 
 
-class ResidualNode(nn.Module):
+class DenseNode(nn.Module):
     """
-    Basic computation unit.
-    Does convolution, batchnorm, and relu (in this order).
+    Node that operates like DenseNet layers.
+    Refer to: https://arxiv.org/pdf/1608.06993.pdf
     """
+    t = 64
+    k = 4
 
-    def __init__(self, in_channels, out_channels, stride=1, kernel_size=3, padding=1, bias=False):
+    def __init__(self, in_channels):
         """
         Constructor.
-        Default arguments preserve dimensionality of input.
-
-        :param in_channels: input to the node.
-        :param out_channels: output channels from the node.
-        :param stride: stride of convolution, default 1.
-        :param kernel_size: size of convolution kernel, default 3.
-        :param padding: amount of zero padding, default 1.
-        :param bias: true to use bias, false to not.
+        Only needs number of input channels, everything else is automatic from growth rate and DenseNet specs.
+        :param in_channels: int, input channels.
         """
-        super(ResidualNode, self).__init__()
-        self.model = nn.Sequential(nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias), nn.BatchNorm2d(out_channels), nn.ReLU(inplace=True))
+        super(DenseNode, self).__init__()
+        self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, self.t * self.k, kernel_size=1, bias=False), nn.BatchNorm2d(self.t * self.k), nn.ReLU(inplace=True), nn.Conv2d(self.t * self.k, self.t, kernel_size=3, stride=1, padding=1, bias=False))
 
     def forward(self, x):
-        """
-        Apply forward propagation operation.
-        :param x: Variable, input.
-        :return: Variable.
-        """
-        return self.model(x)
-
-
-class PreactResidualNode(nn.Module):
-    """
-    Basic computation unit.
-    Does batchnorm, relu, and convolution (in this order).
-    """
-
-    def __init__(self, in_channels, out_channels, stride=1, kernel_size=3, padding=1, bias=False):
-        """
-        Constructor.
-        Default arguments preserve dimensionality of input.
-
-        :param in_channels: input to the node.
-        :param out_channels: output channels from the node.
-        :param stride: stride of convolution, default 1.
-        :param kernel_size: size of convolution kernel, default 3.
-        :param padding: amount of zero padding, default 1.
-        :param bias: true to use bias, false to not.
-        """
-        super(PreactResidualNode, self).__init__()
-        self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias))
-
-    def forward(self, x):
-        """
-        Apply forward propagation operation.
-        :param x: Variable, input.
-        :return: Variable.
-        """
         return self.model(x)
 
 
@@ -655,39 +695,6 @@ class DensePhase(nn.Module):
         if self.out_channel_flag:
             return self.out(torch.cat([outputs[i] for i in self.dependency_graph[len(self.nodes) + 1]], dim=1))
         return self.out(torch.cat([outputs[i] for i in self.dependency_graph[len(self.nodes) + 1]]))
-
-
-class DenseNode(nn.Module):
-    """
-    Node that operates like DenseNet layers.
-    Refer to: https://arxiv.org/pdf/1608.06993.pdf
-    """
-    t = 64
-    k = 4
-
-    def __init__(self, in_channels):
-        """
-        Constructor.
-        Only needs number of input channels, everything else is automatic from growth rate and DenseNet specs.
-        :param in_channels: int, input channels.
-        """
-        super(DenseNode, self).__init__()
-        self.model = nn.Sequential(nn.BatchNorm2d(in_channels), nn.ReLU(inplace=True), nn.Conv2d(in_channels, self.t * self.k, kernel_size=1, bias=False), nn.BatchNorm2d(self.t * self.k), nn.ReLU(inplace=True), nn.Conv2d(self.t * self.k, self.t, kernel_size=3, stride=1, padding=1, bias=False))
-
-    def forward(self, x):
-        return self.model(x)
-
-
-class Identity(nn.Module):
-    """
-    Adding an identity allows us to keep things general in certain places.
-    """
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
 
 
 def phase_active(gene):
@@ -946,13 +953,86 @@ class EvoNetwork(nn.Module):
         return self.linear(x), None
 
 
+class FactorizedReduce(nn.Module):
+
+    def __init__(self, C_in, C_out, affine=True):
+        super(FactorizedReduce, self).__init__()
+        assert C_out % 2 == 0
+        self.relu = nn.ReLU(inplace=False)
+        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
+        self.bn = nn.BatchNorm2d(C_out, affine=affine)
+
+    def forward(self, x):
+        x = self.relu(x)
+        out = torch.cat([self.conv_1(x), self.conv_2(x[:, :, 1:, 1:])], dim=1)
+        out = self.bn(out)
+        return out
+
+
+class DilConv(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
+        super(DilConv, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+class SepConv(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
+        super(SepConv, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+class Zero(nn.Module):
+
+    def __init__(self, stride):
+        super(Zero, self).__init__()
+        self.stride = stride
+
+    def forward(self, x):
+        if self.stride == 1:
+            return x.mul(0.0)
+        return x[:, :, ::self.stride, ::self.stride].mul(0.0)
+
+
 OPS = {'none': lambda C, stride, affine: Zero(stride), 'avg_pool_3x3': lambda C, stride, affine: nn.AvgPool2d(3, stride=stride, padding=1, count_include_pad=False), 'max_pool_3x3': lambda C, stride, affine: nn.MaxPool2d(3, stride=stride, padding=1), 'skip_connect': lambda C, stride, affine: Identity() if stride == 1 else FactorizedReduce(C, C, affine=affine), 'sep_conv_3x3': lambda C, stride, affine: SepConv(C, C, 3, stride, 1, affine=affine), 'sep_conv_5x5': lambda C, stride, affine: SepConv(C, C, 5, stride, 2, affine=affine), 'sep_conv_7x7': lambda C, stride, affine: SepConv(C, C, 7, stride, 3, affine=affine), 'dil_conv_3x3': lambda C, stride, affine: DilConv(C, C, 3, stride, 2, 2, affine=affine), 'dil_conv_5x5': lambda C, stride, affine: DilConv(C, C, 5, stride, 4, 2, affine=affine), 'conv_7x1_1x7': lambda C, stride, affine: nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C, C, (1, 7), stride=(1, stride), padding=(0, 3), bias=False), nn.Conv2d(C, C, (7, 1), stride=(stride, 1), padding=(3, 0), bias=False), nn.BatchNorm2d(C, affine=affine))}
+
+
+class ReLUConvBN(nn.Module):
+
+    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
+        super(ReLUConvBN, self).__init__()
+        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
+
+    def forward(self, x):
+        return self.op(x)
+
+
+class SELayer(nn.Module):
+
+    def __init__(self, channel, reduction=16):
+        super(SELayer, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction, bias=False), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel, bias=False), nn.Sigmoid())
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y.expand_as(x)
 
 
 def drop_path(x, drop_prob):
     if drop_prob > 0.0:
         keep_prob = 1.0 - drop_prob
-        mask = Variable(torch.cuda.FloatTensor(x.size(0), 1, 1, 1).bernoulli_(keep_prob))
+        mask = Variable(torch.FloatTensor(x.size(0), 1, 1, 1).bernoulli_(keep_prob))
         x.div_(keep_prob)
         x.mul_(mask)
     return x
@@ -1167,88 +1247,6 @@ class NetworkImageNet(nn.Module):
         out = self.global_pooling(s1)
         logits = self.classifier(out.view(out.size(0), -1))
         return logits, logits_aux
-
-
-class ReLUConvBN(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super(ReLUConvBN, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class DilConv(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, dilation, affine=True):
-        super(DilConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class SepConv(nn.Module):
-
-    def __init__(self, C_in, C_out, kernel_size, stride, padding, affine=True):
-        super(SepConv, self).__init__()
-        self.op = nn.Sequential(nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=stride, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_in, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_in, affine=affine), nn.ReLU(inplace=False), nn.Conv2d(C_in, C_in, kernel_size=kernel_size, stride=1, padding=padding, groups=C_in, bias=False), nn.Conv2d(C_in, C_out, kernel_size=1, padding=0, bias=False), nn.BatchNorm2d(C_out, affine=affine))
-
-    def forward(self, x):
-        return self.op(x)
-
-
-class Identity(nn.Module):
-
-    def __init__(self):
-        super(Identity, self).__init__()
-
-    def forward(self, x):
-        return x
-
-
-class Zero(nn.Module):
-
-    def __init__(self, stride):
-        super(Zero, self).__init__()
-        self.stride = stride
-
-    def forward(self, x):
-        if self.stride == 1:
-            return x.mul(0.0)
-        return x[:, :, ::self.stride, ::self.stride].mul(0.0)
-
-
-class FactorizedReduce(nn.Module):
-
-    def __init__(self, C_in, C_out, affine=True):
-        super(FactorizedReduce, self).__init__()
-        assert C_out % 2 == 0
-        self.relu = nn.ReLU(inplace=False)
-        self.conv_1 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.conv_2 = nn.Conv2d(C_in, C_out // 2, 1, stride=2, padding=0, bias=False)
-        self.bn = nn.BatchNorm2d(C_out, affine=affine)
-
-    def forward(self, x):
-        x = self.relu(x)
-        out = torch.cat([self.conv_1(x), self.conv_2(x[:, :, 1:, 1:])], dim=1)
-        out = self.bn(out)
-        return out
-
-
-class SELayer(nn.Module):
-
-    def __init__(self, channel, reduction=16):
-        super(SELayer, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.fc = nn.Sequential(nn.Linear(channel, channel // reduction, bias=False), nn.ReLU(inplace=True), nn.Linear(channel // reduction, channel, bias=False), nn.Sigmoid())
-
-    def forward(self, x):
-        b, c, _, _ = x.size()
-        y = self.avg_pool(x).view(b, c)
-        y = self.fc(y).view(b, c, 1, 1)
-        return x * y.expand_as(x)
 
 
 import torch

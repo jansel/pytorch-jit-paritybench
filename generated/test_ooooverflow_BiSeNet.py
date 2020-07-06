@@ -16,15 +16,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -36,6 +37,9 @@ from torchvision import transforms
 
 
 import numpy as np
+
+
+import random
 
 
 from torch.utils.data import DataLoader
@@ -60,9 +64,6 @@ from torch.utils.data import Dataset
 
 
 from torch.nn import functional as F
-
-
-import random
 
 
 import numbers
@@ -171,6 +172,60 @@ class FeatureFusionModule(torch.nn.Module):
         return x
 
 
+class resnet101(torch.nn.Module):
+
+    def __init__(self, pretrained=True):
+        super().__init__()
+        self.features = models.resnet101(pretrained=pretrained)
+        self.conv1 = self.features.conv1
+        self.bn1 = self.features.bn1
+        self.relu = self.features.relu
+        self.maxpool1 = self.features.maxpool
+        self.layer1 = self.features.layer1
+        self.layer2 = self.features.layer2
+        self.layer3 = self.features.layer3
+        self.layer4 = self.features.layer4
+
+    def forward(self, input):
+        x = self.conv1(input)
+        x = self.relu(self.bn1(x))
+        x = self.maxpool1(x)
+        feature1 = self.layer1(x)
+        feature2 = self.layer2(feature1)
+        feature3 = self.layer3(feature2)
+        feature4 = self.layer4(feature3)
+        tail = torch.mean(feature4, 3, keepdim=True)
+        tail = torch.mean(tail, 2, keepdim=True)
+        return feature3, feature4, tail
+
+
+class resnet18(torch.nn.Module):
+
+    def __init__(self, pretrained=True):
+        super().__init__()
+        self.features = models.resnet18(pretrained=pretrained)
+        self.conv1 = self.features.conv1
+        self.bn1 = self.features.bn1
+        self.relu = self.features.relu
+        self.maxpool1 = self.features.maxpool
+        self.layer1 = self.features.layer1
+        self.layer2 = self.features.layer2
+        self.layer3 = self.features.layer3
+        self.layer4 = self.features.layer4
+
+    def forward(self, input):
+        x = self.conv1(input)
+        x = self.relu(self.bn1(x))
+        x = self.maxpool1(x)
+        feature1 = self.layer1(x)
+        feature2 = self.layer2(feature1)
+        feature3 = self.layer3(feature2)
+        feature4 = self.layer4(feature3)
+        tail = torch.mean(feature4, 3, keepdim=True)
+        tail = torch.mean(tail, 2, keepdim=True)
+        return feature3, feature4, tail
+
+
 def build_contextpath(name):
     model = {'resnet18': resnet18(pretrained=True), 'resnet101': resnet101(pretrained=True)}
     return model[name]
@@ -238,60 +293,6 @@ class BiSeNet(torch.nn.Module):
         if self.training == True:
             return result, cx1_sup, cx2_sup
         return result
-
-
-class resnet18(torch.nn.Module):
-
-    def __init__(self, pretrained=True):
-        super().__init__()
-        self.features = models.resnet18(pretrained=pretrained)
-        self.conv1 = self.features.conv1
-        self.bn1 = self.features.bn1
-        self.relu = self.features.relu
-        self.maxpool1 = self.features.maxpool
-        self.layer1 = self.features.layer1
-        self.layer2 = self.features.layer2
-        self.layer3 = self.features.layer3
-        self.layer4 = self.features.layer4
-
-    def forward(self, input):
-        x = self.conv1(input)
-        x = self.relu(self.bn1(x))
-        x = self.maxpool1(x)
-        feature1 = self.layer1(x)
-        feature2 = self.layer2(feature1)
-        feature3 = self.layer3(feature2)
-        feature4 = self.layer4(feature3)
-        tail = torch.mean(feature4, 3, keepdim=True)
-        tail = torch.mean(tail, 2, keepdim=True)
-        return feature3, feature4, tail
-
-
-class resnet101(torch.nn.Module):
-
-    def __init__(self, pretrained=True):
-        super().__init__()
-        self.features = models.resnet101(pretrained=pretrained)
-        self.conv1 = self.features.conv1
-        self.bn1 = self.features.bn1
-        self.relu = self.features.relu
-        self.maxpool1 = self.features.maxpool
-        self.layer1 = self.features.layer1
-        self.layer2 = self.features.layer2
-        self.layer3 = self.features.layer3
-        self.layer4 = self.features.layer4
-
-    def forward(self, input):
-        x = self.conv1(input)
-        x = self.relu(self.bn1(x))
-        x = self.maxpool1(x)
-        feature1 = self.layer1(x)
-        feature2 = self.layer2(feature1)
-        feature3 = self.layer3(feature2)
-        feature4 = self.layer4(feature3)
-        tail = torch.mean(feature4, 3, keepdim=True)
-        tail = torch.mean(tail, 2, keepdim=True)
-        return feature3, feature4, tail
 
 
 class OHEM_CrossEntroy_Loss(nn.Module):

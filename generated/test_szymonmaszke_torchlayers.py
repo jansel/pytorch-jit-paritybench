@@ -34,23 +34,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import itertools
-
-
 import torch
+
+
+import itertools
 
 
 import inspect
@@ -967,6 +968,75 @@ class InferDimension(torch.nn.Module):
         return getattr(self, self._inner_module_name)(inputs)
 
 
+class InstanceNorm(module.InferDimension):
+    """Apply Instance Normalization over inferred dimension (3D up to 5D).
+
+    Based on input shape it either creates 1D, 2D or 3D instance normalization for inputs of shape
+    3D, 4D, 5D respectively (including batch as first dimension).
+
+    Otherwise works like standard PyTorch's `InstanceNorm <https://pytorch.org/docs/stable/nn.html#torch.nn.InstanceNorm1d>`__
+
+    Parameters
+    ----------
+    num_features : int
+        :math:`C` (number of channels in input) from an expected input.
+        Can be number of outputs of previous linear layer as well
+    eps : float, optional
+        Value added to the denominator for numerical stability.
+        Default: `1e-5`
+    momentum : float, optional
+        Value used for the `running_mean` and `running_var`
+        computation. Default: `0.1`
+    affine : bool, optional
+        If ``True``, this module has learnable affine parameters, initialized just like in batch normalization.
+        Default: ``False``
+    track_running_stats : bool, optional
+        If ``True``, this module tracks the running mean and variance,
+        and when set to ``False``, this module does not track such statistics and always uses batch
+        statistics in both training and eval modes.
+        Default: ``False``
+
+    """
+
+    def __init__(self, num_features: int, eps: float=1e-05, momentum: float=0.1, affine: bool=False, track_running_stats: bool=False):
+        super().__init__(dispatcher={(5): torch.nn.InstanceNorm3d, (4): torch.nn.InstanceNorm2d, (3): torch.nn.InstanceNorm1d}, num_features=num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
+
+
+class BatchNorm(module.InferDimension):
+    """Apply Batch Normalization over inferred dimension (2D up to 5D).
+
+    Based on input shape it either creates `1D`, `2D` or `3D` batch normalization for inputs of shape
+    `2D/3D`, `4D`, `5D` respectively (including batch as first dimension).
+
+    Otherwise works like standard PyTorch's `BatchNorm <https://pytorch.org/docs/stable/nn.html#batchnorm1d>`__.
+
+    Parameters
+    ----------
+    num_features : int
+        :math:`C` (number of channels in input) from an expected input.
+        Can be number of outputs of previous linear layer as well
+    eps : float, optional
+        Value added to the denominator for numerical stability.
+        Default: `1e-5`
+    momentum : float, optional
+        Value used for the `running_mean` and `running_var`
+        computation. Can be set to ``None`` for cumulative moving average
+        (i.e. simple average). Default: `0.1`
+    affine : bool, optional
+        If ``True``, this module has learnable affine parameters.
+        Default: ``True``
+    track_running_stats : bool, optional
+        If ``True``, this module tracks the running mean and variance,
+        and when set to ``False``, this module does not track such statistics and always uses batch
+        statistics in both training and eval modes.
+        Default: ``True``
+
+    """
+
+    def __init__(self, num_features: int, eps: float=1e-05, momentum: float=0.1, affine: bool=True, track_running_stats: bool=True):
+        super().__init__(dispatcher={(5): torch.nn.BatchNorm3d, (4): torch.nn.BatchNorm2d, (3): torch.nn.BatchNorm1d, (2): torch.nn.BatchNorm1d}, num_features=num_features, eps=eps, momentum=momentum, affine=affine, track_running_stats=track_running_stats)
+
+
 class GroupNorm(torch.nn.GroupNorm):
     """Apply Group Normalization over a mini-batch of inputs.
 
@@ -996,6 +1066,248 @@ class _GlobalPool(torch.nn.Module):
 
     def forward(self, inputs):
         return self._pooling(inputs).reshape(inputs.shape[0], -1)
+
+
+class GlobalMaxPool1d(_GlobalPool):
+    """Applies a 1D global max pooling over the last dimension.
+
+    Usually used after last `Conv1d` layer to get maximum feature values
+    for each timestep.
+
+    Internally operates as `torch.nn.AdaptiveMaxPool1d` with redundant `1` dimensions
+    flattened.
+
+    Returns
+    -------
+    `torch.Tensor`
+        `2D` tensor `(batch, features)`
+
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._pooling = torch.nn.AdaptiveMaxPool1d(1)
+
+
+class GlobalMaxPool2d(_GlobalPool):
+    """Applies a 2D global max pooling over the last dimension(s).
+
+    Usually used after last `Conv2d` layer to get maximum value feature values
+    for each channel. Can be used on `3D` or `4D` input (though the latter is more common).
+
+    Internally operates as `torch.nn.AdaptiveMaxPool2d` with redundant `1` dimensions
+    flattened.
+
+    Returns
+    -------
+    `torch.Tensor`
+        `2D` tensor `(batch, features)`
+
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._pooling = torch.nn.AdaptiveMaxPool2d(1)
+
+
+class GlobalMaxPool3d(_GlobalPool):
+    """Applies a 3D global max pooling over the last dimension(s).
+
+    Usually used after last `Conv3d` layer to get maximum value feature values
+    for each channel. Can be used on `4D` or `5D` input (though the latter is more common).
+
+    Internally operates as `torch.nn.AdaptiveMaxPool3d` with redundant `1` dimensions
+    flattened.
+
+    Returns
+    -------
+    `torch.Tensor`
+        `2D` tensor `(batch, features)`
+
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._pooling = torch.nn.AdaptiveMaxPool3d(1)
+
+
+class GlobalAvgPool1d(_GlobalPool):
+    """Applies a 1D global average pooling over the last dimension.
+
+    Usually used after last `Conv1d` layer to get mean of features values
+    for each timestep.
+
+    Internally operates as `torch.nn.AdaptiveAvgPool1d` with redundant `1` dimensions
+    flattened.
+
+    Returns
+    -------
+    `torch.Tensor`
+        `2D` tensor `(batch, features)`
+
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._pooling = torch.nn.AdaptiveAvgPool1d(1)
+
+
+class GlobalAvgPool2d(_GlobalPool):
+    """Applies a 2D global average pooling over the last dimension(s).
+
+    Usually used after last `Conv2d` layer to get mean value of features values
+    for each channel. Can be used on `3D` or `4D` input (though the latter is more common).
+
+    Internally operates as `torch.nn.AdaptiveAvgPool3d` with redundant `1` dimensions
+    flattened.
+
+    Returns
+    -------
+    `torch.Tensor`
+        `2D` tensor `(batch, features)`
+
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._pooling = torch.nn.AdaptiveAvgPool2d(1)
+
+
+class GlobalAvgPool3d(_GlobalPool):
+    """Applies a 3D global average pooling over the last dimension(s).
+
+    Usually used after last `Conv3d` layer to get mean value of features values
+    for each channel. Can be used on `4D` or `5D` input (though the latter is more common).
+
+    Internally operates as `torch.nn.AdaptiveAvgPool3d` with redundant `1` dimensions
+    flattened.
+
+    Returns
+    -------
+    `torch.Tensor`
+        `2D` tensor `(batch, features)`
+
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._pooling = torch.nn.AdaptiveAvgPool3d(1)
+
+
+class GlobalMaxPool(module.InferDimension):
+    """Perform `max` pooling operation leaving maximum values from channels.
+
+    Usually used after last convolution layer (`torchlayers.Conv`)
+    to get pixels of maximum value from each channel.
+
+    Depending on shape of passed `torch.Tensor` either `1D`, `2D` or `3D` `GlobalMaxPool`
+    will be used for `3D`, `4D` and `5D` shape respectively (batch included).
+
+    Internally operates as `torchlayers.pooling.GlobalMaxPoolNd`.
+
+    Returns
+    -------
+    `torch.Tensor`
+        `2D` tensor `(batch, features)`
+
+    """
+
+    def __init__(self):
+        super().__init__(dispatcher={(5): GlobalMaxPool3d, (4): GlobalMaxPool2d, (3): GlobalMaxPool1d})
+
+
+class GlobalAvgPool(module.InferDimension):
+    """Perform `mean` pooling operation leaving average values from channels.
+
+    Usually used after last convolution layer (`torchlayers.Conv`) to get mean
+    of pixels from each channel.
+
+    Depending on shape of passed `torch.Tensor` either `1D`, `2D` or `3D`
+    pooling will be used for `3D`, `4D` and `5D`
+    shape respectively (batch included).
+
+    Internally operates as `torchlayers.pooling.GlobalAvgPoolNd`.
+
+    Returns
+    -------
+    `torch.Tensor`
+        `2D` tensor `(batch, features)`
+
+    """
+
+    def __init__(self):
+        super().__init__(dispatcher={(5): GlobalAvgPool3d, (4): GlobalAvgPool2d, (3): GlobalAvgPool1d})
+
+
+class MaxPool(module.InferDimension):
+    """Perform `max` operation across first `torch.Tensor` dimension.
+
+    Depending on shape of passed `torch.Tensor` either `torch.nn.MaxPool1D`,
+    `torch.nn.MaxPool2D` or `torch.nn.MaxPool3D` pooling will be used
+    for `3D`, `4D` and `5D` shape respectively (batch included).
+
+    Default value for `kernel_size` (`2`) was added.
+
+    Parameters
+    ----------
+    kernel_size: int, optional
+        The size of the window to take a max over. Default: `2`
+    stride: int, optional
+        The stride of the window. Default value is :attr:`kernel_size`
+    padding: int, optional
+        Implicit zero padding to be added on both sides. Default: `0`
+    dilation: int
+        Parameter controlling the stride of elements in the window. Default: `1`
+    return_indices: bool, optional
+        If ``True``, will return the max indices along with the outputs.
+        Useful for :class:`torch.nn.MaxUnpool` later. Default: `False`
+    ceil_mode: bool, optional
+        When True, will use `ceil` instead of `floor` to compute the output shape.
+        Default: `False`
+
+    Returns
+    -------
+    `torch.Tensor`
+        Same shape as `input` with values pooled.
+
+    """
+
+    def __init__(self, kernel_size: int=2, stride: int=None, padding: int=0, dilation: int=1, return_indices: bool=False, ceil_mode: bool=False):
+        super().__init__(dispatcher={(5): torch.nn.MaxPool3d, (4): torch.nn.MaxPool2d, (3): torch.nn.MaxPool1d}, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, return_indices=return_indices, ceil_mode=ceil_mode)
+
+
+class AvgPool(module.InferDimension):
+    """Perform `avg` operation across first `torch.Tensor` dimension.
+
+    Depending on shape of passed `torch.Tensor` either `torch.nn.AvgPool1D`,
+    `torch.nn.AvgPool2D` or `torch.nn.AvgPool3D` pooling will be used
+    for `3D`, `4D` and `5D` shape respectively (batch included).
+
+    Default value for `kernel_size` (`2`) was added.
+
+    Parameters
+    ----------
+    kernel_size: int, optional
+        The size of the window. Default: `2`
+    stride: int, optional
+        The stride of the window. Default value is :attr:`kernel_size`
+    padding: int, oprtional
+        Implicit zero padding to be added on both sides. Default: `0`
+    ceil_mode: bool, opriontal
+        When True, will use `ceil` instead of `floor` to compute the output shape.
+        Default: `True`
+    count_include_pad: bool, optional
+        When True, will include the zero-padding in the averaging. Default: `True`
+
+    Returns
+    -------
+    `torch.Tensor`
+        Same shape as `input` with values pooled.
+
+    """
+
+    def __init__(self, kernel_size: int=2, stride: int=None, padding: int=0, ceil_mode: bool=False, count_include_pad: bool=True):
+        super().__init__(dispatcher={(5): torch.nn.AvgPool3d, (4): torch.nn.AvgPool2d, (3): torch.nn.AvgPool1d}, kernel_size=kernel_size, stride=stride, padding=padding, ceil_mode=ceil_mode, count_include_pad=count_include_pad)
 
 
 class StochasticDepth(torch.nn.Module):
@@ -1043,6 +1355,29 @@ class StochasticDepth(torch.nn.Module):
         if self.training and self._sampler.uniform_():
             return inputs
         return self.p * self.module(inputs)
+
+
+class Dropout(module.InferDimension):
+    """Randomly zero out some of the tensor elements.
+
+    .. note::
+            Changes input only if `module` is in `train` mode.
+
+    Based on input shape it either creates `2D` or `3D` version of dropout for inputs of shape
+    `4D`, `5D` respectively (including batch as first dimension).
+    For every other dimension, standard `torch.nn.Dropout` will be used.
+
+    Parameters
+    ----------
+    p : float, optional
+        Probability of an element to be zeroed. Default: ``0.5``
+    inplace : bool, optional
+        If ``True``, will do this operation in-place. Default: ``False``
+
+    """
+
+    def __init__(self, p=0.5, inplace=False):
+        super().__init__(dispatcher={(5): torch.nn.Dropout3d, (4): torch.nn.Dropout2d, '*': torch.nn.Dropout}, p=p, inplace=inplace)
 
 
 class StandardNormalNoise(torch.nn.Module):
@@ -1143,6 +1478,66 @@ class WeightDecay(torch.nn.Module):
     @abc.abstractmethod
     def regularize(self, parameter):
         pass
+
+
+class L2(WeightDecay):
+    """Regularize module's parameters using L2 weight decay.
+
+    Example::
+
+        import torchlayers as tl
+
+        # Regularize only weights of Linear module
+        regularized_layer = tl.L2(tl.Linear(30), weight_decay=1e-5, name="weight")
+
+    .. note::
+            Backward hook will be registered on `module`. If you wish
+            to remove `L2` regularization use `remove()` method.
+
+    Parameters
+    ----------
+    module : torch.nn.Module
+        Module whose parameters will be regularized.
+    weight_decay : float
+        Strength of regularization (has to be greater than `0.0`).
+    name : str, optional
+        Name of parameter to be regularized (if any).
+        Default: all parameters will be regularized (including "bias").
+
+    """
+
+    def regularize(self, parameter):
+        return self.weight_decay * parameter.data
+
+
+class L1(WeightDecay):
+    """Regularize module's parameters using L1 weight decay.
+
+    Example::
+
+        import torchlayers as tl
+
+        # Regularize all parameters of Linear module
+        regularized_layer = tl.L1(tl.Linear(30), weight_decay=1e-5)
+
+    .. note::
+            Backward hook will be registered on `module`. If you wish
+            to remove `L1` regularization use `remove()` method.
+
+    Parameters
+    ----------
+    module : torch.nn.Module
+        Module whose parameters will be regularized.
+    weight_decay : float
+        Strength of regularization (has to be greater than `0.0`).
+    name : str, optional
+        Name of parameter to be regularized (if any).
+        Default: all parameters will be regularized (including "bias").
+
+    """
+
+    def regularize(self, parameter):
+        return self.weight_decay * torch.sign(parameter.data)
 
 
 class ConvPixelShuffle(torch.nn.Module):
@@ -1274,6 +1669,30 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (GlobalAvgPool1d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalAvgPool3d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalMaxPool1d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4])], {}),
+     True),
+    (GlobalMaxPool2d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (GlobalMaxPool3d,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     True),
     (GroupNorm,
      lambda: ([], {'num_channels': 4, 'num_groups': 1}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -1286,6 +1705,14 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (L1,
+     lambda: ([], {'module': _mock_layer(), 'weight_decay': 4}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (L2,
+     lambda: ([], {'module': _mock_layer(), 'weight_decay': 4}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
     (Lambda,
      lambda: ([], {'function': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
@@ -1380,4 +1807,28 @@ class Test_szymonmaszke_torchlayers(_paritybench_base):
 
     def test_015(self):
         self._check(*TESTCASES[15])
+
+    def test_016(self):
+        self._check(*TESTCASES[16])
+
+    def test_017(self):
+        self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
+
+    def test_022(self):
+        self._check(*TESTCASES[22])
+
+    def test_023(self):
+        self._check(*TESTCASES[23])
 

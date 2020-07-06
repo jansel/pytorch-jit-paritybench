@@ -19,15 +19,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -36,6 +37,9 @@ import torch
 
 
 import torch.nn.functional as F
+
+
+from torch.utils import data
 
 
 import torch.nn as nn
@@ -53,10 +57,10 @@ import numpy as np
 from torchvision import transforms
 
 
-from torch.utils import data
-
-
 import time
+
+
+import tensorflow as tf
 
 
 from torch.autograd import Variable
@@ -74,7 +78,7 @@ def _fspecial_gauss_1d(size, sigma):
     Returns:
         torch.Tensor: 1D kernel (1 x 1 x size)
     """
-    coords = torch.arange(size).to(dtype=torch.float)
+    coords = torch.arange(size)
     coords -= size // 2
     g = torch.exp(-coords ** 2 / (2 * sigma ** 2))
     g /= g.sum()
@@ -114,7 +118,7 @@ def _ssim(X, Y, data_range, win, size_average=True, K=(0.01, 0.03)):
     compensation = 1.0
     C1 = (K1 * data_range) ** 2
     C2 = (K2 * data_range) ** 2
-    win = win.to(X.device, dtype=X.dtype)
+    win = win
     mu1 = gaussian_filter(X, win)
     mu2 = gaussian_filter(Y, win)
     mu1_sq = mu1.pow(2)
@@ -222,7 +226,7 @@ def ms_ssim(X, Y, data_range=255, size_average=True, win_size=11, win_sigma=1.5,
     assert smaller_side > (win_size - 1) * 2 ** 4, 'Image size should be larger than %d due to the 4 downsamplings in ms-ssim' % ((win_size - 1) * 2 ** 4)
     if weights is None:
         weights = [0.0448, 0.2856, 0.3001, 0.2363, 0.1333]
-    weights = torch.FloatTensor(weights).to(X.device, dtype=X.dtype)
+    weights = torch.FloatTensor(weights)
     if win is None:
         win = _fspecial_gauss_1d(win_size, win_sigma)
         win = win.repeat(X.shape[1], 1, 1, 1)
@@ -267,43 +271,6 @@ class MS_SSIM(torch.nn.Module):
 
     def forward(self, X, Y):
         return ms_ssim(X, Y, data_range=self.data_range, size_average=self.size_average, win=self.win, weights=self.weights, K=self.K)
-
-
-class AutoEncoder(nn.Module):
-
-    def __init__(self, C=128, M=128, in_chan=3, out_chan=3):
-        super(AutoEncoder, self).__init__()
-        self.encoder = Encoder(C=C, M=M, in_chan=in_chan)
-        self.decoder = Decoder(C=C, M=M, out_chan=out_chan)
-
-    def forward(self, x, **kargs):
-        code = self.encoder(x)
-        out = self.decoder(code)
-        return out
-
-
-class Encoder(nn.Module):
-    """ Encoder
-    """
-
-    def __init__(self, C=32, M=128, in_chan=3):
-        super(Encoder, self).__init__()
-        self.enc = nn.Sequential(nn.Conv2d(in_channels=in_chan, out_channels=M, kernel_size=5, stride=2, padding=2, bias=False), GDN(M), nn.Conv2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, bias=False), GDN(M), nn.Conv2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, bias=False), GDN(M), nn.Conv2d(in_channels=M, out_channels=C, kernel_size=5, stride=2, padding=2, bias=False))
-
-    def forward(self, x):
-        return self.enc(x)
-
-
-class Decoder(nn.Module):
-    """ Decoder
-    """
-
-    def __init__(self, C=32, M=128, out_chan=3):
-        super(Decoder, self).__init__()
-        self.dec = nn.Sequential(nn.ConvTranspose2d(in_channels=C, out_channels=M, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False), GDN(M, inverse=True), nn.ConvTranspose2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False), GDN(M, inverse=True), nn.ConvTranspose2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False), GDN(M, inverse=True), nn.ConvTranspose2d(in_channels=M, out_channels=out_chan, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False))
-
-    def forward(self, q):
-        return torch.sigmoid(self.dec(q))
 
 
 class LowerBound(Function):
@@ -351,6 +318,55 @@ class GDN(nn.Module):
         else:
             norm_pool = x / norm_pool
         return norm_pool
+
+
+class Decoder(nn.Module):
+    """ Decoder
+    """
+
+    def __init__(self, C=32, M=128, out_chan=3):
+        super(Decoder, self).__init__()
+        self.dec = nn.Sequential(nn.ConvTranspose2d(in_channels=C, out_channels=M, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False), GDN(M, inverse=True), nn.ConvTranspose2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False), GDN(M, inverse=True), nn.ConvTranspose2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False), GDN(M, inverse=True), nn.ConvTranspose2d(in_channels=M, out_channels=out_chan, kernel_size=5, stride=2, padding=2, output_padding=1, bias=False))
+
+    def forward(self, q):
+        return torch.sigmoid(self.dec(q))
+
+
+class Encoder(nn.Module):
+    """ Encoder
+    """
+
+    def __init__(self, C=32, M=128, in_chan=3):
+        super(Encoder, self).__init__()
+        self.enc = nn.Sequential(nn.Conv2d(in_channels=in_chan, out_channels=M, kernel_size=5, stride=2, padding=2, bias=False), GDN(M), nn.Conv2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, bias=False), GDN(M), nn.Conv2d(in_channels=M, out_channels=M, kernel_size=5, stride=2, padding=2, bias=False), GDN(M), nn.Conv2d(in_channels=M, out_channels=C, kernel_size=5, stride=2, padding=2, bias=False))
+
+    def forward(self, x):
+        return self.enc(x)
+
+
+class AutoEncoder(nn.Module):
+
+    def __init__(self, C=128, M=128, in_chan=3, out_chan=3):
+        super(AutoEncoder, self).__init__()
+        self.encoder = Encoder(C=C, M=M, in_chan=in_chan)
+        self.decoder = Decoder(C=C, M=M, out_chan=out_chan)
+
+    def forward(self, x, **kargs):
+        code = self.encoder(x)
+        out = self.decoder(code)
+        return out
+
+
+class MS_SSIM_Loss(MS_SSIM):
+
+    def forward(self, img1, img2):
+        return 100 * (1 - super(MS_SSIM_Loss, self).forward(img1, img2))
+
+
+class SSIM_Loss(SSIM):
+
+    def forward(self, img1, img2):
+        return 100 * (1 - super(SSIM_Loss, self).forward(img1, img2))
 
 
 import torch

@@ -49,20 +49,45 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import numpy as np
+
+
 import torch
+
+
+from sklearn.datasets import load_svmlight_file
+
+
+from torch.utils.data import DataLoader
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision import transforms
+
+
+from torchvision.transforms import Compose
+
+
+from functools import partial
+
+
+from torch import optim
 
 
 from torch.nn import BCELoss
@@ -80,9 +105,6 @@ from torch.nn import BCEWithLogitsLoss
 import torch.nn as nn
 
 
-import numpy as np
-
-
 import math
 
 
@@ -92,10 +114,10 @@ from typing import Optional
 import copy
 
 
-from functools import partial
-
-
 from torch.nn.utils import clip_grad_norm_
+
+
+from scipy.special import softmax
 
 
 def instantiate_class(module_name: str, class_name: str):
@@ -306,6 +328,32 @@ class LearnedPositionalEncoding(nn.Module):
         return x
 
 
+class LayerNorm(nn.Module):
+    """
+    Layer normalization module.
+    """
+
+    def __init__(self, features, eps=1e-06):
+        """
+        :param features: shape of normalized features
+        :param eps: epsilon used for standard deviation
+        """
+        super(LayerNorm, self).__init__()
+        self.a_2 = nn.Parameter(torch.ones(features))
+        self.b_2 = nn.Parameter(torch.zeros(features))
+        self.eps = eps
+
+    def forward(self, x):
+        """
+        Forward pass through the layer normalization.
+        :param x: input of shape [batch_size, slate_length, input_dim]
+        :return: normalized input of shape [batch_size, slate_length, output_dim]
+        """
+        mean = x.mean(-1, keepdim=True)
+        std = x.std(-1, keepdim=True)
+        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+
+
 def clones(module, N):
     """
     Creation of N identical layers.
@@ -346,32 +394,6 @@ class Encoder(nn.Module):
         for layer in self.layers:
             x = layer(x, mask)
         return self.norm(x)
-
-
-class LayerNorm(nn.Module):
-    """
-    Layer normalization module.
-    """
-
-    def __init__(self, features, eps=1e-06):
-        """
-        :param features: shape of normalized features
-        :param eps: epsilon used for standard deviation
-        """
-        super(LayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(features))
-        self.b_2 = nn.Parameter(torch.zeros(features))
-        self.eps = eps
-
-    def forward(self, x):
-        """
-        Forward pass through the layer normalization.
-        :param x: input of shape [batch_size, slate_length, input_dim]
-        :return: normalized input of shape [batch_size, slate_length, output_dim]
-        """
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
 
 class SublayerConnection(nn.Module):

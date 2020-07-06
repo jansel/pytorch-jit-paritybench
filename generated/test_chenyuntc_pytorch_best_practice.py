@@ -16,26 +16,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+from torch.utils import data
+
+
+import numpy as np
+
+
+from torchvision import transforms as T
 
 
 import torch as t
 
 
-import time
+from torch.utils.data import DataLoader
+
+
+from torch.autograd import Variable
 
 
 from torch import nn
+
+
+import time
 
 
 from torch.nn import functional as F
@@ -96,6 +112,45 @@ class ResidualBlock(nn.Module):
         return F.relu(out)
 
 
+class ResNet34(BasicModule):
+    """
+    实现主module：ResNet34
+    ResNet34包含多个layer，每个layer又包含多个Residual block
+    用子module来实现Residual block，用_make_layer函数来实现layer
+    """
+
+    def __init__(self, num_classes=2):
+        super(ResNet34, self).__init__()
+        self.model_name = 'resnet34'
+        self.pre = nn.Sequential(nn.Conv2d(3, 64, 7, 2, 3, bias=False), nn.BatchNorm2d(64), nn.ReLU(inplace=True), nn.MaxPool2d(3, 2, 1))
+        self.layer1 = self._make_layer(64, 128, 3)
+        self.layer2 = self._make_layer(128, 256, 4, stride=2)
+        self.layer3 = self._make_layer(256, 512, 6, stride=2)
+        self.layer4 = self._make_layer(512, 512, 3, stride=2)
+        self.fc = nn.Linear(512, num_classes)
+
+    def _make_layer(self, inchannel, outchannel, block_num, stride=1):
+        """
+        构建layer,包含多个residual block
+        """
+        shortcut = nn.Sequential(nn.Conv2d(inchannel, outchannel, 1, stride, bias=False), nn.BatchNorm2d(outchannel))
+        layers = []
+        layers.append(ResidualBlock(inchannel, outchannel, stride, shortcut))
+        for i in range(1, block_num):
+            layers.append(ResidualBlock(outchannel, outchannel))
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.pre(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = F.avg_pool2d(x, 7)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -107,6 +162,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (ResNet34,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 3, 256, 256])], {}),
+     False),
     (ResidualBlock,
      lambda: ([], {'inchannel': 4, 'outchannel': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -119,4 +178,7 @@ class Test_chenyuntc_pytorch_best_practice(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

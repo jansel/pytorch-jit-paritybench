@@ -17,23 +17,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import warnings
-
-
 from collections import defaultdict
+
+
+from typing import Any
 
 
 from typing import Callable
@@ -51,9 +52,6 @@ from typing import Optional
 from typing import Tuple
 
 
-from typing import Type
-
-
 from typing import Union
 
 
@@ -63,10 +61,34 @@ import numpy as np
 import torch
 
 
-from torch.optim import SGD
-
-
 from torch.optim import Optimizer
+
+
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+from torch.utils.tensorboard import SummaryWriter
+
+
+from collections import namedtuple
+
+
+from torch.utils.data import Dataset
+
+
+from torchvision.transforms import Compose
+
+
+import warnings
+
+
+from typing import Type
+
+
+from torch.optim import SGD
 
 
 from torch.utils.data import DataLoader
@@ -79,6 +101,12 @@ import torch.nn.functional as F
 
 
 from torch.autograd import Variable
+
+
+from sklearn.metrics import accuracy_score
+
+
+from sklearn.metrics import roc_auc_score
 
 
 from torch import nn
@@ -105,13 +133,13 @@ from torch.nn.parallel.replicate import replicate
 from torch.nn.parallel.scatter_gather import scatter_kwargs
 
 
+from torchvision.transforms import Normalize
+
+
 import logging
 
 
 from functools import reduce
-
-
-from typing import Any
 
 
 from typing import Hashable
@@ -175,12 +203,12 @@ class DataParallelModel(Module):
 
     def __init__(self, module, device_ids=None, output_device=None, dim=0):
         super(DataParallelModel, self).__init__()
-        if not torch.is_available():
+        if not torch.cuda.is_available():
             self.module = module
             self.device_ids = []
             return
         if device_ids is None:
-            device_ids = list(range(torch.device_count()))
+            device_ids = list(range(torch.cuda.device_count()))
         if output_device is None:
             output_device = device_ids[0]
         self.dim = dim
@@ -258,7 +286,7 @@ def criterion_parallel_apply(modules, inputs, targets, kwargs_tup=None, devices=
         if device is None:
             device = get_a_var(input).get_device()
         try:
-            with torch.cuda.device(device):
+            with torch.device(device):
                 output = module(*input, *target, **kwargs)
             with lock:
                 results[i] = output
@@ -286,12 +314,12 @@ class DataParallelCriterion(Module):
 
     def __init__(self, module, device_ids=None, output_device=None, dim=0):
         super(DataParallelCriterion, self).__init__()
-        if not torch.is_available():
+        if not torch.cuda.is_available():
             self.module = module
             self.device_ids = []
             return
         if device_ids is None:
-            device_ids = list(range(torch.device_count()))
+            device_ids = list(range(torch.cuda.device_count()))
         if output_device is None:
             output_device = device_ids[0]
         self.dim = dim
@@ -349,6 +377,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (DataParallelModel,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
     (Flatten,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -368,4 +400,7 @@ class Test_belskikh_kekas(_paritybench_base):
 
     def test_002(self):
         self._check(*TESTCASES[2])
+
+    def test_003(self):
+        self._check(*TESTCASES[3])
 

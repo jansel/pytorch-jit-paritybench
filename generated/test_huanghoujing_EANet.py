@@ -68,20 +68,54 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+from torch.utils.data import DataLoader as TorchDataLoader
+
+
+from torch.utils.data import SequentialSampler
+
+
+from torch.utils.data import RandomSampler
+
+
+import numpy as np
+
+
+from copy import deepcopy
+
+
+from torch.utils.data import Dataset as TorchDataset
+
+
+from collections import defaultdict
+
+
 import torch
+
+
+from torch.utils.data import Sampler
+
+
+import torchvision.transforms.functional as F
+
+
+import random
+
+
+from sklearn.metrics import average_precision_score
 
 
 from collections import OrderedDict
@@ -102,16 +136,19 @@ import torch.utils.model_zoo as model_zoo
 from collections import namedtuple
 
 
+from torch.optim.lr_scheduler import MultiStepLR
+
+
+from torch.optim.lr_scheduler import _LRScheduler
+
+
+import torch.optim as optim
+
+
 import time
 
 
-from copy import deepcopy
-
-
 from torch.nn.parallel import DataParallel
-
-
-import torchvision.transforms.functional as F
 
 
 class BaseModel(nn.Module):
@@ -148,73 +185,9 @@ class PartSegHead(nn.Module):
         return x
 
 
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = conv1x1(inplanes, planes)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = conv3x3(planes, planes, stride)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = conv1x1(planes, planes * self.expansion)
-        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
 
 
 class ResNet(nn.Module):
@@ -259,6 +232,248 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
         return x
+
+
+ArchCfg = namedtuple('ArchCfg', ['block', 'layers'])
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(BasicBlock, self).__init__()
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = conv1x1(inplanes, planes)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = conv3x3(planes, planes, stride)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = conv1x1(planes, planes * self.expansion)
+        self.bn3 = nn.BatchNorm2d(planes * self.expansion)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+arch_dict = {'resnet18': ArchCfg(BasicBlock, [2, 2, 2, 2]), 'resnet34': ArchCfg(BasicBlock, [3, 4, 6, 3]), 'resnet50': ArchCfg(Bottleneck, [3, 4, 6, 3]), 'resnet101': ArchCfg(Bottleneck, [3, 4, 23, 3]), 'resnet152': ArchCfg(Bottleneck, [3, 8, 36, 3])}
+
+
+def load_state_dict(model, src_state_dict, fold_bnt=True):
+    """Copy parameters and buffers from `src_state_dict` into `model` and its
+    descendants. The `src_state_dict.keys()` NEED NOT exactly match
+    `model.state_dict().keys()`. For dict key mismatch, just
+    skip it; for copying error, just output warnings and proceed.
+
+    Arguments:
+        model: A torch.nn.Module object.
+        src_state_dict (dict): A dict containing parameters and persistent buffers.
+    Note:
+        This is modified from torch.nn.modules.module.load_state_dict(), to make
+        the warnings and errors more detailed.
+    """
+    from torch.nn import Parameter
+    dest_state_dict = model.state_dict()
+    for name, param in list(src_state_dict.items()):
+        if name not in dest_state_dict:
+            continue
+        if isinstance(param, Parameter):
+            param = param.data
+        try:
+            dest_state_dict[name].copy_(param)
+        except Exception as msg:
+            None
+
+    def _fold_nbt(keys):
+        nbt_keys = [s for s in keys if s.endswith('.num_batches_tracked')]
+        if len(nbt_keys) > 0:
+            keys = [s for s in keys if not s.endswith('.num_batches_tracked')] + ['num_batches_tracked  x{}'.format(len(nbt_keys))]
+        return keys
+    src_missing = set(dest_state_dict.keys()) - set(src_state_dict.keys())
+    if len(src_missing) > 0:
+        None
+        if fold_bnt:
+            src_missing = _fold_nbt(src_missing)
+        for n in src_missing:
+            None
+    dest_missing = set(src_state_dict.keys()) - set(dest_state_dict.keys())
+    if len(dest_missing) > 0:
+        None
+        if fold_bnt:
+            dest_missing = _fold_nbt(dest_missing)
+        for n in dest_missing:
+            None
+
+
+model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
+
+
+def get_resnet(cfg):
+    model = ResNet(arch_dict[cfg.name].block, arch_dict[cfg.name].layers, cfg)
+    if cfg.pretrained:
+        state_dict = model_zoo.load_url(model_urls[cfg.name], model_dir=cfg.pretrained_model_dir)
+        load_state_dict(model, state_dict)
+        None
+    return model
+
+
+backbone_factory = {'resnet18': get_resnet, 'resnet34': get_resnet, 'resnet50': get_resnet, 'resnet101': get_resnet, 'resnet152': get_resnet}
+
+
+def create_backbone(cfg):
+    return backbone_factory[cfg.name](cfg)
+
+
+def create_embedding(in_dim=None, out_dim=None):
+    layers = [nn.Linear(in_dim, out_dim), nn.BatchNorm1d(out_dim), nn.ReLU(inplace=True)]
+    return nn.Sequential(*layers)
+
+
+def init_classifier(m):
+    if isinstance(m, nn.Linear):
+        nn.init.normal_(m.weight, std=0.001)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+
+
+class Model(BaseModel):
+
+    def __init__(self, cfg):
+        super(Model, self).__init__()
+        self.cfg = cfg
+        self.backbone = create_backbone(cfg.backbone)
+        self.pool = eval('{}(cfg)'.format(cfg.pool_type))
+        self.create_em_list()
+        if hasattr(cfg, 'num_classes') and cfg.num_classes > 0:
+            self.create_cls_list()
+        if cfg.use_ps:
+            cfg.ps_head.in_c = self.backbone.out_c
+            self.ps_head = PartSegHead(cfg.ps_head)
+        None
+
+    def create_em_list(self):
+        cfg = self.cfg
+        self.em_list = nn.ModuleList([create_embedding(self.backbone.out_c, cfg.em_dim) for _ in range(cfg.num_parts)])
+
+    def create_cls_list(self):
+        cfg = self.cfg
+        self.cls_list = nn.ModuleList([nn.Linear(cfg.em_dim, cfg.num_classes) for _ in range(cfg.num_parts)])
+        ori_w = self.cls_list[0].weight.view(-1).detach().numpy().copy()
+        self.cls_list.apply(init_classifier)
+        new_w = self.cls_list[0].weight.view(-1).detach().numpy().copy()
+        import numpy as np
+        if np.array_equal(ori_w, new_w):
+            None
+            None
+            None
+
+    def get_ft_and_new_params(self, cft=False):
+        """cft: Clustering and Fine Tuning"""
+        ft_modules, new_modules = self.get_ft_and_new_modules(cft=cft)
+        ft_params = list(chain.from_iterable([list(m.parameters()) for m in ft_modules]))
+        new_params = list(chain.from_iterable([list(m.parameters()) for m in new_modules]))
+        return ft_params, new_params
+
+    def get_ft_and_new_modules(self, cft=False):
+        if cft:
+            ft_modules = [self.backbone, self.em_list]
+            if hasattr(self, 'ps_head'):
+                ft_modules += [self.ps_head]
+            new_modules = [self.cls_list] if hasattr(self, 'cls_list') else []
+        else:
+            ft_modules = [self.backbone]
+            new_modules = [self.em_list]
+            if hasattr(self, 'cls_list'):
+                new_modules += [self.cls_list]
+            if hasattr(self, 'ps_head'):
+                new_modules += [self.ps_head]
+        return ft_modules, new_modules
+
+    def set_train_mode(self, cft=False, fix_ft_layers=False):
+        self.train()
+        if fix_ft_layers:
+            for m in self.get_ft_and_new_modules(cft=cft)[0]:
+                m.eval()
+
+    def backbone_forward(self, in_dict):
+        return self.backbone(in_dict['im'])
+
+    def reid_forward(self, in_dict):
+        pool_out_dict = self.pool(in_dict)
+        feat_list = [em(f) for em, f in zip(self.em_list, pool_out_dict['feat_list'])]
+        out_dict = {'feat_list': feat_list}
+        if hasattr(self, 'cls_list'):
+            logits_list = [cls(f) for cls, f in zip(self.cls_list, feat_list)]
+            out_dict['logits_list'] = logits_list
+        if 'visible' in pool_out_dict:
+            out_dict['visible'] = pool_out_dict['visible']
+        return out_dict
+
+    def ps_forward(self, in_dict):
+        return self.ps_head(in_dict['feat'])
+
+    def forward(self, in_dict, forward_type='reid'):
+        in_dict['feat'] = self.backbone_forward(in_dict)
+        if forward_type == 'reid':
+            out_dict = self.reid_forward(in_dict)
+        elif forward_type == 'ps':
+            out_dict = {'ps_pred': self.ps_forward(in_dict)}
+        elif forward_type == 'ps_reid_parallel':
+            out_dict = self.reid_forward(in_dict)
+            out_dict['ps_pred'] = self.ps_forward(in_dict)
+        elif forward_type == 'ps_reid_serial':
+            ps_pred = self.ps_forward(in_dict)
+            in_dict['pap_mask'] = gen_pap_mask_from_ps_pred(ps_pred)
+            out_dict = self.reid_forward(in_dict)
+            out_dict['ps_pred'] = ps_pred
+        else:
+            raise ValueError('Error forward_type {}'.format(forward_type))
+        return out_dict
 
 
 class TransparentDataParallel(DataParallel):

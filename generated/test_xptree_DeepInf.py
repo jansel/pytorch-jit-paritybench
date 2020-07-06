@@ -14,20 +14,42 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import numpy as np
+
+
 import torch
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data.sampler import Sampler
+
+
+import sklearn
+
+
+import itertools
+
+
+import logging
+
+
+from sklearn import preprocessing
 
 
 import torch.nn as nn
@@ -51,16 +73,57 @@ from torch.autograd import Variable
 import time
 
 
-import numpy as np
-
-
 import torch.optim as optim
 
 
 from torch.utils.data import DataLoader
 
 
-import logging
+from sklearn.metrics import precision_recall_fscore_support
+
+
+from sklearn.metrics import roc_auc_score
+
+
+from sklearn.metrics import precision_recall_curve
+
+
+class BatchMultiHeadGraphAttention(nn.Module):
+
+    def __init__(self, n_head, f_in, f_out, attn_dropout, bias=True):
+        super(BatchMultiHeadGraphAttention, self).__init__()
+        self.n_head = n_head
+        self.w = Parameter(torch.Tensor(n_head, f_in, f_out))
+        self.a_src = Parameter(torch.Tensor(n_head, f_out, 1))
+        self.a_dst = Parameter(torch.Tensor(n_head, f_out, 1))
+        self.leaky_relu = nn.LeakyReLU(negative_slope=0.2)
+        self.softmax = nn.Softmax(dim=-1)
+        self.dropout = nn.Dropout(attn_dropout)
+        if bias:
+            self.bias = Parameter(torch.Tensor(f_out))
+            init.constant_(self.bias, 0)
+        else:
+            self.register_parameter('bias', None)
+        init.xavier_uniform_(self.w)
+        init.xavier_uniform_(self.a_src)
+        init.xavier_uniform_(self.a_dst)
+
+    def forward(self, h, adj):
+        bs, n = h.size()[:2]
+        h_prime = torch.matmul(h.unsqueeze(1), self.w)
+        attn_src = torch.matmul(F.tanh(h_prime), self.a_src)
+        attn_dst = torch.matmul(F.tanh(h_prime), self.a_dst)
+        attn = attn_src.expand(-1, -1, -1, n) + attn_dst.expand(-1, -1, -1, n).permute(0, 1, 3, 2)
+        attn = self.leaky_relu(attn)
+        mask = 1 - adj.unsqueeze(1)
+        attn.data.masked_fill_(mask, float('-inf'))
+        attn = self.softmax(attn)
+        attn = self.dropout(attn)
+        output = torch.matmul(attn, h_prime)
+        if self.bias is not None:
+            return output + self.bias
+        else:
+            return output
 
 
 class BatchGAT(nn.Module):
@@ -143,38 +206,24 @@ class MultiHeadGraphAttention(nn.Module):
             return output
 
 
-class BatchMultiHeadGraphAttention(nn.Module):
+class BatchGraphConvolution(Module):
 
-    def __init__(self, n_head, f_in, f_out, attn_dropout, bias=True):
-        super(BatchMultiHeadGraphAttention, self).__init__()
-        self.n_head = n_head
-        self.w = Parameter(torch.Tensor(n_head, f_in, f_out))
-        self.a_src = Parameter(torch.Tensor(n_head, f_out, 1))
-        self.a_dst = Parameter(torch.Tensor(n_head, f_out, 1))
-        self.leaky_relu = nn.LeakyReLU(negative_slope=0.2)
-        self.softmax = nn.Softmax(dim=-1)
-        self.dropout = nn.Dropout(attn_dropout)
+    def __init__(self, in_features, out_features, bias=True):
+        super(BatchGraphConvolution, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = Parameter(torch.Tensor(in_features, out_features))
         if bias:
-            self.bias = Parameter(torch.Tensor(f_out))
+            self.bias = Parameter(torch.Tensor(out_features))
             init.constant_(self.bias, 0)
         else:
             self.register_parameter('bias', None)
-        init.xavier_uniform_(self.w)
-        init.xavier_uniform_(self.a_src)
-        init.xavier_uniform_(self.a_dst)
+        init.xavier_uniform_(self.weight)
 
-    def forward(self, h, adj):
-        bs, n = h.size()[:2]
-        h_prime = torch.matmul(h.unsqueeze(1), self.w)
-        attn_src = torch.matmul(F.tanh(h_prime), self.a_src)
-        attn_dst = torch.matmul(F.tanh(h_prime), self.a_dst)
-        attn = attn_src.expand(-1, -1, -1, n) + attn_dst.expand(-1, -1, -1, n).permute(0, 1, 3, 2)
-        attn = self.leaky_relu(attn)
-        mask = 1 - adj.unsqueeze(1)
-        attn.data.masked_fill_(mask, float('-inf'))
-        attn = self.softmax(attn)
-        attn = self.dropout(attn)
-        output = torch.matmul(attn, h_prime)
+    def forward(self, x, lap):
+        expand_weight = self.weight.expand(x.shape[0], -1, -1)
+        support = torch.bmm(x, expand_weight)
+        output = torch.bmm(lap, support)
         if self.bias is not None:
             return output + self.bias
         else:
@@ -218,30 +267,6 @@ class BatchGCN(nn.Module):
                 x = F.elu(x)
                 x = F.dropout(x, self.dropout, training=self.training)
         return F.log_softmax(x, dim=-1)
-
-
-class BatchGraphConvolution(Module):
-
-    def __init__(self, in_features, out_features, bias=True):
-        super(BatchGraphConvolution, self).__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.weight = Parameter(torch.Tensor(in_features, out_features))
-        if bias:
-            self.bias = Parameter(torch.Tensor(out_features))
-            init.constant_(self.bias, 0)
-        else:
-            self.register_parameter('bias', None)
-        init.xavier_uniform_(self.weight)
-
-    def forward(self, x, lap):
-        expand_weight = self.weight.expand(x.shape[0], -1, -1)
-        support = torch.bmm(x, expand_weight)
-        output = torch.bmm(lap, support)
-        if self.bias is not None:
-            return output + self.bias
-        else:
-            return output
 
 
 class BatchPSCN(nn.Module):

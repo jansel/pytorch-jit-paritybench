@@ -32,29 +32,35 @@ trainer = _module
 utils = _module
 vocab = _module
 depparse = _module
+data = _module
 model = _module
 scorer = _module
 trainer = _module
 identity_lemmatizer = _module
 lemma = _module
+data = _module
 edit = _module
 trainer = _module
 lemmatizer = _module
 mwt = _module
+data = _module
 trainer = _module
 mwt_expander = _module
 ner = _module
+data = _module
 model = _module
 trainer = _module
 ner_tagger = _module
 parser = _module
 pos = _module
 build_xpos_vocab_factory = _module
+data = _module
 model = _module
 trainer = _module
 xpos_vocab_factory = _module
 tagger = _module
 tokenize = _module
+data = _module
 model = _module
 trainer = _module
 tokenizer = _module
@@ -109,17 +115,21 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import re
 
 
 import random
@@ -173,7 +183,16 @@ from torch import nn
 import torch.nn.init as init
 
 
+from torch import optim
+
+
+import copy
+
+
 import torch.optim as optim
+
+
+import itertools
 
 
 class PairwiseBilinear(nn.Module):
@@ -243,6 +262,95 @@ class DeepBiaffineScorer(nn.Module):
 
     def forward(self, input1, input2):
         return self.scorer(self.dropout(self.hidden_func(self.W1(input1))), self.dropout(self.hidden_func(self.W2(input2))))
+
+
+class LSTMwRecDropout(nn.Module):
+    """ An LSTM implementation that supports recurrent dropout """
+
+    def __init__(self, input_size, hidden_size, num_layers, bias=True, batch_first=False, dropout=0, bidirectional=False, pad=False, rec_dropout=0):
+        super().__init__()
+        self.batch_first = batch_first
+        self.pad = pad
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+        self.dropout = dropout
+        self.drop = nn.Dropout(dropout, inplace=True)
+        self.rec_drop = nn.Dropout(rec_dropout, inplace=True)
+        self.num_directions = 2 if bidirectional else 1
+        self.cells = nn.ModuleList()
+        for l in range(num_layers):
+            in_size = input_size if l == 0 else self.num_directions * hidden_size
+            for d in range(self.num_directions):
+                self.cells.append(nn.LSTMCell(in_size, hidden_size, bias=bias))
+
+    def forward(self, input, hx=None):
+
+        def rnn_loop(x, batch_sizes, cell, inits, reverse=False):
+            batch_size = batch_sizes[0].item()
+            states = [list(init.split([1] * batch_size)) for init in inits]
+            h_drop_mask = x.new_ones(batch_size, self.hidden_size)
+            h_drop_mask = self.rec_drop(h_drop_mask)
+            resh = []
+            if not reverse:
+                st = 0
+                for bs in batch_sizes:
+                    s1 = cell(x[st:st + bs], (torch.cat(states[0][:bs], 0) * h_drop_mask[:bs], torch.cat(states[1][:bs], 0)))
+                    resh.append(s1[0])
+                    for j in range(bs):
+                        states[0][j] = s1[0][j].unsqueeze(0)
+                        states[1][j] = s1[1][j].unsqueeze(0)
+                    st += bs
+            else:
+                en = x.size(0)
+                for i in range(batch_sizes.size(0) - 1, -1, -1):
+                    bs = batch_sizes[i]
+                    s1 = cell(x[en - bs:en], (torch.cat(states[0][:bs], 0) * h_drop_mask[:bs], torch.cat(states[1][:bs], 0)))
+                    resh.append(s1[0])
+                    for j in range(bs):
+                        states[0][j] = s1[0][j].unsqueeze(0)
+                        states[1][j] = s1[1][j].unsqueeze(0)
+                    en -= bs
+                resh = list(reversed(resh))
+            return torch.cat(resh, 0), tuple(torch.cat(s, 0) for s in states)
+        all_states = [[], []]
+        inputdata, batch_sizes = input.data, input.batch_sizes
+        for l in range(self.num_layers):
+            new_input = []
+            if self.dropout > 0 and l > 0:
+                inputdata = self.drop(inputdata)
+            for d in range(self.num_directions):
+                idx = l * self.num_directions + d
+                cell = self.cells[idx]
+                out, states = rnn_loop(inputdata, batch_sizes, cell, (hx[i][idx] for i in range(2)) if hx is not None else (input.data.new_zeros(input.batch_sizes[0].item(), self.hidden_size, requires_grad=False) for _ in range(2)), reverse=d == 1)
+                new_input.append(out)
+                all_states[0].append(states[0].unsqueeze(0))
+                all_states[1].append(states[1].unsqueeze(0))
+            if self.num_directions > 1:
+                inputdata = torch.cat(new_input, 1)
+            else:
+                inputdata = new_input[0]
+        input = PackedSequence(inputdata, batch_sizes)
+        return input, tuple(torch.cat(x, 0) for x in all_states)
+
+
+class PackedLSTM(nn.Module):
+
+    def __init__(self, input_size, hidden_size, num_layers, bias=True, batch_first=False, dropout=0, bidirectional=False, pad=False, rec_dropout=0):
+        super().__init__()
+        self.batch_first = batch_first
+        self.pad = pad
+        if rec_dropout == 0:
+            self.lstm = nn.LSTM(input_size, hidden_size, num_layers, bias=bias, batch_first=batch_first, dropout=dropout, bidirectional=bidirectional)
+        else:
+            self.lstm = LSTMwRecDropout(input_size, hidden_size, num_layers, bias=bias, batch_first=batch_first, dropout=dropout, bidirectional=bidirectional, rec_dropout=rec_dropout)
+
+    def forward(self, input, lengths, hx=None):
+        if not isinstance(input, PackedSequence):
+            input = pack_padded_sequence(input, lengths, batch_first=self.batch_first)
+        res = self.lstm(input, hx)
+        if self.pad:
+            res = pad_packed_sequence(res[0], batch_first=self.batch_first)[0], res[1]
+        return res
 
 
 def tensor_unsort(sorted_tensor, oidx):
@@ -395,6 +503,29 @@ class CharVocab(BaseVocab):
         self._unit2id = {w: i for i, w in enumerate(self._id2unit)}
 
 
+class SequenceUnitDropout(nn.Module):
+    """ A unit dropout layer that's designed for input of sequence units (e.g., word sequence, char sequence, etc.).
+    Given a sequence of unit indices, this layer randomly set some of them to be a replacement id (usually set to be <UNK>).
+    """
+
+    def __init__(self, dropprob, replacement_id):
+        super().__init__()
+        self.dropprob = dropprob
+        self.replacement_id = replacement_id
+
+    def forward(self, x):
+        """ :param: x must be a LongTensor of unit indices. """
+        if not self.training or self.dropprob == 0:
+            return x
+        masksize = [y for y in x.size()]
+        dropmask = torch.rand(*masksize, device=x.device) < self.dropprob
+        res = x.masked_fill(dropmask, self.replacement_id)
+        return res
+
+    def extra_repr(self):
+        return 'p={}, replacement_id={}'.format(self.dropprob, self.replacement_id)
+
+
 UNK_ID = 1
 
 
@@ -492,7 +623,7 @@ def log_sum_exp(value, dim=None, keepdim=False):
 
 def set_cuda(var, cuda):
     if cuda:
-        return var.cuda()
+        return var
     return var
 
 
@@ -627,29 +758,6 @@ class LockedDropout(nn.Module):
 
     def extra_repr(self):
         return 'p={}'.format(self.dropprob)
-
-
-class SequenceUnitDropout(nn.Module):
-    """ A unit dropout layer that's designed for input of sequence units (e.g., word sequence, char sequence, etc.).
-    Given a sequence of unit indices, this layer randomly set some of them to be a replacement id (usually set to be <UNK>).
-    """
-
-    def __init__(self, dropprob, replacement_id):
-        super().__init__()
-        self.dropprob = dropprob
-        self.replacement_id = replacement_id
-
-    def forward(self, x):
-        """ :param: x must be a LongTensor of unit indices. """
-        if not self.training or self.dropprob == 0:
-            return x
-        masksize = [y for y in x.size()]
-        dropmask = torch.rand(*masksize, device=x.device) < self.dropprob
-        res = x.masked_fill(dropmask, self.replacement_id)
-        return res
-
-    def extra_repr(self):
-        return 'p={}, replacement_id={}'.format(self.dropprob, self.replacement_id)
 
 
 class HLSTMCell(nn.modules.rnn.RNNCellBase):
@@ -797,95 +905,6 @@ class MaxEntropySequenceLoss(nn.Module):
         return loss
 
 
-class PackedLSTM(nn.Module):
-
-    def __init__(self, input_size, hidden_size, num_layers, bias=True, batch_first=False, dropout=0, bidirectional=False, pad=False, rec_dropout=0):
-        super().__init__()
-        self.batch_first = batch_first
-        self.pad = pad
-        if rec_dropout == 0:
-            self.lstm = nn.LSTM(input_size, hidden_size, num_layers, bias=bias, batch_first=batch_first, dropout=dropout, bidirectional=bidirectional)
-        else:
-            self.lstm = LSTMwRecDropout(input_size, hidden_size, num_layers, bias=bias, batch_first=batch_first, dropout=dropout, bidirectional=bidirectional, rec_dropout=rec_dropout)
-
-    def forward(self, input, lengths, hx=None):
-        if not isinstance(input, PackedSequence):
-            input = pack_padded_sequence(input, lengths, batch_first=self.batch_first)
-        res = self.lstm(input, hx)
-        if self.pad:
-            res = pad_packed_sequence(res[0], batch_first=self.batch_first)[0], res[1]
-        return res
-
-
-class LSTMwRecDropout(nn.Module):
-    """ An LSTM implementation that supports recurrent dropout """
-
-    def __init__(self, input_size, hidden_size, num_layers, bias=True, batch_first=False, dropout=0, bidirectional=False, pad=False, rec_dropout=0):
-        super().__init__()
-        self.batch_first = batch_first
-        self.pad = pad
-        self.num_layers = num_layers
-        self.hidden_size = hidden_size
-        self.dropout = dropout
-        self.drop = nn.Dropout(dropout, inplace=True)
-        self.rec_drop = nn.Dropout(rec_dropout, inplace=True)
-        self.num_directions = 2 if bidirectional else 1
-        self.cells = nn.ModuleList()
-        for l in range(num_layers):
-            in_size = input_size if l == 0 else self.num_directions * hidden_size
-            for d in range(self.num_directions):
-                self.cells.append(nn.LSTMCell(in_size, hidden_size, bias=bias))
-
-    def forward(self, input, hx=None):
-
-        def rnn_loop(x, batch_sizes, cell, inits, reverse=False):
-            batch_size = batch_sizes[0].item()
-            states = [list(init.split([1] * batch_size)) for init in inits]
-            h_drop_mask = x.new_ones(batch_size, self.hidden_size)
-            h_drop_mask = self.rec_drop(h_drop_mask)
-            resh = []
-            if not reverse:
-                st = 0
-                for bs in batch_sizes:
-                    s1 = cell(x[st:st + bs], (torch.cat(states[0][:bs], 0) * h_drop_mask[:bs], torch.cat(states[1][:bs], 0)))
-                    resh.append(s1[0])
-                    for j in range(bs):
-                        states[0][j] = s1[0][j].unsqueeze(0)
-                        states[1][j] = s1[1][j].unsqueeze(0)
-                    st += bs
-            else:
-                en = x.size(0)
-                for i in range(batch_sizes.size(0) - 1, -1, -1):
-                    bs = batch_sizes[i]
-                    s1 = cell(x[en - bs:en], (torch.cat(states[0][:bs], 0) * h_drop_mask[:bs], torch.cat(states[1][:bs], 0)))
-                    resh.append(s1[0])
-                    for j in range(bs):
-                        states[0][j] = s1[0][j].unsqueeze(0)
-                        states[1][j] = s1[1][j].unsqueeze(0)
-                    en -= bs
-                resh = list(reversed(resh))
-            return torch.cat(resh, 0), tuple(torch.cat(s, 0) for s in states)
-        all_states = [[], []]
-        inputdata, batch_sizes = input.data, input.batch_sizes
-        for l in range(self.num_layers):
-            new_input = []
-            if self.dropout > 0 and l > 0:
-                inputdata = self.drop(inputdata)
-            for d in range(self.num_directions):
-                idx = l * self.num_directions + d
-                cell = self.cells[idx]
-                out, states = rnn_loop(inputdata, batch_sizes, cell, (hx[i][idx] for i in range(2)) if hx is not None else (input.data.new_zeros(input.batch_sizes[0].item(), self.hidden_size, requires_grad=False) for _ in range(2)), reverse=d == 1)
-                new_input.append(out)
-                all_states[0].append(states[0].unsqueeze(0))
-                all_states[1].append(states[1].unsqueeze(0))
-            if self.num_directions > 1:
-                inputdata = torch.cat(new_input, 1)
-            else:
-                inputdata = new_input[0]
-        input = PackedSequence(inputdata, batch_sizes)
-        return input, tuple(torch.cat(x, 0) for x in all_states)
-
-
 class Beam(object):
 
     def __init__(self, size, cuda=False):
@@ -973,7 +992,201 @@ class Beam(object):
         return hyp
 
 
+class BasicAttention(nn.Module):
+    """
+    A basic MLP attention layer.
+    """
+
+    def __init__(self, dim):
+        super(BasicAttention, self).__init__()
+        self.linear_in = nn.Linear(dim, dim, bias=False)
+        self.linear_c = nn.Linear(dim, dim)
+        self.linear_v = nn.Linear(dim, 1, bias=False)
+        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
+        self.tanh = nn.Tanh()
+        self.sm = nn.Softmax(dim=1)
+
+    def forward(self, input, context, mask=None, attn_only=False):
+        """
+        input: batch x dim
+        context: batch x sourceL x dim
+        """
+        batch_size = context.size(0)
+        source_len = context.size(1)
+        dim = context.size(2)
+        target = self.linear_in(input)
+        source = self.linear_c(context.contiguous().view(-1, dim)).view(batch_size, source_len, dim)
+        attn = target.unsqueeze(1).expand_as(context) + source
+        attn = self.tanh(attn)
+        attn = self.linear_v(attn.view(-1, dim)).view(batch_size, source_len)
+        if mask is not None:
+            attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
+        attn = self.sm(attn)
+        if attn_only:
+            return attn
+        weighted_context = torch.bmm(attn.unsqueeze(1), context).squeeze(1)
+        h_tilde = torch.cat((weighted_context, input), 1)
+        h_tilde = self.tanh(self.linear_out(h_tilde))
+        return h_tilde, attn
+
+
+class DeepAttention(nn.Module):
+    """ A deep attention form, invented by Robert:
+        u = ReLU(Wx)
+        v = ReLU(Wy)
+        a = V.(u o v)
+    """
+
+    def __init__(self, dim):
+        super(DeepAttention, self).__init__()
+        self.linear_in = nn.Linear(dim, dim, bias=False)
+        self.linear_v = nn.Linear(dim, 1, bias=False)
+        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
+        self.relu = nn.ReLU()
+        self.sm = nn.Softmax(dim=1)
+        self.tanh = nn.Tanh()
+        self.mask = None
+
+    def forward(self, input, context, mask=None, attn_only=False):
+        """
+        input: batch x dim
+        context: batch x sourceL x dim
+        """
+        batch_size = context.size(0)
+        source_len = context.size(1)
+        dim = context.size(2)
+        u = input.unsqueeze(1).expand_as(context).contiguous().view(-1, dim)
+        u = self.relu(self.linear_in(u))
+        v = self.relu(self.linear_in(context.contiguous().view(-1, dim)))
+        attn = self.linear_v(u.mul(v)).view(batch_size, source_len)
+        if mask is not None:
+            assert mask.size() == attn.size(), 'Mask size must match the attention size!'
+            attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
+        attn = self.sm(attn)
+        if attn_only:
+            return attn
+        attn3 = attn.view(batch_size, 1, source_len)
+        weighted_context = torch.bmm(attn3, context).squeeze(1)
+        h_tilde = torch.cat((weighted_context, input), 1)
+        h_tilde = self.tanh(self.linear_out(h_tilde))
+        return h_tilde, attn
+
+
+class LinearAttention(nn.Module):
+    """ A linear attention form, inspired by BiDAF:
+        a = W (u; v; u o v)
+    """
+
+    def __init__(self, dim):
+        super(LinearAttention, self).__init__()
+        self.linear = nn.Linear(dim * 3, 1, bias=False)
+        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
+        self.sm = nn.Softmax(dim=1)
+        self.tanh = nn.Tanh()
+        self.mask = None
+
+    def forward(self, input, context, mask=None, attn_only=False):
+        """
+        input: batch x dim
+        context: batch x sourceL x dim
+        """
+        batch_size = context.size(0)
+        source_len = context.size(1)
+        dim = context.size(2)
+        u = input.unsqueeze(1).expand_as(context).contiguous().view(-1, dim)
+        v = context.contiguous().view(-1, dim)
+        attn_in = torch.cat((u, v, u.mul(v)), 1)
+        attn = self.linear(attn_in).view(batch_size, source_len)
+        if mask is not None:
+            assert mask.size() == attn.size(), 'Mask size must match the attention size!'
+            attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
+        attn = self.sm(attn)
+        if attn_only:
+            return attn
+        attn3 = attn.view(batch_size, 1, source_len)
+        weighted_context = torch.bmm(attn3, context).squeeze(1)
+        h_tilde = torch.cat((weighted_context, input), 1)
+        h_tilde = self.tanh(self.linear_out(h_tilde))
+        return h_tilde, attn
+
+
+class SoftDotAttention(nn.Module):
+    """Soft Dot Attention.
+
+    Ref: http://www.aclweb.org/anthology/D15-1166
+    Adapted from PyTorch OPEN NMT.
+    """
+
+    def __init__(self, dim):
+        """Initialize layer."""
+        super(SoftDotAttention, self).__init__()
+        self.linear_in = nn.Linear(dim, dim, bias=False)
+        self.sm = nn.Softmax(dim=1)
+        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
+        self.tanh = nn.Tanh()
+        self.mask = None
+
+    def forward(self, input, context, mask=None, attn_only=False):
+        """Propogate input through the network.
+
+        input: batch x dim
+        context: batch x sourceL x dim
+        """
+        target = self.linear_in(input).unsqueeze(2)
+        attn = torch.bmm(context, target).squeeze(2)
+        if mask is not None:
+            assert mask.size() == attn.size(), 'Mask size must match the attention size!'
+            attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
+        attn = self.sm(attn)
+        if attn_only:
+            return attn
+        attn3 = attn.view(attn.size(0), 1, attn.size(1))
+        weighted_context = torch.bmm(attn3, context).squeeze(1)
+        h_tilde = torch.cat((weighted_context, input), 1)
+        h_tilde = self.tanh(self.linear_out(h_tilde))
+        return h_tilde, attn
+
+
 logger = logging.getLogger('stanza')
+
+
+class LSTMAttention(nn.Module):
+    """A long short-term memory (LSTM) cell with attention."""
+
+    def __init__(self, input_size, hidden_size, batch_first=True, attn_type='soft'):
+        """Initialize params."""
+        super(LSTMAttention, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.batch_first = batch_first
+        self.lstm_cell = nn.LSTMCell(input_size, hidden_size)
+        if attn_type == 'soft':
+            self.attention_layer = SoftDotAttention(hidden_size)
+        elif attn_type == 'mlp':
+            self.attention_layer = BasicAttention(hidden_size)
+        elif attn_type == 'linear':
+            self.attention_layer = LinearAttention(hidden_size)
+        elif attn_type == 'deep':
+            self.attention_layer = DeepAttention(hidden_size)
+        else:
+            raise Exception('Unsupported LSTM attention type: {}'.format(attn_type))
+        logger.debug('Using {} attention for LSTM.'.format(attn_type))
+
+    def forward(self, input, hidden, ctx, ctx_mask=None):
+        """Propogate input through the network."""
+        if self.batch_first:
+            input = input.transpose(0, 1)
+        output = []
+        steps = range(input.size(0))
+        for i in steps:
+            hidden = self.lstm_cell(input[i], hidden)
+            hy, cy = hidden
+            h_tilde, alpha = self.attention_layer(hy, ctx, mask=ctx_mask)
+            output.append(h_tilde)
+        output = torch.cat(output, 0).view(input.size(0), *output[0].size())
+        if self.batch_first:
+            output = output.transpose(0, 1)
+        return output, hidden
 
 
 class Seq2SeqModel(nn.Module):
@@ -1197,200 +1410,6 @@ class Seq2SeqModel(nn.Module):
             hyp = [i.item() for i in hyp]
             all_hyp += [hyp]
         return all_hyp, edit_logits
-
-
-class BasicAttention(nn.Module):
-    """
-    A basic MLP attention layer.
-    """
-
-    def __init__(self, dim):
-        super(BasicAttention, self).__init__()
-        self.linear_in = nn.Linear(dim, dim, bias=False)
-        self.linear_c = nn.Linear(dim, dim)
-        self.linear_v = nn.Linear(dim, 1, bias=False)
-        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
-        self.tanh = nn.Tanh()
-        self.sm = nn.Softmax(dim=1)
-
-    def forward(self, input, context, mask=None, attn_only=False):
-        """
-        input: batch x dim
-        context: batch x sourceL x dim
-        """
-        batch_size = context.size(0)
-        source_len = context.size(1)
-        dim = context.size(2)
-        target = self.linear_in(input)
-        source = self.linear_c(context.contiguous().view(-1, dim)).view(batch_size, source_len, dim)
-        attn = target.unsqueeze(1).expand_as(context) + source
-        attn = self.tanh(attn)
-        attn = self.linear_v(attn.view(-1, dim)).view(batch_size, source_len)
-        if mask is not None:
-            attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
-        attn = self.sm(attn)
-        if attn_only:
-            return attn
-        weighted_context = torch.bmm(attn.unsqueeze(1), context).squeeze(1)
-        h_tilde = torch.cat((weighted_context, input), 1)
-        h_tilde = self.tanh(self.linear_out(h_tilde))
-        return h_tilde, attn
-
-
-class SoftDotAttention(nn.Module):
-    """Soft Dot Attention.
-
-    Ref: http://www.aclweb.org/anthology/D15-1166
-    Adapted from PyTorch OPEN NMT.
-    """
-
-    def __init__(self, dim):
-        """Initialize layer."""
-        super(SoftDotAttention, self).__init__()
-        self.linear_in = nn.Linear(dim, dim, bias=False)
-        self.sm = nn.Softmax(dim=1)
-        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
-        self.tanh = nn.Tanh()
-        self.mask = None
-
-    def forward(self, input, context, mask=None, attn_only=False):
-        """Propogate input through the network.
-
-        input: batch x dim
-        context: batch x sourceL x dim
-        """
-        target = self.linear_in(input).unsqueeze(2)
-        attn = torch.bmm(context, target).squeeze(2)
-        if mask is not None:
-            assert mask.size() == attn.size(), 'Mask size must match the attention size!'
-            attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
-        attn = self.sm(attn)
-        if attn_only:
-            return attn
-        attn3 = attn.view(attn.size(0), 1, attn.size(1))
-        weighted_context = torch.bmm(attn3, context).squeeze(1)
-        h_tilde = torch.cat((weighted_context, input), 1)
-        h_tilde = self.tanh(self.linear_out(h_tilde))
-        return h_tilde, attn
-
-
-class LinearAttention(nn.Module):
-    """ A linear attention form, inspired by BiDAF:
-        a = W (u; v; u o v)
-    """
-
-    def __init__(self, dim):
-        super(LinearAttention, self).__init__()
-        self.linear = nn.Linear(dim * 3, 1, bias=False)
-        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
-        self.sm = nn.Softmax(dim=1)
-        self.tanh = nn.Tanh()
-        self.mask = None
-
-    def forward(self, input, context, mask=None, attn_only=False):
-        """
-        input: batch x dim
-        context: batch x sourceL x dim
-        """
-        batch_size = context.size(0)
-        source_len = context.size(1)
-        dim = context.size(2)
-        u = input.unsqueeze(1).expand_as(context).contiguous().view(-1, dim)
-        v = context.contiguous().view(-1, dim)
-        attn_in = torch.cat((u, v, u.mul(v)), 1)
-        attn = self.linear(attn_in).view(batch_size, source_len)
-        if mask is not None:
-            assert mask.size() == attn.size(), 'Mask size must match the attention size!'
-            attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
-        attn = self.sm(attn)
-        if attn_only:
-            return attn
-        attn3 = attn.view(batch_size, 1, source_len)
-        weighted_context = torch.bmm(attn3, context).squeeze(1)
-        h_tilde = torch.cat((weighted_context, input), 1)
-        h_tilde = self.tanh(self.linear_out(h_tilde))
-        return h_tilde, attn
-
-
-class DeepAttention(nn.Module):
-    """ A deep attention form, invented by Robert:
-        u = ReLU(Wx)
-        v = ReLU(Wy)
-        a = V.(u o v)
-    """
-
-    def __init__(self, dim):
-        super(DeepAttention, self).__init__()
-        self.linear_in = nn.Linear(dim, dim, bias=False)
-        self.linear_v = nn.Linear(dim, 1, bias=False)
-        self.linear_out = nn.Linear(dim * 2, dim, bias=False)
-        self.relu = nn.ReLU()
-        self.sm = nn.Softmax(dim=1)
-        self.tanh = nn.Tanh()
-        self.mask = None
-
-    def forward(self, input, context, mask=None, attn_only=False):
-        """
-        input: batch x dim
-        context: batch x sourceL x dim
-        """
-        batch_size = context.size(0)
-        source_len = context.size(1)
-        dim = context.size(2)
-        u = input.unsqueeze(1).expand_as(context).contiguous().view(-1, dim)
-        u = self.relu(self.linear_in(u))
-        v = self.relu(self.linear_in(context.contiguous().view(-1, dim)))
-        attn = self.linear_v(u.mul(v)).view(batch_size, source_len)
-        if mask is not None:
-            assert mask.size() == attn.size(), 'Mask size must match the attention size!'
-            attn.masked_fill_(mask, -constant.INFINITY_NUMBER)
-        attn = self.sm(attn)
-        if attn_only:
-            return attn
-        attn3 = attn.view(batch_size, 1, source_len)
-        weighted_context = torch.bmm(attn3, context).squeeze(1)
-        h_tilde = torch.cat((weighted_context, input), 1)
-        h_tilde = self.tanh(self.linear_out(h_tilde))
-        return h_tilde, attn
-
-
-class LSTMAttention(nn.Module):
-    """A long short-term memory (LSTM) cell with attention."""
-
-    def __init__(self, input_size, hidden_size, batch_first=True, attn_type='soft'):
-        """Initialize params."""
-        super(LSTMAttention, self).__init__()
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.batch_first = batch_first
-        self.lstm_cell = nn.LSTMCell(input_size, hidden_size)
-        if attn_type == 'soft':
-            self.attention_layer = SoftDotAttention(hidden_size)
-        elif attn_type == 'mlp':
-            self.attention_layer = BasicAttention(hidden_size)
-        elif attn_type == 'linear':
-            self.attention_layer = LinearAttention(hidden_size)
-        elif attn_type == 'deep':
-            self.attention_layer = DeepAttention(hidden_size)
-        else:
-            raise Exception('Unsupported LSTM attention type: {}'.format(attn_type))
-        logger.debug('Using {} attention for LSTM.'.format(attn_type))
-
-    def forward(self, input, hidden, ctx, ctx_mask=None):
-        """Propogate input through the network."""
-        if self.batch_first:
-            input = input.transpose(0, 1)
-        output = []
-        steps = range(input.size(0))
-        for i in steps:
-            hidden = self.lstm_cell(input[i], hidden)
-            hy, cy = hidden
-            h_tilde, alpha = self.attention_layer(hy, ctx, mask=ctx_mask)
-            output.append(h_tilde)
-        output = torch.cat(output, 0).view(input.size(0), *output[0].size())
-        if self.batch_first:
-            output = output.transpose(0, 1)
-        return output, hidden
 
 
 EMPTY_ID = 2

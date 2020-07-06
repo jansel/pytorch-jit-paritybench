@@ -9,6 +9,7 @@ glove = _module
 imdb = _module
 mr = _module
 sst = _module
+imdb = _module
 trec = _module
 main = _module
 BERTFast = _module
@@ -46,15 +47,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -62,19 +64,40 @@ __version__ = '1.0.0'
 import numpy as np
 
 
-import time
+import string
+
+
+from collections import Counter
 
 
 import random
 
 
-import itertools
+import time
 
 
 import torch
 
 
 from torch.autograd import Variable
+
+
+import re
+
+
+from torchtext import data
+
+
+from torchtext import datasets
+
+
+from torchtext.vocab import GloVe
+
+
+from torchtext.vocab import CharNGram
+
+
+import itertools
 
 
 import torch.optim as optim
@@ -107,22 +130,13 @@ from torch import nn
 from collections import OrderedDict
 
 
+from sklearn.utils import shuffle
+
+
 import torch.nn.init as init
 
 
-from torchtext import data
-
-
-from torchtext import datasets
-
-
 from torchtext.vocab import Vectors
-
-
-from torchtext.vocab import GloVe
-
-
-from torchtext.vocab import CharNGram
 
 
 from torchtext.vocab import FastText
@@ -132,9 +146,6 @@ from functools import wraps
 
 
 import logging
-
-
-import re
 
 
 class BaseModel(nn.Module):
@@ -166,12 +177,230 @@ class BaseModel(nn.Module):
         return path
 
 
+class CNN(BaseModel):
+
+    def __init__(self, opt):
+        super(CNN, self).__init__(opt)
+        self.embedding_type = opt.embedding_type
+        self.batch_size = opt.batch_size
+        self.max_sent_len = opt.max_sent_len
+        self.embedding_dim = opt.embedding_dim
+        self.vocab_size = opt.vocab_size
+        self.CLASS_SIZE = opt.label_size
+        self.FILTERS = opt['FILTERS']
+        self.FILTER_NUM = opt['FILTER_NUM']
+        self.keep_dropout = opt.keep_dropout
+        self.IN_CHANNEL = 1
+        assert len(self.FILTERS) == len(self.FILTER_NUM)
+        self.embedding = nn.Embedding(self.vocab_size + 2, self.embedding_dim, padding_idx=self.vocab_size + 1)
+        if self.embedding_type == 'static' or self.embedding_type == 'non-static' or self.embedding_type == 'multichannel':
+            self.WV_MATRIX = opt['WV_MATRIX']
+            self.embedding.weight.data.copy_(torch.from_numpy(self.WV_MATRIX))
+            if self.embedding_type == 'static':
+                self.embedding.weight.requires_grad = False
+            elif self.embedding_type == 'multichannel':
+                self.embedding2 = nn.Embedding(self.vocab_size + 2, self.embedding_dim, padding_idx=self.VOCAB_SIZE + 1)
+                self.embedding2.weight.data.copy_(torch.from_numpy(self.WV_MATRIX))
+                self.embedding2.weight.requires_grad = False
+                self.IN_CHANNEL = 2
+        for i in range(len(self.FILTERS)):
+            conv = nn.Conv1d(self.IN_CHANNEL, self.FILTER_NUM[i], self.embedding_dim * self.FILTERS[i], stride=self.WORD_DIM)
+            setattr(self, 'conv_%d' % i, conv)
+        self.fc = nn.Linear(sum(self.FILTER_NUM), self.label_size)
+        self.properties.update({'FILTER_NUM': self.FILTER_NUM, 'FILTERS': self.FILTERS})
+
+    def get_conv(self, i):
+        return getattr(self, 'conv_%d' % i)
+
+    def forward(self, inp):
+        x = self.embedding(inp).view(-1, 1, self.embedding_dim * self.max_sent_len)
+        if self.embedding_type == 'multichannel':
+            x2 = self.embedding2(inp).view(-1, 1, self.embedding_dim * self.max_sent_len)
+            x = torch.cat((x, x2), 1)
+        conv_results = [F.max_pool1d(F.relu(self.get_conv(i)(x)), self.max_sent_len - self.FILTERS[i] + 1).view(-1, self.FILTER_NUM[i]) for i in range(len(self.FILTERS))]
+        x = torch.cat(conv_results, 1)
+        x = F.dropout(x, p=self.keep_dropout, training=self.training)
+        x = self.fc(x)
+        return x
+
+
+class CNN1(BaseModel):
+
+    def __init__(self, opt):
+        super(CNN1, self).__init__(opt)
+        V = opt.vocab_size
+        D = opt.embedding_dim
+        C = opt.label_size
+        Ci = 1
+        Co = opt.kernel_num
+        Ks = opt.kernel_sizes
+        self.embed = nn.Embedding(V, D)
+        self.convs1 = nn.ModuleList([nn.Conv2d(Ci, Co, (K, D)) for K in Ks])
+        """
+        self.conv13 = nn.Conv2d(Ci, Co, (3, D))
+        self.conv14 = nn.Conv2d(Ci, Co, (4, D))
+        self.conv15 = nn.Conv2d(Ci, Co, (5, D))
+        """
+        self.dropout = nn.Dropout(opt.dropout)
+        self.fc1 = nn.Linear(len(Ks) * Co, C)
+        self.properties.update({'kernel_num': opt.kernel_num, 'kernel_sizes': opt.kernel_sizes})
+
+    def conv_and_pool(self, x, conv):
+        x = F.relu(conv(x)).squeeze(3)
+        x = F.max_pool1d(x, x.size(2)).squeeze(2)
+        return x
+
+    def forward(self, x):
+        x = self.embed(x)
+        if self.args.static:
+            x = Variable(x)
+        x = x.unsqueeze(1)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+        """
+        x1 = self.conv_and_pool(x,self.conv13) #(N,Co)
+        x2 = self.conv_and_pool(x,self.conv14) #(N,Co)
+        x3 = self.conv_and_pool(x,self.conv15) #(N,Co)
+        x = torch.cat((x1, x2, x3), 1) # (N,len(Ks)*Co)
+        """
+        x = self.dropout(x)
+        logit = self.fc1(x)
+        return logit
+
+
+class CNN2(BaseModel):
+
+    def __init__(self, opt):
+        super(CNN2, self).__init__(opt)
+        self.embed = nn.Embedding(opt.vocab_size + 1, opt.embedding_dim)
+        self.conv1 = nn.Sequential(nn.Conv1d(opt.l0, 256, kernel_size=7, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
+        self.conv2 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=7, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
+        self.conv3 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
+        self.conv4 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
+        self.conv5 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
+        self.conv6 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
+        self.fc = nn.Linear(256, opt.label_size)
+        self.properties.update({})
+
+    def forward(self, x_input):
+        x = self.embed(x_input)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.conv5(x)
+        x = self.conv6(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return F.log_softmax(x)
+
+
+class CNN3(BaseModel):
+    """
+    A CNN for text classification.
+    Uses an embedding layer, followed by a convolutional, max-pooling and softmax layer.
+    """
+
+    def __init__(self, args):
+        super(CNN3, self).__init__(opt)
+        self.args = args
+        embedding_dim = args.embed_dim
+        embedding_num = args.num_features
+        class_number = args.class_num
+        in_channel = 1
+        out_channel = args.kernel_num
+        kernel_sizes = args.kernel_sizes
+        self.embed = nn.Embedding(embedding_num + 1, embedding_dim)
+        self.conv = nn.ModuleList([nn.Conv2d(in_channel, out_channel, (K, embedding_dim)) for K in kernel_sizes])
+        self.dropout = nn.Dropout(args.dropout)
+        self.fc = nn.Linear(len(kernel_sizes) * out_channel, class_number)
+        self.properties.update({'kernel_sizes': kernel_sizes})
+
+    def forward(self, input_x):
+        """
+        :param input_x: a list size having the number of batch_size elements with the same length
+        :return: batch_size X num_aspects tensor
+        """
+        x = self.embed(input_x)
+        if self.args.static:
+            x = F.Variable(input_x)
+        x = x.unsqueeze(1)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.conv]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+        x = self.dropout(x)
+        logit = F.log_softmax(self.fc(x))
+        return logit
+
+
+class BasicCNN1D(BaseModel):
+
+    def __init__(self, opt):
+        super(BasicCNN1D, self).__init__(opt)
+        self.content_dim = opt.__dict__.get('content_dim', 256)
+        self.kernel_size = opt.__dict__.get('kernel_size', 3)
+        self.encoder = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        if opt.__dict__.get('embeddings', None) is not None:
+            self.encoder.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
+        self.content_conv = nn.Sequential(nn.Conv1d(in_channels=opt.embedding_dim, out_channels=self.content_dim, kernel_size=self.kernel_size), nn.ReLU(), nn.MaxPool1d(kernel_size=opt.max_seq_len - self.kernel_size + 1))
+        self.fc = nn.Linear(self.content_dim, opt.label_size)
+        self.properties.update({'content_dim': self.content_dim, 'kernel_size': self.kernel_size})
+
+    def forward(self, content):
+        content = self.encoder(content)
+        content_out = self.content_conv(content.permute(0, 2, 1))
+        reshaped = content_out.view(content_out.size(0), -1)
+        logits = self.fc(reshaped)
+        return logits
+
+
+class BasicCNN2D(BaseModel):
+    """
+    A CNN for text classification.
+    Uses an embedding layer, followed by a convolutional, max-pooling and softmax layer.
+    """
+
+    def __init__(self, args):
+        super(BasicCNN2D, self).__init__(opt)
+        self.embedding_dim = opt.embedding_dim
+        self.vocab_size = opt.vocab_size
+        self.label_size = opt.label_size
+        self.keep_dropout = opt.keep_dropout
+        in_channel = 1
+        self.kernel_nums = opt.kernel_nums
+        self.kernel_sizes = opt.kernel_sizes
+        self.embed = nn.Embedding(self.vocab_size + 1, self.embedding_dim)
+        if opt.__dict__.get('embeddings', None) is not None:
+            self.embed.weight = nn.Parameter(opt.embeddings)
+        self.conv = nn.ModuleList([nn.Conv2d(in_channel, out_channel, (K, self.embedding_dim)) for K, out_channel in zip(self.kernel_sizes, self.kernel_nums)])
+        self.dropout = nn.Dropout(self.keep_dropout)
+        self.fc = nn.Linear(len(self.kernel_sizes) * self.out_channel, self.label_size)
+        self.properties.update({'kernel_nums': self.kernel_nums, 'kernel_sizes': self.kernel_sizes})
+
+    def forward(self, input_x):
+        """
+        :param input_x: a list size having the number of batch_size elements with the same length
+        :return: batch_size X num_aspects tensor
+        """
+        x = self.embed(input_x)
+        if self.opt.static:
+            x = F.Variable(input_x)
+        x = x.unsqueeze(1)
+        x = [F.relu(conv(x)).squeeze(3) for conv in self.conv]
+        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]
+        x = torch.cat(x, 1)
+        x = self.dropout(x)
+        logit = F.log_softmax(self.fc(x))
+        return logit
+
+
 class Inception(nn.Module):
 
     def __init__(self, cin, co, relu=True, norm=True):
         super(Inception, self).__init__()
         assert co % 4 == 0
-        cos = [int(co / 4)] * 4
+        cos = [co / 4] * 4
         self.activa = nn.Sequential()
         if norm:
             self.activa.add_module('norm', nn.BatchNorm1d(co))
@@ -189,6 +418,76 @@ class Inception(nn.Module):
         branch4 = self.branch4(x)
         result = self.activa(torch.cat((branch1, branch2, branch3, branch4), 1))
         return result
+
+
+class InceptionCNN(BaseModel):
+
+    def __init__(self, opt):
+        super(InceptionCNN, self).__init__(opt)
+        incept_dim = getattr(opt, 'inception_dim', 512)
+        self.model_name = 'CNNText_inception'
+        self.encoder = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        self.content_conv = nn.Sequential(Inception(opt.embedding_dim, incept_dim), Inception(incept_dim, incept_dim), nn.MaxPool1d(opt.max_seq_len))
+        linear_hidden_size = getattr(opt, 'linear_hidden_size', 2000)
+        self.fc = nn.Sequential(nn.Linear(incept_dim, linear_hidden_size), nn.BatchNorm1d(linear_hidden_size), nn.ReLU(inplace=True), nn.Linear(linear_hidden_size, opt.label_size))
+        if opt.__dict__.get('embeddings', None) is not None:
+            self.encoder.weight = nn.Parameter(opt.embeddings)
+        self.properties.update({'linear_hidden_size': linear_hidden_size, 'incept_dim': incept_dim})
+
+    def forward(self, content):
+        content = self.encoder(content)
+        if self.opt.embedding_type == 'static':
+            content = content.detach(0)
+        content_out = self.content_conv(content.permute(0, 2, 1))
+        out = content_out.view(content_out.size(0), -1)
+        out = self.fc(out)
+        return out
+
+
+class KIMCNN1D(BaseModel):
+
+    def __init__(self, opt):
+        super(KIMCNN1D, self).__init__(opt)
+        self.embedding_type = opt.embedding_type
+        self.batch_size = opt.batch_size
+        self.max_seq_len = opt.max_seq_len
+        self.embedding_dim = opt.embedding_dim
+        self.vocab_size = opt.vocab_size
+        self.label_size = opt.label_size
+        self.kernel_sizes = opt.kernel_sizes
+        self.kernel_nums = opt.kernel_nums
+        self.keep_dropout = opt.keep_dropout
+        self.in_channel = 1
+        assert len(self.kernel_sizes) == len(self.kernel_nums)
+        self.embedding = nn.Embedding(self.vocab_size + 2, self.embedding_dim)
+        if self.embedding_type == 'static' or self.embedding_type == 'non-static' or self.embedding_type == 'multichannel':
+            self.embedding.weight = nn.Parameter(opt.embeddings)
+            if self.embedding_type == 'static':
+                self.embedding.weight.requires_grad = False
+            elif self.embedding_type == 'multichannel':
+                self.embedding2 = nn.Embedding(self.vocab_size + 2, self.embedding_dim, padding_idx=self.vocab_size + 1)
+                self.embedding2.weight = nn.Parameter(opt.embeddings)
+                self.embedding2.weight.requires_grad = False
+                self.in_channel = 2
+            else:
+                pass
+        self.convs = nn.ModuleList([nn.Conv1d(self.in_channel, num, self.embedding_dim * size, stride=self.embedding_dim) for size, num in zip(opt.kernel_sizes, opt.kernel_nums)])
+        self.fc = nn.Linear(sum(self.kernel_nums), self.label_size)
+        self.properties.update({'kernel_sizes': self.kernel_sizes, 'kernel_nums': self.kernel_nums})
+
+    def get_conv(self, i):
+        return getattr(self, 'conv_%d' % i)
+
+    def forward(self, inp):
+        x = self.embedding(inp).view(-1, 1, self.embedding_dim * self.max_seq_len)
+        if self.embedding_type == 'multichannel':
+            x2 = self.embedding2(inp).view(-1, 1, self.embedding_dim * self.max_seq_len)
+            x = torch.cat((x, x2), 1)
+        conv_results = [F.max_pool1d(F.relu(self.convs[i](x)), self.max_seq_len - self.kernel_sizes[i] + 1).view(-1, self.kernel_nums[i]) for i in range(len(self.convs))]
+        x = torch.cat(conv_results, 1)
+        x = F.dropout(x, p=self.keep_dropout, training=self.training)
+        x = self.fc(x)
+        return x
 
 
 class KIMCNN2D(nn.Module):
@@ -248,29 +547,77 @@ class KIMCNN2D(nn.Module):
         return logit
 
 
-class Inception(nn.Module):
+class MultiLayerCNN(BaseModel):
 
-    def __init__(self, cin, co, relu=True, norm=True):
-        super(Inception, self).__init__()
-        assert co % 4 == 0
-        cos = [co / 4] * 4
-        self.activa = nn.Sequential()
-        if norm:
-            self.activa.add_module('norm', nn.BatchNorm1d(co))
-        if relu:
-            self.activa.add_module('relu', nn.ReLU(True))
-        self.branch1 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[0], 1, stride=1))]))
-        self.branch2 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[1], 1)), ('norm1', nn.BatchNorm1d(cos[1])), ('relu1', nn.ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[1], cos[1], 3, stride=1, padding=1))]))
-        self.branch3 = nn.Sequential(OrderedDict([('conv1', nn.Conv1d(cin, cos[2], 3, padding=1)), ('norm1', nn.BatchNorm1d(cos[2])), ('relu1', nn.ReLU(inplace=True)), ('conv3', nn.Conv1d(cos[2], cos[2], 5, stride=1, padding=2))]))
-        self.branch4 = nn.Sequential(OrderedDict([('conv3', nn.Conv1d(cin, cos[3], 3, stride=1, padding=1))]))
+    def __init__(self, opt):
+        super(MultiLayerCNN, self).__init__(opt)
+        self.embed = nn.Embedding(opt.vocab_size + 1, opt.embedding_dim)
+        if opt.__dict__.get('embeddings', None) is not None:
+            self.embed.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
+        self.conv1 = nn.Sequential(nn.Conv1d(opt.max_seq_len, 256, kernel_size=7, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
+        self.conv2 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=7, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
+        self.conv3 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
+        self.conv4 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
+        self.conv5 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU())
+        self.conv6 = nn.Sequential(nn.Conv1d(256, 256, kernel_size=3, stride=1), nn.ReLU(), nn.MaxPool1d(kernel_size=3, stride=3))
+        self.fc = nn.Linear(256 * 7, opt.label_size)
 
     def forward(self, x):
-        branch1 = self.branch1(x)
-        branch2 = self.branch2(x)
-        branch3 = self.branch3(x)
-        branch4 = self.branch4(x)
-        result = self.activa(torch.cat((branch1, branch2, branch3, branch4), 1))
-        return result
+        x = self.embed(x)
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        x = self.conv4(x)
+        x = self.conv5(x)
+        x = self.conv6(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        return F.log_softmax(x)
+
+
+class CNNText(BaseModel):
+
+    def __init__(self, opt):
+        super(CNNText, self).__init__(opt)
+        self.content_dim = opt.__dict__.get('content_dim', 256)
+        self.kernel_size = opt.__dict__.get('kernel_size', 3)
+        self.encoder = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        if opt.__dict__.get('embeddings', None) is not None:
+            self.encoder.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
+        self.content_conv = nn.Sequential(nn.Conv1d(in_channels=opt.embedding_dim, out_channels=self.content_dim, kernel_size=self.kernel_size), nn.ReLU(), nn.MaxPool1d(kernel_size=opt.max_seq_len - self.kernel_size + 1))
+        self.fc = nn.Linear(self.content_dim, opt.label_size)
+        self.properties.update({'content_dim': self.content_dim, 'kernel_size': self.kernel_size})
+
+    def forward(self, content):
+        content = self.encoder(content)
+        content_out = self.content_conv(content.permute(0, 2, 1))
+        reshaped = content_out.view(content_out.size(0), -1)
+        logits = self.fc(reshaped)
+        return logits
+
+
+class CNNText_inception(BaseModel):
+
+    def __init__(self, opt):
+        super(CNNText_inception, self).__init__(opt)
+        incept_dim = getattr(opt, 'inception_dim', 512)
+        self.encoder = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        self.content_conv = nn.Sequential(Inception(opt.embedding_dim, incept_dim), Inception(incept_dim, incept_dim), nn.MaxPool1d(opt.max_seq_len))
+        opt.hidden_size = getattr(opt, 'linear_hidden_size', 2000)
+        self.fc = nn.Sequential(nn.Linear(incept_dim, opt.hidden_size), nn.BatchNorm1d(opt.hidden_size), nn.ReLU(inplace=True), nn.Linear(opt.hidden_size, opt.label_size))
+        if opt.__dict__.get('embeddings', None) is not None:
+            None
+            self.encoder.weight.data.copy_(t.from_numpy(opt.embeddings))
+        self.properties.update({'inception_dim': incept_dim, 'hidden_size': opt.hidden_size})
+
+    def forward(self, content):
+        content = self.encoder(content)
+        if self.opt.static:
+            content = content.detach(0)
+        content_out = self.content_conv(content.permute(0, 2, 1))
+        out = content_out.view(content_out.size(0), -1)
+        out = self.fc(out)
+        return out
 
 
 NUM_ROUTING_ITERATIONS = 3
@@ -304,7 +651,7 @@ class CapsuleLayer(nn.Module):
     def forward(self, x):
         if self.num_route_nodes != -1:
             priors = torch.matmul(x[(None), :, :, (None), :], self.route_weights[:, (None), :, :, :])
-            if torch.is_available():
+            if torch.cuda.is_available():
                 logits = torch.autograd.Variable(torch.zeros(priors.size()))
             else:
                 logits = torch.autograd.Variable(torch.zeros(priors.size()))
@@ -321,13 +668,150 @@ class CapsuleLayer(nn.Module):
         return outputs
 
 
+class CapsuleNet(BaseModel):
+
+    def __init__(self, opt):
+        super(CapsuleNet, self).__init__(opt)
+        self.label_size = opt.label_size
+        self.embed = nn.Embedding(opt.vocab_size + 1, opt.embedding_dim)
+        self.opt.cnn_dim = 1
+        self.kernel_size = 3
+        self.kernel_size_primary = 3
+        if opt.__dict__.get('embeddings', None) is not None:
+            self.embed.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
+        self.primary_capsules = CapsuleLayer(num_capsules=8, num_route_nodes=-1, in_channels=256, out_channels=32)
+        self.digit_capsules = CapsuleLayer(num_capsules=opt.label_size, num_route_nodes=int(32 * opt.max_seq_len / 2), in_channels=8, out_channels=16)
+        if self.opt.cnn_dim == 2:
+            self.conv_2d = nn.Conv2d(in_channels=1, out_channels=256, kernel_size=(self.kernel_size, opt.embedding_dim), stride=(1, opt.embedding_dim), padding=(int((self.kernel_size - 1) / 2), 0))
+        else:
+            self.conv_1d = nn.Conv1d(in_channels=1, out_channels=256, kernel_size=opt.embedding_dim * self.kernel_size, stride=opt.embedding_dim, padding=opt.embedding_dim * int((self.kernel_size - 1) / 2))
+        self.decoder = nn.Sequential(nn.Linear(16 * self.label_size, 512), nn.ReLU(inplace=True), nn.Linear(512, 1024), nn.ReLU(inplace=True), nn.Linear(1024, 784), nn.Sigmoid())
+
+    def forward(self, x, y=None, reconstruct=False):
+        x = self.embed(x)
+        if self.opt.cnn_dim == 1:
+            x = x.view(x.size(0), 1, x.size(-1) * x.size(-2))
+            x_conv = F.relu(self.conv_1d(x), inplace=True)
+        else:
+            x = x.unsqueeze(1)
+            x_conv = F.relu(self.conv_2d(x), inplace=True).squeeze(3)
+        x = self.primary_capsules(x_conv)
+        x = self.digit_capsules(x).squeeze().transpose(0, 1)
+        classes = (x ** 2).sum(dim=-1) ** 0.5
+        classes = F.softmax(classes)
+        if not reconstruct:
+            return classes
+        if y is None:
+            _, max_length_indices = classes.max(dim=1)
+            if torch.cuda.is_available():
+                y = Variable(torch.sparse.torch.eye(self.label_size)).index_select(dim=0, index=max_length_indices.data)
+            else:
+                y = Variable(torch.sparse.torch.eye(self.label_size)).index_select(dim=0, index=max_length_indices.data)
+        reconstructions = self.decoder((x * y[:, :, (None)]).view(x.size(0), -1))
+        return classes, reconstructions
+
+
+class FastText(BaseModel):
+
+    def __init__(self, opt):
+        super(FastText, self).__init__(opt)
+        linear_hidden_size = getattr(opt, 'linear_hidden_size', 2000)
+        self.encoder = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        if opt.__dict__.get('embeddings', None) is not None:
+            None
+            self.encoder.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
+        self.content_fc = nn.Sequential(nn.Linear(opt.embedding_dim, linear_hidden_size), nn.BatchNorm1d(linear_hidden_size), nn.ReLU(inplace=True), nn.Linear(linear_hidden_size, opt.label_size))
+        self.properties.update({'linear_hidden_size': linear_hidden_size})
+
+    def forward(self, content):
+        content_ = t.mean(self.encoder(content), dim=1)
+        out = self.content_fc(content_.view(content_.size(0), -1))
+        return out
+
+
+class LSTMClassifier(BaseModel):
+
+    def __init__(self, opt):
+        super(LSTMClassifier, self).__init__(opt)
+        self.hidden_dim = opt.hidden_dim
+        self.batch_size = opt.batch_size
+        self.use_gpu = torch.cuda.is_available()
+        self.word_embeddings = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        self.word_embeddings.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
+        self.lstm = nn.LSTM(opt.embedding_dim, opt.hidden_dim)
+        self.hidden2label = nn.Linear(opt.hidden_dim, opt.label_size)
+        self.hidden = self.init_hidden()
+        self.lsmt_reduce_by_mean = opt.__dict__.get('lstm_mean', True)
+
+    def init_hidden(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        if self.use_gpu:
+            h0 = Variable(torch.zeros(1, batch_size, self.hidden_dim))
+            c0 = Variable(torch.zeros(1, batch_size, self.hidden_dim))
+        else:
+            h0 = Variable(torch.zeros(1, batch_size, self.hidden_dim))
+            c0 = Variable(torch.zeros(1, batch_size, self.hidden_dim))
+        return h0, c0
+
+    def forward(self, sentence):
+        embeds = self.word_embeddings(sentence)
+        x = embeds.permute(1, 0, 2)
+        self.hidden = self.init_hidden(sentence.size()[0])
+        lstm_out, self.hidden = self.lstm(x, self.hidden)
+        if self.lsmt_reduce_by_mean == 'mean':
+            out = lstm_out.permute(1, 0, 2)
+            final = torch.mean(out, 1)
+        else:
+            final = lstm_out[-1]
+        y = self.hidden2label(final)
+        return y
+
+
+class LSTMBI(BaseModel):
+
+    def __init__(self, opt):
+        super(LSTMBI, self).__init__(opt)
+        self.word_embeddings = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        self.word_embeddings.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
+        self.bilstm = nn.LSTM(opt.embedding_dim, opt.hidden_dim // 2, num_layers=self.opt.lstm_layers, dropout=self.opt.keep_dropout, bidirectional=self.opt.bidirectional)
+        self.hidden2label = nn.Linear(opt.hidden_dim, opt.label_size)
+        self.hidden = self.init_hidden()
+        self.lsmt_reduce_by_mean = opt.__dict__.get('lstm_mean', True)
+        self.properties.update({'hidden_dim': self.opt.hidden_dim, 'lstm_mean': self.lsmt_reduce_by_mean, 'lstm_layers': self.opt.lstm_layers})
+
+    def init_hidden(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.opt.batch_size
+        if torch.cuda.is_available():
+            h0 = Variable(torch.zeros(2 * self.opt.lstm_layers, batch_size, self.opt.hidden_dim // 2))
+            c0 = Variable(torch.zeros(2 * self.opt.lstm_layers, batch_size, self.opt.hidden_dim // 2))
+        else:
+            h0 = Variable(torch.zeros(2 * self.opt.lstm_layers, batch_size, self.opt.hidden_dim // 2))
+            c0 = Variable(torch.zeros(2 * self.opt.lstm_layers, batch_size, self.opt.hidden_dim // 2))
+        return h0, c0
+
+    def forward(self, sentence):
+        embeds = self.word_embeddings(sentence)
+        x = embeds.permute(1, 0, 2)
+        self.hidden = self.init_hidden(sentence.size()[0])
+        lstm_out, self.hidden = self.bilstm(x, self.hidden)
+        if self.lsmt_reduce_by_mean == 'mean':
+            out = lstm_out.permute(1, 0, 2)
+            final = torch.mean(out, 1)
+        else:
+            final = lstm_out[-1]
+        y = self.hidden2label(final)
+        return y
+
+
 class LSTMAttention(torch.nn.Module):
 
     def __init__(self, opt):
         super(LSTMAttention, self).__init__()
         self.hidden_dim = opt.hidden_dim
         self.batch_size = opt.batch_size
-        self.use_gpu = torch.is_available()
+        self.use_gpu = torch.cuda.is_available()
         self.word_embeddings = nn.Embedding(opt.vocab_size, opt.embedding_dim)
         self.word_embeddings.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
         self.num_layers = opt.lstm_layers
@@ -395,49 +879,6 @@ def position_encoding(sentence_size, embedding_dim):
 
 class MemN2N(nn.Module):
 
-    def __init__(self, opt):
-        super(MemN2N, self).__init__()
-        use_cuda = opt['use_cuda']
-        num_vocab = opt['num_vocab']
-        embedding_dim = opt['embedding_dim']
-        sentence_size = opt['sentence_size']
-        self.max_hops = opt['max_hops']
-        for hop in range(self.max_hops + 1):
-            C = nn.Embedding(num_vocab, embedding_dim, padding_idx=0)
-            C.weight.data.normal_(0, 0.1)
-            self.add_module('C_{}'.format(hop), C)
-        self.C = AttrProxy(self, 'C_')
-        self.softmax = nn.Softmax()
-        self.encoding = Variable(torch.FloatTensor(position_encoding(sentence_size, embedding_dim)), requires_grad=False)
-        if use_cuda:
-            self.encoding = self.encoding
-
-    def forward(self, story, query):
-        story_size = story.size()
-        u = list()
-        query_embed = self.C[0](query)
-        encoding = self.encoding.unsqueeze(0).expand_as(query_embed)
-        u.append(torch.sum(query_embed * encoding, 1))
-        for hop in range(self.max_hops):
-            embed_A = self.C[hop](story.view(story.size(0), -1))
-            embed_A = embed_A.view(story_size + (embed_A.size(-1),))
-            encoding = self.encoding.unsqueeze(0).unsqueeze(1).expand_as(embed_A)
-            m_A = torch.sum(embed_A * encoding, 2)
-            u_temp = u[-1].unsqueeze(1).expand_as(m_A)
-            prob = self.softmax(torch.sum(m_A * u_temp, 2))
-            embed_C = self.C[hop + 1](story.view(story.size(0), -1))
-            embed_C = embed_C.view(story_size + (embed_C.size(-1),))
-            m_C = torch.sum(embed_C * encoding, 2)
-            prob = prob.unsqueeze(2).expand_as(m_C)
-            o_k = torch.sum(m_C * prob, 1)
-            u_k = u[-1] + o_k
-            u.append(u_k)
-        a_hat = u[-1] @ self.C[self.max_hops].weight.transpose(0, 1)
-        return a_hat, self.softmax(a_hat)
-
-
-class MemN2N(nn.Module):
-
     def __init__(self, settings):
         super(MemN2N, self).__init__()
         use_cuda = settings['use_cuda']
@@ -480,6 +921,85 @@ class MemN2N(nn.Module):
         return a_hat, self.softmax(a_hat)
 
 
+class RCNN(BaseModel):
+
+    def __init__(self, opt):
+        super(RCNN, self).__init__(opt)
+        self.hidden_dim = opt.hidden_dim
+        self.batch_size = opt.batch_size
+        self.use_gpu = torch.cuda.is_available()
+        self.word_embeddings = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        self.word_embeddings.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
+        self.num_layers = 1
+        self.dropout = opt.keep_dropout
+        self.bilstm = nn.LSTM(input_size=opt.embedding_dim, hidden_size=opt.hidden_dim // 2, num_layers=self.num_layers, dropout=self.dropout, bidirectional=True)
+        self.hidden = self.init_hidden()
+        self.max_pooling = nn.MaxPool1d(kernel_size=3, stride=2)
+        self.content_dim = 256
+        self.hidden2label = nn.Linear(2 * opt.hidden_dim // 2 + opt.embedding_dim, opt.label_size)
+
+    def init_hidden(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        if self.use_gpu:
+            h0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
+            c0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
+        else:
+            h0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
+            c0 = Variable(torch.zeros(2 * self.num_layers, batch_size, self.hidden_dim // 2))
+        return h0, c0
+
+    def forward(self, sentence):
+        embeds = self.word_embeddings(sentence)
+        x = embeds.permute(1, 0, 2)
+        self.hidden = self.init_hidden(sentence.size()[0])
+        lstm_out, self.hidden = self.bilstm(x, self.hidden)
+        c_lr = lstm_out.permute(1, 0, 2)
+        xi = torch.cat((c_lr[:, :, 0:int(c_lr.size()[2] / 2)], embeds, c_lr[:, :, int(c_lr.size()[2] / 2):]), 2)
+        yi = torch.tanh(xi.permute(0, 2, 1))
+        y = self.max_pooling(yi)
+        y = y.permute(2, 0, 1)
+        y = self.hidden2label(y[-1])
+        return y
+
+
+class RNN_CNN(BaseModel):
+
+    def __init__(self, opt):
+        super(RNN_CNN, self).__init__(opt)
+        self.hidden_dim = opt.hidden_dim
+        self.batch_size = opt.batch_size
+        self.use_gpu = torch.cuda.is_available()
+        self.word_embeddings = nn.Embedding(opt.vocab_size, opt.embedding_dim)
+        self.word_embeddings.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
+        self.lstm = nn.LSTM(opt.embedding_dim, opt.hidden_dim)
+        self.hidden = self.init_hidden()
+        self.content_dim = 256
+        self.conv = nn.Conv1d(in_channels=opt.hidden_dim, out_channels=self.content_dim, kernel_size=opt.hidden_dim * 2, stride=opt.embedding_dim)
+        self.hidden2label = nn.Linear(self.content_dim, opt.label_size)
+        self.properties.update({'content_dim': self.content_dim})
+
+    def init_hidden(self, batch_size=None):
+        if batch_size is None:
+            batch_size = self.batch_size
+        if self.use_gpu:
+            h0 = Variable(torch.zeros(1, batch_size, self.hidden_dim))
+            c0 = Variable(torch.zeros(1, batch_size, self.hidden_dim))
+        else:
+            h0 = Variable(torch.zeros(1, batch_size, self.hidden_dim))
+            c0 = Variable(torch.zeros(1, batch_size, self.hidden_dim))
+        return h0, c0
+
+    def forward(self, sentence):
+        embeds = self.word_embeddings(sentence)
+        x = embeds.permute(1, 0, 2)
+        self.hidden = self.init_hidden(sentence.size()[0])
+        lstm_out, self.hidden = self.lstm(x, self.hidden)
+        y = self.conv(lstm_out.permute(1, 2, 0))
+        y = self.hidden2label(y.view(y.size()[0], -1))
+        return y
+
+
 class SelfAttention(nn.Module):
 
     def __init__(self, opt):
@@ -487,7 +1007,7 @@ class SelfAttention(nn.Module):
         super(SelfAttention, self).__init__()
         self.hidden_dim = opt.hidden_dim
         self.batch_size = opt.batch_size
-        self.use_gpu = torch.is_available()
+        self.use_gpu = torch.cuda.is_available()
         self.word_embeddings = nn.Embedding(opt.vocab_size, opt.embedding_dim)
         self.word_embeddings.weight = nn.Parameter(opt.embeddings, requires_grad=opt.embedding_training)
         self.num_layers = 1
@@ -544,6 +1064,11 @@ class Bottle(nn.Module):
         return out.view(size[0], size[1], -1)
 
 
+class BottleLinear(Bottle, Linear):
+    """ Perform the reshape routine before and after a linear projection """
+    pass
+
+
 class BottleSoftmax(Bottle, nn.Softmax):
     """ Perform the reshape routine before and after a softmax operation"""
     pass
@@ -577,6 +1102,11 @@ class BatchBottle(nn.Module):
         size = input.size()[1:]
         out = super(BatchBottle, self).forward(input.view(-1, size[0] * size[1]))
         return out.view(-1, size[0], size[1])
+
+
+class BottleLayerNormalization(BatchBottle, LayerNormalization):
+    """ Perform the reshape routine before and after a layer normalization"""
+    pass
 
 
 class ScaledDotProductAttention(nn.Module):
@@ -758,7 +1288,7 @@ def get_attn_subsequent_mask(seq):
     subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
     subsequent_mask = torch.from_numpy(subsequent_mask)
     if seq.is_cuda:
-        subsequent_mask = subsequent_mask.cuda()
+        subsequent_mask = subsequent_mask
     return subsequent_mask
 
 
@@ -853,14 +1383,46 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (BasicCNN1D,
+     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, max_seq_len=4)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
+    (BottleLayerNormalization,
+     lambda: ([], {'d_hid': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
+    (BottleLinear,
+     lambda: ([], {'d_in': 4, 'd_out': 4}),
+     lambda: ([torch.rand([4, 4])], {}),
+     False),
     (BottleSoftmax,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CNNText,
+     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, max_seq_len=4)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
+    (CapsuleLayer,
+     lambda: ([], {'num_capsules': 4, 'num_route_nodes': 4, 'in_channels': 4, 'out_channels': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (CapsuleNet,
+     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, max_seq_len=4)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
      False),
     (Encoder,
      lambda: ([], {'n_src_vocab': 4, 'n_max_seq': 4}),
      lambda: ([torch.zeros([4, 4], dtype=torch.int64), torch.zeros([4], dtype=torch.int64)], {}),
      False),
+    (KIMCNN1D,
+     lambda: ([], {'opt': _mock_config(vocab_size=4, embedding_dim=4, label_size=4, batch_size=4, learning_rate=4, keep_dropout=0.5, embedding_type=4, max_seq_len=4, kernel_sizes=[4, 4], kernel_nums=[4, 4])}),
+     lambda: ([torch.zeros([4], dtype=torch.int64)], {}),
+     False),
+    (KIMCNN2D,
+     lambda: ([], {'opt': _mock_config(embedding_type=4, batch_size=4, max_seq_len=4, embedding_dim=4, vocab_size=4, label_size=4, kernel_sizes=[4, 4], kernel_nums=[4, 4], keep_dropout=0.5)}),
+     lambda: ([torch.zeros([4, 4], dtype=torch.int64)], {}),
+     True),
     (LayerNormalization,
      lambda: ([], {'d_hid': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -897,4 +1459,28 @@ class Test_wabyking_TextClassificationBenchmark(_paritybench_base):
 
     def test_005(self):
         self._check(*TESTCASES[5])
+
+    def test_006(self):
+        self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
+
+    def test_009(self):
+        self._check(*TESTCASES[9])
+
+    def test_010(self):
+        self._check(*TESTCASES[10])
+
+    def test_011(self):
+        self._check(*TESTCASES[11])
+
+    def test_012(self):
+        self._check(*TESTCASES[12])
+
+    def test_013(self):
+        self._check(*TESTCASES[13])
 

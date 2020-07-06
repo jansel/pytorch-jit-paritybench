@@ -23,23 +23,33 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import numpy as np
-
-
 import torch
+
+
+from collections import OrderedDict
+
+
+import random
+
+
+import functools
+
+
+import numpy as np
 
 
 import torch.utils.data as data
@@ -79,6 +89,293 @@ from torch.utils.data import DataLoader
 
 
 import time
+
+
+def initialize_weights(modules, method='xavier'):
+    for m in modules:
+        if isinstance(m, nn.Conv2d):
+            if m.bias is not None:
+                m.bias.data.zero_()
+            if method == 'xavier':
+                init.xavier_uniform_(m.weight)
+            elif method == 'kaiming':
+                init.kaiming_uniform_(m.weight)
+        if isinstance(m, nn.ConvTranspose2d):
+            if m.bias is not None:
+                m.bias.data.zero_()
+            if method == 'xavier':
+                init.xavier_uniform_(m.weight)
+            elif method == 'kaiming':
+                init.kaiming_uniform_(m.weight)
+
+
+class DeepRobustEstimator(nn.Module):
+    """ The M-estimator 
+
+    When use estimator_type = 'MultiScale2w', it is the proposed convolutional M-estimator
+    """
+
+    def __init__(self, estimator_type):
+        super(DeepRobustEstimator, self).__init__()
+        if estimator_type == 'MultiScale2w':
+            self.D = 4
+        elif estimator_type == 'None':
+            self.mEst_func = self.__constant_weight
+            self.D = -1
+        else:
+            raise NotImplementedError()
+        if self.D > 0:
+            self.net = nn.Sequential(conv(True, self.D, 16, 3, dilation=1), conv(True, 16, 32, 3, dilation=2), conv(True, 32, 64, 3, dilation=4), conv(True, 64, 1, 3, dilation=1), nn.Sigmoid())
+            initialize_weights(self.net)
+        else:
+            self.net = None
+
+    def forward(self, residual, x0, x1, ws=None):
+        """
+        :param residual, the residual map
+        :param x0, the feature map of the template
+        :param x1, the feature map of the image
+        :param ws, the initial weighted residual
+        """
+        if self.D == 1:
+            context = residual.abs()
+            w = self.net(context)
+        elif self.D == 4:
+            B, C, H, W = residual.shape
+            wl = func.interpolate(ws, (H, W), mode='bilinear', align_corners=True)
+            context = torch.cat((residual.abs(), x0, x1, wl), dim=1)
+            w = self.net(context)
+        elif self.D < 0:
+            w = self.mEst_func(residual)
+        return w
+
+    def __weight_Huber(self, x, alpha=0.02):
+        """ weight function of Huber loss:
+        refer to P. 24 w(x) at
+        https://members.loria.fr/moberger/Enseignement/Master2/Documents/ZhangIVC-97-01.pdf
+
+        Note this current implementation is not differentiable.
+        """
+        abs_x = torch.abs(x)
+        linear_mask = abs_x > alpha
+        w = torch.ones(x.shape).type_as(x)
+        if linear_mask.sum().item() > 0:
+            w[linear_mask] = alpha / abs_x[linear_mask]
+        return w
+
+    def __constant_weight(self, x):
+        """ mimic the standard least-square when weighting function is constant
+        """
+        return torch.ones(x.shape).type_as(x)
+
+
+def compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K, obj_mask=None):
+    """ Compute the residual error of warped target image w.r.t. the reference feature map.
+    refer to equation (12) in the paper
+
+    :param the forward warping pose from the reference camera to the target frame.
+        Note that warping from the target frame to the reference frame is the inverse of this operation.
+    :param the reference inverse depth
+    :param the target inverse depth
+    :param the reference feature image
+    :param the target feature image
+    :param the pixel x map
+    :param the pixel y map
+    :param the intrinsic calibration
+    -----------
+    :return the residual (of reference image), and occlusion information
+    """
+    u_warped, v_warped, inv_z_warped = geometry.batch_warp_inverse_depth(px, py, invD0, pose, K)
+    x1_1to0 = geometry.warp_features(x1, u_warped, v_warped)
+    occ = geometry.check_occ(inv_z_warped, invD1, u_warped, v_warped)
+    residuals = x1_1to0 - x0
+    B, C, H, W = x0.shape
+    if obj_mask is not None:
+        occ = occ & (obj_mask.view(B, 1, H, W) < 1)
+    residuals[occ.expand(B, C, H, W)] = 0.001
+    return residuals, occ
+
+
+def fcLayer(in_planes, out_planes, bias=True):
+    return nn.Sequential(nn.Linear(in_planes, out_planes, bias), nn.ReLU(inplace=True))
+
+
+def deep_damping_regressor(D):
+    """ Output a damping vector at each dimension
+    """
+    net = nn.Sequential(fcLayer(in_planes=D, out_planes=128, bias=True), fcLayer(in_planes=128, out_planes=256, bias=True), fcLayer(in_planes=256, out_planes=6, bias=True))
+    return net
+
+
+def invH(H):
+    """ Generate (H+damp)^{-1}, with predicted damping values
+    :param approximate Hessian matrix JtWJ
+    -----------
+    :return the inverse of Hessian
+    """
+    if H.is_cuda:
+        invH = torch.inverse(H.cpu())
+    else:
+        invH = torch.inverse(H)
+    return invH
+
+
+def inverse_update_pose(H, Rhs, pose):
+    """ Ues left-multiplication for the pose update 
+    in the inverse compositional form
+    refer to equation (10) in the paper 
+
+    :param the (approximated) Hessian matrix
+    :param Right-hand side vector
+    :param the initial pose (forward transform inverse of xi)
+    ---------
+    :return the forward updated pose (inverse of xi)
+    """
+    inv_H = invH(H)
+    xi = torch.bmm(inv_H, Rhs)
+    d_R = geometry.batch_twist2Mat(-xi[:, :3].view(-1, 3))
+    d_t = -torch.bmm(d_R, xi[:, 3:])
+    R, t = pose
+    pose = geometry.batch_Rt_compose(R, t, d_R, d_t)
+    return pose
+
+
+class DirectSolverNet(nn.Module):
+    SOLVER_NO_DAMPING = 0
+    SOLVER_RESIDUAL_VOLUME = 1
+
+    def __init__(self, solver_type, samples=10):
+        super(DirectSolverNet, self).__init__()
+        if solver_type == 'Direct-Nodamping':
+            self.net = None
+            self.type = self.SOLVER_NO_DAMPING
+        elif solver_type == 'Direct-ResVol':
+            self.samples = samples
+            self.net = deep_damping_regressor(D=6 * 6 + 6 * samples)
+            self.type = self.SOLVER_RESIDUAL_VOLUME
+            initialize_weights(self.net)
+        else:
+            raise NotImplementedError()
+
+    def forward(self, JtJ, Jt, weights, R, pose0, invD0, invD1, x0, x1, K):
+        """
+        :param JtJ, the approximated Hessian JtJ
+        :param Jt, the trasposed Jacobian
+        :param weights, the weight matrix
+        :param R, the residual
+        :param pose0, the initial estimated pose
+        :param invD0, the template inverse depth map
+        :param invD1, the image inverse depth map
+        :param x0, the template feature map
+        :param x1, the image feature map
+        :param K, the intrinsic parameters
+
+        -----------
+        :return updated pose
+        """
+        B = JtJ.shape[0]
+        wR = (weights * R).view(B, -1, 1)
+        JtR = torch.bmm(Jt, wR)
+        if self.type == self.SOLVER_NO_DAMPING:
+            diag_mask = torch.eye(6).view(1, 6, 6).type_as(JtJ)
+            diagJtJ = diag_mask * JtJ
+            traceJtJ = torch.sum(diagJtJ, (2, 1))
+            epsilon = (traceJtJ * 1e-06).view(B, 1, 1) * diag_mask
+            Hessian = JtJ + epsilon
+            pose_update = inverse_update_pose(Hessian, JtR, pose0)
+        elif self.type == self.SOLVER_RESIDUAL_VOLUME:
+            Hessian = self.__regularize_residual_volume(JtJ, Jt, JtR, weights, pose0, invD0, invD1, x0, x1, K, sample_range=self.samples)
+            pose_update = inverse_update_pose(Hessian, JtR, pose0)
+        else:
+            raise NotImplementedError()
+        return pose_update
+
+    def __regularize_residual_volume(self, JtJ, Jt, JtR, weights, pose, invD0, invD1, x0, x1, K, sample_range):
+        """ regularize the approximate with residual volume
+
+        :param JtJ, the approximated Hessian JtJ
+        :param Jt, the trasposed Jacobian
+        :param JtR, the Right-hand size residual
+        :param weights, the weight matrix
+        :param pose, the initial estimated pose
+        :param invD0, the template inverse depth map
+        :param invD1, the image inverse depth map
+        :param K, the intrinsic parameters
+        :param x0, the template feature map
+        :param x1, the image feature map
+        :param sample_range, the numerb of samples
+
+        ---------------
+        :return the damped Hessian matrix
+        """
+        JtR_volumes = []
+        B, C, H, W = x0.shape
+        px, py = geometry.generate_xy_grid(B, H, W, K)
+        diag_mask = torch.eye(6).view(1, 6, 6).type_as(JtJ)
+        diagJtJ = diag_mask * JtJ
+        traceJtJ = torch.sum(diagJtJ, (2, 1))
+        epsilon = (traceJtJ * 1e-06).view(B, 1, 1) * diag_mask
+        n = sample_range
+        lambdas = torch.logspace(-5, 5, n).type_as(JtJ)
+        for s in range(n):
+            D = lambdas[s] * diagJtJ + epsilon
+            Hessian = JtJ + D
+            pose_s = inverse_update_pose(Hessian, JtR, pose)
+            res_s, _ = compute_warped_residual(pose_s, invD0, invD1, x0, x1, px, py, K)
+            JtR_s = torch.bmm(Jt, (weights * res_s).view(B, -1, 1))
+            JtR_volumes.append(JtR_s)
+        JtR_flat = torch.cat(tuple(JtR_volumes), dim=2).view(B, -1)
+        JtJ_flat = JtJ.view(B, -1)
+        damp_est = self.net(torch.cat((JtR_flat, JtJ_flat), dim=1))
+        R = diag_mask * damp_est.view(B, 6, 1) + epsilon
+        return JtJ + R
+
+
+class FeaturePyramid(nn.Module):
+    """ 
+    The proposed feature-encoder (A).
+    It also supports to extract features using one-view only.
+    """
+
+    def __init__(self, D):
+        super(FeaturePyramid, self).__init__()
+        self.net0 = nn.Sequential(conv(True, D, 16, 3), conv(True, 16, 32, 3, dilation=2), conv(True, 32, 32, 3, dilation=2))
+        self.net1 = nn.Sequential(conv(True, 32, 32, 3), conv(True, 32, 64, 3, dilation=2), conv(True, 64, 64, 3, dilation=2))
+        self.net2 = nn.Sequential(conv(True, 64, 64, 3), conv(True, 64, 96, 3, dilation=2), conv(True, 96, 96, 3, dilation=2))
+        self.net3 = nn.Sequential(conv(True, 96, 96, 3), conv(True, 96, 128, 3, dilation=2), conv(True, 128, 128, 3, dilation=2))
+        initialize_weights(self.net0)
+        initialize_weights(self.net1)
+        initialize_weights(self.net2)
+        initialize_weights(self.net3)
+        self.downsample = torch.nn.AvgPool2d(kernel_size=2)
+
+    def forward(self, x):
+        x0 = self.net0(x)
+        x0s = self.downsample(x0)
+        x1 = self.net1(x0s)
+        x1s = self.downsample(x1)
+        x2 = self.net2(x1s)
+        x2s = self.downsample(x2)
+        x3 = self.net3(x2s)
+        return x0, x1, x2, x3
+
+
+class ImagePyramids(nn.Module):
+    """ Construct the pyramids in the image / depth space
+    """
+
+    def __init__(self, scales, pool='avg'):
+        super(ImagePyramids, self).__init__()
+        if pool == 'avg':
+            self.multiscales = [nn.AvgPool2d(1 << i, 1 << i) for i in scales]
+        elif pool == 'max':
+            self.multiscales = [nn.MaxPool2d(1 << i, 1 << i) for i in scales]
+        else:
+            raise NotImplementedError()
+
+    def forward(self, x):
+        x_out = [f(x) for f in self.multiscales]
+        return x_out
 
 
 def color_normalize(color):
@@ -292,33 +589,6 @@ def compute_jacobian_warping(p_invdepth, K, px, py):
     return dx_dp * fx.view(B, 1, 1), dy_dp * fy.view(B, 1, 1)
 
 
-def compute_warped_residual(pose, invD0, invD1, x0, x1, px, py, K, obj_mask=None):
-    """ Compute the residual error of warped target image w.r.t. the reference feature map.
-    refer to equation (12) in the paper
-
-    :param the forward warping pose from the reference camera to the target frame.
-        Note that warping from the target frame to the reference frame is the inverse of this operation.
-    :param the reference inverse depth
-    :param the target inverse depth
-    :param the reference feature image
-    :param the target feature image
-    :param the pixel x map
-    :param the pixel y map
-    :param the intrinsic calibration
-    -----------
-    :return the residual (of reference image), and occlusion information
-    """
-    u_warped, v_warped, inv_z_warped = geometry.batch_warp_inverse_depth(px, py, invD0, pose, K)
-    x1_1to0 = geometry.warp_features(x1, u_warped, v_warped)
-    occ = geometry.check_occ(inv_z_warped, invD1, u_warped, v_warped)
-    residuals = x1_1to0 - x0
-    B, C, H, W = x0.shape
-    if obj_mask is not None:
-        occ = occ & (obj_mask.view(B, 1, H, W) < 1)
-    residuals[occ.expand(B, C, H, W)] = 0.001
-    return residuals, occ
-
-
 def feature_gradient(img, normalize_gradient=True):
     """ Calculate the gradient on the feature space using Sobel operator
     :param the input image 
@@ -421,266 +691,6 @@ class TrustRegionBase(nn.Module):
         Jx_p, Jy_p = compute_jacobian_warping(invD, K, px, py)
         J_F_p = compute_jacobian_dIdp(Jf_x, Jf_y, Jx_p, Jy_p)
         return J_F_p
-
-
-class ImagePyramids(nn.Module):
-    """ Construct the pyramids in the image / depth space
-    """
-
-    def __init__(self, scales, pool='avg'):
-        super(ImagePyramids, self).__init__()
-        if pool == 'avg':
-            self.multiscales = [nn.AvgPool2d(1 << i, 1 << i) for i in scales]
-        elif pool == 'max':
-            self.multiscales = [nn.MaxPool2d(1 << i, 1 << i) for i in scales]
-        else:
-            raise NotImplementedError()
-
-    def forward(self, x):
-        x_out = [f(x) for f in self.multiscales]
-        return x_out
-
-
-def initialize_weights(modules, method='xavier'):
-    for m in modules:
-        if isinstance(m, nn.Conv2d):
-            if m.bias is not None:
-                m.bias.data.zero_()
-            if method == 'xavier':
-                init.xavier_uniform_(m.weight)
-            elif method == 'kaiming':
-                init.kaiming_uniform_(m.weight)
-        if isinstance(m, nn.ConvTranspose2d):
-            if m.bias is not None:
-                m.bias.data.zero_()
-            if method == 'xavier':
-                init.xavier_uniform_(m.weight)
-            elif method == 'kaiming':
-                init.kaiming_uniform_(m.weight)
-
-
-class FeaturePyramid(nn.Module):
-    """ 
-    The proposed feature-encoder (A).
-    It also supports to extract features using one-view only.
-    """
-
-    def __init__(self, D):
-        super(FeaturePyramid, self).__init__()
-        self.net0 = nn.Sequential(conv(True, D, 16, 3), conv(True, 16, 32, 3, dilation=2), conv(True, 32, 32, 3, dilation=2))
-        self.net1 = nn.Sequential(conv(True, 32, 32, 3), conv(True, 32, 64, 3, dilation=2), conv(True, 64, 64, 3, dilation=2))
-        self.net2 = nn.Sequential(conv(True, 64, 64, 3), conv(True, 64, 96, 3, dilation=2), conv(True, 96, 96, 3, dilation=2))
-        self.net3 = nn.Sequential(conv(True, 96, 96, 3), conv(True, 96, 128, 3, dilation=2), conv(True, 128, 128, 3, dilation=2))
-        initialize_weights(self.net0)
-        initialize_weights(self.net1)
-        initialize_weights(self.net2)
-        initialize_weights(self.net3)
-        self.downsample = torch.nn.AvgPool2d(kernel_size=2)
-
-    def forward(self, x):
-        x0 = self.net0(x)
-        x0s = self.downsample(x0)
-        x1 = self.net1(x0s)
-        x1s = self.downsample(x1)
-        x2 = self.net2(x1s)
-        x2s = self.downsample(x2)
-        x3 = self.net3(x2s)
-        return x0, x1, x2, x3
-
-
-class DeepRobustEstimator(nn.Module):
-    """ The M-estimator 
-
-    When use estimator_type = 'MultiScale2w', it is the proposed convolutional M-estimator
-    """
-
-    def __init__(self, estimator_type):
-        super(DeepRobustEstimator, self).__init__()
-        if estimator_type == 'MultiScale2w':
-            self.D = 4
-        elif estimator_type == 'None':
-            self.mEst_func = self.__constant_weight
-            self.D = -1
-        else:
-            raise NotImplementedError()
-        if self.D > 0:
-            self.net = nn.Sequential(conv(True, self.D, 16, 3, dilation=1), conv(True, 16, 32, 3, dilation=2), conv(True, 32, 64, 3, dilation=4), conv(True, 64, 1, 3, dilation=1), nn.Sigmoid())
-            initialize_weights(self.net)
-        else:
-            self.net = None
-
-    def forward(self, residual, x0, x1, ws=None):
-        """
-        :param residual, the residual map
-        :param x0, the feature map of the template
-        :param x1, the feature map of the image
-        :param ws, the initial weighted residual
-        """
-        if self.D == 1:
-            context = residual.abs()
-            w = self.net(context)
-        elif self.D == 4:
-            B, C, H, W = residual.shape
-            wl = func.interpolate(ws, (H, W), mode='bilinear', align_corners=True)
-            context = torch.cat((residual.abs(), x0, x1, wl), dim=1)
-            w = self.net(context)
-        elif self.D < 0:
-            w = self.mEst_func(residual)
-        return w
-
-    def __weight_Huber(self, x, alpha=0.02):
-        """ weight function of Huber loss:
-        refer to P. 24 w(x) at
-        https://members.loria.fr/moberger/Enseignement/Master2/Documents/ZhangIVC-97-01.pdf
-
-        Note this current implementation is not differentiable.
-        """
-        abs_x = torch.abs(x)
-        linear_mask = abs_x > alpha
-        w = torch.ones(x.shape).type_as(x)
-        if linear_mask.sum().item() > 0:
-            w[linear_mask] = alpha / abs_x[linear_mask]
-        return w
-
-    def __constant_weight(self, x):
-        """ mimic the standard least-square when weighting function is constant
-        """
-        return torch.ones(x.shape).type_as(x)
-
-
-def fcLayer(in_planes, out_planes, bias=True):
-    return nn.Sequential(nn.Linear(in_planes, out_planes, bias), nn.ReLU(inplace=True))
-
-
-def deep_damping_regressor(D):
-    """ Output a damping vector at each dimension
-    """
-    net = nn.Sequential(fcLayer(in_planes=D, out_planes=128, bias=True), fcLayer(in_planes=128, out_planes=256, bias=True), fcLayer(in_planes=256, out_planes=6, bias=True))
-    return net
-
-
-def invH(H):
-    """ Generate (H+damp)^{-1}, with predicted damping values
-    :param approximate Hessian matrix JtWJ
-    -----------
-    :return the inverse of Hessian
-    """
-    if H.is_cuda:
-        invH = torch.inverse(H.cpu()).cuda()
-    else:
-        invH = torch.inverse(H)
-    return invH
-
-
-def inverse_update_pose(H, Rhs, pose):
-    """ Ues left-multiplication for the pose update 
-    in the inverse compositional form
-    refer to equation (10) in the paper 
-
-    :param the (approximated) Hessian matrix
-    :param Right-hand side vector
-    :param the initial pose (forward transform inverse of xi)
-    ---------
-    :return the forward updated pose (inverse of xi)
-    """
-    inv_H = invH(H)
-    xi = torch.bmm(inv_H, Rhs)
-    d_R = geometry.batch_twist2Mat(-xi[:, :3].view(-1, 3))
-    d_t = -torch.bmm(d_R, xi[:, 3:])
-    R, t = pose
-    pose = geometry.batch_Rt_compose(R, t, d_R, d_t)
-    return pose
-
-
-class DirectSolverNet(nn.Module):
-    SOLVER_NO_DAMPING = 0
-    SOLVER_RESIDUAL_VOLUME = 1
-
-    def __init__(self, solver_type, samples=10):
-        super(DirectSolverNet, self).__init__()
-        if solver_type == 'Direct-Nodamping':
-            self.net = None
-            self.type = self.SOLVER_NO_DAMPING
-        elif solver_type == 'Direct-ResVol':
-            self.samples = samples
-            self.net = deep_damping_regressor(D=6 * 6 + 6 * samples)
-            self.type = self.SOLVER_RESIDUAL_VOLUME
-            initialize_weights(self.net)
-        else:
-            raise NotImplementedError()
-
-    def forward(self, JtJ, Jt, weights, R, pose0, invD0, invD1, x0, x1, K):
-        """
-        :param JtJ, the approximated Hessian JtJ
-        :param Jt, the trasposed Jacobian
-        :param weights, the weight matrix
-        :param R, the residual
-        :param pose0, the initial estimated pose
-        :param invD0, the template inverse depth map
-        :param invD1, the image inverse depth map
-        :param x0, the template feature map
-        :param x1, the image feature map
-        :param K, the intrinsic parameters
-
-        -----------
-        :return updated pose
-        """
-        B = JtJ.shape[0]
-        wR = (weights * R).view(B, -1, 1)
-        JtR = torch.bmm(Jt, wR)
-        if self.type == self.SOLVER_NO_DAMPING:
-            diag_mask = torch.eye(6).view(1, 6, 6).type_as(JtJ)
-            diagJtJ = diag_mask * JtJ
-            traceJtJ = torch.sum(diagJtJ, (2, 1))
-            epsilon = (traceJtJ * 1e-06).view(B, 1, 1) * diag_mask
-            Hessian = JtJ + epsilon
-            pose_update = inverse_update_pose(Hessian, JtR, pose0)
-        elif self.type == self.SOLVER_RESIDUAL_VOLUME:
-            Hessian = self.__regularize_residual_volume(JtJ, Jt, JtR, weights, pose0, invD0, invD1, x0, x1, K, sample_range=self.samples)
-            pose_update = inverse_update_pose(Hessian, JtR, pose0)
-        else:
-            raise NotImplementedError()
-        return pose_update
-
-    def __regularize_residual_volume(self, JtJ, Jt, JtR, weights, pose, invD0, invD1, x0, x1, K, sample_range):
-        """ regularize the approximate with residual volume
-
-        :param JtJ, the approximated Hessian JtJ
-        :param Jt, the trasposed Jacobian
-        :param JtR, the Right-hand size residual
-        :param weights, the weight matrix
-        :param pose, the initial estimated pose
-        :param invD0, the template inverse depth map
-        :param invD1, the image inverse depth map
-        :param K, the intrinsic parameters
-        :param x0, the template feature map
-        :param x1, the image feature map
-        :param sample_range, the numerb of samples
-
-        ---------------
-        :return the damped Hessian matrix
-        """
-        JtR_volumes = []
-        B, C, H, W = x0.shape
-        px, py = geometry.generate_xy_grid(B, H, W, K)
-        diag_mask = torch.eye(6).view(1, 6, 6).type_as(JtJ)
-        diagJtJ = diag_mask * JtJ
-        traceJtJ = torch.sum(diagJtJ, (2, 1))
-        epsilon = (traceJtJ * 1e-06).view(B, 1, 1) * diag_mask
-        n = sample_range
-        lambdas = torch.logspace(-5, 5, n).type_as(JtJ)
-        for s in range(n):
-            D = lambdas[s] * diagJtJ + epsilon
-            Hessian = JtJ + D
-            pose_s = inverse_update_pose(Hessian, JtR, pose)
-            res_s, _ = compute_warped_residual(pose_s, invD0, invD1, x0, x1, px, py, K)
-            JtR_s = torch.bmm(Jt, (weights * res_s).view(B, -1, 1))
-            JtR_volumes.append(JtR_s)
-        JtR_flat = torch.cat(tuple(JtR_volumes), dim=2).view(B, -1)
-        JtJ_flat = JtJ.view(B, -1)
-        damp_est = self.net(torch.cat((JtR_flat, JtJ_flat), dim=1))
-        R = diag_mask * damp_est.view(B, 6, 1) + epsilon
-        return JtJ + R
 
 
 class ListModule(nn.Module):

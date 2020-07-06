@@ -15,15 +15,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -52,6 +53,9 @@ import torch.utils.data
 import torchvision.transforms as transforms
 
 
+import torch.utils.data as data
+
+
 import torchvision.models as models
 
 
@@ -59,6 +63,12 @@ from torch.autograd import Function
 
 
 from torch.autograd import Variable
+
+
+import math
+
+
+import numpy as np
 
 
 class WildcatPool2dFunction(Function):
@@ -132,6 +142,29 @@ class WildcatPool2d(nn.Module):
         return self.__class__.__name__ + ' (kmax=' + str(self.kmax) + ', kmin=' + str(self.kmin) + ', alpha=' + str(self.alpha) + ')'
 
 
+class ResNetWSL(nn.Module):
+
+    def __init__(self, model, num_classes, pooling=WildcatPool2d(), dense=False):
+        super(ResNetWSL, self).__init__()
+        self.dense = dense
+        self.features = nn.Sequential(model.conv1, model.bn1, model.relu, model.maxpool, model.layer1, model.layer2, model.layer3, model.layer4)
+        num_features = model.layer4[1].conv1.in_channels
+        self.classifier = nn.Sequential(nn.Conv2d(num_features, num_classes, kernel_size=1, stride=1, padding=0, bias=True))
+        self.spatial_pooling = pooling
+        self.image_normalization_mean = [0.485, 0.456, 0.406]
+        self.image_normalization_std = [0.229, 0.224, 0.225]
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.classifier(x)
+        if not self.dense:
+            x = self.spatial_pooling(x)
+        return x
+
+    def get_config_optim(self, lr, lrp):
+        return [{'params': self.features.parameters(), 'lr': lr * lrp}, {'params': self.classifier.parameters()}, {'params': self.spatial_pooling.parameters()}]
+
+
 class ClassWisePoolFunction(Function):
 
     def __init__(self, num_maps):
@@ -141,7 +174,7 @@ class ClassWisePoolFunction(Function):
     def forward(self, input):
         batch_size, num_channels, h, w = input.size()
         if num_channels % self.num_maps != 0:
-            print('Error in ClassWisePoolFunction. The number of channels has to be a multiple of the number of maps per class')
+            None
             sys.exit(-1)
         num_outputs = int(num_channels / self.num_maps)
         x = input.view(batch_size, num_outputs, self.num_maps, h, w)

@@ -19,15 +19,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -71,61 +72,16 @@ import re
 import torchvision.models as models
 
 
+from sklearn.metrics import mutual_info_score
+
+
 import math
 
 
-class FeatureExtraction(torch.nn.Module):
-
-    def __init__(self):
-        super(FeatureExtraction, self).__init__()
-        self.resnet = models.resnet18(pretrained=True)
-        self.resnet = nn.Sequential(*list(self.resnet.children())[:-1])
-        self.resnet
-
-    def forward(self, image_batch):
-        return self.resnet(image_batch)
+import torchvision.transforms as transforms
 
 
-class Classifier(nn.Module):
-
-    def __init__(self, output_dim=1):
-        super(Classifier, self).__init__()
-        self.fc1 = nn.Sequential(nn.Linear(2048, 512), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(512, 128), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(128, output_dim))
-        self.fc1
-        self.fc2 = nn.Sequential(nn.Linear(2048, 512), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(512, 128), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(128, output_dim))
-        self.fc2
-        self.fc3 = nn.Sequential(nn.Linear(2048, 512), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(512, 128), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(128, output_dim))
-        self.fc3
-        self.fc4 = nn.Sequential(nn.Linear(2048, 512), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(512, 128), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(128, output_dim))
-        self.fc4
-        self.fc5 = nn.Sequential(nn.Linear(2048, 512), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(512, 128), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(128, output_dim))
-        self.fc5
-        self.fc6 = nn.Sequential(nn.Linear(2048, 512), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(512, 128), nn.ReLU(True), nn.Dropout(p=0.5), nn.Linear(128, output_dim))
-        self.fc6
-
-    def forward(self, x):
-        x = x.view(x.size(0), -1)
-        x1 = self.fc1(x)
-        x2 = self.fc2(x)
-        x3 = self.fc3(x)
-        x4 = self.fc4(x)
-        x5 = self.fc5(x)
-        x6 = self.fc6(x)
-        return x1, x2, x3, x4, x5, x6
-
-
-class AttrPre(nn.Module):
-
-    def __init__(self):
-        super(AttrPre, self).__init__()
-        self.FeatureExtraction = FeatureExtraction()
-        output_dim = 1
-        self.classifier = Classifier(output_dim)
-
-    def forward(self, img):
-        feature = self.FeatureExtraction(img)
-        Attractive, EyeGlasses, Male, MouthOpen, Smiling, Young = self.classifier(feature)
-        return Attractive, EyeGlasses, Male, MouthOpen, Smiling, Young
+import torch.utils.data as data
 
 
 class FeatureExtraction(torch.nn.Module):
@@ -214,35 +170,6 @@ class FocalLoss(nn.Module):
             return loss.mean()
         else:
             return loss.sum()
-
-
-class OESM_CrossEntropy(nn.Module):
-
-    def __init__(self, down_k=0.9, top_k=0.7):
-        super(OESM_CrossEntropy, self).__init__()
-        self.loss = nn.NLLLoss()
-        self.down_k = down_k
-        self.top_k = top_k
-        self.softmax = nn.LogSoftmax()
-        return
-
-    def forward(self, input, target):
-        softmax_result = self.softmax(input)
-        loss = Variable(torch.Tensor(1).zero_())
-        for idx, row in enumerate(softmax_result):
-            gt = target[idx]
-            pred = torch.unsqueeze(row, 0)
-            cost = self.loss(pred, gt)
-            loss = torch.cat((loss, cost.cpu()), 0)
-        loss = loss[1:]
-        loss_m = -loss
-        if self.top_k == 1:
-            valid_loss = loss
-        index = torch.topk(loss_m, int(self.down_k * loss.size()[0]))
-        loss = loss[index[1]]
-        index = torch.topk(loss, int(self.top_k * loss.size()[0]))
-        valid_loss = loss[index[1]]
-        return torch.mean(valid_loss)
 
 
 class OESM_CrossEntropy(nn.Module):

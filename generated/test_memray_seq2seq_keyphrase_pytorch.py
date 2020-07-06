@@ -38,29 +38,84 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import copy
 
 
 import torch
 
 
+from torch.autograd import Variable
+
+
 import numpy as np
+
+
+import collections
+
+
+import itertools
+
+
+import logging
+
+
+from torch.distributions import Categorical
+
+
+import time
+
+
+import math
+
+
+import string
+
+
+import scipy
+
+
+from collections import Counter
+
+
+import torch.multiprocessing as multiprocessing
+
+
+from torch.utils.data.sampler import SequentialSampler
+
+
+from torch.utils.data.sampler import RandomSampler
+
+
+from torch.utils.data.sampler import BatchSampler
+
+
+import re
 
 
 import torch.nn.functional as F
 
 
-import logging
+import inspect
+
+
+from collections import defaultdict
+
+
+import torchtext
 
 
 import torch.nn as nn
@@ -69,22 +124,10 @@ import torch.nn as nn
 import torch.nn.functional as func
 
 
-from torch.autograd import Variable
-
-
 import random
 
 
-import time
-
-
 from torch.optim import Adam
-
-
-import copy
-
-
-import torchtext
 
 
 from torch.utils.data import DataLoader
@@ -162,7 +205,7 @@ class AttentionExample(nn.Module):
     def forward(self, hidden, encoder_outputs):
         seq_len = len(encoder_outputs)
         attn_energies = Variable(torch.zeros(seq_len))
-        if torch.is_available():
+        if torch.cuda.is_available():
             attn_energies = attn_energies
         for i in range(seq_len):
             attn_energies[i] = self.score(hidden, encoder_outputs[i])
@@ -391,7 +434,7 @@ class Seq2SeqLSTMAttention(nn.Module):
         batch_size = input.size(0) if self.encoder.batch_first else input.size(1)
         h0_encoder = Variable(torch.zeros(self.encoder.num_layers * self.num_directions, batch_size, self.src_hidden_dim), requires_grad=False)
         c0_encoder = Variable(torch.zeros(self.encoder.num_layers * self.num_directions, batch_size, self.src_hidden_dim), requires_grad=False)
-        if torch.is_available():
+        if torch.cuda.is_available():
             return h0_encoder, c0_encoder
         return h0_encoder, c0_encoder
 
@@ -524,8 +567,8 @@ class Seq2SeqLSTMAttention(nn.Module):
             attn_weights = []
             copy_weights = []
             dec_hidden = init_hidden
-            h_tilde = Variable(torch.zeros(batch_size, 1, trg_hidden_dim)) if torch.is_available() else Variable(torch.zeros(batch_size, 1, trg_hidden_dim))
-            copy_h_tilde = Variable(torch.zeros(batch_size, 1, trg_hidden_dim)) if torch.is_available() else Variable(torch.zeros(batch_size, 1, trg_hidden_dim))
+            h_tilde = Variable(torch.zeros(batch_size, 1, trg_hidden_dim)) if torch.cuda.is_available() else Variable(torch.zeros(batch_size, 1, trg_hidden_dim))
+            copy_h_tilde = Variable(torch.zeros(batch_size, 1, trg_hidden_dim)) if torch.cuda.is_available() else Variable(torch.zeros(batch_size, 1, trg_hidden_dim))
             for di in range(max_length):
                 trg_emb = self.embedding(trg_input)
                 dec_input = self.merge_decode_inputs(trg_emb, h_tilde, copy_h_tilde)
@@ -556,7 +599,7 @@ class Seq2SeqLSTMAttention(nn.Module):
                     top_v, top_idx = decoder_log_prob.data.topk(1, dim=-1)
                     top_idx[top_idx >= self.vocab_size] = self.unk_word
                     top_idx = Variable(top_idx.squeeze(2))
-                    trg_input = top_idx if torch.is_available() else top_idx
+                    trg_input = top_idx if torch.cuda.is_available() else top_idx
                 decoder_log_probs.append(decoder_log_prob.permute(1, 0, 2))
                 decoder_outputs.append(decoder_output)
                 attn_weights.append(attn_weight.permute(1, 0, 2))
@@ -579,7 +622,7 @@ class Seq2SeqLSTMAttention(nn.Module):
         vocab_index = Variable(torch.arange(start=0, end=self.vocab_size).type(torch.LongTensor))
         oov_index = Variable(torch.arange(start=self.vocab_size, end=self.vocab_size + max_oov_number).type(torch.LongTensor))
         oov2unk_index = Variable(torch.zeros(batch_size * seq_len, max_oov_number).type(torch.LongTensor) + self.unk_word)
-        if torch.is_available():
+        if torch.cuda.is_available():
             vocab_index = vocab_index
             oov_index = oov_index
             oov2unk_index = oov2unk_index
@@ -615,7 +658,7 @@ class Seq2SeqLSTMAttention(nn.Module):
             """
             extended_logits = Variable(torch.FloatTensor([([0.0] * len(oov) + [float('-inf')] * (max_oov_number - len(oov))) for oov in oov_list]))
             extended_logits = extended_logits.unsqueeze(1).expand(batch_size, max_length, max_oov_number).contiguous().view(batch_size * max_length, -1)
-            extended_logits = extended_logits if torch.is_available() else extended_logits
+            extended_logits = extended_logits if torch.cuda.is_available() else extended_logits
             flattened_decoder_logits = torch.cat((flattened_decoder_logits, extended_logits), dim=1)
         expanded_src_map = src_map.unsqueeze(1).expand(batch_size, max_length, src_len).contiguous().view(batch_size * max_length, -1)
         flattened_decoder_logits = flattened_decoder_logits.scatter_add_(1, expanded_src_map, copy_logits.view(batch_size * max_length, -1))
@@ -656,8 +699,8 @@ class Seq2SeqLSTMAttention(nn.Module):
         trg_len = trg_input.size(1)
         context_dim = enc_context.size(2)
         trg_hidden_dim = self.trg_hidden_dim
-        h_tilde = Variable(torch.zeros(batch_size, 1, trg_hidden_dim)) if torch.is_available() else Variable(torch.zeros(batch_size, 1, trg_hidden_dim))
-        copy_h_tilde = Variable(torch.zeros(batch_size, 1, trg_hidden_dim)) if torch.is_available() else Variable(torch.zeros(batch_size, 1, trg_hidden_dim))
+        h_tilde = Variable(torch.zeros(batch_size, 1, trg_hidden_dim)) if torch.cuda.is_available() else Variable(torch.zeros(batch_size, 1, trg_hidden_dim))
+        copy_h_tilde = Variable(torch.zeros(batch_size, 1, trg_hidden_dim)) if torch.cuda.is_available() else Variable(torch.zeros(batch_size, 1, trg_hidden_dim))
         attn_weights = []
         copy_weights = []
         log_probs = []
@@ -696,10 +739,10 @@ class Seq2SeqLSTMAttention(nn.Module):
 
     def greedy_predict(self, input_src, input_trg, trg_mask=None, ctx_mask=None):
         src_h, (src_h_t, src_c_t) = self.encode(input_src)
-        if torch.is_available():
+        if torch.cuda.is_available():
             input_trg = input_trg
         decoder_logits, hiddens, attn_weights = self.decode_old(trg_input=input_trg, enc_context=src_h, enc_hidden=(src_h_t, src_c_t), trg_mask=trg_mask, ctx_mask=ctx_mask, is_train=False)
-        if torch.is_available():
+        if torch.cuda.is_available():
             max_words_pred = decoder_logits.data.cpu().numpy().argmax(axis=-1).flatten()
         else:
             max_words_pred = decoder_logits.data.numpy().argmax(axis=-1).flatten()
@@ -776,7 +819,7 @@ class Seq2SeqLSTMAttention(nn.Module):
                 """
                 top_v, top_idx = decoder_log_prob.data.topk(1, dim=-1)
                 top_idx = Variable(top_idx.squeeze(2))
-                trg_input = top_idx if torch.is_available() else top_idx
+                trg_input = top_idx if torch.cuda.is_available() else top_idx
                 decoder_outputs.append(decoder_output)
                 attn_weights.append(attn_weight.permute(1, 0, 2))
                 decoder_log_probs.append(decoder_log_prob.permute(1, 0, 2))
@@ -784,6 +827,12 @@ class Seq2SeqLSTMAttention(nn.Module):
             decoder_outputs = torch.cat(decoder_outputs, 0).permute(1, 0, 2)
             attn_weights = torch.cat(attn_weights, 0).permute(1, 0, 2)
         return decoder_log_probs, decoder_outputs, attn_weights
+
+
+class Seq2SeqLSTMAttentionCascading(Seq2SeqLSTMAttention):
+
+    def __init__(self, opt):
+        super(Seq2SeqLSTMAttentionCascading, self).__init__(opt)
 
 
 import torch
@@ -801,6 +850,10 @@ TESTCASES = [
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
      True),
+    (StandardNLL,
+     lambda: ([], {}),
+     lambda: ([torch.zeros([4, 4, 4], dtype=torch.int64), torch.zeros([4, 4], dtype=torch.int64), torch.rand([4, 4])], {}),
+     True),
 ]
 
 class Test_memray_seq2seq_keyphrase_pytorch(_paritybench_base):
@@ -809,4 +862,7 @@ class Test_memray_seq2seq_keyphrase_pytorch(_paritybench_base):
 
     def test_001(self):
         self._check(*TESTCASES[1])
+
+    def test_002(self):
+        self._check(*TESTCASES[2])
 

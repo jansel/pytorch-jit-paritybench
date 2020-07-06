@@ -26,15 +26,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -63,10 +64,10 @@ from torch.nn import functional as F
 import torchvision.transforms as T
 
 
-from torch import nn
-
-
 from torch.utils import data
+
+
+from torch import nn
 
 
 from typing import Union
@@ -94,6 +95,18 @@ from typing import Generator
 
 
 from typing import KeysView
+
+
+import re
+
+
+from torch.utils.cpp_extension import CppExtension
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
 
 
 from torch import optim
@@ -392,31 +405,6 @@ class DiscretizedMixLogisticLoss(nn.Module):
         return x
 
 
-def non_shared_get_Kp(K, C, num_params):
-    """ Get Kp=number of channels to predict. 
-        See note where we define _NUM_PARAMS_RGB above """
-    return num_params * C * K
-
-
-class AtrousProbabilityClassifier(nn.Module):
-
-    def __init__(self, in_ch: int, C: int, num_params: int, K: int=10, kernel_size: int=3, atrous_rates_str: str='1,2,4') ->None:
-        super(AtrousProbabilityClassifier, self).__init__()
-        Kp = non_shared_get_Kp(K, C, num_params)
-        self.atrous = StackedAtrousConvs(atrous_rates_str, in_ch, Kp, kernel_size=kernel_size)
-        self._repr = f'C={C}; K={K}; Kp={Kp}; rates={atrous_rates_str}'
-
-    def __repr__(self) ->str:
-        return f'AtrousProbabilityClassifier({self._repr})'
-
-    def forward(self, x: torch.Tensor) ->torch.Tensor:
-        """
-        :param x: N C H W
-        :return: N Kp H W
-        """
-        return self.atrous(x)
-
-
 class StackedAtrousConvs(nn.Module):
 
     def __init__(self, atrous_rates_str: Union[str, int], Cin: int, Cout: int, bias: bool=True, kernel_size: int=3) ->None:
@@ -440,6 +428,31 @@ class StackedAtrousConvs(nn.Module):
         x = torch.cat([atrous(x) for atrous in self.atrous], dim=1)
         x = self.lin(x)
         return x
+
+
+def non_shared_get_Kp(K, C, num_params):
+    """ Get Kp=number of channels to predict. 
+        See note where we define _NUM_PARAMS_RGB above """
+    return num_params * C * K
+
+
+class AtrousProbabilityClassifier(nn.Module):
+
+    def __init__(self, in_ch: int, C: int, num_params: int, K: int=10, kernel_size: int=3, atrous_rates_str: str='1,2,4') ->None:
+        super(AtrousProbabilityClassifier, self).__init__()
+        Kp = non_shared_get_Kp(K, C, num_params)
+        self.atrous = StackedAtrousConvs(atrous_rates_str, in_ch, Kp, kernel_size=kernel_size)
+        self._repr = f'C={C}; K={K}; Kp={Kp}; rates={atrous_rates_str}'
+
+    def __repr__(self) ->str:
+        return f'AtrousProbabilityClassifier({self._repr})'
+
+    def forward(self, x: torch.Tensor) ->torch.Tensor:
+        """
+        :param x: N C H W
+        :return: N Kp H W
+        """
+        return self.atrous(x)
 
 
 class LogisticMixtureProbability(NamedTuple):

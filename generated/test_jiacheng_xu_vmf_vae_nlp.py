@@ -42,6 +42,7 @@ gpu_flag = _module
 hyp_tune_nvdm = _module
 hyp_tune_nvrnn = _module
 run_on_mav = _module
+util = _module
 visual = _module
 draw_gauss_ball = _module
 draw_vmf_ball = _module
@@ -88,11 +89,15 @@ dist = _module
 main = _module
 miao_nvdm = _module
 model = _module
+util = _module
 original_pytorch = _module
+data = _module
 generate = _module
 main = _module
 model = _module
 vae_proto = _module
+data = _module
+generate = _module
 lm = _module
 main = _module
 rnn_model = _module
@@ -104,15 +109,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -162,6 +168,15 @@ import scipy.spatial.distance as ds
 import math
 
 
+from collections import OrderedDict
+
+
+from random import gauss
+
+
+from random import uniform
+
+
 from torch.autograd import Variable
 
 
@@ -180,13 +195,13 @@ from torch.autograd.variable import Variable
 from torch import nn
 
 
+import copy
+
+
 from torch.nn import functional
 
 
 from scipy.linalg import block_diag
-
-
-import copy
 
 
 from collections import namedtuple
@@ -208,6 +223,9 @@ from torch.nn import LSTM
 
 
 from torch.nn import Linear
+
+
+import scipy.special
 
 
 class Code2Code(torch.nn.Module):
@@ -243,16 +261,12 @@ class Code2Bit(torch.nn.Module):
         return loss, pred
 
 
-def GVar(x):
-    return x.to(device)
-
-
-class vMF(torch.nn.Module):
+class vMF(nn.Module):
 
     def __init__(self, lat_dim, kappa=0):
         super().__init__()
         self.lat_dim = lat_dim
-        self.func_mu = torch.nn.Linear(lat_dim, lat_dim)
+        self.mu = torch.nn.Linear(lat_dim, lat_dim)
         self.kappa = kappa
         self.norm_eps = 1
         self.normclip = torch.nn.Hardtanh(0, 10 - 1)
@@ -262,7 +276,7 @@ class vMF(torch.nn.Module):
         return {'mu': mu}
 
     def compute_KLD(self):
-        kld = GVar(torch.zeros(1))
+        kld = 0
         return kld
 
     def vmf_unif_sampler(self, mu):
@@ -273,17 +287,17 @@ class vMF(torch.nn.Module):
             munoise = self.add_norm_noise(munorm, self.norm_eps)
             if float(mu[i].norm().data.cpu().numpy()) > 1e-10:
                 w = self._sample_weight(self.kappa, id_dim)
-                wtorch = GVar(w * torch.ones(id_dim))
+                wtorch = torch.autograd.Variable(w * torch.ones(id_dim))
                 v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
-                scale_factr = torch.sqrt(GVar(torch.ones(id_dim)) - torch.pow(wtorch, 2))
+                scale_factr = torch.sqrt(torch.autograd.Variable(torch.ones(id_dim)) - torch.pow(wtorch, 2))
                 orth_term = v * scale_factr
                 muscale = mu[i] * wtorch / munorm
                 sampled_vec = (orth_term + muscale) * munoise
             else:
-                rand_draw = GVar(torch.randn(id_dim))
+                rand_draw = torch.autograd.Variable(torch.randn(id_dim))
                 rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(id_dim)
                 rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
-                sampled_vec = rand_draw * GVar(rand_norms)
+                sampled_vec = rand_draw * torch.autograd.Variable(rand_norms)
             result_list.append(sampled_vec)
         return torch.stack(result_list, 0)
 
@@ -295,24 +309,24 @@ class vMF(torch.nn.Module):
             munorm = mu[i].norm().expand(id_dim)
             if float(mu[i].norm().data.cpu().numpy()) > 1e-10:
                 w = vMF.sample_vmf_w(self.kappa, id_dim)
-                wtorch = GVar(w * torch.ones(id_dim))
+                wtorch = torch.autograd.Variable(w * torch.ones(id_dim))
                 v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
-                scale_factr = torch.sqrt(GVar(torch.ones(id_dim)) - torch.pow(wtorch, 2))
+                scale_factr = torch.sqrt(Variable(torch.ones(id_dim)) - torch.pow(wtorch, 2))
                 orth_term = v * scale_factr
                 muscale = mu[i] * wtorch / munorm
                 sampled_vec = (orth_term + muscale) * munorm
             else:
-                rand_draw = GVar(torch.randn(id_dim))
+                rand_draw = Variable(torch.randn(id_dim))
                 rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(id_dim)
                 rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
-                sampled_vec = rand_draw * GVar(rand_norms)
+                sampled_vec = rand_draw * Variable(rand_norms)
             result_list.append(sampled_vec)
         return torch.stack(result_list, 0)
 
     def build_bow_rep(self, lat_code, n_sample):
         batch_sz = lat_code.size()[0]
         tup = self.estimate_param(latent_code=lat_code)
-        kld = self.compute_KLD()
+        kld = 0
         vecs = []
         for ns in range(n_sample):
             vec = self.vmf_unif_sampler(tup['mu'])
@@ -338,7 +352,7 @@ class vMF(torch.nn.Module):
     def _sample_orthonormal_to(self, mu, dim):
         """Sample point on sphere orthogonal to mu.
         """
-        v = GVar(torch.randn(dim))
+        v = Variable(torch.randn(dim))
         rescale_value = mu.dot(v) / mu.norm()
         proj_mu_v = mu * rescale_value.expand(dim)
         ortho = v - proj_mu_v
@@ -375,21 +389,24 @@ class vMF(torch.nn.Module):
         cut at maxvalue-eps, and add [0,eps] noise.
         """
         trand = torch.rand(1).expand(munorm.size()) * eps
-        return self.normclip(munorm) + GVar(trand)
+        return self.normclip(munorm) + torch.autograd.Variable(trand)
 
 
 class Gauss(nn.Module):
 
-    def __init__(self, hid_dim, lat_dim):
+    def __init__(self, lat_dim):
         super().__init__()
-        self.hid_dim = hid_dim
         self.lat_dim = lat_dim
-        self.func_mean = torch.nn.Linear(hid_dim, lat_dim)
-        self.func_logvar = torch.nn.Linear(hid_dim, lat_dim)
+        self.func_mean = torch.nn.Linear(lat_dim, lat_dim)
+        self.func_logvar = torch.nn.Linear(lat_dim, lat_dim)
+        self.gate_mean = nn.Parameter(torch.rand(1))
+        self.gate_var = nn.Parameter(torch.rand(1))
 
     def estimate_param(self, latent_code):
         mean = self.func_mean(latent_code)
+        mean = self.gate_mean * mean
         logvar = self.func_logvar(latent_code)
+        logvar = self.gate_var * logvar + (1 - self.gate_var) * torch.ones_like(logvar)
         return {'mean': mean, 'logvar': logvar}
 
     def compute_KLD(self, tup):
@@ -400,8 +417,8 @@ class Gauss(nn.Module):
 
     def sample_cell(self, batch_size):
         eps = torch.autograd.Variable(torch.normal(torch.zeros((batch_size, self.lat_dim))))
-        eps
-        return eps.unsqueeze(0)
+        eps = eps
+        return eps
 
     def build_bow_rep(self, lat_code, n_sample):
         batch_sz = lat_code.size()[0]
@@ -409,148 +426,16 @@ class Gauss(nn.Module):
         mean = tup['mean']
         logvar = tup['logvar']
         kld = self.compute_KLD(tup)
-        if n_sample == 1:
-            eps = self.sample_cell(batch_size=batch_sz)
-            vec = torch.mul(torch.exp(logvar), eps) + mean
-            return tup, kld, vec
         vecs = []
         for ns in range(n_sample):
             eps = self.sample_cell(batch_size=batch_sz)
             vec = torch.mul(torch.exp(logvar), eps) + mean
             vecs.append(vec)
-        vecs = torch.cat(vecs, dim=0)
         return tup, kld, vecs
 
-    def get_aux_loss_term(self, tup):
-        return torch.from_numpy(np.zeros([1]))
 
-
-class vMF(torch.nn.Module):
-
-    def __init__(self, hid_dim, lat_dim, kappa=1):
-        """
-        von Mises-Fisher distribution class with batch support and manual tuning kappa value.
-        Implementation follows description of my paper and Guu's.
-        """
-        super().__init__()
-        self.hid_dim = hid_dim
-        self.lat_dim = lat_dim
-        self.kappa = kappa
-        self.func_mu = torch.nn.Linear(hid_dim, lat_dim)
-        self.kld = GVar(torch.from_numpy(vMF._vmf_kld(kappa, lat_dim)).float())
-        None
-
-    def estimate_param(self, latent_code):
-        ret_dict = {}
-        ret_dict['kappa'] = self.kappa
-        mu = self.func_mu(latent_code)
-        norm = torch.norm(mu, 2, 1, keepdim=True)
-        mu_norm_sq_diff_from_one = torch.pow(torch.add(norm, -1), 2)
-        redundant_norm = torch.sum(mu_norm_sq_diff_from_one, dim=1, keepdim=True)
-        ret_dict['norm'] = torch.ones_like(mu)
-        ret_dict['redundant_norm'] = redundant_norm
-        mu = mu / torch.norm(mu, p=2, dim=1, keepdim=True)
-        ret_dict['mu'] = mu
-        return ret_dict
-
-    def compute_KLD(self, tup, batch_sz):
-        return self.kld.expand(batch_sz)
-
-    @staticmethod
-    def _vmf_kld(k, d):
-        tmp = (k * ((sp.iv(d / 2.0 + 1.0, k) + sp.iv(d / 2.0, k) * d / (2.0 * k)) / sp.iv(d / 2.0, k) - d / (2.0 * k)) + d * np.log(k) / 2.0 - np.log(sp.iv(d / 2.0, k)) - sp.loggamma(d / 2 + 1) - d * np.log(2) / 2).real
-        if tmp != tmp:
-            exit()
-        return np.array([tmp])
-
-    @staticmethod
-    def _vmf_kld_davidson(k, d):
-        """
-        This should be the correct KLD.
-        Empirically we find that _vmf_kld (as in the Guu paper) only deviates a little (<2%) in most cases we use.
-        """
-        tmp = k * sp.iv(d / 2, k) / sp.iv(d / 2 - 1, k) + (d / 2 - 1) * torch.log(k) - torch.log(sp.iv(d / 2 - 1, k)) + np.log(np.pi) * d / 2 + np.log(2) - sp.loggamma(d / 2).real - d / 2 * np.log(2 * np.pi)
-        if tmp != tmp:
-            exit()
-        return np.array([tmp])
-
-    def build_bow_rep(self, lat_code, n_sample):
-        batch_sz = lat_code.size()[0]
-        tup = self.estimate_param(latent_code=lat_code)
-        mu = tup['mu']
-        norm = tup['norm']
-        kappa = tup['kappa']
-        kld = self.compute_KLD(tup, batch_sz)
-        vecs = []
-        if n_sample == 1:
-            return tup, kld, self.sample_cell(mu, norm, kappa)
-        for n in range(n_sample):
-            sample = self.sample_cell(mu, norm, kappa)
-            vecs.append(sample)
-        vecs = torch.cat(vecs, dim=0)
-        return tup, kld, vecs
-
-    def sample_cell(self, mu, norm, kappa):
-        batch_sz, lat_dim = mu.size()
-        mu = mu / torch.norm(mu, p=2, dim=1, keepdim=True)
-        w = self._sample_weight_batch(kappa, lat_dim, batch_sz)
-        w = w.unsqueeze(1)
-        w_var = GVar(w * torch.ones(batch_sz, lat_dim))
-        v = self._sample_ortho_batch(mu, lat_dim)
-        scale_factr = torch.sqrt(GVar(torch.ones(batch_sz, lat_dim)) - torch.pow(w_var, 2))
-        orth_term = v * scale_factr
-        muscale = mu * w_var
-        sampled_vec = orth_term + muscale
-        return sampled_vec.unsqueeze(0)
-
-    def _sample_weight_batch(self, kappa, dim, batch_sz=1):
-        result = torch.FloatTensor(batch_sz)
-        for b in range(batch_sz):
-            result[b] = self._sample_weight(kappa, dim)
-        return result
-
-    def _sample_weight(self, kappa, dim):
-        """Rejection sampling scheme for sampling distance from center on
-        surface of the sphere.
-        """
-        dim = dim - 1
-        b = dim / (np.sqrt(4.0 * kappa ** 2 + dim ** 2) + 2 * kappa)
-        x = (1.0 - b) / (1.0 + b)
-        c = kappa * x + dim * np.log(1 - x ** 2)
-        while True:
-            z = np.random.beta(dim / 2.0, dim / 2.0)
-            w = (1.0 - (1.0 + b) * z) / (1.0 - (1.0 - b) * z)
-            u = np.random.uniform(low=0, high=1)
-            if kappa * w + dim * np.log(1.0 - x * w) - c >= np.log(u):
-                return w
-
-    def _sample_ortho_batch(self, mu, dim):
-        """
-
-        :param mu: Variable, [batch size, latent dim]
-        :param dim: scala. =latent dim
-        :return:
-        """
-        _batch_sz, _lat_dim = mu.size()
-        assert _lat_dim == dim
-        squeezed_mu = mu.unsqueeze(1)
-        v = GVar(torch.randn(_batch_sz, dim, 1))
-        rescale_val = torch.bmm(squeezed_mu, v).squeeze(2)
-        proj_mu_v = mu * rescale_val
-        ortho = v.squeeze() - proj_mu_v
-        ortho_norm = torch.norm(ortho, p=2, dim=1, keepdim=True)
-        y = ortho / ortho_norm
-        return y
-
-    def _sample_orthonormal_to(self, mu, dim):
-        """Sample point on sphere orthogonal to mu.
-        """
-        v = GVar(torch.randn(dim))
-        rescale_value = mu.dot(v) / mu.norm()
-        proj_mu_v = mu * rescale_value.expand(dim)
-        ortho = v - proj_mu_v
-        ortho_norm = torch.norm(ortho)
-        return ortho / ortho_norm.expand_as(ortho)
+def GVar(x):
+    return x
 
 
 class BesselIv(torch.autograd.Function):
@@ -571,7 +456,7 @@ class BesselIv(torch.autograd.Function):
         ctx.save_for_backward(dim, kappa)
         kappa_copy = kappa.clone()
         m = sp.iv(dim, kappa_copy)
-        x = torch.tensor(m).to(device)
+        x = torch.tensor(m)
         return x.clone()
 
     @staticmethod
@@ -697,99 +582,6 @@ class VmfDiff(torch.nn.Module):
         ortho_norm = torch.norm(ortho, p=2, dim=1, keepdim=True)
         y = ortho / ortho_norm
         return y
-
-    def _sample_orthonormal_to(self, mu, dim):
-        """Sample point on sphere orthogonal to mu.
-        """
-        v = GVar(torch.randn(dim))
-        rescale_value = mu.dot(v) / mu.norm()
-        proj_mu_v = mu * rescale_value.expand(dim)
-        ortho = v - proj_mu_v
-        ortho_norm = torch.norm(ortho)
-        return ortho / ortho_norm.expand_as(ortho)
-
-
-class vMF(torch.nn.Module):
-
-    def __init__(self, hid_dim, lat_dim, kappa=1):
-        super().__init__()
-        self.hid_dim = hid_dim
-        self.lat_dim = lat_dim
-        self.kappa = kappa
-        self.func_mu = torch.nn.Linear(hid_dim, lat_dim)
-        self.kld = GVar(torch.from_numpy(vMF._vmf_kld(kappa, lat_dim)).float())
-        None
-
-    def estimate_param(self, latent_code):
-        ret_dict = {}
-        ret_dict['kappa'] = self.kappa
-        mu = self.func_mu(latent_code)
-        norm = torch.norm(mu, 2, 1, keepdim=True)
-        mu_norm_sq_diff_from_one = torch.pow(torch.add(norm, -1), 2)
-        redundant_norm = torch.sum(mu_norm_sq_diff_from_one, dim=1, keepdim=True)
-        ret_dict['norm'] = torch.ones_like(mu)
-        ret_dict['redundant_norm'] = redundant_norm
-        mu = mu / torch.norm(mu, p=2, dim=1, keepdim=True)
-        ret_dict['mu'] = mu
-        return ret_dict
-
-    def compute_KLD(self, tup, batch_sz):
-        return self.kld.expand(batch_sz)
-
-    @staticmethod
-    def _vmf_kld(k, d):
-        tmp = (k * ((sp.iv(d / 2.0 + 1.0, k) + sp.iv(d / 2.0, k) * d / (2.0 * k)) / sp.iv(d / 2.0, k) - d / (2.0 * k)) + d * np.log(k) / 2.0 - np.log(sp.iv(d / 2.0, k)) - sp.loggamma(d / 2 + 1) - d * np.log(2) / 2).real
-        if tmp != tmp:
-            exit()
-        return np.array([tmp])
-
-    def build_bow_rep(self, lat_code, n_sample):
-        batch_sz = lat_code.size()[0]
-        tup = self.estimate_param(latent_code=lat_code)
-        mu = tup['mu']
-        norm = tup['norm']
-        kappa = tup['kappa']
-        kld = self.compute_KLD(tup, batch_sz)
-        vecs = []
-        if n_sample == 1:
-            return tup, kld, self.sample_cell(mu, norm, kappa)
-        for n in range(n_sample):
-            sample = self.sample_cell(mu, norm, kappa)
-            vecs.append(sample)
-        vecs = torch.cat(vecs, dim=0)
-        return tup, kld, vecs
-
-    def sample_cell(self, mu, norm, kappa):
-        batch_sz, lat_dim = mu.size()
-        result = []
-        sampled_vecs = GVar(torch.FloatTensor(batch_sz, lat_dim))
-        for b in range(batch_sz):
-            this_mu = mu[b]
-            this_mu = this_mu / torch.norm(this_mu, p=2)
-            w = self._sample_weight(kappa, lat_dim)
-            w_var = GVar(w * torch.ones(lat_dim))
-            v = self._sample_orthonormal_to(this_mu, lat_dim)
-            scale_factr = torch.sqrt(GVar(torch.ones(lat_dim)) - torch.pow(w_var, 2))
-            orth_term = v * scale_factr
-            muscale = this_mu * w_var
-            sampled_vec = orth_term + muscale
-            sampled_vecs[b] = sampled_vec
-        return sampled_vecs.unsqueeze(0)
-
-    def _sample_weight(self, kappa, dim):
-        """Rejection sampling scheme for sampling distance from center on
-        surface of the sphere.
-        """
-        dim = dim - 1
-        b = dim / (np.sqrt(4.0 * kappa ** 2 + dim ** 2) + 2 * kappa)
-        x = (1.0 - b) / (1.0 + b)
-        c = kappa * x + dim * np.log(1 - x ** 2)
-        while True:
-            z = np.random.beta(dim / 2.0, dim / 2.0)
-            w = (1.0 - (1.0 + b) * z) / (1.0 - (1.0 - b) * z)
-            u = np.random.uniform(low=0, high=1)
-            if kappa * w + dim * np.log(1.0 - x * w) - c >= np.log(u):
-                return w
 
     def _sample_orthonormal_to(self, mu, dim):
         """Sample point on sphere orthogonal to mu.
@@ -968,80 +760,95 @@ class unif_vMF(torch.nn.Module):
         return ortho / ortho_norm.expand_as(ortho)
 
 
+class HighVarGauss(nn.Module):
+
+    def __init__(self, lat_dim):
+        super().__init__()
+        self.lat_dim = lat_dim
+        self.func_mean = torch.nn.Linear(lat_dim, lat_dim)
+        self.func_logvar = torch.nn.Linear(lat_dim, lat_dim)
+        self.k = 10
+
+    def estimate_param(self, latent_code):
+        mean = self.func_mean(latent_code)
+        logvar = self.func_logvar(latent_code)
+        return {'mean': mean, 'logvar': logvar}
+
+    def compute_KLD(self, tup):
+        mean = tup['mean']
+        logvar = tup['logvar']
+        kld = -0.5 * torch.sum(1 - torch.mul(mean, mean) / self.k + 2 * logvar - torch.exp(2 * logvar) / self.k - 2, dim=1)
+        return kld
+
+    def sample_cell(self, batch_size):
+        eps = torch.autograd.Variable(torch.normal(torch.zeros((batch_size, self.lat_dim))))
+        eps = eps
+        return eps
+
+    def build_bow_rep(self, lat_code):
+        batch_sz = lat_code.size()[0]
+        tup = self.estimate_param(latent_code=lat_code)
+        kld = self.compute_KLD(tup)
+        eps = self.sample_cell(batch_size=batch_sz)
+        mean = tup['mean']
+        logvar = tup['logvar']
+        vec = torch.mul(torch.exp(logvar), eps) + mean
+        return tup, kld, vec
+
+
 class BowVAE(torch.nn.Module):
 
-    def __init__(self, args, vocab_size, n_hidden, n_lat, n_sample, dist):
-        super(BowVAE, self).__init__()
-        self.args = args
+    def __init__(self, vocab_size, n_hidden, n_lat, n_sample, batch_size, non_linearity, dist):
+        super().__init__()
         self.vocab_size = vocab_size
         self.n_hidden = n_hidden
         self.n_lat = n_lat
         self.n_sample = n_sample
+        self.non_linearity = non_linearity
+        self.batch_size = batch_size
         self.dist_type = dist
-        self.dropout = torch.nn.Dropout(p=args.dropout)
+        self.dropout = torch.nn.Dropout(p=0.2)
         self.criterion = torch.nn.CrossEntropyLoss(ignore_index=-1)
         self.enc_vec = torch.nn.Linear(self.vocab_size, self.n_hidden)
-        self.active = torch.nn.Tanh()
-        self.enc_vec_2 = torch.nn.Linear(self.n_hidden, self.n_hidden)
+        self.active = torch.nn.LeakyReLU()
+        self.enc_vec_2 = torch.nn.Linear(self.n_hidden, self.n_lat)
         if self.dist_type == 'nor':
-            self.dist = Gauss(n_hidden, n_lat)
+            self.dist = Gauss(n_lat)
+        elif self.dist_type == 'hnor':
+            self.dist = HighVarGauss(n_lat)
         elif self.dist_type == 'vmf':
-            self.dist = vMF(n_hidden, n_lat, kappa=self.args.kappa)
-        elif self.dist_type == 'unifvmf':
-            self.dist = unif_vMF(n_hidden, n_lat, kappa=self.args.kappa, norm_func=self.args.norm_func)
-        elif self.dist_type == 'sph':
-            self.dist = VmfDiff(n_hidden, n_lat)
+            self.dist = vMF(n_lat)
         else:
             raise NotImplementedError
-        self.dec_linear = torch.nn.Linear(self.n_lat, self.n_hidden)
-        self.dec_act = torch.nn.Tanh()
-        self.out = torch.nn.Linear(self.n_hidden, self.vocab_size)
+        self.out = torch.nn.Linear(self.n_lat, self.vocab_size)
 
-    def forward(self, x):
+    def forward(self, x, mask):
         batch_sz = x.size()[0]
         linear_x = self.enc_vec(x)
-        linear_x = self.dropout(linear_x)
         active_x = self.active(linear_x)
         linear_x_2 = self.enc_vec_2(active_x)
         tup, kld, vecs = self.dist.build_bow_rep(linear_x_2, self.n_sample)
-        if 'redundant_norm' in tup:
-            aux_loss = tup['redundant_norm'].view(batch_sz)
-        else:
-            aux_loss = GVar(torch.zeros(batch_sz))
-        avg_cos = BowVAE.check_dispersion(vecs)
-        avg_norm = torch.mean(tup['norm'])
-        tup['avg_cos'] = avg_cos
-        tup['avg_norm'] = avg_norm
-        flatten_vecs = vecs.view(self.n_sample * batch_sz, self.n_lat)
-        flatten_vecs = self.dec_act(self.dec_linear(flatten_vecs))
-        logit = self.dropout(self.out(flatten_vecs))
-        logit = torch.nn.functional.log_softmax(logit, dim=1)
-        logit = logit.view(self.n_sample, batch_sz, self.vocab_size)
-        flatten_x = x.unsqueeze(0).expand(self.n_sample, batch_sz, self.vocab_size)
-        error = torch.mul(flatten_x, logit)
-        error = torch.mean(error, dim=0)
-        recon_loss = -torch.sum(error, dim=1, keepdim=False)
-        return recon_loss, kld, aux_loss, tup, vecs
-
-    @staticmethod
-    def cos(a, b):
-        return torch.dot(a, b) / (torch.norm(a) * torch.norm(b))
-
-    @staticmethod
-    def check_dispersion(vecs):
-        num_sam = 10
-        cos_sim = 0
-        for i in range(num_sam):
-            idx1 = random.randint(0, vecs.size(1) - 1)
-            while True:
-                idx2 = random.randint(0, vecs.size(1) - 1)
-                if idx1 != idx2:
-                    break
-            cos_sim += BowVAE.cos(vecs[0][idx1], vecs[0][idx2])
-        return cos_sim / num_sam
+        ys = 0
+        for i, v in enumerate(vecs):
+            logit = torch.nn.functional.log_softmax(self.out(v))
+            logit = self.dropout(logit)
+            ys += torch.mul(x, logit)
+        y = ys / self.n_sample
+        recon_loss = -torch.sum(y, dim=1, keepdim=False)
+        kld = kld * mask
+        recon_loss = recon_loss * mask
+        total_loss = kld + recon_loss
+        return recon_loss, kld, total_loss
 
 
-cos = torch.nn.CosineSimilarity()
+def cos(a, b):
+    """
+    Compute cosine similarity between two vectors.
+    :param a: vec 1
+    :param b: vec 2
+    :return: cos(a,b)
+    """
+    return torch.dot(a, b) / (torch.norm(a) * torch.norm(b))
 
 
 def check_dispersion(vecs, num_sam=10):
@@ -1353,6 +1160,131 @@ class RNNVAE(nn.Module):
         self.enc_rnn.weight.data.uniform_(-initrange, initrange)
 
 
+class SimpleRNNDecoder(nn.Module):
+    """
+    Simple Recurrent Module without attn, copy, coverage.
+    """
+
+    def __init__(self, opt, rnn_type, input_size, hidden_size, emb):
+        super(SimpleRNNDecoder, self).__init__()
+        self.opt = opt
+        self.rnn_type = rnn_type
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.full_dict_size = opt.full_dict_size
+        self.embeddings = emb
+        self.rnn = self.build_rnn(rnn_type, self.input_size, hidden_size)
+        self.W_out_0 = nn.Linear(hidden_size * 2, opt.full_dict_size, bias=True)
+
+    def build_rnn(self, rnn_type, input_size, hidden_size, num_layers=1):
+        if num_layers > 1:
+            raise NotImplementedError
+        if rnn_type == 'lstm':
+            return torch.nn.LSTMCell(input_size, hidden_size, bias=True)
+        elif rnn_type == 'gru':
+            return torch.nn.GRUCell(input_size, hidden_size, bias=True)
+        else:
+            raise NotImplementedError
+
+    def run_forward_step(self, input, prev_state):
+        """
+        :param input: (LongTensor): a sequence of input tokens tensors
+                                of size (1 x batch).
+        :param context: (FloatTensor): output(tensor sequence) from the enc
+                        RNN of size (src_len x batch x hidden_size).
+        :param prev_state: tuple (FloatTensor): Maybe a tuple if lstm. (batch x hidden_size) hidden state from the enc RNN for
+                                 initializing the decoder.
+        :param coverage
+        :param inp_var
+        :return:
+        """
+        if isinstance(prev_state, tuple):
+            batch_size_, hidden_size_ = prev_state[0].size()
+        else:
+            batch_size_, hidden_size_ = prev_state.size()
+        inp_size, batch_size__ = input.size()
+        assert inp_size == 1
+        assert batch_size__ == batch_size_
+        if self.opt.use_cuda:
+            input = input
+        emb = self.embeddings.forward_decoding(input)
+        assert emb.dim() == 3
+        emb = emb.squeeze(0)
+        current_raw_state = self.rnn(emb, prev_state)
+        if self.rnn_type == 'lstm':
+            assert type(current_raw_state) == tuple
+            current_state_h = current_raw_state[0]
+            current_state_c = current_raw_state[1]
+        elif self.rnn_type == 'gru':
+            current_state_h = current_raw_state
+            current_state_c = current_raw_state
+        else:
+            raise NotImplementedError
+        hidden_state_vocab = torch.cat([current_state_h, current_state_c], 1)
+        hidden_state_vocab = self.W_out_0(hidden_state_vocab)
+        return current_raw_state, hidden_state_vocab
+
+    def forward(self, state, tgt_var, tgt_msk, aux):
+        batch_size, tgt_len = tgt_var.size()
+        mode = self.training
+        decoder_outputs = torch.LongTensor(tgt_len, batch_size)
+        decoder_outputs_prob = Var(torch.zeros((tgt_len, batch_size, self.full_dict_size)))
+        if self.opt.use_cuda:
+            decoder_outputs_prob = decoder_outputs_prob
+        decoder_input = np.ones((1, batch_size), dtype=int) * self.opt.unk
+        decoder_input = Var(torch.LongTensor(decoder_input))
+        for t in range(tgt_len):
+            state, prob_final = self.run_forward_step(decoder_input, state)
+            decoder_outputs_prob[t] = prob_final
+            topv, topi = prob_final.data.topk(1)
+            topi = topi.squeeze()
+            decoder_outputs[t] = topi
+            if mode:
+                if random.random() >= self.opt.schedule:
+                    decoder_input = topi
+                    decoder_input = Var(decoder_input.unsqueeze(0))
+                else:
+                    decoder_input = Var(tgt_var[:, (t)]).unsqueeze(0)
+            else:
+                decoder_input = Var(tgt_var[:, (t)]).unsqueeze(0)
+        return decoder_outputs_prob, decoder_outputs
+
+    def init_weight(self):
+        if self.rnn_type == 'lstm':
+            nn.init.xavier_uniform(self.rnn.weight_ih, gain=1)
+            nn.init.xavier_uniform(self.rnn.weight_hh, gain=1)
+            torch.nn.init.constant(self.rnn.bias_ih, 0)
+            nn.init.constant(self.rnn.bias_hh, 0)
+        elif self.rnn_type == 'gru':
+            nn.init.xavier_uniform(self.rnn.weight.data, gain=1)
+
+
+class SingleEmbeddings(nn.Module):
+
+    def __init__(self, opt, pretrain=None):
+        super(SingleEmbeddings, self).__init__()
+        self.opt = opt
+        self.drop = nn.Dropout(opt.dropout_emb)
+        self.word_embedding = nn.Embedding(opt.full_dict_size, opt.inp_dim)
+        if pretrain is not None:
+            self.word_embedding.weight = nn.Parameter(torch.FloatTensor(pretrain))
+
+    def forward(self, inp):
+        """
+
+        :param inp:
+        :return: seq_len, batch_sz, word_dim
+        """
+        embedded_word = self.word_embedding(inp)
+        emb = self.drop(embedded_word)
+        return emb
+
+    def forward_decoding(self, inp):
+        embedded_word = self.word_embedding(inp)
+        emb = self.drop(embedded_word)
+        return emb
+
+
 class RNNLM(nn.Module):
 
     def __init__(self, opt, pretrain=None):
@@ -1378,6 +1310,92 @@ class RNNLM(nn.Module):
             return Variable(weight.new(bsz, self.hid_dim).zero_())
 
 
+class RNNEncoder(nn.Module):
+
+    def __init__(self, opt, input_size, hidden_size, rnn_type='lstm'):
+        super(RNNEncoder, self).__init__()
+        self.n_layers = opt.enc_layers
+        self.bidirect = True
+        self.hidden_size = hidden_size
+        self.input_size = input_size
+        self.rnn_type = rnn_type
+        self.reduce_h_W = nn.Linear(hidden_size * 2, hidden_size, bias=True)
+        self.reduce_c_W = nn.Linear(hidden_size * 2, hidden_size, bias=True)
+        if rnn_type == 'gru':
+            self.rnn = nn.GRU(input_size, hidden_size, batch_first=True, dropout=opt.dropout, bidirectional=self.bidirect)
+        elif rnn_type == 'lstm':
+            self.rnn = nn.LSTM(input_size, hidden_size, num_layers=1, batch_first=True, dropout=opt.dropout, bidirectional=self.bidirect)
+        else:
+            raise NotImplementedError
+        self.init_weight()
+        self.use_cuda = opt.use_cuda
+
+    def init_weight(self):
+        if self.rnn_type == 'lstm':
+            nn.init.xavier_uniform(self.rnn.weight_hh_l0, gain=1)
+            nn.init.xavier_uniform(self.rnn.weight_hh_l0_reverse, gain=1)
+            nn.init.xavier_uniform(self.rnn.weight_ih_l0, gain=1)
+            nn.init.xavier_uniform(self.rnn.weight_ih_l0_reverse, gain=1)
+            torch.nn.init.constant(self.rnn.bias_hh_l0, 0)
+            nn.init.constant(self.rnn.bias_hh_l0_reverse, 0)
+            nn.init.constant(self.rnn.bias_ih_l0, 0)
+            nn.init.constant(self.rnn.bias_ih_l0_reverse, 0)
+        elif self.rnn_type == 'gru':
+            nn.init.xavier_uniform(self.rnn.weight.data, gain=1)
+
+    def init_hidden(self, batch_size):
+        if self.bidirect:
+            result = Var(torch.zeros(self.n_layers * 2, batch_size, self.hidden_size))
+        else:
+            result = Var(torch.zeros(self.n_layers, batch_size, self.hidden_size))
+        if self.use_cuda:
+            return result
+        else:
+            return result
+
+    def forward(self, embedded, inp_msk):
+        """
+
+        :param input: (seq_len, batch size, inp_dim)
+        :param inp_msk: [seq len,....]
+
+        :return: output: PackedSequence (seq_len*batch,  hidden_size * num_directions),
+                hidden tupple ((batch, hidden_size*2), ....)
+        """
+        batch_size = embedded.data.shape[0]
+        packed_embedding = nn.utils.rnn.pack_padded_sequence(embedded, inp_msk, batch_first=True)
+        if self.rnn_type == 'lstm':
+            output, hn = self.rnn(packed_embedding)
+        else:
+            output, hn = self.rnn(packed_embedding, self.init_hidden(batch_size))
+
+        def _fix_hidden(hidden):
+            """
+
+            :param hidden: (num_directions, batch, hidden_size)
+            :return: batch, hidden_size*2
+            """
+            hidden = torch.cat((hidden[0], hidden[1]), dim=1)
+            return hidden
+
+        def compress_blstm_hidden(whole_context):
+            return F.relu(self.reduce_h_W(whole_context))
+        output, context_mask_ = nn.utils.rnn.pad_packed_sequence(output)
+        if self.bidirect:
+            if self.rnn_type == 'lstm':
+                output = compress_blstm_hidden(output)
+                h, c = hn[0], hn[1]
+                h_, c_ = _fix_hidden(h), _fix_hidden(c)
+                new_h = self.reduce_h_W(h_)
+                new_c = self.reduce_c_W(c_)
+                h_t = new_h, new_c
+            elif self.rnn_type == 'gru':
+                h_t = _fix_hidden(hn)
+        else:
+            raise NotImplementedError
+        return h_t
+
+
 class RNNLM_VAE(nn.Module):
 
     def __init__(self, opt, pretrain=None):
@@ -1398,59 +1416,6 @@ class RNNLM_VAE(nn.Module):
         h_t = self.enc.forward(emb, inp_msk)
         decoder_outputs_prob, decoder_outputs = self.dec.forward(h_t, tgt_var, tgt_msk, aux)
         return decoder_outputs_prob, decoder_outputs
-
-
-class Seq2seq(nn.Module):
-
-    def __init__(self, opt, pretrain=None):
-        super(Seq2seq, self).__init__()
-        self.opt = opt
-        embeds = SingleEmbeddings(opt, pretrain)
-        self.emb = embeds
-        if self.opt.enc == 'lstm':
-            enc = RNNEncoder(opt, opt.inp_dim + opt.tag_dim * 2, opt.hid_dim, rnn_type=opt.enc.lower())
-        elif self.opt.enc == 'dconv':
-            raise NotImplementedError
-        elif self.opt.enc == 'conv':
-            raise NotImplementedError
-        else:
-            raise NotImplementedError
-        self.enc = enc
-        self.feat = None
-        rnn_dec = RNNDecoder(opt, rnn_type='lstm', num_layers=1, hidden_size=opt.hid_dim, input_size=opt.inp_dim, attn_type='general', coverage=opt.coverage, copy=opt.copy, dropout=opt.dropout, emb=self.emb, full_dict_size=self.opt.full_dict_size, word_dict_size=self.opt.word_dict_size, max_len_dec=opt.max_len_dec)
-        self.dec = rnn_dec
-
-    def forward(self, inp_var, inp_msk, tgt_var=None, tgt_msk=None, aux=None):
-        if self.training:
-            self.forward_train(inp_var, inp_msk, tgt_var, tgt_msk, aux)
-        else:
-            self.forward_eval(inp_var, inp_msk, aux)
-
-    def forward_train(self, inp_var, inp_msk, tgt_var, tgt_msk, aux):
-        emb = self.emb.forward(inp_var)
-        context, h_t = self.enc.forward(emb, inp_msk)
-        decoder_outputs_prob, decoder_outputs, attns, discount, loss_cov, p_copys = self.dec.forward(context, inp_msk, h_t, tgt_var, tgt_msk, inp_var, aux)
-        return decoder_outputs_prob, decoder_outputs, attns, discount, loss_cov, p_copys
-
-    def forward_eval(self, inp_var, inp_mask, aux):
-        """
-
-        :param inp_var: (seq len, batch size)
-        :param inp_mask: [seq len, ....]
-        :return:
-        """
-        emb = self.emb.forward(inp_var)
-        context, h_t = self.enc.forward(emb, inp_mask)
-        if self.feat != None:
-            feats = self.feat.compute(context, features, feature_msks)
-        else:
-            feats = None
-        contxt_len, batch_size, hdim = context.size()
-        context_len__, batch_size__ = inp_var[0].size()
-        assert batch_size == 1
-        assert context_len__ == contxt_len
-        decoder_outputs, attns, p_gens = self.dec.beam_decode(context, inp_mask, h_t, inp_var[0], feats, max_oov_len, scatter_mask)
-        return decoder_outputs, attns, p_gens
 
 
 class Attention(nn.Module):
@@ -1775,103 +1740,57 @@ class RNNDecoder(nn.Module):
         return decoder_outputs_prob, decoder_outputs, Attns, Discount, loss_cov, p_copys
 
 
-class SimpleRNNDecoder(nn.Module):
-    """
-    Simple Recurrent Module without attn, copy, coverage.
-    """
+class Seq2seq(nn.Module):
 
-    def __init__(self, opt, rnn_type, input_size, hidden_size, emb):
-        super(SimpleRNNDecoder, self).__init__()
+    def __init__(self, opt, pretrain=None):
+        super(Seq2seq, self).__init__()
         self.opt = opt
-        self.rnn_type = rnn_type
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.full_dict_size = opt.full_dict_size
-        self.embeddings = emb
-        self.rnn = self.build_rnn(rnn_type, self.input_size, hidden_size)
-        self.W_out_0 = nn.Linear(hidden_size * 2, opt.full_dict_size, bias=True)
-
-    def build_rnn(self, rnn_type, input_size, hidden_size, num_layers=1):
-        if num_layers > 1:
+        embeds = SingleEmbeddings(opt, pretrain)
+        self.emb = embeds
+        if self.opt.enc == 'lstm':
+            enc = RNNEncoder(opt, opt.inp_dim + opt.tag_dim * 2, opt.hid_dim, rnn_type=opt.enc.lower())
+        elif self.opt.enc == 'dconv':
             raise NotImplementedError
-        if rnn_type == 'lstm':
-            return torch.nn.LSTMCell(input_size, hidden_size, bias=True)
-        elif rnn_type == 'gru':
-            return torch.nn.GRUCell(input_size, hidden_size, bias=True)
+        elif self.opt.enc == 'conv':
+            raise NotImplementedError
         else:
             raise NotImplementedError
+        self.enc = enc
+        self.feat = None
+        rnn_dec = RNNDecoder(opt, rnn_type='lstm', num_layers=1, hidden_size=opt.hid_dim, input_size=opt.inp_dim, attn_type='general', coverage=opt.coverage, copy=opt.copy, dropout=opt.dropout, emb=self.emb, full_dict_size=self.opt.full_dict_size, word_dict_size=self.opt.word_dict_size, max_len_dec=opt.max_len_dec)
+        self.dec = rnn_dec
 
-    def run_forward_step(self, input, prev_state):
+    def forward(self, inp_var, inp_msk, tgt_var=None, tgt_msk=None, aux=None):
+        if self.training:
+            self.forward_train(inp_var, inp_msk, tgt_var, tgt_msk, aux)
+        else:
+            self.forward_eval(inp_var, inp_msk, aux)
+
+    def forward_train(self, inp_var, inp_msk, tgt_var, tgt_msk, aux):
+        emb = self.emb.forward(inp_var)
+        context, h_t = self.enc.forward(emb, inp_msk)
+        decoder_outputs_prob, decoder_outputs, attns, discount, loss_cov, p_copys = self.dec.forward(context, inp_msk, h_t, tgt_var, tgt_msk, inp_var, aux)
+        return decoder_outputs_prob, decoder_outputs, attns, discount, loss_cov, p_copys
+
+    def forward_eval(self, inp_var, inp_mask, aux):
         """
-        :param input: (LongTensor): a sequence of input tokens tensors
-                                of size (1 x batch).
-        :param context: (FloatTensor): output(tensor sequence) from the enc
-                        RNN of size (src_len x batch x hidden_size).
-        :param prev_state: tuple (FloatTensor): Maybe a tuple if lstm. (batch x hidden_size) hidden state from the enc RNN for
-                                 initializing the decoder.
-        :param coverage
-        :param inp_var
+
+        :param inp_var: (seq len, batch size)
+        :param inp_mask: [seq len, ....]
         :return:
         """
-        if isinstance(prev_state, tuple):
-            batch_size_, hidden_size_ = prev_state[0].size()
+        emb = self.emb.forward(inp_var)
+        context, h_t = self.enc.forward(emb, inp_mask)
+        if self.feat != None:
+            feats = self.feat.compute(context, features, feature_msks)
         else:
-            batch_size_, hidden_size_ = prev_state.size()
-        inp_size, batch_size__ = input.size()
-        assert inp_size == 1
-        assert batch_size__ == batch_size_
-        if self.opt.use_cuda:
-            input = input
-        emb = self.embeddings.forward_decoding(input)
-        assert emb.dim() == 3
-        emb = emb.squeeze(0)
-        current_raw_state = self.rnn(emb, prev_state)
-        if self.rnn_type == 'lstm':
-            assert type(current_raw_state) == tuple
-            current_state_h = current_raw_state[0]
-            current_state_c = current_raw_state[1]
-        elif self.rnn_type == 'gru':
-            current_state_h = current_raw_state
-            current_state_c = current_raw_state
-        else:
-            raise NotImplementedError
-        hidden_state_vocab = torch.cat([current_state_h, current_state_c], 1)
-        hidden_state_vocab = self.W_out_0(hidden_state_vocab)
-        return current_raw_state, hidden_state_vocab
-
-    def forward(self, state, tgt_var, tgt_msk, aux):
-        batch_size, tgt_len = tgt_var.size()
-        mode = self.training
-        decoder_outputs = torch.LongTensor(tgt_len, batch_size)
-        decoder_outputs_prob = Var(torch.zeros((tgt_len, batch_size, self.full_dict_size)))
-        if self.opt.use_cuda:
-            decoder_outputs_prob = decoder_outputs_prob
-        decoder_input = np.ones((1, batch_size), dtype=int) * self.opt.unk
-        decoder_input = Var(torch.LongTensor(decoder_input))
-        for t in range(tgt_len):
-            state, prob_final = self.run_forward_step(decoder_input, state)
-            decoder_outputs_prob[t] = prob_final
-            topv, topi = prob_final.data.topk(1)
-            topi = topi.squeeze()
-            decoder_outputs[t] = topi
-            if mode:
-                if random.random() >= self.opt.schedule:
-                    decoder_input = topi
-                    decoder_input = Var(decoder_input.unsqueeze(0))
-                else:
-                    decoder_input = Var(tgt_var[:, (t)]).unsqueeze(0)
-            else:
-                decoder_input = Var(tgt_var[:, (t)]).unsqueeze(0)
-        return decoder_outputs_prob, decoder_outputs
-
-    def init_weight(self):
-        if self.rnn_type == 'lstm':
-            nn.init.xavier_uniform(self.rnn.weight_ih, gain=1)
-            nn.init.xavier_uniform(self.rnn.weight_hh, gain=1)
-            torch.nn.init.constant(self.rnn.bias_ih, 0)
-            nn.init.constant(self.rnn.bias_hh, 0)
-        elif self.rnn_type == 'gru':
-            nn.init.xavier_uniform(self.rnn.weight.data, gain=1)
+            feats = None
+        contxt_len, batch_size, hdim = context.size()
+        context_len__, batch_size__ = inp_var[0].size()
+        assert batch_size == 1
+        assert context_len__ == contxt_len
+        decoder_outputs, attns, p_gens = self.dec.beam_decode(context, inp_mask, h_t, inp_var[0], feats, max_oov_len, scatter_mask)
+        return decoder_outputs, attns, p_gens
 
 
 class MultiEmbeddings(nn.Module):
@@ -1912,32 +1831,6 @@ class MultiEmbeddings(nn.Module):
         return embedded_word
 
 
-class SingleEmbeddings(nn.Module):
-
-    def __init__(self, opt, pretrain=None):
-        super(SingleEmbeddings, self).__init__()
-        self.opt = opt
-        self.drop = nn.Dropout(opt.dropout_emb)
-        self.word_embedding = nn.Embedding(opt.full_dict_size, opt.inp_dim)
-        if pretrain is not None:
-            self.word_embedding.weight = nn.Parameter(torch.FloatTensor(pretrain))
-
-    def forward(self, inp):
-        """
-
-        :param inp:
-        :return: seq_len, batch_sz, word_dim
-        """
-        embedded_word = self.word_embedding(inp)
-        emb = self.drop(embedded_word)
-        return emb
-
-    def forward_decoding(self, inp):
-        embedded_word = self.word_embedding(inp)
-        emb = self.drop(embedded_word)
-        return emb
-
-
 class CNNEncoder(nn.Module):
 
     def __init__(self, inp_dim, hid_dim, kernel_sz, pad, dilat):
@@ -1964,397 +1857,75 @@ class DCNNEncoder(nn.Module):
         None
 
 
-class RNNEncoder(nn.Module):
-
-    def __init__(self, opt, input_size, hidden_size, rnn_type='lstm'):
-        super(RNNEncoder, self).__init__()
-        self.n_layers = opt.enc_layers
-        self.bidirect = True
-        self.hidden_size = hidden_size
-        self.input_size = input_size
-        self.rnn_type = rnn_type
-        self.reduce_h_W = nn.Linear(hidden_size * 2, hidden_size, bias=True)
-        self.reduce_c_W = nn.Linear(hidden_size * 2, hidden_size, bias=True)
-        if rnn_type == 'gru':
-            self.rnn = nn.GRU(input_size, hidden_size, batch_first=True, dropout=opt.dropout, bidirectional=self.bidirect)
-        elif rnn_type == 'lstm':
-            self.rnn = nn.LSTM(input_size, hidden_size, num_layers=1, batch_first=True, dropout=opt.dropout, bidirectional=self.bidirect)
-        else:
-            raise NotImplementedError
-        self.init_weight()
-        self.use_cuda = opt.use_cuda
-
-    def init_weight(self):
-        if self.rnn_type == 'lstm':
-            nn.init.xavier_uniform(self.rnn.weight_hh_l0, gain=1)
-            nn.init.xavier_uniform(self.rnn.weight_hh_l0_reverse, gain=1)
-            nn.init.xavier_uniform(self.rnn.weight_ih_l0, gain=1)
-            nn.init.xavier_uniform(self.rnn.weight_ih_l0_reverse, gain=1)
-            torch.nn.init.constant(self.rnn.bias_hh_l0, 0)
-            nn.init.constant(self.rnn.bias_hh_l0_reverse, 0)
-            nn.init.constant(self.rnn.bias_ih_l0, 0)
-            nn.init.constant(self.rnn.bias_ih_l0_reverse, 0)
-        elif self.rnn_type == 'gru':
-            nn.init.xavier_uniform(self.rnn.weight.data, gain=1)
-
-    def init_hidden(self, batch_size):
-        if self.bidirect:
-            result = Var(torch.zeros(self.n_layers * 2, batch_size, self.hidden_size))
-        else:
-            result = Var(torch.zeros(self.n_layers, batch_size, self.hidden_size))
-        if self.use_cuda:
-            return result
-        else:
-            return result
-
-    def forward(self, embedded, inp_msk):
-        """
-
-        :param input: (seq_len, batch size, inp_dim)
-        :param inp_msk: [seq len,....]
-
-        :return: output: PackedSequence (seq_len*batch,  hidden_size * num_directions),
-                hidden tupple ((batch, hidden_size*2), ....)
-        """
-        batch_size = embedded.data.shape[0]
-        packed_embedding = nn.utils.rnn.pack_padded_sequence(embedded, inp_msk, batch_first=True)
-        if self.rnn_type == 'lstm':
-            output, hn = self.rnn(packed_embedding)
-        else:
-            output, hn = self.rnn(packed_embedding, self.init_hidden(batch_size))
-
-        def _fix_hidden(hidden):
-            """
-
-            :param hidden: (num_directions, batch, hidden_size)
-            :return: batch, hidden_size*2
-            """
-            hidden = torch.cat((hidden[0], hidden[1]), dim=1)
-            return hidden
-
-        def compress_blstm_hidden(whole_context):
-            return F.relu(self.reduce_h_W(whole_context))
-        output, context_mask_ = nn.utils.rnn.pad_packed_sequence(output)
-        if self.bidirect:
-            if self.rnn_type == 'lstm':
-                output = compress_blstm_hidden(output)
-                h, c = hn[0], hn[1]
-                h_, c_ = _fix_hidden(h), _fix_hidden(c)
-                new_h = self.reduce_h_W(h_)
-                new_c = self.reduce_c_W(c_)
-                h_t = new_h, new_c
-            elif self.rnn_type == 'gru':
-                h_t = _fix_hidden(hn)
-        else:
-            raise NotImplementedError
-        return h_t
-
-
 class VI(nn.Module):
 
     def __init__(self):
         pass
 
 
-class Gauss(nn.Module):
-
-    def __init__(self, lat_dim):
-        super().__init__()
-        self.lat_dim = lat_dim
-        self.func_mean = torch.nn.Linear(lat_dim, lat_dim)
-        self.func_logvar = torch.nn.Linear(lat_dim, lat_dim)
-        self.gate_mean = nn.Parameter(torch.rand(1))
-        self.gate_var = nn.Parameter(torch.rand(1))
-
-    def estimate_param(self, latent_code):
-        mean = self.func_mean(latent_code)
-        mean = self.gate_mean * mean
-        logvar = self.func_logvar(latent_code)
-        logvar = self.gate_var * logvar + (1 - self.gate_var) * torch.ones_like(logvar)
-        return {'mean': mean, 'logvar': logvar}
-
-    def compute_KLD(self, tup):
-        mean = tup['mean']
-        logvar = tup['logvar']
-        kld = -0.5 * torch.sum(1 - torch.mul(mean, mean) + 2 * logvar - torch.exp(2 * logvar), dim=1)
-        return kld
-
-    def sample_cell(self, batch_size):
-        eps = torch.autograd.Variable(torch.normal(torch.zeros((batch_size, self.lat_dim))))
-        eps = eps
-        return eps
-
-    def build_bow_rep(self, lat_code, n_sample):
-        batch_sz = lat_code.size()[0]
-        tup = self.estimate_param(latent_code=lat_code)
-        mean = tup['mean']
-        logvar = tup['logvar']
-        kld = self.compute_KLD(tup)
-        vecs = []
-        for ns in range(n_sample):
-            eps = self.sample_cell(batch_size=batch_sz)
-            vec = torch.mul(torch.exp(logvar), eps) + mean
-            vecs.append(vec)
-        return tup, kld, vecs
-
-
-class HighVarGauss(nn.Module):
-
-    def __init__(self, lat_dim):
-        super().__init__()
-        self.lat_dim = lat_dim
-        self.func_mean = torch.nn.Linear(lat_dim, lat_dim)
-        self.func_logvar = torch.nn.Linear(lat_dim, lat_dim)
-        self.k = 10
-
-    def estimate_param(self, latent_code):
-        mean = self.func_mean(latent_code)
-        logvar = self.func_logvar(latent_code)
-        return {'mean': mean, 'logvar': logvar}
-
-    def compute_KLD(self, tup):
-        mean = tup['mean']
-        logvar = tup['logvar']
-        kld = -0.5 * torch.sum(1 - torch.mul(mean, mean) / self.k + 2 * logvar - torch.exp(2 * logvar) / self.k - 2, dim=1)
-        return kld
-
-    def sample_cell(self, batch_size):
-        eps = torch.autograd.Variable(torch.normal(torch.zeros((batch_size, self.lat_dim))))
-        eps = eps
-        return eps
-
-    def build_bow_rep(self, lat_code):
-        batch_sz = lat_code.size()[0]
-        tup = self.estimate_param(latent_code=lat_code)
-        kld = self.compute_KLD(tup)
-        eps = self.sample_cell(batch_size=batch_sz)
-        mean = tup['mean']
-        logvar = tup['logvar']
-        vec = torch.mul(torch.exp(logvar), eps) + mean
-        return tup, kld, vec
-
-
-class vMF(nn.Module):
-
-    def __init__(self, lat_dim, kappa=0):
-        super().__init__()
-        self.lat_dim = lat_dim
-        self.mu = torch.nn.Linear(lat_dim, lat_dim)
-        self.kappa = kappa
-        self.norm_eps = 1
-        self.normclip = torch.nn.Hardtanh(0, 10 - 1)
-
-    def estimate_param(self, latent_code):
-        mu = self.mu(latent_code)
-        return {'mu': mu}
-
-    def compute_KLD(self):
-        kld = 0
-        return kld
-
-    def vmf_unif_sampler(self, mu):
-        batch_size, id_dim = mu.size()
-        result_list = []
-        for i in range(batch_size):
-            munorm = mu[i].norm().expand(id_dim)
-            munoise = self.add_norm_noise(munorm, self.norm_eps)
-            if float(mu[i].norm().data.cpu().numpy()) > 1e-10:
-                w = self._sample_weight(self.kappa, id_dim)
-                wtorch = torch.autograd.Variable(w * torch.ones(id_dim))
-                v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
-                scale_factr = torch.sqrt(torch.autograd.Variable(torch.ones(id_dim)) - torch.pow(wtorch, 2))
-                orth_term = v * scale_factr
-                muscale = mu[i] * wtorch / munorm
-                sampled_vec = (orth_term + muscale) * munoise
-            else:
-                rand_draw = torch.autograd.Variable(torch.randn(id_dim))
-                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(id_dim)
-                rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
-                sampled_vec = rand_draw * torch.autograd.Variable(rand_norms)
-            result_list.append(sampled_vec)
-        return torch.stack(result_list, 0)
-
-    def vmf_sampler(self, mu):
-        mu = mu.cpu()
-        batch_size, id_dim = mu.size()
-        result_list = []
-        for i in range(batch_size):
-            munorm = mu[i].norm().expand(id_dim)
-            if float(mu[i].norm().data.cpu().numpy()) > 1e-10:
-                w = vMF.sample_vmf_w(self.kappa, id_dim)
-                wtorch = torch.autograd.Variable(w * torch.ones(id_dim))
-                v = self._sample_orthonormal_to(mu[i] / munorm, id_dim)
-                scale_factr = torch.sqrt(Variable(torch.ones(id_dim)) - torch.pow(wtorch, 2))
-                orth_term = v * scale_factr
-                muscale = mu[i] * wtorch / munorm
-                sampled_vec = (orth_term + muscale) * munorm
-            else:
-                rand_draw = Variable(torch.randn(id_dim))
-                rand_draw = rand_draw / torch.norm(rand_draw, p=2).expand(id_dim)
-                rand_norms = (torch.rand(1) * self.norm_eps).expand(id_dim)
-                sampled_vec = rand_draw * Variable(rand_norms)
-            result_list.append(sampled_vec)
-        return torch.stack(result_list, 0)
-
-    def build_bow_rep(self, lat_code, n_sample):
-        batch_sz = lat_code.size()[0]
-        tup = self.estimate_param(latent_code=lat_code)
-        kld = 0
-        vecs = []
-        for ns in range(n_sample):
-            vec = self.vmf_unif_sampler(tup['mu'])
-            vecs.append(vec)
-        return tup, kld, vecs
-
-    @staticmethod
-    def _sample_weight(kappa, dim):
-        """Rejection sampling scheme for sampling distance from center on
-        surface of the sphere.
-        """
-        dim = dim - 1
-        b = dim / (np.sqrt(4.0 * kappa ** 2 + dim ** 2) + 2 * kappa)
-        x = (1.0 - b) / (1.0 + b)
-        c = kappa * x + dim * np.log(1 - x ** 2)
-        while True:
-            z = np.random.beta(dim / 2.0, dim / 2.0)
-            w = (1.0 - (1.0 + b) * z) / (1.0 - (1.0 - b) * z)
-            u = np.random.uniform(low=0, high=1)
-            if kappa * w + dim * np.log(1.0 - x * w) - c >= np.log(u):
-                return w
-
-    def _sample_orthonormal_to(self, mu, dim):
-        """Sample point on sphere orthogonal to mu.
-        """
-        v = Variable(torch.randn(dim))
-        rescale_value = mu.dot(v) / mu.norm()
-        proj_mu_v = mu * rescale_value.expand(dim)
-        ortho = v - proj_mu_v
-        ortho_norm = torch.norm(ortho)
-        return ortho / ortho_norm.expand_as(ortho)
-
-    @staticmethod
-    def sample_vmf_v(mu):
-        import scipy.linalg as la
-        mat = np.matrix(mu)
-        if mat.shape[1] > mat.shape[0]:
-            mat = mat.T
-        U, _, _ = la.svd(mat)
-        nu = np.matrix(np.random.randn(mat.shape[0])).T
-        x = np.dot(U[:, 1:], nu[1:, :])
-        return x / la.norm(x)
-
-    @staticmethod
-    def sample_vmf_w(kappa, m):
-        b = (-2 * kappa + np.sqrt(4.0 * kappa ** 2 + (m - 1) ** 2)) / (m - 1)
-        a = (m - 1 + 2 * kappa + np.sqrt(4 * kappa ** 2 + (m - 1) ** 2)) / 4
-        d = 4 * a * b / (1 + b) - (m - 1) * np.log(m - 1)
-        while True:
-            z = np.random.beta(0.5 * (m - 1), 0.5 * (m - 1))
-            W = (1 - (1 + b) * z) / (1 + (1 - b) * z)
-            T = 2 * a * b / (1 + (1 - b) * z)
-            u = np.random.uniform(0, 1)
-            if (m - 1) * np.log(T) - T + d >= np.log(u):
-                return W
-
-    def add_norm_noise(self, munorm, eps):
-        """
-        KL loss is - log(maxvalue/eps)
-        cut at maxvalue-eps, and add [0,eps] noise.
-        """
-        trand = torch.rand(1).expand(munorm.size()) * eps
-        return self.normclip(munorm) + torch.autograd.Variable(trand)
-
-
-class BowVAE(torch.nn.Module):
-
-    def __init__(self, vocab_size, n_hidden, n_lat, n_sample, batch_size, non_linearity, dist):
-        super().__init__()
-        self.vocab_size = vocab_size
-        self.n_hidden = n_hidden
-        self.n_lat = n_lat
-        self.n_sample = n_sample
-        self.non_linearity = non_linearity
-        self.batch_size = batch_size
-        self.dist_type = dist
-        self.dropout = torch.nn.Dropout(p=0.2)
-        self.criterion = torch.nn.CrossEntropyLoss(ignore_index=-1)
-        self.enc_vec = torch.nn.Linear(self.vocab_size, self.n_hidden)
-        self.active = torch.nn.LeakyReLU()
-        self.enc_vec_2 = torch.nn.Linear(self.n_hidden, self.n_lat)
-        if self.dist_type == 'nor':
-            self.dist = Gauss(n_lat)
-        elif self.dist_type == 'hnor':
-            self.dist = HighVarGauss(n_lat)
-        elif self.dist_type == 'vmf':
-            self.dist = vMF(n_lat)
-        else:
-            raise NotImplementedError
-        self.out = torch.nn.Linear(self.n_lat, self.vocab_size)
-
-    def forward(self, x, mask):
-        batch_sz = x.size()[0]
-        linear_x = self.enc_vec(x)
-        active_x = self.active(linear_x)
-        linear_x_2 = self.enc_vec_2(active_x)
-        tup, kld, vecs = self.dist.build_bow_rep(linear_x_2, self.n_sample)
-        ys = 0
-        for i, v in enumerate(vecs):
-            logit = torch.nn.functional.log_softmax(self.out(v))
-            logit = self.dropout(logit)
-            ys += torch.mul(x, logit)
-        y = ys / self.n_sample
-        recon_loss = -torch.sum(y, dim=1, keepdim=False)
-        kld = kld * mask
-        recon_loss = recon_loss * mask
-        total_loss = kld + recon_loss
-        return recon_loss, kld, total_loss
-
-
 class RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
+    def __init__(self, ntoken, ninp, nhid, agenda_dim, nlayers=1, dropout=0.5, tie_weights=False):
         super(RNNModel, self).__init__()
         self.drop = nn.Dropout(dropout)
-        self.encoder = nn.Embedding(ntoken, ninp)
-        if rnn_type in ['LSTM', 'GRU']:
-            self.rnn = getattr(nn, rnn_type)(ninp, nhid, nlayers, dropout=dropout)
-        else:
-            try:
-                nonlinearity = {'RNN_TANH': 'tanh', 'RNN_RELU': 'relu'}[rnn_type]
-            except KeyError:
-                raise ValueError("""An invalid option for `--model` was supplied,
-                                 options are ['LSTM', 'GRU', 'RNN_TANH' or 'RNN_RELU']""")
-            self.rnn = nn.RNN(ninp, nhid, nlayers, nonlinearity=nonlinearity, dropout=dropout)
-        self.decoder = nn.Linear(nhid, ntoken)
+        self.embed = nn.Embedding(ntoken, ninp)
+        self.decoder_rnn = nn.LSTM(ninp + agenda_dim, nhid, nlayers, dropout=dropout)
+        self.decoder_out = nn.Linear(nhid, ntoken)
         if tie_weights:
             if nhid != ninp:
                 raise ValueError('When using the tied flag, nhid must be equal to emsize')
-            self.decoder.weight = self.encoder.weight
+            self.decoder_out.weight = self.embed.weight
         self.init_weights()
-        self.rnn_type = rnn_type
         self.nhid = nhid
         self.nlayers = nlayers
 
     def init_weights(self):
         initrange = 0.1
-        self.encoder.weight.data.uniform_(-initrange, initrange)
-        self.decoder.bias.data.fill_(0)
-        self.decoder.weight.data.uniform_(-initrange, initrange)
+        self.embed.weight.data.uniform_(-initrange, initrange)
+        self.decoder_out.bias.data.fill_(0)
+        self.decoder_out.weight.data.uniform_(-initrange, initrange)
 
-    def forward(self, input, hidden):
-        emb = self.drop(self.encoder(input))
-        output, hidden = self.rnn(emb, hidden)
+    def forward(self, input, hidden=None):
+        batch_sz = input.size()[1]
+        if hidden is None:
+            hidden = self.init_hidden(batch_sz)
+        emb = self.drop(self.embed(input))
+        output, hidden = self.decoder_rnn(emb, hidden)
         output = self.drop(output)
-        decoded = self.decoder(output.view(output.size(0) * output.size(1), output.size(2)))
+        decoded = self.decoder_out(output.view(output.size(0) * output.size(1), output.size(2)))
         return decoded.view(output.size(0), output.size(1), decoded.size(1)), hidden
 
+    def forward_decode(self, args, input, ntokens):
+        seq_len = input.size()[0]
+        batch_sz = input.size()[1]
+        hidden = None
+        outputs_prob = Variable(torch.FloatTensor(seq_len, batch_sz, ntokens))
+        if args.cuda:
+            outputs_prob = outputs_prob
+        outputs = torch.LongTensor(seq_len, batch_sz)
+        sos = Variable(torch.ones(batch_sz).long())
+        unk = Variable(torch.ones(batch_sz).long()) * 2
+        if args.cuda:
+            sos = sos
+            unk = unk
+        emb_0 = self.drop(self.encoder(sos)).unsqueeze(0)
+        emb_t = self.drop(self.encoder(unk)).unsqueeze(0)
+        for t in range(seq_len):
+            if t == 0:
+                emb = emb_0
+            else:
+                emb = emb_t
+            output, hidden = self.rnn(emb, hidden)
+            output_prob = self.decoder(self.drop(output))
+            output_prob = output_prob.squeeze(0)
+            outputs_prob[t] = output_prob
+            value, ind = torch.topk(output_prob, 1, dim=1)
+            outputs[t] = ind.squeeze(1).data
+        return outputs_prob, outputs
+
     def init_hidden(self, bsz):
-        weight = next(self.parameters()).data
-        if self.rnn_type == 'LSTM':
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_()), Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
-        else:
-            return Variable(weight.new(self.nlayers, bsz, self.nhid).zero_())
+        return Variable(torch.zeros(self.nlayers, bsz, self.nhid)), Variable(torch.zeros(self.nlayers, bsz, self.nhid))
 
 
 class LanguageModel(Module):
@@ -2480,69 +2051,57 @@ class EncoderNoiser(Module):
         return agenda, agenda + noise
 
 
-class RNNModel(nn.Module):
-    """Container module with an encoder, a recurrent module, and a decoder."""
+class NoisyLanguageModel(LanguageModel):
 
-    def __init__(self, ntoken, ninp, nhid, agenda_dim, nlayers=1, dropout=0.5, tie_weights=False):
-        super(RNNModel, self).__init__()
-        self.drop = nn.Dropout(dropout)
-        self.embed = nn.Embedding(ntoken, ninp)
-        self.decoder_rnn = nn.LSTM(ninp + agenda_dim, nhid, nlayers, dropout=dropout)
-        self.decoder_out = nn.Linear(nhid, ntoken)
-        if tie_weights:
-            if nhid != ninp:
-                raise ValueError('When using the tied flag, nhid must be equal to emsize')
-            self.decoder_out.weight = self.embed.weight
-        self.init_weights()
-        self.nhid = nhid
-        self.nlayers = nlayers
+    def __init__(self, token_embedder, hidden_dim, agenda_dim, num_layers, kl_weight_steps, kl_weight_rate, kl_weight_cap, dci_keep_rate, logger):
+        super(NoisyLanguageModel, self).__init__(token_embedder, hidden_dim, agenda_dim, num_layers, logger)
+        encoder = Encoder(token_embedder, hidden_dim, agenda_dim, num_layers, rnn_cell_factory=LSTMCell)
+        self.encoder = EncoderNoiser(encoder, kl_weight_steps, kl_weight_rate, kl_weight_cap)
+        self.dci_keep_rate = dci_keep_rate
 
-    def init_weights(self):
-        initrange = 0.1
-        self.embed.weight.data.uniform_(-initrange, initrange)
-        self.decoder_out.bias.data.fill_(0)
-        self.decoder_out.weight.data.uniform_(-initrange, initrange)
+    def loss(self, examples, train_step):
+        """Compute training loss.
 
-    def forward(self, input, hidden=None):
-        batch_sz = input.size()[1]
-        if hidden is None:
-            hidden = self.init_hidden(batch_sz)
-        emb = self.drop(self.embed(input))
-        output, hidden = self.decoder_rnn(emb, hidden)
-        output = self.drop(output)
-        decoded = self.decoder_out(output.view(output.size(0) * output.size(1), output.size(2)))
-        return decoded.view(output.size(0), output.size(1), decoded.size(1)), hidden
+        Args:
+            examples (list[list[unicode]])
 
-    def forward_decode(self, args, input, ntokens):
-        seq_len = input.size()[0]
-        batch_sz = input.size()[1]
-        hidden = None
-        outputs_prob = Variable(torch.FloatTensor(seq_len, batch_sz, ntokens))
-        if args.cuda:
-            outputs_prob = outputs_prob
-        outputs = torch.LongTensor(seq_len, batch_sz)
-        sos = Variable(torch.ones(batch_sz).long())
-        unk = Variable(torch.ones(batch_sz).long()) * 2
-        if args.cuda:
-            sos = sos
-            unk = unk
-        emb_0 = self.drop(self.encoder(sos)).unsqueeze(0)
-        emb_t = self.drop(self.encoder(unk)).unsqueeze(0)
-        for t in range(seq_len):
-            if t == 0:
-                emb = emb_0
-            else:
-                emb = emb_t
-            output, hidden = self.rnn(emb, hidden)
-            output_prob = self.decoder(self.drop(output))
-            output_prob = output_prob.squeeze(0)
-            outputs_prob[t] = output_prob
-            value, ind = torch.topk(output_prob, 1, dim=1)
-            outputs[t] = ind.squeeze(1).data
-        return outputs_prob, outputs
+        Returns:
+            Variable: a scalar
+        """
+        enc_input = self.encoder.preprocess(examples)
+        agenda, noised_agenda = self.encoder(enc_input)
+        kl = self.encoder.kl_penalty(agenda)
+        kl_wt = self.encoder.kl_weight(train_step)
+        kl_ = kl.data.cpu().numpy()[0]
+        self.logger('kl_penalty', kl_, train_step)
+        self.logger('kl_weight', kl_wt, train_step)
+        decoder_input = DropoutTrainDecoderInput(examples, self.vocab, self.dci_keep_rate)
+        return kl_wt * kl + self.train_decoder.loss(noised_agenda, decoder_input)
 
-    def init_hidden(self, bsz):
-        return Variable(torch.zeros(self.nlayers, bsz, self.nhid)), Variable(torch.zeros(self.nlayers, bsz, self.nhid))
+    def _interpolate_vectors(self, v_a, v_b, steps=5):
+        lambdas = np.linspace(0, 1, steps)
+        interps = [((1 - l) * v_a + l * v_b) for l in lambdas]
+        return interps
+
+    def _interpolate_examples(self, ex_a, ex_b):
+        """
+        Args:
+            [unicode], [unicode]
+
+        Returns:
+            [[unicode]]
+        """
+        examples = [ex_a, ex_b]
+        enc_input = self.encoder.preprocess(examples)
+        agenda, _ = self.encoder(enc_input)
+        agenda_ = agenda.data.cpu().numpy()
+        agendas = self._interpolate_vectors(agenda_[(0), :], agenda_[(1), :])
+        samples = []
+        for i, ag_ in enumerate(agendas):
+            ag = GPUVariable(torch.FloatTensor(ag_.reshape(1, self.agenda_dim)))
+            beam, _ = self.beam_decoder.decode([0], ag, weighted_value_estimators=[], beam_size=1, prefix_hints=[[]], sibling_penalty=0)
+            samples.append(beam[0][0])
+        return samples
 
 
 class VAEModel(nn.Module):

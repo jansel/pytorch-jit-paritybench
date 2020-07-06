@@ -18,15 +18,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -43,6 +44,21 @@ import numpy as np
 import torch.nn as nn
 
 
+import random
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+from torchvision import utils
+
+
+from torch.utils.data.sampler import Sampler
+
+
 import math
 
 
@@ -52,13 +68,13 @@ import torch.utils.model_zoo as model_zoo
 from torchvision.ops import nms
 
 
+import warnings
+
+
 import collections
 
 
 import torch.optim as optim
-
-
-from torch.utils.data import DataLoader
 
 
 import torchvision
@@ -68,9 +84,6 @@ import time
 
 
 import copy
-
-
-from torch.utils.data import Dataset
 
 
 from torchvision import datasets
@@ -136,7 +149,7 @@ class Anchors(nn.Module):
             shifted_anchors = shift(image_shapes[idx], self.strides[idx], anchors)
             all_anchors = np.append(all_anchors, shifted_anchors, axis=0)
         all_anchors = np.expand_dims(all_anchors, axis=0)
-        if torch.is_available():
+        if torch.cuda.is_available():
             return torch.from_numpy(all_anchors.astype(np.float32))
         else:
             return torch.from_numpy(all_anchors.astype(np.float32))
@@ -174,7 +187,7 @@ class FocalLoss(nn.Module):
             bbox_annotation = annotations[(j), :, :]
             bbox_annotation = bbox_annotation[bbox_annotation[:, (4)] != -1]
             if bbox_annotation.shape[0] == 0:
-                if torch.is_available():
+                if torch.cuda.is_available():
                     regression_losses.append(torch.tensor(0).float())
                     classification_losses.append(torch.tensor(0).float())
                 else:
@@ -185,7 +198,7 @@ class FocalLoss(nn.Module):
             IoU = calc_iou(anchors[(0), :, :], bbox_annotation[:, :4])
             IoU_max, IoU_argmax = torch.max(IoU, dim=1)
             targets = torch.ones(classification.shape) * -1
-            if torch.is_available():
+            if torch.cuda.is_available():
                 targets = targets
             targets[(torch.lt(IoU_max, 0.4)), :] = 0
             positive_indices = torch.ge(IoU_max, 0.5)
@@ -193,7 +206,7 @@ class FocalLoss(nn.Module):
             assigned_annotations = bbox_annotation[(IoU_argmax), :]
             targets[(positive_indices), :] = 0
             targets[positive_indices, assigned_annotations[positive_indices, 4].long()] = 1
-            if torch.is_available():
+            if torch.cuda.is_available():
                 alpha_factor = torch.ones(targets.shape) * alpha
             else:
                 alpha_factor = torch.ones(targets.shape) * alpha
@@ -202,7 +215,7 @@ class FocalLoss(nn.Module):
             focal_weight = alpha_factor * torch.pow(focal_weight, gamma)
             bce = -(targets * torch.log(classification) + (1.0 - targets) * torch.log(1.0 - classification))
             cls_loss = focal_weight * bce
-            if torch.is_available():
+            if torch.cuda.is_available():
                 cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, torch.zeros(cls_loss.shape))
             else:
                 cls_loss = torch.where(torch.ne(targets, -1.0), cls_loss, torch.zeros(cls_loss.shape))
@@ -225,7 +238,7 @@ class FocalLoss(nn.Module):
                 targets_dh = torch.log(gt_heights / anchor_heights_pi)
                 targets = torch.stack((targets_dx, targets_dy, targets_dw, targets_dh))
                 targets = targets.t()
-                if torch.is_available():
+                if torch.cuda.is_available():
                     targets = targets / torch.Tensor([[0.1, 0.1, 0.2, 0.2]])
                 else:
                     targets = targets / torch.Tensor([[0.1, 0.1, 0.2, 0.2]])
@@ -233,7 +246,7 @@ class FocalLoss(nn.Module):
                 regression_diff = torch.abs(targets - regression[(positive_indices), :])
                 regression_loss = torch.where(torch.le(regression_diff, 1.0 / 9.0), 0.5 * 9.0 * torch.pow(regression_diff, 2), regression_diff - 0.5 / 9.0)
                 regression_losses.append(regression_loss.mean())
-            elif torch.is_available():
+            elif torch.cuda.is_available():
                 regression_losses.append(torch.tensor(0).float())
             else:
                 regression_losses.append(torch.tensor(0).float())
@@ -336,6 +349,124 @@ class ClassificationModel(nn.Module):
         return out2.contiguous().view(x.shape[0], -1, self.num_classes)
 
 
+class BBoxTransform(nn.Module):
+
+    def __init__(self, mean=None, std=None):
+        super(BBoxTransform, self).__init__()
+        if mean is None:
+            if torch.cuda.is_available():
+                self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
+            else:
+                self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
+        else:
+            self.mean = mean
+        if std is None:
+            if torch.cuda.is_available():
+                self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
+            else:
+                self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
+        else:
+            self.std = std
+
+    def forward(self, boxes, deltas):
+        widths = boxes[:, :, (2)] - boxes[:, :, (0)]
+        heights = boxes[:, :, (3)] - boxes[:, :, (1)]
+        ctr_x = boxes[:, :, (0)] + 0.5 * widths
+        ctr_y = boxes[:, :, (1)] + 0.5 * heights
+        dx = deltas[:, :, (0)] * self.std[0] + self.mean[0]
+        dy = deltas[:, :, (1)] * self.std[1] + self.mean[1]
+        dw = deltas[:, :, (2)] * self.std[2] + self.mean[2]
+        dh = deltas[:, :, (3)] * self.std[3] + self.mean[3]
+        pred_ctr_x = ctr_x + dx * widths
+        pred_ctr_y = ctr_y + dy * heights
+        pred_w = torch.exp(dw) * widths
+        pred_h = torch.exp(dh) * heights
+        pred_boxes_x1 = pred_ctr_x - 0.5 * pred_w
+        pred_boxes_y1 = pred_ctr_y - 0.5 * pred_h
+        pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
+        pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
+        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
+        return pred_boxes
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(BasicBlock, self).__init__()
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+        out = self.conv3(out)
+        out = self.bn3(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
+
+
+class ClipBoxes(nn.Module):
+
+    def __init__(self, width=None, height=None):
+        super(ClipBoxes, self).__init__()
+
+    def forward(self, boxes, img):
+        batch_size, num_channels, height, width = img.shape
+        boxes[:, :, (0)] = torch.clamp(boxes[:, :, (0)], min=0)
+        boxes[:, :, (1)] = torch.clamp(boxes[:, :, (1)], min=0)
+        boxes[:, :, (2)] = torch.clamp(boxes[:, :, (2)], max=width)
+        boxes[:, :, (3)] = torch.clamp(boxes[:, :, (3)], max=height)
+        return boxes
+
+
 class ResNet(nn.Module):
 
     def __init__(self, num_classes, block, layers):
@@ -426,124 +557,6 @@ class ResNet(nn.Module):
             return [nms_scores, nms_class, transformed_anchors[(0), (anchors_nms_idx), :]]
 
 
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class Bottleneck(nn.Module):
-    expansion = 4
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
-        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
-        self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        out = self.relu(out)
-        out = self.conv3(out)
-        out = self.bn3(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
-
-
-class BBoxTransform(nn.Module):
-
-    def __init__(self, mean=None, std=None):
-        super(BBoxTransform, self).__init__()
-        if mean is None:
-            if torch.is_available():
-                self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
-            else:
-                self.mean = torch.from_numpy(np.array([0, 0, 0, 0]).astype(np.float32))
-        else:
-            self.mean = mean
-        if std is None:
-            if torch.is_available():
-                self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
-            else:
-                self.std = torch.from_numpy(np.array([0.1, 0.1, 0.2, 0.2]).astype(np.float32))
-        else:
-            self.std = std
-
-    def forward(self, boxes, deltas):
-        widths = boxes[:, :, (2)] - boxes[:, :, (0)]
-        heights = boxes[:, :, (3)] - boxes[:, :, (1)]
-        ctr_x = boxes[:, :, (0)] + 0.5 * widths
-        ctr_y = boxes[:, :, (1)] + 0.5 * heights
-        dx = deltas[:, :, (0)] * self.std[0] + self.mean[0]
-        dy = deltas[:, :, (1)] * self.std[1] + self.mean[1]
-        dw = deltas[:, :, (2)] * self.std[2] + self.mean[2]
-        dh = deltas[:, :, (3)] * self.std[3] + self.mean[3]
-        pred_ctr_x = ctr_x + dx * widths
-        pred_ctr_y = ctr_y + dy * heights
-        pred_w = torch.exp(dw) * widths
-        pred_h = torch.exp(dh) * heights
-        pred_boxes_x1 = pred_ctr_x - 0.5 * pred_w
-        pred_boxes_y1 = pred_ctr_y - 0.5 * pred_h
-        pred_boxes_x2 = pred_ctr_x + 0.5 * pred_w
-        pred_boxes_y2 = pred_ctr_y + 0.5 * pred_h
-        pred_boxes = torch.stack([pred_boxes_x1, pred_boxes_y1, pred_boxes_x2, pred_boxes_y2], dim=2)
-        return pred_boxes
-
-
-class ClipBoxes(nn.Module):
-
-    def __init__(self, width=None, height=None):
-        super(ClipBoxes, self).__init__()
-
-    def forward(self, boxes, img):
-        batch_size, num_channels, height, width = img.shape
-        boxes[:, :, (0)] = torch.clamp(boxes[:, :, (0)], min=0)
-        boxes[:, :, (1)] = torch.clamp(boxes[:, :, (1)], min=0)
-        boxes[:, :, (2)] = torch.clamp(boxes[:, :, (2)], max=width)
-        boxes[:, :, (3)] = torch.clamp(boxes[:, :, (3)], max=height)
-        return boxes
-
-
 import torch
 from torch.nn import MSELoss, ReLU
 from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _fails_compile
@@ -551,6 +564,14 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (Anchors,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (BBoxTransform,
+     lambda: ([], {}),
+     lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
     (BasicBlock,
      lambda: ([], {'inplanes': 4, 'planes': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -581,4 +602,10 @@ class Test_yhenon_pytorch_retinanet(_paritybench_base):
 
     def test_003(self):
         self._check(*TESTCASES[3])
+
+    def test_004(self):
+        self._check(*TESTCASES[4])
+
+    def test_005(self):
+        self._check(*TESTCASES[5])
 

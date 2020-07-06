@@ -18,15 +18,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -40,7 +41,16 @@ import torch.nn as nn
 import torch.autograd as autograd
 
 
+from math import sqrt
+
+
 import numpy as np
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
 
 
 import time
@@ -171,6 +181,31 @@ class PinballLoss(nn.Module):
         return torch.sum(final_loss) / self.output_size * 2
 
 
+class ResidualDRNN(nn.Module):
+
+    def __init__(self, config):
+        super(ResidualDRNN, self).__init__()
+        self.config = config
+        layers = []
+        for grp_num in range(len(self.config['dilations'])):
+            if grp_num == 0:
+                input_size = self.config['input_size'] + self.config['num_of_categories']
+            else:
+                input_size = self.config['state_hsize']
+            l = DRNN(input_size, self.config['state_hsize'], n_layers=len(self.config['dilations'][grp_num]), dilations=self.config['dilations'][grp_num], cell_type=self.config['rnn_cell_type'])
+            layers.append(l)
+        self.rnn_stack = nn.Sequential(*layers)
+
+    def forward(self, input_data):
+        for layer_num in range(len(self.rnn_stack)):
+            residual = input_data
+            out, _ = self.rnn_stack[layer_num](input_data)
+            if layer_num > 0:
+                out += residual
+            input_data = out
+        return out
+
+
 class ESRNN(nn.Module):
 
     def __init__(self, num_series, config):
@@ -261,31 +296,6 @@ class ESRNN(nn.Module):
             data = self.act(data)
         data = self.scoring(data)
         return data
-
-
-class ResidualDRNN(nn.Module):
-
-    def __init__(self, config):
-        super(ResidualDRNN, self).__init__()
-        self.config = config
-        layers = []
-        for grp_num in range(len(self.config['dilations'])):
-            if grp_num == 0:
-                input_size = self.config['input_size'] + self.config['num_of_categories']
-            else:
-                input_size = self.config['state_hsize']
-            l = DRNN(input_size, self.config['state_hsize'], n_layers=len(self.config['dilations'][grp_num]), dilations=self.config['dilations'][grp_num], cell_type=self.config['rnn_cell_type'])
-            layers.append(l)
-        self.rnn_stack = nn.Sequential(*layers)
-
-    def forward(self, input_data):
-        for layer_num in range(len(self.rnn_stack)):
-            residual = input_data
-            out, _ = self.rnn_stack[layer_num](input_data)
-            if layer_num > 0:
-                out += residual
-            input_data = out
-        return out
 
 
 class Logger(object):

@@ -20,15 +20,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -52,6 +53,21 @@ import copy
 
 
 from collections import OrderedDict
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
+
+
+import collections
+
+
+from scipy import signal
+
+
+from scipy.io.wavfile import write
 
 
 class Linear(nn.Module):
@@ -290,6 +306,35 @@ class Prenet(nn.Module):
         return out
 
 
+class Highwaynet(nn.Module):
+    """
+    Highway network
+    """
+
+    def __init__(self, num_units, num_layers=4):
+        """
+        :param num_units: dimension of hidden unit
+        :param num_layers: # of highway layers
+        """
+        super(Highwaynet, self).__init__()
+        self.num_units = num_units
+        self.num_layers = num_layers
+        self.gates = nn.ModuleList()
+        self.linears = nn.ModuleList()
+        for _ in range(self.num_layers):
+            self.linears.append(Linear(num_units, num_units))
+            self.gates.append(Linear(num_units, num_units))
+
+    def forward(self, input_):
+        out = input_
+        for fc1, fc2 in zip(self.linears, self.gates):
+            h = t.relu(fc1.forward(out))
+            t_ = t.sigmoid(fc2.forward(out))
+            c = 1.0 - t_
+            out = h * t_ + out * c
+        return out
+
+
 class CBHG(nn.Module):
     """
     CBHG Module
@@ -345,35 +390,6 @@ class CBHG(nn.Module):
         highway = self.highway.forward(conv_projection.transpose(1, 2))
         self.gru.flatten_parameters()
         out, _ = self.gru(highway)
-        return out
-
-
-class Highwaynet(nn.Module):
-    """
-    Highway network
-    """
-
-    def __init__(self, num_units, num_layers=4):
-        """
-        :param num_units: dimension of hidden unit
-        :param num_layers: # of highway layers
-        """
-        super(Highwaynet, self).__init__()
-        self.num_units = num_units
-        self.num_layers = num_layers
-        self.gates = nn.ModuleList()
-        self.linears = nn.ModuleList()
-        for _ in range(self.num_layers):
-            self.linears.append(Linear(num_units, num_units))
-            self.gates.append(Linear(num_units, num_units))
-
-    def forward(self, input_):
-        out = input_
-        for fc1, fc2 in zip(self.linears, self.gates):
-            h = t.relu(fc1.forward(out))
-            t_ = t.sigmoid(fc2.forward(out))
-            c = 1.0 - t_
-            out = h * t_ + out * c
         return out
 
 

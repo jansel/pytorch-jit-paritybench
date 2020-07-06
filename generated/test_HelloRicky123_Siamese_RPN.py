@@ -23,20 +23,24 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
 import torch
+
+
+import numpy as np
 
 
 import torch.nn
@@ -46,9 +50,6 @@ import torch.nn.functional as F
 
 
 import random
-
-
-import numpy as np
 
 
 import time
@@ -61,6 +62,9 @@ from torch.multiprocessing import Pool
 
 
 from torch.multiprocessing import Manager
+
+
+from torch.utils.data.dataset import Dataset
 
 
 import torchvision.transforms as transforms
@@ -90,19 +94,10 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 
 
+from sklearn.model_selection import train_test_split
+
+
 from collections import OrderedDict
-
-
-_global_config['anchor_num'] = 4
-
-
-_global_config['total_stride'] = 1
-
-
-_global_config['instance_size'] = 4
-
-
-_global_config['exemplar_size'] = 4
 
 
 class SiameseAlexNet(nn.Module):

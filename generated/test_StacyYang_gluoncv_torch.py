@@ -21,15 +21,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -59,6 +60,12 @@ from collections import OrderedDict
 
 
 from functools import partial
+
+
+import torchvision.transforms as transform
+
+
+import re
 
 
 up_kwargs = {'mode': 'bilinear', 'align_corners': True}
@@ -103,18 +110,9 @@ class BaseNet(nn.Module):
         return pred
 
 
-class DeepLabV3Head(nn.Module):
-
-    def __init__(self, in_channels, out_channels, norm_layer, up_kwargs, atrous_rates=[12, 24, 36], **kwargs):
-        super(DeepLabV3Head, self).__init__()
-        inter_channels = in_channels // 8
-        self.aspp = ASPP_Module(in_channels, atrous_rates, norm_layer, up_kwargs, **kwargs)
-        self.block = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(True), nn.Dropout2d(0.1, False), nn.Conv2d(inter_channels, out_channels, 1))
-
-    def forward(self, x):
-        x = self.aspp(x)
-        x = self.block(x)
-        return x
+def ASPPConv(in_channels, out_channels, atrous_rate, norm_layer):
+    block = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=atrous_rate, dilation=atrous_rate, bias=False), norm_layer(out_channels), nn.ReLU(True))
+    return block
 
 
 class AsppPooling(nn.Module):
@@ -128,11 +126,6 @@ class AsppPooling(nn.Module):
         _, _, h, w = x.size()
         pool = self.gap(x)
         return interpolate(pool, (h, w), **self._up_kwargs)
-
-
-def ASPPConv(in_channels, out_channels, atrous_rate, norm_layer):
-    block = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=atrous_rate, dilation=atrous_rate, bias=False), norm_layer(out_channels), nn.ReLU(True))
-    return block
 
 
 class ASPP_Module(nn.Module):
@@ -158,6 +151,20 @@ class ASPP_Module(nn.Module):
         return self.project(y)
 
 
+class DeepLabV3Head(nn.Module):
+
+    def __init__(self, in_channels, out_channels, norm_layer, up_kwargs, atrous_rates=[12, 24, 36], **kwargs):
+        super(DeepLabV3Head, self).__init__()
+        inter_channels = in_channels // 8
+        self.aspp = ASPP_Module(in_channels, atrous_rates, norm_layer, up_kwargs, **kwargs)
+        self.block = nn.Sequential(nn.Conv2d(inter_channels, inter_channels, 3, padding=1, bias=False), norm_layer(inter_channels), nn.ReLU(True), nn.Dropout2d(0.1, False), nn.Conv2d(inter_channels, out_channels, 1))
+
+    def forward(self, x):
+        x = self.aspp(x)
+        x = self.block(x)
+        return x
+
+
 class FCNHead(nn.Module):
 
     def __init__(self, in_channels, out_channels, norm_layer):
@@ -167,6 +174,72 @@ class FCNHead(nn.Module):
 
     def forward(self, x):
         return self.conv5(x)
+
+
+class DeepLabV3(BaseNet):
+
+    def __init__(self, nclass, backbone, aux=True, se_loss=False, norm_layer=nn.BatchNorm2d, **kwargs):
+        super(DeepLabV3, self).__init__(nclass, backbone, aux, se_loss, norm_layer=norm_layer, **kwargs)
+        self.head = DeepLabV3Head(2048, nclass, norm_layer, self._up_kwargs)
+        if aux:
+            self.auxlayer = FCNHead(1024, nclass, norm_layer)
+
+    def forward(self, x):
+        _, _, h, w = x.size()
+        _, _, c3, c4 = self.base_forward(x)
+        outputs = []
+        x = self.head(c4)
+        x = interpolate(x, (h, w), **self._up_kwargs)
+        outputs.append(x)
+        if self.aux:
+            auxout = self.auxlayer(c3)
+            auxout = interpolate(auxout, (h, w), **self._up_kwargs)
+            outputs.append(auxout)
+        return tuple(outputs)
+
+
+class FCN(BaseNet):
+    """Fully Convolutional Networks for Semantic Segmentation
+
+    Parameters
+    ----------
+    nclass : int
+        Number of categories for the training dataset.
+    backbone : string
+        Pre-trained dilated backbone network type (default:'resnet50'; 'resnet50',
+        'resnet101' or 'resnet152').
+    norm_layer : object
+        Normalization layer used in backbone network (default: :class:`mxnet.gluon.nn.BatchNorm`;
+
+
+    Reference:
+
+        Long, Jonathan, Evan Shelhamer, and Trevor Darrell. "Fully convolutional networks
+        for semantic segmentation." *CVPR*, 2015
+
+    Examples
+    --------
+    >>> model = FCN(nclass=21, backbone='resnet50')
+    >>> print(model)
+    """
+
+    def __init__(self, nclass, backbone, aux=True, se_loss=False, norm_layer=nn.BatchNorm2d, **kwargs):
+        super(FCN, self).__init__(nclass, backbone, aux, se_loss, norm_layer=norm_layer, **kwargs)
+        self.head = FCNHead(2048, nclass, norm_layer)
+        if aux:
+            self.auxlayer = FCNHead(1024, nclass, norm_layer)
+
+    def forward(self, x):
+        imsize = x.size()[2:]
+        _, _, c3, c4 = self.base_forward(x)
+        x = self.head(c4)
+        x = interpolate(x, imsize, **self._up_kwargs)
+        outputs = [x]
+        if self.aux:
+            auxout = self.auxlayer(c3)
+            auxout = interpolate(auxout, imsize, **self._up_kwargs)
+            outputs.append(auxout)
+        return tuple(outputs)
 
 
 class PyramidPooling(nn.Module):
@@ -206,6 +279,28 @@ class PSPHead(nn.Module):
 
     def forward(self, x):
         return self.conv5(x)
+
+
+class PSP(BaseNet):
+
+    def __init__(self, nclass, backbone, aux=True, se_loss=False, norm_layer=nn.BatchNorm2d, **kwargs):
+        super(PSP, self).__init__(nclass, backbone, aux, se_loss, norm_layer=norm_layer, **kwargs)
+        self.head = PSPHead(2048, nclass, norm_layer, self._up_kwargs)
+        if aux:
+            self.auxlayer = FCNHead(1024, nclass, norm_layer)
+
+    def forward(self, x):
+        _, _, h, w = x.size()
+        _, _, c3, c4 = self.base_forward(x)
+        outputs = []
+        x = self.head(c4)
+        x = F.interpolate(x, (h, w), **self._up_kwargs)
+        outputs.append(x)
+        if self.aux:
+            auxout = self.auxlayer(c3)
+            auxout = F.interpolate(auxout, (h, w), **self._up_kwargs)
+            outputs.append(auxout)
+        return tuple(outputs)
 
 
 class BasicBlock(nn.Module):

@@ -6,27 +6,31 @@ main = _module
 model_classes = _module
 nets = _module
 batch = _module
+main = _module
 mle = _module
 mle_net = _module
 plot = _module
 policy_net = _module
 task_net = _module
+main = _module
 model_classes = _module
 nets = _module
+plot = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -72,21 +76,27 @@ from torch.nn.parameter import Parameter
 
 class Net(nn.Module):
 
-    def __init__(self, X, Y, hidden_layer_sizes, T):
+    def __init__(self, X, Y, hidden_layer_sizes):
         super(Net, self).__init__()
-        X_ = np.hstack([X.cpu().numpy(), np.ones((X.size(0), 1))])
-        Theta = np.linalg.solve(X_.T.dot(X_), X_.T.dot(Y.cpu().numpy()))
-        self.lin = nn.Linear(X.size(1), Y.size(1))
+        X_ = np.hstack([X, np.ones((X.shape[0], 1))])
+        Theta = np.linalg.solve(X_.T.dot(X_), X_.T.dot(Y))
+        self.lin = nn.Linear(X.shape[1], Y.shape[1])
         W, b = self.lin.parameters()
         W.data = torch.Tensor(Theta[:-1, :].T)
         b.data = torch.Tensor(Theta[(-1), :])
-        layer_sizes = [X.size(1)] + hidden_layer_sizes
+        layer_sizes = [X.shape[1]] + hidden_layer_sizes
         layers = reduce(operator.add, [[nn.Linear(a, b), nn.BatchNorm1d(b), nn.ReLU(), nn.Dropout(p=0.2)] for a, b in zip(layer_sizes[0:-1], layer_sizes[1:])])
-        layers += [nn.Linear(layer_sizes[-1], Y.size(1))]
+        layers += [nn.Linear(layer_sizes[-1], Y.shape[1])]
         self.net = nn.Sequential(*layers)
+        self.sig = Parameter(torch.ones(1, Y.shape[1]))
 
     def forward(self, x):
-        return self.lin(x) + self.net(x)
+        return self.lin(x) + self.net(x), self.sig.expand(x.size(0), self.sig.size(1))
+
+    def set_sig(self, X, Y):
+        Y_pred = self.lin(X) + self.net(X)
+        var = torch.mean((Y_pred - Y) ** 2, 0)
+        self.sig.data = torch.sqrt(var).data.unsqueeze(0)
 
 
 class ScheduleBattery(nn.Module):
@@ -141,33 +151,6 @@ class SolveNewsvendor(nn.Module):
 
     def forward(self, y):
         nBatch, k = y.size()
-        eps2 = 1e-08
-        Q_scale = torch.cat([torch.diag(torch.cat([self.one, y[i] + eps2, y[i] + eps2])).unsqueeze(0) for i in range(nBatch)], 0)
-        Q = self.Q.unsqueeze(0).expand_as(Q_scale).mul(Q_scale)
-        p_scale = torch.cat([Variable(torch.ones(nBatch, 1)), y, y], 1)
-        p = self.p.unsqueeze(0).expand_as(p_scale).mul(p_scale)
-        G = self.G.unsqueeze(0).expand(nBatch, self.G.size(0), self.G.size(1))
-        h = self.h.unsqueeze(0).expand(nBatch, self.h.size(0))
-        e = Variable(torch.Tensor()).double()
-        out = QPFunction(verbose=False)(Q.double(), p.double(), G.double(), h.double(), e, e).float()
-        return out[:, :1]
-
-
-class SolveNewsvendor(nn.Module):
-    """ Solve newsvendor scheduling problem """
-
-    def __init__(self, params, eps=0.01):
-        super(SolveNewsvendor, self).__init__()
-        k = len(params['d'])
-        self.Q = Variable(torch.diag(torch.Tensor([params['c_quad']] + [params['b_quad']] * k + [params['h_quad']] * k)))
-        self.p = Variable(torch.Tensor([params['c_lin']] + [params['b_lin']] * k + [params['h_lin']] * k))
-        self.G = Variable(torch.cat([torch.cat([-torch.ones(k, 1), -torch.eye(k), torch.zeros(k, k)], 1), torch.cat([torch.ones(k, 1), torch.zeros(k, k), -torch.eye(k)], 1), -torch.eye(1 + 2 * k)], 0))
-        self.h = Variable(torch.Tensor(np.concatenate([-params['d'], params['d'], np.zeros(1 + 2 * k)])))
-        self.one = Variable(torch.Tensor([1]))
-        self.eps_eye = eps * Variable(torch.eye(1 + 2 * k)).unsqueeze(0)
-
-    def forward(self, y):
-        nBatch, k = y.size()
         Q_scale = torch.cat([torch.diag(torch.cat([self.one, y[i], y[i]])).unsqueeze(0) for i in range(nBatch)], 0)
         Q = self.Q.unsqueeze(0).expand_as(Q_scale).mul(Q_scale)
         p_scale = torch.cat([Variable(torch.ones(nBatch, 1)), y, y], 1)
@@ -177,31 +160,6 @@ class SolveNewsvendor(nn.Module):
         e = Variable(torch.Tensor()).double()
         out = QPFunction(verbose=False)(Q.double(), p.double(), G.double(), h.double(), e, e).float()
         return out[:, :1]
-
-
-class Net(nn.Module):
-
-    def __init__(self, X, Y, hidden_layer_sizes):
-        super(Net, self).__init__()
-        X_ = np.hstack([X, np.ones((X.shape[0], 1))])
-        Theta = np.linalg.solve(X_.T.dot(X_), X_.T.dot(Y))
-        self.lin = nn.Linear(X.shape[1], Y.shape[1])
-        W, b = self.lin.parameters()
-        W.data = torch.Tensor(Theta[:-1, :].T)
-        b.data = torch.Tensor(Theta[(-1), :])
-        layer_sizes = [X.shape[1]] + hidden_layer_sizes
-        layers = reduce(operator.add, [[nn.Linear(a, b), nn.BatchNorm1d(b), nn.ReLU(), nn.Dropout(p=0.2)] for a, b in zip(layer_sizes[0:-1], layer_sizes[1:])])
-        layers += [nn.Linear(layer_sizes[-1], Y.shape[1])]
-        self.net = nn.Sequential(*layers)
-        self.sig = Parameter(torch.ones(1, Y.shape[1]))
-
-    def forward(self, x):
-        return self.lin(x) + self.net(x), self.sig.expand(x.size(0), self.sig.size(1))
-
-    def set_sig(self, X, Y):
-        Y_pred = self.lin(X) + self.net(X)
-        var = torch.mean((Y_pred - Y) ** 2, 0)
-        self.sig.data = torch.sqrt(var).data.unsqueeze(0)
 
 
 class SolveSchedulingQP(nn.Module):
@@ -236,12 +194,12 @@ class GLinearApprox(Function):
     def forward(self, z, mu, sig):
         self.save_for_backward(z, mu, sig)
         p = st.norm(mu.cpu().numpy(), sig.cpu().numpy())
-        return torch.DoubleTensor((self.gamma_under + self.gamma_over) * p.cdf(z.cpu().numpy()) - self.gamma_under).cuda()
+        return torch.DoubleTensor((self.gamma_under + self.gamma_over) * p.cdf(z.cpu().numpy()) - self.gamma_under)
 
     def backward(self, grad_output):
         z, mu, sig = self.saved_tensors
         p = st.norm(mu.cpu().numpy(), sig.cpu().numpy())
-        pz = torch.DoubleTensor(p.pdf(z.cpu().numpy())).cuda()
+        pz = torch.DoubleTensor(p.pdf(z.cpu().numpy()))
         dz = (self.gamma_under + self.gamma_over) * pz
         dmu = -dz
         dsig = -(self.gamma_under + self.gamma_over) * (z - mu) / sig * pz
@@ -258,12 +216,12 @@ class GQuadraticApprox(Function):
     def forward(self, z, mu, sig):
         self.save_for_backward(z, mu, sig)
         p = st.norm(mu.cpu().numpy(), sig.cpu().numpy())
-        return torch.DoubleTensor((self.gamma_under + self.gamma_over) * p.pdf(z.cpu().numpy())).cuda()
+        return torch.DoubleTensor((self.gamma_under + self.gamma_over) * p.pdf(z.cpu().numpy()))
 
     def backward(self, grad_output):
         z, mu, sig = self.saved_tensors
         p = st.norm(mu.cpu().numpy(), sig.cpu().numpy())
-        pz = torch.DoubleTensor(p.pdf(z.cpu().numpy())).cuda()
+        pz = torch.DoubleTensor(p.pdf(z.cpu().numpy()))
         dz = -(self.gamma_under + self.gamma_over) * (z - mu) / sig ** 2 * pz
         dmu = -dz
         dsig = (self.gamma_under + self.gamma_over) * ((z - mu) ** 2 - sig ** 2) / sig ** 3 * pz

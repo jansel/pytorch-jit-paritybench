@@ -44,8 +44,10 @@ channelnorm = _module
 setup = _module
 correlation_package = _module
 correlation = _module
+setup = _module
 resample2d_package = _module
 resample2d = _module
+setup = _module
 submodules = _module
 utils = _module
 flow_utils = _module
@@ -75,35 +77,52 @@ train = _module
 distributed = _module
 html = _module
 image_pool = _module
+util = _module
 visualizer = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import copy
+import numpy as np
+
+
+import random
 
 
 import torch
 
 
+import torch.utils.data as data
+
+
+import torchvision.transforms as transforms
+
+
+import torch.utils.data
+
+
+import torch.distributed as dist
+
+
+import copy
+
+
 import torch.nn.functional as F
-
-
-import numpy as np
 
 
 import torch.nn as nn
@@ -131,6 +150,21 @@ from torch.autograd import Function
 
 
 from torch.nn.modules.module import Module
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
+
+
+import time
+
+
+from inspect import isclass
+
+
+import inspect
 
 
 import re
@@ -181,13 +215,12 @@ class Visualizer:
             self.log_dir = os.path.join(opt.checkpoints_dir, opt.name, 'logs')
             self.writer = tf.summary.FileWriter(self.log_dir)
         if self.use_visdom:
-            import visdom
             self.vis = visdom.Visdom()
             self.visdom_id = opt.visdom_id
         if self.use_html:
             self.web_dir = os.path.join(opt.checkpoints_dir, opt.name, 'web')
             self.img_dir = os.path.join(self.web_dir, 'images')
-            print('create web directory %s...' % self.web_dir)
+            None
             util.mkdirs([self.web_dir, self.img_dir])
         if opt.isTrain:
             if hasattr(opt, 'model_idx') and opt.model_idx != -1:
@@ -310,7 +343,7 @@ class Visualizer:
         for k, v in errors.items():
             if v != 0:
                 message += '%s: %.3f ' % (k, v)
-        print(message)
+        None
         with open(self.log_name, 'a') as log_file:
             log_file.write('%s\n' % message)
 
@@ -336,7 +369,7 @@ class Visualizer:
 
     @staticmethod
     def vis_print(opt, message):
-        print(message)
+        None
         if is_master() and opt.isTrain and not opt.debug:
             log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
             with open(log_name, 'a') as log_file:
@@ -382,7 +415,7 @@ class BaseModel(torch.nn.Module):
         save_filename = '%s_net_%s.pth' % (epoch_label, network_label)
         save_path = os.path.join(self.save_dir, save_filename)
         torch.save(network.cpu().state_dict(), save_path)
-        if len(gpu_ids) and torch.is_available():
+        if len(gpu_ids) and torch.cuda.is_available():
             network
 
     def load_network(self, network, network_label, epoch_label, save_dir=''):
@@ -592,6 +625,445 @@ class BaseModel(torch.nn.Module):
             Visualizer.vis_print(self.opt, '---------- Now start training multiple frames -------------')
 
 
+class FaceRefineModel(BaseModel):
+
+    def name(self):
+        return 'FaceRefineModel'
+
+    def initialize(self, opt, add_face_D, refine_face):
+        BaseModel.initialize(self, opt)
+        self.opt = opt
+        self.add_face_D = add_face_D
+        self.refine_face = refine_face
+        self.face_size = int(opt.fineSize / opt.aspect_ratio) // 4
+
+    def refine_face_region(self, netGf, label_valid, fake_image, label, ref_label_valid, ref_image, ref_label):
+        label_face, fake_face_coarse = self.crop_face_region([label_valid, fake_image], label, crop_smaller=4)
+        ref_label_face, ref_image_face = self.crop_face_region([ref_label_valid, ref_image], ref_label, crop_smaller=4)
+        fake_face = netGf(label_face, ref_label_face.unsqueeze(1), ref_image_face.unsqueeze(1), img_coarse=fake_face_coarse.detach())
+        fake_image = self.replace_face_region(fake_image, fake_face, label, fake_face_coarse.detach(), crop_smaller=4)
+        return fake_image
+
+    def crop_face_region(self, image, input_label, crop_smaller=0):
+        if type(image) == list:
+            return [self.crop_face_region(im, input_label, crop_smaller) for im in image]
+        for i in range(input_label.size(0)):
+            ys, ye, xs, xe = self.get_face_region(input_label[i:i + 1], crop_smaller=crop_smaller)
+            output_i = F.interpolate(image[i:i + 1, -3:, ys:ye, xs:xe], size=(self.face_size, self.face_size))
+            output = torch.cat([output, output_i]) if i != 0 else output_i
+        return output
+
+    def replace_face_region(self, fake_image, fake_face, input_label, fake_face_coarse=None, crop_smaller=0):
+        fake_image = fake_image.clone()
+        b, _, h, w = input_label.size()
+        for i in range(b):
+            ys, ye, xs, xe = self.get_face_region(input_label[i:i + 1], crop_smaller)
+            fake_face_i = fake_face[i:i + 1] + (fake_face_coarse[i:i + 1] if fake_face_coarse is not None else 0)
+            fake_face_i = F.interpolate(fake_face_i, size=(ye - ys, xe - xs), mode='bilinear')
+            fake_image[i:i + 1, :, ys:ye, xs:xe] = torch.clamp(fake_face_i, -1, 1)
+        return fake_image
+
+    def get_face_region(self, pose, crop_smaller=0):
+        if pose.dim() == 3:
+            pose = pose.unsqueeze(0)
+        elif pose.dim() == 5:
+            pose = pose[(-1), -1:]
+        _, _, h, w = pose.size()
+        use_openpose = not self.opt.basic_point_only and not self.opt.remove_face_labels
+        if use_openpose:
+            face = ((pose[:, (-3)] > 0) & (pose[:, (-2)] > 0) & (pose[:, (-1)] > 0)).nonzero()
+        else:
+            face = (pose[:, (2)] > 0.9).nonzero()
+        if face.size(0):
+            y, x = face[:, (1)], face[:, (2)]
+            ys, ye, xs, xe = y.min().item(), y.max().item(), x.min().item(), x.max().item()
+            if use_openpose:
+                xc, yc = (xs + xe) // 2, (ys * 3 + ye * 2) // 5
+                ylen = int((xe - xs) * 2.5)
+            else:
+                xc, yc = (xs + xe) // 2, (ys + ye) // 2
+                ylen = int((ye - ys) * 1.25)
+            ylen = xlen = min(w, max(32, ylen))
+            yc = max(ylen // 2, min(h - 1 - ylen // 2, yc))
+            xc = max(xlen // 2, min(w - 1 - xlen // 2, xc))
+        else:
+            yc = h // 4
+            xc = w // 2
+            ylen = xlen = h // 32 * 8
+        ys, ye, xs, xe = yc - ylen // 2, yc + ylen // 2, xc - xlen // 2, xc + xlen // 2
+        if crop_smaller != 0:
+            ys += crop_smaller
+            xs += crop_smaller
+            ye -= crop_smaller
+            xe -= crop_smaller
+        return ys, ye, xs, xe
+
+
+class FlowNet(BaseModel):
+
+    def name(self):
+        return 'FlowNet'
+
+    def initialize(self, opt):
+        BaseModel.initialize(self, opt)
+        self.flowNet = flownet2_tools.module_to_dict(flownet2_models)['FlowNet2']()
+        checkpoint = torch.load('models/networks/flownet2_pytorch/FlowNet2_checkpoint.pth.tar', map_location=torch.device('cpu'))
+        self.flowNet.load_state_dict(checkpoint['state_dict'])
+        self.flowNet.eval()
+        self.resample = Resample2d()
+        self.downsample = torch.nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
+
+    def forward(self, data_list, epoch=0, dummy_bs=0):
+        if data_list[0].get_device() == 0:
+            data_list = self.remove_dummy_from_tensor(data_list, dummy_bs)
+        image_now, image_ref = data_list
+        image_now, image_ref = image_now[:, :, :3], image_ref[:, 0:1, :3]
+        flow_gt_prev = flow_gt_ref = conf_gt_prev = conf_gt_ref = None
+        with torch.no_grad():
+            if not self.opt.isTrain or epoch > self.opt.niter_single:
+                image_prev = torch.cat([image_now[:, 0:1], image_now[:, :-1]], dim=1)
+                flow_gt_prev, conf_gt_prev = self.flowNet_forward(image_now, image_prev)
+            if self.opt.warp_ref:
+                flow_gt_ref, conf_gt_ref = self.flowNet_forward(image_now, image_ref.expand_as(image_now))
+            flow_gt, conf_gt = [flow_gt_ref, flow_gt_prev], [conf_gt_ref, conf_gt_prev]
+            return flow_gt, conf_gt
+
+    def flowNet_forward(self, input_A, input_B):
+        size = input_A.size()
+        assert len(size) == 4 or len(size) == 5
+        if len(size) == 5:
+            b, n, c, h, w = size
+            input_A = input_A.contiguous().view(-1, c, h, w)
+            input_B = input_B.contiguous().view(-1, c, h, w)
+            flow, conf = self.compute_flow_and_conf(input_A, input_B)
+            return flow.view(b, n, 2, h, w), conf.view(b, n, 1, h, w)
+        else:
+            return self.compute_flow_and_conf(input_A, input_B)
+
+    def compute_flow_and_conf(self, im1, im2):
+        assert im1.size()[1] == 3
+        assert im1.size() == im2.size()
+        old_h, old_w = im1.size()[2], im1.size()[3]
+        new_h, new_w = old_h // 64 * 64, old_w // 64 * 64
+        if old_h != new_h:
+            im1 = F.interpolate(im1, size=(new_h, new_w), mode='bilinear')
+            im2 = F.interpolate(im2, size=(new_h, new_w), mode='bilinear')
+        self.flowNet
+        data1 = torch.cat([im1.unsqueeze(2), im2.unsqueeze(2)], dim=2)
+        flow1 = self.flowNet(data1)
+        conf = (self.norm(im1 - self.resample(im2, flow1)) < 0.02).float()
+        if old_h != new_h:
+            flow1 = F.interpolate(flow1, size=(old_h, old_w), mode='bilinear') * old_h / new_h
+            conf = F.interpolate(conf, size=(old_h, old_w), mode='bilinear')
+        return flow1, conf
+
+    def norm(self, t):
+        return torch.sum(t * t, dim=1, keepdim=True)
+
+
+class ImagePool:
+
+    def __init__(self, pool_size):
+        self.pool_size = pool_size
+        if self.pool_size > 0:
+            self.num_imgs = 0
+            self.images = []
+
+    def query(self, images):
+        if self.pool_size == 0:
+            return images
+        return_images = []
+        for image in images.data:
+            image = torch.unsqueeze(image, 0)
+            if self.num_imgs < self.pool_size:
+                self.num_imgs = self.num_imgs + 1
+                self.images.append(image)
+                return_images.append(image)
+            else:
+                p = random.uniform(0, 1)
+                if p > 0.5:
+                    random_id = random.randint(0, self.pool_size - 1)
+                    tmp = self.images[random_id].clone()
+                    self.images[random_id] = image
+                    return_images.append(tmp)
+                else:
+                    return_images.append(image)
+        return_images = Variable(torch.cat(return_images, 0))
+        return return_images
+
+
+def get_face_mask(pose):
+    if pose.dim() == 3:
+        pose = pose.unsqueeze(1)
+    b, t, h, w = pose.size()
+    part = (pose / 2 + 0.5) * 24
+    if pose.is_cuda:
+        mask = torch.ByteTensor(b, t, h, w).fill_(0)
+    else:
+        mask = torch.ByteTensor(b, t, h, w).fill_(0)
+    for j in [23, 24]:
+        mask = mask | ((part > j - 0.1) & (part < j + 0.1)).byte()
+    return mask.float()
+
+
+def get_fg_mask(opt, input_label, has_fg):
+    if type(input_label) == list:
+        return [get_fg_mask(opt, l, has_fg) for l in input_label]
+    if not has_fg:
+        return None
+    if len(input_label.size()) == 5:
+        input_label = input_label[:, (0)]
+    mask = input_label[:, 2:3] if opt.label_nc == 0 else -input_label[:, 0:1]
+    mask = torch.nn.MaxPool2d(15, padding=7, stride=1)(mask)
+    mask = (mask > -1).float()
+    return mask
+
+
+def get_part_mask(pose):
+    part_groups = [[0], [1, 2], [3, 4], [5, 6], [7, 9, 8, 10], [11, 13, 12, 14], [15, 17, 16, 18], [19, 21, 20, 22], [23, 24]]
+    n_parts = len(part_groups)
+    need_reshape = pose.dim() == 4
+    if need_reshape:
+        bo, t, h, w = pose.size()
+        pose = pose.view(-1, h, w)
+    b, h, w = pose.size()
+    part = (pose / 2 + 0.5) * 24
+    mask = torch.ByteTensor(b, n_parts, h, w).fill_(0)
+    for i in range(n_parts):
+        for j in part_groups[i]:
+            mask[:, (i)] = mask[:, (i)] | ((part > j - 0.1) & (part < j + 0.1)).byte()
+    if need_reshape:
+        mask = mask.view(bo, t, -1, h, w)
+    return mask.float()
+
+
+def get_grid(batchsize, rows, cols, gpu_id=0):
+    hor = torch.linspace(-1.0, 1.0, cols)
+    hor.requires_grad = False
+    hor = hor.view(1, 1, 1, cols)
+    hor = hor.expand(batchsize, 1, rows, cols)
+    ver = torch.linspace(-1.0, 1.0, rows)
+    ver.requires_grad = False
+    ver = ver.view(1, 1, rows, 1)
+    ver = ver.expand(batchsize, 1, rows, cols)
+    t_grid = torch.cat([hor, ver], 1)
+    t_grid.requires_grad = False
+    return t_grid
+
+
+def resample(image, flow):
+    b, c, h, w = image.size()
+    grid = get_grid(b, h, w, gpu_id=flow.get_device())
+    flow = torch.cat([flow[:, 0:1, :, :] / ((w - 1.0) / 2.0), flow[:, 1:2, :, :] / ((h - 1.0) / 2.0)], dim=1)
+    final_grid = (grid + flow).permute(0, 2, 3, 1)
+    try:
+        output = F.grid_sample(image, final_grid, mode='bilinear', padding_mode='border', align_corners=True)
+    except:
+        output = F.grid_sample(image, final_grid, mode='bilinear', padding_mode='border')
+    return output
+
+
+def use_valid_labels(opt, pose):
+    if 'pose' not in opt.dataset_mode:
+        return pose
+    if pose is None:
+        return pose
+    if type(pose) == list:
+        return [use_valid_labels(opt, p) for p in pose]
+    assert pose.dim() == 4 or pose.dim() == 5
+    if opt.pose_type == 'open':
+        if pose.dim() == 4:
+            pose = pose[:, 3:]
+        elif pose.dim() == 5:
+            pose = pose[:, :, 3:]
+    elif opt.remove_face_labels:
+        if pose.dim() == 4:
+            face_mask = get_face_mask(pose[:, (2)])
+            pose = torch.cat([pose[:, :3] * (1 - face_mask) - face_mask, pose[:, 3:]], dim=1)
+        else:
+            face_mask = get_face_mask(pose[:, :, (2)]).unsqueeze(2)
+            pose = torch.cat([pose[:, :, :3] * (1 - face_mask) - face_mask, pose[:, :, 3:]], dim=2)
+    return pose
+
+
+class LossCollector(BaseModel):
+
+    def name(self):
+        return 'LossCollector'
+
+    def initialize(self, opt):
+        BaseModel.initialize(self, opt)
+        self.define_losses()
+        self.tD = 1
+
+    def define_losses(self):
+        opt = self.opt
+        if self.isTrain or opt.finetune:
+            self.fake_pool = ImagePool(0)
+            self.old_lr = opt.lr
+            self.criterionGAN = networks.GANLoss(opt.gan_mode, tensor=self.Tensor, opt=opt)
+            self.criterionFeat = torch.nn.L1Loss()
+            self.criterionFlow = networks.MaskedL1Loss()
+            if not opt.no_vgg_loss:
+                self.criterionVGG = networks.VGGLoss(opt, self.gpu_ids)
+            self.loss_names_G = ['G_GAN', 'G_GAN_Feat', 'G_VGG', 'Gf_GAN', 'Gf_GAN_feat', 'GT_GAN', 'GT_GAN_Feat', 'F_Flow', 'F_Warp', 'F_Mask']
+            self.loss_names_D = ['D_real', 'D_fake', 'Df_real', 'Df_fake', 'DT_real', 'DT_fake']
+            self.loss_names = self.loss_names_G + self.loss_names_D
+
+    def discriminate(self, netD, tgt_label, fake_image, tgt_image, ref_image, for_discriminator):
+        tgt_concat = torch.cat([fake_image, tgt_image], dim=0)
+        if tgt_label is not None:
+            tgt_concat = torch.cat([tgt_label.repeat(2, 1, 1, 1), tgt_concat], dim=1)
+        if ref_image is not None:
+            ref_image = ref_image.repeat(2, 1, 1, 1)
+            if self.concat_ref_for_D:
+                tgt_concat = torch.cat([ref_image, tgt_concat], dim=1)
+                ref_image = None
+        discriminator_out = netD(tgt_concat, ref_image)
+        pred_fake, pred_real = self.divide_pred(discriminator_out)
+        if for_discriminator:
+            loss_D_real = self.criterionGAN(pred_real, True)
+            loss_D_fake = self.criterionGAN(pred_fake, False)
+            return [loss_D_real, loss_D_fake]
+        else:
+            loss_G_GAN = self.criterionGAN(pred_fake, True)
+            loss_G_GAN_Feat = self.GAN_matching_loss(pred_real, pred_fake, for_discriminator)
+            return [loss_G_GAN, loss_G_GAN_Feat]
+
+    def discriminate_face(self, netDf, fake_image, tgt_label, tgt_image, ref_label, ref_image, faceRefiner, for_discriminator):
+        losses = [self.Tensor(1).fill_(0), self.Tensor(1).fill_(0)]
+        if self.add_face_D:
+            real_region, fake_region = faceRefiner.crop_face_region([tgt_image, fake_image], tgt_label)
+            ref_region = faceRefiner.crop_face_region(ref_image, ref_label)
+            losses = self.discriminate(netDf, ref_region, fake_region, real_region, None, for_discriminator=for_discriminator)
+            losses = [(loss * self.opt.lambda_face) for loss in losses]
+            if for_discriminator:
+                return losses
+            else:
+                loss_Gf_GAN, loss_Gf_GAN_Feat = losses
+                loss_Gf_GAN_Feat += self.criterionFeat(fake_region, real_region) * self.opt.lambda_feat
+                loss_Gf_GAN_Feat += self.criterionVGG(fake_region, real_region) * self.opt.lambda_vgg
+            return [loss_Gf_GAN, loss_Gf_GAN_Feat]
+        return losses
+
+    def compute_GAN_losses(self, nets, data_list, for_discriminator, for_temporal=False):
+        if for_temporal and self.tD < 2:
+            return [self.Tensor(1).fill_(0), self.Tensor(1).fill_(0)]
+        tgt_label, tgt_image, fake_image, ref_label, ref_image = data_list
+        netD, netDT, netDf, faceRefiner = nets
+        if isinstance(fake_image, list):
+            fake_image = [x for x in fake_image if x is not None]
+            losses = [self.compute_GAN_losses(nets, [tgt_label, real_i, fake_i, ref_label, ref_image], for_discriminator, for_temporal) for fake_i, real_i in zip(fake_image, tgt_image)]
+            return [sum([item[i] for item in losses]) for i in range(len(losses[0]))]
+        tgt_label, tgt_image, fake_image = self.reshape([tgt_label, tgt_image, fake_image], for_temporal)
+        input_label = ref_concat = None
+        if not for_temporal:
+            t = self.opt.n_frames_per_gpu
+            ref_label, ref_image = ref_label.repeat(t, 1, 1, 1), ref_image.repeat(t, 1, 1, 1)
+            input_label = use_valid_labels(self.opt, tgt_label)
+            if self.concat_fg_mask_for_D:
+                fg_mask, ref_fg_mask = get_fg_mask(self.opt, [tgt_label, ref_label], self.has_fg)
+                input_label = torch.cat([input_label, fg_mask], dim=1)
+                ref_label = torch.cat([ref_label, ref_fg_mask], dim=1)
+            ref_concat = torch.cat([ref_label, ref_image], dim=1)
+        netD = netD if not for_temporal else netDT
+        losses = self.discriminate(netD, input_label, fake_image, tgt_image, ref_concat, for_discriminator=for_discriminator)
+        if for_temporal:
+            if not for_discriminator:
+                losses = [(loss * self.opt.lambda_temp) for loss in losses]
+            return losses
+        losses_face = self.discriminate_face(netDf, fake_image, tgt_label, tgt_image, ref_label, ref_image, faceRefiner, for_discriminator)
+        return losses + losses_face
+
+    def compute_VGG_losses(self, fake_image, fake_raw_image, tgt_image, fg_mask_union):
+        loss_G_VGG = self.Tensor(1).fill_(0)
+        opt = self.opt
+        if not opt.no_vgg_loss:
+            if fake_image is not None:
+                loss_G_VGG = self.criterionVGG(fake_image, tgt_image)
+            if fake_raw_image is not None:
+                loss_G_VGG += self.criterionVGG(fake_raw_image, tgt_image * fg_mask_union)
+        return loss_G_VGG * opt.lambda_vgg
+
+    def compute_flow_losses(self, flow, warped_image, tgt_image, flow_gt, flow_conf_gt, fg_mask, tgt_label, ref_label):
+        loss_F_Flow_r, loss_F_Warp_r = self.compute_flow_loss(flow[0], warped_image[0], tgt_image, flow_gt[0], flow_conf_gt[0], fg_mask)
+        loss_F_Flow_p, loss_F_Warp_p = self.compute_flow_loss(flow[1], warped_image[1], tgt_image, flow_gt[1], flow_conf_gt[1], fg_mask)
+        loss_F_Flow = loss_F_Flow_p + loss_F_Flow_r
+        loss_F_Warp = loss_F_Warp_p + loss_F_Warp_r
+        lambda_flow = self.opt.lambda_flow
+        body_mask_diff = None
+        if self.opt.isTrain and self.pose and flow[0] is not None:
+            body_mask = get_part_mask(tgt_label[:, :, (2)])
+            ref_body_mask = get_part_mask(ref_label[:, (2)].unsqueeze(1)).expand_as(body_mask)
+            body_mask, ref_body_mask = self.reshape([body_mask, ref_body_mask])
+            ref_body_mask_warp = resample(ref_body_mask, flow[0])
+            loss_F_Warp += self.criterionFeat(ref_body_mask_warp, body_mask)
+            if self.has_fg:
+                fg_mask, ref_fg_mask = get_fg_mask(self.opt, [tgt_label, ref_label], True)
+                ref_fg_mask_warp = resample(ref_fg_mask, flow[0])
+                loss_F_Warp += self.criterionFeat(ref_fg_mask_warp, fg_mask)
+            body_mask_diff = torch.sum(abs(ref_body_mask_warp - body_mask), dim=1, keepdim=True)
+        return loss_F_Flow * lambda_flow, loss_F_Warp * lambda_flow, body_mask_diff
+
+    def compute_flow_loss(self, flow, warped_image, tgt_image, flow_gt, flow_conf_gt, fg_mask):
+        loss_F_Flow, loss_F_Warp = self.Tensor(1).fill_(0), self.Tensor(1).fill_(0)
+        if self.opt.isTrain and flow is not None:
+            if flow_gt is not None and self.opt.n_shot == 1:
+                loss_F_Flow = self.criterionFlow(flow, flow_gt, flow_conf_gt * fg_mask)
+            loss_F_Warp = self.criterionFeat(warped_image, tgt_image)
+        return loss_F_Flow, loss_F_Warp
+
+    def compute_mask_losses(self, flow_mask, fake_image, warped_image, tgt_label, tgt_image, fake_raw_image, fg_mask, ref_fg_mask, body_mask_diff):
+        fake_raw_image = fake_raw_image[:, (-1)] if fake_raw_image is not None else None
+        loss_mask = self.Tensor(1).fill_(0)
+        loss_mask += self.compute_mask_loss(flow_mask[0], warped_image[0], tgt_image, fake_image[:, (-1)], fake_raw_image)
+        loss_mask += self.compute_mask_loss(flow_mask[1], warped_image[1], tgt_image, fake_image[:, (-1)], fake_raw_image)
+        opt = self.opt
+        if opt.isTrain and self.pose and self.warp_ref:
+            flow_mask_ref = flow_mask[0]
+            b, t, _, h, w = tgt_label.size()
+            dummy0, dummy1 = torch.zeros_like(flow_mask_ref), torch.ones_like(flow_mask_ref)
+            face_mask = get_face_mask(tgt_label[:, :, (2)]).view(-1, 1, h, w)
+            face_mask = torch.nn.AvgPool2d(15, padding=7, stride=1)(face_mask)
+            loss_mask += self.criterionFlow(flow_mask_ref, dummy0, face_mask)
+            if opt.spade_combine:
+                loss_mask += self.criterionFlow(fake_image[:, (-1)], warped_image[0].detach(), face_mask)
+            fg_mask_diff = (ref_fg_mask - fg_mask > 0).float()
+            loss_mask += self.criterionFlow(flow_mask_ref, dummy1, fg_mask_diff)
+            loss_mask += self.criterionFlow(flow_mask_ref, dummy1, body_mask_diff)
+        return loss_mask * opt.lambda_mask
+
+    def compute_mask_loss(self, flow_mask, warped_image, tgt_image, fake_image, fake_raw_image):
+        loss_mask = 0
+        if self.opt.isTrain and flow_mask is not None:
+            dummy0 = torch.zeros_like(flow_mask)
+            dummy1 = torch.ones_like(flow_mask)
+            img_diff = torch.sum(abs(warped_image - tgt_image), dim=1, keepdim=True)
+            conf = torch.clamp(1 - img_diff, 0, 1)
+            loss_mask = self.criterionFlow(flow_mask, dummy0, conf)
+            loss_mask += self.criterionFlow(flow_mask, dummy1, 1 - conf)
+        return loss_mask
+
+    def GAN_matching_loss(self, pred_real, pred_fake, for_discriminator=False):
+        loss_G_GAN_Feat = self.Tensor(1).fill_(0)
+        if not for_discriminator and not self.opt.no_ganFeat_loss:
+            num_D = len(pred_fake)
+            D_masks = 1.0 / num_D
+            for i in range(num_D):
+                for j in range(len(pred_fake[i]) - 1):
+                    loss = self.criterionFeat(pred_fake[i][j], pred_real[i][j].detach())
+                    loss_G_GAN_Feat += D_masks * loss
+        return loss_G_GAN_Feat * self.opt.lambda_feat
+
+
+class DataParallel(nn.parallel.DataParallel):
+
+    def replicate(self, module, device_ids):
+        replicas = super(DataParallel, self).replicate(module, device_ids)
+        replicas[0] = module
+        return replicas
+
+
 class CallbackContext(object):
     pass
 
@@ -616,6 +1088,26 @@ def execute_replication_callbacks(modules):
         for j, m in enumerate(module.modules()):
             if hasattr(m, '__data_parallel_replicate__'):
                 m.__data_parallel_replicate__(ctxs[j], i)
+
+
+class DataParallelWithCallback(DataParallel):
+    """
+    Data Parallel with a replication callback.
+
+    An replication callback `__data_parallel_replicate__` of each module will be invoked after being created by
+    original `replicate` function.
+    The callback will be invoked with arguments `__data_parallel_replicate__(ctx, copy_id)`
+
+    Examples:
+        > sync_bn = SynchronizedBatchNorm1d(10, eps=1e-5, affine=False)
+        > sync_bn = DataParallelWithCallback(sync_bn, device_ids=[0, 1])
+        # sync_bn.__data_parallel_replicate__ will be invoked.
+    """
+
+    def replicate(self, module, device_ids):
+        modules = super(DataParallelWithCallback, self).replicate(module, device_ids)
+        execute_replication_callbacks(modules)
+        return modules
 
 
 class MyModel(nn.Module):
@@ -664,6 +1156,325 @@ def actvn(x):
     return out
 
 
+class FutureResult(object):
+    """A thread-safe future implementation. Used only as one-to-one pipe."""
+
+    def __init__(self):
+        self._result = None
+        self._lock = threading.Lock()
+        self._cond = threading.Condition(self._lock)
+
+    def put(self, result):
+        with self._lock:
+            assert self._result is None, "Previous result has't been fetched."
+            self._result = result
+            self._cond.notify()
+
+    def get(self):
+        with self._lock:
+            if self._result is None:
+                self._cond.wait()
+            res = self._result
+            self._result = None
+            return res
+
+
+_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
+
+
+class SlavePipe(_SlavePipeBase):
+    """Pipe for master-slave communication."""
+
+    def run_slave(self, msg):
+        self.queue.put((self.identifier, msg))
+        ret = self.result.get()
+        self.queue.put(True)
+        return ret
+
+
+_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
+
+
+class SyncMaster(object):
+    """An abstract `SyncMaster` object.
+
+    - During the replication, as the data parallel will trigger an callback of each module, all slave devices should
+    call `register(id)` and obtain an `SlavePipe` to communicate with the master.
+    - During the forward pass, master device invokes `run_master`, all messages from slave devices will be collected,
+    and passed to a registered callback.
+    - After receiving the messages, the master device should gather the information and determine to message passed
+    back to each slave devices.
+    """
+
+    def __init__(self, master_callback):
+        """
+
+        Args:
+            master_callback: a callback to be invoked after having collected messages from slave devices.
+        """
+        self._master_callback = master_callback
+        self._queue = queue.Queue()
+        self._registry = collections.OrderedDict()
+        self._activated = False
+
+    def register_slave(self, identifier):
+        """
+        Register an slave device.
+
+        Args:
+            identifier: an identifier, usually is the device id.
+
+        Returns: a `SlavePipe` object which can be used to communicate with the master device.
+
+        """
+        if self._activated:
+            assert self._queue.empty(), 'Queue is not clean before next initialization.'
+            self._activated = False
+            self._registry.clear()
+        future = FutureResult()
+        self._registry[identifier] = _MasterRegistry(future)
+        return SlavePipe(identifier, self._queue, future)
+
+    def run_master(self, master_msg):
+        """
+        Main entry for the master device in each forward pass.
+        The messages were first collected from each devices (including the master device), and then
+        an callback will be invoked to compute the message to be sent back to each devices
+        (including the master device).
+
+        Args:
+            master_msg: the message that the master want to send to itself. This will be placed as the first
+            message when calling `master_callback`. For detailed usage, see `_SynchronizedBatchNorm` for an example.
+
+        Returns: the message to be sent back to the master device.
+
+        """
+        self._activated = True
+        intermediates = [(0, master_msg)]
+        for i in range(self.nr_slaves):
+            intermediates.append(self._queue.get())
+        results = self._master_callback(intermediates)
+        assert results[0][0] == 0, 'The first result should belongs to the master.'
+        for i, res in results:
+            if i == 0:
+                continue
+            self._registry[i].result.put(res)
+        for i in range(self.nr_slaves):
+            assert self._queue.get() is True
+        return results[0][1]
+
+    @property
+    def nr_slaves(self):
+        return len(self._registry)
+
+
+_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
+
+
+_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+
+
+def _sum_ft(tensor):
+    """sum over the first and last dimention"""
+    return tensor.sum(dim=0).sum(dim=-1)
+
+
+def _unsqueeze_ft(tensor):
+    """add new dementions at the front and the tail"""
+    return tensor.unsqueeze(0).unsqueeze(-1)
+
+
+class _SynchronizedBatchNorm(_BatchNorm):
+
+    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
+        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
+        self._sync_master = SyncMaster(self._data_parallel_master)
+        self._is_parallel = False
+        self._parallel_id = None
+        self._slave_pipe = None
+
+    def forward(self, input):
+        if not (self._is_parallel and self.training):
+            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
+        input_shape = input.size()
+        input = input.view(input.size(0), self.num_features, -1)
+        sum_size = input.size(0) * input.size(2)
+        input_sum = _sum_ft(input)
+        input_ssum = _sum_ft(input ** 2)
+        if self._parallel_id == 0:
+            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
+        else:
+            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
+        if self.affine:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
+        else:
+            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
+        return output.view(input_shape)
+
+    def __data_parallel_replicate__(self, ctx, copy_id):
+        self._is_parallel = True
+        self._parallel_id = copy_id
+        if self._parallel_id == 0:
+            ctx.sync_master = self._sync_master
+        else:
+            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
+
+    def _data_parallel_master(self, intermediates):
+        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
+        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
+        to_reduce = [i[1][:2] for i in intermediates]
+        to_reduce = [j for i in to_reduce for j in i]
+        target_gpus = [i[1].sum.get_device() for i in intermediates]
+        sum_size = sum([i[1].sum_size for i in intermediates])
+        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
+        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
+        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
+        outputs = []
+        for i, rec in enumerate(intermediates):
+            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
+        return outputs
+
+    def _compute_mean_std(self, sum_, ssum, size):
+        """Compute the mean and standard-deviation with sum and square-sum. This method
+        also maintains the moving average on the master device."""
+        assert size > 1, 'BatchNorm computes unbiased standard-deviation, which requires size > 1.'
+        mean = sum_ / size
+        sumvar = ssum - sum_ * mean
+        unbias_var = sumvar / (size - 1)
+        bias_var = sumvar / size
+        self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
+        self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
+        return mean, bias_var.clamp(self.eps) ** -0.5
+
+
+class SynchronizedBatchNorm2d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 4d input that is seen as a mini-batch
+    of 3d inputs
+
+    .. math::
+
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
+
+    This module differs from the built-in PyTorch BatchNorm2d as the mean and
+    standard-deviation are reduced across all devices during training.
+
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+    
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
+
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
+
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
+
+    During evaluation, this running mean/variance is used for normalization.
+
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, H, W)` slices, it's common terminology to call this Spatial BatchNorm
+
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
+
+    Shape:
+        - Input: :math:`(N, C, H, W)`
+        - Output: :math:`(N, C, H, W)` (same shape as input)
+
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm2d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45))
+        >>> output = m(input)
+    """
+
+    def _check_input_dim(self, input):
+        if input.dim() != 4:
+            raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm2d, self)._check_input_dim(input)
+
+
+def concat(a, b, dim=0):
+    if isinstance(a, list):
+        return [concat(ai, bi, dim) for ai, bi in zip(a, b)]
+    if a is None:
+        return b
+    return torch.cat([a, b], dim=dim)
+
+
+def batch_conv(x, weight, bias=None, stride=1, group_size=-1):
+    if weight is None:
+        return x
+    if isinstance(weight, list) or isinstance(weight, tuple):
+        weight, bias = weight
+    padding = weight.size()[-1] // 2
+    groups = group_size // weight.size()[2] if group_size != -1 else 1
+    if bias is None:
+        bias = [None] * x.size()[0]
+    y = None
+    for i in range(x.size(0)):
+        if stride >= 1:
+            yi = F.conv2d(x[i:i + 1], weight=weight[i], bias=bias[i], padding=padding, stride=stride, groups=groups)
+        else:
+            yi = F.conv_transpose2d(x[i:i + 1], weight=weight[i], bias=bias[(i), :weight.size(2)], padding=padding, stride=int(1 / stride), output_padding=1, groups=groups)
+        y = concat(y, yi)
+    return y
+
+
+class SPADE(nn.Module):
+
+    def __init__(self, norm_nc, hidden_nc=0, norm='batch', ks=3, params_free=False):
+        super().__init__()
+        pw = ks // 2
+        if not isinstance(hidden_nc, list):
+            hidden_nc = [hidden_nc]
+        for i, nhidden in enumerate(hidden_nc):
+            mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
+            mlp_beta = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
+            if not params_free or i != 0:
+                s = str(i + 1) if i > 0 else ''
+                setattr(self, 'mlp_gamma%s' % s, mlp_gamma)
+                setattr(self, 'mlp_beta%s' % s, mlp_beta)
+        if 'batch' in norm:
+            self.norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
+        else:
+            self.norm = nn.InstanceNorm2d(norm_nc, affine=False)
+
+    def forward(self, x, maps, weights=None):
+        if not isinstance(maps, list):
+            maps = [maps]
+        out = self.norm(x)
+        for i in range(len(maps)):
+            if maps[i] is None:
+                continue
+            m = F.interpolate(maps[i], size=x.size()[2:])
+            if weights is None or i != 0:
+                s = str(i + 1) if i > 0 else ''
+                gamma = getattr(self, 'mlp_gamma%s' % s)(m)
+                beta = getattr(self, 'mlp_beta%s' % s)(m)
+            else:
+                j = min(i, len(weights[0]) - 1)
+                gamma = batch_conv(m, weights[0][j])
+                beta = batch_conv(m, weights[1][j])
+            out = out * (1 + gamma) + beta
+        return out
+
+
 def generalNorm(norm):
     if 'spade' in norm:
         return SPADE
@@ -701,33 +1512,6 @@ class SPADEConv2d(nn.Module):
         out = self.bn(x, label)
         out = actvn(out)
         return out
-
-
-def concat(a, b, dim=0):
-    if isinstance(a, list):
-        return [concat(ai, bi, dim) for ai, bi in zip(a, b)]
-    if a is None:
-        return b
-    return torch.cat([a, b], dim=dim)
-
-
-def batch_conv(x, weight, bias=None, stride=1, group_size=-1):
-    if weight is None:
-        return x
-    if isinstance(weight, list) or isinstance(weight, tuple):
-        weight, bias = weight
-    padding = weight.size()[-1] // 2
-    groups = group_size // weight.size()[2] if group_size != -1 else 1
-    if bias is None:
-        bias = [None] * x.size()[0]
-    y = None
-    for i in range(x.size(0)):
-        if stride >= 1:
-            yi = F.conv2d(x[i:i + 1], weight=weight[i], bias=bias[i], padding=padding, stride=stride, groups=groups)
-        else:
-            yi = F.conv_transpose2d(x[i:i + 1], weight=weight[i], bias=bias[(i), :weight.size(2)], padding=padding, stride=int(1 / stride), output_padding=1, groups=groups)
-        y = concat(y, yi)
-    return y
 
 
 def generalConv(adaptive=False, transpose=False):
@@ -908,6 +1692,183 @@ class BaseNetwork(nn.Module):
         return x
 
 
+class AdaptiveDiscriminator(BaseNetwork):
+
+    def __init__(self, opt, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, getIntermFeat=False, adaptive_layers=1):
+        super(AdaptiveDiscriminator, self).__init__()
+        self.getIntermFeat = getIntermFeat
+        self.n_layers = n_layers
+        self.adaptive_layers = adaptive_layers
+        self.input_nc = input_nc
+        self.ndf = ndf
+        self.kw = kw = 4
+        self.padw = padw = int(np.ceil((kw - 1.0) / 2))
+        self.actvn = actvn = nn.LeakyReLU(0.2, True)
+        self.sw = opt.fineSize // 8
+        self.sh = int(self.sw / opt.aspect_ratio)
+        self.ch = self.sh * self.sw
+        nf = ndf
+        self.fc_0 = nn.Linear(self.ch, input_nc * kw ** 2)
+        self.encoder_0 = nn.Sequential(*[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=2, padding=padw), actvn])
+        for n in range(1, self.adaptive_layers):
+            nf_prev = nf
+            nf = min(nf * 2, 512)
+            setattr(self, 'fc_' + str(n), nn.Linear(self.ch, nf_prev * kw ** 2))
+            setattr(self, 'encoder_' + str(n), nn.Sequential(*[nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=2, padding=padw), actvn]))
+        sequence = []
+        nf = ndf * 2 ** (self.adaptive_layers - 1)
+        for n in range(self.adaptive_layers, n_layers + 1):
+            nf_prev = nf
+            nf = min(nf * 2, 512)
+            stride = 2 if n != n_layers else 1
+            item = [norm_layer(nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=stride, padding=padw)), actvn]
+            sequence += [item]
+        sequence += [[nn.Conv2d(nf, 1, kernel_size=kw, stride=1, padding=padw)]]
+        for n in range(len(sequence)):
+            setattr(self, 'model' + str(n + self.adaptive_layers), nn.Sequential(*sequence[n]))
+
+    def gen_conv_weights(self, encoded_ref):
+        models = []
+        b = encoded_ref[0].size()[0]
+        nf = self.ndf
+        actvn = self.actvn
+        weight = self.fc_0(nn.AdaptiveAvgPool2d((self.sh, self.sw))(encoded_ref[0]).view(b * nf, -1))
+        weight = weight.view(b, nf, self.input_nc, self.kw, self.kw)
+        model0 = []
+        for i in range(b):
+            model0.append(self.ConvN(functools.partial(F.conv2d, weight=weight[i], stride=2, padding=self.padw), nn.InstanceNorm2d(nf), actvn))
+        models.append(model0)
+        for n in range(1, self.adaptive_layers):
+            ch = encoded_ref[n].size()[1]
+            x = nn.AdaptiveAvgPool2d((self.sh, self.sw))(encoded_ref[n]).view(b * ch, -1)
+            weight = getattr(self, 'fc_' + str(n))(x)
+            nf_prev = nf
+            nf = min(nf * 2, 512)
+            weight = weight.view(b, nf, nf_prev, self.kw, self.kw)
+            model = []
+            for i in range(b):
+                model.append(self.ConvN(functools.partial(F.conv2d, weight=weight[i], stride=2, padding=self.padw), nn.InstanceNorm2d(nf), actvn))
+            models.append(model)
+        return models
+
+
+    class ConvN(nn.Module):
+
+        def __init__(self, conv, norm, actvn):
+            super().__init__()
+            self.conv = conv
+            self.norm = norm
+            self.actvn = actvn
+
+        def forward(self, x):
+            x = self.conv(x)
+            out = self.norm(x)
+            out = self.actvn(out)
+            return out
+
+    def encode(self, ref):
+        encoded_ref = [ref]
+        for n in range(self.adaptive_layers):
+            encoded_ref.append(getattr(self, 'encoder_' + str(n))(encoded_ref[-1]))
+        return encoded_ref[1:]
+
+    def batch_conv(self, conv, x):
+        y = conv[0](x[0:1])
+        for i in range(1, x.size()[0]):
+            yi = conv[i](x[i:i + 1])
+            y = torch.cat([y, yi])
+        return y
+
+    def forward(self, input, ref):
+        encoded_ref = self.encode(ref)
+        models = self.gen_conv_weights(encoded_ref)
+        res = [input]
+        for n in range(self.n_layers + 2):
+            if n < self.adaptive_layers:
+                res.append(self.batch_conv(models[n], res[-1]))
+            else:
+                res.append(getattr(self, 'model' + str(n))(res[-1]))
+        if self.getIntermFeat:
+            return res[1:]
+        else:
+            return res[-1]
+
+
+class NLayerDiscriminator(BaseNetwork):
+
+    def __init__(self, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, getIntermFeat=False, stride=2):
+        super(NLayerDiscriminator, self).__init__()
+        self.getIntermFeat = getIntermFeat
+        self.n_layers = n_layers
+        kw = 4
+        padw = int(np.ceil((kw - 1.0) / 2))
+        sequence = [[nn.Conv2d(input_nc, ndf, kernel_size=kw, stride=stride, padding=padw), nn.LeakyReLU(0.2, False)]]
+        nf = ndf
+        for n in range(1, n_layers):
+            nf_prev = nf
+            nf = min(nf * 2, 512)
+            item = [norm_layer(nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=stride, padding=padw)), nn.LeakyReLU(0.2, False)]
+            sequence += [item]
+        nf_prev = nf
+        nf = min(nf * 2, 512)
+        sequence += [[norm_layer(nn.Conv2d(nf_prev, nf, kernel_size=kw, stride=1, padding=padw)), nn.LeakyReLU(0.2, False)]]
+        sequence += [[nn.Conv2d(nf, 1, kernel_size=kw, stride=1, padding=padw)]]
+        for n in range(len(sequence)):
+            setattr(self, 'model' + str(n), nn.Sequential(*sequence[n]))
+
+    def forward(self, input):
+        res = [input]
+        for n in range(self.n_layers + 2):
+            model = getattr(self, 'model' + str(n))
+            x = model(res[-1])
+            res.append(x)
+        if self.getIntermFeat:
+            return res[1:]
+        else:
+            return res[-1]
+
+
+class MultiscaleDiscriminator(BaseNetwork):
+
+    def __init__(self, opt, input_nc, ndf=64, n_layers=3, norm_layer=nn.BatchNorm2d, subarch='n_layers', num_D=3, getIntermFeat=False, stride=2, gpu_ids=[]):
+        super(MultiscaleDiscriminator, self).__init__()
+        self.num_D = num_D
+        self.getIntermFeat = getIntermFeat
+        self.subarch = subarch
+        for i in range(num_D):
+            netD = self.create_singleD(opt, subarch, input_nc, ndf, n_layers, norm_layer, getIntermFeat, stride)
+            setattr(self, 'discriminator_%d' % i, netD)
+        self.downsample = nn.AvgPool2d(3, stride=2, padding=[1, 1], count_include_pad=False)
+
+    def create_singleD(self, opt, subarch, input_nc, ndf, n_layers, norm_layer, getIntermFeat, stride):
+        if subarch == 'adaptive':
+            netD = AdaptiveDiscriminator(opt, input_nc, ndf, n_layers, norm_layer, getIntermFeat, opt.adaptive_D_layers)
+        elif subarch == 'n_layers':
+            netD = NLayerDiscriminator(input_nc, ndf, n_layers, norm_layer, getIntermFeat, stride)
+        else:
+            raise ValueError('unrecognized discriminator sub architecture %s' % subarch)
+        return netD
+
+    def singleD_forward(self, model, input, ref):
+        if self.subarch == 'adaptive':
+            return model(input, ref)
+        elif self.getIntermFeat:
+            return model(input)
+        else:
+            return [model(input)]
+
+    def forward(self, input, ref=None):
+        result = []
+        input_downsampled = input
+        ref_downsampled = ref
+        for i in range(self.num_D):
+            model = getattr(self, 'discriminator_%d' % i)
+            result.append(self.singleD_forward(model, input_downsampled, ref_downsampled))
+            input_downsampled = self.downsample(input_downsampled)
+            ref_downsampled = self.downsample(ref_downsampled) if ref is not None else None
+        return result
+
+
 class L1(nn.Module):
 
     def __init__(self):
@@ -994,206 +1955,89 @@ class MultiScale(nn.Module):
             return [lossvalue, epevalue]
 
 
-class MyDict(dict):
-    pass
+class ChannelNormFunction(Function):
+
+    @staticmethod
+    def forward(ctx, input1, norm_deg=2):
+        assert input1.is_contiguous()
+        b, _, h, w = input1.size()
+        output = input1.new(b, 1, h, w).zero_()
+        channelnorm_cuda.forward(input1, output, norm_deg)
+        ctx.save_for_backward(input1, output)
+        ctx.norm_deg = norm_deg
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input1, output = ctx.saved_tensors
+        grad_input1 = Variable(input1.new(input1.size()).zero_())
+        channelnorm.backward(input1, output, grad_output.data, grad_input1.data, ctx.norm_deg)
+        return grad_input1, None
 
 
-class FlowNet2(nn.Module):
+class ChannelNorm(Module):
 
-    def __init__(self, args=None, batchNorm=False, div_flow=20.0):
-        super(FlowNet2, self).__init__()
-        if args is None:
-            args = MyDict()
-            args.rgb_max = 1
-            args.fp16 = False
-            args.grads = {}
-        self.batchNorm = batchNorm
-        self.div_flow = div_flow
-        self.rgb_max = args.rgb_max
-        self.args = args
-        self.channelnorm = ChannelNorm()
-        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
-        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
-        if args.fp16:
-            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
-        else:
-            self.resample1 = Resample2d()
-        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
-        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
-        if args.fp16:
-            self.resample2 = nn.Sequential(tofp32(), Resample2d(), tofp16())
-        else:
-            self.resample2 = Resample2d()
-        self.flownets_2 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
-        self.flownets_d = FlowNetSD.FlowNetSD(args, batchNorm=self.batchNorm)
-        self.upsample3 = nn.Upsample(scale_factor=4, mode='nearest')
-        self.upsample4 = nn.Upsample(scale_factor=4, mode='nearest')
-        if args.fp16:
-            self.resample3 = nn.Sequential(tofp32(), Resample2d(), tofp16())
-        else:
-            self.resample3 = Resample2d()
-        if args.fp16:
-            self.resample4 = nn.Sequential(tofp32(), Resample2d(), tofp16())
-        else:
-            self.resample4 = Resample2d()
-        self.flownetfusion = FlowNetFusion.FlowNetFusion(args, batchNorm=self.batchNorm)
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                if m.bias is not None:
-                    init.uniform_(m.bias)
-                init.xavier_uniform_(m.weight)
-            if isinstance(m, nn.ConvTranspose2d):
-                if m.bias is not None:
-                    init.uniform_(m.bias)
-                init.xavier_uniform_(m.weight)
+    def __init__(self, norm_deg=2):
+        super(ChannelNorm, self).__init__()
+        self.norm_deg = norm_deg
 
-    def init_deconv_bilinear(self, weight):
-        f_shape = weight.size()
-        heigh, width = f_shape[-2], f_shape[-1]
-        f = np.ceil(width / 2.0)
-        c = (2 * f - 1 - f % 2) / (2.0 * f)
-        bilinear = np.zeros([heigh, width])
-        for x in range(width):
-            for y in range(heigh):
-                value = (1 - abs(x / f - c)) * (1 - abs(y / f - c))
-                bilinear[x, y] = value
-        min_dim = min(f_shape[0], f_shape[1])
-        weight.data.fill_(0.0)
-        for i in range(min_dim):
-            weight.data[(i), (i), :, :] = torch.from_numpy(bilinear)
-        return
-
-    def forward(self, inputs):
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
-        x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
-        x = torch.cat((x1, x2), dim=1)
-        flownetc_flow2 = self.flownetc(x)[0]
-        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
-        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
-        diff_img0 = x[:, :3, :, :] - resampled_img1
-        norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
-        flownets1_flow2 = self.flownets_1(concat1)[0]
-        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
-        resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
-        diff_img0 = x[:, :3, :, :] - resampled_img1
-        norm_diff_img0 = self.channelnorm(diff_img0)
-        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
-        flownets2_flow2 = self.flownets_2(concat2)[0]
-        flownets2_flow = self.upsample4(flownets2_flow2 * self.div_flow)
-        norm_flownets2_flow = self.channelnorm(flownets2_flow)
-        diff_flownets2_flow = self.resample4(x[:, 3:, :, :], flownets2_flow)
-        diff_flownets2_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownets2_flow)
-        flownetsd_flow2 = self.flownets_d(x)[0]
-        flownetsd_flow = self.upsample3(flownetsd_flow2 / self.div_flow)
-        norm_flownetsd_flow = self.channelnorm(flownetsd_flow)
-        diff_flownetsd_flow = self.resample3(x[:, 3:, :, :], flownetsd_flow)
-        diff_flownetsd_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownetsd_flow)
-        concat3 = torch.cat((x[:, :3, :, :], flownetsd_flow, flownets2_flow, norm_flownetsd_flow, norm_flownets2_flow, diff_flownetsd_img1, diff_flownets2_img1), dim=1)
-        flownetfusion_flow = self.flownetfusion(concat3)
-        return flownetfusion_flow
+    def forward(self, input1):
+        return ChannelNormFunction.apply(input1, self.norm_deg)
 
 
-class FlowNet2CS(nn.Module):
+class CorrelationFunction(Function):
 
-    def __init__(self, args, batchNorm=False, div_flow=20.0):
-        super(FlowNet2CS, self).__init__()
-        self.batchNorm = batchNorm
-        self.div_flow = div_flow
-        self.rgb_max = args.rgb_max
-        self.args = args
-        self.channelnorm = ChannelNorm()
-        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
-        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
-        if args.fp16:
-            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
-        else:
-            self.resample1 = Resample2d()
-        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
-        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                if m.bias is not None:
-                    init.uniform(m.bias)
-                init.xavier_uniform(m.weight)
-            if isinstance(m, nn.ConvTranspose2d):
-                if m.bias is not None:
-                    init.uniform(m.bias)
-                init.xavier_uniform(m.weight)
+    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20, stride1=1, stride2=2, corr_multiply=1):
+        super(CorrelationFunction, self).__init__()
+        self.pad_size = pad_size
+        self.kernel_size = kernel_size
+        self.max_displacement = max_displacement
+        self.stride1 = stride1
+        self.stride2 = stride2
+        self.corr_multiply = corr_multiply
 
-    def forward(self, inputs):
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
-        x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
-        x = torch.cat((x1, x2), dim=1)
-        flownetc_flow2 = self.flownetc(x)[0]
-        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
-        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
-        diff_img0 = x[:, :3, :, :] - resampled_img1
-        norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
-        flownets1_flow2 = self.flownets_1(concat1)[0]
-        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
-        return flownets1_flow
+    @staticmethod
+    def forward(ctx, input1, input2, pad_size, kernel_size, max_displacement, stride1, stride2, corr_multiply):
+        ctx.save_for_backward(input1, input2)
+        ctx.pad_size = pad_size
+        ctx.kernel_size = kernel_size
+        ctx.max_displacement = max_displacement
+        ctx.stride1 = stride1
+        ctx.stride2 = stride2
+        ctx.corr_multiply = corr_multiply
+        with torch.cuda.device_of(input1):
+            rbot1 = input1.new()
+            rbot2 = input2.new()
+            output = input1.new()
+            correlation_cuda.forward(input1, input2, rbot1, rbot2, output, ctx.pad_size, ctx.kernel_size, ctx.max_displacement, ctx.stride1, ctx.stride2, ctx.corr_multiply)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        input1, input2 = ctx.saved_tensors
+        with torch.cuda.device_of(input1):
+            rbot1 = input1.new()
+            rbot2 = input2.new()
+            grad_input1 = input1.new()
+            grad_input2 = input2.new()
+            correlation_cuda.backward(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2, ctx.pad_size, ctx.kernel_size, ctx.max_displacement, ctx.stride1, ctx.stride2, ctx.corr_multiply)
+        return grad_input1, grad_input2
 
 
-class FlowNet2CSS(nn.Module):
+class Correlation(Module):
 
-    def __init__(self, args, batchNorm=False, div_flow=20.0):
-        super(FlowNet2CSS, self).__init__()
-        self.batchNorm = batchNorm
-        self.div_flow = div_flow
-        self.rgb_max = args.rgb_max
-        self.args = args
-        self.channelnorm = ChannelNorm()
-        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
-        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
-        if args.fp16:
-            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
-        else:
-            self.resample1 = Resample2d()
-        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
-        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
-        if args.fp16:
-            self.resample2 = nn.Sequential(tofp32(), Resample2d(), tofp16())
-        else:
-            self.resample2 = Resample2d()
-        self.flownets_2 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
-        self.upsample3 = nn.Upsample(scale_factor=4, mode='nearest')
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                if m.bias is not None:
-                    init.uniform(m.bias)
-                init.xavier_uniform(m.weight)
-            if isinstance(m, nn.ConvTranspose2d):
-                if m.bias is not None:
-                    init.uniform(m.bias)
-                init.xavier_uniform(m.weight)
+    def __init__(self, pad_size=0, kernel_size=0, max_displacement=0, stride1=1, stride2=2, corr_multiply=1):
+        super(Correlation, self).__init__()
+        self.pad_size = pad_size
+        self.kernel_size = kernel_size
+        self.max_displacement = max_displacement
+        self.stride1 = stride1
+        self.stride2 = stride2
+        self.corr_multiply = corr_multiply
 
-    def forward(self, inputs):
-        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
-        x = (inputs - rgb_mean) / self.rgb_max
-        x1 = x[:, :, (0), :, :]
-        x2 = x[:, :, (1), :, :]
-        x = torch.cat((x1, x2), dim=1)
-        flownetc_flow2 = self.flownetc(x)[0]
-        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
-        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
-        diff_img0 = x[:, :3, :, :] - resampled_img1
-        norm_diff_img0 = self.channelnorm(diff_img0)
-        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
-        flownets1_flow2 = self.flownets_1(concat1)[0]
-        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
-        resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
-        diff_img0 = x[:, :3, :, :] - resampled_img1
-        norm_diff_img0 = self.channelnorm(diff_img0)
-        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
-        flownets2_flow2 = self.flownets_2(concat2)[0]
-        flownets2_flow = self.upsample3(flownets2_flow2 * self.div_flow)
-        return flownets2_flow
+    def forward(self, input1, input2):
+        result = CorrelationFunction.apply(input1, input2, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
+        return result
 
 
 def conv(batchNorm, in_planes, out_planes, kernel_size=3, stride=1):
@@ -1209,6 +2053,24 @@ def deconv(in_planes, out_planes):
 
 def predict_flow(in_planes):
     return nn.Conv2d(in_planes, 2, kernel_size=3, stride=1, padding=1, bias=True)
+
+
+class tofp16(nn.Module):
+
+    def __init__(self):
+        super(tofp16, self).__init__()
+
+    def forward(self, input):
+        return input.half()
+
+
+class tofp32(nn.Module):
+
+    def __init__(self):
+        super(tofp32, self).__init__()
+
+    def forward(self, input):
+        return input.float()
 
 
 class FlowNetC(nn.Module):
@@ -1501,89 +2363,8 @@ class FlowNetSD(nn.Module):
             return flow2,
 
 
-class ChannelNormFunction(Function):
-
-    @staticmethod
-    def forward(ctx, input1, norm_deg=2):
-        assert input1.is_contiguous()
-        b, _, h, w = input1.size()
-        output = input1.new(b, 1, h, w).zero_()
-        channelnorm_cuda.forward(input1, output, norm_deg)
-        ctx.save_for_backward(input1, output)
-        ctx.norm_deg = norm_deg
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input1, output = ctx.saved_tensors
-        grad_input1 = Variable(input1.new(input1.size()).zero_())
-        channelnorm.backward(input1, output, grad_output.data, grad_input1.data, ctx.norm_deg)
-        return grad_input1, None
-
-
-class ChannelNorm(Module):
-
-    def __init__(self, norm_deg=2):
-        super(ChannelNorm, self).__init__()
-        self.norm_deg = norm_deg
-
-    def forward(self, input1):
-        return ChannelNormFunction.apply(input1, self.norm_deg)
-
-
-class CorrelationFunction(Function):
-
-    def __init__(self, pad_size=3, kernel_size=3, max_displacement=20, stride1=1, stride2=2, corr_multiply=1):
-        super(CorrelationFunction, self).__init__()
-        self.pad_size = pad_size
-        self.kernel_size = kernel_size
-        self.max_displacement = max_displacement
-        self.stride1 = stride1
-        self.stride2 = stride2
-        self.corr_multiply = corr_multiply
-
-    @staticmethod
-    def forward(ctx, input1, input2, pad_size, kernel_size, max_displacement, stride1, stride2, corr_multiply):
-        ctx.save_for_backward(input1, input2)
-        ctx.pad_size = pad_size
-        ctx.kernel_size = kernel_size
-        ctx.max_displacement = max_displacement
-        ctx.stride1 = stride1
-        ctx.stride2 = stride2
-        ctx.corr_multiply = corr_multiply
-        with torch.cuda.device_of(input1):
-            rbot1 = input1.new()
-            rbot2 = input2.new()
-            output = input1.new()
-            correlation_cuda.forward(input1, input2, rbot1, rbot2, output, ctx.pad_size, ctx.kernel_size, ctx.max_displacement, ctx.stride1, ctx.stride2, ctx.corr_multiply)
-        return output
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        input1, input2 = ctx.saved_tensors
-        with torch.cuda.device_of(input1):
-            rbot1 = input1.new()
-            rbot2 = input2.new()
-            grad_input1 = input1.new()
-            grad_input2 = input2.new()
-            correlation_cuda.backward(input1, input2, rbot1, rbot2, grad_output, grad_input1, grad_input2, ctx.pad_size, ctx.kernel_size, ctx.max_displacement, ctx.stride1, ctx.stride2, ctx.corr_multiply)
-        return grad_input1, grad_input2
-
-
-class Correlation(Module):
-
-    def __init__(self, pad_size=0, kernel_size=0, max_displacement=0, stride1=1, stride2=2, corr_multiply=1):
-        super(Correlation, self).__init__()
-        self.pad_size = pad_size
-        self.kernel_size = kernel_size
-        self.max_displacement = max_displacement
-        self.stride1 = stride1
-        self.stride2 = stride2
-        self.corr_multiply = corr_multiply
-
-    def forward(self, input1, input2):
-        result = CorrelationFunction.apply(input1, input2, self.pad_size, self.kernel_size, self.max_displacement, self.stride1, self.stride2, self.corr_multiply)
-        return result
+class MyDict(dict):
+    pass
 
 
 class Resample2dFunction(Function):
@@ -1621,22 +2402,709 @@ class Resample2d(Module):
         return Resample2dFunction.apply(input1_c, input2, self.kernel_size)
 
 
-class tofp16(nn.Module):
+class FlowNet2(nn.Module):
 
-    def __init__(self):
-        super(tofp16, self).__init__()
+    def __init__(self, args=None, batchNorm=False, div_flow=20.0):
+        super(FlowNet2, self).__init__()
+        if args is None:
+            args = MyDict()
+            args.rgb_max = 1
+            args.fp16 = False
+            args.grads = {}
+        self.batchNorm = batchNorm
+        self.div_flow = div_flow
+        self.rgb_max = args.rgb_max
+        self.args = args
+        self.channelnorm = ChannelNorm()
+        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
+        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
+        if args.fp16:
+            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample1 = Resample2d()
+        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
+        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
+        if args.fp16:
+            self.resample2 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample2 = Resample2d()
+        self.flownets_2 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
+        self.flownets_d = FlowNetSD.FlowNetSD(args, batchNorm=self.batchNorm)
+        self.upsample3 = nn.Upsample(scale_factor=4, mode='nearest')
+        self.upsample4 = nn.Upsample(scale_factor=4, mode='nearest')
+        if args.fp16:
+            self.resample3 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample3 = Resample2d()
+        if args.fp16:
+            self.resample4 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample4 = Resample2d()
+        self.flownetfusion = FlowNetFusion.FlowNetFusion(args, batchNorm=self.batchNorm)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m.bias is not None:
+                    init.uniform_(m.bias)
+                init.xavier_uniform_(m.weight)
+            if isinstance(m, nn.ConvTranspose2d):
+                if m.bias is not None:
+                    init.uniform_(m.bias)
+                init.xavier_uniform_(m.weight)
 
-    def forward(self, input):
-        return input.half()
+    def init_deconv_bilinear(self, weight):
+        f_shape = weight.size()
+        heigh, width = f_shape[-2], f_shape[-1]
+        f = np.ceil(width / 2.0)
+        c = (2 * f - 1 - f % 2) / (2.0 * f)
+        bilinear = np.zeros([heigh, width])
+        for x in range(width):
+            for y in range(heigh):
+                value = (1 - abs(x / f - c)) * (1 - abs(y / f - c))
+                bilinear[x, y] = value
+        min_dim = min(f_shape[0], f_shape[1])
+        weight.data.fill_(0.0)
+        for i in range(min_dim):
+            weight.data[(i), (i), :, :] = torch.from_numpy(bilinear)
+        return
+
+    def forward(self, inputs):
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
+        x = (inputs - rgb_mean) / self.rgb_max
+        x1 = x[:, :, (0), :, :]
+        x2 = x[:, :, (1), :, :]
+        x = torch.cat((x1, x2), dim=1)
+        flownetc_flow2 = self.flownetc(x)[0]
+        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
+        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
+        diff_img0 = x[:, :3, :, :] - resampled_img1
+        norm_diff_img0 = self.channelnorm(diff_img0)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
+        flownets1_flow2 = self.flownets_1(concat1)[0]
+        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
+        resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
+        diff_img0 = x[:, :3, :, :] - resampled_img1
+        norm_diff_img0 = self.channelnorm(diff_img0)
+        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
+        flownets2_flow2 = self.flownets_2(concat2)[0]
+        flownets2_flow = self.upsample4(flownets2_flow2 * self.div_flow)
+        norm_flownets2_flow = self.channelnorm(flownets2_flow)
+        diff_flownets2_flow = self.resample4(x[:, 3:, :, :], flownets2_flow)
+        diff_flownets2_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownets2_flow)
+        flownetsd_flow2 = self.flownets_d(x)[0]
+        flownetsd_flow = self.upsample3(flownetsd_flow2 / self.div_flow)
+        norm_flownetsd_flow = self.channelnorm(flownetsd_flow)
+        diff_flownetsd_flow = self.resample3(x[:, 3:, :, :], flownetsd_flow)
+        diff_flownetsd_img1 = self.channelnorm(x[:, :3, :, :] - diff_flownetsd_flow)
+        concat3 = torch.cat((x[:, :3, :, :], flownetsd_flow, flownets2_flow, norm_flownetsd_flow, norm_flownets2_flow, diff_flownetsd_img1, diff_flownets2_img1), dim=1)
+        flownetfusion_flow = self.flownetfusion(concat3)
+        return flownetfusion_flow
 
 
-class tofp32(nn.Module):
+class FlowNet2CS(nn.Module):
 
-    def __init__(self):
-        super(tofp32, self).__init__()
+    def __init__(self, args, batchNorm=False, div_flow=20.0):
+        super(FlowNet2CS, self).__init__()
+        self.batchNorm = batchNorm
+        self.div_flow = div_flow
+        self.rgb_max = args.rgb_max
+        self.args = args
+        self.channelnorm = ChannelNorm()
+        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
+        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
+        if args.fp16:
+            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample1 = Resample2d()
+        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
+        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m.bias is not None:
+                    init.uniform(m.bias)
+                init.xavier_uniform(m.weight)
+            if isinstance(m, nn.ConvTranspose2d):
+                if m.bias is not None:
+                    init.uniform(m.bias)
+                init.xavier_uniform(m.weight)
 
-    def forward(self, input):
-        return input.float()
+    def forward(self, inputs):
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
+        x = (inputs - rgb_mean) / self.rgb_max
+        x1 = x[:, :, (0), :, :]
+        x2 = x[:, :, (1), :, :]
+        x = torch.cat((x1, x2), dim=1)
+        flownetc_flow2 = self.flownetc(x)[0]
+        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
+        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
+        diff_img0 = x[:, :3, :, :] - resampled_img1
+        norm_diff_img0 = self.channelnorm(diff_img0)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
+        flownets1_flow2 = self.flownets_1(concat1)[0]
+        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
+        return flownets1_flow
+
+
+class FlowNet2CSS(nn.Module):
+
+    def __init__(self, args, batchNorm=False, div_flow=20.0):
+        super(FlowNet2CSS, self).__init__()
+        self.batchNorm = batchNorm
+        self.div_flow = div_flow
+        self.rgb_max = args.rgb_max
+        self.args = args
+        self.channelnorm = ChannelNorm()
+        self.flownetc = FlowNetC.FlowNetC(args, batchNorm=self.batchNorm)
+        self.upsample1 = nn.Upsample(scale_factor=4, mode='bilinear')
+        if args.fp16:
+            self.resample1 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample1 = Resample2d()
+        self.flownets_1 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
+        self.upsample2 = nn.Upsample(scale_factor=4, mode='bilinear')
+        if args.fp16:
+            self.resample2 = nn.Sequential(tofp32(), Resample2d(), tofp16())
+        else:
+            self.resample2 = Resample2d()
+        self.flownets_2 = FlowNetS.FlowNetS(args, batchNorm=self.batchNorm)
+        self.upsample3 = nn.Upsample(scale_factor=4, mode='nearest')
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m.bias is not None:
+                    init.uniform(m.bias)
+                init.xavier_uniform(m.weight)
+            if isinstance(m, nn.ConvTranspose2d):
+                if m.bias is not None:
+                    init.uniform(m.bias)
+                init.xavier_uniform(m.weight)
+
+    def forward(self, inputs):
+        rgb_mean = inputs.contiguous().view(inputs.size()[:2] + (-1,)).mean(dim=-1).view(inputs.size()[:2] + (1, 1, 1))
+        x = (inputs - rgb_mean) / self.rgb_max
+        x1 = x[:, :, (0), :, :]
+        x2 = x[:, :, (1), :, :]
+        x = torch.cat((x1, x2), dim=1)
+        flownetc_flow2 = self.flownetc(x)[0]
+        flownetc_flow = self.upsample1(flownetc_flow2 * self.div_flow)
+        resampled_img1 = self.resample1(x[:, 3:, :, :], flownetc_flow)
+        diff_img0 = x[:, :3, :, :] - resampled_img1
+        norm_diff_img0 = self.channelnorm(diff_img0)
+        concat1 = torch.cat((x, resampled_img1, flownetc_flow / self.div_flow, norm_diff_img0), dim=1)
+        flownets1_flow2 = self.flownets_1(concat1)[0]
+        flownets1_flow = self.upsample2(flownets1_flow2 * self.div_flow)
+        resampled_img1 = self.resample2(x[:, 3:, :, :], flownets1_flow)
+        diff_img0 = x[:, :3, :, :] - resampled_img1
+        norm_diff_img0 = self.channelnorm(diff_img0)
+        concat2 = torch.cat((x, resampled_img1, flownets1_flow / self.div_flow, norm_diff_img0), dim=1)
+        flownets2_flow2 = self.flownets_2(concat2)[0]
+        flownets2_flow = self.upsample3(flownets2_flow2 * self.div_flow)
+        return flownets2_flow
+
+
+def get_nonspade_norm_layer(opt, norm_type='instance'):
+
+    def get_out_channel(layer):
+        if hasattr(layer, 'out_channels'):
+            return getattr(layer, 'out_channels')
+        return layer.weight.size(0)
+
+    def add_norm_layer(layer):
+        nonlocal norm_type
+        if norm_type.startswith('spectral'):
+            layer = sn(layer)
+            subnorm_type = norm_type[len('spectral'):]
+        if subnorm_type == 'none' or len(subnorm_type) == 0:
+            return layer
+        if getattr(layer, 'bias', None) is not None:
+            delattr(layer, 'bias')
+            layer.register_parameter('bias', None)
+        if subnorm_type == 'batch':
+            norm_layer = nn.BatchNorm2d(get_out_channel(layer), affine=True)
+        elif subnorm_type == 'syncbatch':
+            norm_layer = SynchronizedBatchNorm2d(get_out_channel(layer), affine=True)
+        elif subnorm_type == 'instance':
+            norm_layer = nn.InstanceNorm2d(get_out_channel(layer), affine=True)
+        else:
+            raise ValueError('normalization layer %s is not recognized' % subnorm_type)
+        return nn.Sequential(layer, norm_layer)
+    return add_norm_layer
+
+
+class FlowGenerator(BaseNetwork):
+
+    def __init__(self, opt, n_frames_G):
+        super().__init__()
+        self.opt = opt
+        input_nc = (opt.label_nc if opt.label_nc != 0 else opt.input_nc) * n_frames_G
+        input_nc += opt.output_nc * (n_frames_G - 1)
+        nf = opt.nff
+        n_blocks = opt.n_blocks_F
+        n_downsample_F = opt.n_downsample_F
+        self.flow_multiplier = opt.flow_multiplier
+        nf_max = 1024
+        ch = [min(nf_max, nf * 2 ** i) for i in range(n_downsample_F + 1)]
+        norm = opt.norm_F
+        norm_layer = get_nonspade_norm_layer(opt, norm)
+        activation = nn.LeakyReLU(0.2)
+        down_flow = [norm_layer(nn.Conv2d(input_nc, nf, kernel_size=3, padding=1)), activation]
+        for i in range(n_downsample_F):
+            down_flow += [norm_layer(nn.Conv2d(ch[i], ch[i + 1], kernel_size=3, padding=1, stride=2)), activation]
+        res_flow = []
+        ch_r = min(nf_max, nf * 2 ** n_downsample_F)
+        for i in range(n_blocks):
+            res_flow += [SPADEResnetBlock(ch_r, ch_r, norm=norm)]
+        up_flow = []
+        for i in reversed(range(n_downsample_F)):
+            up_flow += [nn.Upsample(scale_factor=2), norm_layer(nn.Conv2d(ch[i + 1], ch[i], kernel_size=3, padding=1)), activation]
+        conv_flow = [nn.Conv2d(nf, 2, kernel_size=3, padding=1)]
+        conv_mask = [nn.Conv2d(nf, 1, kernel_size=3, padding=1), nn.Sigmoid()]
+        self.down_flow = nn.Sequential(*down_flow)
+        self.res_flow = nn.Sequential(*res_flow)
+        self.up_flow = nn.Sequential(*up_flow)
+        self.conv_flow = nn.Sequential(*conv_flow)
+        self.conv_mask = nn.Sequential(*conv_mask)
+
+    def forward(self, label, label_prev, img_prev, for_ref=False):
+        label = torch.cat([label, label_prev, img_prev], dim=1)
+        downsample = self.down_flow(label)
+        res = self.res_flow(downsample)
+        flow_feat = self.up_flow(res)
+        flow = self.conv_flow(flow_feat) * self.flow_multiplier
+        flow_mask = self.conv_mask(flow_feat)
+        return flow, flow_mask
+
+
+class LabelEmbedder(BaseNetwork):
+
+    def __init__(self, opt, input_nc, netS=None, params_free_layers=0, first_layer_free=False):
+        super().__init__()
+        self.opt = opt
+        norm_layer = get_nonspade_norm_layer(opt, opt.norm_F)
+        activation = nn.LeakyReLU(0.2)
+        nf = opt.ngf
+        nf_max = 1024
+        self.netS = netS if netS is not None else opt.netS
+        self.unet = 'unet' in self.netS
+        self.decode = 'decoder' in self.netS or self.unet
+        self.n_downsample_S = n_downsample_S = opt.n_downsample_G
+        self.params_free_layers = params_free_layers if params_free_layers != -1 else n_downsample_S
+        self.first_layer_free = first_layer_free
+        ch = [min(nf_max, nf * 2 ** i) for i in range(n_downsample_S + 1)]
+        if not first_layer_free:
+            layer = [nn.Conv2d(input_nc, nf, kernel_size=3, padding=1), activation]
+            self.conv_first = nn.Sequential(*layer)
+        for i in range(n_downsample_S):
+            layer = [nn.Conv2d(ch[i], ch[i + 1], kernel_size=3, stride=2, padding=1), activation]
+            if i >= params_free_layers or 'decoder' in netS:
+                setattr(self, 'down_%d' % i, nn.Sequential(*layer))
+        if self.decode:
+            for i in reversed(range(n_downsample_S)):
+                ch_i = ch[i + 1] * (2 if self.unet and i != n_downsample_S - 1 else 1)
+                layer = [nn.Upsample(scale_factor=2), nn.Conv2d(ch_i, ch[i], kernel_size=3, padding=1), activation]
+                if i >= params_free_layers:
+                    setattr(self, 'up_%d' % i, nn.Sequential(*layer))
+
+    def forward(self, input, weights=None):
+        if input is None:
+            return None
+        if self.first_layer_free:
+            output = [actvn(batch_conv(input, weights[0]))]
+            weights = weights[1:]
+        else:
+            output = [self.conv_first(input)]
+        for i in range(self.n_downsample_S):
+            if i >= self.params_free_layers or self.decode:
+                conv = getattr(self, 'down_%d' % i)(output[-1])
+            else:
+                conv = actvn(batch_conv(output[-1], weights[i], stride=2))
+            output.append(conv)
+        if not self.decode:
+            return output
+        if not self.unet:
+            output = [output[-1]]
+        for i in reversed(range(self.n_downsample_S)):
+            input_i = output[-1]
+            if self.unet and i != self.n_downsample_S - 1:
+                input_i = torch.cat([input_i, output[i + 1]], dim=1)
+            if i >= self.params_free_layers:
+                conv = getattr(self, 'up_%d' % i)(input_i)
+            else:
+                input_i = nn.Upsample(scale_factor=2)(input_i)
+                conv = actvn(batch_conv(input_i, weights[i]))
+            output.append(conv)
+        if self.unet:
+            output = output[self.n_downsample_S:]
+        return output[::-1]
+
+
+def pick_ref(refs, ref_idx):
+    if type(refs) == list:
+        return [pick_ref(r, ref_idx) for r in refs]
+    if ref_idx is None:
+        return refs[:, (0)]
+    ref_idx = ref_idx.long().view(-1, 1, 1, 1, 1)
+    ref = refs.gather(1, ref_idx.expand_as(refs)[:, 0:1])[:, (0)]
+    return ref
+
+
+def set_random_seed(seed):
+    """Set random seeds for everything.
+       Inputs:
+       seed (int): Random seed.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+class FewShotGenerator(BaseNetwork):
+
+    def __init__(self, opt):
+        super().__init__()
+        self.opt = opt
+        self.n_downsample_G = n_downsample_G = opt.n_downsample_G
+        self.n_downsample_A = n_downsample_A = opt.n_downsample_A
+        self.nf = nf = opt.ngf
+        self.nf_max = nf_max = min(1024, nf * 2 ** n_downsample_G)
+        self.ch = ch = [min(nf_max, nf * 2 ** i) for i in range(n_downsample_G + 2)]
+        self.norm = norm = opt.norm_G
+        self.conv_ks = conv_ks = opt.conv_ks
+        self.embed_ks = embed_ks = opt.embed_ks
+        self.spade_ks = spade_ks = opt.spade_ks
+        self.spade_combine = opt.spade_combine
+        self.n_sc_layers = opt.n_sc_layers
+        self.add_raw_output_loss = opt.add_raw_output_loss and opt.spade_combine
+        ch_hidden = []
+        for i in range(n_downsample_G + 1):
+            ch_hidden += [[ch[i]]] if not self.spade_combine or i >= self.n_sc_layers else [[ch[i]] * 3]
+        self.ch_hidden = ch_hidden
+        self.adap_spade = opt.adaptive_spade
+        self.adap_embed = opt.adaptive_spade and not opt.no_adaptive_embed
+        self.adap_conv = opt.adaptive_conv
+        self.n_adaptive_layers = opt.n_adaptive_layers if opt.n_adaptive_layers != -1 else n_downsample_G
+        self.concat_label_ref = 'concat' in opt.use_label_ref
+        self.mul_label_ref = 'mul' in opt.use_label_ref
+        self.sh_fix = self.sw_fix = 32
+        self.sw = opt.fineSize // 2 ** opt.n_downsample_G
+        self.sh = int(self.sw / opt.aspect_ratio)
+        self.n_fc_layers = n_fc_layers = opt.n_fc_layers
+        norm_ref = norm.replace('spade', '')
+        input_nc = opt.label_nc if opt.label_nc != 0 else opt.input_nc
+        ref_nc = opt.output_nc + (0 if not self.concat_label_ref else input_nc)
+        self.ref_img_first = SPADEConv2d(ref_nc, nf, norm=norm_ref)
+        if self.mul_label_ref:
+            self.ref_label_first = SPADEConv2d(input_nc, nf, norm=norm_ref)
+        ref_conv = SPADEConv2d if not opt.res_for_ref else SPADEResnetBlock
+        for i in range(n_downsample_G):
+            ch_in, ch_out = ch[i], ch[i + 1]
+            setattr(self, 'ref_img_down_%d' % i, ref_conv(ch_in, ch_out, stride=2, norm=norm_ref))
+            setattr(self, 'ref_img_up_%d' % i, ref_conv(ch_out, ch_in, norm=norm_ref))
+            if self.mul_label_ref:
+                setattr(self, 'ref_label_down_%d' % i, ref_conv(ch_in, ch_out, stride=2, norm=norm_ref))
+                setattr(self, 'ref_label_up_%d' % i, ref_conv(ch_out, ch_in, norm=norm_ref))
+        if self.adap_spade or self.adap_conv:
+            for i in range(self.n_adaptive_layers):
+                ch_in, ch_out = ch[i], ch[i + 1]
+                conv_ks2 = conv_ks ** 2
+                embed_ks2 = embed_ks ** 2
+                spade_ks2 = spade_ks ** 2
+                ch_h = ch_hidden[i][0]
+                fc_names, fc_outs = [], []
+                if self.adap_spade:
+                    fc0_out = fcs_out = (ch_h * spade_ks2 + 1) * 2
+                    fc1_out = (ch_h * spade_ks2 + 1) * (1 if ch_in != ch_out else 2)
+                    fc_names += ['fc_spade_0', 'fc_spade_1', 'fc_spade_s']
+                    fc_outs += [fc0_out, fc1_out, fcs_out]
+                    if self.adap_embed:
+                        fc_names += ['fc_spade_e']
+                        fc_outs += [ch_in * embed_ks2 + 1]
+                if self.adap_conv:
+                    fc0_out = ch_out * conv_ks2 + 1
+                    fc1_out = ch_in * conv_ks2 + 1
+                    fcs_out = ch_out + 1
+                    fc_names += ['fc_conv_0', 'fc_conv_1', 'fc_conv_s']
+                    fc_outs += [fc0_out, fc1_out, fcs_out]
+                for n, l in enumerate(fc_names):
+                    fc_in = ch_out if self.mul_label_ref else self.sh_fix * self.sw_fix
+                    activation = nn.LeakyReLU(0.2)
+                    fc_layer = [sn(nn.Linear(fc_in, ch_out)), activation]
+                    for k in range(1, n_fc_layers):
+                        fc_layer += [sn(nn.Linear(ch_out, ch_out)), activation]
+                    fc_layer += [sn(nn.Linear(ch_out, fc_outs[n]))]
+                    setattr(self, '%s_%d' % (l, i), nn.Sequential(*fc_layer))
+        self.label_embedding = LabelEmbedder(opt, input_nc, opt.netS, params_free_layers=self.n_adaptive_layers if self.adap_embed else 0)
+        for i in reversed(range(n_downsample_G + 1)):
+            setattr(self, 'up_%d' % i, SPADEResnetBlock(ch[i + 1], ch[i], norm=norm, hidden_nc=ch_hidden[i], conv_ks=conv_ks, spade_ks=spade_ks, conv_params_free=self.adap_conv and i < self.n_adaptive_layers, norm_params_free=self.adap_spade and i < self.n_adaptive_layers))
+        self.conv_img = nn.Conv2d(nf, 3, kernel_size=3, padding=1)
+        self.up = functools.partial(F.interpolate, scale_factor=2)
+        if opt.n_shot > 1:
+            self.atn_query_first = SPADEConv2d(input_nc, nf, norm=norm_ref)
+            self.atn_key_first = SPADEConv2d(input_nc, nf, norm=norm_ref)
+            for i in range(n_downsample_A):
+                f_in, f_out = ch[i], ch[i + 1]
+                setattr(self, 'atn_key_%d' % i, SPADEConv2d(f_in, f_out, stride=2, norm=norm_ref))
+                setattr(self, 'atn_query_%d' % i, SPADEConv2d(f_in, f_out, stride=2, norm=norm_ref))
+        self.use_kld = opt.lambda_kld > 0
+        self.z_dim = 256
+        if self.use_kld:
+            f_in = min(nf_max, nf * 2 ** n_downsample_G) * self.sh * self.sw
+            f_out = min(nf_max, nf * 2 ** n_downsample_G) * self.sh * self.sw
+            self.fc_mu_ref = nn.Linear(f_in, self.z_dim)
+            self.fc_var_ref = nn.Linear(f_in, self.z_dim)
+            self.fc = nn.Linear(self.z_dim, f_out)
+        self.warp_prev = False
+        self.warp_ref = opt.warp_ref and not opt.for_face
+        if self.warp_ref:
+            self.flow_network_ref = FlowGenerator(opt, 2)
+            if self.spade_combine:
+                self.img_ref_embedding = LabelEmbedder(opt, opt.output_nc + 1, opt.sc_arch)
+
+    def init_temporal_network(self):
+        opt = self.opt
+        set_random_seed(0)
+        self.warp_prev = True
+        self.sep_prev_flownet = opt.sep_flow_prev or opt.n_frames_G != 2 or not opt.warp_ref
+        self.sep_prev_embedding = self.spade_combine and (not opt.no_sep_warp_embed or not opt.warp_ref)
+        if self.sep_prev_flownet:
+            self.flow_network_temp = FlowGenerator(opt, opt.n_frames_G)
+            self.flow_network_temp.init_weights(opt.init_type, opt.init_variance)
+        else:
+            self.flow_network_temp = self.flow_network_ref
+        if self.spade_combine:
+            if self.sep_prev_embedding:
+                self.img_prev_embedding = LabelEmbedder(opt, opt.output_nc + 1, opt.sc_arch)
+                self.img_prev_embedding.init_weights(opt.init_type, opt.init_variance)
+            else:
+                self.img_prev_embedding = self.img_ref_embedding
+        if self.warp_ref:
+            if self.sep_prev_flownet:
+                self.load_pretrained_net(self.flow_network_ref, self.flow_network_temp)
+            if self.sep_prev_embedding:
+                self.load_pretrained_net(self.img_ref_embedding, self.img_prev_embedding)
+            self.flow_temp_is_initalized = True
+        set_random_seed(get_rank())
+
+    def forward(self, label, label_refs, img_refs, prev=[None, None], t=0, img_coarse=None):
+        if img_coarse is not None:
+            return self.forward_face(label, label_refs, img_refs, img_coarse)
+        x, encoded_label, conv_weights, norm_weights, mu, logvar, atn, atn_vis, ref_idx = self.weight_generation(img_refs, label_refs, label, t=t)
+        flow, flow_mask, img_warp, ds_ref = self.flow_generation(label, label_refs, img_refs, prev, atn, ref_idx)
+        flow_mask_ref, flow_mask_prev = flow_mask
+        img_ref_warp, img_prev_warp = img_warp
+        if self.add_raw_output_loss:
+            encoded_label_raw = [encoded_label[i] for i in range(self.n_sc_layers)]
+        encoded_label = self.SPADE_combine(encoded_label, ds_ref)
+        for i in range(self.n_downsample_G, -1, -1):
+            conv_weight = conv_weights[i] if self.adap_conv and i < self.n_adaptive_layers else None
+            norm_weight = norm_weights[i] if self.adap_spade and i < self.n_adaptive_layers else None
+            if self.add_raw_output_loss and i < self.n_sc_layers:
+                if i == self.n_sc_layers - 1:
+                    x_raw = x
+                x_raw = getattr(self, 'up_' + str(i))(x_raw, encoded_label_raw[i], conv_weights=conv_weight, norm_weights=norm_weight)
+                if i != 0:
+                    x_raw = self.up(x_raw)
+            x = getattr(self, 'up_' + str(i))(x, encoded_label[i], conv_weights=conv_weight, norm_weights=norm_weight)
+            if i != 0:
+                x = self.up(x)
+        x = self.conv_img(actvn(x))
+        img_raw = torch.tanh(x)
+        if not self.spade_combine:
+            if self.warp_ref:
+                img_final = img_raw * flow_mask_ref + img_ref_warp * (1 - flow_mask_ref)
+            else:
+                img_final = img_raw
+                if not self.warp_prev:
+                    img_raw = None
+            if self.warp_prev and prev[0] is not None:
+                img_final = img_final * flow_mask_prev + img_prev_warp * (1 - flow_mask_prev)
+        else:
+            img_final = img_raw
+            img_raw = None if not self.add_raw_output_loss else torch.tanh(self.conv_img(actvn(x_raw)))
+        return img_final, flow, flow_mask, img_raw, img_warp, mu, logvar, atn_vis, ref_idx
+
+    def forward_face(self, label, label_refs, img_refs, img_coarse):
+        x, encoded_label, _, norm_weights, _, _, _, _, _ = self.weight_generation(img_refs, label_refs, label, img_coarse=img_coarse)
+        for i in range(self.n_downsample_G, -1, -1):
+            norm_weight = norm_weights[i] if self.adap_spade and i < self.n_adaptive_layers else None
+            x = getattr(self, 'up_' + str(i))(x, encoded_label[i], norm_weights=norm_weight)
+            if i != 0:
+                x = self.up(x)
+        x = self.conv_img(actvn(x))
+        img_final = torch.tanh(x)
+        return img_final
+
+    def get_SPADE_weights(self, x, i):
+        if not self.mul_label_ref:
+            x = nn.AdaptiveAvgPool2d((self.sh_fix, self.sw_fix))(x)
+        ch_in, ch_out = self.ch[i], self.ch[i + 1]
+        ch_h = self.ch_hidden[i][0]
+        eks, sks = self.embed_ks, self.spade_ks
+        b = x.size()[0]
+        x = self.reshape_embed_input(x)
+        embedding_weights = None
+        if self.adap_embed:
+            fc_e = getattr(self, 'fc_spade_e_' + str(i))(x).view(b, -1)
+            embedding_weights = self.reshape_weight(fc_e[:, :-ch_in], [ch_in, ch_out, eks, eks])
+        fc_0 = getattr(self, 'fc_spade_0_' + str(i))(x).view(b, -1)
+        fc_1 = getattr(self, 'fc_spade_1_' + str(i))(x).view(b, -1)
+        fc_s = getattr(self, 'fc_spade_s_' + str(i))(x).view(b, -1)
+        weight_0 = self.reshape_weight(fc_0, [[ch_out, ch_h, sks, sks]] * 2)
+        weight_1 = self.reshape_weight(fc_1, [[ch_in, ch_h, sks, sks]] * 2)
+        weight_s = self.reshape_weight(fc_s, [[ch_out, ch_h, sks, sks]] * 2)
+        norm_weights = [weight_0, weight_1, weight_s]
+        return embedding_weights, norm_weights
+
+    def get_conv_weights(self, x, i):
+        if not self.mul_label_ref:
+            x = nn.AdaptiveAvgPool2d((self.sh_fix, self.sw_fix))(x)
+        ch_in, ch_out = self.ch[i], self.ch[i + 1]
+        b = x.size()[0]
+        x = self.reshape_embed_input(x)
+        fc_0 = getattr(self, 'fc_conv_0_' + str(i))(x).view(b, -1)
+        fc_1 = getattr(self, 'fc_conv_1_' + str(i))(x).view(b, -1)
+        fc_s = getattr(self, 'fc_conv_s_' + str(i))(x).view(b, -1)
+        weight_0 = self.reshape_weight(fc_0, [ch_in, ch_out, 3, 3])
+        weight_1 = self.reshape_weight(fc_1, [ch_in, ch_in, 3, 3])
+        weight_s = self.reshape_weight(fc_s, [ch_in, ch_out, 1, 1])
+        return [weight_0, weight_1, weight_s]
+
+    def attention_encode(self, img, net_name):
+        x = getattr(self, net_name + '_first')(img)
+        for i in range(self.n_downsample_A):
+            x = getattr(self, net_name + '_' + str(i))(x)
+        return x
+
+    def attention_module(self, x, label, label_ref, attention=None):
+        b, c, h, w = x.size()
+        n = self.opt.n_shot
+        b = b // n
+        if attention is None:
+            atn_key = self.attention_encode(label_ref, 'atn_key')
+            atn_query = self.attention_encode(label, 'atn_query')
+            atn_key = atn_key.view(b, n, c, -1).permute(0, 1, 3, 2).contiguous().view(b, -1, c)
+            atn_query = atn_query.view(b, c, -1)
+            energy = torch.bmm(atn_key, atn_query)
+            attention = nn.Softmax(dim=1)(energy)
+        x = x.view(b, n, c, h * w).permute(0, 2, 1, 3).contiguous().view(b, c, -1)
+        out = torch.bmm(x, attention).view(b, c, h, w)
+        atn_vis = attention.view(b, n, h * w, h * w).sum(2).view(b, n, h, w)
+        return out, attention, atn_vis[-1:, 0:1]
+
+    def compute_kld(self, x, label, img_coarse):
+        mu = logvar = None
+        if img_coarse is not None:
+            if self.concat_label_ref:
+                img_coarse = torch.cat([img_coarse, label], dim=1)
+            x_kld = self.ref_img_first(img_coarse)
+            for i in range(self.n_downsample_G):
+                x_kld = getattr(self, 'ref_img_down_' + str(i))(x_kld)
+        elif self.use_kld:
+            b, c, h, w = x.size()
+            mu = self.fc_mu_ref(x.view(b, -1))
+            if self.opt.isTrain:
+                logvar = self.fc_var_ref(x.view(b, -1))
+                z = self.reparameterize(mu, logvar)
+            else:
+                z = mu
+            x_kld = self.fc(z).view(b, -1, h, w)
+        else:
+            x_kld = x
+        return x_kld, mu, logvar
+
+    def reference_encoding(self, img_ref, label_ref, label, n, t=0):
+        if self.concat_label_ref:
+            concat_ref = torch.cat([img_ref, label_ref], dim=1)
+            x = self.ref_img_first(concat_ref)
+        elif self.mul_label_ref:
+            x = self.ref_img_first(img_ref)
+            x_label = self.ref_label_first(label_ref)
+        else:
+            assert False
+        atn = atn_vis = ref_idx = None
+        for i in range(self.n_downsample_G):
+            x = getattr(self, 'ref_img_down_' + str(i))(x)
+            if self.mul_label_ref:
+                x_label = getattr(self, 'ref_label_down_' + str(i))(x_label)
+            if n > 1 and i == self.n_downsample_A - 1:
+                x, atn, atn_vis = self.attention_module(x, label, label_ref)
+                if self.mul_label_ref:
+                    x_label, _, _ = self.attention_module(x_label, None, None, atn)
+                atn_sum = atn.view(label.shape[0], n, -1).sum(2)
+                ref_idx = torch.argmax(atn_sum, dim=1)
+        encoded_ref = None
+        if self.opt.isTrain or n > 1 or t == 0:
+            encoded_image_ref = [x]
+            if self.mul_label_ref:
+                encoded_label_ref = [x_label]
+            for i in reversed(range(self.n_downsample_G)):
+                conv = getattr(self, 'ref_img_up_' + str(i))(encoded_image_ref[-1])
+                encoded_image_ref.append(conv)
+                if self.mul_label_ref:
+                    conv_label = getattr(self, 'ref_label_up_' + str(i))(encoded_label_ref[-1])
+                    encoded_label_ref.append(conv_label)
+            if self.mul_label_ref:
+                encoded_ref = []
+                for i in range(len(encoded_image_ref)):
+                    conv, conv_label = encoded_image_ref[i], encoded_label_ref[i]
+                    b, c, h, w = conv.size()
+                    conv_label = nn.Softmax(dim=1)(conv_label)
+                    conv_prod = (conv.view(b, c, 1, h * w) * conv_label.view(b, 1, c, h * w)).sum(3, keepdim=True)
+                    encoded_ref.append(conv_prod)
+            else:
+                encoded_ref = encoded_image_ref
+            encoded_ref = encoded_ref[::-1]
+        return x, encoded_ref, atn, atn_vis, ref_idx
+
+    def weight_generation(self, img_ref, label_ref, label, t=0, img_coarse=None):
+        b, n, c, h, w = img_ref.size()
+        img_ref, label_ref = img_ref.view(b * n, -1, h, w), label_ref.view(b * n, -1, h, w)
+        x, encoded_ref, atn, atn_vis, ref_idx = self.reference_encoding(img_ref, label_ref, label, n, t)
+        x_kld, mu, logvar = self.compute_kld(x, label, img_coarse)
+        if self.opt.isTrain or n > 1 or t == 0:
+            embedding_weights, norm_weights, conv_weights = [], [], []
+            for i in range(self.n_adaptive_layers):
+                if self.adap_spade:
+                    feat = encoded_ref[min(len(encoded_ref) - 1, i + 1)]
+                    embedding_weight, norm_weight = self.get_SPADE_weights(feat, i)
+                    embedding_weights.append(embedding_weight)
+                    norm_weights.append(norm_weight)
+                if self.adap_conv:
+                    feat = encoded_ref[min(len(encoded_ref) - 1, i)]
+                    conv_weights.append(self.get_conv_weights(feat, i))
+            if not self.opt.isTrain:
+                self.embedding_weights, self.conv_weights, self.norm_weights = embedding_weights, conv_weights, norm_weights
+        else:
+            embedding_weights, conv_weights, norm_weights = self.embedding_weights, self.conv_weights, self.norm_weights
+        encoded_label = self.label_embedding(label, weights=embedding_weights if self.adap_embed else None)
+        return x_kld, encoded_label, conv_weights, norm_weights, mu, logvar, atn, atn_vis, ref_idx
+
+    def flow_generation(self, label, label_refs, img_refs, prev, atn, ref_idx):
+        label_ref, img_ref = pick_ref([label_refs, img_refs], ref_idx)
+        label_prev, img_prev = prev
+        has_prev = label_prev is not None
+        flow, flow_mask, img_warp, ds_ref = [None] * 2, [None] * 2, [None] * 2, [None] * 2
+        if self.warp_ref:
+            flow_ref, flow_mask_ref = self.flow_network_ref(label, label_ref, img_ref, for_ref=True)
+            img_ref_warp = resample(img_ref, flow_ref)
+            flow[0], flow_mask[0], img_warp[0] = flow_ref, flow_mask_ref, img_ref_warp[:, :3]
+        if self.warp_prev and has_prev:
+            flow_prev, flow_mask_prev = self.flow_network_temp(label, label_prev, img_prev)
+            img_prev_warp = resample(img_prev[:, -3:], flow_prev)
+            flow[1], flow_mask[1], img_warp[1] = flow_prev, flow_mask_prev, img_prev_warp
+        if self.spade_combine:
+            if self.warp_ref:
+                ds_ref[0] = torch.cat([img_warp[0], flow_mask[0]], dim=1)
+            if self.warp_prev and has_prev:
+                ds_ref[1] = torch.cat([img_warp[1], flow_mask[1]], dim=1)
+        return flow, flow_mask, img_warp, ds_ref
+
+    def SPADE_combine(self, encoded_label, ds_ref):
+        if self.spade_combine:
+            encoded_image_warp = [self.img_ref_embedding(ds_ref[0]), self.img_prev_embedding(ds_ref[1]) if ds_ref[1] is not None else None]
+            for i in range(self.n_sc_layers):
+                encoded_label[i] = [encoded_label[i]] + [(w[i] if w is not None else None) for w in encoded_image_warp]
+        return encoded_label
 
 
 class GANLoss(nn.Module):
@@ -1726,6 +3194,24 @@ class GANLoss(nn.Module):
             return self.loss(input, target_is_real, weight, reduce_dim, for_discriminator)
 
 
+class VGG_Activations(nn.Module):
+
+    def __init__(self, feature_idx):
+        super(VGG_Activations, self).__init__()
+        vgg_network = torchvision.models.vgg19(pretrained=True)
+        features = list(vgg_network.features)
+        self.features = nn.ModuleList(features).eval()
+        self.idx_list = feature_idx
+
+    def forward(self, x):
+        results = []
+        for ii, model in enumerate(self.features):
+            x = model(x)
+            if ii in self.idx_list:
+                results.append(x)
+        return results
+
+
 class VGGLoss(nn.Module):
 
     def __init__(self, opt, gpu_ids):
@@ -1768,242 +3254,129 @@ class KLDLoss(nn.Module):
         return -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
 
 
-class SPADE(nn.Module):
+class SynchronizedBatchNorm1d(_SynchronizedBatchNorm):
+    """Applies Synchronized Batch Normalization over a 2d or 3d input that is seen as a
+    mini-batch.
 
-    def __init__(self, norm_nc, hidden_nc=0, norm='batch', ks=3, params_free=False):
-        super().__init__()
-        pw = ks // 2
-        if not isinstance(hidden_nc, list):
-            hidden_nc = [hidden_nc]
-        for i, nhidden in enumerate(hidden_nc):
-            mlp_gamma = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
-            mlp_beta = nn.Conv2d(nhidden, norm_nc, kernel_size=ks, padding=pw)
-            if not params_free or i != 0:
-                s = str(i + 1) if i > 0 else ''
-                setattr(self, 'mlp_gamma%s' % s, mlp_gamma)
-                setattr(self, 'mlp_beta%s' % s, mlp_beta)
-        if 'batch' in norm:
-            self.norm = SynchronizedBatchNorm2d(norm_nc, affine=False)
-        else:
-            self.norm = nn.InstanceNorm2d(norm_nc, affine=False)
+    .. math::
 
-    def forward(self, x, maps, weights=None):
-        if not isinstance(maps, list):
-            maps = [maps]
-        out = self.norm(x)
-        for i in range(len(maps)):
-            if maps[i] is None:
-                continue
-            m = F.interpolate(maps[i], size=x.size()[2:])
-            if weights is None or i != 0:
-                s = str(i + 1) if i > 0 else ''
-                gamma = getattr(self, 'mlp_gamma%s' % s)(m)
-                beta = getattr(self, 'mlp_beta%s' % s)(m)
-            else:
-                j = min(i, len(weights[0]) - 1)
-                gamma = batch_conv(m, weights[0][j])
-                beta = batch_conv(m, weights[1][j])
-            out = out * (1 + gamma) + beta
-        return out
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
 
+    This module differs from the built-in PyTorch BatchNorm1d as the mean and
+    standard-deviation are reduced across all devices during training.
 
-class FutureResult(object):
-    """A thread-safe future implementation. Used only as one-to-one pipe."""
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+    
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
 
-    def __init__(self):
-        self._result = None
-        self._lock = threading.Lock()
-        self._cond = threading.Condition(self._lock)
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
 
-    def put(self, result):
-        with self._lock:
-            assert self._result is None, "Previous result has't been fetched."
-            self._result = result
-            self._cond.notify()
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
 
-    def get(self):
-        with self._lock:
-            if self._result is None:
-                self._cond.wait()
-            res = self._result
-            self._result = None
-            return res
+    During evaluation, this running mean/variance is used for normalization.
 
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, L)` slices, it's common terminology to call this Temporal BatchNorm
 
-_SlavePipeBase = collections.namedtuple('_SlavePipeBase', ['identifier', 'queue', 'result'])
+    Args:
+        num_features: num_features from an expected input of size
+            `batch_size x num_features [x width]`
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
 
+    Shape:
+        - Input: :math:`(N, C)` or :math:`(N, C, L)`
+        - Output: :math:`(N, C)` or :math:`(N, C, L)` (same shape as input)
 
-class SlavePipe(_SlavePipeBase):
-    """Pipe for master-slave communication."""
-
-    def run_slave(self, msg):
-        self.queue.put((self.identifier, msg))
-        ret = self.result.get()
-        self.queue.put(True)
-        return ret
-
-
-_MasterRegistry = collections.namedtuple('MasterRegistry', ['result'])
-
-
-class SyncMaster(object):
-    """An abstract `SyncMaster` object.
-
-    - During the replication, as the data parallel will trigger an callback of each module, all slave devices should
-    call `register(id)` and obtain an `SlavePipe` to communicate with the master.
-    - During the forward pass, master device invokes `run_master`, all messages from slave devices will be collected,
-    and passed to a registered callback.
-    - After receiving the messages, the master device should gather the information and determine to message passed
-    back to each slave devices.
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm1d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100))
+        >>> output = m(input)
     """
 
-    def __init__(self, master_callback):
-        """
-
-        Args:
-            master_callback: a callback to be invoked after having collected messages from slave devices.
-        """
-        self._master_callback = master_callback
-        self._queue = queue.Queue()
-        self._registry = collections.OrderedDict()
-        self._activated = False
-
-    def register_slave(self, identifier):
-        """
-        Register an slave device.
-
-        Args:
-            identifier: an identifier, usually is the device id.
-
-        Returns: a `SlavePipe` object which can be used to communicate with the master device.
-
-        """
-        if self._activated:
-            assert self._queue.empty(), 'Queue is not clean before next initialization.'
-            self._activated = False
-            self._registry.clear()
-        future = FutureResult()
-        self._registry[identifier] = _MasterRegistry(future)
-        return SlavePipe(identifier, self._queue, future)
-
-    def run_master(self, master_msg):
-        """
-        Main entry for the master device in each forward pass.
-        The messages were first collected from each devices (including the master device), and then
-        an callback will be invoked to compute the message to be sent back to each devices
-        (including the master device).
-
-        Args:
-            master_msg: the message that the master want to send to itself. This will be placed as the first
-            message when calling `master_callback`. For detailed usage, see `_SynchronizedBatchNorm` for an example.
-
-        Returns: the message to be sent back to the master device.
-
-        """
-        self._activated = True
-        intermediates = [(0, master_msg)]
-        for i in range(self.nr_slaves):
-            intermediates.append(self._queue.get())
-        results = self._master_callback(intermediates)
-        assert results[0][0] == 0, 'The first result should belongs to the master.'
-        for i, res in results:
-            if i == 0:
-                continue
-            self._registry[i].result.put(res)
-        for i in range(self.nr_slaves):
-            assert self._queue.get() is True
-        return results[0][1]
-
-    @property
-    def nr_slaves(self):
-        return len(self._registry)
+    def _check_input_dim(self, input):
+        if input.dim() != 2 and input.dim() != 3:
+            raise ValueError('expected 2D or 3D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm1d, self)._check_input_dim(input)
 
 
-_ChildMessage = collections.namedtuple('_ChildMessage', ['sum', 'ssum', 'sum_size'])
+class SynchronizedBatchNorm3d(_SynchronizedBatchNorm):
+    """Applies Batch Normalization over a 5d input that is seen as a mini-batch
+    of 4d inputs
 
+    .. math::
 
-_MasterMessage = collections.namedtuple('_MasterMessage', ['sum', 'inv_std'])
+        y = \\frac{x - mean[x]}{ \\sqrt{Var[x] + \\epsilon}} * gamma + beta
 
+    This module differs from the built-in PyTorch BatchNorm3d as the mean and
+    standard-deviation are reduced across all devices during training.
 
-def _sum_ft(tensor):
-    """sum over the first and last dimention"""
-    return tensor.sum(dim=0).sum(dim=-1)
+    For example, when one uses `nn.DataParallel` to wrap the network during
+    training, PyTorch's implementation normalize the tensor on each device using
+    the statistics only on that device, which accelerated the computation and
+    is also easy to implement, but the statistics might be inaccurate.
+    Instead, in this synchronized version, the statistics will be computed
+    over all training samples distributed on multiple devices.
+    
+    Note that, for one-GPU or CPU-only case, this module behaves exactly same
+    as the built-in PyTorch implementation.
 
+    The mean and standard-deviation are calculated per-dimension over
+    the mini-batches and gamma and beta are learnable parameter vectors
+    of size C (where C is the input size).
 
-def _unsqueeze_ft(tensor):
-    """add new dementions at the front and the tail"""
-    return tensor.unsqueeze(0).unsqueeze(-1)
+    During training, this layer keeps a running estimate of its computed mean
+    and variance. The running sum is kept with a default momentum of 0.1.
 
+    During evaluation, this running mean/variance is used for normalization.
 
-class _SynchronizedBatchNorm(_BatchNorm):
+    Because the BatchNorm is done over the `C` dimension, computing statistics
+    on `(N, D, H, W)` slices, it's common terminology to call this Volumetric BatchNorm
+    or Spatio-temporal BatchNorm
 
-    def __init__(self, num_features, eps=1e-05, momentum=0.1, affine=True):
-        super(_SynchronizedBatchNorm, self).__init__(num_features, eps=eps, momentum=momentum, affine=affine)
-        self._sync_master = SyncMaster(self._data_parallel_master)
-        self._is_parallel = False
-        self._parallel_id = None
-        self._slave_pipe = None
+    Args:
+        num_features: num_features from an expected input of
+            size batch_size x num_features x depth x height x width
+        eps: a value added to the denominator for numerical stability.
+            Default: 1e-5
+        momentum: the value used for the running_mean and running_var
+            computation. Default: 0.1
+        affine: a boolean value that when set to ``True``, gives the layer learnable
+            affine parameters. Default: ``True``
 
-    def forward(self, input):
-        if not (self._is_parallel and self.training):
-            return F.batch_norm(input, self.running_mean, self.running_var, self.weight, self.bias, self.training, self.momentum, self.eps)
-        input_shape = input.size()
-        input = input.view(input.size(0), self.num_features, -1)
-        sum_size = input.size(0) * input.size(2)
-        input_sum = _sum_ft(input)
-        input_ssum = _sum_ft(input ** 2)
-        if self._parallel_id == 0:
-            mean, inv_std = self._sync_master.run_master(_ChildMessage(input_sum, input_ssum, sum_size))
-        else:
-            mean, inv_std = self._slave_pipe.run_slave(_ChildMessage(input_sum, input_ssum, sum_size))
-        if self.affine:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std * self.weight) + _unsqueeze_ft(self.bias)
-        else:
-            output = (input - _unsqueeze_ft(mean)) * _unsqueeze_ft(inv_std)
-        return output.view(input_shape)
+    Shape:
+        - Input: :math:`(N, C, D, H, W)`
+        - Output: :math:`(N, C, D, H, W)` (same shape as input)
 
-    def __data_parallel_replicate__(self, ctx, copy_id):
-        self._is_parallel = True
-        self._parallel_id = copy_id
-        if self._parallel_id == 0:
-            ctx.sync_master = self._sync_master
-        else:
-            self._slave_pipe = ctx.sync_master.register_slave(copy_id)
+    Examples:
+        >>> # With Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100)
+        >>> # Without Learnable Parameters
+        >>> m = SynchronizedBatchNorm3d(100, affine=False)
+        >>> input = torch.autograd.Variable(torch.randn(20, 100, 35, 45, 10))
+        >>> output = m(input)
+    """
 
-    def _data_parallel_master(self, intermediates):
-        """Reduce the sum and square-sum, compute the statistics, and broadcast it."""
-        intermediates = sorted(intermediates, key=lambda i: i[1].sum.get_device())
-        to_reduce = [i[1][:2] for i in intermediates]
-        to_reduce = [j for i in to_reduce for j in i]
-        target_gpus = [i[1].sum.get_device() for i in intermediates]
-        sum_size = sum([i[1].sum_size for i in intermediates])
-        sum_, ssum = ReduceAddCoalesced.apply(target_gpus[0], 2, *to_reduce)
-        mean, inv_std = self._compute_mean_std(sum_, ssum, sum_size)
-        broadcasted = Broadcast.apply(target_gpus, mean, inv_std)
-        outputs = []
-        for i, rec in enumerate(intermediates):
-            outputs.append((rec[0], _MasterMessage(*broadcasted[i * 2:i * 2 + 2])))
-        return outputs
-
-    def _compute_mean_std(self, sum_, ssum, size):
-        """Compute the mean and standard-deviation with sum and square-sum. This method
-        also maintains the moving average on the master device."""
-        assert size > 1, 'BatchNorm computes unbiased standard-deviation, which requires size > 1.'
-        mean = sum_ / size
-        sumvar = ssum - sum_ * mean
-        unbias_var = sumvar / (size - 1)
-        bias_var = sumvar / size
-        self.running_mean = (1 - self.momentum) * self.running_mean + self.momentum * mean.data
-        self.running_var = (1 - self.momentum) * self.running_var + self.momentum * unbias_var.data
-        return mean, bias_var.clamp(self.eps) ** -0.5
-
-
-class DataParallel(nn.parallel.DataParallel):
-
-    def replicate(self, module, device_ids):
-        replicas = super(DataParallel, self).replicate(module, device_ids)
-        replicas[0] = module
-        return replicas
+    def _check_input_dim(self, input):
+        if input.dim() != 5:
+            raise ValueError('expected 5D input (got {}D input)'.format(input.dim()))
+        super(SynchronizedBatchNorm3d, self)._check_input_dim(input)
 
 
 class Vgg19(nn.Module):
@@ -2040,22 +3413,236 @@ class Vgg19(nn.Module):
         return out
 
 
-class VGG_Activations(nn.Module):
+def combine_fg_mask(fg_mask, ref_fg_mask, has_fg):
+    return ((fg_mask > 0) | (ref_fg_mask > 0)).float() if has_fg else 1
 
-    def __init__(self, feature_idx):
-        super(VGG_Activations, self).__init__()
-        vgg_network = torchvision.models.vgg19(pretrained=True)
-        features = list(vgg_network.features)
-        self.features = nn.ModuleList(features).eval()
-        self.idx_list = feature_idx
 
-    def forward(self, x):
-        results = []
-        for ii, model in enumerate(self.features):
-            x = model(x)
-            if ii in self.idx_list:
-                results.append(x)
-        return results
+def encode_label(opt, label_map):
+    size = label_map.size()
+    if len(size) == 5:
+        bs, t, c, h, w = size
+        label_map = label_map.view(-1, c, h, w)
+    else:
+        bs, c, h, w = size
+    label_nc = opt.label_nc
+    if label_nc == 0:
+        input_label = label_map
+    else:
+        label_map = label_map
+        oneHot_size = label_map.shape[0], label_nc, h, w
+        input_label = torch.FloatTensor(torch.Size(oneHot_size)).zero_()
+        input_label = input_label.scatter_(1, label_map.long(), 1.0)
+    if len(size) == 5:
+        return input_label.view(bs, t, -1, h, w)
+    return input_label
+
+
+def remove_dummy_from_tensor(opt, tensors, remove_size=0):
+    if remove_size == 0:
+        return tensors
+    if tensors is None:
+        return None
+    if isinstance(tensors, list):
+        return [remove_dummy_from_tensor(opt, tensor, remove_size) for tensor in tensors]
+    if isinstance(tensors, torch.Tensor):
+        tensors = tensors[remove_size:]
+    return tensors
+
+
+def encode_input(opt, data_list, dummy_bs):
+    if opt.isTrain and data_list[0].get_device() == 0:
+        data_list = remove_dummy_from_tensor(opt, data_list, dummy_bs)
+    tgt_label, tgt_image, flow_gt, conf_gt, ref_label, ref_image, prev_label, prev_real_image, prev_fake_image = data_list
+    tgt_label = encode_label(opt, tgt_label)
+    tgt_image = tgt_image
+    ref_label = encode_label(opt, ref_label)
+    ref_image = ref_image
+    return tgt_label, tgt_image, flow_gt, conf_gt, ref_label, ref_image, [prev_label, prev_real_image, prev_fake_image]
+
+
+def loss_backward(opt, losses, optimizer, loss_id):
+    losses = [(torch.mean(x) if not isinstance(x, int) else x) for x in losses]
+    loss = sum(losses)
+    optimizer.zero_grad()
+    if opt.amp != 'O0':
+        with amp.scale_loss(loss, optimizer, loss_id=loss_id) as scaled_loss:
+            scaled_loss.backward()
+    else:
+        loss.backward()
+    optimizer.step()
+    return losses
+
+
+def roll(t, ny, nx, flip):
+    t = torch.cat([t[:, :, -ny:], t[:, :, :-ny]], dim=2)
+    t = torch.cat([t[:, :, :, -nx:], t[:, :, :, :-nx]], dim=3)
+    if flip:
+        t = torch.flip(t, dims=[3])
+    return t
+
+
+def random_roll(tensors):
+    h, w = tensors[0].shape[2:]
+    ny = random.choice([random.randrange(h // 16), h - random.randrange(h // 16)])
+    nx = random.choice([random.randrange(w // 16), w - random.randrange(w // 16)])
+    flip = random.random() > 0.5
+    return [roll(t, ny, nx, flip) for t in tensors]
+
+
+class Vid2VidModel(BaseModel):
+
+    def name(self):
+        return 'Vid2VidModel'
+
+    def initialize(self, opt, epoch=0):
+        BaseModel.initialize(self, opt)
+        torch.backends.cudnn.benchmark = True
+        set_random_seed(0)
+        self.lossCollector = LossCollector()
+        self.lossCollector.initialize(opt)
+        self.refine_face = hasattr(opt, 'refine_face') and opt.refine_face
+        self.faceRefiner = None
+        if self.refine_face or self.add_face_D:
+            self.faceRefiner = FaceRefineModel()
+            self.faceRefiner.initialize(opt, self.add_face_D, self.refine_face)
+        self.define_networks(epoch)
+        self.load_networks()
+        set_random_seed(get_rank())
+
+    def forward(self, data_list, save_images=False, mode='inference', dummy_bs=0):
+        tgt_label, tgt_image, flow_gt, conf_gt, ref_labels, ref_images, prevs = encode_input(self.opt, data_list, dummy_bs)
+        if mode == 'generator':
+            g_loss, generated, prev = self.forward_generator(tgt_label, tgt_image, ref_labels, ref_images, prevs, flow_gt, conf_gt)
+            return g_loss, generated if save_images else [], prev
+        elif mode == 'discriminator':
+            d_loss = self.forward_discriminator(tgt_label, tgt_image, ref_labels, ref_images, prevs)
+            return d_loss
+        else:
+            return self.inference(tgt_label, ref_labels, ref_images)
+
+    def forward_generator(self, tgt_label, tgt_image, ref_labels, ref_images, prevs=[None] * 3, flow_gt=[None] * 2, conf_gt=[None] * 2):
+        [fake_image, fake_raw_image, warped_image, flow, flow_mask], [fg_mask, ref_fg_mask], [ref_label, ref_image], prevs_new, atn_score = self.generate_images(tgt_label, tgt_image, ref_labels, ref_images, prevs)
+        nets = self.netD, self.netDT, self.netDf, self.faceRefiner
+        loss_GT_GAN, loss_GT_GAN_Feat = self.Tensor(1).fill_(0), self.Tensor(1).fill_(0)
+        if self.isTrain and self.opt.lambda_temp > 0 and prevs[0] is not None:
+            tgt_image_all = torch.cat([prevs[1], tgt_image], dim=1)
+            fake_image_all = torch.cat([prevs[2], fake_image], dim=1)
+            data_list = [None, tgt_image_all, fake_image_all, None, None]
+            loss_GT_GAN, loss_GT_GAN_Feat = self.lossCollector.compute_GAN_losses(nets, data_list, for_discriminator=False, for_temporal=True)
+        fg_mask_union = combine_fg_mask(fg_mask, ref_fg_mask, self.has_fg)
+        data_list = [tgt_label, [tgt_image, tgt_image * fg_mask_union], [fake_image, fake_raw_image], ref_label, ref_image]
+        loss_G_GAN, loss_G_GAN_Feat, loss_Gf_GAN, loss_Gf_GAN_Feat = self.lossCollector.compute_GAN_losses(nets, data_list, for_discriminator=False)
+        loss_G_VGG = self.lossCollector.compute_VGG_losses(fake_image, fake_raw_image, tgt_image, fg_mask_union)
+        flow, flow_mask, flow_gt, conf_gt, fg_mask, ref_fg_mask, warped_image, tgt_image = self.reshape([flow, flow_mask, flow_gt, conf_gt, fg_mask, ref_fg_mask, warped_image, tgt_image])
+        loss_F_Flow, loss_F_Warp, body_mask_diff = self.lossCollector.compute_flow_losses(flow, warped_image, tgt_image, flow_gt, conf_gt, fg_mask, tgt_label, ref_label)
+        loss_F_Mask = self.lossCollector.compute_mask_losses(flow_mask, fake_image, warped_image, tgt_label, tgt_image, fake_raw_image, fg_mask, ref_fg_mask, body_mask_diff)
+        loss_list = [loss_G_GAN, loss_G_GAN_Feat, loss_G_VGG, loss_Gf_GAN, loss_Gf_GAN_Feat, loss_GT_GAN, loss_GT_GAN_Feat, loss_F_Flow, loss_F_Warp, loss_F_Mask]
+        loss_list = [loss.view(1, 1) for loss in loss_list]
+        return loss_list, [fake_image, fake_raw_image, warped_image, flow, flow_mask, atn_score], prevs_new
+
+    def forward_discriminator(self, tgt_label, tgt_image, ref_labels, ref_images, prevs=[None] * 3):
+        with torch.no_grad():
+            [fake_image, fake_raw_image, _, _, _], [fg_mask, ref_fg_mask], [ref_label, ref_image], _, _ = self.generate_images(tgt_label, tgt_image, ref_labels, ref_images, prevs)
+        nets = self.netD, self.netDT, self.netDf, self.faceRefiner
+        loss_temp = []
+        if self.isTrain and self.opt.lambda_temp > 0 and prevs[0] is not None:
+            tgt_image_all = torch.cat([prevs[1], tgt_image], dim=1)
+            fake_image_all = torch.cat([prevs[2], fake_image], dim=1)
+            data_list = [None, tgt_image_all, fake_image_all, None, None]
+            loss_temp = self.lossCollector.compute_GAN_losses(nets, data_list, for_discriminator=True, for_temporal=True)
+        fg_mask_union = combine_fg_mask(fg_mask, ref_fg_mask, self.has_fg)
+        data_list = [tgt_label, [tgt_image, tgt_image * fg_mask_union], [fake_image, fake_raw_image], ref_label, ref_image]
+        loss_indv = self.lossCollector.compute_GAN_losses(nets, data_list, for_discriminator=True)
+        loss_list = list(loss_indv) + list(loss_temp)
+        loss_list = [loss.view(1, 1) for loss in loss_list]
+        return loss_list
+
+    def generate_images(self, tgt_labels, tgt_images, ref_labels, ref_images, prevs=[None] * 3):
+        opt = self.opt
+        generated_images, atn_score = [None] * 5, None
+        generated_masks = [None] * 2 if self.has_fg else [1, 1]
+        ref_labels_valid = use_valid_labels(opt, ref_labels)
+        for t in range(opt.n_frames_per_gpu):
+            tgt_label_t, tgt_label_valid, tgt_image, prev_t = self.get_input_t(tgt_labels, tgt_images, prevs, t)
+            fake_image, flow, flow_mask, fake_raw_image, warped_image, mu, logvar, atn_score, ref_idx = self.netG(tgt_label_valid, ref_labels_valid, ref_images, prev_t)
+            ref_label_valid, ref_label_t, ref_image_t = pick_ref([ref_labels_valid, ref_labels, ref_images], ref_idx)
+            if self.refine_face:
+                fake_image = self.faceRefiner.refine_face_region(self.netGf, tgt_label_valid, fake_image, tgt_label_t, ref_label_valid, ref_image_t, ref_label_t)
+            fg_mask, ref_fg_mask = get_fg_mask(self.opt, [tgt_label_t, ref_label_t], self.has_fg)
+            if fake_raw_image is not None:
+                fake_raw_image = fake_raw_image * combine_fg_mask(fg_mask, ref_fg_mask, self.has_fg)
+            generated_images = self.concat([generated_images, [fake_image, fake_raw_image, warped_image, flow, flow_mask]], dim=1)
+            generated_masks = self.concat([generated_masks, [fg_mask, ref_fg_mask]], dim=1)
+            prevs = self.concat_prev(prevs, [tgt_label_valid, tgt_image, fake_image])
+        return generated_images, generated_masks, [ref_label_valid, ref_image_t], prevs, atn_score
+
+    def get_input_t(self, tgt_labels, tgt_images, prevs, t):
+        b, _, _, h, w = tgt_labels.shape
+        tgt_label = tgt_labels[:, (t)]
+        tgt_image = tgt_images[:, (t)]
+        tgt_label_valid = use_valid_labels(self.opt, tgt_label)
+        prevs = [prevs[0], prevs[2]]
+        prevs = [(prev.contiguous().view(b, -1, h, w) if prev is not None else None) for prev in prevs]
+        return tgt_label, tgt_label_valid, tgt_image, prevs
+
+    def concat_prev(self, prev, now):
+        if type(prev) == list:
+            return [self.concat_prev(p, n) for p, n in zip(prev, now)]
+        if prev is None:
+            prev = now.unsqueeze(1).repeat(1, self.opt.n_frames_G - 1, 1, 1, 1)
+        else:
+            prev = torch.cat([prev[:, 1:], now.unsqueeze(1)], dim=1)
+        return prev.detach()
+
+    def inference(self, tgt_label, ref_labels, ref_images):
+        opt = self.opt
+        if not hasattr(self, 'prevs') or self.prevs is None:
+            None
+            self.prevs = prevs = [None, None]
+            self.t = 0
+        else:
+            b, _, _, h, w = tgt_label.shape
+            prevs = [prev.view(b, -1, h, w) for prev in self.prevs]
+            self.t += 1
+        tgt_label_valid, ref_labels_valid = use_valid_labels(opt, [tgt_label[:, (-1)], ref_labels])
+        if opt.finetune and self.t == 0:
+            self.finetune(ref_labels, ref_images)
+        with torch.no_grad():
+            fake_image, flow, flow_mask, fake_raw_image, warped_image, _, _, atn_score, ref_idx = self.netG(tgt_label_valid, ref_labels_valid, ref_images, prevs, t=self.t)
+            ref_label_valid, ref_label, ref_image = pick_ref([ref_labels_valid, ref_labels, ref_images], ref_idx)
+            if self.refine_face:
+                fake_image = self.faceRefiner.refine_face_region(self.netGf, tgt_label_valid, fake_image, tgt_label[:, (-1)], ref_label_valid, ref_image, ref_label)
+            self.prevs = self.concat_prev(self.prevs, [tgt_label_valid, fake_image])
+        return fake_image, fake_raw_image, warped_image, flow, flow_mask, atn_score
+
+    def finetune(self, ref_labels, ref_images):
+        train_names = ['fc', 'conv_img', 'up']
+        params, _ = self.get_train_params(self.netG, train_names)
+        self.optimizer_G = self.get_optimizer(params, for_discriminator=False)
+        update_D = True
+        if update_D:
+            params = list(self.netD.parameters())
+            if self.add_face_D:
+                params += list(self.netDf.parameters())
+            self.optimizer_D = self.get_optimizer(params, for_discriminator=True)
+        iterations = 100
+        for it in range(1, iterations + 1):
+            idx = random.randrange(ref_labels.size(1))
+            tgt_label, tgt_image = random_roll([ref_labels[:, (idx)], ref_images[:, (idx)]])
+            tgt_label, tgt_image = tgt_label.unsqueeze(1), tgt_image.unsqueeze(1)
+            g_losses, generated, prev = self.forward_generator(tgt_label, tgt_image, ref_labels, ref_images)
+            g_losses = loss_backward(self.opt, g_losses, self.optimizer_G, 0)
+            d_losses = []
+            if update_D:
+                d_losses = self.forward_discriminator(tgt_label, tgt_image, ref_labels, ref_images)
+                d_losses = loss_backward(self.opt, d_losses, self.optimizer_D, 1)
+            if it % 10 == 0:
+                message = '(iters: %d) ' % it
+                loss_dict = dict(zip(self.lossCollector.loss_names, g_losses + d_losses))
+                for k, v in loss_dict.items():
+                    if v != 0:
+                        message += '%s: %.3f ' % (k, v)
+                None
 
 
 import torch
@@ -2073,6 +3660,14 @@ TESTCASES = [
      lambda: ([], {'module': _mock_layer()}),
      lambda: ([], {'input': torch.rand([4, 4])}),
      False),
+    (DataParallelWithCallback,
+     lambda: ([], {'module': _mock_layer()}),
+     lambda: ([], {'input': torch.rand([4, 4])}),
+     False),
+    (FaceRefineModel,
+     lambda: ([], {}),
+     lambda: ([], {}),
+     True),
     (FlowNetFusion,
      lambda: ([], {'args': _mock_config()}),
      lambda: ([torch.rand([4, 11, 64, 64])], {}),
@@ -2104,6 +3699,14 @@ TESTCASES = [
     (L2Loss,
      lambda: ([], {'args': _mock_config()}),
      lambda: ([torch.rand([4, 4, 4, 4]), torch.rand([4, 4, 4, 4])], {}),
+     True),
+    (LabelEmbedder,
+     lambda: ([], {'opt': _mock_config(norm_F=4, ngf=4, netS=[4, 4], n_downsample_G=4), 'input_nc': 4}),
+     lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LossCollector,
+     lambda: ([], {}),
+     lambda: ([], {}),
      True),
     (MaskedL1Loss,
      lambda: ([], {}),
@@ -2193,4 +3796,16 @@ class Test_NVlabs_few_shot_vid2vid(_paritybench_base):
 
     def test_017(self):
         self._check(*TESTCASES[17])
+
+    def test_018(self):
+        self._check(*TESTCASES[18])
+
+    def test_019(self):
+        self._check(*TESTCASES[19])
+
+    def test_020(self):
+        self._check(*TESTCASES[20])
+
+    def test_021(self):
+        self._check(*TESTCASES[21])
 

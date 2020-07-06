@@ -31,26 +31,36 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
+
+
+import copy
 
 
 import torch
 
 
-import math
+from functools import partial
+
+
+from torch.utils.data import Dataset
 
 
 import numpy as np
+
+
+import math
 
 
 import torch.nn as nn
@@ -63,9 +73,6 @@ from torch.distributions.categorical import Categorical
 
 
 import torchaudio
-
-
-from functools import partial
 
 
 from torch.utils.data import DataLoader
@@ -87,6 +94,352 @@ import abc
 
 
 from torch.utils.tensorboard import SummaryWriter
+
+
+import time
+
+
+class BaseAttention(nn.Module):
+    """ Base module for attentions """
+
+    def __init__(self, temperature, num_head):
+        super().__init__()
+        self.temperature = temperature
+        self.num_head = num_head
+        self.softmax = nn.Softmax(dim=-1)
+        self.reset_mem()
+
+    def reset_mem(self):
+        self.mask = None
+        self.k_len = None
+
+    def set_mem(self, prev_att):
+        pass
+
+    def compute_mask(self, k, k_len):
+        self.k_len = k_len
+        bs, ts, _ = k.shape
+        self.mask = np.zeros((bs, self.num_head, ts))
+        for idx, sl in enumerate(k_len):
+            self.mask[(idx), :, sl:] = 1
+        self.mask = torch.from_numpy(self.mask).view(-1, ts)
+
+    def _attend(self, energy, value):
+        attn = energy / self.temperature
+        attn = attn.masked_fill(self.mask, -np.inf)
+        attn = self.softmax(attn)
+        output = torch.bmm(attn.unsqueeze(1), value).squeeze(1)
+        return output, attn
+
+
+class LocationAwareAttention(BaseAttention):
+    """ Location-Awared Attention """
+
+    def __init__(self, kernel_size, kernel_num, dim, num_head, temperature):
+        super().__init__(temperature, num_head)
+        self.prev_att = None
+        self.loc_conv = nn.Conv1d(num_head, kernel_num, kernel_size=2 * kernel_size + 1, padding=kernel_size, bias=False)
+        self.loc_proj = nn.Linear(kernel_num, dim, bias=False)
+        self.gen_energy = nn.Linear(dim, 1)
+        self.dim = dim
+
+    def reset_mem(self):
+        super().reset_mem()
+        self.prev_att = None
+
+    def set_mem(self, prev_att):
+        self.prev_att = prev_att
+
+    def forward(self, q, k, v):
+        bs_nh, ts, _ = k.shape
+        bs = bs_nh // self.num_head
+        if self.prev_att is None:
+            self.prev_att = torch.zeros((bs, self.num_head, ts))
+            for idx, sl in enumerate(self.k_len):
+                self.prev_att[(idx), :, :sl] = 1.0 / sl
+        loc_context = torch.tanh(self.loc_proj(self.loc_conv(self.prev_att).transpose(1, 2)))
+        loc_context = loc_context.unsqueeze(1).repeat(1, self.num_head, 1, 1).view(-1, ts, self.dim)
+        q = q.unsqueeze(1)
+        energy = self.gen_energy(torch.tanh(k + q + loc_context)).squeeze(2)
+        output, attn = self._attend(energy, v)
+        attn = attn.view(bs, self.num_head, ts)
+        self.prev_att = attn
+        return output, attn
+
+
+class ScaleDotAttention(BaseAttention):
+    """ Scaled Dot-Product Attention """
+
+    def __init__(self, temperature, num_head):
+        super().__init__(temperature, num_head)
+
+    def forward(self, q, k, v):
+        ts = k.shape[1]
+        energy = torch.bmm(q.unsqueeze(1), k.transpose(1, 2)).squeeze(1)
+        output, attn = self._attend(energy, v)
+        attn = attn.view(-1, self.num_head, ts)
+        return output, attn
+
+
+class Attention(nn.Module):
+    """ Attention mechanism
+        please refer to http://www.aclweb.org/anthology/D15-1166 section 3.1 for more details about Attention implementation
+        Input : Decoder state                      with shape [batch size, decoder hidden dimension]
+                Compressed feature from Encoder    with shape [batch size, T, encoder feature dimension]
+        Output: Attention score                    with shape [batch size, num head, T (attention score of each time step)]
+                Context vector                     with shape [batch size, encoder feature dimension]
+                (i.e. weighted (by attention score) sum of all timesteps T's feature) """
+
+    def __init__(self, v_dim, q_dim, mode, dim, num_head, temperature, v_proj, loc_kernel_size, loc_kernel_num):
+        super(Attention, self).__init__()
+        self.v_dim = v_dim
+        self.dim = dim
+        self.mode = mode.lower()
+        self.num_head = num_head
+        self.proj_q = nn.Linear(q_dim, dim * num_head)
+        self.proj_k = nn.Linear(v_dim, dim * num_head)
+        self.v_proj = v_proj
+        if v_proj:
+            self.proj_v = nn.Linear(v_dim, v_dim * num_head)
+        if self.mode == 'dot':
+            self.att_layer = ScaleDotAttention(temperature, self.num_head)
+        elif self.mode == 'loc':
+            self.att_layer = LocationAwareAttention(loc_kernel_size, loc_kernel_num, dim, num_head, temperature)
+        else:
+            raise NotImplementedError
+        if self.num_head > 1:
+            self.merge_head = nn.Linear(v_dim * num_head, v_dim)
+        self.key = None
+        self.value = None
+        self.mask = None
+
+    def reset_mem(self):
+        self.key = None
+        self.value = None
+        self.mask = None
+        self.att_layer.reset_mem()
+
+    def set_mem(self, prev_attn):
+        self.att_layer.set_mem(prev_attn)
+
+    def forward(self, dec_state, enc_feat, enc_len):
+        bs, ts, _ = enc_feat.shape
+        query = torch.tanh(self.proj_q(dec_state))
+        query = query.view(bs, self.num_head, self.dim).view(bs * self.num_head, self.dim)
+        if self.key is None:
+            self.att_layer.compute_mask(enc_feat, enc_len)
+            self.key = torch.tanh(self.proj_k(enc_feat))
+            self.value = torch.tanh(self.proj_v(enc_feat)) if self.v_proj else enc_feat
+            if self.num_head > 1:
+                self.key = self.key.view(bs, ts, self.num_head, self.dim).permute(0, 2, 1, 3)
+                self.key = self.key.contiguous().view(bs * self.num_head, ts, self.dim)
+                if self.v_proj:
+                    self.value = self.value.view(bs, ts, self.num_head, self.v_dim).permute(0, 2, 1, 3)
+                    self.value = self.value.contiguous().view(bs * self.num_head, ts, self.v_dim)
+                else:
+                    self.value = self.value.repeat(self.num_head, 1, 1)
+        context, attn = self.att_layer(query, self.key, self.value)
+        if self.num_head > 1:
+            context = context.view(bs, self.num_head * self.v_dim)
+            context = self.merge_head(context)
+        return attn, context
+
+
+class Decoder(nn.Module):
+    """ Decoder (a.k.a. Speller in LAS) """
+
+    def __init__(self, input_dim, vocab_size, module, dim, layer, dropout):
+        super(Decoder, self).__init__()
+        self.in_dim = input_dim
+        self.layer = layer
+        self.dim = dim
+        self.dropout = dropout
+        assert module in ['LSTM', 'GRU'], NotImplementedError
+        self.hidden_state = None
+        self.enable_cell = module == 'LSTM'
+        self.layers = getattr(nn, module)(input_dim, dim, num_layers=layer, dropout=dropout, batch_first=True)
+        self.char_trans = nn.Linear(dim, vocab_size)
+        self.final_dropout = nn.Dropout(dropout)
+
+    def init_state(self, bs):
+        """ Set all hidden states to zeros """
+        device = next(self.parameters()).device
+        if self.enable_cell:
+            self.hidden_state = torch.zeros((self.layer, bs, self.dim), device=device), torch.zeros((self.layer, bs, self.dim), device=device)
+        else:
+            self.hidden_state = torch.zeros((self.layer, bs, self.dim), device=device)
+        return self.get_state()
+
+    def set_state(self, hidden_state):
+        """ Set all hidden states/cells, for decoding purpose"""
+        device = next(self.parameters()).device
+        if self.enable_cell:
+            self.hidden_state = hidden_state[0], hidden_state[1]
+        else:
+            self.hidden_state = hidden_state
+
+    def get_state(self):
+        """ Return all hidden states/cells, for decoding purpose"""
+        if self.enable_cell:
+            return self.hidden_state[0].cpu(), self.hidden_state[1].cpu()
+        else:
+            return self.hidden_state.cpu()
+
+    def get_query(self):
+        """ Return state of all layers as query for attention """
+        if self.enable_cell:
+            return self.hidden_state[0].transpose(0, 1).reshape(-1, self.dim * self.layer)
+        else:
+            return self.hidden_state.transpose(0, 1).reshape(-1, self.dim * self.layer)
+
+    def forward(self, x):
+        """ Decode and transform into vocab """
+        if not self.training:
+            self.layers.flatten_parameters()
+        x, self.hidden_state = self.layers(x.unsqueeze(1), self.hidden_state)
+        x = x.squeeze(1)
+        char = self.char_trans(self.final_dropout(x))
+        return char, x
+
+
+class CNNExtractor(nn.Module):
+    """ A simple 2-layer CNN extractor for acoustic feature down-sampling"""
+
+    def __init__(self, input_dim, out_dim):
+        super(CNNExtractor, self).__init__()
+        self.out_dim = out_dim
+        self.extractor = nn.Sequential(nn.Conv1d(input_dim, out_dim, 4, stride=2, padding=1), nn.Conv1d(out_dim, out_dim, 4, stride=2, padding=1))
+
+    def forward(self, feature, feat_len):
+        feat_len = feat_len // 4
+        feature = feature.transpose(1, 2)
+        feature = self.extractor(feature)
+        feature = feature.transpose(1, 2)
+        return feature, feat_len
+
+
+class RNNLayer(nn.Module):
+    """ RNN wrapper, includes time-downsampling"""
+
+    def __init__(self, input_dim, module, dim, bidirection, dropout, layer_norm, sample_rate, sample_style, proj):
+        super(RNNLayer, self).__init__()
+        rnn_out_dim = 2 * dim if bidirection else dim
+        self.out_dim = sample_rate * rnn_out_dim if sample_rate > 1 and sample_style == 'concat' else rnn_out_dim
+        self.dropout = dropout
+        self.layer_norm = layer_norm
+        self.sample_rate = sample_rate
+        self.sample_style = sample_style
+        self.proj = proj
+        if self.sample_style not in ['drop', 'concat']:
+            raise ValueError('Unsupported Sample Style: ' + self.sample_style)
+        self.layer = getattr(nn, module.upper())(input_dim, dim, bidirectional=bidirection, num_layers=1, batch_first=True)
+        if self.layer_norm:
+            self.ln = nn.LayerNorm(rnn_out_dim)
+        if self.dropout > 0:
+            self.dp = nn.Dropout(p=dropout)
+        if self.proj:
+            self.pj = nn.Linear(rnn_out_dim, rnn_out_dim)
+
+    def forward(self, input_x, x_len):
+        if not self.training:
+            self.layer.flatten_parameters()
+        output, _ = self.layer(input_x)
+        if self.layer_norm:
+            output = self.ln(output)
+        if self.dropout > 0:
+            output = self.dp(output)
+        if self.sample_rate > 1:
+            batch_size, timestep, feature_dim = output.shape
+            x_len = x_len // self.sample_rate
+            if self.sample_style == 'drop':
+                output = output[:, ::self.sample_rate, :].contiguous()
+            else:
+                if timestep % self.sample_rate != 0:
+                    output = output[:, :-(timestep % self.sample_rate), :]
+                output = output.contiguous().view(batch_size, int(timestep / self.sample_rate), feature_dim * self.sample_rate)
+        if self.proj:
+            output = torch.tanh(self.pj(output))
+        return output, x_len
+
+
+class VGGExtractor(nn.Module):
+    """ VGG extractor for ASR described in https://arxiv.org/pdf/1706.02737.pdf"""
+
+    def __init__(self, input_dim):
+        super(VGGExtractor, self).__init__()
+        self.init_dim = 64
+        self.hide_dim = 128
+        in_channel, freq_dim, out_dim = self.check_dim(input_dim)
+        self.in_channel = in_channel
+        self.freq_dim = freq_dim
+        self.out_dim = out_dim
+        self.extractor = nn.Sequential(nn.Conv2d(in_channel, self.init_dim, 3, stride=1, padding=1), nn.ReLU(), nn.Conv2d(self.init_dim, self.init_dim, 3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(2, stride=2), nn.Conv2d(self.init_dim, self.hide_dim, 3, stride=1, padding=1), nn.ReLU(), nn.Conv2d(self.hide_dim, self.hide_dim, 3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(2, stride=2))
+
+    def check_dim(self, input_dim):
+        if input_dim % 13 == 0:
+            return int(input_dim / 13), 13, 13 // 4 * self.hide_dim
+        elif input_dim % 40 == 0:
+            return int(input_dim / 40), 40, 40 // 4 * self.hide_dim
+        else:
+            raise ValueError('Acoustic feature dimension for VGG should be 13/26/39(MFCC) or 40/80/120(Fbank) but got ' + input_dim)
+
+    def view_input(self, feature, feat_len):
+        feat_len = feat_len // 4
+        if feature.shape[1] % 4 != 0:
+            feature = feature[:, :-(feature.shape[1] % 4), :].contiguous()
+        bs, ts, ds = feature.shape
+        feature = feature.view(bs, ts, self.in_channel, self.freq_dim)
+        feature = feature.transpose(1, 2)
+        return feature, feat_len
+
+    def forward(self, feature, feat_len):
+        feature, feat_len = self.view_input(feature, feat_len)
+        feature = self.extractor(feature)
+        feature = feature.transpose(1, 2)
+        feature = feature.contiguous().view(feature.shape[0], feature.shape[1], self.out_dim)
+        return feature, feat_len
+
+
+class Encoder(nn.Module):
+    """ Encoder (a.k.a. Listener in LAS)
+        Encodes acoustic feature to latent representation, see config file for more details."""
+
+    def __init__(self, input_size, prenet, module, bidirection, dim, dropout, layer_norm, proj, sample_rate, sample_style):
+        super(Encoder, self).__init__()
+        self.vgg = prenet == 'vgg'
+        self.cnn = prenet == 'cnn'
+        self.sample_rate = 1
+        assert len(sample_rate) == len(dropout), 'Number of layer mismatch'
+        assert len(dropout) == len(dim), 'Number of layer mismatch'
+        num_layers = len(dim)
+        assert num_layers >= 1, 'Encoder should have at least 1 layer'
+        module_list = []
+        input_dim = input_size
+        if self.vgg:
+            vgg_extractor = VGGExtractor(input_size)
+            module_list.append(vgg_extractor)
+            input_dim = vgg_extractor.out_dim
+            self.sample_rate = self.sample_rate * 4
+        if self.cnn:
+            cnn_extractor = CNNExtractor(input_size, out_dim=dim[0])
+            module_list.append(cnn_extractor)
+            input_dim = cnn_extractor.out_dim
+            self.sample_rate = self.sample_rate * 4
+        if module in ['LSTM', 'GRU']:
+            for l in range(num_layers):
+                module_list.append(RNNLayer(input_dim, module, dim[l], bidirection, dropout[l], layer_norm[l], sample_rate[l], sample_style, proj[l]))
+                input_dim = module_list[-1].out_dim
+                self.sample_rate = self.sample_rate * sample_rate[l]
+        else:
+            raise NotImplementedError
+        self.in_dim = input_size
+        self.out_dim = input_dim
+        self.layers = nn.ModuleList(module_list)
+
+    def forward(self, input_x, enc_len):
+        for _, layer in enumerate(self.layers):
+            input_x, enc_len = layer(input_x, enc_len)
+        return input_x, enc_len
 
 
 def init_gate(bias):
@@ -217,169 +570,6 @@ class ASR(nn.Module):
             if get_dec_state:
                 dec_state = torch.stack(dec_state, dim=1)
         return ctc_output, encode_len, att_output, att_seq, dec_state
-
-
-class Decoder(nn.Module):
-    """ Decoder (a.k.a. Speller in LAS) """
-
-    def __init__(self, input_dim, vocab_size, module, dim, layer, dropout):
-        super(Decoder, self).__init__()
-        self.in_dim = input_dim
-        self.layer = layer
-        self.dim = dim
-        self.dropout = dropout
-        assert module in ['LSTM', 'GRU'], NotImplementedError
-        self.hidden_state = None
-        self.enable_cell = module == 'LSTM'
-        self.layers = getattr(nn, module)(input_dim, dim, num_layers=layer, dropout=dropout, batch_first=True)
-        self.char_trans = nn.Linear(dim, vocab_size)
-        self.final_dropout = nn.Dropout(dropout)
-
-    def init_state(self, bs):
-        """ Set all hidden states to zeros """
-        device = next(self.parameters()).device
-        if self.enable_cell:
-            self.hidden_state = torch.zeros((self.layer, bs, self.dim), device=device), torch.zeros((self.layer, bs, self.dim), device=device)
-        else:
-            self.hidden_state = torch.zeros((self.layer, bs, self.dim), device=device)
-        return self.get_state()
-
-    def set_state(self, hidden_state):
-        """ Set all hidden states/cells, for decoding purpose"""
-        device = next(self.parameters()).device
-        if self.enable_cell:
-            self.hidden_state = hidden_state[0], hidden_state[1]
-        else:
-            self.hidden_state = hidden_state
-
-    def get_state(self):
-        """ Return all hidden states/cells, for decoding purpose"""
-        if self.enable_cell:
-            return self.hidden_state[0].cpu(), self.hidden_state[1].cpu()
-        else:
-            return self.hidden_state.cpu()
-
-    def get_query(self):
-        """ Return state of all layers as query for attention """
-        if self.enable_cell:
-            return self.hidden_state[0].transpose(0, 1).reshape(-1, self.dim * self.layer)
-        else:
-            return self.hidden_state.transpose(0, 1).reshape(-1, self.dim * self.layer)
-
-    def forward(self, x):
-        """ Decode and transform into vocab """
-        if not self.training:
-            self.layers.flatten_parameters()
-        x, self.hidden_state = self.layers(x.unsqueeze(1), self.hidden_state)
-        x = x.squeeze(1)
-        char = self.char_trans(self.final_dropout(x))
-        return char, x
-
-
-class Attention(nn.Module):
-    """ Attention mechanism
-        please refer to http://www.aclweb.org/anthology/D15-1166 section 3.1 for more details about Attention implementation
-        Input : Decoder state                      with shape [batch size, decoder hidden dimension]
-                Compressed feature from Encoder    with shape [batch size, T, encoder feature dimension]
-        Output: Attention score                    with shape [batch size, num head, T (attention score of each time step)]
-                Context vector                     with shape [batch size, encoder feature dimension]
-                (i.e. weighted (by attention score) sum of all timesteps T's feature) """
-
-    def __init__(self, v_dim, q_dim, mode, dim, num_head, temperature, v_proj, loc_kernel_size, loc_kernel_num):
-        super(Attention, self).__init__()
-        self.v_dim = v_dim
-        self.dim = dim
-        self.mode = mode.lower()
-        self.num_head = num_head
-        self.proj_q = nn.Linear(q_dim, dim * num_head)
-        self.proj_k = nn.Linear(v_dim, dim * num_head)
-        self.v_proj = v_proj
-        if v_proj:
-            self.proj_v = nn.Linear(v_dim, v_dim * num_head)
-        if self.mode == 'dot':
-            self.att_layer = ScaleDotAttention(temperature, self.num_head)
-        elif self.mode == 'loc':
-            self.att_layer = LocationAwareAttention(loc_kernel_size, loc_kernel_num, dim, num_head, temperature)
-        else:
-            raise NotImplementedError
-        if self.num_head > 1:
-            self.merge_head = nn.Linear(v_dim * num_head, v_dim)
-        self.key = None
-        self.value = None
-        self.mask = None
-
-    def reset_mem(self):
-        self.key = None
-        self.value = None
-        self.mask = None
-        self.att_layer.reset_mem()
-
-    def set_mem(self, prev_attn):
-        self.att_layer.set_mem(prev_attn)
-
-    def forward(self, dec_state, enc_feat, enc_len):
-        bs, ts, _ = enc_feat.shape
-        query = torch.tanh(self.proj_q(dec_state))
-        query = query.view(bs, self.num_head, self.dim).view(bs * self.num_head, self.dim)
-        if self.key is None:
-            self.att_layer.compute_mask(enc_feat, enc_len)
-            self.key = torch.tanh(self.proj_k(enc_feat))
-            self.value = torch.tanh(self.proj_v(enc_feat)) if self.v_proj else enc_feat
-            if self.num_head > 1:
-                self.key = self.key.view(bs, ts, self.num_head, self.dim).permute(0, 2, 1, 3)
-                self.key = self.key.contiguous().view(bs * self.num_head, ts, self.dim)
-                if self.v_proj:
-                    self.value = self.value.view(bs, ts, self.num_head, self.v_dim).permute(0, 2, 1, 3)
-                    self.value = self.value.contiguous().view(bs * self.num_head, ts, self.v_dim)
-                else:
-                    self.value = self.value.repeat(self.num_head, 1, 1)
-        context, attn = self.att_layer(query, self.key, self.value)
-        if self.num_head > 1:
-            context = context.view(bs, self.num_head * self.v_dim)
-            context = self.merge_head(context)
-        return attn, context
-
-
-class Encoder(nn.Module):
-    """ Encoder (a.k.a. Listener in LAS)
-        Encodes acoustic feature to latent representation, see config file for more details."""
-
-    def __init__(self, input_size, prenet, module, bidirection, dim, dropout, layer_norm, proj, sample_rate, sample_style):
-        super(Encoder, self).__init__()
-        self.vgg = prenet == 'vgg'
-        self.cnn = prenet == 'cnn'
-        self.sample_rate = 1
-        assert len(sample_rate) == len(dropout), 'Number of layer mismatch'
-        assert len(dropout) == len(dim), 'Number of layer mismatch'
-        num_layers = len(dim)
-        assert num_layers >= 1, 'Encoder should have at least 1 layer'
-        module_list = []
-        input_dim = input_size
-        if self.vgg:
-            vgg_extractor = VGGExtractor(input_size)
-            module_list.append(vgg_extractor)
-            input_dim = vgg_extractor.out_dim
-            self.sample_rate = self.sample_rate * 4
-        if self.cnn:
-            cnn_extractor = CNNExtractor(input_size, out_dim=dim[0])
-            module_list.append(cnn_extractor)
-            input_dim = cnn_extractor.out_dim
-            self.sample_rate = self.sample_rate * 4
-        if module in ['LSTM', 'GRU']:
-            for l in range(num_layers):
-                module_list.append(RNNLayer(input_dim, module, dim[l], bidirection, dropout[l], layer_norm[l], sample_rate[l], sample_style, proj[l]))
-                input_dim = module_list[-1].out_dim
-                self.sample_rate = self.sample_rate * sample_rate[l]
-        else:
-            raise NotImplementedError
-        self.in_dim = input_size
-        self.out_dim = input_dim
-        self.layers = nn.ModuleList(module_list)
-
-    def forward(self, input_x, enc_len):
-        for _, layer in enumerate(self.layers):
-            input_x, enc_len = layer(input_x, enc_len)
-        return input_x, enc_len
 
 
 class CMVN(torch.jit.ScriptModule):
@@ -655,14 +845,14 @@ class Hypothesis:
 
     def get_state(self, device):
         prev_token = self.output_seq[-1] if len(self.output_seq) != 0 else 0
-        prev_token = torch.LongTensor([prev_token]).to(device)
-        att_map = self.att_map.to(device) if self.att_map is not None else None
+        prev_token = torch.LongTensor([prev_token])
+        att_map = self.att_map if self.att_map is not None else None
         if type(self.lm_state) is tuple:
-            lm_state = self.lm_state[0].to(device), self.lm_state[1].to(device)
+            lm_state = self.lm_state[0], self.lm_state[1]
         elif self.lm_state is None:
             lm_state = None
         else:
-            lm_state = self.lm_state.to(device)
+            lm_state = self.lm_state
         return prev_token, self.decoder_state, att_map, lm_state, self.ctc_state
 
     @property
@@ -671,6 +861,42 @@ class Hypothesis:
 
 
 LOG_ZERO = -10000000.0
+
+
+class RNNLM(nn.Module):
+    """ RNN Language Model """
+
+    def __init__(self, vocab_size, emb_tying, emb_dim, module, dim, n_layers, dropout):
+        super().__init__()
+        self.dim = dim
+        self.n_layers = n_layers
+        self.emb_tying = emb_tying
+        if emb_tying:
+            assert emb_dim == dim, 'Output dim of RNN should be identical to embedding if using weight tying.'
+        self.vocab_size = vocab_size
+        self.emb = nn.Embedding(vocab_size, emb_dim)
+        self.dp1 = nn.Dropout(dropout)
+        self.dp2 = nn.Dropout(dropout)
+        self.rnn = getattr(nn, module.upper())(emb_dim, dim, num_layers=n_layers, dropout=dropout, batch_first=True)
+        if not self.emb_tying:
+            self.trans = nn.Linear(emb_dim, vocab_size)
+
+    def create_msg(self):
+        msg = ['Model spec.| RNNLM weight tying = {}, # of layers = {}, dim = {}'.format(self.emb_tying, self.n_layers, self.dim)]
+        return msg
+
+    def forward(self, x, lens, hidden=None):
+        emb_x = self.dp1(self.emb(x))
+        if not self.training:
+            self.rnn.flatten_parameters()
+        packed = nn.utils.rnn.pack_padded_sequence(emb_x, lens, batch_first=True, enforce_sorted=False)
+        outputs, hidden = self.rnn(packed, hidden)
+        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True)
+        if self.emb_tying:
+            outputs = F.linear(self.dp2(outputs), self.emb.weight)
+        else:
+            outputs = self.trans(self.dp2(outputs))
+        return outputs, hidden
 
 
 class BeamDecoder(nn.Module):
@@ -769,173 +995,6 @@ class BeamDecoder(nn.Module):
         final_hypothesis += prev_top_hypothesis
         final_hypothesis.sort(key=lambda o: o.avgScore(), reverse=True)
         return final_hypothesis[:self.beam_size]
-
-
-class RNNLM(nn.Module):
-    """ RNN Language Model """
-
-    def __init__(self, vocab_size, emb_tying, emb_dim, module, dim, n_layers, dropout):
-        super().__init__()
-        self.dim = dim
-        self.n_layers = n_layers
-        self.emb_tying = emb_tying
-        if emb_tying:
-            assert emb_dim == dim, 'Output dim of RNN should be identical to embedding if using weight tying.'
-        self.vocab_size = vocab_size
-        self.emb = nn.Embedding(vocab_size, emb_dim)
-        self.dp1 = nn.Dropout(dropout)
-        self.dp2 = nn.Dropout(dropout)
-        self.rnn = getattr(nn, module.upper())(emb_dim, dim, num_layers=n_layers, dropout=dropout, batch_first=True)
-        if not self.emb_tying:
-            self.trans = nn.Linear(emb_dim, vocab_size)
-
-    def create_msg(self):
-        msg = ['Model spec.| RNNLM weight tying = {}, # of layers = {}, dim = {}'.format(self.emb_tying, self.n_layers, self.dim)]
-        return msg
-
-    def forward(self, x, lens, hidden=None):
-        emb_x = self.dp1(self.emb(x))
-        if not self.training:
-            self.rnn.flatten_parameters()
-        packed = nn.utils.rnn.pack_padded_sequence(emb_x, lens, batch_first=True, enforce_sorted=False)
-        outputs, hidden = self.rnn(packed, hidden)
-        outputs, _ = nn.utils.rnn.pad_packed_sequence(outputs, batch_first=True)
-        if self.emb_tying:
-            outputs = F.linear(self.dp2(outputs), self.emb.weight)
-        else:
-            outputs = self.trans(self.dp2(outputs))
-        return outputs, hidden
-
-
-class VGGExtractor(nn.Module):
-    """ VGG extractor for ASR described in https://arxiv.org/pdf/1706.02737.pdf"""
-
-    def __init__(self, input_dim):
-        super(VGGExtractor, self).__init__()
-        self.init_dim = 64
-        self.hide_dim = 128
-        in_channel, freq_dim, out_dim = self.check_dim(input_dim)
-        self.in_channel = in_channel
-        self.freq_dim = freq_dim
-        self.out_dim = out_dim
-        self.extractor = nn.Sequential(nn.Conv2d(in_channel, self.init_dim, 3, stride=1, padding=1), nn.ReLU(), nn.Conv2d(self.init_dim, self.init_dim, 3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(2, stride=2), nn.Conv2d(self.init_dim, self.hide_dim, 3, stride=1, padding=1), nn.ReLU(), nn.Conv2d(self.hide_dim, self.hide_dim, 3, stride=1, padding=1), nn.ReLU(), nn.MaxPool2d(2, stride=2))
-
-    def check_dim(self, input_dim):
-        if input_dim % 13 == 0:
-            return int(input_dim / 13), 13, 13 // 4 * self.hide_dim
-        elif input_dim % 40 == 0:
-            return int(input_dim / 40), 40, 40 // 4 * self.hide_dim
-        else:
-            raise ValueError('Acoustic feature dimension for VGG should be 13/26/39(MFCC) or 40/80/120(Fbank) but got ' + input_dim)
-
-    def view_input(self, feature, feat_len):
-        feat_len = feat_len // 4
-        if feature.shape[1] % 4 != 0:
-            feature = feature[:, :-(feature.shape[1] % 4), :].contiguous()
-        bs, ts, ds = feature.shape
-        feature = feature.view(bs, ts, self.in_channel, self.freq_dim)
-        feature = feature.transpose(1, 2)
-        return feature, feat_len
-
-    def forward(self, feature, feat_len):
-        feature, feat_len = self.view_input(feature, feat_len)
-        feature = self.extractor(feature)
-        feature = feature.transpose(1, 2)
-        feature = feature.contiguous().view(feature.shape[0], feature.shape[1], self.out_dim)
-        return feature, feat_len
-
-
-class CNNExtractor(nn.Module):
-    """ A simple 2-layer CNN extractor for acoustic feature down-sampling"""
-
-    def __init__(self, input_dim, out_dim):
-        super(CNNExtractor, self).__init__()
-        self.out_dim = out_dim
-        self.extractor = nn.Sequential(nn.Conv1d(input_dim, out_dim, 4, stride=2, padding=1), nn.Conv1d(out_dim, out_dim, 4, stride=2, padding=1))
-
-    def forward(self, feature, feat_len):
-        feat_len = feat_len // 4
-        feature = feature.transpose(1, 2)
-        feature = self.extractor(feature)
-        feature = feature.transpose(1, 2)
-        return feature, feat_len
-
-
-class RNNLayer(nn.Module):
-    """ RNN wrapper, includes time-downsampling"""
-
-    def __init__(self, input_dim, module, dim, bidirection, dropout, layer_norm, sample_rate, sample_style, proj):
-        super(RNNLayer, self).__init__()
-        rnn_out_dim = 2 * dim if bidirection else dim
-        self.out_dim = sample_rate * rnn_out_dim if sample_rate > 1 and sample_style == 'concat' else rnn_out_dim
-        self.dropout = dropout
-        self.layer_norm = layer_norm
-        self.sample_rate = sample_rate
-        self.sample_style = sample_style
-        self.proj = proj
-        if self.sample_style not in ['drop', 'concat']:
-            raise ValueError('Unsupported Sample Style: ' + self.sample_style)
-        self.layer = getattr(nn, module.upper())(input_dim, dim, bidirectional=bidirection, num_layers=1, batch_first=True)
-        if self.layer_norm:
-            self.ln = nn.LayerNorm(rnn_out_dim)
-        if self.dropout > 0:
-            self.dp = nn.Dropout(p=dropout)
-        if self.proj:
-            self.pj = nn.Linear(rnn_out_dim, rnn_out_dim)
-
-    def forward(self, input_x, x_len):
-        if not self.training:
-            self.layer.flatten_parameters()
-        output, _ = self.layer(input_x)
-        if self.layer_norm:
-            output = self.ln(output)
-        if self.dropout > 0:
-            output = self.dp(output)
-        if self.sample_rate > 1:
-            batch_size, timestep, feature_dim = output.shape
-            x_len = x_len // self.sample_rate
-            if self.sample_style == 'drop':
-                output = output[:, ::self.sample_rate, :].contiguous()
-            else:
-                if timestep % self.sample_rate != 0:
-                    output = output[:, :-(timestep % self.sample_rate), :]
-                output = output.contiguous().view(batch_size, int(timestep / self.sample_rate), feature_dim * self.sample_rate)
-        if self.proj:
-            output = torch.tanh(self.pj(output))
-        return output, x_len
-
-
-class BaseAttention(nn.Module):
-    """ Base module for attentions """
-
-    def __init__(self, temperature, num_head):
-        super().__init__()
-        self.temperature = temperature
-        self.num_head = num_head
-        self.softmax = nn.Softmax(dim=-1)
-        self.reset_mem()
-
-    def reset_mem(self):
-        self.mask = None
-        self.k_len = None
-
-    def set_mem(self, prev_att):
-        pass
-
-    def compute_mask(self, k, k_len):
-        self.k_len = k_len
-        bs, ts, _ = k.shape
-        self.mask = np.zeros((bs, self.num_head, ts))
-        for idx, sl in enumerate(k_len):
-            self.mask[(idx), :, sl:] = 1
-        self.mask = torch.from_numpy(self.mask).view(-1, ts)
-
-    def _attend(self, energy, value):
-        attn = energy / self.temperature
-        attn = attn.masked_fill(self.mask, -np.inf)
-        attn = self.softmax(attn)
-        output = torch.bmm(attn.unsqueeze(1), value).squeeze(1)
-        return output, attn
 
 
 def load_embedding(text_encoder, embedding_filepath):

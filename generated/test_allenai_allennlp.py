@@ -2,7 +2,6 @@ import sys
 _module = sys.modules[__name__]
 del sys
 allennlp = _module
-__main__ = _module
 commands = _module
 evaluate = _module
 find_learning_rate = _module
@@ -58,6 +57,7 @@ instance = _module
 samplers = _module
 bucket_batch_sampler = _module
 max_tokens_batch_sampler = _module
+samplers = _module
 token_indexers = _module
 elmo_indexer = _module
 pretrained_transformer_indexer = _module
@@ -169,6 +169,7 @@ initializers = _module
 regularizers = _module
 regularizer = _module
 regularizer_applicator = _module
+regularizers = _module
 util = _module
 predictors = _module
 predictor = _module
@@ -249,6 +250,7 @@ logging_test = _module
 params_test = _module
 plugins_test = _module
 registrable_test = _module
+testing = _module
 util_test = _module
 babi_reader_test = _module
 dataset_reader_test = _module
@@ -392,20 +394,27 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
-import copy
+import warnings
+
+
+import logging
+
+
+import torch
 
 
 from typing import Any
@@ -414,22 +423,37 @@ from typing import Any
 from typing import Dict
 
 
+from typing import List
+
+
+from typing import Optional
+
+
+import torch.distributed as dist
+
+
+import torch.multiprocessing as mp
+
+
+from typing import Union
+
+
+import re
+
+
+from torch import cuda
+
+
+import copy
+
+
 from typing import Iterable
 
 
 from typing import Set
 
 
-from typing import Union
-
-
-import torch
-
-
 from numpy.testing import assert_allclose
-
-
-import logging
 
 
 import random
@@ -450,12 +474,6 @@ from typing import Generator
 from typing import Iterator
 
 
-from typing import List
-
-
-from typing import Optional
-
-
 from typing import Tuple
 
 
@@ -465,10 +483,43 @@ from typing import TypeVar
 import numpy
 
 
-import torch.distributed as dist
+from collections import defaultdict
+
+
+from torch.utils import data
+
+
+import itertools
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import IterableDataset
 
 
 from copy import deepcopy
+
+
+from typing import Generic
+
+
+from typing import Sequence
+
+
+from typing import cast
+
+
+from typing import MutableMapping
+
+
+from typing import Mapping
+
+
+import math
+
+
+import numpy as np
 
 
 from typing import NamedTuple
@@ -489,9 +540,6 @@ import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
 
-import math
-
-
 from torch.nn import Parameter
 
 
@@ -507,16 +555,7 @@ from torch.nn.utils.rnn import pad_packed_sequence
 import torch.nn as nn
 
 
-import warnings
-
-
 from torch.nn.modules import Dropout
-
-
-from typing import Sequence
-
-
-import numpy as np
 
 
 from torch.nn import ParameterList
@@ -534,13 +573,7 @@ from torch.nn import Conv1d
 from torch.nn import Linear
 
 
-import itertools
-
-
-import re
-
-
-from typing import cast
+import inspect
 
 
 from typing import BinaryIO
@@ -552,10 +585,25 @@ from torch.nn.functional import embedding
 import torch.nn.init
 
 
-from collections import defaultdict
+from torch.utils.hooks import RemovableHandle
+
+
+from torch import Tensor
+
+
+from torch import backends
 
 
 import time
+
+
+from sklearn import metrics
+
+
+from collections import Counter
+
+
+import scipy.stats as stats
 
 
 import torch.optim.lr_scheduler
@@ -567,13 +615,7 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.nn.utils import clip_grad_norm_
 
 
-from collections import Counter
-
-
 from torch.utils.data import DataLoader
-
-
-from torch.utils.data import Dataset
 
 
 from collections import OrderedDict
@@ -594,9 +636,6 @@ from torch.nn import LSTM
 from torch.nn import RNN
 
 
-import inspect
-
-
 from torch.nn import GRU
 
 
@@ -604,6 +643,12 @@ from torch.nn import Embedding
 
 
 from numpy.testing import assert_array_almost_equal
+
+
+from torch.testing import assert_allclose
+
+
+from sklearn.metrics import precision_recall_fscore_support
 
 
 from math import isclose
@@ -1012,6 +1057,49 @@ def infer_params(cls: Type[T], constructor: Callable[..., T]=None):
     return {**super_parameters, **parameters}
 
 
+class Lazy(Generic[T]):
+    """
+    This class is for use when constructing objects using `FromParams`, when an argument to a
+    constructor has a _sequential dependency_ with another argument to the same constructor.  For
+    example, in a `Trainer` class you might want to take a `Model` and an `Optimizer` as arguments,
+    but the `Optimizer` needs to be constructed using the parameters from the `Model`.  You can give
+    the type annotation `Lazy[Optimizer]` to the optimizer argument, then inside the constructor
+    call `optimizer.construct(parameters=model.parameters)`.
+
+    This is only recommended for use when you have registered a `@classmethod` as the constructor
+    for your class, instead of using `__init__`.  Having a `Lazy[]` type annotation on an argument
+    to an `__init__` method makes your class completely dependent on being constructed using the
+    `FromParams` pipeline, which is not a good idea.
+
+    The actual implementation here is incredibly simple; the logic that handles the lazy
+    construction is actually found in `FromParams`, where we have a special case for a `Lazy` type
+    annotation.
+
+    !!! Warning
+        The way this class is used in from_params means that optional constructor arguments CANNOT
+        be compared to `None` _before_ it is constructed. See the example below for correct usage.
+
+    ```
+    @classmethod
+    def my_constructor(cls, some_object: Lazy[MyObject] = None) -> MyClass:
+        ...
+        # WRONG! some_object will never be None at this point, it will be
+        # a Lazy[] that returns None
+        obj = some_object or MyObjectDefault()
+        # CORRECT:
+        obj = some_object.construct(kwarg=kwarg) or MyObjectDefault()
+        ...
+    ```
+
+    """
+
+    def __init__(self, constructor: Callable[..., T]):
+        self._constructor = constructor
+
+    def construct(self, **kwargs) ->Optional[T]:
+        return self._constructor(**kwargs)
+
+
 _NO_DEFAULT = inspect.Parameter.empty
 
 
@@ -1048,7 +1136,6 @@ def is_base_registrable(cls) ->bool:
     Checks whether this is a class that directly inherits from Registrable, or is a subclass of such
     a class.
     """
-    from allennlp.common.registrable import Registrable
     if not issubclass(cls, Registrable):
         return False
     method_resolution_order = inspect.getmro(cls)[1:]
@@ -1141,7 +1228,6 @@ class _TokenToIndexDefaultDict(_NamespaceDependentDefaultDict):
 
 
 def _read_pretrained_tokens(embeddings_file_uri: str) ->List[str]:
-    from allennlp.modules.token_embedders.embedding import EmbeddingsTextFile
     logger.info('Reading pretrained tokens from: %s', embeddings_file_uri)
     tokens: List[str] = []
     with EmbeddingsTextFile(embeddings_file_uri) as embeddings_file:
@@ -1173,23 +1259,550 @@ def ensure_list(iterable: Iterable[A]) ->List[A]:
 _DEFAULT_WEIGHTS = 'best.th'
 
 
-def info_value_of_dtype(dtype: torch.dtype):
+RnnState = Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
+
+
+RnnStateStorage = Tuple[torch.Tensor, ...]
+
+
+def get_lengths_from_binary_sequence_mask(mask: torch.BoolTensor) ->torch.LongTensor:
     """
-    Returns the `finfo` or `iinfo` object of a given PyTorch data type. Does not allow torch.bool.
+    Compute sequence lengths for each batch element in a tensor using a
+    binary mask.
+
+    # Parameters
+
+    mask : `torch.BoolTensor`, required.
+        A 2D binary mask of shape (batch_size, sequence_length) to
+        calculate the per-batch sequence lengths from.
+
+    # Returns
+
+    `torch.LongTensor`
+        A torch.LongTensor of shape (batch_size,) representing the lengths
+        of the sequences in the batch.
     """
-    if dtype == torch.bool:
-        raise TypeError('Does not support torch.bool')
-    elif dtype.is_floating_point:
-        return torch.finfo(dtype)
+    return mask.sum(-1)
+
+
+def sort_batch_by_length(tensor: torch.Tensor, sequence_lengths: torch.Tensor):
+    """
+    Sort a batch first tensor by some specified lengths.
+
+    # Parameters
+
+    tensor : `torch.FloatTensor`, required.
+        A batch first Pytorch tensor.
+    sequence_lengths : `torch.LongTensor`, required.
+        A tensor representing the lengths of some dimension of the tensor which
+        we want to sort by.
+
+    # Returns
+
+    sorted_tensor : `torch.FloatTensor`
+        The original tensor sorted along the batch dimension with respect to sequence_lengths.
+    sorted_sequence_lengths : `torch.LongTensor`
+        The original sequence_lengths sorted by decreasing size.
+    restoration_indices : `torch.LongTensor`
+        Indices into the sorted_tensor such that
+        `sorted_tensor.index_select(0, restoration_indices) == original_tensor`
+    permutation_index : `torch.LongTensor`
+        The indices used to sort the tensor. This is useful if you want to sort many
+        tensors using the same ordering.
+    """
+    if not isinstance(tensor, torch.Tensor) or not isinstance(sequence_lengths, torch.Tensor):
+        raise ConfigurationError('Both the tensor and sequence lengths must be torch.Tensors.')
+    sorted_sequence_lengths, permutation_index = sequence_lengths.sort(0, descending=True)
+    sorted_tensor = tensor.index_select(0, permutation_index)
+    index_range = torch.arange(0, len(sequence_lengths), device=sequence_lengths.device)
+    _, reverse_mapping = permutation_index.sort(0, descending=False)
+    restoration_indices = index_range.index_select(0, reverse_mapping)
+    return sorted_tensor, sorted_sequence_lengths, restoration_indices, permutation_index
+
+
+class _EncoderBase(torch.nn.Module):
+    """
+    This abstract class serves as a base for the 3 `Encoder` abstractions in AllenNLP.
+    - [`Seq2SeqEncoders`](./seq2seq_encoders/seq2seq_encoder.md)
+    - [`Seq2VecEncoders`](./seq2vec_encoders/seq2vec_encoder.md)
+
+    Additionally, this class provides functionality for sorting sequences by length
+    so they can be consumed by Pytorch RNN classes, which require their inputs to be
+    sorted by length. Finally, it also provides optional statefulness to all of it's
+    subclasses by allowing the caching and retrieving of the hidden states of RNNs.
+    """
+
+    def __init__(self, stateful: bool=False) ->None:
+        super().__init__()
+        self.stateful = stateful
+        self._states: Optional[RnnStateStorage] = None
+
+    def sort_and_run_forward(self, module: Callable[[PackedSequence, Optional[RnnState]], Tuple[Union[PackedSequence, torch.Tensor], RnnState]], inputs: torch.Tensor, mask: torch.BoolTensor, hidden_state: Optional[RnnState]=None):
+        """
+        This function exists because Pytorch RNNs require that their inputs be sorted
+        before being passed as input. As all of our Seq2xxxEncoders use this functionality,
+        it is provided in a base class. This method can be called on any module which
+        takes as input a `PackedSequence` and some `hidden_state`, which can either be a
+        tuple of tensors or a tensor.
+
+        As all of our Seq2xxxEncoders have different return types, we return `sorted`
+        outputs from the module, which is called directly. Additionally, we return the
+        indices into the batch dimension required to restore the tensor to it's correct,
+        unsorted order and the number of valid batch elements (i.e the number of elements
+        in the batch which are not completely masked). This un-sorting and re-padding
+        of the module outputs is left to the subclasses because their outputs have different
+        types and handling them smoothly here is difficult.
+
+        # Parameters
+
+        module : `Callable[RnnInputs, RnnOutputs]`
+            A function to run on the inputs, where
+            `RnnInputs: [PackedSequence, Optional[RnnState]]` and
+            `RnnOutputs: Tuple[Union[PackedSequence, torch.Tensor], RnnState]`.
+            In most cases, this is a `torch.nn.Module`.
+        inputs : `torch.Tensor`, required.
+            A tensor of shape `(batch_size, sequence_length, embedding_size)` representing
+            the inputs to the Encoder.
+        mask : `torch.BoolTensor`, required.
+            A tensor of shape `(batch_size, sequence_length)`, representing masked and
+            non-masked elements of the sequence for each element in the batch.
+        hidden_state : `Optional[RnnState]`, (default = `None`).
+            A single tensor of shape (num_layers, batch_size, hidden_size) representing the
+            state of an RNN with or a tuple of
+            tensors of shapes (num_layers, batch_size, hidden_size) and
+            (num_layers, batch_size, memory_size), representing the hidden state and memory
+            state of an LSTM-like RNN.
+
+        # Returns
+
+        module_output : `Union[torch.Tensor, PackedSequence]`.
+            A Tensor or PackedSequence representing the output of the Pytorch Module.
+            The batch size dimension will be equal to `num_valid`, as sequences of zero
+            length are clipped off before the module is called, as Pytorch cannot handle
+            zero length sequences.
+        final_states : `Optional[RnnState]`
+            A Tensor representing the hidden state of the Pytorch Module. This can either
+            be a single tensor of shape (num_layers, num_valid, hidden_size), for instance in
+            the case of a GRU, or a tuple of tensors, such as those required for an LSTM.
+        restoration_indices : `torch.LongTensor`
+            A tensor of shape `(batch_size,)`, describing the re-indexing required to transform
+            the outputs back to their original batch order.
+        """
+        batch_size = mask.size(0)
+        num_valid = torch.sum(mask[:, (0)]).int().item()
+        sequence_lengths = get_lengths_from_binary_sequence_mask(mask)
+        sorted_inputs, sorted_sequence_lengths, restoration_indices, sorting_indices = sort_batch_by_length(inputs, sequence_lengths)
+        packed_sequence_input = pack_padded_sequence(sorted_inputs[:num_valid, :, :], sorted_sequence_lengths[:num_valid].data.tolist(), batch_first=True)
+        if not self.stateful:
+            if hidden_state is None:
+                initial_states: Any = hidden_state
+            elif isinstance(hidden_state, tuple):
+                initial_states = [state.index_select(1, sorting_indices)[:, :num_valid, :].contiguous() for state in hidden_state]
+            else:
+                initial_states = hidden_state.index_select(1, sorting_indices)[:, :num_valid, :].contiguous()
+        else:
+            initial_states = self._get_initial_states(batch_size, num_valid, sorting_indices)
+        module_output, final_states = module(packed_sequence_input, initial_states)
+        return module_output, final_states, restoration_indices
+
+    def _get_initial_states(self, batch_size: int, num_valid: int, sorting_indices: torch.LongTensor) ->Optional[RnnState]:
+        """
+        Returns an initial state for use in an RNN. Additionally, this method handles
+        the batch size changing across calls by mutating the state to append initial states
+        for new elements in the batch. Finally, it also handles sorting the states
+        with respect to the sequence lengths of elements in the batch and removing rows
+        which are completely padded. Importantly, this `mutates` the state if the
+        current batch size is larger than when it was previously called.
+
+        # Parameters
+
+        batch_size : `int`, required.
+            The batch size can change size across calls to stateful RNNs, so we need
+            to know if we need to expand or shrink the states before returning them.
+            Expanded states will be set to zero.
+        num_valid : `int`, required.
+            The batch may contain completely padded sequences which get removed before
+            the sequence is passed through the encoder. We also need to clip these off
+            of the state too.
+        sorting_indices `torch.LongTensor`, required.
+            Pytorch RNNs take sequences sorted by length. When we return the states to be
+            used for a given call to `module.forward`, we need the states to match up to
+            the sorted sequences, so before returning them, we sort the states using the
+            same indices used to sort the sequences.
+
+        # Returns
+
+        This method has a complex return type because it has to deal with the first time it
+        is called, when it has no state, and the fact that types of RNN have heterogeneous
+        states.
+
+        If it is the first time the module has been called, it returns `None`, regardless
+        of the type of the `Module`.
+
+        Otherwise, for LSTMs, it returns a tuple of `torch.Tensors` with shape
+        `(num_layers, num_valid, state_size)` and `(num_layers, num_valid, memory_size)`
+        respectively, or for GRUs, it returns a single `torch.Tensor` of shape
+        `(num_layers, num_valid, state_size)`.
+        """
+        if self._states is None:
+            return None
+        if batch_size > self._states[0].size(1):
+            num_states_to_concat = batch_size - self._states[0].size(1)
+            resized_states = []
+            for state in self._states:
+                zeros = state.new_zeros(state.size(0), num_states_to_concat, state.size(2))
+                resized_states.append(torch.cat([state, zeros], 1))
+            self._states = tuple(resized_states)
+            correctly_shaped_states = self._states
+        elif batch_size < self._states[0].size(1):
+            correctly_shaped_states = tuple(state[:, :batch_size, :] for state in self._states)
+        else:
+            correctly_shaped_states = self._states
+        if len(self._states) == 1:
+            correctly_shaped_state = correctly_shaped_states[0]
+            sorted_state = correctly_shaped_state.index_select(1, sorting_indices)
+            return sorted_state[:, :num_valid, :].contiguous()
+        else:
+            sorted_states = [state.index_select(1, sorting_indices) for state in correctly_shaped_states]
+            return tuple(state[:, :num_valid, :].contiguous() for state in sorted_states)
+
+    def _update_states(self, final_states: RnnStateStorage, restoration_indices: torch.LongTensor) ->None:
+        """
+        After the RNN has run forward, the states need to be updated.
+        This method just sets the state to the updated new state, performing
+        several pieces of book-keeping along the way - namely, unsorting the
+        states and ensuring that the states of completely padded sequences are
+        not updated. Finally, it also detaches the state variable from the
+        computational graph, such that the graph can be garbage collected after
+        each batch iteration.
+
+        # Parameters
+
+        final_states : `RnnStateStorage`, required.
+            The hidden states returned as output from the RNN.
+        restoration_indices : `torch.LongTensor`, required.
+            The indices that invert the sorting used in `sort_and_run_forward`
+            to order the states with respect to the lengths of the sequences in
+            the batch.
+        """
+        new_unsorted_states = [state.index_select(1, restoration_indices) for state in final_states]
+        if self._states is None:
+            self._states = tuple(state.data for state in new_unsorted_states)
+        else:
+            current_state_batch_size = self._states[0].size(1)
+            new_state_batch_size = final_states[0].size(1)
+            used_new_rows_mask = [(state[(0), :, :].sum(-1) != 0.0).float().view(1, new_state_batch_size, 1) for state in new_unsorted_states]
+            new_states = []
+            if current_state_batch_size > new_state_batch_size:
+                for old_state, new_state, used_mask in zip(self._states, new_unsorted_states, used_new_rows_mask):
+                    masked_old_state = old_state[:, :new_state_batch_size, :] * (1 - used_mask)
+                    old_state[:, :new_state_batch_size, :] = new_state + masked_old_state
+                    new_states.append(old_state.detach())
+            else:
+                new_states = []
+                for old_state, new_state, used_mask in zip(self._states, new_unsorted_states, used_new_rows_mask):
+                    masked_old_state = old_state * (1 - used_mask)
+                    new_state += masked_old_state
+                    new_states.append(new_state.detach())
+            self._states = tuple(new_states)
+
+    def reset_states(self, mask: torch.BoolTensor=None) ->None:
+        """
+        Resets the internal states of a stateful encoder.
+
+        # Parameters
+
+        mask : `torch.BoolTensor`, optional.
+            A tensor of shape `(batch_size,)` indicating which states should
+            be reset. If not provided, all states will be reset.
+        """
+        if mask is None:
+            self._states = None
+        else:
+            mask_batch_size = mask.size(0)
+            mask = mask.view(1, mask_batch_size, 1)
+            new_states = []
+            for old_state in self._states:
+                old_state_batch_size = old_state.size(1)
+                if old_state_batch_size != mask_batch_size:
+                    raise ValueError(f'Trying to reset states using mask with incorrect batch size. Expected batch size: {old_state_batch_size}. Provided batch size: {mask_batch_size}.')
+                new_state = ~mask * old_state
+                new_states.append(new_state.detach())
+            self._states = tuple(new_states)
+
+
+TypedStringSpan = Tuple[str, Tuple[int, int]]
+
+
+TAGS_TO_SPANS_FUNCTION_TYPE = Callable[[List[str], Optional[List[str]]], List[TypedStringSpan]]
+
+
+class InvalidTagSequence(Exception):
+
+    def __init__(self, tag_sequence=None):
+        super().__init__()
+        self.tag_sequence = tag_sequence
+
+    def __str__(self):
+        return ' '.join(self.tag_sequence)
+
+
+def bio_tags_to_spans(tag_sequence: List[str], classes_to_ignore: List[str]=None) ->List[TypedStringSpan]:
+    """
+    Given a sequence corresponding to BIO tags, extracts spans.
+    Spans are inclusive and can be of zero length, representing a single word span.
+    Ill-formed spans are also included (i.e those which do not start with a "B-LABEL"),
+    as otherwise it is possible to get a perfect precision score whilst still predicting
+    ill-formed spans in addition to the correct spans. This function works properly when
+    the spans are unlabeled (i.e., your labels are simply "B", "I", and "O").
+
+    # Parameters
+
+    tag_sequence : `List[str]`, required.
+        The integer class labels for a sequence.
+    classes_to_ignore : `List[str]`, optional (default = `None`).
+        A list of string class labels `excluding` the bio tag
+        which should be ignored when extracting spans.
+
+    # Returns
+
+    spans : `List[TypedStringSpan]`
+        The typed, extracted spans from the sequence, in the format (label, (span_start, span_end)).
+        Note that the label `does not` contain any BIO tag prefixes.
+    """
+    classes_to_ignore = classes_to_ignore or []
+    spans: Set[Tuple[str, Tuple[int, int]]] = set()
+    span_start = 0
+    span_end = 0
+    active_conll_tag = None
+    for index, string_tag in enumerate(tag_sequence):
+        bio_tag = string_tag[0]
+        if bio_tag not in ['B', 'I', 'O']:
+            raise InvalidTagSequence(tag_sequence)
+        conll_tag = string_tag[2:]
+        if bio_tag == 'O' or conll_tag in classes_to_ignore:
+            if active_conll_tag is not None:
+                spans.add((active_conll_tag, (span_start, span_end)))
+            active_conll_tag = None
+            continue
+        elif bio_tag == 'B':
+            if active_conll_tag is not None:
+                spans.add((active_conll_tag, (span_start, span_end)))
+            active_conll_tag = conll_tag
+            span_start = index
+            span_end = index
+        elif bio_tag == 'I' and conll_tag == active_conll_tag:
+            span_end += 1
+        else:
+            if active_conll_tag is not None:
+                spans.add((active_conll_tag, (span_start, span_end)))
+            active_conll_tag = conll_tag
+            span_start = index
+            span_end = index
+    if active_conll_tag is not None:
+        spans.add((active_conll_tag, (span_start, span_end)))
+    return list(spans)
+
+
+def bioul_tags_to_spans(tag_sequence: List[str], classes_to_ignore: List[str]=None) ->List[TypedStringSpan]:
+    """
+    Given a sequence corresponding to BIOUL tags, extracts spans.
+    Spans are inclusive and can be of zero length, representing a single word span.
+    Ill-formed spans are not allowed and will raise `InvalidTagSequence`.
+    This function works properly when the spans are unlabeled (i.e., your labels are
+    simply "B", "I", "O", "U", and "L").
+
+    # Parameters
+
+    tag_sequence : `List[str]`, required.
+        The tag sequence encoded in BIOUL, e.g. ["B-PER", "L-PER", "O"].
+    classes_to_ignore : `List[str]`, optional (default = `None`).
+        A list of string class labels `excluding` the bio tag
+        which should be ignored when extracting spans.
+
+    # Returns
+
+    spans : `List[TypedStringSpan]`
+        The typed, extracted spans from the sequence, in the format (label, (span_start, span_end)).
+    """
+    spans = []
+    classes_to_ignore = classes_to_ignore or []
+    index = 0
+    while index < len(tag_sequence):
+        label = tag_sequence[index]
+        if label[0] == 'U':
+            spans.append((label.partition('-')[2], (index, index)))
+        elif label[0] == 'B':
+            start = index
+            while label[0] != 'L':
+                index += 1
+                if index >= len(tag_sequence):
+                    raise InvalidTagSequence(tag_sequence)
+                label = tag_sequence[index]
+                if not (label[0] == 'I' or label[0] == 'L'):
+                    raise InvalidTagSequence(tag_sequence)
+            spans.append((label.partition('-')[2], (start, index)))
+        elif label != 'O':
+            raise InvalidTagSequence(tag_sequence)
+        index += 1
+    return [span for span in spans if span[0] not in classes_to_ignore]
+
+
+def bmes_tags_to_spans(tag_sequence: List[str], classes_to_ignore: List[str]=None) ->List[TypedStringSpan]:
+    """
+    Given a sequence corresponding to BMES tags, extracts spans.
+    Spans are inclusive and can be of zero length, representing a single word span.
+    Ill-formed spans are also included (i.e those which do not start with a "B-LABEL"),
+    as otherwise it is possible to get a perfect precision score whilst still predicting
+    ill-formed spans in addition to the correct spans.
+    This function works properly when the spans are unlabeled (i.e., your labels are
+    simply "B", "M", "E" and "S").
+
+    # Parameters
+
+    tag_sequence : `List[str]`, required.
+        The integer class labels for a sequence.
+    classes_to_ignore : `List[str]`, optional (default = `None`).
+        A list of string class labels `excluding` the bio tag
+        which should be ignored when extracting spans.
+
+    # Returns
+
+    spans : `List[TypedStringSpan]`
+        The typed, extracted spans from the sequence, in the format (label, (span_start, span_end)).
+        Note that the label `does not` contain any BIO tag prefixes.
+    """
+
+    def extract_bmes_tag_label(text):
+        bmes_tag = text[0]
+        label = text[2:]
+        return bmes_tag, label
+    spans: List[Tuple[str, List[int]]] = []
+    prev_bmes_tag: Optional[str] = None
+    for index, tag in enumerate(tag_sequence):
+        bmes_tag, label = extract_bmes_tag_label(tag)
+        if bmes_tag in ('B', 'S'):
+            spans.append((label, [index, index]))
+        elif bmes_tag in ('M', 'E') and prev_bmes_tag in ('B', 'M') and spans[-1][0] == label:
+            spans[-1][1][1] = index
+        else:
+            spans.append((label, [index, index]))
+        prev_bmes_tag = bmes_tag
+    classes_to_ignore = classes_to_ignore or []
+    return [(span[0], (span[1][0], span[1][1])) for span in spans if span[0] not in classes_to_ignore]
+
+
+def _iob1_start_of_chunk(prev_bio_tag: Optional[str], prev_conll_tag: Optional[str], curr_bio_tag: str, curr_conll_tag: str) ->bool:
+    if curr_bio_tag == 'B':
+        return True
+    if curr_bio_tag == 'I' and prev_bio_tag == 'O':
+        return True
+    if curr_bio_tag != 'O' and prev_conll_tag != curr_conll_tag:
+        return True
+    return False
+
+
+def iob1_tags_to_spans(tag_sequence: List[str], classes_to_ignore: List[str]=None) ->List[TypedStringSpan]:
+    """
+    Given a sequence corresponding to IOB1 tags, extracts spans.
+    Spans are inclusive and can be of zero length, representing a single word span.
+    Ill-formed spans are also included (i.e., those where "B-LABEL" is not preceded
+    by "I-LABEL" or "B-LABEL").
+
+    # Parameters
+
+    tag_sequence : `List[str]`, required.
+        The integer class labels for a sequence.
+    classes_to_ignore : `List[str]`, optional (default = `None`).
+        A list of string class labels `excluding` the bio tag
+        which should be ignored when extracting spans.
+
+    # Returns
+
+    spans : `List[TypedStringSpan]`
+        The typed, extracted spans from the sequence, in the format (label, (span_start, span_end)).
+        Note that the label `does not` contain any BIO tag prefixes.
+    """
+    classes_to_ignore = classes_to_ignore or []
+    spans: Set[Tuple[str, Tuple[int, int]]] = set()
+    span_start = 0
+    span_end = 0
+    active_conll_tag = None
+    prev_bio_tag = None
+    prev_conll_tag = None
+    for index, string_tag in enumerate(tag_sequence):
+        curr_bio_tag = string_tag[0]
+        curr_conll_tag = string_tag[2:]
+        if curr_bio_tag not in ['B', 'I', 'O']:
+            raise InvalidTagSequence(tag_sequence)
+        if curr_bio_tag == 'O' or curr_conll_tag in classes_to_ignore:
+            if active_conll_tag is not None:
+                spans.add((active_conll_tag, (span_start, span_end)))
+            active_conll_tag = None
+        elif _iob1_start_of_chunk(prev_bio_tag, prev_conll_tag, curr_bio_tag, curr_conll_tag):
+            if active_conll_tag is not None:
+                spans.add((active_conll_tag, (span_start, span_end)))
+            active_conll_tag = curr_conll_tag
+            span_start = index
+            span_end = index
+        else:
+            span_end += 1
+        prev_bio_tag = string_tag[0]
+        prev_conll_tag = string_tag[2:]
+    if active_conll_tag is not None:
+        spans.add((active_conll_tag, (span_start, span_end)))
+    return list(spans)
+
+
+TextFieldTensors = Dict[str, Dict[str, torch.Tensor]]
+
+
+def check_dimensions_match(dimension_1: int, dimension_2: int, dim_1_name: str, dim_2_name: str) ->None:
+    if dimension_1 != dimension_2:
+        raise ConfigurationError(f'{dim_1_name} must match {dim_2_name}, but got {dimension_1} and {dimension_2} instead')
+
+
+def get_text_field_mask(text_field_tensors: Dict[str, Dict[str, torch.Tensor]], num_wrapping_dims: int=0, padding_id: int=0) ->torch.BoolTensor:
+    """
+    Takes the dictionary of tensors produced by a `TextField` and returns a mask
+    with 0 where the tokens are padding, and 1 otherwise. `padding_id` specifies the id of padding tokens.
+    We also handle `TextFields` wrapped by an arbitrary number of `ListFields`, where the number of wrapping
+    `ListFields` is given by `num_wrapping_dims`.
+
+    If `num_wrapping_dims == 0`, the returned mask has shape `(batch_size, num_tokens)`.
+    If `num_wrapping_dims > 0` then the returned mask has `num_wrapping_dims` extra
+    dimensions, so the shape will be `(batch_size, ..., num_tokens)`.
+
+    There could be several entries in the tensor dictionary with different shapes (e.g., one for
+    word ids, one for character ids).  In order to get a token mask, we use the tensor in
+    the dictionary with the lowest number of dimensions.  After subtracting `num_wrapping_dims`,
+    if this tensor has two dimensions we assume it has shape `(batch_size, ..., num_tokens)`,
+    and use it for the mask.  If instead it has three dimensions, we assume it has shape
+    `(batch_size, ..., num_tokens, num_features)`, and sum over the last dimension to produce
+    the mask.  Most frequently this will be a character id tensor, but it could also be a
+    featurized representation of each token, etc.
+
+    If the input `text_field_tensors` contains the "mask" key, this is returned instead of inferring the mask.
+    """
+    masks = []
+    for indexer_name, indexer_tensors in text_field_tensors.items():
+        if 'mask' in indexer_tensors:
+            masks.append(indexer_tensors['mask'].bool())
+    if len(masks) == 1:
+        return masks[0]
+    elif len(masks) > 1:
+        raise ValueError('found two mask outputs; not sure which to use!')
+    tensor_dims = [(tensor.dim(), tensor) for indexer_output in text_field_tensors.values() for tensor in indexer_output.values()]
+    tensor_dims.sort(key=lambda x: x[0])
+    smallest_dim = tensor_dims[0][0] - num_wrapping_dims
+    if smallest_dim == 2:
+        token_tensor = tensor_dims[0][1]
+        return token_tensor != padding_id
+    elif smallest_dim == 3:
+        character_tensor = tensor_dims[0][1]
+        return (character_tensor != padding_id).any(dim=-1)
     else:
-        return torch.iinfo(dtype)
-
-
-def min_value_of_dtype(dtype: torch.dtype):
-    """
-    Returns the minimum value of a given PyTorch data type. Does not allow torch.bool.
-    """
-    return info_value_of_dtype(dtype).min
+        raise ValueError('Expected a tensor with dimension 2 or 3, found {}'.format(smallest_dim))
 
 
 def tiny_value_of_dtype(dtype: torch.dtype):
@@ -1207,6 +1820,122 @@ def tiny_value_of_dtype(dtype: torch.dtype):
         return 0.0001
     else:
         raise TypeError('Does not support dtype ' + str(dtype))
+
+
+def sequence_cross_entropy_with_logits(logits: torch.FloatTensor, targets: torch.LongTensor, weights: Union[torch.FloatTensor, torch.BoolTensor], average: str='batch', label_smoothing: float=None, gamma: float=None, alpha: Union[float, List[float], torch.FloatTensor]=None) ->torch.FloatTensor:
+    """
+    Computes the cross entropy loss of a sequence, weighted with respect to
+    some user provided weights. Note that the weighting here is not the same as
+    in the `torch.nn.CrossEntropyLoss()` criterion, which is weighting
+    classes; here we are weighting the loss contribution from particular elements
+    in the sequence. This allows loss computations for models which use padding.
+
+    # Parameters
+
+    logits : `torch.FloatTensor`, required.
+        A `torch.FloatTensor` of size (batch_size, sequence_length, num_classes)
+        which contains the unnormalized probability for each class.
+    targets : `torch.LongTensor`, required.
+        A `torch.LongTensor` of size (batch, sequence_length) which contains the
+        index of the true class for each corresponding step.
+    weights : `Union[torch.FloatTensor, torch.BoolTensor]`, required.
+        A `torch.FloatTensor` of size (batch, sequence_length)
+    average: `str`, optional (default = `"batch"`)
+        If "batch", average the loss across the batches. If "token", average
+        the loss across each item in the input. If `None`, return a vector
+        of losses per batch element.
+    label_smoothing : `float`, optional (default = `None`)
+        Whether or not to apply label smoothing to the cross-entropy loss.
+        For example, with a label smoothing value of 0.2, a 4 class classification
+        target would look like `[0.05, 0.05, 0.85, 0.05]` if the 3rd class was
+        the correct label.
+    gamma : `float`, optional (default = `None`)
+        Focal loss[*] focusing parameter `gamma` to reduces the relative loss for
+        well-classified examples and put more focus on hard. The greater value
+        `gamma` is, the more focus on hard examples.
+    alpha : `Union[float, List[float]]`, optional (default = `None`)
+        Focal loss[*] weighting factor `alpha` to balance between classes. Can be
+        used independently with `gamma`. If a single `float` is provided, it
+        is assumed binary case using `alpha` and `1 - alpha` for positive and
+        negative respectively. If a list of `float` is provided, with the same
+        length as the number of classes, the weights will match the classes.
+        [*] T. Lin, P. Goyal, R. Girshick, K. He and P. Dollár, "Focal Loss for
+        Dense Object Detection," 2017 IEEE International Conference on Computer
+        Vision (ICCV), Venice, 2017, pp. 2999-3007.
+
+    # Returns
+
+    `torch.FloatTensor`
+        A torch.FloatTensor representing the cross entropy loss.
+        If `average=="batch"` or `average=="token"`, the returned loss is a scalar.
+        If `average is None`, the returned loss is a vector of shape (batch_size,).
+
+    """
+    if average not in {None, 'token', 'batch'}:
+        raise ValueError("Got average f{average}, expected one of None, 'token', or 'batch'")
+    weights = weights
+    non_batch_dims = tuple(range(1, len(weights.shape)))
+    weights_batch_sum = weights.sum(dim=non_batch_dims)
+    logits_flat = logits.view(-1, logits.size(-1))
+    log_probs_flat = torch.nn.functional.log_softmax(logits_flat, dim=-1)
+    targets_flat = targets.view(-1, 1).long()
+    if gamma:
+        probs_flat = log_probs_flat.exp()
+        probs_flat = torch.gather(probs_flat, dim=1, index=targets_flat)
+        focal_factor = (1.0 - probs_flat) ** gamma
+        focal_factor = focal_factor.view(*targets.size())
+        weights = weights * focal_factor
+    if alpha is not None:
+        if isinstance(alpha, (float, int)):
+            alpha_factor = torch.tensor([1.0 - float(alpha), float(alpha)], dtype=weights.dtype, device=weights.device)
+        elif isinstance(alpha, (list, numpy.ndarray, torch.Tensor)):
+            alpha_factor = torch.tensor(alpha, dtype=weights.dtype, device=weights.device)
+            if not alpha_factor.size():
+                alpha_factor = alpha_factor.view(1)
+                alpha_factor = torch.cat([1 - alpha_factor, alpha_factor])
+        else:
+            raise TypeError('alpha must be float, list of float, or torch.FloatTensor, {} provided.'.format(type(alpha)))
+        alpha_factor = torch.gather(alpha_factor, dim=0, index=targets_flat.view(-1)).view(*targets.size())
+        weights = weights * alpha_factor
+    if label_smoothing is not None and label_smoothing > 0.0:
+        num_classes = logits.size(-1)
+        smoothing_value = label_smoothing / num_classes
+        one_hot_targets = torch.zeros_like(log_probs_flat).scatter_(-1, targets_flat, 1.0 - label_smoothing)
+        smoothed_targets = one_hot_targets + smoothing_value
+        negative_log_likelihood_flat = -log_probs_flat * smoothed_targets
+        negative_log_likelihood_flat = negative_log_likelihood_flat.sum(-1, keepdim=True)
+    else:
+        negative_log_likelihood_flat = -torch.gather(log_probs_flat, dim=1, index=targets_flat)
+    negative_log_likelihood = negative_log_likelihood_flat.view(*targets.size())
+    negative_log_likelihood = negative_log_likelihood * weights
+    if average == 'batch':
+        per_batch_loss = negative_log_likelihood.sum(non_batch_dims) / (weights_batch_sum + tiny_value_of_dtype(negative_log_likelihood.dtype))
+        num_non_empty_sequences = (weights_batch_sum > 0).sum() + tiny_value_of_dtype(negative_log_likelihood.dtype)
+        return per_batch_loss.sum() / num_non_empty_sequences
+    elif average == 'token':
+        return negative_log_likelihood.sum() / (weights_batch_sum.sum() + tiny_value_of_dtype(negative_log_likelihood.dtype))
+    else:
+        per_batch_loss = negative_log_likelihood.sum(non_batch_dims) / (weights_batch_sum + tiny_value_of_dtype(negative_log_likelihood.dtype))
+        return per_batch_loss
+
+
+def info_value_of_dtype(dtype: torch.dtype):
+    """
+    Returns the `finfo` or `iinfo` object of a given PyTorch data type. Does not allow torch.bool.
+    """
+    if dtype == torch.bool:
+        raise TypeError('Does not support torch.bool')
+    elif dtype.is_floating_point:
+        return torch.finfo(dtype)
+    else:
+        return torch.iinfo(dtype)
+
+
+def min_value_of_dtype(dtype: torch.dtype):
+    """
+    Returns the minimum value of a given PyTorch data type. Does not allow torch.bool.
+    """
+    return info_value_of_dtype(dtype).min
 
 
 def masked_softmax(vector: torch.Tensor, mask: torch.BoolTensor, dim: int=-1, memory_efficient: bool=False) ->torch.Tensor:
@@ -1387,7 +2116,7 @@ def get_dropout_mask(dropout_probability: float, tensor_for_masking: torch.Tenso
         This scaling ensures expected values and variances of the output of applying this mask
         and the original tensor are the same.
     """
-    binary_mask = (torch.rand(tensor_for_masking.size()) > dropout_probability).to(tensor_for_masking.device)
+    binary_mask = torch.rand(tensor_for_masking.size()) > dropout_probability
     dropout_mask = binary_mask.float().div(1.0 - dropout_probability)
     return dropout_mask
 
@@ -1643,26 +2372,6 @@ class BiAugmentedLstm(torch.nn.Module):
         output_sequence, batch_lengths = pad_packed_sequence(output_sequence, padding_value=self.padding_value, batch_first=True)
         output_sequence = pack_padded_sequence(output_sequence, batch_lengths, batch_first=True)
         return output_sequence, final_state_tuple
-
-
-def get_lengths_from_binary_sequence_mask(mask: torch.BoolTensor) ->torch.LongTensor:
-    """
-    Compute sequence lengths for each batch element in a tensor using a
-    binary mask.
-
-    # Parameters
-
-    mask : `torch.BoolTensor`, required.
-        A 2D binary mask of shape (batch_size, sequence_length) to
-        calculate the per-batch sequence lengths from.
-
-    # Returns
-
-    `torch.LongTensor`
-        A torch.LongTensor of shape (batch_size,) representing the lengths
-        of the sequences in the batch.
-    """
-    return mask.sum(-1)
 
 
 def masked_max(vector: torch.Tensor, mask: torch.BoolTensor, dim: int, keepdim: bool=False) ->torch.Tensor:
@@ -1940,44 +2649,61 @@ class ConditionalRandomField(torch.nn.Module):
         return best_paths
 
 
-def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.BoolTensor) ->Tuple[torch.Tensor, torch.Tensor]:
+class ScalarMix(torch.nn.Module):
     """
-    Remove begin/end of sentence embeddings from the batch of sentences.
-    Given a batch of sentences with size `(batch_size, timesteps, dim)`
-    this returns a tensor of shape `(batch_size, timesteps - 2, dim)` after removing
-    the beginning and end sentence markers.  The sentences are assumed to be padded on the right,
-    with the beginning of each sentence assumed to occur at index 0 (i.e., `mask[:, 0]` is assumed
-    to be 1).
+    Computes a parameterised scalar mixture of N tensors, `mixture = gamma * sum(s_k * tensor_k)`
+    where `s = softmax(w)`, with `w` and `gamma` scalar parameters.
 
-    Returns both the new tensor and updated mask.
-
-    This function is the inverse of `add_sentence_boundary_token_ids`.
-
-    # Parameters
-
-    tensor : `torch.Tensor`
-        A tensor of shape `(batch_size, timesteps, dim)`
-    mask : `torch.BoolTensor`
-         A tensor of shape `(batch_size, timesteps)`
-
-    # Returns
-
-    tensor_without_boundary_tokens : `torch.Tensor`
-        The tensor after removing the boundary tokens of shape `(batch_size, timesteps - 2, dim)`
-    new_mask : `torch.BoolTensor`
-        The new mask for the tensor of shape `(batch_size, timesteps - 2)`.
+    In addition, if `do_layer_norm=True` then apply layer normalization to each tensor
+    before weighting.
     """
-    sequence_lengths = mask.sum(dim=1).detach().cpu().numpy()
-    tensor_shape = list(tensor.data.shape)
-    new_shape = list(tensor_shape)
-    new_shape[1] = tensor_shape[1] - 2
-    tensor_without_boundary_tokens = tensor.new_zeros(*new_shape)
-    new_mask = tensor.new_zeros((new_shape[0], new_shape[1]), dtype=torch.bool)
-    for i, j in enumerate(sequence_lengths):
-        if j > 2:
-            tensor_without_boundary_tokens[(i), :j - 2, :] = tensor[(i), 1:j - 1, :]
-            new_mask[(i), :j - 2] = True
-    return tensor_without_boundary_tokens, new_mask
+
+    def __init__(self, mixture_size: int, do_layer_norm: bool=False, initial_scalar_parameters: List[float]=None, trainable: bool=True) ->None:
+        super().__init__()
+        self.mixture_size = mixture_size
+        self.do_layer_norm = do_layer_norm
+        if initial_scalar_parameters is None:
+            initial_scalar_parameters = [0.0] * mixture_size
+        elif len(initial_scalar_parameters) != mixture_size:
+            raise ConfigurationError('Length of initial_scalar_parameters {} differs from mixture_size {}'.format(initial_scalar_parameters, mixture_size))
+        self.scalar_parameters = ParameterList([Parameter(torch.FloatTensor([initial_scalar_parameters[i]]), requires_grad=trainable) for i in range(mixture_size)])
+        self.gamma = Parameter(torch.FloatTensor([1.0]), requires_grad=trainable)
+
+    def forward(self, tensors: List[torch.Tensor], mask: torch.BoolTensor=None) ->torch.Tensor:
+        """
+        Compute a weighted average of the `tensors`.  The input tensors an be any shape
+        with at least two dimensions, but must all be the same shape.
+
+        When `do_layer_norm=True`, the `mask` is required input.  If the `tensors` are
+        dimensioned  `(dim_0, ..., dim_{n-1}, dim_n)`, then the `mask` is dimensioned
+        `(dim_0, ..., dim_{n-1})`, as in the typical case with `tensors` of shape
+        `(batch_size, timesteps, dim)` and `mask` of shape `(batch_size, timesteps)`.
+
+        When `do_layer_norm=False` the `mask` is ignored.
+        """
+        if len(tensors) != self.mixture_size:
+            raise ConfigurationError('{} tensors were passed, but the module was initialized to mix {} tensors.'.format(len(tensors), self.mixture_size))
+
+        def _do_layer_norm(tensor, broadcast_mask, num_elements_not_masked):
+            tensor_masked = tensor * broadcast_mask
+            mean = torch.sum(tensor_masked) / num_elements_not_masked
+            variance = torch.sum(((tensor_masked - mean) * broadcast_mask) ** 2) / num_elements_not_masked
+            return (tensor - mean) / torch.sqrt(variance + util.tiny_value_of_dtype(variance.dtype))
+        normed_weights = torch.nn.functional.softmax(torch.cat([parameter for parameter in self.scalar_parameters]), dim=0)
+        normed_weights = torch.split(normed_weights, split_size_or_sections=1)
+        if not self.do_layer_norm:
+            pieces = []
+            for weight, tensor in zip(normed_weights, tensors):
+                pieces.append(weight * tensor)
+            return self.gamma * sum(pieces)
+        else:
+            broadcast_mask = mask.unsqueeze(-1)
+            input_dim = tensors[0].size(-1)
+            num_elements_not_masked = torch.sum(mask) * input_dim
+            pieces = []
+            for weight, tensor in zip(normed_weights, tensors):
+                pieces.append(weight * _do_layer_norm(tensor, broadcast_mask, num_elements_not_masked))
+            return self.gamma * sum(pieces)
 
 
 def _make_bos_eos(character: int, padding_character: int, beginning_of_word_character: int, end_of_word_character: int, max_word_length: int):
@@ -2034,608 +2760,6 @@ class ELMoCharacterMapper:
         if isinstance(self, other.__class__):
             return self.__dict__ == other.__dict__
         return NotImplemented
-
-
-def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.BoolTensor, sentence_begin_token: Any, sentence_end_token: Any) ->Tuple[torch.Tensor, torch.BoolTensor]:
-    """
-    Add begin/end of sentence tokens to the batch of sentences.
-    Given a batch of sentences with size `(batch_size, timesteps)` or
-    `(batch_size, timesteps, dim)` this returns a tensor of shape
-    `(batch_size, timesteps + 2)` or `(batch_size, timesteps + 2, dim)` respectively.
-
-    Returns both the new tensor and updated mask.
-
-    # Parameters
-
-    tensor : `torch.Tensor`
-        A tensor of shape `(batch_size, timesteps)` or `(batch_size, timesteps, dim)`
-    mask : `torch.BoolTensor`
-         A tensor of shape `(batch_size, timesteps)`
-    sentence_begin_token: `Any`
-        Can be anything that can be broadcast in torch for assignment.
-        For 2D input, a scalar with the `<S>` id. For 3D input, a tensor with length dim.
-    sentence_end_token: `Any`
-        Can be anything that can be broadcast in torch for assignment.
-        For 2D input, a scalar with the `</S>` id. For 3D input, a tensor with length dim.
-
-    # Returns
-
-    tensor_with_boundary_tokens : `torch.Tensor`
-        The tensor with the appended and prepended boundary tokens. If the input was 2D,
-        it has shape (batch_size, timesteps + 2) and if the input was 3D, it has shape
-        (batch_size, timesteps + 2, dim).
-    new_mask : `torch.BoolTensor`
-        The new mask for the tensor, taking into account the appended tokens
-        marking the beginning and end of the sentence.
-    """
-    sequence_lengths = mask.sum(dim=1).detach().cpu().numpy()
-    tensor_shape = list(tensor.data.shape)
-    new_shape = list(tensor_shape)
-    new_shape[1] = tensor_shape[1] + 2
-    tensor_with_boundary_tokens = tensor.new_zeros(*new_shape)
-    if len(tensor_shape) == 2:
-        tensor_with_boundary_tokens[:, 1:-1] = tensor
-        tensor_with_boundary_tokens[:, (0)] = sentence_begin_token
-        for i, j in enumerate(sequence_lengths):
-            tensor_with_boundary_tokens[i, j + 1] = sentence_end_token
-        new_mask = tensor_with_boundary_tokens != 0
-    elif len(tensor_shape) == 3:
-        tensor_with_boundary_tokens[:, 1:-1, :] = tensor
-        for i, j in enumerate(sequence_lengths):
-            tensor_with_boundary_tokens[(i), (0), :] = sentence_begin_token
-            tensor_with_boundary_tokens[(i), (j + 1), :] = sentence_end_token
-        new_mask = (tensor_with_boundary_tokens > 0).sum(dim=-1) > 0
-    else:
-        raise ValueError('add_sentence_boundary_token_ids only accepts 2D and 3D input')
-    return tensor_with_boundary_tokens, new_mask
-
-
-IndexedTokenList = Dict[str, List[Any]]
-
-
-def pad_sequence_to_length(sequence: List, desired_length: int, default_value: Callable[[], Any]=lambda : 0, padding_on_right: bool=True) ->List:
-    """
-    Take a list of objects and pads it to the desired length, returning the padded list.  The
-    original list is not modified.
-
-    # Parameters
-
-    sequence : `List`
-        A list of objects to be padded.
-
-    desired_length : `int`
-        Maximum length of each sequence. Longer sequences are truncated to this length, and
-        shorter ones are padded to it.
-
-    default_value: `Callable`, optional (default=`lambda: 0`)
-        Callable that outputs a default value (of any type) to use as padding values.  This is
-        a lambda to avoid using the same object when the default value is more complex, like a
-        list.
-
-    padding_on_right : `bool`, optional (default=`True`)
-        When we add padding tokens (or truncate the sequence), should we do it on the right or
-        the left?
-
-    # Returns
-
-    padded_sequence : `List`
-    """
-    if padding_on_right:
-        padded_sequence = sequence[:desired_length]
-    else:
-        padded_sequence = sequence[-desired_length:]
-    pad_length = desired_length - len(padded_sequence)
-    values_to_pad = [default_value()] * pad_length
-    if padding_on_right:
-        padded_sequence = padded_sequence + values_to_pad
-    else:
-        padded_sequence = values_to_pad + padded_sequence
-    return padded_sequence
-
-
-TextFieldTensors = Dict[str, Dict[str, torch.Tensor]]
-
-
-def batch_to_ids(batch: List[List[str]]) ->torch.Tensor:
-    """
-    Converts a batch of tokenized sentences to a tensor representing the sentences with encoded characters
-    (len(batch), max sentence length, max word length).
-
-    # Parameters
-
-    batch : `List[List[str]]`, required
-        A list of tokenized sentences.
-
-    # Returns
-
-        A tensor of padded character ids.
-    """
-    instances = []
-    indexer = ELMoTokenCharactersIndexer()
-    for sentence in batch:
-        tokens = [Token(token) for token in sentence]
-        field = TextField(tokens, {'character_ids': indexer})
-        instance = Instance({'elmo': field})
-        instances.append(instance)
-    dataset = Batch(instances)
-    vocab = Vocabulary()
-    dataset.index_instances(vocab)
-    return dataset.as_tensor_dict()['elmo']['character_ids']['elmo_tokens']
-
-
-def get_device_of(tensor: torch.Tensor) ->int:
-    """
-    Returns the device of the tensor.
-    """
-    if not tensor.is_cuda:
-        return -1
-    else:
-        return tensor.get_device()
-
-
-def lazy_groups_of(iterable: Iterable[A], group_size: int) ->Iterator[List[A]]:
-    """
-    Takes an iterable and batches the individual instances into lists of the
-    specified size. The last list may be smaller if there are instances left over.
-    """
-    iterator = iter(iterable)
-    while True:
-        s = list(islice(iterator, group_size))
-        if len(s) > 0:
-            yield s
-        else:
-            break
-
-
-class _ElmoBiLm(torch.nn.Module):
-    """
-    Run a pre-trained bidirectional language model, outputting the activations at each
-    layer for weighting together into an ELMo representation (with
-    `allennlp.modules.seq2seq_encoders.Elmo`).  This is a lower level class, useful
-    for advanced uses, but most users should use `allennlp.modules.Elmo` directly.
-
-    # Parameters
-
-    options_file : `str`
-        ELMo JSON options file
-    weight_file : `str`
-        ELMo hdf5 weight file
-    requires_grad : `bool`, optional, (default = `False`).
-        If True, compute gradient of ELMo parameters for fine tuning.
-    vocab_to_cache : `List[str]`, optional, (default = `None`).
-        A list of words to pre-compute and cache character convolutions
-        for. If you use this option, _ElmoBiLm expects that you pass word
-        indices of shape (batch_size, timesteps) to forward, instead
-        of character indices. If you use this option and pass a word which
-        wasn't pre-cached, this will break.
-    """
-
-    def __init__(self, options_file: str, weight_file: str, requires_grad: bool=False, vocab_to_cache: List[str]=None) ->None:
-        super().__init__()
-        self._token_embedder = _ElmoCharacterEncoder(options_file, weight_file, requires_grad=requires_grad)
-        self._requires_grad = requires_grad
-        if requires_grad and vocab_to_cache:
-            logging.warning('You are fine tuning ELMo and caching char CNN word vectors. This behaviour is not guaranteed to be well defined, particularly. if not all of your inputs will occur in the vocabulary cache.')
-        self._word_embedding = None
-        self._bos_embedding: torch.Tensor = None
-        self._eos_embedding: torch.Tensor = None
-        if vocab_to_cache:
-            logging.info('Caching character cnn layers for words in vocabulary.')
-            self.create_cached_cnn_embeddings(vocab_to_cache)
-        with open(cached_path(options_file), 'r') as fin:
-            options = json.load(fin)
-        if not options['lstm'].get('use_skip_connections'):
-            raise ConfigurationError('We only support pretrained biLMs with residual connections')
-        self._elmo_lstm = ElmoLstm(input_size=options['lstm']['projection_dim'], hidden_size=options['lstm']['projection_dim'], cell_size=options['lstm']['dim'], num_layers=options['lstm']['n_layers'], memory_cell_clip_value=options['lstm']['cell_clip'], state_projection_clip_value=options['lstm']['proj_clip'], requires_grad=requires_grad)
-        self._elmo_lstm.load_weights(weight_file)
-        self.num_layers = options['lstm']['n_layers'] + 1
-
-    def get_output_dim(self):
-        return 2 * self._token_embedder.get_output_dim()
-
-    def forward(self, inputs: torch.Tensor, word_inputs: torch.Tensor=None) ->Dict[str, Union[torch.Tensor, List[torch.Tensor]]]:
-        """
-        # Parameters
-
-        inputs : `torch.Tensor`, required.
-            Shape `(batch_size, timesteps, 50)` of character ids representing the current batch.
-        word_inputs : `torch.Tensor`, required.
-            If you passed a cached vocab, you can in addition pass a tensor of shape `(batch_size, timesteps)`,
-            which represent word ids which have been pre-cached.
-
-        # Returns
-
-        Dict with keys:
-
-        `'activations'` : `List[torch.Tensor]`
-            A list of activations at each layer of the network, each of shape
-            `(batch_size, timesteps + 2, embedding_dim)`
-        `'mask'`:  `torch.BoolTensor`
-            Shape `(batch_size, timesteps + 2)` long tensor with sequence mask.
-
-        Note that the output tensors all include additional special begin and end of sequence
-        markers.
-        """
-        if self._word_embedding is not None and word_inputs is not None:
-            try:
-                mask_without_bos_eos = word_inputs > 0
-                embedded_inputs = self._word_embedding(word_inputs)
-                type_representation, mask = add_sentence_boundary_token_ids(embedded_inputs, mask_without_bos_eos, self._bos_embedding, self._eos_embedding)
-            except (RuntimeError, IndexError):
-                token_embedding = self._token_embedder(inputs)
-                mask = token_embedding['mask']
-                type_representation = token_embedding['token_embedding']
-        else:
-            token_embedding = self._token_embedder(inputs)
-            mask = token_embedding['mask']
-            type_representation = token_embedding['token_embedding']
-        lstm_outputs = self._elmo_lstm(type_representation, mask)
-        output_tensors = [torch.cat([type_representation, type_representation], dim=-1) * mask.unsqueeze(-1)]
-        for layer_activations in torch.chunk(lstm_outputs, lstm_outputs.size(0), dim=0):
-            output_tensors.append(layer_activations.squeeze(0))
-        return {'activations': output_tensors, 'mask': mask}
-
-    def create_cached_cnn_embeddings(self, tokens: List[str]) ->None:
-        """
-        Given a list of tokens, this method precomputes word representations
-        by running just the character convolutions and highway layers of elmo,
-        essentially creating uncontextual word vectors. On subsequent forward passes,
-        the word ids are looked up from an embedding, rather than being computed on
-        the fly via the CNN encoder.
-
-        This function sets 3 attributes:
-
-        _word_embedding : `torch.Tensor`
-            The word embedding for each word in the tokens passed to this method.
-        _bos_embedding : `torch.Tensor`
-            The embedding for the BOS token.
-        _eos_embedding : `torch.Tensor`
-            The embedding for the EOS token.
-
-        # Parameters
-
-        tokens : `List[str]`, required.
-            A list of tokens to precompute character convolutions for.
-        """
-        tokens = [ELMoCharacterMapper.bos_token, ELMoCharacterMapper.eos_token] + tokens
-        timesteps = 32
-        batch_size = 32
-        chunked_tokens = lazy_groups_of(iter(tokens), timesteps)
-        all_embeddings = []
-        device = get_device_of(next(self.parameters()))
-        for batch in lazy_groups_of(chunked_tokens, batch_size):
-            batched_tensor = batch_to_ids(batch)
-            if device >= 0:
-                batched_tensor = batched_tensor
-            output = self._token_embedder(batched_tensor)
-            token_embedding = output['token_embedding']
-            mask = output['mask']
-            token_embedding, _ = remove_sentence_boundaries(token_embedding, mask)
-            all_embeddings.append(token_embedding.view(-1, token_embedding.size(-1)))
-        full_embedding = torch.cat(all_embeddings, 0)
-        full_embedding = full_embedding[:len(tokens), :]
-        embedding = full_embedding[2:len(tokens), :]
-        vocab_size, embedding_dim = list(embedding.size())
-        self._bos_embedding = full_embedding[(0), :]
-        self._eos_embedding = full_embedding[(1), :]
-        self._word_embedding = Embedding(num_embeddings=vocab_size, embedding_dim=embedding_dim, weight=embedding.data, trainable=self._requires_grad, padding_index=0)
-
-
-RnnState = Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]
-
-
-RnnStateStorage = Tuple[torch.Tensor, ...]
-
-
-def sort_batch_by_length(tensor: torch.Tensor, sequence_lengths: torch.Tensor):
-    """
-    Sort a batch first tensor by some specified lengths.
-
-    # Parameters
-
-    tensor : `torch.FloatTensor`, required.
-        A batch first Pytorch tensor.
-    sequence_lengths : `torch.LongTensor`, required.
-        A tensor representing the lengths of some dimension of the tensor which
-        we want to sort by.
-
-    # Returns
-
-    sorted_tensor : `torch.FloatTensor`
-        The original tensor sorted along the batch dimension with respect to sequence_lengths.
-    sorted_sequence_lengths : `torch.LongTensor`
-        The original sequence_lengths sorted by decreasing size.
-    restoration_indices : `torch.LongTensor`
-        Indices into the sorted_tensor such that
-        `sorted_tensor.index_select(0, restoration_indices) == original_tensor`
-    permutation_index : `torch.LongTensor`
-        The indices used to sort the tensor. This is useful if you want to sort many
-        tensors using the same ordering.
-    """
-    if not isinstance(tensor, torch.Tensor) or not isinstance(sequence_lengths, torch.Tensor):
-        raise ConfigurationError('Both the tensor and sequence lengths must be torch.Tensors.')
-    sorted_sequence_lengths, permutation_index = sequence_lengths.sort(0, descending=True)
-    sorted_tensor = tensor.index_select(0, permutation_index)
-    index_range = torch.arange(0, len(sequence_lengths), device=sequence_lengths.device)
-    _, reverse_mapping = permutation_index.sort(0, descending=False)
-    restoration_indices = index_range.index_select(0, reverse_mapping)
-    return sorted_tensor, sorted_sequence_lengths, restoration_indices, permutation_index
-
-
-class _EncoderBase(torch.nn.Module):
-    """
-    This abstract class serves as a base for the 3 `Encoder` abstractions in AllenNLP.
-    - [`Seq2SeqEncoders`](./seq2seq_encoders/seq2seq_encoder.md)
-    - [`Seq2VecEncoders`](./seq2vec_encoders/seq2vec_encoder.md)
-
-    Additionally, this class provides functionality for sorting sequences by length
-    so they can be consumed by Pytorch RNN classes, which require their inputs to be
-    sorted by length. Finally, it also provides optional statefulness to all of it's
-    subclasses by allowing the caching and retrieving of the hidden states of RNNs.
-    """
-
-    def __init__(self, stateful: bool=False) ->None:
-        super().__init__()
-        self.stateful = stateful
-        self._states: Optional[RnnStateStorage] = None
-
-    def sort_and_run_forward(self, module: Callable[[PackedSequence, Optional[RnnState]], Tuple[Union[PackedSequence, torch.Tensor], RnnState]], inputs: torch.Tensor, mask: torch.BoolTensor, hidden_state: Optional[RnnState]=None):
-        """
-        This function exists because Pytorch RNNs require that their inputs be sorted
-        before being passed as input. As all of our Seq2xxxEncoders use this functionality,
-        it is provided in a base class. This method can be called on any module which
-        takes as input a `PackedSequence` and some `hidden_state`, which can either be a
-        tuple of tensors or a tensor.
-
-        As all of our Seq2xxxEncoders have different return types, we return `sorted`
-        outputs from the module, which is called directly. Additionally, we return the
-        indices into the batch dimension required to restore the tensor to it's correct,
-        unsorted order and the number of valid batch elements (i.e the number of elements
-        in the batch which are not completely masked). This un-sorting and re-padding
-        of the module outputs is left to the subclasses because their outputs have different
-        types and handling them smoothly here is difficult.
-
-        # Parameters
-
-        module : `Callable[RnnInputs, RnnOutputs]`
-            A function to run on the inputs, where
-            `RnnInputs: [PackedSequence, Optional[RnnState]]` and
-            `RnnOutputs: Tuple[Union[PackedSequence, torch.Tensor], RnnState]`.
-            In most cases, this is a `torch.nn.Module`.
-        inputs : `torch.Tensor`, required.
-            A tensor of shape `(batch_size, sequence_length, embedding_size)` representing
-            the inputs to the Encoder.
-        mask : `torch.BoolTensor`, required.
-            A tensor of shape `(batch_size, sequence_length)`, representing masked and
-            non-masked elements of the sequence for each element in the batch.
-        hidden_state : `Optional[RnnState]`, (default = `None`).
-            A single tensor of shape (num_layers, batch_size, hidden_size) representing the
-            state of an RNN with or a tuple of
-            tensors of shapes (num_layers, batch_size, hidden_size) and
-            (num_layers, batch_size, memory_size), representing the hidden state and memory
-            state of an LSTM-like RNN.
-
-        # Returns
-
-        module_output : `Union[torch.Tensor, PackedSequence]`.
-            A Tensor or PackedSequence representing the output of the Pytorch Module.
-            The batch size dimension will be equal to `num_valid`, as sequences of zero
-            length are clipped off before the module is called, as Pytorch cannot handle
-            zero length sequences.
-        final_states : `Optional[RnnState]`
-            A Tensor representing the hidden state of the Pytorch Module. This can either
-            be a single tensor of shape (num_layers, num_valid, hidden_size), for instance in
-            the case of a GRU, or a tuple of tensors, such as those required for an LSTM.
-        restoration_indices : `torch.LongTensor`
-            A tensor of shape `(batch_size,)`, describing the re-indexing required to transform
-            the outputs back to their original batch order.
-        """
-        batch_size = mask.size(0)
-        num_valid = torch.sum(mask[:, (0)]).int().item()
-        sequence_lengths = get_lengths_from_binary_sequence_mask(mask)
-        sorted_inputs, sorted_sequence_lengths, restoration_indices, sorting_indices = sort_batch_by_length(inputs, sequence_lengths)
-        packed_sequence_input = pack_padded_sequence(sorted_inputs[:num_valid, :, :], sorted_sequence_lengths[:num_valid].data.tolist(), batch_first=True)
-        if not self.stateful:
-            if hidden_state is None:
-                initial_states: Any = hidden_state
-            elif isinstance(hidden_state, tuple):
-                initial_states = [state.index_select(1, sorting_indices)[:, :num_valid, :].contiguous() for state in hidden_state]
-            else:
-                initial_states = hidden_state.index_select(1, sorting_indices)[:, :num_valid, :].contiguous()
-        else:
-            initial_states = self._get_initial_states(batch_size, num_valid, sorting_indices)
-        module_output, final_states = module(packed_sequence_input, initial_states)
-        return module_output, final_states, restoration_indices
-
-    def _get_initial_states(self, batch_size: int, num_valid: int, sorting_indices: torch.LongTensor) ->Optional[RnnState]:
-        """
-        Returns an initial state for use in an RNN. Additionally, this method handles
-        the batch size changing across calls by mutating the state to append initial states
-        for new elements in the batch. Finally, it also handles sorting the states
-        with respect to the sequence lengths of elements in the batch and removing rows
-        which are completely padded. Importantly, this `mutates` the state if the
-        current batch size is larger than when it was previously called.
-
-        # Parameters
-
-        batch_size : `int`, required.
-            The batch size can change size across calls to stateful RNNs, so we need
-            to know if we need to expand or shrink the states before returning them.
-            Expanded states will be set to zero.
-        num_valid : `int`, required.
-            The batch may contain completely padded sequences which get removed before
-            the sequence is passed through the encoder. We also need to clip these off
-            of the state too.
-        sorting_indices `torch.LongTensor`, required.
-            Pytorch RNNs take sequences sorted by length. When we return the states to be
-            used for a given call to `module.forward`, we need the states to match up to
-            the sorted sequences, so before returning them, we sort the states using the
-            same indices used to sort the sequences.
-
-        # Returns
-
-        This method has a complex return type because it has to deal with the first time it
-        is called, when it has no state, and the fact that types of RNN have heterogeneous
-        states.
-
-        If it is the first time the module has been called, it returns `None`, regardless
-        of the type of the `Module`.
-
-        Otherwise, for LSTMs, it returns a tuple of `torch.Tensors` with shape
-        `(num_layers, num_valid, state_size)` and `(num_layers, num_valid, memory_size)`
-        respectively, or for GRUs, it returns a single `torch.Tensor` of shape
-        `(num_layers, num_valid, state_size)`.
-        """
-        if self._states is None:
-            return None
-        if batch_size > self._states[0].size(1):
-            num_states_to_concat = batch_size - self._states[0].size(1)
-            resized_states = []
-            for state in self._states:
-                zeros = state.new_zeros(state.size(0), num_states_to_concat, state.size(2))
-                resized_states.append(torch.cat([state, zeros], 1))
-            self._states = tuple(resized_states)
-            correctly_shaped_states = self._states
-        elif batch_size < self._states[0].size(1):
-            correctly_shaped_states = tuple(state[:, :batch_size, :] for state in self._states)
-        else:
-            correctly_shaped_states = self._states
-        if len(self._states) == 1:
-            correctly_shaped_state = correctly_shaped_states[0]
-            sorted_state = correctly_shaped_state.index_select(1, sorting_indices)
-            return sorted_state[:, :num_valid, :].contiguous()
-        else:
-            sorted_states = [state.index_select(1, sorting_indices) for state in correctly_shaped_states]
-            return tuple(state[:, :num_valid, :].contiguous() for state in sorted_states)
-
-    def _update_states(self, final_states: RnnStateStorage, restoration_indices: torch.LongTensor) ->None:
-        """
-        After the RNN has run forward, the states need to be updated.
-        This method just sets the state to the updated new state, performing
-        several pieces of book-keeping along the way - namely, unsorting the
-        states and ensuring that the states of completely padded sequences are
-        not updated. Finally, it also detaches the state variable from the
-        computational graph, such that the graph can be garbage collected after
-        each batch iteration.
-
-        # Parameters
-
-        final_states : `RnnStateStorage`, required.
-            The hidden states returned as output from the RNN.
-        restoration_indices : `torch.LongTensor`, required.
-            The indices that invert the sorting used in `sort_and_run_forward`
-            to order the states with respect to the lengths of the sequences in
-            the batch.
-        """
-        new_unsorted_states = [state.index_select(1, restoration_indices) for state in final_states]
-        if self._states is None:
-            self._states = tuple(state.data for state in new_unsorted_states)
-        else:
-            current_state_batch_size = self._states[0].size(1)
-            new_state_batch_size = final_states[0].size(1)
-            used_new_rows_mask = [(state[(0), :, :].sum(-1) != 0.0).float().view(1, new_state_batch_size, 1) for state in new_unsorted_states]
-            new_states = []
-            if current_state_batch_size > new_state_batch_size:
-                for old_state, new_state, used_mask in zip(self._states, new_unsorted_states, used_new_rows_mask):
-                    masked_old_state = old_state[:, :new_state_batch_size, :] * (1 - used_mask)
-                    old_state[:, :new_state_batch_size, :] = new_state + masked_old_state
-                    new_states.append(old_state.detach())
-            else:
-                new_states = []
-                for old_state, new_state, used_mask in zip(self._states, new_unsorted_states, used_new_rows_mask):
-                    masked_old_state = old_state * (1 - used_mask)
-                    new_state += masked_old_state
-                    new_states.append(new_state.detach())
-            self._states = tuple(new_states)
-
-    def reset_states(self, mask: torch.BoolTensor=None) ->None:
-        """
-        Resets the internal states of a stateful encoder.
-
-        # Parameters
-
-        mask : `torch.BoolTensor`, optional.
-            A tensor of shape `(batch_size,)` indicating which states should
-            be reset. If not provided, all states will be reset.
-        """
-        if mask is None:
-            self._states = None
-        else:
-            mask_batch_size = mask.size(0)
-            mask = mask.view(1, mask_batch_size, 1)
-            new_states = []
-            for old_state in self._states:
-                old_state_batch_size = old_state.size(1)
-                if old_state_batch_size != mask_batch_size:
-                    raise ValueError(f'Trying to reset states using mask with incorrect batch size. Expected batch size: {old_state_batch_size}. Provided batch size: {mask_batch_size}.')
-                new_state = ~mask * old_state
-                new_states.append(new_state.detach())
-            self._states = tuple(new_states)
-
-
-class InputVariationalDropout(torch.nn.Dropout):
-    """
-    Apply the dropout technique in Gal and Ghahramani, [Dropout as a Bayesian Approximation:
-    Representing Model Uncertainty in Deep Learning](https://arxiv.org/abs/1506.02142) to a
-    3D tensor.
-
-    This module accepts a 3D tensor of shape `(batch_size, num_timesteps, embedding_dim)`
-    and samples a single dropout mask of shape `(batch_size, embedding_dim)` and applies
-    it to every time step.
-    """
-
-    def forward(self, input_tensor):
-        """
-        Apply dropout to input tensor.
-
-        # Parameters
-
-        input_tensor : `torch.FloatTensor`
-            A tensor of shape `(batch_size, num_timesteps, embedding_dim)`
-
-        # Returns
-
-        output : `torch.FloatTensor`
-            A tensor of shape `(batch_size, num_timesteps, embedding_dim)` with dropout applied.
-        """
-        ones = input_tensor.data.new_ones(input_tensor.shape[0], input_tensor.shape[-1])
-        dropout_mask = torch.nn.functional.dropout(ones, self.p, self.training, inplace=False)
-        if self.inplace:
-            input_tensor *= dropout_mask.unsqueeze(1)
-            return None
-        else:
-            return dropout_mask.unsqueeze(1) * input_tensor
-
-
-class LayerNorm(torch.nn.Module):
-    """
-    An implementation of [Layer Normalization](
-    https://www.semanticscholar.org/paper/Layer-Normalization-Ba-Kiros/97fb4e3d45bb098e27e0071448b6152217bd35a5).
-
-    Layer Normalization stabilises the training of deep neural networks by
-    normalising the outputs of neurons from a particular layer. It computes:
-
-    output = (gamma * (tensor - mean) / (std + eps)) + beta
-
-    # Parameters
-
-    dimension : `int`, required.
-        The dimension of the layer output to normalize.
-
-    # Returns
-
-    The normalized layer output.
-    """
-
-    def __init__(self, dimension: int) ->None:
-        super().__init__()
-        self.gamma = torch.nn.Parameter(torch.ones(dimension))
-        self.beta = torch.nn.Parameter(torch.zeros(dimension))
-
-    def forward(self, tensor: torch.Tensor):
-        mean = tensor.mean(-1, keepdim=True)
-        std = tensor.std(-1, unbiased=False, keepdim=True)
-        return self.gamma * (tensor - mean) / (std + util.tiny_value_of_dtype(std.dtype)) + self.beta
 
 
 class LstmCellWithProjection(torch.nn.Module):
@@ -2776,6 +2900,581 @@ class LstmCellWithProjection(torch.nn.Module):
             output_accumulator[0:current_length_index + 1, (index)] = timestep_output
         final_state = full_batch_previous_state.unsqueeze(0), full_batch_previous_memory.unsqueeze(0)
         return output_accumulator, final_state
+
+
+class ElmoLstm(_EncoderBase):
+    """
+    A stacked, bidirectional LSTM which uses
+    [`LstmCellWithProjection`'s](./lstm_cell_with_projection.md)
+    with highway layers between the inputs to layers.
+    The inputs to the forward and backward directions are independent - forward and backward
+    states are not concatenated between layers.
+
+    Additionally, this LSTM maintains its `own` state, which is updated every time
+    `forward` is called. It is dynamically resized for different batch sizes and is
+    designed for use with non-continuous inputs (i.e inputs which aren't formatted as a stream,
+    such as text used for a language modeling task, which is how stateful RNNs are typically used).
+    This is non-standard, but can be thought of as having an "end of sentence" state, which is
+    carried across different sentences.
+
+    [0]: https://arxiv.org/abs/1512.05287
+
+    # Parameters
+
+    input_size : `int`, required
+        The dimension of the inputs to the LSTM.
+    hidden_size : `int`, required
+        The dimension of the outputs of the LSTM.
+    cell_size : `int`, required.
+        The dimension of the memory cell of the `LstmCellWithProjection`.
+    num_layers : `int`, required
+        The number of bidirectional LSTMs to use.
+    requires_grad : `bool`, optional
+        If True, compute gradient of ELMo parameters for fine tuning.
+    recurrent_dropout_probability : `float`, optional (default = `0.0`)
+        The dropout probability to be used in a dropout scheme as stated in
+        [A Theoretically Grounded Application of Dropout in Recurrent Neural Networks][0].
+    state_projection_clip_value : `float`, optional, (default = `None`)
+        The magnitude with which to clip the hidden_state after projecting it.
+    memory_cell_clip_value : `float`, optional, (default = `None`)
+        The magnitude with which to clip the memory cell.
+    """
+
+    def __init__(self, input_size: int, hidden_size: int, cell_size: int, num_layers: int, requires_grad: bool=False, recurrent_dropout_probability: float=0.0, memory_cell_clip_value: Optional[float]=None, state_projection_clip_value: Optional[float]=None) ->None:
+        super().__init__(stateful=True)
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.cell_size = cell_size
+        self.requires_grad = requires_grad
+        forward_layers = []
+        backward_layers = []
+        lstm_input_size = input_size
+        go_forward = True
+        for layer_index in range(num_layers):
+            forward_layer = LstmCellWithProjection(lstm_input_size, hidden_size, cell_size, go_forward, recurrent_dropout_probability, memory_cell_clip_value, state_projection_clip_value)
+            backward_layer = LstmCellWithProjection(lstm_input_size, hidden_size, cell_size, not go_forward, recurrent_dropout_probability, memory_cell_clip_value, state_projection_clip_value)
+            lstm_input_size = hidden_size
+            self.add_module('forward_layer_{}'.format(layer_index), forward_layer)
+            self.add_module('backward_layer_{}'.format(layer_index), backward_layer)
+            forward_layers.append(forward_layer)
+            backward_layers.append(backward_layer)
+        self.forward_layers = forward_layers
+        self.backward_layers = backward_layers
+
+    def forward(self, inputs: torch.Tensor, mask: torch.BoolTensor) ->torch.Tensor:
+        """
+        # Parameters
+
+        inputs : `torch.Tensor`, required.
+            A Tensor of shape `(batch_size, sequence_length, hidden_size)`.
+        mask : `torch.BoolTensor`, required.
+            A binary mask of shape `(batch_size, sequence_length)` representing the
+            non-padded elements in each sequence in the batch.
+
+        # Returns
+
+        `torch.Tensor`
+            A `torch.Tensor` of shape (num_layers, batch_size, sequence_length, hidden_size),
+            where the num_layers dimension represents the LSTM output from that layer.
+        """
+        batch_size, total_sequence_length = mask.size()
+        stacked_sequence_output, final_states, restoration_indices = self.sort_and_run_forward(self._lstm_forward, inputs, mask)
+        num_layers, num_valid, returned_timesteps, encoder_dim = stacked_sequence_output.size()
+        if num_valid < batch_size:
+            zeros = stacked_sequence_output.new_zeros(num_layers, batch_size - num_valid, returned_timesteps, encoder_dim)
+            stacked_sequence_output = torch.cat([stacked_sequence_output, zeros], 1)
+            new_states = []
+            for state in final_states:
+                state_dim = state.size(-1)
+                zeros = state.new_zeros(num_layers, batch_size - num_valid, state_dim)
+                new_states.append(torch.cat([state, zeros], 1))
+            final_states = new_states
+        sequence_length_difference = total_sequence_length - returned_timesteps
+        if sequence_length_difference > 0:
+            zeros = stacked_sequence_output.new_zeros(num_layers, batch_size, sequence_length_difference, stacked_sequence_output[0].size(-1))
+            stacked_sequence_output = torch.cat([stacked_sequence_output, zeros], 2)
+        self._update_states(final_states, restoration_indices)
+        return stacked_sequence_output.index_select(1, restoration_indices)
+
+    def _lstm_forward(self, inputs: PackedSequence, initial_state: Optional[Tuple[torch.Tensor, torch.Tensor]]=None) ->Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+        """
+        # Parameters
+
+        inputs : `PackedSequence`, required.
+            A batch first `PackedSequence` to run the stacked LSTM over.
+        initial_state : `Tuple[torch.Tensor, torch.Tensor]`, optional, (default = `None`)
+            A tuple (state, memory) representing the initial hidden state and memory
+            of the LSTM, with shape (num_layers, batch_size, 2 * hidden_size) and
+            (num_layers, batch_size, 2 * cell_size) respectively.
+
+        # Returns
+
+        output_sequence : `torch.FloatTensor`
+            The encoded sequence of shape (num_layers, batch_size, sequence_length, hidden_size)
+        final_states : `Tuple[torch.FloatTensor, torch.FloatTensor]`
+            The per-layer final (state, memory) states of the LSTM, with shape
+            (num_layers, batch_size, 2 * hidden_size) and  (num_layers, batch_size, 2 * cell_size)
+            respectively. The last dimension is duplicated because it contains the state/memory
+            for both the forward and backward layers.
+        """
+        if initial_state is None:
+            hidden_states: List[Optional[Tuple[torch.Tensor, torch.Tensor]]] = [None] * len(self.forward_layers)
+        elif initial_state[0].size()[0] != len(self.forward_layers):
+            raise ConfigurationError('Initial states were passed to forward() but the number of initial states does not match the number of layers.')
+        else:
+            hidden_states = list(zip(initial_state[0].split(1, 0), initial_state[1].split(1, 0)))
+        inputs, batch_lengths = pad_packed_sequence(inputs, batch_first=True)
+        forward_output_sequence = inputs
+        backward_output_sequence = inputs
+        final_states = []
+        sequence_outputs = []
+        for layer_index, state in enumerate(hidden_states):
+            forward_layer = getattr(self, 'forward_layer_{}'.format(layer_index))
+            backward_layer = getattr(self, 'backward_layer_{}'.format(layer_index))
+            forward_cache = forward_output_sequence
+            backward_cache = backward_output_sequence
+            if state is not None:
+                forward_hidden_state, backward_hidden_state = state[0].split(self.hidden_size, 2)
+                forward_memory_state, backward_memory_state = state[1].split(self.cell_size, 2)
+                forward_state = forward_hidden_state, forward_memory_state
+                backward_state = backward_hidden_state, backward_memory_state
+            else:
+                forward_state = None
+                backward_state = None
+            forward_output_sequence, forward_state = forward_layer(forward_output_sequence, batch_lengths, forward_state)
+            backward_output_sequence, backward_state = backward_layer(backward_output_sequence, batch_lengths, backward_state)
+            if layer_index != 0:
+                forward_output_sequence += forward_cache
+                backward_output_sequence += backward_cache
+            sequence_outputs.append(torch.cat([forward_output_sequence, backward_output_sequence], -1))
+            final_states.append((torch.cat([forward_state[0], backward_state[0]], -1), torch.cat([forward_state[1], backward_state[1]], -1)))
+        stacked_sequence_outputs: torch.FloatTensor = torch.stack(sequence_outputs)
+        final_hidden_states, final_memory_states = zip(*final_states)
+        final_state_tuple: Tuple[torch.FloatTensor, torch.FloatTensor] = (torch.cat(final_hidden_states, 0), torch.cat(final_memory_states, 0))
+        return stacked_sequence_outputs, final_state_tuple
+
+    def load_weights(self, weight_file: str) ->None:
+        """
+        Load the pre-trained weights from the file.
+        """
+        requires_grad = self.requires_grad
+        with h5py.File(cached_path(weight_file), 'r') as fin:
+            for i_layer, lstms in enumerate(zip(self.forward_layers, self.backward_layers)):
+                for j_direction, lstm in enumerate(lstms):
+                    cell_size = lstm.cell_size
+                    dataset = fin['RNN_%s' % j_direction]['RNN']['MultiRNNCell']['Cell%s' % i_layer]['LSTMCell']
+                    tf_weights = numpy.transpose(dataset['W_0'][...])
+                    torch_weights = tf_weights.copy()
+                    input_size = lstm.input_size
+                    input_weights = torch_weights[:, :input_size]
+                    recurrent_weights = torch_weights[:, input_size:]
+                    tf_input_weights = tf_weights[:, :input_size]
+                    tf_recurrent_weights = tf_weights[:, input_size:]
+                    for torch_w, tf_w in [[input_weights, tf_input_weights], [recurrent_weights, tf_recurrent_weights]]:
+                        torch_w[1 * cell_size:2 * cell_size, :] = tf_w[2 * cell_size:3 * cell_size, :]
+                        torch_w[2 * cell_size:3 * cell_size, :] = tf_w[1 * cell_size:2 * cell_size, :]
+                    lstm.input_linearity.weight.data.copy_(torch.FloatTensor(input_weights))
+                    lstm.state_linearity.weight.data.copy_(torch.FloatTensor(recurrent_weights))
+                    lstm.input_linearity.weight.requires_grad = requires_grad
+                    lstm.state_linearity.weight.requires_grad = requires_grad
+                    tf_bias = dataset['B'][...]
+                    tf_bias[2 * cell_size:3 * cell_size] += 1
+                    torch_bias = tf_bias.copy()
+                    torch_bias[1 * cell_size:2 * cell_size] = tf_bias[2 * cell_size:3 * cell_size]
+                    torch_bias[2 * cell_size:3 * cell_size] = tf_bias[1 * cell_size:2 * cell_size]
+                    lstm.state_linearity.bias.data.copy_(torch.FloatTensor(torch_bias))
+                    lstm.state_linearity.bias.requires_grad = requires_grad
+                    proj_weights = numpy.transpose(dataset['W_P_0'][...])
+                    lstm.state_projection.weight.data.copy_(torch.FloatTensor(proj_weights))
+                    lstm.state_projection.weight.requires_grad = requires_grad
+
+
+def add_sentence_boundary_token_ids(tensor: torch.Tensor, mask: torch.BoolTensor, sentence_begin_token: Any, sentence_end_token: Any) ->Tuple[torch.Tensor, torch.BoolTensor]:
+    """
+    Add begin/end of sentence tokens to the batch of sentences.
+    Given a batch of sentences with size `(batch_size, timesteps)` or
+    `(batch_size, timesteps, dim)` this returns a tensor of shape
+    `(batch_size, timesteps + 2)` or `(batch_size, timesteps + 2, dim)` respectively.
+
+    Returns both the new tensor and updated mask.
+
+    # Parameters
+
+    tensor : `torch.Tensor`
+        A tensor of shape `(batch_size, timesteps)` or `(batch_size, timesteps, dim)`
+    mask : `torch.BoolTensor`
+         A tensor of shape `(batch_size, timesteps)`
+    sentence_begin_token: `Any`
+        Can be anything that can be broadcast in torch for assignment.
+        For 2D input, a scalar with the `<S>` id. For 3D input, a tensor with length dim.
+    sentence_end_token: `Any`
+        Can be anything that can be broadcast in torch for assignment.
+        For 2D input, a scalar with the `</S>` id. For 3D input, a tensor with length dim.
+
+    # Returns
+
+    tensor_with_boundary_tokens : `torch.Tensor`
+        The tensor with the appended and prepended boundary tokens. If the input was 2D,
+        it has shape (batch_size, timesteps + 2) and if the input was 3D, it has shape
+        (batch_size, timesteps + 2, dim).
+    new_mask : `torch.BoolTensor`
+        The new mask for the tensor, taking into account the appended tokens
+        marking the beginning and end of the sentence.
+    """
+    sequence_lengths = mask.sum(dim=1).detach().cpu().numpy()
+    tensor_shape = list(tensor.data.shape)
+    new_shape = list(tensor_shape)
+    new_shape[1] = tensor_shape[1] + 2
+    tensor_with_boundary_tokens = tensor.new_zeros(*new_shape)
+    if len(tensor_shape) == 2:
+        tensor_with_boundary_tokens[:, 1:-1] = tensor
+        tensor_with_boundary_tokens[:, (0)] = sentence_begin_token
+        for i, j in enumerate(sequence_lengths):
+            tensor_with_boundary_tokens[i, j + 1] = sentence_end_token
+        new_mask = tensor_with_boundary_tokens != 0
+    elif len(tensor_shape) == 3:
+        tensor_with_boundary_tokens[:, 1:-1, :] = tensor
+        for i, j in enumerate(sequence_lengths):
+            tensor_with_boundary_tokens[(i), (0), :] = sentence_begin_token
+            tensor_with_boundary_tokens[(i), (j + 1), :] = sentence_end_token
+        new_mask = (tensor_with_boundary_tokens > 0).sum(dim=-1) > 0
+    else:
+        raise ValueError('add_sentence_boundary_token_ids only accepts 2D and 3D input')
+    return tensor_with_boundary_tokens, new_mask
+
+
+IndexedTokenList = Dict[str, List[Any]]
+
+
+def pad_sequence_to_length(sequence: List, desired_length: int, default_value: Callable[[], Any]=lambda : 0, padding_on_right: bool=True) ->List:
+    """
+    Take a list of objects and pads it to the desired length, returning the padded list.  The
+    original list is not modified.
+
+    # Parameters
+
+    sequence : `List`
+        A list of objects to be padded.
+
+    desired_length : `int`
+        Maximum length of each sequence. Longer sequences are truncated to this length, and
+        shorter ones are padded to it.
+
+    default_value: `Callable`, optional (default=`lambda: 0`)
+        Callable that outputs a default value (of any type) to use as padding values.  This is
+        a lambda to avoid using the same object when the default value is more complex, like a
+        list.
+
+    padding_on_right : `bool`, optional (default=`True`)
+        When we add padding tokens (or truncate the sequence), should we do it on the right or
+        the left?
+
+    # Returns
+
+    padded_sequence : `List`
+    """
+    if padding_on_right:
+        padded_sequence = sequence[:desired_length]
+    else:
+        padded_sequence = sequence[-desired_length:]
+    pad_length = desired_length - len(padded_sequence)
+    values_to_pad = [default_value()] * pad_length
+    if padding_on_right:
+        padded_sequence = padded_sequence + values_to_pad
+    else:
+        padded_sequence = values_to_pad + padded_sequence
+    return padded_sequence
+
+
+def batch_to_ids(batch: List[List[str]]) ->torch.Tensor:
+    """
+    Converts a batch of tokenized sentences to a tensor representing the sentences with encoded characters
+    (len(batch), max sentence length, max word length).
+
+    # Parameters
+
+    batch : `List[List[str]]`, required
+        A list of tokenized sentences.
+
+    # Returns
+
+        A tensor of padded character ids.
+    """
+    instances = []
+    indexer = ELMoTokenCharactersIndexer()
+    for sentence in batch:
+        tokens = [Token(token) for token in sentence]
+        field = TextField(tokens, {'character_ids': indexer})
+        instance = Instance({'elmo': field})
+        instances.append(instance)
+    dataset = Batch(instances)
+    vocab = Vocabulary()
+    dataset.index_instances(vocab)
+    return dataset.as_tensor_dict()['elmo']['character_ids']['elmo_tokens']
+
+
+def get_device_of(tensor: torch.Tensor) ->int:
+    """
+    Returns the device of the tensor.
+    """
+    if not tensor.is_cuda:
+        return -1
+    else:
+        return tensor.get_device()
+
+
+def lazy_groups_of(iterable: Iterable[A], group_size: int) ->Iterator[List[A]]:
+    """
+    Takes an iterable and batches the individual instances into lists of the
+    specified size. The last list may be smaller if there are instances left over.
+    """
+    iterator = iter(iterable)
+    while True:
+        s = list(islice(iterator, group_size))
+        if len(s) > 0:
+            yield s
+        else:
+            break
+
+
+def remove_sentence_boundaries(tensor: torch.Tensor, mask: torch.BoolTensor) ->Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Remove begin/end of sentence embeddings from the batch of sentences.
+    Given a batch of sentences with size `(batch_size, timesteps, dim)`
+    this returns a tensor of shape `(batch_size, timesteps - 2, dim)` after removing
+    the beginning and end sentence markers.  The sentences are assumed to be padded on the right,
+    with the beginning of each sentence assumed to occur at index 0 (i.e., `mask[:, 0]` is assumed
+    to be 1).
+
+    Returns both the new tensor and updated mask.
+
+    This function is the inverse of `add_sentence_boundary_token_ids`.
+
+    # Parameters
+
+    tensor : `torch.Tensor`
+        A tensor of shape `(batch_size, timesteps, dim)`
+    mask : `torch.BoolTensor`
+         A tensor of shape `(batch_size, timesteps)`
+
+    # Returns
+
+    tensor_without_boundary_tokens : `torch.Tensor`
+        The tensor after removing the boundary tokens of shape `(batch_size, timesteps - 2, dim)`
+    new_mask : `torch.BoolTensor`
+        The new mask for the tensor of shape `(batch_size, timesteps - 2)`.
+    """
+    sequence_lengths = mask.sum(dim=1).detach().cpu().numpy()
+    tensor_shape = list(tensor.data.shape)
+    new_shape = list(tensor_shape)
+    new_shape[1] = tensor_shape[1] - 2
+    tensor_without_boundary_tokens = tensor.new_zeros(*new_shape)
+    new_mask = tensor.new_zeros((new_shape[0], new_shape[1]), dtype=torch.bool)
+    for i, j in enumerate(sequence_lengths):
+        if j > 2:
+            tensor_without_boundary_tokens[(i), :j - 2, :] = tensor[(i), 1:j - 1, :]
+            new_mask[(i), :j - 2] = True
+    return tensor_without_boundary_tokens, new_mask
+
+
+class _ElmoBiLm(torch.nn.Module):
+    """
+    Run a pre-trained bidirectional language model, outputting the activations at each
+    layer for weighting together into an ELMo representation (with
+    `allennlp.modules.seq2seq_encoders.Elmo`).  This is a lower level class, useful
+    for advanced uses, but most users should use `allennlp.modules.Elmo` directly.
+
+    # Parameters
+
+    options_file : `str`
+        ELMo JSON options file
+    weight_file : `str`
+        ELMo hdf5 weight file
+    requires_grad : `bool`, optional, (default = `False`).
+        If True, compute gradient of ELMo parameters for fine tuning.
+    vocab_to_cache : `List[str]`, optional, (default = `None`).
+        A list of words to pre-compute and cache character convolutions
+        for. If you use this option, _ElmoBiLm expects that you pass word
+        indices of shape (batch_size, timesteps) to forward, instead
+        of character indices. If you use this option and pass a word which
+        wasn't pre-cached, this will break.
+    """
+
+    def __init__(self, options_file: str, weight_file: str, requires_grad: bool=False, vocab_to_cache: List[str]=None) ->None:
+        super().__init__()
+        self._token_embedder = _ElmoCharacterEncoder(options_file, weight_file, requires_grad=requires_grad)
+        self._requires_grad = requires_grad
+        if requires_grad and vocab_to_cache:
+            logging.warning('You are fine tuning ELMo and caching char CNN word vectors. This behaviour is not guaranteed to be well defined, particularly. if not all of your inputs will occur in the vocabulary cache.')
+        self._word_embedding = None
+        self._bos_embedding: torch.Tensor = None
+        self._eos_embedding: torch.Tensor = None
+        if vocab_to_cache:
+            logging.info('Caching character cnn layers for words in vocabulary.')
+            self.create_cached_cnn_embeddings(vocab_to_cache)
+        with open(cached_path(options_file), 'r') as fin:
+            options = json.load(fin)
+        if not options['lstm'].get('use_skip_connections'):
+            raise ConfigurationError('We only support pretrained biLMs with residual connections')
+        self._elmo_lstm = ElmoLstm(input_size=options['lstm']['projection_dim'], hidden_size=options['lstm']['projection_dim'], cell_size=options['lstm']['dim'], num_layers=options['lstm']['n_layers'], memory_cell_clip_value=options['lstm']['cell_clip'], state_projection_clip_value=options['lstm']['proj_clip'], requires_grad=requires_grad)
+        self._elmo_lstm.load_weights(weight_file)
+        self.num_layers = options['lstm']['n_layers'] + 1
+
+    def get_output_dim(self):
+        return 2 * self._token_embedder.get_output_dim()
+
+    def forward(self, inputs: torch.Tensor, word_inputs: torch.Tensor=None) ->Dict[str, Union[torch.Tensor, List[torch.Tensor]]]:
+        """
+        # Parameters
+
+        inputs : `torch.Tensor`, required.
+            Shape `(batch_size, timesteps, 50)` of character ids representing the current batch.
+        word_inputs : `torch.Tensor`, required.
+            If you passed a cached vocab, you can in addition pass a tensor of shape `(batch_size, timesteps)`,
+            which represent word ids which have been pre-cached.
+
+        # Returns
+
+        Dict with keys:
+
+        `'activations'` : `List[torch.Tensor]`
+            A list of activations at each layer of the network, each of shape
+            `(batch_size, timesteps + 2, embedding_dim)`
+        `'mask'`:  `torch.BoolTensor`
+            Shape `(batch_size, timesteps + 2)` long tensor with sequence mask.
+
+        Note that the output tensors all include additional special begin and end of sequence
+        markers.
+        """
+        if self._word_embedding is not None and word_inputs is not None:
+            try:
+                mask_without_bos_eos = word_inputs > 0
+                embedded_inputs = self._word_embedding(word_inputs)
+                type_representation, mask = add_sentence_boundary_token_ids(embedded_inputs, mask_without_bos_eos, self._bos_embedding, self._eos_embedding)
+            except (RuntimeError, IndexError):
+                token_embedding = self._token_embedder(inputs)
+                mask = token_embedding['mask']
+                type_representation = token_embedding['token_embedding']
+        else:
+            token_embedding = self._token_embedder(inputs)
+            mask = token_embedding['mask']
+            type_representation = token_embedding['token_embedding']
+        lstm_outputs = self._elmo_lstm(type_representation, mask)
+        output_tensors = [torch.cat([type_representation, type_representation], dim=-1) * mask.unsqueeze(-1)]
+        for layer_activations in torch.chunk(lstm_outputs, lstm_outputs.size(0), dim=0):
+            output_tensors.append(layer_activations.squeeze(0))
+        return {'activations': output_tensors, 'mask': mask}
+
+    def create_cached_cnn_embeddings(self, tokens: List[str]) ->None:
+        """
+        Given a list of tokens, this method precomputes word representations
+        by running just the character convolutions and highway layers of elmo,
+        essentially creating uncontextual word vectors. On subsequent forward passes,
+        the word ids are looked up from an embedding, rather than being computed on
+        the fly via the CNN encoder.
+
+        This function sets 3 attributes:
+
+        _word_embedding : `torch.Tensor`
+            The word embedding for each word in the tokens passed to this method.
+        _bos_embedding : `torch.Tensor`
+            The embedding for the BOS token.
+        _eos_embedding : `torch.Tensor`
+            The embedding for the EOS token.
+
+        # Parameters
+
+        tokens : `List[str]`, required.
+            A list of tokens to precompute character convolutions for.
+        """
+        tokens = [ELMoCharacterMapper.bos_token, ELMoCharacterMapper.eos_token] + tokens
+        timesteps = 32
+        batch_size = 32
+        chunked_tokens = lazy_groups_of(iter(tokens), timesteps)
+        all_embeddings = []
+        device = get_device_of(next(self.parameters()))
+        for batch in lazy_groups_of(chunked_tokens, batch_size):
+            batched_tensor = batch_to_ids(batch)
+            if device >= 0:
+                batched_tensor = batched_tensor
+            output = self._token_embedder(batched_tensor)
+            token_embedding = output['token_embedding']
+            mask = output['mask']
+            token_embedding, _ = remove_sentence_boundaries(token_embedding, mask)
+            all_embeddings.append(token_embedding.view(-1, token_embedding.size(-1)))
+        full_embedding = torch.cat(all_embeddings, 0)
+        full_embedding = full_embedding[:len(tokens), :]
+        embedding = full_embedding[2:len(tokens), :]
+        vocab_size, embedding_dim = list(embedding.size())
+        self._bos_embedding = full_embedding[(0), :]
+        self._eos_embedding = full_embedding[(1), :]
+        self._word_embedding = Embedding(num_embeddings=vocab_size, embedding_dim=embedding_dim, weight=embedding.data, trainable=self._requires_grad, padding_index=0)
+
+
+class InputVariationalDropout(torch.nn.Dropout):
+    """
+    Apply the dropout technique in Gal and Ghahramani, [Dropout as a Bayesian Approximation:
+    Representing Model Uncertainty in Deep Learning](https://arxiv.org/abs/1506.02142) to a
+    3D tensor.
+
+    This module accepts a 3D tensor of shape `(batch_size, num_timesteps, embedding_dim)`
+    and samples a single dropout mask of shape `(batch_size, embedding_dim)` and applies
+    it to every time step.
+    """
+
+    def forward(self, input_tensor):
+        """
+        Apply dropout to input tensor.
+
+        # Parameters
+
+        input_tensor : `torch.FloatTensor`
+            A tensor of shape `(batch_size, num_timesteps, embedding_dim)`
+
+        # Returns
+
+        output : `torch.FloatTensor`
+            A tensor of shape `(batch_size, num_timesteps, embedding_dim)` with dropout applied.
+        """
+        ones = input_tensor.data.new_ones(input_tensor.shape[0], input_tensor.shape[-1])
+        dropout_mask = torch.nn.functional.dropout(ones, self.p, self.training, inplace=False)
+        if self.inplace:
+            input_tensor *= dropout_mask.unsqueeze(1)
+            return None
+        else:
+            return dropout_mask.unsqueeze(1) * input_tensor
+
+
+class LayerNorm(torch.nn.Module):
+    """
+    An implementation of [Layer Normalization](
+    https://www.semanticscholar.org/paper/Layer-Normalization-Ba-Kiros/97fb4e3d45bb098e27e0071448b6152217bd35a5).
+
+    Layer Normalization stabilises the training of deep neural networks by
+    normalising the outputs of neurons from a particular layer. It computes:
+
+    output = (gamma * (tensor - mean) / (std + eps)) + beta
+
+    # Parameters
+
+    dimension : `int`, required.
+        The dimension of the layer output to normalize.
+
+    # Returns
+
+    The normalized layer output.
+    """
+
+    def __init__(self, dimension: int) ->None:
+        super().__init__()
+        self.gamma = torch.nn.Parameter(torch.ones(dimension))
+        self.beta = torch.nn.Parameter(torch.zeros(dimension))
+
+    def forward(self, tensor: torch.Tensor):
+        mean = tensor.mean(-1, keepdim=True)
+        std = tensor.std(-1, unbiased=False, keepdim=True)
+        return self.gamma * (tensor - mean) / (std + util.tiny_value_of_dtype(std.dtype)) + self.beta
 
 
 class MaskedLayerNorm(torch.nn.Module):
@@ -3005,63 +3704,6 @@ class SampledSoftmaxLoss(torch.nn.Module):
         target_expected_count.requires_grad_(False)
         sampled_expected_count.requires_grad_(False)
         return sampled_ids, target_expected_count, sampled_expected_count
-
-
-class ScalarMix(torch.nn.Module):
-    """
-    Computes a parameterised scalar mixture of N tensors, `mixture = gamma * sum(s_k * tensor_k)`
-    where `s = softmax(w)`, with `w` and `gamma` scalar parameters.
-
-    In addition, if `do_layer_norm=True` then apply layer normalization to each tensor
-    before weighting.
-    """
-
-    def __init__(self, mixture_size: int, do_layer_norm: bool=False, initial_scalar_parameters: List[float]=None, trainable: bool=True) ->None:
-        super().__init__()
-        self.mixture_size = mixture_size
-        self.do_layer_norm = do_layer_norm
-        if initial_scalar_parameters is None:
-            initial_scalar_parameters = [0.0] * mixture_size
-        elif len(initial_scalar_parameters) != mixture_size:
-            raise ConfigurationError('Length of initial_scalar_parameters {} differs from mixture_size {}'.format(initial_scalar_parameters, mixture_size))
-        self.scalar_parameters = ParameterList([Parameter(torch.FloatTensor([initial_scalar_parameters[i]]), requires_grad=trainable) for i in range(mixture_size)])
-        self.gamma = Parameter(torch.FloatTensor([1.0]), requires_grad=trainable)
-
-    def forward(self, tensors: List[torch.Tensor], mask: torch.BoolTensor=None) ->torch.Tensor:
-        """
-        Compute a weighted average of the `tensors`.  The input tensors an be any shape
-        with at least two dimensions, but must all be the same shape.
-
-        When `do_layer_norm=True`, the `mask` is required input.  If the `tensors` are
-        dimensioned  `(dim_0, ..., dim_{n-1}, dim_n)`, then the `mask` is dimensioned
-        `(dim_0, ..., dim_{n-1})`, as in the typical case with `tensors` of shape
-        `(batch_size, timesteps, dim)` and `mask` of shape `(batch_size, timesteps)`.
-
-        When `do_layer_norm=False` the `mask` is ignored.
-        """
-        if len(tensors) != self.mixture_size:
-            raise ConfigurationError('{} tensors were passed, but the module was initialized to mix {} tensors.'.format(len(tensors), self.mixture_size))
-
-        def _do_layer_norm(tensor, broadcast_mask, num_elements_not_masked):
-            tensor_masked = tensor * broadcast_mask
-            mean = torch.sum(tensor_masked) / num_elements_not_masked
-            variance = torch.sum(((tensor_masked - mean) * broadcast_mask) ** 2) / num_elements_not_masked
-            return (tensor - mean) / torch.sqrt(variance + util.tiny_value_of_dtype(variance.dtype))
-        normed_weights = torch.nn.functional.softmax(torch.cat([parameter for parameter in self.scalar_parameters]), dim=0)
-        normed_weights = torch.split(normed_weights, split_size_or_sections=1)
-        if not self.do_layer_norm:
-            pieces = []
-            for weight, tensor in zip(normed_weights, tensors):
-                pieces.append(weight * tensor)
-            return self.gamma * sum(pieces)
-        else:
-            broadcast_mask = mask.unsqueeze(-1)
-            input_dim = tensors[0].size(-1)
-            num_elements_not_masked = torch.sum(mask) * input_dim
-            pieces = []
-            for weight, tensor in zip(normed_weights, tensors):
-                pieces.append(weight * _do_layer_norm(tensor, broadcast_mask, num_elements_not_masked))
-            return self.gamma * sum(pieces)
 
 
 class ResidualBlock(torch.nn.Module):
@@ -3344,6 +3986,10 @@ from _paritybench_helpers import _mock_config, _mock_layer, _paritybench_base, _
 
 TESTCASES = [
     # (nn.Module, init_args, forward_args, jit_compiles)
+    (ElmoLstm,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'cell_size': 4, 'num_layers': 1}),
+     lambda: ([torch.rand([4, 4, 4]), torch.rand([4, 4])], {}),
+     False),
     (InputVariationalDropout,
      lambda: ([], {}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
@@ -3351,6 +3997,10 @@ TESTCASES = [
     (LayerNorm,
      lambda: ([], {'dimension': 4}),
      lambda: ([torch.rand([4, 4, 4, 4])], {}),
+     False),
+    (LstmCellWithProjection,
+     lambda: ([], {'input_size': 4, 'hidden_size': 4, 'cell_size': 4}),
+     lambda: ([torch.rand([4, 4, 4]), [4, 4, 4, 4]], {}),
      False),
     (MaskedLayerNorm,
      lambda: ([], {'size': 4}),
@@ -3395,4 +4045,10 @@ class Test_allenai_allennlp(_paritybench_base):
 
     def test_006(self):
         self._check(*TESTCASES[6])
+
+    def test_007(self):
+        self._check(*TESTCASES[7])
+
+    def test_008(self):
+        self._check(*TESTCASES[8])
 

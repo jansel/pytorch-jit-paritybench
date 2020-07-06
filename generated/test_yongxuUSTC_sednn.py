@@ -14,6 +14,7 @@ evaluate = _module
 main_dnn = _module
 prepare_data = _module
 crash = _module
+prepare_data = _module
 stft = _module
 test9 = _module
 tmp01 = _module
@@ -33,15 +34,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -52,7 +54,19 @@ import numpy as np
 import time
 
 
+from scipy import signal
+
+
+from sklearn import preprocessing
+
+
 import torch
+
+
+from torch.autograd import Variable
+
+
+import math
 
 
 import torch.nn as nn
@@ -65,253 +79,6 @@ import torch.utils.data as data
 
 
 import torch.optim as optim
-
-
-from torch.autograd import Variable
-
-
-class DNN(nn.Module):
-
-    def __init__(self, stack_num, n_freq):
-        super(DNN, self).__init__()
-        n_hid = 2048
-        self.fc1 = nn.Linear(stack_num * n_freq, n_hid)
-        self.fc2 = nn.Linear(n_hid, n_hid)
-        self.fc3 = nn.Linear(n_hid, n_hid)
-        self.fc4 = nn.Linear(n_hid, n_freq)
-
-    def forward(self, x):
-        drop_p = 0.2
-        _, stack_num, n_freq = x.size()
-        x = x.view(-1, stack_num * n_freq)
-        x2 = F.dropout(F.relu(self.fc1(x)), p=drop_p, training=self.training)
-        x3 = F.dropout(F.relu(self.fc2(x2)), p=drop_p, training=self.training)
-        x4 = F.dropout(F.relu(self.fc3(x3)), p=drop_p, training=self.training)
-        x5 = self.fc4(x4)
-        return x5
-
-
-class DNN(nn.Module):
-
-    def __init__(self, stack_num, n_freq):
-        super(DNN, self).__init__()
-        n_hid = 2048
-        self.fc1 = nn.Linear(stack_num * n_freq, n_hid)
-        self.fc2 = nn.Linear(n_hid, n_hid)
-        self.fc3 = nn.Linear(n_hid, n_hid)
-        self.fc4 = nn.Linear(n_hid, n_freq)
-
-    def forward(self, x):
-        drop_p = 0.2
-        _, stack_num, n_freq = x.size()
-        x = x.view(-1, stack_num * n_freq)
-        x2 = F.dropout(F.relu(self.fc1(x)), p=drop_p, training=self.training)
-        x3 = F.dropout(F.relu(self.fc2(x2)), p=drop_p, training=self.training)
-        x4 = F.dropout(F.relu(self.fc3(x3)), p=drop_p, training=self.training)
-        x5 = self.fc4(x4)
-        return x5
-
-
-class DNN(nn.Module):
-
-    def __init__(self, stack_num, n_freq):
-        super(DNN, self).__init__()
-        n_hid = 2048
-        self.fc1 = nn.Linear(stack_num * n_freq, n_hid)
-        self.fc2 = nn.Linear(n_hid, n_hid)
-        self.fc3 = nn.Linear(n_hid, n_hid)
-        self.fc4 = nn.Linear(n_hid, n_freq)
-
-    def forward(self, x):
-        drop_p = 0.2
-        _, stack_num, n_freq = x.size()
-        x = x.view(-1, stack_num * n_freq)
-        x2 = F.dropout(F.relu(self.fc1(x)), p=drop_p, training=self.training)
-        x3 = F.dropout(F.relu(self.fc2(x2)), p=drop_p, training=self.training)
-        x4 = F.dropout(F.relu(self.fc3(x3)), p=drop_p, training=self.training)
-        x5 = self.fc4(x4)
-        return x5
-
-
-class DNN(nn.Module):
-
-    def __init__(self, stack_num, n_freq):
-        super(DNN, self).__init__()
-        n_hid = 2048
-        self.fc1 = nn.Linear(stack_num * n_freq, n_hid)
-        self.fc2 = nn.Linear(n_hid, n_hid)
-        self.fc3 = nn.Linear(n_hid, n_hid)
-        self.fc4 = nn.Linear(n_hid, n_freq)
-        self.bn1 = nn.BatchNorm2d(n_hid)
-        self.bn2 = nn.BatchNorm2d(n_hid)
-        self.bn3 = nn.BatchNorm2d(n_hid)
-
-    def forward(self, x):
-        drop_p = 0.2
-        _, stack_num, n_freq = x.size()
-        x = x.view(-1, stack_num * n_freq)
-        x2 = F.dropout(F.relu(self.bn1(self.fc1(x))), p=drop_p, training=self.training)
-        x3 = F.dropout(F.relu(self.bn2(self.fc2(x2))), p=drop_p, training=self.training)
-        x4 = F.dropout(F.relu(self.bn3(self.fc3(x3))), p=drop_p, training=self.training)
-        x5 = self.fc4(x4)
-        return x5
-
-
-class DNN(nn.Module):
-
-    def __init__(self, stack_num, n_freq):
-        super(DNN, self).__init__()
-        n_hid = 2048
-        self.fc1 = nn.Linear(stack_num * n_freq, n_hid)
-        self.fc2 = nn.Linear(n_hid, n_hid)
-        self.fc3 = nn.Linear(n_hid, n_hid)
-        self.fc4 = nn.Linear(n_hid, n_freq)
-
-    def forward(self, x):
-        drop_p = 0.2
-        _, stack_num, n_freq = x.size()
-        x = x.view(-1, stack_num * n_freq)
-        x2 = F.dropout(F.relu(self.fc1(x)), p=drop_p, training=self.training)
-        x3 = F.dropout(F.relu(self.fc2(x2)), p=drop_p, training=self.training)
-        x4 = F.dropout(F.relu(self.fc3(x3)), p=drop_p, training=self.training)
-        x5 = self.fc4(x4)
-        return x5
-
-
-class DNN(nn.Module):
-
-    def __init__(self, stack_num, n_freq):
-        super(DNN, self).__init__()
-        n_hid = 4096
-        self.fc1 = nn.Linear(stack_num * n_freq, n_hid)
-        self.fc2 = nn.Linear(n_hid, n_hid)
-        self.fc3 = nn.Linear(n_hid, n_hid)
-        self.fc4 = nn.Linear(n_hid, n_freq)
-
-    def forward(self, x):
-        drop_p = 0.2
-        _, stack_num, n_freq = x.size()
-        x = x.view(-1, stack_num * n_freq)
-        x2 = F.dropout(F.relu(self.fc1(x)), p=drop_p, training=self.training)
-        x3 = F.dropout(F.relu(self.fc2(x2)), p=drop_p, training=self.training)
-        x4 = F.dropout(F.relu(self.fc3(x3)), p=drop_p, training=self.training)
-        x5 = self.fc4(x4)
-        return x5
-
-
-class DNN(nn.Module):
-
-    def __init__(self, stack_num, n_freq):
-        super(DNN, self).__init__()
-        n_hid = 1024
-        self.fc1 = nn.Linear(stack_num * n_freq, n_hid)
-        self.fc2 = nn.Linear(n_hid, n_hid)
-        self.fc3 = nn.Linear(n_hid * 2, n_hid)
-        self.fc4 = nn.Linear(n_hid * 3, n_freq)
-
-    def forward(self, x):
-        drop_p = 0.2
-        _, stack_num, n_freq = x.size()
-        x = x.view(-1, stack_num * n_freq)
-        x2 = F.dropout(F.relu(self.fc1(x)), p=drop_p, training=self.training)
-        x3 = F.dropout(F.relu(self.fc2(x2)), p=drop_p, training=self.training)
-        x3 = torch.cat((x3, x2), dim=-1)
-        x4 = F.dropout(F.relu(self.fc3(x3)), p=drop_p, training=self.training)
-        x4 = torch.cat((x4, x3), dim=-1)
-        x5 = self.fc4(x4)
-        return x5
-
-
-class DNN(nn.Module):
-
-    def __init__(self, stack_num, n_freq):
-        super(DNN, self).__init__()
-        n_hid = 1024
-        self.fc1 = nn.Linear(stack_num * n_freq, n_hid)
-        self.fc2 = nn.Linear(n_hid, n_hid)
-        self.fc3 = nn.Linear(n_hid * 2, n_hid)
-        self.fc4 = nn.Linear(n_hid * 3, n_hid)
-        self.fc5 = nn.Linear(n_hid * 4, n_hid)
-        self.fc6 = nn.Linear(n_hid * 5, n_freq)
-
-    def forward(self, x):
-        drop_p = 0.2
-        _, stack_num, n_freq = x.size()
-        x = x.view(-1, stack_num * n_freq)
-        x2 = F.dropout(F.relu(self.fc1(x)), p=drop_p, training=self.training)
-        x3 = F.dropout(F.relu(self.fc2(x2)), p=drop_p, training=self.training)
-        x3 = torch.cat((x3, x2), dim=-1)
-        x4 = F.dropout(F.relu(self.fc3(x3)), p=drop_p, training=self.training)
-        x4 = torch.cat((x4, x3), dim=-1)
-        x5 = F.dropout(F.relu(self.fc4(x4)), p=drop_p, training=self.training)
-        x5 = torch.cat((x5, x4), dim=-1)
-        x6 = F.dropout(F.relu(self.fc5(x5)), p=drop_p, training=self.training)
-        x6 = torch.cat((x6, x5), dim=-1)
-        x7 = self.fc6(x6)
-        return x7
-
-
-class DNN(nn.Module):
-
-    def __init__(self, stack_num, n_freq):
-        super(DNN, self).__init__()
-        n_hid = 2048
-        self.fc1 = nn.Linear(stack_num * n_freq, n_hid)
-        self.fc2 = nn.Linear(n_hid, n_hid)
-        self.fc3 = nn.Linear(n_hid, n_hid)
-        self.fc4 = nn.Linear(n_hid, n_freq)
-
-    def forward(self, x):
-        drop_p = 0.2
-        _, stack_num, n_freq = x.size()
-        x = x.view(-1, stack_num * n_freq)
-        x2 = F.dropout(F.relu(self.fc1(x)), p=drop_p, training=self.training)
-        x3 = F.dropout(F.relu(self.fc2(x2)), p=drop_p, training=self.training)
-        x4 = F.dropout(F.relu(self.fc3(x3)), p=drop_p, training=self.training)
-        x5 = self.fc4(x4)
-        return x5
-
-
-class DNN(nn.Module):
-
-    def __init__(self, stack_num, n_freq):
-        super(DNN, self).__init__()
-        n_hid = 2048
-        self.fc1 = nn.Linear(stack_num * n_freq, n_hid)
-        self.fc2 = nn.Linear(n_hid, n_hid)
-        self.fc3 = nn.Linear(n_hid, n_hid)
-        self.fc4 = nn.Linear(n_hid, n_freq)
-
-    def forward(self, x):
-        drop_p = 0.2
-        _, stack_num, n_freq = x.size()
-        x = x.view(-1, stack_num * n_freq)
-        x2 = F.dropout(F.relu(self.fc1(x)), p=drop_p, training=self.training)
-        x3 = F.dropout(F.relu(self.fc2(x2)), p=drop_p, training=self.training)
-        x4 = F.dropout(F.relu(self.fc3(x3)), p=drop_p, training=self.training)
-        x5 = self.fc4(x4)
-        return x5
-
-
-class DNN(nn.Module):
-
-    def __init__(self, stack_num, n_freq):
-        super(DNN, self).__init__()
-        n_hid = 2048
-        self.fc1 = nn.Linear(stack_num * n_freq, n_hid)
-        self.fc2 = nn.Linear(n_hid, n_hid)
-        self.fc3 = nn.Linear(n_hid, n_hid)
-        self.fc4 = nn.Linear(n_hid, n_freq)
-
-    def forward(self, x):
-        drop_p = 0.2
-        _, stack_num, n_freq = x.size()
-        x = x.view(-1, stack_num * n_freq)
-        x2 = F.dropout(F.relu(self.fc1(x)), p=drop_p, training=self.training)
-        x3 = F.dropout(F.relu(self.fc2(x2)), p=drop_p, training=self.training)
-        x4 = F.dropout(F.relu(self.fc3(x3)), p=drop_p, training=self.training)
-        x5 = self.fc4(x4)
-        return x5
 
 
 class DNN(nn.Module):

@@ -25,20 +25,39 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
 
+import numpy as np
+
+
 import torch
+
+
+import torch.backends.cudnn as cudnn
+
+
+from scipy.ndimage import gaussian_filter1d
+
+
+import random
+
+
+from torch.utils.data import Dataset
+
+
+from torch.utils.data import DataLoader
 
 
 import torch.nn.functional as F
@@ -47,13 +66,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 
-import numpy as np
-
-
 from math import pi
-
-
-import random
 
 
 import logging
@@ -75,6 +88,9 @@ import torch.nn.init as init
 
 
 import time
+
+
+from itertools import combinations
 
 
 class ConvEncoder(nn.Module):
@@ -502,6 +518,140 @@ class BaseTrainer(nn.Module):
             re_dict['loss_val_total'] = 0.5 * re_dict['loss_val_recon_x'] + 0.5 * re_dict['loss_val_cross_body']
         autoencoder.train()
         return re_dict
+
+
+def temporal_pairwise_cosine_similarity(seqs_i, seqs_j):
+    seq_len = seqs_i.size(2)
+    seqs_i_exp = seqs_i.unsqueeze(3).repeat(1, 1, 1, seq_len)
+    seqs_j_exp = seqs_j.unsqueeze(2).repeat(1, 1, seq_len, 1)
+    return F.cosine_similarity(seqs_i_exp, seqs_j_exp, dim=1)
+
+
+def triplet_margin_loss(seqs_a, seqs_b, neg_range=(0.0, 0.5), margin=0.2):
+    neg_start, neg_end = neg_range
+    batch_size, _, seq_len = seqs_a.size()
+    n_neg_all = seq_len ** 2
+    n_neg = int(round(neg_end * n_neg_all))
+    n_neg_discard = int(round(neg_start * n_neg_all))
+    batch_size, _, seq_len = seqs_a.size()
+    sim_aa = temporal_pairwise_cosine_similarity(seqs_a, seqs_a)
+    sim_bb = temporal_pairwise_cosine_similarity(seqs_b, seqs_a)
+    sim_ab = temporal_pairwise_cosine_similarity(seqs_a, seqs_b)
+    sim_ba = sim_ab.transpose(1, 2)
+    diff_ab = (sim_ab - sim_aa).reshape(batch_size, -1)
+    diff_ba = (sim_ba - sim_bb).reshape(batch_size, -1)
+    diff = torch.cat([diff_ab, diff_ba], dim=0)
+    diff, _ = diff.topk(n_neg, dim=-1, sorted=True)
+    diff = diff[:, n_neg_discard:]
+    loss = diff + margin
+    loss = loss.clamp(min=0.0)
+    loss = loss.mean()
+    return loss
+
+
+class TransmomoTrainer(BaseTrainer):
+
+    def __init__(self, config):
+        super(TransmomoTrainer, self).__init__(config)
+        self.angle_unit = np.pi / (config.K + 1)
+        view_angles = np.array([(i * self.angle_unit) for i in range(1, config.K + 1)])
+        x_angles = view_angles if config.rotation_axes[0] else np.array([0])
+        z_angles = view_angles if config.rotation_axes[1] else np.array([0])
+        y_angles = view_angles if config.rotation_axes[2] else np.array([0])
+        x_angles, z_angles, y_angles = np.meshgrid(x_angles, z_angles, y_angles)
+        angles = np.stack([x_angles.flatten(), z_angles.flatten(), y_angles.flatten()], axis=1)
+        self.angles = torch.tensor(angles).float()
+        self.rotation_axes = torch.tensor(config.rotation_axes).float()
+        self.rotation_axes_mask = [(_ > 0) for _ in config.rotation_axes]
+
+    def dis_update(self, data, config):
+        x_a = data['x'].detach()
+        x_s = data['x_s'].detach()
+        self.dis_opt.zero_grad()
+        motion_a = self.autoencoder.encode_motion(x_a)
+        body_a, body_a_seq = self.autoencoder.encode_body(x_a)
+        view_a, view_a_seq = self.autoencoder.encode_view(x_a)
+        motion_s = self.autoencoder.encode_motion(x_s)
+        body_s, body_s_seq = self.autoencoder.encode_body(x_s)
+        view_s, view_s_seq = self.autoencoder.encode_view(x_s)
+        inds = random.sample(list(range(self.angles.size(0))), config.K)
+        angles = self.angles[inds].clone().detach()
+        angles += self.angle_unit * self.rotation_axes * torch.randn([3], device=x_a.device)
+        angles = angles.unsqueeze(0).unsqueeze(2)
+        X_a_recon = self.autoencoder.decode(motion_a, body_a, view_a)
+        x_a_trans = rotate_and_maybe_project(X_a_recon, angles=angles, body_reference=config.autoencoder.body_reference, project_2d=True)
+        x_a_exp = x_a.repeat_interleave(config.K, dim=0)
+        self.loss_dis_trans = self.discriminator.calc_dis_loss(x_a_trans.detach(), x_a_exp)
+        if config.trans_gan_ls_w > 0:
+            X_s_recon = self.autoencoder.decode(motion_s, body_s, view_s)
+            x_s_trans = rotate_and_maybe_project(X_s_recon, angles=angles, body_reference=config.autoencoder.body_reference, project_2d=True)
+            x_s_exp = x_s.repeat_interleave(config.K, dim=0)
+            self.loss_dis_trans_ls = self.discriminator.calc_dis_loss(x_s_trans.detach(), x_s_exp)
+        else:
+            self.loss_dis_trans_ls = 0
+        self.loss_dis_total = config.trans_gan_w * self.loss_dis_trans + config.trans_gan_ls_w * self.loss_dis_trans_ls
+        self.loss_dis_total.backward()
+        self.dis_opt.step()
+
+    def ae_update(self, data, config):
+        x_a = data['x'].detach()
+        x_s = data['x_s'].detach()
+        self.ae_opt.zero_grad()
+        motion_a = self.autoencoder.encode_motion(x_a)
+        body_a, body_a_seq = self.autoencoder.encode_body(x_a)
+        view_a, view_a_seq = self.autoencoder.encode_view(x_a)
+        motion_s = self.autoencoder.encode_motion(x_s)
+        body_s, body_s_seq = self.autoencoder.encode_body(x_s)
+        view_s, view_s_seq = self.autoencoder.encode_view(x_s)
+        self.loss_inv_v_ls = self.recon_criterion(view_a, view_s) if config.inv_v_ls_w > 0 else 0
+        self.loss_inv_m_ls = self.recon_criterion(motion_a, motion_s) if config.inv_m_ls_w > 0 else 0
+        if config.triplet_b_w > 0:
+            self.loss_triplet_b = triplet_margin_loss(body_a_seq, body_s_seq, neg_range=config.triplet_neg_range, margin=config.triplet_margin)
+        else:
+            self.loss_triplet_b = 0
+        X_a_recon = self.autoencoder.decode(motion_a, body_a, view_a)
+        x_a_recon = rotate_and_maybe_project(X_a_recon, angles=None, body_reference=config.autoencoder.body_reference, project_2d=True)
+        X_s_recon = self.autoencoder.decode(motion_s, body_s, view_s)
+        x_s_recon = rotate_and_maybe_project(X_s_recon, angles=None, body_reference=config.autoencoder.body_reference, project_2d=True)
+        self.loss_recon_x = 0.5 * self.recon_criterion(x_a_recon, x_a) + 0.5 * self.recon_criterion(x_s_recon, x_s)
+        X_as_recon = self.autoencoder.decode(motion_a, body_s, view_s)
+        x_as_recon = rotate_and_maybe_project(X_as_recon, angles=None, body_reference=config.autoencoder.body_reference, project_2d=True)
+        X_sa_recon = self.autoencoder.decode(motion_s, body_a, view_a)
+        x_sa_recon = rotate_and_maybe_project(X_sa_recon, angles=None, body_reference=config.autoencoder.body_reference, project_2d=True)
+        self.loss_cross_x = 0.5 * self.recon_criterion(x_as_recon, x_s) + 0.5 * self.recon_criterion(x_sa_recon, x_a)
+        inds = random.sample(list(range(self.angles.size(0))), config.K)
+        angles = self.angles[inds].clone().detach()
+        angles += self.angle_unit * self.rotation_axes * torch.randn([3], device=x_a.device)
+        angles = angles.unsqueeze(0).unsqueeze(2)
+        x_a_trans = rotate_and_maybe_project(X_a_recon, angles=angles, body_reference=config.autoencoder.body_reference, project_2d=True)
+        x_s_trans = rotate_and_maybe_project(X_s_recon, angles=angles, body_reference=config.autoencoder.body_reference, project_2d=True)
+        self.loss_gan_trans = self.discriminator.calc_gen_loss(x_a_trans)
+        self.loss_gan_trans_ls = self.discriminator.calc_gen_loss(x_s_trans) if config.trans_gan_ls_w > 0 else 0
+        motion_a_trans = self.autoencoder.encode_motion(x_a_trans)
+        body_a_trans, _ = self.autoencoder.encode_body(x_a_trans)
+        view_a_trans, view_a_trans_seq = self.autoencoder.encode_view(x_a_trans)
+        motion_s_trans = self.autoencoder.encode_motion(x_s_trans)
+        body_s_trans, _ = self.autoencoder.encode_body(x_s_trans)
+        self.loss_inv_m_trans = 0.5 * self.recon_criterion(motion_a_trans, motion_a.repeat_interleave(config.K, dim=0)) + 0.5 * self.recon_criterion(motion_s_trans, motion_s.repeat_interleave(config.K, dim=0))
+        self.loss_inv_b_trans = 0.5 * self.recon_criterion(body_a_trans, body_a.repeat_interleave(config.K, dim=0)) + 0.5 * self.recon_criterion(body_s_trans, body_s.repeat_interleave(config.K, dim=0))
+        if config.triplet_v_w > 0:
+            view_a_seq_exp = view_a_seq.repeat_interleave(config.K, dim=0)
+            self.loss_triplet_v = triplet_margin_loss(view_a_seq_exp, view_a_trans_seq, neg_range=config.triplet_neg_range, margin=config.triplet_margin)
+        else:
+            self.loss_triplet_v = 0
+        self.loss_total = torch.tensor(0.0).float()
+        self.loss_total += config.recon_x_w * self.loss_recon_x
+        self.loss_total += config.cross_x_w * self.loss_cross_x
+        self.loss_total += config.inv_v_ls_w * self.loss_inv_v_ls
+        self.loss_total += config.inv_m_ls_w * self.loss_inv_m_ls
+        self.loss_total += config.inv_b_trans_w * self.loss_inv_b_trans
+        self.loss_total += config.inv_m_trans_w * self.loss_inv_m_trans
+        self.loss_total += config.trans_gan_w * self.loss_gan_trans
+        self.loss_total += config.trans_gan_ls_w * self.loss_gan_trans_ls
+        self.loss_total += config.triplet_b_w * self.loss_triplet_b
+        self.loss_total += config.triplet_v_w * self.loss_triplet_v
+        self.loss_total.backward()
+        self.ae_opt.step()
 
 
 import torch

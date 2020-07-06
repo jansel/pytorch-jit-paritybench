@@ -16,21 +16,23 @@ loss = _module
 main = _module
 model = _module
 train = _module
+utils = _module
 setup = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -56,6 +58,15 @@ from torch import nn
 import torch.utils.model_zoo as model_zoo
 
 
+import torchvision
+
+
+import numpy as np
+
+
+from math import ceil
+
+
 import random
 
 
@@ -77,7 +88,37 @@ from torchvision.transforms.functional import adjust_hue
 from torchvision.transforms.functional import adjust_saturation
 
 
-import numpy as np
+import torch.cuda
+
+
+import torch.distributed
+
+
+import torch.multiprocessing
+
+
+from math import isfinite
+
+
+from torch.optim import SGD
+
+
+from torch.optim import AdamW
+
+
+from torch.optim.lr_scheduler import LambdaLR
+
+
+import time
+
+
+import warnings
+
+
+from torch.utils.cpp_extension import BuildExtension
+
+
+from torch.utils.cpp_extension import CUDAExtension
 
 
 class MobileNet(vmn.MobileNetV2):
@@ -243,7 +284,7 @@ def decode(all_cls_head, all_box_head, stride=1, threshold=0.05, top_n=1000, anc
     if torch.cuda.is_available():
         return decode_cuda(all_cls_head.float(), all_box_head.float(), anchors.view(-1).tolist(), stride, threshold, top_n, rotated)
     device = all_cls_head.device
-    anchors = anchors.to(device).type(all_cls_head.type())
+    anchors = anchors.type(all_cls_head.type())
     num_anchors = anchors.size()[0] if anchors is not None else 1
     num_classes = all_cls_head.size()[1] // num_anchors
     height, width = all_cls_head.size()[-2:]
@@ -421,15 +462,15 @@ def snap_to_anchors_rotated(boxes, size, stride, anchors, num_classes, device, a
         return torch.zeros([num_anchors, num_classes, height, width], device=device), torch.zeros([num_anchors, 6, height, width], device=device), torch.zeros([num_anchors, 1, height, width], device=device)
     boxes, classes = boxes.split(5, dim=1)
     boxes_axis, boxes_rotated = rotate_boxes(boxes)
-    boxes_axis = boxes_axis.to(device)
-    boxes_rotated = boxes_rotated.to(device)
-    anchors_axis = anchors_axis.to(device)
-    anchors_rotated = anchors_rotated.to(device)
+    boxes_axis = boxes_axis
+    boxes_rotated = boxes_rotated
+    anchors_axis = anchors_axis
+    anchors_rotated = anchors_rotated
     x, y = torch.meshgrid([torch.arange(0, size[i], stride, device=device, dtype=classes.dtype) for i in range(2)])
     xy_2corners = torch.stack((x, y, x, y), 2).unsqueeze(0)
     xy_4corners = torch.stack((x, y, x, y, x, y, x, y), 2).unsqueeze(0)
-    anchors_axis = (xy_2corners.to(torch.float) + anchors_axis.view(-1, 1, 1, 4)).contiguous().view(-1, 4)
-    anchors_rotated = (xy_4corners.to(torch.float) + anchors_rotated.view(-1, 1, 1, 8)).contiguous().view(-1, 8)
+    anchors_axis = (xy_2corners + anchors_axis.view(-1, 1, 1, 4)).contiguous().view(-1, 4)
+    anchors_rotated = (xy_4corners + anchors_rotated.view(-1, 1, 1, 8)).contiguous().view(-1, 8)
     if torch.cuda.is_available():
         iou = iou_cuda
     overlap = iou(boxes_rotated.contiguous().view(-1), anchors_rotated.contiguous().view(-1))[0]
@@ -509,7 +550,7 @@ class Model(nn.Module):
             state_dict.update(weights)
             self.load_state_dict(state_dict)
             del chk, weights
-            torch.empty_cache()
+            torch.cuda.empty_cache()
         else:
             for _, backbone in self.backbones.items():
                 backbone.initialize()
@@ -625,7 +666,7 @@ class Model(nn.Module):
             if key in checkpoint:
                 state[key] = checkpoint[key]
         del checkpoint
-        torch.empty_cache()
+        torch.cuda.empty_cache()
         return model, state
 
     def export(self, size, batch, precision, calibration_files, calibration_table, verbose, onnx_only=False):

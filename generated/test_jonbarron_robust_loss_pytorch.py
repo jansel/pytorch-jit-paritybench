@@ -21,15 +21,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -43,13 +44,22 @@ import torch
 import torch.nn as nn
 
 
+import numbers
+
+
 import collections
+
+
+import re
 
 
 import scipy.stats
 
 
 from torch.autograd import Variable
+
+
+import scipy.io
 
 
 class AdaptiveLossFunction(nn.Module):
@@ -126,7 +136,7 @@ class AdaptiveLossFunction(nn.Module):
         self.float_dtype = float_dtype
         self.device = device
         if isinstance(device, int) or isinstance(device, str) and 'cuda' in device or isinstance(device, torch.device) and device.type == 'cuda':
-            torch.set_device(self.device)
+            torch.cuda.set_device(self.device)
         self.distribution = distribution.Distribution()
         if alpha_lo == alpha_hi:
             self.fixed_alpha = torch.tensor(alpha_lo, dtype=self.float_dtype, device=self.device)[np.newaxis, np.newaxis].repeat(1, self.num_dims)
@@ -204,7 +214,7 @@ class StudentsTLossFunction(nn.Module):
         self.float_dtype = float_dtype
         self.device = device
         if isinstance(device, int) or isinstance(device, str) and 'cuda' in device or isinstance(device, torch.device) and device.type == 'cuda':
-            torch.set_device(self.device)
+            torch.cuda.set_device(self.device)
         self.log_df = torch.nn.Parameter(torch.zeros((1, self.num_dims)), requires_grad=True)
         self.register_parameter('log_df', self.log_df)
         if scale_lo == scale_init:
@@ -325,7 +335,7 @@ class AdaptiveImageLossFunction(nn.Module):
         self.float_dtype = float_dtype
         self.device = device
         if isinstance(device, int) or isinstance(device, str) and 'cuda' in device or isinstance(device, torch.device) and device.type == 'cuda':
-            torch.set_device(self.device)
+            torch.cuda.set_device(self.device)
         x_example = torch.zeros([1] + list(self.image_size)).type(self.float_dtype)
         x_example_mat = self.transform_to_mat(x_example)
         self.num_dims = x_example_mat.shape[1]

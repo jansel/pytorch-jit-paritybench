@@ -3,7 +3,6 @@ _module = sys.modules[__name__]
 del sys
 conf = _module
 integration_tests = _module
-__main__ = _module
 experiment = _module
 object_detection_tests = _module
 semantic_segmentation_tests = _module
@@ -57,10 +56,14 @@ data = _module
 folder = _module
 model = _module
 plot = _module
+train = _module
 metrics = _module
 boxlist = _module
 data = _module
 model = _module
+train = _module
+data = _module
+train = _module
 cli = _module
 main = _module
 verbosity = _module
@@ -286,6 +289,7 @@ regression_learner = _module
 regression_learner_config = _module
 semantic_segmentation_learner = _module
 semantic_segmentation_learner_config = _module
+utils = _module
 setup = _module
 tests = _module
 test_keras_classification_config = _module
@@ -361,20 +365,22 @@ tests_v2 = _module
 mock_raster_source = _module
 test_file_system = _module
 test_utils = _module
+test_utils = _module
 
 from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -403,16 +409,28 @@ from torch.optim.lr_scheduler import CyclicLR
 import numpy as np
 
 
-from collections import defaultdict
-
-
-import random
+from torch.utils.data import DataLoader
 
 
 from torch.utils.data import Dataset
 
 
-from torch.utils.data import DataLoader
+from torch.utils.data.sampler import WeightedRandomSampler
+
+
+from torchvision import models
+
+
+from torch import nn
+
+
+from collections import defaultdict
+
+
+from torchvision.ops.boxes import batched_nms
+
+
+import random
 
 
 import torch.nn.functional as F
@@ -437,9 +455,6 @@ from torchvision.ops import misc as misc_nn_ops
 
 
 import warnings
-
-
-from torchvision import models
 
 
 from torch.utils.data import ConcatDataset
@@ -487,9 +502,6 @@ from torch.optim.lr_scheduler import _LRScheduler
 from torch.utils.data import Subset
 
 
-from torchvision.ops.boxes import batched_nms
-
-
 class BoxList:
 
     def __init__(self, boxes, **extras):
@@ -522,10 +534,10 @@ class BoxList:
         return BoxList(self.boxes.cpu(), **self._map_extras(lambda x: x.cpu()))
 
     def cuda(self):
-        return BoxList(self.boxes.cuda(), **self._map_extras(lambda x: x.cuda()))
+        return BoxList(self.boxes, **self._map_extras(lambda x: x))
 
     def to(self, device):
-        return self.cpu() if device == 'cpu' else self.cuda()
+        return self.cpu() if device == 'cpu' else self
 
     def xyxy(self):
         boxes = self.boxes[:, ([1, 0, 3, 2])]
@@ -621,60 +633,6 @@ def resnet_fpn_backbone(backbone_name, pretrained):
     out_channels = 256
     in_channels_list = get_out_channels(backbone)
     return BackboneWithFPN(backbone, return_layers, in_channels_list, out_channels)
-
-
-class MyFasterRCNN(nn.Module):
-    """Adapter around torchvision Faster-RCNN.
-
-    The purpose of the adapter is to use a different input and output format
-    and inject bogus boxes to circumvent torchvision's inability to handle
-    training examples with no ground truth boxes.
-    """
-
-    def __init__(self, backbone_arch, num_labels, img_sz, pretrained=True):
-        super().__init__()
-        backbone = resnet_fpn_backbone(backbone_arch, pretrained)
-        self.model = FasterRCNN(backbone, num_labels, min_size=img_sz, max_size=img_sz)
-        self.subloss_names = ['total_loss', 'loss_box_reg', 'loss_classifier', 'loss_objectness', 'loss_rpn_box_reg']
-
-    def forward(self, input, targets=None):
-        """Forward pass
-
-        Args:
-            input: tensor<n, 3, h, w> with batch of images
-            targets: None or list<BoxList> of length n with boxes and labels
-
-        Returns:
-            if targets is None, returns list<BoxList> of length n, containing
-            boxes, labels, and scores for boxes with score > 0.05. Further
-            filtering based on score should be done before considering the
-            prediction "final".
-
-            if targets is a list, returns the losses as dict with keys from
-            self.subloss_names.
-        """
-        if targets:
-            new_targets = []
-            for x, y in zip(input, targets):
-                h, w = x.shape[1:]
-                boxes = torch.cat([y.boxes, torch.tensor([[0.0, 0, h, w]], device=input.device)], dim=0)
-                labels = torch.cat([y.get_field('labels'), torch.tensor([0], device=input.device)], dim=0)
-                bl = BoxList(boxes, labels=labels)
-                new_targets.append(bl)
-            targets = new_targets
-            _targets = [bl.xyxy() for bl in targets]
-            _targets = [{'boxes': bl.boxes, 'labels': bl.get_field('labels')} for bl in _targets]
-            loss_dict = self.model(input, _targets)
-            loss_dict['total_loss'] = sum(list(loss_dict.values()))
-            return loss_dict
-        out = self.model(input)
-        boxlists = [BoxList(_out['boxes'], labels=_out['labels'], scores=_out['scores']).yxyx() for _out in out]
-        new_boxlists = []
-        for bl in boxlists:
-            labels = bl.get_field('labels')
-            non_zero_inds = labels != 0
-            new_boxlists.append(bl.ind_filter(non_zero_inds))
-        return new_boxlists
 
 
 class MyFasterRCNN(nn.Module):

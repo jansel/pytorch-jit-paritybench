@@ -1,6 +1,7 @@
 import ast
-import re
 import logging
+import re
+import torch
 
 log = logging.getLogger(__name__)
 
@@ -30,8 +31,8 @@ IMPORT_WHITELIST = {
     "typing",
     "uuid",
     "warnings",
-    # "tensorflow",
-    # "sklearn",
+    "tensorflow",
+    "sklearn",
 }
 
 
@@ -61,10 +62,39 @@ class ASTCleanup(ast.NodeTransformer):
         return self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute):
-        if getattr(node.value, 'id', '') == "torch" and node.attr == "cuda":
-            # torch.cuda.FloatTensor => torch.FloatTensor
-            return node.value
+        if isinstance(node.value, ast.Attribute):
+            node2 = node.value
+            if getattr(node2.value, 'id', '') == "torch" and node2.attr == "cuda":
+                if hasattr(torch, node.attr):
+                    # torch.cuda.FloatTensor => torch.FloatTensor
+                    new_node = ast.Attribute(value=node2.value,
+                                             attr=node.attr,
+                                             ctx=node.ctx)
+                    ast.copy_location(new_node, node)
+                    return new_node
         return self.generic_visit(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef):
+        if not node.decorator_list:
+            new_node = node
+        else:
+            # Strip some decorators
+            new_node = ast.ClassDef(
+                name=node.name,
+                bases=node.bases,
+                keywords=node.keywords,
+                body=node.body,
+                decorator_list=filter_decorators(node.decorator_list))
+            ast.copy_location(new_node, old_node=node)
+
+        return self.generic_visit(new_node)
+
+
+def filter_decorators(decorator_list):
+    return [
+        node for node in decorator_list
+        if 'regist' not in ast.dump(node)
+    ]
 
 
 class ExtractReadsWrites(ast.NodeVisitor):
@@ -75,7 +105,11 @@ class ExtractReadsWrites(ast.NodeVisitor):
     @classmethod
     def run(cls, tree):
         visitor = cls()
-        visitor.visit(tree)
+        if isinstance(tree, (list, tuple)):
+            for node in tree:
+                visitor.visit(node)
+        else:
+            visitor.visit(tree)
         assert len(visitor.context) == 1
         return visitor.context[0]
 

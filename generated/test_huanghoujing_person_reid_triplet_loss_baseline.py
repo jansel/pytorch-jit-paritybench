@@ -34,15 +34,16 @@ from _paritybench_helpers import _mock_config, patch_functional
 from unittest.mock import mock_open, MagicMock
 from torch.autograd import Function
 from torch.nn import Module
-import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, string, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
+import abc, collections, copy, enum, functools, inspect, itertools, logging, math, numbers, numpy, random, re, scipy, sklearn, string, tensorflow, time, torch, torchaudio, torchtext, torchvision, types, typing, uuid, warnings
 import numpy as np
 from torch import Tensor
 patch_functional()
 open = mock_open()
-logging = sys = argparse = MagicMock()
+yaml = logging = sys = argparse = MagicMock()
 ArgumentParser = argparse.ArgumentParser
 _global_config = args = argv = cfg = config = params = _mock_config()
 argparse.ArgumentParser.return_value.parse_args.return_value = _global_config
+yaml.load.return_value = _global_config
 sys.argv = _global_config
 __version__ = '1.0.0'
 
@@ -51,6 +52,9 @@ import torch
 
 
 from torch.autograd import Variable
+
+
+import numpy as np
 
 
 import torch.optim as optim
@@ -62,13 +66,13 @@ from torch.nn.parallel import DataParallel
 import time
 
 
-import numpy as np
-
-
 import torch.nn as nn
 
 
 import torch.nn.functional as F
+
+
+from torch import nn
 
 
 import math
@@ -77,75 +81,13 @@ import math
 import torch.utils.model_zoo as model_zoo
 
 
+from collections import defaultdict
+
+
+from sklearn.metrics import average_precision_score
+
+
 from scipy import io
-
-
-model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
-
-
-def remove_fc(state_dict):
-    """Remove the fc layer parameters from state_dict."""
-    for key, value in state_dict.items():
-        if key.startswith('fc.'):
-            del state_dict[key]
-    return state_dict
-
-
-def resnet50(pretrained=False, **kwargs):
-    """Constructs a ResNet-50 model.
-
-  Args:
-      pretrained (bool): If True, returns a model pre-trained on ImageNet
-  """
-    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
-    if pretrained:
-        model.load_state_dict(remove_fc(model_zoo.load_url(model_urls['resnet50'])))
-    return model
-
-
-class Model(nn.Module):
-
-    def __init__(self, last_conv_stride=2):
-        super(Model, self).__init__()
-        self.base = resnet50(pretrained=True, last_conv_stride=last_conv_stride)
-
-    def forward(self, x):
-        x = self.base(x)
-        x = F.avg_pool2d(x, x.size()[2:])
-        x = x.view(x.size(0), -1)
-        return x
-
-
-def conv3x3(in_planes, out_planes, stride=1):
-    """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
-
-
-class BasicBlock(nn.Module):
-    expansion = 1
-
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planes, planes)
-        self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.bn1(out)
-        out = self.relu(out)
-        out = self.conv2(out)
-        out = self.bn2(out)
-        if self.downsample is not None:
-            residual = self.downsample(x)
-        out += residual
-        out = self.relu(out)
-        return out
 
 
 class Bottleneck(nn.Module):
@@ -222,6 +164,74 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
         return x
+
+
+model_urls = {'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth', 'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth', 'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth', 'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth', 'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth'}
+
+
+def remove_fc(state_dict):
+    """Remove the fc layer parameters from state_dict."""
+    for key, value in state_dict.items():
+        if key.startswith('fc.'):
+            del state_dict[key]
+    return state_dict
+
+
+def resnet50(pretrained=False, **kwargs):
+    """Constructs a ResNet-50 model.
+
+  Args:
+      pretrained (bool): If True, returns a model pre-trained on ImageNet
+  """
+    model = ResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    if pretrained:
+        model.load_state_dict(remove_fc(model_zoo.load_url(model_urls['resnet50'])))
+    return model
+
+
+class Model(nn.Module):
+
+    def __init__(self, last_conv_stride=2):
+        super(Model, self).__init__()
+        self.base = resnet50(pretrained=True, last_conv_stride=last_conv_stride)
+
+    def forward(self, x):
+        x = self.base(x)
+        x = F.avg_pool2d(x, x.size()[2:])
+        x = x.view(x.size(0), -1)
+        return x
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    """3x3 convolution with padding"""
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(BasicBlock, self).__init__()
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+        out += residual
+        out = self.relu(out)
+        return out
 
 
 import torch
